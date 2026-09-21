@@ -64,13 +64,10 @@ def chat() -> ChatSpec:
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("referenced", [False, True])
-async def test_later_constraint_is_visible_during_bridge_preparation(
-    tmp_path, monkeypatch, referenced
-):
-    from qwenpaw.app.realtime_voice.task_bridge import VoiceTaskBridge
-    from qwenpaw.app.realtime_voice.contracts import HandoffVoiceAction
+async def test_later_speech_is_visible_during_bridge_preparation(tmp_path, monkeypatch):
     from unittest.mock import AsyncMock
+
+    from qwenpaw.app.realtime_voice.task_bridge import VoiceTaskBridge
 
     channel = FakeConsoleChannel()
     owner = workspace(tmp_path, channel)
@@ -85,48 +82,45 @@ async def test_later_constraint_is_visible_during_bridge_preparation(
             await release.wait()
         return await original_payload(workspace, chat_spec, request)
 
-    monkeypatch.setattr(
-        ChatRunCoordinator, "_console_payload", delayed_payload
-    )
+    monkeypatch.setattr(ChatRunCoordinator, "_console_payload", delayed_payload)
     try:
-        first = await bridge.enqueue_action(
-            HandoffVoiceAction(), "Print 3002", idempotency_key="s1"
-        )
+        first = await bridge.enqueue_input("Print 3002", idempotency_key="s1")
         receipt = await first.wait()
         await asyncio.wait_for(channel.started.wait(), 1)
         current = channel.payload["meta"]["request_context"]
         mailbox = current["_run_input_mailbox"]
-        second = await bridge.enqueue_action(
-            HandoffVoiceAction(receipt.task_ref),
+        second = await bridge.enqueue_input(
             "Correction: 302",
             idempotency_key="s2",
         )
         await asyncio.wait_for(entered.wait(), 1)
-        action = HandoffVoiceAction(receipt.task_ref if referenced else "")
-        bridge.observe_input("s3", "Do not rerun", action)
+        third = await bridge.enqueue_input(
+            "Do not rerun",
+            idempotency_key="s3",
+        )
         assert not second.completion.done()
+        assert not third.completion.done()
         assert mailbox.drain_after_reply() == []
-        during_prepare = json.loads(
-            mailbox.input_context.capture((receipt.task_id,))
+        during_prepare = json.loads(mailbox.input_context.capture((receipt.task_id,)))
+        assert [r["request_excerpt"] for r in during_prepare["readonly_requests"]] == [
+            "Correction: 302",
+            "Do not rerun",
+        ]
+        assert all(
+            row["admission_status"] == "preparing"
+            for row in during_prepare["readonly_requests"]
         )
-        assert [r["text"] for r in during_prepare["inputs"]] == (
-            ["Print 3002", "Correction: 302", "Do not rerun"]
-            if referenced
-            else ["Print 3002", "Correction: 302"]
-        )
-        assert during_prepare["inputs"][1]["kind"] == "related_input"
         release.set()
-        await second.wait()
-        correction = mailbox.drain_after_reply()[0]
-        after_admission = json.loads(
-            mailbox.input_context.capture((correction.idempotency_key,))
-        )
-        assert [r["text"] for r in after_admission["inputs"]] == (
-            ["Print 3002", "Correction: 302", "Do not rerun"]
-            if referenced
-            else ["Print 3002", "Correction: 302"]
-        )
-        assert after_admission["inputs"][1]["kind"] == "active_input"
+        second_receipt = await second.wait()
+        third_receipt = await third.wait()
+        assert second_receipt.accepted
+        assert third_receipt.accepted
+        assert [item.content_parts[0].text for item in mailbox.drain_after_reply()] == [
+            "Correction: 302",
+        ]
+        assert [item.content_parts[0].text for item in mailbox.drain_after_reply()] == [
+            "Do not rerun",
+        ]
         assert mailbox.drain_after_reply() == []
     finally:
         release.set()
@@ -156,9 +150,7 @@ async def test_live_conversation_observes_accepted_input_and_public_reply(
             ),
         )
         await asyncio.wait_for(channel.started.wait(), 1)
-        cycle = channel.payload["meta"]["request_context"][
-            "_reply_cycle_context"
-        ]
+        cycle = channel.payload["meta"]["request_context"]["_reply_cycle_context"]
         from qwenpaw.runtime.reply_cycle import set_reply_block_metadata
 
         for index in range(2):
@@ -232,20 +224,14 @@ async def test_shared_execution_facts_are_available_without_voice_observer(
         assert snapshot["input_states"][0]["input_status"] == "processing"
         assert snapshot["readonly_requests"][0]["input_status"] == "queued"
         assert (
-            snapshot["readonly_requests"][0]["run_id"]
-            == first.run_id
-            == second.run_id
+            snapshot["readonly_requests"][0]["run_id"] == first.run_id == second.run_id
         )
-        cycle = channel.payload["meta"]["request_context"][
-            "_reply_cycle_context"
-        ]
+        cycle = channel.payload["meta"]["request_context"]["_reply_cycle_context"]
         assert cycle.snapshot.responds_to_input_ids == ("apple",)
-        mailbox = channel.payload["meta"]["request_context"][
-            "_run_input_mailbox"
+        mailbox = channel.payload["meta"]["request_context"]["_run_input_mailbox"]
+        assert [item.idempotency_key for item in mailbox.drain_after_reply()] == [
+            "banana"
         ]
-        assert [
-            item.idempotency_key for item in mailbox.drain_after_reply()
-        ] == ["banana"]
     finally:
         await owner.task_tracker.request_stop(chat().id)
         assert context.state("apple").status == "cancelled"
@@ -269,9 +255,7 @@ async def test_preparation_failure_or_deletion_never_becomes_queued(
             raise RuntimeError("Preparation failed")
         return {"meta": {"request_context": {}}}
 
-    monkeypatch.setattr(
-        ChatRunCoordinator, "_console_payload", delayed_payload
-    )
+    monkeypatch.setattr(ChatRunCoordinator, "_console_payload", delayed_payload)
     pending = asyncio.create_task(
         ChatRunCoordinator.submit(
             owner, chat(), ChatInputRequest(("Run banana",), "banana")
@@ -332,9 +316,7 @@ async def test_starts_agent_without_losing_rich_input(tmp_path):
         ],
     }
     assert channel.payload["content_parts"] == list(request.content_parts)
-    assert (
-        channel.payload["model_slot_override"] == request.model_slot_override
-    )
+    assert channel.payload["model_slot_override"] == request.model_slot_override
     context = channel.payload["meta"]["request_context"]
     assert context["approval_level"] == "always"
     assert context["input_origin"] == "keyboard"
@@ -388,9 +370,7 @@ async def test_atomically_steers_active_run_with_the_same_typed_input(
     assert steer.message_metadata == {
         QWENPAW_CLIENT_MESSAGE_ID_KEY: "client-2",
         "timeline_order": 2,
-        QWENPAW_RECEIVED_AT_KEY: steer.message_metadata[
-            QWENPAW_RECEIVED_AT_KEY
-        ],
+        QWENPAW_RECEIVED_AT_KEY: steer.message_metadata[QWENPAW_RECEIVED_AT_KEY],
     }
     assert steer.timeline_order == 2
     assert steer.request_context["trace_id"] == "trace-2"
@@ -402,9 +382,9 @@ async def test_atomically_steers_active_run_with_the_same_typed_input(
     user_event = json.loads((await anext(stream)).removeprefix("data: "))
     assert user_event["id"] == "client-2"
     assert user_event["content"][0]["text"] == "再截取桌面"
+    from qwenpaw.app.chats.utils import agentscope_msg_to_message
     from qwenpaw.runtime.message_convert import _request_input_to_msgs
     from qwenpaw.schemas import Message
-    from qwenpaw.app.chats.utils import agentscope_msg_to_message
 
     [stored] = _request_input_to_msgs(
         [
@@ -418,14 +398,11 @@ async def test_atomically_steers_active_run_with_the_same_typed_input(
     received_at = steer.message_metadata[QWENPAW_RECEIVED_AT_KEY]
     assert stored.created_at == received_at
     assert stored.content[0].created_at == received_at
-    assert (
-        user_event["created_at"]
-        == datetime.fromisoformat(received_at).timestamp()
-    )
+    assert user_event["created_at"] == datetime.fromisoformat(received_at).timestamp()
     [visible] = agentscope_msg_to_message(stored)
-    assert datetime.fromisoformat(
-        visible.metadata["timestamp"]
-    ).timestamp() == (user_event["created_at"])
+    assert datetime.fromisoformat(visible.metadata["timestamp"]).timestamp() == (
+        user_event["created_at"]
+    )
     await stream.aclose()
     await owner.task_tracker.detach_subscriber("chat-1", second.events)
     await owner.task_tracker.request_stop("chat-1")

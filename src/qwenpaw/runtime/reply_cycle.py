@@ -399,6 +399,36 @@ class ReplyCycleContext:
         self._occurrence = None
         return self._snapshot
 
+    def extend_for_steer(
+        self,
+        input_ids: Iterable[str],
+    ) -> ReplyCycleSnapshot:
+        """Add steering inputs without dropping the active task's ownership.
+
+        A steer changes the current request; it does not replace that request.
+        Keeping both identities on the reply prevents a late correction or
+        status question from making the original task look answered without
+        an attributable result.
+        """
+        normalized = tuple(
+            value.strip()
+            for value in input_ids
+            if isinstance(value, str) and value.strip()
+        )
+        if not normalized:
+            raise ValueError("at least one steering input id is required")
+        active = tuple(self._active_inputs)
+        self.start_inputs(normalized)
+        responds_to = tuple(dict.fromkeys((*active, *normalized)))
+        self._snapshot = ReplyCycleSnapshot(
+            run_id=self._snapshot.run_id,
+            group_id=normalized[-1],
+            revision=self._snapshot.revision + 1,
+            responds_to_input_ids=responds_to,
+        )
+        self._occurrence = None
+        return self._snapshot
+
     def bind_call(
         self,
         call_id: str,

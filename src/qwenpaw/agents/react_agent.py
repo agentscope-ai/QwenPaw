@@ -352,7 +352,17 @@ class QwenPawAgent(CodingModeMixin, Agent):
                 activate=activate, steer_only=steer_only
             )
         if activate and reply_cycle is not None:
-            self._activate_reply_cycle(tuple(input_ids))
+            if all(getattr(item, "mode", None) == "steer" for item in pending):
+                reply_cycle.extend_for_steer(tuple(input_ids))
+                from ..loop.gates.runner import reset_reply_cycle_handlers
+
+                reset_reply_cycle_handlers(self._get_stop_handlers())
+            else:
+                self._activate_reply_cycle(tuple(input_ids))
+                # A newly activated queued task owns the next model request.
+                # Steering admitted during this narrow transition waits until
+                # that request has started instead of eclipsing the task.
+                self._defer_steer_until_model_request = True
         return tuple(input_ids)
 
     def accept_background_tool_result(self, work_id: str) -> None:
@@ -1252,10 +1262,15 @@ class QwenPawAgent(CodingModeMixin, Agent):
         # collect model-fallback transparency data out-of-band instead.
         fallback_sink = install_fallback_notice_sink()
 
-        # A tool may have completed while the user added Voice input. Consume
-        # it before building the next model request so no stale final reply is
-        # streamed first. _next_action remains the completion-race fallback.
-        self._consume_pending_run_inputs(steer_only=True)
+        # A tool may have completed while the user added input. Consume that
+        # steer before the next model request, except at the boundary where an
+        # independent queued task has just become active. That task must reach
+        # its first model request before later input may steer it.
+        defer_steer = bool(
+            getattr(self, "_defer_steer_until_model_request", False)
+        )
+        if not defer_steer:
+            self._consume_pending_run_inputs(steer_only=True)
 
         pending_results = getattr(self, "_pending_results", [])
         self._pending_results = []
@@ -1396,6 +1411,8 @@ class QwenPawAgent(CodingModeMixin, Agent):
                         pending_seen_thinking_ids,
                     )
 
+        if defer_steer:
+            self._defer_steer_until_model_request = False
         try:
             async for evt in super()._reasoning(tool_choice=tool_choice):
                 await start_occurrence_for(evt)

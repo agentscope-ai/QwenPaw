@@ -68,9 +68,7 @@ def _missing_deleted_item(
     message = str(error.get("message") or "")
     if "cannot find item" not in message.lower():
         return None
-    return next(
-        (item_id for item_id in pending_item_ids if item_id in message), None
-    )
+    return next((item_id for item_id in pending_item_ids if item_id in message), None)
 
 
 def _endpoint(override: str | None, region: str, model: str) -> str:
@@ -133,8 +131,8 @@ class DashScopeRealtimeSession:
         self._input_item_turns: dict[str, int] = {}
         self._active_response_input_turn: int | None = None
         self._active_response_input_item_id: str | None = None
-        self._active_response_had_delegation = False
-        self._delegation_turns: dict[str, int] = {}
+        self._active_response_had_tool_call = False
+        self._tool_call_turns: dict[str, int] = {}
         self._input_cleanup_tasks: set[asyncio.Task[None]] = set()
         self._input_cleanup_fallback_tasks: set[asyncio.Task[None]] = set()
         self._barge_cancel_task: asyncio.Task[None] | None = None
@@ -157,17 +155,9 @@ class DashScopeRealtimeSession:
     def _headers(self) -> dict[str, str]:
         return {"Authorization": f"Bearer {self._api_key}"}
 
-    @property
-    def _native_delegation_enabled(self) -> bool:
-        return bool(
-            self._session_config
-            and self._session_config.delegation_tool is not None
-        )
-
     def _should_emit_active_output(self) -> bool:
-        return (
-            self._active_response_origin == "application"
-            or self._native_delegation_enabled
+        return self._active_response_origin == "application" or bool(
+            self._session_config and self._session_config.tools
         )
 
     async def connect(self, session: RealtimeSessionConfig) -> None:
@@ -202,50 +192,42 @@ class DashScopeRealtimeSession:
     async def _configure(self) -> None:
         session = self._session_config
         if session is None:
-            raise RuntimeError(
-                "Realtime Voice session configuration is missing"
-            )
+            raise RuntimeError("Realtime Voice session configuration is missing")
         turn_detection: dict[str, Any] = {"type": self._config.vad_mode}
         if self._config.vad_mode == "server_vad":
             turn_detection.update(
                 {
                     "threshold": self._config.vad_threshold,
-                    "silence_duration_ms": (
-                        self._config.vad_silence_duration_ms
-                    ),
+                    "silence_duration_ms": (self._config.vad_silence_duration_ms),
                 }
             )
-        delegation = session.delegation_tool
-        tools: list[dict[str, Any]] = []
-        if delegation is not None:
-            tools.append(
-                {
-                    "type": "function",
-                    "function": {
-                        "name": delegation.name,
-                        "description": delegation.description,
-                        "parameters": {
-                            "type": "object",
-                            "properties": {},
-                            "additionalProperties": False,
-                        },
-                    },
-                }
-            )
+        tools = [
+            {
+                "type": "function",
+                "function": {
+                    "name": tool.name,
+                    "description": tool.description,
+                    "parameters": tool.parameters,
+                },
+            }
+            for tool in session.tools
+        ]
+        settings: dict[str, Any] = {
+            "modalities": ["text", "audio"],
+            "voice": self._config.voice,
+            "input_audio_format": "pcm",
+            "output_audio_format": "pcm",
+            "turn_detection": turn_detection,
+            "max_history_turns": self._config.max_history_turns,
+            "instructions": session.instructions,
+        }
+        if tools:
+            settings["tools"] = tools
         await self._send(
             {
                 "event_id": uuid4().hex,
                 "type": "session.update",
-                "session": {
-                    "modalities": ["text", "audio"],
-                    "voice": self._config.voice,
-                    "input_audio_format": "pcm",
-                    "output_audio_format": "pcm",
-                    "turn_detection": turn_detection,
-                    "max_history_turns": self._config.max_history_turns,
-                    "instructions": session.instructions,
-                    "tools": tools,
-                },
+                "session": settings,
             }
         )
 
@@ -280,6 +262,10 @@ class DashScopeRealtimeSession:
     async def request_response(self) -> ProviderResponseResult:
         """Create one serialized application-owned speech response."""
         async with self._request_lock:
+            # A user turn always owns the native response lane.  In particular,
+            # do not let an application status response race the provider's
+            # server-VAD response after speech has already started.
+            await self._presentation_ready.wait()
             response_done = await self._create_response()
             try:
                 return await asyncio.wait_for(
@@ -295,15 +281,15 @@ class DashScopeRealtimeSession:
                     )
                 raise
 
-    async def complete_delegation(
+    async def complete_tool_call(
         self,
         call_id: str,
         output: dict[str, Any],
     ) -> str:
-        """Acknowledge application custody without waiting for task work."""
+        """Acknowledge one native call without waiting for task completion."""
         call_id = call_id.strip()
         if not call_id:
-            raise ValueError("delegation call id is empty")
+            raise ValueError("realtime tool call id is empty")
         async with self._command_lock:
             await self._idle.wait()
             item_id = await self._create_item(
@@ -313,7 +299,7 @@ class DashScopeRealtimeSession:
                     "output": json.dumps(output, ensure_ascii=False),
                 }
             )
-        turn_id = self._delegation_turns.pop(call_id, None)
+        turn_id = self._tool_call_turns.pop(call_id, None)
         turn = self._input_turns.get(turn_id or -1)
         if turn is not None:
             turn.item_ids.add(item_id)
@@ -374,7 +360,11 @@ class DashScopeRealtimeSession:
         self,
     ) -> asyncio.Future[ProviderResponseResult]:
         async with self._response_lock:
+            await self._presentation_ready.wait()
             await self._idle.wait()
+            # ``_idle.wait`` can yield while a new speech turn starts.
+            # Re-check the gate before creating an application response.
+            await self._presentation_ready.wait()
             if self._closed:
                 raise RuntimeError("DashScope realtime session is closed")
             response_done = asyncio.get_running_loop().create_future()
@@ -463,9 +453,7 @@ class DashScopeRealtimeSession:
             return
         if kind == "conversation.item.created":
             item = payload.get("item")
-            item_id = (
-                str(item.get("id") or "") if isinstance(item, dict) else ""
-            )
+            item_id = str(item.get("id") or "") if isinstance(item, dict) else ""
             future = self._pending_items.get(item_id)
             if future is not None and not future.done():
                 future.set_result(None)
@@ -500,8 +488,10 @@ class DashScopeRealtimeSession:
                     correlation_id=item_id or None,
                 )
             )
-            if self._response_requested or response_id:
-                self._schedule_barge_cancel(response_id)
+            # Always arm the fallback.  An application response.create may
+            # already be in flight and become active only after this server-VAD
+            # event; capturing ``None`` is how the timeout detects that race.
+            self._schedule_barge_cancel(response_id)
             return
         if kind == "input_audio_buffer.speech_stopped":
             await self._events.put(
@@ -534,9 +524,7 @@ class DashScopeRealtimeSession:
             "conversation.item.input_audio_transcription.completed",
             "conversation.item.input_audio_transcription.failed",
         }:
-            text = str(
-                payload.get("transcript") or payload.get("text") or ""
-            ).strip()
+            text = str(payload.get("transcript") or payload.get("text") or "").strip()
             item_id = str(payload.get("item_id") or "")
             turn_id, turn = self._input_turn_for_item(item_id)
             if turn is None or turn.transcript_final:
@@ -545,9 +533,7 @@ class DashScopeRealtimeSession:
             failed = kind.endswith(".failed")
             await self._events.put(
                 ProviderEvent(
-                    "input_transcript.failed"
-                    if failed
-                    else "input_transcript.final",
+                    "input_transcript.failed" if failed else "input_transcript.final",
                     event_id,
                     {"code": "voice_transcription_failed"}
                     if failed
@@ -561,9 +547,7 @@ class DashScopeRealtimeSession:
         if kind == "response.created":
             response = payload.get("response")
             response_id = (
-                str(response.get("id") or "")
-                if isinstance(response, dict)
-                else ""
+                str(response.get("id") or "") if isinstance(response, dict) else ""
             )
             origin = self._pending_response_origin or "provider_auto"
             self._response_requested = False
@@ -571,9 +555,7 @@ class DashScopeRealtimeSession:
             self._active_response_id = response_id or event_id
             self._active_response_origin = origin
             self._active_response_input_turn = (
-                self._current_input_turn()[0]
-                if origin == "provider_auto"
-                else None
+                self._current_input_turn()[0] if origin == "provider_auto" else None
             )
             response_turn = self._input_turns.get(
                 self._active_response_input_turn or -1
@@ -581,48 +563,45 @@ class DashScopeRealtimeSession:
             self._active_response_input_item_id = (
                 response_turn.source_item_id if response_turn else None
             )
-            self._active_response_had_delegation = False
+            self._active_response_had_tool_call = False
             self._active_response_items.clear()
             self._output_started = False
             self._output_final_emitted = False
             self._active_output_text = ""
-            self._drop_audio = (
-                origin != "application" and not self._native_delegation_enabled
-            )
+            self._drop_audio = not self._should_emit_active_output()
             self._idle.clear()
             await self._events.put(
                 ProviderEvent(
                     "response.started",
                     event_id,
                     correlation_id=self._active_response_id,
-                    data={
-                        "input_item_id": (
-                            self._active_response_input_item_id or ""
-                        )
-                    },
+                    data={"input_item_id": (self._active_response_input_item_id or "")},
                     response_origin=origin,
                 )
             )
-            if origin == "provider_auto" and not self._native_delegation_enabled:
+            if origin == "provider_auto" and not (
+                self._session_config and self._session_config.tools
+            ):
                 await self.interrupt_output()
             return
         if kind in {"response.output_item.added", "response.output_item.done"}:
             item = payload.get("item")
-            item_id = (
-                str(item.get("id") or "") if isinstance(item, dict) else ""
-            )
+            item_id = str(item.get("id") or "") if isinstance(item, dict) else ""
             if item_id:
                 self._active_response_items.add(item_id)
             return
         if kind == "response.function_call_arguments.done":
             call_id = str(payload.get("call_id") or "").strip()
             name = str(payload.get("name") or "").strip()
-            delegation = (
-                self._session_config.delegation_tool
-                if self._session_config is not None
-                else None
-            )
-            if delegation is None or name != delegation.name or not call_id:
+            supported = {
+                tool.name
+                for tool in (
+                    self._session_config.tools
+                    if self._session_config is not None
+                    else ()
+                )
+            }
+            if not call_id or name not in supported:
                 await self._events.put(
                     ProviderEvent(
                         "error",
@@ -630,8 +609,7 @@ class DashScopeRealtimeSession:
                         {
                             "code": "unsupported_realtime_tool_call",
                             "message": (
-                                "The realtime provider requested an "
-                                "unsupported tool."
+                                "The realtime provider requested an unsupported tool."
                             ),
                             "recoverable": True,
                             "source": "provider",
@@ -648,10 +626,9 @@ class DashScopeRealtimeSession:
                         "error",
                         event_id,
                         {
-                            "code": "missing_delegation_input",
+                            "code": "missing_realtime_tool_input",
                             "message": (
-                                "The delegation could not be matched to "
-                                "its input."
+                                "The realtime tool call could not be matched to its input."
                             ),
                             "recoverable": True,
                             "source": "provider",
@@ -659,19 +636,21 @@ class DashScopeRealtimeSession:
                     )
                 )
                 return
-            self._active_response_had_delegation = True
+            self._active_response_had_tool_call = True
             turn.pending_call_ids.add(call_id)
-            self._delegation_turns[call_id] = turn_id or -1
+            self._tool_call_turns[call_id] = turn_id or -1
             await self._events.put(
                 ProviderEvent(
-                    "delegation.requested",
+                    "tool.call",
                     event_id,
                     {
                         "call_id": call_id,
                         "name": name,
+                        "arguments": str(payload.get("arguments") or ""),
                         "item_id": str(payload.get("item_id") or ""),
+                        "input_item_id": source_item_id,
                     },
-                    correlation_id=source_item_id,
+                    correlation_id=call_id,
                     response_origin="provider_auto",
                 )
             )
@@ -700,9 +679,7 @@ class DashScopeRealtimeSession:
             "response.text.done",
             "response.output_text.done",
         }:
-            text = str(
-                payload.get("transcript") or payload.get("text") or ""
-            ).strip()
+            text = str(payload.get("transcript") or payload.get("text") or "").strip()
             if (
                 text
                 and not self._output_final_emitted
@@ -767,14 +744,14 @@ class DashScopeRealtimeSession:
             response_done = self._application_response_done
             response_input_turn = self._active_response_input_turn
             response_input_item_id = self._active_response_input_item_id
-            response_had_delegation = self._active_response_had_delegation
+            response_had_tool_call = self._active_response_had_tool_call
             self._response_requested = False
             self._pending_response_origin = None
             self._active_response_id = None
             self._active_response_origin = None
             self._active_response_input_turn = None
             self._active_response_input_item_id = None
-            self._active_response_had_delegation = False
+            self._active_response_had_tool_call = False
             self._active_response_items.clear()
             self._output_started = False
             self._output_final_emitted = False
@@ -820,7 +797,7 @@ class DashScopeRealtimeSession:
                     {
                         "status": status,
                         "input_item_id": response_input_item_id or "",
-                        "had_delegation": response_had_delegation,
+                        "had_tool_call": response_had_tool_call,
                         "transcript": transcript,
                     },
                     correlation_id=correlation_id,
@@ -890,8 +867,10 @@ class DashScopeRealtimeSession:
         try:
             await asyncio.sleep(_BARGE_IN_CANCEL_FALLBACK_SECONDS)
             if self._response_requested or (
-                response_id is not None
-                and self._active_response_id == response_id
+                response_id is not None and self._active_response_id == response_id
+            ) or (
+                response_id is None
+                and self._active_response_origin == "application"
             ):
                 await self.interrupt_output()
         except asyncio.CancelledError:
@@ -941,7 +920,7 @@ class DashScopeRealtimeSession:
         ):
             return
         turn.cleanup_scheduled = True
-        if self._native_delegation_enabled:
+        if self._session_config and self._session_config.tools:
             self._input_turns.pop(turn_id, None)
             if not self._input_turns:
                 self._presentation_ready.set()
@@ -953,9 +932,7 @@ class DashScopeRealtimeSession:
         task.add_done_callback(self._input_cleanup_tasks.discard)
 
     def _schedule_input_cleanup_fallback(self, turn_id: int) -> None:
-        task = asyncio.create_task(
-            self._finish_input_without_auto_response(turn_id)
-        )
+        task = asyncio.create_task(self._finish_input_without_auto_response(turn_id))
         self._input_cleanup_fallback_tasks.add(task)
         task.add_done_callback(self._input_cleanup_fallback_tasks.discard)
 
@@ -995,10 +972,7 @@ class DashScopeRealtimeSession:
                 self._presentation_ready.set()
 
     async def _start_output(self, event_id: str) -> None:
-        if (
-            self._output_started
-            or not self._should_emit_active_output()
-        ):
+        if self._output_started or not self._should_emit_active_output():
             return
         self._output_started = True
         await self._events.put(
@@ -1060,7 +1034,7 @@ class DashScopeRealtimeSession:
         self._input_cleanup_fallback_tasks.clear()
         self._input_turns.clear()
         self._input_item_turns.clear()
-        self._delegation_turns.clear()
+        self._tool_call_turns.clear()
         self._barge_cancel_task = None
         socket = self._socket
         self._socket = None
@@ -1085,7 +1059,7 @@ def create_dashscope_session(
 
 DASHSCOPE_REGISTRATION = RealtimeProviderRegistration(
     provider_id="dashscope",
-    supports_native_delegation=True,
+    supports_native_tools=True,
     models=(
         RealtimeVoiceModelConfig(
             id="qwen-audio-realtime",
@@ -1124,7 +1098,6 @@ DASHSCOPE_REGISTRATION = RealtimeProviderRegistration(
         channels=1,
     ),
     factory=create_dashscope_session,
-    context_max_chars=1800,
 )
 
 __all__ = ["DASHSCOPE_REGISTRATION", "DashScopeRealtimeSession"]

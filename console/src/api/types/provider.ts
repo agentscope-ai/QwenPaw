@@ -165,8 +165,6 @@ export interface ModelSlotConfig {
 export interface ActiveModelsInfo {
   active_llm: ModelSlotConfig | null;
   active_realtime_voice?: ModelSlotConfig;
-  active_voice_router?: ModelSlotConfig;
-  effective_voice_router?: ModelSlotConfig;
   effective_max_input_length?: number | null;
 }
 
@@ -182,8 +180,7 @@ export interface ModelSlotRequest {
   model: string;
   scope: Exclude<ActiveModelScope, "effective">;
   agent_id?: string;
-  slot?: "llm" | "realtime_voice" | "voice_router";
-  inherit?: boolean;
+  slot?: "llm" | "realtime_voice";
 }
 
 export interface RealtimeVoiceVadConfig {
@@ -201,7 +198,6 @@ export interface RealtimeVoiceModelConfig {
   voice: string;
   language: string;
   vad: RealtimeVoiceVadConfig;
-  continuation_grace_ms: number;
   presentation_capacity: number;
   playback_timeout_seconds: number;
   max_history_turns: number;
@@ -224,6 +220,7 @@ export interface RealtimeVoiceCapability {
   supports_context_items: boolean;
   supports_manual_response: boolean;
   supports_output_cancel: boolean;
+  supports_native_tools: boolean;
 }
 
 /* ---- Custom provider CRUD ---- */

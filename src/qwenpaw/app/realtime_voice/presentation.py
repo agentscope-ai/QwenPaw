@@ -13,13 +13,10 @@ from ...providers.realtime_voice import ProviderResponseResult
 
 @dataclass(frozen=True)
 class PresentationIntent:
-    kind: Literal[
-        "converse", "clarify", "admission", "rejected", "update"
-    ]
+    kind: Literal["admission", "rejected", "update"]
     turn_id: str = ""
     user_text: str = ""
     task_ref: str = ""
-    missing_information: str = ""
     completion: asyncio.Future[ProviderResponseResult] | None = None
     changed_ids: tuple[str, ...] = ()
     admission_turn_ids: tuple[str, ...] = ()
@@ -85,13 +82,8 @@ class PresentationQueue:
                         dict.fromkeys((*previous.changed_ids, *intent.changed_ids))
                     ),
                 )
-        occupied = sum(
-            i.cost for i in (*self._direct, *self._coalesced.values())
-        )
-        if (
-            occupied - (previous.cost if previous else 0) + intent.cost
-            > self.capacity
-        ):
+        occupied = sum(i.cost for i in (*self._direct, *self._coalesced.values()))
+        if occupied - (previous.cost if previous else 0) + intent.cost > self.capacity:
             intent.cancel()
             return False
         if previous is not None:

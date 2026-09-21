@@ -9,34 +9,15 @@ from qwenpaw.app.realtime_voice.contracts import (
     PROTOCOL_VERSION,
     RealtimeVoiceServiceError,
 )
-from qwenpaw.app.realtime_voice.native_handoff import NativeDelegationCommitter
 from qwenpaw.app.realtime_voice.service import RealtimeVoiceService
-from qwenpaw.config.config import ModelSlotConfig
 
 
 class ProviderManager:
-    def __init__(self, *, router=None, chat=None):
-        self._router = router
-        self._chat = chat
-
-    def get_active_voice_router_model(self):
-        return self._router
-
-    def get_active_model(self):
-        return self._chat
+    pass
 
 
-def workspace(*, router=None, chat=None):
-    return SimpleNamespace(
-        config=SimpleNamespace(
-            active_voice_router_model=router,
-            active_model=chat,
-        ),
-    )
-
-
-def slot(name: str) -> ModelSlotConfig:
-    return ModelSlotConfig(provider_id="provider", model=name)
+def workspace():
+    return SimpleNamespace(config=SimpleNamespace())
 
 
 def live_session(session_id="old", principal="owner"):
@@ -46,13 +27,10 @@ def live_session(session_id="old", principal="owner"):
         agent_id="default",
         provider_session=None,
         coordinator=None,
-        router_model=None,
-        admission_mode="queue",
         api_key="test-key",
         config=SimpleNamespace(
             provider_id="provider",
             language="en-US",
-            continuation_grace_ms=1200,
             presentation_capacity=32,
             playback_timeout_seconds=90,
             max_history_turns=20,
@@ -114,7 +92,6 @@ async def test_release_during_provider_start_closes_only_late_coordinator(
     manager = SimpleNamespace(
         get_realtime_voice_registration=lambda _: SimpleNamespace(
             factory=lambda *_: object(),
-            context_max_chars=1800,
         )
     )
     service = RealtimeVoiceService(manager)
@@ -137,18 +114,20 @@ async def test_release_during_provider_start_closes_only_late_coordinator(
 
 
 @pytest.mark.asyncio
-async def test_native_provider_skips_text_router(monkeypatch):
+async def test_connect_uses_native_realtime_coordinator_without_text_router(
+    monkeypatch,
+):
     coordinator = SimpleNamespace(start=AsyncMock(), close=AsyncMock())
     factory = Mock(return_value=coordinator)
     monkeypatch.setattr(
         "qwenpaw.app.realtime_voice.service.VoiceCoordinator",
         factory,
     )
+    providers = [object(), object()]
+    provider_factory = Mock(side_effect=providers)
     manager = SimpleNamespace(
         get_realtime_voice_registration=lambda _: SimpleNamespace(
-            factory=lambda *_: object(),
-            context_max_chars=1800,
-            supports_native_delegation=True,
+            factory=provider_factory,
         )
     )
     service = RealtimeVoiceService(manager)
@@ -157,47 +136,20 @@ async def test_native_provider_skips_text_router(monkeypatch):
     service._bridges["chat"] = object()
 
     assert await service.connect(live) is coordinator
-    assert isinstance(factory.call_args.args[2], NativeDelegationCommitter)
-    assert (
-        factory.call_args.args[2]._continuation_grace_seconds
-        == live.config.continuation_grace_ms / 1000
-    )
-    assert factory.call_args.kwargs["native_delegation"] is True
+    assert factory.call_args.args[1] is service._bridges["chat"]
+    assert factory.call_args.args[2]._chat is live.chat
+    assert factory.call_args.kwargs["presentation_provider"] is providers[1]
+    assert provider_factory.call_count == 2
     coordinator.start.assert_awaited_once()
-
-
-def test_router_model_resolution_uses_confirmed_precedence():
-    global_router = slot("global-router")
-    global_chat = slot("global-chat")
-    service = RealtimeVoiceService(
-        ProviderManager(router=global_router, chat=global_chat),
-    )
-
-    assert service.resolve_router_model(
-        workspace(router=slot("agent-router"), chat=slot("agent-chat")),
-    ) == slot("agent-router")
-    assert (
-        service.resolve_router_model(
-            workspace(chat=slot("agent-chat")),
-        )
-        == global_router
-    )
-    service = RealtimeVoiceService(ProviderManager(chat=global_chat))
-    assert service.resolve_router_model(
-        workspace(chat=slot("agent-chat")),
-    ) == slot("agent-chat")
-    assert service.resolve_router_model(workspace()) == global_chat
 
 
 def test_capabilities_advertise_the_media_protocol_version():
     manager = ProviderManager()
     manager.get_active_realtime_model = lambda: None
-    manager.list_realtime_voice_capabilities = lambda: []
+    manager.list_realtime_voice_capabilities = list
     current_workspace = workspace()
     current_workspace.agent_id = "default"
-    capabilities = RealtimeVoiceService(manager).capabilities(
-        current_workspace
-    )
+    capabilities = RealtimeVoiceService(manager).capabilities(current_workspace)
     assert capabilities["protocol_version"] == PROTOCOL_VERSION
 
 

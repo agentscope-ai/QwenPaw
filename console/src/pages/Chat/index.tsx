@@ -51,7 +51,6 @@ import {
 import {
   attachClientMessageId,
   createClientMessageId,
-  extractClientMessageId,
   latestUserMessageId,
   QWENPAW_CLIENT_MESSAGE_ID_KEY,
 } from "../../utils/clientMessageId";
@@ -2606,18 +2605,6 @@ export default function ChatPage() {
     onTimelineChanged: handleVoiceTimelineChanged,
   });
   const canStartRealtimeVoice = !isVoiceChat || (ownershipResolved && isOwner);
-  const realtimeVoiceStatus = realtimeVoice.status;
-  const stopRealtimeVoice = realtimeVoice.stop;
-  useEffect(() => {
-    if (
-      !isVoiceChat ||
-      !isQueueOnlyTab ||
-      !isRealtimeVoiceActive(realtimeVoiceStatus)
-    ) {
-      return;
-    }
-    void stopRealtimeVoice();
-  }, [isQueueOnlyTab, isVoiceChat, realtimeVoiceStatus, stopRealtimeVoice]);
   const handleCreateVoiceChat = useCallback(async () => {
     let capabilities = realtimeVoice.capabilities;
     if (!capabilities) {

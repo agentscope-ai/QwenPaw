@@ -18,8 +18,6 @@ const mocks = vi.hoisted(() => ({
   sendAudio: vi.fn(() => true),
   clientClose: vi.fn(),
   clientStop: vi.fn(),
-  clientCommitPending: vi.fn(() => true),
-  clientSetAdmissionMode: vi.fn(() => true),
   captureSetMuted: vi.fn(),
   captureStart: vi.fn(),
   captureStop: vi.fn(async () => undefined),
@@ -58,8 +56,6 @@ vi.mock("./client", () => ({
     connect = vi.fn(async () => undefined);
     close = mocks.clientClose;
     stop = mocks.clientStop;
-    commitPending = mocks.clientCommitPending;
-    setAdmissionMode = mocks.clientSetAdmissionMode;
     interrupt = vi.fn();
     sendAudio = mocks.sendAudio;
     playbackFeedback = mocks.playbackFeedback;
@@ -107,7 +103,6 @@ const capabilities = {
             threshold: 0.2,
             silence_duration_ms: 800,
           },
-          continuation_grace_ms: 1200,
           max_history_turns: 20,
           max_session_seconds: 3600,
         },
@@ -127,6 +122,7 @@ const capabilities = {
       supports_context_items: true,
       supports_manual_response: true,
       supports_output_cancel: true,
+      supports_native_tools: true,
     },
   ],
   active_model: {
@@ -144,14 +140,8 @@ const capabilities = {
     vad_mode: "server_vad",
     vad_threshold: 0.2,
     vad_silence_duration_ms: 800,
-    continuation_grace_ms: 1200,
     max_history_turns: 20,
     max_session_seconds: 3600,
-  },
-  active_router_model: null,
-  effective_router_model: {
-    provider_id: "dashscope",
-    model: "qwen3.7-plus",
   },
   credential_configured: true,
   configuration_error: null,
@@ -167,7 +157,6 @@ const bootstrap = {
   ws_url: "/api/realtime-voice/sessions/live-1/stream",
   token: "token",
   expires_at: "2099-01-01T00:00:00Z",
-  admission_mode: "queue" as const,
 };
 
 describe("useRealtimeVoice", () => {
@@ -508,21 +497,35 @@ describe("useRealtimeVoice", () => {
     );
     await waitFor(() => expect(result.current.capabilities).not.toBeNull());
     await act(async () => result.current.start());
-    act(() =>
-      mocks.clientCallbacks?.onEvent({ type: "speech.started", generation: 1 }),
-    );
-    for (const text of ["今天", "今天天汽", "今天天气", "今天天气", "今天", ""]) {
-      act(() =>
+    act(
+      () =>
         mocks.clientCallbacks?.onEvent({
-          type: "input_transcript.partial", generation: 1, text,
+          type: "speech.started",
+          generation: 1,
         }),
+    );
+    for (const text of [
+      "今天",
+      "今天天汽",
+      "今天天气",
+      "今天天气",
+      "今天",
+      "",
+    ]) {
+      act(
+        () =>
+          mocks.clientCallbacks?.onEvent({
+            type: "input_transcript.partial",
+            generation: 1,
+            text,
+          }),
       );
       expect(result.current.inputTranscript).toBe(text);
     }
     unmount();
   });
 
-  it("preserves pending speech across pauses and supports manual commit", async () => {
+  it("clears the live transcript after a native handoff is committed", async () => {
     const { result, unmount } = renderHook(() =>
       useRealtimeVoice({
         onChatCreated: vi.fn(),
@@ -534,12 +537,6 @@ describe("useRealtimeVoice", () => {
 
     act(() => {
       mocks.clientCallbacks?.onEvent({
-        type: "input_turn.pending",
-        generation: 1,
-        state: "waiting",
-        text: "请帮我计算一百二十三加上",
-      });
-      mocks.clientCallbacks?.onEvent({
         type: "speech.started",
         generation: 1,
       });
@@ -550,22 +547,16 @@ describe("useRealtimeVoice", () => {
       });
     });
 
-    expect(result.current.inputTranscript).toBe(
-      "请帮我计算一百二十三加上四百五十六",
+    expect(result.current.inputTranscript).toBe("四百五十六");
+    act(
+      () =>
+        mocks.clientCallbacks?.onEvent({
+          type: "input_transcript.partial",
+          generation: 1,
+          text: "四百五十七",
+        }),
     );
-    act(() =>
-      mocks.clientCallbacks?.onEvent({
-        type: "input_transcript.partial",
-        generation: 1,
-        text: "四百五十七",
-      }),
-    );
-    expect(result.current.inputTranscript).toBe(
-      "请帮我计算一百二十三加上四百五十七",
-    );
-    expect(result.current.canCommitPending).toBe(true);
-    act(() => result.current.commitPending());
-    expect(mocks.clientCommitPending).toHaveBeenCalledOnce();
+    expect(result.current.inputTranscript).toBe("四百五十七");
 
     act(() => {
       mocks.clientCallbacks?.onEvent({
@@ -573,7 +564,6 @@ describe("useRealtimeVoice", () => {
         generation: 1,
       });
     });
-    expect(result.current.canCommitPending).toBe(false);
     expect(result.current.inputTranscript).toBe("");
     unmount();
   });
@@ -590,9 +580,8 @@ describe("useRealtimeVoice", () => {
 
     act(() => {
       mocks.clientCallbacks?.onEvent({
-        type: "input_turn.pending",
+        type: "input_transcript.partial",
         generation: 1,
-        state: "needs_confirmation",
         text: "执行任务",
       });
       mocks.clientCallbacks?.onEvent({
@@ -602,14 +591,13 @@ describe("useRealtimeVoice", () => {
       });
     });
 
-    expect(result.current.canCommitPending).toBe(false);
     expect(result.current.inputTranscript).toBe("");
     expect(result.current.error).toContain("too many pending admissions");
     expect(mocks.clientClose).not.toHaveBeenCalled();
     unmount();
   });
 
-  it("keeps the media session open after a recoverable provider error", async () => {
+  it("shows a recoverable error when input transcription fails", async () => {
     const { result, unmount } = renderHook(() =>
       useRealtimeVoice({
         onChatCreated: vi.fn(),
@@ -621,25 +609,53 @@ describe("useRealtimeVoice", () => {
 
     act(() => {
       mocks.clientCallbacks?.onEvent({
-        type: "session.ready",
+        type: "input_transcript.failed",
         generation: 1,
-      });
-      mocks.clientCallbacks?.onEvent({
-        type: "error",
-        generation: 1,
-        source: "provider",
-        recoverable: true,
-        message: "Realtime response was cancelled",
       });
     });
 
-    expect(result.current.status).toBe("listening");
-    expect(result.current.error).toContain("response was cancelled");
+    expect(result.current.inputTranscript).toBe("");
+    expect(result.current.pendingInputError).toContain(
+      "transcriptionUnavailable",
+    );
     expect(mocks.clientClose).not.toHaveBeenCalled();
-    expect(mocks.createSession).toHaveBeenCalledOnce();
-
     unmount();
   });
+
+  it.each(["provider", "coordinator"])(
+    "keeps the media session open after a recoverable %s error",
+    async (source) => {
+      const { result, unmount } = renderHook(() =>
+        useRealtimeVoice({
+          onChatCreated: vi.fn(),
+          onAgentRunStarted: vi.fn(),
+        }),
+      );
+      await waitFor(() => expect(result.current.capabilities).not.toBeNull());
+      await act(async () => result.current.start());
+
+      act(() => {
+        mocks.clientCallbacks?.onEvent({
+          type: "session.ready",
+          generation: 1,
+        });
+        mocks.clientCallbacks?.onEvent({
+          type: "error",
+          generation: 1,
+          source,
+          recoverable: true,
+          message: "Realtime response was cancelled",
+        });
+      });
+
+      expect(result.current.status).toBe("listening");
+      expect(result.current.error).toContain("response was cancelled");
+      expect(mocks.clientClose).not.toHaveBeenCalled();
+      expect(mocks.createSession).toHaveBeenCalledOnce();
+
+      unmount();
+    },
+  );
 
   it("does not reconnect after the configured session duration", async () => {
     const { result, unmount } = renderHook(() =>
@@ -664,6 +680,58 @@ describe("useRealtimeVoice", () => {
     expect(result.current.error).toContain("configured session duration");
     expect(mocks.createSession).toHaveBeenCalledTimes(1);
 
+    unmount();
+  });
+
+  it("pauses instead of reconnecting forever after provider idle timeout", async () => {
+    const { result, unmount } = renderHook(() =>
+      useRealtimeVoice({
+        onChatCreated: vi.fn(),
+        onAgentRunStarted: vi.fn(),
+      }),
+    );
+    await waitFor(() => expect(result.current.capabilities).not.toBeNull());
+    await act(async () => result.current.start());
+    const callbacks = mocks.clientCallbacks;
+
+    act(() => {
+      callbacks?.onEvent({
+        type: "session.closed",
+        generation: 1,
+        reason: "idle_timeout",
+      });
+    });
+    await waitFor(() => expect(result.current.status).toBe("error"));
+    expect(result.current.error).toBe("realtimeVoice.idleTimeout");
+
+    act(() => callbacks?.onClose(new CloseEvent("close")));
+    await new Promise((resolve) => setTimeout(resolve, 550));
+    expect(mocks.createSession).toHaveBeenCalledTimes(1);
+    unmount();
+  });
+
+  it("stops superseded application playback", async () => {
+    const { result, unmount } = renderHook(() =>
+      useRealtimeVoice({
+        onChatCreated: vi.fn(),
+        onAgentRunStarted: vi.fn(),
+      }),
+    );
+    await waitFor(() => expect(result.current.capabilities).not.toBeNull());
+    await act(async () => result.current.start());
+    mocks.playbackInterrupt.mockClear();
+
+    act(() => {
+      mocks.clientCallbacks?.onEvent({
+        type: "output.cancelled",
+        generation: 1,
+        output_id: "application-output",
+        reason: "superseded",
+      });
+    });
+
+    expect(mocks.playbackInterrupt).toHaveBeenCalledOnce();
+    expect(result.current.outputState).toBe("interrupted");
     unmount();
   });
 
@@ -796,7 +864,6 @@ describe("useRealtimeVoice", () => {
     expect(mocks.createSession).toHaveBeenLastCalledWith({
       chat_id: "chat-1",
       previous_session_id: "live-1",
-      admission_mode: "queue",
     });
 
     act(

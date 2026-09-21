@@ -84,12 +84,8 @@ export function RealtimeVoiceControls({
   const ready = voice.readyToStart;
   const assistantTurn =
     voice.status === "assistant_speaking" && voice.assistantTranscript;
-  const userTurn =
-    (voice.status === "user_speaking" || voice.canCommitPending) &&
-    voice.inputTranscript;
-  const liveText = assistantTurn
-    ? voice.assistantTranscript
-    : userTurn || "";
+  const userTurn = voice.status === "user_speaking" && voice.inputTranscript;
+  const liveText = assistantTurn ? voice.assistantTranscript : userTurn || "";
   const liveRole = assistantTurn
     ? t("realtimeVoice.assistant")
     : t("realtimeVoice.you");
@@ -143,22 +139,6 @@ export function RealtimeVoiceControls({
         </div>
 
         <div className={styles.actions}>
-          <Select
-            className={styles.admissionSelect}
-            value={voice.admissionMode}
-            aria-label={t("realtimeVoice.admissionMode")}
-            options={[
-              {
-                value: "queue",
-                label: t("realtimeVoice.admissionQueue"),
-              },
-              {
-                value: "steer",
-                label: t("realtimeVoice.admissionSteer"),
-              },
-            ]}
-            onChange={voice.setAdmissionMode}
-          />
           {!active ? (
             <Button
               type="primary"
@@ -176,19 +156,6 @@ export function RealtimeVoiceControls({
             </Button>
           ) : (
             <>
-              {voice.canCommitPending && (
-                <Button
-                  className={styles.secondaryAction}
-                  type={
-                    voice.pendingInputState === "needs_confirmation"
-                      ? "primary"
-                      : "default"
-                  }
-                  onClick={voice.commitPending}
-                >
-                  {t("realtimeVoice.commitPending")}
-                </Button>
-              )}
               {voice.inputDevices.length > 0 && (
                 <Select
                   className={styles.deviceSelect}
@@ -298,13 +265,7 @@ export function RealtimeVoiceControls({
           className={styles.alert}
           type="warning"
           showIcon
-          message={t("realtimeVoice.routerUnavailable")}
-          description={voice.pendingInputError}
-          action={
-            <Button size="small" onClick={voice.commitPending}>
-              {t("realtimeVoice.commitPending")}
-            </Button>
-          }
+          message={voice.pendingInputError}
         />
       )}
     </div>

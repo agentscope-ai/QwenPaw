@@ -14,12 +14,12 @@ async def test_bounded_coalescing_and_direct_fifo():
     queue = PresentationQueue(3)
     for _ in range(100):
         assert queue.put(PresentationIntent("update"))
-    first = PresentationIntent("converse", turn_id="first")
-    second = PresentationIntent("converse", turn_id="second")
+    first = PresentationIntent("rejected", turn_id="first")
+    second = PresentationIntent("rejected", turn_id="second")
     assert queue.put(first)
     assert queue.put(second)
     refused = asyncio.get_running_loop().create_future()
-    assert not queue.put(PresentationIntent("converse", completion=refused))
+    assert not queue.put(PresentationIntent("rejected", completion=refused))
     assert refused.cancelled()
     assert await queue.get() is first
     assert await queue.get() is second
@@ -71,9 +71,7 @@ async def test_credit_requires_terminal_and_matching_playback(feedback_first):
     credit = OutputCredit()
     task = asyncio.create_task(credit.wait(1))
     credit.acknowledge("other-session-output", "drained")
-    credit.acknowledge(
-        credit.output_id, "drained"
-    )  # Cannot drain before seal.
+    credit.acknowledge(credit.output_id, "drained")  # Cannot drain before seal.
     assert not credit.playback
     if feedback_first:
         credit.acknowledge(credit.output_id, "interrupted")
@@ -86,9 +84,7 @@ async def test_credit_requires_terminal_and_matching_playback(feedback_first):
     else:
         credit.acknowledge(credit.output_id, "drained")
     await task
-    credit.acknowledge(
-        credit.output_id, "failed"
-    )  # Duplicate cannot change it.
+    credit.acknowledge(credit.output_id, "failed")  # Duplicate cannot change it.
     assert credit.playback != "failed"
 
 
@@ -106,15 +102,11 @@ async def test_failed_or_missing_feedback_does_not_release_credit():
 @pytest.mark.asyncio
 async def test_close_settles_every_pending_question():
     queue = PresentationQueue(2)
-    completions = [
-        asyncio.get_running_loop().create_future() for _ in range(3)
-    ]
+    completions = [asyncio.get_running_loop().create_future() for _ in range(3)]
     for completion in completions[:2]:
-        assert queue.put(PresentationIntent("converse", completion=completion))
+        assert queue.put(PresentationIntent("rejected", completion=completion))
     queue.close()
-    assert not queue.put(
-        PresentationIntent("converse", completion=completions[2])
-    )
+    assert not queue.put(PresentationIntent("rejected", completion=completions[2]))
     assert all(future.cancelled() for future in completions)
 
 

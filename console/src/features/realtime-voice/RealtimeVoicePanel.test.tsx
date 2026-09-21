@@ -14,8 +14,6 @@ vi.mock("react-i18next", () => ({
 const start = vi.fn();
 const stop = vi.fn();
 const setMuted = vi.fn();
-const commitPending = vi.fn(() => true);
-const setAdmissionMode = vi.fn();
 
 function voiceState(status: RealtimeVoiceStatus): RealtimeVoiceController {
   const capabilities = {
@@ -36,16 +34,10 @@ function voiceState(status: RealtimeVoiceStatus): RealtimeVoiceController {
       vad_mode: "server_vad",
       vad_threshold: 0.2,
       vad_silence_duration_ms: 800,
-      continuation_grace_ms: 1200,
       presentation_capacity: 32,
       playback_timeout_seconds: 90,
       max_history_turns: 20,
       max_session_seconds: 3600,
-    },
-    active_router_model: null,
-    effective_router_model: {
-      provider_id: "dashscope",
-      model: "qwen3.7-plus",
     },
     providers: [],
     credential_configured: true,
@@ -63,11 +55,8 @@ function voiceState(status: RealtimeVoiceStatus): RealtimeVoiceController {
     muted: false,
     inputDevices: [],
     inputDeviceId: "",
-    admissionMode: "queue",
     inputTranscript: "",
-    pendingInputState: "idle",
     pendingInputError: null,
-    canCommitPending: false,
     assistantTranscript: "",
     error: null,
     conflict: null,
@@ -79,8 +68,6 @@ function voiceState(status: RealtimeVoiceStatus): RealtimeVoiceController {
     setInputDevice: vi.fn(),
     interrupt: vi.fn(),
     observeAgentRun: vi.fn(() => true),
-    commitPending,
-    setAdmissionMode,
     reloadCapabilities: vi.fn(async () => capabilities),
   };
 }
@@ -107,7 +94,6 @@ describe("Realtime Voice Chat surfaces", () => {
   it("keeps the full live transcript available alongside all active controls", () => {
     const voice = voiceState("user_speaking");
     voice.inputTranscript = "继续处理刚才的任务".repeat(20);
-    voice.canCommitPending = true;
     voice.inputDevices = [
       {
         deviceId: "microphone",
@@ -127,9 +113,6 @@ describe("Realtime Voice Chat surfaces", () => {
     ).toBeInTheDocument();
     expect(screen.getByText("realtimeVoice.defaultMicrophone")).toBeVisible();
     expect(
-      screen.getByRole("button", { name: "realtimeVoice.commitPending" }),
-    ).toBeVisible();
-    expect(
       screen.getByRole("button", { name: "realtimeVoice.stop" }),
     ).toBeVisible();
     expect(screen.queryByRole("heading")).not.toBeInTheDocument();
@@ -141,9 +124,7 @@ describe("Realtime Voice Chat surfaces", () => {
     renderInRouter(<RealtimeVoiceControls voice={voice} />);
 
     expect(
-      screen.queryByTitle(
-        `realtimeVoice.you ${voice.inputTranscript}`,
-      ),
+      screen.queryByTitle(`realtimeVoice.you ${voice.inputTranscript}`),
     ).not.toBeInTheDocument();
     expect(screen.getByText("realtimeVoice.liveHint")).toBeVisible();
   });
@@ -157,19 +138,6 @@ describe("Realtime Voice Chat surfaces", () => {
     ).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "realtimeVoice.stop" }));
     expect(stop).toHaveBeenCalledOnce();
-  });
-
-  it("offers explicit submission when accumulated speech is pending", () => {
-    const voice = voiceState("listening");
-    voice.canCommitPending = true;
-    voice.pendingInputState = "needs_confirmation";
-    voice.inputTranscript = "尚未自动提交的请求";
-    renderInRouter(<RealtimeVoiceControls voice={voice} />);
-
-    fireEvent.click(
-      screen.getByRole("button", { name: "realtimeVoice.commitPending" }),
-    );
-    expect(commitPending).toHaveBeenCalledOnce();
   });
 
   it("presents idle resume as the primary Voice action", () => {

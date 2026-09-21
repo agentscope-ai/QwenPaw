@@ -137,14 +137,6 @@ export class RealtimeVoiceClient {
     return this.sendJson({ type: "agent.observe" });
   }
 
-  commitPending(): boolean {
-    return this.sendJson({ type: "input.commit" });
-  }
-
-  setAdmissionMode(mode: "queue" | "steer"): boolean {
-    return this.sendJson({ type: "admission.mode", mode });
-  }
-
   interrupt(): void {
     this.sendJson({ type: "interrupt" });
   }

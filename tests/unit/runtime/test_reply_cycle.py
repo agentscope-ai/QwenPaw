@@ -22,6 +22,26 @@ def test_consumed_batch_activates_one_revision_with_last_input_as_group():
     }
 
 
+def test_steer_extends_active_task_reply_ownership():
+    context = ReplyCycleContext("run-1", "task")
+    context.start_inputs(("task",))
+
+    snapshot = context.extend_for_steer(("correction", "status-query"))
+
+    assert snapshot.group_id == "status-query"
+    assert snapshot.responds_to_input_ids == (
+        "task",
+        "correction",
+        "status-query",
+    )
+    context.finish_reply("completed")
+    assert context.terminated_input_ids("completed") == (
+        "task",
+        "correction",
+        "status-query",
+    )
+
+
 @pytest.mark.asyncio
 async def test_visible_occurrences_get_independent_authoritative_orders():
     orders = iter((4, 7))

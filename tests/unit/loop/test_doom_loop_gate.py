@@ -3,6 +3,7 @@
 """Tests for DoomLoopGate reset behaviour."""
 from __future__ import annotations
 
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest

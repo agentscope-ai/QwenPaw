@@ -33,7 +33,6 @@ const provider = {
         threshold: 0.2,
         silence_duration_ms: 800,
       },
-      continuation_grace_ms: 1200,
       presentation_capacity: 32,
       playback_timeout_seconds: 90,
       max_history_turns: 20,
@@ -56,6 +55,7 @@ const provider = {
     supports_context_items: true,
     supports_manual_response: true,
     supports_output_cancel: true,
+    supports_native_tools: true,
   },
 } as unknown as ProviderInfo;
 
@@ -93,7 +93,6 @@ describe("RealtimeVoiceModelModal", () => {
           realtime_model: "qwen-audio-3.0-realtime-flash",
           language: "en-US",
           max_history_turns: 20,
-          continuation_grace_ms: 1200,
         }),
       );
     });

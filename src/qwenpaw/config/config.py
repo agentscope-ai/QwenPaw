@@ -21,32 +21,33 @@ from typing import (
     Union,
 )
 
+import shortuuid
 from apscheduler.triggers.cron import CronTrigger
 from pydantic import (
     BaseModel,
-    Field,
     ConfigDict,
+    Field,
     PrivateAttr,
     field_validator,
     model_validator,
 )
-import shortuuid
+
 from qwenpaw.exceptions import (
     AgentConfigConflictError,
     ConfigurationException,
 )
 
-from .timezone import detect_system_timezone
 from ..constant import (
     HEARTBEAT_DEFAULT_EVERY,
     HEARTBEAT_DEFAULT_TARGET,
     HEARTBEAT_DEFAULT_TIMEOUT_SECONDS,
     HEARTBEAT_MAX_TIMEOUT_SECONDS,
-    EnvVarLoader,
     WORKING_DIR,
+    EnvVarLoader,
 )
 from ..utils.io_utils import write_json_atomic
 from ..utils.logging import sanitize_log_value
+from .timezone import detect_system_timezone
 
 logger = logging.getLogger(__name__)
 
@@ -105,8 +106,7 @@ def _is_safe_css_color(value: str) -> bool:
 
     if function_name.lower().startswith("rgb"):
         return all(
-            _CSS_NUMBER_RE.fullmatch(channel)
-            or _CSS_PERCENT_RE.fullmatch(channel)
+            _CSS_NUMBER_RE.fullmatch(channel) or _CSS_PERCENT_RE.fullmatch(channel)
             for channel in channels
         )
     return bool(
@@ -208,8 +208,6 @@ class ActiveModelsInfo(BaseModel):
 
     active_llm: ModelSlotConfig | None
     active_realtime_voice: ModelSlotConfig | None = None
-    active_voice_router: ModelSlotConfig | None = None
-    effective_voice_router: ModelSlotConfig | None = None
     effective_max_input_length: int | None = None
 
 
@@ -380,9 +378,7 @@ class IMessageChannelConfig(BaseChannelConfig):
     db_path: str = "~/Library/Messages/chat.db"
     poll_sec: float = 1.0
     media_dir: Optional[str] = None
-    max_decoded_size: int = (
-        10 * 1024 * 1024
-    )  # 10MB default limit for Base64 data
+    max_decoded_size: int = 10 * 1024 * 1024  # 10MB default limit for Base64 data
 
 
 class DiscordConfig(BaseChannelConfig):
@@ -786,8 +782,7 @@ class AutoMemorySearchConfig(BaseModel):
         default=2,
         ge=1,
         description=(
-            "Maximum number of results to return when auto memory"
-            " search is enabled"
+            "Maximum number of results to return when auto memory search is enabled"
         ),
     )
 
@@ -862,9 +857,7 @@ class RerankerConfig(BaseModel):
 
     enabled: bool = Field(
         default=False,
-        description=(
-            "Whether to enable reranker for memory search reordering"
-        ),
+        description=("Whether to enable reranker for memory search reordering"),
     )
     api_key: str = Field(
         default="",
@@ -873,8 +866,7 @@ class RerankerConfig(BaseModel):
     base_url: str = Field(
         default="",
         description=(
-            "Base URL for reranker API (SiliconFlow: "
-            "https://api.siliconflow.cn/v1)"
+            "Base URL for reranker API (SiliconFlow: https://api.siliconflow.cn/v1)"
         ),
     )
     model_name: str = Field(
@@ -908,8 +900,7 @@ class ReMeLightMemoryConfig(BaseModel):
     session_dir: str = Field(
         default="mem_session",
         description=(
-            "Subdirectory for ReMe source conversation logs used by "
-            "auto-memory"
+            "Subdirectory for ReMe source conversation logs used by auto-memory"
         ),
     )
     mem_session_dir: str = Field(
@@ -935,15 +926,11 @@ class ReMeLightMemoryConfig(BaseModel):
     )
     auto_memory_inbox_push_enabled: bool = Field(
         default=True,
-        description=(
-            "Whether to push auto-memory changes and failures to the inbox"
-        ),
+        description=("Whether to push auto-memory changes and failures to the inbox"),
     )
     auto_dream_inbox_push_enabled: bool = Field(
         default=True,
-        description=(
-            "Whether to push auto-dream changes and failures to the inbox"
-        ),
+        description=("Whether to push auto-dream changes and failures to the inbox"),
     )
     daily_paper_inbox_push_enabled: bool = Field(
         default=True,
@@ -965,9 +952,7 @@ class ReMeLightMemoryConfig(BaseModel):
 
     dream_cron_enabled: bool = Field(
         default=True,
-        description=(
-            "Whether to enable the dream-based memory optimization job"
-        ),
+        description=("Whether to enable the dream-based memory optimization job"),
     )
 
     dream_cron: str = Field(
@@ -1083,8 +1068,7 @@ class ReMeLightMemoryConfig(BaseModel):
         """Require a schedule whenever the Auto Fin job is enabled."""
         if self.auto_fin_cron_enabled and not self.auto_fin_cron.strip():
             raise ValueError(
-                "auto_fin_cron must not be empty when "
-                "auto_fin_cron_enabled is true",
+                "auto_fin_cron must not be empty when auto_fin_cron_enabled is true",
             )
         return self
 
@@ -1245,9 +1229,7 @@ class ScrollContextConfig(BaseModel):
     repl_timeout_s: int = Field(
         default=300,
         ge=1,
-        description=(
-            "Per-call timeout for the recall_history_python REPL tool."
-        ),
+        description=("Per-call timeout for the recall_history_python REPL tool."),
     )
 
     history_retention_days: int = Field(
@@ -1328,9 +1310,7 @@ class LightContextConfig(BaseModel):
         default=4,
         ge=2,
         le=5,
-        description=(
-            "Divisor for byte-based token estimation (byte_len / divisor)"
-        ),
+        description=("Divisor for byte-based token estimation (byte_len / divisor)"),
     )
 
     context_compact_config: ContextCompactConfig = Field(
@@ -1350,9 +1330,7 @@ class LightContextConfig(BaseModel):
     def warn_deprecated_scroll_tool_cap(self) -> "LightContextConfig":
         """Warn once when the removed scroll-only tool cap is configured."""
         global _legacy_scroll_tool_cap_warned
-        configured = (
-            "tool_output_token_cap" in self.scroll_config.model_fields_set
-        )
+        configured = "tool_output_token_cap" in self.scroll_config.model_fields_set
         if configured and not _legacy_scroll_tool_cap_warned:
             _legacy_scroll_tool_cap_warned = True
             logger.warning(
@@ -1404,11 +1382,11 @@ class DoomLoopStageConfig(BaseModel):
     )
     action: str = Field(
         default="modify_prompt",
-        description=("Action when triggered: " "'modify_prompt' or 'stop'"),
+        description=("Action when triggered: 'modify_prompt' or 'stop'"),
     )
     prompt: str = Field(
         default="",
-        description=("Warning text (modify_prompt) " "or stop reason (stop)"),
+        description=("Warning text (modify_prompt) or stop reason (stop)"),
     )
 
 
@@ -1422,15 +1400,13 @@ class DoomLoopConfig(BaseModel):
     window_size: int = Field(
         default=3,
         ge=2,
-        description=("Sliding window size for " "repetition detection"),
+        description=("Sliding window size for repetition detection"),
     )
     similarity_threshold: float = Field(
         default=1.0,
         ge=0.0,
         le=1.0,
-        description=(
-            "Similarity threshold to consider " "calls as repetitive"
-        ),
+        description=("Similarity threshold to consider calls as repetitive"),
     )
     stages: List[DoomLoopStageConfig] = Field(
         default_factory=lambda: [
@@ -1448,18 +1424,14 @@ class DoomLoopConfig(BaseModel):
             DoomLoopStageConfig(
                 after=4,
                 action="stop",
-                prompt=(
-                    "Doom loop: agent stuck "
-                    "after 4 consecutive "
-                    "repetitions"
-                ),
+                prompt=("Doom loop: agent stuck after 4 consecutive repetitions"),
             ),
         ],
         description=("Escalation stages (sorted by after)"),
     )
     in_loop_modes: bool = Field(
         default=False,
-        description=("Also run during /goal and " "/mission loop modes"),
+        description=("Also run during /goal and /mission loop modes"),
     )
 
 
@@ -1492,8 +1464,7 @@ class RubricGateConfig(BaseModel):
     enabled: bool = Field(
         default=False,
         description=(
-            "Enable completion check to prevent "
-            "early stop on text-only responses"
+            "Enable completion check to prevent early stop on text-only responses"
         ),
     )
     prompt: str = Field(
@@ -1503,21 +1474,17 @@ class RubricGateConfig(BaseModel):
             "complete, confirm it. Otherwise, "
             "continue working with tool calls."
         ),
-        description=(
-            "Prompt injected when the agent " "produces a text-only response"
-        ),
+        description=("Prompt injected when the agent produces a text-only response"),
     )
     max_interventions: int = Field(
         default=1,
         ge=1,
         le=10,
-        description=(
-            "Max times to re-prompt per loop " "turn to avoid infinite retries"
-        ),
+        description=("Max times to re-prompt per loop turn to avoid infinite retries"),
     )
     in_loop_modes: bool = Field(
         default=False,
-        description=("Also run during /goal and " "/mission loop modes"),
+        description=("Also run during /goal and /mission loop modes"),
     )
 
 
@@ -1652,8 +1619,7 @@ class LoopConfig(BaseModel):
         if len(commands) != len(set(commands)):
             raise ValueError("Custom loop slash commands must be unique")
         names = [
-            normalize_custom_loop_mode_name(mode.name)
-            for mode in self.custom_modes
+            normalize_custom_loop_mode_name(mode.name) for mode in self.custom_modes
         ]
         if len(names) != len(set(names)):
             raise ValueError("Custom loop mode names must be unique")
@@ -1780,9 +1746,7 @@ class AgentsRunningConfig(BaseModel):
     max_iters: int = Field(
         default=100,
         ge=1,
-        description=(
-            "Maximum number of reasoning-acting iterations for ReAct agent"
-        ),
+        description=("Maximum number of reasoning-acting iterations for ReAct agent"),
     )
 
     loop: LoopConfig = Field(
@@ -1791,12 +1755,14 @@ class AgentsRunningConfig(BaseModel):
     )
 
     llm_retry_enabled: bool = Field(
-        default_factory=lambda: EnvVarLoader.get_int(
-            "QWENPAW_LLM_MAX_RETRIES",
-            3,
-            min_value=0,
-        )
-        > 0,
+        default_factory=lambda: (
+            EnvVarLoader.get_int(
+                "QWENPAW_LLM_MAX_RETRIES",
+                3,
+                min_value=0,
+            )
+            > 0
+        ),
         description="Whether to auto-retry transient LLM API errors",
     )
 
@@ -1929,8 +1895,7 @@ class AgentsRunningConfig(BaseModel):
             raise ConfigurationException(
                 config_key="llm_backoff",
                 message=(
-                    "llm_backoff_cap must be greater than or equal to "
-                    "llm_backoff_base"
+                    "llm_backoff_cap must be greater than or equal to llm_backoff_base"
                 ),
             )
         return self
@@ -1938,9 +1903,7 @@ class AgentsRunningConfig(BaseModel):
     max_input_length: int = Field(
         default=128 * 1024,  # 128K = 131072 tokens
         ge=1000,
-        description=(
-            "Maximum input length (tokens) for the model context window"
-        ),
+        description=("Maximum input length (tokens) for the model context window"),
     )
 
     history_max_length: int = Field(
@@ -1958,8 +1921,7 @@ class AgentsRunningConfig(BaseModel):
     auto_title_config: AutoTitleConfig = Field(
         default_factory=AutoTitleConfig,
         description=(
-            "Async chat-title generation toggle and timeout. See "
-            "AutoTitleConfig."
+            "Async chat-title generation toggle and timeout. See AutoTitleConfig."
         ),
     )
 
@@ -2403,10 +2365,6 @@ class AgentProfileConfig(BaseModel):
         default=None,
         description="Active realtime voice model for this agent",
     )
-    active_voice_router_model: Optional["ModelSlotConfig"] = Field(
-        default=None,
-        description="Optional semantic voice router model for this agent",
-    )
     language: str = Field(
         default="zh",
         description="Language setting for this agent",
@@ -2831,8 +2789,7 @@ def _default_builtin_tools() -> Dict[str, BuiltinToolConfig]:
                     )
             except Exception as exc:
                 logger.error(
-                    "Failed to build BuiltinToolConfig from tool "
-                    "descriptors: %s",
+                    "Failed to build BuiltinToolConfig from tool descriptors: %s",
                     exc,
                     exc_info=True,
                 )
@@ -3332,18 +3289,12 @@ def build_fallback_agent_profile_config(
         description=f"{agent_id} agent",
         workspace_dir=str(workspace_dir),
         channels=(
-            config.channels
-            if hasattr(config, "channels") and config.channels
-            else None
+            config.channels if hasattr(config, "channels") and config.channels else None
         ),
         mcp=config.mcp if hasattr(config, "mcp") and config.mcp else None,
-        tools=(
-            config.tools if hasattr(config, "tools") and config.tools else None
-        ),
+        tools=(config.tools if hasattr(config, "tools") and config.tools else None),
         security=(
-            config.security
-            if hasattr(config, "security") and config.security
-            else None
+            config.security if hasattr(config, "security") and config.security else None
         ),
         running=(
             config.agents.running
@@ -3352,8 +3303,7 @@ def build_fallback_agent_profile_config(
         ),
         llm_routing=(
             config.agents.llm_routing
-            if hasattr(config.agents, "llm_routing")
-            and config.agents.llm_routing
+            if hasattr(config.agents, "llm_routing") and config.agents.llm_routing
             else AgentsLLMRoutingConfig()
         ),
         system_prompt_files=(
@@ -3390,10 +3340,7 @@ def _migrate_access_control_fields(  # pylint: disable=too-many-branches
         # group_policy → access_control_group or group_disabled
         group_policy = ch_cfg.get("group_policy")
         if group_policy is not None:
-            if (
-                group_policy == "allowlist"
-                and "access_control_group" not in ch_cfg
-            ):
+            if group_policy == "allowlist" and "access_control_group" not in ch_cfg:
                 ch_cfg["access_control_group"] = True
             elif group_policy == "disabled" and "group_disabled" not in ch_cfg:
                 ch_cfg["group_disabled"] = True
@@ -3414,8 +3361,7 @@ def _migrate_access_control_fields(  # pylint: disable=too-many-branches
                 except Exception:
                     migration_succeeded = False
                     logger.exception(
-                        f"Failed to migrate access control for channel "
-                        f"{ch_key}",
+                        f"Failed to migrate access control for channel {ch_key}",
                     )
             if migration_succeeded:
                 del ch_cfg["allow_from"]
@@ -3435,8 +3381,7 @@ def _migrate_access_control_fields(  # pylint: disable=too-many-branches
                 except Exception:
                     migration_succeeded = False
                     logger.exception(
-                        f"Failed to migrate group access control for channel "
-                        f"{ch_key}",
+                        f"Failed to migrate group access control for channel {ch_key}",
                     )
             if migration_succeeded:
                 del ch_cfg["group_allow_from"]
@@ -3553,10 +3498,10 @@ def load_agent_config(  # pylint: disable=too-many-branches,too-many-statements
         ConfigurationException: If agent ID not found in root config
     """
     from .utils import (
-        load_config,
-        _migrate_last_dispatch_state,
         _agent_config_cache,
         _agent_config_lock,
+        _migrate_last_dispatch_state,
+        load_config,
     )
 
     config = load_config()
@@ -3642,8 +3587,7 @@ def load_agent_config(  # pylint: disable=too-many-branches,too-many-statements
             except Exception:
                 last_dispatch_migration_failed = True
                 logger.exception(
-                    f"Failed to migrate last dispatch state for agent "
-                    f"{agent_id}",
+                    f"Failed to migrate last dispatch state for agent {agent_id}",
                 )
             else:
                 data.pop("last_dispatch")
@@ -3687,8 +3631,8 @@ def load_agent_config(  # pylint: disable=too-many-branches,too-many-statements
                 if not mail_credentials_migrated and (
                     project_dir_migrated or weixin_migrated or display_migrated
                 ):
-                    import uuid as _uuid
                     import shutil as _shutil
+                    import uuid as _uuid
 
                     if project_dir_migrated:
                         migration_name = "project-dir"
@@ -3697,8 +3641,7 @@ def load_agent_config(  # pylint: disable=too-many-branches,too-many-statements
                     else:
                         migration_name = "weixin"
                     backup_path = agent_config_path.with_suffix(
-                        f".{_uuid.uuid4().hex[:8]}."
-                        f"{migration_name}-migrate.bak",
+                        f".{_uuid.uuid4().hex[:8]}.{migration_name}-migrate.bak",
                     )
                     _shutil.copy2(agent_config_path, backup_path)
                 write_json_atomic(agent_config_path, data)
@@ -3715,8 +3658,7 @@ def load_agent_config(  # pylint: disable=too-many-branches,too-many-statements
             except OSError:
                 migration_write_failed = True
                 logger.exception(
-                    f"Failed to persist agent config migration for "
-                    f"{agent_id}",
+                    f"Failed to persist agent config migration for {agent_id}",
                 )
 
         # Normalize legacy ~/.copaw-bound paths to current WORKING_DIR.
@@ -3768,9 +3710,9 @@ def save_agent_config(  # pylint: disable=too-many-branches,too-many-statements
         ValueError: If agent ID not found in root config
     """
     from .utils import (
-        load_config,
         _agent_config_cache,
         _agent_config_lock,
+        load_config,
     )
 
     config = load_config()
@@ -3958,14 +3900,10 @@ def migrate_legacy_config_to_multi_agent() -> bool:
         channels=config.channels if config.channels else None,
         mcp=config.mcp if config.mcp else None,
         heartbeat=(
-            legacy_agents.defaults.heartbeat
-            if legacy_agents.defaults
-            else None
+            legacy_agents.defaults.heartbeat if legacy_agents.defaults else None
         ),
         running=(
-            legacy_agents.running
-            if legacy_agents.running
-            else AgentsRunningConfig()
+            legacy_agents.running if legacy_agents.running else AgentsRunningConfig()
         ),
         llm_routing=(
             legacy_agents.llm_routing

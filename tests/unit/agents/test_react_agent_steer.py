@@ -106,10 +106,6 @@ async def test_model_boundary_reads_updates_without_releasing_queue(
     monkeypatch.setattr(
         "qwenpaw.loop.gates.runner.check_pending_gates", lambda _: None
     )
-    monkeypatch.setattr(
-        "qwenpaw.agents.model_factory._supports_multimodal_for_current_model",
-        lambda: True,
-    )
     before = agent._reply_cycle_context.snapshot
     with pytest.raises(ModelBoundary):
         async for _ in agent._reasoning():
@@ -579,10 +575,6 @@ async def test_reasoning_does_not_advance_input_before_exit_decision(
         "qwenpaw.loop.gates.runner.check_pending_gates",
         lambda _agent: None,
     )
-    monkeypatch.setattr(
-        "qwenpaw.agents.model_factory._supports_multimodal_for_current_model",
-        lambda: True,
-    )
 
     events = [event async for event in QwenPawAgent._reasoning(agent)]
 
@@ -656,10 +648,6 @@ async def test_reasoning_preserves_cycle_until_exit_boundary(
     monkeypatch.setattr(
         "qwenpaw.loop.gates.runner.check_pending_gates",
         lambda _agent: None,
-    )
-    monkeypatch.setattr(
-        "qwenpaw.agents.model_factory._supports_multimodal_for_current_model",
-        lambda: True,
     )
 
     events = [event async for event in QwenPawAgent._reasoning(agent)]
@@ -735,10 +723,6 @@ async def test_empty_public_reply_is_diagnosed_without_retry_or_queue_loss(
     monkeypatch.setattr(Agent, "_reasoning", base_reasoning)
     monkeypatch.setattr(
         "qwenpaw.loop.gates.runner.check_pending_gates", lambda _: None
-    )
-    monkeypatch.setattr(
-        "qwenpaw.agents.model_factory._supports_multimodal_for_current_model",
-        lambda: True,
     )
     events = [event async for event in agent._reasoning()]
     assert calls == 1
@@ -854,6 +838,79 @@ def test_queue_consumes_one_independent_reply_cycle_at_a_time():
         "event-2",
     )
     assert reset_reply_cycle.call_count == 2
+
+
+@pytest.mark.asyncio
+async def test_new_queue_cycle_defers_steer_until_its_first_model_request(
+    monkeypatch,
+):
+    mailbox = RunInputMailbox()
+    mailbox.submit(run_input("long task", "task", mode="queue"))
+    agent = object.__new__(QwenPawAgent)
+    agent._run_input_mailbox = mailbox
+    agent._context_manager = None
+    agent._reply_cycle_context = ReplyCycleContext("run-1", "initial")
+    agent._inject_pending_hints = AsyncMock()
+    agent._model_rejects_media = lambda: False
+    agent._model_rejects_audio = lambda: False
+    agent._uses_request_time_media_normalization = lambda: False
+    agent._run_stop_handlers = AsyncMock(
+        return_value=StopHandlerResult(action=StopAction.TERMINATE)
+    )
+    agent.state = SimpleNamespace(context=[], reply_id="reply-1")
+
+    assert QwenPawAgent._consume_pending_run_inputs(agent) is True
+    mailbox.submit(run_input("status?", "status", mode="steer"))
+
+    assert agent._defer_steer_until_model_request is True
+    assert agent._reply_cycle_context.snapshot.responds_to_input_ids == (
+        "task",
+    )
+    assert [msg.content[0].text for msg in agent.state.context] == [
+        "long task"
+    ]
+
+    captured = []
+    final = Msg(
+        name="assistant",
+        role="assistant",
+        content=[TextBlock(type="text", text="task started")],
+    )
+
+    async def base_reasoning(_self, tool_choice=None):
+        del tool_choice
+        captured.append([msg.content[0].text for msg in agent.state.context])
+        yield final
+
+    monkeypatch.setattr(Agent, "_reasoning", base_reasoning)
+    monkeypatch.setattr(
+        "qwenpaw.loop.gates.runner.check_pending_gates", lambda _: None
+    )
+
+    assert [event async for event in agent._reasoning()] == [final]
+    assert captured == [["long task"]]
+    # The first request belongs to the queued task. The steer stays pending
+    # until a later reasoning pass after a tool result or reply boundary.
+    assert mailbox.drain_steer()[0].idempotency_key == "status"
+    assert agent._defer_steer_until_model_request is False
+
+
+def test_steer_during_active_task_keeps_both_reply_owners():
+    mailbox = RunInputMailbox()
+    mailbox.submit(run_input("status?", "status", mode="steer"))
+    agent = object.__new__(QwenPawAgent)
+    agent._run_input_mailbox = mailbox
+    agent._context_manager = None
+    cycle = agent._reply_cycle_context = ReplyCycleContext("run-1", "task")
+    cycle.start_inputs(("task",))
+    agent._get_stop_handlers = list
+    agent.state = SimpleNamespace(context=[])
+
+    assert QwenPawAgent._consume_pending_run_inputs(
+        agent, steer_only=True
+    )
+    assert cycle.snapshot.responds_to_input_ids == ("task", "status")
+    assert cycle.snapshot.group_id == "status"
 
 
 @pytest.mark.asyncio

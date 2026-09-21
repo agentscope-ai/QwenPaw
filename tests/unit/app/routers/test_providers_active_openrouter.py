@@ -32,12 +32,10 @@ def _make_manager() -> MagicMock:
 def _agent_config(
     active_model: ModelSlotConfig | None = None,
     active_realtime_model: ModelSlotConfig | None = None,
-    active_voice_router_model: ModelSlotConfig | None = None,
 ) -> SimpleNamespace:
     return SimpleNamespace(
         active_model=active_model,
         active_realtime_model=active_realtime_model,
-        active_voice_router_model=active_voice_router_model,
     )
 
 
@@ -207,7 +205,6 @@ async def test_load_agent_model_slots_returns_configured_slots(
     )
     slot = ModelSlotConfig(provider_id="p", model="m")
     voice = ModelSlotConfig(provider_id="p", model="voice")
-    router = ModelSlotConfig(provider_id="p", model="router")
     monkeypatch.setattr(
         providers_mod,
         "load_agent_config",
@@ -215,13 +212,12 @@ async def test_load_agent_model_slots_returns_configured_slots(
             return_value=SimpleNamespace(
                 active_model=slot,
                 active_realtime_model=voice,
-                active_voice_router_model=router,
             ),
         ),
     )
     request = MagicMock()
     result = await providers_mod._load_agent_model_slots(request, "agent-1")
-    assert result == (slot, voice, router)
+    assert result == (slot, voice)
 
 
 # ---------------------------------------------------------------------------
@@ -496,7 +492,6 @@ class TestGetActiveModels:
         manager = _make_manager()
         manager.get_active_model.return_value = slot
         manager.get_active_realtime_model.return_value = None
-        manager.get_active_voice_router_model.return_value = None
         provider = MagicMock()
         provider.get_context_size.return_value = 4096
         manager.get_provider.return_value = provider
@@ -655,7 +650,6 @@ class TestSetActiveModel:
             model="m",
         )
         manager.get_active_realtime_model.return_value = None
-        manager.get_active_voice_router_model.return_value = None
         return manager
 
     async def test_global_scope_provider_not_found_maps_to_404(self) -> None:

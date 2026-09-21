@@ -16,15 +16,16 @@ from agentscope.model import ChatModelBase
 from qwenpaw.exceptions import ModelNotFoundException
 
 from ..config.config import ModelSlotConfig
-from ..constant import EnvVarLoader, SECRET_DIR
+from ..constant import SECRET_DIR, EnvVarLoader  # noqa: F401
 from ..exceptions import ProviderError
-from ..utils.logging import sanitize_log_value
 from ..utils.io_utils import (
     get_sync_path_lock,
     run_async_to_completion,
     run_sync_io,
 )
+from ..utils.logging import sanitize_log_value
 from .model_sync import invalidate_api_metadata
+from .plugin_provider_registry import PluginProviderRegistry
 from .provider import (
     ModelInfo,
     Provider,
@@ -42,22 +43,25 @@ from .hub_managed import (
 from . import hub_model_selection
 from . import model_catalog
 from .capability_baseline import ExpectedCapabilityRegistry
+from .provider_annotations import ProviderAnnotationService
 from .provider_catalog import (
-    BUILTIN_PROVIDERS,
     BUILTIN_PROVIDER_CATALOG_KEYS,
+    BUILTIN_PROVIDERS,
 )
 from .provider_manager_discovery import ProviderManagerDiscoveryMixin
 from .provider_manager_persistence import (
     ProviderManagerPersistenceMixin,
 )
 from .provider_update_fields import (
-    AVAILABILITY_MODEL_FIELDS as _AVAILABILITY_MODEL_FIELDS,
-    CAPABILITY_MODEL_FIELDS as _CAPABILITY_MODEL_FIELDS,
-    CONNECTION_CONFIG_FIELDS as _CONNECTION_CONFIG_FIELDS,
-    PluginUpdateKind,
+    AVAILABILITY_MODEL_FIELDS as _AVAILABILITY_MODEL_FIELDS,  # noqa: F401
 )
-from .plugin_provider_registry import PluginProviderRegistry
-from .provider_annotations import ProviderAnnotationService
+from .provider_update_fields import (
+    CAPABILITY_MODEL_FIELDS as _CAPABILITY_MODEL_FIELDS,  # noqa: F401
+)
+from .provider_update_fields import (
+    CONNECTION_CONFIG_FIELDS as _CONNECTION_CONFIG_FIELDS,
+)
+from .provider_update_fields import PluginUpdateKind  # noqa: F401
 from .realtime_voice import (
     EffectiveRealtimeVoiceConfig,
     RealtimeProviderRegistration,
@@ -85,9 +89,7 @@ PROVIDER_OPENCODE = _provider_catalog.PROVIDER_OPENCODE
 PROVIDER_SILICONFLOW_CN = _provider_catalog.PROVIDER_SILICONFLOW_CN
 PROVIDER_SILICONFLOW_INTL = _provider_catalog.PROVIDER_SILICONFLOW_INTL
 PROVIDER_VOLCENGINE_CN = _provider_catalog.PROVIDER_VOLCENGINE_CN
-PROVIDER_VOLCENGINE_CN_CODINGPLAN = (
-    _provider_catalog.PROVIDER_VOLCENGINE_CN_CODINGPLAN
-)
+PROVIDER_VOLCENGINE_CN_CODINGPLAN = _provider_catalog.PROVIDER_VOLCENGINE_CN_CODINGPLAN
 VOLCENGINE_CODINGPLAN_MODELS = _provider_catalog.VOLCENGINE_CODINGPLAN_MODELS
 VOLCENGINE_MODELS = _provider_catalog.VOLCENGINE_MODELS
 
@@ -109,7 +111,6 @@ class ProviderManager(
         self.plugin_providers: Dict[str, Dict] = {}  # Plugin providers
         self.active_model: ModelSlotConfig | None = None
         self.active_realtime_model: ModelSlotConfig | None = None
-        self.active_voice_router_model: ModelSlotConfig | None = None
         self._realtime_voice_registrations: Dict[
             str,
             RealtimeProviderRegistration,
@@ -228,16 +229,14 @@ class ProviderManager(
                     name="Hub",
                     require_api_key=False,
                     models_last_sync_error=(
-                        "Organization model directory unavailable; "
-                        "contact admin"
+                        "Organization model directory unavailable; contact admin"
                     ),
                 )
             provider_infos.insert(0, hub_info)
         return [
             self._with_realtime_voice_capability(info)
             for info in (
-                list(provider_infos)
-                + self._plugin_registry.list_provider_infos()
+                list(provider_infos) + self._plugin_registry.list_provider_infos()
             )
         ]
 
@@ -334,9 +333,7 @@ class ProviderManager(
         active_missing = (
             active is not None
             and self._normalize_provider_id(active.provider_id) == provider_id
-            and all(
-                model.id != active.model for model in provider.realtime_models
-            )
+            and all(model.id != active.model for model in provider.realtime_models)
         )
         if (active is None or active_missing) and provider.realtime_models:
             self.active_realtime_model = ModelSlotConfig(
@@ -368,8 +365,7 @@ class ProviderManager(
                     "id": provider.id,
                     "label": provider.name,
                     "models": [
-                        model.model_dump()
-                        for model in provider.realtime_models
+                        model.model_dump() for model in provider.realtime_models
                     ],
                     **registration.public_capability().model_dump(),
                 },
@@ -378,9 +374,6 @@ class ProviderManager(
 
     def get_active_realtime_model(self) -> ModelSlotConfig | None:
         return self.active_realtime_model
-
-    def get_active_voice_router_model(self) -> ModelSlotConfig | None:
-        return self.active_voice_router_model
 
     def get_realtime_voice_model(
         self,
@@ -392,11 +385,7 @@ class ProviderManager(
         if provider is None or registration is None:
             return None
         return next(
-            (
-                model
-                for model in provider.realtime_models
-                if model.id == model_id
-            ),
+            (model for model in provider.realtime_models if model.id == model_id),
             None,
         )
 
@@ -411,8 +400,7 @@ class ProviderManager(
             )
         if model.vad.mode not in registration.vad_modes:
             raise ValueError(
-                f"VAD mode '{model.vad.mode}' is not supported by "
-                "the provider.",
+                f"VAD mode '{model.vad.mode}' is not supported by the provider.",
             )
         if model.realtime_model not in {
             option.id for option in registration.speech_models
@@ -430,8 +418,7 @@ class ProviderManager(
         model = self.get_realtime_voice_model(slot.provider_id, slot.model)
         if registration is None or model is None:
             raise ValueError(
-                f"Realtime model '{slot.provider_id}/{slot.model}' "
-                "is unavailable.",
+                f"Realtime model '{slot.provider_id}/{slot.model}' is unavailable.",
             )
         self._validate_realtime_voice_model(registration, model)
         return EffectiveRealtimeVoiceConfig.from_model(slot.provider_id, model)
@@ -450,7 +437,6 @@ class ProviderManager(
             "voice",
             "language",
             "vad",
-            "continuation_grace_ms",
             "presentation_capacity",
             "playback_timeout_seconds",
             "max_history_turns",
@@ -459,8 +445,7 @@ class ProviderManager(
         unsupported = set(config) - editable_fields
         if unsupported:
             raise ValueError(
-                "Unsupported realtime model fields: "
-                + ", ".join(sorted(unsupported)),
+                "Unsupported realtime model fields: " + ", ".join(sorted(unsupported)),
             )
         registration = self.get_realtime_voice_registration(provider_id)
         if registration is None:
@@ -469,11 +454,7 @@ class ProviderManager(
 
         async def update(candidate: Provider) -> RealtimeVoiceModelConfig:
             current = next(
-                (
-                    model
-                    for model in candidate.realtime_models
-                    if model.id == model_id
-                ),
+                (model for model in candidate.realtime_models if model.id == model_id),
                 None,
             )
             if current is None:
@@ -503,23 +484,6 @@ class ProviderManager(
         self.resolve_realtime_voice_config(slot)
         self.active_realtime_model = slot
         self.save_active_realtime_model(slot)
-
-    def activate_voice_router_model(
-        self,
-        provider_id: str,
-        model_id: str,
-    ) -> None:
-        provider_id = self._normalize_provider_id(provider_id)
-        provider = self.get_provider(provider_id)
-        if provider is None:
-            raise ValueError(f"Provider '{provider_id}' not found.")
-        if not provider.has_model(model_id):
-            raise ValueError(
-                f"Model '{model_id}' not found in provider '{provider_id}'.",
-            )
-        slot = ModelSlotConfig(provider_id=provider_id, model=model_id)
-        self.active_voice_router_model = slot
-        self.save_active_voice_router_model(slot)
 
     def update_provider(self, provider_id: str, config: Dict) -> bool:
         # Update the configuration of a provider (e.g., base URL, API key).
@@ -609,13 +573,10 @@ class ProviderManager(
             provider = self.get_provider(provider_id)
             if provider is None:
                 return False
-            if (
-                expected_revision is not None
-                and not self._is_current_provider(
-                    provider_id,
-                    expected_provider or provider,
-                    expected_revision,
-                )
+            if expected_revision is not None and not self._is_current_provider(
+                provider_id,
+                expected_provider or provider,
+                expected_revision,
             ):
                 return False
             candidate = provider.configuration_snapshot()
@@ -665,8 +626,7 @@ class ProviderManager(
         if persisted is None or persisted.models_last_synced_at is None:
             return
         provider.discovered_models = [
-            model.model_copy(deep=True)
-            for model in persisted.discovered_models
+            model.model_copy(deep=True) for model in persisted.discovered_models
         ]
         provider.models_last_synced_at = persisted.models_last_synced_at
         provider.models_last_sync_error = persisted.models_last_sync_error
@@ -752,10 +712,8 @@ class ProviderManager(
         resolved_id = base_id
         while (
             self._normalize_provider_id(resolved_id) in self.builtin_providers
-            or self._normalize_provider_id(resolved_id)
-            in self.custom_providers
-            or self._normalize_provider_id(resolved_id)
-            in self.plugin_providers
+            or self._normalize_provider_id(resolved_id) in self.custom_providers
+            or self._normalize_provider_id(resolved_id) in self.plugin_providers
         ):
             resolved_id = f"{resolved_id}-new"
 
@@ -879,14 +837,9 @@ class ProviderManager(
             "model_not_found",
             "incompatible_api",
         }:
-            reason = (
-                model_info.availability_message
-                or model_info.availability_status
-            )
+            reason = model_info.availability_message or model_info.availability_status
             raise ProviderError(
-                message=(
-                    f"Model '{model_id}' cannot be activated: " f"{reason}"
-                ),
+                message=(f"Model '{model_id}' cannot be activated: {reason}"),
             )
         provider_id = provider.id
         active_model = ModelSlotConfig(
@@ -992,8 +945,7 @@ class ProviderManager(
                     )
                     raise ProviderError(
                         message=(
-                            f"Model '{requested_model.id}' cannot be added: "
-                            f"{reason}"
+                            f"Model '{requested_model.id}' cannot be added: {reason}"
                         ),
                     )
                 payload = discovered.model_dump()
@@ -1436,16 +1388,14 @@ class ProviderManager(
         installed, _ = local_manager.check_llamacpp_installation()
         if not installed:
             logger.info(
-                "Skipping local model restore because"
-                " llama.cpp is not installed.",
+                "Skipping local model restore because llama.cpp is not installed.",
             )
             await _clear_local_provider()
             return
 
         if not local_manager.is_model_downloaded(model_id):
             logger.warning(
-                "Skipping local model restore because"
-                " model is not downloaded: %s",
+                "Skipping local model restore because model is not downloaded: %s",
                 model_id,
             )
             await _clear_local_provider()

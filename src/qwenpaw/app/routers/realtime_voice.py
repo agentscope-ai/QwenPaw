@@ -126,12 +126,8 @@ async def _client_to_coordinator(
                 frame.sample_rate != live.media.input_sample_rate
                 or frame.channels != live.media.channels
             ):
-                raise ValueError(
-                    "renderer audio format does not match session"
-                )
-            expected = (
-                0 if last_sequence is None else (last_sequence + 1) % (2**32)
-            )
+                raise ValueError("renderer audio format does not match session")
+            expected = 0 if last_sequence is None else (last_sequence + 1) % (2**32)
             if frame.sequence != expected:
                 raise ValueError("renderer audio sequence is not contiguous")
             last_sequence = frame.sequence
@@ -145,9 +141,7 @@ async def _client_to_coordinator(
             control = json.loads(raw)
         except json.JSONDecodeError as exc:
             raise ValueError("invalid realtime voice control JSON") from exc
-        control_type = (
-            control.get("type") if isinstance(control, dict) else None
-        )
+        control_type = control.get("type") if isinstance(control, dict) else None
         if control_type == "interrupt":
             await coordinator.interrupt()
         elif control_type == "output.playback":
@@ -161,13 +155,6 @@ async def _client_to_coordinator(
             }:
                 raise ValueError("invalid playback feedback")
             coordinator.playback_feedback(output_id, status)
-        elif control_type == "input.commit":
-            await coordinator.commit_pending()
-        elif control_type == "admission.mode":
-            mode = control.get("mode")
-            if mode not in {"queue", "steer"}:
-                raise ValueError("unknown voice admission mode")
-            await coordinator.set_admission_mode(mode)
         elif control_type == "agent.observe":
             await coordinator.observe_agent_run()
         elif control_type == "ping":
