@@ -14,6 +14,8 @@ import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import remarkMath from "remark-math";
+import rehypeKatex from "rehype-katex";
 import { workspaceApi } from "../../api/modules/workspace";
 import { buildAuthHeaders } from "../../api/authHeaders";
 import { RenderableCodeBlock } from "../../components/RenderableCodeBlock";
@@ -312,7 +314,8 @@ function MarkdownPreview({ content }: { content: string }) {
         </dl>
       )}
       <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
+        remarkPlugins={[remarkGfm, remarkMath]}
+        rehypePlugins={[rehypeKatex]}
         components={markdownComponents}
       >
         {body}

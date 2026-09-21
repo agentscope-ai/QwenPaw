@@ -60,7 +60,9 @@
     "react-router-dom": "^7.13.0",
     "react-syntax-highlighter": "^16.1.1",
     "react-window": "^1.8.10",
+    "rehype-katex": "^7.0.1",
     "remark-gfm": "^4.0.1",
+    "remark-math": "^6.0.0",
     "three": "0.185.1",
     "three-spritetext": "1.10.0",
     "zustand": "^5.0.3"
