@@ -295,6 +295,24 @@ const markdownComponents = {
   },
 };
 
+type MarkdownAstNode = {
+  type?: string;
+  lang?: string;
+  children?: MarkdownAstNode[];
+};
+
+function preserveMathCodeBlocks() {
+  return (tree: MarkdownAstNode) => {
+    const visit = (child: MarkdownAstNode) => {
+      if (child.type === "code" && child.lang === "math") {
+        child.lang = "latex";
+      }
+      for (const nested of child.children ?? []) visit(nested);
+    };
+    for (const child of tree.children ?? []) visit(child);
+  };
+}
+
 function MarkdownPreview({ content }: { content: string }) {
   const { body, entries } = useMemo(
     () => parseMarkdownFrontmatter(content),
@@ -314,7 +332,7 @@ function MarkdownPreview({ content }: { content: string }) {
         </dl>
       )}
       <ReactMarkdown
-        remarkPlugins={[remarkGfm, remarkMath]}
+        remarkPlugins={[remarkGfm, remarkMath, preserveMathCodeBlocks]}
         rehypePlugins={[rehypeKatex]}
         components={markdownComponents}
       >
