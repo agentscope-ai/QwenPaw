@@ -75,6 +75,30 @@ def test_routes_sessions_to_hash_sharded_databases(tmp_path: Path) -> None:
     catalog.close()
 
 
+def test_file_key_hashes_the_complete_canonical_identity() -> None:
+    # pylint: disable=protected-access
+    first = TranscriptCatalog._file_key(
+        session_id="same-session",
+        user_id="user-1",
+        channel="console",
+    )
+    second = TranscriptCatalog._file_key(
+        session_id="same-session",
+        user_id="user-2",
+        channel="console",
+    )
+    repeated = TranscriptCatalog._file_key(
+        session_id="same-session",
+        user_id="user-1",
+        channel="console",
+    )
+    # pylint: enable=protected-access
+
+    assert first != second
+    assert first == repeated
+    assert len(first) == 64
+
+
 def test_different_sessions_do_not_share_a_writer_lock(tmp_path: Path) -> None:
     catalog = TranscriptCatalog(tmp_path)
     _start(catalog, "session-a")
@@ -518,7 +542,11 @@ def test_invalid_branch_anchor_leaves_no_catalog_or_database(
 
     assert catalog.has_session("child") is False
     child_path = catalog._store_path(  # pylint: disable=protected-access
-        catalog._file_key("child"),  # pylint: disable=protected-access
+        catalog._file_key(  # pylint: disable=protected-access
+            session_id="child",
+            user_id="user-1",
+            channel="console",
+        ),
     )
     assert child_path.exists() is False
     catalog.close()

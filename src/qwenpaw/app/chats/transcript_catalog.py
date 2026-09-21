@@ -233,8 +233,18 @@ class TranscriptCatalog:
         )
 
     @staticmethod
-    def _file_key(session_id: str) -> str:
-        return hashlib.sha256(session_id.encode("utf-8")).hexdigest()
+    def _file_key(
+        *,
+        session_id: str,
+        user_id: str,
+        channel: str,
+    ) -> str:
+        canonical = json.dumps(
+            [channel, user_id, session_id],
+            ensure_ascii=False,
+            separators=(",", ":"),
+        )
+        return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
     def _store_path(self, file_key: str) -> Path:
         return self._transcript_dir / file_key[:2] / f"{file_key}.db"
@@ -439,7 +449,11 @@ class TranscriptCatalog:
                     user_id=user_id,
                     channel=channel,
                 )
-                file_key = self._file_key(session_id)
+                file_key = self._file_key(
+                    session_id=session_id,
+                    user_id=user_id,
+                    channel=channel,
+                )
                 timestamp = _utc_now()
                 with self._conn:
                     self._conn.execute(
@@ -508,7 +522,11 @@ class TranscriptCatalog:
 
         if row is not None or not create:
             return None
-        file_key = self._file_key(session_id)
+        file_key = self._file_key(
+            session_id=session_id,
+            user_id=user_id,
+            channel=channel,
+        )
         target = self._store_path(file_key)
         if target.exists():
             logger.warning(
@@ -745,7 +763,11 @@ class TranscriptCatalog:
                 raise ValueError("child transcript session is being published")
             self._publishing.add(child_session_id)
 
-        file_key = self._file_key(child_session_id)
+        file_key = self._file_key(
+            session_id=child_session_id,
+            user_id=child_user_id,
+            channel=child_channel,
+        )
         target = self._store_path(file_key)
         staging = target.with_name(
             f".{target.name}.{uuid.uuid4().hex}.forking",

@@ -1279,7 +1279,12 @@ class TranscriptStore:
         if self._cleanup_executor is not None:
             self._cleanup_executor.shutdown(wait=True)
         with self._lock:
-            self._conn.close()
+            try:
+                self._conn.execute(
+                    "PRAGMA wal_checkpoint(TRUNCATE)",
+                ).fetchone()
+            finally:
+                self._conn.close()
 
 
 __all__ = ["TranscriptCursor", "TranscriptPage", "TranscriptStore"]
