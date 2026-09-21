@@ -383,6 +383,9 @@
       "debug": "Log dan diagnostik",
       "extension": "Pengaturan yang disediakan oleh ekstensi"
     },
+    "browserTitle": "Judul tab browser",
+    "browserTitleHint": "Disimpan di browser ini untuk alamat Console ini. Kosongkan untuk menggunakan judul default.",
+    "browserTitleSaveFailed": "Tidak dapat menyimpan judul tab browser.",
     "appearanceAndLanguage": "Tampilan & bahasa",
     "desktopApplication": "Aplikasi desktop",
     "languageHint": "Mengubah bahasa antarmuka di perangkat ini.",

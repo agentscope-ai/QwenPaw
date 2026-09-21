@@ -2824,6 +2824,9 @@
       "debug": "ログと診断",
       "extension": "拡張機能が提供する設定"
     },
+    "browserTitle": "ブラウザーのタブタイトル",
+    "browserTitleHint": "この Console アドレス用に、このブラウザーに保存されます。空欄にすると既定のタイトルに戻ります。",
+    "browserTitleSaveFailed": "ブラウザーのタブタイトルを保存できませんでした。",
     "appearanceAndLanguage": "外観と言語",
     "desktopApplication": "デスクトップアプリ",
     "languageHint": "このデバイスの表示言語を変更します。",

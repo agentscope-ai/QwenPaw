@@ -372,6 +372,9 @@
       "debug": "Logs and diagnostics",
       "extension": "Settings provided by an extension"
     },
+    "browserTitle": "Browser tab title",
+    "browserTitleHint": "Saved in this browser for this Console address. Leave blank to use the default title.",
+    "browserTitleSaveFailed": "Could not save the browser tab title.",
     "appearanceAndLanguage": "Appearance & language",
     "desktopApplication": "Desktop app",
     "languageHint": "Changes the interface language on this device.",

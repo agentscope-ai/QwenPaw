@@ -2,6 +2,10 @@ import { useEffect, useRef, useState } from "react";
 import { MessageCircle, X } from "lucide-react";
 import { consoleApi, type PushMessage } from "../../api/modules/console";
 import { useApprovalContext } from "../../contexts/ApprovalContext";
+import {
+  DEFAULT_CONSOLE_TITLE,
+  useConsoleTitlePreference,
+} from "../../utils/consoleTitlePreference";
 import styles from "./index.module.less";
 
 const POLL_INTERVAL_MS = 2500;
@@ -19,7 +23,9 @@ export default function ConsolePollService() {
   const [items, setItems] = useState<BubbleItem[]>([]);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const seenIdsRef = useRef<Set<string>>(new Set());
-  const originalTitleRef = useRef(document.title);
+  const customTitle = useConsoleTitlePreference();
+  const baseTitle = customTitle.trim() || DEFAULT_CONSOLE_TITLE;
+  const originalTitleRef = useRef(baseTitle);
   const blinkRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const { setApprovals } = useApprovalContext();
 
@@ -28,8 +34,9 @@ export default function ConsolePollService() {
   };
 
   useEffect(() => {
-    originalTitleRef.current = document.title;
-  }, []);
+    originalTitleRef.current = baseTitle;
+    document.title = baseTitle;
+  }, [baseTitle]);
 
   useEffect(() => {
     const prevApprovalsRef = { current: "" };
@@ -90,12 +97,11 @@ export default function ConsolePollService() {
 
   useEffect(() => {
     if (items.length === 0 || !document.hidden || blinkRef.current) return;
-    const original = originalTitleRef.current;
     let showPrefix = true;
     blinkRef.current = setInterval(() => {
       document.title = showPrefix
-        ? `${TITLE_BLINK_PREFIX}${original}`
-        : original;
+        ? `${TITLE_BLINK_PREFIX}${originalTitleRef.current}`
+        : originalTitleRef.current;
       showPrefix = !showPrefix;
     }, 800);
     return () => {
@@ -103,7 +109,7 @@ export default function ConsolePollService() {
         clearInterval(blinkRef.current);
         blinkRef.current = null;
       }
-      document.title = original;
+      document.title = originalTitleRef.current;
     };
   }, [items.length]);
 

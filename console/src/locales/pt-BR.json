@@ -3075,6 +3075,9 @@
       "debug": "Logs e diagnóstico",
       "extension": "Configurações fornecidas por uma extensão"
     },
+    "browserTitle": "Título da aba do navegador",
+    "browserTitleHint": "Salvo neste navegador para este endereço do Console. Deixe em branco para usar o título padrão.",
+    "browserTitleSaveFailed": "Não foi possível salvar o título da aba do navegador.",
     "appearanceAndLanguage": "Aparência e idioma",
     "desktopApplication": "Aplicativo desktop",
     "languageHint": "Altera o idioma da interface neste dispositivo.",

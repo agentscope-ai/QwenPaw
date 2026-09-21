@@ -31,6 +31,11 @@ import {
   type CloseAction,
 } from "@/tauri/closeWindowPreference";
 import { applyLanguagePreference } from "@/utils/languagePreference";
+import {
+  DEFAULT_CONSOLE_TITLE,
+  setConsoleTitlePreference,
+  useConsoleTitlePreference,
+} from "@/utils/consoleTitlePreference";
 import { getOsRootHref } from "@/utils/navigationMode";
 import {
   getChatWideModePreference,
@@ -99,6 +104,7 @@ export default function GeneralSettings() {
     resetUserTheme,
   } = useTheme();
   const { message } = App.useApp();
+  const consoleTitle = useConsoleTitlePreference();
   const [draftTheme, setDraftTheme] = useState<ThemeConfig>(previewTheme);
   const [savingTheme, setSavingTheme] = useState(false);
   const [wideMode, setWideMode] = useState(getChatWideModePreference);
@@ -178,6 +184,14 @@ export default function GeneralSettings() {
     });
   };
 
+  const changeConsoleTitle = (title: string) => {
+    try {
+      setConsoleTitlePreference(title);
+    } catch {
+      message.error(t("settingsCenter.browserTitleSaveFailed"));
+    }
+  };
+
   const changeCloseBehavior = (value: CloseBehavior) => {
     if (value === "ask") clearRememberedCloseAction();
     else setRememberedCloseAction(value);
@@ -217,6 +231,25 @@ export default function GeneralSettings() {
           {t("settingsCenter.appearanceAndLanguage", "Appearance & language")}
         </h3>
         <div className={styles.settingsCard}>
+          <div className={styles.settingRow}>
+            <span className={styles.settingIcon}>
+              <Monitor size={18} />
+            </span>
+            <span className={styles.settingCopy}>
+              <label htmlFor="console-browser-title">
+                <strong>{t("settingsCenter.browserTitle")}</strong>
+              </label>
+              <small>{t("settingsCenter.browserTitleHint")}</small>
+            </span>
+            <Input
+              id="console-browser-title"
+              className={styles.settingControl}
+              value={consoleTitle}
+              placeholder={DEFAULT_CONSOLE_TITLE}
+              allowClear
+              onChange={(event) => changeConsoleTitle(event.target.value)}
+            />
+          </div>
           <div className={styles.settingRow}>
             <span className={styles.settingIcon}>
               <Languages size={18} />

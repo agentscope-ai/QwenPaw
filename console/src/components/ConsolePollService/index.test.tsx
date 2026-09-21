@@ -20,6 +20,7 @@ vi.mock("../../contexts/ApprovalContext", () => ({
 }));
 
 import ConsolePollService from "./index";
+import { setConsoleTitlePreference } from "../../utils/consoleTitlePreference";
 import type { PendingApproval, PushMessage } from "../../api/modules/console";
 
 const POLL_INTERVAL_MS = 2500;
@@ -81,7 +82,8 @@ describe("ConsolePollService", () => {
     mocks.getPushMessages.mockReset();
     mocks.setApprovals.mockReset();
     mocks.getPushMessages.mockResolvedValue(respond([]));
-    document.title = "QwenPaw";
+    localStorage.removeItem("qwenpaw_console_title");
+    document.title = "QwenPaw Console";
     setHidden(false);
   });
 
@@ -384,6 +386,98 @@ describe("ConsolePollService", () => {
 
   // ── title blinking ──────────────────────────────────────────────────────
 
+  it("applies edits immediately, persists across mounts and resets to default", async () => {
+    const { unmount } = render(<ConsolePollService />);
+    await poll(0);
+    act(() => setConsoleTitlePreference("Project Alpha"));
+    expect(document.title).toBe("Project Alpha");
+
+    unmount();
+    render(<ConsolePollService />);
+    await poll(0);
+    expect(document.title).toBe("Project Alpha");
+
+    act(() => setConsoleTitlePreference("   "));
+    expect(document.title).toBe("QwenPaw Console");
+    act(() => setConsoleTitlePreference(""));
+    expect(document.title).toBe("QwenPaw Console");
+    expect(localStorage.getItem("qwenpaw_console_title")).toBeNull();
+  });
+
+  it("uses the latest title throughout an active notification and on unmount", async () => {
+    setHidden(true);
+    mocks.getPushMessages.mockResolvedValue(respond([msg("m1")]));
+    const { unmount } = render(<ConsolePollService />);
+    await poll(0);
+    await poll(800);
+    expect(document.title).toBe(`${TITLE_BLINK_PREFIX}QwenPaw Console`);
+
+    act(() => setConsoleTitlePreference("Project Beta"));
+    await poll(1600);
+    expect(document.title).toBe(`${TITLE_BLINK_PREFIX}Project Beta`);
+
+    unmount();
+    expect(document.title).toBe("Project Beta");
+  });
+
+  it("restores the latest title when a notification expires", async () => {
+    setHidden(true);
+    mocks.getPushMessages.mockResolvedValue(respond([msg("m1")]));
+    render(<ConsolePollService />);
+    await poll(0);
+    await poll(800);
+    act(() => setConsoleTitlePreference("Project Beta"));
+    await poll(AUTO_DISMISS_MS);
+    expect(document.title).toBe("Project Beta");
+  });
+
+  it("syncs another tab's changes and clearing without restoring a stale title", async () => {
+    setHidden(true);
+    mocks.getPushMessages.mockResolvedValue(respond([msg("m1")]));
+    render(<ConsolePollService />);
+    await poll(0);
+    await poll(800);
+
+    act(() => {
+      localStorage.setItem("qwenpaw_console_title", "Other Tab");
+      window.dispatchEvent(
+        Object.assign(new Event("storage"), {
+          key: "qwenpaw_console_title",
+          storageArea: localStorage,
+        }),
+      );
+    });
+    expect(document.title).toBe("Other Tab");
+    setHidden(false);
+    fireVisibility("visible");
+    expect(document.title).toBe("Other Tab");
+
+    act(() => {
+      localStorage.clear();
+      window.dispatchEvent(
+        Object.assign(new Event("storage"), {
+          key: null,
+          storageArea: localStorage,
+        }),
+      );
+    });
+    expect(document.title).toBe("QwenPaw Console");
+  });
+
+  it("falls back to the default title when browser storage is unavailable", async () => {
+    const getItem = localStorage.getItem;
+    localStorage.getItem = vi.fn(() => {
+      throw new DOMException("Storage blocked", "SecurityError");
+    });
+    try {
+      render(<ConsolePollService />);
+      await poll(0);
+      expect(document.title).toBe("QwenPaw Console");
+    } finally {
+      localStorage.getItem = getItem;
+    }
+  });
+
   it("does not blink the title while the tab is visible", async () => {
     mocks.getPushMessages.mockResolvedValue(respond([msg("m1")]));
     render(<ConsolePollService />);
@@ -393,7 +487,7 @@ describe("ConsolePollService", () => {
       await vi.advanceTimersByTimeAsync(3000);
     });
 
-    expect(document.title).toBe("QwenPaw");
+    expect(document.title).toBe("QwenPaw Console");
   });
 
   it("blinks the title while a bubble is shown and the tab is hidden", async () => {
@@ -405,12 +499,12 @@ describe("ConsolePollService", () => {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(800);
     });
-    expect(document.title).toBe(`${TITLE_BLINK_PREFIX}QwenPaw`);
+    expect(document.title).toBe(`${TITLE_BLINK_PREFIX}QwenPaw Console`);
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(800);
     });
-    expect(document.title).toBe("QwenPaw");
+    expect(document.title).toBe("QwenPaw Console");
   });
 
   it("restores the title once the last bubble disappears", async () => {
@@ -423,7 +517,7 @@ describe("ConsolePollService", () => {
       await vi.advanceTimersByTimeAsync(AUTO_DISMISS_MS + 1000);
     });
 
-    expect(document.title).toBe("QwenPaw");
+    expect(document.title).toBe("QwenPaw Console");
   });
 
   it("restores the title when the tab becomes visible again", async () => {
@@ -435,12 +529,12 @@ describe("ConsolePollService", () => {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(800);
     });
-    expect(document.title).toBe(`${TITLE_BLINK_PREFIX}QwenPaw`);
+    expect(document.title).toBe(`${TITLE_BLINK_PREFIX}QwenPaw Console`);
 
     setHidden(false);
     fireVisibility("visible");
 
-    expect(document.title).toBe("QwenPaw");
+    expect(document.title).toBe("QwenPaw Console");
   });
 
   it("ignores a visibilitychange to hidden", async () => {
@@ -474,7 +568,7 @@ describe("ConsolePollService", () => {
     });
 
     // A doubled loop would flip the prefix twice and land back on the plain title.
-    expect(document.title).toBe(`${TITLE_BLINK_PREFIX}QwenPaw`);
+    expect(document.title).toBe(`${TITLE_BLINK_PREFIX}QwenPaw Console`);
   });
 
   it("restores the title on unmount while blinking", async () => {
@@ -486,15 +580,16 @@ describe("ConsolePollService", () => {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(800);
     });
-    expect(document.title).toBe(`${TITLE_BLINK_PREFIX}QwenPaw`);
+    expect(document.title).toBe(`${TITLE_BLINK_PREFIX}QwenPaw Console`);
 
     unmount();
 
-    expect(document.title).toBe("QwenPaw");
+    expect(document.title).toBe("QwenPaw Console");
   });
 
-  it("captures the title that was present at mount", async () => {
-    document.title = "Original Page";
+  it("uses a saved title instead of capturing a stale document title", async () => {
+    localStorage.setItem("qwenpaw_console_title", "Original Page");
+    document.title = "• Stale Title";
     setHidden(true);
     mocks.getPushMessages.mockResolvedValue(respond([msg("m1")]));
     render(<ConsolePollService />);
