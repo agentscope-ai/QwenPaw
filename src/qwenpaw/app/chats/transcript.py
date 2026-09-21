@@ -67,6 +67,7 @@ class TranscriptStore:
         self,
         db_path: str | Path,
         retention_days: int = 30,
+        background_cleanup: bool = True,
     ) -> None:
         self._path = Path(db_path).expanduser()
         self._path.parent.mkdir(parents=True, exist_ok=True)
@@ -74,9 +75,13 @@ class TranscriptStore:
         self._closed = False
         self._retention_days = retention_days
         self._last_retention_check: date | None = None
-        self._cleanup_executor = ThreadPoolExecutor(
-            max_workers=1,
-            thread_name_prefix="transcript-cleanup",
+        self._cleanup_executor = (
+            ThreadPoolExecutor(
+                max_workers=1,
+                thread_name_prefix="transcript-cleanup",
+            )
+            if background_cleanup
+            else None
         )
         self._conn = sqlite3.connect(
             str(self._path),
@@ -89,9 +94,14 @@ class TranscriptStore:
         try:
             self._migrate()
             self.purge_if_due()
-            self._submit_cleanup(self._purge_deleted_sessions)
+            if background_cleanup:
+                self._submit_cleanup(self._purge_deleted_sessions)
         except BaseException:
-            self._cleanup_executor.shutdown(wait=False, cancel_futures=True)
+            if self._cleanup_executor is not None:
+                self._cleanup_executor.shutdown(
+                    wait=False,
+                    cancel_futures=True,
+                )
             self._conn.close()
             self._closed = True
             raise
@@ -953,7 +963,7 @@ class TranscriptStore:
         *args: Any,
     ) -> Future[Any] | None:
         with self._lock:
-            if self._closed:
+            if self._closed or self._cleanup_executor is None:
                 return None
             future = self._cleanup_executor.submit(method, *args)
 
@@ -974,6 +984,188 @@ class TranscriptStore:
         with self._lock:
             row = self._session_row(session_id)
             return row is not None and row["deleted_at"] is None
+
+    def session_watermark(self, session_id: str) -> tuple[int, int, int]:
+        """Return revision, turn count, and message count."""
+        with self._lock:
+            session = self._session_row(session_id)
+            if session is None:
+                raise ValueError("transcript session does not exist")
+            turn_count = int(
+                self._conn.execute(
+                    "SELECT COUNT(*) FROM transcript_turns "
+                    "WHERE session_id = ?",
+                    (session_id,),
+                ).fetchone()[0],
+            )
+            message_count = int(
+                self._conn.execute(
+                    "SELECT COUNT(*) FROM transcript_messages "
+                    "WHERE session_id = ?",
+                    (session_id,),
+                ).fetchone()[0],
+            )
+            return int(session["revision"]), turn_count, message_count
+
+    def fork_snapshot(
+        self,
+        *,
+        parent_session_id: str,
+        child_session_id: str,
+        child_user_id: str,
+        child_channel: str,
+        target_path: str | Path,
+        anchor: TranscriptCursor | None = None,
+    ) -> tuple[TranscriptCursor | None, int, int]:
+        """Materialize a child database from one consistent parent snapshot."""
+        target = Path(target_path)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        with self._lock:
+            session = self._session_row(parent_session_id)
+            if session is None or session["deleted_at"] is not None:
+                raise ValueError("parent transcript session does not exist")
+            resolved_anchor = anchor or self._latest_cursor(parent_session_id)
+            if anchor is not None:
+                self._validate_fork_anchor(parent_session_id, anchor)
+            destination = sqlite3.connect(str(target))
+            try:
+                self._conn.backup(destination)
+            finally:
+                destination.close()
+
+        connection = sqlite3.connect(str(target))
+        try:
+            connection.execute("PRAGMA foreign_keys=OFF")
+            connection.execute("BEGIN IMMEDIATE")
+            if resolved_anchor is not None:
+                self._truncate_after_anchor(
+                    connection,
+                    parent_session_id,
+                    resolved_anchor,
+                )
+            connection.execute("DELETE FROM transcript_imports")
+            connection.execute(
+                "UPDATE transcript_messages SET session_id = ? "
+                "WHERE session_id = ?",
+                (child_session_id, parent_session_id),
+            )
+            connection.execute(
+                "UPDATE transcript_turns SET session_id = ? "
+                "WHERE session_id = ?",
+                (child_session_id, parent_session_id),
+            )
+            connection.execute(
+                "UPDATE transcript_sessions SET session_id = ?, "
+                "user_id = ?, channel = ?, deleted_at = NULL, "
+                "next_turn_seq = (SELECT COALESCE(MAX(turn_seq), 0) + 1 "
+                "FROM transcript_turns WHERE session_id = ?), "
+                "updated_at = ? WHERE session_id = ?",
+                (
+                    child_session_id,
+                    child_user_id,
+                    child_channel,
+                    child_session_id,
+                    _utc_now(),
+                    parent_session_id,
+                ),
+            )
+            violations = connection.execute(
+                "PRAGMA foreign_key_check",
+            ).fetchall()
+            if violations:
+                raise RuntimeError(
+                    "forked transcript failed foreign key check",
+                )
+            connection.commit()
+            connection.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()
+            turn_count = int(
+                connection.execute(
+                    "SELECT COUNT(*) FROM transcript_turns "
+                    "WHERE session_id = ?",
+                    (child_session_id,),
+                ).fetchone()[0],
+            )
+            message_count = int(
+                connection.execute(
+                    "SELECT COUNT(*) FROM transcript_messages "
+                    "WHERE session_id = ?",
+                    (child_session_id,),
+                ).fetchone()[0],
+            )
+            return resolved_anchor, turn_count, message_count
+        except BaseException:
+            connection.rollback()
+            raise
+        finally:
+            connection.close()
+
+    def _latest_cursor(self, session_id: str) -> TranscriptCursor | None:
+        row = self._conn.execute(
+            "SELECT t.turn_seq, m.ordinal FROM transcript_messages m "
+            "JOIN transcript_turns t ON t.session_id = m.session_id "
+            "AND t.turn_id = m.turn_id WHERE m.session_id = ? "
+            "ORDER BY t.turn_seq DESC, m.ordinal DESC LIMIT 1",
+            (session_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        return TranscriptCursor(
+            turn_seq=int(row["turn_seq"]),
+            ordinal=int(row["ordinal"]),
+        )
+
+    def _validate_fork_anchor(
+        self,
+        session_id: str,
+        anchor: TranscriptCursor,
+    ) -> None:
+        if anchor.ordinal is None:
+            row = self._conn.execute(
+                "SELECT 1 FROM transcript_turns "
+                "WHERE session_id = ? AND turn_seq = ?",
+                (session_id, anchor.turn_seq),
+            ).fetchone()
+        else:
+            row = self._conn.execute(
+                "SELECT 1 FROM transcript_messages m "
+                "JOIN transcript_turns t ON t.session_id = m.session_id "
+                "AND t.turn_id = m.turn_id WHERE m.session_id = ? "
+                "AND t.turn_seq = ? AND m.ordinal = ?",
+                (session_id, anchor.turn_seq, anchor.ordinal),
+            ).fetchone()
+        if row is None:
+            raise ValueError("fork anchor does not exist")
+
+    @staticmethod
+    def _truncate_after_anchor(
+        connection: sqlite3.Connection,
+        session_id: str,
+        anchor: TranscriptCursor,
+    ) -> None:
+        connection.execute(
+            "DELETE FROM transcript_messages WHERE session_id = ? "
+            "AND turn_id IN (SELECT turn_id FROM transcript_turns "
+            "WHERE session_id = ? AND turn_seq > ?)",
+            (session_id, session_id, anchor.turn_seq),
+        )
+        if anchor.ordinal is not None:
+            connection.execute(
+                "DELETE FROM transcript_messages WHERE session_id = ? "
+                "AND turn_id IN (SELECT turn_id FROM transcript_turns "
+                "WHERE session_id = ? AND turn_seq = ?) "
+                "AND ordinal > ?",
+                (
+                    session_id,
+                    session_id,
+                    anchor.turn_seq,
+                    anchor.ordinal,
+                ),
+            )
+        connection.execute(
+            "DELETE FROM transcript_turns WHERE session_id = ? "
+            "AND turn_seq > ?",
+            (session_id, anchor.turn_seq),
+        )
 
     def has_import(
         self,
@@ -1084,9 +1276,10 @@ class TranscriptStore:
             if self._closed:
                 return
             self._closed = True
-        self._cleanup_executor.shutdown(wait=True)
+        if self._cleanup_executor is not None:
+            self._cleanup_executor.shutdown(wait=True)
         with self._lock:
             self._conn.close()
 
 
-__all__ = ["TranscriptPage", "TranscriptStore"]
+__all__ = ["TranscriptCursor", "TranscriptPage", "TranscriptStore"]
