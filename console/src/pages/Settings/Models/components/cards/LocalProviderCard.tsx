@@ -1,3 +1,4 @@
+import { ModelCardSurface } from "./ModelCardSurface";
 import React from "react";
 import type { ProviderInfo } from "../../../../../api/types";
 import { useTranslation } from "react-i18next";
@@ -19,7 +20,7 @@ export const LocalProviderCard = React.memo(function LocalProviderCard({
   const statusReady = totalCount > 0;
 
   return (
-    <div className={styles.groupCardGlass}>
+    <ModelCardSurface className={styles.groupCardGlass}>
       {/* Header - same layout as GroupCard */}
       <div className={styles.groupCardHeader}>
         <ProviderIcon providerId={provider.id} size={36} />
@@ -62,6 +63,6 @@ export const LocalProviderCard = React.memo(function LocalProviderCard({
           {t("models.models")}
         </button>
       </div>
-    </div>
+    </ModelCardSurface>
   );
 });

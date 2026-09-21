@@ -1,3 +1,4 @@
+import { ModelCardSurface } from "./components/cards/ModelCardSurface";
 import { ModelChoice } from "../../Chat/ModelSelector/ModelChoice";
 import { providerApi } from "@/api/modules/provider";
 import { useAppMessage } from "@/hooks/useAppMessage";
@@ -506,7 +507,8 @@ function ModelsPage() {
                         </div>
                         <div className={styles.availableGrid}>
                           {cloudAvailableGroups.map((g) => (
-                            <div
+                            <ModelCardSurface
+                              tilt={5}
                               key={g.key}
                               className={styles.availableItem}
                               onClick={() => {
@@ -530,7 +532,7 @@ function ModelsPage() {
                               <span className={styles.availableItemAction}>
                                 {t("models.configureAction")}
                               </span>
-                            </div>
+                            </ModelCardSurface>
                           ))}
                         </div>
                       </div>
@@ -562,7 +564,8 @@ function ModelsPage() {
                         </div>
                         <div className={styles.availableGrid}>
                           {localAvailable.map((provider) => (
-                            <div
+                            <ModelCardSurface
+                              tilt={5}
                               key={provider.id}
                               className={styles.availableItem}
                               onClick={() => handleOpenConfig(provider)}
@@ -577,7 +580,7 @@ function ModelsPage() {
                               <span className={styles.availableItemAction}>
                                 {t("models.configureAction")}
                               </span>
-                            </div>
+                            </ModelCardSurface>
                           ))}
                         </div>
                       </div>

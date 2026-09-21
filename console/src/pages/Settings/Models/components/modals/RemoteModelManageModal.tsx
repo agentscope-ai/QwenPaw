@@ -1,3 +1,4 @@
+import { ModelCardSurface } from "../cards/ModelCardSurface";
 import { useState, useEffect, useMemo, useDeferredValue, useRef } from "react";
 import { Button, Form, Modal, Tag, Tooltip } from "@agentscope-ai/design";
 import { Pagination, Spin, Switch } from "antd";
@@ -390,7 +391,9 @@ export function RemoteModelManageModal({
               const isNew = !isSelected && !seenIds.has(model.id);
               const expanded = configId === model.id;
               return (
-                <div
+                <ModelCardSurface
+                  tilt={3}
+                  frameClassName={styles.entryFrame}
                   key={model.id}
                   className={`${styles.entry} ${
                     isSelected ? styles.selectedEntry : ""
@@ -504,7 +507,7 @@ export function RemoteModelManageModal({
                       </label>
                     </div>
                   </div>
-                </div>
+                </ModelCardSurface>
               );
             })}
           </Spin>

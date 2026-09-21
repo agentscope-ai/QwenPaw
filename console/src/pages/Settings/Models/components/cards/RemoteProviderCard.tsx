@@ -1,3 +1,4 @@
+import { ModelCardSurface } from "./ModelCardSurface";
 import { ChevronRight } from "lucide-react";
 import { ProviderCloseButton } from "./ProviderCloseButton";
 import React, { useState } from "react";
@@ -77,7 +78,7 @@ export const RemoteProviderCard = React.memo(function RemoteProviderCard({
   ) : null;
 
   return (
-    <div className={styles.groupCardGlass}>
+    <ModelCardSurface className={styles.groupCardGlass}>
       {!isManaged && (
         <ProviderCloseButton
           ids={[provider.id]}
@@ -232,6 +233,6 @@ export const RemoteProviderCard = React.memo(function RemoteProviderCard({
         }}
         onCancel={() => setOauthModalOpen(false)}
       />
-    </div>
+    </ModelCardSurface>
   );
 });
