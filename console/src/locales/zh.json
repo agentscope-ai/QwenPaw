@@ -2099,6 +2099,10 @@
     "retry": "重试"
   },
   "modelSelector": {
+    "manageModels": "管理模型",
+    "addModels": "添加模型",
+    "noProviders": "尚未添加提供商",
+    "addProvider": "添加提供商",
     "selectModel": "选择模型",
     "noConfiguredModels": "暂无已配置模型",
     "noFreeModels": "暂无可用的免费模型",

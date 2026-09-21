@@ -2175,6 +2175,10 @@
     }
   },
   "modelSelector": {
+    "manageModels": "Manage models",
+    "addModels": "Add models",
+    "noProviders": "No providers yet",
+    "addProvider": "Add provider",
     "selectModel": "Select model",
     "noConfiguredModels": "No configured models",
     "noFreeModels": "No free models available",

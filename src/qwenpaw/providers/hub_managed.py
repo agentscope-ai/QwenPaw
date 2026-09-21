@@ -148,16 +148,14 @@ def managed_provider(catalog=None) -> ManagedProvider:
 
 def managed_slot(selected=None, *, explicit=False, catalog=None):
     """Resolve and validate a selection within the organization catalog."""
-    catalog = catalog if catalog is not None else directory()
-    if selected and selected.provider_id != PROVIDER_ID:
+    if selected is None:
         if explicit:
-            raise ProviderError(
-                message="Only organization models are allowed",
-            )
-        selected = None
-    if not catalog["models"] and not explicit:
+            raise ProviderError(message=f"No organization model selected")
         return None, catalog
-    model_id = selected.model if selected else catalog["default_model_id"]
+    if selected.provider_id != PROVIDER_ID:
+        raise ProviderError(message=f"Not an organization model selection")
+    catalog = catalog if catalog is not None else directory()
+    model_id = selected.model
     if model_id not in {m["id"] for m in catalog["models"]}:
         raise ProviderError(
             message="Organization model is no longer available",

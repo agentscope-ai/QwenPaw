@@ -232,9 +232,10 @@ class ProviderManager(
 
     def get_active_model(self) -> ModelSlotConfig | None:
         """Resolve the active model; Hub resolution refreshes its catalog."""
-        if hub_mode() and (
-            not self.active_model
-            or self.active_model.provider_id == PROVIDER_ID
+        if (
+            hub_mode()
+            and self.active_model
+            and self.active_model.provider_id == PROVIDER_ID
         ):
             return managed_slot(self.active_model)[0]
         return self.active_model

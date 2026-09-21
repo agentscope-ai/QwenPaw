@@ -3,7 +3,12 @@
 
 from ..config.config import ModelSlotConfig, load_agent_config
 from ..providers.provider_manager import ProviderManager
-from ..providers.hub_managed import hub_mode, managed_provider, managed_slot
+from ..providers.hub_managed import (
+    PROVIDER_ID,
+    hub_mode,
+    managed_provider,
+    managed_slot,
+)
 from ..providers.thinking import (
     ThinkingControl,
     ThinkingPreference,
@@ -37,10 +42,7 @@ def _with_session_model(config, selected):
         return config
     default = config.active_model
     if default is None:
-        if hub_mode():
-            default, _ = managed_slot(None)
-        else:
-            default = ProviderManager.get_instance().get_active_model()
+        default = ProviderManager.get_instance().active_model
     update = {f"active_model": selected}
     if default != selected:
         update.update(thinking_level=f"inherit", thinking_budget=None)
@@ -71,34 +73,35 @@ async def thinking_view(
 
     def model_view():
         if config.backend != f"qwenpaw":
-            return None, None, ThinkingControl(), None
-        if hub_mode():
-            slot, catalog = managed_slot(config.active_model)
-            if slot is None:
-                return None, None, ThinkingControl(), None
-            provider = managed_provider(catalog)
-            return (
-                slot.provider_id,
-                slot.model,
-                provider.thinking_control(slot.model),
-                provider.get_context_size(slot.model),
-            )
+            return None, None, ThinkingControl(), None, None
         manager = ProviderManager.get_instance()
         slot = config.active_model or manager.get_active_model()
-        if not slot:
-            return None, None, ThinkingControl(), None
-        provider = manager.get_provider(slot.provider_id)
-        if provider is None:
-            return None, None, ThinkingControl(), None
-        control = provider.thinking_control(slot.model)
+        if hub_mode() and slot and slot.provider_id == PROVIDER_ID:
+            slot, catalog = managed_slot(slot, explicit=True)
+            if slot is None:
+                return None, None, ThinkingControl(), None, None
+            provider = managed_provider(catalog)
+        else:
+            if not slot:
+                return None, None, ThinkingControl(), None, None
+            provider = manager.get_provider(slot.provider_id)
+            if provider is None or not provider.enabled:
+                return None, None, ThinkingControl(), None, None
+        info = provider.get_model_info(slot.model)
+        if info is None:
+            return None, None, ThinkingControl(), None, None
+        name = info.name
         return (
             slot.provider_id,
             slot.model,
-            control,
+            provider.thinking_control(slot.model),
             provider.get_context_size(slot.model),
+            name,
         )
 
-    provider_id, model, control, context_size = await run_sync_io(model_view)
+    provider_id, model, control, context_size, model_name = await run_sync_io(
+        model_view,
+    )
     model_key = f"{provider_id}:{model}" if model else f""
     if override is None and meta is not None:
         override = session_preference(meta, model_key)
@@ -109,6 +112,7 @@ async def thinking_view(
     return {
         f"model_source": model_source,
         f"model": model,
+        f"model_name": model_name,
         f"provider_id": provider_id,
         f"model_key": model_key,
         f"effective_max_input_length": context_size,
@@ -148,12 +152,9 @@ async def apply_session_thinking(ctx, config):
     if chat:
 
         def selected_key():
-            if hub_mode():
-                slot, _ = managed_slot(config.active_model)
-            else:
-                slot = config.active_model or (
-                    ProviderManager.get_instance().get_active_model()
-                )
+            slot = config.active_model or (
+                ProviderManager.get_instance().get_active_model()
+            )
             return f"{slot.provider_id}:{slot.model}" if slot else f""
 
         model_key = await run_sync_io(selected_key)

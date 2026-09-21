@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { renderWithProviders } from "@/test/common_setup";
@@ -44,7 +45,17 @@ vi.mock("@agentscope-ai/design", async (original) => {
     ...actual,
     Form: antd.Form,
     Input: antd.Input,
-    Modal: ({ open, children, title, onOk }: any) =>
+    Modal: ({
+      open,
+      children,
+      title,
+      onOk,
+    }: {
+      open: boolean;
+      children: ReactNode;
+      title: ReactNode;
+      onOk?: () => void;
+    }) =>
       open ? (
         <div role="dialog">
           <h2>{title}</h2>
@@ -201,12 +212,15 @@ describe("model pool switches", () => {
       ),
     );
     expect(screen.getByText("Chosen model")).toBeInTheDocument();
+    await waitFor(() => expect(api.getModelPool).toHaveBeenCalledTimes(2));
     api.selectAllModels.mockResolvedValue({ ...provider, extra_models: [] });
     const closeAll = screen.getByRole("button", {
       name: "models.pool.disableAll",
     });
     await waitFor(() => expect(closeAll).not.toBeDisabled());
-    fireEvent.click(closeAll);
+    fireEvent.click(
+      screen.getByRole("button", { name: "models.pool.disableAll" }),
+    );
     await waitFor(() =>
       expect(api.selectAllModels).toHaveBeenCalledWith("openrouter", false),
     );
@@ -218,7 +232,9 @@ describe("model pool switches", () => {
       name: "models.pool.enableAll",
     });
     await waitFor(() => expect(enableAll).not.toBeDisabled());
-    fireEvent.click(enableAll);
+    fireEvent.click(
+      screen.getByRole("button", { name: "models.pool.enableAll" }),
+    );
     await waitFor(() =>
       expect(api.selectAllModels).toHaveBeenCalledWith("openrouter", true),
     );

@@ -170,7 +170,13 @@ export function SessionThinking({
                   control={view.control}
                   value={value}
                   effective={view.effective}
-                  modelLabel={view.model || t("modelSelector.selectModel")}
+                  modelLabel={
+                    view.model_name ||
+                    (view.provider_id === "hub-managed"
+                      ? undefined
+                      : view.model) ||
+                    t("modelSelector.selectModel")
+                  }
                   onChooseModel={() => setChoosing(true)}
                   onChange={(next) => void save(next)}
                   disabled={busy}
@@ -199,7 +205,9 @@ export function SessionThinking({
         {view?.provider_id && (
           <ProviderIcon providerId={view.provider_id} size={16} />
         )}
-        <span>{view?.model || t("modelSelector.selectModel")}</span>
+        <span>
+          {view?.model_name || view?.model || t("modelSelector.selectModel")}
+        </span>
         {view &&
           !["unsupported", "unknown"].includes(view.control.kind) &&
           display.level !== "inherit" && (

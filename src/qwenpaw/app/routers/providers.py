@@ -953,7 +953,7 @@ async def get_active_models(
                 workspace = await get_agent_for_request(request)
                 agent_id = workspace.agent_id
             selected = await _load_agent_model(request, agent_id) or selected
-        if selected is None or selected.provider_id == PROVIDER_ID:
+        if selected is not None and selected.provider_id == PROVIDER_ID:
             catalog = await run_sync_io(directory)
             if selected and selected.model not in {
                 model["id"] for model in catalog["models"]

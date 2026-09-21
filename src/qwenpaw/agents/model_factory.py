@@ -2207,14 +2207,14 @@ def _create_hub_model_and_formatter(settings, model_slot, *, explicit):
         provider_id=PROVIDER_ID,
         model_info=provider.get_model_info(selected.model),
     )
-    return (
-        TokenRecordingModelWrapper(
-            PROVIDER_ID,
-            model,
-            compact_threshold=settings.compact_threshold,
-        ),
-        formatter,
+    wrapped = TokenRecordingModelWrapper(
+        PROVIDER_ID,
+        model,
+        compact_threshold=settings.compact_threshold,
     )
+    info = provider.get_model_info(selected.model)
+    wrapped.display_name = info.name if info else None
+    return wrapped, formatter
 
 
 def create_model_and_formatter(
@@ -2261,9 +2261,7 @@ def create_model_and_formatter(
 
     if hub_mode() and model_slot is None:
         model_slot = ProviderManager.get_instance().active_model
-    if hub_mode() and (
-        model_slot is None or model_slot.provider_id == PROVIDER_ID
-    ):
+    if hub_mode() and model_slot and model_slot.provider_id == PROVIDER_ID:
         return _create_hub_model_and_formatter(
             settings,
             model_slot,
@@ -2366,6 +2364,8 @@ def create_model_and_formatter(
         has_model_override=slot is not None,
     )
 
+    info = provider.get_model_info(selected_model_id)
+    wrapped_model.display_name = info.name if info else None
     return wrapped_model, formatter
 
 

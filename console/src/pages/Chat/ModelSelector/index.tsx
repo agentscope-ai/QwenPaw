@@ -21,6 +21,7 @@ import {
   AlertTriangle,
   Check,
   ChevronDown,
+  ChevronRight,
   ChevronUp,
   Link as LinkIcon,
   Eye,
@@ -388,7 +389,9 @@ export default function ModelSelector({
     return provider?.models.find((model) => model.id === activeModelId) ?? null;
   })();
   const activeModelName =
-    activeModel?.name || activeModelId || t("modelSelector.selectModel");
+    activeModel?.name ||
+    (activeProviderId === "hub-managed" ? undefined : activeModelId) ||
+    t("modelSelector.selectModel");
   const activeModelIsFree = Boolean(activeModel?.is_free);
 
   const showActiveProviderIcon = Boolean(activeProviderId);
@@ -857,6 +860,29 @@ export default function ModelSelector({
             )}
           </>
         )}
+        <button
+          type="button"
+          className={styles.manageModelsEntry}
+          onClick={() => {
+            setCollapsedProviders((previous) => {
+              const next = new Set(previous);
+              next.delete(provider.id);
+              return next;
+            });
+            setManagingModels(true);
+            setAddingProvider(provider.id);
+          }}
+        >
+          <Plus size={14} />
+          <span>
+            {t(
+              provider.models.length
+                ? "modelSelector.manageModels"
+                : "modelSelector.addModels",
+            )}
+          </span>
+          <ChevronRight size={14} />
+        </button>
       </div>
     );
   };
@@ -1026,7 +1052,21 @@ export default function ModelSelector({
         <div className={styles.emptyTip} role="status">
           {trimmedSearch
             ? t("modelSelector.noModelsFound")
-            : t("modelSelector.noConfiguredModels")}
+            : t("modelSelector.noProviders")}
+          {!trimmedSearch && (
+            <button
+              type="button"
+              className={styles.manageModelsEntry}
+              onClick={() => {
+                setOpen(false);
+                navigate("/models");
+              }}
+            >
+              <Plus size={14} />
+              <span>{t("modelSelector.addProvider")}</span>
+              <ChevronRight size={14} />
+            </button>
+          )}
         </div>
       );
     }

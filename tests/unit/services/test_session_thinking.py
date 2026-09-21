@@ -295,3 +295,145 @@ async def test_session_routes_use_selected_model_constraints(tmp_path):
         assert view[f"source"] == f"agent"
         assert view[f"effective"][f"level"] == f"high"
         assert config.active_model.model == f"a"
+
+
+@pytest.mark.asyncio
+async def test_hub_view_separates_display_name_from_routing_id(monkeypatch):
+    model_id = f"ddfc504d910c40d5afb25250933df0000"
+    monkeypatch.setenv(f"QWENPAW_HUB_MODEL_URL", f"https://hub.example")
+    monkeypatch.setenv(f"QWENPAW_HUB_MODEL_TOKEN", f"test-token")
+    catalog = {
+        f"default_model_id": model_id,
+        f"models": [
+            {
+                f"id": model_id,
+                f"name": f"Organization Qwen",
+                f"supports_image": False,
+                f"supports_agent_thinking": False,
+                f"input_token_limit": 32000,
+                f"output_token_limit": None,
+            },
+        ],
+    }
+    config = AgentProfileConfig(
+        id=f"agent",
+        name=f"Agent",
+        active_model=ModelSlotConfig(
+            provider_id=f"hub-managed",
+            model=model_id,
+        ),
+    )
+    with (
+        patch(
+            f"qwenpaw.services.session_thinking.load_agent_config",
+            return_value=config,
+        ),
+        patch(
+            f"qwenpaw.providers.hub_managed.directory",
+            return_value=catalog,
+        ),
+    ):
+        view = await thinking_view(SimpleNamespace(agent_id=f"agent"))
+    assert view[f"model_name"] == f"Organization Qwen"
+    assert view[f"model"] == model_id
+    assert view[f"model_key"] == f"hub-managed:{model_id}"
+
+
+@pytest.mark.asyncio
+async def test_hub_personal_session_selection_and_reasoning(
+    tmp_path,
+    monkeypatch,
+):
+    monkeypatch.setenv(f"QWENPAW_HUB_MODEL_TOKEN", f"test-token")
+    config = AgentProfileConfig(
+        id=f"agent",
+        name=f"Agent",
+        active_model=ModelSlotConfig(provider_id=f"hub-managed", model=f"org"),
+    )
+    manager = ChatManager(repo=JsonChatRepository(tmp_path / f"chats.json"))
+    chat = await manager.create_chat(
+        ChatSpec(session_id=f"personal", user_id=f"u", channel=f"console"),
+    )
+    workspace = SimpleNamespace(agent_id=f"agent", chat_manager=manager)
+    selected = ModelSlotConfig(provider_id=f"kilo", model=f"qwen")
+    with (
+        patch(
+            f"qwenpaw.services.session_thinking.load_agent_config",
+            return_value=config,
+        ),
+        patch(
+            f"qwenpaw.services.session_thinking.ProviderManager.get_instance",
+        ) as factory,
+        patch(f"qwenpaw.services.session_thinking.managed_slot") as hub,
+    ):
+        provider = factory.return_value.get_provider.return_value
+        provider.get_model_info.return_value = SimpleNamespace(name=f"Qwen")
+        provider.thinking_control.return_value = ThinkingControl()
+        provider.get_context_size.return_value = 128000
+        view = await set_chat_model(chat.id, selected, manager, workspace)
+        assert view[f"provider_id"] == f"kilo"
+        assert view[f"model_name"] == f"Qwen"
+        assert view[f"effective_max_input_length"] == 128000
+        reread = await get_chat_thinking(chat.id, manager, workspace)
+        assert reread[f"model"] == f"qwen"
+        ctx = SimpleNamespace(
+            workspace=workspace,
+            session_id=f"personal",
+            request=SimpleNamespace(channel=f"console", user_id=f"u"),
+        )
+        snapshot = await apply_session_thinking(ctx, config)
+        assert snapshot.active_model == selected
+        hub.assert_not_called()
+        factory.return_value.get_provider.assert_called_with(f"kilo")
+        hub.return_value = (config.active_model, {f"models": []})
+        with patch(
+            f"qwenpaw.services.session_thinking.managed_provider",
+            return_value=provider,
+        ):
+            org = await set_chat_model(
+                chat.id,
+                config.active_model,
+                manager,
+                workspace,
+            )
+            assert org[f"provider_id"] == f"hub-managed"
+            assert org[f"model"] == f"org"
+        calls = hub.call_count
+        personal = await set_chat_model(chat.id, selected, manager, workspace)
+        assert personal[f"provider_id"] == f"kilo"
+        assert hub.call_count == calls
+
+
+@pytest.mark.asyncio
+async def test_invalid_personal_selection_is_not_persisted(
+    tmp_path,
+    monkeypatch,
+):
+    monkeypatch.setenv(f"QWENPAW_HUB_MODEL_TOKEN", f"token")
+    config = AgentProfileConfig(id=f"agent", name=f"Agent")
+    manager = ChatManager(repo=JsonChatRepository(tmp_path / f"chats.json"))
+    chat = await manager.create_chat(ChatSpec(session_id=f"s", user_id=f"u"))
+    with (
+        patch(
+            f"qwenpaw.services.session_thinking.load_agent_config",
+            return_value=config,
+        ),
+        patch(
+            f"qwenpaw.services.session_thinking.ProviderManager.get_instance",
+        ) as factory,
+        patch(f"qwenpaw.services.session_thinking.managed_slot") as hub,
+    ):
+        provider = factory.return_value.get_provider.return_value
+        provider.get_model_info.return_value = None
+        with pytest.raises(HTTPException) as failure:
+            await set_chat_model(
+                chat.id,
+                ModelSlotConfig(provider_id=f"kilo", model=f"missing"),
+                manager,
+                SimpleNamespace(agent_id=f"agent"),
+            )
+        assert failure.value.status_code == 422
+        hub.assert_not_called()
+        assert not (await manager.get_chat(chat.id)).meta.get(
+            f"runtime_context",
+        )

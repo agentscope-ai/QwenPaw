@@ -199,6 +199,21 @@ describe("ModelSelector", () => {
     vi.clearAllMocks();
   });
 
+  it("opens inline model management from the provider footer", async () => {
+    renderWithProviders(<ModelSelector />);
+    await screen.findAllByText("GPT-4");
+    fireEvent.click(
+      screen.getByRole("button", { name: "chat.modelSelectTooltip" }),
+    );
+    fireEvent.click(
+      await screen.findByRole("button", { name: "modelSelector.manageModels" }),
+    );
+    expect(await screen.findByTestId("candidate-picker")).toHaveTextContent(
+      "openai",
+    );
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
   it("keeps the existing selector and toggles per-row editing controls", async () => {
     renderWithProviders(<ModelSelector />);
     await screen.findAllByText("GPT-4");
@@ -705,8 +720,12 @@ describe("ModelSelector", () => {
     await user.click(screen.getAllByText("modelSelector.selectModel")[0]);
 
     expect(
-      await screen.findByText("modelSelector.noConfiguredModels"),
+      await screen.findByText("modelSelector.noProviders"),
     ).toBeInTheDocument();
+    await user.click(
+      screen.getByRole("button", { name: "modelSelector.addProvider" }),
+    );
+    expect(navigateMock).toHaveBeenCalledWith("/models");
   });
 
   it("keeps partial data visible and offers retry when loading partly fails", async () => {

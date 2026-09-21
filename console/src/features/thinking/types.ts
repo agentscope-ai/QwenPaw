@@ -34,6 +34,7 @@ export interface ThinkingView {
   model_key?: string;
   effective_max_input_length?: number | null;
   model: string | null;
+  model_name?: string | null;
   control: ThinkingControlSpec;
   value: ThinkingPreference;
   effective: ThinkingPreference;

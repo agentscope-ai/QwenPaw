@@ -462,6 +462,12 @@ class AgentBuilder:
             model_slot_override=model_slot_override,
         )
 
+        ctx.extras[f"active_model_display_name"] = getattr(
+            model,
+            f"display_name",
+            None,
+        )
+
         # Built once and shared: the agent's native offloader, and (when
         # ``offload_dialog`` is on) scroll's optional dialog archive.
         offloader = self._build_offloader(ctx, agent_config)
@@ -910,11 +916,8 @@ class AgentBuilder:
             or os.environ.get("SHELL")
             or ("cmd.exe" if sys.platform == "win32" else "/bin/sh")
         )
-        _active = getattr(agent_config, "active_model", None)
-        _model_name = (
-            _active.model
-            if _active and getattr(_active, "model", None)
-            else None
+        _model_name = (getattr(ctx, f"extras", None) or {}).get(
+            f"active_model_display_name",
         )
         return build_env_context(
             agent_id=getattr(agent_config, "id", None),
