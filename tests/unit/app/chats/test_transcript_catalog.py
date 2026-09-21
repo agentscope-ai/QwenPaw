@@ -154,48 +154,35 @@ def test_lru_reopens_evicted_session_without_losing_history(
     catalog.close()
 
 
-def test_lazily_migrates_one_session_from_shared_v3(tmp_path: Path) -> None:
-    legacy = TranscriptStore(tmp_path / "transcript.db", retention_days=0)
-    legacy.start_turn(
-        session_id="legacy-session",
+def test_catalog_ignores_unpublished_shared_transcript(
+    tmp_path: Path,
+) -> None:
+    shared = TranscriptStore(tmp_path / "transcript.db", retention_days=0)
+    shared.start_turn(
+        session_id="shared-session",
         user_id="user-1",
         channel="console",
-        turn_id="legacy-turn",
+        turn_id="shared-turn",
         source="qwenpaw",
     )
-    legacy.upsert_message(
-        session_id="legacy-session",
-        turn_id="legacy-turn",
-        message=_message("legacy-message", "legacy"),
+    shared.upsert_message(
+        session_id="shared-session",
+        turn_id="shared-turn",
+        message=_message("shared-message", "shared"),
         ordinal=0,
     )
-    legacy.close()
+    shared.close()
 
     catalog = TranscriptCatalog(tmp_path)
     page = catalog.get_page(
-        session_id="legacy-session",
+        session_id="shared-session",
         user_id="user-1",
         channel="console",
     )
 
-    assert page is not None
-    assert [message.id for message in page.messages] == ["legacy-message"]
-    row = catalog._conn.execute(  # pylint: disable=protected-access
-        "SELECT migration_state, file_key, source_revision, "
-        "source_turn_count, source_message_count, "
-        "migration_finished_at FROM transcript_files "
-        "WHERE session_id = 'legacy-session'",
-    ).fetchone()
-    assert row["migration_state"] == "migrated_v3"
-    assert row["source_revision"] is not None
-    assert row["source_turn_count"] == 1
-    assert row["source_message_count"] == 1
-    assert row["migration_finished_at"] is not None
-    path = catalog._store_path(  # pylint: disable=protected-access
-        row["file_key"],
-    )
-    assert path.is_file()
-    assert (tmp_path / "transcript.db").is_file()
+    assert page is None
+    assert catalog.has_session("shared-session") is False
+    assert not list((tmp_path / "transcripts").glob("*/*.db"))
     catalog.close()
 
 
@@ -211,7 +198,7 @@ def test_catalog_v1_schema_upgrades_with_lineage_columns(
             channel TEXT NOT NULL,
             file_key TEXT NOT NULL UNIQUE,
             migration_state TEXT NOT NULL DEFAULT 'native'
-                CHECK(migration_state IN ('native', 'migrated_v3')),
+                CHECK(migration_state IN ('native')),
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL,
             deleted_at TEXT,
@@ -257,154 +244,6 @@ def test_catalog_v1_schema_upgrades_with_lineage_columns(
         == 2
     )
     catalog.close()
-
-
-def test_migration_failure_is_isolated_to_one_session(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    legacy = TranscriptStore(tmp_path / "transcript.db", retention_days=0)
-    legacy.start_turn(
-        session_id="legacy-session",
-        user_id="user-1",
-        channel="console",
-        turn_id="legacy-turn",
-        source="qwenpaw",
-    )
-    legacy.close()
-    catalog = TranscriptCatalog(tmp_path)
-
-    def fail_copy(*_args, **_kwargs):
-        raise OSError("copy failed")
-
-    monkeypatch.setattr(catalog, "_copy_legacy_session", fail_copy)
-    assert (
-        catalog.get_page(
-            session_id="legacy-session",
-            user_id="user-1",
-            channel="console",
-        )
-        is None
-    )
-    failed = catalog._conn.execute(  # pylint: disable=protected-access
-        "SELECT migration_state, migration_error FROM transcript_files "
-        "WHERE session_id = 'legacy-session'",
-    ).fetchone()
-    assert failed["migration_state"] == "failed"
-    assert failed["migration_error"] == "copy failed"
-
-    _start(catalog, "native-session")
-    _upsert(catalog, "native-session")
-    assert catalog.has_session("native-session") is True
-    catalog.close()
-
-
-def test_corrupt_migrated_file_recovers_from_legacy_source(
-    tmp_path: Path,
-) -> None:
-    legacy = TranscriptStore(tmp_path / "transcript.db", retention_days=0)
-    legacy.start_turn(
-        session_id="legacy-session",
-        user_id="user-1",
-        channel="console",
-        turn_id="legacy-turn",
-        source="qwenpaw",
-    )
-    legacy.upsert_message(
-        session_id="legacy-session",
-        turn_id="legacy-turn",
-        message=_message("legacy-message", "legacy"),
-        ordinal=0,
-    )
-    legacy.close()
-    catalog = TranscriptCatalog(tmp_path)
-    first = catalog.get_page(
-        session_id="legacy-session",
-        user_id="user-1",
-        channel="console",
-    )
-    assert first is not None
-    row = catalog._conn.execute(  # pylint: disable=protected-access
-        "SELECT file_key FROM transcript_files "
-        "WHERE session_id = 'legacy-session'",
-    ).fetchone()
-    # pylint: disable-next=protected-access
-    path = catalog._store_path(row["file_key"])
-    catalog.close()
-    path.write_bytes(b"not a sqlite database")
-
-    recovered_catalog = TranscriptCatalog(tmp_path)
-    recovered = recovered_catalog.get_page(
-        session_id="legacy-session",
-        user_id="user-1",
-        channel="console",
-    )
-
-    assert recovered is not None
-    assert [message.id for message in recovered.messages] == [
-        "legacy-message",
-    ]
-    recovered_catalog.close()
-
-
-def test_interrupted_publish_rebuilds_stale_migrating_target(
-    tmp_path: Path,
-) -> None:
-    legacy = TranscriptStore(tmp_path / "transcript.db", retention_days=0)
-    legacy.start_turn(
-        session_id="legacy-session",
-        user_id="user-1",
-        channel="console",
-        turn_id="legacy-turn",
-        source="qwenpaw",
-    )
-    legacy.close()
-    catalog = TranscriptCatalog(tmp_path)
-    assert (
-        catalog.get_page(
-            session_id="legacy-session",
-            user_id="user-1",
-            channel="console",
-        )
-        is not None
-    )
-    row = catalog._conn.execute(  # pylint: disable=protected-access
-        "SELECT file_key FROM transcript_files "
-        "WHERE session_id = 'legacy-session'",
-    ).fetchone()
-    # pylint: disable-next=protected-access
-    path = catalog._store_path(row["file_key"])
-    with catalog._conn:  # pylint: disable=protected-access
-        catalog._conn.execute(  # pylint: disable=protected-access
-            "UPDATE transcript_files SET migration_state = 'migrating' "
-            "WHERE session_id = 'legacy-session'",
-        )
-    catalog.close()
-    stale = sqlite3.connect(path)
-    stale.execute(
-        "UPDATE transcript_sessions SET revision = 999 "
-        "WHERE session_id = 'legacy-session'",
-    )
-    stale.commit()
-    stale.close()
-
-    recovered_catalog = TranscriptCatalog(tmp_path)
-    recovered = recovered_catalog.get_page(
-        session_id="legacy-session",
-        user_id="user-1",
-        channel="console",
-    )
-
-    assert recovered is not None
-    assert recovered.revision != 999
-    state = (
-        recovered_catalog._conn.execute(  # pylint: disable=protected-access
-            "SELECT migration_state FROM transcript_files "
-            "WHERE session_id = 'legacy-session'",
-        ).fetchone()[0]
-    )
-    assert state == "migrated_v3"
-    recovered_catalog.close()
 
 
 def test_conversation_branch_materializes_at_message_anchor(
@@ -588,38 +427,4 @@ def test_delete_tombstones_catalog_before_removing_session_file(
     ).fetchone()
     assert tombstone["deleted_at"]
     assert tombstone["purged_at"]
-    catalog.close()
-
-
-def test_deleted_legacy_session_cannot_be_migrated_again(
-    tmp_path: Path,
-) -> None:
-    legacy = TranscriptStore(tmp_path / "transcript.db", retention_days=0)
-    legacy.start_turn(
-        session_id="legacy-session",
-        user_id="user-1",
-        channel="console",
-        turn_id="legacy-turn",
-        source="qwenpaw",
-    )
-    legacy.close()
-
-    catalog = TranscriptCatalog(tmp_path)
-    assert catalog.has_session("legacy-session") is True
-    page = catalog.get_page(
-        session_id="legacy-session",
-        user_id="user-1",
-        channel="console",
-    )
-    assert page is not None
-    assert catalog.delete_session("legacy-session") is True
-    assert catalog.has_session("legacy-session") is False
-    assert (
-        catalog.get_page(
-            session_id="legacy-session",
-            user_id="user-1",
-            channel="console",
-        )
-        is None
-    )
     catalog.close()

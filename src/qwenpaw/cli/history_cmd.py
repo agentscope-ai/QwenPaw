@@ -28,10 +28,10 @@ def history_group() -> None:
 @click.option(
     "--dry-run",
     is_flag=True,
-    help="Inspect eligible sessions without writing transcript.db.",
+    help="Inspect eligible sessions without writing transcript files.",
 )
 def migrate_transcript(agent_id: str, dry_run: bool) -> None:
-    """Explicitly import mapped Scroll history into transcript.db."""
+    """Explicitly import mapped Scroll history into session transcripts."""
     config = load_config()
     profile = config.agents.profiles.get(agent_id)
     if profile is None:

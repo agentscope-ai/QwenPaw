@@ -15,7 +15,7 @@ from agentscope.message import Msg
 from ...schemas import Message
 from ...utils.io_utils import read_json
 from .models import ChatSpec, ChatsFile
-from .transcript import TranscriptStore
+from .transcript_catalog import TranscriptCatalog
 from .utils import agentscope_msg_to_message
 
 _MIGRATION_SCHEMA_VERSION = 1
@@ -182,14 +182,14 @@ def _chat_mapping(chats_path: Path) -> dict[str, list[ChatSpec]]:
 
 
 def _existing_target_state(
-    db_path: Path,
+    catalog_path: Path,
     *,
     source_identity: str,
     fingerprint: str,
 ) -> tuple[set[str], bool]:
-    if not db_path.is_file():
+    if not catalog_path.is_file():
         return set(), False
-    uri = f"{db_path.resolve().as_uri()}?mode=ro"
+    uri = f"{catalog_path.resolve().as_uri()}?mode=ro"
     with sqlite3.connect(uri, uri=True) as connection:
         tables = {
             str(row[0])
@@ -197,12 +197,13 @@ def _existing_target_state(
                 "SELECT name FROM sqlite_master WHERE type = 'table'",
             )
         }
-        if "transcript_sessions" not in tables:
+        if "transcript_files" not in tables:
             return set(), False
         sessions = {
             str(row[0])
             for row in connection.execute(
-                "SELECT session_id FROM transcript_sessions",
+                "SELECT session_id FROM transcript_files "
+                "WHERE deleted_at IS NULL",
             )
         }
         if "transcript_imports" not in tables:
@@ -251,12 +252,12 @@ def migrate_history_transcript(  # pylint: disable=too-many-branches
     """Import mapped ``history.db`` sessions without replacing live data."""
     workspace = workspace_dir.expanduser().resolve()
     history_path = workspace / "history.db"
-    transcript_path = workspace / "transcript.db"
+    catalog_path = workspace / "transcript_catalog.db"
     source_identity = str(history_path.resolve())
     history, fingerprint = _read_history(history_path)
     chats = _chat_mapping(workspace / "chats.json")
     existing, already_imported = _existing_target_state(
-        transcript_path,
+        catalog_path,
         source_identity=source_identity,
         fingerprint=fingerprint,
     )
@@ -286,59 +287,46 @@ def migrate_history_transcript(  # pylint: disable=too-many-branches
     if dry_run:
         return result
 
-    store = TranscriptStore(transcript_path, retention_days=0)
-    imported_sessions: list[str] = []
+    catalog = TranscriptCatalog(workspace, retention_days=0)
     try:
         for session_id, chat, messages in eligible:
-            if store.has_session(session_id):
+            if catalog.has_session(session_id):
                 result.skipped_existing += 1
                 result.eligible_sessions -= 1
                 continue
-            imported_sessions.append(session_id)
+            turns: list[tuple[str, list[Message]]] = []
             for turn_index, turn in enumerate(_group_turns(messages)):
                 turn_id = f"history-import-{turn_index}-{turn[0].seq}"
-                store.start_turn(
-                    session_id=session_id,
-                    user_id=chat.user_id,
-                    channel=chat.channel,
-                    turn_id=turn_id,
-                    source=f"history_import:{agent_id}",
-                    source_complete=False,
-                    created_at=turn[0].created_at,
-                )
-                ordinal = 0
+                converted: list[Message] = []
                 for source in turn:
-                    for message in _converted_messages(source):
-                        store.upsert_message(
-                            session_id=session_id,
-                            turn_id=turn_id,
-                            message=message,
-                            ordinal=ordinal,
-                            created_at=source.created_at,
-                        )
-                        ordinal += 1
-                        result.imported_messages += 1
-                store.finish_turn(
-                    session_id=session_id,
-                    turn_id=turn_id,
-                    status="completed",
-                    finished_at=turn[-1].created_at,
-                )
-                result.imported_turns += 1
+                    converted.extend(_converted_messages(source))
+                turns.append((turn_id, converted))
+            imported = catalog.import_history_if_missing(
+                session_id=session_id,
+                user_id=chat.user_id,
+                channel=chat.channel,
+                source=f"history_import:{agent_id}",
+                turns=turns,
+                source_complete=False,
+            )
+            if not imported:
+                result.skipped_existing += 1
+                result.eligible_sessions -= 1
+                continue
             result.imported_sessions += 1
-        store.record_import(
+            result.imported_turns += len(turns)
+            result.imported_messages += sum(
+                len(turn_messages) for _, turn_messages in turns
+            )
+        catalog.record_import(
             source_kind="history.db",
             source_identity=source_identity,
             fingerprint=fingerprint,
             schema_version=_MIGRATION_SCHEMA_VERSION,
             result=result.as_dict(),
         )
-    except BaseException:
-        for session_id in imported_sessions:
-            store.delete_session(session_id)
-        raise
     finally:
-        store.close()
+        catalog.close()
     return result
 
 

@@ -14,7 +14,7 @@ from qwenpaw.agents.context.scroll.history import HistoryStore
 from qwenpaw.agents.context.scroll.serialize import msg_to_entries
 from qwenpaw.agents.context.types import LogEntry
 from qwenpaw.app.chats.models import ChatSpec, ChatsFile
-from qwenpaw.app.chats.transcript import TranscriptStore
+from qwenpaw.app.chats.transcript_catalog import TranscriptCatalog
 from qwenpaw.app.chats.transcript_migration import (
     migrate_history_transcript,
 )
@@ -90,6 +90,7 @@ def test_dry_run_does_not_create_transcript_database(tmp_path: Path) -> None:
 
     assert result.eligible_sessions == 1
     assert result.imported_sessions == 0
+    assert not (tmp_path / "transcript_catalog.db").exists()
     assert not (tmp_path / "transcript.db").exists()
 
 
@@ -107,8 +108,8 @@ def test_migration_is_partial_and_idempotent(tmp_path: Path) -> None:
         agent_id="agent-1",
         dry_run=False,
     )
-    store = TranscriptStore(tmp_path / "transcript.db", retention_days=0)
-    page = store.get_page(
+    catalog = TranscriptCatalog(tmp_path, retention_days=0)
+    page = catalog.get_page(
         session_id="session-1",
         user_id="user-1",
         channel="console",
@@ -124,7 +125,12 @@ def test_migration_is_partial_and_idempotent(tmp_path: Path) -> None:
         "hello",
         "world",
     ]
-    store.close()
+    assert [item.metadata["timestamp"] for item in page.messages] == [
+        "2026-09-20T09:00:00+08:00",
+        "2026-09-20T09:01:00+08:00",
+    ]
+    assert not (tmp_path / "transcript.db").exists()
+    catalog.close()
 
 
 def test_migration_skips_ambiguous_session_mapping(tmp_path: Path) -> None:
@@ -174,11 +180,8 @@ def test_migration_preserves_tool_result_order(tmp_path: Path) -> None:
         agent_id="agent-1",
         dry_run=False,
     )
-    transcript = TranscriptStore(
-        tmp_path / "transcript.db",
-        retention_days=0,
-    )
-    page = transcript.get_page(
+    catalog = TranscriptCatalog(tmp_path, retention_days=0)
+    page = catalog.get_page(
         session_id="session-1",
         user_id="user-1",
         channel="console",
@@ -191,7 +194,8 @@ def test_migration_preserves_tool_result_order(tmp_path: Path) -> None:
         "plugin_call_output",
         "message",
     ]
-    transcript.close()
+    assert not (tmp_path / "transcript.db").exists()
+    catalog.close()
 
 
 def test_cli_resolves_agent_workspace_and_prints_json(
@@ -216,4 +220,5 @@ def test_cli_resolves_agent_workspace_and_prints_json(
 
     assert result.exit_code == 0
     assert json.loads(result.output)["eligible_sessions"] == 1
+    assert not (tmp_path / "transcript_catalog.db").exists()
     assert not (tmp_path / "transcript.db").exists()

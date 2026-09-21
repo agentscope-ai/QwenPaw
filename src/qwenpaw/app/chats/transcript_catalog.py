@@ -71,7 +71,6 @@ class TranscriptCatalog:
         self._workspace_dir = Path(workspace_dir).expanduser()
         self._workspace_dir.mkdir(parents=True, exist_ok=True)
         self._path = self._workspace_dir / "transcript_catalog.db"
-        self._legacy_path = self._workspace_dir / "transcript.db"
         self._transcript_dir = self._workspace_dir / "transcripts"
         self._transcript_dir.mkdir(parents=True, exist_ok=True)
         self._retention_days = retention_days
@@ -127,12 +126,11 @@ class TranscriptCatalog:
                         migration_state  TEXT NOT NULL DEFAULT 'native'
                                          CHECK(migration_state IN (
                                              'native', 'migrating',
-                                             'migrated_v3', 'failed'
+                                             'failed'
                                          )),
                         origin           TEXT NOT NULL DEFAULT 'native'
                                          CHECK(origin IN (
-                                             'native', 'legacy_v3',
-                                             'conversation_branch'
+                                             'native', 'conversation_branch'
                                          )),
                         parent_session_id TEXT,
                         root_session_id  TEXT,
@@ -181,6 +179,7 @@ class TranscriptCatalog:
         self._conn.executescript(
             """
             ALTER TABLE transcript_files RENAME TO transcript_files_v1;
+            DROP INDEX transcript_files_deleted;
 
             CREATE TABLE transcript_files (
                 session_id       TEXT PRIMARY KEY,
@@ -190,12 +189,11 @@ class TranscriptCatalog:
                 migration_state  TEXT NOT NULL DEFAULT 'native'
                                  CHECK(migration_state IN (
                                      'native', 'migrating',
-                                     'migrated_v3', 'failed'
+                                     'failed'
                                  )),
                 origin           TEXT NOT NULL DEFAULT 'native'
                                  CHECK(origin IN (
-                                     'native', 'legacy_v3',
-                                     'conversation_branch'
+                                     'native', 'conversation_branch'
                                  )),
                 parent_session_id TEXT,
                 root_session_id  TEXT,
@@ -218,10 +216,7 @@ class TranscriptCatalog:
                 origin, created_at, updated_at, deleted_at, purged_at
             )
             SELECT session_id, user_id, channel, file_key, migration_state,
-                   CASE migration_state
-                       WHEN 'migrated_v3' THEN 'legacy_v3'
-                       ELSE 'native'
-                   END,
+                   'native',
                    created_at, updated_at, deleted_at, purged_at
             FROM transcript_files_v1;
 
@@ -278,146 +273,6 @@ class TranscriptCatalog:
         if row["user_id"] != user_id or row["channel"] != channel:
             raise ValueError("transcript session identity mismatch")
 
-    def _legacy_session(
-        self,
-        session_id: str,
-    ) -> tuple[sqlite3.Connection, sqlite3.Row] | None:
-        if not self._legacy_path.is_file():
-            return None
-        uri = f"file:{self._legacy_path}?mode=ro"
-        connection = sqlite3.connect(uri, uri=True)
-        connection.row_factory = sqlite3.Row
-        try:
-            connection.execute("BEGIN")
-            row = connection.execute(
-                "SELECT * FROM transcript_sessions WHERE session_id = ? "
-                "AND deleted_at IS NULL",
-                (session_id,),
-            ).fetchone()
-        except sqlite3.DatabaseError:
-            connection.close()
-            return None
-        if row is None:
-            connection.close()
-            return None
-        return connection, row
-
-    def _copy_legacy_session(
-        self,
-        connection: sqlite3.Connection,
-        session: sqlite3.Row,
-        target: Path,
-    ) -> tuple[int, int, int]:
-        target.parent.mkdir(parents=True, exist_ok=True)
-        session_id = str(session["session_id"])
-        turns = connection.execute(
-            "SELECT * FROM transcript_turns WHERE session_id = ? "
-            "ORDER BY turn_seq",
-            (session_id,),
-        ).fetchall()
-        messages = connection.execute(
-            "SELECT * FROM transcript_messages WHERE session_id = ? "
-            "ORDER BY turn_id, ordinal",
-            (session_id,),
-        ).fetchall()
-        source_revision = int(session["revision"])
-        source_counts = (len(turns), len(messages))
-        if target.exists():
-            existing: TranscriptStore | None = None
-            try:
-                existing = TranscriptStore(
-                    target,
-                    retention_days=0,
-                    background_cleanup=False,
-                )
-                if existing.has_session(session_id):
-                    watermark = existing.session_watermark(session_id)
-                    expected = (
-                        source_revision,
-                        source_counts[0],
-                        source_counts[1],
-                    )
-                    if watermark == expected:
-                        self._assert_database_integrity(target)
-                        return watermark
-            except (OSError, sqlite3.DatabaseError, RuntimeError, ValueError):
-                logger.warning(
-                    "Discarding incomplete migration for session %s",
-                    session_id,
-                    exc_info=True,
-                )
-            finally:
-                if existing is not None:
-                    existing.close()
-            self._delete_files(target)
-
-        staging = target.with_name(
-            f".{target.name}.{uuid.uuid4().hex}.migrating",
-        )
-        store = TranscriptStore(
-            staging,
-            retention_days=0,
-            background_cleanup=False,
-        )
-        try:
-            with store._transaction():  # pylint: disable=protected-access
-                store._conn.execute(  # pylint: disable=protected-access
-                    "INSERT INTO transcript_sessions VALUES "
-                    "(:session_id, :user_id, :channel, :revision, "
-                    ":next_turn_seq, :completeness, :created_at, "
-                    ":updated_at, :deleted_at)",
-                    dict(session),
-                )
-                for row in turns:
-                    columns = list(row.keys())
-                    placeholders = ", ".join(f":{name}" for name in columns)
-                    store._conn.execute(  # pylint: disable=protected-access
-                        "INSERT INTO transcript_turns("
-                        + ", ".join(columns)
-                        + f") VALUES ({placeholders})",
-                        dict(row),
-                    )
-                for row in messages:
-                    columns = list(row.keys())
-                    placeholders = ", ".join(f":{name}" for name in columns)
-                    store._conn.execute(  # pylint: disable=protected-access
-                        "INSERT INTO transcript_messages("
-                        + ", ".join(columns)
-                        + f") VALUES ({placeholders})",
-                        dict(row),
-                    )
-            store._conn.execute(  # pylint: disable=protected-access
-                "PRAGMA wal_checkpoint(TRUNCATE)",
-            ).fetchone()
-        finally:
-            store.close()
-        os.replace(staging, target)
-        self._delete_files(staging)
-        copied = TranscriptStore(
-            target,
-            retention_days=0,
-            background_cleanup=False,
-        )
-        try:
-            target_watermark = copied.session_watermark(
-                str(session["session_id"]),
-            )
-            expected = (
-                source_revision,
-                source_counts[0],
-                source_counts[1],
-            )
-            if target_watermark != expected:
-                self._delete_files(target)
-                raise RuntimeError(
-                    f"transcript migration watermark mismatch: "
-                    f"source={expected}, target={target_watermark}",
-                )
-        finally:
-            copied.close()
-        self._assert_database_integrity(target)
-        return source_revision, source_counts[0], source_counts[1]
-
     def _ensure_catalog_session(
         self,
         *,
@@ -434,91 +289,7 @@ class TranscriptCatalog:
             state = str(row["migration_state"])
             if row["deleted_at"] is not None or state == "failed":
                 return None
-            path = self._store_path(str(row["file_key"]))
-            if state == "native" or (
-                state == "migrated_v3" and path.is_file()
-            ):
-                return row
-
-        legacy = self._legacy_session(session_id)
-        if legacy is not None:
-            connection, legacy_row = legacy
-            try:
-                self._assert_identity(
-                    legacy_row,
-                    user_id=user_id,
-                    channel=channel,
-                )
-                file_key = self._file_key(
-                    session_id=session_id,
-                    user_id=user_id,
-                    channel=channel,
-                )
-                timestamp = _utc_now()
-                with self._conn:
-                    self._conn.execute(
-                        "INSERT INTO transcript_files("
-                        "session_id, user_id, channel, file_key, "
-                        "migration_state, origin, migration_started_at, "
-                        "created_at, updated_at) VALUES "
-                        "(?, ?, ?, ?, 'migrating', 'legacy_v3', ?, ?, ?) "
-                        "ON CONFLICT(session_id) DO UPDATE SET "
-                        "migration_state = 'migrating', "
-                        "migration_started_at = excluded.updated_at, "
-                        "migration_error = NULL, "
-                        "updated_at = excluded.updated_at",
-                        (
-                            session_id,
-                            user_id,
-                            channel,
-                            file_key,
-                            timestamp,
-                            timestamp,
-                            timestamp,
-                        ),
-                    )
-                watermark = self._copy_legacy_session(
-                    connection,
-                    legacy_row,
-                    self._store_path(file_key),
-                )
-                finished_at = _utc_now()
-                with self._conn:
-                    self._conn.execute(
-                        "UPDATE transcript_files SET "
-                        "migration_state = 'migrated_v3', "
-                        "source_revision = ?, source_turn_count = ?, "
-                        "source_message_count = ?, "
-                        "migration_finished_at = ?, updated_at = ? "
-                        "WHERE session_id = ?",
-                        (
-                            *watermark,
-                            finished_at,
-                            finished_at,
-                            session_id,
-                        ),
-                    )
-            except Exception as exc:
-                failed_at = _utc_now()
-                with self._conn:
-                    self._conn.execute(
-                        "UPDATE transcript_files SET "
-                        "migration_state = 'failed', "
-                        "migration_error = ?, updated_at = ? "
-                        "WHERE session_id = ?",
-                        (str(exc)[:2_000], failed_at, session_id),
-                    )
-                logger.warning(
-                    "Transcript migration failed for session %s",
-                    session_id,
-                    exc_info=True,
-                )
-                if create:
-                    raise
-                return None
-            finally:
-                connection.close()
-            return self._catalog_row(session_id)
+            return row
 
         if row is not None or not create:
             return None
@@ -597,42 +368,11 @@ class TranscriptCatalog:
             if handle is None:
                 path = self._store_path(str(row["file_key"]))
                 path.parent.mkdir(parents=True, exist_ok=True)
-                try:
-                    store = TranscriptStore(
-                        path,
-                        retention_days=self._retention_days,
-                        background_cleanup=False,
-                    )
-                except (OSError, sqlite3.DatabaseError, RuntimeError):
-                    if row["migration_state"] != "migrated_v3":
-                        raise
-                    logger.warning(
-                        "Recovering migrated transcript for session %s",
-                        session_id,
-                        exc_info=True,
-                    )
-                    self._delete_files(path)
-                    with self._conn:
-                        self._conn.execute(
-                            "UPDATE transcript_files SET "
-                            "migration_state = 'migrating', "
-                            "updated_at = ? WHERE session_id = ?",
-                            (_utc_now(), session_id),
-                        )
-                    recovered = self._ensure_catalog_session(
-                        session_id=session_id,
-                        user_id=user_id,
-                        channel=channel,
-                        create=create,
-                    )
-                    if recovered is None:
-                        yield None
-                        return
-                    store = TranscriptStore(
-                        path,
-                        retention_days=self._retention_days,
-                        background_cleanup=False,
-                    )
+                store = TranscriptStore(
+                    path,
+                    retention_days=self._retention_days,
+                    background_cleanup=False,
+                )
                 handle = _SessionHandle(store)
                 self._handles[session_id] = handle
             else:
@@ -656,14 +396,7 @@ class TranscriptCatalog:
                 if row["deleted_at"] is None:
                     return str(row["user_id"]), str(row["channel"])
                 return None
-            legacy = self._legacy_session(session_id)
-            if legacy is None:
-                return None
-            connection, legacy_row = legacy
-            try:
-                return str(legacy_row["user_id"]), str(legacy_row["channel"])
-            finally:
-                connection.close()
+            return None
 
     def start_turn(self, **kwargs: Any) -> int:
         """Create a turn in its session-owned database."""
@@ -756,8 +489,6 @@ class TranscriptCatalog:
             raise ValueError("parent transcript session does not exist")
         with self._condition:
             if self._catalog_row(child_session_id) is not None:
-                raise ValueError("child transcript session already exists")
-            if self._legacy_session(child_session_id) is not None:
                 raise ValueError("child transcript session already exists")
             if child_session_id in self._publishing:
                 raise ValueError("child transcript session is being published")
@@ -863,7 +594,7 @@ class TranscriptCatalog:
             return handle.store.find_turn_for_message(**kwargs)
 
     def has_session(self, session_id: str) -> bool:
-        """Return whether an active catalog or legacy session exists."""
+        """Return whether the catalog contains an active session."""
         return self._identity_for_session(session_id) is not None
 
     def purge_if_due(
