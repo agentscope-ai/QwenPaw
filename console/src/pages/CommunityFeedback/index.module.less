@@ -1,0 +1,77 @@
+.content {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-height: 68vh;
+  overflow-y: auto;
+  padding: 4px 8px 8px 0;
+}
+
+.field,
+.materials {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.field > label {
+  font-weight: 500;
+}
+
+.hint {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--app-text-secondary);
+}
+
+.fileInput {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+
+  input {
+    max-width: 100%;
+  }
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.screenshot {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--app-border);
+  border-radius: 8px;
+}
+
+.canvas {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  align-self: flex-start;
+  cursor: crosshair;
+  touch-action: none;
+  border: 1px solid var(--app-border);
+}
+
+.coordinate {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+}
+
+@media (max-width: 600px) {
+  .content {
+    max-height: 65dvh;
+  }
+}

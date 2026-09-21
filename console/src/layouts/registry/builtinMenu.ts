@@ -263,6 +263,15 @@ export const BUILTIN_MENU: MenuItem[] = [
     order: 55,
   },
   {
+    id: "core.community",
+    location: "primary.settings",
+    parentId: "core.settings-group",
+    label: navLabel("community.title", "Community"),
+    icon: SparkUserGroupLine,
+    route: "core.community",
+    order: 45,
+  },
+  {
     id: "core.security",
     location: "primary.settings",
     parentId: "core.settings-group",

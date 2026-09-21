@@ -120,6 +120,7 @@ export default function AppCenterPage() {
           entry_page: app.entry_page ?? "",
           launch_scope: app.launch_scope ?? "page",
           status: app.status,
+          installation_origin: app.installation_origin,
         })),
       );
     } catch (err) {

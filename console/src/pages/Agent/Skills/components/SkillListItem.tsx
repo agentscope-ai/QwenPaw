@@ -2,6 +2,7 @@ import { Button, Checkbox, Switch } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
 import type { SkillSpec } from "../../../../api/types";
 import { isSkillBuiltin, normalizeSkillChannels } from "@/utils/skill";
+import { CommunityFeedback } from "@/components/CommunityFeedback";
 import { getSkillVisual } from "./SkillCard";
 import dayjs from "dayjs";
 import relativeTime from "dayjs/plugin/relativeTime";
@@ -67,6 +68,11 @@ export function SkillListItem({
         </span>
         <div className={styles.listItemInfo}>
           <div className={styles.listItemHeader}>
+            <CommunityFeedback
+              origin={skill.installation_origin}
+              resourceName={skill.name}
+              variant="inline"
+            />
             <span className={styles.skillTitle}>{skill.name}</span>
             <span className={styles.typeBadge}>
               {isBuiltin ? t("skills.builtin") : t("skills.custom")}

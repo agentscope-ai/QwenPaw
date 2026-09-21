@@ -36,8 +36,14 @@ from .provider_oauth import router as provider_oauth_router
 from .pawapps import router as pawapps_router
 from .harnesses import router as harnesses_router
 from .checkpoints import router as checkpoints_router
+from .community import router as community_router
+from .community_connection import router as community_connection_router
+from .community_report import router as community_report_router
 
 router = APIRouter()
+router.include_router(community_router)
+router.include_router(community_connection_router)
+router.include_router(community_report_router)
 
 router.include_router(agents_router)
 router.include_router(config_router)

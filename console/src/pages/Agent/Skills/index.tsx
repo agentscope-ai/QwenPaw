@@ -16,6 +16,7 @@ import {
 import type { SkillSpec } from "../../../api/types";
 import type { HarnessDiscoveredSkill } from "../../../api/modules/harness";
 import { PageHeader } from "@/components/PageHeader";
+import { CommunityFeedback } from "@/components/CommunityFeedback";
 import { useSkillsPage } from "./useSkillsPage";
 import styles from "./index.module.less";
 import { useMemo, useCallback, useState } from "react";
@@ -291,21 +292,27 @@ function SkillsPage() {
                       className={styles.disabledSkillGridItem}
                       onClick={() => handleEdit(skill)}
                     >
-                      <span className={styles.disabledSkillGridIcon}>
-                        {getSkillVisual(skill.name, skill.emoji)}
-                      </span>
-                      <span className={styles.disabledSkillGridName}>
-                        {skill.name}
-                      </span>
-                      <span
-                        className={styles.disabledSkillGridAction}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleToggleEnabled(skill, e);
-                        }}
-                      >
-                        {t("common.enable")}
-                      </span>
+                      <CommunityFeedback
+                        origin={skill.installation_origin}
+                        resourceName={skill.name}
+                      />
+                      <div className={styles.disabledSkillGridContent}>
+                        <span className={styles.disabledSkillGridIcon}>
+                          {getSkillVisual(skill.name, skill.emoji)}
+                        </span>
+                        <span className={styles.disabledSkillGridName}>
+                          {skill.name}
+                        </span>
+                        <span
+                          className={styles.disabledSkillGridAction}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleToggleEnabled(skill, e);
+                          }}
+                        >
+                          {t("common.enable")}
+                        </span>
+                      </div>
                     </div>
                   ))}
                 </div>

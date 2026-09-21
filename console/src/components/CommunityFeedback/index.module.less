@@ -1,0 +1,64 @@
+.corner {
+  display: flex;
+  align-self: stretch;
+  justify-content: flex-start;
+  margin-bottom: 8px;
+}
+
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-height: 26px;
+  padding: 3px 8px;
+  border: 1px solid var(--app-border);
+  border-radius: 4px;
+  background: var(--app-fill-subtle);
+  color: var(--app-text);
+  font: inherit;
+  font-size: 12px;
+  line-height: 18px;
+  white-space: nowrap;
+  cursor: pointer;
+
+  &:hover:not(:disabled) {
+    border-color: var(--app-accent);
+    background: var(--app-fill-faint);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--app-accent);
+    outline-offset: 2px;
+  }
+
+  &:disabled {
+    cursor: wait;
+    color: var(--app-text-secondary);
+  }
+}
+
+.spinner {
+  animation: communityFeedbackSpin 1s linear infinite;
+}
+
+@keyframes communityFeedbackSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spinner {
+    animation: none;
+  }
+}
+
+.inline {
+  display: inline-flex;
+  gap: 2px;
+  align-items: center;
+}
+.corner {
+  gap: 2px;
+}

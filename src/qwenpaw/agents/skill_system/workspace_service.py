@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from ...exceptions import SkillsError
+from ...installation_origin import validated_origin
 from ...utils.io_utils import write_text_atomic
 from ..utils.file_handling import read_text_file_with_encoding_fallback
 from .models import SkillInfo
@@ -50,6 +51,7 @@ def _register_workspace_skill_entry(
     *,
     enable: bool = False,
     installed_from: str = "",
+    installation_origin: dict[str, Any] | None = None,
     config: dict[str, Any] | None = None,
     source: str | None = None,
 ) -> None:
@@ -77,6 +79,7 @@ def _register_workspace_skill_entry(
         "channels": entry.get("channels") or ["all"],
         "preload": entry.get("preload") is True,
         "source": metadata["source"],
+        "installation_origin": validated_origin(installation_origin),
         "installed_from": (
             installed_from or str(entry.get("installed_from", "") or "")
         ),
@@ -184,6 +187,9 @@ class SkillService:
             source = entry.get("source", "customized")
             skill = read_skill_from_dir(skill_dir, source)
             if skill is not None:
+                skill.installation_origin = validated_origin(
+                    entry.get("installation_origin"),
+                )
                 skills.append(skill)
         return skills
 
@@ -205,6 +211,9 @@ class SkillService:
                 ),
             )
             if skill is not None:
+                skill.installation_origin = validated_origin(
+                    entry.get("installation_origin"),
+                )
                 skills.append(skill)
         return skills
 
@@ -218,6 +227,7 @@ class SkillService:
         config: dict[str, Any] | None = None,
         enable: bool = False,
         installed_from: str = "",
+        installation_origin: dict[str, Any] | None = None,
         source: str | None = None,
     ) -> str | None:
         validate_skill_content(content)
@@ -239,6 +249,7 @@ class SkillService:
                 target_name=skill_name,
                 enable=enable,
                 installed_from=installed_from,
+                installation_origin=installation_origin,
                 config=config,
                 source=source,
             )
@@ -252,6 +263,7 @@ class SkillService:
         enable: bool = False,
         source: str | None = None,
         installed_from: str = "",
+        installation_origin: dict[str, Any] | None = None,
         config: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Install one complete local Skill directory without overwriting.
@@ -314,6 +326,7 @@ class SkillService:
                     enable=enable,
                     source=source,
                     installed_from=installed_from,
+                    installation_origin=installation_origin,
                     config=config,
                 )
                 installed_enabled = bool(
@@ -504,6 +517,9 @@ class SkillService:
                 "channels": current_entry.get("channels") or ["all"],
                 "preload": current_entry.get("preload") is True,
                 "source": metadata["source"],
+                "installation_origin": validated_origin(
+                    current_entry.get("installation_origin"),
+                ),
                 "installed_from": str(
                     current_entry.get("installed_from", "") or "",
                 ),
@@ -571,6 +587,9 @@ class SkillService:
                 "channels": current_entry.get("channels") or old_channels,
                 "preload": current_entry.get("preload") is True,
                 "source": metadata["source"],
+                "installation_origin": validated_origin(
+                    current_entry.get("installation_origin"),
+                ),
                 "installed_from": str(
                     current_entry.get("installed_from", "") or "",
                 ),
@@ -700,6 +719,7 @@ class SkillService:
                         entry = skills.get(name)
                         if entry is not None:
                             entry["installed_from"] = "zip"
+                            entry.pop("installation_origin", None)
 
                 mutate_json(
                     get_workspace_skill_manifest_path(self.workspace_dir),

@@ -8,6 +8,8 @@ import { useEffect, useState } from "react";
 import { buildAuthHeaders } from "../../api/authHeaders";
 import { getApiUrl } from "../../api/config";
 import { useTranslation } from "react-i18next";
+import type { InstallationOrigin } from "@/api/types/community";
+import { CommunityFeedback } from "@/components/CommunityFeedback";
 import styles from "./index.module.less";
 
 const { Text, Paragraph } = Typography;
@@ -23,6 +25,7 @@ const CURATED_APP_DESCRIPTIONS: Record<string, Record<string, string>> = {
 };
 
 export interface AppCardData {
+  installation_origin?: InstallationOrigin | null;
   id: string;
   name: string;
   author?: string;
@@ -128,6 +131,10 @@ export const AppCard: FC<AppCardProps> = ({ app, onClick, onUninstall }) => {
 
   return (
     <Card className={`${styles.appCard} ${styles.appCardClickable}`}>
+      <CommunityFeedback
+        origin={app.installation_origin}
+        resourceName={app.name}
+      />
       <div
         className={styles.cardOpenButton}
         onClick={() => onClick(app)}

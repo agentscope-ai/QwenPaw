@@ -1,5 +1,6 @@
 import { useSearchParams } from "react-router-dom";
 import { MarketplaceHeader } from "./components/MarketplaceHeader";
+import CommunityPage from "./Community";
 import AppCenterPage from "../AppCenter";
 import PluginManagerPage from "../Settings/PluginManager";
 import { InstallQueuePanel, MarketPanel } from "../Settings/Market/MarketPanel";
@@ -37,7 +38,9 @@ export default function MarketplacePage() {
   const install = useMarketInstall({ selectedAgent });
 
   let content = <AppCenterPage />;
-  if (tab === "plugins") {
+  if (tab === "community") {
+    content = <CommunityPage />;
+  } else if (tab === "plugins") {
     content = <PluginManagerPage />;
   } else if (tab === "skills") {
     content = (

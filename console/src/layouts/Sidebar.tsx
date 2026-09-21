@@ -1,3 +1,4 @@
+import { INBOX_CHANGED_EVENT } from "../utils/inboxEvents";
 import {
   Layout,
   Button,
@@ -297,7 +298,11 @@ export default function Sidebar({
     const timer = window.setInterval(() => {
       void loadUnreadState();
     }, INBOX_BADGE_POLLING_MS);
-    return () => window.clearInterval(timer);
+    window.addEventListener(INBOX_CHANGED_EVENT, loadUnreadState);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener(INBOX_CHANGED_EVENT, loadUnreadState);
+    };
   }, []);
 
   // ── Pre-fetch sessions on mount ───────────────────────────────────────────

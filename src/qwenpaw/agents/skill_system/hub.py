@@ -31,8 +31,9 @@ from ...exceptions import (
     SkillsError,
 )
 from ...constant import EnvVarLoader
+from ...installation_origin import origin_from_platform_url
 from .pool_service import SkillPoolService
-from .store import suggest_conflict_name
+from .store import suggest_conflict_name, extract_version
 from .workspace_service import SkillService
 
 logger = logging.getLogger(__name__)
@@ -72,6 +73,7 @@ class HubInstallResult:
     enabled: bool
     source_url: str
     installed_from: InstallOrigin = ""
+    installation_origin: dict[str, Any] | None = None
 
 
 def _build_hub_conflict(name: str) -> dict[str, Any]:
@@ -2259,6 +2261,7 @@ class _InstallPayload:
     extra_files: dict[str, Any]
     source_url: str
     installed_from: InstallOrigin
+    installation_origin: dict[str, Any] | None = None
 
 
 async def _prepare_install_payload(
@@ -2297,6 +2300,11 @@ async def _prepare_install_payload(
         extra_files=extra_files,
         source_url=source_url,
         installed_from=installed_from,
+        installation_origin=origin_from_platform_url(
+            bundle_url,
+            "skill",
+            extract_version(frontmatter.loads(content)),
+        ),
     )
 
 
@@ -2327,6 +2335,7 @@ async def install_skill_from_hub(
             scripts=payload.scripts,
             extra_files=payload.extra_files,
             installed_from=payload.installed_from,
+            installation_origin=payload.installation_origin,
         )
         if not created:
             raise SkillConflictError(_build_hub_conflict(payload.name))
@@ -2350,6 +2359,7 @@ async def install_skill_from_hub(
             enabled=enabled,
             source_url=payload.source_url,
             installed_from=payload.installed_from,
+            installation_origin=payload.installation_origin,
         )
 
 
@@ -2376,6 +2386,7 @@ async def import_pool_skill_from_hub(
             scripts=payload.scripts,
             extra_files=payload.extra_files,
             installed_from=payload.installed_from,
+            installation_origin=payload.installation_origin,
         )
         if not created:
             raise SkillConflictError(_build_hub_conflict(payload.name))
@@ -2385,4 +2396,5 @@ async def import_pool_skill_from_hub(
             enabled=False,
             source_url=payload.source_url,
             installed_from=payload.installed_from,
+            installation_origin=payload.installation_origin,
         )

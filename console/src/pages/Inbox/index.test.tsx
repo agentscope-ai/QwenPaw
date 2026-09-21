@@ -6,7 +6,7 @@
  * under test.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { screen, fireEvent, waitFor } from "@testing-library/react";
+import { act, screen, fireEvent, waitFor } from "@testing-library/react";
 import React from "react";
 import { renderWithProviders } from "@/test/common_setup";
 
@@ -14,6 +14,7 @@ import { renderWithProviders } from "@/test/common_setup";
 
 const mocks = vi.hoisted(() => ({
   inboxData: null as unknown,
+  inboxOptions: null as unknown,
   pendingCount: 0,
   newArrival: false,
   approvals: [] as unknown[],
@@ -32,7 +33,17 @@ vi.mock("react-i18next", () => ({
 }));
 
 vi.mock("./hooks/useInboxData", () => ({
-  useInboxData: () => mocks.inboxData,
+  useInboxData: (options: unknown) => {
+    mocks.inboxOptions = options;
+    return mocks.inboxData;
+  },
+}));
+
+vi.mock("@/api/modules/community", () => ({
+  communityConnectionApi: {
+    status: () =>
+      Promise.resolve({ status: "disconnected", sync_enabled: false }),
+  },
 }));
 
 vi.mock("./hooks/useMailPendingCount", () => ({
@@ -301,6 +312,97 @@ beforeEach(() => {
 // ---- Tests -----------------------------------------------------------------
 
 describe("InboxPage", () => {
+  it("keeps local cards visible with an explicit retryable community source error", () => {
+    makeInboxData([pushMsg("local")]);
+    const data = mocks.inboxData as {
+      error?: string;
+      refreshPushMessages: ReturnType<typeof vi.fn>;
+    };
+    data.error = "community_history_unavailable";
+    renderWithProviders(<InboxPage />);
+    expect(screen.getByTestId("push-card-local")).toBeInTheDocument();
+    expect(
+      screen.getByText("communityInbox.historyUnavailable"),
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "common.retry" }));
+    expect(data.refreshPushMessages).toHaveBeenCalled();
+  });
+
+  it("does not present broken community history as an empty community inbox", () => {
+    makeInboxData([]);
+    (mocks.inboxData as { error?: string }).error =
+      "community_history_unavailable";
+    renderWithProviders(<InboxPage />, {
+      initialEntries: ["/inbox?source=community"],
+    });
+    expect(
+      screen.getByText("communityInbox.historyUnavailable"),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("communityInbox.empty")).not.toBeInTheDocument();
+  });
+
+  it("opens the community source from a deep link and disables the Agent filter", async () => {
+    makeInboxData([]);
+    renderWithProviders(<InboxPage />, {
+      initialEntries: ["/inbox?source=community"],
+    });
+    await waitFor(() =>
+      expect(
+        screen.getByText("communityInbox.connectHint"),
+      ).toBeInTheDocument(),
+    );
+    expect(
+      screen.getByRole("combobox", { name: "inbox.filterByAgent" }),
+    ).toBeDisabled();
+    expect(mocks.inboxOptions).toEqual({
+      sourceType: "community",
+      agentId: undefined,
+      page: 1,
+      pageSize: 5,
+    });
+    expect(screen.getByText("communityInbox.markAllRead")).toBeInTheDocument();
+  });
+
+  it("requests a different server page while retaining the server total", async () => {
+    makeInboxData([pushMsg("m1")]);
+    (
+      mocks.inboxData as { summary: { pushMessages: { total: number } } }
+    ).summary.pushMessages.total = 405;
+    renderWithProviders(<InboxPage />);
+    fireEvent.click(screen.getByTestId("inbox-next-page"));
+    await waitFor(() =>
+      expect(mocks.inboxOptions).toEqual(
+        expect.objectContaining({ page: 2, pageSize: 5 }),
+      ),
+    );
+  });
+
+  it("selects community in an already open Inbox when an OS notification is clicked", async () => {
+    localStorage.setItem("qwenpaw.inbox.activeTab", "approvals");
+    makeInboxData([]);
+    renderWithProviders(<InboxPage />);
+    act(() =>
+      window.dispatchEvent(
+        new CustomEvent("qwenpaw:inbox-open", {
+          detail: { tab: "messages", sourceType: "community" },
+        }),
+      ),
+    );
+    await waitFor(() =>
+      expect(mocks.inboxOptions).toEqual(
+        expect.objectContaining({
+          sourceType: "community",
+          agentId: undefined,
+          page: 1,
+        }),
+      ),
+    );
+    expect(screen.getByTestId("inbox-tab-messages")).toHaveAttribute(
+      "data-active",
+      "true",
+    );
+  });
+
   it("renders the messages tab with push cards", async () => {
     makeInboxData([pushMsg("m1"), pushMsg("m2")]);
     renderWithProviders(<InboxPage />);

@@ -1,9 +1,39 @@
+.navigation {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-width: 0;
+}
+
+.communityLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  color: var(--app-text);
+  white-space: nowrap;
+  border-radius: 4px;
+
+  &:hover {
+    color: var(--app-accent-text);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--app-accent);
+    outline-offset: 3px;
+  }
+}
+
 .sectionSwitch {
   margin-bottom: 0 !important;
   align-self: center !important;
 }
 
 @media (max-width: 768px) {
+  .navigation {
+    width: 100%;
+  }
+
   .sectionSwitch {
     width: 100%;
 

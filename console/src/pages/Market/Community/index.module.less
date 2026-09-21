@@ -1,0 +1,138 @@
+.page {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--app-surface);
+  color: var(--app-text);
+}
+.scroll {
+  flex: 1;
+  overflow: auto;
+  min-height: 0;
+}
+.content {
+  max-width: 1080px;
+  margin: auto;
+  padding: 28px 32px 48px;
+  h1 {
+    font-size: 24px;
+    line-height: 1.5;
+  }
+  h2 {
+    font-size: 18px;
+  }
+}
+.heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+}
+.meta {
+  color: var(--app-text-secondary);
+  font-size: 13px;
+}
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin: 20px 0;
+  :global(.ant-input-search) {
+    flex: 1;
+    min-width: 200px;
+    max-width: 480px;
+  }
+  :global(.ant-select) {
+    min-width: 120px;
+  }
+}
+.feed {
+  min-height: 160px;
+  margin-bottom: 24px;
+}
+.post {
+  display: block;
+  color: var(--app-text);
+  padding: 22px 8px;
+  border-bottom: 1px solid var(--app-border);
+  h2 {
+    margin: 10px 0;
+  }
+  p {
+    color: var(--app-text-secondary);
+    line-height: 1.7;
+  }
+  &:hover h2 {
+    color: var(--app-accent-text);
+  }
+  &:focus-visible {
+    outline: 2px solid var(--app-accent);
+  }
+}
+.body {
+  margin: 28px 0;
+  font-size: 15px;
+  line-height: 1.85;
+  overflow-wrap: anywhere;
+  img {
+    max-width: 100%;
+    height: auto;
+  }
+  pre {
+    overflow: auto;
+    padding: 16px;
+    background: var(--app-bg);
+  }
+  table {
+    display: block;
+    overflow: auto;
+  }
+  a {
+    color: var(--app-accent-text);
+  }
+}
+.discussion {
+  border-top: 1px solid var(--app-border);
+  padding-top: 24px;
+}
+.composer {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+  margin: 20px 0;
+  width: 100%;
+}
+.comment {
+  border-bottom: 1px solid var(--app-border);
+  padding: 16px 0;
+  overflow-wrap: anywhere;
+  img {
+    max-width: 100%;
+  }
+  .comment {
+    margin-left: 20px;
+    padding-left: 16px;
+    border-left: 2px solid var(--app-border);
+  }
+}
+@media (max-width: 768px) {
+  .content {
+    padding: 20px 16px;
+  }
+  .toolbar,
+  .heading {
+    flex-wrap: wrap;
+  }
+}
+
+.customEmoji {
+  display: inline-block;
+  width: 66px;
+  height: 66px;
+  object-fit: contain;
+  vertical-align: middle;
+  margin: 4px;
+}

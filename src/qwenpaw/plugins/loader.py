@@ -22,6 +22,7 @@ from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as _dist_version
 from packaging.requirements import Requirement
 
+from ..utils.io_utils import run_sync_io
 from .architecture import PluginManifest, PluginRecord
 from .api import PluginApi
 from .module_isolation import (
@@ -46,6 +47,25 @@ _IMPORT_NAME_OVERRIDES = {
     "protobuf": "google.protobuf",
 }
 _PAWPORT_MARKER = ".qwenpaw-pawport.json"
+
+
+def _resolve_plugin_install_paths(
+    install_base: Path,
+    plugin_id: str,
+) -> Tuple[Path, Path]:
+    """Resolve the install target and reject plugin ID path traversal."""
+    resolved_install = install_base.resolve()
+    resolved_target = (resolved_install / plugin_id).resolve()
+    if (
+        resolved_target == resolved_install
+        or not resolved_target.is_relative_to(resolved_install)
+    ):
+        raise ValueError(
+            f"Plugin id '{plugin_id}' does not resolve to a safe child "
+            f"of the plugin directory ({resolved_install}). "
+            "Refusing to install.",
+        )
+    return resolved_install, resolved_target
 
 
 def _is_frozen() -> bool:
@@ -1109,6 +1129,7 @@ class PluginLoader:
         after_load: Optional[Any] = None,
         pawport_owner: Optional[dict[str, Any]] = None,
         recover_incomplete: bool = False,
+        installation_source: str = "",
     ) -> PluginRecord:
         """Copy plugin files, install deps, and load plugin at runtime.
 
@@ -1172,6 +1193,7 @@ class PluginLoader:
                     manifest,
                     config,
                     install_dir,
+                    installation_source=installation_source,
                     replace_files=force,
                     pawport_owner=pawport_owner,
                     recover_incomplete=recover_incomplete,
@@ -1211,6 +1233,7 @@ class PluginLoader:
         replace_files: bool = False,
         pawport_owner: Optional[dict[str, Any]] = None,
         recover_incomplete: bool = False,
+        installation_source: str = "",
     ) -> PluginRecord:
         """Install+load from path; caller must hold lifecycle for id."""
         plugin_id = manifest.id
@@ -1229,25 +1252,18 @@ class PluginLoader:
         else:
             install_base = Path(install_dir)
 
-        def _resolve_install_paths() -> Tuple[Path, Path]:
-            resolved_install = install_base.resolve()
-            resolved_target = (resolved_install / plugin_id).resolve()
-            return resolved_install, resolved_target
-
         resolved_install_dir, target_dir = await asyncio.to_thread(
-            _resolve_install_paths,
+            _resolve_plugin_install_paths,
+            install_base,
+            plugin_id,
         )
 
-        # Guard against path-traversal in plugin_id (e.g. "../../etc")
-        if (
-            target_dir == resolved_install_dir
-            or not target_dir.is_relative_to(resolved_install_dir)
-        ):
-            raise ValueError(
-                f"Plugin id '{plugin_id}' does not resolve to a safe child "
-                f"of the plugin directory ({resolved_install_dir}). "
-                "Refusing to install.",
-            )
+        # Clear stale provenance before replacing any installed files.
+        # A failed copy may leave a partial replacement on disk.
+        from ..installation_origin import (
+            origin_from_platform_url,
+            write_plugin_origin,
+        )
 
         # Copy files when source is not already the target (off the loop).
         if source_path != target_dir:
@@ -1265,6 +1281,11 @@ class PluginLoader:
                         and marker.get("state") == "prepared"
                         and _marker_matches(marker, pawport_owner)
                     ):
+                        write_plugin_origin(
+                            resolved_install_dir,
+                            plugin_id,
+                            None,
+                        )
                         shutil.rmtree(target_dir)
                     if not replace_files:
                         if target_dir.exists():
@@ -1273,7 +1294,13 @@ class PluginLoader:
                                 f"{target_dir}",
                             )
                     elif target_dir.exists():
+                        write_plugin_origin(
+                            resolved_install_dir,
+                            plugin_id,
+                            None,
+                        )
                         shutil.rmtree(target_dir)
+                write_plugin_origin(resolved_install_dir, plugin_id, None)
                 target_dir.parent.mkdir(parents=True, exist_ok=True)
                 stage_root = Path(
                     tempfile.mkdtemp(
@@ -1301,6 +1328,14 @@ class PluginLoader:
                 f"Copied plugin '{plugin_id}' to {target_dir}",
             )
 
+        else:
+            await run_sync_io(
+                write_plugin_origin,
+                resolved_install_dir,
+                plugin_id,
+                None,
+            )
+
         # Install Python dependencies (off the event loop)
         requirements_file = target_dir / "requirements.txt"
         if await asyncio.to_thread(requirements_file.exists):
@@ -1317,7 +1352,24 @@ class PluginLoader:
             target_dir,
         )
         del _installed_path
-        return await self.load_plugin(installed_manifest, target_dir, config)
+        record = await self.load_plugin(installed_manifest, target_dir, config)
+        origin = origin_from_platform_url(
+            installation_source,
+            (
+                "app"
+                if installed_manifest.plugin_type == "app"
+                or installed_manifest.meta.get("pawapp")
+                else "plugin"
+            ),
+            installed_manifest.version,
+        )
+        await run_sync_io(
+            write_plugin_origin,
+            resolved_install_dir,
+            plugin_id,
+            origin,
+        )
+        return record
 
     def _remove_incomplete_pawport_plugin(
         self,
@@ -1475,6 +1527,14 @@ class PluginLoader:
 
         # Optionally delete files from disk (off the event loop).
         if delete_files:
+            from ..installation_origin import write_plugin_origin
+
+            await run_sync_io(
+                write_plugin_origin,
+                record.source_path.parent,
+                plugin_id,
+                None,
+            )
             source_path = record.source_path
             if await asyncio.to_thread(source_path.exists):
                 await asyncio.to_thread(shutil.rmtree, source_path)

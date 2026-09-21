@@ -15,6 +15,7 @@ import {
   Download,
   Gauge,
   Globe,
+  MessagesSquare,
   HeartPulse,
   Mic,
   PanelLeft,
@@ -211,6 +212,15 @@ const SETTINGS_GROUPS: SettingsGroupDefinition[] = [
         descriptionFallback: "Runtime variables and secrets",
         routeId: "core.environments",
         Icon: Globe,
+      },
+      {
+        key: "community",
+        labelKey: "community.title",
+        fallback: "Community",
+        descriptionKey: "community.settingsDescription",
+        descriptionFallback: "Community account and inbox sync",
+        routeId: "core.community",
+        Icon: MessagesSquare,
       },
       {
         key: "security",

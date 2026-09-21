@@ -19,6 +19,8 @@ const hoisted = vi.hoisted(() => ({
   reloadPawApp: vi.fn(),
   routeSnapshot: vi.fn(),
   removePluginAppState: vi.fn(),
+  publishPost: vi.fn(),
+  openExternal: vi.fn(),
 }));
 
 vi.mock("react-i18next", () => ({
@@ -45,6 +47,32 @@ vi.mock("@/api/modules/pawapp", () => ({
     list: hoisted.listApps,
     uninstall: hoisted.uninstall,
   },
+}));
+
+vi.mock("@/api/modules/community", () => ({
+  communityConnectionApi: {
+    status: () =>
+      Promise.resolve({
+        status: "connected",
+        account: { id: "test-user", display_name: "Tester" },
+      }),
+  },
+}));
+
+vi.mock("@/api/request", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/api/request")>();
+  return {
+    ...actual,
+    request: (path: string, options?: Parameters<typeof actual.request>[1]) =>
+      path === "/community/posts"
+        ? hoisted.publishPost(path, options)
+        : actual.request(path, options),
+  };
+});
+
+vi.mock("@/utils/openExternalLink", () => ({
+  isDesktopTauriRuntime: () => true,
+  openExternalLink: hoisted.openExternal,
 }));
 
 vi.mock("@/plugins/registry/hooks", () => ({
@@ -139,6 +167,8 @@ describe("AppCenterPage", () => {
     hoisted.reloadPawApp.mockReset();
     hoisted.routeSnapshot.mockReset();
     hoisted.removePluginAppState.mockReset();
+    hoisted.publishPost.mockReset();
+    hoisted.openExternal.mockReset();
     hoisted.routeSnapshot.mockReturnValue([]);
     hoisted.loadPawApp.mockResolvedValue(undefined);
     hoisted.reloadPawApp.mockResolvedValue(undefined);
@@ -161,6 +191,60 @@ describe("AppCenterPage", () => {
       screen.queryByLabelText("appCenter.searchMarket"),
     ).not.toBeInTheDocument();
     expect(hoisted.fetchMarketPlugins).not.toHaveBeenCalled();
+  });
+
+  it("preserves installed app provenance from the API through the local post composer", async () => {
+    const origin = {
+      provider: "agentscope-platform",
+      resource_id: "@zhijianma/agent-kanban",
+      resource_type: "app",
+      installed_version: "0.1.1",
+      source_url:
+        "https://platform.agentscope.io/plugins/@zhijianma/agent-kanban",
+    };
+    hoisted.listApps.mockResolvedValue({
+      apps: [
+        makeApp("agent-kanban", { installation_origin: origin }),
+        makeApp("local-app", { installation_origin: null }),
+      ],
+      total: 2,
+    });
+    hoisted.publishPost.mockResolvedValue({ id: "test-post" });
+    renderPage();
+
+    const feedback = await screen.findByRole("button", {
+      name: "communityFeedback.forResource",
+    });
+    expect(screen.getAllByText("communityFeedback.reportIssue")).toHaveLength(
+      1,
+    );
+    expect(screen.getByText("local-app")).toBeInTheDocument();
+    fireEvent.click(feedback);
+
+    fireEvent.change(
+      await screen.findByLabelText("communityCompose.postTitle"),
+      {
+        target: { value: "Kanban suggestion" },
+      },
+    );
+    fireEvent.change(screen.getByLabelText("communityCompose.body"), {
+      target: { value: "Add a board filter" },
+    });
+    expect(hoisted.publishPost).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("checkbox"));
+    fireEvent.click(
+      screen.getByRole("button", { name: "communityCompose.publish" }),
+    );
+    await waitFor(() => expect(hoisted.publishPost).toHaveBeenCalledTimes(1));
+    const [path, options] = hoisted.publishPost.mock.calls[0];
+    expect(path).toBe("/community/posts");
+    expect(JSON.parse(options.body)).toMatchObject({
+      origin,
+      account_id: "test-user",
+    });
+    expect(hoisted.openExternal).not.toHaveBeenCalled();
+    expect(hoisted.loadPawApp).not.toHaveBeenCalled();
+    expect(screen.getByTestId("location")).toHaveTextContent("/market");
   });
 
   it("shows the official view when visiting it directly", async () => {

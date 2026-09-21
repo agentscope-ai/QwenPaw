@@ -23,13 +23,15 @@ export interface PushMessage {
     | "email"
     | "memory"
     | "heartbeat"
-    | "skill";
+    | "skill"
+    | "community";
   channelName: string;
   title: string;
   content: string;
   sender: {
     userId: string;
     username: string;
+    avatarUrl?: string;
   };
   createdAt: Date;
   read: boolean;

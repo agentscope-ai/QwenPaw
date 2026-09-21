@@ -3,10 +3,39 @@
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
   cursor: pointer;
 
+  &:focus-visible {
+    outline: 2px solid var(--app-accent);
+    outline-offset: 2px;
+  }
+
   :global(.qwenpaw-card-body) {
     height: 142px !important;
     display: flex;
     flex-direction: column;
+  }
+}
+
+.communityCard {
+  :global(.qwenpaw-card-body),
+  :global(.ant-card-body) {
+    height: auto !important;
+    min-height: 164px;
+  }
+
+  .headerRight {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+
+  .senderInfo {
+    overflow-wrap: anywhere;
+  }
+
+  time {
+    display: block;
+    margin-top: 8px;
+    color: var(--app-text-secondary);
+    font-size: 12px;
   }
 }
 

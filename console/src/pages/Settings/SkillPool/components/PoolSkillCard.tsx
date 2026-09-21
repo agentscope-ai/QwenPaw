@@ -11,6 +11,7 @@ import {
   isSkillBuiltin,
 } from "@/utils/skill";
 import { SkillVisual } from "@/components/SkillVisual";
+import { CommunityFeedback } from "@/components/CommunityFeedback";
 import styles from "../index.module.less";
 
 interface PoolSkillCardProps {
@@ -100,6 +101,10 @@ export function PoolSkillCard({
       }}
       style={{ cursor: "pointer" }}
     >
+      <CommunityFeedback
+        origin={skill.installation_origin}
+        resourceName={skill.name}
+      />
       {/* Top row: Icon (left) + Status badge + Checkbox (right) */}
       <div className={styles.cardTopRow}>
         <span className={styles.fileIcon}>
