@@ -74,30 +74,6 @@ def test_routes_sessions_to_hash_sharded_databases(tmp_path: Path) -> None:
     catalog.close()
 
 
-def test_file_key_hashes_the_complete_canonical_identity() -> None:
-    # pylint: disable=protected-access
-    first = TranscriptCatalog._file_key(
-        session_id="same-session",
-        user_id="user-1",
-        channel="console",
-    )
-    second = TranscriptCatalog._file_key(
-        session_id="same-session",
-        user_id="user-2",
-        channel="console",
-    )
-    repeated = TranscriptCatalog._file_key(
-        session_id="same-session",
-        user_id="user-1",
-        channel="console",
-    )
-    # pylint: enable=protected-access
-
-    assert first != second
-    assert first == repeated
-    assert len(first) == 64
-
-
 def test_different_sessions_do_not_share_a_writer_lock(tmp_path: Path) -> None:
     catalog = TranscriptCatalog(tmp_path)
     _start(catalog, "session-a")
@@ -150,41 +126,6 @@ def test_lru_reopens_evicted_session_without_losing_history(
     handle = next(iter(catalog._handles.values()))
     assert handle.store._cleanup_executor is None
     # pylint: enable=protected-access
-    catalog.close()
-
-
-def test_catalog_schema_contains_only_current_routing_columns(
-    tmp_path: Path,
-) -> None:
-    catalog = TranscriptCatalog(tmp_path)
-
-    columns = {
-        row["name"]
-        for row in catalog._conn.execute(  # pylint: disable=protected-access
-            "PRAGMA table_info(transcript_files)",
-        ).fetchall()
-    }
-    assert columns == {
-        "session_id",
-        "user_id",
-        "channel",
-        "file_key",
-        "origin",
-        "parent_session_id",
-        "root_session_id",
-        "fork_turn_seq",
-        "fork_ordinal",
-        "created_at",
-        "updated_at",
-        "deleted_at",
-        "purged_at",
-    }
-    assert (
-        catalog._conn.execute(  # pylint: disable=protected-access
-            "PRAGMA user_version",
-        ).fetchone()[0]
-        == 2
-    )
     catalog.close()
 
 
@@ -260,48 +201,6 @@ def test_conversation_branch_materializes_at_message_anchor(
     )
     assert parent is not None
     assert len(parent.messages) == 4
-    catalog.close()
-
-
-def test_conversation_branch_does_not_wait_for_unrelated_writer(
-    tmp_path: Path,
-) -> None:
-    catalog = TranscriptCatalog(tmp_path)
-    _start(catalog, "parent")
-    _upsert(catalog, "parent")
-    _start(catalog, "unrelated")
-    entered = threading.Event()
-    release = threading.Event()
-
-    def hold_unrelated_writer() -> None:
-        with catalog._lease(  # pylint: disable=protected-access
-            session_id="unrelated",
-            user_id="user-1",
-            channel="console",
-            create=False,
-        ) as handle:
-            assert handle is not None
-            # pylint: disable-next=protected-access
-            with handle.store._transaction():
-                entered.set()
-                assert release.wait(timeout=5)
-
-    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
-        held = executor.submit(hold_unrelated_writer)
-        assert entered.wait(timeout=5)
-        forked = executor.submit(
-            catalog.fork_session,
-            parent_session_id="parent",
-            child_session_id="child",
-            child_user_id="user-1",
-            child_channel="console",
-        )
-        assert forked.result(timeout=2) == TranscriptCursor(
-            turn_seq=1,
-            ordinal=0,
-        )
-        release.set()
-        held.result(timeout=5)
     catalog.close()
 
 

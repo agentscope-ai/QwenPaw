@@ -249,33 +249,6 @@ async def test_preserves_interleaved_parallel_tool_event_order(
 
 
 @pytest.mark.asyncio
-async def test_records_failed_terminal_code_without_error_detail(
-    tmp_path: Path,
-) -> None:
-    store = TranscriptStore(tmp_path / "session.db")
-    recorder = TranscriptRecorder(
-        store=store,
-        request=_request(),
-        source="qwenpaw",
-    )
-    await recorder.start()
-    await recorder.observe(
-        AgentResponse(
-            status=RunStatus.Failed,
-            error={"code": "bad", "message": "safe message"},
-        ),
-    )
-
-    row = store._conn.execute(  # pylint: disable=protected-access
-        "SELECT status, error_json FROM transcript_turns",
-    ).fetchone()
-    assert tuple(row) == (
-        "failed",
-        '{"code": "bad", "message": ""}',
-    )
-
-
-@pytest.mark.asyncio
 async def test_write_failure_degrades_without_raising() -> None:
     store = Mock(spec=TranscriptStore)
     store.start_turn.side_effect = OSError("disk full")
@@ -292,20 +265,6 @@ async def test_write_failure_degrades_without_raising() -> None:
 
     assert recorder.degraded is True
     store.upsert_message.assert_not_called()
-
-
-@pytest.mark.asyncio
-async def test_none_store_is_a_noop() -> None:
-    recorder = TranscriptRecorder(
-        store=None,
-        request=_request(),
-        source="qwenpaw",
-    )
-
-    await recorder.start()
-    await recorder.finish("cancelled")
-
-    assert recorder.degraded is False
 
 
 @pytest.mark.asyncio

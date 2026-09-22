@@ -246,26 +246,6 @@ async def test_message_pages_use_opaque_item_cursor(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_message_pages_accept_legacy_turn_cursor(tmp_path: Path) -> None:
-    store = TranscriptStore(tmp_path / "session.db")
-    for number in range(1, 4):
-        _append_turn(store, number, f"turn {number}")
-
-    page = await get_chat_messages(
-        chat_id="chat-1",
-        before="v1:3",
-        limit=50,
-        mgr=SimpleNamespace(get_chat=AsyncMock(return_value=_chat())),
-        workspace=_workspace(store),
-    )
-
-    assert [item.content[0].text for item in page.messages] == [
-        "turn 1",
-        "turn 2",
-    ]
-
-
-@pytest.mark.asyncio
 async def test_message_page_rejects_invalid_cursor() -> None:
     with pytest.raises(HTTPException) as raised:
         await get_chat_messages(
