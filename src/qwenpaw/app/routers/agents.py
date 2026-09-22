@@ -68,6 +68,14 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/agents", tags=["agents"])
 
 
+@router.get("/memory/backends")
+async def list_memory_backends() -> list[dict[str, Any]]:
+    """Describe memory backends registered by core and preloaded plugins."""
+    from qwenpaw.memory import memory_registry
+
+    return memory_registry.describe()
+
+
 class AgentSummary(BaseModel):
     """Agent summary information."""
 
@@ -136,7 +144,9 @@ class BackendSettingsRequest(BaseModel):
 
 
 class AgentModelSettingsPatch(BaseModel):
-    """Model-routing fields editable from the Chat model selector."""
+    """Model-routing fields editable from the model settings page."""
+
+    active_model: ModelSlotConfig | None = None
 
     fallback_models: list[ModelSlotConfig] | None = None
     fallback_policy: FallbackPolicyConfig | None = None
@@ -145,12 +155,17 @@ class AgentModelSettingsPatch(BaseModel):
         Literal[
             "inherit",
             "off",
+            "minimal",
             "low",
             "medium",
             "high",
+            "xhigh",
+            "max",
+            "budget",
         ]
         | None
     ) = None
+    thinking_budget: int | None = Field(default=None, ge=1)
 
     @model_validator(mode="after")
     def reject_null_non_nullable_fields(self):
@@ -257,9 +272,30 @@ class CreateAgentRequest(BaseModel):
         default_factory=FallbackPolicyConfig,
     )
     subagent_model: ModelSlotConfig | None = None
+    thinking_level: Literal[
+        "inherit",
+        "off",
+        "minimal",
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max",
+        "budget",
+    ] = f"inherit"
+    thinking_budget: int | None = Field(default=None, ge=1)
     mail: AgentMailConfig | None = None
     backend: str = "qwenpaw"
     backend_settings: dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode=f"after")
+    def validate_thinking_budget(self):
+        """Reject incomplete numeric reasoning preferences at the API edge."""
+        if (self.thinking_level == f"budget") != (
+            self.thinking_budget is not None
+        ):
+            raise ValueError(f"Budget mode requires thinking_budget")
+        return self
 
     @field_validator("id", mode="before")
     @classmethod
@@ -822,18 +858,6 @@ async def create_agent(
     active_model = (
         request.active_model if request.backend == "qwenpaw" else None
     )
-    if request.backend == "qwenpaw" and (
-        not active_model or not active_model.provider_id
-    ):
-        try:
-            from ...providers import ProviderManager
-
-            global_model = ProviderManager.get_instance().get_active_model()
-            if global_model and global_model.provider_id:
-                active_model = global_model
-        except Exception:
-            pass
-
     agent_config = AgentProfileConfig(
         id=new_id,
         name=request.name,
@@ -850,6 +874,8 @@ async def create_agent(
         fallback_models=request.fallback_models,
         fallback_policy=request.fallback_policy,
         subagent_model=request.subagent_model,
+        thinking_level=request.thinking_level,
+        thinking_budget=request.thinking_budget,
         mail=request.mail,
     )
 
@@ -1297,6 +1323,12 @@ async def update_agent_model_settings(
     values = {field: getattr(body, field) for field in body.model_fields_set}
 
     def apply_settings(existing_config: AgentProfileConfig) -> None:
+        AgentProfileConfig.model_validate(
+            {
+                **existing_config.model_dump(),
+                **values,
+            },
+        )
         for key, value in values.items():
             setattr(existing_config, key, value)
 
@@ -1306,7 +1338,9 @@ async def update_agent_model_settings(
             agentId,
             apply_settings,
         )
-    except (ValueError, AppBaseException) as exc:
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except AppBaseException as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     schedule_agent_reload(request, agentId)
     return updated

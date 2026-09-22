@@ -1059,22 +1059,15 @@ async def active_project_reviews(
     if_none_match: str | None = Header(None, alias="If-None-Match"),
     services: CreatorFileServices = Depends(project_file_services),
 ) -> Response:
-    lifecycle_lock = None
     try:
-        lifecycle_lock = await _acquire_existing_project_lifecycle(
-            services,
-            project_id,
-        )
-        reviews = await services.active_reviews(
-            project_id,
-            _lifecycle_lock_held=True,
-        )
+        # Poll immutable review heads without competing with media commits.
+        # The decision endpoint takes lifecycle admission and validates its
+        # decision token again; a GET neither creates nor repairs records.
+        await _require_existing_project(services, project_id)
+        reviews = await services.active_reviews(project_id)
     except Exception as exc:
         _translate_storage_error(exc)
         raise
-    finally:
-        if lifecycle_lock is not None:
-            lifecycle_lock.release()
     if not reviews:
         return Response(status_code=status.HTTP_204_NO_CONTENT)
     composite_token = "|".join(r.decision_token for r in reviews)

@@ -12,7 +12,14 @@ import {
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { Check, History, RotateCw, Settings, ShieldCheck } from "lucide-react";
+import {
+  Check,
+  MoreHorizontal,
+  History,
+  RotateCw,
+  Settings,
+  ShieldCheck,
+} from "lucide-react";
 import { useAppMessage } from "../hooks/useAppMessage";
 import AgentSelector from "../components/AgentSelector";
 import {
@@ -34,6 +41,10 @@ import {
 import { useSidebarStore } from "../stores/sidebarStore";
 import { buildChatPath } from "../utils/sessionRoute";
 import { getOsRootHref } from "../utils/navigationMode";
+import {
+  getSidebarCollapsedPreference,
+  setSidebarCollapsedPreference,
+} from "../utils/sidebarCollapsedPreference";
 import { useAgentStore } from "../stores/agentStore";
 import sessionApi from "../pages/Chat/sessionApi";
 import { useInboxWobble } from "../hooks/useInboxWobble";
@@ -84,7 +95,8 @@ export default function Sidebar({
 }: SidebarProps) {
   const navigate = useNavigate();
   const location = useLocation();
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const language = i18n.resolvedLanguage ?? i18n.language;
   const { message } = useAppMessage();
   const { isDark } = useTheme();
   const [authEnabled, setAuthEnabled] = useState(false);
@@ -100,8 +112,11 @@ export default function Sidebar({
   const [version, setVersion] = useState("");
   const [accountForm] = Form.useForm();
   // Start collapsed on mobile so the first paint does not overlay/obscure
-  // the main content on narrow viewports.
-  const [collapsed, setCollapsed] = useState(isMobileSidebarViewport);
+  // the main content on narrow viewports. On desktop, restore the persisted
+  // preference so a reload keeps the last collapsed/expanded state.
+  const [collapsed, setCollapsed] = useState(
+    () => isMobileSidebarViewport() || getSidebarCollapsedPreference(),
+  );
   const [isMobile, setIsMobile] = useState(isMobileSidebarViewport);
   const navScrollRef = useRef<HTMLDivElement>(null);
   const [hasUnreadMessages, setHasUnreadMessages] = useState(false);
@@ -178,7 +193,7 @@ export default function Sidebar({
       ...new Map(entries.map((entry) => [entry.key, entry])).values(),
     ];
     return orderSidebarEntries(uniqueEntries, focusItemIds);
-  }, [agentMenu, focusItemIds, routes, selectedSettingsMenu]);
+  }, [agentMenu, focusItemIds, routes, selectedSettingsMenu, language]);
   const inboxEntry = selectedFlatNav.find(
     (entry) => entry.key === "core.inbox",
   );
@@ -192,6 +207,12 @@ export default function Sidebar({
           entry.key !== "core.inbox" && entry.key !== "core.marketplace",
       ),
     [selectedFlatNav],
+  );
+  const modelNav = visibleSidebarNav.filter(
+    (entry) => entry.path === "/models",
+  );
+  const secondaryNav = visibleSidebarNav.filter(
+    (entry) => entry.path !== "/models",
   );
   // ── Effects ──────────────────────────────────────────────────────────────
 
@@ -238,9 +259,10 @@ export default function Sidebar({
     const mediaQuery = window.matchMedia(MOBILE_SIDEBAR_QUERY);
     const syncMobileSidebar = () => {
       setIsMobile(mediaQuery.matches);
-      // Collapse on mobile to avoid covering the main content; expand again
-      // when the viewport returns to desktop width.
-      setCollapsed(mediaQuery.matches);
+      // Collapse on mobile to avoid covering the main content. This is a
+      // transient viewport override: it never writes the preference, and
+      // returning to desktop width restores what the user last chose.
+      setCollapsed(mediaQuery.matches || getSidebarCollapsedPreference());
     };
 
     syncMobileSidebar();
@@ -388,15 +410,25 @@ export default function Sidebar({
     routes,
     hasInboxUnread,
     inboxDotColor,
+    language,
   ]);
 
   // ── Handlers ──────────────────────────────────────────────────────────────
 
   /**
+   * Explicit user toggle: the only path that persists the collapsed state.
+   * Viewport-driven collapsing stays transient so a narrow window does not
+   * permanently pin the desktop sidebar.
+   */
+  const handleSetCollapsed = useCallback((nextCollapsed: boolean) => {
+    setCollapsed(nextCollapsed);
+    setSidebarCollapsedPreference(nextCollapsed);
+  }, []);
+
+  /**
    * New chat: if we're already on the chat page, dispatch the event so
-   * ChatSessionInitializer (which is mounted) creates the session.
-   * If we're on another page, navigate to /chat without a session id —
-   * the chat page will auto-create a new session on mount.
+   * ChatSessionInitializer opens a blank composer. From another page,
+   * navigate to /chat without a session id. The first send creates the session.
    */
   const handleNewChat = useCallback(() => {
     const onChatPage = location.pathname.startsWith("/chat");
@@ -599,7 +631,7 @@ export default function Sidebar({
           <Button
             type="text"
             icon={<SparkOperateLeftLine size={18} />}
-            onClick={() => setCollapsed(true)}
+            onClick={() => handleSetCollapsed(true)}
             className={styles.brandCollapseToggle}
             aria-label={t("sidebar.collapse", "Collapse sidebar")}
           />
@@ -618,7 +650,7 @@ export default function Sidebar({
                 type="button"
                 className={styles.collapsedNavItem}
                 aria-label={t("sidebar.expand", "Expand sidebar")}
-                onClick={() => setCollapsed(false)}
+                onClick={() => handleSetCollapsed(false)}
               >
                 <SparkOperateRightLine size={18} />
               </button>
@@ -805,8 +837,35 @@ export default function Sidebar({
                 </button>
               )}
               {marketplaceEntry && renderNavItem(marketplaceEntry)}
-              {visibleSidebarNav.map(renderNavItem)}
+              {secondaryNav.map((entry, index) => (
+                <div
+                  key={entry.key}
+                  className={index > 1 ? styles.secondaryNav : undefined}
+                >
+                  {renderNavItem(entry)}
+                </div>
+              ))}
+              {secondaryNav.length > 2 && (
+                <Popover
+                  trigger="click"
+                  placement="rightTop"
+                  content={
+                    <div className={styles.overflowNav}>
+                      {secondaryNav.slice(2).map(renderNavItem)}
+                    </div>
+                  }
+                >
+                  <button
+                    type="button"
+                    className={`${styles.navigationItem} ${styles.navMore}`}
+                  >
+                    <MoreHorizontal size={18} />
+                    <span>{t("nav.moreFunctions", "More")}</span>
+                  </button>
+                </Popover>
+              )}
             </div>
+            {modelNav.map(renderNavItem)}
             <button
               type="button"
               className={styles.moreSettings}

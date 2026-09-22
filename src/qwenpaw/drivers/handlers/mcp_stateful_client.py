@@ -21,7 +21,6 @@ import logging
 import random
 import time
 from contextlib import AsyncExitStack
-from datetime import timedelta
 from typing import Any, Literal
 
 import httpx
@@ -30,6 +29,8 @@ from mcp.client.stdio import StdioServerParameters
 from mcp.client.sse import sse_client
 from mcp.client.streamable_http import streamable_http_client
 from mcp.shared.exceptions import McpError
+
+from .mcp_streamable_http import timeout_seconds
 
 logger = logging.getLogger(__name__)
 
@@ -990,7 +991,8 @@ class HttpStatefulClient(_MCPClientMixin):
             transport: The transport type ("streamable_http" or "sse")
             url: The URL to the MCP server
             headers: Additional headers to include in the HTTP request
-            timeout: The timeout for the HTTP request in seconds
+            timeout: HTTP connect/write/pool timeout in seconds. Also
+                raises the SSE/HTTP read budget to at least this value.
             sse_read_timeout: The timeout for reading SSE in seconds
             **client_kwargs: Additional keyword arguments for the client
 
@@ -1017,9 +1019,12 @@ class HttpStatefulClient(_MCPClientMixin):
         self.transport = transport
         self.url = url
         self.headers = headers
-        self.timeout = timeout
-        self.sse_read_timeout = sse_read_timeout
-        self.read_timeout_seconds = sse_read_timeout
+        self.timeout = timeout_seconds(timeout)
+        self.sse_read_timeout = max(
+            timeout_seconds(sse_read_timeout),
+            self.timeout,
+        )
+        self.read_timeout_seconds = self.sse_read_timeout
         self.client_kwargs = client_kwargs
 
         # Lifecycle management
@@ -1052,23 +1057,13 @@ class HttpStatefulClient(_MCPClientMixin):
         stack: AsyncExitStack,
     ) -> tuple[Any, Any]:
         if self.transport == "streamable_http":
-            timeout_seconds = (
-                self.timeout.total_seconds()
-                if isinstance(self.timeout, timedelta)
-                else self.timeout
-            )
-            sse_read_timeout_seconds = (
-                self.sse_read_timeout.total_seconds()
-                if isinstance(self.sse_read_timeout, timedelta)
-                else self.sse_read_timeout
-            )
             http_client = httpx.AsyncClient(
                 headers=self.headers or {},
                 timeout=httpx.Timeout(
-                    connect=timeout_seconds,
-                    read=sse_read_timeout_seconds,
-                    write=timeout_seconds,
-                    pool=timeout_seconds,
+                    connect=self.timeout,
+                    read=self.sse_read_timeout,
+                    write=self.timeout,
+                    pool=self.timeout,
                 ),
                 **self.client_kwargs,
             )

@@ -91,29 +91,21 @@ export interface ReMeLightMemoryConfig {
   memory_search_enabled: boolean;
   auto_memory_search_config: AutoMemorySearchConfig;
   embedding_model_config: EmbeddingModelConfig;
+  reranker_config: RerankerConfig;
+}
+
+export interface RerankerConfig {
+  enabled: boolean;
+  api_key: string;
+  base_url: string;
+  model_name: string;
+  candidate_multiplier: number;
+  timeout: number;
 }
 
 export interface AutoTitleConfig {
   enabled: boolean;
   timeout_seconds: number;
-}
-
-export interface ADBPGMemoryConfig {
-  rest_base_url: string;
-  rest_api_key: string;
-  memory_isolation: boolean;
-  search_timeout: number;
-  auto_memory_search_config: AutoMemorySearchConfig;
-}
-
-export interface PowerContextMemoryConfig {
-  base_url: string;
-  token: string;
-  scope_id: string;
-  timeout: number;
-  auto_memory_search_config: AutoMemorySearchConfig & {
-    max_context_bytes: number;
-  };
 }
 
 export interface DoomLoopStageConfig {
@@ -205,8 +197,7 @@ export interface AgentsRunningConfig {
   context_manager_backend: string;
   light_context_config: LightContextConfig;
   memory_manager_backend: string;
-  adbpg_memory_config?: ADBPGMemoryConfig | null;
-  powercontext_memory_config?: PowerContextMemoryConfig | null;
+  memory_backend_configs?: Record<string, Record<string, unknown>>;
   reme_light_memory_config: ReMeLightMemoryConfig;
   approval_level?: string;
   auto_title_config: AutoTitleConfig;

@@ -116,6 +116,17 @@
   overflow: hidden;
 }
 
+.inlineEditor {
+  width: 100%;
+
+  .panel {
+    width: 100%;
+    max-width: none;
+    max-height: none;
+    padding: 0;
+  }
+}
+
 .desktopPopover {
   z-index: 1100;
 
@@ -143,6 +154,18 @@
     font-size: 14px;
     font-weight: 650;
   }
+}
+
+.inlineHeading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.inlineHint {
+  min-width: 0;
+  flex: 1;
+  font-size: 13px;
 }
 
 .panelClose {
@@ -297,6 +320,17 @@
     font-size: 11px;
     font-weight: 650;
   }
+}
+
+.sectionTitle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.sectionHelp {
+  flex: 0 0 auto;
+  color: var(--app-text-tertiary);
 }
 
 .recent {
@@ -561,6 +595,23 @@
   }
 }
 
+.actionsStart {
+  justify-content: flex-start;
+}
+
+.syncDefaultOption {
+  min-width: 0;
+  flex: 0 0 auto;
+  color: var(--app-text-secondary);
+  font-size: 12px;
+  line-height: 1.4;
+
+  :global(.ant-checkbox + span) {
+    min-width: 0;
+    white-space: normal;
+  }
+}
+
 .recent strong {
   color: var(--app-text);
 }
@@ -603,8 +654,18 @@
 }
 
 /* ── Session scope: bound directory list ──────────────────────────────
-   Sits below the picker. The panel height is fixed, so the browser body
-   gives up some room (.panelWithList) and the list scrolls on overflow. */
+   The desktop panel uses the available viewport up to its comfortable size,
+   leaving the browser enough room for five rows even with a full bound list. */
+.panelWithList {
+  height: min(580px, calc(100vh - 40px));
+  max-height: min(580px, calc(100vh - 40px));
+}
+
+.inlineEditor .panelWithList {
+  height: auto;
+  max-height: none;
+}
+
 .panelWithList .splitBody {
   height: auto;
   min-height: 110px;

@@ -1,8 +1,9 @@
 import { renderWithProviders } from "@/test/common_setup";
 import { fireEvent, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import FilesDrawer from "./FilesDrawer";
+import type { FileTarget } from "./types";
 
 const clipboardMocks = vi.hoisted(() => ({
   copyText: vi.fn().mockResolvedValue(undefined),
@@ -54,6 +55,11 @@ vi.mock("../../utils/downloadFileFromUrl", () => ({
 }));
 
 describe("FilesDrawer", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    localStorage.clear();
+  });
+
   it("copies the complete text file content", async () => {
     clipboardMocks.copyText.mockClear();
     clipboardMocks.success.mockClear();
@@ -190,14 +196,90 @@ describe("FilesDrawer", () => {
 
     const drawer = screen.getByRole("region");
     const separator = screen.getByRole("separator");
+    vi.spyOn(drawer, "getBoundingClientRect")
+      .mockReturnValueOnce({ width: 500 } as DOMRect)
+      .mockReturnValue({ width: 600 } as DOMRect);
+    vi.spyOn(drawer.parentElement!, "getBoundingClientRect").mockReturnValue({
+      width: 1200,
+    } as DOMRect);
     fireEvent.pointerDown(separator, { clientX: 420 });
     expect(drawer.className).toContain("drawerResizing");
 
-    fireEvent.pointerMove(window, { clientX: 520 });
+    fireEvent.pointerMove(window, { clientX: 320 });
     fireEvent.pointerUp(window);
     await waitFor(() => {
       expect(drawer.className).not.toContain("drawerResizing");
     });
+    expect(drawer).toHaveStyle({ width: "600px" });
+    expect(localStorage.getItem("qwenpaw-files-workspace-width")).toBe("600");
+  });
+
+  it("uses left and right arrow keys from the right-side resize edge", async () => {
+    renderWithProviders(
+      <FilesDrawer
+        state={{
+          kind: "workspace",
+          trigger: null,
+        }}
+        dispatch={vi.fn()}
+        scope={{
+          kind: "session",
+          agentId: "default",
+          sessionId: "session-1",
+        }}
+      />,
+    );
+
+    const drawer = screen.getByRole("region");
+    const separator = screen.getByRole("separator");
+    vi.spyOn(drawer.parentElement!, "getBoundingClientRect").mockReturnValue({
+      width: 1200,
+    } as DOMRect);
+
+    fireEvent.keyDown(separator, { key: "ArrowLeft" });
+    await waitFor(() => {
+      expect(drawer).toHaveStyle({ width: "664px" });
+    });
+
+    fireEvent.keyDown(separator, { key: "ArrowRight" });
+    await waitFor(() => {
+      expect(drawer).toHaveStyle({ width: "640px" });
+    });
+  });
+
+  it("applies persisted widths when the drawer mode changes", () => {
+    localStorage.setItem("qwenpaw-files-preview-width", "480");
+    localStorage.setItem("qwenpaw-files-workspace-width", "720");
+    const dispatch = vi.fn();
+    const scope = {
+      kind: "session" as const,
+      agentId: "default",
+      sessionId: "session-1",
+    };
+    const target = {
+      source: "workspace",
+      path: "hello.txt",
+      root: "project",
+    } satisfies FileTarget;
+    const { rerender } = renderWithProviders(
+      <FilesDrawer
+        state={{ kind: "preview", target, trigger: null }}
+        dispatch={dispatch}
+        scope={scope}
+      />,
+    );
+
+    expect(screen.getByRole("region")).toHaveStyle({ width: "480px" });
+
+    rerender(
+      <FilesDrawer
+        state={{ kind: "workspace", target, trigger: null }}
+        dispatch={dispatch}
+        scope={scope}
+      />,
+    );
+
+    expect(screen.getByRole("region")).toHaveStyle({ width: "720px" });
   });
 
   // -------------------------------------------------------------------------

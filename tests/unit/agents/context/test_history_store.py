@@ -9,7 +9,10 @@ durability flag, and corruption quarantine.
 
 import asyncio
 import logging
+import os
 import sqlite3
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
@@ -82,6 +85,124 @@ def test_created_at_index_migrates_existing_populated_store(
         assert migrated.count("legacy") == 5000
     finally:
         migrated.close()
+
+
+def test_integrity_check_runs_once_per_process_for_same_file(
+    tmp_path: Path,
+    monkeypatch,
+):
+    db_path = tmp_path / "history.db"
+    calls = 0
+    original = HistoryStore._run_integrity_check
+
+    def tracked(store):
+        nonlocal calls
+        calls += 1
+        return original(store)
+
+    monkeypatch.setattr(HistoryStore, "_run_integrity_check", tracked)
+
+    first = HistoryStore(db_path)
+    first.close()
+    second = HistoryStore(db_path)
+    second.close()
+
+    assert calls == 1
+
+
+def test_integrity_check_is_single_flight_for_concurrent_openers(
+    tmp_path: Path,
+    monkeypatch,
+):
+    db_path = tmp_path / "history.db"
+    calls = 0
+    calls_lock = threading.Lock()
+    barrier = threading.Barrier(8)
+    probe_started = threading.Event()
+    release_probe = threading.Event()
+    original = HistoryStore._run_integrity_check
+
+    def tracked(store):
+        nonlocal calls
+        with calls_lock:
+            calls += 1
+        probe_started.set()
+        assert release_probe.wait(timeout=5)
+        return original(store)
+
+    def open_store():
+        barrier.wait(timeout=5)
+        history = HistoryStore(db_path)
+        history.close()
+
+    monkeypatch.setattr(HistoryStore, "_run_integrity_check", tracked)
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        futures = [pool.submit(open_store) for _ in range(8)]
+        assert probe_started.wait(timeout=5)
+        release_probe.set()
+        for future in futures:
+            future.result(timeout=10)
+
+    assert calls == 1
+
+
+def test_integrity_check_repeats_when_database_file_is_replaced(
+    tmp_path: Path,
+    monkeypatch,
+):
+    db_path = tmp_path / "history.db"
+    replacement_path = tmp_path / "replacement.db"
+    calls = 0
+    original = HistoryStore._run_integrity_check
+
+    def tracked(store):
+        nonlocal calls
+        calls += 1
+        return original(store)
+
+    monkeypatch.setattr(HistoryStore, "_run_integrity_check", tracked)
+    first = HistoryStore(db_path)
+    first.close()
+
+    replacement = sqlite3.connect(replacement_path)
+    replacement.execute("CREATE TABLE replacement_marker (value INTEGER)")
+    replacement.close()
+    replacement_path.replace(db_path)
+
+    second = HistoryStore(db_path)
+    second.close()
+
+    assert calls == 2
+
+
+def test_failed_integrity_check_is_retried_and_not_cached(
+    tmp_path: Path,
+    monkeypatch,
+):
+    db_path = tmp_path / "history.db"
+    calls = 0
+    original = HistoryStore._run_integrity_check
+
+    def fail_once(store):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            error = sqlite3.DatabaseError("synthetic corruption")
+            error.sqlite_errorcode = sqlite3.SQLITE_CORRUPT
+            raise error
+        return original(store)
+
+    monkeypatch.setattr(HistoryStore, "_run_integrity_check", fail_once)
+    recovered = HistoryStore(db_path)
+    try:
+        assert recovered.quarantined_to is not None
+        assert calls == 2
+    finally:
+        recovered.close()
+
+    reopened = HistoryStore(db_path)
+    reopened.close()
+    assert calls == 2
 
 
 def test_append_is_idempotent_on_session_dedup_key(store: HistoryStore):
@@ -501,6 +622,191 @@ def test_corrupt_db_is_quarantined_and_recreated(tmp_path: Path):
         store.close()
 
 
+@pytest.mark.parametrize("replace_before", ["open", "connect"])
+def test_cache_hit_replacement_is_checked_before_constructor_returns(
+    tmp_path,
+    monkeypatch,
+    replace_before,
+):
+    path = tmp_path / "history.db"
+    replacement = tmp_path / "replacement.db"
+    HistoryStore(path).close()
+    HistoryStore(replacement).close()
+    original_open = HistoryStore._open_and_init
+    original_connect = sqlite3.connect
+    original_check = HistoryStore._run_integrity_check
+    checks = 0
+
+    def check(store):
+        nonlocal checks
+        checks += 1
+        original_check(store)
+
+    def open_store(store, **kwargs):
+        if replace_before == "open":
+            replacement.replace(path)
+        original_open(store, **kwargs)
+
+    def connect(*args, **kwargs):
+        if replace_before == "connect":
+            replacement.replace(path)
+        return original_connect(*args, **kwargs)
+
+    monkeypatch.setattr(HistoryStore, "_run_integrity_check", check)
+    with monkeypatch.context() as patch:
+        patch.setattr(HistoryStore, "_open_and_init", open_store)
+        patch.setattr(sqlite3, "connect", connect)
+        store = HistoryStore(path)
+        try:
+            assert checks == 1
+            assert store.quarantined_to is None
+        finally:
+            store.close()
+
+    # A stable replacement can be cached; an ambiguous open is checked again.
+    HistoryStore(path).close()
+    expected_checks = 1 if replace_before == "open" else 2
+    assert checks == expected_checks
+    HistoryStore(path).close()
+    assert checks == expected_checks
+
+
+@pytest.mark.parametrize("replace_during", ["check", "schema"])
+def test_replacement_during_open_is_not_cached(
+    tmp_path,
+    monkeypatch,
+    replace_during,
+):
+    path = tmp_path / "history.db"
+    replacement = tmp_path / "replacement.db"
+    HistoryStore(replacement).close()
+    calls = 0
+    original_check = HistoryStore._run_integrity_check
+    original_schema = HistoryStore._init_schema
+
+    def check(store):
+        nonlocal calls
+        calls += 1
+        original_check(store)
+        if calls == 1 and replace_during == "check":
+            replacement.replace(path)
+
+    def schema(store):
+        original_schema(store)
+        if calls == 1 and replace_during == "schema":
+            replacement.replace(path)
+
+    monkeypatch.setattr(HistoryStore, "_run_integrity_check", check)
+    monkeypatch.setattr(HistoryStore, "_init_schema", schema)
+    HistoryStore(path).close()
+    HistoryStore(path).close()
+    HistoryStore(path).close()
+    assert calls == 2
+
+
+def test_cache_hit_recovery_blocks_concurrent_open_and_checks_new_file(
+    tmp_path,
+    monkeypatch,
+):
+    path = tmp_path / "history.db"
+    HistoryStore(path).close()  # Warm the cache.
+    original_schema = HistoryStore._init_schema
+    original_quarantine = HistoryStore._quarantine
+    original_check = HistoryStore._run_integrity_check
+    condition = HistoryStore._integrity_probe_condition
+    original_wait = condition.wait
+    recovery_started = threading.Event()
+    release_recovery = threading.Event()
+    contender_waiting = threading.Event()
+    fail_schema = True
+    checks = 0
+
+    def schema(store):
+        nonlocal fail_schema
+        original_schema(store)
+        if fail_schema:
+            fail_schema = False
+            error = sqlite3.DatabaseError("synthetic corruption on cache hit")
+            error.sqlite_errorcode = sqlite3.SQLITE_CORRUPT
+            raise error
+
+    def quarantine(store, exc):
+        recovery_started.set()
+        assert release_recovery.wait(timeout=5)
+        original_quarantine(store, exc)
+
+    def wait(timeout=None):
+        contender_waiting.set()
+        return original_wait(timeout)
+
+    def check(store):
+        nonlocal checks
+        checks += 1
+        original_check(store)
+
+    def open_store():
+        store = HistoryStore(path)
+        quarantined = store.quarantined_to
+        store.close()
+        return quarantined
+
+    monkeypatch.setattr(HistoryStore, "_init_schema", schema)
+    monkeypatch.setattr(HistoryStore, "_quarantine", quarantine)
+    monkeypatch.setattr(HistoryStore, "_run_integrity_check", check)
+    monkeypatch.setattr(condition, "wait", wait)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        recovering = pool.submit(open_store)
+        try:
+            assert recovery_started.wait(timeout=5)
+            contender = pool.submit(open_store)
+            assert contender_waiting.wait(timeout=5)
+            assert not contender.done()
+        finally:
+            release_recovery.set()
+        assert recovering.result(timeout=10) is not None
+        assert contender.result(timeout=10) is None
+    HistoryStore(path).close()
+    assert checks == 1  # Recreated file checked once, then cached.
+
+
+def test_failed_cache_hit_recovery_releases_claim_and_invalidates_cache(
+    tmp_path,
+    monkeypatch,
+):
+    path = tmp_path / "history.db"
+    HistoryStore(path).close()
+    original_schema = HistoryStore._init_schema
+    original_check = HistoryStore._run_integrity_check
+    fail_schema = True
+    checks = 0
+
+    def schema(store):
+        nonlocal fail_schema
+        original_schema(store)
+        if fail_schema:
+            fail_schema = False
+            error = sqlite3.DatabaseError("synthetic cache-hit corruption")
+            error.sqlite_errorcode = sqlite3.SQLITE_CORRUPT
+            raise error
+
+    def check(store):
+        nonlocal checks
+        checks += 1
+        if checks == 1:
+            raise sqlite3.DatabaseError("synthetic recovery check failure")
+        original_check(store)
+
+    monkeypatch.setattr(HistoryStore, "_init_schema", schema)
+    monkeypatch.setattr(HistoryStore, "_run_integrity_check", check)
+    with pytest.raises(sqlite3.DatabaseError, match="recovery check failure"):
+        HistoryStore(path)
+    key = (os.getpid(), path.resolve())
+    assert key not in HistoryStore._integrity_probe_checked
+    assert key not in HistoryStore._integrity_probe_inflight
+    HistoryStore(path).close()
+    assert checks == 2
+
+
 @pytest.mark.parametrize("legacy_rebuild", [False, True])
 def test_purge_recall_rows_preserves_search_exclusion(store, legacy_rebuild):
     if not store._fts:
@@ -900,6 +1206,7 @@ def test_quick_check_fts_diagnostic_preserves_source(
     store.append(session_id="s", entry=_entry("zebra"))
     _damage_fts(store)
     store.close()
+    monkeypatch.setattr(HistoryStore, "_integrity_probe_checked", {})
     original_connect = sqlite3.connect
     original_rebuild = HistoryStore._rebuild_fts
     checks = []
@@ -970,6 +1277,7 @@ def test_quick_check_persistent_fts_damage_is_not_quarantined(
 ):
     path = tmp_path / "history.db"
     HistoryStore(path).close()
+    monkeypatch.setattr(HistoryStore, "_integrity_probe_checked", {})
     original_connect = sqlite3.connect
     checks = []
 

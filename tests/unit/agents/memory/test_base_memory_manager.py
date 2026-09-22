@@ -6,7 +6,8 @@ import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from agentscope.message import Msg, TextBlock
+from agentscope.message import Msg, TextBlock, ToolResultState
+from agentscope.tool import ToolChunk
 
 from qwenpaw.agents.memory import base_memory_manager
 from qwenpaw.constant import AUTO_MEMORY_SEARCH_BLOCK_IDS_KEY
@@ -461,6 +462,36 @@ class TestAutoMemorySearchSanitization:
         ]
 
         assert manager._build_query(messages) == ""
+
+    @pytest.mark.parametrize(
+        "empty_result",
+        ["", "No relevant memories found.", "(no memory results)"],
+    )
+    async def test_auto_search_does_not_inject_empty_result(
+        self,
+        manager,
+        empty_result,
+    ):
+        manager.get_auto_memory_search_options = AsyncMock(
+            return_value=base_memory_manager.AutoMemorySearchOptions(),
+        )
+        manager._search_for_auto_memory = AsyncMock(
+            return_value=ToolChunk(
+                is_last=True,
+                state=ToolResultState.SUCCESS,
+                content=[TextBlock(type="text", text=empty_result)],
+            ),
+        )
+
+        result = await manager.auto_memory_search(
+            Msg(
+                name="user",
+                role="user",
+                content=[TextBlock(type="text", text="remember this")],
+            ),
+        )
+
+        assert result is None
 
     def test_builds_mock_assistant_msg_with_configured_estimated_usage(
         self,

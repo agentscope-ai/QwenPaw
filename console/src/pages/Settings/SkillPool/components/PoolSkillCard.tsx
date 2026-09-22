@@ -149,6 +149,13 @@ export function PoolSkillCard({
         </Tooltip>
       </div>
 
+      {skill.version_text && (
+        <div className={styles.metaInfoRow}>
+          <span className={styles.metaInfoLabel}>{t("skillPool.version")}</span>
+          <span className={styles.metaInfoValue}>{skill.version_text}</span>
+        </div>
+      )}
+
       {/* Updated row */}
       {skill.last_updated && (
         <div className={styles.metaInfoRow}>

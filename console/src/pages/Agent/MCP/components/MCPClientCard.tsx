@@ -24,6 +24,7 @@ interface MCPClientUpdate {
   args?: string[];
   env?: Record<string, string>;
   cwd?: string;
+  http_timeout?: number;
 }
 
 interface MCPClientCardProps {
@@ -315,8 +316,8 @@ export const MCPClientCard = React.memo(function MCPClientCard({
         ) : (
           <pre
             style={{
-              backgroundColor: isDark ? "#1f1f1f" : "#f5f5f5",
-              color: isDark ? "rgba(255,255,255,0.85)" : "rgba(0,0,0,0.88)",
+              backgroundColor: isDark ? "var(--app-surface)" : "#f5f5f5",
+              color: isDark ? "var(--app-text)" : "rgba(0,0,0,0.88)",
               padding: 16,
               borderRadius: 8,
               maxHeight: 400,

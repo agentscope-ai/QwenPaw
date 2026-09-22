@@ -13,6 +13,8 @@ import {
   useCodingTabsStore,
   useActiveTabPathForScope,
   useTabsForScope,
+  type EditorTab,
+  type PendingDiff,
 } from "../../stores/codingTabsStore";
 import { useCodingMode } from "../../stores/codingModeStore";
 import { downloadFileFromUrl } from "../../utils/downloadFileFromUrl";
@@ -84,12 +86,18 @@ export default function FilesWorkspace({
     clearProjectTabs,
     closeTab,
     openTab,
+    refreshTab,
     setActiveTab,
     setTabContent,
     setTabDirty,
     setTabEtag,
   } = useCodingTabsStore();
   const hydratedTabs = useRef(new Set<string>());
+  const revalidatedScope = useRef("");
+  const revalidationSequence = useRef(new Map<string, number>());
+  const mountedRef = useRef(false);
+  const scopeKeyRef = useRef(scopeKey);
+  scopeKeyRef.current = scopeKey;
   const tabsRef = useRef(tabs);
   tabsRef.current = tabs;
   const targetsByTab = useRef(new Map<string, FileTarget>());
@@ -106,6 +114,13 @@ export default function FilesWorkspace({
     column?: number;
     sequence: number;
   } | null>(null);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   useEffect(
     () =>
@@ -269,7 +284,7 @@ export default function FilesWorkspace({
     [chatId, projectDirOverride],
   );
 
-  const loadTabContent = useCallback(
+  const loadTab = useCallback(
     async (tabPath: string) => {
       const tab = tabsRef.current.find((item) => item.path === tabPath);
       const separator = tabPath.indexOf("::");
@@ -285,11 +300,105 @@ export default function FilesWorkspace({
           root: tab?.workspaceRoot,
           artifactUrl: tab?.artifactUrl,
         } satisfies FileTarget);
-      const loaded = await loadTarget(target);
-      setTabEtag(scopeKey, tabPath, loaded.etag);
+      return loadTarget(target);
+    },
+    [loadTarget],
+  );
+
+  const getLiveTab = useCallback(
+    (tabPath: string) =>
+      useCodingTabsStore
+        .getState()
+        .tabsByAgent[scopeKey]?.find((item) => item.path === tabPath),
+    [scopeKey],
+  );
+
+  const isTabSnapshotCurrent = useCallback(
+    (
+      tabPath: string,
+      snapshot: EditorTab | undefined,
+      diffSnapshot: PendingDiff | undefined,
+    ) => {
+      if (!mountedRef.current || !snapshot) return false;
+      const currentTab = getLiveTab(tabPath);
+      const currentDiff =
+        useCodingTabsStore.getState().diffsByAgent[scopeKey]?.[tabPath];
+      // Diffs can change independently, including individual hunk decisions.
+      return (
+        scopeKeyRef.current === scopeKey &&
+        currentTab === snapshot &&
+        !currentTab.dirty &&
+        currentDiff === diffSnapshot
+      );
+    },
+    [getLiveTab, scopeKey],
+  );
+
+  const loadTabContent = useCallback(
+    async (tabPath: string) => {
+      const snapshot = getLiveTab(tabPath);
+      const diffSnapshot =
+        useCodingTabsStore.getState().diffsByAgent[scopeKey]?.[tabPath];
+      const loaded = await loadTab(tabPath);
+      if (!isTabSnapshotCurrent(tabPath, snapshot, diffSnapshot)) {
+        throw new Error("File state changed while loading");
+      }
+      refreshTab(scopeKey, tabPath, loaded.content, loaded.etag);
       return loaded.content;
     },
-    [loadTarget, scopeKey, setTabEtag],
+    [getLiveTab, isTabSnapshotCurrent, loadTab, refreshTab, scopeKey],
+  );
+
+  const revalidateTab = useCallback(
+    async (tabPath: string) => {
+      const tab = getLiveTab(tabPath);
+      const diffSnapshot =
+        useCodingTabsStore.getState().diffsByAgent[scopeKey]?.[tabPath];
+      const previewKind =
+        tab?.previewKind ??
+        inferPreviewKind(tab?.displayPath ?? tab?.path ?? tabPath);
+      if (
+        !tab ||
+        tab.dirty ||
+        (previewKind !== "text" && previewKind !== "csv")
+      ) {
+        return;
+      }
+
+      const sequence = (revalidationSequence.current.get(tabPath) ?? 0) + 1;
+      revalidationSequence.current.set(tabPath, sequence);
+      try {
+        const loaded = await loadTab(tabPath);
+        if (
+          scopeKeyRef.current !== scopeKey ||
+          revalidationSequence.current.get(tabPath) !== sequence ||
+          !isTabSnapshotCurrent(tabPath, tab, diffSnapshot)
+        ) {
+          return;
+        }
+        refreshTab(scopeKey, tabPath, loaded.content, loaded.etag);
+      } catch {
+        if (
+          mountedRef.current &&
+          scopeKeyRef.current === scopeKey &&
+          revalidationSequence.current.get(tabPath) === sequence &&
+          isTabSnapshotCurrent(tabPath, tab, diffSnapshot)
+        ) {
+          setLoadError(t("files.loadFailed"));
+        }
+      }
+    },
+    [getLiveTab, isTabSnapshotCurrent, loadTab, refreshTab, scopeKey, t],
+  );
+
+  const activateTab = useCallback(
+    (tabPath: string) => {
+      revalidatedScope.current = scopeKey;
+      setLoadError("");
+      setActiveTab(scopeKey, tabPath);
+      void revalidateTab(tabPath);
+    },
+    [revalidateTab, scopeKey, setActiveTab],
   );
 
   const openTarget = useCallback(
@@ -320,8 +429,7 @@ export default function FilesWorkspace({
       }
       const existing = tabsRef.current.find((tab) => tab.path === tabPath);
       if (existing) {
-        setLoadError("");
-        setActiveTab(scopeKey, tabPath);
+        activateTab(tabPath);
         return;
       }
       try {
@@ -339,16 +447,26 @@ export default function FilesWorkspace({
           readOnly: loaded.readOnly,
           etag: loaded.etag,
         });
+        revalidatedScope.current = scopeKey;
         setActiveTab(scopeKey, tabPath);
       } catch {
         setLoadError(t("files.loadFailed"));
       }
     },
-    [loadTarget, openTab, resolveEditableTarget, scopeKey, setActiveTab, t],
+    [
+      activateTab,
+      loadTarget,
+      openTab,
+      resolveEditableTarget,
+      scopeKey,
+      setActiveTab,
+      t,
+    ],
   );
 
   useEffect(() => {
     hydratedTabs.current.clear();
+    revalidationSequence.current.clear();
   }, [scopeKey]);
 
   useEffect(() => {
@@ -363,27 +481,40 @@ export default function FilesWorkspace({
         return;
       }
       hydratedTabs.current.add(tab.path);
-      void loadTabContent(tab.path)
-        .then((content) => setTabContent(scopeKey, tab.path, content))
+      const diffSnapshot =
+        useCodingTabsStore.getState().diffsByAgent[scopeKey]?.[tab.path];
+      void loadTab(tab.path)
+        .then((loaded) => {
+          if (!isTabSnapshotCurrent(tab.path, tab, diffSnapshot)) return;
+          refreshTab(scopeKey, tab.path, loaded.content, loaded.etag);
+        })
         .catch(() => {
+          if (!isTabSnapshotCurrent(tab.path, tab, diffSnapshot)) return;
           closeTab(scopeKey, tab.path);
           setLoadError(t("files.loadFailed"));
         });
     });
-  }, [closeTab, loadTabContent, scopeKey, setTabContent, t, tabs]);
+  }, [closeTab, isTabSnapshotCurrent, loadTab, refreshTab, scopeKey, t, tabs]);
 
   useEffect(() => {
     if (initialTarget) void openTarget(initialTarget);
   }, [initialTarget, openTarget]);
 
+  useEffect(() => {
+    if (!activeTabPath || revalidatedScope.current === scopeKey) return;
+    revalidatedScope.current = scopeKey;
+    const activeTab = tabsRef.current.find((tab) => tab.path === activeTabPath);
+    // Empty restored tabs are already handled by the hydration effect above.
+    if (activeTab?.content) void revalidateTab(activeTabPath);
+  }, [activeTabPath, revalidateTab, scopeKey]);
+
   const handleClose = (path: string) => {
     const index = tabs.findIndex((tab) => tab.path === path);
     closeTab(scopeKey, path);
     if (activeTabPath === path) {
-      setActiveTab(
-        scopeKey,
-        tabs[index + 1]?.path ?? tabs[index - 1]?.path ?? "",
-      );
+      const nextPath = tabs[index + 1]?.path ?? tabs[index - 1]?.path ?? "";
+      if (nextPath) activateTab(nextPath);
+      else setActiveTab(scopeKey, "");
     }
   };
 
@@ -391,7 +522,7 @@ export default function FilesWorkspace({
     tabs.forEach((tab) => {
       if (tab.path !== path) closeTab(scopeKey, tab.path);
     });
-    setActiveTab(scopeKey, path);
+    activateTab(path);
   };
 
   return (
@@ -469,7 +600,7 @@ export default function FilesWorkspace({
             tabs={tabs}
             activeTabPath={activeTabPath}
             scopeKey={scopeKey}
-            onTabSelect={(path) => setActiveTab(scopeKey, path)}
+            onTabSelect={activateTab}
             onTabClose={handleClose}
             onCloseOtherTabs={handleCloseOthers}
             onTabDirtyChange={(path, dirty) =>

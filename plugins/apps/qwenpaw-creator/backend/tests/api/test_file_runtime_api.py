@@ -6,11 +6,12 @@ import asyncio
 import threading
 import time
 
+import pytest
 from fastapi import FastAPI
 
 from api.dependencies import creator_error_handler, project_file_services
 from api.file_execution_routes import router as execution_router
-from api.file_session_routes import router as session_router
+from api.file_session_routes import router as session_router, stream_events
 from domain.enums import SpecialistRole, TaskKind, TaskStatus
 from domain.errors import CreatorError
 from services.project_files.facade import CreatorFileServices
@@ -86,6 +87,72 @@ def test_file_session_message_is_idempotent_and_visible(
     refreshed = runtime.get_project_session("project-1")
     assert refreshed.active_goal_id is not None
     assert refreshed.last_event_seq == 1
+
+
+@pytest.mark.parametrize(
+    "change",
+    ["append", "replace", "truncate", "remove", "corrupt"],
+)
+def test_event_stream_replays_pages_and_handles_file_changes(
+    tmp_path,
+    caplog,
+    change,
+):
+    _app_value, services, _snapshot, _bootstrap = _app(tmp_path)
+    store = services.sessions
+
+    def append(value):
+        store.append_event(
+            "project-1",
+            "session-1",
+            event_type="agent.message_delta",
+            actor="agent",
+            payload={"value": value},
+        )
+
+    for value in range(1, 206):
+        append(value)
+    event_path = store.event_reader("project-1", "session-1").store.path
+
+    class Connection:
+        polls = 0
+
+        async def is_disconnected(self):
+            self.polls += 1
+            return self.polls > 2
+
+    async def scenario():
+        response = await stream_events(
+            "project-1",
+            Connection(),
+            after=1,
+            last_event_id="3",
+            services=services,
+        )
+        ids = []
+        async for chunk in response.body_iterator:
+            ids.append(int(chunk.split("\n", 1)[0].removeprefix("id: ")))
+            if len(ids) == 1:
+                if change == "append":
+                    append(206)
+                elif change == "replace":
+                    replacement = event_path.with_suffix(".replacement")
+                    replacement.write_bytes(event_path.read_bytes())
+                    replacement.replace(event_path)
+                elif change == "truncate":
+                    event_path.write_bytes(b"")
+                elif change == "remove":
+                    event_path.unlink()
+                else:
+                    with event_path.open("ab") as handle:
+                        handle.write(b"{invalid json}\n")
+        return ids
+
+    assert asyncio.run(scenario()) == list(
+        range(4, 207 if change == "append" else 204),
+    )
+    if change != "append":
+        assert "Event replay stopped" in caplog.text
 
 
 def test_interrupt_is_persisted_before_process_local_cancellation(

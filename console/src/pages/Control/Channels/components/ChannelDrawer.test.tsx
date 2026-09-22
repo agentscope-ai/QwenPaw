@@ -308,6 +308,31 @@ describe("ChannelDrawer builtin channel rendering", () => {
     expect(screen.queryByText("channels.streamingEnabled")).toBeNull();
   });
 
+  it("shows auto-collapse thinking only for Feishu with streaming on", () => {
+    const { unmount } = renderDrawer({
+      activeKey: "feishu",
+      initialValues: { streaming_enabled: true },
+    });
+    expect(screen.getByText("channels.autoCollapseThinking")).toBeTruthy();
+    unmount();
+
+    // Hidden while streaming output is disabled.
+    const off = renderDrawer({
+      activeKey: "feishu",
+      initialValues: { streaming_enabled: false },
+    });
+    expect(screen.queryByText("channels.autoCollapseThinking")).toBeNull();
+    off.unmount();
+
+    // Not offered on other streaming channels: only Feishu renders a
+    // collapsible reasoning panel.
+    renderDrawer({
+      activeKey: "dingtalk",
+      initialValues: { streaming_enabled: true },
+    });
+    expect(screen.queryByText("channels.autoCollapseThinking")).toBeNull();
+  });
+
   it("hides tool-call/result length inputs when the toggles are off", () => {
     const { unmount } = renderDrawer({ activeKey: "telegram" });
     // default: both toggles on, length fields present

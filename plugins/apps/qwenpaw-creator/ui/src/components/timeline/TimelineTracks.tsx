@@ -804,7 +804,9 @@ export default function TimelineTracks({
           onSelectElement(element.element_id);
           onActiveElementIdsChange([element.element_id]);
         }}
-        className={`absolute top-[5px] flex h-[34px] min-w-3 touch-none overflow-hidden rounded-md border text-[10px] font-semibold shadow-sm transition ${
+        className={`absolute top-[5px] flex ${
+          trackType === "subtitle" ? "h-[46px]" : "h-[34px]"
+        } min-w-3 touch-none overflow-hidden rounded-md border text-[10px] font-semibold shadow-sm transition ${
           isTransition
             ? "items-center justify-center px-0"
             : "flex-col justify-center px-2 text-left"
@@ -859,7 +861,11 @@ export default function TimelineTracks({
           </svg>
         ) : (
           <>
-            <span className="pointer-events-none min-w-0 truncate">
+            <span
+              className={`pointer-events-none min-w-0 ${
+                trackType === "subtitle" ? "line-clamp-2" : "truncate"
+              }`}
+            >
               {(playbackState === "generating" ||
                 playbackState === "queued") && (
                 <span
@@ -1061,7 +1067,9 @@ export default function TimelineTracks({
                           {track.lanes.map((lane, laneIndex) => (
                             <div
                               key={lane.id}
-                              className="relative flex h-11 border-b border-[var(--color-border)]/65 last:border-b-0"
+                              className={`relative flex ${
+                                track.type === "subtitle" ? "h-[58px]" : "h-11"
+                              } border-b border-[var(--color-border)]/65 last:border-b-0`}
                             >
                               <div
                                 title={`${track.label}${t(

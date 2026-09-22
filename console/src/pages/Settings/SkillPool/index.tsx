@@ -76,6 +76,15 @@ function SkillPoolPage() {
                   {t("skills.clearSelection")}
                 </Button>
                 <Button
+                  type="default"
+                  className={styles.primaryTransferButton}
+                  icon={<SendOutlined />}
+                  disabled={pool.selectedPoolSkills.size === 0}
+                  onClick={pool.openBatchBroadcast}
+                >
+                  {t("skillPool.broadcast")} ({pool.selectedPoolSkills.size})
+                </Button>
+                <Button
                   danger
                   icon={<DeleteOutlined />}
                   onClick={pool.handleBatchDeletePool}

@@ -25,7 +25,9 @@
   border: 1px solid var(--app-border);
   border-radius: 8px;
   color: var(--app-accent);
-  cursor: default;
+  cursor: pointer;
+  padding: 0;
+  appearance: none;
   margin-bottom: 12px;
   transition: all 0.2s ease;
 
@@ -40,6 +42,56 @@
   right: 4px;
   bottom: 4px;
   display: inline-flex;
+}
+
+.collapsedAgentContent {
+  width: min(280px, calc(100vw - 72px));
+  max-height: min(70vh, 560px);
+  overflow-y: auto;
+  padding: 2px 6px 6px;
+  background: var(--app-surface);
+  border: 1px solid var(--app-border-subtle);
+  border-radius: 12px;
+  box-shadow: var(--app-shadow-md);
+  overscroll-behavior-y: contain;
+}
+
+.collapsedAgentPopover {
+  :global(.qwenpaw-popover-inner),
+  :global(.ant-popover-inner) {
+    padding: 0 !important;
+    background: transparent !important;
+    border: 0 !important;
+    box-shadow: none !important;
+    border-radius: 0 !important;
+  }
+}
+
+.collapsedAgentGroupLabel {
+  padding: 8px 10px 4px;
+  color: var(--app-text-tertiary);
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0.06em;
+  line-height: 1.4;
+  text-transform: uppercase;
+}
+
+.collapsedAgentRow {
+  border-radius: 8px;
+
+  &:hover,
+  &:focus-within {
+    background: var(--app-fill-subtle);
+  }
+}
+
+@media (max-width: 768px) {
+  .agentSelectorCollapsed {
+    width: 44px;
+    height: 44px;
+    margin-bottom: 0;
+  }
 }
 
 // ─── Label ────────────────────────────────────────────────────────────────────

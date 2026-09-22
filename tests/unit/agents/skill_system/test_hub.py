@@ -7,6 +7,7 @@ cache, HTTP fetch primitives (retry/backoff/limits), bundle tree
 normalization, provider URL parsers, zip→bundle converters, provider
 routing and the install pipeline — with all network I/O mocked.
 """
+
 # pylint: disable=wrong-import-position,protected-access,redefined-outer-name,too-many-public-methods,unused-argument,unused-import,unused-variable,use-implicit-booleaness-not-comparison  # noqa: E501
 from __future__ import annotations
 
@@ -570,6 +571,27 @@ class TestHttpFetch:
         client = _FakeClient([_FakeResponse(404, b"nope")])
         with pytest.raises(httpx.HTTPStatusError):
             self._fetch(client)
+
+    def test_ambiguous_slug_is_not_retried(self):
+        conflict = {
+            "code": "AMBIGUOUS_SKILL_SLUG",
+            "message": "Specify an owner",
+            "matches": [{"url": "https://clawhub.ai/alice/skills/shared"}],
+        }
+        client = _FakeClient(
+            [_FakeResponse(409, json.dumps(conflict).encode())],
+        )
+        with pytest.raises(SkillsError, match="alice/skills/shared"):
+            self._fetch(client)
+        assert client.calls == 1
+
+    @pytest.mark.parametrize("body", [b"conflict", b"{}", b"[]"])
+    def test_other_conflicts_remain_retryable(self, body, no_sleep):
+        client = _FakeClient(
+            [_FakeResponse(409, body), _FakeResponse(200, b"ok")],
+        )
+        assert self._fetch(client) == b"ok"
+        assert client.calls == 2
 
     def test_github_403_rate_limit(self):
         client = _FakeClient(
@@ -2241,6 +2263,62 @@ class TestHydrateClawhubPayload:
 
 
 class TestFetchBundleClawhub:
+    @pytest.mark.parametrize(
+        "path,owner",
+        [
+            ("/alice/skills/shared", "alice"),
+            ("/bob/shared", "bob"),
+            ("/alice/skills/shared/", "alice"),
+            ("/shared", ""),
+            ("/skills/shared", ""),
+        ],
+    )
+    def test_owner_preserved_through_all_requests(
+        self,
+        monkeypatch,
+        path,
+        owner,
+    ):
+        requests = []
+
+        async def get_json(url, params=None):
+            request_url = httpx.URL(url).copy_merge_params(params or {})
+            requests.append(request_url.path)
+            assert request_url.params.get("owner", "") == owner
+            if request_url.path.endswith("/versions/1.0"):
+                return {
+                    "version": {
+                        "version": "1.0",
+                        "files": [{"path": "SKILL.md"}],
+                    },
+                }
+            return {
+                "skill": {"slug": "shared"},
+                "latestVersion": {"version": "1.0"},
+            }
+
+        async def get_text(url, params=None):
+            requests.append(httpx.URL(url).path)
+            assert params["path"] == "SKILL.md"
+            assert params["version"] == "1.0"
+            assert params.get("owner", "") == owner
+            return f"content from {owner}"
+
+        monkeypatch.setattr(hub, "_http_json_get", get_json)
+        monkeypatch.setattr(hub, "_http_text_get", get_text)
+        bundle, _ = _run(
+            hub._fetch_bundle_from_clawhub_url(
+                "https://clawhub.ai" + path,
+                "",
+            ),
+        )
+        assert bundle["files"]["SKILL.md"] == f"content from {owner}"
+        assert requests == [
+            "/api/v1/skills/shared",
+            "/api/v1/skills/shared/versions/1.0",
+            "/api/v1/skills/shared/file",
+        ]
+
     def test_slug_required(self):
         with pytest.raises(ConfigurationException, match="slug is required"):
             _run(hub._fetch_bundle_from_clawhub_slug("", ""))
@@ -2286,6 +2364,37 @@ class TestFetchBundleClawhub:
 
 
 class TestSearchHubSkills:
+    @pytest.mark.parametrize(
+        "metadata,expected",
+        [
+            (
+                {"canonicalUrl": "/alice/skills/shared"},
+                "https://clawhub.ai/alice/skills/shared",
+            ),
+            (
+                {"canonicalUrl": "https://clawhub.ai/bob/skills/shared"},
+                "https://clawhub.ai/bob/skills/shared",
+            ),
+            (
+                {"owner": {"handle": "bob", "displayName": "Bob Smith"}},
+                "https://clawhub.ai/bob/skills/shared",
+            ),
+            ({}, "https://clawhub.ai/shared"),
+        ],
+    )
+    def test_install_url_preserves_identity(
+        self,
+        monkeypatch,
+        metadata,
+        expected,
+    ):
+        async def search(*args, **kwargs):
+            return {"results": [{"slug": "shared", **metadata}]}
+
+        monkeypatch.setattr(hub, "_http_json_get", search)
+        result = _run(hub.search_hub_skills("shared"))[0]
+        assert result.source_url == expected
+
     def test_results_mapping(self, monkeypatch):
         async def _json(url, params=None, timeout=None):
             assert params == {"q": "pdf", "limit": 2}
@@ -2312,6 +2421,7 @@ class TestSearchHubSkills:
         results = _run(hub.search_hub_skills("pdf", limit=2))
         assert len(results) == 2
         assert results[0].slug == "pdf-tool"
+        assert results[0].source_url == "http://x"
         assert results[0].author == "Display"
         assert results[0].icon_url == "http://img"
         assert results[1].slug == "no-slug-but-name"
@@ -2325,6 +2435,9 @@ class TestSearchHubSkills:
         monkeypatch.setattr(hub, "_http_json_get", _json)
         results = _run(hub.search_hub_skills("x"))
         assert results[0].author == "fallback-handle"
+        assert results[0].source_url == (
+            "https://clawhub.ai/fallback-handle/skills/s"
+        )
 
 
 # ---------------------------------------------------------------------------

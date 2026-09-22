@@ -29,7 +29,7 @@ from ..base import (
     OutgoingContentPart,
     ProcessHandler,
 )
-from ..utils import file_url_to_local_path
+from ..utils import file_url_to_local_path, materialize_data_url
 
 logger = logging.getLogger(__name__)
 
@@ -879,6 +879,7 @@ class MattermostChannel(BaseChannel):
         self,
         mm_channel_id: str,
         local_path: str,
+        filename: Optional[str] = None,
     ) -> Optional[str]:
         """Upload a local file; return Mattermost file_id or None.
 
@@ -898,7 +899,7 @@ class MattermostChannel(BaseChannel):
                 resp = await self._http.post(
                     f"{self._url}/api/v4/files",
                     params={"channel_id": mm_channel_id},
-                    files={"files": (path.name, fh)},
+                    files={"files": (filename or path.name, fh)},
                     # No json= here; httpx handles Content-Type automatically
                 )
             if resp.status_code in (200, 201):
@@ -1030,18 +1031,32 @@ class MattermostChannel(BaseChannel):
 
         if not local_path:
             return
-        local_path = file_url_to_local_path(local_path) or local_path
-
-        file_id = await self._upload_file(mm_channel_id, local_path)
-        if file_id:
-            await self._post_message(mm_channel_id, "", root_id, [file_id])
-        else:
-            # Fallback: send file path as plain text
-            await self._post_message(
-                mm_channel_id,
-                f"[Attachment: {local_path}]",
-                root_id,
-            )
+        async with materialize_data_url(
+            str(local_path),
+            self._media_dir,
+            filename_hint=getattr(part, "filename", "media"),
+        ) as materialized:
+            if materialized is None:
+                return
+            local_path = file_url_to_local_path(materialized.path)
+            local_path = local_path or materialized.path
+            if materialized.filename is not None:
+                file_id = await self._upload_file(
+                    mm_channel_id,
+                    local_path,
+                    filename=materialized.filename,
+                )
+            else:
+                file_id = await self._upload_file(mm_channel_id, local_path)
+            if file_id:
+                await self._post_message(mm_channel_id, "", root_id, [file_id])
+            else:
+                # Fallback: send file path as plain text
+                await self._post_message(
+                    mm_channel_id,
+                    f"[Attachment: {local_path}]",
+                    root_id,
+                )
 
     # ------------------------------------------------------------------
     # BaseChannel interface

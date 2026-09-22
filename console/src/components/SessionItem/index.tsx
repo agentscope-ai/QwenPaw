@@ -1,13 +1,20 @@
-import React, { useCallback, useMemo, useRef, useState } from "react";
-import { Dropdown, Input } from "antd";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import { Dropdown, Input, Popover } from "antd";
 import type { InputRef } from "antd";
 import { useTranslation } from "react-i18next";
 import {
   Archive,
   Bot,
   Clock3,
+  Copy,
+  Folder,
   FolderInput,
-  GripVertical,
   MoreHorizontal,
   Pencil,
   Pin,
@@ -17,12 +24,18 @@ import {
 import { ChannelIcon } from "../../pages/Control/Channels/components";
 import type { ChatStatus } from "../../api/types/chat";
 import type { ChatGroup } from "../../api/types/chat";
+import { useAppMessage } from "../../hooks/useAppMessage";
+import { copyText } from "../../utils/clipboard";
 import styles from "./sessionItem.module.less";
+
+const MAX_LIST_NAME_CHARS = 100;
+const MAX_INFO_NAME_CHARS = 500;
 
 export interface SessionItemProps {
   // -- Data --
   sessionId: string;
   name: string;
+  updatedAt?: string | null;
   channelKey?: string;
   channelLabel?: string;
   chatStatus?: ChatStatus;
@@ -55,6 +68,7 @@ export interface SessionItemProps {
 const SessionItem: React.FC<SessionItemProps> = ({
   sessionId,
   name,
+  updatedAt,
   channelKey,
   channelLabel,
   chatStatus,
@@ -62,7 +76,7 @@ const SessionItem: React.FC<SessionItemProps> = ({
   unseenResult = false,
   archived,
   pinned = false,
-  source,
+  source = "chat",
   groupId,
   groups = [],
   active,
@@ -79,17 +93,15 @@ const SessionItem: React.FC<SessionItemProps> = ({
   onEditSubmit,
   onEditCancel,
 }) => {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const { message } = useAppMessage();
   const inputRef = useRef<InputRef>(null);
   const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [infoOpen, setInfoOpen] = useState(false);
+  const [infoTimeReference, setInfoTimeReference] = useState(Date.now);
   const isComposingRef = useRef(false);
 
   const inProgress = generating === true || chatStatus === "running";
-  const isSubagent = source === "subagent";
-  const isCron = source === "cron";
-  const sourceLabel = isCron
-    ? t("chat.groups.cronShort", "Cron")
-    : t("chat.groups.subagentShort", "Subagent");
   const isIdle = !inProgress && !!chatStatus;
   const hasUnseenResult = isIdle && unseenResult;
   const statusAriaLabel = inProgress
@@ -97,6 +109,87 @@ const SessionItem: React.FC<SessionItemProps> = ({
     : hasUnseenResult
     ? t("chat.statusUnseenResult", "New result")
     : t("chat.statusIdle");
+
+  const displayName = useMemo(
+    () =>
+      name.length > MAX_LIST_NAME_CHARS
+        ? `${name.slice(0, MAX_LIST_NAME_CHARS)}…`
+        : name || t("chat.newChat", "New Chat"),
+    [name, t],
+  );
+  const infoName = useMemo(() => {
+    const fallbackName = name || t("chat.newChat", "New Chat");
+    return fallbackName.length > MAX_INFO_NAME_CHARS
+      ? `${fallbackName.slice(0, MAX_INFO_NAME_CHARS)}…`
+      : fallbackName;
+  }, [name, t]);
+  const sessionTime = useMemo(
+    () =>
+      formatSessionTime(
+        updatedAt,
+        i18n.resolvedLanguage ?? i18n.language ?? "en",
+        infoTimeReference,
+      ),
+    [i18n.language, i18n.resolvedLanguage, infoTimeReference, updatedAt],
+  );
+
+  const fallbackGroupKind =
+    source === "cron"
+      ? "cron"
+      : source === "subagent"
+      ? "subagents"
+      : "default";
+  const sessionGroup =
+    groups.find((group) => group.id === groupId) ??
+    groups.find((group) => group.kind === fallbackGroupKind);
+  const sessionGroupKind = sessionGroup?.kind ?? fallbackGroupKind;
+  const sessionGroupLabel =
+    sessionGroup?.name ??
+    (sessionGroupKind === "cron"
+      ? t("chat.groups.cron", "Scheduled task conversations")
+      : sessionGroupKind === "subagents"
+      ? t("chat.groups.subagents", "Conversations with subagents")
+      : t("chat.groups.uncategorized", "Uncategorized"));
+  const sessionGroupIcon =
+    sessionGroupKind === "cron" ? (
+      <Clock3 size={15} aria-hidden="true" />
+    ) : sessionGroupKind === "subagents" ? (
+      <Bot size={15} aria-hidden="true" />
+    ) : (
+      <Folder size={15} aria-hidden="true" />
+    );
+
+  const infoCard = (
+    <div className={styles.infoCard}>
+      <div className={styles.infoHeader}>
+        <div className={styles.infoName}>{infoName}</div>
+        {sessionTime && (
+          <time
+            className={styles.infoTime}
+            dateTime={sessionTime.iso}
+            title={sessionTime.exact}
+            aria-label={sessionTime.exact}
+          >
+            {sessionTime.relative}
+          </time>
+        )}
+      </div>
+      <div className={styles.infoRows}>
+        {channelKey && (
+          <div className={styles.infoRow}>
+            <span className={styles.infoIcon}>
+              <ChannelIcon channelKey={channelKey} size={18} />
+            </span>
+            <span>{channelLabel || channelKey}</span>
+          </div>
+        )}
+        <div className={styles.infoRow}>
+          <span className={styles.infoIcon}>{sessionGroupIcon}</span>
+          <span>{sessionGroupLabel}</span>
+        </div>
+      </div>
+    </div>
+  );
 
   const handleClick = useCallback(() => {
     if (disabled || editing) return;
@@ -116,6 +209,29 @@ const SessionItem: React.FC<SessionItemProps> = ({
       onEditCancel?.();
     }
   }, [editValue, name, onEditSubmit, onEditCancel]);
+
+  const handleCopySessionId = useCallback(async () => {
+    try {
+      await copyText(sessionId);
+      message.success(t("common.copied", "Copied to clipboard"));
+    } catch {
+      message.error(t("common.copyFailed", "Failed to copy to clipboard"));
+    }
+  }, [message, sessionId, t]);
+
+  const handleDropdownOpenChange = useCallback((open: boolean) => {
+    setDropdownOpen(open);
+    if (open) setInfoOpen(false);
+  }, []);
+
+  const handleInfoOpenChange = useCallback(
+    (open: boolean) => {
+      if (open && dropdownOpen) return;
+      setInfoOpen(open);
+      if (open) setInfoTimeReference(Date.now());
+    },
+    [dropdownOpen],
+  );
 
   const dropdownItems = useMemo(
     () => [
@@ -152,6 +268,12 @@ const SessionItem: React.FC<SessionItemProps> = ({
           : t("sessions.archive.action", "Archive"),
         onClick: () => onArchive?.(sessionId),
       },
+      {
+        key: "copy-id",
+        icon: <Copy size={14} />,
+        label: t("chat.contextMenu.copyId", "Copy conversation ID"),
+        onClick: handleCopySessionId,
+      },
       { type: "divider" as const },
       {
         key: "delete",
@@ -172,6 +294,7 @@ const SessionItem: React.FC<SessionItemProps> = ({
       groupId,
       groups,
       onMove,
+      handleCopySessionId,
       handleStartEdit,
     ],
   );
@@ -188,7 +311,29 @@ const SessionItem: React.FC<SessionItemProps> = ({
     .join(" ");
 
   const itemContent = (
-    <div className={cls} onClick={handleClick} role="button" tabIndex={0}>
+    <div
+      className={cls}
+      data-pinned={pinned}
+      onClick={handleClick}
+      onKeyDown={(event) => {
+        // Rename inputs and the nested actions have their own keyboard
+        // behavior; only activate when the session row itself has focus.
+        if (
+          event.target !== event.currentTarget ||
+          event.repeat ||
+          event.nativeEvent.isComposing
+        ) {
+          return;
+        }
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          handleClick();
+        }
+      }}
+      role="button"
+      aria-disabled={disabled || undefined}
+      tabIndex={disabled || editing ? -1 : 0}
+    >
       {!editing && (
         <span
           className={styles.statusSlot}
@@ -238,21 +383,9 @@ const SessionItem: React.FC<SessionItemProps> = ({
             onClick={(e) => e.stopPropagation()}
           />
         ) : (
-          <div className={styles.name}>{name || "New Chat"}</div>
+          <MarqueeName name={displayName} />
         )}
       </div>
-
-      {!editing && channelKey && (
-        <span className={styles.channelTag} title={channelLabel || channelKey}>
-          <ChannelIcon channelKey={channelKey} size={14} />
-        </span>
-      )}
-
-      {!editing && (isSubagent || isCron) && (
-        <span className={styles.sourceIcon} title={sourceLabel}>
-          {isCron ? <Clock3 size={13} /> : <Bot size={13} />}
-        </span>
-      )}
 
       {!editing && pinned && (
         <span
@@ -264,38 +397,146 @@ const SessionItem: React.FC<SessionItemProps> = ({
       )}
 
       {!editing && (
-        <span
-          className={styles.dragHint}
-          title={t(
-            "chat.groups.dragSessionHint",
-            "Press and hold to move this conversation",
-          )}
-          aria-hidden
-        >
-          <GripVertical size={12} />
-        </span>
-      )}
-
-      {!editing && (
         <Dropdown
-          menu={{ items: dropdownItems }}
+          menu={{
+            items: dropdownItems,
+            onClick: ({ domEvent }) => domEvent.stopPropagation(),
+          }}
           trigger={["click"]}
           placement="bottomRight"
-          onOpenChange={setDropdownOpen}
+          onOpenChange={handleDropdownOpenChange}
         >
-          <span className={styles.moreBtn} onClick={(e) => e.stopPropagation()}>
+          <button
+            type="button"
+            aria-label={t("appCenter.moreActions", "More actions")}
+            className={styles.moreBtn}
+            onClick={(e) => e.stopPropagation()}
+          >
             <MoreHorizontal size={14} />
-          </span>
+          </button>
         </Dropdown>
       )}
     </div>
   );
 
   return (
-    <Dropdown menu={{ items: dropdownItems }} trigger={["contextMenu"]}>
-      {itemContent}
+    <Dropdown
+      menu={{ items: dropdownItems }}
+      trigger={["contextMenu"]}
+      onOpenChange={handleDropdownOpenChange}
+    >
+      <Popover
+        content={infoCard}
+        trigger={["hover", "focus"]}
+        placement="rightTop"
+        mouseEnterDelay={0.35}
+        destroyOnHidden
+        classNames={{ root: styles.infoPopover }}
+        open={infoOpen}
+        onOpenChange={handleInfoOpenChange}
+      >
+        {itemContent}
+      </Popover>
     </Dropdown>
   );
 };
+
+interface FormattedSessionTime {
+  exact: string;
+  iso: string;
+  relative: string;
+}
+
+function formatSessionTime(
+  value: string | null | undefined,
+  locale: string,
+  now: number,
+): FormattedSessionTime | null {
+  if (!value) return null;
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+
+  const deltaMs = date.getTime() - now;
+  const absoluteDelta = Math.abs(deltaMs);
+  let relativeValue = 0;
+  let relativeUnit: Intl.RelativeTimeFormatUnit = "second";
+
+  if (absoluteDelta >= 365 * 24 * 60 * 60 * 1000) {
+    relativeValue = Math.round(deltaMs / (365 * 24 * 60 * 60 * 1000));
+    relativeUnit = "year";
+  } else if (absoluteDelta >= 30 * 24 * 60 * 60 * 1000) {
+    relativeValue = Math.round(deltaMs / (30 * 24 * 60 * 60 * 1000));
+    relativeUnit = "month";
+  } else if (absoluteDelta >= 24 * 60 * 60 * 1000) {
+    relativeValue = Math.round(deltaMs / (24 * 60 * 60 * 1000));
+    relativeUnit = "day";
+  } else if (absoluteDelta >= 60 * 60 * 1000) {
+    relativeValue = Math.round(deltaMs / (60 * 60 * 1000));
+    relativeUnit = "hour";
+  } else if (absoluteDelta >= 60 * 1000) {
+    relativeValue = Math.round(deltaMs / (60 * 1000));
+    relativeUnit = "minute";
+  }
+
+  return {
+    exact: new Intl.DateTimeFormat(locale, {
+      dateStyle: "medium",
+      timeStyle: "short",
+    }).format(date),
+    iso: date.toISOString(),
+    relative: new Intl.RelativeTimeFormat(locale, {
+      numeric: "auto",
+      style: "short",
+    }).format(relativeValue, relativeUnit),
+  };
+}
+
+interface MarqueeNameProps {
+  name: string;
+}
+
+function MarqueeName({ name }: MarqueeNameProps) {
+  const viewportRef = useRef<HTMLDivElement>(null);
+  const trackRef = useRef<HTMLSpanElement>(null);
+  const [overflow, setOverflow] = useState(0);
+
+  useEffect(() => {
+    const viewport = viewportRef.current;
+    const track = trackRef.current;
+    if (!viewport || !track) return;
+
+    const updateOverflow = () => {
+      setOverflow(Math.max(0, track.scrollWidth - viewport.clientWidth));
+    };
+    updateOverflow();
+    const observer = new ResizeObserver(updateOverflow);
+    observer.observe(viewport);
+    observer.observe(track);
+    return () => observer.disconnect();
+  }, [name]);
+
+  return (
+    <div ref={viewportRef} className={styles.nameViewport}>
+      <span
+        ref={trackRef}
+        className={`${styles.nameTrack} ${
+          overflow > 0 ? styles.nameTrackOverflow : ""
+        }`}
+        style={
+          {
+            "--name-marquee-distance": `-${overflow}px`,
+            "--name-marquee-duration": `${Math.max(
+              3,
+              Math.min(12, overflow / 24 + 2.5),
+            )}s`,
+          } as React.CSSProperties
+        }
+      >
+        {name}
+      </span>
+    </div>
+  );
+}
 
 export default React.memo(SessionItem);

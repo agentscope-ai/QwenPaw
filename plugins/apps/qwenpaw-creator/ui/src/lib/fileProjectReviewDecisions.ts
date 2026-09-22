@@ -75,3 +75,27 @@ export function pendingUserReviewOperations(
     (operation) => operation.decision === "PENDING",
   );
 }
+
+/**
+ * Locate the PENDING Review that gates one artifact version, so a media detail
+ * view can offer "accept this result" in place of hunting for the decision
+ * card. A single media generation commits several operations (file, version,
+ * slot selection) that are one artifact to the user, so match on any pending
+ * user operation whose locator points at ``versionId`` and return the whole
+ * Review: callers accept all of its pending operations, which is what flips
+ * the Review to RESOLVED and clears the media review-admission gate.
+ */
+export function findPendingReviewForVersion(
+  reviews: FileProjectReviewRecord[],
+  versionId: string | null,
+): FileProjectReviewRecord | null {
+  if (!versionId) return null;
+  for (const review of reviews) {
+    if (review.status !== "PENDING") continue;
+    const gates = pendingUserReviewOperations(review).some(
+      (operation) => operation.ui_locator?.artifactVersionId === versionId,
+    );
+    if (gates) return review;
+  }
+  return null;
+}

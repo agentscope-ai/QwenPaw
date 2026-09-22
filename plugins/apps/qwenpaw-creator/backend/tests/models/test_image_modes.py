@@ -10,7 +10,9 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 from contextlib import contextmanager
+from pathlib import Path
 
 import httpx
 import pytest
@@ -18,6 +20,7 @@ import respx
 
 from models import config as model_config
 from models.image import dashscope_provider
+from models.image.base import image_reference_capability, image_reference_limit
 from models.image.dashscope_provider import DashScopeImageModel
 from models.image.openai_provider import OpenAIImageModel
 from utils.exceptions import ModelError
@@ -173,3 +176,71 @@ def test_translate_submits_async_task_polls_and_downloads_result(
             "ext": {"config": {"imageSegment": False}},
         },
     }
+
+
+@pytest.mark.parametrize(
+    ("model_name", "expected"),
+    [
+        ("wan2.7-image-pro", 9),
+        ("wan2.7-image", 9),
+        ("wan2.6-image", 4),
+        ("z-image-turbo", 0),
+        (" WAN2.7-IMAGE-PRO ", 9),
+        ("wan2.7", None),
+        ("wan2.7-r2v", None),
+        ("wan2.7-i2v", None),
+        ("wan2.7-image-pro-unknown", None),
+        ("qwen-image-3.0-pro", 3),
+        ("qwen-image-2.0-pro-2026-06-22", 3),
+        ("qwen-image-edit-plus-2025-12-15", 3),
+        ("qwen-mt-image", 1),
+        ("qwen-image-plus", 0),
+        ("gpt-image-2-2026-04-21", 16),
+        ("gpt-image-1-mini", 16),
+        ("dall-e-2", 1),
+        ("dall-e-3", 0),
+        ("gemini-3-pro-image", 14),
+        ("gemini-3.1-flash-image", 14),
+        ("gemini-2.5-flash-image", 3),
+        ("doubao-seedream-5-0-pro-260628", 10),
+        ("doubao-seedream-4-5-251128", 14),
+        ("flux-2-pro", 8),
+        ("flux-2-klein-4b", 4),
+        ("flux-2-klein-9b", 4),
+        ("ideogram-v3", 1),
+        ("ideogram-v4", 0),
+        ("gemini-42-image", None),
+        ("private-gateway-alias", None),
+    ],
+)
+def test_official_reference_limits_are_model_specific(model_name, expected):
+    assert image_reference_limit(model_name) == expected
+    capability = image_reference_capability(model_name)
+    if expected is None:
+        assert capability is None
+    else:
+        assert capability is not None
+        assert capability.documentation_url.startswith("https://")
+
+
+def test_every_ui_image_preset_has_a_reference_contract() -> None:
+    """A selectable model must not fail later as an unknown capability."""
+    app_root = Path(__file__).resolve().parents[3]
+    source = (
+        app_root / "ui/src/components/creator/ModelConfigModal.tsx"
+    ).read_text(encoding="utf-8")
+    presets = source.split("const IMAGE_PRESETS:", 1)[1].split(
+        "const VIDEO_PRESETS:",
+        1,
+    )[0]
+    arrays = re.findall(r"models:\s*(\[[^\]]*\])", presets)
+    assert arrays, "No image presets found; update this contract test"
+    model_names = set(re.findall(r'"([^"\n]+)"', "".join(arrays)))
+    missing = sorted(
+        name
+        for name in model_names
+        if image_reference_capability(name) is None
+    )
+    assert (
+        not missing
+    ), f"Image presets missing reference capabilities: {missing}"

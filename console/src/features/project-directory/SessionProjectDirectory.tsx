@@ -1,10 +1,11 @@
-import { Button, Input, Popover, Tooltip } from "antd";
+import { Alert, Button, Checkbox, Input, Popover, Tooltip } from "antd";
 import {
   ArrowUp,
   Check,
   ChevronDown,
   ChevronRight,
   CircleAlert,
+  CircleHelp,
   Eye,
   EyeOff,
   Folder,
@@ -75,6 +76,10 @@ function exactSamePath(a: string, b: string): boolean {
 
 interface SessionProjectDirectoryProps {
   scope: FilesWorkspaceScope;
+  /** Edit the Agent default list instead of its legacy single-path view. */
+  multiAgentDefault?: boolean;
+  /** Render the editor directly in its parent instead of in an overlay. */
+  inline?: boolean;
   compact?: boolean;
   className?: string;
   showFullPath?: boolean;
@@ -93,6 +98,8 @@ interface SessionProjectDirectoryProps {
 
 export default function SessionProjectDirectory({
   scope,
+  multiAgentDefault = false,
+  inline = false,
   compact = false,
   className,
   showFullPath = false,
@@ -108,6 +115,7 @@ export default function SessionProjectDirectory({
   const chatId = scope.kind === "session" ? scope.chatId : undefined;
   const sessionId = scope.kind === "session" ? scope.sessionId : "";
   const isAgentScope = scope.kind === "agent";
+  const isListScope = !isAgentScope || multiAgentDefault;
   const [info, setInfo] = useState<EffectiveProjectDirectory | null>(null);
   const [draft, setDraft] = useState("");
   const draftRef = useRef("");
@@ -115,7 +123,7 @@ export default function SessionProjectDirectory({
   // Controlled when the caller passes `open`; otherwise the panel owns it.
   // Every internal close (Apply, Restore default, dismiss) goes through
   // `setOpen`, so a controlled parent hears about all of them.
-  const open = controlledOpen ?? uncontrolledOpen;
+  const open = inline ? true : controlledOpen ?? uncontrolledOpen;
   const setOpen = useCallback(
     (next: boolean) => {
       if (controlledOpen === undefined) setUncontrolledOpen(next);
@@ -143,9 +151,9 @@ export default function SessionProjectDirectory({
   // Only the most recent request is allowed to update state, preventing stale
   // responses from overwriting newer results when requests complete out of order.
   const browseSeq = useRef(0);
-  // Session scope binds an ordered list of directories, index 0 = primary.
-  // It replaces the single-path field, so the list is the whole selection.
-  // Only used when !isAgentScope; agent scope stays single-valued via `draft`.
+  // List scope binds an ordered list of directories, index 0 = primary.
+  // Sessions and the Agent default editor use it; legacy Agent scope keeps
+  // the single-path field via `draft`.
   const [dirs, setDirs] = useState<ProjectDirEntry[]>([]);
   // What the server holds. Restored when the panel closes, so an abandoned
   // edit never leaves the trigger advertising directories that are not bound.
@@ -155,6 +163,12 @@ export default function SessionProjectDirectory({
   const [pendingPath, setPendingPath] = useState("");
   const listRef = useRef<HTMLUListElement>(null);
   const [listError, setListError] = useState<string | null>(null);
+  const [syncAsAgentDefault, setSyncAsAgentDefault] = useState(false);
+  const syncAsAgentDefaultRef = useRef(false);
+  const updateSyncAsAgentDefault = useCallback((next: boolean) => {
+    syncAsAgentDefaultRef.current = next;
+    setSyncAsAgentDefault(next);
+  }, []);
   const announceChanged = () => {
     notifyProjectDirectoryChanged(scope);
     onChanged?.();
@@ -187,6 +201,27 @@ export default function SessionProjectDirectory({
   );
 
   const refresh = useCallback(async () => {
+    if (multiAgentDefault) {
+      const next = await projectDirectoryApi.getDirs();
+      applyList(
+        next.project_dirs.length
+          ? next.project_dirs
+          : [
+              {
+                path: next.workspace_dir,
+                label: null,
+                exists: next.workspace_exists ?? true,
+                nested_with: null,
+                is_workspace: true,
+              },
+            ],
+        {
+          source: next.source,
+          agent_project_dir: next.project_dirs[0]?.path ?? null,
+        },
+      );
+      return;
+    }
     if (isAgentScope) {
       const next = await projectDirectoryApi.get();
       const fallback: EffectiveProjectDirectory = {
@@ -210,11 +245,29 @@ export default function SessionProjectDirectory({
       source: snapshot.source,
       agent_project_dir: snapshot.agentProjectDir,
     });
-  }, [applyList, chatId, isAgentScope, selectedAgent, sessionId, updateDraft]);
+  }, [
+    applyList,
+    chatId,
+    isAgentScope,
+    multiAgentDefault,
+    selectedAgent,
+    sessionId,
+    updateDraft,
+  ]);
 
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  useEffect(() => {
+    updateSyncAsAgentDefault(false);
+  }, [
+    chatId,
+    isAgentScope,
+    selectedAgent,
+    sessionId,
+    updateSyncAsAgentDefault,
+  ]);
 
   const browse = useCallback(
     async (path?: string, selectCurrent = false) => {
@@ -357,7 +410,7 @@ export default function SessionProjectDirectory({
     void browse(browser?.current ?? draft);
   };
 
-  // ── Session scope: the bound directory list ──────────────────────────
+  // ── List scope: the bound directory list ─────────────────────────────
   /** Whether a path is already in the list — a hint, not the verdict.
    *
    *  Exact text, so a path the user typed with different case than the bound
@@ -369,6 +422,30 @@ export default function SessionProjectDirectory({
    *  because the server compares by inode. */
   const isBound = (path: string) =>
     dirs.some((entry) => exactSamePath(entry.path, path));
+
+  const pendingIsAddable =
+    !!pendingPath.trim() &&
+    !isBound(pendingPath.trim()) &&
+    dirs.length < MAX_PROJECT_DIRS;
+
+  const dirsWithPending = useMemo(() => {
+    if (!pendingIsAddable) return bindableDirs;
+    const entry: ProjectDirEntry = {
+      path: pendingPath.trim(),
+      label: null,
+      exists: true,
+      nested_with: null,
+      is_workspace: false,
+    };
+    if (!isUntouchedFallback) return [...bindableDirs, entry];
+    return multiAgentDefault ? [entry] : [entry, ...bindableDirs];
+  }, [
+    bindableDirs,
+    isUntouchedFallback,
+    multiAgentDefault,
+    pendingIsAddable,
+    pendingPath,
+  ]);
 
   /** Queue a single-clicked folder or a typed path as the next one to bind. */
   const selectPending = (path: string) => {
@@ -394,7 +471,7 @@ export default function SessionProjectDirectory({
       );
       // Agent scope types a single path, so the new folder becomes the
       // draft; session scope queues it as the next directory to bind.
-      if (isAgentScope) {
+      if (!isListScope) {
         selectCustomPath(created.path);
       } else {
         selectPending(created.path);
@@ -420,31 +497,18 @@ export default function SessionProjectDirectory({
     if (list) list.scrollTop = list.scrollHeight;
   }, [pendingPath]);
 
-  /** Bind the queued directory. Additive — nothing already listed is dropped.
+  /** Bind the queued directory. Additive — explicit entries are kept.
    *
    *  Appends, so whichever entry is first stays the primary and promoting the
    *  new one is "make primary", an explicit click. The one exception is the
-   *  very first directory added to a session that has nothing bound: the only
-   *  entry there is the agent's own workspace — its configuration and memory
-   *  store, not somewhere the user works — so the real directory they just
-   *  picked takes the primary slot, and the workspace is kept behind it rather
-   *  than dictating where relative paths and the Files tree resolve. */
+   *  very first directory added when nothing is configured: the only entry
+   *  shown is the Agent workspace fallback, not an explicit selection. A new
+   *  session keeps that workspace behind its picked project; the Agent default
+   *  editor replaces the fallback because it must only persist folders the
+   *  user selected. */
   const addPending = () => {
-    const path = pendingPath.trim();
-    if (!path || isBound(path) || dirs.length >= MAX_PROJECT_DIRS) return;
-    const entry: ProjectDirEntry = {
-      path,
-      label: null,
-      exists: true,
-      nested_with: null,
-      // A directory picked in the browser is a project directory. Only the
-      // server can say otherwise, and it will on the next load — the flag is
-      // read by the Files switcher, which has nothing to collapse until then.
-      is_workspace: false,
-    };
-    setDirs((current) =>
-      isUntouchedFallback ? [entry, ...current] : [...current, entry],
-    );
+    if (!pendingIsAddable) return;
+    setDirs(dirsWithPending);
     setPendingPath("");
   };
 
@@ -479,32 +543,76 @@ export default function SessionProjectDirectory({
         path: entry.path.trim(),
         label: entry.label,
       }));
-    if (payload.length === 0) return;
-    if (!chatId) {
-      setPendingProjectDirectory(
-        selectedAgent,
-        sessionId,
-        payload.map((entry) => ({
-          path: entry.path,
-          label: entry.label ?? null,
-        })),
-      );
+    const primaryPath = payload[0]?.path;
+    if (!primaryPath) return;
+    if (multiAgentDefault) {
+      setSaving(true);
       setListError(null);
-      setPendingPath("");
-      setOpen(false);
-      await refresh();
-      announceChanged();
+      try {
+        const saved = await projectDirectoryApi.setDirs(payload);
+        applyList(saved.project_dirs, {
+          source: saved.source,
+          agent_project_dir: saved.project_dirs[0]?.path ?? null,
+        });
+        useProjectDirectoryStore
+          .getState()
+          .setProjectDir(selectedAgent, saved.project_dirs[0]?.path ?? null);
+        setPendingPath("");
+        setOpen(false);
+        announceChanged();
+      } catch (err) {
+        setListError(err instanceof Error ? err.message : String(err));
+      } finally {
+        setSaving(false);
+      }
+      return;
+    }
+    if (!chatId) {
+      setSaving(true);
+      setListError(null);
+      try {
+        if (syncAsAgentDefaultRef.current) {
+          const next = await projectDirectoryApi.setDirs(payload);
+          useProjectDirectoryStore
+            .getState()
+            .setProjectDir(selectedAgent, next.project_dirs[0]?.path ?? null);
+        }
+        setPendingProjectDirectory(
+          selectedAgent,
+          sessionId,
+          payload.map((entry) => ({
+            path: entry.path,
+            label: entry.label ?? null,
+          })),
+        );
+        setPendingPath("");
+        updateSyncAsAgentDefault(false);
+        setOpen(false);
+        await refresh();
+        announceChanged();
+      } catch (err) {
+        setListError(err instanceof Error ? err.message : String(err));
+      } finally {
+        setSaving(false);
+      }
       return;
     }
     setSaving(true);
     setListError(null);
     try {
+      if (syncAsAgentDefaultRef.current) {
+        const next = await projectDirectoryApi.setDirs(payload);
+        useProjectDirectoryStore
+          .getState()
+          .setProjectDir(selectedAgent, next.project_dirs[0]?.path ?? null);
+      }
       const saved = await chatProjectDirectoryApi.setProjectDirs(
         chatId,
         payload,
       );
       applyList(saved.project_dirs, saved);
       setPendingPath("");
+      updateSyncAsAgentDefault(false);
       setOpen(false);
       announceChanged();
     } catch (err) {
@@ -516,7 +624,7 @@ export default function SessionProjectDirectory({
 
   /** Commit the edited list. Index 0 becomes the server's primary. */
   const saveSessionList = async () => {
-    if (isNoopSave) {
+    if (isNoopSave && !pendingIsAddable && !syncAsAgentDefaultRef.current) {
       // Just dismiss: no request, no unsaved-changes warning, and no tab
       // teardown for a directory set that is already bound.
       setPendingPath("");
@@ -524,7 +632,7 @@ export default function SessionProjectDirectory({
       setOpen(false);
       return;
     }
-    await commitSessionList(bindableDirs);
+    await commitSessionList(dirsWithPending);
   };
 
   /** Switch the primary to the queued path, from a paste + Enter.
@@ -562,11 +670,14 @@ export default function SessionProjectDirectory({
       // Only the server can say otherwise, and it will on the next load.
       is_workspace: false,
     };
-    void commitSessionList([entry, ...dirs]);
+    void commitSessionList([
+      entry,
+      ...(isUntouchedFallback && multiAgentDefault ? [] : dirs),
+    ]);
   };
 
   const save = async () => {
-    if (!isAgentScope) {
+    if (isListScope) {
       await saveSessionList();
       return;
     }
@@ -594,6 +705,22 @@ export default function SessionProjectDirectory({
 
   const clear = async () => {
     if (beforeChange && !(await beforeChange())) return;
+    if (multiAgentDefault) {
+      setSaving(true);
+      setListError(null);
+      try {
+        await projectDirectoryApi.clearDirs();
+        useProjectDirectoryStore.getState().setProjectDir(selectedAgent, null);
+        await refresh();
+        setOpen(false);
+        announceChanged();
+      } catch (err) {
+        setListError(err instanceof Error ? err.message : String(err));
+      } finally {
+        setSaving(false);
+      }
+      return;
+    }
     if (isAgentScope) {
       setSaving(true);
       try {
@@ -637,9 +764,10 @@ export default function SessionProjectDirectory({
   const handleOpenChange = (next: boolean) => {
     setOpen(next);
     if (next) return;
-    if (!isAgentScope) {
+    if (isListScope) {
       setDirs(appliedDirs);
       setPendingPath("");
+      updateSyncAsAgentDefault(false);
     }
     setListError(null);
   };
@@ -647,46 +775,68 @@ export default function SessionProjectDirectory({
   const panel = (
     <div
       className={`${styles.panel} ${
-        isAgentScope ? "" : styles.panelWithList
+        isListScope ? styles.panelWithList : ""
       }`.trim()}
     >
-      <div className={styles.panelHeading}>
-        <span className={styles.headingIcon}>
-          <FolderOpen size={18} />
-        </span>
-        <div>
-          <strong>
-            {t(
-              isAgentScope
-                ? "projectDirectory.agentTitle"
-                : "projectDirectory.boundDirs",
+      {inline && multiAgentDefault ? (
+        <div className={styles.inlineHeading}>
+          <Alert
+            className={styles.inlineHint}
+            message={t("projectDirectory.primaryHint")}
+            showIcon
+            type="info"
+          />
+          <span
+            className={styles.headingCount}
+            title={t("projectDirectory.countTitle")}
+          >
+            {dirs.length}
+          </span>
+        </div>
+      ) : (
+        <div className={styles.panelHeading}>
+          <span className={styles.headingIcon}>
+            <FolderOpen size={18} />
+          </span>
+          <div>
+            <strong>
+              {t(
+                isAgentScope
+                  ? "projectDirectory.agentTitle"
+                  : "projectDirectory.boundDirs",
+              )}
+            </strong>
+            {isListScope && (
+              <small className={styles.boundHint}>
+                {t("projectDirectory.primaryHint")}
+              </small>
             )}
-          </strong>
-          {!isAgentScope && (
-            <small className={styles.boundHint}>
-              {t("projectDirectory.primaryHint")}
-            </small>
+          </div>
+          {isListScope && (
+            <span
+              className={styles.headingCount}
+              title={t("projectDirectory.countTitle")}
+            >
+              {dirs.length}
+            </span>
+          )}
+          {isMobile && (
+            <Button
+              type="text"
+              className={styles.panelClose}
+              aria-label={t("common.close")}
+              icon={<X size={18} />}
+              onClick={() => handleOpenChange(false)}
+            />
           )}
         </div>
-        {!isAgentScope && (
-          <span className={styles.headingCount}>{dirs.length}</span>
-        )}
-        {isMobile && (
-          <Button
-            type="text"
-            className={styles.panelClose}
-            aria-label={t("common.close")}
-            icon={<X size={18} />}
-            onClick={() => handleOpenChange(false)}
-          />
-        )}
-      </div>
+      )}
 
       {/* Agent scope keeps the single-path field; session scope shows the
           bound list here instead — it *is* the session's directory set. The
           path field above it is shared: typing or picking fills the same
           queued path, Enter switches the primary, Add appends instead. */}
-      {isAgentScope ? (
+      {!isListScope ? (
         selectedRecentProject ? (
           <div className={styles.pathChip}>
             <span className={styles.pathChipIcon}>
@@ -819,12 +969,22 @@ export default function SessionProjectDirectory({
       <div className={styles.splitBody}>
         <section className={styles.recentPane}>
           <div className={styles.sectionHeading}>
-            <strong>{t("projectDirectory.recentProjects")}</strong>
+            <strong className={styles.sectionTitle}>
+              {t("projectDirectory.workspaceProjects")}
+              <Tooltip title={t("projectDirectory.workspaceProjectsHint")}>
+                <CircleHelp
+                  aria-label={t("projectDirectory.workspaceProjectsHint")}
+                  className={styles.sectionHelp}
+                  role="img"
+                  size={12}
+                />
+              </Tooltip>
+            </strong>
             <span>{projects.length}</span>
           </div>
           <div className={styles.recent}>
             {projects.slice(0, 6).map((project) => {
-              const selected = isAgentScope
+              const selected = !isListScope
                 ? selectedRecentPath === project.path
                 : exactSamePath(pendingPath, project.path);
               return (
@@ -834,7 +994,7 @@ export default function SessionProjectDirectory({
                   className={selected ? styles.recentSelected : undefined}
                   aria-pressed={selected}
                   onClick={() =>
-                    isAgentScope
+                    !isListScope
                       ? selectRecentProject(project)
                       : selectPending(project.path)
                   }
@@ -854,7 +1014,7 @@ export default function SessionProjectDirectory({
             })}
             {projects.length === 0 && (
               <small className={styles.emptyState}>
-                {t("projectDirectory.noRecentProjects")}
+                {t("projectDirectory.noWorkspaceProjects")}
               </small>
             )}
           </div>
@@ -966,7 +1126,7 @@ export default function SessionProjectDirectory({
               </span>
             )}
             {browser?.dirs.map((directory) => {
-              const selected = isAgentScope
+              const selected = !isListScope
                 ? !selectedRecentPath && draft === directory.path
                 : exactSamePath(pendingPath, directory.path);
               return (
@@ -976,7 +1136,7 @@ export default function SessionProjectDirectory({
                   className={selected ? styles.directorySelected : undefined}
                   aria-pressed={selected}
                   onClick={() =>
-                    isAgentScope
+                    !isListScope
                       ? selectCustomPath(directory.path)
                       : selectPending(directory.path)
                   }
@@ -997,30 +1157,48 @@ export default function SessionProjectDirectory({
         </section>
       </div>
 
-      <div className={styles.actions}>
-        <Button
-          type="text"
-          onClick={() => void clear()}
-          disabled={
-            isAgentScope
-              ? info?.source === "workspace_fallback"
-              : info?.source !== "session"
-          }
+      {!isAgentScope && (
+        <Checkbox
+          className={styles.syncDefaultOption}
+          checked={syncAsAgentDefault}
+          disabled={saving}
+          onChange={(event) => updateSyncAsAgentDefault(event.target.checked)}
         >
-          {t(
-            isAgentScope
-              ? "projectDirectory.useWorkspace"
-              : "projectDirectory.restoreDefault",
-          )}
-        </Button>
+          {t("projectDirectory.syncAsAgentDefault")}
+        </Checkbox>
+      )}
+
+      <div
+        className={`${styles.actions} ${
+          multiAgentDefault ? styles.actionsStart : ""
+        }`.trim()}
+      >
+        {!multiAgentDefault && (
+          <Button
+            type="text"
+            onClick={() => void clear()}
+            disabled={
+              isAgentScope
+                ? info?.source === "workspace_fallback"
+                : info?.source !== "session"
+            }
+          >
+            {t(
+              isAgentScope
+                ? "projectDirectory.useWorkspace"
+                : "projectDirectory.restoreDefault",
+            )}
+          </Button>
+        )}
         <Button
           type="primary"
           loading={saving}
           onClick={() => void save()}
           disabled={
-            isAgentScope
+            !isListScope
               ? !draft.trim()
-              : bindableDirs.length === 0 || isUntouchedFallback
+              : dirsWithPending.length === 0 ||
+                (isUntouchedFallback && !pendingIsAddable)
           }
         >
           {t("common.apply")}
@@ -1065,7 +1243,7 @@ export default function SessionProjectDirectory({
           {/* Extra roots are not listed here; the count signals that
               more than the primary is bound. Driven by the applied list
               so an abandoned edit never shows up as bound. */}
-          {!isAgentScope && appliedCount > 1 && (
+          {isListScope && appliedCount > 1 && (
             <em title={t("projectDirectory.countTitle")}>·{appliedCount}</em>
           )}
           {!showFullPath && (
@@ -1087,6 +1265,10 @@ export default function SessionProjectDirectory({
   ) : (
     <Tooltip title={info?.project_dir}>{triggerButton}</Tooltip>
   );
+
+  if (inline) {
+    return <div className={styles.inlineEditor}>{panel}</div>;
+  }
 
   const mobileDrawer = (
     <OsDrawer

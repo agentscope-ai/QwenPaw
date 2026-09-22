@@ -22,6 +22,8 @@ repos:
         exclude: '(?x)(.*/skills/.*|^scripts/pack/|^e2e/)'
       - id: detect-private-key
       - id: trailing-whitespace
+        # Preserve unified-diff context markers and checksummed patch bytes.
+        exclude_types: [diff]
         exclude: '(?x)(.*/skills/.*|^scripts/pack/|^e2e/)'
   - repo: https://github.com/asottile/add-trailing-comma
     rev: v3.1.0
@@ -110,6 +112,7 @@ repos:
           --disable=W0201,
           --disable=C0302,
           --disable=W1203,
+          --disable=W1309,  # AGENTS.md requires f-strings, including literals.
           --disable=C2801,
           --disable=C0114,  # Disable missing module docstring for quick dev
           --disable=C0115,  # Disable missing class docstring for quick dev

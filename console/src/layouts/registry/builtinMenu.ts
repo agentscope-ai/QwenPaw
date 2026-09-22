@@ -28,6 +28,7 @@ import {
   SparkDataLine,
   SparkDateLine,
   SparkDebugLine,
+  SparkDownloadLine,
   SparkEmailLine,
   SparkFile2Line,
   SparkHistoryLine,
@@ -46,7 +47,7 @@ import {
   SparkVoiceChat01Line,
   SparkWifiLine,
 } from "@agentscope-ai/icons";
-import i18next from "i18next";
+import i18next from "../../i18n";
 import { menuRegistry } from "../../plugins/registry/store";
 import type { MenuItem } from "../../plugins/registry/types";
 
@@ -72,6 +73,14 @@ export const BUILTIN_MENU: MenuItem[] = [
     icon: SparkMyApplicationLine,
     route: "core.marketplace",
     order: 15,
+  },
+  {
+    id: "core.import",
+    location: "primary.agentScoped",
+    label: navLabel("nav.import", "Import"),
+    icon: SparkDownloadLine,
+    route: "core.import",
+    order: 17,
   },
 
   // control-group

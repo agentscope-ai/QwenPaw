@@ -360,13 +360,10 @@ describe("LocalModelManageModal", () => {
 
       renderModal();
 
-      await waitFor(() => {
-        expect(api.listRecommendedLocalModels).toHaveBeenCalled();
-      });
-
-      // the no-recommended-model hint (translation key) must be shown
+      // Wait for all initialization results to be reflected in the UI rather
+      // than merely waiting for the recommendation request to start.
       expect(
-        screen.getByText("models.localNoRecommendedModels"),
+        await screen.findByText("models.localNoRecommendedModels"),
       ).toBeInTheDocument();
     });
 
@@ -381,11 +378,8 @@ describe("LocalModelManageModal", () => {
 
       renderModal();
 
-      await waitFor(() => {
-        expect(api.listRecommendedLocalModels).toHaveBeenCalled();
-      });
-
-      // the no-downloaded-model hint (translation key) must be shown
+      // Wait for the resolved runtime status and model list to be reflected in
+      // the UI, rather than merely waiting for the requests to start.
       expect(
         await screen.findByText("models.localNoDownloadedModelsHint"),
       ).toBeInTheDocument();
@@ -402,7 +396,7 @@ describe("LocalModelManageModal", () => {
 
       // the custom model section title (translation key) must be shown
       expect(
-        screen.getByText("models.localCustomModelTitle"),
+        await screen.findByText("models.localCustomModelTitle"),
       ).toBeInTheDocument();
 
       // the input must be shown

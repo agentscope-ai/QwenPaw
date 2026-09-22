@@ -96,16 +96,20 @@ describe("Sidebar overflow layout", () => {
     expect(sidebarSource).not.toContain("sidebar.collapseShortcuts");
   });
 
-  it("renders inbox and all other shortcuts in one scroll region", () => {
+  it("keeps model navigation outside the secondary shortcut scroll region", () => {
     const scrollStart = sidebarSource.indexOf("ref={navScrollRef}");
     const scrollRegion = sidebarSource.slice(
       scrollStart,
-      sidebarSource.indexOf("{/* Session list", scrollStart),
+      sidebarSource.indexOf("{modelNav.map(renderNavItem)}", scrollStart),
     );
 
     expect(scrollStart).toBeGreaterThanOrEqual(0);
     expect(scrollRegion).toContain("inboxEntry &&");
-    expect(scrollRegion).toContain("visibleSidebarNav.map(renderNavItem)");
+    expect(scrollRegion).toContain("secondaryNav.map((entry, index)");
+    expect(scrollRegion).not.toContain("modelNav.map(renderNavItem)");
+    expect(
+      sidebarSource.indexOf("{modelNav.map(renderNavItem)}", scrollStart),
+    ).toBeGreaterThan(scrollStart);
   });
 
   it("pins the expanded new-task button directly above inbox shortcuts", () => {
@@ -120,6 +124,19 @@ describe("Sidebar overflow layout", () => {
       't("chat.newTask", "New task")',
     );
     expect(stylesSource).toContain(".newTask");
+  });
+
+  it("uses the configured accent tokens for the new-task button", () => {
+    const taskStart = stylesSource.indexOf(".newTask {");
+    const taskRule = stylesSource.slice(
+      taskStart,
+      stylesSource.indexOf(".navigationItems {", taskStart),
+    );
+
+    expect(taskRule).toContain("background: var(--app-accent-soft);");
+    expect(taskRule).toContain("color: var(--app-accent-text);");
+    expect(taskRule).toContain("background: var(--app-accent-soft-hover);");
+    expect(taskRule).not.toContain("#ff7f16");
   });
 
   it("pins more settings below shortcuts and preserves the return path", () => {

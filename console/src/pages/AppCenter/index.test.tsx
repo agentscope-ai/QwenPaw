@@ -1,3 +1,6 @@
+vi.mock("../../plugins/pawapp-sdk/browserSession", () => ({
+  prepareBrowserSession: vi.fn().mockResolvedValue(null),
+}));
 // @vitest-environment jsdom
 import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { Modal } from "antd";

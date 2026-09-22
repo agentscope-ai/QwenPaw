@@ -18,6 +18,21 @@ from services.project_files.model_view import (
 MODEL_INPUT_BYTES = 384 * 1024
 HISTORY_BYTES = 128 * 1024
 
+# These are runtime receipts carried in the provider's user role, not human
+# requirements. Keep durable messages intact, but let old receipts leave the
+# bounded history just like old tool results. Unknown sources fail closed.
+_AUTOMATED_HISTORY_SOURCES = frozenset(
+    {
+        "run_review_feedback",
+        "render_review_feedback",
+        "runtime_notification",
+        "mainline_resume",
+        "prompt_contract_resume",
+        "yolo_auto_resume",
+        "review_approval_resume",
+    },
+)
+
 
 class ModelContextBudgetError(ValueError):
     pass
@@ -70,11 +85,17 @@ def compact_conversation_history(
                 latest_snapshot = index
     if json_bytes(result) <= max_bytes:
         return result
-    # Preserve every user goal/constraint and the newest state. Older tool
-    # receipts/assistant narration are recoverable from durable history/state.
+    # Preserve every human goal/constraint and the newest state. Runtime
+    # feedback also uses the user role; retaining every old review would make
+    # a long production exceed the hard budget even after all tools are gone.
+    # The current request/notification batch is outside this history view.
     removed = 0
     for index, item in enumerate(result):
-        if item.get("role") == "user" or index == latest_snapshot:
+        human_input = (
+            item.get("role") == "user"
+            and item.get("source") not in _AUTOMATED_HISTORY_SOURCES
+        )
+        if human_input or index == latest_snapshot:
             continue
         if json_bytes(result) <= max_bytes - 256:
             break
@@ -90,7 +111,11 @@ def compact_conversation_history(
     ]
 
 
-def _shrink_continuation(content: str, max_bytes: int) -> str:
+def _shrink_continuation(
+    content: str,
+    max_bytes: int,
+    latest_snapshot: Mapping[str, Any] | None,
+) -> str:
     marker = "CONVERSATION_HISTORY_JSON="
     ending = "\n\nCURRENT_USER_REQUEST=\n"
     if marker not in content or ending not in content:
@@ -103,12 +128,48 @@ def _shrink_continuation(content: str, max_bytes: int) -> str:
         return content
     if not isinstance(history, list):
         return content
+    if latest_snapshot:
+        for item in history:
+            # Human messages may contain JSON too; never rewrite them.
+            if item.get("role") != "tool":
+                continue
+            for part in item.get("content") or []:
+                if not isinstance(part, dict):
+                    continue
+                previous = _snapshot_content(part.get("text"))
+                if previous and _snapshot_supersedes(
+                    latest_snapshot,
+                    previous,
+                ):
+                    part["text"] = json_text(
+                        {
+                            "resultKind": "project_change_receipt",
+                            "projectId": previous["project"]["project_id"],
+                            "generation": previous.get("generation"),
+                            "etag": previous.get("etag"),
+                            "note": "A newer Project view is in this run.",
+                        },
+                    )
     return (
         opening
         + marker
         + json_text(compact_conversation_history(history, max_bytes=max_bytes))
         + ending
         + request
+    )
+
+
+def _snapshot_supersedes(
+    current: Mapping[str, Any],
+    previous: Mapping[str, Any],
+) -> bool:
+    current_generation = current.get("generation")
+    previous_generation = previous.get("generation")
+    return (
+        current["project"]["project_id"] == previous["project"]["project_id"]
+        and isinstance(current_generation, int)
+        and isinstance(previous_generation, int)
+        and current_generation >= previous_generation
     )
 
 
@@ -130,11 +191,6 @@ def prepare_model_messages(
     latest_snapshot = None
     for item in result:
         content = item.get("content")
-        if item.get("role") == "user" and isinstance(content, str):
-            item["content"] = _shrink_continuation(
-                content,
-                min(HISTORY_BYTES, max_bytes // 4),
-            )
         if item.get("role") != "tool":
             continue
         parts = (
@@ -158,6 +214,18 @@ def prepare_model_messages(
                 latest_snapshot = json.loads(part["text"])
         if isinstance(content, str):
             item["content"] = parts[0]["text"]
+
+    # A prior-run snapshot must not be pinned alongside its replacement.
+    # That duplicate can evict the script, skills and references just read,
+    # trapping long productions in repeated reconstruction instead of work.
+    for item in result:
+        content = item.get("content")
+        if item.get("role") == "user" and isinstance(content, str):
+            item["content"] = _shrink_continuation(
+                content,
+                min(HISTORY_BYTES, max_bytes // 4),
+                latest_snapshot,
+            )
 
     def size() -> int:
         return json_bytes({"messages": result, "tools": tools})

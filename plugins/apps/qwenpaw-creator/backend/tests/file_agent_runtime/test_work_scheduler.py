@@ -3,6 +3,7 @@
 # pylint: disable=unused-argument
 # pylint: disable=protected-access
 """Work-graph scheduler: parallel fan-out with fuses, not a retry cannon."""
+
 from __future__ import annotations
 
 import asyncio
@@ -386,12 +387,25 @@ def test_changed_prompt_reopens_dispatch(tmp_path, monkeypatch):
     assert len(dispatch.calls) == 2
 
 
-def test_idempotency_key_is_node_and_fingerprint_stable(
+@pytest.mark.parametrize("model_prefix", ["", "provider/"])
+def test_dispatched_idempotency_key_is_a_safe_runtime_segment(
     tmp_path,
     monkeypatch,
+    model_prefix,
 ):
+    """Task paths must not inherit fingerprint separators or model slashes."""
     services = _services(tmp_path, monkeypatch, ready_variants=1)
     _enable_yolo(monkeypatch)
+    monkeypatch.setattr(
+        work_scheduler,
+        "get_image_model_name",
+        lambda: model_prefix + "gpt-image-2",
+    )
+    monkeypatch.setattr(
+        work_scheduler,
+        "get_video_model_name",
+        lambda: model_prefix + "kling-v2",
+    )
     dispatch = _RecordingDispatch()
     scheduler = WorkGraphScheduler(services, image_dispatch=dispatch)
 
@@ -403,89 +417,7 @@ def test_idempotency_key_is_node_and_fingerprint_stable(
 
     key = dispatch.calls[0]["idempotency_key"]
     assert key.startswith("dag-visual:char:a:var:0-")
-    # The key travels on to the Task as caused_by_request_id, so it has to be
-    # a legal path segment; a prefix check alone let "|model" separators
-    # through and every dispatch was rejected.
-    require_safe_runtime_segment(key, label="caused_by_request_id")
-
-
-def test_idempotency_key_survives_provider_qualified_model_names(
-    tmp_path,
-    monkeypatch,
-):
-    """Model names feed the fingerprint and may contain "/"."""
-    services = _services(tmp_path, monkeypatch, ready_variants=1)
-    _enable_yolo(monkeypatch)
-    monkeypatch.setattr(
-        work_scheduler,
-        "get_image_model_name",
-        lambda: "provider/gpt-image-2",
-    )
-    monkeypatch.setattr(
-        work_scheduler,
-        "get_video_model_name",
-        lambda: "provider/kling-v2",
-    )
-    dispatch = _RecordingDispatch()
-    scheduler = WorkGraphScheduler(services, image_dispatch=dispatch)
-
-    async def scenario():
-        await scheduler.tick(PROJECT_ID)
-        await _drain()
-
-    asyncio.run(scenario())
-
-    key = dispatch.calls[0]["idempotency_key"]
-    require_safe_runtime_segment(key, label="caused_by_request_id")
     assert "/" not in key
-
-
-def test_ledger_fingerprint_still_reopens_on_model_change():
-    """Switching model must mint a new ledger identity."""
-    node = SimpleNamespace(
-        node_id="visual:char:a:var:0",
-        dispatch_fingerprint="a1b2c3d4e5f60718",
-    )
-
-    def fingerprint_for(image_model: str, video_model: str) -> str:
-        with pytest.MonkeyPatch.context() as patch:
-            patch.setattr(
-                work_scheduler,
-                "get_image_model_name",
-                lambda: image_model,
-            )
-            patch.setattr(
-                work_scheduler,
-                "get_video_model_name",
-                lambda: video_model,
-            )
-            return WorkGraphScheduler._ledger_fingerprint(node)
-
-    baseline = fingerprint_for("image-a", "video-a")
-    assert baseline == fingerprint_for("image-a", "video-a")
-    assert baseline != fingerprint_for("image-b", "video-a")
-    assert baseline != fingerprint_for("image-a", "video-b")
-
-
-def test_idempotency_key_is_a_safe_runtime_segment(tmp_path, monkeypatch):
-    """Regression: the ledger fingerprint carries "|img:<model>|vid:<model>"
-    and "|" is rejected by require_safe_runtime_segment. Media executors
-    persist the dispatch key verbatim as Task idempotency_key /
-    caused_by_request_id, so a raw fingerprint in the key failed every
-    work-graph dispatch ("caused_by_request_id is not a safe path
-    segment") and media generation never started."""
-    services = _services(tmp_path, monkeypatch, ready_variants=1)
-    _enable_yolo(monkeypatch)
-    dispatch = _RecordingDispatch()
-    scheduler = WorkGraphScheduler(services, image_dispatch=dispatch)
-
-    async def scenario():
-        await scheduler.tick(PROJECT_ID)
-        await _drain()
-
-    asyncio.run(scenario())
-
-    key = dispatch.calls[0]["idempotency_key"]
     assert "|" not in key
     assert (
         require_safe_runtime_segment(key, label="caused_by_request_id") == key
@@ -859,9 +791,14 @@ def test_deterministic_failure_unlocks_when_inputs_change(
     asyncio.run(scenario())
 
 
+@pytest.mark.parametrize(
+    "model_getter",
+    ["get_image_model_name", "get_video_model_name"],
+)
 def test_deterministic_failure_unlocks_when_media_model_changes(
     tmp_path,
     monkeypatch,
+    model_getter,
 ):
     """Switching the configured media model is an input change too: a
     reference-budget rejection under a small-budget model must not keep
@@ -883,7 +820,7 @@ def test_deterministic_failure_unlocks_when_media_model_changes(
 
     monkeypatch.setattr(
         work_scheduler,
-        "get_image_model_name",
+        model_getter,
         lambda: "small-budget-model",
     )
     scheduler = WorkGraphScheduler(services, image_dispatch=rejecting_dispatch)
@@ -901,7 +838,7 @@ def test_deterministic_failure_unlocks_when_media_model_changes(
         # anyone touching the ledger or the in-memory dispatch record.
         monkeypatch.setattr(
             work_scheduler,
-            "get_image_model_name",
+            model_getter,
             lambda: "large-budget-model",
         )
         await scheduler.tick(PROJECT_ID)
@@ -1402,3 +1339,146 @@ def test_stuck_failed_node_emits_steer_even_on_baseline_tick(
         len(failures) == 1
     ), "baseline tick must report, later ticks must not"
     assert "provider call was interrupted" in failures[0].text
+
+
+def test_preparing_prompts_does_not_hold_media_dispatch_loop(
+    tmp_path,
+    monkeypatch,
+):
+    services = _services(tmp_path, monkeypatch, ready_variants=2)
+    _enable_yolo(monkeypatch)
+    monkeypatch.setattr(work_scheduler, "get_media_parallelism", lambda: 1)
+
+    async def scenario():
+        started = asyncio.Event()
+        release = asyncio.Event()
+        calls = []
+
+        async def dispatch(_services, **kwargs):
+            calls.append(kwargs)
+            await release.wait()
+
+        async def prepare(_project_id, _graph):
+            started.set()
+            try:
+                await release.wait()
+            finally:
+                scheduler.wake(_project_id)
+
+        scheduler = WorkGraphScheduler(services, image_dispatch=dispatch)
+        monkeypatch.setattr(scheduler, "_prepare_changed_prompts", prepare)
+        try:
+            async with asyncio.timeout(3):
+                await scheduler.tick(PROJECT_ID)
+                await started.wait()
+                await _drain()
+                monkeypatch.setattr(
+                    work_scheduler,
+                    "get_media_parallelism",
+                    lambda: 2,
+                )
+                await scheduler.tick(PROJECT_ID)
+                await _drain()
+                assert len(calls) == 2
+                assert (
+                    len({call["arguments"]["variantId"] for call in calls})
+                    == 2
+                )
+                assert not release.is_set()
+        finally:
+            await scheduler.shutdown()
+        assert not scheduler._loops
+        assert not scheduler._preparation_tasks
+
+    asyncio.run(scenario())
+
+
+def test_review_scope_keeps_independent_sibling_running():
+    design = WorkNode(
+        "visual:a",
+        "visual",
+        "A",
+        WorkNodeStatus.DONE,
+        target_ref="asset:a",
+    )
+    board = WorkNode(
+        "storyboard:a",
+        "storyboard",
+        "A",
+        WorkNodeStatus.DONE,
+        deps=(design.node_id,),
+        target_ref="element:a",
+    )
+    video = WorkNode(
+        "video:a",
+        "video",
+        "A",
+        WorkNodeStatus.READY,
+        deps=(board.node_id,),
+        target_ref="element:a",
+    )
+    graph = WorkGraph(nodes=(design, board, video), generation=1)
+    assert not _blocked_by_active_media_review(
+        video,
+        frozenset({"slot:b"}),
+        frozenset({"element:b"}),
+        graph=graph,
+    )
+    assert _blocked_by_active_media_review(
+        video,
+        frozenset({"slot:a"}),
+        frozenset({"asset:a"}),
+        graph=graph,
+    )
+    for target, blocked in (("a", True), ("b", False)):
+        assert (
+            _blocked_by_active_sync_review(
+                video,
+                sync_review_pending=True,
+                fences=(
+                    {
+                        "reviewed_pointers": [
+                            "/timelines/items/timeline:main/elements_by_id/"
+                            f"{target}/creation",
+                        ],
+                    },
+                ),
+                graph=graph,
+            )
+            is blocked
+        )
+
+
+def test_manual_fingerprint_re_rolls_a_succeeded_slot() -> None:
+    """A manual request on a DONE node mints a fresh paid identity.
+
+    User rule 2026-09-11: 生成完成后即使提示词未改也可以重新生成。The
+    succeeded slot previously stopped the walk, so a manual dispatch
+    replayed the finished task instead of generating again; failed and
+    cancelled retries keep their existing convergence.
+    """
+
+    node = WorkNode(
+        node_id="visual:char:a:var:x",
+        kind="visual",
+        label="a",
+        status=WorkNodeStatus.DONE,
+        dispatch_fingerprint="fp-base",
+    )
+    base = WorkGraphScheduler._ledger_fingerprint(node)
+    slot = work_scheduler.dispatch_slot(base)
+    succeeded = SimpleNamespace(
+        task_id="task-done-1",
+        status=TaskStatus.SUCCEEDED,
+        idempotency_key=f"dag-{node.node_id}-{slot}",
+        caused_by_request_id=None,
+    )
+
+    fresh = WorkGraphScheduler.manual_retry_fingerprint(node, [succeeded])
+    assert fresh != base
+    assert fresh.startswith(f"{base}-manual-retry-")
+    # Concurrent clicks converge: the same terminal task derives the same
+    # next identity.
+    assert WorkGraphScheduler.manual_retry_fingerprint(node, [succeeded]) == (
+        fresh
+    )

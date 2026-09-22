@@ -38,7 +38,10 @@ def _get_api_base() -> Optional[str]:
         Base URL string such as ``http://127.0.0.1:8088/api`` if the
         app is running, otherwise ``None``.
     """
-    api_info = read_runtime_api() or config_utils.read_last_api()
+    api_info = read_runtime_api()
+    if os.environ.get("QWENPAW_RUNTIME_ID") and api_info is None:
+        raise click.ClickException("Managed runtime endpoint is unavailable")
+    api_info = api_info or config_utils.read_last_api()
     if api_info is None:
         return None
     host, port = api_info
@@ -81,8 +84,12 @@ def _api_install_plugin(source: str, force: bool = False) -> bool:
         except Exception:
             detail = str(exc)
         click.echo(f"❌ API install failed: {detail}", err=True)
+        if os.environ.get("QWENPAW_RUNTIME_ID"):
+            raise click.ClickException(str(exc)) from exc
         return False
     except Exception as exc:
+        if os.environ.get("QWENPAW_RUNTIME_ID"):
+            raise click.ClickException(str(exc)) from exc
         click.echo(f"❌ API request failed: {exc}", err=True)
         return False
 
@@ -143,8 +150,12 @@ def _api_upload_plugin(zip_path: Path, force: bool = False) -> bool:
         except Exception:
             detail = str(exc)
         click.echo(f"❌ API upload failed: {detail}", err=True)
+        if os.environ.get("QWENPAW_RUNTIME_ID"):
+            raise click.ClickException(str(exc)) from exc
         return False
     except Exception as exc:
+        if os.environ.get("QWENPAW_RUNTIME_ID"):
+            raise click.ClickException(str(exc)) from exc
         click.echo(f"❌ API request failed: {exc}", err=True)
         return False
 
@@ -180,8 +191,12 @@ def _api_uninstall_plugin(plugin_id: str) -> bool:
         except Exception:
             detail = str(exc)
         click.echo(f"❌ API uninstall failed: {detail}", err=True)
+        if os.environ.get("QWENPAW_RUNTIME_ID"):
+            raise click.ClickException(str(exc)) from exc
         return False
     except Exception as exc:
+        if os.environ.get("QWENPAW_RUNTIME_ID"):
+            raise click.ClickException(str(exc)) from exc
         click.echo(f"❌ API request failed: {exc}", err=True)
         return False
 
@@ -237,6 +252,11 @@ def _install_requirements_cli(
         ``True`` on success, ``False`` on failure (error already
         printed).
     """
+    if os.environ.get("QWENPAW_RUNTIME_PROVISIONER") == "local":
+        raise click.ClickException(
+            "Local dependencies are administrator-managed; "
+            "ask the administrator to install them or use Docker.",
+        )
     req = str(requirements_file)
     timeout = 300
 
@@ -522,7 +542,7 @@ def install(source: str, force: bool):
         qwenpaw plugin install https://example.com/plugin.zip
     """
     # If the app is running, delegate to the live API for hot-install
-    if _is_running():
+    if os.environ.get("QWENPAW_RUNTIME_ID") or _is_running():
         click.echo(
             "QwenPaw is running — using hot-install via API...",
         )
@@ -793,7 +813,7 @@ def uninstall(plugin_id: str):
         return
 
     # If the app is running, delegate to the live API for hot-uninstall
-    if _is_running():
+    if os.environ.get("QWENPAW_RUNTIME_ID") or _is_running():
         click.echo(
             "QwenPaw is running — using hot-uninstall via API...",
         )

@@ -5,7 +5,7 @@ description = "QwenPaw is a **personal assistant** that runs in your own environ
 readme = "README.md"
 requires-python = ">=3.11,<3.14"
 dependencies = [
-    "agentscope[model-ollama]==2.0.7.post1",
+    "agentscope[model-ollama]==2.0.8",
     "httpx>=0.27.0",
     "websockets>=15.0.1,<16",
     "packaging>=24.0",
@@ -29,7 +29,7 @@ dependencies = [
     "python-socks>=2.5.3",
     "onnxruntime<1.24",
     "lark-oapi>=1.5.3",
-    "python-telegram-bot>=20.0",
+    "python-telegram-bot>=20.8",
     "slack-bolt>=1.22.0",
     "twilio>=9.10.2",
     "pywebview>=4.0",
@@ -97,8 +97,8 @@ include-package-data = true
     "agents/md_files/**",
     "agents/skills/**",
     "agents/context/visual_compression/assets/atlas-gray.ts",
-    "agents/context/visual_compression/assets/atlas-gray-medium.ts",
-    "agents/context/visual_compression/assets/atlas-gray-high.ts",
+    "agents/context/visual_compression/assets/atlas-gray-native.ts",
+    "agents/context/visual_compression/assets/atlas-gray-readable.ts",
     "agents/context/visual_compression/assets/JETBRAINS_MONO_LICENSE.txt",
     "agents/context/visual_compression/assets/UNIFONT_LICENSE.txt",
     "agents/context/visual_compression/assets/SPLEEN_LICENSE.txt",
@@ -157,10 +157,10 @@ qoder = [
     "qoder-agent-sdk==1.0.9",
 ]
 qwenpaw-data = [
-    "qwenpaw-data-context>=0.1,<0.2",
-    "qwenpaw-data-host-core>=0.1,<0.2",
-    "qwenpaw-data-cli>=0.1,<0.2",
-    "qwenpaw-data-skills>=0.1,<0.2",
+    "qwenpaw-data-context>=0.3,<0.4",
+    "qwenpaw-data-host-core[service]>=0.3,<0.4",
+    "qwenpaw-data-cli>=0.3,<0.4",
+    "qwenpaw-data-skills>=0.3,<0.4",
 ]
 full = [
     "qwenpaw[qwenpaw-data,hub,local,whisper,codex,qoder]",

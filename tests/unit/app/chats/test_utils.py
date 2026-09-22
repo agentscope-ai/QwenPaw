@@ -264,17 +264,16 @@ def test_msg_to_message_omits_synthetic_user_stubs():
 
 def test_msg_to_message_omits_visual_compression_placeholders():
     """Visual-compression collapse rewrites history into user-role
-    ``visual_history`` / ``visual_context`` messages. They are model-only
+    ``visual_history`` messages. They are model-only
     reconstructions, never the user's transcript."""
-    for name in ("visual_history", "visual_context"):
-        collapsed = Msg(
-            name=name,
-            role="user",
-            content=[
-                {"type": "text", "text": "[pages 1-3 of prior history]"},
-            ],
-        )
-        assert not agentscope_msg_to_message(collapsed), name
+    collapsed = Msg(
+        name="visual_history",
+        role="user",
+        content=[
+            {"type": "text", "text": "[pages 1-3 of prior history]"},
+        ],
+    )
+    assert not agentscope_msg_to_message(collapsed)
 
 
 def test_msg_to_message_keeps_user_message_with_unknown_tag():
@@ -502,7 +501,7 @@ def test_clean_title_empty_returns_empty():
     assert _clean_title("   ") == ""
 
 
-def test_clean_title_truncates_long_title():
+def test_clean_title_keeps_long_title():
     long_title = "x" * 200
     result = _clean_title(long_title)
-    assert len(result) <= 80
+    assert result == long_title

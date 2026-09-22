@@ -17,7 +17,13 @@ from services.media_files.image_execution import _resolve_request
 from services.media_files.visual_reference_resolution import (
     preview_r2v_reference_order,
 )
-from services.project_files.models import Project, SourceAssetVersion
+from services.project_files.models import (
+    Project,
+    SourceAssetVersion,
+    Timeline,
+    VisualCastLineup,
+    VisualEntity,
+)
 from services.project_files.store import ProjectSnapshot
 
 from .conftest import make_r2v_element
@@ -110,6 +116,50 @@ def test_invalid_indices_are_visible_and_rejected_before_provider(
     assert preview["ready"] is False
     with pytest.raises(ValidationError, match="参考图编号"):
         _resolve(snapshot, tmp_path)
+
+
+def test_ready_episode_resolves_while_later_episode_assets_are_pending(
+    tmp_path,
+):
+    snapshot = _snapshot()
+    project = snapshot.project
+    later = make_r2v_element("shot:later", storyboard_prompt="两人夜景")
+    later.creation.character_refs = ["char:later-a", "char:later-b"]
+    later.creation.cast_lineup_refs = ["lineup:later"]
+    for ref in later.creation.character_refs:
+        project.visual.entities.items[ref] = VisualEntity(
+            entity_id=ref,
+            kind="character",
+            name=ref,
+            required_variant_ids=[],
+        )
+        project.visual.entities.order.append(ref)
+    project.visual.cast_lineups.items["lineup:later"] = VisualCastLineup(
+        lineup_id="lineup:later",
+        name="Later episode pair",
+        character_refs=later.creation.character_refs,
+    )
+    project.visual.cast_lineups.order.append("lineup:later")
+    project.timelines.items["timeline:later"] = Timeline(
+        timeline_id="timeline:later",
+        elements_by_id={later.element_id: later},
+    )
+    project.timelines.order.append("timeline:later")
+
+    request = _resolve(snapshot, tmp_path)
+    assert request.reference_version_ids == tuple(
+        project.timelines.items["timeline:main"]
+        .elements_by_id["shot:one"]
+        .creation.storyboard_reference_version_ids,
+    )
+    with pytest.raises(ValidationError, match="尚无使用中视觉产物"):
+        _resolve_request(
+            snapshot=snapshot,
+            project_root=tmp_path,
+            command=CreatorCommandType.GENERATE_STORYBOARD_IMAGE,
+            target_ref="element:shot:later",
+            arguments={},
+        )
 
 
 def test_layout_accepts_frame_classifiers_without_guessing_conflicts():

@@ -10,6 +10,14 @@ on:
         description: 'Pytest marker expression'
         type: string
         default: 'integration'
+      node_ids_file:
+        description: >-
+          Repo-relative path to a file of explicit pytest node ids (one per
+          line). When set, the pytest step runs exactly those ids instead of
+          the marker expression. Used by the release gate/watch sets so the
+          blocking set is a reviewed, auditable list rather than a marker.
+        type: string
+        default: ''
       shard_suffix:
         # Set when this reusable job is fanned out into parallel shards
         # (nightly runs p0 / p1 / p2). upload-artifact@v4 rejects
@@ -24,7 +32,35 @@ jobs:
   e2e:
     name: E2E Playwright Tests
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    # 60 min, raised from 45. Measured on the nightly sweep (run 34771337734):
+    # the p1 shard took 37.9 min against the 45 min ceiling, leaving only 7.1
+    # min (16%) of headroom. The E2E suite is still growing, so the ceiling is
+    # lifted well past what today's distribution needs: 60 min gives 22.1 min
+    # (37%) of headroom.
+    #
+    # Deliberately NOT higher: at 75-90 min a genuinely hung shard would only be
+    # reported that late, which weakens the gate.
+    #
+    # Effect on overall sweep duration, stated as a measurement and NOT as a
+    # guarantee: the sweep runs as long as its slowest job, and that job is
+    # currently the Windows integration tier -- but its duration is volatile
+    # (59.8 and 76.7 minutes on two recent nightly runs), so 60 min sits INSIDE
+    # that range rather than safely below it. On a run where the Windows tier
+    # lands at the fast end, an E2E shard approaching this ceiling could become
+    # the slowest job. Today's shards are far from the ceiling (the slowest
+    # measured 39.4 min of job time on run 34941456787), so in practice the
+    # sweep duration is still set by the Windows tier.
+    #
+    # Still, 60 min is NOT sufficient for the pending expansion on its own: if
+    # the incoming E2E batch (this shard goes 105 -> 209 cases) lands WITHOUT
+    # rebalancing, the shard measures ~63 min -- 209 x 14.31s of test time plus
+    # ~13.6 min of fixed overhead, both read out of run artifacts -- i.e. past
+    # this ceiling. Rebalancing cases across shards by measured duration (a
+    # separate change, not in this PR) is projected to cut the slowest shard to
+    # ~29.3 min and would raise the headroom to ~51%; until that lands, 60 min
+    # is the operative figure and the numbers in this comment are the ones to
+    # trust.
+    timeout-minutes: 60
     environment: staging
 
     env:
@@ -35,6 +71,17 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Load explicit node id list
+        if: inputs.node_ids_file != ''
+        shell: bash
+        run: |
+          if [ ! -f "${{ inputs.node_ids_file }}" ]; then
+            echo "::error::node ids file missing: ${{ inputs.node_ids_file }}"
+            exit 1
+          fi
+          cp "${{ inputs.node_ids_file }}" /tmp/e2e_node_ids.txt
+          echo "Loaded $(wc -l < /tmp/e2e_node_ids.txt) explicit node ids from ${{ inputs.node_ids_file }}"
 
       # ---- Build frontend ----
       - uses: actions/setup-node@v4
@@ -136,7 +183,71 @@ jobs:
         shell: bash
         working-directory: e2e
         run: |
-          pytest tests/ -m "${{ inputs.test_marker }}" -v --tb=short --reruns=1 --reruns-delay=3
+          # Per-test timeout. pytest-timeout has been a declared dependency
+          # (e2e/requirements.txt: "Timeout control" + pytest-timeout>=2.2.0)
+          # but was never enabled, so the job-level timeout-minutes was the
+          # ONLY protection. One hung case therefore consumed the whole shard
+          # budget and every case queued behind it silently never ran -- the
+          # run still uploaded coverage, generated the HTML report and
+          # attached artifacts, so it looked complete. Comparing "selected"
+          # against "actually executed" showed 64 of 209 cases (30.6%) had not
+          # run at all.
+          #
+          # Held in a variable because this step has TWO pytest invocations
+          # (node-id form and marker form); a variable makes it impossible to
+          # fix one and silently leave the other unprotected.
+          #
+          # 480s comes from a measured per-case duration distribution of 87
+          # cases (median 7.70s, mean 22.35s, longest 385.9s): it leaves 24%
+          # headroom over the longest and kills zero genuinely passing cases.
+          # Lower values misfire -- 60s would kill 7 passing cases, and both
+          # 120s and 180s kill 2 (a 385.9s context-compression case and a
+          # 242.0s session case, both passing and visibly progressing in the
+          # log). Those would surface as brand-new defects in triage and waste
+          # a whole round.
+          #
+          # --timeout-method=signal, NOT thread. thread calls os._exit(1) on
+          # timeout (pytest_timeout.py, in an unconditional finally block),
+          # which kills the whole pytest process -- every case behind the hung
+          # one still never runs, so thread would not fix the blind spot at
+          # all. Measured side by side on four hang shapes (sleep in the test
+          # body, hang in a real fixture teardown, main thread blocked in
+          # subprocess.wait(), main thread blocked in a C-level socket recv()
+          # -- the last two being the closest analogues to a sync Playwright
+          # transport stall): signal failed just the hung case and every later
+          # case still ran and reported; thread exited the process with zero
+          # later cases executed, in all four. signal's only blind spot is a
+          # case that masks SIGALRM itself, and this suite never touches
+          # signal at all (grep over e2e/tests and e2e/conftest.py: zero
+          # hits), so signal is strictly better here.
+          #
+          # --rerun-except Timeout is REQUIRED, not optional. signal alone
+          # would mark the timed-out case failed, and the pre-existing
+          # --reruns=1 would then rerun it -- but the rerun gets no timer, so
+          # it hangs to the outer job limit (measured: the run never finishes).
+          # Excluding Timeout from reruns stops that, while leaving --reruns=1
+          # fully intact for the flakes it exists for (verified: a
+          # fail-then-pass case still reruns and passes).
+          #
+          # Net effect, stated plainly: this turns invisible blind spots into
+          # visible red, so the failure count will rise. That is expected and
+          # is not a quality regression.
+          #
+          # Residual limit, also stated plainly: this does NOT make "cases
+          # never ran" impossible. Against today's distribution (slowest shard
+          # 37.9 min vs the 60 min ceiling) there is ~22.1 min of slack, i.e.
+          # room for about TWO genuinely hung cases at 480s before the shard
+          # still hits the job ceiling. A shard with 3 or more real hangs can
+          # still run out of budget -- but the log will now name which case
+          # hung, instead of silently dropping the rest. Rebalancing cases by
+          # measured duration (separate change) would widen this to ~3.
+          PYTEST_TIMEOUT_ARGS="--timeout=480 --timeout-method=signal --rerun-except Timeout"
+          if [ -s /tmp/e2e_node_ids.txt ]; then
+            # Release gate/watch form: run exactly the reviewed node ids.
+            pytest $(tr '\n' ' ' < /tmp/e2e_node_ids.txt) -v --tb=short --reruns=1 --reruns-delay=3 $PYTEST_TIMEOUT_ARGS
+          else
+            pytest tests/ -m "${{ inputs.test_marker }}" -v --tb=short --reruns=1 --reruns-delay=3 $PYTEST_TIMEOUT_ARGS
+          fi
 
       # ---- Collect coverage ----
       - name: Stop backend and collect coverage

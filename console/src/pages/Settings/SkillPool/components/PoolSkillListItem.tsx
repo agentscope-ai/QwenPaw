@@ -83,6 +83,11 @@ export function PoolSkillListItem({
             {isBuiltin && (
               <span className={styles.typeBadge}>{t("skillPool.builtin")}</span>
             )}
+            {skill.version_text && (
+              <span className={styles.typeBadge}>
+                {t("skillPool.version")}: {skill.version_text}
+              </span>
+            )}
             {automationLabel && (
               <span className={styles.automationTag}>{automationLabel}</span>
             )}

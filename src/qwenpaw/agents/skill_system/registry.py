@@ -15,18 +15,25 @@ import tempfile
 import threading
 import weakref
 from collections import OrderedDict
-from collections.abc import Iterable, Iterator
+from collections.abc import Iterable, Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from ...drivers.errors import DriverCardError
+from ...drivers.storage import card_paths_for_name, load_card
 from ...exceptions import SkillsError
 from ...utils.file_snapshot_cache import FileSignature
-from ..utils.file_handling import read_text_file_with_encoding_fallback
+from ...utils.shell_normalization import shell_execution_path
+from ..utils.file_handling import (
+    read_text_file_with_encoding_fallback,
+    single_line_log_value,
+)
 from .models import (
     BuiltinSkillIdentity,
     BuiltinSkillVariant,
+    SkillRequirements,
 )
 from .store import (
     build_skill_metadata,
@@ -44,9 +51,11 @@ from .store import (
     is_ignored_skill_entry,
     is_pool_builtin_entry,
     is_primary_pool_skill_dir,
+    load_skill_frontmatter_from_dir,
     mutate_json,
     mutate_pool_manifest,
     normalize_skill_manifest_entry,
+    parse_skill_requirements,
     read_frontmatter_safe_from_path,
     read_pool_skill_automation,
     read_skill_manifest,
@@ -320,7 +329,6 @@ def _build_skill_config_env_overrides(
     Config keys that match a declared ``require_envs`` entry are
     injected as environment variables.  Keys not in ``require_envs``
     are silently skipped (still available via the full JSON var).
-    Missing required keys are logged as warnings.
     """
     overrides: dict[str, str] = {}
 
@@ -337,15 +345,6 @@ def _build_skill_config_env_overrides(
         if value in (None, ""):
             continue
         overrides[key] = _stringify_skill_env_value(value)
-
-    for env_name in normalized_required_envs:
-        if env_name not in overrides:
-            logger.warning(
-                "Skill '%s' requires env '%s' but config does "
-                "not provide it",
-                skill_name,
-                env_name,
-            )
 
     overrides[_skill_config_env_var_name(skill_name)] = json.dumps(
         config,
@@ -1217,21 +1216,105 @@ def list_workspaces() -> list[dict[str, str]]:
     return workspaces
 
 
+def _skill_env_key(key: str) -> str:
+    """Preserve platform env-key semantics in dependency-check snapshots."""
+    return key.upper() if os.name == "nt" else key
+
+
+def check_skill_dependencies(
+    requirements: SkillRequirements,
+    env: Mapping[str, str],
+    workspace_dir: Path | None,
+) -> list[str]:
+    """Return unmet prerequisites without logging or starting processes."""
+    missing = []
+    for env_name in requirements.require_envs:
+        if not env.get(_skill_env_key(env_name)):
+            missing.append(f"Environment variable not set: {env_name}")
+
+    search_path = shell_execution_path(env.get("PATH"))
+    for binary in requirements.require_bins:
+        if shutil.which(binary, path=search_path) is None:
+            missing.append(f"CLI binary not found on PATH: {binary}")
+
+    if workspace_dir is not None:
+        for name in requirements.require_mcps:
+            try:
+                paths = card_paths_for_name(workspace_dir / "drivers", name)
+                if not paths:
+                    missing.append(f"MCP server not configured: {name}")
+                    continue
+                card = load_card(paths[0])
+                if card.name != name or card.protocol != "mcp":
+                    missing.append(
+                        f"MCP server configuration is invalid: {name}",
+                    )
+                elif not card.enabled:
+                    missing.append(f"MCP server is disabled: {name}")
+            except (DriverCardError, UnicodeError):
+                missing.append(
+                    f"MCP server configuration is invalid: {name}",
+                )
+    return missing
+
+
 def resolve_effective_skills(
     workspace_dir: Path,
     channel_name: str,
 ) -> list[str]:
-    """Resolve enabled workspace skills for one channel."""
+    """Resolve enabled skills whose declared prerequisites are satisfied.
+
+    Unavailable skills keep their enabled state and are reconsidered on
+    the next resolution.
+    """
     manifest = read_skill_manifest(workspace_dir)
+    skills_dir = get_workspace_skills_dir(workspace_dir)
     resolved = []
     for skill_name, entry in sorted(manifest.get("skills", {}).items()):
         if not entry.get("enabled", False):
             continue
         channels = entry.get("channels") or ["all"]
-        if "all" in channels or channel_name in channels:
-            skill_dir = get_workspace_skills_dir(workspace_dir) / skill_name
-            if skill_dir.exists():
-                resolved.append(skill_name)
+        if "all" not in channels and channel_name not in channels:
+            continue
+        skill_dir = skills_dir / skill_name
+        if not skill_dir.exists():
+            continue
+        try:
+            # The manifest retains valid fields but not declaration errors.
+            post = load_skill_frontmatter_from_dir(skill_dir)
+            requirements, errors = parse_skill_requirements(post)
+            if not errors:
+                env = {
+                    _skill_env_key(key): value
+                    for key, value in os.environ.items()
+                }
+                config = entry.get("config") or {}
+                if isinstance(config, dict) and config:
+                    overrides = _build_skill_config_env_overrides(
+                        skill_name,
+                        config,
+                        requirements.require_envs,
+                    )
+                    for key, value in overrides.items():
+                        # Runtime also preserves existing empty values.
+                        env.setdefault(_skill_env_key(key), value)
+                errors = check_skill_dependencies(
+                    requirements,
+                    env,
+                    workspace_dir,
+                )
+        except Exception as exc:
+            # Isolate inspection failures at the single-skill boundary.
+            errors = [str(exc)]
+        if errors:
+            logger.error(
+                "Skipping skill '%s' in workspace %s: %s",
+                single_line_log_value(skill_name),
+                single_line_log_value(workspace_dir),
+                single_line_log_value("; ".join(errors)),
+            )
+            continue
+        resolved.append(skill_name)
     return resolved
 
 

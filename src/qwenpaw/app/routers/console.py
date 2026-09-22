@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """Console APIs: push messages, chat, and file upload for chat."""
+
 from __future__ import annotations
 
 import asyncio
@@ -27,13 +28,21 @@ from qwenpaw.schemas import (
     AgentRequest,
     _coerce_content_item,
 )
+from qwenpaw.tool_calls import CancelReason
 from qwenpaw.utils.timeout import resolve_stream_task_timeout
+from ...providers.thinking import ThinkingPreference
+from ...services.session_thinking import (
+    session_model,
+    session_preference,
+    thinking_view,
+)
+from ...config.config import ModelSlotConfig
 from ...utils.logging import LOG_FILE_PATH, sanitize_log_value
 from ..agent_context import get_agent_for_request
 from ..approvals.display import approval_display_fields
+from ..chats.models import ChatUpdate
 from ..chats.title_generator import generate_and_update_title
 from ..utils import check_upload_size
-
 
 logger = logging.getLogger(__name__)
 
@@ -123,7 +132,51 @@ def _extract_placeholder_name(content_parts: list) -> tuple[str, str]:
         first_text = ""
     if not first_text:
         return "Media Message", ""
-    return first_text[:10], first_text
+    return first_text, first_text
+
+
+async def _persist_pending_model_settings(workspace, chat, request_context):
+    """Bind first-turn model and reasoning before building the runtime."""
+    pending_model = request_context.pop(f"session_model", None)
+    if pending_model is not None and session_model(chat.meta) is None:
+        try:
+            selected = ModelSlotConfig.model_validate(pending_model)
+        except ValueError as exc:
+            raise HTTPException(422, f"Invalid session model") from exc
+        view = await thinking_view(workspace, model_override=selected)
+        if view[f"model"] is None:
+            raise HTTPException(422, f"Model provider is unavailable")
+        chat = await workspace.chat_manager.set_session_model(
+            chat.id,
+            selected.model_dump(),
+        )
+        if chat is None:
+            raise HTTPException(409, f"Session disappeared before saving")
+
+    pending_thinking = request_context.pop(f"session_thinking", None)
+    if pending_thinking is not None:
+        try:
+            preference = ThinkingPreference.model_validate(pending_thinking)
+        except ValueError as exc:
+            raise HTTPException(422, f"Invalid thinking preference") from exc
+        view = await thinking_view(
+            workspace,
+            preference,
+            session_model(chat.meta),
+        )
+        if preference.level != f"inherit" and view[f"reason"] is not None:
+            raise HTTPException(422, f"Invalid session thinking setting")
+        if session_preference(chat.meta, view[f"model_key"]) is None:
+            updated = await workspace.chat_manager.set_session_thinking(
+                chat.id,
+                preference,
+                view[f"model_key"],
+            )
+            if updated is None:
+                raise HTTPException(409, f"Session disappeared before saving")
+            chat = updated
+
+    return chat
 
 
 async def _persist_pending_project_dirs(
@@ -154,6 +207,12 @@ async def _persist_pending_project_dirs(
     request_context = native_payload["meta"].get("request_context")
     if not isinstance(request_context, dict):
         return chat
+
+    chat = await _persist_pending_model_settings(
+        workspace,
+        chat,
+        request_context,
+    )
 
     raw_list = request_context.pop("session_project_dirs", None)
     raw_single = request_context.pop("session_project_dir", None)
@@ -412,6 +471,21 @@ async def post_console_chat(
             # history. Returning a JSON null here left the chat blank.
             return _empty_sse_response()
     else:
+        # The web UI allocates a Chat UUID before its first message. Give
+        # that explicit placeholder the same first-turn naming behavior as
+        # get_or_create_chat, without overwriting a user's renamed Chat.
+        if (
+            first_text
+            and not chat.last_finished_at
+            and chat.meta.get("console_placeholder_name") == chat.name
+        ):
+            renamed = await workspace.chat_manager.patch_chat_if_name_matches(
+                chat.id,
+                chat.name,
+                ChatUpdate(name=name),
+            )
+            if renamed is not None:
+                chat = renamed
         chat = await _persist_pending_project_dirs(
             workspace,
             chat,
@@ -482,42 +556,60 @@ async def post_console_chat_stop(
     request: Request,
     chat_id: str = Query(..., description="Chat id (ChatSpec.id) to stop"),
 ) -> dict:
-    """Stop the running chat. Only stops when called."""
+    """Stop the running chat and its foreground tool calls."""
     logger.debug("[STOP API] Received stop request for chat_id=%s", chat_id)
     workspace = await get_agent_for_request(request)
 
-    # Try to stop with the provided chat_id first
-    logger.debug(
-        "[STOP API] Got workspace, calling task_tracker.request_stop...",
-    )
-    stopped = await workspace.task_tracker.request_stop(chat_id)
-
-    # If not found, the chat_id might be a session_id (timestamp)
-    # Try to resolve it to the actual chat UUID
-    if not stopped:
-        logger.debug(
-            "[STOP API] chat_id not found in tracker, trying to resolve "
-            "from session_id...",
-        )
-        chat_manager = workspace.chat_manager
-        if chat_manager:
-            resolved_chat_id = await chat_manager.get_chat_id_by_session(
+    resolved_chat_id = chat_id
+    runtime_session_id: str | None = None
+    chat_manager = workspace.chat_manager
+    if chat_manager:
+        chat = await chat_manager.get_chat(chat_id)
+        if chat is None:
+            candidate = await chat_manager.get_chat_id_by_session(
                 session_id=chat_id,
                 channel="console",
             )
-            if resolved_chat_id:
+            if candidate:
+                resolved_chat_id = candidate
+                chat = await chat_manager.get_chat(candidate)
                 logger.debug(
                     "[STOP API] Resolved session_id=%s to chat_id=%s",
                     chat_id[:12] if len(chat_id) >= 12 else chat_id,
-                    resolved_chat_id,
+                    candidate,
                 )
-                stopped = await workspace.task_tracker.request_stop(
-                    resolved_chat_id,
-                )
+        if chat is not None:
+            runtime_session_id = chat.session_id
+
+    tool_cancelled = 0
+    app_services = getattr(request.app.state, "app_services", None)
+    coordinator = getattr(app_services, "tool_coordinator", None)
+    cancel_session = getattr(
+        coordinator,
+        "cancel_running_for_session",
+        None,
+    )
+    if runtime_session_id and callable(cancel_session):
+        # Tool calls have their own task owner. Cancel them before cancelling
+        # the producer so subprocess bridges can observe cancel_event and tear
+        # down the process tree deterministically.
+        tool_cancelled = await cancel_session(
+            runtime_session_id,
+            agent_id=workspace.agent_id,
+            reason=CancelReason.USER,
+        )
 
     logger.debug(
-        "[STOP API] task_tracker.request_stop returned: stopped=%s",
+        "[STOP API] Got workspace, calling task_tracker.request_stop...",
+    )
+    run_stopped = await workspace.task_tracker.request_stop(resolved_chat_id)
+    stopped = run_stopped or tool_cancelled > 0
+
+    logger.debug(
+        "[STOP API] stop completed: stopped=%s run_stopped=%s tools=%s",
         stopped,
+        run_stopped,
+        tool_cancelled,
     )
     return {"stopped": stopped}
 
@@ -541,6 +633,38 @@ async def post_console_upload(
     data = await file.read()
     check_upload_size(data)
     safe_name = _safe_filename(file.filename or "file")
+    if file.content_type in {
+        "image/png",
+        "image/jpeg",
+        "image/gif",
+        "image/webp",
+        "image/bmp",
+        "image/tiff",
+    } or Path(
+        safe_name,
+    ).suffix.lower() in {
+        ".png",
+        ".jpg",
+        ".jpeg",
+        ".gif",
+        ".webp",
+        ".bmp",
+        ".tiff",
+    }:
+        from io import BytesIO
+        from PIL import Image
+
+        try:
+            with Image.open(BytesIO(data)) as image:
+                image.verify()
+        except (OSError, SyntaxError, ValueError) as exc:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "The image is damaged or unsupported. "
+                    "Please upload it again."
+                ),
+            ) from exc
     stored_name = f"{uuid.uuid4().hex}_{safe_name}"
 
     path = (media_dir / stored_name).resolve()

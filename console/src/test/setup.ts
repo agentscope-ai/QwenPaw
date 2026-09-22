@@ -46,3 +46,12 @@ global.ResizeObserver = vi.fn().mockImplementation(function () {
     disconnect: vi.fn(),
   };
 });
+
+// Visibility-aware Motion components pause when outside the viewport.
+global.IntersectionObserver = vi.fn().mockImplementation(function () {
+  return {
+    observe: vi.fn(),
+    unobserve: vi.fn(),
+    disconnect: vi.fn(),
+  };
+});

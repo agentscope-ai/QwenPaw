@@ -1,4 +1,5 @@
 import { Tag } from "antd";
+import { useTranslation } from "react-i18next";
 import {
   Package,
   Wrench,
@@ -50,6 +51,11 @@ const PLUGIN_TYPE_CONFIG: Record<
     color: "default",
     icon: <SparkWifiLine size={11} />,
   },
+  memory: {
+    label: "Memory",
+    color: "purple",
+    icon: <BrainCircuit size={11} />,
+  },
   general: {
     label: "General",
     color: "default",
@@ -58,6 +64,7 @@ const PLUGIN_TYPE_CONFIG: Record<
 };
 
 export function PluginTypeTag({ type }: { type: PluginType }) {
+  const { t } = useTranslation();
   const cfg = PLUGIN_TYPE_CONFIG[type] ?? PLUGIN_TYPE_CONFIG.general;
   return (
     <Tag
@@ -65,7 +72,7 @@ export function PluginTypeTag({ type }: { type: PluginType }) {
       icon={cfg.icon}
       style={{ display: "inline-flex", alignItems: "center", gap: 4 }}
     >
-      {cfg.label}
+      {type === "memory" ? t("pluginManager.typeMemory", cfg.label) : cfg.label}
     </Tag>
   );
 }

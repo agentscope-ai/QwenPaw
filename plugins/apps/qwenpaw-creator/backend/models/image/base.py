@@ -65,6 +65,14 @@ _QWEN_EDIT_DOCUMENTATION = (
 _QWEN_MODEL_DOCUMENTATION = (
     "https://help.aliyun.com/zh/model-studio/image-model"
 )
+_WAN_27_IMAGE_DOCUMENTATION = (
+    "https://help.aliyun.com/zh/model-studio/"
+    "wan-image-generation-and-editing-api-reference"
+)
+_WAN_26_IMAGE_DOCUMENTATION = (
+    "https://help.aliyun.com/zh/model-studio/"
+    "wan-image-generation-api-reference"
+)
 _OPENAI_IMAGE_DOCUMENTATION = (
     "https://github.com/openai/openai-python/blob/main/"
     "src/openai/types/image_edit_params.py"
@@ -84,6 +92,34 @@ _IDEOGRAM_DOCUMENTATION = (
 # assigned a guessed generic value: reference use then fails before billing
 # with a capability-registration error.
 _REFERENCE_CAPABILITIES = (
+    # Match image model IDs exactly; bare Wan versions and video models
+    # must never inherit this image-input budget.
+    (
+        re.compile(r"^wan2\.7-image(?:-pro)?$", re.IGNORECASE),
+        ImageReferenceCapability(
+            "wan2.7-image",
+            9,
+            _WAN_27_IMAGE_DOCUMENTATION,
+        ),
+    ),
+    (
+        re.compile(r"^wan2\.6-image$", re.IGNORECASE),
+        ImageReferenceCapability(
+            # The provider uses the default image-editing mode
+            # (enable_interleave=false), which accepts 1-4 inputs.
+            "wan2.6-image",
+            4,
+            _WAN_26_IMAGE_DOCUMENTATION,
+        ),
+    ),
+    (
+        re.compile(r"^z-image-turbo$", re.IGNORECASE),
+        ImageReferenceCapability(
+            "z-image-turbo",
+            0,
+            "https://help.aliyun.com/zh/model-studio/z-image-api-reference",
+        ),
+    ),
     (
         re.compile(
             r"^qwen-image-(?:3\.0|2\.0)(?:-pro)?"
@@ -259,11 +295,13 @@ _REFERENCE_CAPABILITIES = (
 
 
 # These are documented prompt wording, not invented API control tokens.
-# Qwen numbers 图N against content order; Gemini and FLUX guides use image N
+# Qwen and Wan image number 图N against content order; Gemini and FLUX use image N
 # in multi-image instructions. Other providers use ordinary ordinal prose
 # with their ordered image payload (e.g. Seedream's 图一/图二 examples), not
 # a guessed video-model dialect such as Seedance's 图片N.
 _MARKER_TEMPLATES_BY_FAMILY = {
+    "wan2.7-image": "图{index}",
+    "wan2.6-image": "图{index}",
     "qwen-image-2.x/3.x": "图{index}",
     "qwen-image-edit": "图{index}",
     "gemini-3-pro-image": "image {index}",

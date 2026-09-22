@@ -91,8 +91,11 @@ class ProviderManagerHost:
     # ------------------------------------------------------------------
     # Helpers implemented by ProviderManagerPersistenceMixin
     # ------------------------------------------------------------------
-    @staticmethod
-    def _copy_provider_state(target: Provider, source: Provider) -> None:
+    async def _commit_provider_snapshot(
+        self,
+        provider_id: str,
+        snapshot: Provider,
+    ) -> None:
         raise NotImplementedError
 
     def _provider_from_data(self, data: Dict) -> Provider:

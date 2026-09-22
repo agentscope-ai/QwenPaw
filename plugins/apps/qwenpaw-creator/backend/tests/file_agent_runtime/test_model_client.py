@@ -32,8 +32,186 @@ from services.file_agent_runtime.model_client import (
     records_to_agentscope_messages,
 )
 from services.file_agent_runtime import model_client
+from services.file_agent_runtime.model_context import (
+    ModelContextBudgetError,
+    prepare_model_messages,
+)
 
 pytestmark = pytest.mark.unit
+
+
+def test_long_production_compacts_automatic_history_but_keeps_human_input():
+    human_sources = [
+        "initial_goal",
+        "user",
+        "review_rejection_feedback",
+        "custom",
+    ]
+    history = [
+        {
+            "role": "user",
+            "source": source,
+            "content": [{"type": "text", "text": f"{source}: 保留全部六集与对白"}],
+        }
+        for source in human_sources
+    ]
+    human_input = json.dumps(history, ensure_ascii=False)
+    for index in range(80):
+        history.append(
+            {
+                "role": "user",
+                "source": (
+                    "run_review_feedback"
+                    if index % 2
+                    else "render_review_feedback"
+                ),
+                "content": [
+                    {
+                        "type": "text",
+                        "text": f"review-{index}:" + "自动审阅结果。" * 300,
+                    },
+                ],
+            },
+        )
+    original = json.dumps(history, ensure_ascii=False)
+    current = "继续第二集。不要重做已保留视频。"
+    continuation = (
+        "CONVERSATION_HISTORY_JSON="
+        + original
+        + "\n\nCURRENT_USER_REQUEST=\n"
+        + current
+    )
+    result = prepare_model_messages(
+        [
+            {"role": "system", "content": "项目创作契约"},
+            {"role": "user", "content": continuation},
+        ],
+        [],
+    )
+    assert len(json.dumps(result, ensure_ascii=False).encode()) < 384 * 1024
+    view, request = result[1]["content"].split("\n\nCURRENT_USER_REQUEST=\n")
+    retained = json.loads(view.split("CONVERSATION_HISTORY_JSON=", 1)[1])
+    assert request == current
+    assert [
+        item for item in retained if item.get("source") in human_sources
+    ] == [item | {"metadata": {}} for item in json.loads(human_input)]
+    assert retained[-1] == history[-1] | {"metadata": {}}
+    assert retained[0]["elidedMessageCount"] > 0
+    assert json.dumps(history, ensure_ascii=False) == original
+
+    # Genuine user requirements remain protected, even when they cannot fit.
+    for item in history:
+        item["source"] = "user"
+    with pytest.raises(ModelContextBudgetError):
+        prepare_model_messages(
+            [
+                {
+                    "role": "user",
+                    "content": "CONVERSATION_HISTORY_JSON="
+                    + json.dumps(history, ensure_ascii=False)
+                    + "\n\nCURRENT_USER_REQUEST=\n"
+                    + current,
+                },
+            ],
+            [],
+        )
+
+
+@pytest.mark.parametrize(
+    ("project_id", "generation", "superseded"),
+    [
+        ("project-1", None, False),
+        ("project-1", 19, False),
+        ("project-2", 21, False),
+        ("project-1", 20, True),
+        ("project-1", 21, True),
+    ],
+)
+def test_new_snapshot_frees_history_space_for_script_and_skills(
+    project_id,
+    generation,
+    superseded,
+):
+    human = "Keep all six episodes and the accepted films. " + "h" * 700
+    previous = {
+        "project": {"project_id": "project-1", "description": "old" * 5200},
+        "generation": 20,
+        "etag": "old-etag",
+    }
+    history = [
+        {
+            "role": "user",
+            "source": "user",
+            "content": [{"type": "text", "text": human}],
+        },
+        {
+            "role": "tool",
+            "content": [{"type": "text", "text": json.dumps(previous)}],
+        },
+    ]
+    messages = [
+        {"role": "system", "content": "s" * 9000},
+        {
+            "role": "user",
+            "content": "CONVERSATION_HISTORY_JSON="
+            + json.dumps(history)
+            + "\n\nCURRENT_USER_REQUEST=\nContinue automatically.",
+        },
+    ]
+    calls = []
+    if generation is not None:
+        calls.append(
+            (
+                "snapshot",
+                json.dumps(
+                    {
+                        "project": {
+                            "project_id": project_id,
+                            "description": "current" * 700,
+                        },
+                        "generation": generation,
+                        "etag": "current-etag",
+                    },
+                ),
+            ),
+        )
+    calls.extend([("skill", "skill" * 1300), ("script", "script" * 1100)])
+    for call_id, content in calls:
+        messages.extend(
+            [
+                {
+                    "role": "assistant",
+                    "content": "Read " + call_id,
+                    "tool_calls": [
+                        AgentToolCall(
+                            call_id=call_id,
+                            name="read_project",
+                            arguments={},
+                        ).history_dict(),
+                    ],
+                },
+                {
+                    "role": "tool",
+                    "tool_call_id": call_id,
+                    "content": content,
+                },
+            ],
+        )
+    original = json.dumps(messages)
+    result = prepare_model_messages(messages, [], max_bytes=32 * 1024)
+    continuation = result[1]["content"]
+    assert human in continuation
+    assert continuation.endswith(
+        "CURRENT_USER_REQUEST=\nContinue automatically.",
+    )
+    assert ("old" * 5200 in continuation) is not superseded
+    if superseded:
+        assert [m["tool_call_id"] for m in result if m["role"] == "tool"] == [
+            "snapshot",
+            "skill",
+            "script",
+        ]
+    assert json.dumps(messages) == original
 
 
 def _configure_text_model(
@@ -336,6 +514,150 @@ def test_agentscope_client_streams_native_blocks_and_raw_argument_deltas() -> (
     assert turn.tool_calls[0].raw_arguments_bytes == 25
     assert turn.tool_calls[0].provider_chunk_count == 2
     assert turn.finish_reason == "completed"
+
+
+@pytest.mark.parametrize("ending", ["text", "tool", "final", "provider_error"])
+def test_thinking_chunks_are_coalesced_without_losing_order_or_tail(
+    monkeypatch,
+    ending,
+):
+    clock = [0.0]
+    monkeypatch.setattr(model_client, "monotonic", lambda: clock[0])
+    fragments = [f"片段{i:03d}。" for i in range(120)]
+    observed = []
+
+    async def thinking(delta):
+        observed.append(("thinking", delta))
+
+    async def text(delta):
+        observed.append(("text", delta))
+
+    async def tool(_call_id, _name, delta):
+        observed.append(("tool", delta))
+
+    class Provider:
+        calls = 0
+
+        async def __call__(self, _messages, *, tools=None):
+            self.calls += 1
+
+            async def chunks():
+                for fragment in fragments:
+                    clock[0] += 0.01
+                    yield ChatResponse(
+                        id="coalesced",
+                        is_last=False,
+                        content=[ThinkingBlock(thinking=fragment)],
+                    )
+                if ending == "provider_error":
+                    raise ValueError("invalid provider response")
+                result = (
+                    ToolCallBlock(
+                        id="read",
+                        name="read_project",
+                        input="{}",
+                    )
+                    if ending == "tool"
+                    else TextBlock(text="完成")
+                )
+                if ending != "final":
+                    yield ChatResponse(
+                        id="coalesced",
+                        is_last=False,
+                        content=[result],
+                    )
+                yield ChatResponse(
+                    id="coalesced",
+                    is_last=True,
+                    content=[
+                        ThinkingBlock(thinking="".join(fragments)),
+                        result,
+                    ],
+                )
+
+            return chunks()
+
+    async def scenario():
+        provider = Provider()
+        request = AgentScopeAgentChatClient(provider).complete(
+            messages=[],
+            tools=_tools(),
+            on_thinking_delta=thinking,
+            on_text_delta=text,
+            on_tool_call_delta=tool,
+        )
+        if ending == "provider_error":
+            with pytest.raises(
+                AgentModelError,
+                match="invalid provider response",
+            ):
+                await request
+        else:
+            turn = await request
+            assert turn.thinking == "".join(fragments)
+        assert provider.calls == 1
+
+    asyncio.run(scenario())
+    thinking_parts = [delta for kind, delta in observed if kind == "thinking"]
+    assert "".join(thinking_parts) == "".join(fragments)
+    assert thinking_parts[0] == fragments[0]  # First activity is immediate.
+    assert len(thinking_parts) == 4  # 120 durable writes become four.
+    if ending in {"text", "tool"}:
+        assert all(kind == "thinking" for kind, _ in observed[:-1])
+        assert observed[-1][0] == ending
+
+
+@pytest.mark.parametrize("failure", ["cancel", "persistence"])
+def test_buffered_thinking_preserves_stop_and_persistence_failures(failure):
+    observed = []
+
+    async def callback(delta):
+        observed.append(delta)
+        if delta == "tail" and failure == "persistence":
+            raise OSError("disk write failed")
+
+    class Provider:
+        calls = 0
+
+        async def __call__(self, _messages, *, tools=None):
+            self.calls += 1
+
+            async def chunks():
+                for delta in ("first", "tail"):
+                    yield ChatResponse(
+                        id="stopped",
+                        is_last=False,
+                        content=[ThinkingBlock(thinking=delta)],
+                    )
+                if failure == "cancel":
+                    raise asyncio.CancelledError()
+                yield ChatResponse(
+                    id="stopped",
+                    is_last=True,
+                    content=[TextBlock(text="finished")],
+                )
+
+            return chunks()
+
+    async def scenario():
+        provider = Provider()
+        expected = (
+            asyncio.CancelledError
+            if failure == "cancel"
+            else AgentStreamCallbackError
+        )
+        with pytest.raises(expected):
+            await AgentScopeAgentChatClient(provider).complete(
+                messages=[],
+                tools=[],
+                on_thinking_delta=callback,
+            )
+        assert provider.calls == 1
+
+    asyncio.run(scenario())
+    assert observed == (
+        ["first"] if failure == "cancel" else ["first", "tail"]
+    )
 
 
 def test_agentscope_client_repairs_truncated_native_tool_argument_json() -> (

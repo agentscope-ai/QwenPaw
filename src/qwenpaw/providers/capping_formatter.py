@@ -45,6 +45,7 @@ from agentscope.message import Base64Source, URLSource
 from pydantic import Field
 
 from ..utils.media_paths import local_media_path
+from .adapters.cache_policy import mark_stable_prefix
 
 # Maximum size (in bytes) of a local media file we are willing to inline as
 # base64 into the model request body.  See the module docstring for the
@@ -83,6 +84,7 @@ class CappingFormatterMixin:  # pylint: disable=too-few-public-methods
 
     max_bytes: int = Field(default=MAX_INLINE_MEDIA_BYTES, ge=0)
     relay_reasoning_content: bool = Field(default=True)
+    enable_prompt_cache_breakpoint: bool = Field(default=False)
 
     _inline_media_size = staticmethod(inline_media_size)
 
@@ -141,6 +143,13 @@ class _CappingOpenAIFormatter(OpenAIChatFormatter, CappingFormatterMixin):
     """OpenAI formatter that caps oversized local image/audio media."""
 
     _qwenpaw_supports_reasoning_content_fallback: ClassVar[bool] = True
+
+    async def format(self, *args: Any, **kwargs: Any) -> list:
+        """Mark a stable prefix only when the provider opted in."""
+        result = await super().format(*args, **kwargs)
+        if self.enable_prompt_cache_breakpoint:
+            return mark_stable_prefix(result, responses=False)
+        return result
 
     def _format_image_source(
         self,
@@ -289,6 +298,13 @@ class _CappingOpenAIResponseFormatter(
     CappingFormatterMixin,
 ):
     """OpenAI Responses API formatter that caps oversized local media."""
+
+    async def format(self, *args: Any, **kwargs: Any) -> list:
+        """Apply Responses breakpoints after content block conversion."""
+        result = await super().format(*args, **kwargs)
+        if self.enable_prompt_cache_breakpoint:
+            return mark_stable_prefix(result, responses=True)
+        return result
 
     def _placeholder(self, kind: str, size: int) -> dict[str, Any]:
         # Responses API uses ``input_text`` / ``output_text`` — not the

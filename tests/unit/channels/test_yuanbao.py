@@ -12,9 +12,84 @@ Run:
 from __future__ import annotations
 
 import struct
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
+import nturl2path
 import pytest
+
+from qwenpaw.app.channels.yuanbao import media as yuanbao_media
+from qwenpaw.app.channels import utils as channel_utils
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        (r"C:\media\report.pdf", r"C:\media\report.pdf"),
+        ("file:///C:/media/report.pdf", r"C:\media\report.pdf"),
+        ("file://C:/media/report.pdf", r"C:\media\report.pdf"),
+        ("file:///C:/media/my%20report.pdf", r"C:\media\my report.pdf"),
+        (r"\\server\share\report.pdf", r"\\server\share\report.pdf"),
+        ("file://server/share/report.pdf", r"\\server\share\report.pdf"),
+    ],
+)
+def test_resolve_windows_media_paths(source, expected):
+    """Yuanbao uses Windows drive and UNC conversion on every test host."""
+    with (
+        patch.object(channel_utils, "os", SimpleNamespace(name="nt")),
+        patch.object(channel_utils, "url2pathname", nturl2path.url2pathname),
+    ):
+        assert yuanbao_media._resolve_local_path(source) == expected
+
+
+@pytest.mark.parametrize("source_type", ["data", "path", "file_url"])
+async def test_media_source_reaches_cos_upload(tmp_path, source_type):
+    """Data URLs and existing local references reach the same upload flow."""
+    local_file = tmp_path / "report.pdf"
+    local_file.write_bytes(b"pdf-data")
+    sources = {
+        "data": "data:application/pdf;base64,cGRmLWRhdGE=",
+        "path": str(local_file),
+        "file_url": local_file.as_uri(),
+    }
+    session = MagicMock()
+    config = MagicMock()
+    with (
+        patch.object(
+            yuanbao_media,
+            "get_upload_info",
+            new=AsyncMock(return_value=config),
+        ) as get_info,
+        patch.object(
+            yuanbao_media,
+            "upload_to_cos",
+            new=AsyncMock(return_value="https://cdn.example.com/file.pdf"),
+        ) as upload,
+    ):
+        result = await yuanbao_media.download_and_upload_media(
+            sources[source_type],
+            session,
+            "yuanbao.tencent.com",
+            {},
+        )
+
+    expected_name = "file.pdf" if source_type == "data" else "report.pdf"
+    get_info.assert_awaited_once_with(
+        session,
+        "yuanbao.tencent.com",
+        {},
+        expected_name,
+    )
+    upload.assert_awaited_once_with(
+        session,
+        config,
+        b"pdf-data",
+        "application/pdf",
+    )
+    assert result.filename == expected_name
+    assert result.size == 8
+    assert result.mime_type == "application/pdf"
+    assert local_file.read_bytes() == b"pdf-data"
 
 
 # =============================================================================
@@ -291,15 +366,17 @@ class TestMediaHelpers:
         assert width == 0
         assert height == 0
 
-    def test_resolve_local_path_file_uri(self):
+    def test_resolve_local_path_file_uri(self, tmp_path):
         from qwenpaw.app.channels.yuanbao.media import _resolve_local_path
 
-        assert _resolve_local_path("file:///tmp/test.jpg") == "/tmp/test.jpg"
+        local_file = tmp_path / "test image.jpg"
+        assert _resolve_local_path(local_file.as_uri()) == str(local_file)
 
-    def test_resolve_local_path_absolute(self):
+    def test_resolve_local_path_absolute(self, tmp_path):
         from qwenpaw.app.channels.yuanbao.media import _resolve_local_path
 
-        assert _resolve_local_path("/tmp/test.jpg") == "/tmp/test.jpg"
+        local_file = tmp_path / "test.jpg"
+        assert _resolve_local_path(str(local_file)) == str(local_file)
 
     def test_resolve_local_path_url_returns_none(self):
         from qwenpaw.app.channels.yuanbao.media import _resolve_local_path

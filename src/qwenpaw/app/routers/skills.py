@@ -46,6 +46,7 @@ from ...agents.skill_system.registry import (
     reconcile_workspace_manifest,
     update_single_builtin,
 )
+from ...agents.skill_system.models import SkillRequirements
 from ...agents.skill_system.store import (
     build_skill_metadata,
     default_workspace_manifest,
@@ -249,6 +250,7 @@ class SkillSpec(BaseModel):
 
     name: str
     description: str = ""
+    version_text: str = ""
     source: str
     emoji: str = ""
     enabled: bool = False
@@ -264,6 +266,7 @@ class SkillDetail(SkillSpec):
     content: str
     config: dict[str, Any] = Field(default_factory=dict)
     installed_from: str = ""
+    requirements: SkillRequirements = Field(default_factory=SkillRequirements)
 
 
 class PoolSkillSpec(BaseModel):
@@ -271,6 +274,7 @@ class PoolSkillSpec(BaseModel):
 
     name: str
     description: str = ""
+    version_text: str = ""
     source: str
     emoji: str = ""
     external: bool = False
@@ -288,6 +292,7 @@ class PoolSkillDetail(PoolSkillSpec):
     content: str
     config: dict[str, Any] = Field(default_factory=dict)
     installed_from: str = ""
+    requirements: SkillRequirements = Field(default_factory=SkillRequirements)
     builtin_language: str = ""
     available_builtin_languages: list[str] = Field(default_factory=list)
     auto_sync_targets: list[str] | None = None
@@ -737,6 +742,7 @@ def _build_workspace_skill_specs(workspace_dir: Path) -> list[SkillSpec]:
                 SkillSpec(
                     name=skill_name,
                     description=str(metadata.get("description", "") or ""),
+                    version_text=metadata["version_text"],
                     source=source,
                     emoji=str(metadata.get("emoji", "") or ""),
                     enabled=entry.get("enabled", False),
@@ -784,6 +790,7 @@ def _build_pool_skill_specs() -> list[PoolSkillSpec]:
                 PoolSkillSpec(
                     name=skill_name,
                     description=str(metadata.get("description", "") or ""),
+                    version_text=metadata["version_text"],
                     source=source,
                     emoji=str(metadata.get("emoji", "") or ""),
                     external=is_external,
@@ -834,6 +841,8 @@ def _build_workspace_skill_detail(
     return SkillDetail(
         name=skill_name,
         description=str(metadata.get("description", "") or ""),
+        version_text=metadata["version_text"],
+        requirements=SkillRequirements(**metadata["requirements"]),
         source=source,
         emoji=str(metadata.get("emoji", "") or ""),
         enabled=bool(entry.get("enabled", False)),
@@ -875,6 +884,8 @@ def _build_pool_skill_detail(skill_name: str) -> PoolSkillDetail | None:
     return PoolSkillDetail(
         name=skill_name,
         description=str(metadata.get("description", "") or ""),
+        version_text=metadata["version_text"],
+        requirements=SkillRequirements(**metadata["requirements"]),
         source=source,
         emoji=str(metadata.get("emoji", "") or ""),
         external=is_external,

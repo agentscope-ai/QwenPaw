@@ -17,6 +17,7 @@ from agentscope.message import Msg, TextBlock
 
 from ...constant import WORKING_DIR
 from ...config import load_config
+from ...utils.io_utils import run_sync_io
 from ...utils.logging import LOG_NAMESPACE, LOG_FILE_PATH
 
 if TYPE_CHECKING:
@@ -253,7 +254,7 @@ class DaemonCommandHandlerMixin:
             )
         sub, args = parsed
         if sub == "status":
-            text = run_daemon_status(context)
+            text = await run_sync_io(run_daemon_status, context)
         elif sub == "restart":
             text = await run_daemon_restart(context)
         elif sub == "reload-config":

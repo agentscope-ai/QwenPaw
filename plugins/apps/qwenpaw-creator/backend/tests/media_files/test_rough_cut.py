@@ -114,3 +114,37 @@ def test_rough_cut_concats_video_and_storyboard_still(tmp_path) -> None:
     duration = _duration_seconds(payload, tmp_path)
     # 1s video + 2s held still, allow container rounding.
     assert 2.5 <= duration <= 3.6
+
+
+@requires_ffmpeg
+def test_planned_gaps_and_missing_outputs_keep_full_preview_duration(tmp_path):
+    from services.project_files.models import (
+        Project,
+        TimelineElement,
+        TimelineSpan,
+        T2VCreation,
+    )
+    from services.media_files.rough_cut import collect_rough_cut_clips
+
+    project = Project.new(project_id="preview-spans", name="Draft")
+    timeline = project.timelines.items["timeline:main"]
+    timeline.elements_by_id["one"] = TimelineElement(
+        element_id="one",
+        label="Opening",
+        span=TimelineSpan(start_tick=1000, duration_tick=1000),
+        creation=T2VCreation(video_prompt="A cat"),
+    )
+    timeline.elements_by_id["two"] = TimelineElement(
+        element_id="two",
+        label="Ending",
+        span=TimelineSpan(start_tick=3000, duration_tick=1000),
+        creation=T2VCreation(video_prompt="A dog"),
+    )
+    clips = collect_rough_cut_clips(
+        project,
+        timeline,
+        resolve_file=lambda _: tmp_path / "unused",
+    )
+    assert [clip.element_id for clip in clips] == ["gap", "one", "gap", "two"]
+    assert sum(clip.duration_seconds for clip in clips) == 4
+    assert abs(_duration_seconds(render_rough_cut(clips), tmp_path) - 4) < 0.15

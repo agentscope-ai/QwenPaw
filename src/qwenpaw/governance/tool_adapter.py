@@ -153,10 +153,9 @@ def _policy_tool_init(
     FunctionTool.__init__(self, func, **kwargs)
     self._qp_governor = governor
     self._qp_request_context = request_context or {}
-    # A backend can retain a stable public tool name while selecting a more
-    # precise governance identity.  PowerContext uses this for remote memory
-    # search; local memory backends continue to map ``memory_search`` to the
-    # internal policy identity.
+    # A plugin backend can retain a stable public tool name while selecting a
+    # more precise governance identity. Remote searches can therefore opt into
+    # a network policy while local backends keep the internal policy identity.
     self._qp_policy_name = getattr(func, "_qwenpaw_policy_name", "")
     self._qp_policy_decision = None  # Pre-evaluation result
     self._qp_sandbox_mode = False  # Whether to execute in sandbox

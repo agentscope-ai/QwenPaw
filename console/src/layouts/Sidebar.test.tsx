@@ -25,6 +25,7 @@ vi.mock("@agentscope-ai/icons", () => {
     SparkDataLine: stub,
     SparkDateLine: stub,
     SparkDebugLine: stub,
+    SparkDownloadLine: stub,
     SparkEmailLine: stub,
     SparkFile2Line: stub,
     SparkHistoryLine: stub,
@@ -44,14 +45,25 @@ vi.mock("@agentscope-ai/icons", () => {
     SparkWifiLine: stub,
   };
 });
-vi.mock("lucide-react", () => {
-  const stub = () => null;
-  return { GitBranch: stub, Files: stub };
+vi.mock("i18next", () => {
+  const t = (key: string, fallback?: string) => fallback ?? key;
+  const createInstance = () => {
+    const instance = {
+      t,
+      use: vi.fn(),
+      init: vi.fn(),
+    };
+    instance.use.mockReturnValue(instance);
+    instance.init.mockResolvedValue(instance);
+    return instance;
+  };
+
+  return {
+    createInstance,
+    default: { t },
+    t,
+  };
 });
-vi.mock("i18next", () => ({
-  default: { t: (key: string, fallback?: string) => fallback ?? key },
-  t: (key: string, fallback?: string) => fallback ?? key,
-}));
 vi.mock("@/plugins/registry/store", () => ({
   menuRegistry: {
     addBuiltIn: vi.fn(),
@@ -62,6 +74,16 @@ vi.mock("@/plugins/registry/store", () => ({
 import { BUILTIN_MENU } from "./registry/builtinMenu";
 
 describe("Sidebar navigation — A#84552933 应用导航入口", () => {
+  it("preserves the PawPort entry alongside the redesigned navigation", () => {
+    expect(
+      BUILTIN_MENU.find((item) => item.id === "core.import"),
+    ).toMatchObject({
+      location: "primary.agentScoped",
+      route: "core.import",
+      icon: expect.any(Function),
+    });
+  });
+
   it("contains the marketplace/apps entry in agent-scoped menu", () => {
     const appsEntry = BUILTIN_MENU.find(
       (item) => item.id === "core.marketplace",

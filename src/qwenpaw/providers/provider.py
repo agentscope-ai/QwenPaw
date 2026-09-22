@@ -7,15 +7,38 @@ from abc import ABC, abstractmethod
 from contextlib import contextmanager
 from contextvars import ContextVar
 import re
+from uuid import uuid4
 from collections.abc import Iterator
-from typing import TYPE_CHECKING, Any, Dict, List, Literal, Type
+from typing import TYPE_CHECKING, Any, ClassVar, Dict, List, Literal, Type
 
 from agentscope.model import ChatModelBase
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, model_validator
 
 from qwenpaw.exceptions import ProviderError
 
-from .context_windows import DEFAULT_CONTEXT_WINDOW, resolve_context_window
+from ..utils.io_utils import run_sync_io
+from .context_windows import DEFAULT_CONTEXT_WINDOW
+from .thinking import ThinkingControl, ThinkingPreference, resolve_thinking
+from .model_catalog import (
+    packaged_free_model_ids,
+    catalog_documents,
+    matching_catalog_keys,
+)
+from .model_billing import (
+    effective_billing,
+    classify_pricing,
+    normalize_pricing,
+)
+
+# Public re-export retained for provider extensions.
+from .model_info import ExtendedModelInfo  # pylint: disable=unused-import
+from .model_info import ModelInfo
+from .model_resolution import resolve_model_info
+from .model_ranking import Recommendation, recommend
+from .model_metadata import provider_catalog_models
+from .adapters.cache_policy import cache_request
+from .adapters.request_context import session_header
+from .adapters.wire_protocol import protocol_url
 
 if TYPE_CHECKING:
     from .multimodal_prober import ProbeResult
@@ -25,11 +48,11 @@ _AGENT_THINKING_LEVEL: ContextVar[str] = ContextVar(
     "qwenpaw_agent_thinking_level",
     default="inherit",
 )
-AGENT_THINKING_BUDGETS = {
-    "low": 2_048,
-    "medium": 8_192,
-    "high": 32_768,
-}
+_THINKING_BUDGET: ContextVar[int | None] = ContextVar(
+    f"qwenpaw_thinking_budget",
+    default=None,
+)
+
 _CUSTOM_PROVIDER_ID_PATTERN = re.compile(
     r"[A-Za-z0-9][A-Za-z0-9._-]*",
 )
@@ -70,228 +93,18 @@ def validate_custom_provider_id(provider_id: str) -> str:
 
 
 @contextmanager
-def agent_thinking_level(level: str) -> Iterator[None]:
+def agent_thinking_level(
+    level: str,
+    budget: int | None = None,
+) -> Iterator[None]:
     """Apply an agent-level thinking override while constructing a model."""
     token = _AGENT_THINKING_LEVEL.set(level)
+    budget_token = _THINKING_BUDGET.set(budget)
     try:
         yield
     finally:
         _AGENT_THINKING_LEVEL.reset(token)
-
-
-class ModelInfo(BaseModel):
-    id: str = Field(..., description="Model identifier used in API calls")
-    name: str = Field(..., description="Human-readable model name")
-    supports_multimodal: bool | None = Field(
-        default=None,
-        description="Whether this model supports multimodal input "
-        "(image/audio/video). None means not yet probed.",
-    )
-    supports_image: bool | None = Field(
-        default=None,
-        description="Whether this model supports image input. "
-        "None means not yet probed.",
-    )
-    supports_video: bool | None = Field(
-        default=None,
-        description="Whether this model supports video input. "
-        "None means not yet probed.",
-    )
-    probe_source: str | None = Field(
-        default=None,
-        description=(
-            "Probe result source: 'documentation' (from docs)"
-            " or 'probed' (actual probe)"
-        ),
-    )
-    is_free: bool = Field(
-        default=False,
-        description="Whether this model is free to use (e.g., no API cost)",
-    )
-    is_recommended: bool = Field(
-        default=False,
-        description="Whether the maintained catalog recommends this model.",
-    )
-    source: Literal["builtin", "discovered", "user"] = Field(
-        default="builtin",
-        description="Where the model entry came from.",
-    )
-    discovered_at: str | None = Field(
-        default=None,
-        description="UTC timestamp of the latest successful discovery.",
-    )
-    discovery_origin: Literal["api", "catalog", "both"] | None = Field(
-        default=None,
-        description="Candidate source: provider API, catalog, or both.",
-    )
-    availability_status: Literal[
-        "available",
-        "permission_denied",
-        "model_not_found",
-        "incompatible_api",
-        "rate_limited",
-        "transient_error",
-        "unverified",
-    ] = Field(default="unverified")
-    availability_message: str | None = Field(default=None)
-    availability_http_status: int | None = Field(default=None)
-    availability_retryable: bool = Field(default=True)
-    availability_checked_at: str | None = Field(default=None)
-    availability_verification: Literal[
-        "live",
-        "provider_only",
-        "catalog",
-        "unverified",
-    ] = Field(default="unverified")
-    config_overrides: List[str] = Field(
-        default_factory=list,
-        description="Model fields explicitly changed by the user.",
-    )
-    max_output_length: int | None = Field(
-        default=None,
-        ge=1,
-        description="Maximum output capability reported for this model.",
-    )
-    max_output_length_source: Literal[
-        "api",
-        "catalog",
-        "adapter",
-        "user",
-        "unknown",
-    ] = Field(
-        default="unknown",
-        description="Source of the maximum output capability.",
-    )
-    max_output_length_updated_at: str | None = Field(
-        default=None,
-        description="UTC timestamp of the output capability update.",
-    )
-    max_input_length: int = Field(
-        default=DEFAULT_CONTEXT_WINDOW,
-        ge=1000,
-        description="Maximum input context window size (tokens). "
-        "Controls when context compaction is triggered.",
-    )
-    max_input_length_configured: bool = Field(
-        default=False,
-        description=(
-            "Whether max_input_length was explicitly configured. This keeps "
-            "an intentional 131072-token override distinct from the default."
-        ),
-    )
-    max_input_length_auto_detected: int | None = Field(
-        default=None,
-        ge=1000,
-        description="Context window reported by the provider API.",
-    )
-    generate_kwargs: Dict[str, Any] = Field(
-        default_factory=dict,
-        description="Per-model generation parameters that override "
-        "provider-level generate_kwargs.",
-    )
-    relay_reasoning: bool = Field(
-        default=True,
-        description="Whether to relay reasoning_content (thinking traces) "
-        "back in subsequent turns. When False the formatter omits "
-        "reasoning_content from assistant wire messages.",
-    )
-
-    @model_validator(mode="before")
-    @classmethod
-    def _compat_preserve_thinking(cls, data: Any) -> Any:
-        """Normalize legacy model fields and obsolete probe results."""
-        if not isinstance(data, dict):
-            return data
-        if "max_tokens" in data:
-            raise ValueError(
-                "ModelInfo.max_tokens is no longer supported; use "
-                "max_output_length for capability metadata or "
-                "generate_kwargs.max_tokens for a request limit",
-            )
-        if "preserve_thinking" in data:
-            data.setdefault("relay_reasoning", data.pop("preserve_thinking"))
-
-        message = str(data.get("availability_message") or "").lower()
-        obsolete_tool_probe = (
-            data.get("supports_tool_calling") is False
-            or "tool probe" in message
-            or "tool calling check failed" in message
-            or "tool_choice" in message
-        )
-        if (
-            data.get("availability_status") == "incompatible_api"
-            and obsolete_tool_probe
-        ):
-            data["availability_status"] = "unverified"
-            data["availability_message"] = None
-            data["availability_http_status"] = None
-            data["availability_retryable"] = True
-            data["availability_checked_at"] = None
-            data["availability_verification"] = "unverified"
-        return data
-
-    thinking_enabled: bool | None = Field(
-        default=None,
-        description="Tri-state thinking toggle: None=auto (don't send, "
-        "use model default), True=enable, False=disable. "
-        "Provider-specific mapping applies.",
-    )
-
-    thinking_budget: int | None = Field(
-        default=None,
-        ge=1,
-        description="Token budget for thinking. Provider-specific: "
-        "DashScope/Anthropic use thinking_budget, Gemini uses "
-        "thinking_config.thinking_budget.",
-    )
-    reasoning_effort: str | None = Field(
-        default=None,
-        description="Reasoning effort level: 'low', 'medium', 'high'. "
-        "Used by OpenAI-family providers.",
-    )
-    thinking_param_style: str | None = Field(
-        default=None,
-        description="Override provider-level thinking_param_style for this "
-        "model. 'budget' shows Slider, 'effort' shows Select.",
-    )
-    reasoning_effort_options: List[str] | None = Field(
-        default=None,
-        description="Override provider-level reasoning_effort_options for "
-        "this model.",
-    )
-    thinking_budget_range: List[int] | None = Field(
-        default=None,
-        description="Override provider-level thinking_budget_range [min, max] "
-        "for this model.",
-    )
-    supports_agent_thinking: bool | None = Field(
-        default=None,
-        description=(
-            "Whether the provider can apply an agent-level thinking override "
-            "to this model. Derived in ProviderInfo responses."
-        ),
-    )
-
-
-class ExtendedModelInfo(ModelInfo):
-    """Extended model info with additional metadata for providers."""
-
-    provider: str = Field(
-        default="",
-        description="Provider/series (e.g., 'openai', 'google')",
-    )
-    input_modalities: List[str] = Field(
-        default_factory=list,
-        description="Supported input modalities",
-    )
-    output_modalities: List[str] = Field(
-        default_factory=list,
-        description="Supported output modalities",
-    )
-    pricing: Dict[str, str] = Field(
-        default_factory=dict,
-        description="Pricing info (prompt/completion)",
-    )
+        _THINKING_BUDGET.reset(budget_token)
 
 
 class ModelConnectionResult(BaseModel):
@@ -324,6 +137,9 @@ class ProviderInfo(BaseModel):
         validate_default=False,
     )
 
+    model_count: int | None = None
+    enabled: bool = True
+
     id: str = Field(..., description="Provider identifier")
     name: str = Field(..., description="Human-readable provider name")
     base_url: str = Field(default="", description="API base URL")
@@ -344,6 +160,7 @@ class ProviderInfo(BaseModel):
         default_factory=list,
         description="Last model list fetched from the provider API",
     )
+    seen_model_ids: List[str] = Field(default_factory=list)
     models_last_synced_at: str | None = Field(
         default=None,
         description="UTC timestamp of the latest successful model sync",
@@ -477,6 +294,8 @@ class ProviderInfo(BaseModel):
         default="",
         description="Variant identifier within a group",
     )
+    default_thinking_control: ThinkingControl | None = None
+
     thinking_param_style: str | None = Field(
         default=None,
         description="Which thinking-parameter UI to show: "
@@ -521,6 +340,63 @@ class ProviderInfo(BaseModel):
 class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
     """Represents a provider instance with its configuration."""
 
+    capture_cache_headers: ClassVar[bool] = False
+    cache_modes: ClassVar[frozenset[str]] = frozenset()
+    wire_protocol: ClassVar[str] = f"chat"
+    thinking_wire_protocol: ClassVar[str | None] = None
+    cache_documentation: ClassVar[str | None] = None
+    session_header_name: ClassVar[str | None] = None
+    _resolved_pool: list[ModelInfo] | None = PrivateAttr(default=None)
+    _billing_blocks: set[str] = PrivateAttr(default_factory=set)
+    _request_session: str = PrivateAttr(default_factory=lambda: uuid4().hex)
+
+    def configuration_snapshot(self) -> Provider:
+        """Copy validated configuration without live clients or locks."""
+        snapshot = type(self).model_validate(self.model_dump())
+        # Copy another instance of the same provider's runtime identity.
+        # pylint: disable-next=protected-access
+        snapshot._request_session = self._request_session
+        return snapshot
+
+    async def close(self) -> None:
+        """Release resources owned by this runtime provider instance."""
+
+    def model_protocol(self, model_id: str) -> str:
+        """Return this service's protocol for one model."""
+        del model_id
+        return self.wire_protocol
+
+    def request_url(self, model_id: str) -> str:
+        """Share SDK-compatible URL construction with externally owned I/O."""
+        return protocol_url(self.base_url, self.model_protocol(model_id))
+
+    def cache_capabilities(self, model_id: str) -> frozenset[str]:
+        """Require a verified service, not just a compatible wire format."""
+        del model_id
+        return self.cache_modes
+
+    def prepare_request(
+        self,
+        model_id: str,
+        protocol: str,
+        kwargs: dict,
+    ) -> dict:
+        """Configure the AgentScope protocol adapter for this provider."""
+        self.check_model_billing(model_id)
+        result = cache_request(
+            kwargs,
+            protocol,
+            self.cache_capabilities(model_id),
+        )
+        if self.session_header_name:
+            headers = dict(result.get(f"extra_headers") or {})
+            headers[self.session_header_name] = session_header(
+                self._request_session,
+            )
+            headers.setdefault(f"User-Agent", f"QwenPaw")
+            result[f"extra_headers"] = headers
+        return result
+
     @abstractmethod
     async def check_connection(self, timeout: float = 5) -> tuple[bool, str]:
         """Check if the provider is reachable with the current config."""
@@ -528,6 +404,66 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
     @abstractmethod
     async def fetch_models(self, timeout: float = 5) -> List[ModelInfo]:
         """Fetch the list of available models from the provider."""
+
+    @classmethod
+    def parse_model_pricing(cls, row: Any) -> dict[str, Any]:
+        """Read explicit endpoint prices, including custom provider data."""
+        pricing = normalize_pricing(getattr(row, f"pricing", None))
+        flag = getattr(row, f"isFree", getattr(row, f"is_free", None))
+        billing = classify_pricing(pricing, flag)
+        return {
+            f"pricing": pricing,
+            f"billing": billing,
+            f"is_free": billing == f"free",
+            f"billing_source": f"api",
+        }
+
+    async def fetch_model_pricing(
+        self,
+        models: List[ModelInfo] | None = None,
+        timeout: float = 5,
+    ) -> dict[str, ModelInfo]:
+        """Get endpoint pricing first, then explicit service card presets.
+
+        Reuse a fetched model list to avoid duplicate network requests.
+        Providers with a separate official pricing API can override this
+        method. Catalog access stays off the event loop.
+        """
+        if models is None:
+            models = await self.fetch_models(timeout=timeout)
+        return await run_sync_io(self._resolve_model_pricing, models)
+
+    def _resolve_model_pricing(
+        self,
+        models: List[ModelInfo],
+    ) -> dict[str, ModelInfo]:
+        """Resolve only pricing; never reuse stale discovery state."""
+        endpoint = self.base_url.rstrip(f"/")
+        presets: dict[str, ModelInfo] = {}
+        keys = matching_catalog_keys(self.id, endpoint, f"", None)
+        for document, _ in catalog_documents(keys):
+            for key, entry in document.providers.items():
+                if endpoint in {
+                    url.rstrip(f"/") for url in entry.api_urls
+                } or (key == self.id and not entry.api_urls):
+                    presets.update({m.id: m for m in entry.models})
+        result = {}
+        for model in models:
+            card = model.model_copy(deep=True)
+            preset = presets.get(model.id)
+            if card.billing == f"unknown" and preset is not None:
+                card.billing = preset.billing
+                card.pricing = dict(preset.pricing)
+                card.billing_source = f"catalog"
+                card.billing_checked_at = preset.billing_checked_at
+                card.capability_provenance[f"billing"] = dict(
+                    preset.capability_provenance.get(f"billing", {}),
+                )
+            if card.billing == f"unknown" and card.is_free:
+                card.billing = f"free"
+            card.is_free = card.billing == f"free"
+            result[model.id] = card
+        return result
 
     @abstractmethod
     async def check_model_connection(
@@ -583,6 +519,17 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
             for model_id in self.removed_model_ids
             if model_id != model_info.id
         ]
+        existing = next(
+            (m for m in self.models if m.id == model_info.id),
+            None,
+        )
+        if existing is not None and not self.automatically_listed(existing):
+            for field in model_info.model_fields_set:
+                setattr(existing, field, getattr(model_info, field))
+            existing.source = f"user"
+            existing.auto_enabled = False
+            existing.requires_paid_confirmation = False
+            return True, f""
         # A discovered entry is a catalog candidate, not a configured model.
         # It may therefore be copied into extra_models when the user adds it.
         if any(
@@ -594,6 +541,8 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
             return False, f"Model '{model_info.id}' already exists"
         if target == "extra_models":
             model_info.source = "user"
+            model_info.auto_enabled = False
+            model_info.requires_paid_confirmation = False
             self.extra_models.append(model_info)  # pylint: disable=no-member
         elif target == "models":
             self.models.append(model_info)  # pylint: disable=no-member
@@ -640,6 +589,8 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
 
     def update_config(self, config: Dict) -> None:
         """Update provider configuration with the given dictionary."""
+        if config.get(f"enabled") is not None:
+            self.enabled = bool(config[f"enabled"])
         if "name" in config and config["name"] is not None:
             self.name = str(config["name"]).strip()
         if (
@@ -709,8 +660,15 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
         )
 
     def all_models(self) -> List[ModelInfo]:
-        """Return configured models only."""
-        return Provider.configured_models(self)
+        """Return persisted model records, including unselected defaults."""
+        removed = set(self.removed_model_ids)
+        return list(
+            {
+                model.id: model
+                for model in self.models + self.extra_models
+                if model.id not in removed
+            }.values(),
+        )
 
     def configured_models(self) -> List[ModelInfo]:
         """Return the effective configured model list."""
@@ -718,7 +676,7 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
         ordered_ids: list[str] = []
         by_id: dict[str, ModelInfo] = {}
         for collection in (
-            getattr(self, "models", []),
+            [m for m in self.models if self.automatically_listed(m)],
             getattr(self, "extra_models", []),
         ):
             for model in collection:
@@ -735,7 +693,13 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
         """Return models visible to the add-model discovery flow."""
         ordered_ids: list[str] = []
         by_id: dict[str, ModelInfo] = {}
+        catalog = (
+            provider_catalog_models(self.id, self.base_url)
+            if not self.is_local
+            else []
+        )
         for collection in (
+            catalog,
             getattr(self, "models", []),
             getattr(self, "discovered_models", []),
         ):
@@ -743,12 +707,33 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
                 if model.id not in by_id:
                     ordered_ids.append(model.id)
                 by_id[model.id] = model
+        for configured in self.models:
+            if configured.id in by_id and getattr(
+                configured,
+                f"config_overrides",
+                [],
+            ):
+                overrides = {
+                    field: getattr(configured, field)
+                    for field in configured.config_overrides
+                    if field in ModelInfo.model_fields
+                }
+                overrides[f"config_overrides"] = configured.config_overrides
+                by_id[configured.id] = by_id[configured.id].model_copy(
+                    update=overrides,
+                )
         hidden = set(getattr(self, "hidden_model_ids", []))
         removed = set(getattr(self, "removed_model_ids", []))
+        selected = {model.id for model in self.configured_models()}
         return [
             by_id[model_id]
             for model_id in ordered_ids
-            if model_id not in hidden and model_id not in removed
+            if model_id not in hidden
+            and model_id not in removed
+            and (
+                not getattr(by_id[model_id], f"remote_missing", False)
+                or model_id in selected
+            )
         ]
 
     def get_chat_model_cls(self) -> Type[ChatModelBase]:
@@ -787,12 +772,26 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
                 result[key] = val
         return result
 
+    def check_model_billing(self, model_id: str) -> None:
+        """Stop formerly free routes before constructing or sending a call."""
+        discovered = self.get_discovered_model_info(model_id)
+        configured = self.get_model_info(model_id)
+        selected = configured or discovered
+        if model_id in self._billing_blocks or (
+            selected and selected.requires_paid_confirmation
+        ):
+            raise ProviderError(
+                message=f"Model '{model_id}' is no longer confirmed free; "
+                f"review its pricing and explicitly enable it before use.",
+            )
+
     def get_effective_generate_kwargs(self, model_id: str) -> Dict[str, Any]:
         """Return merged generate_kwargs: provider-level as base, model-level
         overrides on top (deep merge for nested dicts).
 
         Always returns a new dict so callers never mutate provider state.
         """
+        self.check_model_billing(model_id)
         for model in Provider.all_models(self):
             if model.id == model_id:
                 result = (
@@ -809,32 +808,145 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
         self._apply_agent_thinking_level(result, model_id)
         return result
 
-    def supports_agent_thinking(self, model_id: str) -> bool:
-        """Return whether agent-level thinking maps to this model."""
-        if self.chat_model == "DashScopeChatModel":
-            return True
-        info = self.get_model_info(model_id)
-        if info is None:
-            return False
-        if (
-            getattr(info, "thinking_enabled", None) is not None
-            or getattr(info, "thinking_param_style", None) is not None
-        ):
-            return True
-        if self.chat_model in {"AnthropicChatModel", "GeminiChatModel"}:
-            return True
-        normalized = model_id.strip().lower().rsplit("/", maxsplit=1)[-1]
-        return self.chat_model in {
-            "OpenAIChatModel",
-            "OpenAIResponseModel",
-        } and (
-            normalized.startswith("gpt-5")
-            or (
-                len(normalized) > 1
-                and normalized[0] == "o"
-                and normalized[1].isdigit()
+    def thinking_control(self, model_id: str) -> ThinkingControl:
+        """Read model-owned controls, never infer support from a protocol."""
+        info = self.resolve_model_info(model_id)
+        control = info.thinking_control or self.default_thinking_control
+        if control is not None:
+            compatible = {
+                f"anthropic_adaptive": {f"anthropic"},
+                f"anthropic_budget": {f"anthropic"},
+                f"gemini_level": {f"gemini"},
+                f"gemini_budget": {f"gemini"},
+                f"compat_budget": {f"chat"},
+                f"compat_effort": {f"chat"},
+            }
+            allowed = compatible.get(control.wire)
+            protocol = self.thinking_wire_protocol or self.model_protocol(
+                model_id,
             )
+            if allowed and protocol not in allowed:
+                return ThinkingControl(kind=f"unsupported")
+            return control.model_copy(deep=True)
+        style = info.thinking_param_style
+        if style == f"effort" and info.reasoning_effort_options:
+            options = info.reasoning_effort_options
+            return ThinkingControl(
+                kind=f"effort",
+                efforts=[x for x in options if x != f"none"],
+                supports_off=f"none" in options,
+            )
+        if style == f"budget" and info.thinking_budget_range:
+            low, high = info.thinking_budget_range
+            return ThinkingControl(
+                kind=f"budget",
+                budget_min=max(1, low),
+                budget_max=high,
+                supports_off=low == 0,
+            )
+        return ThinkingControl()
+
+    def supports_agent_thinking(self, model_id: str) -> bool:
+        """Whether this model card declares a usable control surface."""
+        return self.thinking_control(model_id).kind in {f"effort", f"budget"}
+
+    # Keep the supported protocol cases together for review.
+    # pylint: disable-next=too-many-branches
+    def get_agent_thinking_kwargs(
+        self,
+        model_id: str,
+        level: str,
+        budget: int | None = None,
+    ) -> dict:
+        """Map a preference using the actual serving model's card."""
+        control = self.thinking_control(model_id)
+        preference, _ = resolve_thinking(
+            ThinkingPreference(level=level, budget_tokens=budget),
+            control,
         )
+        if preference.level == f"inherit":
+            return {}
+        result: dict = {}
+        level = preference.level
+        wire = control.wire
+        if wire == f"native":
+            protocol = self.thinking_wire_protocol or self.model_protocol(
+                model_id,
+            )
+            if protocol == f"anthropic":
+                wire = (
+                    f"anthropic_budget"
+                    if control.kind == f"budget"
+                    else f"anthropic_adaptive"
+                )
+            elif protocol == f"gemini":
+                wire = (
+                    f"gemini_budget"
+                    if control.kind == f"budget"
+                    else f"gemini_level"
+                )
+            elif control.kind == f"budget" and (
+                self.chat_model == f"OpenAIChatModel"
+            ):
+                wire = f"compat_budget"
+        if wire == f"anthropic_adaptive":
+            result[f"thinking"] = {
+                f"type": f"disabled" if level == f"off" else f"adaptive",
+            }
+            if level != f"off":
+                result[f"output_config"] = {f"effort": level}
+            result[f"thinking_enable"] = False
+        elif wire == f"anthropic_budget":
+            result[f"thinking_enable"] = level != f"off"
+            if level != f"off":
+                result[f"thinking_budget"] = preference.budget_tokens
+        elif wire == f"gemini_budget":
+            result[f"thinking_config"] = {
+                f"thinking_budget": (
+                    0 if level == f"off" else preference.budget_tokens
+                ),
+            }
+        elif wire == f"compat_effort":
+            result[f"extra_body"] = {
+                f"thinking": {
+                    f"type": f"disabled" if level == f"off" else f"enabled",
+                },
+            }
+            if level != f"off":
+                result[f"reasoning_effort"] = level
+        elif wire == f"compat_budget" and (
+            self.chat_model == f"OpenAIChatModel"
+        ):
+            result[f"extra_body"] = {
+                f"enable_thinking": level != f"off",
+            }
+            if level != f"off":
+                result[f"extra_body"][
+                    f"thinking_budget"
+                ] = preference.budget_tokens
+        elif wire == f"gemini_level":
+            result[f"thinking_config"] = {f"thinking_level": level}
+        elif (
+            level == f"off"
+            and self.chat_model
+            in (
+                f"OpenAIChatModel",
+                f"OpenAIResponseModel",
+            )
+            and not self._uses_compat_thinking_controls(model_id)
+        ):
+            if self.model_protocol(model_id) == f"responses":
+                result[f"reasoning"] = {f"effort": f"none"}
+            else:
+                result[f"reasoning_effort"] = f"none"
+        else:
+            self._map_agent_thinking_level(
+                result,
+                model_id,
+                f"high" if level == f"budget" else level,
+                preference.budget_tokens or 0,
+            )
+        return result
 
     def _apply_agent_thinking_level(
         self,
@@ -845,17 +957,28 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
         level = _AGENT_THINKING_LEVEL.get()
         if level == "inherit" or not self.supports_agent_thinking(model_id):
             return
+        override = self.get_agent_thinking_kwargs(
+            model_id,
+            level,
+            _THINKING_BUDGET.get(),
+        )
+        if not override:
+            return
         for key in (
             "thinking_enable",
             "thinking_budget",
             "reasoning_effort",
             "thinking_config",
+            "thinking",
+            "output_config",
             "reasoning",
             "disable_thinking",
         ):
             effective.pop(key, None)
         extra_body = effective.get("extra_body")
         if isinstance(extra_body, dict):
+            extra_body = dict(extra_body)
+            effective[f"extra_body"] = extra_body
             for key in (
                 "enable_thinking",
                 "thinking_budget",
@@ -863,12 +986,7 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
                 "thinking",
             ):
                 extra_body.pop(key, None)
-        self._map_agent_thinking_level(
-            effective,
-            model_id,
-            level,
-            AGENT_THINKING_BUDGETS.get(level, 0),
-        )
+        effective.update(self._deep_merge(effective, override))
 
     def _uses_compat_thinking_controls(self, model_id: str) -> bool:
         """Whether the model declares OpenAI-compatible thinking flags.
@@ -913,7 +1031,7 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
         budget: int,
     ) -> None:
         """Map an agent level to the provider's wire parameters."""
-        if self.chat_model == "AnthropicChatModel":
+        if self.model_protocol(model_id) == f"anthropic":
             if level == "off":
                 effective["thinking_enable"] = False
             else:
@@ -925,7 +1043,7 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
                 "thinking_budget": 0 if level == "off" else budget,
             }
             return
-        if self.chat_model == "OpenAIResponseModel":
+        if self.model_protocol(model_id) == f"responses":
             if level == "off":
                 # The Responses call layer translates this neutral flag:
                 # it strips ``reasoning`` and applies
@@ -952,15 +1070,64 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
         if level != "off":
             effective["reasoning_effort"] = level
 
+    # Keep the supported protocol cases together for review.
+    # pylint: disable-next=too-many-statements
     def update_model_config(  # pylint: disable=too-many-branches
         self,
         model_id: str,
         config: Dict,
     ) -> bool:
         """Update per-model configuration (e.g. generate_kwargs)."""
-        for model in Provider.all_models(self):
+        for model in Provider.all_models(self) + self.discovered_models:
             if model.id == model_id:
                 changed_fields: list[str] = []
+                for field in (
+                    f"supports_image",
+                    f"supports_video",
+                    f"supports_audio",
+                    f"supports_tool_calling",
+                ):
+                    if field not in config:
+                        continue
+                    value = config[field]
+                    if value is not None and type(value) is not bool:
+                        raise ValueError(f"{field} must be boolean or null")
+                    setattr(model, field, value)
+                    if value is None:
+                        model.config_overrides = [
+                            key
+                            for key in model.config_overrides
+                            if key != field
+                        ]
+                    else:
+                        changed_fields.append(field)
+                if f"thinking_control" in config:
+                    raw_control = config[f"thinking_control"]
+                    model.thinking_control = (
+                        ThinkingControl.model_validate(raw_control)
+                        if raw_control is not None
+                        else None
+                    )
+                    if raw_control is None:
+                        model.config_overrides = [
+                            key
+                            for key in model.config_overrides
+                            if key != f"thinking_control"
+                        ]
+                    else:
+                        changed_fields.append(f"thinking_control")
+                if f"template_id" in config:
+                    model.template_id = config[f"template_id"]
+                    changed_fields.append(f"template_id")
+                if config.get(f"confirm_paid"):
+                    model.requires_paid_confirmation = False
+                    model.auto_enabled = False
+                    changed_fields.extend(
+                        [
+                            f"requires_paid_confirmation",
+                            f"auto_enabled",
+                        ],
+                    )
                 if (
                     "generate_kwargs" in config
                     and config["generate_kwargs"] is not None
@@ -970,6 +1137,21 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
                     if model.generate_kwargs != generate_kwargs:
                         model.generate_kwargs = generate_kwargs
                         changed_fields.append("generate_kwargs")
+                if (
+                    f"max_input_length" in config
+                    and config[f"max_input_length"] is None
+                ):
+                    model.max_input_length = DEFAULT_CONTEXT_WINDOW
+                    model.max_input_length_configured = False
+                    model.config_overrides = [
+                        field
+                        for field in model.config_overrides
+                        if field
+                        not in {
+                            f"max_input_length",
+                            f"max_input_length_configured",
+                        }
+                    ]
                 if (
                     "max_input_length" in config
                     and config["max_input_length"] is not None
@@ -1096,52 +1278,73 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
         """
         return True
 
-    def get_context_size(self, model_id: str) -> int:
-        """Resolve the context window for *model_id*.
+    def resolve_model_info(self, model_id: str) -> ModelInfo:
+        """Resolve field-level metadata without changing saved user state."""
+        model = self.get_model_info(model_id)
+        discovered = self.get_discovered_model_info(model_id)
+        return resolve_model_info(
+            self,
+            model
+            or discovered
+            or ModelInfo(
+                id=model_id,
+                name=model_id,
+            ),
+            discovered,
+        )
 
-        Feeds ``model.context_size`` (which drives automatic context
-        compression) AND the display/usage path
-        (``config.get_model_max_input_length``) -- both MUST go through this
-        method so the reported usage%% and the compaction trigger never
-        diverge. Resolution lives in
-        :func:`.context_windows.resolve_context_window`:
-        explicitly configured ``max_input_length`` > API auto-detected value
-        > non-default provider/catalog value > static pattern catalog
-        (unless :meth:`_context_catalog_enabled` opts out) > 128k default.
-        """
-        model_info = self.get_model_info(model_id)
-        discovered_info = self.get_discovered_model_info(model_id)
-        configured_info = model_info or discovered_info
-        auto_detected = (
-            getattr(model_info, "max_input_length_auto_detected", None)
-            if model_info is not None
-            else None
+    def model_capabilities(self, model: ModelInfo) -> ModelInfo:
+        """Resolve this service's capabilities without network requests."""
+        return resolve_model_info(
+            self,
+            model,
+            self.get_discovered_model_info(model.id),
         )
-        if auto_detected is None and discovered_info is not None:
-            auto_detected = getattr(
-                discovered_info,
-                "max_input_length_auto_detected",
-                None,
-            )
-        return resolve_context_window(
-            model_id,
-            configured=(
-                configured_info.max_input_length
-                if configured_info is not None
-                else None
-            ),
-            configured_is_explicit=(
-                getattr(
-                    configured_info,
-                    "max_input_length_configured",
-                    False,
-                )
-                if configured_info is not None
-                else False
-            ),
-            use_catalog=self._context_catalog_enabled(),
-            auto_detected=auto_detected,
+
+    def model_pricing(
+        self,
+        model: ModelInfo,
+    ) -> Literal["free", "paid", "unknown"]:
+        """Return billing evidence, never infer price from model capability."""
+        return effective_billing(model)
+
+    def model_available(self, model: ModelInfo) -> bool:
+        """Separate endpoint access from billing and model quality."""
+        return (
+            not model.remote_missing
+            and not model.requires_paid_confirmation
+            and model.availability_status
+            not in {
+                f"permission_denied",
+                f"model_not_found",
+                f"incompatible_api",
+            }
+            and self.enabled
+            and (not self.require_api_key or bool(self.api_key))
         )
+
+    def model_recommendation(self, model: ModelInfo) -> Recommendation:
+        """Apply reviewed ranking policy to this service offering."""
+        card = self.model_capabilities(model)
+        return recommend(
+            card.ranking_id,
+            self.model_pricing(card),
+            card.supports_tool_calling,
+            self.model_available(card),
+        )
+
+    def automatically_listed(self, model: ModelInfo) -> bool:
+        """Only explicit choices enter remote model selectors."""
+        return (
+            self.is_local
+            or self.is_custom
+            or self.id == f"hub-managed"
+            or getattr(model, f"source", None) == f"user"
+        )
+
+    def get_context_size(self, model_id: str) -> int:
+        """Return the effective context used by runtime and usage displays."""
+        return self.resolve_model_info(model_id).effective_max_input_length
 
     def _get_context_size(self, model_id: str) -> int:
         """Alias of :meth:`get_context_size` kept for provider internals."""
@@ -1175,8 +1378,25 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
 
         return ProbeResult()
 
-    async def get_info(self, mock_secret: bool = True) -> ProviderInfo:
-        """Return a ProviderInfo instance with the provider's details."""
+    async def get_info(
+        self,
+        mock_secret: bool = True,
+        *,
+        include_candidates: bool = True,
+    ) -> ProviderInfo:
+        """Build metadata off the event loop, loading candidates on demand."""
+        return await run_sync_io(
+            self._build_info,
+            mock_secret,
+            include_candidates,
+        )
+
+    def _build_info(
+        self,
+        mock_secret: bool,
+        include_candidates: bool,
+    ) -> ProviderInfo:
+        """Serialize a provider without retaining runtime clients."""
         if mock_secret and self.api_key:
             # Determine which prefix to show in the masked key.
             # If api_key_prefixes is set, pick the one matching the
@@ -1196,11 +1416,32 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
             api_key = self.api_key
         removed = set(self.removed_model_ids)
 
+        serialized_cards: dict[str, dict[str, Any]] = {}
+
         def serialize_model(model: ModelInfo) -> dict[str, Any]:
-            payload = model.model_dump()
-            payload["supports_agent_thinking"] = self.supports_agent_thinking(
-                model.id,
+            if model.id in serialized_cards:
+                return serialized_cards[model.id]
+            card = resolve_model_info(
+                self,
+                model,
+                self.get_discovered_model_info(model.id),
             )
+            payload = card.model_dump()
+            recommendation = recommend(
+                card.ranking_id,
+                self.model_pricing(card),
+                card.supports_tool_calling,
+                self.model_available(card),
+            )
+            payload[f"is_recommended"] = recommendation.eligible
+            payload[f"recommendation_reason"] = recommendation.reason
+            control = self.thinking_control(model.id)
+            payload[f"thinking_control"] = control.model_dump()
+            payload["supports_agent_thinking"] = control.kind in {
+                f"effort",
+                f"budget",
+            }
+            serialized_cards[model.id] = payload
             return payload
 
         # Serialize models/extra_models to plain dicts so that
@@ -1209,9 +1450,48 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
         # class-identity mismatches when the same module is loaded
         # via two different import paths (e.g. PYTHONPATH + pip install).
         meta = self.meta or {}
+        selected_cards = [
+            serialize_model(model) for model in self.configured_models()
+        ]
+        free_ids = packaged_free_model_ids(self.id, self.base_url)
+        free_ids.difference_update(removed)
+        for raw in self.models + self.extra_models + self.discovered_models:
+            model = ModelInfo.model_validate(raw.model_dump())
+            if (
+                model.remote_missing
+                or model.billing == f"paid"
+                or (
+                    model.billing_source == f"api"
+                    and model.billing == f"free"
+                    and self.model_pricing(model) != f"free"
+                )
+            ):
+                free_ids.discard(model.id)
+        has_free_models = (
+            bool(free_ids)
+            or any(
+                card[f"billing"] == f"free" and not card[f"remote_missing"]
+                for card in selected_cards
+            )
+            or any(
+                self.model_pricing(model) == f"free"
+                and not model.remote_missing
+                and model.id not in removed
+                for model in self.discovered_models
+            )
+        )
+        candidates = self.discovery_candidates() if include_candidates else []
+        pool = candidates if include_candidates else self._resolved_pool
+        pool_ids = (
+            {model.id for model in pool + self.configured_models()}
+            if pool is not None
+            else None
+        )
         return ProviderInfo(
+            model_count=len(pool_ids) if pool_ids is not None else None,
             id=self.id,
             name=self.name,
+            enabled=self.enabled,
             base_url=self.base_url,
             api_key=api_key,
             chat_model=self.chat_model,
@@ -1220,18 +1500,15 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
             models=[
                 serialize_model(model)
                 for model in self.models
-                if model.id not in removed
+                if model.id not in removed and self.automatically_listed(model)
             ],
             extra_models=[
                 serialize_model(model)
                 for model in self.extra_models
                 if model.id not in removed
             ],
-            discovered_models=[
-                serialize_model(model)
-                for model in self.discovered_models
-                if model.id not in removed
-            ],
+            discovered_models=[serialize_model(model) for model in candidates],
+            seen_model_ids=list(self.seen_model_ids),
             models_last_synced_at=self.models_last_synced_at,
             models_last_sync_error=self.models_last_sync_error,
             models_syncing=self.models_syncing,
@@ -1258,10 +1535,11 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
             oauth_connected=bool(
                 meta.get("supports_oauth") and self.api_key,
             ),
-            is_free_tier=meta.get("is_free_tier", False),
+            is_free_tier=has_free_models,
             provider_group=self.provider_group,
             provider_group_name=self.provider_group_name,
             provider_variant=self.provider_variant,
+            default_thinking_control=self.default_thinking_control,
             thinking_param_style=self.thinking_param_style,
             reasoning_effort_options=self.reasoning_effort_options,
             thinking_budget_range=self.thinking_budget_range,

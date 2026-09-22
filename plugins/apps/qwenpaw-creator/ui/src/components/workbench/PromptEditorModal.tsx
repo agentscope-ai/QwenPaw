@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Alert, Button, Modal } from "antd";
+import ImageLightbox from "@/components/assets/ImageLightbox";
 import { Plus } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import PromptTokenEditor, {
@@ -61,6 +62,9 @@ export default function PromptEditorModal({
   const { t } = useTranslation();
   const [draft, setDraft] = useState(initialValue);
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [previewToken, setPreviewToken] = useState<PromptRichToken | null>(
+    null,
+  );
   const [added, setAdded] = useState<
     Array<PromptRichToken & { candidateId: string }>
   >([]);
@@ -89,6 +93,7 @@ export default function PromptEditorModal({
     setPickerOpen(false);
   };
   useEffect(() => {
+    setPreviewToken(null);
     if (!open) return;
     reload();
     // Sample once per opening. Background updates are compared below, never
@@ -242,6 +247,7 @@ export default function PromptEditorModal({
           tokens={allTokens}
           disabled={disabled}
           onChange={setDraft}
+          onPreview={setPreviewToken}
         />
         {(allTokens.length > 0 || candidates.length > 0) && (
           <div className="flex w-[210px] shrink-0 flex-col rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-secondary)] p-2.5">
@@ -252,39 +258,59 @@ export default function PromptEditorModal({
               {t("r2v.insertRefHint")}
             </p>
             <div className="min-h-0 flex-1 overflow-y-auto">
-              {allTokens.map((token) => (
-                <button
-                  key={`token-${token.index}-${allTokens.indexOf(token)}`}
-                  type="button"
-                  disabled={
-                    disabled ||
-                    conflict ||
-                    !promptTokenAt(allTokens, token.index)
-                  }
-                  onClick={() => editorRef.current?.insertToken(token.index)}
-                  className="mb-1.5 flex w-full items-center gap-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-primary)] px-2 py-1.5 text-left transition-colors hover:border-[var(--color-accent)]"
-                >
-                  {promptTokenAt(allTokens, token.index)?.thumbUrl ? (
-                    <img
-                      src={token.thumbUrl}
-                      alt=""
-                      className="h-6 w-8 rounded border border-[var(--color-border)] object-cover"
-                    />
-                  ) : (
-                    <span className="flex h-6 w-8 items-center justify-center rounded border border-dashed border-[var(--color-border)] font-mono text-[8px] text-[var(--color-text-tertiary)]">
-                      {token.index}
-                    </span>
-                  )}
-                  <span className="min-w-0 flex-1 truncate text-[10.5px]">
-                    <b className="font-mono text-[9px] text-[var(--color-accent)]">
-                      {`[${token.index}]`}
-                    </b>{" "}
-                    {promptTokenAt(allTokens, token.index)
-                      ? token.name
-                      : t("r2v.tokenMissing", { index: token.index })}
-                  </span>
-                </button>
-              ))}
+              {allTokens.map((token, position) => {
+                const resolved = promptTokenAt(allTokens, token.index);
+                return (
+                  <div
+                    key={`token-${token.index}-${position}`}
+                    data-prompt-reference-row={token.index}
+                    className="mb-1.5 flex w-full items-stretch rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-primary)]"
+                  >
+                    {resolved?.thumbUrl ? (
+                      <button
+                        type="button"
+                        aria-label={t("r2v.tokenPreview", { name: token.name })}
+                        title={t("r2v.tokenPreview", { name: token.name })}
+                        onMouseDown={(event) => event.preventDefault()}
+                        onClick={() => setPreviewToken(resolved)}
+                        className="shrink-0 cursor-zoom-in rounded-l-lg p-1.5 hover:bg-[var(--color-bg-secondary)]"
+                      >
+                        <img
+                          src={resolved.thumbUrl}
+                          alt=""
+                          className="h-6 w-8 rounded border border-[var(--color-border)] object-cover"
+                        />
+                      </button>
+                    ) : (
+                      <span className="m-1.5 flex h-6 w-8 shrink-0 items-center justify-center rounded border border-dashed border-[var(--color-border)] font-mono text-[8px] text-[var(--color-text-tertiary)]">
+                        {token.index}
+                      </span>
+                    )}
+                    <button
+                      type="button"
+                      aria-label={t("r2v.insertReference", {
+                        name: token.name,
+                      })}
+                      title={t("r2v.insertReference", { name: token.name })}
+                      disabled={disabled || conflict || !resolved}
+                      onMouseDown={(event) => event.preventDefault()}
+                      onClick={() =>
+                        editorRef.current?.insertToken(token.index)
+                      }
+                      className="min-w-0 flex-1 cursor-pointer rounded-r-lg py-1.5 pr-2 text-left text-[10.5px] transition-colors hover:bg-[var(--color-bg-secondary)] disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      <span className="block truncate">
+                        <b className="font-mono text-[9px] text-[var(--color-accent)]">
+                          {`[${token.index}]`}
+                        </b>{" "}
+                        {resolved
+                          ? token.name
+                          : t("r2v.tokenMissing", { index: token.index })}
+                      </span>
+                    </button>
+                  </div>
+                );
+              })}
             </div>
             {openCandidates.length > 0 && (
               <button
@@ -301,6 +327,13 @@ export default function PromptEditorModal({
           </div>
         )}
       </div>
+      {previewToken?.thumbUrl && (
+        <ImageLightbox
+          src={previewToken.thumbUrl}
+          alt={previewToken.name}
+          onClose={() => setPreviewToken(null)}
+        />
+      )}
       <RelatedAssetPicker
         open={pickerOpen}
         candidates={openCandidates.map((candidate) => ({

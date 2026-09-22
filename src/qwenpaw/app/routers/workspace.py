@@ -19,6 +19,7 @@ import stat
 import tempfile
 import os
 import zipfile
+from collections.abc import Mapping
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, AsyncIterator, Literal
@@ -78,6 +79,7 @@ from ...utils.io_utils import (
     run_async_to_completion,
     run_sync_io,
 )
+from ...utils.logging import sanitize_log_value
 from ..agent_context import (
     get_agent_for_request,
     get_agent_project_dir,
@@ -1307,6 +1309,7 @@ async def put_agent_language(
             ),
             only_if_missing=False,
         )
+        schedule_agent_reload(request, agent_id)
 
     return {
         "language": language,
@@ -1615,9 +1618,66 @@ async def get_agents_running_config(
     """Get agent running configuration."""
     workspace = await get_agent_for_request(request)
     agent_config = await run_sync_io(load_agent_config, workspace.agent_id)
-    running = agent_config.running or AgentsRunningConfig()
+    running = _mask_memory_backend_secrets(
+        agent_config.running or AgentsRunningConfig(),
+    )
     running.approval_level = getattr(agent_config, "approval_level", "AUTO")
     return running
+
+
+def _mask_memory_backend_secrets(
+    running: AgentsRunningConfig,
+) -> AgentsRunningConfig:
+    """Return a detached API-safe config with plugin secrets masked."""
+    from qwenpaw.memory import memory_registry
+
+    masked = running.model_copy(deep=True)
+    for backend_id, values in list(masked.memory_backend_configs.items()):
+        registration = memory_registry.get_registration(backend_id)
+        if registration is None:
+            # Core cannot distinguish secrets inside an unavailable plugin's
+            # opaque payload. Preserve it server-side, but expose no values.
+            del masked.memory_backend_configs[backend_id]
+            continue
+        for field_name in registration.metadata.get("secret_fields", []):
+            if values.get(field_name):
+                values[field_name] = "***"
+    return masked
+
+
+def _safe_memory_validation_error(
+    exc: Exception,
+    submitted: dict[str, Any],
+    secret_fields: list[str],
+) -> str:
+    """Render plugin validation failures without echoing submitted secrets."""
+    detail = str(exc)
+
+    def secret_fragments(value: Any) -> list[str]:
+        if isinstance(value, Mapping):
+            fragments = [str(value), repr(value)]
+            for nested in value.values():
+                fragments.extend(secret_fragments(nested))
+            return fragments
+        if isinstance(value, (list, tuple, set, frozenset)):
+            fragments = [str(value), repr(value)]
+            for nested in value:
+                fragments.extend(secret_fragments(nested))
+            return fragments
+        if value is None:
+            return []
+        return [str(value), repr(value)]
+
+    for field_name in secret_fields:
+        secret = submitted.get(field_name)
+        fragments = sorted(
+            {fragment for fragment in secret_fragments(secret) if fragment},
+            key=len,
+            reverse=True,
+        )
+        for fragment in fragments:
+            detail = detail.replace(fragment, "***")
+    return detail
 
 
 class _ConfigRollbackConflict(RuntimeError):
@@ -1765,6 +1825,7 @@ async def _rollback_embedding_update(
     summary="Update agent running config",
     description="Update running configuration for active agent",
 )
+# pylint: disable-next=R0915,R0912
 async def put_agents_running_config(
     running_config: AgentsRunningConfig = Body(
         ...,
@@ -1778,21 +1839,106 @@ async def put_agents_running_config(
     workspace_dir = getattr(workspace, "workspace_dir", ".")
     config_path = Path(workspace_dir) / "agent.json"
     async with get_path_lock(config_path):
+        from qwenpaw.memory import (
+            MemoryBackendUnavailableError,
+            memory_registry,
+        )
+
+        backend_id = running_config.memory_manager_backend.strip().lower()
+        running_config.memory_manager_backend = backend_id
+        try:
+            selection_lease = memory_registry.reserve_selection(
+                backend_id,
+                workspace.agent_id,
+            )
+        except MemoryBackendUnavailableError:
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "backend": running_config.memory_manager_backend,
+                    "reason": "plugin_not_installed",
+                },
+            ) from None
+        selected_registration = selection_lease.registration
+        if selected_registration.plugin_id != "core":
+            running_config.memory_backend_configs.setdefault(backend_id, {})
         old_agent_config = None
         embedding_changed = False
         memory_manager_backend_changed = False
         restores_indexed_space = False
+        lease_handed_off = False
         new_embedding_config = (
             running_config.reme_light_memory_config.embedding_model_config
         )
         new_memory_manager_backend = running_config.memory_manager_backend
 
+        # pylint: disable-next=R0912
         def persist_running_config(agent_config):
             nonlocal old_agent_config, embedding_changed
             nonlocal memory_manager_backend_changed
             nonlocal restores_indexed_space
             old_agent_config = agent_config.model_copy(deep=True)
             old_running_config = agent_config.running or AgentsRunningConfig()
+            old_backend_configs = old_running_config.memory_backend_configs
+
+            # Partial/redacted round trips must retain server-owned data.
+            # Unavailable plugins cannot validate or identify their secrets,
+            # so client-provided replacements for them are ignored as well.
+            for (
+                stored_backend_id,
+                current_config,
+            ) in old_backend_configs.items():
+                if (
+                    stored_backend_id
+                    not in running_config.memory_backend_configs
+                    or memory_registry.get_registration(stored_backend_id)
+                    is None
+                ):
+                    running_config.memory_backend_configs[
+                        stored_backend_id
+                    ] = copy.deepcopy(current_config)
+            for submitted_backend_id, submitted_config in list(
+                running_config.memory_backend_configs.items(),
+            ):
+                registration = memory_registry.get_registration(
+                    submitted_backend_id,
+                )
+                if registration is None:
+                    if submitted_backend_id not in old_backend_configs:
+                        del running_config.memory_backend_configs[
+                            submitted_backend_id
+                        ]
+                    continue
+                secret_fields = list(
+                    registration.metadata.get("secret_fields", []),
+                )
+                current_config = old_backend_configs.get(
+                    submitted_backend_id,
+                    {},
+                )
+                for field_name in secret_fields:
+                    if submitted_config.get(field_name) == "***":
+                        submitted_config[field_name] = current_config.get(
+                            field_name,
+                            "",
+                        )
+                if registration.config_schema is not None:
+                    try:
+                        validated = registration.config_schema.model_validate(
+                            submitted_config,
+                        )
+                    except Exception as exc:
+                        raise HTTPException(
+                            status_code=422,
+                            detail=_safe_memory_validation_error(
+                                exc,
+                                submitted_config,
+                                secret_fields,
+                            ),
+                        ) from exc
+                    running_config.memory_backend_configs[
+                        submitted_backend_id
+                    ] = validated.model_dump()
             memory_manager_backend_changed = (
                 old_running_config.memory_manager_backend
                 != new_memory_manager_backend
@@ -1846,6 +1992,7 @@ async def put_agents_running_config(
             agent_config.running = running_config
 
         async def persist_apply_and_schedule() -> AgentProfileConfig:
+            nonlocal lease_handed_off
             agent_config = await update_agent_config_async(
                 workspace.agent_id,
                 persist_running_config,
@@ -1872,15 +2019,78 @@ async def put_agents_running_config(
                         agent_config,
                     )
 
-            schedule_agent_reload(request, workspace.agent_id)
+            if (
+                not memory_manager_backend_changed
+                or selected_registration.plugin_id == "core"
+            ):
+                schedule_agent_reload(request, workspace.agent_id)
+                return agent_config
+
+            assert old_agent_config is not None
+
+            async def complete_backend_reload(reloaded: bool) -> None:
+                try:
+                    if not reloaded:
+
+                        def rollback_config(current_config: BaseModel) -> None:
+                            _conditionally_restore_config_changes(
+                                current_config,
+                                old_agent_config,
+                                agent_config,
+                            )
+
+                        try:
+                            await update_agent_config_async(
+                                workspace.agent_id,
+                                rollback_config,
+                            )
+                        except _ConfigRollbackConflict as exc:
+                            logger.error(
+                                "Backend reload failed for agent '%s' and "
+                                "config rollback conflicted at: %s",
+                                sanitize_log_value(workspace.agent_id),
+                                ", ".join(exc.paths),
+                            )
+                        except Exception:
+                            logger.exception(
+                                "Backend reload failed and config rollback "
+                                "failed for agent '%s'",
+                                sanitize_log_value(workspace.agent_id),
+                            )
+                finally:
+                    selection_lease.release()
+
+            try:
+                reload_scheduled = schedule_agent_reload(
+                    request,
+                    workspace.agent_id,
+                    on_complete=complete_backend_reload,
+                )
+            except BaseException:
+                await run_async_to_completion(complete_backend_reload(False))
+                raise
+            if not reload_scheduled:
+                await complete_backend_reload(False)
+                raise HTTPException(
+                    status_code=503,
+                    detail=(
+                        "Agent reload could not be scheduled; "
+                        "config rolled back"
+                    ),
+                )
+            lease_handed_off = True
             return agent_config
 
-        agent_config = await run_async_to_completion(
-            persist_apply_and_schedule(),
-        )
+        try:
+            agent_config = await run_async_to_completion(
+                persist_apply_and_schedule(),
+            )
+        finally:
+            if not lease_handed_off:
+                selection_lease.release()
 
     running_config.approval_level = agent_config.approval_level
-    return running_config
+    return _mask_memory_backend_secrets(running_config)
 
 
 @router.get(

@@ -41,7 +41,7 @@ function storageKey(chatId: string): string {
 }
 
 interface ApprovalLevelToggleProps {
-  /** Use queueSessionId (chatId ?? "new") for consistent storage key */
+  /** Agent-scoped draft key or canonical Chat UUID. */
   sessionId: string;
   /** Default level from GET /workspace/running-config */
   runningConfigApprovalLevel: ToolExecutionLevel;
@@ -66,32 +66,8 @@ const ApprovalLevelToggle: React.FC<ApprovalLevelToggleProps> = ({
   );
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
-  const prevSessionIdRef = useRef<string>(sessionId);
 
   useEffect(() => {
-    const prevSessionId = prevSessionIdRef.current;
-
-    // Migrate from temporary sessionId (including "new" or localId) to real backend chatId
-    // This happens when:
-    // 1. "new" -> real UUID (first message sent)
-    // 2. localId (timestamp-random) -> real UUID (session resolved)
-    if (prevSessionId !== sessionId) {
-      const isLocalId = (id: string) =>
-        id === "new" || /^\d{13}-[a-z0-9]{7}$/.test(id);
-      const isRealId = (id: string) => id.length === 36 && id.includes("-");
-
-      // Migrate if transitioning from local/temp to real
-      if (isLocalId(prevSessionId) && isRealId(sessionId)) {
-        const prevLevel = localStorage.getItem(storageKey(prevSessionId));
-        if (prevLevel && LEVELS.includes(prevLevel as ToolExecutionLevel)) {
-          localStorage.setItem(storageKey(sessionId), prevLevel);
-          localStorage.removeItem(storageKey(prevSessionId));
-        }
-      }
-    }
-
-    prevSessionIdRef.current = sessionId;
-
     const saved = localStorage.getItem(storageKey(sessionId));
     if (saved && LEVELS.includes(saved as ToolExecutionLevel)) {
       setSessionLevel(saved as ToolExecutionLevel);

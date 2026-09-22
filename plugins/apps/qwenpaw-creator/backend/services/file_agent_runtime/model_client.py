@@ -6,12 +6,14 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable, Mapping, Sequence
+from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 import asyncio
 import inspect
 import json
 import os
 import re
+from time import monotonic
 
 from typing import Any, Protocol
 
@@ -105,6 +107,55 @@ _HTTP_STATUS_PATTERN = re.compile(
 
 MAX_RATE_LIMIT_RETRIES = 5
 MAX_TRANSIENT_MODEL_RETRIES = 4
+
+
+class _ThinkingDeltaBuffer:
+    """Bound synchronous trace writes while keeping the full thinking text."""
+
+    def __init__(self, callback: AgentTextDeltaCallback | None):
+        self.callback = callback
+        self.parts: list[str] = []
+        self.size = 0
+        self.last_flush: float | None = None
+
+    async def feed(self, delta: str) -> None:
+        self.parts.append(delta)
+        self.size += len(delta)
+        if (
+            self.last_flush is None
+            or self.size >= 1024
+            or monotonic() - self.last_flush >= 0.5
+        ):
+            await self.flush()
+
+    async def flush(self) -> None:
+        if not self.parts:
+            return
+        delta = "".join(self.parts)
+        # A callback failure must not replay the same delta or model request.
+        self.parts.clear()
+        self.size = 0
+        if self.callback is not None:
+            await self.callback(delta)
+        self.last_flush = monotonic()
+
+
+@asynccontextmanager
+async def _buffered_thinking(callback: AgentTextDeltaCallback | None):
+    buffer = _ThinkingDeltaBuffer(callback)
+    try:
+        yield buffer
+    except (
+        asyncio.CancelledError,
+        AgentStreamCallbackError,
+        AgentStreamCallbackPassthrough,
+    ):
+        # Cancellation and persistence failures remain immediate boundaries.
+        raise
+    except Exception:
+        await buffer.flush()
+        raise
+    await buffer.flush()
 
 
 def is_rate_limit_error_text(exc_text: str) -> bool:
@@ -852,7 +903,9 @@ class AgentScopeAgentChatClient:
         provider_tool_chunk_counts: dict[str, int] = {}
 
         try:
-            async with model_slot("text"):
+            async with model_slot("text"), _buffered_thinking(
+                guarded_thinking_delta,
+            ) as thinking_buffer:
                 response = await self._configured_model()(
                     native_messages,
                     tools=[dict(item) for item in tools] or None,
@@ -864,6 +917,8 @@ class AgentScopeAgentChatClient:
                             final = item
                             continue
                         for block in item.content:
+                            if not isinstance(block, ThinkingBlock):
+                                await thinking_buffer.flush()
                             if isinstance(block, TextBlock):
                                 if block.text:
                                     await text_stream.feed(block.text)
@@ -872,7 +927,7 @@ class AgentScopeAgentChatClient:
                                     block.thinking
                                     and guarded_thinking_delta is not None
                                 ):
-                                    await guarded_thinking_delta(
+                                    await thinking_buffer.feed(
                                         block.thinking,
                                     )
                                     streamed_thinking = True

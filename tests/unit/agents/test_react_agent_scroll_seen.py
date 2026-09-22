@@ -22,6 +22,13 @@ _AUDIO_MODAL_ERROR = (
     "'type': 'invalid_request_error'}}"
 )
 
+_AUDIO_INPUT_PART_ERROR = (
+    "Error code: 422 - {'error': {'message': "
+    '"Failed to deserialize the JSON body into the target type: '
+    "messages[88]: unknown variant `input_audio`, expected one of "
+    '`text`, `image_url`, `file`"}}'
+)
+
 
 class SeenTracker:
     """Minimal Scroll manager surface used by ``QwenPawAgent._reasoning``."""
@@ -88,14 +95,6 @@ def make_agent(tracker: SeenTracker) -> QwenPawAgent:
     return agent
 
 
-def _skip_media_strip(monkeypatch) -> None:
-    """Keep tests focused on seen-ack; avoid multimodal/env-dependent strip."""
-    monkeypatch.setattr(
-        "qwenpaw.agents.model_factory._supports_multimodal_for_current_model",
-        lambda: True,
-    )
-
-
 def test_thinking_omissions_delegate_to_model_wrapper() -> None:
     """Fallback-aware model interfaces take precedence over one formatter."""
     agent = object.__new__(QwenPawAgent)
@@ -111,7 +110,6 @@ def test_thinking_omissions_delegate_to_model_wrapper() -> None:
 
 
 async def test_successful_model_call_acknowledges_input_results(monkeypatch):
-    _skip_media_strip(monkeypatch)
     tracker = SeenTracker()
     agent = make_agent(tracker)
 
@@ -137,7 +135,6 @@ async def test_successful_model_call_acknowledges_input_results(monkeypatch):
 
 
 async def test_failed_model_call_does_not_acknowledge_results(monkeypatch):
-    _skip_media_strip(monkeypatch)
     tracker = SeenTracker()
     agent = make_agent(tracker)
 
@@ -159,7 +156,6 @@ async def test_failed_model_call_does_not_acknowledge_results(monkeypatch):
 async def test_interrupted_model_call_does_not_acknowledge_results(
     monkeypatch,
 ):
-    _skip_media_strip(monkeypatch)
     tracker = SeenTracker()
     agent = make_agent(tracker)
 
@@ -197,7 +193,6 @@ async def test_compress_context_forwards_one_shot_instructions():
 async def test_audio_modal_error_strips_audio_and_retries_once(
     monkeypatch,
 ) -> None:
-    _skip_media_strip(monkeypatch)
     cache = get_capability_cache()
     cache.clear()
     agent = make_agent(SeenTracker())
@@ -245,3 +240,25 @@ async def test_audio_modal_error_strips_audio_and_retries_once(
         assert agent.formatter._qwenpaw_force_strip_media is False
     finally:
         cache.clear()
+
+
+@pytest.mark.parametrize(
+    ("error", "expected"),
+    [
+        (_AUDIO_MODAL_ERROR, True),
+        (_AUDIO_INPUT_PART_ERROR, True),
+        (
+            "Error code: 422 - unknown variant `input_text`, expected one of "
+            "`text`, `image_url`, `file`",
+            False,
+        ),
+    ],
+)
+def test_audio_fallback_error_classifies_unknown_audio_parts(
+    error: str,
+    expected: bool,
+) -> None:
+    """Recognize unsupported input_audio variants without broad 422 matches."""
+    assert (
+        QwenPawAgent._is_audio_fallback_error(RuntimeError(error)) is expected
+    )

@@ -1,5 +1,17 @@
+import { Tooltip } from "antd";
 import { Tag } from "@agentscope-ai/design";
-import { Boxes, CircleHelp, Eye, FileText, Video } from "lucide-react";
+import {
+  AudioLines,
+  Wrench,
+  Gift,
+  CreditCard,
+  type LucideIcon,
+  Boxes,
+  CircleHelp,
+  Eye,
+  FileText,
+  Video,
+} from "lucide-react";
 import type { ModelInfo } from "../../../../../api/types";
 import { useTranslation } from "react-i18next";
 
@@ -46,45 +58,134 @@ export const tagColors = () => ({
   },
 });
 
-export function CapabilityTags({ model }: { model: ModelInfo }) {
-  const { t } = useTranslation();
-  const c = tagColors();
-  if (model.supports_image && model.supports_video) {
-    return (
-      <Tag style={{ fontSize: 11, marginRight: 4, ...c.multimodal }}>
-        <Boxes size={14} style={{ marginRight: 4, verticalAlign: "-3px" }} />
-        {t("models.tagMultimodal", "多模态")}
-      </Tag>
-    );
-  }
-  if (model.supports_image) {
-    return (
-      <Tag style={{ fontSize: 11, marginRight: 4, ...c.vision }}>
-        <Eye size={14} style={{ marginRight: 4, verticalAlign: "-3px" }} />
-        {t("models.tagVision", "视觉")}
-      </Tag>
-    );
-  }
-  if (model.supports_video) {
-    return (
-      <Tag style={{ fontSize: 11, marginRight: 4, ...c.video }}>
-        <Video size={14} style={{ marginRight: 4, verticalAlign: "-3px" }} />
-        {t("models.tagVideo", "视频")}
-      </Tag>
-    );
-  }
-  if (model.supports_multimodal === false) {
-    return (
-      <Tag style={{ fontSize: 11, marginRight: 4, ...c.text }}>
-        <FileText size={14} style={{ marginRight: 4, verticalAlign: "-3px" }} />
-        {t("models.tagText", "文本")}
-      </Tag>
-    );
-  }
-  return (
-    <Tag style={{ fontSize: 11, marginRight: 4, ...c.notProbed }}>
-      <CircleHelp size={14} style={{ marginRight: 4, verticalAlign: "-3px" }} />
-      {t("models.tagNotProbed", "未检测")}
+function CapabilityTag({
+  icon: Icon,
+  children,
+  tone = "info",
+  iconOnly = false,
+}: {
+  icon: LucideIcon;
+  iconOnly?: boolean;
+  children: React.ReactNode;
+  tone?: "info" | "neutral" | "free";
+}) {
+  const colors = tagColors();
+  const tag = (
+    <Tag
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 4,
+        minHeight: 24,
+        padding: iconOnly ? "1px 4px" : "1px 6px",
+        borderRadius: 4,
+        fontSize: 12,
+        fontWeight: 500,
+        lineHeight: "20px",
+        borderWidth: 1,
+        borderStyle: "solid",
+        margin: 0,
+        ...(tone === "free"
+          ? colors.free
+          : tone === "neutral"
+          ? colors.text
+          : colors.multimodal),
+      }}
+    >
+      <Icon size={14} strokeWidth={1.8} aria-hidden />
+      {!iconOnly && children}
     </Tag>
+  );
+  return iconOnly ? (
+    <Tooltip title={children}>
+      <span
+        tabIndex={0}
+        role="img"
+        aria-label={typeof children === "string" ? children : undefined}
+        style={{ display: "inline-flex" }}
+      >
+        {tag}
+      </span>
+    </Tooltip>
+  ) : (
+    tag
+  );
+}
+
+export function CapabilityTags({
+  model,
+  iconOnly = false,
+}: {
+  model: ModelInfo;
+  iconOnly?: boolean;
+}) {
+  const { t } = useTranslation();
+  const modalities = [
+    model.supports_image,
+    model.supports_audio,
+    model.supports_video,
+  ];
+  const multiple = modalities.filter(Boolean).length > 1;
+  const icon = multiple
+    ? Boxes
+    : model.supports_image
+    ? Eye
+    : model.supports_video
+    ? Video
+    : model.supports_audio
+    ? AudioLines
+    : model.supports_multimodal === false
+    ? FileText
+    : CircleHelp;
+  const label = multiple
+    ? "models.tagMultimodal"
+    : model.supports_image
+    ? "models.tagVision"
+    : model.supports_video
+    ? "models.tagVideo"
+    : model.supports_audio
+    ? "models.pool.capabilityOptions.audio"
+    : model.supports_multimodal === false
+    ? "models.tagText"
+    : "models.tagNotProbed";
+  return (
+    <>
+      {(!iconOnly || modalities.some(Boolean)) && (
+        <CapabilityTag
+          icon={icon}
+          iconOnly={iconOnly}
+          tone={modalities.some(Boolean) ? "info" : "neutral"}
+        >
+          {t(label)}
+        </CapabilityTag>
+      )}
+      {model.supports_tool_calling === true && (
+        <CapabilityTag icon={Wrench} iconOnly={iconOnly}>
+          {t("models.pool.capabilityOptions.tool_calling")}
+        </CapabilityTag>
+      )}
+    </>
+  );
+}
+
+export function BillingTag({
+  model,
+  iconOnly = false,
+}: {
+  model: ModelInfo;
+  iconOnly?: boolean;
+}) {
+  const { t } = useTranslation();
+  const billing = model.billing ?? (model.is_free ? "free" : "unknown");
+  return (
+    <CapabilityTag
+      iconOnly={iconOnly}
+      icon={
+        billing === "free" ? Gift : billing === "paid" ? CreditCard : CircleHelp
+      }
+      tone={billing === "free" ? "free" : "neutral"}
+    >
+      {t(`models.billing.${billing}`)}
+    </CapabilityTag>
   );
 }

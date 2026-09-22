@@ -27,7 +27,7 @@
 .sidebar {
   align-items: center;
   gap: 6px;
-  padding: 8px 10px;
+  padding: 6px 10px;
   border-radius: 8px;
   margin-bottom: 2px;
 
@@ -47,7 +47,7 @@
   &.active {
     background: var(--app-fill);
 
-    .name {
+    .nameViewport {
       font-weight: 500;
       color: var(--app-text);
     }
@@ -81,16 +81,120 @@
 
 /* ── Name ─────────────────────────────────────────────────────────────── */
 
-.name {
+.nameViewport {
   flex: 1;
   min-width: 0;
   font-size: 14px;
-  font-weight: 500;
+  font-weight: 400;
   line-height: 24px;
   color: var(--app-text);
   white-space: nowrap;
   overflow: hidden;
+}
+
+.nameTrack {
+  display: inline-block;
+  min-width: max-content;
+  white-space: nowrap;
+  transform: translateX(0);
+}
+
+.nameTrackOverflow {
+  will-change: transform;
+
+  .sidebar:hover &,
+  .sidebar:focus-visible & {
+    animation: sessionNameMarquee var(--name-marquee-duration) ease-in-out
+      infinite alternate;
+  }
+}
+
+@keyframes sessionNameMarquee {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(var(--name-marquee-distance));
+  }
+}
+
+.infoCard {
+  width: min(300px, calc(100vw - 32px));
+  color: var(--app-text);
+}
+
+.infoHeader {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 12px;
+}
+
+.infoName {
+  display: -webkit-box;
+  min-width: 0;
+  max-height: 66px;
+  overflow: hidden;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 22px;
+  overflow-wrap: anywhere;
   text-overflow: ellipsis;
+  text-wrap: pretty;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+.infoTime {
+  padding-top: 1px;
+  color: var(--app-text-tertiary);
+  font-size: 12px;
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+  line-height: 20px;
+  white-space: nowrap;
+}
+
+.infoRows {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 10px;
+  color: var(--app-text-secondary);
+  font-size: 14px;
+  line-height: 20px;
+}
+
+.infoRow {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 9px;
+}
+
+.infoIcon {
+  display: inline-flex;
+  flex: 0 0 18px;
+  align-items: center;
+  justify-content: center;
+  color: var(--app-text-tertiary);
+}
+
+.infoPopover {
+  :global(.qwenpaw-popover-inner),
+  :global(.ant-popover-inner) {
+    padding: 12px 14px;
+  }
+}
+
+:global(.dark-mode) .infoCard {
+  color: var(--app-text);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nameTrackOverflow {
+    animation: none !important;
+  }
 }
 
 /* ── Status indicators ────────────────────────────────────────────────── */
@@ -135,49 +239,12 @@
   pointer-events: none;
 }
 
-/* ── Channel tag ──────────────────────────────────────────────────────── */
-
-.channelTag {
-  flex-shrink: 0;
-  display: inline-flex;
-  align-items: center;
-  opacity: 0.55;
-}
-
-.sourceIcon {
-  display: inline-flex;
-  flex-shrink: 0;
-  align-items: center;
-  color: var(--app-accent);
-}
-
-.dragHint {
-  display: inline-flex;
-  flex-shrink: 0;
-  align-items: center;
-  justify-content: center;
-  color: var(--app-text-quaternary);
-  cursor: grab;
-  opacity: 0;
-}
-
 .pinMark {
   display: inline-flex;
   flex-shrink: 0;
   align-items: center;
   justify-content: center;
   color: var(--app-accent);
-}
-
-.item:hover .dragHint,
-.dropdownOpen .dragHint {
-  opacity: 1;
-}
-
-@media (hover: none) {
-  .dragHint {
-    opacity: 0.58;
-  }
 }
 
 /* ── More button ─────────────────────────────────────────────────────── */
@@ -188,8 +255,11 @@
   justify-content: center;
   width: 22px;
   height: 22px;
+  padding: 0;
+  border: 0;
   border-radius: 4px;
   font-size: 14px;
+  background: transparent;
   color: var(--app-text-tertiary);
   cursor: pointer;
   opacity: 0;
@@ -202,10 +272,22 @@
     color: var(--app-text);
   }
 
-  position: absolute;
-  top: 50%;
-  right: 6px;
-  transform: translateY(-50%);
+  &:focus-visible {
+    opacity: 1;
+    pointer-events: auto;
+    outline: 2px solid var(--app-accent);
+    outline-offset: 1px;
+  }
+}
+
+@media (hover: none), (pointer: coarse) {
+  .moreBtn {
+    width: 32px;
+    height: 32px;
+    margin: -5px;
+    opacity: 1;
+    pointer-events: auto;
+  }
 }
 
 /* ── Rename input ─────────────────────────────────────────────────────── */

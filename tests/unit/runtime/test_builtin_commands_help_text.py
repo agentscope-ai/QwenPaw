@@ -30,6 +30,7 @@ def test_conversation_specs_use_system_command_descriptions() -> None:
     assert (
         by_name["compact"].help_text == SYSTEM_COMMAND_DESCRIPTIONS["compact"]
     )
+    assert by_name["reme"].help_text == SYSTEM_COMMAND_DESCRIPTIONS["reme"]
     # Non-curated conversation commands remain hidden from autocomplete.
     assert by_name["history"].help_text == ""
     assert by_name["new"].help_text == ""

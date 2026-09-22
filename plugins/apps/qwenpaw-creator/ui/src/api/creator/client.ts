@@ -4,7 +4,12 @@ import i18n from "@/i18n";
 export const CREATOR_API_BASE = "/api/qwenpaw-creator";
 
 type HostWindow = Window & {
-  QwenPaw?: { host?: { getApiToken?: () => string } };
+  QwenPaw?: {
+    host?: {
+      getApiToken?: () => string;
+      usesBrowserSession?: (appId: string) => boolean;
+    };
+  };
 };
 
 export class CreatorHttpError extends Error {
@@ -46,6 +51,8 @@ export function creatorApiUrl(path: string): string {
  */
 export function creatorAuthenticatedUrl(path: string): string {
   const url = creatorApiUrl(path);
+  const host = (window.parent as HostWindow).QwenPaw?.host;
+  if (host?.usesBrowserSession?.("qwenpaw-creator")) return url;
   const token = hostToken();
   if (!token) return url;
   const separator = url.includes("?") ? "&" : "?";

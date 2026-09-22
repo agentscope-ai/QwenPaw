@@ -128,7 +128,7 @@ def _ids_match(left: Any, right: Any) -> bool:
     return left == right or str(left) == str(right)
 
 
-def _timeout_seconds(value: float | timedelta) -> float:
+def timeout_seconds(value: float | timedelta) -> float:
     return (
         value.total_seconds() if isinstance(value, timedelta) else float(value)
     )
@@ -409,8 +409,20 @@ def _unwrap_jsonrpc_result(
         if _is_jsonrpc_envelope(data) and isinstance(data.get("error"), dict):
             # Legacy peers may omit/null id on HTTP 4xx JSON-RPC errors.
             raise _JsonRpcError.from_payload(data["error"], http_status=status)
+        # aread() already decoded gzip/deflate/br; leftover encoding
+        # headers would make httpx.Response try to decompress again.
+        stale = {
+            "content-encoding",
+            "content-length",
+            "transfer-encoding",
+        }
+        sanitized = {
+            key: value
+            for key, value in (headers or {}).items()
+            if key.casefold() not in stale
+        }
         resp_kw: dict[str, Any] = {
-            "headers": headers or {},
+            "headers": sanitized,
             "request": request,
         }
         if isinstance(data, dict):
@@ -522,8 +534,11 @@ class _HttpClientBase:
         self.transport = transport
         self.url = url
         self.headers = headers
-        self.timeout = timeout
-        self.sse_read_timeout = sse_read_timeout
+        self.timeout = timeout_seconds(timeout)
+        self.sse_read_timeout = max(
+            timeout_seconds(sse_read_timeout),
+            self.timeout,
+        )
         self.client_kwargs = dict(client_kwargs)
         self.is_stateful = False
         self.is_connected = False
@@ -565,8 +580,8 @@ class HttpStatelessClient(_HttpClientBase):
         """Connect and negotiate the modern protocol version."""
         if self.is_connected or self._http is not None:
             raise _already_connected(self.name)
-        t = _timeout_seconds(self.timeout)
-        r = _timeout_seconds(self.sse_read_timeout)
+        t = self.timeout
+        r = self.sse_read_timeout
         # Drop leftover session ids without mutating caller-owned headers.
         headers = _headers_without_session_id(self.headers)
         self._http = _AsyncClient(

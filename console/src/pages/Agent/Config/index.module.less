@@ -580,6 +580,13 @@
   color: var(--app-success-text);
 }
 
+.memorySectionIconQuaternary {
+  border: 1px solid var(--app-warning-border);
+  background: var(--app-warning-bg);
+  box-shadow: var(--app-shadow-sm);
+  color: var(--app-warning-text);
+}
+
 .memoryCapabilityHeader {
   display: flex;
   align-items: flex-end;
@@ -826,6 +833,34 @@
     color: var(--app-text-secondary);
     font-size: 11px;
     line-height: 1.45;
+  }
+}
+
+.memoryRerankerToggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  margin-left: auto;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--app-text-tertiary);
+  cursor: pointer;
+  transition:
+    background 0.2s,
+    color 0.2s;
+  flex-shrink: 0;
+
+  &:hover {
+    background: var(--app-fill-subtle);
+    color: var(--app-text-secondary);
+  }
+
+  &:active {
+    background: var(--app-fill-strong);
   }
 }
 
@@ -1313,7 +1348,8 @@
 }
 
 .visualCompactEffortControl {
-  width: 100%;
+  width: 280px;
+  max-width: 100%;
   padding: 3px;
   border: 1px solid var(--app-border);
   border-radius: 9px;
@@ -1400,30 +1436,39 @@
 .projectDirectorySetting {
   color: var(--app-accent-hover);
 
-  > div {
+  .projectDirectoryPaths {
     min-width: 0;
     display: flex;
     flex: 1;
     flex-direction: column;
-    gap: 3px;
+    gap: 5px;
   }
 
-  strong,
-  span {
+  .projectDirectoryPaths strong {
     overflow: hidden;
+    color: var(--app-text);
+    font-size: 14px;
+    font-weight: 650;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
 
-  strong {
-    color: var(--app-text);
-    font-size: 13px;
-  }
-
-  span {
+  .projectDirectoryPaths span {
+    overflow: hidden;
     color: var(--app-text-secondary);
     font-size: 11px;
+    line-height: 1.4;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
+}
+
+.projectDirectoryCount {
+  flex: 0 0 auto;
+  color: var(--app-text-secondary);
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 650;
 }
 
 .switchSetting {
