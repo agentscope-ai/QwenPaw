@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """Unit tests for the OpenCode built-in provider."""
+# pylint: disable=protected-access
 
 from qwenpaw.providers.provider_catalog import (
     KILO_MODELS,
@@ -8,6 +9,10 @@ from qwenpaw.providers.provider_manager import (
     OPENCODE_MODELS,
     PROVIDER_OPENCODE,
     ProviderManager,
+)
+from qwenpaw.providers.adapters.request_context import (
+    model_session,
+    session_header,
 )
 from qwenpaw.providers.openai_provider import OpenAIProvider
 
@@ -105,3 +110,82 @@ class TestOpenCodeProvider:
         model_ids = {m.id for m in info.discovered_models}
         assert model_ids >= {m.id for m in OPENCODE_MODELS}
         assert all(m.recommendation_reason for m in info.discovered_models)
+
+
+class TestOpenCodeSessionHeaderOnClient:
+    """Connection tests must carry ``x-opencode-session`` like inference.
+
+    ``prepare_request`` adds the header to model calls, but
+    ``check_connection`` / ``check_model_connection`` build their own SDK
+    client through ``_client()``; without the header OpenCode Go rejects
+    them with ``400 MissingSessionID`` (QwenPaw#7599).
+    """
+
+    HEADER = "x-opencode-session"
+
+    @staticmethod
+    def _go_provider(**update):
+        return PROVIDER_OPENCODE.model_copy(
+            update={"base_url": "https://opencode.ai/zen/go/v1", **update},
+        )
+
+    def test_connection_client_carries_the_session_header(self):
+        provider = self._go_provider()
+
+        client = provider._client()
+
+        assert client.default_headers[self.HEADER]
+
+    def test_client_uses_the_same_session_as_inference(self):
+        """One id per provider instance outside a conversation."""
+        provider = self._go_provider()
+
+        assert provider._client().default_headers[self.HEADER] == (
+            session_header(provider._request_session)
+        )
+
+    def test_client_follows_the_conversation_scope(self):
+        """Inside a turn the client carries the conversation's id."""
+        provider = self._go_provider()
+        context = {"session_id": "session-a", "agent_id": "agent-1"}
+
+        with model_session(context, provider._request_session):
+            scoped = provider._client().default_headers[self.HEADER]
+            expected = session_header(provider._request_session)
+        unscoped = provider._client().default_headers[self.HEADER]
+
+        assert scoped == expected
+        assert scoped != unscoped
+
+    def test_explicit_custom_header_is_preserved(self):
+        provider = self._go_provider(
+            custom_headers={"X-OpenCode-Session": "mine"},
+        )
+
+        headers = provider._build_default_headers()
+
+        assert headers["X-OpenCode-Session"] == "mine"
+        assert self.HEADER not in headers
+
+    def test_blank_custom_header_is_replaced(self):
+        """The console persists empty values; an empty header still 400s."""
+        provider = self._go_provider(
+            custom_headers={"X-OpenCode-Session": "  "},
+        )
+
+        headers = provider._build_default_headers()
+
+        assert [k for k in headers if k.lower() == self.HEADER] == [
+            self.HEADER,
+        ]
+        assert headers[self.HEADER].strip()
+
+    def test_providers_without_a_session_header_are_unaffected(self):
+        provider = OpenAIProvider(
+            id="plain",
+            name="Plain",
+            base_url="https://api.openai.com/v1",
+            api_key="sk-test",
+        )
+
+        assert not provider._build_default_headers()
