@@ -1018,8 +1018,7 @@ html.dark-mode .qwenpaw-sender-content {
   min-height: 0;
   overflow: auto;
   background-color: var(--app-surface);
-  border-radius: 8px;
-  /* 8px */
+  border-radius: var(--app-radius-card);
   box-sizing: border-box;
   border: 1px solid var(--app-border);
 }

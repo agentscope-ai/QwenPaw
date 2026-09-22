@@ -85,11 +85,11 @@ describe("RuntimeAvailabilityGuard", () => {
 });
 
 describe("getAppThemeToken", () => {
-  it("leaves the default radius token to antd when unset", () => {
+  it("uses the shared control radius when unset", () => {
     const token = getAppThemeToken({}, false);
 
     expect(token.colorPrimary).toBe("#FF7F16");
-    expect("borderRadius" in token).toBe(false);
+    expect(token.borderRadius).toBe(10);
   });
 
   it("passes a configured radius through to antd", () => {

@@ -18,9 +18,7 @@ describe("ChatActionGroup", () => {
 
   it("renders the shared new task icon button", () => {
     renderWithProviders(<ChatActionGroup />);
-    expect(
-      document.querySelector('[data-icon="SparkNewChatLine"]'),
-    ).toBeInTheDocument();
+    expect(document.querySelector("svg.lucide-square-pen")).toBeInTheDocument();
   });
 
   it("renders the Session workspace toggle next to essential actions", () => {
@@ -38,11 +36,11 @@ describe("ChatActionGroup", () => {
       height: "32px",
       padding: "0px",
     });
-    expect(button?.querySelector("svg")).toHaveAttribute("width", "16");
-    expect(button?.querySelector("svg")).toHaveAttribute("height", "16");
+    expect(button?.querySelector("svg")).toHaveAttribute("width", "17");
+    expect(button?.querySelector("svg")).toHaveAttribute("height", "17");
     expect(button?.querySelector("svg")).toHaveStyle({
-      width: "16px",
-      height: "16px",
+      width: "17px",
+      height: "17px",
     });
     button?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     expect(onToggleWorkspace).toHaveBeenCalledOnce();

@@ -291,6 +291,29 @@
     "windows": "个窗口"
   },
   "sidebar": {
+    "avatarLoadFailed": "头像加载失败，请重试",
+    "toolsCompact": "切换为精简样式",
+    "toolsDetailed": "切换为详细样式",
+    "changeAvatar": "头像管理",
+    "uploadAvatar": "选择图片",
+    "avatarHistory": "历史头像 · 最近 12 个",
+    "defaultAvatar": "恢复默认头像",
+    "historyAvatar": "历史头像 {{number}}",
+    "avatarInvalid": "请选择 PNG、JPG、WebP（最大 10 MB）或 GIF（最大 2 MB）",
+    "avatarSaveFailed": "头像保存失败，请检查连接后重试",
+    "localWorkspace": "本地工作空间",
+    "localMode": "此设备",
+    "consoleAccount": "Console 账户",
+    "weeklyUsage": "近 7 天用量",
+    "noUsage": "还没有用量记录",
+    "closeMobile": "关闭导航",
+    "tools": "Agent 与快捷导航",
+    "pinTools": "固定工具区",
+    "unpinTools": "取消固定工具区",
+    "foldTools": "收起工具区",
+    "expandTools": "展开工具区",
+    "dragHandle": "拖动侧栏悬浮；按回车切换停靠",
+    "dock": "侧栏归位",
     "newVersion": "发现新版本 v{{version}}，点击前往升级",
     "updateModal": {
       "title": "发现新版本 v{{version}}",
@@ -336,7 +359,10 @@
     "collapse": "收起侧边栏",
     "expand": "展开侧边栏",
     "more": "更多",
-    "toggleAgentNavigation": "展开或收起智能体导航"
+    "toggleAgentNavigation": "展开或收起智能体导航",
+    "usageModel": "选择模型",
+    "allModels": "全部模型",
+    "usageDetails": "详细用量"
   },
   "settingsCenter": {
     "backToApp": "返回应用",
@@ -3513,6 +3539,8 @@
     "system": "跟随系统"
   },
   "chat": {
+    "switchSession": "切换会话",
+    "lastActive": "上次活跃 · {{time}}",
     "fileReference": {
       "codeSnippet": "代码片段 · {{count}} 行"
     },
@@ -3654,6 +3682,7 @@
       "otherTabOwner": "当前标签页仅入队，发送由其他标签页完成"
     },
     "group": {
+      "noGroups": "暂无分组",
       "pinned": "置顶",
       "today": "今天",
       "week": "7天内",

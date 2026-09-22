@@ -82,7 +82,9 @@ vi.mock("../plugins/registry/hooks", () => ({
 }));
 
 vi.mock("../plugins/registry/Slot", () => ({
-  Slot: () => null,
+  Slot: ({ name }: { name: string }) => (
+    <input aria-label={`Plugin ${name}`} defaultValue="plugin state" />
+  ),
 }));
 
 vi.mock("../hooks/useInboxWobble", () => ({
@@ -185,27 +187,6 @@ vi.mock("./SidebarSettingsPanel", () => ({
   ),
 }));
 
-vi.mock("motion/react", () => ({
-  AnimatePresence: ({ children }: { children?: React.ReactNode }) => (
-    <>{children}</>
-  ),
-  motion: new Proxy(
-    {},
-    {
-      get: (_t, tag: string) => {
-        const MotionEl = ({
-          children,
-          ...rest
-        }: {
-          children?: React.ReactNode;
-        }) => React.createElement(tag, { ...rest }, children);
-        return MotionEl;
-      },
-    },
-  ),
-  useReducedMotion: () => true,
-}));
-
 const iconStubs = vi.hoisted(() => {
   const make = (name: string) => {
     function Icon() {
@@ -231,7 +212,8 @@ const iconStubs = vi.hoisted(() => {
 
 vi.mock("@agentscope-ai/icons", () => iconStubs);
 
-vi.mock("lucide-react", () => {
+vi.mock("lucide-react", async () => {
+  const actual = await vi.importActual<object>("lucide-react");
   const stub = ({ size }: { size?: number }) =>
     React.createElement(
       "span",
@@ -239,6 +221,7 @@ vi.mock("lucide-react", () => {
       size ?? 16,
     );
   return {
+    ...actual,
     Check: stub,
     ChevronDown: stub,
     History: stub,
@@ -344,9 +327,16 @@ const modelsItem = {
 };
 
 describe("Sidebar", () => {
+  it("shows a local identity capsule when authentication is disabled", () => {
+    renderWithProviders(<Sidebar selectedKey="core.chat" />);
+    const label = screen.getByText("sidebar.localWorkspace");
+    expect(label.closest("button")).toHaveAttribute("aria-haspopup", "menu");
+    expect(screen.getByText("sidebar.localMode")).toBeInTheDocument();
+  });
   beforeEach(() => {
     mockMobileViewport(false);
     localStorage.removeItem("qwenpaw_sidebar_collapsed");
+    localStorage.setItem("qwenpaw_sidebar_tools_mode", "2");
     mocks.sidebar.focusItemIds = ["core.workspace", "core.models"];
     mocks.sidebar.hiddenPluginItemIds = [];
     mocks.menuItems = [workspaceItem, inboxItem, modelsItem];
@@ -366,6 +356,48 @@ describe("Sidebar", () => {
     mocks.setSelectedAgent.mockClear();
     mocks.refreshAgents.mockClear().mockResolvedValue(undefined);
     mocks.language = "en";
+  });
+
+  it("keeps plugin fills and navigation alive through floating and docking", async () => {
+    renderSidebar();
+    const slot = screen.getByRole("textbox", { name: "Plugin sider.top" });
+    fireEvent.change(slot, { target: { value: "unsaved plugin input" } });
+    const handle = screen.getByRole("button", {
+      name: "Drag sidebar to float; Enter to toggle docking",
+    });
+    fireEvent.keyDown(handle, { key: "Enter" });
+    expect(
+      document.querySelector('[data-sidebar-placement="floating"]'),
+    ).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Workspace" }));
+    expect(
+      screen.getByRole("button", { name: "Collapse tools" }),
+    ).toHaveAttribute("aria-expanded", "true");
+    fireEvent.click(
+      screen.getByRole("button", { name: "Return sidebar to left edge" }),
+    );
+    expect(screen.getByRole("textbox", { name: "Plugin sider.top" })).toBe(
+      slot,
+    );
+    expect(slot).toHaveValue("unsaved plugin input");
+    expect(
+      screen.getAllByRole("textbox", { name: "Plugin sider.bottom" }),
+    ).toHaveLength(1);
+  });
+
+  it("cycles collapsed, compact and detailed tools without folding on navigation", () => {
+    localStorage.removeItem("qwenpaw_sidebar_tools_mode");
+    renderSidebar();
+    expect(screen.queryByRole("button", { name: "Workspace" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Compact tools" }));
+    fireEvent.click(screen.getByRole("button", { name: "Workspace" }));
+    expect(screen.getByRole("button", { name: "Detailed tools" })).toHaveAttribute("aria-expanded", "true");
+    expect(localStorage.getItem("qwenpaw_sidebar_tools_mode")).toBe("1");
+    fireEvent.click(screen.getByRole("button", { name: "Detailed tools" }));
+    expect(localStorage.getItem("qwenpaw_sidebar_tools_mode")).toBe("2");
+    fireEvent.click(screen.getByRole("button", { name: "Collapse tools" }));
+    expect(localStorage.getItem("qwenpaw_sidebar_tools_mode")).toBe("0");
+    expect(screen.queryByRole("button", {name:"Pin tools"})).not.toBeInTheDocument();
   });
 
   it("renders the unified desktop sidebar with agent and settings menus", async () => {
@@ -547,6 +579,33 @@ describe("Sidebar", () => {
     expect(mocks.setSelectedAgent).toHaveBeenCalledWith("agent-1");
   });
 
+  it("keeps external plugin links working while floating", () => {
+    mocks.menuItems.push({
+      id: "plugin.docs",
+      location: "primary.settings",
+      label: "Plugin docs",
+      href: "https://example.com/plugin-docs",
+    });
+    const open = vi.spyOn(window, "open").mockImplementation(() => null);
+    renderSidebar();
+    fireEvent.keyDown(
+      screen.getByRole("button", {
+        name: "Drag sidebar to float; Enter to toggle docking",
+      }),
+      { key: "Enter" },
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Plugin docs" }));
+    expect(open).toHaveBeenCalledWith(
+      "https://example.com/plugin-docs",
+      "_blank",
+      "noopener,noreferrer",
+    );
+    expect(
+      screen.getByRole("button", { name: "Collapse tools" }),
+    ).toHaveAttribute("aria-expanded", "true");
+    open.mockRestore();
+  });
+
   it("renders registered plugin shortcuts unless the user hides them", async () => {
     const pluginItem = {
       id: "plugin.cloud.dashboard",
@@ -581,7 +640,7 @@ describe("Sidebar", () => {
     renderSidebar();
     await openAccountModal();
     // Modal form renders; submit with only the current password filled
-    const inputs = document.querySelectorAll("input");
+    const inputs = screen.getByRole("dialog").querySelectorAll("input");
     // currentPassword is the first input
     fireEvent.change(inputs[0], { target: { value: "current-pw" } });
     const submitBtn = screen.getByText("account.save");
@@ -608,7 +667,7 @@ describe("Sidebar", () => {
     mocks.authStatus = { enabled: true, mode: "normal" };
     renderSidebar();
     await openAccountModal();
-    const inputs = document.querySelectorAll("input");
+    const inputs = screen.getByRole("dialog").querySelectorAll("input");
     fireEvent.change(inputs[0], { target: { value: "current-pw" } });
     fireEvent.change(inputs[2], { target: { value: "   " } });
     fireEvent.click(screen.getByText("account.save"));
@@ -623,7 +682,7 @@ describe("Sidebar", () => {
     mocks.updateProfile.mockRejectedValue(new Error("password is incorrect"));
     renderSidebar();
     await openAccountModal();
-    const inputs = document.querySelectorAll("input");
+    const inputs = screen.getByRole("dialog").querySelectorAll("input");
     fireEvent.change(inputs[0], { target: { value: "current-pw" } });
     fireEvent.change(inputs[1], { target: { value: "new-user" } });
     fireEvent.click(screen.getByText("account.save"));

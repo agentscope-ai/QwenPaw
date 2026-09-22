@@ -291,6 +291,29 @@
     "windows": "windows"
   },
   "sidebar": {
+    "avatarLoadFailed": "Could not load avatars. Please retry.",
+    "toolsCompact": "Compact tools",
+    "toolsDetailed": "Detailed tools",
+    "changeAvatar": "Avatar manager",
+    "uploadAvatar": "Choose image",
+    "avatarHistory": "Recent avatars · Last 12",
+    "defaultAvatar": "Restore default avatar",
+    "historyAvatar": "Previous avatar {{number}}",
+    "avatarInvalid": "Choose PNG, JPG or WebP under 10 MB, or GIF under 2 MB",
+    "avatarSaveFailed": "Could not save avatar. Check your connection and retry.",
+    "localWorkspace": "Local workspace",
+    "localMode": "This device",
+    "consoleAccount": "Console account",
+    "weeklyUsage": "Last 7 days",
+    "noUsage": "No usage yet",
+    "closeMobile": "Close navigation",
+    "tools": "Agent and shortcuts",
+    "pinTools": "Pin tools",
+    "unpinTools": "Unpin tools",
+    "foldTools": "Collapse tools",
+    "expandTools": "Expand tools",
+    "dragHandle": "Drag sidebar to float; Enter to toggle docking",
+    "dock": "Return sidebar to left edge",
     "newVersion": "New version available: v{{version}}, click to upgrade",
     "updateModal": {
       "title": "New version available: v{{version}}",
@@ -336,7 +359,10 @@
     "collapse": "Collapse sidebar",
     "expand": "Expand sidebar",
     "more": "More",
-    "toggleAgentNavigation": "Expand or collapse agent navigation"
+    "toggleAgentNavigation": "Expand or collapse agent navigation",
+    "usageModel": "Select model",
+    "allModels": "All models",
+    "usageDetails": "Usage details"
   },
   "settingsCenter": {
     "backToApp": "Back to app",
@@ -3655,6 +3681,8 @@
     "system": "System"
   },
   "chat": {
+    "switchSession": "Switch conversation",
+    "lastActive": "Last active · {{time}}",
     "fileReference": {
       "codeSnippet_one": "Code snippet · {{count}} line",
       "codeSnippet_other": "Code snippet · {{count}} lines"
@@ -3797,6 +3825,7 @@
       "otherTabOwner": "This tab queues only; sending is handled by another tab"
     },
     "group": {
+      "noGroups": "No groups yet",
       "pinned": "Pinned",
       "today": "Today",
       "week": "Within 7 days",

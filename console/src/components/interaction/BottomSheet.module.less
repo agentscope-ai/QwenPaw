@@ -1,0 +1,64 @@
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1100;
+  background: rgb(0 0 0 / 24%);
+}
+.sheet {
+  position: fixed;
+  bottom: 0;
+  inset-inline: 0;
+  z-index: 1101;
+  display: flex;
+  flex-direction: column;
+  max-height: 94dvh;
+  border-radius: 24px 24px 0 0;
+  border: 1px solid var(--app-border);
+  background: var(--app-surface);
+  color: var(--app-text);
+  box-shadow: var(--app-shadow-panel);
+  outline: none;
+}
+.handle {
+  margin: 12px auto 0;
+  flex-shrink: 0;
+}
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 12px 4px 20px;
+  gap: 12px;
+  h2 {
+    font-size: 14px;
+    font-weight: 600;
+    margin: 0;
+  }
+  button {
+    display: grid;
+    place-items: center;
+    width: 44px;
+    height: 44px;
+    border: 0;
+    border-radius: 50%;
+    background: transparent;
+    color: var(--app-text-secondary);
+    cursor: pointer;
+    &:hover {
+      background: var(--app-fill);
+    }
+  }
+}
+.content {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 0 16px max(20px, env(safe-area-inset-bottom));
+}
+@media (prefers-reduced-motion: reduce) {
+  .sheet,
+  .overlay {
+    animation: none !important;
+    transition: none !important;
+  }
+}

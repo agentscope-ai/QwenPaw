@@ -67,6 +67,8 @@ import type { ThemeConfig } from "./api/modules/theme";
 import "./styles/tokens.css";
 import "./styles/layout.css";
 import "./styles/form-override.css";
+import "./styles/workspace.css";
+import { PressFeedback } from "./components/interaction/PressFeedback";
 import "katex/dist/katex.min.css";
 
 const antdLocaleMap: Record<string, Locale> = {
@@ -85,7 +87,11 @@ export function getAppThemeToken(
     colorPrimary:
       userTheme.dark?.accent && isDark
         ? userTheme.dark.accent
-        : userTheme.accent ?? "#FF7F16",
+        : userTheme.accent ?? (isDark ? "#FF9D4D" : "#FF7F16"),
+    borderRadius: 10,
+    borderRadiusLG: 16,
+    fontFamily:
+      "system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif",
     ...(userTheme.radius
       ? { borderRadius: Number.parseFloat(userTheme.radius) }
       : {}),
@@ -475,6 +481,7 @@ function AppInner({ backendInfo }: { backendInfo: BackendInfo }) {
   return (
     <>
       <GlobalStyle />
+      <PressFeedback />
       <ConfigProvider
         {...selectedTheme}
         prefix="qwenpaw"

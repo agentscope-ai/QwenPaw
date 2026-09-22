@@ -556,8 +556,6 @@ describe("SidebarSessionList", () => {
     await waitFor(() => {
       expect(screen.getByTestId("session-item-session-11")).toBeTruthy();
     });
-    fireEvent.click(screen.getByRole("button", { name: "More" }));
-    fireEvent.click(await screen.findByText("Search conversations"));
     fireEvent.change(screen.getByPlaceholderText("Search…"), {
       target: { value: "Conversation 1" },
     });
@@ -640,8 +638,6 @@ describe("SidebarSessionList", () => {
     await waitFor(() => {
       expect(screen.getByTestId("session-item-sess-a")).toBeTruthy();
     });
-    fireEvent.click(screen.getByRole("button", { name: "More" }));
-    fireEvent.click(await screen.findByText("Search conversations"));
     const search = screen.getByPlaceholderText("Search…");
     fireEvent.change(search, { target: { value: "beta" } });
     await waitFor(() => {
@@ -672,8 +668,7 @@ describe("SidebarSessionList", () => {
       reorderGroups: vi.fn(),
     });
     renderWithProviders(<SidebarSessionList />);
-    fireEvent.click(screen.getByRole("button", { name: "More" }));
-    fireEvent.click(await screen.findByText("New group"));
+    fireEvent.click(await screen.findByRole("button", { name: "New group" }));
     const input = screen.getByPlaceholderText("Group name");
     fireEvent.change(input, { target: { value: "My Group" } });
     fireEvent.keyDown(input, { key: "Enter", code: "Enter" });
@@ -732,22 +727,26 @@ describe("SidebarSessionList", () => {
     expect(screen.getByTestId("session-item-sess-b")).toBeTruthy();
   });
 
-  it("switches the grouping mode from the more menu and persists it", async () => {
+  it("cycles grouping directly without opening a menu and persists it", async () => {
     mockData([sessionA, sessionB]);
     renderWithProviders(<SidebarSessionList />);
     await waitFor(() => {
       expect(screen.getAllByTestId("date-header").length).toBeGreaterThan(0);
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "More" }));
-    fireEvent.mouseEnter(await screen.findByText("Group by"));
-    fireEvent.click(await screen.findByText("No grouping"));
+    expect(screen.queryByText("Search conversations")).toBeNull();
+    fireEvent.click(await screen.findByRole("button", { name: "By time" }));
+    expect(localStorage.getItem("qwenpaw_session_group_mode")).toBe("source");
+    expect(screen.queryByRole("menu")).toBeNull();
+    fireEvent.click(await screen.findByRole("button", { name: "By source" }));
 
     await waitFor(() => {
       expect(screen.queryByTestId("date-header")).toBeNull();
     });
     expect(screen.getByTestId("session-item-sess-a")).toBeTruthy();
     expect(localStorage.getItem("qwenpaw_session_group_mode")).toBe("none");
+    fireEvent.click(await screen.findByRole("button", { name: "No grouping" }));
+    expect(localStorage.getItem("qwenpaw_session_group_mode")).toBe("date");
   });
 
   it("restores the chosen grouping mode after a remount", async () => {
@@ -851,8 +850,7 @@ describe("SidebarSessionList", () => {
     });
 
     // date mode (default): no New group entry
-    fireEvent.click(screen.getByRole("button", { name: "More" }));
-    expect(screen.queryByText("New group")).toBeNull();
+    expect(screen.queryByRole("button", { name: "New group" })).toBeNull();
     first.unmount();
 
     // source mode: the entry appears
@@ -861,8 +859,9 @@ describe("SidebarSessionList", () => {
     await waitFor(() => {
       expect(screen.getByTestId("session-item-sess-a")).toBeTruthy();
     });
-    fireEvent.click(screen.getByRole("button", { name: "More" }));
-    expect(await screen.findByText("New group")).toBeTruthy();
+    expect(
+      await screen.findByRole("button", { name: "New group" }),
+    ).toBeTruthy();
   });
 
   it("renders three date tiers and skips empty ones", async () => {

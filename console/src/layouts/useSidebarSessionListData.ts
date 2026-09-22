@@ -70,7 +70,9 @@ export interface ExtendedChatSession extends IAgentScopeRuntimeWebUISession {
 }
 
 /** Resolve the real backend UUID from an extended session (id may be a local timestamp) */
-export const getBackendId = (session: ExtendedChatSession): string | null => {
+export const getBackendId = (
+  session: Pick<ExtendedChatSession, "id" | "realId">,
+): string | null => {
   if (session.realId) return session.realId;
   const id = session.id;
   if (/^\d+-[a-z0-9]+$/.test(id)) return null;
