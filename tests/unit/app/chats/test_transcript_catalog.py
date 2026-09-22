@@ -121,7 +121,7 @@ def test_lru_reopens_evicted_session_without_losing_history(
     catalog.close()
 
 
-def test_delete_tombstones_catalog_before_removing_session_file(
+def test_delete_removes_catalog_entry_and_session_file(
     tmp_path: Path,
 ) -> None:
     catalog = TranscriptCatalog(tmp_path)
@@ -134,7 +134,7 @@ def test_delete_tombstones_catalog_before_removing_session_file(
         row["file_key"],
     )
 
-    assert catalog.mark_session_deleted("session-a") is True
+    assert catalog.delete_session("session-a") is True
     assert (
         catalog.get_page(
             session_id="session-a",
@@ -143,17 +143,11 @@ def test_delete_tombstones_catalog_before_removing_session_file(
         )
         is None
     )
-    assert (
-        catalog._purge_deleted_session(  # pylint: disable=protected-access
-            "session-a",
-        )
-        is True
-    )
     assert not path.exists()
-    tombstone = catalog._conn.execute(  # pylint: disable=protected-access
-        "SELECT deleted_at, purged_at FROM transcript_files "
+    row = catalog._conn.execute(  # pylint: disable=protected-access
+        "SELECT session_id FROM transcript_files "
         "WHERE session_id = 'session-a'",
     ).fetchone()
-    assert tombstone["deleted_at"]
-    assert tombstone["purged_at"]
+    assert row is None
+    assert catalog.delete_session("session-a") is False
     catalog.close()

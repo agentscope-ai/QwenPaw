@@ -359,9 +359,9 @@ async def test_delete_chat_data_removes_all_persistence(
 
 
 @pytest.mark.asyncio
-async def test_delete_cleanup_failure_follows_chat_metadata_delete() -> None:
+async def test_transcript_delete_failure_follows_metadata_delete() -> None:
     store = Mock(spec=TranscriptCatalog)
-    store.schedule_delete_session.side_effect = sqlite3.OperationalError(
+    store.delete_session.side_effect = sqlite3.OperationalError(
         "locked",
     )
     manager = SimpleNamespace(
@@ -403,5 +403,5 @@ async def test_delete_keeps_data_while_another_chat_maps_same_session() -> (
     )
 
     assert result == {"deleted": True}
-    store.schedule_delete_session.assert_not_called()
+    store.delete_session.assert_not_called()
     manager.delete_chats.assert_awaited_once_with(chat_ids=[first.id])

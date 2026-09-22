@@ -11,7 +11,6 @@ import sqlite3
 import threading
 from collections import OrderedDict
 from contextlib import contextmanager
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterator
 
@@ -21,10 +20,6 @@ logger = logging.getLogger(__name__)
 
 _BUSY_TIMEOUT_MS = 5_000
 _DEFAULT_MAX_OPEN_STORES = 32
-
-
-def _utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
 
 
 class _SessionHandle:
@@ -38,7 +33,6 @@ class _SessionHandle:
         )
         self.active = 0
         self.closing = False
-        self.pending_delete = False
 
     def write(self, method_name: str, **kwargs: Any) -> Any:
         """Run one mutation after all prior mutations for this session."""
@@ -74,10 +68,6 @@ class TranscriptCatalog:
         self._condition = threading.Condition(self._lock)
         self._closed = False
         self._handles: OrderedDict[str, _SessionHandle] = OrderedDict()
-        self._cleanup_executor = concurrent.futures.ThreadPoolExecutor(
-            max_workers=1,
-            thread_name_prefix="transcript-catalog-cleanup",
-        )
         self._conn = sqlite3.connect(
             str(self._path),
             check_same_thread=False,
@@ -87,17 +77,6 @@ class TranscriptCatalog:
         self._conn.execute(f"PRAGMA busy_timeout={_BUSY_TIMEOUT_MS}")
         self._conn.execute("PRAGMA journal_mode=DELETE")
         self._create_schema()
-        self._resume_deleted_cleanup()
-
-    @property
-    def path(self) -> Path:
-        """Return the low-frequency catalog database path."""
-        return self._path
-
-    @property
-    def closed(self) -> bool:
-        """Return whether the catalog was intentionally closed."""
-        return self._closed
 
     def _create_schema(self) -> None:
         with self._conn:
@@ -107,15 +86,8 @@ class TranscriptCatalog:
                     session_id       TEXT PRIMARY KEY,
                     user_id          TEXT NOT NULL,
                     channel          TEXT NOT NULL,
-                    file_key         TEXT NOT NULL UNIQUE,
-                    created_at       TEXT NOT NULL,
-                    updated_at       TEXT NOT NULL,
-                    deleted_at       TEXT,
-                    purged_at        TEXT
+                    file_key         TEXT NOT NULL UNIQUE
                 );
-
-                CREATE INDEX IF NOT EXISTS transcript_files_deleted
-                    ON transcript_files(deleted_at);
 
                 """,
             )
@@ -164,8 +136,6 @@ class TranscriptCatalog:
         row = self._catalog_row(session_id)
         if row is not None:
             self._assert_identity(row, user_id=user_id, channel=channel)
-            if row["deleted_at"] is not None:
-                return None
             return row
 
         if not create:
@@ -181,20 +151,17 @@ class TranscriptCatalog:
                 "Removing orphan transcript file for session %s",
                 session_id,
             )
-            self._delete_files(target)
-        timestamp = _utc_now()
+            target.unlink()
         with self._conn:
             self._conn.execute(
                 "INSERT INTO transcript_files("
-                "session_id, user_id, channel, file_key, "
-                "created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+                "session_id, user_id, channel, file_key) "
+                "VALUES (?, ?, ?, ?)",
                 (
                     session_id,
                     user_id,
                     channel,
                     file_key,
-                    timestamp,
-                    timestamp,
                 ),
             )
         return self._catalog_row(session_id)
@@ -210,7 +177,7 @@ class TranscriptCatalog:
                 (
                     session_id
                     for session_id, handle in self._handles.items()
-                    if handle.active == 0 and not handle.pending_delete
+                    if handle.active == 0
                 ),
                 None,
             )
@@ -266,9 +233,7 @@ class TranscriptCatalog:
         with self._lock:
             row = self._catalog_row(session_id)
             if row is not None:
-                if row["deleted_at"] is None:
-                    return str(row["user_id"]), str(row["channel"])
-                return None
+                return str(row["user_id"]), str(row["channel"])
             return None
 
     def start_turn(self, **kwargs: Any) -> None:
@@ -350,49 +315,11 @@ class TranscriptCatalog:
                 return None
             return handle.store.find_turn_for_message(**kwargs)
 
-    def mark_session_deleted(self, session_id: str) -> bool:
-        """Persist a catalog tombstone before any physical deletion."""
-        with self._condition, self._conn:
-            row = self._catalog_row(session_id)
-            if row is None:
-                identity = self._identity_for_session(session_id)
-                if identity is None:
-                    return False
-                row = self._ensure_catalog_session(
-                    session_id=session_id,
-                    user_id=identity[0],
-                    channel=identity[1],
-                    create=False,
-                )
-            if row is None or row["deleted_at"] is not None:
-                return False
-            timestamp = _utc_now()
-            self._conn.execute(
-                "UPDATE transcript_files SET deleted_at = ?, updated_at = ? "
-                "WHERE session_id = ?",
-                (timestamp, timestamp, session_id),
-            )
-            handle = self._handles.get(session_id)
-            if handle is not None:
-                handle.pending_delete = True
-            return True
-
-    def _delete_files(self, path: Path) -> None:
-        for candidate in (
-            path,
-            path.with_name(path.name + "-wal"),
-            path.with_name(path.name + "-shm"),
-        ):
-            candidate.unlink(missing_ok=True)
-
-    def _purge_deleted_session(self, session_id: str) -> bool:
+    def delete_session(self, session_id: str) -> bool:
+        """Close and delete one session-owned database."""
         with self._condition:
             row = self._catalog_row(session_id)
             if row is None:
-                return False
-            deleted = row["deleted_at"] is not None
-            pending = deleted and row["purged_at"] is None
-            if not pending:
                 return False
             handle = self._handles.get(session_id)
             while handle is not None and handle.active > 0:
@@ -401,72 +328,24 @@ class TranscriptCatalog:
             if handle is not None:
                 self._handles.pop(session_id, None)
             path = self._store_path(str(row["file_key"]))
-        if handle is not None:
-            handle.close()
-        self._delete_files(path)
-        with self._condition, self._conn:
-            timestamp = _utc_now()
-            cursor = self._conn.execute(
-                "UPDATE transcript_files SET purged_at = ?, updated_at = ? "
-                "WHERE session_id = ? AND deleted_at IS NOT NULL "
-                "AND purged_at IS NULL",
-                (timestamp, timestamp, session_id),
-            )
-            self._condition.notify_all()
-            return bool(cursor.rowcount)
-
-    def _submit_cleanup(
-        self,
-        session_id: str,
-    ) -> concurrent.futures.Future[bool] | None:
-        with self._lock:
-            if self._closed:
-                return None
-            future = self._cleanup_executor.submit(
-                self._purge_deleted_session,
-                session_id,
-            )
-
-        def _log_failure(
-            completed: concurrent.futures.Future[bool],
-        ) -> None:
-            try:
-                completed.result()
-            except Exception:
-                logger.warning(
-                    "Transcript catalog cleanup failed for session %s",
-                    session_id,
-                    exc_info=True,
+            if handle is not None:
+                handle.close()
+            with self._conn:
+                self._conn.execute(
+                    "DELETE FROM transcript_files WHERE session_id = ?",
+                    (session_id,),
                 )
-
-        future.add_done_callback(_log_failure)
-        return future
-
-    def schedule_delete_session(self, session_id: str) -> bool:
-        """Hide a session immediately and remove its files asynchronously."""
-        if not self.mark_session_deleted(session_id):
-            return False
-        self._submit_cleanup(session_id)
-        return True
-
-    def _resume_deleted_cleanup(self) -> None:
-        with self._lock:
-            rows = self._conn.execute(
-                "SELECT session_id FROM transcript_files "
-                "WHERE deleted_at IS NOT NULL AND purged_at IS NULL",
-            ).fetchall()
-        for row in rows:
-            self._submit_cleanup(str(row["session_id"]))
+            path.unlink(missing_ok=True)
+            self._condition.notify_all()
+            return True
 
     def close(self) -> None:
-        """Stop cleanup and close all per-session stores and the catalog."""
+        """Close all per-session stores and the catalog."""
         with self._condition:
             if self._closed:
                 return
             self._closed = True
             self._condition.notify_all()
-        self._cleanup_executor.shutdown(wait=True)
-        with self._condition:
             while any(handle.active > 0 for handle in self._handles.values()):
                 self._condition.wait()
             handles = list(self._handles.values())
