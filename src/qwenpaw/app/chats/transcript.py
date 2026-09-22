@@ -444,15 +444,17 @@ class TranscriptStore:
                 user_id=user_id,
                 channel=channel,
             )
+            # Drive the join from the turn primary key so SQLite can stream
+            # newest messages without sorting the full session history.
             sql = (
                 "SELECT m.payload_json, length(CAST(m.payload_json AS BLOB)) "
                 "AS payload_bytes, m.created_at AS message_created_at, "
                 "m.finished_at AS message_finished_at, m.ordinal, "
                 "t.turn_id, t.turn_seq, t.status AS turn_status, "
                 "t.error_json, t.finished_at AS turn_finished_at "
-                "FROM transcript_messages m JOIN transcript_turns t "
-                "ON t.session_id = m.session_id AND t.turn_id = m.turn_id "
-                "WHERE m.session_id = ? AND m.superseded_at IS NULL "
+                "FROM transcript_turns t CROSS JOIN transcript_messages m "
+                "ON m.session_id = t.session_id AND m.turn_id = t.turn_id "
+                "WHERE t.session_id = ? AND m.superseded_at IS NULL "
                 "AND (t.status != 'running' OR m.role = 'user')"
             )
             params: list[Any] = [session_id]
