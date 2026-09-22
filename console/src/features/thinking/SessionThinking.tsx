@@ -165,16 +165,18 @@ export function SessionThinking({
         <div className={showPicker ? styles.picker : styles.popover}>
           {showPicker ? (
             <>
-              {view?.model && (
+              {(view?.model || canReset) && (
                 <div className={styles.back}>
-                  <button
-                    type="button"
-                    className={styles.iconButton}
-                    aria-label={t("common.back")}
-                    onClick={() => setChoosing(false)}
-                  >
-                    <ArrowLeft size={17} />
-                  </button>
+                  {view?.model && (
+                    <button
+                      type="button"
+                      className={styles.iconButton}
+                      aria-label={t("common.back")}
+                      onClick={() => setChoosing(false)}
+                    >
+                      <ArrowLeft size={17} />
+                    </button>
+                  )}
                   {resetModelButton}
                 </div>
               )}

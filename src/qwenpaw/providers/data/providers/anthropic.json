@@ -97,7 +97,6 @@
         "kind": "budget",
         "budget_min": 1024,
         "budget_max": 62976,
-        "budget_default": 8192,
         "supports_off": true,
         "wire": "anthropic_budget"
       },
@@ -226,7 +225,6 @@
         "kind": "budget",
         "budget_min": 1024,
         "budget_max": 62976,
-        "budget_default": 8192,
         "supports_off": true,
         "wire": "anthropic_budget"
       },
@@ -288,7 +286,6 @@
         "kind": "budget",
         "budget_min": 1024,
         "budget_max": 62976,
-        "budget_default": 8192,
         "supports_off": true,
         "wire": "anthropic_budget"
       },
@@ -362,7 +359,6 @@
         "kind": "budget",
         "budget_min": 1024,
         "budget_max": 62976,
-        "budget_default": 8192,
         "supports_off": true,
         "wire": "anthropic_budget"
       },
@@ -414,7 +410,6 @@
         "kind": "budget",
         "budget_min": 1024,
         "budget_max": 62976,
-        "budget_default": 8192,
         "supports_off": true,
         "wire": "anthropic_budget"
       },
@@ -515,7 +510,6 @@
         "kind": "budget",
         "budget_min": 1024,
         "budget_max": 62976,
-        "budget_default": 8192,
         "supports_off": true,
         "wire": "anthropic_budget"
       },

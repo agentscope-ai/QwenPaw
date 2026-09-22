@@ -3417,7 +3417,7 @@
     },
     "anthropic": {
       "path": "providers/anthropic.json",
-      "sha256": "60d63b3d2662de4c1b39a27741d7c1a096bcde5e31bc1f713b28bdf46912dab2",
+      "sha256": "630339f5b869ac5d9a2febce3f5cb03b037ff1a7612e127b9f9f16c2cbe52c6f",
       "api_urls": [
         "https://api.anthropic.com"
       ],

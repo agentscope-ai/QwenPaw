@@ -4,6 +4,10 @@
 from ..config.config import ModelSlotConfig, load_agent_config
 from ..providers.provider_manager import ProviderManager
 from ..providers.provider import Provider
+from ..providers.adapters.anthropic import (
+    resolve_parameters,
+    resolve_request_parameters,
+)
 from ..providers.hub_managed import (
     PROVIDER_ID,
     hub_mode,
@@ -26,13 +30,28 @@ def _model_default_thinking(provider: Provider, model: str):
         provider.generate_kwargs,
         info.generate_kwargs,
     )
+    native_anthropic = provider.model_protocol(model) == f"anthropic"
+    if native_anthropic:
+        parameters, extra = resolve_parameters(params, info.max_output_length)
+        params = resolve_request_parameters(parameters, extra)
+        thinking = (params.get(f"extra_body") or {}).get(
+            f"thinking",
+            params.get(f"thinking"),
+        )
+        if thinking is None:
+            return ThinkingPreference(level=f"off")
+    else:
+        thinking = None
     params = {**params, **(params.get(f"extra_body") or {})}
-    thinking = params.get(f"thinking") or {}
+    thinking = thinking or params.get(f"thinking") or {}
     reasoning = params.get(f"reasoning") or {}
     config = params.get(f"thinking_config") or {}
     enabled = params.get(
         f"enable_thinking",
-        params.get(f"thinking_enable", info.thinking_enabled),
+        params.get(
+            f"thinking_enable",
+            None if native_anthropic else info.thinking_enabled,
+        ),
     )
     effort = params.get(
         f"reasoning_effort",
@@ -40,7 +59,10 @@ def _model_default_thinking(provider: Provider, model: str):
             f"effort",
             (params.get(f"output_config") or {}).get(
                 f"effort",
-                config.get(f"thinking_level", info.reasoning_effort),
+                config.get(
+                    f"thinking_level",
+                    None if native_anthropic else info.reasoning_effort,
+                ),
             ),
         ),
     )
@@ -48,7 +70,10 @@ def _model_default_thinking(provider: Provider, model: str):
         f"thinking_budget",
         thinking.get(
             f"budget_tokens",
-            config.get(f"thinking_budget", info.thinking_budget),
+            config.get(
+                f"thinking_budget",
+                None if native_anthropic else info.thinking_budget,
+            ),
         ),
     )
     if (
@@ -69,7 +94,7 @@ def _model_default_thinking(provider: Provider, model: str):
     }:
         return resolve_thinking(ThinkingPreference(level=effort), control)[0]
     if control.kind == f"budget":
-        if budget is None:
+        if budget is None and not native_anthropic:
             budget = control.budget_default
         if budget is not None and budget > 0:
             return resolve_thinking(
