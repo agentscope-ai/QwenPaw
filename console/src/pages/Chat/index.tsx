@@ -163,6 +163,10 @@ import {
   useFilesSurfaceStore,
   useSessionFilesDrawer,
 } from "../../stores/filesSurfaceStore";
+import {
+  useSessionTerminalOpen,
+  useTerminalSurfaceStore,
+} from "../../stores/terminalSurfaceStore";
 import { useCodingTabsStore } from "../../stores/codingTabsStore";
 import { RichFileReferenceInputProvider } from "./RichFileReferenceInput";
 import type { ParsedFileReference } from "./fileReferenceFormatting";
@@ -1306,16 +1310,8 @@ export default function ChatPage() {
     [selectedAgent],
   );
   const sdkSessionApi = sdkSessionAdapter.api;
-  const [terminalOpen, setTerminalOpen] = useState(false);
   const { enabled: terminalEnabled, reason: terminalDisabledReason } =
     useTerminalEnabled(selectedAgent);
-  useEffect(() => {
-    if (!terminalEnabled) setTerminalOpen(false);
-  }, [terminalEnabled]);
-  const toggleTerminal = useCallback(
-    () => setTerminalOpen((open) => !open),
-    [],
-  );
   const backendChatId = resolveBackendChatId(chatId);
   useEffect(() => {
     sessionApi.setVisibleSession(
@@ -1344,6 +1340,24 @@ export default function ChatPage() {
     selectedAgent,
     queueSessionId,
   );
+  const terminalOpen = useSessionTerminalOpen(currentSessionFilesScopeKey);
+  const setTerminalOpen = useCallback(
+    (open: boolean) =>
+      useTerminalSurfaceStore
+        .getState()
+        .setSessionOpen(currentSessionFilesScopeKey, open),
+    [currentSessionFilesScopeKey],
+  );
+  const toggleTerminal = useCallback(
+    () =>
+      useTerminalSurfaceStore
+        .getState()
+        .toggleSession(currentSessionFilesScopeKey),
+    [currentSessionFilesScopeKey],
+  );
+  useEffect(() => {
+    if (!terminalEnabled) setTerminalOpen(false);
+  }, [terminalEnabled, setTerminalOpen]);
   const filesDrawerState = useSessionFilesDrawer(currentSessionFilesScopeKey);
   const dispatchFilesDrawer = useCallback(
     (event: FilesDrawerEvent) => {
@@ -2865,6 +2879,9 @@ export default function ChatPage() {
       const toScopeKey = sessionFilesScopeKey(agentId, toId);
       useCodingTabsStore.getState().migrateScope(fromScopeKey, toScopeKey);
       useFilesSurfaceStore.getState().migrateSession(fromScopeKey, toScopeKey);
+      useTerminalSurfaceStore
+        .getState()
+        .migrateSession(fromScopeKey, toScopeKey);
       try {
         useMessageQueueStore
           .getState()
@@ -2924,6 +2941,7 @@ export default function ChatPage() {
       );
       useCodingTabsStore.getState().removeScope(removedScopeKey);
       useFilesSurfaceStore.getState().removeSession(removedScopeKey);
+      useTerminalSurfaceStore.getState().removeSession(removedScopeKey);
     };
 
     sessionApi.onSessionSelected = (
@@ -3033,6 +3051,9 @@ export default function ChatPage() {
       const toScopeKey = sessionFilesScopeKey(agentId, sessionId);
       useCodingTabsStore.getState().migrateScope(fromScopeKey, toScopeKey);
       useFilesSurfaceStore.getState().migrateSession(fromScopeKey, toScopeKey);
+      useTerminalSurfaceStore
+        .getState()
+        .migrateSession(fromScopeKey, toScopeKey);
       try {
         useMessageQueueStore
           .getState()
