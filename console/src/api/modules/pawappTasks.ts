@@ -15,6 +15,20 @@ export const taskStatuses = [
 ] as const;
 export type PawAppTaskStatus = (typeof taskStatuses)[number];
 
+export interface PawAppLocalizedText {
+  default: string;
+  translations: Record<string, string>;
+}
+
+export interface PawAppArtifactPresentation {
+  schema_version: 1;
+  role: "primary" | "supporting" | "diagnostic" | "source";
+  kind: string;
+  visibility: "chat" | "app_only";
+  preview: "inline" | "link" | "none";
+  rank: number;
+}
+
 export interface PawAppArtifactRef {
   schema_version: 1;
   artifact_id: string;
@@ -24,6 +38,44 @@ export interface PawAppArtifactRef {
   media_type: string;
   size_bytes: number;
   digest: string;
+  presentation?: PawAppArtifactPresentation | null;
+}
+
+export interface PawAppTaskExperienceStepDefinition {
+  id: string;
+  label: PawAppLocalizedText;
+  description?: PawAppLocalizedText | null;
+}
+
+export interface PawAppTaskExperienceViewDefinition {
+  id: string;
+  label: PawAppLocalizedText;
+  open_label: PawAppLocalizedText;
+}
+
+export interface PawAppTaskExperienceSnapshot {
+  schema_version: 1;
+  definition: {
+    schema_version: 1;
+    action_id: string;
+    title: PawAppLocalizedText;
+    steps: PawAppTaskExperienceStepDefinition[];
+    views: PawAppTaskExperienceViewDefinition[];
+    default_view_id: string | null;
+  };
+  definition_digest: string;
+  step_states: {
+    step_id: string;
+    status: "pending" | "running" | "waiting" | "complete" | "failed";
+    progress: number | null;
+  }[];
+  active_step_id: string | null;
+  context_items: {
+    id: string;
+    label: PawAppLocalizedText;
+    value: string;
+  }[];
+  view_id: string | null;
 }
 
 export interface PawAppArtifactCollection {
@@ -96,6 +148,7 @@ export interface PawAppTask {
   text_result: string | null;
   output_refs?: PawAppArtifactRef[];
   project_ref?: PawAppProjectRef | null;
+  experience?: PawAppTaskExperienceSnapshot | null;
   input_request?: PawAppTaskInputRequest | null;
   setup_request_id?: string | null;
   setup_attempt?: number;
@@ -107,6 +160,7 @@ export interface PawAppOpenAction {
   handoff_id: string;
   path: string;
   project_ref: PawAppProjectRef;
+  view_id?: string | null;
 }
 
 export interface PawAppOpenResult {
@@ -176,7 +230,147 @@ function isArtifactRef(value: unknown): value is PawAppArtifactRef {
     Number.isSafeInteger(value.size_bytes) &&
     Number(value.size_bytes) >= 0 &&
     typeof value.digest === "string" &&
-    /^sha256:[0-9a-f]{64}$/.test(value.digest)
+    /^sha256:[0-9a-f]{64}$/.test(value.digest) &&
+    (value.presentation === undefined ||
+      value.presentation === null ||
+      isArtifactPresentation(value.presentation))
+  );
+}
+
+function isLocalizedText(value: unknown): value is PawAppLocalizedText {
+  if (
+    !record(value) ||
+    typeof value.default !== "string" ||
+    value.default.length < 1 ||
+    value.default.length > 1000 ||
+    !record(value.translations) ||
+    Object.keys(value.translations).length > 16
+  )
+    return false;
+  return Object.entries(value.translations).every(
+    ([locale, text]) =>
+      locale.length >= 2 &&
+      locale.length <= 35 &&
+      typeof text === "string" &&
+      text.length >= 1 &&
+      text.length <= 1000,
+  );
+}
+
+function isArtifactPresentation(
+  value: unknown,
+): value is PawAppArtifactPresentation {
+  return (
+    record(value) &&
+    value.schema_version === 1 &&
+    ["primary", "supporting", "diagnostic", "source"].includes(
+      String(value.role),
+    ) &&
+    typeof value.kind === "string" &&
+    /^[a-z0-9][a-z0-9._-]*\/[a-z0-9][a-z0-9._-]*$/.test(value.kind) &&
+    ["chat", "app_only"].includes(String(value.visibility)) &&
+    ["inline", "link", "none"].includes(String(value.preview)) &&
+    Number.isSafeInteger(value.rank) &&
+    Number(value.rank) >= 0 &&
+    Number(value.rank) <= 10000
+  );
+}
+
+function isTaskExperience(
+  value: unknown,
+): value is PawAppTaskExperienceSnapshot {
+  if (!record(value) || value.schema_version !== 1 || !record(value.definition))
+    return false;
+  const definition = value.definition;
+  if (
+    definition.schema_version !== 1 ||
+    !identity(definition.action_id) ||
+    !isLocalizedText(definition.title) ||
+    !Array.isArray(definition.steps) ||
+    definition.steps.length < 1 ||
+    definition.steps.length > 12 ||
+    !Array.isArray(definition.views) ||
+    definition.views.length > 8 ||
+    !identity(value.definition_digest) ||
+    !Array.isArray(value.step_states) ||
+    !Array.isArray(value.context_items) ||
+    value.context_items.length > 12
+  )
+    return false;
+  const steps = definition.steps;
+  const views = definition.views;
+  const stepIds = new Set<string>();
+  const stepsValid = steps.every((step) => {
+    if (
+      !record(step) ||
+      !identity(step.id) ||
+      stepIds.has(step.id) ||
+      !isLocalizedText(step.label) ||
+      !(
+        step.description === undefined ||
+        step.description === null ||
+        isLocalizedText(step.description)
+      )
+    )
+      return false;
+    stepIds.add(step.id);
+    return true;
+  });
+  const viewIds = new Set<string>();
+  const viewsValid = views.every((view) => {
+    if (
+      !record(view) ||
+      !identity(view.id) ||
+      viewIds.has(view.id) ||
+      !isLocalizedText(view.label) ||
+      !isLocalizedText(view.open_label)
+    )
+      return false;
+    viewIds.add(view.id);
+    return true;
+  });
+  const statesValid =
+    value.step_states.length === steps.length &&
+    value.step_states.every((state, index) => {
+      if (!record(state) || state.step_id !== steps[index].id) return false;
+      return (
+        ["pending", "running", "waiting", "complete", "failed"].includes(
+          String(state.status),
+        ) &&
+        (state.progress === null ||
+          (typeof state.progress === "number" &&
+            Number.isFinite(state.progress) &&
+            state.progress >= 0 &&
+            state.progress <= 1))
+      );
+    });
+  const contextIds = new Set<string>();
+  const contextValid = value.context_items.every((item) => {
+    if (
+      !record(item) ||
+      !identity(item.id) ||
+      contextIds.has(item.id) ||
+      !isLocalizedText(item.label) ||
+      typeof item.value !== "string" ||
+      item.value.length < 1 ||
+      item.value.length > 1000
+    )
+      return false;
+    contextIds.add(item.id);
+    return true;
+  });
+  return (
+    stepsValid &&
+    viewsValid &&
+    statesValid &&
+    contextValid &&
+    (definition.default_view_id === null ||
+      (identity(definition.default_view_id) &&
+        viewIds.has(definition.default_view_id))) &&
+    (value.active_step_id === null ||
+      (identity(value.active_step_id) && stepIds.has(value.active_step_id))) &&
+    (value.view_id === null ||
+      (identity(value.view_id) && viewIds.has(value.view_id)))
   );
 }
 
@@ -191,7 +385,7 @@ function isArtifactCollection(
     /^[a-z0-9][a-z0-9-]*$/.test(value.app_id) &&
     Array.isArray(value.items) &&
     value.items.length <= 100 &&
-        value.items.every(isArtifactRef) &&
+    value.items.every(isArtifactRef) &&
     Number.isSafeInteger(value.total_count) &&
     Number(value.total_count) >= value.items.length &&
     (value.next_cursor === null ||
@@ -307,6 +501,10 @@ export function isPawAppTask(value: unknown): value is PawAppTask {
     (value.project_ref === undefined ||
       value.project_ref === null ||
       isProjectRef(value.project_ref)) &&
+    (value.experience === undefined ||
+      value.experience === null ||
+      (isTaskExperience(value.experience) &&
+        value.experience.definition.action_id === value.action_id)) &&
     (value.input_request === undefined ||
       value.input_request === null ||
       isTaskInputRequest(value.input_request)) &&
@@ -339,7 +537,10 @@ function isOpenAction(value: unknown): value is PawAppOpenAction {
     return false;
   return (
     value.project_ref.app_id === value.app_id &&
-    value.path === `/apps/${value.app_id}?handoff=${value.handoff_id}`
+    value.path === `/apps/${value.app_id}?handoff=${value.handoff_id}` &&
+    (value.view_id === undefined ||
+      value.view_id === null ||
+      identity(value.view_id))
   );
 }
 

@@ -462,18 +462,18 @@ async def test_capability_grant_updates_bundle_atomically(host):
             "adapter_ref": "fixture.list-records.v1",
         },
     )
-    host.registrations[(SCOPE.app_id, second_action.action_id)] = (
-        ActionRegistration(
-            action=second_action,
-            factory=lambda: Executor(host.runs),
-            settings_entry="/apps/qwenpaw-data",
-            capability_id="data_analysis",
-            capability_label="Analyze data",
-            capability_summary=(
-                "Run governed analysis against an approved data source."
-            ),
-            capability_risk="analysis",
-        )
+    host.registrations[
+        (SCOPE.app_id, second_action.action_id)
+    ] = ActionRegistration(
+        action=second_action,
+        factory=lambda: Executor(host.runs),
+        settings_entry="/apps/qwenpaw-data",
+        capability_id="data_analysis",
+        capability_label="Analyze data",
+        capability_summary=(
+            "Run governed analysis against an approved data source."
+        ),
+        capability_risk="analysis",
     )
     runtime = host.app.state.pawapp_tasks
     catalog = await runtime.grant_catalog(
@@ -513,9 +513,43 @@ async def test_capability_grant_updates_bundle_atomically(host):
     )
     assert revoked.status_code == 200
     assert revoked.json()["revision"] == 2
-    assert TaskPolicy.model_validate_json(
-        host.policy_path.read_text(),
-    ).grants == ()
+    assert (
+        TaskPolicy.model_validate_json(
+            host.policy_path.read_text(),
+        ).grants
+        == ()
+    )
+
+
+async def test_grant_catalog_includes_manifest_host_skill_imports(host):
+    expected = {
+        "app_id": "qwenpaw-data",
+        "skill_id": "guidance",
+        "description": "Shared guidance",
+        "tool_refs": [],
+        "missing_tool_refs": [],
+        "installed": False,
+        "enabled": False,
+        "available": False,
+        "status": "not_installed",
+    }
+
+    class ImportBroker:
+        async def host_skill_import_statuses(self, **kwargs):
+            assert kwargs == {
+                "principal_id": "alice",
+                "workspace_id": "sales",
+                "app_ids": ("qwenpaw-data",),
+            }
+            return [expected]
+
+    host.app.state.pawapp_capabilities = ImportBroker()
+    response = await host.client.get(
+        "/api/pawapps/workspaces/sales/task-grants",
+    )
+
+    assert response.status_code == 200
+    assert response.json()["host_skill_imports"] == [expected]
 
 
 async def test_grant_management_rejects_forged_scope_and_constraints(host):
@@ -638,13 +672,13 @@ async def test_create_video_grant_cannot_authorize_private_actions(host):
         settings_entry="/apps/qwenpaw-data",
     )
     for private_action in private_actions:
-        host.registrations[(SCOPE.app_id, private_action.action_id)] = (
-            ActionRegistration(
-                action=private_action,
-                factory=lambda: Executor(host.runs),
-                settings_entry="/apps/qwenpaw-data",
-                exposure="app_private",
-            )
+        host.registrations[
+            (SCOPE.app_id, private_action.action_id)
+        ] = ActionRegistration(
+            action=private_action,
+            factory=lambda: Executor(host.runs),
+            settings_entry="/apps/qwenpaw-data",
+            exposure="app_private",
         )
     host.policy_path.write_text(
         TaskPolicy(

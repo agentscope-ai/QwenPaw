@@ -223,6 +223,14 @@ async def test_materializes_registered_artifact_before_task_commit(
     ref = published.detail["artifact_ref"]
     assert ref["name"] == "report.md"
     assert ref["digest"] == digest
+    assert ref["presentation"] == {
+        "schema_version": 1,
+        "role": "primary",
+        "kind": "data/report",
+        "visibility": "chat",
+        "preview": "inline",
+        "rank": 0,
+    }
     assert published.detail["project_ref"] == {
         "schema_version": 1,
         "app_id": "qwenpaw-data",
@@ -385,7 +393,8 @@ async def test_bridge_requires_engine_capability_support(submission):
     )
     try:
         with pytest.raises(
-            TaskStoreError, match="unsupported_engine_protocol"
+            TaskStoreError,
+            match="unsupported_engine_protocol",
         ):
             await adapter.submit(submission)
     finally:

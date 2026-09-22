@@ -11,11 +11,13 @@ import {
   openPawAppTask,
   pawAppArtifactUrl,
   type PawAppArtifactRef,
+  type PawAppLocalizedText,
   type PawAppTaskAnswer,
   parsePawAppOpenResult,
   parsePawAppTaskResult,
   type PawAppOpenResult,
   type PawAppTask,
+  type PawAppTaskExperienceSnapshot,
   type PawAppTaskInputRequest,
   type PawAppTaskResult,
 } from "../../../../api/modules/pawappTasks";
@@ -23,10 +25,70 @@ import { buildAuthHeaders } from "../../../../api/authHeaders";
 import { createClientMessageId } from "../../../../utils/clientMessageId";
 import { addRouterBasename } from "../../../../utils/navigationMode";
 import { downloadFileFromUrl } from "../../../../utils/downloadFileFromUrl";
+import { usePawAppTaskSurface } from "../PawAppTaskSurfaceProvider";
 import styles from "./PawAppTaskCard.module.less";
 import GenericToolCard from "./GenericToolCard";
 
 const MAX_REPORT_PREVIEW_BYTES = 2 * 1024 * 1024;
+
+function localizedText(value: PawAppLocalizedText, language?: string): string {
+  if (!language) return value.default;
+  const exact = value.translations[language];
+  if (exact) return exact;
+  const base = language.split("-", 1)[0];
+  return (
+    value.translations[base] ??
+    Object.entries(value.translations).find(
+      ([locale]) => locale.split("-", 1)[0] === base,
+    )?.[1] ??
+    value.default
+  );
+}
+
+function TaskExperience({
+  experience,
+  language,
+}: {
+  experience: PawAppTaskExperienceSnapshot;
+  language?: string;
+}) {
+  const stateById = new Map(
+    experience.step_states.map((state) => [state.step_id, state]),
+  );
+  return (
+    <div className={styles.experience}>
+      <ol className={styles.steps}>
+        {experience.definition.steps.map((step, index) => {
+          const state = stateById.get(step.id)!;
+          return (
+            <li
+              key={step.id}
+              data-status={state.status}
+              aria-current={
+                experience.active_step_id === step.id ? "step" : undefined
+              }
+            >
+              <span className={styles.stepMarker} aria-hidden="true">
+                {state.status === "complete" ? "✓" : index + 1}
+              </span>
+              <span>{localizedText(step.label, language)}</span>
+            </li>
+          );
+        })}
+      </ol>
+      {!!experience.context_items.length && (
+        <dl className={styles.contextItems}>
+          {experience.context_items.map((item) => (
+            <div key={item.id}>
+              <dt>{localizedText(item.label, language)}</dt>
+              <dd>{item.value}</dd>
+            </div>
+          ))}
+        </dl>
+      )}
+    </div>
+  );
+}
 
 function navigateToApp(path: string) {
   const href = addRouterBasename(window.location.pathname, path);
@@ -38,6 +100,58 @@ function navigateToApp(path: string) {
     href,
   );
   window.dispatchEvent(new PopStateEvent("popstate"));
+}
+
+function TaskStatusOpenPrompt({ result }: { result: PawAppTaskResult }) {
+  const { t, i18n } = useTranslation();
+  const [opening, setOpening] = useState(false);
+  const [openFailed, setOpenFailed] = useState(false);
+  const task = result.task;
+  const experience = task?.experience;
+  const language = i18n?.resolvedLanguage ?? i18n?.language;
+  const selectedView = experience?.definition.views.find(
+    (view) => view.id === experience.view_id,
+  );
+  const openLabel = selectedView
+    ? localizedText(selectedView.open_label, language)
+    : t("tool.pawappTask.openTask");
+
+  if (!task?.project_ref) return null;
+
+  const openTask = async () => {
+    setOpening(true);
+    setOpenFailed(false);
+    try {
+      const action = await openPawAppTask(
+        result.app_id,
+        result.workspace_id,
+        task.task_id,
+      );
+      navigateToApp(action.path);
+    } catch {
+      setOpenFailed(true);
+    } finally {
+      setOpening(false);
+    }
+  };
+
+  return (
+    <div className={styles.statusPrompt}>
+      <span>{t("tool.pawappTask.openTaskPrompt")}</span>
+      <button
+        className={styles.openApp}
+        type="button"
+        disabled={opening}
+        onClick={() => void openTask()}
+      >
+        {opening ? t("tool.pawappTask.openingTask") : openLabel}
+        <ArrowRightOutlined aria-hidden="true" />
+      </button>
+      {openFailed && (
+        <small role="alert">{t("tool.pawappTask.refreshFailed")}</small>
+      )}
+    </div>
+  );
 }
 
 export function PawAppArtifactItem({
@@ -54,6 +168,7 @@ export function PawAppArtifactItem({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(false);
   const canPreview =
+    artifact.presentation?.preview !== "none" &&
     artifact.size_bytes <= MAX_REPORT_PREVIEW_BYTES &&
     ["text/html", "text/markdown", "text/plain"].includes(artifact.media_type);
   const url = pawAppArtifactUrl(
@@ -108,7 +223,14 @@ export function PawAppArtifactItem({
   return (
     <li>
       <div className={styles.artifactHeader}>
-        <strong>{artifact.name}</strong>
+        <strong>
+          {artifact.name}
+          {artifact.presentation?.role === "primary" && (
+            <small className={styles.primaryBadge}>
+              {t("tool.pawappTask.primaryArtifact")}
+            </small>
+          )}
+        </strong>
         <span>
           {t("tool.pawappTask.artifactMeta", {
             version: artifact.version,
@@ -307,10 +429,12 @@ function TaskCard({
   content,
   isStreaming,
   result,
+  statusCheckCount = 0,
 }: BuiltinCardProps & {
   result: PawAppTaskResult | null;
+  statusCheckCount?: number;
 }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const snapshot = result?.task;
   const [task, setTask] = useState<PawAppTask | undefined>(snapshot);
   const latestTask = useRef(snapshot);
@@ -375,16 +499,23 @@ function TaskCard({
     : recovering
     ? "recovering"
     : task?.status;
-  const title =
-    appId === "qwenpaw-creator"
-      ? t("tool.pawappTask.creatorTitle")
-      : appId
-      ? t("tool.pawappTask.title", { app: appId })
-      : t("tool.pawappTask.defaultTitle");
-  const openLabel =
-    appId === "qwenpaw-creator"
-      ? t("tool.pawappTask.openCreator")
-      : t("tool.pawappTask.openApp");
+  const language = i18n?.resolvedLanguage ?? i18n?.language;
+  const experience = task?.experience ?? null;
+  const title = experience
+    ? localizedText(experience.definition.title, language)
+    : appId === "qwenpaw-creator"
+    ? t("tool.pawappTask.creatorTitle")
+    : appId
+    ? t("tool.pawappTask.title", { app: appId })
+    : t("tool.pawappTask.defaultTitle");
+  const selectedView = experience?.definition.views.find(
+    (view) => view.id === experience.view_id,
+  );
+  const openLabel = selectedView
+    ? localizedText(selectedView.open_label, language)
+    : appId === "qwenpaw-creator"
+    ? t("tool.pawappTask.openCreator")
+    : t("tool.pawappTask.openApp");
   const openingLabel =
     appId === "qwenpaw-creator"
       ? t("tool.pawappTask.openingCreator")
@@ -392,6 +523,23 @@ function TaskCard({
   const appHref = appId
     ? addRouterBasename(window.location.pathname, `/apps/${appId}`)
     : undefined;
+  const chatArtifacts = (task?.output_refs ?? [])
+    .filter(
+      (artifact) =>
+        artifact.presentation === undefined ||
+        artifact.presentation === null ||
+        artifact.presentation.visibility === "chat",
+    )
+    .sort((left, right) => {
+      const roles = { primary: 0, supporting: 1, diagnostic: 2, source: 3 };
+      const leftRole = left.presentation?.role;
+      const rightRole = right.presentation?.role;
+      return (
+        (leftRole === undefined ? 1 : roles[leftRole]) -
+          (rightRole === undefined ? 1 : roles[rightRole]) ||
+        (left.presentation?.rank ?? 100) - (right.presentation?.rank ?? 100)
+      );
+    });
   const openApp = async () => {
     if (!appId || !workspaceId || !taskId) return;
     setOpening(true);
@@ -488,6 +636,9 @@ function TaskCard({
           {recovering && !unavailable && <p>{t("tool.pawappTask.recovery")}</p>}
           {openFailed && <p>{t("tool.pawappTask.refreshFailed")}</p>}
           {setupFailed && <p>{t("tool.pawappTask.setupOpenFailed")}</p>}
+          {experience && (
+            <TaskExperience experience={experience} language={language} />
+          )}
           {task?.input_request && appId && workspaceId && taskId && (
             <TaskInputForm
               appId={appId}
@@ -509,14 +660,14 @@ function TaskCard({
               <pre className={styles.result}>{task.text_result}</pre>
             </div>
           )}
-          {!!task?.output_refs?.length && appId && workspaceId && (
+          {!!chatArtifacts.length && appId && workspaceId && (
             <div>
               <div className={styles.resultLabel}>
                 {t("tool.pawappTask.artifacts")}
               </div>
               <ul className={styles.artifacts}>
-                {task.output_refs.map((artifact) => (
-        <PawAppArtifactItem
+                {chatArtifacts.map((artifact) => (
+                  <PawAppArtifactItem
                     key={`${artifact.artifact_id}:${artifact.version}`}
                     appId={appId}
                     workspaceId={workspaceId}
@@ -532,6 +683,13 @@ function TaskCard({
               <span className={styles.identifier}>
                 {t("tool.pawappTask.taskId", { id: task.task_id })}
               </span>
+              {statusCheckCount > 0 && (
+                <span className={styles.identifier}>
+                  {t("tool.pawappTask.statusChecksFolded", {
+                    count: statusCheckCount,
+                  })}
+                </span>
+              )}
             </details>
           )}
         </div>
@@ -586,9 +744,29 @@ export default function PawAppTaskCard(props: BuiltinCardProps) {
     () => parsePawAppTaskResult(props.content.result),
     [props.content.result],
   );
+  const surface = usePawAppTaskSurface(
+    props.content.id,
+    props.content.name,
+    result,
+  );
   if (openResult) return <OpenAppCard {...props} result={openResult} />;
   if (!result) return <GenericToolCard {...props} />;
+  const surfaceResult = surface.result ?? result;
+  if (surface.managed && !surface.ready) return null;
+  if (surface.managed && !surface.canonical) {
+    return props.content.name === "get_app_task" &&
+      surface.latestStatusCheck ? (
+      <TaskStatusOpenPrompt result={surfaceResult} />
+    ) : null;
+  }
   // A different handle must never inherit another card's state or requests.
-  const key = `${result?.app_id}:${result?.workspace_id}:${result?.task?.task_id}:${result?.state}`;
-  return <TaskCard key={key} {...props} result={result} />;
+  const key = `${surfaceResult.app_id}:${surfaceResult.workspace_id}:${surfaceResult.task?.task_id}:${surfaceResult.state}`;
+  return (
+    <TaskCard
+      key={key}
+      {...props}
+      result={surfaceResult}
+      statusCheckCount={surface.statusCheckCount}
+    />
+  );
 }

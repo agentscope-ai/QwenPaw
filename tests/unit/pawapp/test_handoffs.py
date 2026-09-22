@@ -12,6 +12,10 @@ from qwenpaw.pawapp.tasks import (
     ActionDescriptor,
     ExecutorEvent,
     ExecutorRunRef,
+    LocalizedText,
+    TaskExperienceDefinition,
+    TaskExperienceStepDefinition,
+    TaskExperienceViewDefinition,
     TaskOrigin,
     TaskScope,
     TaskStore,
@@ -44,6 +48,24 @@ async def project_submission(tmp_path):
             engagement="delegated",
             origin_ref="chat-1",
             return_session_ref="session-1",
+        ),
+        experience=TaskExperienceDefinition(
+            action_id="analyze",
+            title=LocalizedText(default="Data analysis"),
+            steps=(
+                TaskExperienceStepDefinition(
+                    id="analyze",
+                    label=LocalizedText(default="Analyze"),
+                ),
+            ),
+            views=(
+                TaskExperienceViewDefinition(
+                    id="summary",
+                    label=LocalizedText(default="Summary"),
+                    open_label=LocalizedText(default="Open analysis"),
+                ),
+            ),
+            default_view_id="summary",
         ),
     )
     await tasks.begin_submission(scope, submission.handle.task_id)
@@ -103,13 +125,32 @@ async def test_handoff_is_idempotent_scoped_and_bounded(tmp_path):
     assert replay == first
     assert first.path == f"/apps/creator?handoff={first.handoff_id}"
     assert "analysis-session-1" not in first.path
+    assert first.view_id == "summary"
     target = submission.handle.scope.model_copy(update={"app_id": "creator"})
     handoff = await store.resolve(target, first.handoff_id)
     assert handoff.context.goal == "Compare private revenue"
     assert handoff.context.project_ref == submission.handle.project_ref
     assert handoff.context.artifact_refs == (ref,)
     assert handoff.context.resume_ref == submission.handle.task_id
+    assert handoff.context.view_id == "summary"
     assert "principal_id" not in handoff.context.model_dump(mode="json")
+
+    for unauthorized in (
+        target.model_copy(update={"principal_id": "mallory"}),
+        target.model_copy(update={"workspace_id": "other"}),
+        target.model_copy(update={"app_id": "other"}),
+    ):
+        with pytest.raises(TaskStoreError, match="handoff_not_found"):
+            await store.resolve(unauthorized, first.handoff_id)
+
+    connection = sqlite3.connect(store.path)
+    try:
+        denied = connection.execute(
+            "SELECT count(*) FROM handoff_audit WHERE outcome = 'not_found'",
+        ).fetchone()[0]
+    finally:
+        connection.close()
+    assert denied == 3
 
 
 async def test_artifact_collection_is_scoped_and_media_filtered(tmp_path):
@@ -133,29 +174,14 @@ async def test_artifact_collection_is_scoped_and_media_filtered(tmp_path):
     ).total_count == 0
     assert (
         await artifacts.list(
-            submission.handle.scope.model_copy(update={"principal_id": "mallory"}),
+            submission.handle.scope.model_copy(
+                update={"principal_id": "mallory"},
+            ),
         )
     ).total_count == 0
 
     with pytest.raises(TaskStoreError, match="invalid_artifact_cursor"):
         await artifacts.list(submission.handle.scope, cursor="not-a-cursor")
-
-    for unauthorized in (
-        target.model_copy(update={"principal_id": "mallory"}),
-        target.model_copy(update={"workspace_id": "other"}),
-        target.model_copy(update={"app_id": "other"}),
-    ):
-        with pytest.raises(TaskStoreError, match="handoff_not_found"):
-            await store.resolve(unauthorized, first.handoff_id)
-
-    connection = sqlite3.connect(store.path)
-    try:
-        denied = connection.execute(
-            "SELECT count(*) FROM handoff_audit WHERE outcome = 'not_found'",
-        ).fetchone()[0]
-    finally:
-        connection.close()
-    assert denied == 3
 
 
 async def test_handoff_grants_only_exact_artifact_version(tmp_path):

@@ -18,6 +18,7 @@ import {
 } from "../../../../api/modules/pawappTasks";
 import type { PawAppTask } from "../../../../api/modules/pawappTasks";
 import type { ToolCallContent } from "../shared/types";
+import { PawAppTaskSurfaceProvider } from "../PawAppTaskSurfaceProvider";
 
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({ t: (key: string) => key }),
@@ -69,6 +70,13 @@ function content(value: unknown = task): ToolCallContent {
     }),
   };
 }
+function observedContent(
+  value: unknown,
+  id: string,
+  name: "delegate" | "get_app_task",
+): ToolCallContent {
+  return { ...content(value), id, name };
+}
 const api = vi.mocked(getPawAppTask);
 const answerApi = vi.mocked(answerPawAppTask);
 const openApi = vi.mocked(openPawAppTask);
@@ -92,6 +100,97 @@ const flush = () =>
   });
 
 describe("PawApp task cards", () => {
+  it("renders one canonical surface and folds repeated status checks", async () => {
+    const latest: PawAppTask = {
+      ...task,
+      status: "waiting_for_approval",
+      event_sequence: 9,
+    };
+    api.mockResolvedValue(latest);
+    render(
+      <PawAppTaskSurfaceProvider scopeKey="default:chat-one">
+        <PawAppTaskCard
+          content={observedContent(task, "delegate-call", "delegate")}
+        />
+        <PawAppTaskCard
+          content={observedContent(
+            { ...task, status: "running", event_sequence: 5 },
+            "status-call-one",
+            "get_app_task",
+          )}
+        />
+        <PawAppTaskCard
+          content={observedContent(latest, "status-call-two", "get_app_task")}
+        />
+      </PawAppTaskSurfaceProvider>,
+    );
+    await flush();
+    expect(screen.getAllByRole("status")).toHaveLength(1);
+    expect(screen.getByRole("status").textContent).toBe(
+      "tool.pawappTask.status.waiting_for_approval",
+    );
+    expect(screen.getByText("tool.pawappTask.statusChecksFolded")).toBeTruthy();
+    expect(api).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps one compact open-task prompt beside the latest explicit status check", async () => {
+    const withProject: PawAppTask = {
+      ...task,
+      project_ref: {
+        schema_version: 1,
+        app_id: "qwenpaw-data",
+        project_id: "session-1",
+        kind: "analysis-session",
+        revision: 1,
+      },
+    };
+    const latest = {
+      ...withProject,
+      status: "running" as const,
+      event_sequence: 3,
+    };
+    api.mockResolvedValue(latest);
+    openApi.mockResolvedValue({
+      schema_version: 1,
+      app_id: "qwenpaw-data",
+      handoff_id: "handoff-1",
+      path: "/apps/qwenpaw-data?handoff=handoff-1",
+      project_ref: withProject.project_ref!,
+    });
+
+    render(
+      <PawAppTaskSurfaceProvider scopeKey="default:chat-one">
+        <PawAppTaskCard
+          content={observedContent(withProject, "delegate-call", "delegate")}
+        />
+        <PawAppTaskCard
+          content={observedContent(
+            { ...withProject, event_sequence: 2 },
+            "status-call-one",
+            "get_app_task",
+          )}
+        />
+        <PawAppTaskCard
+          content={observedContent(latest, "status-call-two", "get_app_task")}
+        />
+      </PawAppTaskSurfaceProvider>,
+    );
+    await flush();
+
+    expect(screen.getAllByText("tool.pawappTask.openTaskPrompt")).toHaveLength(
+      1,
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "tool.pawappTask.openTask" }),
+    );
+    await flush();
+
+    expect(openApi).toHaveBeenCalledWith("qwenpaw-data", "sales", "task-1");
+    expect(window.location.pathname + window.location.search).toBe(
+      "/apps/qwenpaw-data?handoff=handoff-1",
+    );
+  });
+
   it("ignores stale terminal responses and keeps following the newer run state", async () => {
     api
       .mockResolvedValueOnce({ ...task, status: "failed", event_sequence: 2 })
@@ -561,6 +660,109 @@ describe("PawApp task cards", () => {
       "/apps/qwenpaw-data?handoff=handoff-1",
     );
     expect(window.history.state).toEqual({ pawappInline: true });
+  });
+
+  it("renders app-owned progress and keeps app-only artifacts out of chat", async () => {
+    const rich: PawAppTask = {
+      ...task,
+      status: "running",
+      event_sequence: 2,
+      project_ref: {
+        schema_version: 1,
+        app_id: "qwenpaw-data",
+        project_id: "session-1",
+        kind: "analysis-session",
+        revision: 1,
+      },
+      experience: {
+        schema_version: 1,
+        definition_digest: "experience-digest",
+        definition: {
+          schema_version: 1,
+          action_id: "analyze",
+          title: { default: "Data analysis", translations: {} },
+          steps: [
+            {
+              id: "read",
+              label: { default: "Read data", translations: {} },
+            },
+            {
+              id: "analyze",
+              label: { default: "Analyze", translations: {} },
+            },
+          ],
+          views: [
+            {
+              id: "summary",
+              label: { default: "Summary", translations: {} },
+              open_label: { default: "Open analysis", translations: {} },
+            },
+          ],
+          default_view_id: "summary",
+        },
+        step_states: [
+          { step_id: "read", status: "complete", progress: null },
+          { step_id: "analyze", status: "running", progress: null },
+        ],
+        active_step_id: "analyze",
+        context_items: [
+          {
+            id: "datasource",
+            label: { default: "Data source", translations: {} },
+            value: "sales",
+          },
+        ],
+        view_id: "summary",
+      },
+      output_refs: [
+        {
+          schema_version: 1,
+          artifact_id: "report",
+          type: "qwenpaw:file",
+          version: 1,
+          name: "report.md",
+          media_type: "text/markdown",
+          size_bytes: 10,
+          digest: `sha256:${"a".repeat(64)}`,
+          presentation: {
+            schema_version: 1,
+            role: "primary",
+            kind: "data/report",
+            visibility: "chat",
+            preview: "inline",
+            rank: 0,
+          },
+        },
+        {
+          schema_version: 1,
+          artifact_id: "trace",
+          type: "qwenpaw:file",
+          version: 1,
+          name: "trace.json",
+          media_type: "application/json",
+          size_bytes: 10,
+          digest: `sha256:${"b".repeat(64)}`,
+          presentation: {
+            schema_version: 1,
+            role: "diagnostic",
+            kind: "data/diagnostic",
+            visibility: "app_only",
+            preview: "none",
+            rank: 300,
+          },
+        },
+      ],
+    };
+    api.mockResolvedValue(rich);
+
+    render(<PawAppTaskCard content={content(rich)} />);
+
+    expect(screen.getByRole("region", { name: "Data analysis" })).toBeTruthy();
+    expect(screen.getByText("Read data")).toBeTruthy();
+    expect(screen.getByText("sales")).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Open analysis/ })).toBeTruthy();
+    expect(screen.getByText(/report.md/)).toBeTruthy();
+    expect(screen.queryByText(/trace.json/)).toBeNull();
   });
 
   it("parses Host-issued open_app results and rejects external paths", () => {

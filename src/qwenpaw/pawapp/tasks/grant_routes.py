@@ -6,6 +6,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import Field
 
+from ..capabilities import CapabilityError
 from ..deps import get_scoped_ctx
 from .contracts import Contract, Identity, TaskScope, TaskStoreError
 from .routes import _error, workspace_enabled
@@ -65,13 +66,42 @@ async def grant_scope(
 ManagementScope = Annotated[GrantManagementScope, Depends(grant_scope)]
 
 
+async def _with_host_skill_imports(
+    request: Request,
+    scope: GrantManagementScope,
+    catalog: dict,
+) -> dict:
+    broker = getattr(request.app.state, "pawapp_capabilities", None)
+    if broker is None:
+        return catalog
+    app_ids = tuple(
+        sorted(
+            {
+                item["app_id"]
+                for key in ("actions", "capabilities")
+                for item in catalog.get(key, ())
+            },
+        ),
+    )
+    try:
+        imports = await broker.host_skill_import_statuses(
+            principal_id=scope.principal_id,
+            workspace_id=scope.workspace_id,
+            app_ids=app_ids,
+        )
+    except CapabilityError:
+        imports = []
+    return {**catalog, "host_skill_imports": imports}
+
+
 @router.get("")
 async def list_task_grants(request: Request, scope: ManagementScope):
     try:
-        return await request.app.state.pawapp_tasks.grant_catalog(
+        catalog = await request.app.state.pawapp_tasks.grant_catalog(
             scope.principal_id,
             scope.workspace_id,
         )
+        return await _with_host_skill_imports(request, scope, catalog)
     except (TaskStoreError, ValueError) as exc:
         raise _error(exc) from None
 
@@ -90,13 +120,14 @@ async def update_task_grant(
             workspace_id=scope.workspace_id,
             app_id=app_id,
         )
-        return await request.app.state.pawapp_tasks.set_action_grant(
+        catalog = await request.app.state.pawapp_tasks.set_action_grant(
             task_scope,
             action_id,
             enabled=body.enabled,
             input_values=body.input_values,
             expected_revision=body.expected_revision,
         )
+        return await _with_host_skill_imports(request, scope, catalog)
     except (TaskStoreError, ValueError) as exc:
         raise _error(exc) from None
 
@@ -115,11 +146,12 @@ async def update_task_capability_grant(
             workspace_id=scope.workspace_id,
             app_id=app_id,
         )
-        return await request.app.state.pawapp_tasks.set_capability_grant(
+        catalog = await request.app.state.pawapp_tasks.set_capability_grant(
             task_scope,
             capability_id,
             enabled=body.enabled,
             expected_revision=body.expected_revision,
         )
+        return await _with_host_skill_imports(request, scope, catalog)
     except (TaskStoreError, ValueError) as exc:
         raise _error(exc) from None

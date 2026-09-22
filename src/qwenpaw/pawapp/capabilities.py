@@ -228,7 +228,9 @@ class CapabilityBroker:
         encoded = _b64encode(_canonical_json(payload).encode("utf-8"))
         signature = _b64encode(
             hmac.new(
-                self._secret, encoded.encode("ascii"), hashlib.sha256
+                self._secret,
+                encoded.encode("ascii"),
+                hashlib.sha256,
             ).digest(),
         )
         return f"{encoded}.{signature}"
@@ -277,7 +279,8 @@ class CapabilityBroker:
         return scope
 
     async def catalog(
-        self, scope: CapabilityScope
+        self,
+        scope: CapabilityScope,
     ) -> list[CapabilityDescriptor]:
         tools = await self._resolve_tools(scope)
         skills = await self._resolve_skills(scope, tools)
@@ -285,6 +288,125 @@ class CapabilityBroker:
             *(item.descriptor for item in tools.values()),
             *(item.descriptor for item in skills.values()),
         ]
+
+    async def host_skill_import_statuses(
+        self,
+        *,
+        principal_id: str,
+        workspace_id: str,
+        app_ids: tuple[str, ...],
+    ) -> list[dict[str, Any]]:
+        """Describe manifest-declared Host Skill imports for settings UI.
+
+        This is an observability surface, not an authorization path. An App
+        can still load only the capabilities resolved through its scoped
+        token. Installation and enablement remain owned by the workspace's
+        normal Skill settings.
+        """
+        from qwenpaw.agents.skill_system import (
+            get_workspace_skills_dir,
+            read_skill_manifest,
+            resolve_effective_skills,
+        )
+
+        unique_app_ids = tuple(dict.fromkeys(app_ids))
+        requested = {
+            app_id: dict(
+                self._plugins.get_pawapp_capabilities(app_id)["host_skills"],
+            )
+            for app_id in unique_app_ids
+        }
+        if not any(requested.values()):
+            return []
+
+        workspace = await self._workspace(
+            CapabilityScope(
+                principal_id=principal_id,
+                workspace_id=workspace_id,
+                app_id=unique_app_ids[0],
+            ),
+        )
+        manifest = await asyncio.to_thread(
+            read_skill_manifest,
+            workspace.workspace_dir,
+        )
+        effective = set(
+            await asyncio.to_thread(
+                resolve_effective_skills,
+                workspace.workspace_dir,
+                "console",
+            ),
+        )
+        skills_root = get_workspace_skills_dir(workspace.workspace_dir)
+        manifest_skills = manifest.get("skills", {})
+
+        statuses: list[dict[str, Any]] = []
+        for app_id, imports in requested.items():
+            scope = CapabilityScope(
+                principal_id=principal_id,
+                workspace_id=workspace_id,
+                app_id=app_id,
+            )
+            declared_refs = {ref for refs in imports.values() for ref in refs}
+            available_tools: set[str] = set()
+            if declared_refs:
+                available_tools = {
+                    item.descriptor.name
+                    for item in (await self._resolve_tools(scope)).values()
+                }
+
+            for skill_id, tool_refs in sorted(imports.items()):
+                safe_name = Path(skill_id).name == skill_id
+                skill_dir = skills_root / skill_id
+                installed = bool(
+                    safe_name and (skill_dir / "SKILL.md").is_file(),
+                )
+                raw_entry = (
+                    manifest_skills.get(skill_id, {})
+                    if isinstance(manifest_skills, dict)
+                    else {}
+                )
+                enabled = bool(
+                    isinstance(raw_entry, dict)
+                    and raw_entry.get("enabled", False),
+                )
+                missing_tool_refs = tuple(
+                    ref for ref in tool_refs if ref not in available_tools
+                )
+                description = ""
+                if installed:
+                    try:
+                        _, description, _ = await asyncio.to_thread(
+                            _read_skill_header,
+                            skill_dir,
+                        )
+                    except CapabilityError:
+                        description = ""
+
+                if not installed:
+                    status = "not_installed"
+                elif not enabled:
+                    status = "disabled"
+                elif skill_id not in effective:
+                    status = "unavailable"
+                elif missing_tool_refs:
+                    status = "tool_dependency_unavailable"
+                else:
+                    status = "available"
+                statuses.append(
+                    {
+                        "app_id": app_id,
+                        "skill_id": skill_id,
+                        "description": description,
+                        "tool_refs": list(tool_refs),
+                        "missing_tool_refs": list(missing_tool_refs),
+                        "installed": installed,
+                        "enabled": enabled,
+                        "available": status == "available",
+                        "status": status,
+                    },
+                )
+        return statuses
 
     async def describe(
         self,
@@ -358,7 +480,8 @@ class CapabilityBroker:
             )
         try:
             files = await asyncio.to_thread(
-                self._read_skill_files, skill.directory
+                self._read_skill_files,
+                skill.directory,
             )
         except CapabilityError as exc:
             await self._audit(scope, capability_id, "load", exc.code)
@@ -434,7 +557,9 @@ class CapabilityBroker:
             raw = workspace.plugins.tool_registry.get(name)
             if raw is not None:
                 resolved[capability_id] = _ResolvedTool(
-                    descriptor, raw.func, True
+                    descriptor,
+                    raw.func,
+                    True,
                 )
         for name, registration in sorted(config["local_tools"].items()):
             schema = _tool_schema(registration.func, registration.input_schema)
@@ -631,7 +756,7 @@ class CapabilityBroker:
                 continue
             rel = path.relative_to(directory).as_posix()
             entries.append(
-                (rel, hashlib.sha256(path.read_bytes()).hexdigest())
+                (rel, hashlib.sha256(path.read_bytes()).hexdigest()),
             )
         return _digest(entries)
 
@@ -662,7 +787,7 @@ class CapabilityBroker:
                 )
             else:
                 files.append(
-                    {"path": rel, "encoding": "utf-8", "content": text}
+                    {"path": rel, "encoding": "utf-8", "content": text},
                 )
         if not any(item["path"] == "SKILL.md" for item in files):
             raise CapabilityError("skill_unavailable")

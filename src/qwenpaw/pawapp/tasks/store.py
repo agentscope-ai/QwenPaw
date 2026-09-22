@@ -27,6 +27,8 @@ from .contracts import (
     RecoveryState,
     ProjectRef,
     TaskDelivery,
+    TaskExperienceDefinition,
+    TaskExperienceUpdate,
     TaskAnswer,
     TaskCommand,
     TaskEvent,
@@ -38,6 +40,8 @@ from .contracts import (
     TaskSubmission,
     canonical_json,
     content_digest,
+    initial_experience,
+    apply_experience_update,
 )
 from .continuation_store import enqueue, migrate as migrate_continuations
 
@@ -273,6 +277,7 @@ class TaskStore:
         request_id: str,
         inputs: dict,
         origin: TaskOrigin,
+        experience: TaskExperienceDefinition | None = None,
     ) -> TaskSubmission:
         """Allocate identities once, before any external submission.
 
@@ -283,6 +288,12 @@ class TaskStore:
             raise ValueError("request_id must contain 1 to 256 characters")
         # Snapshot nested mutable JSON before handing it to a worker thread.
         action = ActionDescriptor.model_validate_json(action.model_dump_json())
+        if experience is not None:
+            experience = TaskExperienceDefinition.model_validate_json(
+                experience.model_dump_json(),
+            )
+            if experience.action_id != action.action_id:
+                raise TaskStoreError("experience_action_mismatch")
         if action.app_id != scope.app_id:
             raise TaskStoreError("action_scope_mismatch")
         if origin.engagement not in action.engagements:
@@ -324,6 +335,11 @@ class TaskStore:
                 action_id=action.action_id,
                 descriptor_digest=action.descriptor_digest,
                 origin=origin,
+                experience=(
+                    initial_experience(experience)
+                    if experience is not None
+                    else None
+                ),
                 created_at=now,
                 updated_at=now,
             )
@@ -927,6 +943,21 @@ class TaskStore:
                     raise TaskStoreError("invalid_input_request") from None
             elif event.status is not None:
                 input_request = None
+            experience = handle.experience
+            experience_payload = event.detail.get("experience_update")
+            if experience_payload is not None:
+                if experience is None:
+                    raise TaskStoreError("experience_not_registered")
+                try:
+                    experience_update = TaskExperienceUpdate.model_validate(
+                        experience_payload,
+                    )
+                    experience = apply_experience_update(
+                        experience,
+                        experience_update,
+                    )
+                except ValueError:
+                    raise TaskStoreError("invalid_experience_update") from None
             wake = (
                 status != handle.status
                 and status in TERMINAL_STATUSES | WAITING_STATUSES
@@ -937,6 +968,7 @@ class TaskStore:
                     "text_result": result,
                     "output_refs": tuple(output_refs),
                     "project_ref": project_ref,
+                    "experience": experience,
                     "input_request": input_request,
                     "setup_request_id": next_setup_request_id,
                     "setup_attempt": next_setup_attempt,

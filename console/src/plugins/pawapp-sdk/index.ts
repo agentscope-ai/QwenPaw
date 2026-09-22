@@ -95,6 +95,7 @@ export type {
   PawApiNamespace,
   PawAppsNamespace,
   PawArtifactRef,
+  PawArtifactPresentation,
   PawApiResponse,
   PawHostNamespace,
   PawHandoffRequest,

@@ -171,6 +171,7 @@ class HostTaskRuntime:
                                     adapter,
                                 ),
                             ),
+                            registration.experience,
                         )
                     except Exception:
                         await adapter.aclose()
@@ -666,6 +667,7 @@ class HostTaskRuntime:
             request_id=request_id,
             inputs=resolved_inputs,
             origin=origin,
+            experience=registration.experience,
         )
         self._wake(submission)
         return {"state": "accepted", "task": submission.handle}

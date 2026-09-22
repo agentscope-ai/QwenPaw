@@ -11,6 +11,7 @@ from .contracts import (
     Contract,
     Identity,
     CapabilityRisk,
+    TaskExperienceDefinition,
     TaskScope,
     TaskOrigin,
 )
@@ -59,8 +60,14 @@ class ActionRegistration:
     capability_label: str | None = None
     capability_summary: str | None = None
     capability_risk: CapabilityRisk | None = None
+    experience: TaskExperienceDefinition | None = None
 
     def __post_init__(self):
+        if (
+            self.experience is not None
+            and self.experience.action_id != self.action.action_id
+        ):
+            raise ValueError("task experience action id must match action")
         if len(self.requirement_ids) != len(set(self.requirement_ids)):
             raise ValueError("action setup requirements must be unique")
         if len(self.deferred_requirement_ids) != len(

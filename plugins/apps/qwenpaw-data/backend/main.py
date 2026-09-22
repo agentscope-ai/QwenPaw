@@ -48,7 +48,11 @@ if __package__ and __package__.startswith("plugin_"):
     )
     from .backend.context_gateway import ContextGateway
     from .backend.engine_gateway import EngineGateway
-    from .backend.task_bridge import DataTaskAdapter, data_action_descriptor
+    from .backend.task_bridge import (
+        DataTaskAdapter,
+        data_action_descriptor,
+        data_task_experience,
+    )
     from .backend.runtime import (
         context_python,
         context_working_dir,
@@ -85,6 +89,7 @@ else:
     from backend.task_bridge import (  # noqa: E402
         DataTaskAdapter,
         data_action_descriptor,
+        data_task_experience,
     )
     from backend.runtime import (  # noqa: E402
         context_python,
@@ -329,8 +334,11 @@ app.task_action(
         settings_entry="/apps/qwenpaw-data",
         capability_id="data_analysis",
         capability_label="Analyze data",
-        capability_summary=("Run governed analysis against an approved data source."),
+        capability_summary=(
+            "Run governed analysis against an approved data source."
+        ),
         capability_risk="analysis",
+        experience=data_task_experience(),
     ),
 )
 

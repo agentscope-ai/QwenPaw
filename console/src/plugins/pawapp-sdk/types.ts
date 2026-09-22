@@ -203,6 +203,15 @@ export interface PawProjectRef {
   revision: number;
 }
 
+export interface PawArtifactPresentation {
+  schema_version: 1;
+  role: "primary" | "supporting" | "diagnostic" | "source";
+  kind: string;
+  visibility: "chat" | "app_only";
+  preview: "inline" | "link" | "none";
+  rank: number;
+}
+
 export interface PawArtifactRef {
   schema_version: 1;
   artifact_id: string;
@@ -213,6 +222,7 @@ export interface PawArtifactRef {
   size_bytes: number;
   digest: string;
   producer: Record<string, string>;
+  presentation?: PawArtifactPresentation | null;
   created_at: number;
 }
 
@@ -232,6 +242,8 @@ export interface PawTaskContext {
   decision_refs: PawArtifactRef[];
   project_ref: PawProjectRef;
   resume_ref: string;
+  /** Opaque view declared by the App's registered task experience. */
+  view_id?: string | null;
 }
 
 export interface PawHandoffRequest {

@@ -42,6 +42,13 @@ CommandState = Literal[
     "unknown",
 ]
 CapabilityRisk = Literal["read", "write", "generation", "analysis", "other"]
+ExperienceStepStatus = Literal[
+    "pending",
+    "running",
+    "waiting",
+    "complete",
+    "failed",
+]
 
 
 def canonical_json(value: Any) -> str:
@@ -161,6 +168,29 @@ class ArtifactProducer(Contract):
     source_id: Identity
 
 
+class ArtifactPresentation(Contract):
+    """App hint for presenting a published artifact outside its workspace.
+
+    Publication and presentation are deliberately separate: every published
+    artifact remains available in the explicit artifact library and handoff,
+    while the Host may show only the business-relevant subset in Main Chat.
+    """
+
+    schema_version: Literal[1] = 1
+    role: Literal["primary", "supporting", "diagnostic", "source"]
+    kind: Annotated[
+        str,
+        Field(
+            min_length=3,
+            max_length=128,
+            pattern=r"^[a-z0-9][a-z0-9._-]*/[a-z0-9][a-z0-9._-]*$",
+        ),
+    ]
+    visibility: Literal["chat", "app_only"] = "chat"
+    preview: Literal["inline", "link", "none"] = "link"
+    rank: int = Field(default=100, ge=0, le=10000)
+
+
 class ArtifactRef(Contract):
     """Reference to an immutable version in the Host artifact store."""
 
@@ -173,6 +203,7 @@ class ArtifactRef(Contract):
     size_bytes: int = Field(ge=0)
     digest: Annotated[str, Field(pattern=r"^sha256:[0-9a-f]{64}$")]
     producer: ArtifactProducer
+    presentation: ArtifactPresentation | None = None
     created_at: float
 
 
@@ -199,6 +230,201 @@ class ProjectRef(Contract):
     project_id: Identity
     kind: Identity
     revision: int = Field(ge=1)
+
+
+class LocalizedText(Contract):
+    """Bounded app-owned display copy with a deterministic fallback."""
+
+    default: Annotated[str, Field(min_length=1, max_length=1000)]
+    translations: dict[
+        Annotated[str, Field(min_length=2, max_length=35)],
+        Annotated[str, Field(min_length=1, max_length=1000)],
+    ] = Field(default_factory=dict, max_length=16)
+
+    @model_validator(mode="after")
+    def validate_translations(self) -> LocalizedText:
+        canonical_json(self.translations)
+        return self
+
+
+class TaskExperienceStepDefinition(Contract):
+    id: Identity
+    label: LocalizedText
+    description: LocalizedText | None = None
+
+
+class TaskExperienceViewDefinition(Contract):
+    """App-owned destination resolved from the authenticated handoff."""
+
+    id: Identity
+    label: LocalizedText
+    open_label: LocalizedText
+
+
+class TaskExperienceDefinition(Contract):
+    """Static display language registered separately from authorization."""
+
+    schema_version: Literal[1] = 1
+    action_id: Identity
+    title: LocalizedText
+    steps: tuple[TaskExperienceStepDefinition, ...] = Field(
+        min_length=1,
+        max_length=12,
+    )
+    views: tuple[TaskExperienceViewDefinition, ...] = Field(
+        default=(),
+        max_length=8,
+    )
+    default_view_id: Identity | None = None
+
+    @model_validator(mode="after")
+    def validate_definition(self) -> TaskExperienceDefinition:
+        step_ids = [step.id for step in self.steps]
+        view_ids = [view.id for view in self.views]
+        if len(step_ids) != len(set(step_ids)):
+            raise ValueError("experience step ids must be unique")
+        if len(view_ids) != len(set(view_ids)):
+            raise ValueError("experience view ids must be unique")
+        if self.default_view_id is not None and (
+            self.default_view_id not in view_ids
+        ):
+            raise ValueError("default experience view must be declared")
+        return self
+
+    @property
+    def definition_digest(self) -> str:
+        return content_digest(self.model_dump(mode="json"))
+
+
+class TaskExperienceStepState(Contract):
+    step_id: Identity
+    status: ExperienceStepStatus
+    progress: float | None = Field(default=None, ge=0, le=1)
+
+
+class TaskExperienceContextItem(Contract):
+    id: Identity
+    label: LocalizedText
+    value: Annotated[str, Field(min_length=1, max_length=1000)]
+
+
+class TaskExperienceUpdate(Contract):
+    """Mutable app projection. Stable IDs, rather than copy, drive behavior."""
+
+    schema_version: Literal[1] = 1
+    step_states: tuple[TaskExperienceStepState, ...] = Field(
+        default=(),
+        max_length=12,
+    )
+    active_step_id: Identity | None = None
+    context_items: tuple[TaskExperienceContextItem, ...] | None = Field(
+        default=None,
+        max_length=12,
+    )
+    view_id: Identity | None = None
+
+    @model_validator(mode="after")
+    def validate_update(self) -> TaskExperienceUpdate:
+        if len({state.step_id for state in self.step_states}) != len(
+            self.step_states,
+        ):
+            raise ValueError("experience update step ids must be unique")
+        if self.context_items is not None and len(
+            {item.id for item in self.context_items},
+        ) != len(self.context_items):
+            raise ValueError("experience context ids must be unique")
+        return self
+
+
+class TaskExperienceSnapshot(Contract):
+    schema_version: Literal[1] = 1
+    definition: TaskExperienceDefinition
+    definition_digest: Identity
+    step_states: tuple[TaskExperienceStepState, ...]
+    active_step_id: Identity | None = None
+    context_items: tuple[TaskExperienceContextItem, ...] = Field(
+        default=(),
+        max_length=12,
+    )
+    view_id: Identity | None = None
+
+    @model_validator(mode="after")
+    def validate_snapshot(self) -> TaskExperienceSnapshot:
+        if self.definition_digest != self.definition.definition_digest:
+            raise ValueError("experience definition digest mismatch")
+        expected = [step.id for step in self.definition.steps]
+        actual = [state.step_id for state in self.step_states]
+        if actual != expected:
+            raise ValueError("experience snapshot must contain declared steps")
+        if (
+            self.active_step_id is not None
+            and self.active_step_id not in actual
+        ):
+            raise ValueError("active experience step must be declared")
+        view_ids = {view.id for view in self.definition.views}
+        if self.view_id is not None and self.view_id not in view_ids:
+            raise ValueError("experience view must be declared")
+        if len({item.id for item in self.context_items}) != len(
+            self.context_items,
+        ):
+            raise ValueError("experience context ids must be unique")
+        return self
+
+
+def initial_experience(
+    definition: TaskExperienceDefinition,
+) -> TaskExperienceSnapshot:
+    return TaskExperienceSnapshot(
+        definition=definition,
+        definition_digest=definition.definition_digest,
+        step_states=tuple(
+            TaskExperienceStepState(step_id=step.id, status="pending")
+            for step in definition.steps
+        ),
+        view_id=definition.default_view_id,
+    )
+
+
+def apply_experience_update(
+    snapshot: TaskExperienceSnapshot,
+    update: TaskExperienceUpdate,
+) -> TaskExperienceSnapshot:
+    declared_steps = {step.id for step in snapshot.definition.steps}
+    incoming_steps = {state.step_id for state in update.step_states}
+    if not incoming_steps <= declared_steps:
+        raise ValueError("experience update contains undeclared steps")
+    if (
+        update.active_step_id is not None
+        and update.active_step_id not in declared_steps
+    ):
+        raise ValueError("experience update has undeclared active step")
+    declared_views = {view.id for view in snapshot.definition.views}
+    if update.view_id is not None and update.view_id not in declared_views:
+        raise ValueError("experience update has undeclared view")
+    replacements = {state.step_id: state for state in update.step_states}
+    return snapshot.model_copy(
+        update={
+            "step_states": tuple(
+                replacements.get(state.step_id, state)
+                for state in snapshot.step_states
+            ),
+            "active_step_id": (
+                update.active_step_id
+                if update.active_step_id is not None
+                else snapshot.active_step_id
+            ),
+            "context_items": (
+                update.context_items
+                if update.context_items is not None
+                else snapshot.context_items
+            ),
+            "view_id": (
+                update.view_id
+                if update.view_id is not None
+                else snapshot.view_id
+            ),
+        },
+    )
 
 
 class TaskInputOption(Contract):
@@ -307,6 +533,7 @@ class TaskHandle(Contract):
     text_result: str | None = None
     output_refs: tuple[ArtifactRef, ...] = ()
     project_ref: ProjectRef | None = None
+    experience: TaskExperienceSnapshot | None = None
     input_request: TaskInputRequest | None = None
     setup_request_id: Identity | None = None
     setup_attempt: int = Field(default=0, ge=0)

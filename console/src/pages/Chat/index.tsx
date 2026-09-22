@@ -124,6 +124,7 @@ import {
 } from "./sdkRequestSnapshot";
 import { DownloadableAudios } from "../../components/Chat/MediaDownload";
 import { withGenericFallback } from "../../components/Chat/ToolCards/adapters/v1Adapter";
+import { PawAppTaskSurfaceProvider } from "../../components/Chat/ToolCards/PawAppTaskSurfaceProvider";
 import {
   createHeadlineFilterState,
   filterHeadlineDelta,
@@ -4459,13 +4460,17 @@ export default function ChatPage() {
               void openInlineFileReference(reference, trigger)
             }
           >
-            {!isAgentTransition && (
-              <AgentScopeRuntimeWebUI
-                ref={chatRef}
-                key={refreshKey}
-                options={options}
-              />
-            )}
+            <PawAppTaskSurfaceProvider
+              scopeKey={`${selectedAgent}:${queueSessionId}`}
+            >
+              {!isAgentTransition && (
+                <AgentScopeRuntimeWebUI
+                  ref={chatRef}
+                  key={refreshKey}
+                  options={options}
+                />
+              )}
+            </PawAppTaskSurfaceProvider>
           </RichFileReferenceInputProvider>
         </div>
 

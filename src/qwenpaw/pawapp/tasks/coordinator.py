@@ -22,6 +22,7 @@ from .contracts import (
     ExecutorEvent,
     ExecutorRunRef,
     TaskOrigin,
+    TaskExperienceDefinition,
     TaskCommand,
     TaskScope,
     TaskStoreError,
@@ -100,6 +101,7 @@ CommitEvent = Callable[
 class _Binding:
     action: ActionDescriptor
     adapter: TaskAdapter
+    experience: TaskExperienceDefinition | None = None
 
 
 class TaskCoordinator:
@@ -115,14 +117,25 @@ class TaskCoordinator:
         self._authorize = authorize
         self._bindings: dict[tuple[str, str], _Binding] = {}
 
-    def register(self, action: ActionDescriptor, adapter: TaskAdapter) -> None:
+    def register(
+        self,
+        action: ActionDescriptor,
+        adapter: TaskAdapter,
+        experience: TaskExperienceDefinition | None = None,
+    ) -> None:
         if getattr(adapter, "submission_protocol_version", None) != 1:
             raise TaskStoreError("unsupported_submission_protocol")
         key = (action.app_id, action.action_id)
         if key in self._bindings:
             raise TaskStoreError("action_already_registered")
         action = ActionDescriptor.model_validate_json(action.model_dump_json())
-        self._bindings[key] = _Binding(action, adapter)
+        if experience is not None:
+            experience = TaskExperienceDefinition.model_validate_json(
+                experience.model_dump_json(),
+            )
+            if experience.action_id != action.action_id:
+                raise TaskStoreError("experience_action_mismatch")
+        self._bindings[key] = _Binding(action, adapter, experience)
 
     def describe(self, app_id: str, action_id: str) -> ActionDescriptor:
         binding = self._binding(app_id, action_id)
@@ -161,6 +174,7 @@ class TaskCoordinator:
             request_id=request_id,
             inputs=inputs,
             origin=origin,
+            experience=self._binding(scope.app_id, action_id).experience,
         )
         if await self.store.begin_submission(scope, submission.handle.task_id):
             submission = await self.store.get(scope, submission.handle.task_id)

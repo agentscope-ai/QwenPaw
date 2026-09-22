@@ -62,6 +62,7 @@ from services.pawapp_tasks import (  # noqa: E402
 from services.pawapp_video_workflow import (  # noqa: E402
     CreatorVideoWorkflowTaskAdapter,
     creator_create_video_action_descriptor,
+    creator_create_video_experience,
 )
 from services.project_files.facade import (  # noqa: E402
     CreatorFileServices,
@@ -184,7 +185,7 @@ app.task_action(
     ActionRegistration(
         action=creator_create_project_action_descriptor(),
         factory=lambda: CreatorCreateProjectTaskAdapter(
-            _creator_task_services
+            _creator_task_services,
         ),
         settings_entry="/apps/qwenpaw-creator",
     ),
@@ -193,7 +194,7 @@ app.task_action(
     ActionRegistration(
         action=creator_create_video_action_descriptor(),
         factory=lambda: CreatorVideoWorkflowTaskAdapter(
-            _creator_task_services
+            _creator_task_services,
         ),
         settings_entry="/apps/qwenpaw-creator",
         requirement_ids=(LLM_REQUIREMENT_ID,),
@@ -201,6 +202,7 @@ app.task_action(
             IMAGE_REQUIREMENT_ID,
             VIDEO_REQUIREMENT_ID,
         ),
+        experience=creator_create_video_experience(),
     ),
 )
 app.task_action(

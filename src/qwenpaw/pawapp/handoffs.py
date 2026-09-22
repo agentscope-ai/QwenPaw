@@ -90,6 +90,7 @@ class TaskContext(Contract):
     )
     project_ref: ProjectRef
     resume_ref: Identity
+    view_id: Identity | None = None
 
 
 class HandoffRequest(Contract):
@@ -107,6 +108,7 @@ class OpenAppAction(Contract):
     handoff_id: Identity
     path: Annotated[str, Field(pattern=r"^/apps/[a-z0-9][a-z0-9-]*\?handoff=")]
     project_ref: ProjectRef
+    view_id: Identity | None = None
 
 
 class HandoffStore:
@@ -218,6 +220,11 @@ class HandoffStore:
             artifact_refs=handle.output_refs,
             project_ref=handle.project_ref,
             resume_ref=handle.task_id,
+            view_id=(
+                handle.experience.view_id
+                if handle.experience is not None
+                else None
+            ),
         )
 
     @staticmethod
@@ -230,6 +237,7 @@ class HandoffStore:
                 + quote(request.handoff_id, safe="")
             ),
             project_ref=request.context.project_ref,
+            view_id=request.context.view_id,
         )
 
     @staticmethod
@@ -414,8 +422,7 @@ class HandoffStore:
                 or request.target_app_id != scope.app_id
                 or request.context.task_id != row["task_id"]
                 or request.context.scope.workspace_id != row["workspace_id"]
-                or request.context.scope.source_app_id
-                != request.source_app_id
+                or request.context.scope.source_app_id != request.source_app_id
             ):
                 self._audit(
                     connection,
@@ -438,9 +445,11 @@ class HandoffStore:
         outcome, request, principal_id = result
         if outcome != "authorized":
             raise TaskStoreError(
-                "handoff_not_found"
-                if outcome == "not_found"
-                else "handoff_corrupt",
+                (
+                    "handoff_not_found"
+                    if outcome == "not_found"
+                    else "handoff_corrupt"
+                ),
             )
         assert request is not None and principal_id is not None
         await self._grant(request, principal_id)

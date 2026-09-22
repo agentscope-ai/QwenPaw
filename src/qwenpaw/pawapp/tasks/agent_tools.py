@@ -17,6 +17,14 @@ from .routes import HostOrigins
 from .runtime import HostTaskRuntime
 
 
+_HOST_TASK_MONITORING = {
+    "owner": "host",
+    "surface": "chat_card",
+    "poll_required": False,
+    "completion_delivery": "automatic_main_chat",
+}
+
+
 @dataclass(frozen=True)
 class TaskToolContext:
     runtime: HostTaskRuntime
@@ -165,10 +173,12 @@ def make_task_tools(context: TaskToolContext):
                 Use a new key for a new intentional task.
 
         A blocked response starts no work: guide the user to App settings and
-        retry only after setup. Accepted means queued, not successful. The
-        chat card follows progress. Use get_app_task for a later status/result
-        request; do not poll repeatedly. Completion queues an automatic,
-        tool-free summary in this Main Chat when it becomes idle.
+        retry only after setup. Accepted means queued, not successful. After
+        an accepted response, end the turn: the Host chat card owns monitoring
+        and completion queues an automatic, tool-free summary in Main Chat.
+        Never run shell sleeps or call get_app_task in the same assistant turn
+        to monitor progress. Use get_app_task only in a later user-requested
+        status turn or after an explicit reconnect/recovery request.
         """
         try:
             scope = context.scope(app_id)
@@ -207,6 +217,7 @@ def make_task_tools(context: TaskToolContext):
             )
             if result["state"] == "accepted":
                 result["task"] = result["task"].model_dump(mode="json")
+                result["monitoring"] = _HOST_TASK_MONITORING
             return _result(
                 {
                     "kind": "pawapp_task",
@@ -231,7 +242,13 @@ def make_task_tools(context: TaskToolContext):
         """Read a task delegated from this chat; acceptance is not success.
 
         Returns current status and the latest text snapshot. Recovery states
-        are uncertainty, not successful completion. Do not busy-poll.
+        are uncertainty, not successful completion. Use only for a later
+        user-requested status check or explicit reconnect/recovery. Never call
+        this in the same assistant turn as delegate, never wrap it in a shell
+        sleep, and never poll it repeatedly; the Host card monitors the task.
+        Answer status questions from this contract. Do not open the App or use
+        a browser merely to discover richer status. The Host renders an Open
+        task button so the user can inspect App-owned detail when they choose.
         """
         try:
             submission = await context.runtime.get(

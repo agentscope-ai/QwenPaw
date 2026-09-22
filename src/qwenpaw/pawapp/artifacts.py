@@ -20,6 +20,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from .tasks.contracts import (
     ArtifactProducer,
+    ArtifactPresentation,
     ArtifactCollection,
     ArtifactRef,
     TaskScope,
@@ -87,6 +88,7 @@ class _Publication(BaseModel):
     media_type: str = Field(min_length=1, max_length=256)
     size_bytes: int = Field(ge=0, le=MAX_ARTIFACT_BYTES)
     digest: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
+    presentation: ArtifactPresentation | None = None
 
     @field_validator("name")
     @classmethod
@@ -328,6 +330,7 @@ class ArtifactStore:
                     run_id=run.run_id,
                     source_id=publication.source_id,
                 ),
+                presentation=publication.presentation,
                 created_at=created_at,
             )
             connection.execute(
@@ -449,7 +452,11 @@ class ArtifactStore:
         return ref, content
 
     @staticmethod
-    def _encode_cursor(created_at: float, artifact_id: str, version: int) -> str:
+    def _encode_cursor(
+        created_at: float,
+        artifact_id: str,
+        version: int,
+    ) -> str:
         payload = canonical_json([created_at, artifact_id, version]).encode()
         return base64.urlsafe_b64encode(payload).decode().rstrip("=")
 
@@ -553,8 +560,7 @@ class ArtifactStore:
                 "SELECT COUNT(*) FROM artifact_versions AS versions "
                 f"JOIN ({latest}) AS latest ON "
                 "latest.artifact_id = versions.artifact_id AND "
-                "latest.version = versions.version"
-                + count_filter,
+                "latest.version = versions.version" + count_filter,
                 count_params,
             ).fetchone()
             total_count = int(count_row[0])
@@ -565,7 +571,8 @@ class ArtifactStore:
                 "latest.artifact_id = versions.artifact_id AND "
                 "latest.version = versions.version "
                 f"WHERE {outer_where} "
-                "ORDER BY versions.created_at DESC, versions.artifact_id DESC, "
+                "ORDER BY versions.created_at DESC, "
+                "versions.artifact_id DESC, "
                 "versions.version DESC LIMIT ?",
                 params + outer_params + [limit + 1],
             ).fetchall()
@@ -622,9 +629,13 @@ class ArtifactStore:
                     owner.app_id,
                 ),
             ).fetchone()
-            if row is None or ArtifactRef.model_validate_json(
-                row["ref_json"],
-            ) != ref:
+            if (
+                row is None
+                or ArtifactRef.model_validate_json(
+                    row["ref_json"],
+                )
+                != ref
+            ):
                 raise TaskStoreError("artifact_not_found")
             connection.execute(
                 """INSERT OR IGNORE INTO artifact_grants

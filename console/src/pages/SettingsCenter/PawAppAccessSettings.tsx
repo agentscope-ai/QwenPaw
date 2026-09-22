@@ -9,7 +9,13 @@ import {
   Tag,
   App as AntApp,
 } from "antd";
-import { AppWindow, RefreshCw, Save, ShieldCheck } from "lucide-react";
+import {
+  AppWindow,
+  BookOpen,
+  RefreshCw,
+  Save,
+  ShieldCheck,
+} from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -18,6 +24,7 @@ import {
   type PawAppGrantAction,
   type PawAppGrantCapability,
   type PawAppGrantCatalog,
+  type PawAppHostSkillImportStatus,
 } from "@/api/modules/pawappGrants";
 import { useAgentStore } from "@/stores/agentStore";
 import settingsStyles from "./index.module.less";
@@ -70,6 +77,17 @@ function stringInputs(action: PawAppGrantAction) {
   );
 }
 
+function skillStatusColor(
+  status: PawAppHostSkillImportStatus["status"],
+): string | undefined {
+  if (status === "available") return "green";
+  if (status === "not_installed") return "orange";
+  if (status === "unavailable" || status === "tool_dependency_unavailable") {
+    return "red";
+  }
+  return undefined;
+}
+
 export default function PawAppAccessSettings() {
   const { t } = useTranslation();
   const { message } = AntApp.useApp();
@@ -112,12 +130,17 @@ export default function PawAppAccessSettings() {
   const appSections = useMemo(() => {
     const groups = new Map<
       string,
-      { actions: PawAppGrantAction[]; capabilities: PawAppGrantCapability[] }
+      {
+        actions: PawAppGrantAction[];
+        capabilities: PawAppGrantCapability[];
+        hostSkills: PawAppHostSkillImportStatus[];
+      }
     >();
     for (const action of catalog?.actions ?? []) {
       const group = groups.get(action.app_id) ?? {
         actions: [],
         capabilities: [],
+        hostSkills: [],
       };
       group.actions.push(action);
       groups.set(action.app_id, group);
@@ -126,9 +149,19 @@ export default function PawAppAccessSettings() {
       const group = groups.get(capability.app_id) ?? {
         actions: [],
         capabilities: [],
+        hostSkills: [],
       };
       group.capabilities.push(capability);
       groups.set(capability.app_id, group);
+    }
+    for (const skill of catalog?.host_skill_imports ?? []) {
+      const group = groups.get(skill.app_id) ?? {
+        actions: [],
+        capabilities: [],
+        hostSkills: [],
+      };
+      group.hostSkills.push(skill);
+      groups.set(skill.app_id, group);
     }
     return [...groups.entries()];
   }, [catalog]);
@@ -392,6 +425,107 @@ export default function PawAppAccessSettings() {
                 })}
               </div>
             )}
+
+            <div
+              className={`${settingsStyles.settingsCard} ${styles.importedSkills}`}
+            >
+              <div className={styles.importedSkillsHeader}>
+                <div>
+                  <strong>
+                    {t(
+                      "settingsCenter.appHostSkillsTitle",
+                      "Imported host skills",
+                    )}
+                  </strong>
+                  <span>
+                    {t(
+                      "settingsCenter.appHostSkillsHint",
+                      "Declared by this app. Availability follows the selected agent's Skills settings; this panel does not grant access.",
+                    )}
+                  </span>
+                </div>
+                <Button size="small" href="/skills">
+                  {t(
+                    "settingsCenter.appHostSkillsManage",
+                    "Manage Agent skills",
+                  )}
+                </Button>
+              </div>
+              {section.hostSkills.length === 0 ? (
+                <div className={styles.noImportedSkills}>
+                  {t(
+                    "settingsCenter.appHostSkillsEmpty",
+                    "This app does not request any host skills.",
+                  )}
+                </div>
+              ) : (
+                section.hostSkills.map((skill) => {
+                  const statusLabel =
+                    skill.status === "available"
+                      ? t("settingsCenter.appHostSkillAvailable", "Available")
+                      : skill.status === "disabled"
+                      ? t(
+                          "settingsCenter.appHostSkillDisabled",
+                          "Disabled in Agent Skills",
+                        )
+                      : skill.status === "not_installed"
+                      ? t(
+                          "settingsCenter.appHostSkillNotInstalled",
+                          "Not installed",
+                        )
+                      : skill.status === "tool_dependency_unavailable"
+                      ? t(
+                          "settingsCenter.appHostSkillToolUnavailable",
+                          "Required tool unavailable",
+                        )
+                      : t(
+                          "settingsCenter.appHostSkillUnavailable",
+                          "Unavailable for this agent",
+                        );
+                  return (
+                    <article
+                      key={`${skill.app_id}:${skill.skill_id}`}
+                      className={styles.importedSkill}
+                    >
+                      <span className={styles.skillIcon}>
+                        <BookOpen size={17} />
+                      </span>
+                      <div className={styles.importedSkillCopy}>
+                        <div className={styles.actionName}>
+                          <strong>{skill.skill_id}</strong>
+                          <Tag color={skillStatusColor(skill.status)}>
+                            {statusLabel}
+                          </Tag>
+                        </div>
+                        <p>
+                          {skill.description ||
+                            t(
+                              "settingsCenter.appHostSkillManifestOnly",
+                              "Requested by the app manifest.",
+                            )}
+                        </p>
+                        {(skill.tool_refs.length > 0 ||
+                          skill.missing_tool_refs.length > 0) && (
+                          <div className={styles.skillTags}>
+                            {skill.tool_refs.map((tool) => (
+                              <Tag key={tool}>{tool}</Tag>
+                            ))}
+                            {skill.missing_tool_refs.map((tool) => (
+                              <Tag key={`missing:${tool}`} color="red">
+                                {t("settingsCenter.appHostSkillMissingTool", {
+                                  tool,
+                                  defaultValue: "Missing: {{tool}}",
+                                })}
+                              </Tag>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </article>
+                  );
+                })
+              )}
+            </div>
 
             {section.actions.length > 0 && (
               <Collapse

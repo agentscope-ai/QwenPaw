@@ -31,10 +31,28 @@ export interface PawAppGrantCapability {
   stale: boolean;
 }
 
+export interface PawAppHostSkillImportStatus {
+  app_id: string;
+  skill_id: string;
+  description: string;
+  tool_refs: string[];
+  missing_tool_refs: string[];
+  installed: boolean;
+  enabled: boolean;
+  available: boolean;
+  status:
+    | "available"
+    | "disabled"
+    | "not_installed"
+    | "unavailable"
+    | "tool_dependency_unavailable";
+}
+
 export interface PawAppGrantCatalog {
   revision: number;
   actions: PawAppGrantAction[];
   capabilities?: PawAppGrantCapability[];
+  host_skill_imports?: PawAppHostSkillImportStatus[];
 }
 
 export interface PawAppGrantUpdate {

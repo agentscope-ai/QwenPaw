@@ -13,7 +13,14 @@ from qwenpaw.pawapp.tasks import (
     CommandLookup,
     ExecutorEvent,
     ExecutorRunRef,
+    LocalizedText,
     SubmissionLookup,
+    TaskExperienceContextItem,
+    TaskExperienceDefinition,
+    TaskExperienceStepDefinition,
+    TaskExperienceStepState,
+    TaskExperienceUpdate,
+    TaskExperienceViewDefinition,
     TaskScope,
     TaskCommand,
     TaskStoreError,
@@ -51,6 +58,149 @@ def data_action_descriptor() -> ActionDescriptor:
         effects=("model_usage", "datasource_query"),
         adapter_ref="qwenpaw-data.analysis.v1",
     )
+
+
+def data_task_experience() -> TaskExperienceDefinition:
+    """Describe Data's business-facing task experience for Main Chat."""
+
+    def text(default: str, zh: str) -> LocalizedText:
+        return LocalizedText(default=default, translations={"zh-CN": zh})
+
+    return TaskExperienceDefinition(
+        action_id="analyze",
+        title=text("Data analysis", "数据分析"),
+        steps=tuple(
+            TaskExperienceStepDefinition(id=step_id, label=text(en, zh))
+            for step_id, en, zh in (
+                ("read_data", "Read data", "读取数据"),
+                ("confirm_scope", "Confirm scope", "确认口径"),
+                ("analyze", "Analyze", "分析归因"),
+                ("publish_report", "Publish report", "发布报告"),
+            )
+        ),
+        views=(
+            TaskExperienceViewDefinition(
+                id="summary",
+                label=text("Summary", "结论"),
+                open_label=text("Open analysis", "打开分析"),
+            ),
+            TaskExperienceViewDefinition(
+                id="evidence",
+                label=text("Evidence", "证据"),
+                open_label=text("Review evidence", "查看证据"),
+            ),
+            TaskExperienceViewDefinition(
+                id="diagnostics",
+                label=text("Diagnostics", "诊断"),
+                open_label=text("Open diagnostics", "打开诊断"),
+            ),
+        ),
+        default_view_id="summary",
+    )
+
+
+def _data_experience_update(
+    submission: TaskSubmission,
+    event: ExecutorEvent,
+) -> TaskExperienceUpdate:
+    step_ids = ("read_data", "confirm_scope", "analyze", "publish_report")
+    if event.status == "waiting_for_input":
+        active = "confirm_scope"
+    elif event.status == "succeeded":
+        active = "publish_report"
+    elif event.detail.get("artifact") is not None:
+        active = "publish_report"
+    elif event.sequence == 0:
+        active = "read_data"
+    else:
+        active = "analyze"
+    active_index = step_ids.index(active)
+    failed = event.status in {"failed", "cancelled", "interrupted"}
+    succeeded = event.status == "succeeded"
+    waiting = event.status == "waiting_for_input"
+    states = []
+    for index, step_id in enumerate(step_ids):
+        if succeeded or index < active_index:
+            status = "complete"
+        elif index > active_index:
+            status = "pending"
+        elif failed:
+            status = "failed"
+        elif waiting:
+            status = "waiting"
+        else:
+            status = "running"
+        states.append(TaskExperienceStepState(step_id=step_id, status=status))
+    return TaskExperienceUpdate(
+        step_states=tuple(states),
+        active_step_id=active,
+        context_items=(
+            TaskExperienceContextItem(
+                id="datasource",
+                label=LocalizedText(
+                    default="Data source",
+                    translations={"zh-CN": "数据源"},
+                ),
+                value=submission.inputs["datasource_id"],
+            ),
+        ),
+        view_id="summary",
+    )
+
+
+def _artifact_presentation(source: dict[str, Any]) -> dict[str, Any]:
+    name = str(source.get("name", "")).casefold()
+    path = str(source.get("path", "")).casefold()
+    media_type = str(source.get("media_type", "")).casefold()
+    business_report = any(
+        token in f"{name} {path}"
+        for token in ("report", "analysis", "summary", "insight")
+    )
+    if media_type.startswith("image/"):
+        role, kind, visibility, preview, rank = (
+            "supporting",
+            "data/chart",
+            "chat",
+            "inline",
+            20,
+        )
+    elif business_report and media_type in {
+        "text/html",
+        "text/markdown",
+        "application/pdf",
+        "text/plain",
+    }:
+        role, kind, visibility, preview, rank = (
+            "primary",
+            "data/report",
+            "chat",
+            "inline" if media_type != "application/pdf" else "link",
+            0,
+        )
+    elif media_type in {"text/csv", "application/csv"}:
+        role, kind, visibility, preview, rank = (
+            "source",
+            "data/dataset",
+            "app_only",
+            "none",
+            200,
+        )
+    else:
+        role, kind, visibility, preview, rank = (
+            "diagnostic",
+            "data/diagnostic",
+            "app_only",
+            "none",
+            300,
+        )
+    return {
+        "schema_version": 1,
+        "role": role,
+        "kind": kind,
+        "visibility": visibility,
+        "preview": preview,
+        "rank": rank,
+    }
 
 
 class DataTaskAdapter:
@@ -428,6 +578,10 @@ class DataTaskAdapter:
         source = event.detail.get("artifact")
         if source is None:
             return event.model_copy(update={"detail": detail})
+        source = {
+            **source,
+            "presentation": _artifact_presentation(source),
+        }
         content = await self._download_artifact(submission, source)
         ref = await artifacts.publish(submission, source, content)
         detail.pop("artifact", None)
@@ -482,6 +636,13 @@ class DataTaskAdapter:
                     raise TaskStoreError("invalid_engine_stream")
                 async for frame in read_frames(response.aiter_lines()):
                     event = projection.apply(frame)
+                    if submission.handle.experience is not None:
+                        detail = dict(event.detail)
+                        detail["experience_update"] = _data_experience_update(
+                            submission,
+                            event,
+                        ).model_dump(mode="json")
+                        event = event.model_copy(update={"detail": detail})
                     if event.sequence == after and (
                         handle.text_result is not None
                         and event.text_result != handle.text_result

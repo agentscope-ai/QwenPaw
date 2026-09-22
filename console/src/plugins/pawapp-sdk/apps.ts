@@ -44,6 +44,23 @@ function artifactProducer(value: unknown): value is Record<string, string> {
   );
 }
 
+function artifactPresentation(value: unknown): boolean {
+  return (
+    record(value) &&
+    value.schema_version === 1 &&
+    ["primary", "supporting", "diagnostic", "source"].includes(
+      String(value.role),
+    ) &&
+    typeof value.kind === "string" &&
+    /^[a-z0-9][a-z0-9._-]*\/[a-z0-9][a-z0-9._-]*$/.test(value.kind) &&
+    ["chat", "app_only"].includes(String(value.visibility)) &&
+    ["inline", "link", "none"].includes(String(value.preview)) &&
+    Number.isSafeInteger(value.rank) &&
+    Number(value.rank) >= 0 &&
+    Number(value.rank) <= 10000
+  );
+}
+
 function artifactRef(value: unknown): value is PawArtifactRef {
   return (
     record(value) &&
@@ -62,6 +79,9 @@ function artifactRef(value: unknown): value is PawArtifactRef {
     typeof value.digest === "string" &&
     /^sha256:[0-9a-f]{64}$/.test(value.digest) &&
     artifactProducer(value.producer) &&
+    (value.presentation === undefined ||
+      value.presentation === null ||
+      artifactPresentation(value.presentation)) &&
     Number.isFinite(value.created_at)
   );
 }
@@ -104,7 +124,10 @@ function handoffRequest(
     context.decision_refs.length <= 128 &&
     context.decision_refs.every(artifactRef) &&
     projectRef(context.project_ref) &&
-    identity(context.resume_ref)
+    identity(context.resume_ref) &&
+    (context.view_id === undefined ||
+      context.view_id === null ||
+      identity(context.view_id))
   );
 }
 

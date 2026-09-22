@@ -36,6 +36,19 @@ const enabledCatalog: PawAppGrantCatalog = {
       stale: false,
     },
   ],
+  host_skill_imports: [
+    {
+      app_id: "qwenpaw-data",
+      skill_id: "guidance",
+      description: "Shared guidance for delegated analysis.",
+      tool_refs: [],
+      missing_tool_refs: [],
+      installed: false,
+      enabled: false,
+      available: false,
+      status: "not_installed",
+    },
+  ],
   actions: [
     {
       app_id: "qwenpaw-data",
@@ -84,6 +97,9 @@ describe("PawAppAccessSettings", () => {
     expect(await screen.findByText("Analyze data")).toBeVisible();
     expect(screen.getByText("Analysis")).toBeVisible();
     expect(screen.getByText("model_usage")).toBeVisible();
+    expect(screen.getByText("Imported host skills")).toBeVisible();
+    expect(screen.getByText("guidance")).toBeVisible();
+    expect(screen.getByText("Not installed")).toBeVisible();
 
     await userEvent.click(
       screen.getByRole("button", { name: /Advanced action limits/ }),

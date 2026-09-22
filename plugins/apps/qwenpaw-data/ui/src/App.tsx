@@ -21,7 +21,11 @@ export function dataRouteFromHandoff(handoff: PawHandoffRequest): string {
   ) {
     throw new Error("unsupported_data_handoff");
   }
-  return `/console?session_id=${encodeURIComponent(project.project_id)}`;
+  const query = new URLSearchParams({ session_id: project.project_id });
+  if (handoff.context.view_id) {
+    query.set("paw_view", handoff.context.view_id);
+  }
+  return `/console?${query.toString()}`;
 }
 
 /**
@@ -31,9 +35,7 @@ export function dataRouteFromHandoff(handoff: PawHandoffRequest): string {
  */
 export function App({ paw }: { paw?: PawSdk } = {}) {
   const sdk = useMemo(
-    () =>
-      paw ??
-      (window as PawHostWindow).QwenPaw?.paw?.forApp("qwenpaw-data"),
+    () => paw ?? (window as PawHostWindow).QwenPaw?.paw?.forApp("qwenpaw-data"),
     [paw],
   );
   const handoffId = new URLSearchParams(window.location.search).get("handoff");

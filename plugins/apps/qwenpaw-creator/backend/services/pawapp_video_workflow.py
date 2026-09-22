@@ -105,9 +105,16 @@ from qwenpaw.pawapp.tasks import (
     CommandLookup,
     ExecutorEvent,
     ExecutorRunRef,
+    LocalizedText,
     SubmissionLookup,
     TaskAnswer,
     TaskCommand,
+    TaskExperienceContextItem,
+    TaskExperienceDefinition,
+    TaskExperienceStepDefinition,
+    TaskExperienceStepState,
+    TaskExperienceUpdate,
+    TaskExperienceViewDefinition,
     TaskInputOption,
     TaskInputQuestion,
     TaskInputRequest,
@@ -381,6 +388,46 @@ def creator_create_video_action_descriptor() -> ActionDescriptor:
     )
 
 
+def creator_create_video_experience() -> TaskExperienceDefinition:
+    """App-owned display language; intentionally outside the grant digest."""
+
+    def text(default: str, zh: str) -> LocalizedText:
+        return LocalizedText(default=default, translations={"zh-CN": zh})
+
+    return TaskExperienceDefinition(
+        action_id=_CREATE_VIDEO_ACTION_ID,
+        title=text("Create a video", "创作视频"),
+        steps=tuple(
+            TaskExperienceStepDefinition(id=step_id, label=text(en, zh))
+            for step_id, en, zh in (
+                ("plan", "Plan", "策划"),
+                ("storyboard", "Storyboard", "分镜"),
+                ("generate", "Generate media", "生成素材"),
+                ("compose", "Compose", "合成"),
+                ("publish", "Publish", "发布"),
+            )
+        ),
+        views=(
+            TaskExperienceViewDefinition(
+                id="project",
+                label=text("Project", "项目"),
+                open_label=text("Open project", "打开项目"),
+            ),
+            TaskExperienceViewDefinition(
+                id="preview",
+                label=text("Preview", "预览"),
+                open_label=text("Open preview", "打开预览"),
+            ),
+            TaskExperienceViewDefinition(
+                id="generation_details",
+                label=text("Generation details", "生成详情"),
+                open_label=text("View generation details", "查看生成详情"),
+            ),
+        ),
+        default_view_id="project",
+    )
+
+
 CreatorVideoWorkflowStage = Literal[
     "prepared",
     "bootstrapping",
@@ -472,7 +519,7 @@ class CreatorVideoWorkflowEvent(_FrozenWorkflowModel):
             and self.approval_request_id is not None
         ):
             raise ValueError(
-                "setup and approval requests are mutually exclusive"
+                "setup and approval requests are mutually exclusive",
             )
         return self
 
@@ -565,7 +612,7 @@ class CreatorVideoPublicationReceipt(_FrozenWorkflowModel):
             raise ValueError("publication intent cannot carry terminal state")
         if self.state == "published" and (not published or superseded):
             raise ValueError(
-                "published receipt requires only publication data"
+                "published receipt requires only publication data",
             )
         if self.state == "superseded" and (not superseded or validated):
             raise ValueError("superseded receipt requires supersession data")
@@ -761,7 +808,7 @@ class CreatorVideoWorkflowSubmission(_FrozenWorkflowModel):
                 != self.source_receipt.receipt_digest
             ):
                 raise ValueError(
-                    "publication intent must bind its source receipt"
+                    "publication intent must bind its source receipt",
                 )
         if self.superseded_publications:
             if not self.publication_committed or any(
@@ -797,6 +844,92 @@ _EVENT_TEXT: dict[str, str] = {
     "failed": "Creator could not complete the video.",
     "cancelled": "Creator video workflow was cancelled.",
 }
+_EXPERIENCE_STEPS = ("plan", "storyboard", "generate", "compose", "publish")
+_EXPERIENCE_STEP_BY_STAGE = {
+    "prepared": "plan",
+    "bootstrapping": "plan",
+    "planning": "plan",
+    "storyboarding": "storyboard",
+    "generating_video": "generate",
+    "composing": "compose",
+    "publishing": "publish",
+    "succeeded": "publish",
+}
+
+
+def _creator_experience_update(
+    submission: TaskSubmission,
+    record: CreatorVideoWorkflowSubmission,
+    workflow_event: CreatorVideoWorkflowEvent,
+) -> TaskExperienceUpdate:
+    stage = workflow_event.stage
+    active = _EXPERIENCE_STEP_BY_STAGE.get(stage)
+    if active is None:
+        prior = next(
+            (
+                item.stage
+                for item in reversed(record.events)
+                if item.sequence < workflow_event.sequence
+                and item.stage in _EXPERIENCE_STEP_BY_STAGE
+            ),
+            "planning",
+        )
+        active = _EXPERIENCE_STEP_BY_STAGE[prior]
+    active_index = _EXPERIENCE_STEPS.index(active)
+    terminal_success = stage == "succeeded"
+    failed = stage in {"failed", "cancelled"}
+    waiting = stage in {"waiting_setup", "waiting_approval"}
+    states = []
+    for index, step_id in enumerate(_EXPERIENCE_STEPS):
+        if terminal_success or index < active_index:
+            status = "complete"
+        elif index > active_index:
+            status = "pending"
+        elif failed:
+            status = "failed"
+        elif waiting:
+            status = "waiting"
+        else:
+            status = "running"
+        states.append(TaskExperienceStepState(step_id=step_id, status=status))
+    normalized = normalize_creator_video_workflow_input(submission.inputs)
+    context = [
+        TaskExperienceContextItem(
+            id="resolution",
+            label=LocalizedText(
+                default="Resolution",
+                translations={"zh-CN": "分辨率"},
+            ),
+            value=normalized.resolution,
+        ),
+        TaskExperienceContextItem(
+            id="aspect_ratio",
+            label=LocalizedText(
+                default="Aspect ratio",
+                translations={"zh-CN": "画面比例"},
+            ),
+            value=normalized.aspect_ratio,
+        ),
+    ]
+    if normalized.duration_seconds is not None:
+        context.append(
+            TaskExperienceContextItem(
+                id="duration",
+                label=LocalizedText(
+                    default="Target duration",
+                    translations={"zh-CN": "目标时长"},
+                ),
+                value=f"{normalized.duration_seconds}s",
+            ),
+        )
+    return TaskExperienceUpdate(
+        step_states=tuple(states),
+        active_step_id=active,
+        context_items=tuple(context),
+        view_id="preview" if terminal_success else "project",
+    )
+
+
 _SETUP_NEED = {
     IMAGE_REQUIREMENT_ID: (
         "creator_image_model_missing",
@@ -1260,7 +1393,7 @@ def _resolve_final_source(
                 task_dispatch_key,
             )
             is not None
-        )
+        ),
     )
     if (
         task is None
@@ -1496,9 +1629,9 @@ def _classify_observed_state(
     ) -> _ObservedWorkflowState:
         state_evidence = {**evidence, "stage": stage}
         if source_receipt is not None:
-            state_evidence["source_receipt_digest"] = (
-                source_receipt.receipt_digest
-            )
+            state_evidence[
+                "source_receipt_digest"
+            ] = source_receipt.receipt_digest
         return _ObservedWorkflowState(
             stage=stage,
             evidence=state_evidence,
@@ -1518,7 +1651,7 @@ def _classify_observed_state(
     recoverable_run_cancellation = bool(
         latest_run is not None
         and latest_run.status is AgentRunStatus.CANCELLED
-        and latest_error_code in _RECOVERABLE_CANCELLATION_CODES
+        and latest_error_code in _RECOVERABLE_CANCELLATION_CODES,
     )
     if not record.publication_committed:
         if latest_run is not None:
@@ -1600,7 +1733,7 @@ def _classify_observed_state(
         in {
             CreatorGoalStatus.WAITING_REVIEW,
             CreatorGoalStatus.RESUME_REQUIRED,
-        }
+        },
     )
     final_source = _resolve_final_source(project_snapshot, graph, tasks)
     if final_source.source_receipt is not None:
@@ -2199,13 +2332,14 @@ class CreatorVideoWorkflowTaskAdapter:
             )
             if authorization.status is ExecutionAuthorizationStatus.PENDING
         )
-        pending_authorizations, expired_authorization = (
-            _expire_stale_pending_authorizations(
-                executions,
-                project,
-                graph,
-                pending_authorizations,
-            )
+        (
+            pending_authorizations,
+            expired_authorization,
+        ) = _expire_stale_pending_authorizations(
+            executions,
+            project,
+            graph,
+            pending_authorizations,
         )
         if expired_authorization:
             notify_creator_agent_runtime(record.project_id)
@@ -2518,7 +2652,7 @@ class CreatorVideoWorkflowTaskAdapter:
             publication = current.publication
             if publication is None:
                 raise TaskStoreError(
-                    "creator_video_publication_intent_missing"
+                    "creator_video_publication_intent_missing",
                 )
             if publication.state == "published":
                 if publication.artifact_ref != artifact_ref:
@@ -2593,7 +2727,7 @@ class CreatorVideoWorkflowTaskAdapter:
                     artifact_ref = publication.artifact_ref
                     if artifact_ref is None:
                         raise TaskStoreError(
-                            "creator_video_publication_artifact_missing"
+                            "creator_video_publication_artifact_missing",
                         )
                     generation = snapshot.generation
                     validated = publication.model_copy(
@@ -2750,6 +2884,17 @@ class CreatorVideoWorkflowTaskAdapter:
                 latest,
                 failure_code,
             )
+        source = {
+            **source,
+            "presentation": {
+                "schema_version": 1,
+                "role": "primary",
+                "kind": "creator/video",
+                "visibility": "chat",
+                "preview": "inline",
+                "rank": 0,
+            },
+        }
         try:
             artifact_ref = await artifacts.publish(
                 submission,
@@ -2959,6 +3104,16 @@ class CreatorVideoWorkflowTaskAdapter:
                         record,
                         authorization,
                     ).model_dump(mode="json")
+                if submission.handle.experience is not None:
+                    event_detail[
+                        "experience_update"
+                    ] = _creator_experience_update(
+                        submission,
+                        record,
+                        workflow_event,
+                    ).model_dump(
+                        mode="json"
+                    )
                 yield ExecutorEvent(
                     run_ref=run_ref,
                     sequence=workflow_event.sequence,
@@ -3380,7 +3535,8 @@ class CreatorVideoWorkflowTaskAdapter:
             return CommandLookup(state="not_found")
         if command.request_id is None:
             return CommandLookup(
-                state="rejected", reason="command_unsupported"
+                state="rejected",
+                reason="command_unsupported",
             )
         try:
             target = self._approval_target(command)

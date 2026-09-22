@@ -87,8 +87,19 @@ async def test_discover_describe_delegate_and_read(host):
     results = await asyncio.gather(
         *(bound["delegate"](**args) for _ in range(3)),
     )
-    task_ids = {payload(result)["task"]["task_id"] for result in results}
+    result_payloads = [payload(result) for result in results]
+    task_ids = {result["task"]["task_id"] for result in result_payloads}
     assert len(task_ids) == 1
+    assert all(
+        result["monitoring"]
+        == {
+            "owner": "host",
+            "surface": "chat_card",
+            "poll_required": False,
+            "completion_delivery": "automatic_main_chat",
+        }
+        for result in result_payloads
+    )
     task_id = task_ids.pop()
     await settled(host, task_id)
     read = payload(
@@ -106,14 +117,15 @@ async def test_discover_describe_delegate_and_read(host):
 
 
 def test_creator_video_guidance_uses_intent_level_action():
-    list_apps = next(
-        tool
-        for tool in make_task_tools(MagicMock())
-        if tool.__name__ == "list_apps"
-    )
+    task_tools = {tool.__name__: tool for tool in make_task_tools(MagicMock())}
+    list_apps = task_tools["list_apps"]
     assert "choose create-video" in list_apps.__doc__
     assert "explicitly wants an empty workspace" in list_apps.__doc__
     assert "Never ask the user" in list_apps.__doc__
+    assert "Never run shell sleeps" in task_tools["delegate"].__doc__
+    assert "same assistant turn" in task_tools["get_app_task"].__doc__
+    assert "Do not open the App or use" in task_tools["get_app_task"].__doc__
+    assert "task button" in task_tools["get_app_task"].__doc__
 
 
 @pytest.mark.asyncio
@@ -517,6 +529,7 @@ async def test_builder_uses_private_context_not_payload_claims(
         "describe_action",
         "delegate",
         "get_app_task",
+        "list_app_artifacts",
         "open_app",
         "open_task_setup",
         "answer_task",

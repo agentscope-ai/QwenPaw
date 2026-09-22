@@ -19,7 +19,16 @@ from qwenpaw.pawapp.capability_routes import router as capability_router
 
 
 class FakePlugins:
-    def __init__(self, *, local_tools=None, local_skill_dirs=None):
+    def __init__(
+        self,
+        *,
+        host_tools=None,
+        host_skills=None,
+        local_tools=None,
+        local_skill_dirs=None,
+    ):
+        self.host_tools = host_tools or set()
+        self.host_skills = host_skills or {}
         self.local_tools = local_tools or {}
         self.local_skill_dirs = local_skill_dirs or []
 
@@ -32,8 +41,8 @@ class FakePlugins:
                 "local_skill_dirs": [],
             }
         return {
-            "host_tools": set(),
-            "host_skills": {},
+            "host_tools": set(self.host_tools),
+            "host_skills": dict(self.host_skills),
             "local_tools": dict(self.local_tools),
             "local_skill_dirs": list(self.local_skill_dirs),
         }
@@ -59,7 +68,7 @@ class FakeTasks:
 class NoWorkspaces:
     async def get_agent(self, workspace_id):
         raise AssertionError(
-            f"private capability resolved workspace {workspace_id}"
+            f"private capability resolved workspace {workspace_id}",
         )
 
 
@@ -105,7 +114,8 @@ async def test_private_tool_and_skill_are_scoped_and_audited(
         encoding="utf-8",
     )
     (skill_dir / "reference.txt").write_text(
-        "private reference", encoding="utf-8"
+        "private reference",
+        encoding="utf-8",
     )
     plugin_registry = FakePlugins(
         local_tools={"double": private_tool("double", double)},
@@ -169,7 +179,7 @@ async def test_token_and_capability_scope_fail_closed(tmp_path: Path) -> None:
 
     with pytest.raises(CapabilityError, match="invalid_capability_token"):
         await broker.authorize_token(
-            token[:-1] + ("A" if token[-1] != "A" else "B")
+            token[:-1] + ("A" if token[-1] != "A" else "B"),
         )
     with pytest.raises(CapabilityError, match="capability_not_found"):
         await broker.invoke(
@@ -203,6 +213,68 @@ async def test_skill_with_missing_tool_dependency_is_explicitly_blocked(
     assert catalog[0].blocked_reason == "skill_dependency_unavailable"
     with pytest.raises(CapabilityError, match="skill_dependency_unavailable"):
         await broker.load_skill(scope(), "app/skill/guide")
+
+
+@pytest.mark.asyncio
+async def test_host_skill_import_statuses_join_manifest_and_workspace_state(
+    tmp_path: Path,
+) -> None:
+    workspace_dir = tmp_path / "workspace-1"
+    for name in ("guidance", "disabled-guide"):
+        directory = workspace_dir / "skills" / name
+        directory.mkdir(parents=True)
+        (directory / "SKILL.md").write_text(
+            f"---\nname: {name}\ndescription: {name} description\n---\n"
+            "Use the guide.\n",
+            encoding="utf-8",
+        )
+    (workspace_dir / "skill.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "workspace-skill-manifest.v1",
+                "version": 1,
+                "skills": {
+                    "guidance": {"enabled": True, "channels": ["all"]},
+                    "disabled-guide": {
+                        "enabled": False,
+                        "channels": ["all"],
+                    },
+                },
+            },
+        ),
+        encoding="utf-8",
+    )
+
+    class Workspaces:
+        async def get_agent(self, workspace_id):
+            assert workspace_id == "workspace-1"
+            return SimpleNamespace(workspace_dir=workspace_dir)
+
+    broker = CapabilityBroker(
+        workspace_manager=Workspaces(),
+        plugin_registry=FakePlugins(
+            host_skills={
+                "guidance": (),
+                "disabled-guide": (),
+                "missing-guide": (),
+            },
+        ),
+        state_dir=tmp_path / "state",
+    )
+
+    statuses = await broker.host_skill_import_statuses(
+        principal_id="alice",
+        workspace_id="workspace-1",
+        app_ids=("fixture",),
+    )
+
+    assert [(item["skill_id"], item["status"]) for item in statuses] == [
+        ("disabled-guide", "disabled"),
+        ("guidance", "available"),
+        ("missing-guide", "not_installed"),
+    ]
+    assert statuses[1]["description"] == "guidance description"
+    assert statuses[1]["available"] is True
 
 
 @pytest.mark.asyncio

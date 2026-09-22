@@ -114,6 +114,30 @@ async def test_publication_is_immutable_versioned_and_scoped(tmp_path):
         )
 
 
+async def test_artifact_presentation_is_persisted_without_hiding_library(
+    tmp_path,
+):
+    _, submission, _ = await accepted_submission(tmp_path)
+    artifacts = await ArtifactStore.open(tmp_path / "artifacts")
+    metadata = {
+        **source(b"trace"),
+        "presentation": {
+            "role": "diagnostic",
+            "kind": "data/diagnostic",
+            "visibility": "app_only",
+            "preview": "none",
+            "rank": 300,
+        },
+    }
+
+    ref = await artifacts.publish(submission, metadata, b"trace")
+    collection = await artifacts.list(submission.handle.scope)
+
+    assert ref.presentation is not None
+    assert ref.presentation.visibility == "app_only"
+    assert collection.items == (ref,)
+
+
 async def test_v1_store_migrates_exact_handoff_grants(tmp_path):
     artifacts = await ArtifactStore.open(tmp_path / "artifacts")
     connection = sqlite3.connect(artifacts.path)
