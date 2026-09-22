@@ -41,8 +41,6 @@ export interface TranscriptPosition {
   turn_id: string;
   turn_seq: number;
   ordinal: number;
-  partial_before: boolean;
-  partial_after: boolean;
 }
 
 export interface ChatHistory {

@@ -205,7 +205,6 @@ vi.mock("@/contexts/ThemeContext", () => ({
 
 vi.mock("./sessionApi", () => ({
   default: {
-    onHistoryMetadataChanged: null,
     onSessionIdResolved: null,
     onSessionRemoved: null,
     onSessionSelected: null,
@@ -223,7 +222,6 @@ vi.mock("./sessionApi", () => ({
     refreshSession: vi.fn(async (id: string) => ({ id, messages: [] })),
     getRealIdForSession: vi.fn(() => null),
     getBackendSessionId: vi.fn(() => "backend-session-1"),
-    getHistoryMetadata: vi.fn(() => undefined),
     loadOlderHistory: vi.fn(async () => ({
       messages: [],
       page: {
@@ -570,8 +568,6 @@ describe("ChatPage coverage", () => {
       }),
     );
     vi.mocked(sessionApi.createSession).mockClear();
-    vi.mocked(sessionApi.getHistoryMetadata).mockReset();
-    vi.mocked(sessionApi.getHistoryMetadata).mockReturnValue(undefined);
     sessionApi.preferredChatId = null;
     sessionApi.lastActiveChatId = "last-chat-1";
     localStorage.clear();

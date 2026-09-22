@@ -684,14 +684,6 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
 
   private setHistoryPage(backendId: string, page: ChatHistoryMetadata): void {
     this.historyPages.set(backendId, page);
-    this.onHistoryMetadataChanged?.(backendId, page);
-  }
-
-  /** Return the latest durable transcript metadata for a session. */
-  getHistoryMetadata(sessionId: string): ChatHistoryMetadata | undefined {
-    const entry = this.findSession(sessionId) as ExtendedSession | undefined;
-    const backendId = entry?.realId ?? sessionId;
-    return this.historyPages.get(backendId) ?? entry?.historyPage;
   }
 
   private getCachedConvertedSession(
@@ -1022,7 +1014,6 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     this.onSessionRemoved = null;
     this.onSessionSelected = null;
     this.onSessionCreated = null;
-    this.onHistoryMetadataChanged = null;
   }
 
   /**
@@ -1083,11 +1074,6 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
    * Consumers can register here to update the URL with the new session id.
    */
   onSessionCreated: ((sessionId: string) => void) | null = null;
-
-  /** Called whenever durable transcript pagination metadata changes. */
-  onHistoryMetadataChanged:
-    | ((sessionId: string, page: ChatHistoryMetadata) => void)
-    | null = null;
 
   private createEmptySession(
     sessionId: string,

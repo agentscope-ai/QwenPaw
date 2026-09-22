@@ -240,8 +240,6 @@ describe("bound session history owner epochs", () => {
     const chatId = "11111111-1111-4111-8111-111111111111";
     const pending = deferred<ChatHistory>();
     const history = vi.spyOn(api, "getChat").mockReturnValue(pending.promise);
-    const metadataChanged = vi.fn();
-    sessionApi.onHistoryMetadataChanged = metadataChanged;
     const clearLoading = vi.fn();
     const oldObserver = vi.fn((_id, session) => {
       if (session && !session.generating) clearLoading();
@@ -265,7 +263,6 @@ describe("bound session history owner epochs", () => {
     expect(current).toMatchObject({ id: chatId, generating: true });
     expect(currentAdapter.isReady(chatId)).toBe(true);
     expect(currentObserver).toHaveBeenCalledExactlyOnceWith(chatId, current);
-    expect(metadataChanged).toHaveBeenCalledTimes(1);
 
     pending.resolve({ messages: [], status: "idle" });
     const [staleBound, staleDirect] = await Promise.all([
@@ -279,7 +276,6 @@ describe("bound session history owner epochs", () => {
     expect(staleDirect).toMatchObject({ id: chatId, generating: false });
     expect(currentAdapter.isReady(chatId)).toBe(true);
     expect(currentObserver).toHaveBeenCalledTimes(1);
-    expect(metadataChanged).toHaveBeenCalledTimes(1);
 
     // The original pre-call guard must also reject newly invoked stale APIs.
     await expect(oldBound.getSession(chatId)).resolves.toBeUndefined();
@@ -315,8 +311,6 @@ describe("durable transcript pagination", () => {
 
   it("loads one older page and stops after the cursor is exhausted", async () => {
     const chatId = "33333333-3333-4333-8333-333333333333";
-    const metadataChanged = vi.fn();
-    sessionApi.onHistoryMetadataChanged = metadataChanged;
     vi.spyOn(api, "getChat").mockResolvedValue({
       messages: [msg({ id: "new-user", content: "new" })],
       status: "idle",
@@ -332,9 +326,6 @@ describe("durable transcript pagination", () => {
     });
 
     await sessionApi.getSession(chatId);
-    expect(sessionApi.getHistoryMetadata(chatId)).toMatchObject({
-      has_more: true,
-    });
     const first = await sessionApi.loadOlderHistory(chatId);
     const exhausted = await sessionApi.loadOlderHistory(chatId);
 
@@ -351,12 +342,6 @@ describe("durable transcript pagination", () => {
     });
     expect(first.noMore).toBe(true);
     expect(exhausted).toEqual({ messages: [], noMore: true });
-    expect(metadataChanged).toHaveBeenLastCalledWith(
-      chatId,
-      expect.objectContaining({
-        has_more: false,
-      }),
-    );
   });
 
   it("releases a failed page request so an explicit retry can succeed", async () => {
@@ -401,8 +386,6 @@ describe("durable transcript pagination", () => {
             turn_id: "turn-1",
             turn_seq: 1,
             ordinal,
-            partial_before: ordinal > 1,
-            partial_after: ordinal < 4,
           },
         },
       });

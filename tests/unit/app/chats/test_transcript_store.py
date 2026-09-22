@@ -136,8 +136,6 @@ def test_page_projects_database_times_without_overwriting_payload(tmp_path):
             "turn_id": "turn-1",
             "turn_seq": 1,
             "ordinal": 0,
-            "partial_before": False,
-            "partial_after": True,
         },
     }
     assert user.status == RunStatus.Completed
@@ -148,8 +146,6 @@ def test_page_projects_database_times_without_overwriting_payload(tmp_path):
             "turn_id": "turn-1",
             "turn_seq": 1,
             "ordinal": 1,
-            "partial_before": True,
-            "partial_after": False,
         },
     }
     assert assistant.status == RunStatus.Completed

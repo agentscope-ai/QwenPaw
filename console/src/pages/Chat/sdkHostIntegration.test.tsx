@@ -187,7 +187,6 @@ vi.mock("@/contexts/ThemeContext", () => ({
 
 vi.mock("./sessionApi", () => ({
   default: {
-    onHistoryMetadataChanged: null,
     onSessionIdResolved: null,
     onSessionRemoved: null,
     onSessionSelected: null,
@@ -203,7 +202,6 @@ vi.mock("./sessionApi", () => ({
     })),
     getRealIdForSession: vi.fn(() => null),
     getBackendSessionId: vi.fn(() => "backend-session-1"),
-    getHistoryMetadata: vi.fn(() => undefined),
     loadOlderHistory: vi.fn(async () => ({
       messages: [],
       page: {

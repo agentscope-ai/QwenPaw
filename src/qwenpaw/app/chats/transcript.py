@@ -484,26 +484,6 @@ class TranscriptStore:
                     next_before=None,
                     has_more=False,
                 )
-            turn_ids = sorted({str(row["turn_id"]) for row in selected})
-            placeholders = ", ".join("?" for _ in turn_ids)
-            bounds = connection.execute(
-                "SELECT m.turn_id, MIN(m.ordinal) AS min_ordinal, "
-                "MAX(m.ordinal) AS max_ordinal FROM transcript_messages m "
-                "JOIN transcript_turns t ON t.session_id = m.session_id "
-                "AND t.turn_id = m.turn_id WHERE m.session_id = ? "
-                f"AND m.turn_id IN ({placeholders}) "
-                "AND m.superseded_at IS NULL "
-                "AND (t.status != 'running' OR m.role = 'user') "
-                "GROUP BY m.turn_id",
-                [session_id, *turn_ids],
-            ).fetchall()
-            turn_bounds = {
-                str(row["turn_id"]): (
-                    int(row["min_ordinal"]),
-                    int(row["max_ordinal"]),
-                )
-                for row in bounds
-            }
             selected.reverse()
             first = selected[0]
             next_before = None
@@ -513,13 +493,7 @@ class TranscriptStore:
                     ordinal=int(first["ordinal"]),
                 )
             return TranscriptPage(
-                messages=[
-                    self._message_from_row(
-                        row,
-                        turn_bounds[str(row["turn_id"])],
-                    )
-                    for row in selected
-                ],
+                messages=[self._message_from_row(row) for row in selected],
                 next_before=next_before,
                 has_more=has_more,
             )
@@ -527,19 +501,15 @@ class TranscriptStore:
     @staticmethod
     def _message_from_row(
         row: sqlite3.Row,
-        turn_bounds: tuple[int, int],
     ) -> Message:
         """Project normalized transcript columns into the wire contract."""
         message = Message.model_validate_json(row["payload_json"])
         metadata = dict(message.metadata or {})
         metadata.setdefault("timestamp", row["message_created_at"])
-        ordinal = int(row["ordinal"])
         metadata["qwenpaw_transcript_position"] = {
             "turn_id": str(row["turn_id"]),
             "turn_seq": int(row["turn_seq"]),
-            "ordinal": ordinal,
-            "partial_before": ordinal > turn_bounds[0],
-            "partial_after": ordinal < turn_bounds[1],
+            "ordinal": int(row["ordinal"]),
         }
 
         turn_status = str(row["turn_status"])
