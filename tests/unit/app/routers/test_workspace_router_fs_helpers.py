@@ -403,6 +403,18 @@ class TestValidateZipData:
         assert "unsafe path" in exc_info.value.detail
         assert "../escape.txt" in exc_info.value.detail
 
+    def test_sibling_directory_entry_is_a_400(self, tmp_path):
+        # "../ws-evil/x" resolves outside ".../ws" but still textually
+        # extends the workspace path, so a prefix check without the
+        # separator lets it through.
+        workspace = (tmp_path / "ws").resolve()
+        workspace.mkdir()
+        data = _zip_bytes({"../ws-evil/pwned.txt": "evil"})
+        with pytest.raises(HTTPException) as exc_info:
+            workspace_router._validate_zip_data(data, workspace)
+        assert exc_info.value.status_code == 400
+        assert "unsafe path" in exc_info.value.detail
+
     def test_absolute_entry_is_a_400(self, tmp_path):
         buffer = io.BytesIO()
         with zipfile.ZipFile(buffer, "w") as zf:

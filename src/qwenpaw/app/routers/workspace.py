@@ -2144,10 +2144,11 @@ def _validate_zip_data(data: bytes, workspace_dir: Path) -> None:
             status_code=400,
             detail="Uploaded file is not a valid zip archive",
         )
+    root = workspace_dir.resolve()
     with zipfile.ZipFile(io.BytesIO(data)) as zf:
         for name in zf.namelist():
-            resolved = (workspace_dir / name).resolve()
-            if not str(resolved).startswith(str(workspace_dir)):
+            resolved = (root / name).resolve()
+            if not resolved.is_relative_to(root):
                 raise HTTPException(
                     status_code=400,
                     detail=f"Zip contains unsafe path: {name}",
