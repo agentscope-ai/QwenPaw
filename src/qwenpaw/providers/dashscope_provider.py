@@ -176,28 +176,10 @@ class DashScopeProvider(OpenAIProvider):
         ):
             effective.setdefault(f"reasoning_effort", effort)
 
-    def get_chat_model_instance(self, model_id: str) -> ChatModelBase:
-        from agentscope.credential import DashScopeCredential
-        from agentscope.model import DashScopeChatModel
-
-        if not self.api_key:
-            from qwenpaw.exceptions import ProviderError
-
-            raise ProviderError(
-                message=(
-                    f"DashScope provider '{self.id}' has no api_key "
-                    "configured."
-                ),
-            )
-
-        credential = DashScopeCredential(
-            api_key=self.api_key,
-            base_url=self.base_url,
-        )
-
-        effective = self.get_effective_generate_kwargs(model_id)
+    def resolve_thinking_kwargs(self, model_id: str, effective: dict) -> dict:
+        """Resolve native parameters identically for requests and display."""
+        effective = self._deep_merge({}, effective)
         self._apply_thinking_config(model_id, effective)
-
         # Back-compat: honour OpenAI-style ``extra_body`` so configs written
         # for the old OpenAIProvider path keep working after migration to the
         # native DashScopeChatModel.  Direct top-level keys take precedence.
@@ -218,6 +200,30 @@ class DashScopeProvider(OpenAIProvider):
                     del remaining_body[eb_key]
             if remaining_body:
                 effective["extra_body"] = remaining_body
+
+        return effective
+
+    def get_chat_model_instance(self, model_id: str) -> ChatModelBase:
+        from agentscope.credential import DashScopeCredential
+        from agentscope.model import DashScopeChatModel
+
+        if not self.api_key:
+            from qwenpaw.exceptions import ProviderError
+
+            raise ProviderError(
+                message=(
+                    f"DashScope provider '{self.id}' has no api_key "
+                    "configured."
+                ),
+            )
+
+        credential = DashScopeCredential(
+            api_key=self.api_key,
+            base_url=self.base_url,
+        )
+
+        effective = self.get_effective_generate_kwargs(model_id)
+        effective = self.resolve_thinking_kwargs(model_id, effective)
 
         _PARAM_KEYS = (
             "max_tokens",

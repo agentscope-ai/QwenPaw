@@ -36,6 +36,22 @@ from .capping_formatter import MAX_INLINE_MEDIA_BYTES
 logger = logging.getLogger(__name__)
 
 
+def resolve_thinking_config(config: dict, parameters=None) -> dict:
+    """Preserve server defaults unless thinking was explicitly configured."""
+    config = dict(config)
+    if config.pop(f"disable_thinking", False):
+        config[f"thinking_config"] = {
+            f"include_thoughts": False,
+            f"thinking_budget": 0,
+        }
+    elif parameters is not None and parameters.thinking_enable:
+        thinking = {f"include_thoughts": True}
+        if parameters.thinking_budget is not None:
+            thinking[f"thinking_budget"] = parameters.thinking_budget
+        config.setdefault(f"thinking_config", thinking)
+    return config
+
+
 # Keep QwenPaw's schema normalization ahead of AgentScope's formatter so
 # custom OpenAI-compatible Gemini proxies receive the same conservative schema
 # shape as the native Gemini endpoint.
@@ -629,9 +645,6 @@ class _GeminiChatModelCompat:
                 tool_choice=None,
                 **config_kwargs,
             ):
-                disable_thinking = bool(
-                    config_kwargs.pop("disable_thinking", False),
-                )
                 config_kwargs = (
                     # pylint: disable-next=protected-access
                     GeminiProvider._adapt_generate_kwargs_for_gemini(
@@ -639,17 +652,10 @@ class _GeminiChatModelCompat:
                     )
                 )
                 merged = {**self._qp_extra_config_kwargs, **config_kwargs}
-                effective_thinking_enable = (
-                    False
-                    if disable_thinking
-                    else bool(
-                        self.parameters.thinking_enable,
-                    )
-                )
                 from datetime import datetime
 
                 formatted = await self.formatter.format(messages)
-                config: dict[str, Any] = {**merged}
+                config = resolve_thinking_config(merged, self.parameters)
                 if self.parameters.max_tokens is not None:
                     config.setdefault(
                         "max_output_tokens",
@@ -659,17 +665,6 @@ class _GeminiChatModelCompat:
                     config["temperature"] = self.parameters.temperature
                 if self.parameters.top_p is not None:
                     config["top_p"] = self.parameters.top_p
-                config.setdefault(
-                    "thinking_config",
-                    {
-                        "include_thoughts": effective_thinking_enable,
-                        "thinking_budget": (
-                            self.parameters.thinking_budget or 1024
-                            if effective_thinking_enable
-                            else 0
-                        ),
-                    },
-                )
 
                 fmt_tools, fmt_tc = self._format_tools(tools, tool_choice)
                 if fmt_tools is not None:

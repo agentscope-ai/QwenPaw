@@ -90,7 +90,7 @@
     },
     "dashscope": {
       "path": "providers/dashscope.json",
-      "sha256": "5893ff154100eea51238e179fc18720ce2f1f11b6193b9de001c2052c9bdf0b0",
+      "sha256": "b42ad3674c38df83c77c5e8ae9fa0560c44743471c189e0ef8786636ba1144b8",
       "api_urls": [
         "https://dashscope.aliyuncs.com/compatible-mode/v1"
       ],
@@ -242,7 +242,6 @@
               "kind": "budget",
               "budget_min": 1,
               "budget_max": 32768,
-              "budget_default": 4000,
               "supports_off": true,
               "wire": "compat_budget"
             },
@@ -282,7 +281,6 @@
               "kind": "budget",
               "budget_min": 1,
               "budget_max": 32768,
-              "budget_default": 4000,
               "supports_off": true,
               "wire": "compat_budget"
             },
@@ -322,7 +320,6 @@
               "kind": "budget",
               "budget_min": 1,
               "budget_max": 32768,
-              "budget_default": 4000,
               "supports_off": true,
               "wire": "compat_budget"
             },
@@ -3450,7 +3447,7 @@
     },
     "gemini": {
       "path": "providers/gemini.json",
-      "sha256": "dec600cb1f8902aae25651f87cfd5065a4f301ac95fcb03db4af4647c85af6eb",
+      "sha256": "2b2f1e05dc1fd0c6761c2335796e5d41afabdd87a34c7acb7b0a6b4e8526a720",
       "api_urls": [
         "https://generativelanguage.googleapis.com",
         "https://generativelanguage.googleapis.com/v1beta"
@@ -3553,7 +3550,8 @@
               "billing": {
                 "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
               }
-            }
+            },
+            "reasoning_effort": "high"
           },
           {
             "id": "gemini-3-flash-preview",
@@ -3594,7 +3592,8 @@
               "billing": {
                 "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
               }
-            }
+            },
+            "reasoning_effort": "high"
           },
           {
             "id": "gemini-3.1-flash-lite-preview",
@@ -3635,7 +3634,8 @@
               "billing": {
                 "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
               }
-            }
+            },
+            "reasoning_effort": "minimal"
           },
           {
             "id": "gemini-2.5-pro",
@@ -3662,7 +3662,6 @@
               "kind": "budget",
               "budget_min": 128,
               "budget_max": 32768,
-              "budget_default": 8192,
               "supports_off": false,
               "wire": "gemini_budget"
             },
@@ -3701,7 +3700,6 @@
               "kind": "budget",
               "budget_min": 1,
               "budget_max": 24576,
-              "budget_default": 8192,
               "supports_off": true,
               "wire": "gemini_budget"
             },
@@ -3740,7 +3738,6 @@
               "kind": "budget",
               "budget_min": 512,
               "budget_max": 24576,
-              "budget_default": 8192,
               "supports_off": true,
               "wire": "gemini_budget"
             },
@@ -3752,7 +3749,8 @@
               "billing": {
                 "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
               }
-            }
+            },
+            "thinking_enabled": false
           },
           {
             "id": "gemini-2.0-flash",

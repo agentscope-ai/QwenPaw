@@ -4,6 +4,11 @@
 from ..config.config import ModelSlotConfig, load_agent_config
 from ..providers.provider_manager import ProviderManager
 from ..providers.provider import Provider
+from ..providers.dashscope_provider import DashScopeProvider
+from ..providers.gemini_provider import resolve_thinking_config
+from ..providers.openai_response_provider import (
+    _supports_none_reasoning_effort,
+)
 from ..providers.adapters.anthropic import (
     resolve_parameters,
     resolve_request_parameters,
@@ -22,14 +27,33 @@ from ..providers.thinking import (
 from ..utils.io_utils import run_sync_io
 
 
+def _model_thinking_parameters(provider, model, info):
+    """Read configured values using the serving adapter's precedence."""
+    configured = next(
+        (item for item in Provider.all_models(provider) if item.id == model),
+        info,
+    )
+    params = provider._deep_merge(  # pylint: disable=protected-access
+        provider.generate_kwargs,
+        configured.generate_kwargs,
+    )
+    if isinstance(provider, DashScopeProvider):
+        params = provider.resolve_thinking_kwargs(model, params)
+    elif provider.thinking_wire_protocol == f"gemini":
+        params = resolve_thinking_config(params)
+    elif params.get(f"disable_thinking"):
+        if provider.model_protocol(model) == f"responses":
+            if not _supports_none_reasoning_effort(model):
+                return {}
+        return {f"enable_thinking": False}
+    return params
+
+
 def _model_default_thinking(provider: Provider, model: str):
     """Read declared defaults without changing inherited request settings."""
     info = provider.resolve_model_info(model)
     control = provider.thinking_control(model)
-    params = provider._deep_merge(  # pylint: disable=protected-access
-        provider.generate_kwargs,
-        info.generate_kwargs,
-    )
+    params = _model_thinking_parameters(provider, model, info)
     native_anthropic = provider.model_protocol(model) == f"anthropic"
     if native_anthropic:
         parameters, extra = resolve_parameters(params, info.max_output_length)
@@ -48,10 +72,7 @@ def _model_default_thinking(provider: Provider, model: str):
     config = params.get(f"thinking_config") or {}
     enabled = params.get(
         f"enable_thinking",
-        params.get(
-            f"thinking_enable",
-            None if native_anthropic else info.thinking_enabled,
-        ),
+        params.get(f"thinking_enable"),
     )
     effort = params.get(
         f"reasoning_effort",
@@ -59,10 +80,7 @@ def _model_default_thinking(provider: Provider, model: str):
             f"effort",
             (params.get(f"output_config") or {}).get(
                 f"effort",
-                config.get(
-                    f"thinking_level",
-                    None if native_anthropic else info.reasoning_effort,
-                ),
+                config.get(f"thinking_level"),
             ),
         ),
     )
@@ -70,12 +88,13 @@ def _model_default_thinking(provider: Provider, model: str):
         f"thinking_budget",
         thinking.get(
             f"budget_tokens",
-            config.get(
-                f"thinking_budget",
-                None if native_anthropic else info.thinking_budget,
-            ),
+            config.get(f"thinking_budget"),
         ),
     )
+    if budget is None and effort is None and not native_anthropic:
+        if enabled is None:
+            enabled = info.thinking_enabled
+        effort = info.reasoning_effort
     if (
         enabled is False
         or thinking.get(f"type") == f"disabled"
@@ -92,15 +111,19 @@ def _model_default_thinking(provider: Provider, model: str):
         f"xhigh",
         f"max",
     }:
-        return resolve_thinking(ThinkingPreference(level=effort), control)[0]
+        if control.kind == f"effort" and effort in control.efforts:
+            return ThinkingPreference(level=effort)
+        return ThinkingPreference()
     if control.kind == f"budget":
         if budget is None and not native_anthropic:
             budget = control.budget_default
-        if budget is not None and budget > 0:
-            return resolve_thinking(
-                ThinkingPreference(level=f"budget", budget_tokens=budget),
-                control,
-            )[0]
+        if (
+            budget is not None
+            and control.budget_min is not None
+            and control.budget_max is not None
+            and control.budget_min <= budget <= control.budget_max
+        ):
+            return ThinkingPreference(level=f"budget", budget_tokens=budget)
     return ThinkingPreference()
 
 
