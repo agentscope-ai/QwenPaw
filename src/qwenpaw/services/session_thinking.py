@@ -27,6 +27,39 @@ from ..providers.thinking import (
 from ..utils.io_utils import run_sync_io
 
 
+def _validate_thinking_parameters(params: dict) -> None:
+    """Reject malformed display inputs without coercing user settings."""
+    for key in (
+        f"extra_body",
+        f"thinking",
+        f"reasoning",
+        f"thinking_config",
+        f"output_config",
+    ):
+        value = params.get(key)
+        if value is not None:
+            if not isinstance(value, dict):
+                raise ValueError(f"{key} must be an object")
+            _validate_thinking_parameters(value)
+    for keys, expected in (
+        ((f"thinking_budget", f"budget_tokens"), int),
+        ((f"reasoning_effort", f"effort", f"thinking_level"), str),
+        (
+            (
+                f"enable_thinking",
+                f"thinking_enable",
+                f"enabled",
+                f"disable_thinking",
+            ),
+            bool,
+        ),
+    ):
+        for key in keys:
+            value = params.get(key)
+            if value is not None and type(value) is not expected:
+                raise ValueError(f"Invalid type for {key}")
+
+
 def _model_thinking_parameters(provider, model, info):
     """Read configured values using the serving adapter's precedence."""
     configured = next(
@@ -37,6 +70,7 @@ def _model_thinking_parameters(provider, model, info):
         provider.generate_kwargs,
         configured.generate_kwargs,
     )
+    _validate_thinking_parameters(params)
     if isinstance(provider, DashScopeProvider):
         params = provider.resolve_thinking_kwargs(model, params)
     elif provider.thinking_wire_protocol == f"gemini":
@@ -50,6 +84,14 @@ def _model_thinking_parameters(provider, model, info):
 
 
 def _model_default_thinking(provider: Provider, model: str):
+    """Keep invalid generation settings from breaking the display endpoint."""
+    try:
+        return _resolve_model_default_thinking(provider, model)
+    except (TypeError, ValueError):
+        return ThinkingPreference()
+
+
+def _resolve_model_default_thinking(provider: Provider, model: str):
     """Read declared defaults without changing inherited request settings."""
     info = provider.resolve_model_info(model)
     control = provider.thinking_control(model)
