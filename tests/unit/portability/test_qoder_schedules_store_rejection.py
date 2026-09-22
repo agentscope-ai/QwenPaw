@@ -332,7 +332,12 @@ def test_store_directory_is_refused(tmp_path: Path) -> None:
 
 def test_uninspectable_path_reports_inspection_failure() -> None:
     # A name longer than the filesystem limit makes both is_symlink() and
-    # lstat() raise OSError; discovery must report it, not crash.
+    # lstat() raise OSError; discovery must report it, not crash. On
+    # Windows the limit is far lower and the error surfaces as a plain
+    # FileNotFoundError without the OSError subclass the POSIX path hits,
+    # so the overlong-name probe is POSIX-only.
+    if os.name == "nt":
+        pytest.skip("overlong-path OSError shape differs on Windows")
     overlong = Path("/" + "x" * 5000)
 
     tasks, warnings, count = discover_qoder_scheduled_tasks(overlong)

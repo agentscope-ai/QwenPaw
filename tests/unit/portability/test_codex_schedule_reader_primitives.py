@@ -586,6 +586,11 @@ def test_read_toml_candidates_warns_on_unreadable_toml(tmp_path) -> None:
     assert "ValueError" in warnings[0]
 
 
+@pytest.mark.skipif(
+    os.name == "nt",
+    reason="control-character names are creatable on POSIX but not on "
+    "Windows, where the filesystem rejects them at mkdir time",
+)
 def test_read_toml_candidates_masks_unsafe_directory_name(tmp_path) -> None:
     directory = tmp_path / "automations" / "\x01unsafe"
     directory.mkdir(parents=True)
@@ -716,6 +721,10 @@ def test_copy_bounded_regular_file_rejects_oversized_source(
 def test_copy_bounded_regular_file_rejects_non_regular_source(
     tmp_path,
 ) -> None:
+    if os.name == "nt":
+        # A directory can be opened for reading on Windows, so the
+        # not-a-regular-file guard is only reachable on POSIX.
+        pytest.skip("directories are openable on Windows")
     with pytest.raises(ValueError, match="is not a regular file"):
         reader._copy_bounded_regular_file(
             tmp_path,
@@ -1084,6 +1093,11 @@ def test_read_sqlite_target_reports_corrupt_database(tmp_path) -> None:
     assert "Could not read Codex automation database a.db" in warnings[0]
 
 
+@pytest.mark.skipif(
+    os.name == "nt",
+    reason="control-character names are creatable on POSIX but not on "
+    "Windows, where the filesystem rejects them at open time",
+)
 def test_read_sqlite_database_masks_unsafe_name(tmp_path) -> None:
     database = tmp_path / "sqlite" / "\x01bad.db"
     _create_database(database)
@@ -1203,6 +1217,11 @@ def test_read_sqlite_candidates_skips_unsafe_paths(tmp_path) -> None:
     assert outside.read_bytes() == b"untrusted"
 
 
+@pytest.mark.skipif(
+    os.name == "nt",
+    reason="control-character names are creatable on POSIX but not on "
+    "Windows, where the filesystem rejects them at open time",
+)
 def test_read_sqlite_candidates_masks_unsafe_database_name(tmp_path) -> None:
     database = _create_database(tmp_path / "sqlite" / "\x01bad.db")
     _insert_automation(database, "auto-1")

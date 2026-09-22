@@ -188,7 +188,9 @@ def test_raise_restore_lock_timeout_names_path_and_env(monkeypatch) -> None:
         mod._raise_restore_lock_timeout(Path("/tmp/some.lock"))
 
     message = str(excinfo.value)
-    assert "/tmp/some.lock" in message
+    # The message embeds os.fspath(path), which is backslash-separated
+    # on Windows; compare against the same rendering.
+    assert os.fspath(Path("/tmp/some.lock")) in message
     assert "7.5s" in message
     assert _LOCK_ENV in message
     assert "Another restore or startup cleanup may still be running" in (
@@ -417,9 +419,12 @@ def test_startup_restore_targets_expands_user_home(monkeypatch) -> None:
 
     targets = mod._startup_restore_targets()
 
+    # Home expansion is platform-flavoured: pathlib resolves "~" via
+    # USERPROFILE on Windows and via HOME on POSIX, so express the
+    # expectation through the same mechanism the product uses.
     assert targets == [
         Path("/tmp/working/skill_pool"),
-        Path("/tmp/home-under-test/agents/a"),
+        Path("~/agents/a").expanduser(),
     ]
 
 

@@ -103,7 +103,9 @@ class TestCheckSkillDependencies:
         found.chmod(0o755)
         if os.name == "nt":
             # shutil.which only matches PATHEXT extensions on Windows.
-            found = found.with_name(found.name + ".bat")
+            renamed = found.with_name(found.name + ".bat")
+            found.rename(renamed)
+            found = renamed
         req = SkillRequirements(require_bins=[found.name])
 
         result = reg.check_skill_dependencies(

@@ -112,7 +112,7 @@ class TestAcquireRelease:
         path = tmp_path / "l.lock"
         fd = os.open(str(path), os.O_RDWR | os.O_CREAT, 0o644)
 
-        def boom(_fd, _flags):
+        def boom(*_args):
             raise OSError(errno.EBADF, "bad fd")
 
         monkeypatch.setattr(_flock_module(), _lock_primitive_name(), boom)
@@ -136,7 +136,7 @@ class TestAcquireRelease:
         path = tmp_path / "l.lock"
         fd = os.open(str(path), os.O_RDWR | os.O_CREAT, 0o644)
 
-        def boom(_fd, _flags):
+        def boom(*_args):
             raise OSError(errno.EBADF, "bad fd")
 
         monkeypatch.setattr(_flock_module(), _lock_primitive_name(), boom)
