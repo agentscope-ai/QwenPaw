@@ -468,6 +468,23 @@ describe("model pool switches", () => {
       }),
     ).toBeInTheDocument();
   });
+  it("offers a blocked availability filter", async () => {
+    await render({ id: "deepseek" });
+    fireEvent.click(
+      screen.getByRole("button", { name: "models.pool.moreFilters" }),
+    );
+    const chip = await screen.findByRole("button", {
+      name: "models.pool.status.blocked",
+    });
+    expect(chip).toBeInTheDocument();
+    fireEvent.click(chip);
+    await waitFor(() =>
+      expect(api.getModelPool).toHaveBeenLastCalledWith(
+        "deepseek",
+        expect.objectContaining({ availability: "blocked", offset: 0 }),
+      ),
+    );
+  });
   it("filters only enabled models without changing their selection", async () => {
     await render();
     fireEvent.click(

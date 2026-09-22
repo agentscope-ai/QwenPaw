@@ -82,6 +82,7 @@ class ModelInfo(BaseModel):
     )
     availability_status: Literal[
         "available",
+        "blocked",
         "permission_denied",
         "model_not_found",
         "incompatible_api",

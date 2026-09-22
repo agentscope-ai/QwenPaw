@@ -2071,6 +2071,7 @@
       },
       "status": {
         "available": "Available",
+        "blocked": "Blocked",
         "unverified": "Unverified",
         "permission_denied": "No permission",
         "model_not_found": "Not found",

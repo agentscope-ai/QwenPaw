@@ -25,6 +25,10 @@ from qwenpaw.providers.capping_formatter import (
     _CappingOpenAIFormatter,
 )
 from qwenpaw.providers.context_windows import DEFAULT_CONTEXT_WINDOW
+from qwenpaw.providers.error_sanitizer import (
+    CHALLENGE_PAGE_MESSAGE,
+    MAX_CONNECTION_MESSAGE_LENGTH,
+)
 from qwenpaw.providers.openai_provider import (
     OpenCodeProvider,
     OpenAIProvider,
@@ -3487,6 +3491,10 @@ async def test_discovery_failure_uses_override_without_probing(
         (ConnectionError("connection refused"), "network"),
         (RuntimeError("status=404: unsupported endpoint"), "unsupported"),
         (RuntimeError("status=503: unavailable"), "provider_unavailable"),
+        (
+            RuntimeError("<title>Just a moment...</title>"),
+            "blocked",
+        ),
     ],
 )
 async def test_discovery_classifies_failures(
@@ -3529,6 +3537,66 @@ async def test_discovery_error_redacts_credentials_before_persisting(
     assert result.error == "api_key=[redacted]"
     assert provider is not None
     assert provider.models_last_sync_error == result.error
+
+
+async def test_discovery_challenge_persists_a_canonical_bounded_message(
+    isolated_secret_dir,
+    monkeypatch,
+) -> None:
+    manager = ProviderManager()
+    body = "<!DOCTYPE html><html><title>Just a moment...</title>" * 30
+
+    async def fetch_models(_self, timeout=5):
+        _ = timeout
+        raise RuntimeError(f"Error code: 403 - '{body}'")
+
+    monkeypatch.setattr(OpenAIProvider, "fetch_models", fetch_models)
+
+    result = await manager.discover_provider_models("openai")
+    provider = manager.get_provider("openai")
+
+    assert result.success is False
+    assert result.error_kind == "blocked"
+    assert result.error == CHALLENGE_PAGE_MESSAGE
+    assert len(result.error) <= MAX_CONNECTION_MESSAGE_LENGTH
+    assert "<html" not in result.error
+    assert provider is not None
+    assert provider.models_last_sync_error == result.error
+
+
+async def test_blocked_discovered_model_stays_addable_and_activatable(
+    isolated_secret_dir,
+) -> None:
+    manager = ProviderManager()
+    provider = manager.get_provider("openai")
+    assert provider is not None
+    provider.api_key = "test-key"
+    provider.enabled = True
+    provider.discovered_models = [
+        ModelInfo(
+            id="blocked-model",
+            name="Blocked Model",
+            source="discovered",
+            availability_status="blocked",
+            availability_message=CHALLENGE_PAGE_MESSAGE,
+            availability_retryable=False,
+        ),
+    ]
+
+    added = await manager.add_model_to_provider(
+        "openai",
+        ModelInfo(id="blocked-model", name="Blocked Model"),
+    )
+    assert [model.id for model in added.extra_models] == ["blocked-model"]
+
+    await manager.activate_model("openai", "blocked-model")
+
+    active = manager.get_provider("openai")
+    assert active is not None
+    model = active.get_model_info("blocked-model")
+    assert model is not None
+    assert model.availability_status == "blocked"
+    assert active.model_available(model) is True
 
 
 def test_connection_message_sanitizer_redacts_credentials() -> None:

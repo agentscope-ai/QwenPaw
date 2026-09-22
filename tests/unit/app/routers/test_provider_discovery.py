@@ -13,12 +13,14 @@ from qwenpaw.app.routers.providers import (
     DiscoverModelsRequest,
     ProviderConfigRequest,
     TestProviderRequest,
+    _validate_model_slot,
     configure_provider,
     create_custom_provider_endpoint,
     discover_models,
     test_provider as provider_connection_endpoint,
     test_model as model_test_endpoint,
 )
+from qwenpaw.providers.error_sanitizer import CHALLENGE_PAGE_MESSAGE
 from qwenpaw.providers.provider import ModelInfo, ProviderInfo
 
 
@@ -302,6 +304,63 @@ async def test_model_route_returns_structured_availability() -> None:
         "modelscope",
         "org/model",
     )
+
+
+async def test_model_route_returns_a_blocked_status() -> None:
+    manager = MagicMock()
+    manager.get_provider.return_value = SimpleNamespace()
+    manager.check_provider_model = AsyncMock(
+        return_value=SimpleNamespace(
+            success=False,
+            status="blocked",
+            message=CHALLENGE_PAGE_MESSAGE,
+            http_status=403,
+            retryable=False,
+            checked_at="2026-09-22T00:00:00+00:00",
+            verification="live",
+        ),
+    )
+
+    result = await model_test_endpoint(
+        manager=manager,
+        provider_id="custom-wusrouter",
+        body=SimpleNamespace(model_id="org/model"),
+    )
+
+    assert result.status == "blocked"
+    assert result.retryable is False
+    assert result.message.endswith(CHALLENGE_PAGE_MESSAGE)
+    assert "<html" not in result.message
+    assert result.http_status == 403
+
+
+@pytest.mark.parametrize(
+    ("status", "rejected"),
+    [("blocked", False), ("permission_denied", True)],
+)
+def test_activation_validation_only_rejects_permanent_states(
+    status: str,
+    rejected: bool,
+) -> None:
+    provider = MagicMock()
+    provider.has_model.return_value = True
+    provider.get_model_info.return_value = ModelInfo(
+        id="checked-model",
+        name="Checked Model",
+        availability_status=status,
+        availability_message=CHALLENGE_PAGE_MESSAGE,
+        availability_retryable=False,
+    )
+    manager = MagicMock()
+    manager.get_provider.return_value = provider
+
+    if rejected:
+        with pytest.raises(HTTPException) as exc_info:
+            _validate_model_slot(manager, "custom-provider", "checked-model")
+        assert exc_info.value.status_code == 400
+        return
+
+    _validate_model_slot(manager, "custom-provider", "checked-model")
 
 
 @pytest.mark.parametrize(

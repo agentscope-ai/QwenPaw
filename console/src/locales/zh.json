@@ -2587,6 +2587,7 @@
       },
       "status": {
         "available": "可用",
+        "blocked": "被拦截",
         "unverified": "未验证",
         "permission_denied": "无权限",
         "model_not_found": "模型不存在",
