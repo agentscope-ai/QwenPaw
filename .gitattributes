@@ -1,3 +1,12 @@
 *.bat text eol=crlf
 scripts/check-channels.sh text eol=lf
 .github/workflows/tests.yml text eol=lf
+plugins/apps/qwenpaw-data/scripts/data-console/patches/console-embed.patch text eol=lf
+plugins/apps/qwenpaw-data/scripts/data-console/paw-bridge.js text eol=lf
+plugins/apps/qwenpaw-data/ui/public/data-console/BUILD_INFO text eol=lf
+plugins/apps/qwenpaw-data/ui/public/data-console/SHA256SUMS text eol=lf
+plugins/apps/qwenpaw-data/ui/public/data-console/index.html text eol=lf
+plugins/apps/qwenpaw-data/ui/public/data-console/paw-bridge.js text eol=lf
+plugins/apps/qwenpaw-data/ui/public/data-console/assets/*.js text eol=lf
+plugins/apps/qwenpaw-data/ui/public/data-console/assets/*.css text eol=lf
+src/qwenpaw/providers/data/providers/*.json text eol=lf

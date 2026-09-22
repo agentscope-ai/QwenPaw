@@ -1557,7 +1557,7 @@ def create_hub_app(  # pylint: disable=too-many-statements
         request: Request,
         user: HubUser = Depends(require_personal_runtime_user),
     ) -> Response:
-        require_model_route(path)
+        require_model_route(path, request.method)
         record = await ensure_personal_runtime(user)
         require_session_runtime(request, record)
         target = runtime_url(

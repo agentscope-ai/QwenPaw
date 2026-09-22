@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from ..agents.acp.meta import ACP_PROJECT_DIR_META_KEY
+from ..services.session_thinking import apply_session_thinking
 from ..utils.io_utils import run_sync_io
 from ..utils.logging import sanitize_log_value
 
@@ -396,6 +397,7 @@ class AgentBuilder:
             agent_config,
             request_context,
         )
+        agent_config = await apply_session_thinking(ctx, agent_config)
         ctx.agent_config = agent_config
 
         # Validate model availability.
@@ -508,6 +510,12 @@ class AgentBuilder:
             self.build_model,
             agent_config,
             model_slot_override=model_slot_override,
+        )
+
+        ctx.extras[f"active_model_display_name"] = getattr(
+            model,
+            f"display_name",
+            None,
         )
 
         # Built once and shared: the agent's native offloader, and (when
@@ -972,11 +980,8 @@ class AgentBuilder:
             or os.environ.get("SHELL")
             or ("cmd.exe" if sys.platform == "win32" else "/bin/sh")
         )
-        _active = getattr(agent_config, "active_model", None)
-        _model_name = (
-            _active.model
-            if _active and getattr(_active, "model", None)
-            else None
+        _model_name = (getattr(ctx, f"extras", None) or {}).get(
+            f"active_model_display_name",
         )
         return build_env_context(
             agent_id=getattr(agent_config, "id", None),

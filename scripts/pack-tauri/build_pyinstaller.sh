@@ -131,7 +131,6 @@ echo ""
 BACKEND_DIR="${DIST}/pyinstaller/qwenpaw-backend"
 BACKEND_EXE="${BACKEND_DIR}/qwenpaw-backend"
 CLI_EXE="${BACKEND_DIR}/qwenpaw"
-MODEL_CATALOG="${BACKEND_DIR}/_internal/qwenpaw/providers/data/model_catalog.json"
 if [ ! -d "${BACKEND_DIR}" ]; then
     echo "ERROR: Backend bundle directory not found at ${BACKEND_DIR}"
     exit 1
@@ -144,10 +143,8 @@ if [ ! -f "${CLI_EXE}" ]; then
     echo "ERROR: CLI executable not found at ${CLI_EXE}"
     exit 1
 fi
-if [ ! -f "${MODEL_CATALOG}" ]; then
-    echo "ERROR: Model catalog not found at ${MODEL_CATALOG}"
-    exit 1
-fi
+"$PYTHON_BIN" "${REPO_ROOT}/scripts/pack-tauri/verify_model_catalog.py" \
+    "${BACKEND_DIR}/_internal/qwenpaw/providers/data"
 
 echo "Backend bundle created: ${BACKEND_DIR}"
 

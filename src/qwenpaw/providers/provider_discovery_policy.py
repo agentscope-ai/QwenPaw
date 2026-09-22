@@ -29,7 +29,7 @@ class ProviderDiscoveryPolicy:
     """One provider's model catalog acquisition policy."""
 
     strategy: DiscoveryStrategy
-    sync_mode: ModelSyncMode = "manual"
+    sync_mode: ModelSyncMode = f"startup"
     requires_auth: bool = True
     reason: str = ""
 
@@ -42,6 +42,7 @@ _OPENAI_FREE = ProviderDiscoveryPolicy(
 )
 _CATALOG_PLAN = ProviderDiscoveryPolicy(
     "catalog_only",
+    sync_mode=f"manual",
     reason="The service does not expose a stable model-list API.",
 )
 
@@ -65,8 +66,8 @@ BUILTIN_DISCOVERY_POLICIES: dict[str, ProviderDiscoveryPolicy] = {
     "openrouter": ProviderDiscoveryPolicy(
         "provider_specific",
         sync_mode="startup",
+        requires_auth=False,
     ),
-    "github-models": _CATALOG_PLAN,
     "modelscope": ProviderDiscoveryPolicy("provider_specific"),
     "dashscope": ProviderDiscoveryPolicy("provider_specific"),
     "aliyun-codingplan": _CATALOG_PLAN,
@@ -76,9 +77,11 @@ BUILTIN_DISCOVERY_POLICIES: dict[str, ProviderDiscoveryPolicy] = {
     "opencode": _OPENAI_FREE,
     "kilo": _OPENAI_FREE,
     "openai": _OPENAI_DYNAMIC,
+    f"agentscope-platform": _OPENAI_DYNAMIC,
     "openai-response": _OPENAI_DYNAMIC,
     "azure-openai": ProviderDiscoveryPolicy(
         "catalog_only",
+        sync_mode=f"manual",
         reason="Azure deployment discovery requires Azure Resource Manager.",
     ),
     "anthropic": ProviderDiscoveryPolicy("anthropic_models"),
@@ -140,6 +143,7 @@ def apply_custom_discovery_policy(provider: Provider) -> None:
     if policy is None:
         policy = ProviderDiscoveryPolicy(
             "unsupported",
+            sync_mode=f"disabled",
             reason=(
                 "This chat protocol does not expose a supported model "
                 "listing strategy."

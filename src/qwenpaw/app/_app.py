@@ -54,6 +54,7 @@ from .auth import (
     check_proxy_config_sanity,
 )
 from .exception_handlers import register_exception_handlers
+from .response_compression import ResponseCompressionMiddleware
 from .migration import (
     ensure_default_agent_exists,
     ensure_qa_agent_exists,
@@ -840,6 +841,9 @@ app = FastAPI(
     openapi_url="/openapi.json" if DOCS_ENABLED else None,
 )
 register_exception_handlers(app)
+
+# Compress large JSON responses such as skill and workspace listings.
+app.add_middleware(ResponseCompressionMiddleware, minimum_size=1000)
 
 # Add agent context middleware for agent-scoped routes
 app.add_middleware(AgentContextMiddleware)

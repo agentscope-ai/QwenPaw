@@ -4,15 +4,18 @@ from __future__ import annotations
 
 import time
 from types import SimpleNamespace
+from typing import Any
 from unittest.mock import AsyncMock
 
 import httpx
 import pytest
 from agentscope.model import OpenAIResponseModel
+from agentscope.tool import ToolChoice
 from openai import BadRequestError
 
 from qwenpaw.providers.multimodal_prober import _PROBE_VIDEO_URL
 from qwenpaw.providers.openai_response_provider import (
+    OpenAIResponseModelCompat,
     OpenAIResponseProvider,
     _extract_reasoning_text,
     _extract_response_text,
@@ -56,6 +59,113 @@ def _bad_request(message: str) -> BadRequestError:
         ),
         body=None,
     )
+
+
+def _make_response_model() -> OpenAIResponseModelCompat:
+    model = _make_provider().get_chat_model_instance("gpt-5")
+    assert isinstance(model, OpenAIResponseModelCompat)
+    return model
+
+
+def test_format_tools_defaults_to_non_strict_after_sanitizing() -> None:
+    tools: list[dict[str, Any]] = [
+        {
+            "type": "function",
+            "function": {
+                "name": "demo",
+                "description": "Demo tool",
+                "parameters": {
+                    "type": "object",
+                    "required": ["query"],
+                    "properties": {
+                        "query": {"type": "string"},
+                        "created_on": {
+                            "anyOf": [
+                                {"type": "string"},
+                                {"type": "null"},
+                            ],
+                            "default": None,
+                        },
+                    },
+                },
+            },
+        },
+    ]
+    choice = ToolChoice(mode="required", tools=["demo"])
+
+    formatted, tool_choice = _make_response_model()._format_tools(
+        tools,
+        choice,
+    )
+
+    assert formatted == [
+        {
+            "type": "function",
+            "name": "demo",
+            "description": "Demo tool",
+            "parameters": {
+                "type": "object",
+                "required": ["query"],
+                "properties": {
+                    "query": {"type": "string"},
+                    "created_on": {
+                        "type": "string",
+                        "default": None,
+                    },
+                },
+            },
+            "strict": False,
+        },
+    ]
+    assert tool_choice == {
+        "type": "allowed_tools",
+        "mode": "required",
+        "tools": [{"type": "function", "name": "demo"}],
+    }
+    assert tools[0]["function"]["parameters"]["properties"]["created_on"] == {
+        "anyOf": [
+            {"type": "string"},
+            {"type": "null"},
+        ],
+        "default": None,
+    }
+
+
+@pytest.mark.parametrize("strict", [True, False])
+def test_format_tools_preserves_explicit_strict(strict: bool) -> None:
+    tools: list[dict[str, Any]] = [
+        {
+            "type": "function",
+            "function": {
+                "name": "demo",
+                "description": "Demo tool",
+                "strict": strict,
+                "parameters": {
+                    "type": "object",
+                    "properties": {},
+                },
+            },
+        },
+    ]
+
+    formatted, tool_choice = _make_response_model()._format_tools(
+        tools,
+        None,
+    )
+
+    assert formatted == [
+        {
+            "type": "function",
+            "name": "demo",
+            "description": "Demo tool",
+            "strict": strict,
+            "parameters": {
+                "type": "object",
+                "properties": {},
+            },
+        },
+    ]
+    assert tool_choice is None
 
 
 async def test_check_model_connection_closes_stream_and_client(

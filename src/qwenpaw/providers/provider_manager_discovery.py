@@ -19,7 +19,6 @@ from .provider import (
     ModelConnectionResult,
     ModelInfo,
     Provider,
-    ProviderInfo,
 )
 from .provider_catalog import BUILTIN_PROVIDER_CATALOG_KEYS
 from .provider_manager_host import ProviderManagerHost
@@ -27,8 +26,9 @@ from .provider_discovery import (
     ProviderModelDiscoveryResult,
     apply_discovery_metadata,
     classify_discovery_error,
-    merge_discovered_model,
+    normalize_discovered_models,
 )
+from .model_sync import sync_due
 from .provider_model_availability import (
     ProviderModelCheckResult,
     classify_model_check,
@@ -83,27 +83,6 @@ class ProviderManagerDiscoveryMixin(
             },
         )
         return self._provider_from_data(payload)
-
-    @staticmethod
-    async def _probe_discovery_failure_reason(
-        provider: Provider,
-        timeout: float,
-    ) -> str | None:
-        """Return the real reason an empty discovery result may hide.
-
-        ``fetch_models`` may swallow transport errors and return an empty
-        list, so an empty result is ambiguous. When the provider exposes a
-        connection check, use it to distinguish an empty catalog from a
-        failed request. The probe never masks the original empty result.
-        """
-        check = getattr(provider, "check_connection", None)
-        if check is None:
-            return None
-        try:
-            ok, detail = await check(timeout=timeout)
-        except Exception:  # pylint: disable=broad-exception-caught
-            return None
-        return None if ok else (detail or None)
 
     async def _save_discovery_locked(
         self,
@@ -197,9 +176,17 @@ class ProviderManagerDiscoveryMixin(
         provider = await run_sync_io(self.get_provider, provider_id)
         if provider is None:
             return False
-        candidate = provider.model_copy(deep=True)
+        candidate = provider.configuration_snapshot()
         if error is None:
             apply_discovery_metadata(candidate, fetched or [], synced_at or "")
+            by_id = {model.id: model for model in models or []}
+            for configured in candidate.models + candidate.extra_models:
+                remote = by_id.get(configured.id)
+                if remote is not None:
+                    configured.remote_missing = remote.remote_missing
+                    configured.requires_paid_confirmation = (
+                        remote.requires_paid_confirmation
+                    )
             candidate.discovered_models = [
                 model.model_copy(deep=True) for model in models or []
             ]
@@ -240,15 +227,7 @@ class ProviderManagerDiscoveryMixin(
         ):
             await self._restore_latest_snapshot(provider_id, provider_path)
             return False
-        if provider_id in self.plugin_providers:
-            self.plugin_providers[provider_id]["info"] = ProviderInfo(
-                **persisted.model_dump(),
-            )
-        else:
-            current = await run_sync_io(self.get_provider, provider_id)
-            if current is None:
-                return False
-            self._copy_provider_state(current, persisted)
+        await self._commit_provider_snapshot(provider_id, persisted)
         return True
 
     # This orchestration method intentionally keeps fetch, normalization,
@@ -277,6 +256,19 @@ class ProviderManagerDiscoveryMixin(
                 error=f"Provider '{provider_id}' not found",
                 error_kind="configuration",
             )
+        if (
+            provider_id not in self.plugin_providers
+            and not provider.support_model_discovery
+            and provider.discovery_strategy
+            in {f"catalog_only", f"unsupported"}
+        ):
+            return ProviderModelDiscoveryResult(
+                success=False,
+                models=await run_sync_io(provider.discovery_candidates),
+                used_static_fallback=True,
+                error=provider.discovery_support_reason,
+                error_kind=f"unsupported",
+            )
         generation = None
         if save:
             if prepared_discovery is None:
@@ -288,7 +280,7 @@ class ProviderManagerDiscoveryMixin(
             if prepared_discovery is None:
                 return ProviderModelDiscoveryResult(
                     success=False,
-                    models=provider.discovery_candidates(),
+                    models=await run_sync_io(provider.discovery_candidates),
                     last_synced_at=provider.models_last_synced_at,
                     used_static_fallback=True,
                     error="Model discovery is already in progress",
@@ -307,7 +299,7 @@ class ProviderManagerDiscoveryMixin(
             ):
                 return ProviderModelDiscoveryResult(
                     success=False,
-                    models=provider.discovery_candidates(),
+                    models=await run_sync_io(provider.discovery_candidates),
                     last_synced_at=provider.models_last_synced_at,
                     used_static_fallback=True,
                     error="Model discovery was superseded by a newer update",
@@ -322,52 +314,38 @@ class ProviderManagerDiscoveryMixin(
             fetched = await fetch_provider.fetch_models(timeout=timeout)
             fetched = [model for model in fetched if model.id.strip()]
             if not fetched:
-                reason = await self._probe_discovery_failure_reason(
-                    fetch_provider,
-                    timeout,
-                )
-                raise ValueError(reason or "Provider returned no models")
+                raise ValueError(f"Provider returned no models")
             fetched = [
                 model
                 for model in fetched
                 if model.id.strip() not in removed_ids
             ]
 
-            synced_at = datetime.now(timezone.utc).isoformat()
-            by_id: dict[str, ModelInfo] = {}
-            api_ids: set[str] = set()
+            prices = await fetch_provider.fetch_model_pricing(
+                models=fetched,
+                timeout=timeout,
+            )
             for model in fetched:
-                normalized = merge_discovered_model(
-                    provider,
-                    model,
-                    synced_at,
-                )
-                normalized.discovery_origin = "api"
-                by_id.setdefault(normalized.id, normalized)
-                api_ids.add(normalized.id)
+                price = prices.get(model.id)
+                if price is None:
+                    continue
+                model.billing = price.billing
+                model.is_free = price.is_free
+                model.pricing = dict(price.pricing)
+                model.billing_source = price.billing_source
+                model.billing_checked_at = price.billing_checked_at
+                if f"billing" in price.capability_provenance:
+                    model.capability_provenance[
+                        f"billing"
+                    ] = price.capability_provenance[f"billing"]
 
-            # Keep the maintained built-in catalog visible when a provider's
-            # /models endpoint exposes only a subset of its public models.
-            if provider.merge_with_catalog:
-                for catalog_model in provider.models:
-                    if catalog_model.id in removed_ids:
-                        continue
-                    existing = by_id.get(catalog_model.id)
-                    if existing is not None:
-                        existing.discovery_origin = "both"
-                        continue
-                    catalog_payload = catalog_model.model_dump()
-                    catalog_payload.update(
-                        {
-                            "source": "discovered",
-                            "discovery_origin": "catalog",
-                            "discovered_at": synced_at,
-                        },
-                    )
-                    by_id[catalog_model.id] = ModelInfo.model_validate(
-                        catalog_payload,
-                    )
-            models = list(by_id.values())
+            synced_at = datetime.now(timezone.utc).isoformat()
+            models, api_ids = await run_sync_io(
+                normalize_discovered_models,
+                provider,
+                fetched,
+                synced_at,
+            )
 
             if save:
                 committed = await self._save_discovery_locked(
@@ -382,7 +360,9 @@ class ProviderManagerDiscoveryMixin(
                 if not committed:
                     return ProviderModelDiscoveryResult(
                         success=False,
-                        models=provider.discovery_candidates(),
+                        models=await run_sync_io(
+                            provider.discovery_candidates,
+                        ),
                         last_synced_at=provider.models_last_synced_at,
                         used_static_fallback=True,
                         error=(
@@ -397,7 +377,11 @@ class ProviderManagerDiscoveryMixin(
 
             return ProviderModelDiscoveryResult(
                 success=True,
-                models=models,
+                models=await run_sync_io(
+                    lambda: [
+                        fetch_provider.model_capabilities(m) for m in models
+                    ],
+                ),
                 discovered_count=sum(
                     model_id not in previous_api_ids for model_id in api_ids
                 ),
@@ -419,7 +403,9 @@ class ProviderManagerDiscoveryMixin(
                 if not committed:
                     return ProviderModelDiscoveryResult(
                         success=False,
-                        models=provider.discovery_candidates(),
+                        models=await run_sync_io(
+                            provider.discovery_candidates,
+                        ),
                         last_synced_at=provider.models_last_synced_at,
                         used_static_fallback=True,
                         error=(
@@ -429,7 +415,7 @@ class ProviderManagerDiscoveryMixin(
                     )
             return ProviderModelDiscoveryResult(
                 success=False,
-                models=provider.discovery_candidates(),
+                models=await run_sync_io(provider.discovery_candidates),
                 last_synced_at=provider.models_last_synced_at,
                 used_static_fallback=True,
                 error=error,
@@ -507,11 +493,22 @@ class ProviderManagerDiscoveryMixin(
         async with lock:
             if not self._is_current_provider(provider_id, provider, revision):
                 return result
+            candidate = provider.configuration_snapshot()
+            if (
+                candidate.get_model_info(normalized_id) is None
+                and candidate.get_discovered_model_info(normalized_id) is None
+            ):
+                pool = await run_sync_io(candidate.discovery_candidates)
+                card = next((m for m in pool if m.id == normalized_id), None)
+                if card is not None:
+                    candidate.discovered_models.append(
+                        card.model_copy(deep=True),
+                    )
             changed = False
             for collection in (
-                provider.models,
-                provider.extra_models,
-                provider.discovered_models,
+                candidate.models,
+                candidate.extra_models,
+                candidate.discovered_models,
             ):
                 for model in collection:
                     if model.id.strip() != normalized_id:
@@ -526,7 +523,7 @@ class ProviderManagerDiscoveryMixin(
             if changed:
                 await self._save_provider_config_locked(
                     provider_id,
-                    provider,
+                    candidate,
                     update_kind="availability",
                     model_id=normalized_id,
                     fields=None,
@@ -537,10 +534,15 @@ class ProviderManagerDiscoveryMixin(
     def startup_sync_provider_ids(self) -> list[str]:
         """Return providers eligible for non-blocking startup discovery."""
         provider_ids: list[str] = []
-        for provider in self.builtin_providers.values():
+        for provider in (
+            *self.builtin_providers.values(),
+            *self.custom_providers.values(),
+        ):
             if (
-                provider.model_sync_mode != "startup"
+                not provider.enabled
+                or provider.model_sync_mode != "startup"
                 or not provider.support_model_discovery
+                or not sync_due(provider)
             ):
                 continue
             if provider.discovery_requires_auth and not provider.api_key:
@@ -558,11 +560,14 @@ class ProviderManagerDiscoveryMixin(
         if not provider_ids:
             return
 
+        semaphore = asyncio.Semaphore(3)
+
+        async def sync_one(provider_id: str):
+            async with semaphore:
+                return await self.discover_provider_models(provider_id)
+
         results = await asyncio.gather(
-            *(
-                self.discover_provider_models(provider_id)
-                for provider_id in provider_ids
-            ),
+            *(sync_one(provider_id) for provider_id in provider_ids),
             return_exceptions=True,
         )
         for provider_id, result in zip(provider_ids, results):
@@ -576,6 +581,10 @@ class ProviderManagerDiscoveryMixin(
     async def sync_remote_catalogs(self) -> None:
         """Update configured OTA catalogs without blocking startup."""
         updates: list[tuple[str, Callable[[], Any]]] = []
+        if EnvVarLoader.get_bool(model_catalog.METADATA_ENABLED_ENV, False):
+            updates.append(
+                (f"metadata", model_catalog.update_model_metadata),
+            )
         if EnvVarLoader.get_str(model_catalog.CATALOG_URL_ENV):
             updates.append(
                 ("model", model_catalog.update_model_catalog),
@@ -595,7 +604,7 @@ class ProviderManagerDiscoveryMixin(
                         model_catalog.load_model_catalog,
                     )
                     await self._refresh_builtin_catalog(catalog)
-                else:
+                elif label == f"capability":
                     await asyncio.to_thread(
                         self._capability_registry.reload,
                     )

@@ -189,8 +189,6 @@ Write-Host ""
 $BACKEND_DIR = Join-Path $DIST "pyinstaller\qwenpaw-backend"
 $BACKEND_EXE = Join-Path $BACKEND_DIR "qwenpaw-backend.exe"
 $CLI_EXE = Join-Path $BACKEND_DIR "qwenpaw.exe"
-$MODEL_CATALOG = Join-Path $BACKEND_DIR `
-    "_internal\qwenpaw\providers\data\model_catalog.json"
 if (-not (Test-Path $BACKEND_DIR)) {
     Write-Host "ERROR: Backend bundle directory not found at $BACKEND_DIR" -ForegroundColor Red
     exit 1
@@ -203,11 +201,10 @@ if (-not (Test-Path $CLI_EXE)) {
     Write-Host "ERROR: CLI executable not found at $CLI_EXE" -ForegroundColor Red
     exit 1
 }
-if (-not (Test-Path $MODEL_CATALOG)) {
-    Write-Host "ERROR: Model catalog not found at $MODEL_CATALOG" `
-        -ForegroundColor Red
-    exit 1
-}
+& $PYTHON_BIN `
+    (Join-Path $PSScriptRoot "verify_model_catalog.py") `
+    (Join-Path $BACKEND_DIR "_internal\qwenpaw\providers\data")
+Assert-LastExit "Model catalog verification failed"
 
 Write-Host "Backend bundle created: $BACKEND_DIR" -ForegroundColor Green
 

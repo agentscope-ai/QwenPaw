@@ -15,11 +15,19 @@ from agentscope.message import ToolCallBlock
 from agentscope.model import OpenAIChatModel
 from agentscope.model._model_response import ChatResponse
 
-from qwenpaw.local_models.tag_parser import (
+from openai import DefaultAsyncHttpxClient
+
+from .adapters.usage import (
+    CACHE_RESPONSE_HEADERS,
+    cache_usage,
+    capture_cache_headers,
+)
+
+from ..local_models.tag_parser import (
     parse_tool_calls_from_text,
     text_contains_tool_call_tag,
 )
-from qwenpaw.utils.tool_call_extra import (
+from ..utils.tool_call_extra import (
     attach_transient_tool_call_extra,
     collect_transient_tool_call_extras,
 )
@@ -169,6 +177,12 @@ class _SanitizedStream:
         self._ctx_stream: Any | None = None
         self.extra_contents: dict[str, Any] = {}
         self._tool_call_ids: dict[int, str] = {}
+        self.raw_usage = None
+        self.headers = getattr(
+            getattr(stream, f"response", None),
+            f"headers",
+            {},
+        )
 
     async def __aenter__(self) -> "_SanitizedStream":
         self._ctx_stream = await self._stream.__aenter__()
@@ -189,6 +203,9 @@ class _SanitizedStream:
         if self._ctx_stream is None:
             raise StopAsyncIteration
         item = await self._ctx_stream.__anext__()
+        raw_usage = getattr(getattr(item, f"chunk", item), f"usage", None)
+        if raw_usage is not None:
+            self.raw_usage = raw_usage
         self._capture_extra_content(item)
         return _sanitize_stream_item(item)
 
@@ -682,11 +699,26 @@ class OpenAIChatModelCompat(OpenAIChatModel):
         default_headers: dict[str, str] | None = None,
         extra_generate_kwargs: dict[str, Any] | None = None,
         output_token_param: str = "max_tokens",
+        usage_guard: Callable[[], None] | None = None,
+        request_policy: Callable | None = None,
+        capture_cache_status: bool = False,
         **kwargs: Any,
     ) -> None:
+        if capture_cache_status:
+            client_kwargs = dict(kwargs.get(f"client_kwargs") or {})
+            client = client_kwargs.get(f"http_client")
+            if client is None:
+                client = DefaultAsyncHttpxClient()
+                client_kwargs[f"http_client"] = client
+            client.event_hooks.setdefault(f"response", []).append(
+                capture_cache_headers,
+            )
+            kwargs[f"client_kwargs"] = client_kwargs
         self._default_headers = default_headers
         self._extra_generate_kwargs = extra_generate_kwargs or {}
         self._output_token_param = output_token_param
+        self._usage_guard = usage_guard
+        self._request_policy = request_policy
         super().__init__(**kwargs)
         credential_id = str(getattr(self.credential, "id", "") or "")
         credential_provider_id = credential_id.removeprefix("qwenpaw-")
@@ -781,7 +813,11 @@ class OpenAIChatModelCompat(OpenAIChatModel):
         tool_choice: Any | None = None,
         **generate_kwargs: Any,
     ) -> Any:
+        if self._usage_guard is not None:
+            self._usage_guard()
         merged = {**self._extra_generate_kwargs, **generate_kwargs}
+        if self._request_policy is not None:
+            merged = self._request_policy(model_name, f"chat", merged)
         self._consume_disable_thinking(merged)
         if self._output_token_param != "max_tokens":
             max_tokens = merged.pop("max_tokens", None)
@@ -790,13 +826,17 @@ class OpenAIChatModelCompat(OpenAIChatModel):
         if self._default_headers:
             existing = merged.get("extra_headers") or {}
             merged["extra_headers"] = {**self._default_headers, **existing}
-        return await super()._call_api(
-            model_name,
-            messages,
-            tools,
-            tool_choice,
-            **merged,
-        )
+        token = CACHE_RESPONSE_HEADERS.set({})
+        try:
+            return await super()._call_api(
+                model_name,
+                messages,
+                tools,
+                tool_choice,
+                **merged,
+            )
+        finally:
+            CACHE_RESPONSE_HEADERS.reset(token)
 
     def _consume_disable_thinking(self, call_kwargs: dict) -> None:
         """Translate the neutral ``disable_thinking`` flag into OpenAI-compat
@@ -832,6 +872,25 @@ class OpenAIChatModelCompat(OpenAIChatModel):
             tools = _sanitize_tool_schemas(tools)
         return super()._format_tools(tools, tool_choice)
 
+    def _parse_completion_response(
+        self,
+        start_datetime,
+        response,
+        audio_format=f"wav",
+    ):
+        """Preserve cache counters omitted by the base SDK parser."""
+        parsed = super()._parse_completion_response(
+            start_datetime,
+            response,
+            audio_format,
+        )
+        cache_usage(
+            parsed.usage,
+            getattr(response, f"usage", None),
+            CACHE_RESPONSE_HEADERS.get(),
+        )
+        return parsed
+
     # pylint: disable=too-many-branches, too-many-statements
     async def _parse_stream_response(
         self,
@@ -846,6 +905,11 @@ class OpenAIChatModelCompat(OpenAIChatModel):
             start_datetime=start_datetime,
             response=sanitized_response,
         ):
+            cache_usage(
+                parsed.usage,
+                sanitized_response.raw_usage,
+                sanitized_response.headers,
+            )
             # Filter out malformed tool_use blocks (null id or empty name)
             # emitted by some OpenAI-compatible models, to prevent bad entries
             # from being persisted into session history (issue #4185).

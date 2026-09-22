@@ -12,7 +12,14 @@ import {
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { Check, History, RotateCw, Settings, ShieldCheck } from "lucide-react";
+import {
+  Check,
+  MoreHorizontal,
+  History,
+  RotateCw,
+  Settings,
+  ShieldCheck,
+} from "lucide-react";
 import { useAppMessage } from "../hooks/useAppMessage";
 import AgentSelector from "../components/AgentSelector";
 import {
@@ -88,7 +95,8 @@ export default function Sidebar({
 }: SidebarProps) {
   const navigate = useNavigate();
   const location = useLocation();
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const language = i18n.resolvedLanguage ?? i18n.language;
   const { message } = useAppMessage();
   const { isDark } = useTheme();
   const [authEnabled, setAuthEnabled] = useState(false);
@@ -185,7 +193,7 @@ export default function Sidebar({
       ...new Map(entries.map((entry) => [entry.key, entry])).values(),
     ];
     return orderSidebarEntries(uniqueEntries, focusItemIds);
-  }, [agentMenu, focusItemIds, routes, selectedSettingsMenu]);
+  }, [agentMenu, focusItemIds, routes, selectedSettingsMenu, language]);
   const inboxEntry = selectedFlatNav.find(
     (entry) => entry.key === "core.inbox",
   );
@@ -199,6 +207,12 @@ export default function Sidebar({
           entry.key !== "core.inbox" && entry.key !== "core.marketplace",
       ),
     [selectedFlatNav],
+  );
+  const modelNav = visibleSidebarNav.filter(
+    (entry) => entry.path === "/models",
+  );
+  const secondaryNav = visibleSidebarNav.filter(
+    (entry) => entry.path !== "/models",
   );
   // ── Effects ──────────────────────────────────────────────────────────────
 
@@ -396,6 +410,7 @@ export default function Sidebar({
     routes,
     hasInboxUnread,
     inboxDotColor,
+    language,
   ]);
 
   // ── Handlers ──────────────────────────────────────────────────────────────
@@ -822,8 +837,35 @@ export default function Sidebar({
                 </button>
               )}
               {marketplaceEntry && renderNavItem(marketplaceEntry)}
-              {visibleSidebarNav.map(renderNavItem)}
+              {secondaryNav.map((entry, index) => (
+                <div
+                  key={entry.key}
+                  className={index > 1 ? styles.secondaryNav : undefined}
+                >
+                  {renderNavItem(entry)}
+                </div>
+              ))}
+              {secondaryNav.length > 2 && (
+                <Popover
+                  trigger="click"
+                  placement="rightTop"
+                  content={
+                    <div className={styles.overflowNav}>
+                      {secondaryNav.slice(2).map(renderNavItem)}
+                    </div>
+                  }
+                >
+                  <button
+                    type="button"
+                    className={`${styles.navigationItem} ${styles.navMore}`}
+                  >
+                    <MoreHorizontal size={18} />
+                    <span>{t("nav.moreFunctions", "More")}</span>
+                  </button>
+                </Popover>
+              )}
             </div>
+            {modelNav.map(renderNavItem)}
             <button
               type="button"
               className={styles.moreSettings}

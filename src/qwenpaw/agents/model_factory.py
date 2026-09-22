@@ -2037,6 +2037,7 @@ class _AgentModelSettings:
     fallback_enabled: bool = False
     fallback_free_only: bool = False
     thinking_level: Any = "inherit"
+    thinking_budget: int | None = None
     compact_threshold: Optional[float] = None
 
 
@@ -2059,6 +2060,11 @@ def _load_agent_model_settings(
             agent_config,
             "thinking_level",
             "inherit",
+        )
+        settings.thinking_budget = getattr(
+            agent_config,
+            f"thinking_budget",
+            None,
         )
         settings.fallback_slots = list(
             getattr(agent_config, "fallback_models", []),
@@ -2099,6 +2105,7 @@ def _apply_model_fallbacks(
     fallback_enabled: bool,
     fallback_free_only: bool,
     thinking_level: str,
+    thinking_budget: int | None = None,
     compact_threshold: Optional[float],
     retry_config: RetryConfig | None,
     rate_limit_config: RateLimitConfig | None,
@@ -2116,7 +2123,7 @@ def _apply_model_fallbacks(
     manager = ProviderManager.get_instance()
     for fallback_slot in fallback_slots:
         fallback_provider = manager.get_provider(fallback_slot.provider_id)
-        if fallback_provider is None:
+        if fallback_provider is None or not fallback_provider.enabled:
             continue
         fallback_provider_id = _resolved_provider_id(
             fallback_provider,
@@ -2134,7 +2141,7 @@ def _apply_model_fallbacks(
         # model class, ...) must never keep a healthy primary model
         # from being built: skip the slot instead of propagating.
         try:
-            with agent_thinking_level(thinking_level):
+            with agent_thinking_level(thinking_level, thinking_budget):
                 fallback_model = fallback_provider.get_chat_model_instance(
                     fallback_slot.model,
                 )
@@ -2189,7 +2196,10 @@ def _create_hub_model_and_formatter(settings, model_slot, *, explicit):
         raise ProviderError(message="No organization model available")
     provider = managed_provider(catalog)
 
-    with agent_thinking_level(settings.thinking_level):
+    with agent_thinking_level(
+        settings.thinking_level,
+        settings.thinking_budget,
+    ):
         model = provider.get_chat_model_instance(selected.model)
     _ensure_model_context_size(model, provider, selected.model)
     formatter = _install_model_formatter(
@@ -2197,14 +2207,14 @@ def _create_hub_model_and_formatter(settings, model_slot, *, explicit):
         provider_id=PROVIDER_ID,
         model_info=provider.get_model_info(selected.model),
     )
-    return (
-        TokenRecordingModelWrapper(
-            PROVIDER_ID,
-            model,
-            compact_threshold=settings.compact_threshold,
-        ),
-        formatter,
+    wrapped = TokenRecordingModelWrapper(
+        PROVIDER_ID,
+        model,
+        compact_threshold=settings.compact_threshold,
     )
+    info = provider.get_model_info(selected.model)
+    wrapped.display_name = info.name if info else None
+    return wrapped, formatter
 
 
 def create_model_and_formatter(
@@ -2251,55 +2261,31 @@ def create_model_and_formatter(
 
     if hub_mode() and model_slot is None:
         model_slot = ProviderManager.get_instance().active_model
-    if hub_mode() and (
-        model_slot is None or model_slot.provider_id == PROVIDER_ID
-    ):
+    if hub_mode() and model_slot and model_slot.provider_id == PROVIDER_ID:
         return _create_hub_model_and_formatter(
             settings,
             model_slot,
             explicit=slot is not None,
         )
 
-    # Create chat model from agent-specific or global config
-    if model_slot and model_slot.provider_id and model_slot.model:
-        # Use agent-specific model
-        manager = ProviderManager.get_instance()
-        provider = manager.get_provider(model_slot.provider_id)
-        if provider is None:
-            raise ProviderError(
-                message=f"Provider '{model_slot.provider_id}' not found.",
-            )
-
-        with agent_thinking_level(settings.thinking_level):
-            model = provider.get_chat_model_instance(model_slot.model)
-        provider_id = _resolved_provider_id(provider, model_slot.provider_id)
-        selected_model_id = model_slot.model
-    else:
-        # Fallback to global active model
-        manager = ProviderManager.get_instance()
-        global_model = manager.get_active_model()
-        if (
-            global_model is None
-            or not global_model.provider_id
-            or not global_model.model
-        ):
-            raise ProviderError(
-                message=(
-                    "No active model configured. "
-                    "Please configure a model using 'qwenpaw models config' "
-                    "or set an agent-specific model."
-                ),
-            )
-        provider = manager.get_provider(global_model.provider_id)
-        if provider is None:
-            raise ProviderError(
-                message=(
-                    f"Active provider '{global_model.provider_id}' not found."
-                ),
-            )
-        provider_id = _resolved_provider_id(provider, global_model.provider_id)
-        selected_model_id = global_model.model
-        model = provider.get_chat_model_instance(selected_model_id)
+    manager = ProviderManager.get_instance()
+    model_slot = model_slot or manager.get_active_model()
+    if not model_slot or not model_slot.provider_id or not model_slot.model:
+        raise ProviderError(message=f"No active model configured")
+    provider = manager.get_provider(model_slot.provider_id)
+    if provider is None:
+        raise ProviderError(
+            message=f"Provider '{model_slot.provider_id}' not found.",
+        )
+    if not provider.enabled:
+        raise ProviderError(message=f"Provider is disabled")
+    with agent_thinking_level(
+        settings.thinking_level,
+        settings.thinking_budget,
+    ):
+        model = provider.get_chat_model_instance(model_slot.model)
+    provider_id = _resolved_provider_id(provider, model_slot.provider_id)
+    selected_model_id = model_slot.model
 
     provider_id = _bind_provider_id_to_model(model, provider_id)
     _ensure_model_context_size(model, provider, selected_model_id)
@@ -2342,12 +2328,15 @@ def create_model_and_formatter(
         fallback_enabled=settings.fallback_enabled,
         fallback_free_only=settings.fallback_free_only,
         thinking_level=settings.thinking_level,
+        thinking_budget=settings.thinking_budget,
         compact_threshold=settings.compact_threshold,
         retry_config=settings.retry_config,
         rate_limit_config=settings.rate_limit_config,
         has_model_override=slot is not None,
     )
 
+    info = provider.get_model_info(selected_model_id)
+    wrapped_model.display_name = info.name if info else None
     return wrapped_model, formatter
 
 

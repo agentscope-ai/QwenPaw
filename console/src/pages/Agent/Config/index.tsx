@@ -24,6 +24,7 @@ import { MemoryMaintenanceContext } from "./memoryMaintenanceContext";
 import { useReMeRuntimeStatus } from "./useReMeRuntimeStatus";
 import { getEmbeddingConfigFingerprint } from "./components/embeddingUtils";
 import { useMemoryBackends } from "@/plugins/memoryBackends";
+import { handleRerankerFieldsChange } from "./rerankerVisibility";
 
 function AgentConfigPage() {
   const { t } = useTranslation();
@@ -35,6 +36,7 @@ function AgentConfigPage() {
   const [localReindexing, setLocalReindexing] = useState(false);
   const [persistedEmbeddingFingerprint, setPersistedEmbeddingFingerprint] =
     useState<string>();
+  const [rerankerExpanded, setRerankerExpanded] = useState(false);
   const syncReindexRequirement = useCallback((config: AgentsRunningConfig) => {
     setNeedsReindex(config.reme_light_memory_config.needs_reindex === true);
     setPersistedEmbeddingFingerprint(
@@ -54,6 +56,7 @@ function AgentConfigPage() {
     savingTimezone,
     approvalLevel,
     setApprovalLevel,
+    configLoadRevision,
     fetchConfig,
     handleSave,
     handleLanguageChange,
@@ -338,9 +341,20 @@ function AgentConfigPage() {
             runtimeStatus,
             diagnosticsStatus,
             checkMemoryStatus,
+            rerankerExpanded,
+            setRerankerExpanded,
+            configLoadRevision,
           }}
         >
-          <Form form={form} layout="vertical" className={styles.form}>
+          <Form
+            form={form}
+            layout="vertical"
+            className={styles.form}
+            onFieldsChange={handleRerankerFieldsChange(
+              form,
+              setRerankerExpanded,
+            )}
+          >
             <Tabs
               className={styles.mainTabs}
               activeKey={activeTab}

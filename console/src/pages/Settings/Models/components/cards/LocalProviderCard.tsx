@@ -1,3 +1,5 @@
+import { ProviderCardStatus } from "./ProviderCardStatus";
+import { ModelCardSurface } from "./ModelCardSurface";
 import React from "react";
 import type { ProviderInfo } from "../../../../../api/types";
 import { useTranslation } from "react-i18next";
@@ -19,19 +21,22 @@ export const LocalProviderCard = React.memo(function LocalProviderCard({
   const statusReady = totalCount > 0;
 
   return (
-    <div className={styles.groupCardGlass}>
+    <ModelCardSurface className={styles.groupCardGlass}>
       {/* Header - same layout as GroupCard */}
       <div className={styles.groupCardHeader}>
         <ProviderIcon providerId={provider.id} size={36} />
         <span className={styles.groupCardName}>{provider.name}</span>
-        <span className={styles.localTag}>{t("models.local")}</span>
-        {statusReady && (
-          <div className={styles.groupCardLiveBadge}>
-            <span className={styles.groupCardPulse} />
-            {totalCount} Live
-          </div>
-        )}
       </div>
+      <ProviderCardStatus
+        configured={statusReady}
+        label={
+          statusReady
+            ? t("models.cardStatus.ready")
+            : t("models.localDownloadFirst")
+        }
+      >
+        <span className={styles.localTag}>{t("models.local")}</span>
+      </ProviderCardStatus>
 
       {/* Content */}
       <div className={styles.groupCardContent}>
@@ -56,12 +61,12 @@ export const LocalProviderCard = React.memo(function LocalProviderCard({
       {/* Actions */}
       <div className={styles.groupCardActions}>
         <button
-          className={styles.groupCardActBtn}
+          className={`${styles.groupCardActBtn} ${styles.groupCardPrimaryAction}`}
           onClick={() => onOpenModels(provider)}
         >
           {t("models.models")}
         </button>
       </div>
-    </div>
+    </ModelCardSurface>
   );
 });

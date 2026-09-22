@@ -1,0 +1,286 @@
+{
+  "api_urls": [
+    "https://api.deepseek.com"
+  ],
+  "remote_id": "deepseek",
+  "template_owner": true,
+  "default_model_ids": [
+    "deepseek-flash",
+    "deepseek-v4-pro"
+  ],
+  "models": [
+    {
+      "id": "deepseek-chat",
+      "name": "DeepSeek Chat",
+      "supports_image": false,
+      "supports_video": false,
+      "probe_source": "documentation",
+      "is_free": false,
+      "is_recommended": true,
+      "source": "builtin",
+      "availability_status": "unverified",
+      "availability_retryable": true,
+      "config_overrides": [],
+      "max_input_length": 131072,
+      "max_input_length_configured": false,
+      "generate_kwargs": {},
+      "relay_reasoning": true,
+      "billing": "paid",
+      "capability_provenance": {
+        "billing": {
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
+    },
+    {
+      "id": "deepseek-reasoner",
+      "name": "DeepSeek Reasoner",
+      "supports_image": false,
+      "supports_video": false,
+      "probe_source": "documentation",
+      "is_free": false,
+      "source": "builtin",
+      "availability_status": "unverified",
+      "availability_retryable": true,
+      "config_overrides": [],
+      "max_input_length": 131072,
+      "max_input_length_configured": false,
+      "generate_kwargs": {},
+      "relay_reasoning": true,
+      "billing": "paid",
+      "capability_provenance": {
+        "billing": {
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
+    },
+    {
+      "id": "deepseek-v4-flash",
+      "name": "DeepSeek V4 Flash",
+      "supports_image": true,
+      "supports_video": false,
+      "probe_source": "documentation",
+      "is_free": false,
+      "source": "builtin",
+      "availability_status": "unverified",
+      "availability_retryable": true,
+      "config_overrides": [],
+      "max_input_length": 1000000,
+      "max_input_length_configured": false,
+      "generate_kwargs": {},
+      "relay_reasoning": true,
+      "max_output_length": 384000,
+      "max_output_length_source": "catalog",
+      "billing": "paid",
+      "supports_tool_calling": true,
+      "supports_audio": false,
+      "capability_provenance": {
+        "max_input_length": {
+          "source": "documentation",
+          "reference": "https://api-docs.deepseek.com/quick_start/pricing/",
+          "updated_at": "2026-09-18"
+        },
+        "max_output_length": {
+          "source": "documentation",
+          "reference": "https://api-docs.deepseek.com/quick_start/pricing/",
+          "updated_at": "2026-09-18"
+        },
+        "supports_image": {
+          "source": "documentation",
+          "reference": "https://api-docs.deepseek.com/quick_start/pricing/",
+          "updated_at": "2026-09-18"
+        },
+        "supports_tool_calling": {
+          "source": "documentation",
+          "reference": "https://api-docs.deepseek.com/quick_start/pricing/",
+          "updated_at": "2026-09-18"
+        },
+        "thinking_control": {
+          "source": "catalog",
+          "reference": "https://api-docs.deepseek.com/guides/thinking_mode/"
+        },
+        "billing": {
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      },
+      "released_at": "2026-09-10",
+      "thinking_control": {
+        "kind": "effort",
+        "efforts": [
+          "low",
+          "high",
+          "max"
+        ],
+        "supports_off": true,
+        "wire": "compat_effort"
+      }
+    },
+    {
+      "id": "deepseek-v4-pro",
+      "name": "DeepSeek V4 Pro",
+      "supports_image": false,
+      "supports_video": false,
+      "probe_source": "documentation",
+      "is_free": false,
+      "source": "builtin",
+      "availability_status": "unverified",
+      "availability_retryable": true,
+      "config_overrides": [],
+      "max_input_length": 1000000,
+      "max_input_length_configured": false,
+      "generate_kwargs": {},
+      "relay_reasoning": true,
+      "max_output_length": 384000,
+      "max_output_length_source": "catalog",
+      "billing": "paid",
+      "supports_tool_calling": true,
+      "supports_audio": false,
+      "capability_provenance": {
+        "max_input_length": {
+          "source": "documentation",
+          "reference": "https://api-docs.deepseek.com/quick_start/pricing/",
+          "updated_at": "2026-09-18"
+        },
+        "max_output_length": {
+          "source": "documentation",
+          "reference": "https://api-docs.deepseek.com/quick_start/pricing/",
+          "updated_at": "2026-09-18"
+        },
+        "supports_image": {
+          "source": "documentation",
+          "reference": "https://api-docs.deepseek.com/quick_start/pricing/",
+          "updated_at": "2026-09-18"
+        },
+        "supports_tool_calling": {
+          "source": "documentation",
+          "reference": "https://api-docs.deepseek.com/quick_start/pricing/",
+          "updated_at": "2026-09-18"
+        },
+        "thinking_control": {
+          "source": "catalog",
+          "reference": "https://api-docs.deepseek.com/guides/thinking_mode/"
+        },
+        "billing": {
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      },
+      "released_at": "2026-08-12",
+      "thinking_control": {
+        "kind": "effort",
+        "efforts": [
+          "low",
+          "high",
+          "max"
+        ],
+        "supports_off": true,
+        "wire": "compat_effort"
+      }
+    },
+    {
+      "id": "deepseek-v4-flash-vision-exp",
+      "name": "deepseek-v4-flash-vision-exp",
+      "max_input_length": 1000000,
+      "max_output_length": 384000,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": true,
+      "supports_audio": false,
+      "supports_video": false,
+      "billing": "paid",
+      "probe_source": "documentation",
+      "capability_provenance": {
+        "max_input_length": {
+          "source": "documentation",
+          "reference": "https://api-docs.deepseek.com/quick_start/pricing/",
+          "updated_at": "2026-09-18"
+        },
+        "max_output_length": {
+          "source": "documentation",
+          "reference": "https://api-docs.deepseek.com/quick_start/pricing/",
+          "updated_at": "2026-09-18"
+        },
+        "supports_image": {
+          "source": "documentation",
+          "reference": "https://api-docs.deepseek.com/quick_start/pricing/",
+          "updated_at": "2026-09-18"
+        },
+        "supports_tool_calling": {
+          "source": "documentation",
+          "reference": "https://api-docs.deepseek.com/quick_start/pricing/",
+          "updated_at": "2026-09-18"
+        },
+        "thinking_control": {
+          "source": "catalog",
+          "reference": "https://api-docs.deepseek.com/guides/thinking_mode/"
+        },
+        "billing": {
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      },
+      "released_at": "2026-09-10",
+      "thinking_control": {
+        "kind": "effort",
+        "efforts": [
+          "low",
+          "high",
+          "max"
+        ],
+        "supports_off": true,
+        "wire": "compat_effort"
+      }
+    },
+    {
+      "id": "deepseek-flash",
+      "name": "deepseek-flash",
+      "max_input_length": 1000000,
+      "max_output_length": 384000,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": true,
+      "supports_audio": false,
+      "supports_video": false,
+      "billing": "paid",
+      "probe_source": "documentation",
+      "capability_provenance": {
+        "max_input_length": {
+          "source": "documentation",
+          "reference": "https://api-docs.deepseek.com/quick_start/pricing/",
+          "updated_at": "2026-09-18"
+        },
+        "max_output_length": {
+          "source": "documentation",
+          "reference": "https://api-docs.deepseek.com/quick_start/pricing/",
+          "updated_at": "2026-09-18"
+        },
+        "supports_image": {
+          "source": "documentation",
+          "reference": "https://api-docs.deepseek.com/quick_start/pricing/",
+          "updated_at": "2026-09-18"
+        },
+        "supports_tool_calling": {
+          "source": "documentation",
+          "reference": "https://api-docs.deepseek.com/quick_start/pricing/",
+          "updated_at": "2026-09-18"
+        },
+        "thinking_control": {
+          "source": "catalog",
+          "reference": "https://api-docs.deepseek.com/guides/thinking_mode/"
+        },
+        "billing": {
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      },
+      "released_at": "2026-09-10",
+      "thinking_control": {
+        "kind": "effort",
+        "efforts": [
+          "low",
+          "high",
+          "max"
+        ],
+        "supports_off": true,
+        "wire": "compat_effort"
+      }
+    }
+  ]
+}
