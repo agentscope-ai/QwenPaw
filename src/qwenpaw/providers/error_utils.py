@@ -45,18 +45,10 @@ def _status_from_streaming_error_message(value: Any) -> int | None:
     return _as_http_status(match.group(1))
 
 
-def _iter_streaming_error_messages(
-    exc: Exception,
-    text: str | None = None,
-) -> Iterator[Any]:
-    """Yield message fields that may contain an in-stream HTTP status.
-
-    ``text`` is the provider message when the caller already holds it.
-    Supplying it avoids rendering the exception a second time, which is
-    not free: a large body may only be built inside ``__str__``.
-    """
+def _iter_streaming_error_messages(exc: Exception) -> Iterator[Any]:
+    """Yield message fields that may contain an in-stream HTTP status."""
     yield getattr(exc, "message", None)
-    yield text if text is not None else str(exc)
+    yield str(exc)
 
     for payload in (
         getattr(exc, "body", None),
@@ -127,16 +119,8 @@ async def bounded_error_text(exc: Exception) -> str:
     return await asyncio.to_thread(_rendered_error_text, exc)
 
 
-def extract_status_code(
-    exc: Exception,
-    text: str | None = None,
-) -> int | None:
-    """Best-effort HTTP status extraction across supported provider SDKs.
-
-    ``text`` is the provider message when the caller already holds it.
-    Passing it avoids rendering ``exc`` again for the streaming-status
-    fallback, which matters when the body is large.
-    """
+def extract_status_code(exc: Exception) -> int | None:
+    """Best-effort HTTP status extraction across supported provider SDKs."""
     for value in (
         getattr(exc, "status_code", None),
         getattr(exc, "code", None),
@@ -174,7 +158,7 @@ def extract_status_code(
     # only in a message such as "Streaming response failed: [503] ...".
     # Keep this fallback deliberately narrow to avoid treating unrelated
     # three-digit numbers in provider messages as HTTP status codes.
-    for message in _iter_streaming_error_messages(exc, text):
+    for message in _iter_streaming_error_messages(exc):
         status = _status_from_streaming_error_message(message)
         if status is not None:
             return status

@@ -33,11 +33,23 @@ _HTML_SUMMARY_INPUT_LIMIT = 8_192
 
 # Fragments emitted only by full HTML error pages. A gateway that
 # rejects a request often answers with an interstitial instead of JSON.
-_HTML_PAGE_MARKERS = (
+# A page both opens with markup and closes with a tag, and requiring
+# both keeps an API error that merely quotes markup intact: a JSON body
+# mentioning "<html>" would otherwise be rewritten as a page, and the
+# parser would drop the quoted tag from it.
+_HTML_OPENING_MARKERS = (
     "<!doctype html",
     "<html",
+)
+_HTML_CLOSING_MARKERS = (
+    "</html>",
     "</body>",
 )
+
+# How far into the text the opening marker may sit. A "status=NNN: "
+# prefix or a gateway's own "Error code: NNN - '<body>'" wrapper comes
+# before the page itself.
+_HTML_OPENING_SCAN_LIMIT = 512
 
 # Elements whose contents are not readable text.
 _HTML_SKIPPED_BLOCK_TAGS = ("script", "style")
@@ -56,8 +68,8 @@ _CHALLENGE_PAGE_MARKERS = (
 )
 CHALLENGE_PAGE_MESSAGE = (
     "Blocked by Cloudflare bot protection: the endpoint returned a "
-    "challenge page instead of an API response. The endpoint is "
-    "reachable but rejects this client."
+    "challenge or block page instead of an API response. The endpoint "
+    "is reachable but rejects this client."
 )
 
 # A caller may prepend the HTTP status before the text reaches us
@@ -78,7 +90,10 @@ def is_challenge_page(message: str) -> bool:
 def _is_html_page(message: str) -> bool:
     """Report whether error text is a full HTML page, not an API error."""
     lowered = message[:CONNECTION_MESSAGE_SCAN_LIMIT].lower()
-    return any(marker in lowered for marker in _HTML_PAGE_MARKERS)
+    head = lowered[:_HTML_OPENING_SCAN_LIMIT]
+    return any(marker in head for marker in _HTML_OPENING_MARKERS) and any(
+        marker in lowered for marker in _HTML_CLOSING_MARKERS
+    )
 
 
 class _TextCollector(HTMLParser):

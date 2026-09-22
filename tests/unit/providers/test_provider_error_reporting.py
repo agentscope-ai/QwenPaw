@@ -218,6 +218,39 @@ def test_summary_does_not_leak_script_text() -> None:
     assert "Blocked" in cleaned
 
 
+def test_waf_deny_page_reports_a_block_page() -> None:
+    # "cf-mitigated" is emitted for a WAF deny as well as for a
+    # challenge, so the reported line must not claim a challenge.
+    deny = "error 1020: Access denied. cf-mitigated: block"
+
+    cleaned = sanitize_connection_message(deny)
+
+    assert cleaned == CHALLENGE_PAGE_MESSAGE
+    assert "challenge or block page" in cleaned
+
+
+def test_api_error_quoting_markup_is_left_alone() -> None:
+    body = (
+        'status=400: Error code: 400 - {"error": {"message": '
+        '"Invalid HTML: <html> tag not closed"}}'
+    )
+
+    cleaned = sanitize_connection_message(body)
+
+    assert cleaned == body
+
+
+def test_page_without_a_closing_tag_is_not_summarized() -> None:
+    # A page cut off before its closing tag (or a bare fragment) keeps
+    # its text; the length cap still bounds what is stored and shown.
+    page = "<html><body>502 Bad Gateway"
+
+    assert sanitize_connection_message(page) == page
+    assert len(truncate_connection_message(page)) <= (
+        MAX_CONNECTION_MESSAGE_LENGTH
+    )
+
+
 def test_availability_needs_raw_text_when_the_summary_drops_a_marker() -> None:
     page = (
         "<!DOCTYPE html><html><body>"

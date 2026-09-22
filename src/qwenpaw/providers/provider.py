@@ -493,8 +493,8 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
         """Cap error text that is persisted or rendered for the user."""
         return error_sanitizer.truncate_connection_message(message)
 
-    @classmethod
-    def _status_prefix(cls, exc: Exception) -> str:
+    @staticmethod
+    def _status_prefix(exc: Exception) -> str:
         """Return the "status=NNN: " prefix an SDK exception implies."""
         status = getattr(exc, "status_code", None)
         if status is None:
@@ -533,7 +533,13 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
 
     @classmethod
     def connection_error_message(cls, exc: Exception) -> str:
-        """Format an SDK exception while preserving its HTTP status."""
+        """Format an SDK exception while preserving its HTTP status.
+
+        The display entry point for providers and plugins that call it
+        directly. Callers that also classify use
+        :meth:`connection_error_texts_async`, which renders once for
+        both forms.
+        """
         return cls.sanitize_connection_message(cls.connection_error_text(exc))
 
     async def add_model(

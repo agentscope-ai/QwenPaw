@@ -46,6 +46,7 @@ from ...providers.provider_discovery_policy import (
 )
 from ...config.config import ActiveModelsInfo
 from ...providers.provider_manager import ProviderManager
+from ...providers.provider import Provider
 from ...providers.model_metadata import list_model_templates
 from ...providers.model_resolution import resolve_model_info
 from ...providers.hub_managed import (
@@ -618,11 +619,14 @@ async def test_provider(
             overrides["auth_mode"] = body.auth_mode
         tmp_provider = provider.model_copy(update=overrides)
         ok, msg = await tmp_provider.check_connection()
+        message = (
+            "Connection successful" if ok else f"Connection failed: {msg}"
+        )
+        # Display text only, so cap it like the other provider error text
+        # the Console shows.
         return TestConnectionResponse(
             success=ok,
-            message=(
-                "Connection successful" if ok else f"Connection failed: {msg}"
-            ),
+            message=Provider.truncate_connection_message(message),
         )
     except (ValueError, AppBaseException) as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc

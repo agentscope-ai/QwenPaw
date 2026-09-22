@@ -20,7 +20,10 @@ from qwenpaw.app.routers.providers import (
     test_provider as provider_connection_endpoint,
     test_model as model_test_endpoint,
 )
-from qwenpaw.providers.error_sanitizer import CHALLENGE_PAGE_MESSAGE
+from qwenpaw.providers.error_sanitizer import (
+    CHALLENGE_PAGE_MESSAGE,
+    MAX_CONNECTION_MESSAGE_LENGTH,
+)
 from qwenpaw.providers.provider import ModelInfo, ProviderInfo
 
 
@@ -392,6 +395,28 @@ async def test_connection_preserves_protocol_override(
     provider.model_copy.assert_called_once_with(
         update={"chat_model": chat_model},
     )
+
+
+async def test_connection_caps_the_provider_error_message() -> None:
+    body = "x" * 40_000
+    provider = MagicMock()
+    provider.model_copy.return_value = provider
+    provider.check_connection = AsyncMock(
+        return_value=(False, f"API error: {body}"),
+    )
+    manager = MagicMock()
+    manager.get_provider.return_value = provider
+
+    result = await provider_connection_endpoint(
+        manager=manager,
+        provider_id="custom-provider",
+        body=TestProviderRequest(),
+    )
+
+    assert result.success is False
+    assert result.message.startswith("Connection failed: ")
+    assert len(result.message) <= MAX_CONNECTION_MESSAGE_LENGTH
+    assert result.message.endswith("\u2026")
 
 
 async def test_custom_provider_creation_schedules_discovery():
