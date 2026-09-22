@@ -1871,6 +1871,7 @@
     "addUser": "添加用户",
     "addUserPlaceholder": "输入用户 ID",
     "userId": "用户 ID",
+    "username": "用户名",
     "channel": "频道",
     "firstMessage": "首条消息",
     "time": "时间",
