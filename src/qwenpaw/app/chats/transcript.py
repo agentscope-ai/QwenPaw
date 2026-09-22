@@ -72,16 +72,6 @@ class TranscriptStore:
             self._closed = True
             raise
 
-    @property
-    def path(self) -> Path:
-        """Return the transcript database path."""
-        return self._path
-
-    @property
-    def closed(self) -> bool:
-        """Return whether the store was intentionally closed."""
-        return self._closed
-
     @contextmanager
     def _read_connection(self) -> Iterator[sqlite3.Connection]:
         """Open a short-lived read-only connection for page reads."""
@@ -133,7 +123,6 @@ class TranscriptStore:
                 role                TEXT NOT NULL,
                 payload_json        TEXT NOT NULL,
                 client_message_id   TEXT,
-                replaces_message_id TEXT,
                 superseded_at       TEXT,
                 created_at          TEXT NOT NULL,
                 finished_at         TEXT,
@@ -269,7 +258,6 @@ class TranscriptStore:
         turn_id: str,
         message: Message,
         ordinal: int,
-        replaces_message_id: str | None = None,
         created_at: str | None = None,
         finished_at: str | None = None,
     ) -> None:
@@ -288,7 +276,7 @@ class TranscriptStore:
                 raise ValueError("transcript turn does not exist")
             existing = self._conn.execute(
                 "SELECT turn_id, ordinal, role, payload_json, "
-                "client_message_id, replaces_message_id, finished_at "
+                "client_message_id, finished_at "
                 "FROM transcript_messages "
                 "WHERE session_id = ? AND message_id = ?",
                 (session_id, message.id),
@@ -299,7 +287,6 @@ class TranscriptStore:
                 role,
                 payload,
                 client_message_id,
-                replaces_message_id,
                 finished_at,
             )
             if existing is not None and tuple(existing) == values:
@@ -310,15 +297,14 @@ class TranscriptStore:
             self._conn.execute(
                 "INSERT INTO transcript_messages("
                 "session_id, turn_id, message_id, ordinal, role, "
-                "payload_json, replaces_message_id, created_at, "
+                "payload_json, created_at, "
                 "client_message_id, finished_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) "
                 "ON CONFLICT(session_id, message_id) DO UPDATE SET "
                 "turn_id = excluded.turn_id, ordinal = excluded.ordinal, "
                 "role = excluded.role, "
                 "payload_json = excluded.payload_json, "
                 "client_message_id = excluded.client_message_id, "
-                "replaces_message_id = excluded.replaces_message_id, "
                 "finished_at = excluded.finished_at",
                 (
                     session_id,
@@ -327,7 +313,6 @@ class TranscriptStore:
                     ordinal,
                     role,
                     payload,
-                    replaces_message_id,
                     timestamp,
                     client_message_id,
                     finished_at,
@@ -388,14 +373,6 @@ class TranscriptStore:
                             existing["replaces_turn_id"],
                         ),
                     )
-                self._conn.execute(
-                    "UPDATE transcript_messages SET superseded_at = ? "
-                    "WHERE session_id = ? AND message_id IN ("
-                    "SELECT replaces_message_id FROM transcript_messages "
-                    "WHERE session_id = ? AND turn_id = ? "
-                    "AND replaces_message_id IS NOT NULL)",
-                    (timestamp, session_id, session_id, turn_id),
-                )
 
     def attach_turn_usage(
         self,
@@ -626,7 +603,6 @@ class TranscriptStore:
             if self._closed:
                 return
             self._closed = True
-        with self._lock:
             self._conn.close()
 
 

@@ -93,11 +93,10 @@ async def test_records_request_and_terminal_response(tmp_path: Path) -> None:
         "WHERE message_id = 'assistant-message'",
     ).fetchone()
     assert row["finished_at"] == "2026-09-20T12:00:00+00:00"
-    assert recorder.turn_id == "client:client-1"
     assert request.request_context is not None
     assert (
         request.request_context[TRANSCRIPT_TURN_ID_CONTEXT_KEY]
-        == recorder.turn_id
+        == "client:client-1"
     )
 
 
@@ -258,7 +257,6 @@ async def test_write_failure_degrades_without_raising() -> None:
         Message(role=Role.ASSISTANT, content=[TextContent(text="reply")]),
     )
 
-    assert recorder.degraded is True
     store.upsert_message.assert_not_called()
 
 
@@ -381,7 +379,10 @@ async def test_regeneration_replaces_original_only_after_success(
         channel="console",
     )
 
-    assert recorder.turn_id == "regenerate:client-new"
+    assert request.request_context is not None
+    assert request.request_context[TRANSCRIPT_TURN_ID_CONTEXT_KEY] == (
+        "regenerate:client-new"
+    )
     assert page is not None
     assert [message.id for message in page.messages] == expected_ids
     store.close()

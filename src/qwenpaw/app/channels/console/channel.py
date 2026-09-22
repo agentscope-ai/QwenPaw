@@ -428,7 +428,7 @@ class ConsoleChannel(BaseChannel):
             last_response = None
             event_count = 0
             headline_stream_states: dict[str, Any] = {}
-            completed_responses: list[Any] = []
+            completed_response: Any | None = None
 
             async for event in self._process(request):
                 event_count += 1
@@ -472,7 +472,7 @@ class ConsoleChannel(BaseChannel):
                         yield f"data: {pending_data}\n\n"
 
                 if obj == "response" and status == RunStatus.Completed:
-                    completed_responses.append(event)
+                    completed_response = event
                 else:
                     data = self._serialize_event_for_sse(
                         event,
@@ -509,9 +509,9 @@ class ConsoleChannel(BaseChannel):
             for sse in usage_sse:
                 yield sse
 
-            for response in completed_responses:
+            if completed_response is not None:
                 data = self._serialize_event_for_sse(
-                    response,
+                    completed_response,
                     headline_stream_states,
                 )
                 yield f"data: {data}\n\n"

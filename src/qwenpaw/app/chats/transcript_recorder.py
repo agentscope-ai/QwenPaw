@@ -63,16 +63,6 @@ class TranscriptRecorder:
         self._finished = False
         self._degraded = False
 
-    @property
-    def degraded(self) -> bool:
-        """Return whether recording was disabled after a write failure."""
-        return self._degraded
-
-    @property
-    def turn_id(self) -> str:
-        """Return the stable identifier selected for this turn."""
-        return self._turn_id
-
     async def start(self) -> None:
         """Create the turn and persist its incoming display messages."""
         if self._store is None or self._started or self._degraded:

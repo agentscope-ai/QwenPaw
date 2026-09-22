@@ -29,22 +29,7 @@ import { syncSessionsGlobal } from "../../../stores/sessionListStore";
 const DEFAULT_USER_ID = "default";
 const DEFAULT_CHANNEL = "console";
 const DEFAULT_SESSION_NAME = "New Chat";
-const LEGACY_PENDING_USER_MESSAGE_PREFIX = "qwenpaw_pending_user_msg_";
 const ROLE_TOOL = "tool";
-
-function clearLegacyPendingUserMessage(sessionId: string): void {
-  const key = `${LEGACY_PENDING_USER_MESSAGE_PREFIX}${sessionId}`;
-  try {
-    localStorage.removeItem(key);
-  } catch {
-    // Storage can be unavailable in privacy-restricted browser contexts.
-  }
-  try {
-    sessionStorage.removeItem(key);
-  } catch {
-    // Storage can be unavailable in privacy-restricted browser contexts.
-  }
-}
 const ROLE_USER = "user";
 const ROLE_ASSISTANT = "assistant";
 const TYPE_PLUGIN_CALL_OUTPUT = "plugin_call_output";
@@ -1512,13 +1497,6 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
       signal,
       include_app_owned: false,
     });
-    for (const sessionId of new Set([
-      backendId,
-      displayId,
-      listEntry?.realId,
-    ])) {
-      if (sessionId) clearLegacyPendingUserMessage(sessionId);
-    }
     const historyPage = chatHistory.history ?? {
       has_more: false,
       next_before: null,

@@ -245,7 +245,7 @@ async def test_message_pages_use_opaque_item_cursor(tmp_path: Path) -> None:
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "cursor",
-    ("turn:2", "v1:2", "v2:2:0", "2", "0:0", "2:-1"),
+    ("turn:2", "1:2:3", "2", "0:0", "2:-1"),
 )
 async def test_message_page_rejects_invalid_cursor(cursor: str) -> None:
     with pytest.raises(HTTPException) as raised:
