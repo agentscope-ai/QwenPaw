@@ -98,7 +98,6 @@ async def test_get_chat_prefers_transcript_page(tmp_path: Path) -> None:
         "status": "completed",
     }
     assert history.history is not None
-    assert history.history.completeness == "complete"
     assert history.history.has_more is False
     session.get_session_state_dict.assert_not_awaited()
 
@@ -239,7 +238,7 @@ async def test_message_pages_use_opaque_item_cursor(tmp_path: Path) -> None:
         "turn 2",
         "turn 3",
     ]
-    assert newest.next_before == "v2:2:0"
+    assert newest.next_before == "2:0"
     assert newest.has_more is True
     assert [item.content[0].text for item in older.messages] == ["turn 1"]
     assert older.next_before is None
@@ -247,11 +246,15 @@ async def test_message_pages_use_opaque_item_cursor(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_message_page_rejects_invalid_cursor() -> None:
+@pytest.mark.parametrize(
+    "cursor",
+    ("turn:2", "v1:2", "v2:2:0", "2", "0:0", "2:-1"),
+)
+async def test_message_page_rejects_invalid_cursor(cursor: str) -> None:
     with pytest.raises(HTTPException) as raised:
         await get_chat_messages(
             chat_id="chat-1",
-            before="turn:2",
+            before=cursor,
             limit=50,
             mgr=SimpleNamespace(get_chat=AsyncMock(return_value=_chat())),
             workspace=_workspace(None),
@@ -284,7 +287,7 @@ async def test_get_chat_falls_back_without_transcript() -> None:
 
     assert history.messages[0].content[0].text == "fallback"
     assert history.history is not None
-    assert history.history.completeness == "partial"
+    assert history.history.has_more is False
 
 
 @pytest.mark.asyncio
@@ -305,7 +308,7 @@ async def test_get_chat_falls_back_when_transcript_read_fails() -> None:
 
     assert history.messages == []
     assert history.history is not None
-    assert history.history.completeness == "partial"
+    assert history.history.has_more is False
 
 
 @pytest.mark.asyncio

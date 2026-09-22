@@ -207,10 +207,8 @@ vi.mock("./sessionApi", () => ({
     loadOlderHistory: vi.fn(async () => ({
       messages: [],
       page: {
-        revision: 0,
         has_more: false,
         next_before: null,
-        completeness: "complete",
       },
     })),
     lastActiveChatId: "last-chat-1",

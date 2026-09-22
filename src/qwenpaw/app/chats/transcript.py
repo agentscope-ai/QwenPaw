@@ -20,7 +20,6 @@ from ...token_usage.turn_usage import TURN_USAGE_META_KEY
 _SCHEMA_VERSION = 1
 _BUSY_TIMEOUT_MS = 5000
 TurnStatus = Literal["running", "completed", "failed", "cancelled"]
-Completeness = Literal["complete", "partial"]
 _DEFAULT_PAGE_MAX_BYTES = 512 * 1024
 
 
@@ -38,7 +37,7 @@ class TranscriptCursor:
     """Exclusive position before which an older page is read."""
 
     turn_seq: int
-    ordinal: int | None = None
+    ordinal: int
 
 
 @dataclass(frozen=True)
@@ -48,11 +47,6 @@ class TranscriptPage:
     messages: list[Message]
     next_before: TranscriptCursor | None
     has_more: bool
-    revision: int
-    completeness: Completeness
-    item_count: int = 0
-    payload_bytes: int = 0
-    max_bytes_reached: bool = False
 
 
 class TranscriptStore:
@@ -498,7 +492,7 @@ class TranscriptStore:
         session_id: str,
         user_id: str,
         channel: str,
-        before: TranscriptCursor | int | None = None,
+        before: TranscriptCursor | None = None,
         limit: int = 50,
         max_bytes: int = _DEFAULT_PAGE_MAX_BYTES,
     ) -> TranscriptPage | None:
@@ -529,37 +523,25 @@ class TranscriptStore:
             )
             params: list[Any] = [session_id]
             if before is not None:
-                cursor = (
-                    before
-                    if isinstance(before, TranscriptCursor)
-                    else TranscriptCursor(turn_seq=before)
+                sql += (
+                    " AND (t.turn_seq < ? OR (t.turn_seq = ? "
+                    "AND m.ordinal < ?))"
                 )
-                if cursor.ordinal is None:
-                    sql += " AND t.turn_seq < ?"
-                    params.append(cursor.turn_seq)
-                else:
-                    sql += (
-                        " AND (t.turn_seq < ? OR (t.turn_seq = ? "
-                        "AND m.ordinal < ?))"
-                    )
-                    params.extend(
-                        [cursor.turn_seq, cursor.turn_seq, cursor.ordinal],
-                    )
+                params.extend(
+                    [before.turn_seq, before.turn_seq, before.ordinal],
+                )
             sql += " ORDER BY t.turn_seq DESC, m.ordinal DESC LIMIT ?"
             params.append(limit + 1)
             candidates = connection.execute(sql, params).fetchall()
             selected: list[sqlite3.Row] = []
             payload_bytes = 0
-            max_bytes_reached = False
             for row in candidates[:limit]:
                 row_bytes = int(row["payload_bytes"])
                 if selected and payload_bytes + row_bytes > max_bytes:
-                    max_bytes_reached = True
                     break
                 selected.append(row)
                 payload_bytes += row_bytes
                 if payload_bytes >= max_bytes:
-                    max_bytes_reached = True
                     break
             has_more = len(selected) < len(candidates)
             if not selected:
@@ -567,8 +549,6 @@ class TranscriptStore:
                     messages=[],
                     next_before=None,
                     has_more=False,
-                    revision=int(session["revision"]),
-                    completeness="complete",
                 )
             turn_ids = sorted({str(row["turn_id"]) for row in selected})
             placeholders = ", ".join("?" for _ in turn_ids)
@@ -608,11 +588,6 @@ class TranscriptStore:
                 ],
                 next_before=next_before,
                 has_more=has_more,
-                revision=int(session["revision"]),
-                completeness="complete",
-                item_count=len(selected),
-                payload_bytes=payload_bytes,
-                max_bytes_reached=max_bytes_reached,
             )
 
     @staticmethod

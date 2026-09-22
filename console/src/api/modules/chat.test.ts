@@ -249,13 +249,13 @@ describe("chatApi CRUD", () => {
     const controller = new AbortController();
 
     await chatApi.getChatMessages("chat/1", {
-      before: "v1:42",
+      before: "42:0",
       limit: 25,
       signal: controller.signal,
     });
 
     expect(request).toHaveBeenCalledWith(
-      "/chats/chat%2F1/messages?before=v1%3A42&limit=25",
+      "/chats/chat%2F1/messages?before=42%3A0&limit=25",
       expect.objectContaining({ signal: controller.signal }),
     );
   });

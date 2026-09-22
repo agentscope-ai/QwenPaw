@@ -184,7 +184,7 @@ def test_transcript_is_readable_after_full_app_restart(tmp_path: Path) -> None:
         assert body["messages"][0]["content"][0]["text"] == (
             "survived restart"
         )
-        assert body["history"]["completeness"] == "complete"
+        assert body["history"]["has_more"] is False
     finally:
         if first.process.poll() is None:
             _stop_app(first)

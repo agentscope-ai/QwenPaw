@@ -792,13 +792,8 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
           throw new DOMException("Agent changed", "AbortError");
         }
         const nextPage: ChatHistoryMetadata = {
-          revision: result.revision,
           has_more: result.has_more,
           next_before: result.next_before,
-          completeness: result.completeness,
-          item_count: result.item_count,
-          payload_bytes: result.payload_bytes,
-          max_bytes_reached: result.max_bytes_reached,
         };
         this.setHistoryPage(backendId, nextPage);
         if (entry) entry.historyPage = nextPage;
@@ -1525,10 +1520,8 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
       if (sessionId) clearLegacyPendingUserMessage(sessionId);
     }
     const historyPage = chatHistory.history ?? {
-      revision: 0,
       has_more: false,
       next_before: null,
-      completeness: "partial" as const,
     };
     if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
     if (this.isActiveOwner(owner)) {

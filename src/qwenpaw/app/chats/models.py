@@ -229,15 +229,10 @@ class ChatHistory(BaseModel):
 
 
 class ChatHistoryMetadata(BaseModel):
-    """Cursor and completeness metadata for a transcript page."""
+    """Cursor metadata for a transcript page."""
 
-    revision: int = 0
     has_more: bool = False
     next_before: Optional[str] = None
-    completeness: Literal["complete", "partial"] = "complete"
-    item_count: int = 0
-    payload_bytes: int = 0
-    max_bytes_reached: bool = False
 
 
 class ChatMessagePage(ChatHistoryMetadata):

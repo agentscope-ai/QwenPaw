@@ -47,45 +47,28 @@ router = APIRouter(prefix="/chats", tags=["chats"])
 def _encode_transcript_cursor(value: TranscriptCursor | None) -> str | None:
     if value is None:
         return None
-    if value.ordinal is None:
-        return f"v1:{value.turn_seq}"
-    return f"v2:{value.turn_seq}:{value.ordinal}"
+    return f"{value.turn_seq}:{value.ordinal}"
 
 
 def _decode_transcript_cursor(value: str | None) -> TranscriptCursor | None:
     if value is None:
         return None
-    parts = value.split(":")
     try:
-        if len(parts) == 2 and parts[0] == "v1":
-            cursor = TranscriptCursor(turn_seq=int(parts[1]))
-        elif len(parts) == 3 and parts[0] == "v2":
-            cursor = TranscriptCursor(
-                turn_seq=int(parts[1]),
-                ordinal=int(parts[2]),
-            )
-        else:
-            raise ValueError
+        turn_seq, ordinal = (int(part) for part in value.split(":"))
     except ValueError as exc:
         raise HTTPException(
             status_code=400,
             detail="Invalid history cursor",
         ) from exc
-    invalid_ordinal = cursor.ordinal is not None and cursor.ordinal < 0
-    if cursor.turn_seq < 1 or invalid_ordinal:
+    if turn_seq < 1 or ordinal < 0:
         raise HTTPException(status_code=400, detail="Invalid history cursor")
-    return cursor
+    return TranscriptCursor(turn_seq=turn_seq, ordinal=ordinal)
 
 
 def _history_metadata(page: TranscriptPage) -> ChatHistoryMetadata:
     return ChatHistoryMetadata(
-        revision=page.revision,
         has_more=page.has_more,
         next_before=_encode_transcript_cursor(page.next_before),
-        completeness=page.completeness,
-        item_count=page.item_count,
-        payload_bytes=page.payload_bytes,
-        max_bytes_reached=page.max_bytes_reached,
     )
 
 
@@ -880,7 +863,7 @@ async def get_chat_messages(
         max_bytes=max_bytes,
     )
     if page is None:
-        return ChatMessagePage(completeness="partial")
+        return ChatMessagePage()
     metadata = _history_metadata(page)
     return ChatMessagePage(
         messages=page.messages,
@@ -973,7 +956,7 @@ async def get_chat(
         return ChatHistory(
             messages=[],
             status=status,
-            history=ChatHistoryMetadata(completeness="partial"),
+            history=ChatHistoryMetadata(),
         )
 
     agent_raw = state.get("agent", {})
@@ -1000,7 +983,7 @@ async def get_chat(
     return ChatHistory(
         messages=messages,
         status=status,
-        history=ChatHistoryMetadata(completeness="partial"),
+        history=ChatHistoryMetadata(),
     )
 
 

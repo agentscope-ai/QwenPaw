@@ -52,13 +52,8 @@ export interface ChatHistory {
 }
 
 export interface ChatHistoryMetadata {
-  revision: number;
   has_more: boolean;
   next_before?: string | null;
-  completeness: "complete" | "partial";
-  item_count?: number;
-  payload_bytes?: number;
-  max_bytes_reached?: boolean;
 }
 
 export interface ChatMessagePage extends ChatHistoryMetadata {

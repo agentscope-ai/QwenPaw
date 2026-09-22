@@ -321,31 +321,25 @@ describe("durable transcript pagination", () => {
       messages: [msg({ id: "new-user", content: "new" })],
       status: "idle",
       history: {
-        revision: 3,
         has_more: true,
-        next_before: "v1:2",
-        completeness: "complete",
+        next_before: "2:0",
       },
     });
     const getMessages = vi.spyOn(api, "getChatMessages").mockResolvedValue({
       messages: [msg({ id: "old-user", content: "old" })],
-      revision: 3,
       has_more: false,
       next_before: null,
-      completeness: "complete",
     });
 
     await sessionApi.getSession(chatId);
     expect(sessionApi.getHistoryMetadata(chatId)).toMatchObject({
-      revision: 3,
       has_more: true,
-      completeness: "complete",
     });
     const first = await sessionApi.loadOlderHistory(chatId);
     const exhausted = await sessionApi.loadOlderHistory(chatId);
 
     expect(getMessages).toHaveBeenCalledExactlyOnceWith(chatId, {
-      before: "v1:2",
+      before: "2:0",
       limit: 50,
       signal: undefined,
     });
@@ -361,7 +355,6 @@ describe("durable transcript pagination", () => {
       chatId,
       expect.objectContaining({
         has_more: false,
-        completeness: "complete",
       }),
     );
   });
@@ -372,10 +365,8 @@ describe("durable transcript pagination", () => {
       messages: [],
       status: "idle",
       history: {
-        revision: 1,
         has_more: true,
-        next_before: "v1:2",
-        completeness: "partial",
+        next_before: "2:0",
       },
     });
     const getMessages = vi
@@ -383,10 +374,8 @@ describe("durable transcript pagination", () => {
       .mockRejectedValueOnce(new Error("temporarily unavailable"))
       .mockResolvedValueOnce({
         messages: [msg({ id: "old-user", content: "old" })],
-        revision: 1,
         has_more: false,
         next_before: null,
-        completeness: "partial",
       });
 
     await sessionApi.getSession(chatId);

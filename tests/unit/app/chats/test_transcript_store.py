@@ -412,7 +412,7 @@ def test_high_fanout_turn_spans_pages_without_losing_items(tmp_path):
         )
         assert page is not None
         message_ids = [message.id for message in page.messages] + message_ids
-        page_sizes.append(page.item_count)
+        page_sizes.append(len(page.messages))
         if not page.has_more:
             break
         assert page.next_before is not None
@@ -453,8 +453,6 @@ def test_page_byte_limit_always_returns_one_oversized_item(tmp_path):
 
     assert page is not None
     assert [message.id for message in page.messages] == ["message-1"]
-    assert page.payload_bytes > 100
-    assert page.max_bytes_reached is True
     assert page.has_more is True
     assert page.next_before == TranscriptCursor(turn_seq=1, ordinal=1)
     store.close()
