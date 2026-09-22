@@ -115,6 +115,10 @@ class TranscriptCatalog:
                     f"transcript catalog schema {version} is newer than "
                     f"supported version {_CATALOG_SCHEMA_VERSION}",
                 )
+            if version not in (0, _CATALOG_SCHEMA_VERSION):
+                raise RuntimeError(
+                    f"transcript catalog schema {version} is unsupported",
+                )
             if version == 0:
                 self._conn.executescript(
                     """
@@ -123,11 +127,6 @@ class TranscriptCatalog:
                         user_id          TEXT NOT NULL,
                         channel          TEXT NOT NULL,
                         file_key         TEXT NOT NULL UNIQUE,
-                        migration_state  TEXT NOT NULL DEFAULT 'native'
-                                         CHECK(migration_state IN (
-                                             'native', 'migrating',
-                                             'failed'
-                                         )),
                         origin           TEXT NOT NULL DEFAULT 'native'
                                          CHECK(origin IN (
                                              'native', 'conversation_branch'
@@ -136,12 +135,6 @@ class TranscriptCatalog:
                         root_session_id  TEXT,
                         fork_turn_seq    INTEGER,
                         fork_ordinal     INTEGER,
-                        source_revision  INTEGER,
-                        source_turn_count INTEGER,
-                        source_message_count INTEGER,
-                        migration_started_at TEXT,
-                        migration_finished_at TEXT,
-                        migration_error TEXT,
                         created_at       TEXT NOT NULL,
                         updated_at       TEXT NOT NULL,
                         deleted_at       TEXT,
@@ -168,64 +161,9 @@ class TranscriptCatalog:
                     """,
                 )
                 version = 2
-            if version == 1:
-                self._migrate_catalog_v2()
             self._conn.execute(
                 f"PRAGMA user_version={_CATALOG_SCHEMA_VERSION}",
             )
-
-    def _migrate_catalog_v2(self) -> None:
-        """Add lineage and recoverable migration state to a v1 catalog."""
-        self._conn.executescript(
-            """
-            ALTER TABLE transcript_files RENAME TO transcript_files_v1;
-            DROP INDEX transcript_files_deleted;
-
-            CREATE TABLE transcript_files (
-                session_id       TEXT PRIMARY KEY,
-                user_id          TEXT NOT NULL,
-                channel          TEXT NOT NULL,
-                file_key         TEXT NOT NULL UNIQUE,
-                migration_state  TEXT NOT NULL DEFAULT 'native'
-                                 CHECK(migration_state IN (
-                                     'native', 'migrating',
-                                     'failed'
-                                 )),
-                origin           TEXT NOT NULL DEFAULT 'native'
-                                 CHECK(origin IN (
-                                     'native', 'conversation_branch'
-                                 )),
-                parent_session_id TEXT,
-                root_session_id  TEXT,
-                fork_turn_seq    INTEGER,
-                fork_ordinal     INTEGER,
-                source_revision  INTEGER,
-                source_turn_count INTEGER,
-                source_message_count INTEGER,
-                migration_started_at TEXT,
-                migration_finished_at TEXT,
-                migration_error TEXT,
-                created_at       TEXT NOT NULL,
-                updated_at       TEXT NOT NULL,
-                deleted_at       TEXT,
-                purged_at        TEXT
-            );
-
-            INSERT INTO transcript_files(
-                session_id, user_id, channel, file_key, migration_state,
-                origin, created_at, updated_at, deleted_at, purged_at
-            )
-            SELECT session_id, user_id, channel, file_key, migration_state,
-                   'native',
-                   created_at, updated_at, deleted_at, purged_at
-            FROM transcript_files_v1;
-
-            DROP TABLE transcript_files_v1;
-
-            CREATE INDEX transcript_files_deleted
-                ON transcript_files(deleted_at);
-            """,
-        )
 
     @staticmethod
     def _file_key(
@@ -286,8 +224,7 @@ class TranscriptCatalog:
         row = self._catalog_row(session_id)
         if row is not None:
             self._assert_identity(row, user_id=user_id, channel=channel)
-            state = str(row["migration_state"])
-            if row["deleted_at"] is not None or state == "failed":
+            if row["deleted_at"] is not None:
                 return None
             return row
 
@@ -523,7 +460,7 @@ class TranscriptCatalog:
                     target_path=staging,
                     anchor=anchor,
                 )
-            resolved_anchor, turn_count, message_count = result
+            resolved_anchor, _, _ = result
             self._assert_database_integrity(staging)
             target.parent.mkdir(parents=True, exist_ok=True)
             os.replace(staging, target)
@@ -538,12 +475,11 @@ class TranscriptCatalog:
                 self._conn.execute(
                     "INSERT INTO transcript_files("
                     "session_id, user_id, channel, file_key, "
-                    "migration_state, origin, parent_session_id, "
-                    "root_session_id, fork_turn_seq, fork_ordinal, "
-                    "source_turn_count, source_message_count, "
+                    "origin, parent_session_id, root_session_id, "
+                    "fork_turn_seq, fork_ordinal, "
                     "created_at, updated_at) VALUES "
-                    "(?, ?, ?, ?, 'native', 'conversation_branch', "
-                    "?, ?, ?, ?, ?, ?, ?, ?)",
+                    "(?, ?, ?, ?, 'conversation_branch', "
+                    "?, ?, ?, ?, ?, ?)",
                     (
                         child_session_id,
                         child_user_id,
@@ -561,8 +497,6 @@ class TranscriptCatalog:
                             if resolved_anchor is not None
                             else None
                         ),
-                        turn_count,
-                        message_count,
                         timestamp,
                         timestamp,
                     ),

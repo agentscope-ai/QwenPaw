@@ -286,7 +286,7 @@ def _benchmark_sqlite(
     samples: int,
     secure_delete: str = "ON",
 ) -> dict[str, Any]:
-    path = root / "transcript.db"
+    path = root / "session.db"
     build_started = time.perf_counter()
     _populate_sqlite(path, message_count, text_size)
     build_ms = (time.perf_counter() - build_started) * 1000

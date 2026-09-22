@@ -91,7 +91,6 @@ def test_dry_run_does_not_create_transcript_database(tmp_path: Path) -> None:
     assert result.eligible_sessions == 1
     assert result.imported_sessions == 0
     assert not (tmp_path / "transcript_catalog.db").exists()
-    assert not (tmp_path / "transcript.db").exists()
 
 
 def test_migration_is_partial_and_idempotent(tmp_path: Path) -> None:
@@ -129,7 +128,6 @@ def test_migration_is_partial_and_idempotent(tmp_path: Path) -> None:
         "2026-09-20T09:00:00+08:00",
         "2026-09-20T09:01:00+08:00",
     ]
-    assert not (tmp_path / "transcript.db").exists()
     catalog.close()
 
 
@@ -194,7 +192,6 @@ def test_migration_preserves_tool_result_order(tmp_path: Path) -> None:
         "plugin_call_output",
         "message",
     ]
-    assert not (tmp_path / "transcript.db").exists()
     catalog.close()
 
 
@@ -221,4 +218,3 @@ def test_cli_resolves_agent_workspace_and_prints_json(
     assert result.exit_code == 0
     assert json.loads(result.output)["eligible_sessions"] == 1
     assert not (tmp_path / "transcript_catalog.db").exists()
-    assert not (tmp_path / "transcript.db").exists()

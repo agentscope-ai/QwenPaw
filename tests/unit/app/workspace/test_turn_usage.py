@@ -17,7 +17,7 @@ from qwenpaw.token_usage.turn_usage import TURN_USAGE_META_KEY
 
 @pytest.mark.asyncio
 async def test_workspace_persists_and_caches_turn_usage(tmp_path) -> None:
-    store = TranscriptStore(tmp_path / "transcript.db")
+    store = TranscriptStore(tmp_path / "session.db")
     store.start_turn(
         session_id="session-1",
         user_id="user-1",
@@ -101,7 +101,7 @@ async def test_workspace_persists_and_caches_turn_usage(tmp_path) -> None:
 async def test_workspace_transcript_write_survives_session_failure(
     tmp_path,
 ) -> None:
-    store = TranscriptStore(tmp_path / "transcript.db")
+    store = TranscriptStore(tmp_path / "session.db")
     store.start_turn(
         session_id="session-1",
         user_id="user-1",

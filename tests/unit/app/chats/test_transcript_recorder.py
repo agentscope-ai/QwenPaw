@@ -47,7 +47,7 @@ def _request() -> AgentRequest:
 
 @pytest.mark.asyncio
 async def test_records_request_and_terminal_response(tmp_path: Path) -> None:
-    store = TranscriptStore(tmp_path / "transcript.db")
+    store = TranscriptStore(tmp_path / "session.db")
     request = _request()
     recorder = TranscriptRecorder(
         store=store,
@@ -104,7 +104,7 @@ async def test_records_request_and_terminal_response(tmp_path: Path) -> None:
 async def test_cancel_preserves_in_progress_reasoning_content(
     tmp_path: Path,
 ) -> None:
-    store = TranscriptStore(tmp_path / "transcript.db")
+    store = TranscriptStore(tmp_path / "session.db")
     recorder = TranscriptRecorder(
         store=store,
         request=_request(),
@@ -161,7 +161,7 @@ async def test_cancel_preserves_in_progress_reasoning_content(
 async def test_preserves_interleaved_parallel_tool_event_order(
     tmp_path: Path,
 ) -> None:
-    store = TranscriptStore(tmp_path / "transcript.db")
+    store = TranscriptStore(tmp_path / "session.db")
     recorder = TranscriptRecorder(
         store=store,
         request=_request(),
@@ -207,7 +207,7 @@ async def test_preserves_interleaved_parallel_tool_event_order(
 async def test_records_failed_terminal_code_without_error_detail(
     tmp_path: Path,
 ) -> None:
-    store = TranscriptStore(tmp_path / "transcript.db")
+    store = TranscriptStore(tmp_path / "session.db")
     recorder = TranscriptRecorder(
         store=store,
         request=_request(),
@@ -317,7 +317,7 @@ async def test_regeneration_replaces_original_only_after_success(
     status: RunStatus,
     expected_ids: list[str],
 ) -> None:
-    store = TranscriptStore(tmp_path / "transcript.db")
+    store = TranscriptStore(tmp_path / "session.db")
     store.start_turn(
         session_id="session-1",
         user_id="user-1",

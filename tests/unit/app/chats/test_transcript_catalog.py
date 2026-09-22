@@ -4,13 +4,12 @@
 from __future__ import annotations
 
 import concurrent.futures
-import sqlite3
 import threading
 from pathlib import Path
 
 import pytest
 
-from qwenpaw.app.chats.transcript import TranscriptCursor, TranscriptStore
+from qwenpaw.app.chats.transcript import TranscriptCursor
 from qwenpaw.app.chats.transcript_catalog import TranscriptCatalog
 from qwenpaw.schemas import Message, TextContent
 
@@ -154,74 +153,9 @@ def test_lru_reopens_evicted_session_without_losing_history(
     catalog.close()
 
 
-def test_catalog_ignores_unpublished_shared_transcript(
+def test_catalog_schema_contains_only_current_routing_columns(
     tmp_path: Path,
 ) -> None:
-    shared = TranscriptStore(tmp_path / "transcript.db", retention_days=0)
-    shared.start_turn(
-        session_id="shared-session",
-        user_id="user-1",
-        channel="console",
-        turn_id="shared-turn",
-        source="qwenpaw",
-    )
-    shared.upsert_message(
-        session_id="shared-session",
-        turn_id="shared-turn",
-        message=_message("shared-message", "shared"),
-        ordinal=0,
-    )
-    shared.close()
-
-    catalog = TranscriptCatalog(tmp_path)
-    page = catalog.get_page(
-        session_id="shared-session",
-        user_id="user-1",
-        channel="console",
-    )
-
-    assert page is None
-    assert catalog.has_session("shared-session") is False
-    assert not list((tmp_path / "transcripts").glob("*/*.db"))
-    catalog.close()
-
-
-def test_catalog_v1_schema_upgrades_with_lineage_columns(
-    tmp_path: Path,
-) -> None:
-    connection = sqlite3.connect(tmp_path / "transcript_catalog.db")
-    connection.executescript(
-        """
-        CREATE TABLE transcript_files (
-            session_id TEXT PRIMARY KEY,
-            user_id TEXT NOT NULL,
-            channel TEXT NOT NULL,
-            file_key TEXT NOT NULL UNIQUE,
-            migration_state TEXT NOT NULL DEFAULT 'native'
-                CHECK(migration_state IN ('native')),
-            created_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL,
-            deleted_at TEXT,
-            purged_at TEXT
-        );
-        CREATE INDEX transcript_files_deleted
-            ON transcript_files(deleted_at);
-        CREATE TABLE transcript_imports (
-            source_kind TEXT NOT NULL,
-            source_identity TEXT NOT NULL,
-            fingerprint TEXT NOT NULL,
-            schema_version INTEGER NOT NULL,
-            imported_at TEXT NOT NULL,
-            result_json TEXT NOT NULL,
-            PRIMARY KEY(
-                source_kind, source_identity, fingerprint, schema_version
-            )
-        );
-        PRAGMA user_version=1;
-        """,
-    )
-    connection.close()
-
     catalog = TranscriptCatalog(tmp_path)
 
     columns = {
@@ -230,13 +164,21 @@ def test_catalog_v1_schema_upgrades_with_lineage_columns(
             "PRAGMA table_info(transcript_files)",
         ).fetchall()
     }
-    assert {
+    assert columns == {
+        "session_id",
+        "user_id",
+        "channel",
+        "file_key",
         "origin",
         "parent_session_id",
         "root_session_id",
-        "source_revision",
-        "migration_error",
-    } <= columns
+        "fork_turn_seq",
+        "fork_ordinal",
+        "created_at",
+        "updated_at",
+        "deleted_at",
+        "purged_at",
+    }
     assert (
         catalog._conn.execute(  # pylint: disable=protected-access
             "PRAGMA user_version",

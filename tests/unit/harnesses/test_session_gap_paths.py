@@ -185,7 +185,7 @@ class TestHydrate:
             backend="codex",
             history=self._history(),
         )
-        store = TranscriptStore(tmp_path / "transcript.db")
+        store = TranscriptStore(tmp_path / "session.db")
         bridge = HarnessSessionBridge(session, store)
 
         assert (

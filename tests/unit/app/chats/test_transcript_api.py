@@ -78,7 +78,7 @@ def _append_turn(
 
 @pytest.mark.asyncio
 async def test_get_chat_prefers_transcript_page(tmp_path: Path) -> None:
-    store = TranscriptStore(tmp_path / "transcript.db")
+    store = TranscriptStore(tmp_path / "session.db")
     _append_turn(store, 1, "durable")
     session = SimpleNamespace(get_session_state_dict=AsyncMock())
 
@@ -104,7 +104,7 @@ async def test_get_chat_prefers_transcript_page(tmp_path: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_get_chat_restores_durable_turn_usage(tmp_path: Path) -> None:
-    store = TranscriptStore(tmp_path / "transcript.db")
+    store = TranscriptStore(tmp_path / "session.db")
     store.start_turn(
         session_id="session-1",
         user_id="user-1",
@@ -164,7 +164,7 @@ async def test_get_chat_restores_durable_turn_usage(tmp_path: Path) -> None:
 async def test_get_chat_defers_running_outputs_to_sse_replay(
     tmp_path: Path,
 ) -> None:
-    store = TranscriptStore(tmp_path / "transcript.db")
+    store = TranscriptStore(tmp_path / "session.db")
     store.start_turn(
         session_id="session-1",
         user_id="user-1",
@@ -213,7 +213,7 @@ async def test_get_chat_defers_running_outputs_to_sse_replay(
 
 @pytest.mark.asyncio
 async def test_message_pages_use_opaque_item_cursor(tmp_path: Path) -> None:
-    store = TranscriptStore(tmp_path / "transcript.db")
+    store = TranscriptStore(tmp_path / "session.db")
     for number in range(1, 4):
         _append_turn(store, number, f"turn {number}")
     manager = SimpleNamespace(get_chat=AsyncMock(return_value=_chat()))
@@ -247,7 +247,7 @@ async def test_message_pages_use_opaque_item_cursor(tmp_path: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_message_pages_accept_legacy_turn_cursor(tmp_path: Path) -> None:
-    store = TranscriptStore(tmp_path / "transcript.db")
+    store = TranscriptStore(tmp_path / "session.db")
     for number in range(1, 4):
         _append_turn(store, number, f"turn {number}")
 
@@ -331,7 +331,7 @@ async def test_get_chat_falls_back_when_transcript_read_fails() -> None:
 async def test_get_chat_hydrates_external_history_into_transcript(
     tmp_path: Path,
 ) -> None:
-    store = TranscriptStore(tmp_path / "transcript.db")
+    store = TranscriptStore(tmp_path / "session.db")
 
     async def hydrate_session(**_kwargs) -> None:
         store.import_history_if_missing(
@@ -390,7 +390,7 @@ async def test_get_chat_hydrates_external_history_into_transcript(
 async def test_delete_chat_data_removes_all_persistence(
     tmp_path: Path,
 ) -> None:
-    store = TranscriptStore(tmp_path / "transcript.db")
+    store = TranscriptStore(tmp_path / "session.db")
     _append_turn(store, 1, "durable")
     session = SafeJSONSession(save_dir=str(tmp_path / "sessions"))
     await session.update_session_state(

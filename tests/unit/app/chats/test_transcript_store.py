@@ -45,7 +45,7 @@ def _start(
 
 
 def test_message_round_trip_preserves_attachment_and_metadata(tmp_path):
-    store = TranscriptStore(tmp_path / "transcript.db")
+    store = TranscriptStore(tmp_path / "session.db")
     _start(store, "turn-1")
     message = Message(
         id="message-1",
@@ -84,7 +84,7 @@ def test_message_round_trip_preserves_attachment_and_metadata(tmp_path):
 
 
 def test_page_projects_database_times_without_overwriting_payload(tmp_path):
-    store = TranscriptStore(tmp_path / "transcript.db")
+    store = TranscriptStore(tmp_path / "session.db")
     store.start_turn(
         session_id="session-1",
         user_id="user-1",
@@ -170,7 +170,7 @@ def test_page_projects_terminal_turn_state(
     turn_status,
     wire_status,
 ):
-    store = TranscriptStore(tmp_path / "transcript.db")
+    store = TranscriptStore(tmp_path / "session.db")
     _start(store, "turn-1")
     store.upsert_message(
         session_id="session-1",
@@ -207,7 +207,7 @@ def test_page_projects_terminal_turn_state(
 
 
 def test_transcript_remains_readable_after_store_reopen(tmp_path):
-    db_path = tmp_path / "transcript.db"
+    db_path = tmp_path / "session.db"
     store = TranscriptStore(db_path)
     _start(store, "turn-1")
     store.upsert_message(
@@ -237,7 +237,7 @@ def test_transcript_remains_readable_after_store_reopen(tmp_path):
 
 
 def test_page_read_does_not_wait_for_active_writer(tmp_path):
-    store = TranscriptStore(tmp_path / "transcript.db")
+    store = TranscriptStore(tmp_path / "session.db")
     _start(store, "turn-1")
     store.upsert_message(
         session_id="session-1",
@@ -297,7 +297,7 @@ def test_page_read_does_not_wait_for_active_writer(tmp_path):
 
 
 def test_turn_and_message_writes_are_idempotent(tmp_path):
-    store = TranscriptStore(tmp_path / "transcript.db")
+    store = TranscriptStore(tmp_path / "session.db")
 
     assert _start(store, "turn-1") == 1
     assert _start(store, "turn-1") == 1
@@ -345,7 +345,7 @@ def test_turn_and_message_writes_are_idempotent(tmp_path):
 
 
 def test_attach_turn_usage_updates_only_closing_assistant(tmp_path):
-    store = TranscriptStore(tmp_path / "transcript.db")
+    store = TranscriptStore(tmp_path / "session.db")
     _start(store, "turn-1")
     messages = [
         _message("user-1", "question"),
@@ -409,7 +409,7 @@ def test_attach_turn_usage_updates_only_closing_assistant(tmp_path):
 
 
 def test_identical_text_with_distinct_ids_is_not_deduplicated(tmp_path):
-    store = TranscriptStore(tmp_path / "transcript.db")
+    store = TranscriptStore(tmp_path / "session.db")
     for index in (1, 2):
         turn_id = f"turn-{index}"
         _start(store, turn_id)
@@ -444,7 +444,7 @@ def test_identical_text_with_distinct_ids_is_not_deduplicated(tmp_path):
 
 
 def test_message_identity_cannot_move_between_turns(tmp_path):
-    store = TranscriptStore(tmp_path / "transcript.db")
+    store = TranscriptStore(tmp_path / "session.db")
     _start(store, "turn-1")
     _start(store, "turn-2")
     message = _message("message-1", "same")
@@ -466,7 +466,7 @@ def test_message_identity_cannot_move_between_turns(tmp_path):
 
 
 def test_session_identity_is_enforced(tmp_path):
-    store = TranscriptStore(tmp_path / "transcript.db")
+    store = TranscriptStore(tmp_path / "session.db")
     _start(store, "turn-1")
 
     with pytest.raises(ValueError, match="identity mismatch"):
@@ -487,7 +487,7 @@ def test_session_identity_is_enforced(tmp_path):
 
 
 def test_pagination_is_item_bounded_and_chronological(tmp_path):
-    store = TranscriptStore(tmp_path / "transcript.db")
+    store = TranscriptStore(tmp_path / "session.db")
     for number in range(1, 5):
         turn_id = f"turn-{number}"
         _start(store, turn_id)
@@ -539,7 +539,7 @@ def test_pagination_is_item_bounded_and_chronological(tmp_path):
 
 
 def test_high_fanout_turn_spans_pages_without_losing_items(tmp_path):
-    store = TranscriptStore(tmp_path / "transcript.db")
+    store = TranscriptStore(tmp_path / "session.db")
     _start(store, "turn-1")
     for ordinal in range(5):
         store.upsert_message(
@@ -583,7 +583,7 @@ def test_high_fanout_turn_spans_pages_without_losing_items(tmp_path):
 
 
 def test_page_byte_limit_always_returns_one_oversized_item(tmp_path):
-    store = TranscriptStore(tmp_path / "transcript.db")
+    store = TranscriptStore(tmp_path / "session.db")
     _start(store, "turn-1")
     for ordinal in range(2):
         store.upsert_message(
@@ -620,7 +620,7 @@ def test_page_byte_limit_always_returns_one_oversized_item(tmp_path):
 
 
 def test_running_turn_exposes_user_but_defers_sse_owned_outputs(tmp_path):
-    store = TranscriptStore(tmp_path / "transcript.db")
+    store = TranscriptStore(tmp_path / "session.db")
     _start(store, "turn-1")
     store.upsert_message(
         session_id="session-1",
@@ -689,7 +689,7 @@ def test_running_turn_exposes_user_but_defers_sse_owned_outputs(tmp_path):
 
 
 def test_history_import_is_atomic_idempotent_and_partial(tmp_path):
-    store = TranscriptStore(tmp_path / "transcript.db")
+    store = TranscriptStore(tmp_path / "session.db")
     turns = [
         (
             "import-turn-1",
@@ -744,7 +744,7 @@ def test_history_import_is_atomic_idempotent_and_partial(tmp_path):
 
 
 def test_history_import_does_not_replace_existing_live_session(tmp_path):
-    store = TranscriptStore(tmp_path / "transcript.db")
+    store = TranscriptStore(tmp_path / "session.db")
     _start(store, "live-turn", session_id="shared-session")
     store.upsert_message(
         session_id="shared-session",
@@ -775,7 +775,7 @@ def test_history_import_does_not_replace_existing_live_session(tmp_path):
 
 @pytest.mark.parametrize("status", ["failed", "cancelled"])
 def test_failed_replacement_does_not_hide_original(tmp_path, status):
-    store = TranscriptStore(tmp_path / "transcript.db")
+    store = TranscriptStore(tmp_path / "session.db")
     _start(store, "original")
     original = _message("assistant-old", "old", role="assistant")
     store.upsert_message(
@@ -817,7 +817,7 @@ def test_failed_replacement_does_not_hide_original(tmp_path, status):
 
 
 def test_completed_replacement_hides_original(tmp_path):
-    store = TranscriptStore(tmp_path / "transcript.db")
+    store = TranscriptStore(tmp_path / "session.db")
     _start(store, "original")
     store.upsert_message(
         session_id="session-1",
@@ -859,7 +859,7 @@ def test_failed_turn_replacement_keeps_original_turn(
     tmp_path,
     status,
 ):
-    store = TranscriptStore(tmp_path / "transcript.db")
+    store = TranscriptStore(tmp_path / "session.db")
     _start(store, "original")
     for ordinal, message in enumerate(
         [
@@ -907,7 +907,7 @@ def test_failed_turn_replacement_keeps_original_turn(
 
 
 def test_completed_turn_replacement_hides_whole_original_turn(tmp_path):
-    store = TranscriptStore(tmp_path / "transcript.db")
+    store = TranscriptStore(tmp_path / "session.db")
     _start(store, "original")
     for ordinal, message in enumerate(
         [
@@ -963,7 +963,7 @@ def test_completed_turn_replacement_hides_whole_original_turn(tmp_path):
 
 
 def test_delete_session_cascades_and_import_marker_is_idempotent(tmp_path):
-    store = TranscriptStore(tmp_path / "transcript.db")
+    store = TranscriptStore(tmp_path / "session.db")
     _start(store, "turn-1")
     store.upsert_message(
         session_id="session-1",
@@ -1026,7 +1026,7 @@ def test_delete_session_cascades_and_import_marker_is_idempotent(tmp_path):
 
 
 def test_message_anchor_lookups_use_indexed_columns(tmp_path):
-    store = TranscriptStore(tmp_path / "transcript.db")
+    store = TranscriptStore(tmp_path / "session.db")
     _start(store, "turn-1")
     message = Message(
         id="message-1",
@@ -1066,7 +1066,7 @@ def test_message_anchor_lookups_use_indexed_columns(tmp_path):
 
 
 def test_scheduled_delete_hides_before_physical_cleanup(tmp_path):
-    store = TranscriptStore(tmp_path / "transcript.db")
+    store = TranscriptStore(tmp_path / "session.db")
     _start(store, "turn-1")
     store.upsert_message(
         session_id="session-1",
@@ -1107,7 +1107,7 @@ def test_scheduled_delete_hides_before_physical_cleanup(tmp_path):
 
 
 def test_open_retries_interrupted_physical_cleanup(tmp_path):
-    db_path = tmp_path / "transcript.db"
+    db_path = tmp_path / "session.db"
     store = TranscriptStore(db_path)
     _start(store, "turn-1")
     store.upsert_message(
@@ -1149,7 +1149,7 @@ def test_background_cleanup_releases_lock_between_batches(
 ):
     from qwenpaw.app.chats import transcript as transcript_module
 
-    store = TranscriptStore(tmp_path / "transcript.db")
+    store = TranscriptStore(tmp_path / "session.db")
     _start(store, "turn-delete")
     for ordinal in range(2):
         store.upsert_message(
@@ -1192,7 +1192,7 @@ def test_background_cleanup_releases_lock_between_batches(
 def test_retention_purges_terminal_turns_without_reenabling_fallback(
     tmp_path,
 ):
-    store = TranscriptStore(tmp_path / "transcript.db", retention_days=0)
+    store = TranscriptStore(tmp_path / "session.db", retention_days=0)
     store.start_turn(
         session_id="session-1",
         user_id="user-1",
@@ -1244,7 +1244,7 @@ def test_retention_purges_terminal_turns_without_reenabling_fallback(
 
 
 def test_live_retention_runs_at_most_once_per_utc_day(tmp_path):
-    store = TranscriptStore(tmp_path / "transcript.db", retention_days=30)
+    store = TranscriptStore(tmp_path / "session.db", retention_days=30)
     store._last_retention_check = date(  # pylint: disable=protected-access
         2026,
         9,
@@ -1279,7 +1279,7 @@ def test_live_retention_runs_at_most_once_per_utc_day(tmp_path):
 
 
 def test_newer_schema_is_rejected_without_overwrite(tmp_path):
-    db_path = tmp_path / "transcript.db"
+    db_path = tmp_path / "session.db"
     connection = sqlite3.connect(db_path)
     connection.execute("PRAGMA user_version=99")
     connection.close()
@@ -1293,7 +1293,7 @@ def test_newer_schema_is_rejected_without_overwrite(tmp_path):
 
 
 def test_schema_v1_migrates_replacement_turn_column(tmp_path):
-    db_path = tmp_path / "transcript.db"
+    db_path = tmp_path / "session.db"
     store = TranscriptStore(db_path)
     _start(store, "turn-1")
     store.upsert_message(
