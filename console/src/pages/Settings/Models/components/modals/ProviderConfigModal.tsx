@@ -1,3 +1,4 @@
+import { Switch } from "antd";
 import { useState, useEffect, useMemo, useRef } from "react";
 import type { KeyboardEvent, ReactNode, UIEvent } from "react";
 import {
@@ -25,6 +26,7 @@ import { getLocalizedTestConnectionMessage } from "./testConnectionMessage";
 import { getValidApiKeyPrefixes } from "../../apiKeyValidation";
 import styles from "../../index.module.less";
 import { ProviderConnectionFields } from "./ProviderConnectionFields";
+import { ProviderApiKeyLink } from "../ProviderApiKeyLink";
 
 interface ProviderConfigFormValues
   extends Omit<
@@ -263,6 +265,7 @@ function JsonCodeEditor({
 
 interface ProviderConfigModalProps {
   provider: {
+    enabled?: boolean;
     id: string;
     name: string;
     api_key?: string;
@@ -457,6 +460,7 @@ export function ProviderConfigModal({
   useEffect(() => {
     if (open) {
       form.setFieldsValue({
+        enabled: provider.enabled !== false,
         api_key: undefined,
         name: provider.name,
         base_url: provider.base_url || undefined,
@@ -490,7 +494,7 @@ export function ProviderConfigModal({
 
       // Validate connection before saving
       // For local providers, we might skip this or just check if models exist (which the backend does)
-      if (provider.support_connection_check) {
+      if (values.enabled !== false && provider.support_connection_check) {
         const testHeaders = customHeaders
           .filter((h) => h.key.trim())
           .reduce<Record<string, string>>((acc, h) => {
@@ -520,6 +524,7 @@ export function ProviderConfigModal({
         }, {});
 
       await api.configureProvider(provider.id, {
+        enabled: values.enabled,
         api_key: values.api_key,
         name: provider.is_custom ? values.name?.trim() : undefined,
         base_url: values.base_url,
@@ -667,6 +672,7 @@ export function ProviderConfigModal({
         form={form}
         layout="vertical"
         initialValues={{
+          enabled: provider.enabled !== false,
           name: provider.name,
           base_url: provider.base_url || undefined,
           chat_model: provider.chat_model || "OpenAIChatModel",
@@ -678,6 +684,13 @@ export function ProviderConfigModal({
         }}
         onValuesChange={() => setFormDirty(true)}
       >
+        <Form.Item
+          name="enabled"
+          label={t("models.providerEnabled")}
+          valuePropName="checked"
+        >
+          <Switch />
+        </Form.Item>
         {provider.is_custom && (
           <Form.Item
             name="name"
@@ -731,7 +744,12 @@ export function ProviderConfigModal({
           baseUrlOptions={baseUrlOptions}
           baseUrlExtra={baseUrlExtra}
           baseUrlPlaceholder={baseUrlPlaceholder}
-          apiKeyLabel={apiKeyLabel}
+          apiKeyLabel={
+            <span>
+              {apiKeyLabel}
+              <ProviderApiKeyLink url={provider.meta?.api_key_url} />
+            </span>
+          }
           apiKeyPlaceholder={apiKeyPlaceholder}
           validApiKeyPrefixes={validApiKeyPrefixes}
           authMode={authMode}

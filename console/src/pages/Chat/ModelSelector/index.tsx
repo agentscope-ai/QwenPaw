@@ -1,6 +1,14 @@
 import {
+  BillingTag,
+  CapabilityTags,
+} from "../../Settings/Models/components/modals/ModelCapabilityTags";
+import { saveSessionModel } from "../../../features/session-settings/sessionModel";
+import {
+  lazy,
+  Suspense,
   useState,
   useEffect,
+  useLayoutEffect,
   useCallback,
   useId,
   useRef,
@@ -9,9 +17,11 @@ import {
 import { Dropdown, Spin, Tooltip, Modal } from "antd";
 import { useAppMessage } from "../../../hooks/useAppMessage";
 import {
+  Gift,
   AlertTriangle,
   Check,
   ChevronDown,
+  ChevronRight,
   ChevronUp,
   Link as LinkIcon,
   Eye,
@@ -19,6 +29,8 @@ import {
   LoaderCircle,
   Search,
   Settings,
+  Plus,
+  Minus,
   XCircle,
 } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
@@ -31,6 +43,7 @@ import { useTurnUsageStore } from "../turnUsageStore";
 import { OAuthConfirmModal } from "./OAuthConfirmModal";
 import { AgentModelSettings } from "./AgentModelSettings";
 import { CandidateModelSection } from "./CandidateModelSection";
+import { providerApi } from "../../../api/modules/provider";
 import { modelSelectorApi } from "./modelSelectorApi";
 import {
   buildDiscoveryCandidates,
@@ -43,6 +56,8 @@ import type { CandidateModel, EligibleProvider } from "./modelSelectorModels";
 import { useModelSelectorData } from "./useModelSelectorData";
 import styles from "./index.module.less";
 
+const ProviderCandidatePicker = lazy(() => import("./ProviderCandidatePicker"));
+
 /** Sync Chat context ring with the active model's effective window. */
 function publishActiveMaxInputLength(
   effectiveMaxInputLength: number | null | undefined,
@@ -52,6 +67,7 @@ function publishActiveMaxInputLength(
       ? effectiveMaxInputLength
       : null;
   useTurnUsageStore.getState().setActiveMaxInputLength(maxInputLength);
+  window.dispatchEvent(new Event("session-model-changed"));
   if (typeof maxInputLength === "number" && maxInputLength > 0) {
     window.dispatchEvent(
       new CustomEvent("model-switched", {
@@ -66,7 +82,13 @@ const DEFAULT_VISIBLE_MODELS = 5;
 const VIEW_MORE_STEP = 20;
 
 interface ModelSelectorProps {
+  embedded?: boolean;
+  onPick?: (providerId: string, modelId: string) => void;
+  selectedSlot?: { provider_id: string; model: string } | null;
+  onSelected?: () => void;
   showAdvancedModelControls?: boolean;
+  sessionId?: string;
+  chatId?: string | null;
 }
 
 function readStoredModelKeys(key: string): string[] {
@@ -81,27 +103,30 @@ function readStoredModelKeys(key: string): string[] {
 }
 
 export default function ModelSelector({
+  embedded = false,
+  onPick,
+  selectedSlot,
+  onSelected,
   showAdvancedModelControls = false,
+  sessionId,
+  chatId,
 }: ModelSelectorProps) {
   const { t } = useTranslation();
   const [saving, setSaving] = useState(false);
   const [addingKey, setAddingKey] = useState<string | null>(null);
   const [visibilityKey, setVisibilityKey] = useState<string | null>(null);
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(embedded);
+  const [managingModels, setManagingModels] = useState(false);
+  const [addingProvider, setAddingProvider] = useState<string | null>(null);
+  const [removingModel, setRemovingModel] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
-  const [activeTab, setActiveTab] = useState<"pro" | "free">(
-    () =>
-      (localStorage.getItem("qwenpaw_model_selector_tab") as "pro" | "free") ||
-      "pro",
-  );
+  const [activeTab, setActiveTab] = useState<"pro" | "free">("pro");
   const [collapsedProviders, setCollapsedProviders] = useState<Set<string>>(
     () => new Set(),
   );
   const savingRef = useRef(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const panelId = useId();
-  const proTabId = useId();
-  const freeTabId = useId();
   const tabPanelId = useId();
   const moreProvidersId = useId();
   const candidateModelsId = useId();
@@ -150,9 +175,13 @@ export default function ModelSelector({
     providerName: string;
   }>({ open: false, providerId: "", providerName: "" });
 
-  const handleActiveModels = useCallback((activeData: ActiveModelsInfo) => {
-    publishActiveMaxInputLength(activeData.effective_max_input_length);
-  }, []);
+  const handleActiveModels = useCallback(
+    (activeData: ActiveModelsInfo) => {
+      if (!onPick)
+        publishActiveMaxInputLength(activeData.effective_max_input_length);
+    },
+    [onPick],
+  );
   const {
     activeModels,
     fetchData,
@@ -164,6 +193,7 @@ export default function ModelSelector({
     setProviders,
   } = useModelSelectorData({
     agentId: selectedAgent,
+    session: sessionId ? { sessionId, chatId } : undefined,
     onActiveModels: handleActiveModels,
   });
 
@@ -171,7 +201,7 @@ export default function ModelSelector({
     activationRevisionRef.current += 1;
     savingRef.current = false;
     setSaving(false);
-  }, [selectedAgent]);
+  }, [selectedAgent, sessionId, chatId]);
 
   // Re-sync active model whenever the route switches back to /chat
   const prevPathRef = useRef(location.pathname);
@@ -192,7 +222,7 @@ export default function ModelSelector({
   );
 
   // Models are split by is_free; mixed-tier providers can appear in both tabs.
-  const { freeProviders, proProviders } = useMemo(() => {
+  const { freeProviders } = useMemo(() => {
     return splitProvidersByTier(eligibleProviders);
   }, [eligibleProviders]);
 
@@ -216,7 +246,7 @@ export default function ModelSelector({
   };
 
   const filteredFree = filterProviders(freeProviders);
-  const filteredPro = filterProviders(proProviders);
+  const filteredPro = filterProviders(eligibleProviders);
 
   // Focus search input when dropdown opens; clear query when closes
   useEffect(() => {
@@ -227,8 +257,35 @@ export default function ModelSelector({
     }
   }, [open]);
 
-  const activeProviderId = activeModels?.active_llm?.provider_id;
-  const activeModelId = activeModels?.active_llm?.model;
+  const activeProviderId = onPick
+    ? selectedSlot?.provider_id ?? activeModels?.active_llm?.provider_id
+    : activeModels?.active_llm?.provider_id;
+  const activeModelId = onPick
+    ? selectedSlot?.model
+    : activeModels?.active_llm?.model;
+  const expansionSession = useRef<string>();
+  useEffect(() => {
+    if (!open) {
+      expansionSession.current = undefined;
+      return;
+    }
+    if (!providers.length || !activeModels) return;
+    const key = `${selectedAgent}:${sessionId ?? ""}:${activeProviderId ?? ""}`;
+    if (expansionSession.current === key) return;
+    expansionSession.current = key;
+    setCollapsedProviders(
+      new Set(
+        providers.filter((p) => p.id !== activeProviderId).map((p) => p.id),
+      ),
+    );
+  }, [
+    open,
+    providers,
+    activeModels,
+    selectedAgent,
+    sessionId,
+    activeProviderId,
+  ]);
   const actualUsage = useTurnUsageStore((state) => state.snapshot?.usage);
   const fallbackModel = useMemo(() => {
     const providerId = actualUsage?.provider_id;
@@ -271,7 +328,7 @@ export default function ModelSelector({
           provider.name.toLowerCase().includes(query)
         : true;
       if (!matchesQuery) return false;
-      return activeTab === "free" ? Boolean(model.is_free) : !model.is_free;
+      return activeTab !== "free" || Boolean(model.is_free);
     });
   }, [activeTab, discoveryCandidates, trimmedSearch]);
   const candidateModelsExpanded = Boolean(trimmedSearch) || showCandidateModels;
@@ -332,10 +389,20 @@ export default function ModelSelector({
     return provider?.models.find((model) => model.id === activeModelId) ?? null;
   })();
   const activeModelName =
-    activeModel?.name || activeModelId || t("modelSelector.selectModel");
+    activeModel?.name ||
+    (activeProviderId === "hub-managed" ? undefined : activeModelId) ||
+    t("modelSelector.selectModel");
   const activeModelIsFree = Boolean(activeModel?.is_free);
 
   const showActiveProviderIcon = Boolean(activeProviderId);
+
+  useEffect(() => {
+    if (!open) {
+      setManagingModels(false);
+      setAddingProvider(null);
+      setRemovingModel(null);
+    }
+  }, [open]);
 
   const handleOpenChange = useCallback(
     async (next: boolean) => {
@@ -352,9 +419,14 @@ export default function ModelSelector({
   );
 
   const activateModel = async (providerId: string, modelId: string) => {
+    if (onPick) {
+      onPick(providerId, modelId);
+      return;
+    }
     if (savingRef.current) return;
     if (providerId === activeProviderId && modelId === activeModelId) {
       setOpen(false);
+      onSelected?.();
       return;
     }
 
@@ -363,12 +435,18 @@ export default function ModelSelector({
     savingRef.current = true;
     setSaving(true);
     try {
-      const updated = await modelSelectorApi.setActiveLlm({
-        provider_id: providerId,
-        model: modelId,
-        scope: "agent",
-        agent_id: targetAgentId,
-      });
+      const updated = sessionId
+        ? await saveSessionModel(
+            targetAgentId,
+            { sessionId, chatId },
+            { provider_id: providerId, model: modelId },
+          )
+        : await modelSelectorApi.setActiveLlm({
+            provider_id: providerId,
+            model: modelId,
+            scope: "agent",
+            agent_id: targetAgentId,
+          });
       if (
         activationRevision !== activationRevisionRef.current ||
         targetAgentId !== selectedAgentRef.current
@@ -385,6 +463,7 @@ export default function ModelSelector({
       );
       publishActiveMaxInputLength(updated?.effective_max_input_length);
       rememberRecent(providerId, modelId);
+      onSelected?.();
     } catch (err) {
       if (
         activationRevision !== activationRevisionRef.current ||
@@ -404,6 +483,10 @@ export default function ModelSelector({
   };
 
   const handleSelect = async (providerId: string, modelId: string) => {
+    if (onPick) {
+      onPick(providerId, modelId);
+      return;
+    }
     const targetProvider = eligibleProviders.find(
       (provider) => provider.id === providerId,
     );
@@ -454,15 +537,22 @@ export default function ModelSelector({
 
     setAddingKey(key);
     try {
-      await modelSelectorApi.addModel(candidate.provider.id, {
-        id: candidate.model.id,
-        name: candidate.model.name || candidate.model.id,
-        is_free: candidate.model.is_free,
-        supports_multimodal: candidate.model.supports_multimodal,
-        supports_image: candidate.model.supports_image,
-        supports_video: candidate.model.supports_video,
-        probe_source: candidate.model.probe_source,
-      });
+      if (candidate.provider.id === "hub-managed") {
+        await providerApi.updateModelPool(
+          candidate.provider.id,
+          candidate.model.id,
+          { selected: true },
+        );
+      } else
+        await modelSelectorApi.addModel(candidate.provider.id, {
+          id: candidate.model.id,
+          name: candidate.model.name || candidate.model.id,
+          is_free: candidate.model.is_free,
+          supports_multimodal: candidate.model.supports_multimodal,
+          supports_image: candidate.model.supports_image,
+          supports_video: candidate.model.supports_video,
+          probe_source: candidate.model.probe_source,
+        });
       await activateModel(candidate.provider.id, candidate.model.id);
       await fetchData();
     } catch (err) {
@@ -551,7 +641,29 @@ export default function ModelSelector({
     });
   };
 
-  const toggleProviderCollapse = (providerId: string) => {
+  const listRef = useRef<HTMLDivElement>(null);
+  const collapseAnchor = useRef<{ element: HTMLElement; top: number } | null>(
+    null,
+  );
+  useLayoutEffect(() => {
+    const anchor = collapseAnchor.current;
+    const list = listRef.current;
+    if (!anchor || !list) return;
+    collapseAnchor.current = null;
+    const shift = anchor.element.getBoundingClientRect().top - anchor.top;
+    const target = Math.max(0, list.scrollTop + shift);
+    list.style.paddingBottom = "0px";
+    const missing = target - (list.scrollHeight - list.clientHeight);
+    if (missing > 0) list.style.paddingBottom = `${missing}px`;
+    list.scrollTop = target;
+    anchor.element.focus({ preventScroll: true });
+  }, [collapsedProviders]);
+
+  const toggleProviderCollapse = (providerId: string, element: HTMLElement) => {
+    collapseAnchor.current = {
+      element,
+      top: element.getBoundingClientRect().top,
+    };
     setCollapsedProviders((prev) => {
       const next = new Set(prev);
       if (next.has(providerId)) {
@@ -571,7 +683,7 @@ export default function ModelSelector({
       provider.supports_oauth &&
       !provider.has_api_key &&
       !provider.oauth_connected;
-    const isCollapsed = collapsedProviders.has(provider.id);
+    const isCollapsed = !searchQuery && collapsedProviders.has(provider.id);
     const shouldLimitModels = !trimmedSearch && limitInitialModels;
     const visibleCount = shouldLimitModels
       ? Math.min(
@@ -585,23 +697,60 @@ export default function ModelSelector({
 
     return (
       <div key={provider.id} className={styles.providerGroup}>
-        <button
-          type="button"
-          className={styles.providerHeader}
-          aria-expanded={!isCollapsed}
-          onClick={() => toggleProviderCollapse(provider.id)}
-        >
-          <ProviderIcon providerId={provider.id} size={16} />
-          <span className={styles.providerHeaderName} title={provider.name}>
-            {provider.name}
-          </span>
-          {needsOAuth && (
-            <AlertTriangle size={12} className={styles.oauthWarningIcon} />
+        <div className={styles.providerHeading}>
+          <button
+            type="button"
+            className={styles.providerHeader}
+            aria-expanded={!isCollapsed}
+            onClick={(event) =>
+              toggleProviderCollapse(provider.id, event.currentTarget)
+            }
+          >
+            <ProviderIcon providerId={provider.id} size={16} />
+            <span className={styles.providerHeaderName} title={provider.name}>
+              {provider.name}
+            </span>
+            {needsOAuth && (
+              <AlertTriangle size={12} className={styles.oauthWarningIcon} />
+            )}
+            <span className={styles.collapseIcon}>
+              {isCollapsed ? (
+                <ChevronDown size={12} />
+              ) : (
+                <ChevronUp size={12} />
+              )}
+            </span>
+          </button>
+          {managingModels && (
+            <button
+              type="button"
+              className={styles.addModelControl}
+              aria-label={`${t("modelSelector.addToSelector")} ${
+                provider.name
+              }`}
+              aria-expanded={addingProvider === provider.id}
+              onClick={() =>
+                setAddingProvider((value) =>
+                  value === provider.id ? null : provider.id,
+                )
+              }
+            >
+              <Plus size={15} strokeWidth={1.8} />
+            </button>
           )}
-          <span className={styles.collapseIcon}>
-            {isCollapsed ? <ChevronDown size={12} /> : <ChevronUp size={12} />}
-          </span>
-        </button>
+        </div>
+        {managingModels && addingProvider === provider.id && (
+          <Suspense fallback={<Spin size="small" />}>
+            <ProviderCandidatePicker
+              key={`${provider.id}:${activeTab}`}
+              tier={activeTab === "free" ? "free" : undefined}
+              providerId={provider.id}
+              onSaved={async () => {
+                await fetchData();
+              }}
+            />
+          </Suspense>
+        )}
         {!isCollapsed && (
           <>
             {visibleModels.map((model) => {
@@ -636,20 +785,56 @@ export default function ModelSelector({
                         className={styles.oauthWarningIcon}
                       />
                     )}
-                    {model.is_free && !needsOAuth && (
-                      <span className={styles.freeTag}>
-                        {t("modelSelector.free")}
-                      </span>
-                    )}
-                    {(model.supports_image || model.supports_multimodal) && (
-                      <span className={styles.visionTag}>
-                        {t("modelSelector.vision")}
-                      </span>
-                    )}
+                    {!needsOAuth && <BillingTag model={model} iconOnly />}
+                    <CapabilityTags model={model} iconOnly />
                     {isActive && (
                       <Check size={14} className={styles.checkIcon} />
                     )}
                   </div>
+                  {managingModels && (
+                    <Tooltip
+                      title={
+                        isActive
+                          ? t("modelSelector.currentModelProtected")
+                          : undefined
+                      }
+                    >
+                      <button
+                        type="button"
+                        className={styles.removeModelControl}
+                        aria-label={`${t("modelSelector.removeFromSelector")} ${
+                          model.name || model.id
+                        }`}
+                        disabled={isActive || removingModel !== null}
+                        onClick={async () => {
+                          setRemovingModel(`${provider.id}:${model.id}`);
+                          try {
+                            const updated = await providerApi.updateModelPool(
+                              provider.id,
+                              model.id,
+                              { selected: false },
+                            );
+                            setProviders((previous) =>
+                              previous.map((item) =>
+                                item.id === updated.id ? updated : item,
+                              ),
+                            );
+                            await fetchData();
+                          } catch (error) {
+                            message.error(
+                              error instanceof Error
+                                ? error.message
+                                : String(error),
+                            );
+                          } finally {
+                            setRemovingModel(null);
+                          }
+                        }}
+                      >
+                        <Minus size={15} strokeWidth={1.8} />
+                      </button>
+                    </Tooltip>
+                  )}
                 </div>
               );
             })}
@@ -675,6 +860,29 @@ export default function ModelSelector({
             )}
           </>
         )}
+        <button
+          type="button"
+          className={styles.manageModelsEntry}
+          onClick={() => {
+            setCollapsedProviders((previous) => {
+              const next = new Set(previous);
+              next.delete(provider.id);
+              return next;
+            });
+            setManagingModels(true);
+            setAddingProvider(provider.id);
+          }}
+        >
+          <Plus size={14} />
+          <span>
+            {t(
+              provider.models.length
+                ? "modelSelector.manageModels"
+                : "modelSelector.addModels",
+            )}
+          </span>
+          <ChevronRight size={14} />
+        </button>
       </div>
     );
   };
@@ -782,10 +990,6 @@ export default function ModelSelector({
 
     return (
       <>
-        <div className={styles.freeBanner}>
-          <AlertTriangle size={14} className={styles.freeBannerIcon} />
-          <span>{t("modelSelector.freeBannerText")}</span>
-        </div>
         {rankModels(readyProviders).map((provider) =>
           renderProviderModels(provider, false),
         )}
@@ -848,7 +1052,21 @@ export default function ModelSelector({
         <div className={styles.emptyTip} role="status">
           {trimmedSearch
             ? t("modelSelector.noModelsFound")
-            : t("modelSelector.noConfiguredModels")}
+            : t("modelSelector.noProviders")}
+          {!trimmedSearch && (
+            <button
+              type="button"
+              className={styles.manageModelsEntry}
+              onClick={() => {
+                setOpen(false);
+                navigate("/models");
+              }}
+            >
+              <Plus size={14} />
+              <span>{t("modelSelector.addProvider")}</span>
+              <ChevronRight size={14} />
+            </button>
+          )}
         </div>
       );
     }
@@ -868,7 +1086,10 @@ export default function ModelSelector({
   };
 
   const dropdownContent = (
-    <div id={panelId} className={styles.panel}>
+    <div
+      id={panelId}
+      className={[styles.panel, embedded ? styles.embedded : ""].join(" ")}
+    >
       <div className={styles.searchWrapper}>
         <Search size={15} className={styles.searchIcon} />
         <input
@@ -893,50 +1114,39 @@ export default function ModelSelector({
             <XCircle size={15} />
           </button>
         )}
-      </div>
-
-      <div className={styles.tabBar} role="tablist">
-        <button
-          type="button"
-          id={proTabId}
-          role="tab"
-          aria-selected={activeTab === "pro"}
-          aria-controls={tabPanelId}
-          className={[
-            styles.tabButton,
-            activeTab === "pro" ? styles.tabButtonActive : "",
-          ].join(" ")}
-          onClick={() => {
-            setActiveTab("pro");
-            localStorage.setItem("qwenpaw_model_selector_tab", "pro");
-          }}
-        >
-          PRO
-        </button>
-        <button
-          type="button"
-          id={freeTabId}
-          role="tab"
-          aria-selected={activeTab === "free"}
-          aria-controls={tabPanelId}
-          className={[
-            styles.tabButton,
-            activeTab === "free" ? styles.tabButtonActive : "",
-          ].join(" ")}
-          onClick={() => {
-            setActiveTab("free");
-            localStorage.setItem("qwenpaw_model_selector_tab", "free");
-          }}
-        >
-          FREE
-        </button>
+        <Tooltip title={t("modelSelector.freeModelsOnly")}>
+          <button
+            type="button"
+            className={styles.manageButton}
+            aria-label={t("modelSelector.freeModelsOnly")}
+            aria-pressed={activeTab === "free"}
+            onClick={() => setActiveTab(activeTab === "free" ? "pro" : "free")}
+          >
+            <Gift size={17} />
+          </button>
+        </Tooltip>
+        <Tooltip title={t("modelSelector.manageSelectorModels")}>
+          <button
+            type="button"
+            className={styles.manageButton}
+            aria-label={t("modelSelector.manageSelectorModels")}
+            aria-pressed={managingModels}
+            onClick={() => {
+              setManagingModels((value) => !value);
+              setAddingProvider(null);
+            }}
+          >
+            <Settings size={17} />
+          </button>
+        </Tooltip>
       </div>
 
       <div
         id={tabPanelId}
+        ref={listRef}
         className={styles.listContainer}
-        role="tabpanel"
-        aria-labelledby={activeTab === "free" ? freeTabId : proTabId}
+        role="region"
+        aria-label={t("models.models")}
       >
         {loadError && (
           <div className={styles.loadError} role="alert">
@@ -1005,61 +1215,68 @@ export default function ModelSelector({
 
   return (
     <>
-      <Dropdown
-        open={open}
-        onOpenChange={handleOpenChange}
-        popupRender={() => (
-          <div style={{ transform: "translateY(0)" }}>{dropdownContent}</div>
-        )}
-        trigger={["click"]}
-        placement={isMobile ? "bottomCenter" : "bottomLeft"}
-      >
-        <Tooltip title={t("chat.modelSelectTooltip")} mouseEnterDelay={0.5}>
-          <button
-            type="button"
-            aria-expanded={open}
-            aria-controls={panelId}
-            aria-label={t("chat.modelSelectTooltip")}
-            className={[styles.trigger, open ? styles.triggerActive : ""].join(
-              " ",
-            )}
-          >
-            {saving && <LoaderCircle size={12} className={styles.spinning} />}
-            {showActiveProviderIcon && activeProviderId && (
-              <ProviderIcon providerId={activeProviderId} size={16} />
-            )}
-            {showAdvancedModelControls && fallbackModel && (
-              <Tooltip
-                title={t("modelSelector.fallbackActive", {
-                  provider: fallbackModel.providerName,
-                  model: fallbackModel.label,
-                })}
-              >
-                <span
-                  className={styles.fallbackBadge}
-                  aria-label={t("modelSelector.fallbackActive", {
+      {embedded ? (
+        dropdownContent
+      ) : (
+        <Dropdown
+          open={open}
+          onOpenChange={handleOpenChange}
+          popupRender={() => (
+            <div style={{ transform: "translateY(0)" }}>{dropdownContent}</div>
+          )}
+          trigger={["click"]}
+          placement={isMobile ? "bottomCenter" : "bottomLeft"}
+        >
+          <Tooltip title={t("chat.modelSelectTooltip")} mouseEnterDelay={0.5}>
+            <button
+              type="button"
+              aria-expanded={open}
+              aria-controls={panelId}
+              aria-label={t("chat.modelSelectTooltip")}
+              className={[
+                styles.trigger,
+                open ? styles.triggerActive : "",
+              ].join(" ")}
+            >
+              {saving && <LoaderCircle size={12} className={styles.spinning} />}
+              {showActiveProviderIcon && activeProviderId && (
+                <ProviderIcon providerId={activeProviderId} size={16} />
+              )}
+              {showAdvancedModelControls && fallbackModel && (
+                <Tooltip
+                  title={t("modelSelector.fallbackActive", {
                     provider: fallbackModel.providerName,
                     model: fallbackModel.label,
                   })}
                 >
-                  <ProviderIcon
-                    providerId={fallbackModel.providerId}
-                    size={13}
-                  />
-                  <GitBranch size={12} />
-                  <span>{fallbackModel.label}</span>
+                  <span
+                    className={styles.fallbackBadge}
+                    aria-label={t("modelSelector.fallbackActive", {
+                      provider: fallbackModel.providerName,
+                      model: fallbackModel.label,
+                    })}
+                  >
+                    <ProviderIcon
+                      providerId={fallbackModel.providerId}
+                      size={13}
+                    />
+                    <GitBranch size={12} />
+                    <span>{fallbackModel.label}</span>
+                  </span>
+                </Tooltip>
+              )}
+              <span className={styles.triggerName} title={activeModelName}>
+                {activeModelName}
+              </span>
+              {activeModelIsFree && (
+                <span className={styles.freeTag}>
+                  {t("modelSelector.free")}
                 </span>
-              </Tooltip>
-            )}
-            <span className={styles.triggerName} title={activeModelName}>
-              {activeModelName}
-            </span>
-            {activeModelIsFree && (
-              <span className={styles.freeTag}>{t("modelSelector.free")}</span>
-            )}
-          </button>
-        </Tooltip>
-      </Dropdown>
+              )}
+            </button>
+          </Tooltip>
+        </Dropdown>
+      )}
 
       <Modal
         open={configNavModal.open}

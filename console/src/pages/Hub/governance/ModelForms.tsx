@@ -1,3 +1,4 @@
+import { ProviderApiKeyLink } from "../../Settings/Models/components/ProviderApiKeyLink";
 import { CircleHelp } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Form, Input, InputNumber, Select, Switch } from "antd";
@@ -53,6 +54,7 @@ export function ConnectionFields({
             form.setFieldsValue({
               name,
               base_url: selected?.base_url ?? "",
+              protocol: selected?.protocol ?? "chat",
               api_key: undefined,
             });
           }}
@@ -75,6 +77,21 @@ export function ConnectionFields({
           ]}
         />
       </Form.Item>
+      {!providerId && (
+        <Form.Item
+          name="protocol"
+          label={t("models.protocol")}
+          initialValue="chat"
+        >
+          <Select
+            options={[
+              { value: "chat", label: "Chat Completions" },
+              { value: "responses", label: "Responses" },
+              { value: "anthropic", label: "Anthropic Messages" },
+            ]}
+          />
+        </Form.Item>
+      )}
       <Form.Item
         name="name"
         label={t("hub.governance.models.connectionName")}
@@ -86,7 +103,12 @@ export function ConnectionFields({
         canEditBaseUrl={!preset?.freeze_url}
         baseUrlOptions={preset?.base_url_options ?? []}
         baseUrlPlaceholder={preset?.base_url || "https://example.com/v1"}
-        apiKeyLabel="API Key"
+        apiKeyLabel={
+          <span>
+            API Key
+            <ProviderApiKeyLink url={preset?.api_key_url} />
+          </span>
+        }
         apiKeyPlaceholder={
           connectionId
             ? t("hub.governance.models.keepKey")

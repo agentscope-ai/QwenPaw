@@ -47,7 +47,7 @@ import {
   SparkVoiceChat01Line,
   SparkWifiLine,
 } from "@agentscope-ai/icons";
-import i18next from "i18next";
+import i18next from "../../i18n";
 import { menuRegistry } from "../../plugins/registry/store";
 import type { MenuItem } from "../../plugins/registry/types";
 

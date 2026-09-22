@@ -5,6 +5,7 @@ import {
   ChevronDown,
   ChevronRight,
   CircleAlert,
+  CircleHelp,
   Eye,
   EyeOff,
   Folder,
@@ -422,6 +423,30 @@ export default function SessionProjectDirectory({
   const isBound = (path: string) =>
     dirs.some((entry) => exactSamePath(entry.path, path));
 
+  const pendingIsAddable =
+    !!pendingPath.trim() &&
+    !isBound(pendingPath.trim()) &&
+    dirs.length < MAX_PROJECT_DIRS;
+
+  const dirsWithPending = useMemo(() => {
+    if (!pendingIsAddable) return bindableDirs;
+    const entry: ProjectDirEntry = {
+      path: pendingPath.trim(),
+      label: null,
+      exists: true,
+      nested_with: null,
+      is_workspace: false,
+    };
+    if (!isUntouchedFallback) return [...bindableDirs, entry];
+    return multiAgentDefault ? [entry] : [entry, ...bindableDirs];
+  }, [
+    bindableDirs,
+    isUntouchedFallback,
+    multiAgentDefault,
+    pendingIsAddable,
+    pendingPath,
+  ]);
+
   /** Queue a single-clicked folder or a typed path as the next one to bind. */
   const selectPending = (path: string) => {
     setListError(null);
@@ -482,22 +507,8 @@ export default function SessionProjectDirectory({
    *  editor replaces the fallback because it must only persist folders the
    *  user selected. */
   const addPending = () => {
-    const path = pendingPath.trim();
-    if (!path || isBound(path) || dirs.length >= MAX_PROJECT_DIRS) return;
-    const entry: ProjectDirEntry = {
-      path,
-      label: null,
-      exists: true,
-      nested_with: null,
-      // A directory picked in the browser is a project directory. Only the
-      // server can say otherwise, and it will on the next load — the flag is
-      // read by the Files switcher, which has nothing to collapse until then.
-      is_workspace: false,
-    };
-    setDirs((current) => {
-      if (!isUntouchedFallback) return [...current, entry];
-      return multiAgentDefault ? [entry] : [entry, ...current];
-    });
+    if (!pendingIsAddable) return;
+    setDirs(dirsWithPending);
     setPendingPath("");
   };
 
@@ -613,7 +624,7 @@ export default function SessionProjectDirectory({
 
   /** Commit the edited list. Index 0 becomes the server's primary. */
   const saveSessionList = async () => {
-    if (isNoopSave && !syncAsAgentDefaultRef.current) {
+    if (isNoopSave && !pendingIsAddable && !syncAsAgentDefaultRef.current) {
       // Just dismiss: no request, no unsaved-changes warning, and no tab
       // teardown for a directory set that is already bound.
       setPendingPath("");
@@ -621,7 +632,7 @@ export default function SessionProjectDirectory({
       setOpen(false);
       return;
     }
-    await commitSessionList(bindableDirs);
+    await commitSessionList(dirsWithPending);
   };
 
   /** Switch the primary to the queued path, from a paste + Enter.
@@ -958,7 +969,17 @@ export default function SessionProjectDirectory({
       <div className={styles.splitBody}>
         <section className={styles.recentPane}>
           <div className={styles.sectionHeading}>
-            <strong>{t("projectDirectory.recentProjects")}</strong>
+            <strong className={styles.sectionTitle}>
+              {t("projectDirectory.workspaceProjects")}
+              <Tooltip title={t("projectDirectory.workspaceProjectsHint")}>
+                <CircleHelp
+                  aria-label={t("projectDirectory.workspaceProjectsHint")}
+                  className={styles.sectionHelp}
+                  role="img"
+                  size={12}
+                />
+              </Tooltip>
+            </strong>
             <span>{projects.length}</span>
           </div>
           <div className={styles.recent}>
@@ -993,7 +1014,7 @@ export default function SessionProjectDirectory({
             })}
             {projects.length === 0 && (
               <small className={styles.emptyState}>
-                {t("projectDirectory.noRecentProjects")}
+                {t("projectDirectory.noWorkspaceProjects")}
               </small>
             )}
           </div>
@@ -1176,7 +1197,8 @@ export default function SessionProjectDirectory({
           disabled={
             !isListScope
               ? !draft.trim()
-              : bindableDirs.length === 0 || isUntouchedFallback
+              : dirsWithPending.length === 0 ||
+                (isUntouchedFallback && !pendingIsAddable)
           }
         >
           {t("common.apply")}

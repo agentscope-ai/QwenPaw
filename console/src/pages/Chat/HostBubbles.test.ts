@@ -19,18 +19,22 @@ describe("host card SDK contract", () => {
       isLast: false,
     };
 
+    const requestProps = { data: {} };
+    const requestElement = HostRequestCard(requestProps);
     const responseElement = HostResponseCard(responseProps);
+    // The response card is wrapped so tool cards learn whether the turn
+    // ended; its content must stay memoized behind that wrapper.
+    const responseContent = responseElement.props.children;
 
-    expect(responseElement.type).toBe(HostResponseCard(responseProps).type);
-    expect(responseElement.type).toHaveProperty(
+    expect(requestElement.type).toBe(HostRequestCard(requestProps).type);
+    expect(responseContent.type).toBe(
+      HostResponseCard(responseProps).props.children.type,
+    );
+    expect(requestElement.type).toHaveProperty(
       "$$typeof",
       Symbol.for("react.memo"),
     );
-    expect(responseElement.props.id).toBe("assistant-message-1");
-    const requestProps = { data: {} };
-    const requestElement = HostRequestCard(requestProps);
-    expect(requestElement.type).toBe(HostRequestCard(requestProps).type);
-    expect(requestElement.type).toHaveProperty(
+    expect(responseContent.type).toHaveProperty(
       "$$typeof",
       Symbol.for("react.memo"),
     );

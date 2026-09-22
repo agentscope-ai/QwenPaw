@@ -1088,6 +1088,7 @@
   },
   "chat": {
     "newTask": "Tác vụ mới",
+    "newChat": "Cuộc trò chuyện mới",
     "groups": {
       "cronShort": "Định kỳ",
       "subagentShort": "Tác tử con"
@@ -1168,6 +1169,7 @@
       "rename": "Đổi tên",
       "pin": "Ghim",
       "unpin": "Bỏ ghim",
+      "copyId": "Sao chép ID cuộc trò chuyện",
       "delete": "Xóa"
     },
     "queue": {
@@ -1955,7 +1957,13 @@
     "error": "Tải mô hình thất bại",
     "default": "Mặc định",
     "custom": "Tùy chỉnh",
-    "refresh": "Làm mới danh sách mô hình"
+    "refresh": "Làm mới danh sách mô hình",
+    "manageSelectorModels": "Manage selector models",
+    "addSelectorModel": "Add to selector",
+    "currentModelProtected": "Switch the current model before removing it",
+    "addToSelector": "Add to selector",
+    "removeFromSelector": "Remove from selector",
+    "searchCandidates": "Search candidate models..."
   },
   "modelConfig": {
     "title": "Cấu hình mô hình",
@@ -2181,9 +2189,10 @@
     "agentTitle": "Thư mục dự án của tác nhân",
     "sessionTitle": "Thư mục dự án của phiên",
     "pathPlaceholder": "Nhập đường dẫn thư mục tuyệt đối",
-    "recentProjects": "Dự án gần đây",
+    "workspaceProjects": "Dự án trong không gian làm việc",
+    "workspaceProjectsHint": "Các dự án được tạo, sao chép, nhập hoặc tải lên không gian làm việc này sẽ xuất hiện ở đây.",
     "browseDirectory": "Duyệt thư mục",
-    "noRecentProjects": "Chưa có dự án gần đây",
+    "noWorkspaceProjects": "Chưa có dự án trong không gian làm việc",
     "clearSelection": "Xóa dự án đã chọn",
     "homeDirectory": "Thư mục chính",
     "parentDirectory": "Thư mục cha",
@@ -2532,6 +2541,32 @@
     "embeddingHealthCheckTimeoutRange": "Thời gian chờ khởi tạo phải lớn hơn 0 và không quá 300 giây",
     "embeddingMaxBatchSizeTooltip": "Số mục tối đa trong một yêu cầu embedding theo batch",
     "embeddingMaxBatchSizeRequired": "Bắt buộc nhập kích thước batch tối đa",
+    "rerankerConfigCollapseLabel": "Cài đặt Reranker",
+    "rerankerExpandDetails": "Mở rộng Cài đặt Reranker",
+    "rerankerCollapseDetails": "Thu gọn Cài đặt Reranker",
+    "rerankerTitle": "Reranker tìm kiếm",
+    "rerankerEnableHint": "Khi được kích hoạt, tìm kiếm bộ nhớ sẽ lấy quá nhiều ứng viên (N × hệ số), sắp xếp lại qua API reranker, sau đó trả về kết quả top-N.",
+    "rerankerEnabled": "Bật Reranker",
+    "rerankerEnabledTooltip": "Khi được kích hoạt, kết quả tìm kiếm bộ nhớ sẽ được sắp xếp lại bằng API reranker bên ngoài",
+    "rerankerBaseUrl": "URL gốc API",
+    "rerankerBaseUrlTooltip": "URL gốc cho API reranker. Khuyến nghị: SiliconFlow (https://api.siliconflow.cn/v1)",
+    "rerankerBaseUrlPlaceholder": "https://api.siliconflow.cn/v1",
+    "rerankerBaseUrlRequired": "Vui lòng nhập URL gốc API Reranker",
+    "rerankerModelName": "Tên mô hình",
+    "rerankerModelNameTooltip": "Mô hình reranker, ví dụ BAAI/bge-reranker-v2-m3",
+    "rerankerModelNamePlaceholder": "BAAI/bge-reranker-v2-m3",
+    "rerankerModelNameRequired": "Vui lòng nhập tên mô hình Reranker",
+    "rerankerApiKey": "Khóa API",
+    "rerankerApiKeyTooltip": "Khóa xác thực cho API reranker",
+    "rerankerApiKeyPlaceholder": "Nhập khóa API",
+    "rerankerCandidateMultiplier": "Hệ số nhân ứng viên",
+    "rerankerCandidateMultiplierTooltip": "Tìm kiếm nhân max_results với giá trị này để tạo nhóm ứng viên. Giá trị cao hơn cải thiện độ bao phủ nhưng tăng độ trễ",
+    "rerankerCandidateMultiplierRequired": "Bắt buộc nhập hệ số nhân ứng viên",
+    "rerankerCandidateMultiplierMin": "Hệ số nhân ứng viên phải ≥ 1",
+    "rerankerTimeout": "Thời gian chờ (giây)",
+    "rerankerTimeoutTooltip": "Thời gian chờ cho yêu cầu API reranker",
+    "rerankerTimeoutRequired": "Bắt buộc nhập thời gian chờ",
+    "rerankerTimeoutMin": "Thời gian chờ phải ≥ 1 giây",
     "embeddingActivationNote": "Embedding được bật khi các trường bắt buộc của backend đã chọn được điền đầy đủ.",
     "embeddingEnableHint": "Embedding được bật khi các trường bắt buộc được điền: Tên mô hình và API Key cho backend tương thích OpenAI hoặc Gemini; Tên mô hình cho Ollama.",
     "rebuildMemoryIndex": "Xây dựng lại chỉ mục bộ nhớ",
@@ -2649,7 +2684,8 @@
     "tokenCountModelTooltip": "Tên mô hình dùng để đếm token chính xác; đặt là \"default\" để dùng ước tính tích hợp",
     "tokenCountModelPlaceholder": "Tên mô hình hoặc default",
     "tokenCountUseMirror": "Dùng mirror HuggingFace",
-    "tokenCountUseMirrorTooltip": "Dùng mirror HuggingFace khi tải tokenizer"
+    "tokenCountUseMirrorTooltip": "Dùng mirror HuggingFace khi tải tokenizer",
+    "rerankerCandidateMultiplierInteger": "Hệ số ứng viên phải là số nguyên"
   },
   "models": {
     "llmConfiguration": "Cấu hình LLM",
@@ -2726,7 +2762,68 @@
     "tagNotProbed": "Chưa kiểm tra",
     "tagText": "Văn bản",
     "tagVideo": "Video",
-    "tagMultimodal": "Đa phương thức"
+    "tagMultimodal": "Đa phương thức",
+    "pool": {
+      "unsupported": "This endpoint does not support model listing. The built-in catalog and existing models are preserved; you can add models manually.",
+      "candidates": "Candidates ({{count}})",
+      "selected": "Selected ({{count}})",
+      "hint": "Enable a model to include it in chat and default model selectors. Every model can be configured directly.",
+      "managedHint": "Organization models are managed by your administrator.",
+      "billing": "All prices",
+      "capability": "All capabilities",
+      "availability": "All availability",
+      "family": "All families",
+      "clear": "Clear filters",
+      "capabilityOptions": {
+        "image": "Image input",
+        "audio": "Audio input",
+        "video": "Video input",
+        "tool_calling": "Tool calling",
+        "unknown": "Capabilities unknown"
+      },
+      "status": {
+        "available": "Available",
+        "unverified": "Unverified",
+        "permission_denied": "No permission",
+        "model_not_found": "Not found",
+        "rate_limited": "Rate limited",
+        "transient_error": "Temporarily unavailable",
+        "incompatible_api": "Incompatible protocol"
+      },
+      "results": "{{count}} models",
+      "empty": "No matching models",
+      "emptyHint": "Adjust filters or discover more models.",
+      "select": "Select",
+      "deselect": "Move to candidates",
+      "context": "Context",
+      "output": "Max output",
+      "configureHint": "Select this model to configure its parameters.",
+      "manualHint": "Missing a model? Add it manually.",
+      "discovered": "Found {{count}} new candidates. They have not been added to selectors.",
+      "probeFinished": "Probe completed. Capabilities refreshed.",
+      "autoValue": "Auto: {{value}}",
+      "autoUnknown": "Auto: unknown",
+      "outputDefault": "Provider default (limit {{value}})",
+      "cardCounts": "{{selected}} selected · {{candidates}} candidates",
+      "all": "All models ({{count}})",
+      "selectionFilter": "Selection status",
+      "selectorToggle": "Enable in model selector",
+      "enabled": "Enabled",
+      "disabled": "Not enabled",
+      "onlyEnabled": "Enabled only",
+      "enabledSummary": "Enabled {{selected}} / Total {{total}}",
+      "any": "Any",
+      "moreFilters": "More filters",
+      "filterLabels": {
+        "billing": "Price",
+        "capability": "Capabilities",
+        "availability": "Connection status",
+        "family": "Model family"
+      }
+    },
+    "billing": {
+      "free": "Free"
+    }
   },
   "security": {
     "parent": "Cài đặt",
@@ -3060,6 +3157,8 @@
     "memorySearchDefault": "Tìm bộ nhớ",
     "updateMemory": "Cập nhật bộ nhớ",
     "deleteMemory": "Xóa bộ nhớ",
+    "interrupted": "Lệnh gọi công cụ đã bị ngắt trước khi trả về kết quả.",
+    "interruptedTitle": "Đã ngắt",
     "rawInputPreview": "Đầu vào thô trực tiếp (4.096 ký tự cuối)",
     "largeOutputOmitted": "Đã lược bỏ {{count}} dòng — sao chép đầu ra hiện có hoặc làm theo hướng dẫn khôi phục",
     "largeOutputTruncated": "Đầu ra được rút gọn khi hiển thị — sao chép đầu ra hiện có hoặc làm theo hướng dẫn khôi phục"

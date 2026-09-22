@@ -1,0 +1,539 @@
+{
+  "api_urls": [
+    "https://api.anthropic.com"
+  ],
+  "remote_id": "anthropic",
+  "template_owner": true,
+  "default_model_ids": [],
+  "models": [
+    {
+      "id": "claude-sonnet-4-6",
+      "name": "claude-sonnet-4-6",
+      "max_input_length": 1000000,
+      "max_output_length": 128000,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": true,
+      "supports_audio": false,
+      "supports_video": false,
+      "released_at": "2026-02-17",
+      "thinking_control": {
+        "kind": "effort",
+        "efforts": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "supports_off": true,
+        "wire": "anthropic_adaptive"
+      },
+      "capability_provenance": {
+        "thinking_control": {
+          "source": "catalog",
+          "reference": "https://platform.claude.com/docs/en/build-with-claude/extended-thinking"
+        },
+        "billing": {
+          "source": "documentation",
+          "reference": "https://platform.claude.com/docs/en/about-claude/pricing",
+          "updated_at": "2026-09-20",
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      },
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog"
+    },
+    {
+      "id": "claude-opus-5",
+      "name": "claude-opus-5",
+      "max_input_length": 1000000,
+      "max_output_length": 128000,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": true,
+      "supports_audio": false,
+      "supports_video": false,
+      "released_at": "2026-07-24",
+      "thinking_control": {
+        "kind": "effort",
+        "efforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ],
+        "supports_off": true,
+        "wire": "anthropic_adaptive"
+      },
+      "capability_provenance": {
+        "thinking_control": {
+          "source": "catalog",
+          "reference": "https://platform.claude.com/docs/en/build-with-claude/extended-thinking"
+        },
+        "billing": {
+          "source": "documentation",
+          "reference": "https://platform.claude.com/docs/en/about-claude/pricing",
+          "updated_at": "2026-09-20",
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      },
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog"
+    },
+    {
+      "id": "claude-opus-4-5",
+      "name": "claude-opus-4-5",
+      "max_input_length": 200000,
+      "max_output_length": 64000,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": true,
+      "supports_audio": false,
+      "supports_video": false,
+      "released_at": "2025-11-24",
+      "thinking_control": {
+        "kind": "budget",
+        "budget_min": 1024,
+        "budget_max": 62976,
+        "budget_default": 8192,
+        "supports_off": true,
+        "wire": "anthropic_budget"
+      },
+      "capability_provenance": {
+        "thinking_control": {
+          "source": "catalog",
+          "reference": "https://platform.claude.com/docs/en/build-with-claude/extended-thinking"
+        },
+        "billing": {
+          "source": "documentation",
+          "reference": "https://platform.claude.com/docs/en/about-claude/pricing",
+          "updated_at": "2026-09-20",
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      },
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog"
+    },
+    {
+      "id": "claude-fable-5-1",
+      "name": "claude-fable-5-1",
+      "max_input_length": 1000000,
+      "max_output_length": 128000,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": true,
+      "supports_audio": false,
+      "supports_video": false,
+      "released_at": "2026-09-01",
+      "thinking_control": {
+        "kind": "effort",
+        "efforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ],
+        "supports_off": true,
+        "wire": "anthropic_adaptive"
+      },
+      "capability_provenance": {
+        "thinking_control": {
+          "source": "catalog",
+          "reference": "https://platform.claude.com/docs/en/build-with-claude/extended-thinking"
+        },
+        "billing": {
+          "source": "documentation",
+          "reference": "https://platform.claude.com/docs/en/about-claude/pricing",
+          "updated_at": "2026-09-20",
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      },
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog"
+    },
+    {
+      "id": "claude-opus-4-6",
+      "name": "claude-opus-4-6",
+      "max_input_length": 1000000,
+      "max_output_length": 128000,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": true,
+      "supports_audio": false,
+      "supports_video": false,
+      "released_at": "2026-02-04",
+      "thinking_control": {
+        "kind": "effort",
+        "efforts": [
+          "low",
+          "medium",
+          "high",
+          "max"
+        ],
+        "supports_off": true,
+        "wire": "anthropic_adaptive"
+      },
+      "capability_provenance": {
+        "thinking_control": {
+          "source": "catalog",
+          "reference": "https://platform.claude.com/docs/en/build-with-claude/extended-thinking"
+        },
+        "billing": {
+          "source": "documentation",
+          "reference": "https://platform.claude.com/docs/en/about-claude/pricing",
+          "updated_at": "2026-09-20",
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      },
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog"
+    },
+    {
+      "id": "claude-sonnet-4-5-20250929",
+      "name": "claude-sonnet-4-5-20250929",
+      "max_input_length": 200000,
+      "max_output_length": 64000,
+      "max_output_length_source": "catalog",
+      "capability_provenance": {
+        "max_input_length": {
+          "source": "documentation",
+          "reference": "https://platform.claude.com/docs/en/build-with-claude/context-windows",
+          "updated_at": "2026-09-18T00:00:00Z"
+        },
+        "thinking_control": {
+          "source": "catalog",
+          "reference": "https://platform.claude.com/docs/en/build-with-claude/extended-thinking"
+        },
+        "billing": {
+          "source": "documentation",
+          "reference": "https://platform.claude.com/docs/en/about-claude/pricing",
+          "updated_at": "2026-09-20",
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      },
+      "supports_tool_calling": true,
+      "supports_image": true,
+      "supports_audio": false,
+      "supports_video": false,
+      "released_at": "2025-09-29",
+      "thinking_control": {
+        "kind": "budget",
+        "budget_min": 1024,
+        "budget_max": 62976,
+        "budget_default": 8192,
+        "supports_off": true,
+        "wire": "anthropic_budget"
+      },
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog"
+    },
+    {
+      "id": "claude-opus-4-7",
+      "name": "claude-opus-4-7",
+      "max_input_length": 1000000,
+      "max_output_length": 128000,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": true,
+      "supports_audio": false,
+      "supports_video": false,
+      "released_at": "2026-04-14",
+      "thinking_control": {
+        "kind": "effort",
+        "efforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ],
+        "supports_off": true,
+        "wire": "anthropic_adaptive"
+      },
+      "capability_provenance": {
+        "thinking_control": {
+          "source": "catalog",
+          "reference": "https://platform.claude.com/docs/en/build-with-claude/extended-thinking"
+        },
+        "billing": {
+          "source": "documentation",
+          "reference": "https://platform.claude.com/docs/en/about-claude/pricing",
+          "updated_at": "2026-09-20",
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      },
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog"
+    },
+    {
+      "id": "claude-haiku-4-5-20251001",
+      "name": "claude-haiku-4-5-20251001",
+      "max_input_length": 200000,
+      "max_output_length": 64000,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": true,
+      "supports_audio": false,
+      "supports_video": false,
+      "released_at": "2025-10-15",
+      "thinking_control": {
+        "kind": "budget",
+        "budget_min": 1024,
+        "budget_max": 62976,
+        "budget_default": 8192,
+        "supports_off": true,
+        "wire": "anthropic_budget"
+      },
+      "capability_provenance": {
+        "thinking_control": {
+          "source": "catalog",
+          "reference": "https://platform.claude.com/docs/en/build-with-claude/extended-thinking"
+        },
+        "billing": {
+          "source": "documentation",
+          "reference": "https://platform.claude.com/docs/en/about-claude/pricing",
+          "updated_at": "2026-09-20",
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      },
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog"
+    },
+    {
+      "id": "claude-fable-5",
+      "name": "claude-fable-5",
+      "max_input_length": 1000000,
+      "max_output_length": 128000,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": true,
+      "supports_audio": false,
+      "supports_video": false,
+      "released_at": "2026-06-07",
+      "thinking_control": {
+        "kind": "effort",
+        "efforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ],
+        "supports_off": true,
+        "wire": "anthropic_adaptive"
+      },
+      "capability_provenance": {
+        "thinking_control": {
+          "source": "catalog",
+          "reference": "https://platform.claude.com/docs/en/build-with-claude/extended-thinking"
+        },
+        "billing": {
+          "source": "documentation",
+          "reference": "https://platform.claude.com/docs/en/about-claude/pricing",
+          "updated_at": "2026-09-20",
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      },
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog"
+    },
+    {
+      "id": "claude-haiku-4-5",
+      "name": "claude-haiku-4-5",
+      "max_input_length": 200000,
+      "max_output_length": 64000,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": true,
+      "supports_audio": false,
+      "supports_video": false,
+      "released_at": "2025-10-15",
+      "thinking_control": {
+        "kind": "budget",
+        "budget_min": 1024,
+        "budget_max": 62976,
+        "budget_default": 8192,
+        "supports_off": true,
+        "wire": "anthropic_budget"
+      },
+      "capability_provenance": {
+        "thinking_control": {
+          "source": "catalog",
+          "reference": "https://platform.claude.com/docs/en/build-with-claude/extended-thinking"
+        },
+        "billing": {
+          "source": "documentation",
+          "reference": "https://platform.claude.com/docs/en/about-claude/pricing",
+          "updated_at": "2026-09-20",
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      },
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog"
+    },
+    {
+      "id": "claude-sonnet-4-5",
+      "name": "claude-sonnet-4-5",
+      "max_input_length": 200000,
+      "max_output_length": 64000,
+      "max_output_length_source": "catalog",
+      "capability_provenance": {
+        "max_input_length": {
+          "source": "documentation",
+          "reference": "https://platform.claude.com/docs/en/build-with-claude/context-windows",
+          "updated_at": "2026-09-18T00:00:00Z"
+        },
+        "thinking_control": {
+          "source": "catalog",
+          "reference": "https://platform.claude.com/docs/en/build-with-claude/extended-thinking"
+        },
+        "billing": {
+          "source": "documentation",
+          "reference": "https://platform.claude.com/docs/en/about-claude/pricing",
+          "updated_at": "2026-09-20",
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      },
+      "supports_tool_calling": true,
+      "supports_image": true,
+      "supports_audio": false,
+      "supports_video": false,
+      "released_at": "2025-09-29",
+      "thinking_control": {
+        "kind": "budget",
+        "budget_min": 1024,
+        "budget_max": 62976,
+        "budget_default": 8192,
+        "supports_off": true,
+        "wire": "anthropic_budget"
+      },
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog"
+    },
+    {
+      "id": "claude-opus-4-8",
+      "name": "claude-opus-4-8",
+      "max_input_length": 1000000,
+      "max_output_length": 128000,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": true,
+      "supports_audio": false,
+      "supports_video": false,
+      "released_at": "2026-05-28",
+      "thinking_control": {
+        "kind": "effort",
+        "efforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ],
+        "supports_off": true,
+        "wire": "anthropic_adaptive"
+      },
+      "capability_provenance": {
+        "thinking_control": {
+          "source": "catalog",
+          "reference": "https://platform.claude.com/docs/en/build-with-claude/extended-thinking"
+        },
+        "billing": {
+          "source": "documentation",
+          "reference": "https://platform.claude.com/docs/en/about-claude/pricing",
+          "updated_at": "2026-09-20",
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      },
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog"
+    },
+    {
+      "id": "claude-sonnet-5",
+      "name": "claude-sonnet-5",
+      "max_input_length": 1000000,
+      "max_output_length": 128000,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": true,
+      "supports_audio": false,
+      "supports_video": false,
+      "released_at": "2026-06-29",
+      "thinking_control": {
+        "kind": "effort",
+        "efforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ],
+        "supports_off": true,
+        "wire": "anthropic_adaptive"
+      },
+      "capability_provenance": {
+        "thinking_control": {
+          "source": "catalog",
+          "reference": "https://platform.claude.com/docs/en/build-with-claude/extended-thinking"
+        },
+        "billing": {
+          "source": "documentation",
+          "reference": "https://platform.claude.com/docs/en/about-claude/pricing",
+          "updated_at": "2026-09-20",
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      },
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog"
+    },
+    {
+      "id": "claude-opus-4-5-20251101",
+      "name": "claude-opus-4-5-20251101",
+      "max_input_length": 200000,
+      "max_output_length": 64000,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": true,
+      "supports_audio": false,
+      "supports_video": false,
+      "released_at": "2025-11-24",
+      "thinking_control": {
+        "kind": "budget",
+        "budget_min": 1024,
+        "budget_max": 62976,
+        "budget_default": 8192,
+        "supports_off": true,
+        "wire": "anthropic_budget"
+      },
+      "capability_provenance": {
+        "thinking_control": {
+          "source": "catalog",
+          "reference": "https://platform.claude.com/docs/en/build-with-claude/extended-thinking"
+        },
+        "billing": {
+          "source": "documentation",
+          "reference": "https://platform.claude.com/docs/en/about-claude/pricing",
+          "updated_at": "2026-09-20",
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      },
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog"
+    }
+  ]
+}

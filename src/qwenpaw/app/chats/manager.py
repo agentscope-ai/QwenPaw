@@ -21,6 +21,7 @@ from .models import (
 )
 from .repo import BaseChatRepository
 from ..channels.schema import DEFAULT_CHANNEL
+from ...providers.thinking import ThinkingPreference
 from ...utils.logging import sanitize_log_value
 
 logger = logging.getLogger(__name__)
@@ -53,9 +54,11 @@ def _ordered_groups(groups: list[ChatGroup]) -> list[ChatGroup]:
         groups,
         key=lambda group: (
             _is_fixed_source_group(group),
-            _source_order(group)
-            if _is_fixed_source_group(group)
-            else (not group.pinned, group.order),
+            (
+                _source_order(group)
+                if _is_fixed_source_group(group)
+                else (not group.pinned, group.order)
+            ),
         ),
     )
 
@@ -446,6 +449,53 @@ class ChatManager:  # pylint: disable=too-many-public-methods
             else:
                 meta.pop("runtime_context", None)
             updated = existing.model_copy(update={"meta": meta})
+            updated.updated_at = datetime.now(timezone.utc)
+            await self._repo.upsert_chat(updated)
+            return updated
+
+    async def set_session_model(self, chat_id: str, model: dict | None):
+        """Persist a model override without changing agent defaults."""
+        async with self._lock:
+            existing = await self._repo.get_chat(chat_id)
+            if existing is None:
+                return None
+            meta = dict(existing.meta or {})
+            runtime = dict(meta.get(f"runtime_context") or {})
+            if model is None:
+                runtime.pop(f"model", None)
+                runtime.pop(f"thinking", None)
+            else:
+                runtime[f"model"] = model
+            meta[f"runtime_context"] = runtime
+            updated = existing.model_copy(update={f"meta": meta})
+            updated.updated_at = datetime.now(timezone.utc)
+            await self._repo.upsert_chat(updated)
+            return updated
+
+    async def set_session_thinking(
+        self,
+        chat_id: str,
+        preference: ThinkingPreference,
+        model_key: str = f"",
+    ) -> Optional[ChatSpec]:
+        """Atomically update thinking without overwriting sibling settings."""
+        async with self._lock:
+            existing = await self._repo.get_chat(chat_id)
+            if existing is None:
+                return None
+            meta = dict(existing.meta or {})
+            runtime = dict(meta.get(f"runtime_context") or {})
+            settings = dict(runtime.get(f"thinking") or {})
+            if preference.level == f"inherit":
+                settings.pop(model_key, None)
+            else:
+                settings[model_key] = preference.model_dump()
+            runtime[f"thinking"] = settings
+            if runtime:
+                meta[f"runtime_context"] = runtime
+            else:
+                meta.pop(f"runtime_context", None)
+            updated = existing.model_copy(update={f"meta": meta})
             updated.updated_at = datetime.now(timezone.utc)
             await self._repo.upsert_chat(updated)
             return updated

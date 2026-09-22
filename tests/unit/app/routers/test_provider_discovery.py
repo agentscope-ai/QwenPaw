@@ -56,7 +56,9 @@ async def test_create_custom_provider_passes_api_key_to_manager() -> None:
         return_value=ProviderInfo(id="custom-openai", name="Custom OpenAI"),
     )
 
+    manager.get_provider.return_value = None
     await create_custom_provider_endpoint(
+        background_tasks=BackgroundTasks(),
         manager=manager,
         body=CreateCustomProviderRequest(
             id="custom-openai",
@@ -106,10 +108,11 @@ async def test_configure_provider_schedules_model_discovery() -> None:
     manager.update_provider_async.assert_awaited_once_with(
         "openai",
         {
+            "enabled": None,
             "api_key": "sk-test",
             "base_url": None,
             "chat_model": None,
-            "generate_kwargs": {},
+            "generate_kwargs": None,
             "custom_headers": None,
             "auth_mode": None,
         },
@@ -207,7 +210,6 @@ async def test_discover_preview_does_not_persist_credentials() -> None:
         "openai",
         {
             "api_key": "preview-key",
-            "base_url": None,
             "chat_model": "AnthropicChatModel",
         },
     )
@@ -259,7 +261,6 @@ async def test_discover_save_persists_protocol_override(
     manager.update_provider_async.assert_awaited_once_with(
         "custom-provider",
         {
-            "api_key": None,
             "base_url": "https://example.test/v1",
             "chat_model": chat_model,
         },
@@ -331,4 +332,38 @@ async def test_connection_preserves_protocol_override(
     assert result.success is True
     provider.model_copy.assert_called_once_with(
         update={"chat_model": chat_model},
+    )
+
+
+async def test_custom_provider_creation_schedules_discovery():
+    provider = SimpleNamespace(
+        support_model_discovery=True,
+        api_key=f"test-key",
+        require_api_key=True,
+    )
+    manager = MagicMock()
+    info = ProviderInfo(id=f"custom", name=f"Custom", models_syncing=True)
+    manager.add_custom_provider = AsyncMock(return_value=info)
+    manager.get_provider.return_value = provider
+    manager.get_provider_info = AsyncMock(return_value=info)
+    manager.prepare_provider_model_discovery = AsyncMock(
+        return_value=(provider, 1, 1),
+    )
+    manager.discover_provider_models = AsyncMock()
+    tasks = BackgroundTasks()
+    result = await create_custom_provider_endpoint(
+        background_tasks=tasks,
+        manager=manager,
+        body=CreateCustomProviderRequest(
+            id=f"custom",
+            name=f"Custom",
+            api_key=f"test-key",
+        ),
+    )
+    assert result.models_syncing
+    assert len(tasks.tasks) == 1
+    await tasks()
+    manager.discover_provider_models.assert_awaited_once_with(
+        f"custom",
+        prepared_discovery=(provider, 1, 1),
     )

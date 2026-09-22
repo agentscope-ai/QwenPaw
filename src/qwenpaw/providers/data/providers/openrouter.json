@@ -1,0 +1,9 @@
+{
+  "api_urls": [
+    "https://openrouter.ai/api/v1"
+  ],
+  "remote_id": null,
+  "template_owner": false,
+  "default_model_ids": [],
+  "models": []
+}

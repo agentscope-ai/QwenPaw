@@ -28,6 +28,7 @@ from qwenpaw.providers.provider import (
     ModelInfo,
     Provider,
 )
+from ..utils.io_utils import run_sync_io
 from ..utils.logging import sanitize_log_value
 from .capping_formatter import _CappingGeminiFormatter
 from .capping_formatter import MAX_INLINE_MEDIA_BYTES
@@ -172,6 +173,8 @@ def _sanitize_schema_for_gemini(schema: Any) -> Any:
 class GeminiProvider(Provider):
     """Provider implementation for Google Gemini API."""
 
+    thinking_wire_protocol = f"gemini"
+
     max_inline_media_bytes: int = Field(
         default=MAX_INLINE_MEDIA_BYTES,
         ge=0,
@@ -197,8 +200,8 @@ class GeminiProvider(Provider):
             ),
         )
 
-    @staticmethod
-    def _normalize_models_payload(payload: Any) -> List[ModelInfo]:
+    @classmethod
+    def _normalize_models_payload(cls, payload: Any) -> List[ModelInfo]:
         models: List[ModelInfo] = []
         for row in payload or []:
             model_id = str(getattr(row, "name", "") or "").strip()
@@ -218,7 +221,7 @@ class GeminiProvider(Provider):
             if not display_name or display_name.startswith("models/"):
                 display_name = model_id
 
-            metadata: dict[str, int] = {}
+            metadata: dict[str, Any] = cls.parse_model_pricing(row)
             input_limit = getattr(row, "input_token_limit", None)
             if isinstance(input_limit, (int, float)) and input_limit >= 1000:
                 metadata["max_input_length_auto_detected"] = int(input_limit)
@@ -243,7 +246,7 @@ class GeminiProvider(Provider):
         client = None
         response = None
         try:
-            client = self._client(timeout=timeout)
+            client = await run_sync_io(self._client, timeout=timeout)
             # Use the async list models endpoint to verify connectivity
             response = await client.aio.models.list()
             async for _ in response:
@@ -270,17 +273,13 @@ class GeminiProvider(Provider):
         client = None
         response = None
         try:
-            client = self._client(timeout=timeout)
+            client = await run_sync_io(self._client, timeout=timeout)
             payload = []
             response = await client.aio.models.list()
             async for model in response:
                 payload.append(model)
             models = self._normalize_models_payload(payload)
             return models
-        except genai_errors.APIError:
-            return []
-        except Exception:
-            return []
         finally:
             await self._close_async_resource(response)
             if client is not None:
@@ -302,7 +301,7 @@ class GeminiProvider(Provider):
         client = None
         response = None
         try:
-            client = self._client(timeout=timeout)
+            client = await run_sync_io(self._client, timeout=timeout)
             response = await client.aio.models.generate_content_stream(
                 model=target,
                 contents="ping",
@@ -437,7 +436,7 @@ class GeminiProvider(Provider):
         self,
         model_id: str,
         timeout: float = 15,
-    ) -> tuple[bool, str]:
+    ) -> tuple[bool | None, str]:
         """Probe image support via Gemini generateContent with inline_data.
 
         Sends a solid-red 16x16 PNG and asks the model to name the colour.
@@ -451,7 +450,7 @@ class GeminiProvider(Provider):
             self.base_url,
         )
         start_time = time.monotonic()
-        client = self._client(timeout=timeout)
+        client = await run_sync_io(self._client, timeout=timeout)
         try:
             image_bytes = base64.b64decode(_PROBE_IMAGE_B64)
             response = await client.aio.models.generate_content(
@@ -485,9 +484,9 @@ class GeminiProvider(Provider):
                 elapsed,
             )
             status = getattr(e, "code", None)
-            if status == 400 or _is_media_keyword_error(e):
+            if status in {400, 422} and _is_media_keyword_error(e):
                 return False, f"Image not supported: {e}"
-            return False, f"Probe inconclusive: {e}"
+            return None, f"Probe inconclusive: {e}"
         except Exception as e:
             elapsed = time.monotonic() - start_time
             logger.warning(
@@ -497,13 +496,13 @@ class GeminiProvider(Provider):
                 sanitize_log_value(e),
                 elapsed,
             )
-            return False, f"Probe failed: {e}"
+            return None, f"Probe failed: {e}"
 
     async def _probe_video_support(
         self,
         model_id: str,
         timeout: float = 30,
-    ) -> tuple[bool, str]:
+    ) -> tuple[bool | None, str]:
         """Probe video support via Gemini generateContent with a video URL.
 
         Asks the model whether the video contains moving content.
@@ -515,7 +514,7 @@ class GeminiProvider(Provider):
             self.base_url,
         )
         start_time = time.monotonic()
-        client = self._client(timeout=timeout)
+        client = await run_sync_io(self._client, timeout=timeout)
         try:
             response = await client.aio.models.generate_content(
                 model=model_id,
@@ -570,9 +569,9 @@ class GeminiProvider(Provider):
                 elapsed,
             )
             status = getattr(e, "code", None)
-            if status == 400 or _is_media_keyword_error(e):
+            if status in {400, 422} and _is_media_keyword_error(e):
                 return False, f"Video not supported: {e}"
-            return False, f"Probe inconclusive: {e}"
+            return None, f"Probe inconclusive: {e}"
         except Exception as e:
             elapsed = time.monotonic() - start_time
             logger.warning(
@@ -582,7 +581,7 @@ class GeminiProvider(Provider):
                 sanitize_log_value(e),
                 elapsed,
             )
-            return False, f"Probe failed: {e}"
+            return None, f"Probe failed: {e}"
 
 
 class _GeminiChatModelCompat:
@@ -660,14 +659,17 @@ class _GeminiChatModelCompat:
                     config["temperature"] = self.parameters.temperature
                 if self.parameters.top_p is not None:
                     config["top_p"] = self.parameters.top_p
-                config["thinking_config"] = {
-                    "include_thoughts": effective_thinking_enable,
-                    "thinking_budget": (
-                        self.parameters.thinking_budget or 1024
-                        if effective_thinking_enable
-                        else 0
-                    ),
-                }
+                config.setdefault(
+                    "thinking_config",
+                    {
+                        "include_thoughts": effective_thinking_enable,
+                        "thinking_budget": (
+                            self.parameters.thinking_budget or 1024
+                            if effective_thinking_enable
+                            else 0
+                        ),
+                    },
+                )
 
                 fmt_tools, fmt_tc = self._format_tools(tools, tool_choice)
                 if fmt_tools is not None:

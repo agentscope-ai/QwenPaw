@@ -6,6 +6,7 @@ Covers ``_validate_model_slot``, ``_load_agent_model``,
 endpoints (series / discover-extended / models filter), and the
 GET/PUT ``/active`` model endpoints with their scope handling.
 """
+
 # pylint: disable=protected-access,redefined-outer-name,unused-argument,use-implicit-booleaness-not-comparison  # noqa: E501
 from __future__ import annotations
 
@@ -669,7 +670,7 @@ class TestSetActiveModel:
             )
         assert exc_info.value.status_code == 400
 
-    async def test_global_scope_syncs_unset_agent_model(
+    async def test_global_scope_preserves_agent_inheritance(
         self,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
@@ -713,11 +714,8 @@ class TestSetActiveModel:
         )
 
         assert result.active_llm == manager.get_active_model()
-        assert configs[0].active_model == ModelSlotConfig(
-            provider_id="p",
-            model="m",
-        )
-        assert reload_calls == ["agent-1"]
+        assert configs == []
+        assert reload_calls == []
 
     async def test_global_scope_keeps_existing_agent_model(
         self,

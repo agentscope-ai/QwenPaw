@@ -1,0 +1,31 @@
+.help {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  vertical-align: middle;
+  color: var(--app-text-tertiary);
+  background: transparent;
+  cursor: pointer;
+  transition:
+    color 120ms,
+    background-color 120ms;
+  &:hover,
+  &:focus-visible {
+    color: var(--app-text);
+    background: var(--app-fill-hover);
+  }
+  &:focus-visible {
+    outline: 2px solid var(--app-accent);
+    outline-offset: 2px;
+  }
+  @media (pointer: coarse) {
+    width: 44px;
+    height: 44px;
+  }
+}

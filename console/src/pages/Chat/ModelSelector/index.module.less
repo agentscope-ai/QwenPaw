@@ -1,3 +1,5 @@
+@import (reference) "../../../styles/modelSurfaces.less";
+
 /* ---- Trigger button ---- */
 .trigger {
   display: inline-flex;
@@ -8,7 +10,9 @@
   cursor: pointer;
   font-size: 14px;
   font-weight: 500;
-  transition: all 0.15s ease;
+  transition:
+    color 150ms ease,
+    background-color 150ms ease;
   user-select: none;
   max-width: 260px;
 
@@ -119,7 +123,7 @@
   gap: 6px;
   font-size: 12px;
   font-weight: 500;
-  letter-spacing: 0.5px;
+  letter-spacing: 0;
   cursor: pointer;
   user-select: none;
 }
@@ -397,7 +401,7 @@
 .settingsSectionHeader {
   display: flex;
   align-items: baseline;
-  margin-bottom: 6px;
+  margin-bottom: 12px;
 }
 
 .settingsSectionTitle,
@@ -704,19 +708,6 @@
   text-align: center;
 }
 
-/* ---- Free section warning banner ---- */
-.freeBanner {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
-  line-height: 1.4;
-}
-
-.freeBannerIcon {
-  flex-shrink: 0;
-}
-
 /* ---- Pro section hint banner ---- */
 .proBanner {
   display: flex;
@@ -802,12 +793,13 @@
 .oauthModalContent,
 .agentModelSettings,
 .agentSelectDropdown {
+  .model-surface-tokens();
   --ms-primary: var(--app-accent);
   --ms-accent: var(--app-accent);
   --ms-accent-strong: var(--app-accent-hover);
   --ms-accent-soft: var(--app-accent-soft);
   --ms-surface: var(--app-surface);
-  --ms-surface-muted: var(--app-fill-faint);
+  --ms-surface-muted: var(--model-inset);
   --ms-border: var(--app-border);
   --ms-border-strong: var(--app-border-strong);
   --ms-text: var(--app-text);
@@ -845,15 +837,15 @@
 .panel {
   width: 380px;
   max-height: min(620px, 72vh);
-  border-color: var(--ms-border);
-  border-radius: 16px;
+  border-color: var(--model-hairline);
+  border-radius: 24px;
   background: var(--ms-surface);
-  box-shadow: 0 20px 52px rgba(0, 0, 0, 0.14);
+  box-shadow: var(--model-overlay-shadow);
 }
 
 .searchWrapper {
-  min-height: 50px;
-  padding: 8px 13px;
+  min-height: 64px;
+  padding: 12px 16px;
   border-bottom-color: var(--ms-border);
   background: var(--ms-surface);
 }
@@ -871,8 +863,8 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
+  width: 40px;
+  height: 40px;
   padding: 0;
   border: 0;
   border-radius: 8px;
@@ -887,41 +879,32 @@
 }
 
 .tabBar {
-  gap: 0;
-  padding: 0;
-  border-bottom-color: var(--ms-border);
-  background: var(--ms-surface);
+  gap: 4px;
+  padding: 4px;
+  margin: 0 16px 8px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--ms-surface-muted);
 }
 
 .tabButton {
-  min-height: 44px;
+  min-height: 36px;
   padding: 0 12px;
-  border-radius: 0;
+  border-radius: 9px;
   color: var(--ms-text-muted);
   font-size: 12px;
   letter-spacing: 0;
   touch-action: manipulation;
 
   &.tabButtonActive {
-    color: var(--ms-accent);
-    background: transparent;
-    box-shadow: none;
-
-    &::after {
-      position: absolute;
-      right: 22%;
-      bottom: -1px;
-      left: 22%;
-      height: 2px;
-      border-radius: 2px 2px 0 0;
-      background: var(--ms-accent);
-      content: "";
-    }
+    color: var(--ms-text);
+    background: var(--ms-surface);
+    box-shadow: 0 1px 4px rgb(0 0 0 / 6%);
   }
 }
 
 .listContainer {
-  padding: 6px;
+  padding: 0 12px 12px;
   scrollbar-width: thin;
   scrollbar-color: var(--ms-border-strong) transparent;
 }
@@ -953,8 +936,8 @@
 
 .providerHeader {
   width: 100%;
-  min-height: 34px;
-  padding: 7px 9px;
+  min-height: 40px;
+  padding: 8px;
   border: 0;
   border-radius: 8px;
   color: var(--ms-text-muted);
@@ -969,7 +952,8 @@
 }
 
 .modelItem {
-  min-height: 42px;
+  min-height: 44px;
+  border-radius: 12px;
   margin: 2px 0;
   padding: 0 8px 0 4px;
   color: var(--ms-text);
@@ -997,7 +981,7 @@
   align-self: stretch;
   flex: 1;
   min-width: 0;
-  padding: 0 8px 0 28px;
+  padding: 0 8px 0 24px;
   border: 0;
   color: inherit;
   background: transparent;
@@ -1030,7 +1014,6 @@
   border-color: var(--ms-free-border);
 }
 
-.freeBanner,
 .proBanner {
   margin: 4px 2px 8px;
   padding: 8px 10px;
@@ -1040,7 +1023,6 @@
   background: var(--ms-surface-muted);
 }
 
-.freeBannerIcon,
 .oauthWarningIcon,
 .checkIcon,
 .connectIcon {
@@ -1284,7 +1266,7 @@
   .panel {
     width: calc(100vw - 12px);
     max-height: min(640px, 78vh);
-    border-radius: 12px;
+    border-radius: 20px;
   }
 
   .trigger {
@@ -1363,4 +1345,329 @@
   --ms-fallback-bg: color-mix(in srgb, var(--ms-text) 6%, transparent);
   --ms-free-border: var(--app-success-border);
   --ms-dropdown-shadow: 0 16px 38px rgba(0, 0, 0, 0.32);
+}
+
+.manageButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  border: 1px solid var(--app-border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--app-text-secondary);
+  cursor: pointer;
+  &:hover,
+  &:focus-visible {
+    color: var(--app-accent);
+    background: var(--app-fill-hover);
+  }
+}
+
+.providerHeading {
+  display: flex;
+  align-items: center;
+  .providerHeader {
+    flex: 1;
+    min-width: 0;
+  }
+}
+.addModelControl,
+.removeModelControl {
+  width: 40px;
+  height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  cursor: pointer;
+  &:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+  }
+  &:focus-visible {
+    outline: 2px solid currentColor;
+    outline-offset: 2px;
+  }
+}
+.addModelControl {
+  color: var(--app-success-text);
+  &:hover:not(:disabled) {
+    background: var(--app-success-bg);
+  }
+}
+.removeModelControl {
+  color: var(--app-error-text);
+  &:hover:not(:disabled) {
+    background: var(--app-error-bg);
+  }
+}
+.candidatePicker {
+  margin: 8px 0 12px;
+  padding: 12px;
+  border: 1px solid var(--model-hairline);
+  border-radius: 16px;
+  background: var(--model-inset);
+}
+.candidateList {
+  max-height: 220px;
+  overflow-y: auto;
+}
+.candidateRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0;
+  > span {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 13px;
+  }
+}
+
+.candidateTags {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  gap: 3px;
+}
+.candidateRow {
+  flex-wrap: nowrap;
+}
+
+.embedded {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  box-shadow: none;
+  border: 0;
+  border-radius: 0;
+}
+
+.embedded .tabBar {
+  width: fit-content;
+  margin: 4px 12px 8px;
+  padding: 3px;
+  border-radius: 9px;
+}
+.embedded .tabButton {
+  min-height: 26px;
+  height: 26px;
+  padding: 0 16px;
+  font-size: 11px;
+  border-radius: 6px;
+}
+
+.agentModelSettings {
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+}
+.agentSettingsToggle {
+  background: transparent;
+  color: var(--app-text-secondary);
+  padding-inline: 4px;
+}
+.agentSettingsBody {
+  padding: 12px 4px;
+}
+.saveAgentSettings {
+  box-shadow: none;
+  min-height: 32px;
+  padding: 0 16px;
+}
+
+.embedded .searchWrapper {
+  min-height: 44px;
+  padding: 4px 12px;
+}
+
+.agentSettingsToggle[aria-expanded="true"] {
+  background: transparent;
+  color: var(--app-text);
+}
+.agentSettingsBody > section {
+  max-width: 360px;
+}
+
+.modelChoiceButton {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  min-width: 0;
+  padding: 8px;
+  border: 0;
+  border-radius: 8px;
+  color: var(--app-text);
+  background: transparent;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.modelChoiceButton span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.modelChoiceButton:hover {
+  background: var(--app-fill);
+}
+.settingLine {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 44px;
+  border-top: 1px solid var(--app-border-subtle);
+  font-size: 13px;
+}
+.settingLine > span {
+  flex-shrink: 0;
+}
+.settingLine > button:not(.modelChoiceButton):not([role="switch"]) {
+  border: 0;
+  background: transparent;
+  color: var(--app-text-secondary);
+  cursor: pointer;
+}
+.manageButton[aria-pressed="true"] {
+  background: var(--app-accent-soft);
+  color: var(--app-accent);
+}
+
+.settingLine .modelChoiceButton {
+  margin-left: auto;
+}
+
+.pickerAnchor {
+  display: inline-flex;
+  min-width: 0;
+  max-width: 100%;
+}
+.pickerOverlay {
+  max-width: calc(100vw - 24px);
+  :global(.ant-popover-inner),
+  :global(.qwenpaw-popover-inner) {
+    padding: 12px;
+    border-radius: 20px;
+    background: var(--app-surface);
+    box-shadow:
+      0 8px 32px rgb(0 0 0 / 12%),
+      0 0 0 1px var(--app-border-subtle, rgb(0 0 0 / 8%));
+  }
+}
+.pickerViewport {
+  display: flex;
+  flex-direction: column;
+  max-width: calc(100vw - 48px);
+  min-height: 0;
+  > * {
+    min-height: 0;
+  }
+}
+.pickerViewport .embedded {
+  height: 100%;
+  max-height: none;
+  flex: 1;
+}
+.pickerViewport .listContainer,
+.pickerSheet .listContainer {
+  max-height: none;
+  flex: 1;
+  overflow-anchor: none;
+}
+.pickerSheet {
+  :global(.ant-drawer-content),
+  :global(.qwenpaw-drawer-content) {
+    border-radius: 20px 20px 0 0;
+  }
+  :global(.ant-drawer-header),
+  :global(.qwenpaw-drawer-header) {
+    padding: 8px 16px;
+    border: 0;
+  }
+  :global(.ant-drawer-body),
+  :global(.qwenpaw-drawer-body) {
+    display: flex;
+    flex-direction: column;
+    padding: 0 12px max(12px, env(safe-area-inset-bottom));
+    overflow: hidden;
+  }
+  .embedded {
+    flex: 1;
+    min-height: 0;
+    max-height: none;
+  }
+}
+
+.settingLine > .pickerAnchor {
+  margin-left: auto;
+  min-width: 0;
+  flex-shrink: 1;
+}
+
+.embedded .manageButton {
+  width: 32px;
+  height: 32px;
+  min-height: 32px;
+  border: 0;
+  background: transparent;
+  &:hover,
+  &:focus-visible {
+    background: var(--app-fill, #f0f0f2);
+  }
+  &[aria-pressed="true"] {
+    background: var(--app-accent-soft);
+    color: var(--app-accent);
+  }
+}
+
+.pickerSheet {
+  border-radius: 20px 20px 0 0;
+  overflow: hidden;
+  :global(.ant-drawer-close),
+  :global(.qwenpaw-drawer-close) {
+    width: 36px;
+    height: 36px;
+    svg {
+      width: 18px;
+      height: 18px;
+    }
+  }
+}
+
+.manageModelsEntry {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 36px;
+  padding: 8px 12px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--app-text-secondary);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  text-align: left;
+
+  span {
+    flex: 1;
+  }
+  &:hover {
+    background: rgba(128, 128, 128, 0.08);
+  }
+  &:focus-visible {
+    outline: 2px solid var(--app-primary);
+  }
 }

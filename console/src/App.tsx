@@ -67,6 +67,7 @@ import type { ThemeConfig } from "./api/modules/theme";
 import "./styles/tokens.css";
 import "./styles/layout.css";
 import "./styles/form-override.css";
+import "katex/dist/katex.min.css";
 
 const antdLocaleMap: Record<string, Locale> = {
   zh: zhCN,

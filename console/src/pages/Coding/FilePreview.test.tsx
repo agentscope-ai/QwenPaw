@@ -3,6 +3,25 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 import FilePreview, { getPreviewType, isPreviewable } from "./FilePreview";
 
 describe("FilePreview", () => {
+  it("keeps math code blocks in the renderable code block controls", () => {
+    render(
+      <FilePreview
+        filePath="formula.md"
+        content={["```math", "x^2 + y^2 = z^2", "```"].join("\n")}
+      />,
+    );
+
+    const tabs = screen.getAllByRole("tab", { hidden: true });
+    expect(tabs).toHaveLength(2);
+    expect(screen.getByLabelText("common.copy")).toBeInTheDocument();
+    expect(screen.getByLabelText("common.download")).toBeInTheDocument();
+
+    (tabs[1] as HTMLButtonElement).click();
+    expect(screen.getByRole("tabpanel", { hidden: true })).toHaveTextContent(
+      "x^2 + y^2 = z^2",
+    );
+  });
+
   it("shows YAML frontmatter as metadata while preserving the body", () => {
     render(
       <FilePreview

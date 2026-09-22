@@ -1375,3 +1375,34 @@
     }
   }
 }
+
+// Primary navigation stays visible; conversation history owns the scroll area.
+.navigationScroll {
+  max-height: none;
+  overflow: visible;
+}
+.secondaryNav > .navigationItem {
+  height: 34px;
+}
+.navMore {
+  display: none;
+}
+.overflowNav {
+  min-width: 180px;
+  max-height: 60dvh;
+  overflow-y: auto;
+}
+@media (max-height: 800px) {
+  .secondaryNav {
+    display: none;
+  }
+  .navMore {
+    display: flex;
+  }
+  .navigationItems {
+    gap: 0;
+  }
+  .navigationItem {
+    height: 32px;
+  }
+}

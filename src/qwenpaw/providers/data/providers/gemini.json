@@ -1,0 +1,674 @@
+{
+  "api_urls": [
+    "https://generativelanguage.googleapis.com",
+    "https://generativelanguage.googleapis.com/v1beta"
+  ],
+  "remote_id": "google",
+  "template_owner": true,
+  "default_model_ids": [
+    "gemini-3.1-pro-preview",
+    "gemini-3-flash-preview",
+    "gemini-3.1-flash-lite-preview",
+    "gemini-2.5-pro",
+    "gemini-2.5-flash",
+    "gemini-2.5-flash-lite",
+    "gemini-2.0-flash"
+  ],
+  "models": [
+    {
+      "id": "gemini-3.1-pro-preview",
+      "name": "Gemini 3.1 Pro Preview",
+      "supports_image": true,
+      "supports_video": true,
+      "probe_source": "documentation",
+      "is_free": false,
+      "is_recommended": true,
+      "source": "builtin",
+      "availability_status": "unverified",
+      "availability_retryable": true,
+      "config_overrides": [],
+      "max_input_length": 1048576,
+      "max_input_length_configured": false,
+      "generate_kwargs": {},
+      "relay_reasoning": true,
+      "max_output_length": 65536,
+      "max_output_length_source": "catalog",
+      "billing": "paid",
+      "supports_tool_calling": true,
+      "supports_audio": true,
+      "released_at": "2026-02-19",
+      "thinking_control": {
+        "kind": "effort",
+        "efforts": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "wire": "gemini_level"
+      },
+      "capability_provenance": {
+        "thinking_control": {
+          "source": "catalog",
+          "reference": "https://ai.google.dev/gemini-api/docs/generate-content/thinking"
+        },
+        "billing": {
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
+    },
+    {
+      "id": "gemini-3-flash-preview",
+      "name": "Gemini 3 Flash Preview",
+      "supports_image": true,
+      "supports_video": true,
+      "probe_source": "documentation",
+      "is_free": false,
+      "source": "builtin",
+      "availability_status": "unverified",
+      "availability_retryable": true,
+      "config_overrides": [],
+      "max_input_length": 1048576,
+      "max_input_length_configured": false,
+      "generate_kwargs": {},
+      "relay_reasoning": true,
+      "max_output_length": 65536,
+      "max_output_length_source": "catalog",
+      "billing": "paid",
+      "supports_tool_calling": true,
+      "supports_audio": true,
+      "released_at": "2025-12-17",
+      "thinking_control": {
+        "kind": "effort",
+        "efforts": [
+          "minimal",
+          "low",
+          "medium",
+          "high"
+        ],
+        "wire": "gemini_level"
+      },
+      "capability_provenance": {
+        "thinking_control": {
+          "source": "catalog",
+          "reference": "https://ai.google.dev/gemini-api/docs/generate-content/thinking"
+        },
+        "billing": {
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
+    },
+    {
+      "id": "gemini-3.1-flash-lite-preview",
+      "name": "Gemini 3.1 Flash Lite Preview",
+      "supports_image": true,
+      "supports_video": true,
+      "probe_source": "documentation",
+      "is_free": false,
+      "source": "builtin",
+      "availability_status": "unverified",
+      "availability_retryable": true,
+      "config_overrides": [],
+      "max_input_length": 1048576,
+      "max_input_length_configured": false,
+      "generate_kwargs": {},
+      "relay_reasoning": true,
+      "max_output_length": 65536,
+      "max_output_length_source": "catalog",
+      "billing": "paid",
+      "supports_tool_calling": true,
+      "supports_audio": true,
+      "released_at": "2026-03-03",
+      "thinking_control": {
+        "kind": "effort",
+        "efforts": [
+          "minimal",
+          "low",
+          "medium",
+          "high"
+        ],
+        "wire": "gemini_level"
+      },
+      "capability_provenance": {
+        "thinking_control": {
+          "source": "catalog",
+          "reference": "https://ai.google.dev/gemini-api/docs/generate-content/thinking"
+        },
+        "billing": {
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
+    },
+    {
+      "id": "gemini-2.5-pro",
+      "name": "Gemini 2.5 Pro",
+      "supports_image": true,
+      "supports_video": true,
+      "probe_source": "documentation",
+      "is_free": false,
+      "source": "builtin",
+      "availability_status": "unverified",
+      "availability_retryable": true,
+      "config_overrides": [],
+      "max_input_length": 1048576,
+      "max_input_length_configured": false,
+      "generate_kwargs": {},
+      "relay_reasoning": true,
+      "max_output_length": 65536,
+      "max_output_length_source": "catalog",
+      "billing": "paid",
+      "supports_tool_calling": true,
+      "supports_audio": true,
+      "released_at": "2025-06-17",
+      "thinking_control": {
+        "kind": "budget",
+        "budget_min": 128,
+        "budget_max": 32768,
+        "budget_default": 8192,
+        "supports_off": false,
+        "wire": "gemini_budget"
+      },
+      "capability_provenance": {
+        "thinking_control": {
+          "source": "catalog",
+          "reference": "https://ai.google.dev/gemini-api/docs/generate-content/thinking"
+        },
+        "billing": {
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
+    },
+    {
+      "id": "gemini-2.5-flash",
+      "name": "Gemini 2.5 Flash",
+      "supports_image": true,
+      "supports_video": true,
+      "probe_source": "documentation",
+      "is_free": false,
+      "source": "builtin",
+      "availability_status": "unverified",
+      "availability_retryable": true,
+      "config_overrides": [],
+      "max_input_length": 1048576,
+      "max_input_length_configured": false,
+      "generate_kwargs": {},
+      "relay_reasoning": true,
+      "max_output_length": 65536,
+      "max_output_length_source": "catalog",
+      "billing": "paid",
+      "supports_tool_calling": true,
+      "supports_audio": true,
+      "released_at": "2025-06-17",
+      "thinking_control": {
+        "kind": "budget",
+        "budget_min": 1,
+        "budget_max": 24576,
+        "budget_default": 8192,
+        "supports_off": true,
+        "wire": "gemini_budget"
+      },
+      "capability_provenance": {
+        "thinking_control": {
+          "source": "catalog",
+          "reference": "https://ai.google.dev/gemini-api/docs/generate-content/thinking"
+        },
+        "billing": {
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
+    },
+    {
+      "id": "gemini-2.5-flash-lite",
+      "name": "Gemini 2.5 Flash Lite",
+      "supports_image": true,
+      "supports_video": true,
+      "probe_source": "documentation",
+      "is_free": false,
+      "source": "builtin",
+      "availability_status": "unverified",
+      "availability_retryable": true,
+      "config_overrides": [],
+      "max_input_length": 1048576,
+      "max_input_length_configured": false,
+      "generate_kwargs": {},
+      "relay_reasoning": true,
+      "max_output_length": 65536,
+      "max_output_length_source": "catalog",
+      "billing": "paid",
+      "supports_tool_calling": true,
+      "supports_audio": true,
+      "released_at": "2025-06-17",
+      "thinking_control": {
+        "kind": "budget",
+        "budget_min": 512,
+        "budget_max": 24576,
+        "budget_default": 8192,
+        "supports_off": true,
+        "wire": "gemini_budget"
+      },
+      "capability_provenance": {
+        "thinking_control": {
+          "source": "catalog",
+          "reference": "https://ai.google.dev/gemini-api/docs/generate-content/thinking"
+        },
+        "billing": {
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
+    },
+    {
+      "id": "gemini-2.0-flash",
+      "name": "Gemini 2.0 Flash",
+      "supports_image": true,
+      "supports_video": true,
+      "probe_source": "documentation",
+      "is_free": false,
+      "source": "builtin",
+      "availability_status": "unverified",
+      "availability_retryable": true,
+      "config_overrides": [],
+      "max_input_length": 1048576,
+      "max_input_length_configured": false,
+      "generate_kwargs": {},
+      "relay_reasoning": true,
+      "billing": "paid",
+      "capability_provenance": {
+        "billing": {
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
+    },
+    {
+      "id": "gemma-4-26b-a4b-it",
+      "name": "gemma-4-26b-a4b-it",
+      "max_input_length": 262144,
+      "max_output_length": 32768,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": true,
+      "supports_audio": false,
+      "supports_video": false,
+      "released_at": "2026-04-02"
+    },
+    {
+      "id": "gemini-3.1-pro-preview-customtools",
+      "name": "gemini-3.1-pro-preview-customtools",
+      "max_input_length": 1048576,
+      "max_output_length": 65536,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": true,
+      "supports_audio": true,
+      "supports_video": true,
+      "released_at": "2026-02-19"
+    },
+    {
+      "id": "gemini-3.1-flash-lite-image",
+      "name": "gemini-3.1-flash-lite-image",
+      "max_input_length": 65536,
+      "max_output_length": 65536,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": true,
+      "supports_audio": false,
+      "supports_video": false,
+      "released_at": "2026-06-30"
+    },
+    {
+      "id": "lyria-3-clip-preview",
+      "name": "lyria-3-clip-preview",
+      "max_input_length": 1048576,
+      "max_output_length": 65536,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": false,
+      "supports_image": true,
+      "supports_audio": false,
+      "supports_video": false,
+      "released_at": "2026-03-25"
+    },
+    {
+      "id": "gemini-2.5-flash-image",
+      "name": "gemini-2.5-flash-image",
+      "max_input_length": 32768,
+      "max_output_length": 32768,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": false,
+      "supports_image": true,
+      "supports_audio": false,
+      "supports_video": false,
+      "released_at": "2025-08-26"
+    },
+    {
+      "id": "deep-research-max-preview-04-2026",
+      "name": "deep-research-max-preview-04-2026",
+      "max_input_length": 131072,
+      "max_output_length": 65536,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": true,
+      "supports_audio": true,
+      "supports_video": true,
+      "released_at": "2026-04-21"
+    },
+    {
+      "id": "gemini-3-pro-image",
+      "name": "gemini-3-pro-image",
+      "max_input_length": 131072,
+      "max_output_length": 32768,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": false,
+      "supports_image": true,
+      "supports_audio": false,
+      "supports_video": false,
+      "released_at": "2026-05-28"
+    },
+    {
+      "id": "deep-research-preview-04-2026",
+      "name": "deep-research-preview-04-2026",
+      "max_input_length": 131072,
+      "max_output_length": 65536,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": true,
+      "supports_audio": true,
+      "supports_video": true,
+      "released_at": "2026-04-21"
+    },
+    {
+      "id": "gemini-2.5-computer-use-preview-10-2025",
+      "name": "gemini-2.5-computer-use-preview-10-2025",
+      "max_input_length": 131072,
+      "max_output_length": 65536,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": true,
+      "supports_audio": false,
+      "supports_video": false,
+      "released_at": "2025-10-07"
+    },
+    {
+      "id": "gemini-3.6-flash",
+      "name": "gemini-3.6-flash",
+      "max_input_length": 1048576,
+      "max_output_length": 65536,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": true,
+      "supports_audio": true,
+      "supports_video": true,
+      "released_at": "2026-07-21"
+    },
+    {
+      "id": "gemini-3.1-flash-lite",
+      "name": "gemini-3.1-flash-lite",
+      "max_input_length": 1048576,
+      "max_output_length": 65536,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": true,
+      "supports_audio": true,
+      "supports_video": true,
+      "released_at": "2026-05-07"
+    },
+    {
+      "id": "gemini-3.1-flash-live-preview",
+      "name": "gemini-3.1-flash-live-preview",
+      "max_input_length": 131072,
+      "max_output_length": 65536,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": true,
+      "supports_audio": true,
+      "supports_video": true,
+      "released_at": "2026-03-26"
+    },
+    {
+      "id": "gemini-2.5-pro-preview-tts",
+      "name": "gemini-2.5-pro-preview-tts",
+      "max_input_length": 8192,
+      "max_output_length": 16384,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": false,
+      "supports_image": false,
+      "supports_audio": false,
+      "supports_video": false,
+      "released_at": "2025-05-01"
+    },
+    {
+      "id": "gemini-3.5-flash",
+      "name": "gemini-3.5-flash",
+      "max_input_length": 1048576,
+      "max_output_length": 65536,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": true,
+      "supports_audio": true,
+      "supports_video": true,
+      "released_at": "2026-05-19"
+    },
+    {
+      "id": "veo-3.1-generate-preview",
+      "name": "veo-3.1-generate-preview",
+      "max_output_length": 8192,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": false,
+      "supports_image": true,
+      "supports_audio": false,
+      "supports_video": false,
+      "released_at": "2025-10-15"
+    },
+    {
+      "id": "veo-3.1-fast-generate-preview",
+      "name": "veo-3.1-fast-generate-preview",
+      "max_output_length": 8192,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": false,
+      "supports_image": true,
+      "supports_audio": false,
+      "supports_video": true,
+      "released_at": "2025-10-15"
+    },
+    {
+      "id": "gemini-2.5-flash-preview-tts",
+      "name": "gemini-2.5-flash-preview-tts",
+      "max_input_length": 8192,
+      "max_output_length": 16384,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": false,
+      "supports_image": false,
+      "supports_audio": false,
+      "supports_video": false,
+      "released_at": "2025-05-01"
+    },
+    {
+      "id": "gemini-embedding-001",
+      "name": "gemini-embedding-001",
+      "max_input_length": 2048,
+      "max_output_length": 1,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": false,
+      "supports_image": false,
+      "supports_audio": false,
+      "supports_video": false,
+      "released_at": "2025-05-20"
+    },
+    {
+      "id": "gemini-3.1-flash-image",
+      "name": "gemini-3.1-flash-image",
+      "max_input_length": 65536,
+      "max_output_length": 65536,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": false,
+      "supports_image": true,
+      "supports_audio": false,
+      "supports_video": true,
+      "released_at": "2026-05-28"
+    },
+    {
+      "id": "gemini-3.5-flash-lite",
+      "name": "gemini-3.5-flash-lite",
+      "max_input_length": 1048576,
+      "max_output_length": 65536,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": true,
+      "supports_audio": true,
+      "supports_video": true,
+      "released_at": "2026-07-21"
+    },
+    {
+      "id": "gemini-3-pro-image-preview",
+      "name": "gemini-3-pro-image-preview",
+      "max_input_length": 131072,
+      "max_output_length": 32768,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": false,
+      "supports_image": true,
+      "supports_audio": false,
+      "supports_video": false,
+      "released_at": "2025-11-20"
+    },
+    {
+      "id": "gemini-3.1-flash-tts-preview",
+      "name": "gemini-3.1-flash-tts-preview",
+      "max_input_length": 8192,
+      "max_output_length": 16384,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": false,
+      "supports_image": false,
+      "supports_audio": false,
+      "supports_video": false,
+      "released_at": "2026-04-15"
+    },
+    {
+      "id": "veo-3.1-lite-generate-preview",
+      "name": "veo-3.1-lite-generate-preview",
+      "max_output_length": 8192,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": false,
+      "supports_image": true,
+      "supports_audio": false,
+      "supports_video": false,
+      "released_at": "2026-03-31"
+    },
+    {
+      "id": "gemini-flash-lite-latest",
+      "name": "gemini-flash-lite-latest",
+      "max_input_length": 1048576,
+      "max_output_length": 65536,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": true,
+      "supports_audio": true,
+      "supports_video": true,
+      "released_at": "2026-07-21"
+    },
+    {
+      "id": "gemma-4-31b-it",
+      "name": "gemma-4-31b-it",
+      "max_input_length": 262144,
+      "max_output_length": 32768,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": true,
+      "supports_audio": false,
+      "supports_video": false,
+      "released_at": "2026-04-02"
+    },
+    {
+      "id": "gemini-embedding-2",
+      "name": "gemini-embedding-2",
+      "max_input_length": 8192,
+      "max_output_length": 1,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": false,
+      "supports_image": true,
+      "supports_audio": true,
+      "supports_video": true,
+      "released_at": "2026-04-22"
+    },
+    {
+      "id": "gemini-3.8-flash",
+      "name": "gemini-3.8-flash",
+      "max_input_length": 1048576,
+      "max_output_length": 65536,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": true,
+      "supports_audio": true,
+      "supports_video": true,
+      "released_at": "2026-09-02"
+    },
+    {
+      "id": "gemini-3.5-live-translate-preview",
+      "name": "gemini-3.5-live-translate-preview",
+      "max_input_length": 16384,
+      "max_output_length": 32768,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": false,
+      "supports_image": false,
+      "supports_audio": true,
+      "supports_video": false,
+      "released_at": "2026-06-09"
+    },
+    {
+      "id": "lyria-3-pro-preview",
+      "name": "lyria-3-pro-preview",
+      "max_input_length": 1048576,
+      "max_output_length": 65536,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": false,
+      "supports_image": true,
+      "supports_audio": false,
+      "supports_video": false,
+      "released_at": "2026-03-25"
+    },
+    {
+      "id": "gemini-3.7-flash",
+      "name": "gemini-3.7-flash",
+      "max_input_length": 1048576,
+      "max_output_length": 65536,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": true,
+      "supports_audio": true,
+      "supports_video": true,
+      "released_at": "2026-08-13"
+    },
+    {
+      "id": "gemini-flash-latest",
+      "name": "gemini-flash-latest",
+      "max_input_length": 1048576,
+      "max_output_length": 65536,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": true,
+      "supports_audio": true,
+      "supports_video": true,
+      "released_at": "2026-08-13"
+    },
+    {
+      "id": "gemini-3.1-flash-image-preview",
+      "name": "gemini-3.1-flash-image-preview",
+      "max_input_length": 65536,
+      "max_output_length": 65536,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": false,
+      "supports_image": true,
+      "supports_audio": false,
+      "supports_video": false,
+      "released_at": "2026-02-26"
+    },
+    {
+      "id": "gemini-omni-flash-preview",
+      "name": "gemini-omni-flash-preview",
+      "max_input_length": 131072,
+      "max_output_length": 65536,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": false,
+      "supports_image": true,
+      "supports_audio": false,
+      "supports_video": true,
+      "released_at": "2026-06-30"
+    }
+  ]
+}

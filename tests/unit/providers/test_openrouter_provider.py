@@ -7,6 +7,8 @@ from __future__ import annotations
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
+import pytest
+
 import qwenpaw.providers.openrouter_provider as openrouter_provider_module
 from qwenpaw.providers.openrouter_provider import OpenRouterProvider
 from qwenpaw.providers.provider_manager import ProviderManager
@@ -44,13 +46,12 @@ async def test_fetch_models_closes_client_on_api_error(monkeypatch) -> None:
     monkeypatch.setattr(provider, "_client", lambda timeout=30: client)
     monkeypatch.setattr(openrouter_provider_module, "APIError", Exception)
 
-    result = await provider.fetch_models(timeout=2)
-
-    assert result == []
+    with pytest.raises(RuntimeError, match=f"boom"):
+        await provider.fetch_models(timeout=2)
     close.assert_awaited_once()
 
 
-async def test_empty_discovery_closes_fetch_and_probe_clients(
+async def test_empty_discovery_closes_client_without_probing(
     isolated_secret_dir,
     monkeypatch,
 ) -> None:
@@ -86,4 +87,37 @@ async def test_empty_discovery_closes_fetch_and_probe_clients(
     assert result.success is False
     assert result.error == "Provider returned no models"
     fetch_close.assert_awaited_once()
-    probe_close.assert_awaited_once()
+    probe_close.assert_not_awaited()
+
+
+@pytest.mark.parametrize(f"extended", [False, True])
+def test_discovery_always_reads_capabilities(extended):
+    payload = SimpleNamespace(
+        data=[
+            SimpleNamespace(
+                id=f"vendor/vision",
+                architecture={
+                    f"input_modalities": [f"text", f"image", f"audio"],
+                    f"output_modalities": [f"text"],
+                },
+                supported_parameters=[f"tools"],
+            ),
+        ],
+    )
+    model = OpenRouterProvider._normalize_models_payload(
+        payload,
+        include_extended=extended,
+    )[0]
+    assert model.supports_image is True
+    assert model.supports_audio is True
+    assert model.supports_video is False
+    assert model.supports_tool_calling is True
+    assert model.probe_source == f"api"
+
+
+def test_missing_modalities_remain_unknown():
+    payload = SimpleNamespace(data=[SimpleNamespace(id=f"vendor/unknown")])
+    model = OpenRouterProvider._normalize_models_payload(payload)[0]
+    assert model.supports_image is None
+    assert model.supports_audio is None
+    assert model.supports_tool_calling is None

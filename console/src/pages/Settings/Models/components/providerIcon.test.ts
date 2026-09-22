@@ -50,7 +50,6 @@ describe("providerIcon", () => {
       "openrouter",
       "opencode",
       "kilo",
-      "github-models",
       "volcengine-cn",
       "volcengine-cn-codingplan",
       "volcengine-cn-agentplan",

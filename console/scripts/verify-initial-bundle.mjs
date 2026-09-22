@@ -68,8 +68,14 @@ let rawBytes = 0;
 let brotliBytes = 0;
 for (const asset of assets) {
   const path = join(outputDirectory, asset);
-  rawBytes += (await stat(path)).size;
-  brotliBytes += (await stat(`${path}.br`)).size;
+  const rawSize = (await stat(path)).size;
+  rawBytes += rawSize;
+  try {
+    brotliBytes += (await stat(`${path}.br`)).size;
+  } catch (error) {
+    if (error?.code !== "ENOENT") throw error;
+    brotliBytes += rawSize;
+  }
 }
 
 const toMiB = (bytes) => (bytes / 1024 / 1024).toFixed(2);

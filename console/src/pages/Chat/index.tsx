@@ -1,3 +1,10 @@
+import { loadSessionModel } from "../../features/session-settings/sessionModel";
+import {
+  migratePendingSessionSettings,
+  withPendingSessionSettings,
+} from "@/features/session-settings/pendingSessionSettings";
+import { setPendingThinking } from "@/features/thinking/sessionThinkingApi";
+import { SessionThinking } from "@/features/thinking/SessionThinking";
 import {
   AgentScopeRuntimeWebUI,
   IAgentScopeRuntimeWebUIOptions,
@@ -53,7 +60,6 @@ import { getApiUrl } from "../../api/config";
 import { buildAuthHeaders } from "../../api/authHeaders";
 import { providerApi } from "../../api/modules/provider";
 import type { ProviderInfo, ModelInfo, SkillSpec } from "../../api/types";
-import ModelSelector from "./ModelSelector";
 import { useTheme } from "../../contexts/ThemeContext";
 import { useAgentStore } from "../../stores/agentStore";
 import {
@@ -78,11 +84,9 @@ import {
 import { toChatThemeHex } from "@/utils/chatThemeColor";
 import ChatActionGroup from "./components/ChatActionGroup";
 import ContextUsageIndicator from "./components/ContextUsageIndicator";
-import {
-  patchContextMaxInputLength,
-  wrapChatResponseUsageStream,
-} from "./turnUsage";
+import { wrapChatResponseUsageStream } from "./turnUsage";
 import { wrapReplayFastForward } from "./replayFastForward";
+import { clearTurnStopped, markTurnStopped } from "./stoppedTurns";
 import { useTurnUsageStore } from "./turnUsageStore";
 import ChatHeaderTitle from "./components/ChatHeaderTitle";
 import {
@@ -153,9 +157,7 @@ import { chatProjectDirectoryApi } from "../../api/modules/chatProjectDirectory"
 import { projectDirectoryApi } from "../../api/modules/projectDirectory";
 import {
   getPendingProjectDirectory,
-  migratePendingProjectDirectory,
   setPendingProjectDirectory,
-  withPendingProjectDirectory,
 } from "../../features/project-directory/pendingProjectDirectory";
 import {
   useFilesSurfaceStore,
@@ -478,7 +480,7 @@ async function startBackgroundQueue(
           // Use the agent ID captured at enqueue time to prevent cross-agent
           // delivery when the user switches agents after queueing.
           authHeaders["X-Agent-Id"] = queueAgentId;
-          const pendingRequest = withPendingProjectDirectory(
+          const pendingRequest = withPendingSessionSettings(
             applyChatPayloadTransforms(
               {
                 ...item.bizParams,
@@ -542,6 +544,7 @@ async function startBackgroundQueue(
             );
             throw new Error(`HTTP ${res.status}`);
           }
+          setPendingThinking(queueAgentId, queueKey, null);
           if (pendingRequest.projectDir) {
             setPendingProjectDirectory(queueAgentId, queueKey, null);
           }
@@ -853,6 +856,8 @@ function useMultimodalCapabilities(
   _isChatActive: () => boolean,
   selectedAgent: string,
   usesQwenPawBackend: boolean,
+  sessionId: string,
+  chatId: string | null | undefined,
 ) {
   const [multimodalCaps, setMultimodalCaps] = useState<{
     supportsMultimodal: boolean;
@@ -877,7 +882,9 @@ function useMultimodalCapabilities(
     [],
   );
 
+  const capsRevision = useRef(0);
   const fetchMultimodalCaps = useCallback(async () => {
+    const revision = ++capsRevision.current;
     const noCaps = {
       supportsMultimodal: false,
       supportsImage: false,
@@ -890,11 +897,9 @@ function useMultimodalCapabilities(
     try {
       const [providers, activeModels] = await Promise.all([
         providerApi.listProviders(),
-        providerApi.getActiveModels({
-          scope: "effective",
-          agent_id: selectedAgent,
-        }),
+        loadSessionModel(selectedAgent, { sessionId, chatId }),
       ]);
+      if (revision !== capsRevision.current) return;
       const activeProviderId = activeModels?.active_llm?.provider_id;
       const activeModelId = activeModels?.active_llm?.model;
       if (!activeProviderId || !activeModelId) {
@@ -919,19 +924,25 @@ function useMultimodalCapabilities(
         supportsVideo: model?.supports_video ?? false,
       });
     } catch {
-      updateCapsIfChanged(noCaps);
+      if (revision === capsRevision.current) updateCapsIfChanged(noCaps);
     }
-  }, [selectedAgent, updateCapsIfChanged, usesQwenPawBackend]);
+  }, [
+    selectedAgent,
+    sessionId,
+    chatId,
+    updateCapsIfChanged,
+    usesQwenPawBackend,
+  ]);
 
   // Fetch caps on mount and whenever refreshKey changes
   useEffect(() => {
-    fetchMultimodalCaps();
+    void fetchMultimodalCaps();
+    return () => {
+      capsRevision.current += 1;
+    };
   }, [fetchMultimodalCaps, refreshKey]);
 
   // Re-sync caps only when navigating FROM a non-chat page back to chat.
-  // Do NOT re-fetch when switching between sessions (e.g. /chat/A → /chat/B)
-  // because the agent/model config hasn't changed — avoids unnecessary
-  // models + active API calls on every session switch.
   const prevChatPathRef = useRef(locationPathname);
   useEffect(() => {
     const prev = prevChatPathRef.current;
@@ -1306,6 +1317,14 @@ export default function ChatPage() {
     [],
   );
   const backendChatId = resolveBackendChatId(chatId);
+  useEffect(() => {
+    sessionApi.setVisibleSession(
+      queueSessionId === "new" ? null : queueSessionId,
+    );
+    if (backendChatId)
+      void sessionApi.getSession(queueSessionId).catch(() => undefined);
+  }, [selectedAgent, queueSessionId, backendChatId]);
+
   const pendingProjectDir = backendChatId
     ? undefined
     : getPendingProjectDirectory(selectedAgent, queueSessionId) ?? undefined;
@@ -2281,6 +2300,8 @@ export default function ChatPage() {
     isChatActive,
     selectedAgent,
     usesQwenPawBackend,
+    queueSessionId,
+    backendChatId,
   );
 
   const { setLastChatId, getLastChatId, removeLastChatId } = useAgentStore();
@@ -2300,13 +2321,8 @@ export default function ChatPage() {
   const navigateRef = useRef(navigate);
 
   useEffect(() => {
-    const handler = (e: Event) => {
+    const handler = () => {
       void fetchMultimodalCaps();
-      const maxInputLength = (e as CustomEvent<{ maxInputLength?: number }>)
-        .detail?.maxInputLength;
-      if (typeof maxInputLength === "number") {
-        patchContextMaxInputLength(chatRef, maxInputLength);
-      }
     };
     window.addEventListener("model-switched", handler);
     return () => window.removeEventListener("model-switched", handler);
@@ -2838,7 +2854,7 @@ export default function ChatPage() {
       toId: string,
     ) => {
       if (fromId === toId) return;
-      migratePendingProjectDirectory(agentId, fromId, toId);
+      migratePendingSessionSettings(agentId, fromId, toId);
       migrateTerminalGroup(agentId, fromId, toId);
       migrateChatSessionPreferences(
         getQueueKey(agentId, fromId),
@@ -3006,7 +3022,7 @@ export default function ChatPage() {
     sessionApi.onSessionCreated = (sessionId) => {
       if (!isChatActiveRef.current) return;
       const agentId = selectedAgentRef.current;
-      migratePendingProjectDirectory(agentId, "new", sessionId);
+      migratePendingSessionSettings(agentId, "new", sessionId);
       migrateTerminalGroup(agentId, "new", sessionId);
       migrateChatSessionPreferences(
         getQueueKey(agentId),
@@ -3169,6 +3185,9 @@ export default function ChatPage() {
         {},
         selectedAgent,
       );
+      // Every turn goes through this fetch, including the SDK's own regenerate.
+      // Clear only this session: another session may still have a stopped turn.
+      clearTurnStopped(entrySnapshot.sessionId);
       const directSubmission =
         !data.submission || data.submission.source === "direct";
       const pendingDirectInput = directSubmission
@@ -3199,9 +3218,9 @@ export default function ChatPage() {
 
       if (usesQwenPawBackend) {
         try {
-          const activeModels = await providerApi.getActiveModels({
-            scope: "effective",
-            agent_id: entrySnapshot.agentId,
+          const activeModels = await loadSessionModel(entrySnapshot.agentId, {
+            sessionId: fallbackLocalChatId || "new",
+            chatId: resolveBackendChatId(fallbackLocalChatId || undefined),
           });
           if (
             !activeModels?.active_llm?.provider_id ||
@@ -3318,7 +3337,7 @@ export default function ChatPage() {
       if (usesQwenPawBackend) {
         projectSessionId =
           fallbackLocalChatId ?? String(requestBody.session_id || "new");
-        const pendingRequest = withPendingProjectDirectory(
+        const pendingRequest = withPendingSessionSettings(
           requestBody,
           requestSnapshot.agentId,
           projectSessionId,
@@ -3390,6 +3409,9 @@ export default function ChatPage() {
         );
       }
       const localIdToResolve = fallbackLocalChatId;
+      if (response.ok && projectSessionId) {
+        setPendingThinking(requestSnapshot.agentId, projectSessionId, null);
+      }
       if (response.ok && localIdToResolve) {
         if (appliedProjectDir && projectSessionId) {
           setPendingProjectDirectory(
@@ -3945,11 +3967,6 @@ export default function ChatPage() {
             />
             <ChatHeaderTitle />
             <span className={styles.headerSpacer} />
-            {usesQwenPawBackend ? (
-              <ModelSelector />
-            ) : backendCapabilities?.model_selection ? (
-              <HarnessModelSelector providerId={selectedAgentBackend} />
-            ) : null}
             <ChatActionGroup
               onToggleTerminal={toggleTerminal}
               terminalEnabled={terminalEnabled}
@@ -4016,6 +4033,15 @@ export default function ChatPage() {
                 compact={isMobile}
               />
             )}
+            {usesQwenPawBackend ? (
+              <SessionThinking
+                agentId={selectedAgent}
+                sessionId={queueSessionId}
+                chatId={backendChatId}
+              />
+            ) : backendCapabilities?.model_selection ? (
+              <HarnessModelSelector providerId={selectedAgentBackend} />
+            ) : null}
             {pluginSenderPrefix}
           </>
         ),
@@ -4256,6 +4282,10 @@ export default function ChatPage() {
             abort?: () => void;
           },
         ) {
+          // The SDK only writes a canceled status when its stream is still
+          // alive to observe the abort; record the stop itself so tool cards
+          // can close even when the stream died first.
+          markTurnStopped(data.session_id || data.chatSessionId);
           const snapshot = resolveChatRequestSnapshot(
             data,
             {},
@@ -4296,6 +4326,8 @@ export default function ChatPage() {
             {},
             selectedAgent,
           );
+          // Attaching to a live turn only invalidates this session's stop.
+          clearTurnStopped(snapshot.sessionId);
           headers["X-Agent-Id"] = snapshot.agentId;
           const usageTurn = useTurnUsageStore
             .getState()

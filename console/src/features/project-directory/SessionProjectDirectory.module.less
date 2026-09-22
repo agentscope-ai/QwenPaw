@@ -322,6 +322,17 @@
   }
 }
 
+.sectionTitle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.sectionHelp {
+  flex: 0 0 auto;
+  color: var(--app-text-tertiary);
+}
+
 .recent {
   min-height: 0;
   display: flex;
@@ -643,8 +654,18 @@
 }
 
 /* ── Session scope: bound directory list ──────────────────────────────
-   Sits below the picker. The panel height is fixed, so the browser body
-   gives up some room (.panelWithList) and the list scrolls on overflow. */
+   The desktop panel uses the available viewport up to its comfortable size,
+   leaving the browser enough room for five rows even with a full bound list. */
+.panelWithList {
+  height: min(580px, calc(100vh - 40px));
+  max-height: min(580px, calc(100vh - 40px));
+}
+
+.inlineEditor .panelWithList {
+  height: auto;
+  max-height: none;
+}
+
 .panelWithList .splitBody {
   height: auto;
   min-height: 110px;

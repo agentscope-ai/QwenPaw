@@ -18,7 +18,7 @@ def _write_catalog(
     path: Path,
     providers: dict[str, list[dict[str, object]]],
     *,
-    schema_version: int = 1,
+    schema_version: int = 2,
     catalog_version: str = "2026.08.27",
     published_at: str | None = "2026-08-27T00:00:00Z",
 ) -> bytes:
@@ -26,7 +26,9 @@ def _write_catalog(
         "schema_version": schema_version,
         "catalog_version": catalog_version,
         "published_at": published_at,
-        "providers": providers,
+        "providers": {
+            key: {"models": value} for key, value in providers.items()
+        },
     }
     content = json.dumps(payload).encode("utf-8")
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -37,19 +39,17 @@ def _write_catalog(
 def test_packaged_catalog_snapshot() -> None:
     catalog = model_catalog.load_model_catalog()
 
-    assert len(catalog) == 21
-    assert sum(len(models) for models in catalog.values()) == 133
-    assert catalog["DASHSCOPE_MODELS"][0].id == "qwen3.8-max"
-    assert catalog["DASHSCOPE_MODELS"][0].supports_image is True
-    assert catalog["DASHSCOPE_MODELS"][0].thinking_enabled is True
-    assert [model.id for model in catalog["DEEPSEEK_MODELS"]] == [
-        "deepseek-chat",
-        "deepseek-reasoner",
-        "deepseek-v4-flash",
+    assert len(catalog) == 31
+    assert sum(len(models) for models in catalog.values()) == 196
+    assert catalog["dashscope"][0].id == "qwen3.8-max"
+    assert catalog["dashscope"][0].supports_image is True
+    assert catalog["dashscope"][0].thinking_enabled is True
+    assert [model.id for model in catalog["deepseek"]] == [
         "deepseek-v4-pro",
+        "deepseek-flash",
     ]
-    assert catalog["GEMINI_MODELS"][0].id == "gemini-3.1-pro-preview"
-    assert [model.id for model in catalog["MINIMAX_MODELS"]] == [
+    assert catalog["gemini"][0].id == "gemini-3.1-pro-preview"
+    assert [model.id for model in catalog["minimax-cn"]] == [
         "MiniMax-M3",
         "MiniMax-M2.7",
         "MiniMax-M2.7-highspeed",
@@ -59,8 +59,8 @@ def test_packaged_catalog_snapshot() -> None:
         "MiniMax-M2.1-highspeed",
         "MiniMax-M2",
     ]
-    assert catalog["MINIMAX_MODELS"][0].supports_image is True
-    assert catalog["MINIMAX_MODELS"][0].supports_video is True
+    assert catalog["minimax-cn"][0].supports_image is True
+    assert catalog["minimax-cn"][0].supports_video is True
     recommended = {
         (provider_id, model.id)
         for provider_id, models in catalog.items()
@@ -68,31 +68,31 @@ def test_packaged_catalog_snapshot() -> None:
         if model.is_recommended
     }
     assert recommended == {
-        ("DASHSCOPE_MODELS", "qwen3.7-max"),
-        ("OPENAI_MODELS", "gpt-5.2"),
-        ("MINIMAX_MODELS", "MiniMax-M3"),
-        ("KIMI_MODELS", "kimi-k3"),
-        ("DEEPSEEK_MODELS", "deepseek-chat"),
-        ("GEMINI_MODELS", "gemini-3.1-pro-preview"),
+        ("dashscope", "qwen3.7-max"),
+        ("openai", "gpt-5.2"),
+        ("openai-response", "gpt-5.2"),
+        ("minimax", "MiniMax-M3"),
+        ("kimi-intl", "kimi-k3"),
+        ("minimax-cn", "MiniMax-M3"),
+        ("kimi-cn", "kimi-k3"),
+        ("gemini", "gemini-3.1-pro-preview"),
     }
     assert {
-        model.id: model.max_input_length
-        for model in catalog["DASHSCOPE_MODELS"]
+        model.id: model.max_input_length for model in catalog["dashscope"]
     } == {
-        "qwen3.8-max": 131_072,
+        "qwen3.8-max": 1_000_000,
         "qwen3.7-max": 1_000_000,
         "qwen3.7-plus": 1_000_000,
         "qwen3.6-plus": 1_000_000,
-        "deepseek-v4-pro": 131_072,
+        "deepseek-v4-pro": 1_000_000,
         "glm-5.2": 1_000_000,
     }
     assert all(
-        model.max_input_length == 1_048_576
-        for model in catalog["GEMINI_MODELS"]
+        model.max_input_length == 1_048_576 for model in catalog["gemini"]
     )
     assert {
         model.id: model.max_input_length
-        for model in catalog["OPENAI_MODELS"]
+        for model in catalog["openai"]
         if model.id in {"gpt-5.2", "gpt-4.1", "o4-mini"}
     } == {
         "gpt-5.2": 272_000,
@@ -101,7 +101,7 @@ def test_packaged_catalog_snapshot() -> None:
     }
     assert {
         model.id: model.max_input_length
-        for model in catalog["VOLCENGINE_CODINGPLAN_MODELS"]
+        for model in catalog["volcengine-cn-codingplan"]
         if model.id
         in {"deepseek-v4-flash", "kimi-k2.7-code", "doubao-seed-2.1-turbo"}
     } == {
@@ -111,7 +111,7 @@ def test_packaged_catalog_snapshot() -> None:
     }
     assert {
         model.id: model.max_input_length
-        for model in catalog["VOLCENGINE_AGENTPLAN_MODELS"]
+        for model in catalog["volcengine-cn-agentplan"]
         if model.id
         in {"deepseek-v4-flash", "kimi-k2.7-code", "ark-code-latest"}
     } == {
@@ -119,9 +119,7 @@ def test_packaged_catalog_snapshot() -> None:
         "kimi-k2.7-code": 262_144,
         "ark-code-latest": 262_144,
     }
-    assert {
-        model.id: model.max_input_length for model in catalog["MIMO_MODELS"]
-    } == {
+    assert {model.id: model.max_input_length for model in catalog["mimo"]} == {
         "mimo-v2.5-pro": 1_048_576,
         "mimo-v2.5": 1_048_576,
     }
@@ -192,13 +190,15 @@ def test_catalog_rejects_legacy_output_limit() -> None:
             {
                 "catalog_version": "2026.08.27",
                 "providers": {
-                    "MODELS": [
-                        {
-                            "id": "legacy-model",
-                            "name": "Legacy Model",
-                            "max_tokens": 8192,
-                        },
-                    ],
+                    "MODELS": {
+                        "models": [
+                            {
+                                "id": "legacy-model",
+                                "name": "Legacy Model",
+                                "max_tokens": 8192,
+                            },
+                        ],
+                    },
                 },
             },
         )
@@ -213,7 +213,11 @@ def test_packaged_catalog_uses_explicit_output_capabilities() -> None:
     assert all(
         "max_tokens" not in model
         for models in payload["providers"].values()
-        for model in models
+        for model in json.loads(
+            (
+                model_catalog.PACKAGED_CATALOG_PATH.parent / models[f"path"]
+            ).read_text(),
+        )[f"models"]
     )
     assert all(
         model.max_output_length_source == "catalog"
@@ -365,7 +369,7 @@ def test_models_for_catalog_key_returns_independent_copies(
     monkeypatch.setattr(
         model_catalog,
         "load_model_catalog",
-        lambda: {"MODELS": [source]},
+        lambda **kwargs: {"MODELS": [source]},
     )
 
     first = model_catalog.models_for_catalog_key("MODELS")
@@ -406,7 +410,7 @@ def test_catalog_update_validates_hash_and_replaces_atomically(
     )
 
     assert document.catalog_version == "2026.08.27"
-    assert destination.read_bytes() == payload
+    assert model_catalog._read_document(destination) == document
     assert not list(destination.parent.glob("*.tmp"))
 
 
