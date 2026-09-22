@@ -315,10 +315,10 @@ Missing host configuration is reported through the PawApp SDK as a structured
 service-unavailable error. QwenPaw-Data turns `MODEL_NOT_CONFIGURED` into an
 actionable UI message instead of displaying a generic HTTP 500.
 
-The app also opts into the generic `qwenpaw_data_dependency_status` and
-`qwenpaw_data_dependency_action` tools. The agent can inspect the same control plane
-as the UI and request only pre-registered actions; the host remains responsible
-for tool governance and audit.
+The app also opts into App-private dependency status and lifecycle tools. They
+let the QwenPaw-Data agent inspect the same control plane as the UI and request
+only pre-registered actions; they are not exported to Main Chat. The Host
+remains responsible for capability governance and audit.
 
 ### Local infrastructure quick reference
 

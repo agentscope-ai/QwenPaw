@@ -121,6 +121,61 @@ def test_backend_entry_loads_with_plugin_loader_package_shape() -> None:
                 sys.modules.pop(loaded_name, None)
 
 
+def test_data_gateway_tools_are_app_private_not_main_chat_tools() -> None:
+    module_name = "plugin_qwenpaw_data_private_tools_test"
+    spec = importlib.util.spec_from_file_location(
+        module_name,
+        APP_DIR / "backend" / "main.py",
+        submodule_search_locations=[str(APP_DIR)],
+    )
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    module.__package__ = module_name
+    module.__path__ = [str(APP_DIR)]
+    sys.modules[module_name] = module
+    try:
+        spec.loader.exec_module(module)
+        private_names = {
+            item["name"] for item in module.app._local_tools  # noqa: SLF001
+        }
+        public_names = {
+            item["name"] for item in module.app._tools  # noqa: SLF001
+        }
+        public_skill_providers = {
+            item["skills_dir"].name
+            for item in module.app._skill_providers  # noqa: SLF001
+        }
+        private_skill_layers = {
+            path.name for path in module.app._local_skill_dirs  # noqa: SLF001
+        }
+        expected = {
+            "qwenpaw_data_search_context",
+            "qwenpaw_data_list_domains",
+            "qwenpaw_data_explore_entity",
+            "qwenpaw_data_execute_sql",
+            "qwenpaw-data_dependency_status",
+            "qwenpaw-data_dependency_action",
+        }
+        assert private_names == expected
+        assert public_names.isdisjoint(expected)
+        assert public_skill_providers == set()
+        assert private_skill_layers == {
+            "atomic",
+            "domains",
+            "meta",
+            "planning",
+            "routing",
+            "runtime",
+            "workflows",
+        }
+    finally:
+        for loaded_name in list(sys.modules):
+            if loaded_name == module_name or loaded_name.startswith(
+                f"{module_name}.",
+            ):
+                sys.modules.pop(loaded_name, None)
+
+
 def test_provision_engine_mcp_creates_databridge_entry(tmp_path: Path) -> None:
     runtime = _load_runtime_module()
     path = runtime.provision_engine_mcp(

@@ -472,15 +472,18 @@ _skill_count = sum(
 )
 if _skills is not None:
     for _layer in _skill_layers:
-        app.skill_provider(_layer, enabled_by_default=True, channels=["all"])
+        app.local_skills(_layer)
 
 
 app.prompt_section(
     "qwenpaw-data-analysis",
     """
-You are operating inside the QwenPaw-Data application. For questions that
-depend on organizational metrics, datasets, dimensions, prior analysis, or
-graph context, call qwenpaw_data_search_context before drawing conclusions. Use
+You are operating inside the QwenPaw-Data application runtime. These
+instructions and the qwenpaw_data_* tools are app-private; Main Chat must use
+the public qwenpaw-data.analyze delegated action instead of invoking them.
+Within the Data runtime, for questions that depend on organizational metrics,
+datasets, dimensions, prior analysis, or graph context, call
+qwenpaw_data_search_context before drawing conclusions. Use
 qwenpaw_data_execute_sql only for read-only SQL and preserve the selected data
 source. Clearly distinguish retrieved facts, computed results, and inference.
 Keep progress narration brief. In the final response, answer the user's
@@ -1108,14 +1111,13 @@ async def test_config_target(
 app.include_router(router)
 
 
-@app.tool(
+@app.local_tool(
     "qwenpaw_data_search_context",
     description=(
         "Retrieve QwenPaw-Data semantic, metric, dataset, and graph "
         "context for a question."
     ),
-    icon="🔎",
-    tool_type="network",
+    is_read_only=True,
 )
 async def qwenpaw_data_search_context(
     query: str,
@@ -1130,25 +1132,23 @@ async def qwenpaw_data_search_context(
     return await _gateway.json("POST", "/api/v1/cm/search_context", body=body)
 
 
-@app.tool(
+@app.local_tool(
     "qwenpaw_data_list_domains",
     description="List QwenPaw-Data business domains available for analysis.",
-    icon="🗂️",
-    tool_type="network",
+    is_read_only=True,
 )
 async def qwenpaw_data_list_domains(datasource_id: str = "") -> Any:
     params = {"datasource_id": datasource_id} if datasource_id else None
     return await _gateway.json("GET", "/api/v1/cm/domains", params=params)
 
 
-@app.tool(
+@app.local_tool(
     "qwenpaw_data_explore_entity",
     description=(
         "Explore a metric or business entity across QwenPaw-Data "
         "context graphs."
     ),
-    icon="🕸️",
-    tool_type="network",
+    is_read_only=True,
 )
 async def qwenpaw_data_explore_entity(
     entity_name: str,
@@ -1163,14 +1163,13 @@ async def qwenpaw_data_explore_entity(
     return await _gateway.json("POST", "/api/v1/cm/explore_entity", body=body)
 
 
-@app.tool(
+@app.local_tool(
     "qwenpaw_data_execute_sql",
     description=(
         "Execute a read-only SQL query through the selected "
         "QwenPaw-Data source."
     ),
-    icon="🧮",
-    tool_type="network",
+    is_read_only=True,
 )
 async def qwenpaw_data_execute_sql(
     sql: str,

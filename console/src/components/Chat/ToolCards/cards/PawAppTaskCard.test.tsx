@@ -560,6 +560,7 @@ describe("PawApp task cards", () => {
     expect(window.location.pathname + window.location.search).toBe(
       "/apps/qwenpaw-data?handoff=handoff-1",
     );
+    expect(window.history.state).toEqual({ pawappInline: true });
   });
 
   it("parses Host-issued open_app results and rejects external paths", () => {

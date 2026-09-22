@@ -292,6 +292,21 @@ def _tool_names_from_meta(meta: dict) -> list[str]:
     return tool_names
 
 
+def _local_tool_names_from_manifest(manifest) -> list[str]:
+    """Return App-private tool names declared by a PawApp manifest.
+
+    App-private tools are intentionally not part of any Host agent's
+    ``builtin_tools`` config.  This also cleans up configurations written by
+    older releases that registered the same functions as public plugin tools.
+    """
+    pawapp = getattr(manifest, "pawapp", None)
+    runtime = getattr(pawapp, "runtime", None) if pawapp is not None else None
+    names = getattr(runtime, "local_tools", ()) if runtime is not None else ()
+    if not isinstance(names, (list, tuple, set, frozenset)):
+        return []
+    return sorted({name for name in names if isinstance(name, str) and name})
+
+
 def _sync_plugin_tools_to_agents(loader, plugin_id: str) -> None:
     """Add plugin tool entries to all existing agents.
 
@@ -610,7 +625,8 @@ async def _finish_plugin_install_after_load(
     Guaranteed order:
     1. sync new tools / providers / hooks (``_post_load_setup``)
     2. remove obsolete tools (``old_tools - new_tools``) when *force*
-    3. schedule agent reload
+    3. remove App-private tools from Host agent configs
+    4. schedule agent reload
     """
     await _post_load_setup(request, record.manifest.id)
     if force:
@@ -624,6 +640,13 @@ async def _finish_plugin_install_after_load(
                 record.manifest.id,
                 removed_tools,
             )
+    local_tools = _local_tool_names_from_manifest(record.manifest)
+    if local_tools:
+        await asyncio.to_thread(
+            _remove_named_tools_from_agents,
+            record.manifest.id,
+            local_tools,
+        )
     if reload_agents:
         await _schedule_all_agents_reload(request)
 

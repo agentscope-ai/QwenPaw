@@ -30,7 +30,13 @@ const MAX_REPORT_PREVIEW_BYTES = 2 * 1024 * 1024;
 
 function navigateToApp(path: string) {
   const href = addRouterBasename(window.location.pathname, path);
-  window.history.pushState(window.history.state, "", href);
+  // Mark this as an inline PawApp entry so the App Center's close action
+  // returns to the exact chat/session history entry that launched it.
+  window.history.pushState(
+    { ...(window.history.state ?? {}), pawappInline: true },
+    "",
+    href,
+  );
   window.dispatchEvent(new PopStateEvent("popstate"));
 }
 

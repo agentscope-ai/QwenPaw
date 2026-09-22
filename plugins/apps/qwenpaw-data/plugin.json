@@ -52,8 +52,23 @@
           "tool_refs": []
         }
       ],
-      "local_tools": [],
-      "local_skills": []
+      "local_tools": [
+        "qwenpaw_data_search_context",
+        "qwenpaw_data_list_domains",
+        "qwenpaw_data_explore_entity",
+        "qwenpaw_data_execute_sql",
+        "qwenpaw-data_dependency_status",
+        "qwenpaw-data_dependency_action"
+      ],
+      "local_skills": [
+        "atomic",
+        "domains",
+        "meta",
+        "planning",
+        "routing",
+        "runtime",
+        "workflows"
+      ]
     }
   },
   "meta": {

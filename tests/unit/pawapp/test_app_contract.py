@@ -594,20 +594,22 @@ def test_dependency_agent_tools_are_explicit_and_app_scoped() -> None:
     app.register(api)
 
     tool_names = {
-        call.kwargs["tool_name"] for call in api.register_tool.call_args_list
+        call.kwargs["name"]
+        for call in api.register_pawapp_local_tool.call_args_list
     }
     assert tool_names == {
         "fixture_dependency_status",
         "fixture_dependency_action",
     }
-    tool_types = {
-        call.kwargs["tool_name"]: call.kwargs["tool_type"]
-        for call in api.register_tool.call_args_list
+    read_only = {
+        call.kwargs["name"]: call.kwargs["is_read_only"]
+        for call in api.register_pawapp_local_tool.call_args_list
     }
-    assert tool_types == {
-        "fixture_dependency_status": "network",
-        "fixture_dependency_action": "internal",
+    assert read_only == {
+        "fixture_dependency_status": True,
+        "fixture_dependency_action": False,
     }
+    assert api.register_tool.call_args_list == []
 
 
 def test_chat_reports_missing_model_as_actionable_unavailable() -> None:

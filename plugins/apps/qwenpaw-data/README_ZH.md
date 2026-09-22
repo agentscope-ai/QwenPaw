@@ -206,7 +206,7 @@ DataBridge 启用 **复用 QwenPaw 已配置的模型** 后，保存配置或启
 
 缺失的 host 配置会通过 PawApp SDK 以结构化的 service-unavailable 错误上报。QwenPaw-Data 将 `MODEL_NOT_CONFIGURED` 转换为可操作的 UI 消息，而不是显示通用 HTTP 500。
 
-本 app 还会选择加入通用的 `qwenpaw_data_dependency_status` 和 `qwenpaw_data_dependency_action` 工具。智能体可以检查与 UI 相同的控制平面，并仅请求已注册的操作；host 仍负责工具治理与审计。
+本 app 还会选择加入 App 私有的依赖状态与生命周期工具。QwenPaw-Data 智能体可以检查与 UI 相同的控制平面，并仅请求已注册的操作；这些工具不会导出到 Main Chat。Host 仍负责能力治理与审计。
 
 ### 本地基础设施速查
 

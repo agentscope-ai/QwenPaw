@@ -6,12 +6,14 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from qwenpaw.app.routers.plugins import (
     _finish_plugin_install_after_load,
+    _local_tool_names_from_manifest,
     _tool_names_from_meta,
 )
 from qwenpaw.governance.tool_registry import (
@@ -81,6 +83,20 @@ def test_force_reinstall_removed_tools_are_old_minus_new():
         ),
     )
     assert sorted(old_tools - new_tools) == ["old_tool"]
+
+
+def test_local_tool_names_come_from_pawapp_runtime():
+    manifest = SimpleNamespace(
+        pawapp=SimpleNamespace(
+            runtime=SimpleNamespace(
+                local_tools=["private_b", "private_a", "private_a"],
+            ),
+        ),
+    )
+    assert _local_tool_names_from_manifest(manifest) == [
+        "private_a",
+        "private_b",
+    ]
 
 
 @pytest.mark.asyncio

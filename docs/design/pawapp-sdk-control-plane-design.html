@@ -109,6 +109,7 @@ body.mock-expanded { overflow: hidden; }
   <a class="nav-link" href="#s4">4. P0 安全修复与地基</a>
   <a class="nav-link" href="#s5">5. 能力接入与执行边界</a>
   <a class="nav-link" href="#s5-1">5.1 Host 公开与 App 私有能力</a>
+  <a class="nav-link" href="#s5-2">5.2 App-host 执行契约</a>
   <a class="nav-link" href="#s6">6. 公共契约（六组）</a>
   <a class="nav-link" href="#s7">7. 配置协同与统一 Setup</a>
   <a class="nav-link" href="#s8">8. Delegated：工具与回流</a>
@@ -373,6 +374,28 @@ body.mock-expanded { overflow: hidden; }
   <li><strong>App 私有范围</strong>：同 App 内还可收紧到 project/session/task；Host 公开 API 不允许其他 App 读取或调用私有项。该作用域是 registry、上下文和 API 的契约，不等同于恶意同进程代码隔离（10.2）。</li>
   <li><strong>公开 action 的边界</strong>：Main Agent 可以委托 App 的公开 action，App 内部可使用私有 Skill/Tool 完成任务；action 的公开性不向内部能力传播。App 无需为使用 Host 能力而公开自己的任何 Skill/Tool。</li>
 </ul>
+
+<h3 id="s5-2">5.2 App-host 执行契约：Delegated 不是原始工具调用</h3>
+<p>一个公开的 <code>delegated</code> action 必须同时拥有两层契约：PawApp SDK 的 action/权限/任务契约，以及 App 自己的 executor host 与 adapter 之间的持久执行契约。前者让 Main Chat 能安全地发现、授权和委托；后者让领域引擎在网络丢失、Host 重启或任务耗时较长时仍能被查询、恢复和交付成果。只有声明 action 而没有可兼容的 executor protocol，不算完成 Delegated 接入。</p>
+<div class="callout">
+  <p><strong>唯一执行路径</strong>：<code>Main Chat → Host delegate → App adapter → App executor host → 领域 workflow → executor events/artifacts → Host task/continuation → 原 Chat</code>。</p>
+  <p>主 Agent 不应为了完成已声明的 delegated action，绕过 adapter 直接调用 App 的 SQL、Context、文件或 provider 原始接口。原始接口可以是 App 私有 workflow 的实现细节或 Direct 模式能力，但不能替代 durable submission、权限、审计、恢复和 artifact handoff。</p>
+</div>
+<table>
+  <tr><th style="width:25%">契约层</th><th>责任</th><th style="width:34%">最低要求</th></tr>
+  <tr><td>PawApp SDK / Host</td><td>发现 ActionDescriptor，检查 grant、principal、workspace、输入、readiness 与 effects；持久保存 task/submission；向 Main Chat 投递有限状态摘要。</td><td><code>list_apps</code>、<code>describe_action</code>、<code>delegate</code>、任务查询/命令、continuation、ArtifactRef/handoff。</td></tr>
+  <tr><td>App adapter</td><td>把 Host 的 TaskSubmission 映射到 App executor，并保持同一 <code>submission_id</code>、run 引用、命令身份、事件游标和 artifact 绑定。</td><td>提交前兼容性探测；幂等 submit；query/attach/replay；answer/cancel；结果与 artifact 注册。</td></tr>
+  <tr><td>App executor host</td><td>执行领域 workflow，持久保存执行状态，在自身重启或请求超时后仍返回权威状态和可重放事件。</td><td>提供版本化、认证的 durable submission API；不得只提供一次性 SSE 或进程内回调。</td></tr>
+</table>
+<p><strong>QwenPaw-Data 的实现要求</strong>：Data engine host 必须提供以下版本化端点（或由等价的 adapter 明确封装）：</p>
+<ul>
+  <li><code>GET /api/v1/capabilities/submissions</code>：声明 <code>protocol_version</code>、<code>durable_submissions</code>、<code>event_replay</code>、<code>durable_commands</code>、<code>scoped_host_capabilities</code> 与 <code>artifact_handoff</code>。</li>
+  <li><code>GET /api/v1/capabilities/analysis</code>：声明分析 runtime 的 readiness，例如模型是否已配置。</li>
+  <li><code>POST /api/v1/submissions</code> 与 <code>GET /api/v1/submissions/{submission_id}</code>：以 Host 提供的 submission 身份幂等创建并查询执行。</li>
+  <li><code>POST /api/v1/submissions/{submission_id}/commands</code>、命令查询、以及 <code>GET /api/v1/submissions/{submission_id}/events</code>：支持回答、取消、重连和按游标重放。</li>
+  <li>事件中的成果必须通过受校验的 artifact handoff 进入 Host Artifact Store；返回一个 App 内部文件 URL 或原始 SQL 结果，不等于完成公共成果交接。</li>
+</ul>
+<p>Adapter 在每次提交前做能力探测；不满足最低版本时返回结构化 <code>unsupported_engine_protocol</code>，不得静默退回原始工具调用。Data 的 <code>/api/domains</code>、<code>/api/execute_sql</code>、图查询等 Context API 仍属于领域执行内部边界；它们本身不能充当 PawApp delegate contract。详细字段和状态映射见 <a href="pawapp-data-task-adapter.md">Data task adapter protocol</a>。</p>
 
 <h2 id="s6">6. 公共契约（六组）</h2>
 <p>以下契约只标准化两条路径跨越 Host/App 边界时需要的信息：入口与 action、任务、配置、项目和成果。P1a 使用 action/task 与 Host/App 能力作用域的最小集合，P1b 增加 artifact/handoff，P2 接入 setup；跨 App CapabilitySpec 与交互切换字段仅供可选扩展。</p>
@@ -751,7 +774,7 @@ Production constraints:
 
 <h3>P1a · Data 双入口执行闭环</h3>
 <div class="card">
-<p><strong>前置</strong>：完成 3.6 D1 的引擎提交/查询能力，固定并验证最低兼容版本；采用 D2 的 SQLite 存储和 D4 的固定工具方案。</p>
+<p><strong>前置</strong>：完成 3.6 D1 的引擎提交/查询能力，固定并验证最低兼容版本；采用 D2 的 SQLite 存储和 D4 的固定工具方案。Data engine 必须通过第 5.2 节的 capability probe，并提供 durable submission、command、event replay 与 artifact handoff 端点。</p>
 <p><strong>交付</strong>：Host action dispatch 边界（§5：身份/范围校验、<code>ActionDescriptor.permissions</code> 检查、审计）；Data 的一个 <code>ActionDescriptor</code>；durable Task Coordinator（TaskHandle/TaskEvent 持久化、sequence、去重、outbox、<code>submission_id</code>、run 映射、replay cursor、命令回执与 continuation job）；主 Agent 工具面 <code>list_apps / describe_action / delegate / answer_task / cancel_task</code>；Data adapter（<code>submit/attach</code>、task_status/segment 映射、显式终态、执行者身份显示）；Delegated 任务卡与回流调度（8.4）；Direct 的根任务登记、App session/run 映射、App 内回答/取消与恢复（第 11 节）；Host 公开 Tool/Skill 的 scoped 消费接口、App 私有 registry 与 Data runtime adapter（5.1、3.6 D7）。</p>
 <p><strong>门槛</strong>：</p>
 <ul>
@@ -759,6 +782,7 @@ Production constraints:
   <li><strong>私有作用域</strong>：两个 App 注册同名私有 Tool/Skill，各自只看到自己的实现；Main Agent 和另一 App 的公开目录不包含这些项，越权读取/调用被拒绝；加载私有 Skill 不改写 Host Skill 目录。</li>
   <li><strong>组合执行</strong>：一个公开 delegated action 内部使用 App 私有 Skill/Tool 与 Host Tool 完成任务，Main Agent 只获得 action 状态和结果；Direct 复用同一领域能力，内部项不被自动公开。</li>
   <li>同一任务：主 Chat 委托 → Data 后台执行 → 结构化进度卡 → 终态摘要回到主 Chat；任务与原始会话关系可查。P1a 规范必须写出 dispatch 的 owner、Data 的 action descriptor、权限检查点、以及从 <code>delegate</code> 到 adapter 的唯一执行路径。</li>
+  <li><strong>Data executor contract</strong>：兼容性探测返回 protocol version 1 及 durable submissions、event replay、durable commands、scoped host capabilities、artifact handoff；提交、重连、命令和事件重放均使用原始 <code>submission_id</code>，不以 Context 原始查询接口替代。</li>
   <li>12.2 注错验收四处全部通过：恢复同一 run 或显式 unresolved/interrupted；不静默创建替代 run；EOF 不算成功。</li>
   <li>未知提交超过自动恢复期限后保持 unresolved；权威结果稍后可查时，按原 submission/run 恢复或提交终态，不提前发送完成摘要、不丢弃已有输出、不创建替代 run。</li>
   <li>刷新、事件重投、Host 重启不重建 run、不丢结果；引擎重启仅对确认被终止的活跃 run 显示 <code>interrupted · executor_restarted</code>；已完成任务保持终态。</li>
@@ -828,6 +852,7 @@ Production constraints:
   <tr><td>Driver / 审批 / 凭证</td><td><code>drivers/capabilities.py:15</code> · <code>drivers/approval.py:11</code> · <code>drivers/credentials/store.py:40</code></td></tr>
   <tr><td>Data bridge 与 env 写入</td><td><code>plugins/apps/qwenpaw-data/backend/main.py:172-209,263-279,840,959</code> · <code>backend/config.py:405</code> · <code>backend/bridge/{events,middleware,session_store,engine_client}.py</code></td></tr>
   <tr><td>Data 引擎（独立仓库）</td><td><code>packages/qwenpaw-data-host-core/src/qwenpaw_data/host/core/api/routers/events.py:54</code> · <code>api/app.py:78</code></td></tr>
+  <tr><td>Data delegated executor protocol</td><td><code>docs/design/pawapp-data-task-adapter.md</code> · QwenPaw-Data <code>packages/qwenpaw-data-host-core/src/qwenpaw_data/host/core/api/routers/submissions.py</code> · <code>api/models/submissions.py</code></td></tr>
   <tr><td>Creator（历史基线，含 P0 缺陷）</td><td><code>plugins/apps/qwenpaw-creator/backend/api/model_routes.py:489-500,1704,1893-1932,2076-2116</code> · <code>backend/schemas/models.py:281</code> · <code>ui/src/api/creator/models.ts:218-224</code></td></tr>
   <tr><td>Creator create-video 当前实现</td><td><code>plugins/apps/qwenpaw-creator/backend/services/pawapp_video_workflow.py</code> · <code>services/project_files/creation.py</code> · <code>services/project_files/final_film.py</code> · <code>services/file_agent_runtime/{driver,work_graph,workgraph_execution}.py</code> · <code>backend/main.py</code> · <code>plugin.json</code></td></tr>
   <tr><td>通用 task/setup 与 Console 当前实现</td><td><code>src/qwenpaw/pawapp/tasks/{binding,contracts,runtime,store,agent_tools}.py</code> · <code>src/qwenpaw/pawapp/setup/{contracts,runtime,store}.py</code> · <code>console/src/api/modules/pawappTasks.ts</code> · <code>console/src/components/Chat/ToolCards/cards/PawAppTaskCard.tsx</code></td></tr>

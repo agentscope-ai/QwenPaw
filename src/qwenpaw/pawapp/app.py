@@ -813,8 +813,61 @@ class PawApp:  # pylint: disable=too-many-public-methods
         return self.dependencies.unregister(dependency_id)
 
     def enable_dependency_agent_tools(self) -> PawApp:
-        """Opt into app-scoped status and lifecycle tools for the agent."""
+        """Opt into App-private status and lifecycle tools for its agent."""
+        if self._dependency_agent_tools_enabled:
+            return self
         self._dependency_agent_tools_enabled = True
+
+        async def dependency_status(
+            dependency_id: str = "",
+            force: bool = False,
+        ) -> Any:
+            if dependency_id:
+                return await self.dependencies.get(
+                    dependency_id,
+                    force=force,
+                )
+            return await self.dependencies.snapshot(force=force)
+
+        async def dependency_action(
+            dependency_id: str,
+            action: str,
+        ) -> Any:
+            return await self.dependencies.action(dependency_id, action)
+
+        self.local_tool(
+            f"{self.app_id}_dependency_status",
+            description=(
+                f"Inspect structured dependency and capability health "
+                f"for {self.name}."
+            ),
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "dependency_id": {"type": "string", "default": ""},
+                    "force": {"type": "boolean", "default": False},
+                },
+                "additionalProperties": False,
+            },
+            is_read_only=True,
+        )(dependency_status)
+        self.local_tool(
+            f"{self.app_id}_dependency_action",
+            description=(
+                "Run a pre-registered dependency action such as "
+                "check, start, stop, or restart. Arbitrary commands "
+                "are not accepted."
+            ),
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "dependency_id": {"type": "string"},
+                    "action": {"type": "string"},
+                },
+                "required": ["dependency_id", "action"],
+                "additionalProperties": False,
+            },
+        )(dependency_action)
         return self
 
     # ─── Plugin registration (called by PluginLoader) ───────────────
@@ -947,51 +1000,6 @@ class PawApp:  # pylint: disable=too-many-public-methods
             api.register_middleware(
                 middleware_info["factory"],
                 priority=middleware_info["priority"],
-            )
-
-        if self._dependency_agent_tools_enabled and len(self.dependencies):
-
-            async def dependency_status(
-                dependency_id: str = "",
-                force: bool = False,
-            ) -> Any:
-                if dependency_id:
-                    return await self.dependencies.get(
-                        dependency_id,
-                        force=force,
-                    )
-                return await self.dependencies.snapshot(force=force)
-
-            async def dependency_action(
-                dependency_id: str,
-                action: str,
-            ) -> Any:
-                return await self.dependencies.action(dependency_id, action)
-
-            api.register_tool(
-                tool_name=f"{self.app_id}_dependency_status",
-                tool_func=dependency_status,
-                description=(
-                    f"Inspect structured dependency and capability health "
-                    f"for {self.name}."
-                ),
-                icon="🩺",
-                enabled=True,
-                tool_type="network",
-                target_param="dependency_id",
-            )
-            api.register_tool(
-                tool_name=f"{self.app_id}_dependency_action",
-                tool_func=dependency_action,
-                description=(
-                    "Run a pre-registered dependency action such as "
-                    "check, start, stop, or restart. Arbitrary commands "
-                    "are not accepted."
-                ),
-                icon="⚙️",
-                enabled=True,
-                tool_type="internal",
-                target_param="dependency_id",
             )
 
         for provider in self._skill_providers:

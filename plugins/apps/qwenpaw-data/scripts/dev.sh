@@ -41,6 +41,8 @@ cp "$APP_DIR/plugin.json" "$APP_DIR/requirements.txt" "$APP_DIR/__init__.py" "$S
 cp "$APP_DIR"/backend/*.py "$STAGE_DIR/backend/"
 mkdir -p "$STAGE_DIR/backend/bridge"
 cp "$APP_DIR"/backend/bridge/*.py "$STAGE_DIR/backend/bridge/"
+mkdir -p "$STAGE_DIR/backend/task_bridge"
+cp "$APP_DIR"/backend/task_bridge/*.py "$STAGE_DIR/backend/task_bridge/"
 cp "$APP_DIR/agents/qwenpaw-data/en/PROFILE.md" \
   "$APP_DIR/agents/qwenpaw-data/en/SOUL.md" "$STAGE_DIR/agents/qwenpaw-data/en/"
 cp "$APP_DIR/ui/dist/index.js" "$APP_DIR/ui/dist/index.js.map" "$STAGE_DIR/ui/dist/"
