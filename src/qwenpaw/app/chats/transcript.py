@@ -11,7 +11,7 @@ import time
 from concurrent.futures import Future, ThreadPoolExecutor
 from contextlib import contextmanager
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterator, Literal
 
@@ -66,15 +66,12 @@ class TranscriptStore:
     def __init__(
         self,
         db_path: str | Path,
-        retention_days: int = 30,
         background_cleanup: bool = True,
     ) -> None:
         self._path = Path(db_path).expanduser()
         self._path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
         self._closed = False
-        self._retention_days = retention_days
-        self._last_retention_check: date | None = None
         self._cleanup_executor = (
             ThreadPoolExecutor(
                 max_workers=1,
@@ -93,7 +90,6 @@ class TranscriptStore:
         self._conn.execute("PRAGMA journal_mode=WAL")
         try:
             self._migrate()
-            self.purge_if_due()
             if background_cleanup:
                 self._submit_cleanup(self._purge_deleted_sessions)
         except BaseException:
@@ -225,20 +221,6 @@ class TranscriptStore:
                     session_id, client_message_id, created_at DESC
                 );
 
-            CREATE TABLE transcript_imports (
-                source_kind      TEXT NOT NULL,
-                source_identity  TEXT NOT NULL,
-                fingerprint      TEXT NOT NULL,
-                schema_version   INTEGER NOT NULL,
-                imported_at      TEXT NOT NULL,
-                result_json      TEXT NOT NULL,
-                PRIMARY KEY(
-                    source_kind,
-                    source_identity,
-                    fingerprint,
-                    schema_version
-                )
-            );
             """,
         )
 
@@ -1061,7 +1043,6 @@ class TranscriptStore:
                     parent_session_id,
                     resolved_anchor,
                 )
-            connection.execute("DELETE FROM transcript_imports")
             connection.execute(
                 "UPDATE transcript_messages SET session_id = ? "
                 "WHERE session_id = ?",
@@ -1184,109 +1165,6 @@ class TranscriptStore:
             "AND turn_seq > ?",
             (session_id, anchor.turn_seq),
         )
-
-    def has_import(
-        self,
-        *,
-        source_kind: str,
-        source_identity: str,
-        fingerprint: str,
-        schema_version: int,
-    ) -> bool:
-        """Return whether one exact migration source was processed."""
-        with self._lock:
-            row = self._conn.execute(
-                "SELECT 1 FROM transcript_imports WHERE source_kind = ? "
-                "AND source_identity = ? AND fingerprint = ? "
-                "AND schema_version = ?",
-                (
-                    source_kind,
-                    source_identity,
-                    fingerprint,
-                    schema_version,
-                ),
-            ).fetchone()
-            return row is not None
-
-    def purge_old(
-        self,
-        retention_days: int,
-        *,
-        now: datetime | None = None,
-    ) -> int:
-        """Delete terminal turns outside retention and preserve a marker."""
-        if retention_days <= 0:
-            return 0
-        current = now or datetime.now(timezone.utc)
-        cutoff = (current - timedelta(days=retention_days)).isoformat()
-        timestamp = current.isoformat()
-        with self._transaction():
-            sessions = self._conn.execute(
-                "SELECT DISTINCT session_id FROM transcript_turns "
-                "WHERE created_at < ? AND status != 'running'",
-                (cutoff,),
-            ).fetchall()
-            cursor = self._conn.execute(
-                "DELETE FROM transcript_turns "
-                "WHERE created_at < ? AND status != 'running'",
-                (cutoff,),
-            )
-            for row in sessions:
-                self._conn.execute(
-                    "UPDATE transcript_sessions SET completeness = 'partial', "
-                    "revision = revision + 1, updated_at = ? "
-                    "WHERE session_id = ?",
-                    (timestamp, row["session_id"]),
-                )
-            return int(cursor.rowcount)
-
-    def purge_if_due(
-        self,
-        *,
-        session_id: str | None = None,
-        now: datetime | None = None,
-    ) -> int:
-        """Apply retention at most once per UTC day for a live workspace."""
-        del session_id
-        if self._retention_days <= 0:
-            return 0
-        current = now or datetime.now(timezone.utc)
-        with self._lock:
-            if self._last_retention_check == current.date():
-                return 0
-            removed = self.purge_old(
-                self._retention_days,
-                now=current,
-            )
-            self._last_retention_check = current.date()
-            return removed
-
-    def record_import(
-        self,
-        *,
-        source_kind: str,
-        source_identity: str,
-        fingerprint: str,
-        schema_version: int,
-        result: dict[str, Any],
-    ) -> bool:
-        """Record one completed migration source idempotently."""
-        with self._transaction():
-            cursor = self._conn.execute(
-                "INSERT INTO transcript_imports("
-                "source_kind, source_identity, fingerprint, schema_version, "
-                "imported_at, result_json) VALUES (?, ?, ?, ?, ?, ?) "
-                "ON CONFLICT DO NOTHING",
-                (
-                    source_kind,
-                    source_identity,
-                    fingerprint,
-                    schema_version,
-                    _utc_now(),
-                    json.dumps(result, ensure_ascii=False, sort_keys=True),
-                ),
-            )
-            return bool(cursor.rowcount)
 
     def close(self) -> None:
         """Close the SQLite connection idempotently."""

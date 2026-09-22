@@ -3,7 +3,6 @@
 
 import sqlite3
 import threading
-from datetime import date, datetime, timezone
 
 import pytest
 
@@ -962,7 +961,7 @@ def test_completed_turn_replacement_hides_whole_original_turn(tmp_path):
     store.close()
 
 
-def test_delete_session_cascades_and_import_marker_is_idempotent(tmp_path):
+def test_delete_session_cascades(tmp_path):
     store = TranscriptStore(tmp_path / "session.db")
     _start(store, "turn-1")
     store.upsert_message(
@@ -984,25 +983,8 @@ def test_delete_session_cascades_and_import_marker_is_idempotent(tmp_path):
         context_usage={"estimated_tokens": 5},
     )
 
-    marker = {
-        "source_kind": "session",
-        "source_identity": "sessions/session-1.json",
-        "fingerprint": "abc",
-        "schema_version": 1,
-        "result": {"messages": 1},
-    }
-    import_key = {
-        "source_kind": marker["source_kind"],
-        "source_identity": marker["source_identity"],
-        "fingerprint": marker["fingerprint"],
-        "schema_version": marker["schema_version"],
-    }
     assert store.has_session("session-1") is True
     assert store.has_session("missing") is False
-    assert store.has_import(**import_key) is False
-    assert store.record_import(**marker) is True
-    assert store.has_import(**import_key) is True
-    assert store.record_import(**marker) is False
     assert store.delete_session("session-1") is True
     assert store.delete_session("session-1") is False
     assert (
@@ -1186,95 +1168,6 @@ def test_background_cleanup_releases_lock_between_batches(
     assert [message.id for message in page.messages] == ["keep-1"]
 
     continue_cleanup.set()
-    store.close()
-
-
-def test_retention_purges_terminal_turns_without_reenabling_fallback(
-    tmp_path,
-):
-    store = TranscriptStore(tmp_path / "session.db", retention_days=0)
-    store.start_turn(
-        session_id="session-1",
-        user_id="user-1",
-        channel="console",
-        turn_id="old-turn",
-        source="qwenpaw",
-        created_at="2026-01-01T00:00:00+00:00",
-    )
-    store.upsert_message(
-        session_id="session-1",
-        turn_id="old-turn",
-        message=_message("old-message", "old"),
-        ordinal=0,
-    )
-    store.finish_turn(
-        session_id="session-1",
-        turn_id="old-turn",
-        status="completed",
-        finished_at="2026-01-01T00:01:00+00:00",
-    )
-
-    removed = store.purge_old(
-        30,
-        now=datetime(2026, 9, 20, tzinfo=timezone.utc),
-    )
-    page = store.get_page(
-        session_id="session-1",
-        user_id="user-1",
-        channel="console",
-    )
-
-    assert removed == 1
-    assert page is not None
-    assert not page.messages
-    assert page.completeness == "partial"
-    assert (
-        store._conn.execute(  # pylint: disable=protected-access
-            "SELECT COUNT(*) FROM transcript_turns",
-        ).fetchone()[0]
-        == 0
-    )
-    assert (
-        store._conn.execute(  # pylint: disable=protected-access
-            "SELECT COUNT(*) FROM transcript_messages",
-        ).fetchone()[0]
-        == 0
-    )
-    store.close()
-
-
-def test_live_retention_runs_at_most_once_per_utc_day(tmp_path):
-    store = TranscriptStore(tmp_path / "session.db", retention_days=30)
-    store._last_retention_check = date(  # pylint: disable=protected-access
-        2026,
-        9,
-        20,
-    )
-    store.start_turn(
-        session_id="session-1",
-        user_id="user-1",
-        channel="console",
-        turn_id="old-turn",
-        source="qwenpaw",
-        created_at="2026-01-01T00:00:00+00:00",
-    )
-    store.finish_turn(
-        session_id="session-1",
-        turn_id="old-turn",
-        status="completed",
-        finished_at="2026-01-01T00:01:00+00:00",
-    )
-
-    same_day = store.purge_if_due(
-        now=datetime(2026, 9, 20, 23, tzinfo=timezone.utc),
-    )
-    next_day = store.purge_if_due(
-        now=datetime(2026, 9, 21, tzinfo=timezone.utc),
-    )
-
-    assert same_day == 0
-    assert next_day == 1
-    assert store.has_session("session-1") is True
     store.close()
 
 

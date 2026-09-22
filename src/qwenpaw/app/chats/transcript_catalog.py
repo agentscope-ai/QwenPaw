@@ -63,7 +63,6 @@ class TranscriptCatalog:
     def __init__(
         self,
         workspace_dir: str | Path,
-        retention_days: int = 30,
         max_open_stores: int = _DEFAULT_MAX_OPEN_STORES,
     ) -> None:
         if max_open_stores < 1:
@@ -73,7 +72,6 @@ class TranscriptCatalog:
         self._path = self._workspace_dir / "transcript_catalog.db"
         self._transcript_dir = self._workspace_dir / "transcripts"
         self._transcript_dir.mkdir(parents=True, exist_ok=True)
-        self._retention_days = retention_days
         self._max_open_stores = max_open_stores
         self._lock = threading.RLock()
         self._condition = threading.Condition(self._lock)
@@ -144,20 +142,6 @@ class TranscriptCatalog:
                     CREATE INDEX transcript_files_deleted
                         ON transcript_files(deleted_at);
 
-                    CREATE TABLE transcript_imports (
-                        source_kind      TEXT NOT NULL,
-                        source_identity  TEXT NOT NULL,
-                        fingerprint      TEXT NOT NULL,
-                        schema_version   INTEGER NOT NULL,
-                        imported_at      TEXT NOT NULL,
-                        result_json      TEXT NOT NULL,
-                        PRIMARY KEY(
-                            source_kind,
-                            source_identity,
-                            fingerprint,
-                            schema_version
-                        )
-                    );
                     """,
                 )
                 version = 2
@@ -307,7 +291,6 @@ class TranscriptCatalog:
                 path.parent.mkdir(parents=True, exist_ok=True)
                 store = TranscriptStore(
                     path,
-                    retention_days=self._retention_days,
                     background_cleanup=False,
                 )
                 handle = _SessionHandle(store)
@@ -530,76 +513,6 @@ class TranscriptCatalog:
     def has_session(self, session_id: str) -> bool:
         """Return whether the catalog contains an active session."""
         return self._identity_for_session(session_id) is not None
-
-    def purge_if_due(
-        self,
-        *,
-        session_id: str | None = None,
-        now: datetime | None = None,
-    ) -> int:
-        """Apply retention only to the session touched by the current turn."""
-        if session_id is None:
-            return 0
-        identity = self._identity_for_session(session_id)
-        if identity is None:
-            return 0
-        with self._lease(
-            session_id=session_id,
-            user_id=identity[0],
-            channel=identity[1],
-            create=False,
-        ) as handle:
-            if handle is None:
-                return 0
-            return int(handle.write("purge_if_due", now=now))
-
-    def has_import(
-        self,
-        *,
-        source_kind: str,
-        source_identity: str,
-        fingerprint: str,
-        schema_version: int,
-    ) -> bool:
-        with self._lock:
-            row = self._conn.execute(
-                "SELECT 1 FROM transcript_imports WHERE source_kind = ? "
-                "AND source_identity = ? AND fingerprint = ? "
-                "AND schema_version = ?",
-                (
-                    source_kind,
-                    source_identity,
-                    fingerprint,
-                    schema_version,
-                ),
-            ).fetchone()
-            return row is not None
-
-    def record_import(
-        self,
-        *,
-        source_kind: str,
-        source_identity: str,
-        fingerprint: str,
-        schema_version: int,
-        result: dict[str, Any],
-    ) -> bool:
-        with self._lock, self._conn:
-            cursor = self._conn.execute(
-                "INSERT INTO transcript_imports("
-                "source_kind, source_identity, fingerprint, schema_version, "
-                "imported_at, result_json) VALUES (?, ?, ?, ?, ?, ?) "
-                "ON CONFLICT DO NOTHING",
-                (
-                    source_kind,
-                    source_identity,
-                    fingerprint,
-                    schema_version,
-                    _utc_now(),
-                    json.dumps(result, ensure_ascii=False, sort_keys=True),
-                ),
-            )
-            return bool(cursor.rowcount)
 
     def mark_session_deleted(self, session_id: str) -> bool:
         """Persist a catalog tombstone before any physical deletion."""

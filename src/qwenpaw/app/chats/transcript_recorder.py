@@ -149,11 +149,6 @@ class TranscriptRecorder:
             finished_at=finished_at,
         )
         if not self._degraded:
-            await self._write(
-                self._store.purge_if_due,
-                session_id=self._session_id,
-            )
-        if not self._degraded:
             self._finished = True
 
     async def _record_message(

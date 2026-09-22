@@ -1782,16 +1782,6 @@ class AgentsRunningConfig(BaseModel):
         ),
     )
 
-    transcript_retention_days: int = Field(
-        default=30,
-        ge=0,
-        le=36_500,
-        description=(
-            "Days of user-visible chat transcript to retain independently "
-            "from model context and Scroll history. Set 0 to keep forever."
-        ),
-    )
-
     loop: LoopConfig = Field(
         default_factory=LoopConfig,
         description="Loop engineering configuration",

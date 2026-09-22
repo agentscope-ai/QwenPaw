@@ -694,9 +694,6 @@ class Workspace:  # pylint: disable=too-many-public-methods
                 service_class=TranscriptCatalog,
                 init_args=lambda ws: {
                     "workspace_dir": ws.workspace_dir,
-                    "retention_days": (
-                        ws.config.running.transcript_retention_days
-                    ),
                 },
                 stop_method="close",
                 reusable=True,
