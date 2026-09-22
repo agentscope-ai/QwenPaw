@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import concurrent.futures
 import hashlib
 import json
 import logging
@@ -23,28 +22,19 @@ _DEFAULT_MAX_OPEN_STORES = 32
 
 
 class _SessionHandle:
-    """One session store with ordered writes and lease accounting."""
+    """One session store with lease accounting."""
 
     def __init__(self, store: TranscriptStore) -> None:
         self.store = store
-        self.writer = concurrent.futures.ThreadPoolExecutor(
-            max_workers=1,
-            thread_name_prefix="transcript-writer",
-        )
         self.active = 0
-        self.closing = False
 
     def write(self, method_name: str, **kwargs: Any) -> Any:
-        """Run one mutation after all prior mutations for this session."""
+        """Run one mutation under the store's per-session lock."""
         method = getattr(self.store, method_name)
-        return self.writer.submit(method, **kwargs).result()
+        return method(**kwargs)
 
     def close(self) -> None:
-        """Drain writes and close the session database."""
-        if self.closing:
-            return
-        self.closing = True
-        self.writer.shutdown(wait=True)
+        """Close the session database."""
         self.store.close()
 
 
