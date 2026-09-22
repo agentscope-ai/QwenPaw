@@ -151,7 +151,6 @@ def test_transcript_is_readable_after_full_app_restart(tmp_path: Path) -> None:
             user_id="restart-user",
             channel="console",
             turn_id="restart-turn",
-            source="qwenpaw",
         )
         store.upsert_message(
             session_id="restart-session",

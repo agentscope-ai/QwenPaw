@@ -118,7 +118,6 @@ async def test_cancelled_reasoning_reaches_transcript(tmp_path: Path) -> None:
     recorder = TranscriptRecorder(
         store=store,
         request=request,
-        source="qwenpaw",
     )
     envelope = Envelope(session_id="session-1")
     await recorder.start()

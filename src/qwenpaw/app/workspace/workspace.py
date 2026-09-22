@@ -465,18 +465,17 @@ class Workspace:  # pylint: disable=too-many-public-methods
                 cwd=self.workspace_dir.resolve(),
                 settings=settings,
             )
-            source = f"harness:{backend}"
-        else:
-            from ...runtime import Runtime
+            async for item in stream:
+                yield item
+            return
 
-            rt = Runtime(workspace=self, app_services=self._app_services)
-            stream = rt.run(request)
-            source = "qwenpaw"
+        from ...runtime import Runtime
 
+        rt = Runtime(workspace=self, app_services=self._app_services)
+        stream = rt.run(request)
         recorder = TranscriptRecorder(
             store=self.transcript_store,
             request=request,
-            source=source,
         )
         try:
             await recorder.start()

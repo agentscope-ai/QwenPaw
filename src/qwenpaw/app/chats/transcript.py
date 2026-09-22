@@ -102,9 +102,7 @@ class TranscriptStore:
                 session_id       TEXT PRIMARY KEY,
                 user_id          TEXT NOT NULL,
                 channel          TEXT NOT NULL,
-                next_turn_seq    INTEGER NOT NULL DEFAULT 1,
-                created_at       TEXT NOT NULL,
-                updated_at       TEXT NOT NULL
+                next_turn_seq    INTEGER NOT NULL DEFAULT 1
             );
 
             CREATE TABLE IF NOT EXISTS transcript_turns (
@@ -115,9 +113,8 @@ class TranscriptStore:
                                  CHECK(status IN (
                                      'running', 'completed',
                                      'failed', 'cancelled'
-                                 )),
+                )),
                 error_json       TEXT,
-                source           TEXT NOT NULL,
                 replaces_turn_id TEXT,
                 created_at       TEXT NOT NULL,
                 finished_at      TEXT,
@@ -128,18 +125,13 @@ class TranscriptStore:
                     ON DELETE CASCADE
             );
 
-            CREATE INDEX IF NOT EXISTS transcript_turns_page
-                ON transcript_turns(session_id, turn_seq DESC);
-
             CREATE TABLE IF NOT EXISTS transcript_messages (
                 session_id          TEXT NOT NULL,
                 turn_id             TEXT NOT NULL,
                 message_id          TEXT NOT NULL,
                 ordinal             INTEGER NOT NULL,
                 role                TEXT NOT NULL,
-                kind                TEXT NOT NULL,
                 payload_json        TEXT NOT NULL,
-                status              TEXT NOT NULL,
                 client_message_id   TEXT,
                 replaces_message_id TEXT,
                 superseded_at       TEXT,
@@ -151,9 +143,6 @@ class TranscriptStore:
                     REFERENCES transcript_turns(session_id, turn_id)
                     ON DELETE CASCADE
             );
-
-            CREATE INDEX IF NOT EXISTS transcript_messages_turn
-                ON transcript_messages(session_id, turn_id, ordinal);
 
             CREATE INDEX IF NOT EXISTS transcript_messages_client
                 ON transcript_messages(
@@ -208,24 +197,20 @@ class TranscriptStore:
         user_id: str,
         channel: str,
         turn_id: str,
-        source: str,
         replaces_turn_id: str | None = None,
         created_at: str | None = None,
-    ) -> int:
-        """Create a running turn and return its stable sequence."""
+    ) -> None:
+        """Create a running turn if it does not already exist."""
         timestamp = created_at or _utc_now()
         with self._transaction():
             self._conn.execute(
                 "INSERT INTO transcript_sessions("
-                "session_id, user_id, channel, created_at, updated_at) "
-                "VALUES (?, ?, ?, ?, ?) "
+                "session_id, user_id, channel) VALUES (?, ?, ?) "
                 "ON CONFLICT(session_id) DO NOTHING",
                 (
                     session_id,
                     user_id,
                     channel,
-                    timestamp,
-                    timestamp,
                 ),
             )
             session = self._session_row(session_id)
@@ -243,7 +228,7 @@ class TranscriptStore:
             if existing is not None:
                 if existing["replaces_turn_id"] != replaces_turn_id:
                     raise ValueError("transcript replacement target mismatch")
-                return int(existing["turn_seq"])
+                return
 
             if replaces_turn_id is not None:
                 replacement = self._conn.execute(
@@ -257,28 +242,25 @@ class TranscriptStore:
             turn_seq = int(session["next_turn_seq"])
             self._conn.execute(
                 "INSERT INTO transcript_turns("
-                "session_id, turn_seq, turn_id, status, source, "
+                "session_id, turn_seq, turn_id, status, "
                 "replaces_turn_id, created_at) "
-                "VALUES (?, ?, ?, 'running', ?, ?, ?)",
+                "VALUES (?, ?, ?, 'running', ?, ?)",
                 (
                     session_id,
                     turn_seq,
                     turn_id,
-                    source,
                     replaces_turn_id,
                     timestamp,
                 ),
             )
             self._conn.execute(
                 "UPDATE transcript_sessions SET "
-                "next_turn_seq = ?, updated_at = ? WHERE session_id = ?",
+                "next_turn_seq = ? WHERE session_id = ?",
                 (
                     turn_seq + 1,
-                    timestamp,
                     session_id,
                 ),
             )
-            return turn_seq
 
     def upsert_message(
         self,
@@ -294,8 +276,6 @@ class TranscriptStore:
         """Insert or update one complete display message snapshot."""
         payload = message.model_dump_json()
         role = _enum_value(message.role)
-        kind = _enum_value(message.type)
-        status = _enum_value(message.status)
         client_message_id = self._client_message_id(message)
         timestamp = created_at or _utc_now()
         with self._transaction():
@@ -307,7 +287,7 @@ class TranscriptStore:
             if turn is None:
                 raise ValueError("transcript turn does not exist")
             existing = self._conn.execute(
-                "SELECT turn_id, ordinal, role, kind, payload_json, status, "
+                "SELECT turn_id, ordinal, role, payload_json, "
                 "client_message_id, replaces_message_id, finished_at "
                 "FROM transcript_messages "
                 "WHERE session_id = ? AND message_id = ?",
@@ -317,9 +297,7 @@ class TranscriptStore:
                 turn_id,
                 ordinal,
                 role,
-                kind,
                 payload,
-                status,
                 client_message_id,
                 replaces_message_id,
                 finished_at,
@@ -331,15 +309,14 @@ class TranscriptStore:
 
             self._conn.execute(
                 "INSERT INTO transcript_messages("
-                "session_id, turn_id, message_id, ordinal, role, kind, "
-                "payload_json, status, replaces_message_id, created_at, "
+                "session_id, turn_id, message_id, ordinal, role, "
+                "payload_json, replaces_message_id, created_at, "
                 "client_message_id, finished_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
                 "ON CONFLICT(session_id, message_id) DO UPDATE SET "
                 "turn_id = excluded.turn_id, ordinal = excluded.ordinal, "
-                "role = excluded.role, kind = excluded.kind, "
+                "role = excluded.role, "
                 "payload_json = excluded.payload_json, "
-                "status = excluded.status, "
                 "client_message_id = excluded.client_message_id, "
                 "replaces_message_id = excluded.replaces_message_id, "
                 "finished_at = excluded.finished_at",
@@ -349,9 +326,7 @@ class TranscriptStore:
                     message.id,
                     ordinal,
                     role,
-                    kind,
                     payload,
-                    status,
                     replaces_message_id,
                     timestamp,
                     client_message_id,

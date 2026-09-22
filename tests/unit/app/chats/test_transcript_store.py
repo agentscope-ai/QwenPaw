@@ -37,7 +37,6 @@ def _start(
         user_id="user-1",
         channel="console",
         turn_id=turn_id,
-        source="qwenpaw",
         replaces_turn_id=replaces_turn_id,
     )
 
@@ -87,7 +86,6 @@ def test_page_projects_database_times_without_overwriting_payload(tmp_path):
         user_id="user-1",
         channel="console",
         turn_id="turn-1",
-        source="qwenpaw",
         created_at="2026-09-20T12:00:00+00:00",
     )
     store.upsert_message(
@@ -255,7 +253,8 @@ def test_page_read_does_not_wait_for_active_writer(tmp_path):
     def hold_write_transaction() -> None:
         with store._transaction():  # pylint: disable=protected-access
             store._conn.execute(  # pylint: disable=protected-access
-                "UPDATE transcript_sessions SET updated_at = updated_at "
+                "UPDATE transcript_sessions "
+                "SET next_turn_seq = next_turn_seq "
                 "WHERE session_id = ?",
                 ("session-1",),
             )
@@ -367,7 +366,6 @@ def test_session_identity_is_enforced(tmp_path):
             user_id="other-user",
             channel="console",
             turn_id="turn-2",
-            source="qwenpaw",
         )
     with pytest.raises(ValueError, match="identity mismatch"):
         store.get_page(

@@ -25,7 +25,6 @@ def _start(catalog: TranscriptCatalog, session_id: str) -> None:
         user_id="user-1",
         channel="console",
         turn_id=f"turn-{session_id}",
-        source="qwenpaw",
     )
 
 

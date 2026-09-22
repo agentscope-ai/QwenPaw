@@ -57,7 +57,6 @@ def _append_turn(
         user_id="user-1",
         channel="console",
         turn_id=turn_id,
-        source="qwenpaw",
     )
     store.upsert_message(
         session_id="session-1",
@@ -110,7 +109,6 @@ async def test_get_chat_restores_durable_turn_usage(tmp_path: Path) -> None:
         user_id="user-1",
         channel="console",
         turn_id="turn-1",
-        source="qwenpaw",
     )
     store.upsert_message(
         session_id="session-1",
@@ -170,7 +168,6 @@ async def test_get_chat_defers_running_outputs_to_sse_replay(
         user_id="user-1",
         channel="console",
         turn_id="turn-1",
-        source="qwenpaw",
     )
     for ordinal, message in enumerate(
         [

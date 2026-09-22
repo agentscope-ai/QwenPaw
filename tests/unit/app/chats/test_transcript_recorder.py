@@ -54,7 +54,6 @@ async def test_records_request_and_terminal_response(tmp_path: Path) -> None:
     recorder = TranscriptRecorder(
         store=store,
         request=request,
-        source="qwenpaw",
     )
     assistant = Message(
         id="assistant-message",
@@ -110,7 +109,6 @@ async def test_cancel_preserves_in_progress_reasoning_content(
     recorder = TranscriptRecorder(
         store=store,
         request=_request(),
-        source="qwenpaw",
     )
     reasoning = Message(
         id="reasoning-message",
@@ -159,7 +157,6 @@ async def test_records_only_materialized_message_snapshots() -> None:
     recorder = TranscriptRecorder(
         store=store,
         request=_request(),
-        source="qwenpaw",
     )
     message = Message(
         id="assistant-message",
@@ -210,7 +207,6 @@ async def test_preserves_interleaved_parallel_tool_event_order(
     recorder = TranscriptRecorder(
         store=store,
         request=_request(),
-        source="qwenpaw",
     )
     tool_messages = [
         Message(
@@ -255,7 +251,6 @@ async def test_write_failure_degrades_without_raising() -> None:
     recorder = TranscriptRecorder(
         store=store,
         request=_request(),
-        source="qwenpaw",
     )
 
     await recorder.start()
@@ -282,7 +277,6 @@ async def test_cancelled_start_can_still_finish_the_created_turn() -> None:
     recorder = TranscriptRecorder(
         store=store,
         request=_request(),
-        source="qwenpaw",
     )
     task = asyncio.create_task(recorder.start())
     await asyncio.to_thread(entered.wait, 2)
@@ -327,7 +321,6 @@ async def test_regeneration_replaces_original_only_after_success(
         user_id="user-1",
         channel="console",
         turn_id="original",
-        source="qwenpaw",
     )
     original_messages = [
         Message(
@@ -371,7 +364,6 @@ async def test_regeneration_replaces_original_only_after_success(
     recorder = TranscriptRecorder(
         store=store,
         request=request,
-        source="qwenpaw",
     )
     assistant = Message(
         id="assistant-replacement",

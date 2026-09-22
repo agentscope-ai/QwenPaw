@@ -271,7 +271,7 @@ class TranscriptCatalog:
                 return None
             return None
 
-    def start_turn(self, **kwargs: Any) -> int:
+    def start_turn(self, **kwargs: Any) -> None:
         """Create a turn in its session-owned database."""
         with self._lease(
             session_id=kwargs["session_id"],
@@ -280,7 +280,7 @@ class TranscriptCatalog:
             create=True,
         ) as handle:
             assert handle is not None
-            return int(handle.write("start_turn", **kwargs))
+            handle.write("start_turn", **kwargs)
 
     def _write_existing(self, method_name: str, **kwargs: Any) -> Any:
         session_id = str(kwargs["session_id"])

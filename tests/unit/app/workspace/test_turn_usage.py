@@ -23,7 +23,6 @@ async def test_workspace_persists_and_caches_turn_usage(tmp_path) -> None:
         user_id="user-1",
         channel="console",
         turn_id="turn-1",
-        source="qwenpaw",
     )
     store.upsert_message(
         session_id="session-1",
@@ -107,7 +106,6 @@ async def test_workspace_transcript_write_survives_session_failure(
         user_id="user-1",
         channel="console",
         turn_id="turn-1",
-        source="qwenpaw",
     )
     store.upsert_message(
         session_id="session-1",

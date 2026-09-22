@@ -39,11 +39,9 @@ class TranscriptRecorder:
         *,
         store: TranscriptStore | TranscriptCatalog | None,
         request: Any,
-        source: str,
     ) -> None:
         self._store = store
         self._request = request
-        self._source = source
         self._session_id = str(
             getattr(request, "session_id", "") or uuid.uuid4().hex,
         )
@@ -89,7 +87,6 @@ class TranscriptRecorder:
             user_id=self._user_id,
             channel=self._channel,
             turn_id=self._turn_id,
-            source=self._source,
             replaces_turn_id=replaces_turn_id,
         )
         if self._degraded:
