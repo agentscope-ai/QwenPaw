@@ -236,6 +236,66 @@ def test_transcript_remains_readable_after_store_reopen(tmp_path):
     reopened.close()
 
 
+def test_page_read_does_not_wait_for_active_writer(tmp_path):
+    store = TranscriptStore(tmp_path / "transcript.db")
+    _start(store, "turn-1")
+    store.upsert_message(
+        session_id="session-1",
+        turn_id="turn-1",
+        message=_message("message-1", "committed"),
+        ordinal=0,
+    )
+    store.finish_turn(
+        session_id="session-1",
+        turn_id="turn-1",
+        status="completed",
+    )
+    writer_started = threading.Event()
+    release_writer = threading.Event()
+    read_finished = threading.Event()
+    result = {}
+
+    def hold_write_transaction() -> None:
+        with store._transaction():  # pylint: disable=protected-access
+            store._conn.execute(  # pylint: disable=protected-access
+                "UPDATE transcript_sessions SET updated_at = updated_at "
+                "WHERE session_id = ?",
+                ("session-1",),
+            )
+            writer_started.set()
+            release_writer.wait(timeout=5)
+
+    def read_page() -> None:
+        try:
+            result["page"] = store.get_page(
+                session_id="session-1",
+                user_id="user-1",
+                channel="console",
+            )
+        except BaseException as exc:  # pragma: no cover - asserted below
+            result["error"] = exc
+        finally:
+            read_finished.set()
+
+    writer = threading.Thread(target=hold_write_transaction)
+    reader = threading.Thread(target=read_page)
+    writer.start()
+    assert writer_started.wait(timeout=1)
+    reader.start()
+    try:
+        assert read_finished.wait(timeout=1)
+    finally:
+        release_writer.set()
+        writer.join(timeout=5)
+        reader.join(timeout=5)
+
+    assert "error" not in result
+    page = result["page"]
+    assert page is not None
+    assert [message.id for message in page.messages] == ["message-1"]
+    store.close()
+
+
 def test_turn_and_message_writes_are_idempotent(tmp_path):
     store = TranscriptStore(tmp_path / "transcript.db")
 

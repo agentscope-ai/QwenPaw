@@ -116,6 +116,19 @@ class TranscriptStore:
         """Return whether the store was intentionally closed."""
         return self._closed
 
+    @contextmanager
+    def _read_connection(self) -> Iterator[sqlite3.Connection]:
+        """Open a short-lived read-only connection for WAL snapshot reads."""
+        uri = f"{self._path.resolve().as_uri()}?mode=ro"
+        connection = sqlite3.connect(uri, uri=True)
+        connection.row_factory = sqlite3.Row
+        connection.execute(f"PRAGMA busy_timeout={_BUSY_TIMEOUT_MS}")
+        connection.execute("PRAGMA query_only=ON")
+        try:
+            yield connection
+        finally:
+            connection.close()
+
     def _migrate(self) -> None:
         with self._lock, self._conn:
             version = int(
@@ -269,8 +282,13 @@ class TranscriptStore:
                 raise
             self._conn.commit()
 
-    def _session_row(self, session_id: str) -> sqlite3.Row | None:
-        return self._conn.execute(
+    def _session_row(
+        self,
+        session_id: str,
+        connection: sqlite3.Connection | None = None,
+    ) -> sqlite3.Row | None:
+        database = connection or self._conn
+        return database.execute(
             "SELECT * FROM transcript_sessions WHERE session_id = ?",
             (session_id,),
         ).fetchone()
@@ -663,8 +681,8 @@ class TranscriptStore:
             raise ValueError("transcript page limit must be between 1 and 100")
         if max_bytes < 1:
             raise ValueError("transcript page max_bytes must be positive")
-        with self._lock:
-            session = self._session_row(session_id)
+        with self._read_connection() as connection:
+            session = self._session_row(session_id, connection)
             if session is None or session["deleted_at"] is not None:
                 return None
             self._assert_identity(
@@ -703,7 +721,7 @@ class TranscriptStore:
                     )
             sql += " ORDER BY t.turn_seq DESC, m.ordinal DESC LIMIT ?"
             params.append(limit + 1)
-            candidates = self._conn.execute(sql, params).fetchall()
+            candidates = connection.execute(sql, params).fetchall()
             selected: list[sqlite3.Row] = []
             payload_bytes = 0
             max_bytes_reached = False
@@ -728,7 +746,7 @@ class TranscriptStore:
                 )
             turn_ids = sorted({str(row["turn_id"]) for row in selected})
             placeholders = ", ".join("?" for _ in turn_ids)
-            bounds = self._conn.execute(
+            bounds = connection.execute(
                 "SELECT m.turn_id, MIN(m.ordinal) AS min_ordinal, "
                 "MAX(m.ordinal) AS max_ordinal FROM transcript_messages m "
                 "JOIN transcript_turns t ON t.session_id = m.session_id "
@@ -824,9 +842,9 @@ class TranscriptStore:
         """Resolve a regeneration target to its transcript turn."""
         if not message_id and not client_message_id:
             return None
-        with self._lock:
+        with self._read_connection() as connection:
             if message_id:
-                row = self._conn.execute(
+                row = connection.execute(
                     "SELECT turn_id FROM transcript_messages "
                     "WHERE session_id = ? AND message_id = ?",
                     (session_id, message_id),
@@ -834,7 +852,7 @@ class TranscriptStore:
                 if row is not None:
                     return str(row["turn_id"])
             if client_message_id:
-                row = self._conn.execute(
+                row = connection.execute(
                     "SELECT turn_id FROM transcript_messages "
                     "WHERE session_id = ? AND client_message_id = ? "
                     "ORDER BY created_at DESC LIMIT 1",

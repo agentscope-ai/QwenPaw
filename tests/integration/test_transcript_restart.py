@@ -16,7 +16,7 @@ from typing import IO
 import httpx
 import pytest
 
-from qwenpaw.app.chats.transcript import TranscriptStore
+from qwenpaw.app.chats.transcript_catalog import TranscriptCatalog
 from qwenpaw.schemas import Message, Role, TextContent
 
 
@@ -143,8 +143,8 @@ def test_transcript_is_readable_after_full_app_restart(tmp_path: Path) -> None:
         chat_id = str(created.json()["id"])
         _stop_app(first)
 
-        store = TranscriptStore(
-            working_dir / "workspaces" / "default" / "transcript.db",
+        store = TranscriptCatalog(
+            working_dir / "workspaces" / "default",
         )
         store.start_turn(
             session_id="restart-session",
