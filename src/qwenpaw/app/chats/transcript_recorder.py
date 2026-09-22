@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 import uuid
 from typing import TYPE_CHECKING, Any
 
@@ -25,6 +26,8 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 TRANSCRIPT_TURN_ID_CONTEXT_KEY = "_qwenpaw_transcript_turn_id"
+_CHECKPOINT_INTERVAL_SECONDS = 1.0
+_CHECKPOINT_MAX_BYTES = 64 * 1024
 
 _TERMINAL_STATUS: dict[RunStatus, TurnStatus] = {
     RunStatus.Completed: "completed",
@@ -63,6 +66,10 @@ class TranscriptRecorder:
         request_context[TRANSCRIPT_TURN_ID_CONTEXT_KEY] = self._turn_id
         self._ordinals: dict[str, int] = {}
         self._snapshots: dict[str, Message] = {}
+        self._dirty_message_ids: set[str] = set()
+        self._finished_at: dict[str, str] = {}
+        self._pending_bytes = 0
+        self._last_checkpoint = time.monotonic()
         self._next_ordinal = 0
         self._started = False
         self._finished = False
@@ -99,14 +106,17 @@ class TranscriptRecorder:
             return
         for message in getattr(self._request, "input", None) or []:
             if isinstance(message, Message):
-                await self._record_message(message)
+                await self._record_message(message, force=True)
 
     async def observe(self, value: Any) -> None:
         """Record normalized message snapshots and terminal responses."""
         if not self._started or self._degraded:
             return
         if isinstance(value, Message):
-            await self._record_message(value)
+            await self._record_message(
+                value,
+                force=value.status != RunStatus.InProgress,
+            )
             return
         if getattr(value, "object", None) == "content":
             await self._record_content(value)
@@ -117,6 +127,7 @@ class TranscriptRecorder:
             await self._record_message(
                 message,
                 finished_at=value.completed_at,
+                force=True,
             )
         terminal = _TERMINAL_STATUS.get(value.status)
         if terminal is not None:
@@ -143,6 +154,9 @@ class TranscriptRecorder:
             or self._degraded
         ):
             return
+        await self._flush_dirty()
+        if self._degraded:
+            return
         await self._write(
             self._store.finish_turn,
             session_id=self._session_id,
@@ -164,6 +178,8 @@ class TranscriptRecorder:
         message: Message,
         *,
         finished_at: str | None = None,
+        force: bool = False,
+        pending_bytes: int = 0,
     ) -> None:
         if self._store is None or self._degraded:
             return
@@ -181,14 +197,12 @@ class TranscriptRecorder:
             ordinal = self._next_ordinal
             self._ordinals[message.id] = ordinal
             self._next_ordinal += 1
-        await self._write(
-            self._store.upsert_message,
-            session_id=self._session_id,
-            turn_id=self._turn_id,
-            message=message,
-            ordinal=ordinal,
-            finished_at=finished_at,
-        )
+        self._dirty_message_ids.add(message.id)
+        if finished_at is not None:
+            self._finished_at[message.id] = finished_at
+        self._pending_bytes += pending_bytes
+        if force or previous is None or self._checkpoint_due():
+            await self._flush_dirty()
 
     async def _record_content(self, content: Any) -> None:
         """Merge one streaming content event into its message snapshot."""
@@ -214,7 +228,47 @@ class TranscriptRecorder:
 
         await self._record_message(
             snapshot.model_copy(update={"content": parts}, deep=True),
+            pending_bytes=self._content_size(content),
         )
+
+    def _checkpoint_due(self) -> bool:
+        return (
+            self._pending_bytes >= _CHECKPOINT_MAX_BYTES
+            or time.monotonic() - self._last_checkpoint
+            >= _CHECKPOINT_INTERVAL_SECONDS
+        )
+
+    async def _flush_dirty(self) -> None:
+        """Persist accumulated message snapshots in display order."""
+        if self._store is None or not self._dirty_message_ids:
+            return
+        message_ids = sorted(
+            self._dirty_message_ids,
+            key=self._ordinals.__getitem__,
+        )
+        for message_id in message_ids:
+            await self._write(
+                self._store.upsert_message,
+                session_id=self._session_id,
+                turn_id=self._turn_id,
+                message=self._snapshots[message_id],
+                ordinal=self._ordinals[message_id],
+                finished_at=self._finished_at.get(message_id),
+            )
+            if self._degraded:
+                return
+            self._dirty_message_ids.discard(message_id)
+            self._finished_at.pop(message_id, None)
+        self._pending_bytes = 0
+        self._last_checkpoint = time.monotonic()
+
+    @staticmethod
+    def _content_size(content: Any) -> int:
+        """Estimate pending serialized bytes without retaining each chunk."""
+        try:
+            return len(content.model_dump_json().encode("utf-8"))
+        except (AttributeError, TypeError, ValueError):
+            return 0
 
     @staticmethod
     def _merge_content(

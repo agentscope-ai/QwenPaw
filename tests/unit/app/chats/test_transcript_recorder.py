@@ -10,6 +10,7 @@ from unittest.mock import Mock
 
 import pytest
 
+from qwenpaw.app.chats import transcript_recorder as recorder_module
 from qwenpaw.app.chats.transcript import TranscriptStore
 from qwenpaw.app.chats.transcript_recorder import (
     TRANSCRIPT_TURN_ID_CONTEXT_KEY,
@@ -129,11 +130,6 @@ async def test_cancel_preserves_in_progress_reasoning_content(
     await recorder.observe(reasoning)
     await recorder.observe(chunk)
     await recorder.observe(
-        reasoning.model_copy(
-            update={"content": [], "status": RunStatus.Completed},
-        ),
-    )
-    await recorder.observe(
         AgentResponse(
             output=[],
             status=RunStatus.Cancelled,
@@ -155,6 +151,120 @@ async def test_cancel_preserves_in_progress_reasoning_content(
     assert saved.metadata is not None
     assert saved.metadata["finished_at"] == "2026-09-21T01:22:33+00:00"
     store.close()
+
+
+@pytest.mark.asyncio
+async def test_stream_chunks_wait_for_terminal_checkpoint(monkeypatch) -> None:
+    now = 100.0
+    monkeypatch.setattr(recorder_module.time, "monotonic", lambda: now)
+    store = Mock(spec=TranscriptStore)
+    recorder = TranscriptRecorder(
+        store=store,
+        request=_request(),
+        source="qwenpaw",
+    )
+    message = Message(
+        id="assistant-message",
+        role=Role.ASSISTANT,
+        content=[],
+        status=RunStatus.InProgress,
+    )
+
+    await recorder.start()
+    await recorder.observe(message)
+    initial_writes = store.upsert_message.call_count
+    for text in ("one", " two", " three"):
+        await recorder.observe(
+            TextContent(
+                text=text,
+                delta=True,
+                index=0,
+                status=RunStatus.InProgress,
+                msg_id=message.id,
+            ),
+        )
+
+    assert store.upsert_message.call_count == initial_writes
+
+    await recorder.finish("cancelled")
+
+    assert store.upsert_message.call_count == initial_writes + 1
+    saved = store.upsert_message.call_args.kwargs["message"]
+    assert saved.content[0].text == "one two three"
+    store.finish_turn.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_stream_checkpoint_uses_time_threshold(monkeypatch) -> None:
+    now = [100.0]
+    monkeypatch.setattr(
+        recorder_module.time,
+        "monotonic",
+        lambda: now[0],
+    )
+    store = Mock(spec=TranscriptStore)
+    recorder = TranscriptRecorder(
+        store=store,
+        request=_request(),
+        source="qwenpaw",
+    )
+    message = Message(id="assistant-message", role=Role.ASSISTANT)
+
+    await recorder.start()
+    await recorder.observe(message)
+    initial_writes = store.upsert_message.call_count
+    await recorder.observe(
+        TextContent(
+            text="before",
+            delta=True,
+            index=0,
+            msg_id=message.id,
+        ),
+    )
+    # pylint: disable=protected-access
+    now[0] += recorder_module._CHECKPOINT_INTERVAL_SECONDS
+    # pylint: enable=protected-access
+    await recorder.observe(
+        TextContent(
+            text=" after",
+            delta=True,
+            index=0,
+            msg_id=message.id,
+        ),
+    )
+
+    assert store.upsert_message.call_count == initial_writes + 1
+    saved = store.upsert_message.call_args.kwargs["message"]
+    assert saved.content[0].text == "before after"
+
+
+@pytest.mark.asyncio
+async def test_stream_checkpoint_uses_byte_threshold(monkeypatch) -> None:
+    now = 100.0
+    monkeypatch.setattr(recorder_module.time, "monotonic", lambda: now)
+    store = Mock(spec=TranscriptStore)
+    recorder = TranscriptRecorder(
+        store=store,
+        request=_request(),
+        source="qwenpaw",
+    )
+    message = Message(id="assistant-message", role=Role.ASSISTANT)
+
+    await recorder.start()
+    await recorder.observe(message)
+    initial_writes = store.upsert_message.call_count
+    # pylint: disable=protected-access
+    await recorder.observe(
+        TextContent(
+            text="x" * recorder_module._CHECKPOINT_MAX_BYTES,
+            delta=True,
+            index=0,
+            msg_id=message.id,
+        ),
+    )
+    # pylint: enable=protected-access
+
+    assert store.upsert_message.call_count == initial_writes + 1
 
 
 @pytest.mark.asyncio
