@@ -18,7 +18,6 @@ byte-range lock, which does not exist on Linux.
 from __future__ import annotations
 
 import errno
-import fcntl
 import io
 import os
 import threading
@@ -59,6 +58,27 @@ def _snapshot(root: Path) -> dict[str, str]:
         for path in sorted(root.rglob("*"))
         if path.is_file()
     }
+
+
+def _flock_module():
+    """The module whose lock primitive ``mod`` uses on this OS."""
+    if os.name == "nt":
+        import msvcrt
+
+        return msvcrt
+    import fcntl
+
+    return fcntl
+
+
+def _lock_primitive_name() -> str:
+    return "locking" if os.name == "nt" else "flock"
+
+
+_POSIX_FLOCK = pytest.mark.skipif(
+    os.name == "nt",
+    reason="POSIX-only: fcntl.flock does not exist on Windows",
+)
 
 
 class _FakeOs:
@@ -181,11 +201,14 @@ def test_raise_restore_lock_timeout_names_path_and_env(monkeypatch) -> None:
 # --------------------------------------------------------------------- #
 
 
+@_POSIX_FLOCK
 def test_restore_process_lock_creates_and_releases_the_lock_file(
     tmp_path,
     monkeypatch,
 ) -> None:
     monkeypatch.setattr("qwenpaw.constant.WORKING_DIR", tmp_path / "working")
+
+    import fcntl
 
     with mod.restore_process_lock():
         lock_file = tmp_path / "working" / ".qwenpaw_restore.lock"
@@ -204,11 +227,14 @@ def test_restore_process_lock_creates_and_releases_the_lock_file(
         fcntl.flock(probe.fileno(), fcntl.LOCK_UN)
 
 
+@_POSIX_FLOCK
 def test_acquire_file_lock_retries_while_contended(
     tmp_path,
     monkeypatch,
 ) -> None:
     lock_path = tmp_path / "restore.lock"
+    import fcntl
+
     real_flock = fcntl.flock
     attempts: list[int] = []
 
@@ -231,11 +257,13 @@ def test_acquire_file_lock_retries_while_contended(
     assert sleeps == [mod._LOCK_RETRY_INTERVAL_SECONDS]
 
 
+@_POSIX_FLOCK
 def test_acquire_file_lock_times_out_when_never_available(
     tmp_path,
     monkeypatch,
 ) -> None:
     lock_path = tmp_path / "restore.lock"
+    import fcntl
 
     def _always_contended(fd, operation):
         raise BlockingIOError(errno.EWOULDBLOCK, "held by another")
@@ -257,11 +285,14 @@ def test_acquire_file_lock_times_out_when_never_available(
     assert sleeps == [mod._LOCK_RETRY_INTERVAL_SECONDS] * 2
 
 
+@_POSIX_FLOCK
 def test_release_file_lock_unlocks_the_region(
     tmp_path,
     monkeypatch,
 ) -> None:
     lock_path = tmp_path / "restore.lock"
+    import fcntl
+
     real_flock = fcntl.flock
     released: list[int] = []
 
@@ -278,6 +309,7 @@ def test_release_file_lock_unlocks_the_region(
     assert released == [fcntl.LOCK_UN]
 
 
+@_POSIX_FLOCK
 def test_release_file_lock_propagates_oserror(
     tmp_path,
     monkeypatch,
@@ -288,6 +320,7 @@ def test_release_file_lock_propagates_oserror(
     the caller instead of being swallowed.
     """
     lock_path = tmp_path / "restore.lock"
+    import fcntl
 
     def _boom(fd, operation):
         raise OSError(errno.EBADF, "bad file descriptor")
@@ -706,7 +739,9 @@ def test_extract_to_tmp_applies_dir_mode(tmp_path) -> None:
 
     staging = mod.extract_to_tmp(_zip({"a.txt": "a"}), "", dst, dir_mode=0o700)
 
-    assert (staging.stat().st_mode & 0o777) == 0o700
+    if os.name != "nt":
+        # Windows ignores the mode bits passed to mkdir.
+        assert (staging.stat().st_mode & 0o777) == 0o700
 
 
 def test_discard_tmp_removes_staging(tmp_path) -> None:
