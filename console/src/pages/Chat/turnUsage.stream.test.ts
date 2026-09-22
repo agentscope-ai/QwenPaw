@@ -1,8 +1,8 @@
 /**
- * Retry scheduling and SSE stream observation for turn usage. The trailing
- * `turn_usage` SSE event arrives after the Completed response and may be
- * dropped by the chat SDK, so the stream wrapper captures it and retries
- * patching the final card until the turn ends or attempts are exhausted.
+ * Retry scheduling and SSE stream observation for turn usage. The chat SDK
+ * does not expose this transport-only event, so the stream wrapper captures
+ * it and retries patching the final card until the turn ends or attempts are
+ * exhausted.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {

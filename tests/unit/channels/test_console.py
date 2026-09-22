@@ -748,7 +748,7 @@ class TestConsoleStreaming:
         assert len(events) == 1
         assert "data:" in events[0]
 
-    async def test_stream_one_emits_usage_after_completed_response(
+    async def test_stream_one_emits_usage_before_completed_response(
         self,
         stream_channel,
     ):
@@ -805,10 +805,10 @@ class TestConsoleStreaming:
         }
 
         stream = stream_channel.stream_one(payload)
-        completed_event = json.loads(
+        usage_event = json.loads(
             (await anext(stream)).removeprefix("data: ").strip(),
         )
-        usage_event = json.loads(
+        completed_event = json.loads(
             (await anext(stream)).removeprefix("data: ").strip(),
         )
 

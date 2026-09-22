@@ -504,15 +504,17 @@ class ConsoleChannel(BaseChannel):
                     emit_sse=True,
                 )
 
+            # Emit usage before the terminal response. Some consumers stop
+            # reading as soon as ``response.completed`` arrives.
+            for sse in usage_sse:
+                yield sse
+
             for response in completed_responses:
                 data = self._serialize_event_for_sse(
                     response,
                     headline_stream_states,
                 )
                 yield f"data: {data}\n\n"
-
-            for sse in usage_sse:
-                yield sse
 
             logger.info(
                 "console stream done: event_count=%s has_response=%s",
