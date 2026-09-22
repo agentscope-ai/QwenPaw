@@ -61,6 +61,7 @@ def classify_model_check(
     *,
     http_status: int | None = None,
     error_kind: str | None = None,
+    raw_message: str | None = None,
     verification: Literal[
         "live",
         "provider_only",
@@ -70,12 +71,13 @@ def classify_model_check(
 ) -> ProviderModelCheckResult:
     """Convert provider check output into stable availability states."""
     checked_at = datetime.now(timezone.utc).isoformat()
-    # Classify on the text as it arrives: cleanup replaces a challenge
-    # page with a fixed line and summarizes an HTML page from its
-    # opening, which would drop both a "status=NNN" prefix and any
-    # marker further into the body, and downgrade a non-retryable
-    # denial into a retryable error.
-    text = (message or "").strip()
+    # Classify on the uncleaned text: cleanup replaces a challenge page
+    # with a fixed line and summarizes an HTML page from its opening,
+    # which would drop both a "status=NNN" prefix and any marker
+    # further into the body, and downgrade a non-retryable denial into
+    # a retryable error. A caller that already cleaned ``message``
+    # passes the original text as ``raw_message``.
+    text = (raw_message or message or "").strip()
     if http_status is None:
         http_status = extract_http_status(text)
     normalized = text[:CONNECTION_MESSAGE_SCAN_LIMIT].lower()

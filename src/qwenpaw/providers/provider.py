@@ -17,7 +17,7 @@ from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, model_validator
 from qwenpaw.exceptions import ProviderError
 
 from ..utils.io_utils import run_sync_io
-from . import error_sanitizer
+from . import error_sanitizer, error_utils
 from .context_windows import DEFAULT_CONTEXT_WINDOW
 from .thinking import ThinkingControl, ThinkingPreference, resolve_thinking
 from .model_catalog import (
@@ -113,6 +113,10 @@ class ModelConnectionResult(BaseModel):
 
     success: bool
     message: str = ""
+    # Text before display cleanup, read by the availability classifier.
+    # Cleaning a non-JSON body summarizes it from its opening, which
+    # drops a marker that sits further in.
+    raw_message: str | None = None
     http_status: int | None = None
     error_kind: str | None = None
     verification: Literal[
@@ -490,16 +494,47 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
         return error_sanitizer.truncate_connection_message(message)
 
     @classmethod
-    def connection_error_message(cls, exc: Exception) -> str:
-        """Format an SDK exception while preserving its HTTP status."""
+    def _status_prefix(cls, exc: Exception) -> str:
+        """Return the "status=NNN: " prefix an SDK exception implies."""
         status = getattr(exc, "status_code", None)
         if status is None:
             response = getattr(exc, "response", None)
             status = getattr(response, "status_code", None)
-        detail = cls.sanitize_connection_message(
-            str(exc) or exc.__class__.__name__,
-        )
-        return f"status={status}: {detail}" if status is not None else detail
+        return f"status={status}: " if status is not None else ""
+
+    @classmethod
+    def connection_error_text(cls, exc: Exception) -> str:
+        """Format an SDK exception without cleaning its body.
+
+        Text that is classified before it is displayed has to keep its
+        markers: cleanup replaces a challenge page with a fixed line and
+        summarizes an HTML page from its opening, and a marker further
+        in decides the category. The body stays within the scan limit
+        that classification reads.
+        """
+        detail = error_utils.error_body_text(exc)
+        return f"{cls._status_prefix(exc)}{detail}"
+
+    @classmethod
+    async def connection_error_texts_async(
+        cls,
+        exc: Exception,
+    ) -> tuple[str, str]:
+        """Render *exc* once into (uncleaned, cleaned) error text.
+
+        A caller that both classifies and reports has to keep the
+        uncleaned text, and rendering is not free: a body may only be
+        built inside ``__str__``, which runs on a worker thread when the
+        text is not already materialized.
+        """
+        detail = await error_utils.bounded_error_text(exc)
+        raw = f"{cls._status_prefix(exc)}{detail}"
+        return raw, cls.sanitize_connection_message(raw)
+
+    @classmethod
+    def connection_error_message(cls, exc: Exception) -> str:
+        """Format an SDK exception while preserving its HTTP status."""
+        return cls.sanitize_connection_message(cls.connection_error_text(exc))
 
     async def add_model(
         self,

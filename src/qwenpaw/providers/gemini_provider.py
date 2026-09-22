@@ -331,13 +331,15 @@ class GeminiProvider(Provider):
                 "status_code",
                 None,
             )
+            raw_detail, detail = await self.connection_error_texts_async(exc)
             return ModelConnectionResult(
                 success=False,
                 message=(
                     f"Model '{model_id}' is not reachable or usable: "
-                    f"{self.connection_error_message(exc)}"
+                    f"{detail}"
                 ),
                 http_status=status if isinstance(status, int) else None,
+                raw_message=raw_detail,
                 error_kind=(
                     "permission_denied"
                     if status in (401, 403)
@@ -347,12 +349,14 @@ class GeminiProvider(Provider):
                 ),
             )
         except Exception as exc:
+            raw_detail, detail = await self.connection_error_texts_async(exc)
             return ModelConnectionResult(
                 success=False,
                 message=(
                     f"Unknown exception when connecting to model "
-                    f"'{model_id}': {self.connection_error_message(exc)}"
+                    f"'{model_id}': {detail}"
                 ),
+                raw_message=raw_detail,
             )
         finally:
             await self._close_async_resource(response)

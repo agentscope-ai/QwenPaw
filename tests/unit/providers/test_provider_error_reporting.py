@@ -192,6 +192,84 @@ def test_availability_classifies_before_it_caps() -> None:
     assert len(result.message) <= MAX_CONNECTION_MESSAGE_LENGTH
 
 
+def test_html_error_page_is_summarized() -> None:
+    page = (
+        "<!DOCTYPE html><html><head><title>502 Bad Gateway</title>"
+        "<style>body{margin:0}</style></head><body><h1>502 Bad Gateway</h1>"
+        "<script>window.count=1;</script></body></html>"
+    )
+
+    cleaned = sanitize_connection_message(f"status=502: {page}")
+
+    assert cleaned == (
+        "status=502: [non-JSON response] 502 Bad Gateway 502 Bad Gateway"
+    )
+
+
+def test_summary_does_not_leak_script_text() -> None:
+    page = (
+        "<html><body><script>var leak = 'challenge-secret';</script>"
+        "<p>Blocked</p></body></html>"
+    )
+
+    cleaned = sanitize_connection_message(page)
+
+    assert "challenge-secret" not in cleaned
+    assert "Blocked" in cleaned
+
+
+def test_availability_needs_raw_text_when_the_summary_drops_a_marker() -> None:
+    page = (
+        "<!DOCTYPE html><html><body>"
+        + "pad " * 3_000
+        + " model not found</body></html>"
+    )
+    cleaned = Provider.sanitize_connection_message(page)
+    assert "model not found" not in cleaned
+
+    with_raw = classify_model_check(False, cleaned, raw_message=page)
+    without_raw = classify_model_check(False, cleaned)
+
+    assert with_raw.status == "model_not_found"
+    assert with_raw.retryable is False
+    assert without_raw.status == "transient_error"
+    assert without_raw.retryable is True
+
+
+def test_connection_error_text_keeps_markers_and_cleans_message() -> None:
+    exc = ApiStatusError(403, CHALLENGE_PAGE)
+
+    raw = Provider.connection_error_text(exc)
+    cleaned = Provider.connection_error_message(exc)
+
+    assert raw.startswith("status=403: ")
+    assert "Just a moment" in raw
+    assert is_challenge_page(raw) is True
+    assert cleaned == f"status=403: {CHALLENGE_PAGE_MESSAGE}"
+
+
+async def test_connection_error_texts_async_renders_once() -> None:
+    renders = []
+
+    class RenderedOnlyError(Exception):
+        """Expose the body only through __str__, as some SDKs do."""
+
+        status_code = 403
+
+        def __str__(self) -> str:
+            renders.append(self.status_code)
+            return f"Error code: 403 - '{CHALLENGE_PAGE}'"
+
+    exc = RenderedOnlyError()
+
+    raw, cleaned = await Provider.connection_error_texts_async(exc)
+
+    assert renders == [403]
+    assert is_challenge_page(raw) is True
+    assert cleaned == f"status=403: {CHALLENGE_PAGE_MESSAGE}"
+    assert raw.startswith("status=403: ")
+
+
 def test_availability_keeps_a_plain_403_as_permission_denied() -> None:
     result = classify_model_check(
         False,
