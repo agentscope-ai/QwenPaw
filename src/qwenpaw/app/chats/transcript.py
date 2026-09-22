@@ -17,7 +17,6 @@ from ...runtime.console_turn_state import TURN_STATE
 from ...schemas import Message, RunStatus
 from ...token_usage.turn_usage import TURN_USAGE_META_KEY
 
-_SCHEMA_VERSION = 1
 _BUSY_TIMEOUT_MS = 5000
 TurnStatus = Literal["running", "completed", "failed", "cancelled"]
 _DEFAULT_PAGE_MAX_BYTES = 512 * 1024
@@ -64,9 +63,10 @@ class TranscriptStore:
         self._conn.row_factory = sqlite3.Row
         self._conn.execute("PRAGMA foreign_keys=ON")
         self._conn.execute(f"PRAGMA busy_timeout={_BUSY_TIMEOUT_MS}")
-        self._conn.execute("PRAGMA journal_mode=WAL")
         try:
-            self._migrate()
+            self._conn.execute("PRAGMA journal_mode=DELETE")
+            with self._conn:
+                self._create_schema()
         except BaseException:
             self._conn.close()
             self._closed = True
@@ -84,7 +84,7 @@ class TranscriptStore:
 
     @contextmanager
     def _read_connection(self) -> Iterator[sqlite3.Connection]:
-        """Open a short-lived read-only connection for WAL snapshot reads."""
+        """Open a short-lived read-only connection for page reads."""
         uri = f"{self._path.resolve().as_uri()}?mode=ro"
         connection = sqlite3.connect(uri, uri=True)
         connection.row_factory = sqlite3.Row
@@ -95,33 +95,19 @@ class TranscriptStore:
         finally:
             connection.close()
 
-    def _migrate(self) -> None:
-        with self._lock, self._conn:
-            version = int(
-                self._conn.execute("PRAGMA user_version").fetchone()[0],
-            )
-            if version not in (0, _SCHEMA_VERSION):
-                raise RuntimeError(
-                    f"unsupported transcript schema version {version}",
-                )
-            if version == 0:
-                self._create_schema()
-                self._conn.execute(f"PRAGMA user_version={_SCHEMA_VERSION}")
-
     def _create_schema(self) -> None:
         self._conn.executescript(
             """
-            CREATE TABLE transcript_sessions (
+            CREATE TABLE IF NOT EXISTS transcript_sessions (
                 session_id       TEXT PRIMARY KEY,
                 user_id          TEXT NOT NULL,
                 channel          TEXT NOT NULL,
-                revision         INTEGER NOT NULL DEFAULT 0,
                 next_turn_seq    INTEGER NOT NULL DEFAULT 1,
                 created_at       TEXT NOT NULL,
                 updated_at       TEXT NOT NULL
             );
 
-            CREATE TABLE transcript_turns (
+            CREATE TABLE IF NOT EXISTS transcript_turns (
                 session_id       TEXT NOT NULL,
                 turn_seq         INTEGER NOT NULL,
                 turn_id          TEXT NOT NULL,
@@ -142,10 +128,10 @@ class TranscriptStore:
                     ON DELETE CASCADE
             );
 
-            CREATE INDEX transcript_turns_page
+            CREATE INDEX IF NOT EXISTS transcript_turns_page
                 ON transcript_turns(session_id, turn_seq DESC);
 
-            CREATE TABLE transcript_messages (
+            CREATE TABLE IF NOT EXISTS transcript_messages (
                 session_id          TEXT NOT NULL,
                 turn_id             TEXT NOT NULL,
                 message_id          TEXT NOT NULL,
@@ -166,10 +152,10 @@ class TranscriptStore:
                     ON DELETE CASCADE
             );
 
-            CREATE INDEX transcript_messages_turn
+            CREATE INDEX IF NOT EXISTS transcript_messages_turn
                 ON transcript_messages(session_id, turn_id, ordinal);
 
-            CREATE INDEX transcript_messages_client
+            CREATE INDEX IF NOT EXISTS transcript_messages_client
                 ON transcript_messages(
                     session_id, client_message_id, created_at DESC
                 );
@@ -285,8 +271,7 @@ class TranscriptStore:
             )
             self._conn.execute(
                 "UPDATE transcript_sessions SET "
-                "next_turn_seq = ?, revision = revision + 1, "
-                "updated_at = ? WHERE session_id = ?",
+                "next_turn_seq = ?, updated_at = ? WHERE session_id = ?",
                 (
                     turn_seq + 1,
                     timestamp,
@@ -305,7 +290,7 @@ class TranscriptStore:
         replaces_message_id: str | None = None,
         created_at: str | None = None,
         finished_at: str | None = None,
-    ) -> int:
+    ) -> None:
         """Insert or update one complete display message snapshot."""
         payload = message.model_dump_json()
         role = _enum_value(message.role)
@@ -340,7 +325,7 @@ class TranscriptStore:
                 finished_at,
             )
             if existing is not None and tuple(existing) == values:
-                return self._revision(session_id)
+                return
             if existing is not None and existing["turn_id"] != turn_id:
                 raise ValueError("transcript message belongs to another turn")
 
@@ -373,7 +358,6 @@ class TranscriptStore:
                     finished_at,
                 ),
             )
-            return self._bump_revision(session_id, timestamp)
 
     def finish_turn(
         self,
@@ -383,7 +367,7 @@ class TranscriptStore:
         status: TurnStatus,
         error: dict[str, Any] | None = None,
         finished_at: str | None = None,
-    ) -> int:
+    ) -> None:
         """Set a terminal turn status and activate successful replacements."""
         if status == "running":
             raise ValueError("finish_turn requires a terminal status")
@@ -407,11 +391,11 @@ class TranscriptStore:
                 and existing["error_json"] == error_json
                 and existing["finished_at"] is not None
             ):
-                return self._revision(session_id)
+                return
             timestamp = finished_at or _utc_now()
             values = (status, error_json, timestamp)
             if tuple(existing)[:3] == values:
-                return self._revision(session_id)
+                return
             self._conn.execute(
                 "UPDATE transcript_turns SET status = ?, error_json = ?, "
                 "finished_at = ? WHERE session_id = ? AND turn_id = ?",
@@ -437,7 +421,6 @@ class TranscriptStore:
                     "AND replaces_message_id IS NOT NULL)",
                     (timestamp, session_id, session_id, turn_id),
                 )
-            return self._bump_revision(session_id, timestamp)
 
     def attach_turn_usage(
         self,
@@ -446,7 +429,7 @@ class TranscriptStore:
         turn_id: str,
         usage: dict[str, Any] | None,
         context_usage: dict[str, Any] | None,
-    ) -> int | None:
+    ) -> bool:
         """Attach one usage snapshot to the turn's closing assistant."""
         snapshot = {
             "usage": usage,
@@ -462,19 +445,18 @@ class TranscriptStore:
                 (session_id, turn_id),
             ).fetchone()
             if row is None:
-                return None
+                return False
 
             message = Message.model_validate_json(row["payload_json"])
             metadata = dict(message.metadata or {})
             if metadata.get(TURN_USAGE_META_KEY) == snapshot:
-                return self._revision(session_id)
+                return True
 
             metadata[TURN_USAGE_META_KEY] = snapshot
             updated = message.model_copy(
                 update={"metadata": metadata},
                 deep=True,
             )
-            timestamp = _utc_now()
             self._conn.execute(
                 "UPDATE transcript_messages SET payload_json = ? "
                 "WHERE session_id = ? AND message_id = ?",
@@ -484,7 +466,7 @@ class TranscriptStore:
                     row["message_id"],
                 ),
             )
-            return self._bump_revision(session_id, timestamp)
+            return True
 
     def get_page(
         self,
@@ -663,23 +645,6 @@ class TranscriptStore:
                     return str(row["turn_id"])
         return None
 
-    def _revision(self, session_id: str) -> int:
-        row = self._conn.execute(
-            "SELECT revision FROM transcript_sessions WHERE session_id = ?",
-            (session_id,),
-        ).fetchone()
-        if row is None:
-            raise ValueError("transcript session does not exist")
-        return int(row["revision"])
-
-    def _bump_revision(self, session_id: str, timestamp: str) -> int:
-        self._conn.execute(
-            "UPDATE transcript_sessions SET revision = revision + 1, "
-            "updated_at = ? WHERE session_id = ?",
-            (timestamp, session_id),
-        )
-        return self._revision(session_id)
-
     def close(self) -> None:
         """Close the SQLite connection idempotently."""
         with self._lock:
@@ -687,12 +652,7 @@ class TranscriptStore:
                 return
             self._closed = True
         with self._lock:
-            try:
-                self._conn.execute(
-                    "PRAGMA wal_checkpoint(TRUNCATE)",
-                ).fetchone()
-            finally:
-                self._conn.close()
+            self._conn.close()
 
 
 __all__ = ["TranscriptCursor", "TranscriptPage", "TranscriptStore"]

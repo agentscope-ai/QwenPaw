@@ -58,7 +58,7 @@ def test_message_round_trip_preserves_attachment_and_metadata(tmp_path):
         metadata={"client_id": "client-1", "custom": {"value": 1}},
     ).completed()
 
-    revision = store.upsert_message(
+    store.upsert_message(
         session_id="session-1",
         turn_id="turn-1",
         message=message,
@@ -70,7 +70,6 @@ def test_message_round_trip_preserves_attachment_and_metadata(tmp_path):
         channel="console",
     )
 
-    assert revision == 2
     assert page is not None
     restored = page.messages[0]
     assert restored.metadata is not None
@@ -326,13 +325,13 @@ def test_attach_turn_usage_updates_only_closing_assistant(tmp_path):
         "context_usage_ratio": 1.4467,
     }
 
-    first_revision = store.attach_turn_usage(
+    first_attached = store.attach_turn_usage(
         session_id="session-1",
         turn_id="turn-1",
         usage=usage,
         context_usage=context_usage,
     )
-    second_revision = store.attach_turn_usage(
+    second_attached = store.attach_turn_usage(
         session_id="session-1",
         turn_id="turn-1",
         usage=usage,
@@ -344,7 +343,8 @@ def test_attach_turn_usage_updates_only_closing_assistant(tmp_path):
         channel="console",
     )
 
-    assert first_revision == second_revision
+    assert first_attached is True
+    assert second_attached is True
     assert page is not None
     assert TURN_USAGE_META_KEY not in (page.messages[1].metadata or {})
     metadata = page.messages[2].metadata
@@ -354,7 +354,6 @@ def test_attach_turn_usage_updates_only_closing_assistant(tmp_path):
         "usage": usage,
         "context_usage": context_usage,
     }
-    assert page.revision == first_revision
     store.close()
 
 

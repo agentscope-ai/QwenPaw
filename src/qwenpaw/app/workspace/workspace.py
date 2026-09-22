@@ -552,14 +552,14 @@ class Workspace:  # pylint: disable=too-many-public-methods
         )
         if store is not None and transcript_turn_id:
             try:
-                revision = await asyncio.to_thread(
+                attached = await asyncio.to_thread(
                     store.attach_turn_usage,
                     session_id=session_id,
                     turn_id=str(transcript_turn_id),
                     usage=turn,
                     context_usage=context_usage,
                 )
-                if revision is None:
+                if not attached:
                     logger.warning(
                         "Transcript turn usage target missing for session %s",
                         sanitize_log_value(session_id),

@@ -19,7 +19,6 @@ from .transcript import TranscriptCursor, TranscriptPage, TranscriptStore
 
 logger = logging.getLogger(__name__)
 
-_CATALOG_SCHEMA_VERSION = 1
 _BUSY_TIMEOUT_MS = 5_000
 _DEFAULT_MAX_OPEN_STORES = 32
 
@@ -47,7 +46,7 @@ class _SessionHandle:
         return self.writer.submit(method, **kwargs).result()
 
     def close(self) -> None:
-        """Drain writes, checkpoint the WAL, and close the connection."""
+        """Drain writes and close the session database."""
         if self.closing:
             return
         self.closing = True
@@ -86,8 +85,8 @@ class TranscriptCatalog:
         self._conn.row_factory = sqlite3.Row
         self._conn.execute("PRAGMA foreign_keys=ON")
         self._conn.execute(f"PRAGMA busy_timeout={_BUSY_TIMEOUT_MS}")
-        self._conn.execute("PRAGMA journal_mode=WAL")
-        self._migrate()
+        self._conn.execute("PRAGMA journal_mode=DELETE")
+        self._create_schema()
         self._resume_deleted_cleanup()
 
     @property
@@ -100,36 +99,25 @@ class TranscriptCatalog:
         """Return whether the catalog was intentionally closed."""
         return self._closed
 
-    def _migrate(self) -> None:
+    def _create_schema(self) -> None:
         with self._conn:
-            version = int(
-                self._conn.execute("PRAGMA user_version").fetchone()[0],
-            )
-            if version not in (0, _CATALOG_SCHEMA_VERSION):
-                raise RuntimeError(
-                    f"unsupported transcript catalog schema version {version}",
-                )
-            if version == 0:
-                self._conn.executescript(
-                    """
-                    CREATE TABLE transcript_files (
-                        session_id       TEXT PRIMARY KEY,
-                        user_id          TEXT NOT NULL,
-                        channel          TEXT NOT NULL,
-                        file_key         TEXT NOT NULL UNIQUE,
-                        created_at       TEXT NOT NULL,
-                        updated_at       TEXT NOT NULL,
-                        deleted_at       TEXT,
-                        purged_at        TEXT
-                    );
+            self._conn.executescript(
+                """
+                CREATE TABLE IF NOT EXISTS transcript_files (
+                    session_id       TEXT PRIMARY KEY,
+                    user_id          TEXT NOT NULL,
+                    channel          TEXT NOT NULL,
+                    file_key         TEXT NOT NULL UNIQUE,
+                    created_at       TEXT NOT NULL,
+                    updated_at       TEXT NOT NULL,
+                    deleted_at       TEXT,
+                    purged_at        TEXT
+                );
 
-                    CREATE INDEX transcript_files_deleted
-                        ON transcript_files(deleted_at);
+                CREATE INDEX IF NOT EXISTS transcript_files_deleted
+                    ON transcript_files(deleted_at);
 
-                    """,
-                )
-            self._conn.execute(
-                f"PRAGMA user_version={_CATALOG_SCHEMA_VERSION}",
+                """,
             )
 
     @staticmethod
@@ -310,15 +298,14 @@ class TranscriptCatalog:
                 raise ValueError("transcript session does not exist")
             return handle.write(method_name, **kwargs)
 
-    def upsert_message(self, **kwargs: Any) -> int:
-        return int(self._write_existing("upsert_message", **kwargs))
+    def upsert_message(self, **kwargs: Any) -> None:
+        self._write_existing("upsert_message", **kwargs)
 
-    def finish_turn(self, **kwargs: Any) -> int:
-        return int(self._write_existing("finish_turn", **kwargs))
+    def finish_turn(self, **kwargs: Any) -> None:
+        self._write_existing("finish_turn", **kwargs)
 
-    def attach_turn_usage(self, **kwargs: Any) -> int | None:
-        value = self._write_existing("attach_turn_usage", **kwargs)
-        return int(value) if value is not None else None
+    def attach_turn_usage(self, **kwargs: Any) -> bool:
+        return bool(self._write_existing("attach_turn_usage", **kwargs))
 
     def get_page(
         self,
@@ -326,7 +313,7 @@ class TranscriptCatalog:
         session_id: str,
         user_id: str,
         channel: str,
-        before: TranscriptCursor | int | None = None,
+        before: TranscriptCursor | None = None,
         limit: int = 50,
         max_bytes: int = 512 * 1024,
     ) -> TranscriptPage | None:
