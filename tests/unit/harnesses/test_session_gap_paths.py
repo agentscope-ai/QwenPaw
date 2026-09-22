@@ -5,7 +5,6 @@ Complements ``test_session.py`` by covering ``has_history``,
 ``hydrate`` (including the no-op when a transcript exists), ``clear``,
 and the history-kind branches of ``_history_messages``.
 """
-
 # pylint: disable=protected-access,redefined-outer-name,unused-argument
 from __future__ import annotations
 

@@ -229,14 +229,7 @@ class HarnessRuntime:
         except Exception as exc:
             error_text = str(exc)
 
-        message_status = RunStatus.Completed
-        if error_text:
-            message_status = RunStatus.Failed
-        elif cancelled:
-            message_status = RunStatus.Cancelled
-        for item in text_stream.finish(message_status):
-            yield tagged(item)
-        for item in tool_stream.finish(message_status):
+        for item in text_stream.finish():
             yield tagged(item)
 
         clear_history = command in {"new", "clear"}

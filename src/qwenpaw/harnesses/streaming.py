@@ -64,10 +64,7 @@ class TextStream:
         )
         return emitted
 
-    def finish(
-        self,
-        status: RunStatus = RunStatus.Completed,
-    ) -> list[Any]:
+    def finish(self) -> list[Any]:
         if self._message is None:
             return []
         self._message.content = [
@@ -77,7 +74,7 @@ class TextStream:
                 index=0,
             ),
         ]
-        self._message.status = status
+        self._message.status = RunStatus.Completed
         self._response.output.append(self._message)
         emitted = [self._message.model_copy(deep=True)]
         self._kind = None
@@ -92,7 +89,6 @@ class _ToolState:
 
     name: str
     output_message: Message
-    event: HarnessEvent
     output_text: str = ""
 
 
@@ -149,7 +145,6 @@ class ToolStream:
         self._states[event.item_id] = _ToolState(
             name=event.tool_name,
             output_message=output_message,
-            event=event,
         )
         return emitted
 
@@ -158,12 +153,6 @@ class ToolStream:
         if state is None or not event.text:
             return []
         state.output_text += event.text
-        state.event = event.model_copy(
-            update={
-                "tool_name": state.name,
-                "data": {**state.event.data, **event.data},
-            },
-        )
         return [
             self._output_content(
                 event,
@@ -193,32 +182,6 @@ class ToolStream:
         emitted.extend(
             [final_content, state.output_message.model_copy(deep=True)],
         )
-        return emitted
-
-    def finish(
-        self,
-        status: RunStatus = RunStatus.Completed,
-    ) -> list[Any]:
-        """Materialize outputs for tools interrupted before completion."""
-        emitted: list[Any] = []
-        for item_id, state in tuple(self._states.items()):
-            final_content = self._output_content(
-                state.event,
-                state.output_message.id,
-                state.output_text,
-                status,
-                name=state.name,
-            )
-            state.output_message.content = [final_content]
-            state.output_message.status = status
-            self._response.output.append(state.output_message)
-            emitted.extend(
-                [
-                    final_content,
-                    state.output_message.model_copy(deep=True),
-                ],
-            )
-            self._states.pop(item_id, None)
         return emitted
 
     @staticmethod

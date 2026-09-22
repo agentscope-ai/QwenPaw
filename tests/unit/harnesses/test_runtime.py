@@ -7,8 +7,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from pathlib import Path
-from types import SimpleNamespace
-from unittest.mock import AsyncMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -18,8 +17,6 @@ from qwenpaw.harnesses.events import (
     HarnessAttachmentKind,
     HarnessEvent,
     HarnessEventKind,
-    HarnessHistoryItem,
-    HarnessHistoryKind,
     HarnessProvider,
 )
 from qwenpaw.harnesses.runtime import HarnessRuntime
@@ -130,42 +127,6 @@ class ToolAdapter(FakeAdapter):
         yield HarnessEvent(kind=HarnessEventKind.COMPLETED)
 
 
-class InterruptedToolAdapter(FakeAdapter):
-    """Leave a tool output open before a terminal provider event."""
-
-    def __init__(self, terminal: HarnessEventKind) -> None:
-        super().__init__()
-        self._terminal = terminal
-
-    async def run_turn(  # pylint: disable=invalid-overridden-method
-        self,
-        *,
-        session_id: str,
-        prompt: str,
-        cwd: Path,
-        settings: dict,
-        attachments: list[HarnessAttachment] | None = None,
-    ) -> AsyncIterator[HarnessEvent]:
-        del session_id, prompt, cwd, settings, attachments
-        yield HarnessEvent(
-            kind=HarnessEventKind.TOOL_STARTED,
-            item_id="tool-1",
-            tool_name="shell",
-            data={"provider_type": "commandExecution"},
-        )
-        yield HarnessEvent(
-            kind=HarnessEventKind.TOOL_PROGRESS,
-            item_id="tool-1",
-            text="partial output",
-        )
-        yield HarnessEvent(
-            kind=self._terminal,
-            text="provider failed"
-            if self._terminal == HarnessEventKind.ERROR
-            else "",
-        )
-
-
 class CommandAdapter(FakeAdapter):
     """Record a provider-owned command without starting a normal turn."""
 
@@ -214,45 +175,6 @@ async def test_runtime_recreates_adapter_when_binary_changes(
     assert reused is first
     assert second is not first
     assert first.stopped is True
-
-
-@pytest.mark.asyncio
-async def test_runtime_hydrates_when_session_history_is_missing(
-    tmp_path: Path,
-):
-    runtime = HarnessRuntime(tmp_path)
-    history = [
-        HarnessHistoryItem(
-            kind=HarnessHistoryKind.USER,
-            text="restore",
-            item_id="history-1",
-        ),
-    ]
-    adapter = FakeAdapter()
-    history_mock = AsyncMock(return_value=history)
-    runtime._adapters["codex"] = adapter
-    bridge = SimpleNamespace(
-        has_history=AsyncMock(return_value=False),
-        hydrate=AsyncMock(),
-    )
-    runtime._session_bridge = bridge
-
-    with patch.object(adapter, "history", history_mock):
-        await runtime.hydrate_session(
-            backend="codex",
-            session_id="session-1",
-            user_id="user-1",
-            channel="console",
-        )
-
-    history_mock.assert_awaited_once_with("session-1")
-    bridge.hydrate.assert_awaited_once_with(
-        session_id="session-1",
-        user_id="user-1",
-        channel="console",
-        backend="codex",
-        history=history,
-    )
 
 
 @pytest.mark.asyncio
@@ -412,52 +334,6 @@ async def test_runtime_emits_reasoning_and_native_tool_envelopes(
     assert tool_output["exit_code"] == 0
     assert any(
         getattr(item, "type", None) == MessageType.REASONING for item in output
-    )
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize(
-    ("terminal", "expected_status"),
-    [
-        (HarnessEventKind.CANCELLED, "cancelled"),
-        (HarnessEventKind.ERROR, "failed"),
-    ],
-)
-async def test_runtime_materializes_interrupted_tool_output(
-    tmp_path: Path,
-    terminal: HarnessEventKind,
-    expected_status: str,
-) -> None:
-    runtime = HarnessRuntime(tmp_path)
-    runtime._adapters["codex"] = InterruptedToolAdapter(terminal)
-    request = AgentRequest(
-        session_id="chat-1",
-        input=[
-            Message(
-                role=Role.USER,
-                content=[TextContent(text="Run it")],
-            ),
-        ],
-    )
-
-    output = [
-        item
-        async for item in runtime.stream(
-            backend="codex",
-            request=request,
-            cwd=tmp_path.resolve(),
-        )
-    ]
-
-    final_response = output[-1]
-    tool_output = final_response.output[-1]
-    assert final_response.status == expected_status
-    assert tool_output.type == MessageType.PLUGIN_CALL_OUTPUT
-    assert tool_output.status == expected_status
-    assert tool_output.content[0].data["output"] == "partial output"
-    assert any(
-        isinstance(item, Message) and item.id == tool_output.id
-        for item in output[:-1]
     )
 
 

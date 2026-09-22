@@ -42,10 +42,7 @@ async def import_conversations(
     state: ConversationState,
 ) -> None:
     """Import readable root chats and archive old imported internals."""
-    bridge = HarnessSessionBridge(
-        workspace.session,
-        getattr(workspace, "transcript_store", None),
-    )
+    bridge = HarnessSessionBridge(workspace.session)
     if inventory.ignored_session_ids:
         await _report(progress, "正在整理此前误导入的内部执行轨迹…")
     for source_id in inventory.ignored_session_ids:
