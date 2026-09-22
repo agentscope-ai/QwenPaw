@@ -584,12 +584,12 @@ async def batch_delete_chats(
         if (chat := chats.get(chat_id)) is not None
     ]
     data_targets = _unshared_chat_data_targets(targets, catalog)
-    if data_targets:
+    deleted = await mgr.delete_chats(chat_ids=chat_ids)
+    if deleted and data_targets:
         await _delete_chat_data(
             workspace,
             data_targets,
         )
-    deleted = await mgr.delete_chats(chat_ids=chat_ids)
     return {"deleted": deleted}
 
 
@@ -934,26 +934,6 @@ async def get_chat(
         workspace,
         chat_spec,
     )
-    backend = workspace.config.backend
-    if transcript_page is None and backend != "qwenpaw":
-        try:
-            await workspace.harness_runtime.hydrate_session(
-                backend=backend,
-                session_id=chat_spec.session_id,
-                user_id=chat_spec.user_id,
-                channel=chat_spec.channel,
-                settings=dict(workspace.config.backend_settings),
-            )
-            transcript_page = await _read_transcript_page(
-                workspace,
-                chat_spec,
-            )
-        except Exception:
-            logger.debug(
-                "Third-party session recovery failed for %s",
-                chat_spec.session_id,
-                exc_info=True,
-            )
     if transcript_page is not None:
         return ChatHistory(
             messages=transcript_page.messages,
@@ -966,6 +946,28 @@ async def get_chat(
         chat_spec.user_id,
         chat_spec.channel,
     )
+    backend = workspace.config.backend
+    context = ((state.get("agent") or {}).get("state") or {}).get("context")
+    if not context and backend != "qwenpaw":
+        try:
+            await workspace.harness_runtime.hydrate_session(
+                backend=backend,
+                session_id=chat_spec.session_id,
+                user_id=chat_spec.user_id,
+                channel=chat_spec.channel,
+                settings=dict(workspace.config.backend_settings),
+            )
+            state = await session.get_session_state_dict(
+                chat_spec.session_id,
+                chat_spec.user_id,
+                chat_spec.channel,
+            )
+        except Exception:
+            logger.debug(
+                "Third-party session recovery failed for %s",
+                chat_spec.session_id,
+                exc_info=True,
+            )
 
     if not state:
         return ChatHistory(
@@ -1059,12 +1061,12 @@ async def delete_chat(
         )
     catalog = await mgr.list_chats(archived=None)
     data_targets = _unshared_chat_data_targets([chat], catalog)
-    if data_targets:
-        await _delete_chat_data(workspace, data_targets)
     deleted = await mgr.delete_chats(chat_ids=[chat_id])
     if not deleted:
         raise HTTPException(
             status_code=404,
             detail=f"Chat not found: {chat_id}",
         )
+    if data_targets:
+        await _delete_chat_data(workspace, data_targets)
     return {"deleted": True}

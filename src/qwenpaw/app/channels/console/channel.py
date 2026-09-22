@@ -58,7 +58,6 @@ _YELLOW = "\033[33m" if _USE_COLOR else ""
 _RED = "\033[31m" if _USE_COLOR else ""
 _BOLD = "\033[1m" if _USE_COLOR else ""
 _RESET = "\033[0m" if _USE_COLOR else ""
-_TURN_USAGE_META_KEY = "qwenpaw_turn_usage"
 
 
 def _ts() -> str:
@@ -76,42 +75,6 @@ class ConsoleChannel(BaseChannel):
     """
 
     channel = "console"
-
-    @staticmethod
-    def _attach_turn_usage_to_response(
-        response: Any,
-        usage_sse: List[str],
-    ) -> None:
-        """Embed usage in the terminal response and last assistant."""
-        if not usage_sse:
-            return
-        try:
-            raw = usage_sse[-1].removeprefix("data: ").strip()
-            payload = _json.loads(raw)
-        except (TypeError, ValueError):
-            return
-        if payload.get("type") != "turn_usage":
-            return
-        snapshot = {
-            "usage": payload.get("usage"),
-            "context_usage": payload.get("context_usage"),
-        }
-        metadata = dict(getattr(response, "metadata", None) or {})
-        metadata[_TURN_USAGE_META_KEY] = snapshot
-        response.metadata = metadata
-
-        output = list(getattr(response, "output", None) or [])
-        for message in reversed(output):
-            role = getattr(message, "role", None)
-            role_value = getattr(role, "value", role)
-            if role_value != "assistant":
-                continue
-            message_metadata = dict(
-                getattr(message, "metadata", None) or {},
-            )
-            message_metadata[_TURN_USAGE_META_KEY] = snapshot
-            message.metadata = message_metadata
-            break
 
     def __init__(
         self,
@@ -542,14 +505,12 @@ class ConsoleChannel(BaseChannel):
                 )
 
             for response in completed_responses:
-                self._attach_turn_usage_to_response(response, usage_sse)
                 data = self._serialize_event_for_sse(
                     response,
                     headline_stream_states,
                 )
                 yield f"data: {data}\n\n"
 
-            # Preserve the standalone event for existing stream observers.
             for sse in usage_sse:
                 yield sse
 

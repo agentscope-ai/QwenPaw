@@ -217,7 +217,9 @@ async def test_runtime_recreates_adapter_when_binary_changes(
 
 
 @pytest.mark.asyncio
-async def test_runtime_hydrates_when_transcript_is_missing(tmp_path: Path):
+async def test_runtime_hydrates_when_session_history_is_missing(
+    tmp_path: Path,
+):
     runtime = HarnessRuntime(tmp_path)
     history = [
         HarnessHistoryItem(
@@ -230,7 +232,7 @@ async def test_runtime_hydrates_when_transcript_is_missing(tmp_path: Path):
     history_mock = AsyncMock(return_value=history)
     runtime._adapters["codex"] = adapter
     bridge = SimpleNamespace(
-        needs_hydration=AsyncMock(return_value=True),
+        has_history=AsyncMock(return_value=False),
         hydrate=AsyncMock(),
     )
     runtime._session_bridge = bridge

@@ -7,9 +7,6 @@ import concurrent.futures
 import threading
 from pathlib import Path
 
-import pytest
-
-from qwenpaw.app.chats.transcript import TranscriptCursor
 from qwenpaw.app.chats.transcript_catalog import TranscriptCatalog
 from qwenpaw.schemas import Message, TextContent
 
@@ -121,114 +118,7 @@ def test_lru_reopens_evicted_session_without_losing_history(
     )
     assert page is not None
     assert [message.id for message in page.messages] == ["message-session-a"]
-    # pylint: disable=protected-access
-    assert len(catalog._handles) == 1
-    handle = next(iter(catalog._handles.values()))
-    assert handle.store._cleanup_executor is None
-    # pylint: enable=protected-access
-    catalog.close()
-
-
-def test_conversation_branch_materializes_at_message_anchor(
-    tmp_path: Path,
-) -> None:
-    catalog = TranscriptCatalog(tmp_path)
-    for number in range(1, 3):
-        turn_id = f"parent-turn-{number}"
-        catalog.start_turn(
-            session_id="parent",
-            user_id="user-1",
-            channel="console",
-            turn_id=turn_id,
-            source="qwenpaw",
-        )
-        for ordinal in range(2):
-            catalog.upsert_message(
-                session_id="parent",
-                turn_id=turn_id,
-                message=_message(
-                    f"parent-{number}-{ordinal}",
-                    f"parent {number} {ordinal}",
-                ),
-                ordinal=ordinal,
-            )
-        catalog.finish_turn(
-            session_id="parent",
-            turn_id=turn_id,
-            status="completed",
-        )
-
-    resolved = catalog.fork_session(
-        parent_session_id="parent",
-        child_session_id="child",
-        child_user_id="user-1",
-        child_channel="console",
-        anchor=TranscriptCursor(turn_seq=1, ordinal=0),
-    )
-
-    assert resolved == TranscriptCursor(turn_seq=1, ordinal=0)
-    child = catalog.get_page(
-        session_id="child",
-        user_id="user-1",
-        channel="console",
-    )
-    assert child is not None
-    assert [message.id for message in child.messages] == ["parent-1-0"]
-    lineage = catalog._conn.execute(  # pylint: disable=protected-access
-        "SELECT origin, parent_session_id, root_session_id, "
-        "fork_turn_seq, fork_ordinal FROM transcript_files "
-        "WHERE session_id = 'child'",
-    ).fetchone()
-    assert dict(lineage) == {
-        "origin": "conversation_branch",
-        "parent_session_id": "parent",
-        "root_session_id": "parent",
-        "fork_turn_seq": 1,
-        "fork_ordinal": 0,
-    }
-
-    catalog.start_turn(
-        session_id="child",
-        user_id="user-1",
-        channel="console",
-        turn_id="child-turn",
-        source="qwenpaw",
-    )
-    parent = catalog.get_page(
-        session_id="parent",
-        user_id="user-1",
-        channel="console",
-    )
-    assert parent is not None
-    assert len(parent.messages) == 4
-    catalog.close()
-
-
-def test_invalid_branch_anchor_leaves_no_catalog_or_database(
-    tmp_path: Path,
-) -> None:
-    catalog = TranscriptCatalog(tmp_path)
-    _start(catalog, "parent")
-    _upsert(catalog, "parent")
-
-    with pytest.raises(ValueError, match="fork anchor does not exist"):
-        catalog.fork_session(
-            parent_session_id="parent",
-            child_session_id="child",
-            child_user_id="user-1",
-            child_channel="console",
-            anchor=TranscriptCursor(turn_seq=99, ordinal=0),
-        )
-
-    assert catalog.has_session("child") is False
-    child_path = catalog._store_path(  # pylint: disable=protected-access
-        catalog._file_key(  # pylint: disable=protected-access
-            session_id="child",
-            user_id="user-1",
-            channel="console",
-        ),
-    )
-    assert child_path.exists() is False
+    assert len(catalog._handles) == 1  # pylint: disable=protected-access
     catalog.close()
 
 
@@ -261,7 +151,6 @@ def test_delete_tombstones_catalog_before_removing_session_file(
         is True
     )
     assert not path.exists()
-    assert catalog.has_session("session-a") is False
     tombstone = catalog._conn.execute(  # pylint: disable=protected-access
         "SELECT deleted_at, purged_at FROM transcript_files "
         "WHERE session_id = 'session-a'",

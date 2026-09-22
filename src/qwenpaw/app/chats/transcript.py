@@ -4,11 +4,8 @@
 from __future__ import annotations
 
 import json
-import logging
 import sqlite3
 import threading
-import time
-from concurrent.futures import Future, ThreadPoolExecutor
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -20,10 +17,8 @@ from ...runtime.console_turn_state import TURN_STATE
 from ...schemas import Message, RunStatus
 from ...token_usage.turn_usage import TURN_USAGE_META_KEY
 
-_SCHEMA_VERSION = 3
+_SCHEMA_VERSION = 1
 _BUSY_TIMEOUT_MS = 5000
-_DELETE_BATCH_SIZE = 5_000
-logger = logging.getLogger(__name__)
 TurnStatus = Literal["running", "completed", "failed", "cancelled"]
 Completeness = Literal["complete", "partial"]
 _DEFAULT_PAGE_MAX_BYTES = 512 * 1024
@@ -63,23 +58,11 @@ class TranscriptPage:
 class TranscriptStore:
     """Workspace-owned SQLite store for user-visible chat transcripts."""
 
-    def __init__(
-        self,
-        db_path: str | Path,
-        background_cleanup: bool = True,
-    ) -> None:
+    def __init__(self, db_path: str | Path) -> None:
         self._path = Path(db_path).expanduser()
         self._path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
         self._closed = False
-        self._cleanup_executor = (
-            ThreadPoolExecutor(
-                max_workers=1,
-                thread_name_prefix="transcript-cleanup",
-            )
-            if background_cleanup
-            else None
-        )
         self._conn = sqlite3.connect(
             str(self._path),
             check_same_thread=False,
@@ -90,14 +73,7 @@ class TranscriptStore:
         self._conn.execute("PRAGMA journal_mode=WAL")
         try:
             self._migrate()
-            if background_cleanup:
-                self._submit_cleanup(self._purge_deleted_sessions)
         except BaseException:
-            if self._cleanup_executor is not None:
-                self._cleanup_executor.shutdown(
-                    wait=False,
-                    cancel_futures=True,
-                )
             self._conn.close()
             self._closed = True
             raise
@@ -130,26 +106,15 @@ class TranscriptStore:
             version = int(
                 self._conn.execute("PRAGMA user_version").fetchone()[0],
             )
-            if version > _SCHEMA_VERSION:
+            if version not in (0, _SCHEMA_VERSION):
                 raise RuntimeError(
-                    f"transcript schema {version} is newer than supported "
-                    f"version {_SCHEMA_VERSION}",
+                    f"unsupported transcript schema version {version}",
                 )
             if version == 0:
-                self._create_schema_v3()
+                self._create_schema()
                 self._conn.execute(f"PRAGMA user_version={_SCHEMA_VERSION}")
-                return
-            if version == 1:
-                self._conn.execute(
-                    "ALTER TABLE transcript_turns "
-                    "ADD COLUMN replaces_turn_id TEXT",
-                )
-                version = 2
-            if version == 2:
-                self._migrate_v3_client_message_ids()
-            self._conn.execute(f"PRAGMA user_version={_SCHEMA_VERSION}")
 
-    def _create_schema_v3(self) -> None:
+    def _create_schema(self) -> None:
         self._conn.executescript(
             """
             CREATE TABLE transcript_sessions (
@@ -158,13 +123,8 @@ class TranscriptStore:
                 channel          TEXT NOT NULL,
                 revision         INTEGER NOT NULL DEFAULT 0,
                 next_turn_seq    INTEGER NOT NULL DEFAULT 1,
-                completeness     TEXT NOT NULL DEFAULT 'complete'
-                                 CHECK(completeness IN (
-                                     'complete', 'partial'
-                                 )),
                 created_at       TEXT NOT NULL,
-                updated_at       TEXT NOT NULL,
-                deleted_at       TEXT
+                updated_at       TEXT NOT NULL
             );
 
             CREATE TABLE transcript_turns (
@@ -178,7 +138,6 @@ class TranscriptStore:
                                  )),
                 error_json       TEXT,
                 source           TEXT NOT NULL,
-                source_complete  INTEGER NOT NULL DEFAULT 1,
                 replaces_turn_id TEXT,
                 created_at       TEXT NOT NULL,
                 finished_at      TEXT,
@@ -222,29 +181,6 @@ class TranscriptStore:
                 );
 
             """,
-        )
-
-    def _migrate_v3_client_message_ids(self) -> None:
-        """Add and backfill the indexed client message identifier."""
-        started = time.perf_counter()
-        self._conn.execute(
-            "ALTER TABLE transcript_messages "
-            "ADD COLUMN client_message_id TEXT",
-        )
-        cursor = self._conn.execute(
-            "UPDATE transcript_messages SET client_message_id = "
-            "json_extract(payload_json, ?) WHERE role = 'user'",
-            (f"$.metadata.{QWENPAW_CLIENT_MESSAGE_ID_KEY}",),
-        )
-        self._conn.execute(
-            "CREATE INDEX transcript_messages_client "
-            "ON transcript_messages("
-            "session_id, client_message_id, created_at DESC)",
-        )
-        logger.info(
-            "Transcript v3 client-id migration rows=%s elapsed_ms=%.1f",
-            max(cursor.rowcount, 0),
-            (time.perf_counter() - started) * 1000,
         )
 
     @staticmethod
@@ -293,7 +229,6 @@ class TranscriptStore:
         channel: str,
         turn_id: str,
         source: str,
-        source_complete: bool = True,
         replaces_turn_id: str | None = None,
         created_at: str | None = None,
     ) -> int:
@@ -302,22 +237,19 @@ class TranscriptStore:
         with self._transaction():
             self._conn.execute(
                 "INSERT INTO transcript_sessions("
-                "session_id, user_id, channel, completeness, "
-                "created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?) "
+                "session_id, user_id, channel, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?) "
                 "ON CONFLICT(session_id) DO NOTHING",
                 (
                     session_id,
                     user_id,
                     channel,
-                    "complete" if source_complete else "partial",
                     timestamp,
                     timestamp,
                 ),
             )
             session = self._session_row(session_id)
             assert session is not None
-            if session["deleted_at"] is not None:
-                raise ValueError("transcript session is deleted")
             self._assert_identity(
                 session,
                 user_id=user_id,
@@ -346,116 +278,28 @@ class TranscriptStore:
             self._conn.execute(
                 "INSERT INTO transcript_turns("
                 "session_id, turn_seq, turn_id, status, source, "
-                "source_complete, replaces_turn_id, created_at) "
-                "VALUES (?, ?, ?, 'running', ?, ?, ?, ?)",
+                "replaces_turn_id, created_at) "
+                "VALUES (?, ?, ?, 'running', ?, ?, ?)",
                 (
                     session_id,
                     turn_seq,
                     turn_id,
                     source,
-                    int(source_complete),
                     replaces_turn_id,
                     timestamp,
                 ),
             )
-            completeness = (
-                "partial"
-                if not source_complete or session["completeness"] == "partial"
-                else "complete"
-            )
             self._conn.execute(
                 "UPDATE transcript_sessions SET "
                 "next_turn_seq = ?, revision = revision + 1, "
-                "completeness = ?, updated_at = ? "
-                "WHERE session_id = ?",
+                "updated_at = ? WHERE session_id = ?",
                 (
                     turn_seq + 1,
-                    completeness,
                     timestamp,
                     session_id,
                 ),
             )
             return turn_seq
-
-    def import_history_if_missing(
-        self,
-        *,
-        session_id: str,
-        user_id: str,
-        channel: str,
-        source: str,
-        turns: list[tuple[str, list[Message]]],
-        source_complete: bool = False,
-        imported_at: str | None = None,
-    ) -> bool:
-        """Atomically import history without replacing a live session."""
-        normalized = [
-            (turn_id, messages) for turn_id, messages in turns if messages
-        ]
-        if not normalized:
-            return False
-        timestamp = imported_at or _utc_now()
-        revision = sum(len(messages) + 2 for _, messages in normalized)
-        with self._transaction():
-            if self._session_row(session_id) is not None:
-                return False
-            self._conn.execute(
-                "INSERT INTO transcript_sessions("
-                "session_id, user_id, channel, revision, next_turn_seq, "
-                "completeness, created_at, updated_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                (
-                    session_id,
-                    user_id,
-                    channel,
-                    revision,
-                    len(normalized) + 1,
-                    "complete" if source_complete else "partial",
-                    timestamp,
-                    timestamp,
-                ),
-            )
-            for turn_seq, (turn_id, messages) in enumerate(
-                normalized,
-                start=1,
-            ):
-                self._conn.execute(
-                    "INSERT INTO transcript_turns("
-                    "session_id, turn_seq, turn_id, status, source, "
-                    "source_complete, created_at, finished_at) "
-                    "VALUES (?, ?, ?, 'completed', ?, ?, ?, ?)",
-                    (
-                        session_id,
-                        turn_seq,
-                        turn_id,
-                        source,
-                        int(source_complete),
-                        timestamp,
-                        timestamp,
-                    ),
-                )
-                for ordinal, message in enumerate(messages):
-                    self._conn.execute(
-                        "INSERT INTO transcript_messages("
-                        "session_id, turn_id, message_id, ordinal, role, "
-                        "kind, payload_json, status, created_at, "
-                        "client_message_id, finished_at) "
-                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                        (
-                            session_id,
-                            turn_id,
-                            message.id,
-                            ordinal,
-                            _enum_value(message.role),
-                            _enum_value(message.type),
-                            message.model_dump_json(),
-                            _enum_value(message.status),
-                            timestamp,
-                            self._client_message_id(message),
-                            timestamp,
-                        ),
-                    )
-            return True
 
     def upsert_message(
         self,
@@ -665,7 +509,7 @@ class TranscriptStore:
             raise ValueError("transcript page max_bytes must be positive")
         with self._read_connection() as connection:
             session = self._session_row(session_id, connection)
-            if session is None or session["deleted_at"] is not None:
+            if session is None:
                 return None
             self._assert_identity(
                 session,
@@ -724,7 +568,7 @@ class TranscriptStore:
                     next_before=None,
                     has_more=False,
                     revision=int(session["revision"]),
-                    completeness=session["completeness"],
+                    completeness="complete",
                 )
             turn_ids = sorted({str(row["turn_id"]) for row in selected})
             placeholders = ", ".join("?" for _ in turn_ids)
@@ -765,7 +609,7 @@ class TranscriptStore:
                 next_before=next_before,
                 has_more=has_more,
                 revision=int(session["revision"]),
-                completeness=session["completeness"],
+                completeness="complete",
                 item_count=len(selected),
                 payload_bytes=payload_bytes,
                 max_bytes_reached=max_bytes_reached,
@@ -861,319 +705,12 @@ class TranscriptStore:
         )
         return self._revision(session_id)
 
-    def delete_session(self, session_id: str) -> bool:
-        """Hide and securely remove one transcript."""
-        if not self.mark_session_deleted(session_id):
-            return False
-        return self._purge_deleted_session(session_id)
-
-    def mark_session_deleted(self, session_id: str) -> bool:
-        """Hide a transcript durably before asynchronous physical cleanup."""
-        with self._transaction():
-            existing = self._conn.execute(
-                "SELECT 1 FROM transcript_sessions WHERE session_id = ?",
-                (session_id,),
-            ).fetchone()
-            if existing is None:
-                return False
-            self._conn.execute(
-                "UPDATE transcript_sessions SET deleted_at = ?, "
-                "revision = revision + 1, updated_at = ? "
-                "WHERE session_id = ?",
-                (_utc_now(), _utc_now(), session_id),
-            )
-            return True
-
-    def schedule_delete_session(self, session_id: str) -> bool:
-        """Hide a transcript now and securely purge it in the background."""
-        if not self.mark_session_deleted(session_id):
-            return False
-        self._submit_cleanup(self._purge_deleted_session, session_id)
-        return True
-
-    def _purge_deleted_session(self, session_id: str) -> bool:
-        started = time.perf_counter()
-        with self._lock:
-            marked = self._conn.execute(
-                "SELECT 1 FROM transcript_sessions "
-                "WHERE session_id = ? AND deleted_at IS NOT NULL",
-                (session_id,),
-            ).fetchone()
-        if marked is None:
-            return False
-        deleted_messages = self._delete_session_rows(
-            "transcript_messages",
-            session_id,
-        )
-        deleted_turns = self._delete_session_rows(
-            "transcript_turns",
-            session_id,
-        )
-        with self._transaction():
-            existing = self._conn.execute(
-                "SELECT 1 FROM transcript_sessions "
-                "WHERE session_id = ? AND deleted_at IS NOT NULL",
-                (session_id,),
-            ).fetchone()
-            if existing is None:
-                return False
-            cursor = self._conn.execute(
-                "DELETE FROM transcript_sessions WHERE session_id = ?",
-                (session_id,),
-            )
-            deleted = bool(cursor.rowcount)
-        logger.info(
-            "Transcript cleanup messages=%s turns=%s elapsed_ms=%.1f",
-            deleted_messages,
-            deleted_turns,
-            (time.perf_counter() - started) * 1000,
-        )
-        return deleted
-
-    def _delete_session_rows(self, table: str, session_id: str) -> int:
-        if table not in {"transcript_messages", "transcript_turns"}:
-            raise ValueError("invalid transcript cleanup table")
-        removed = 0
-        while True:
-            with self._transaction():
-                cursor = self._conn.execute(
-                    f"DELETE FROM {table} WHERE rowid IN ("
-                    f"SELECT rowid FROM {table} WHERE session_id = ? "
-                    "LIMIT ?)",
-                    (session_id, _DELETE_BATCH_SIZE),
-                )
-                batch = max(cursor.rowcount, 0)
-            removed += batch
-            if batch < _DELETE_BATCH_SIZE:
-                return removed
-            time.sleep(0)
-
-    def _purge_deleted_sessions(self) -> None:
-        with self._lock:
-            rows = self._conn.execute(
-                "SELECT session_id FROM transcript_sessions "
-                "WHERE deleted_at IS NOT NULL",
-            ).fetchall()
-        for row in rows:
-            self._purge_deleted_session(str(row["session_id"]))
-
-    def _submit_cleanup(
-        self,
-        method: Any,
-        *args: Any,
-    ) -> Future[Any] | None:
-        with self._lock:
-            if self._closed or self._cleanup_executor is None:
-                return None
-            future = self._cleanup_executor.submit(method, *args)
-
-        def _log_failure(completed: Future[Any]) -> None:
-            try:
-                completed.result()
-            except Exception:
-                logger.warning(
-                    "Transcript background cleanup failed",
-                    exc_info=True,
-                )
-
-        future.add_done_callback(_log_failure)
-        return future
-
-    def has_session(self, session_id: str) -> bool:
-        """Return whether the transcript owns the session identifier."""
-        with self._lock:
-            row = self._session_row(session_id)
-            return row is not None and row["deleted_at"] is None
-
-    def session_watermark(self, session_id: str) -> tuple[int, int, int]:
-        """Return revision, turn count, and message count."""
-        with self._lock:
-            session = self._session_row(session_id)
-            if session is None:
-                raise ValueError("transcript session does not exist")
-            turn_count = int(
-                self._conn.execute(
-                    "SELECT COUNT(*) FROM transcript_turns "
-                    "WHERE session_id = ?",
-                    (session_id,),
-                ).fetchone()[0],
-            )
-            message_count = int(
-                self._conn.execute(
-                    "SELECT COUNT(*) FROM transcript_messages "
-                    "WHERE session_id = ?",
-                    (session_id,),
-                ).fetchone()[0],
-            )
-            return int(session["revision"]), turn_count, message_count
-
-    def fork_snapshot(
-        self,
-        *,
-        parent_session_id: str,
-        child_session_id: str,
-        child_user_id: str,
-        child_channel: str,
-        target_path: str | Path,
-        anchor: TranscriptCursor | None = None,
-    ) -> tuple[TranscriptCursor | None, int, int]:
-        """Materialize a child database from one consistent parent snapshot."""
-        target = Path(target_path)
-        target.parent.mkdir(parents=True, exist_ok=True)
-        with self._lock:
-            session = self._session_row(parent_session_id)
-            if session is None or session["deleted_at"] is not None:
-                raise ValueError("parent transcript session does not exist")
-            resolved_anchor = anchor or self._latest_cursor(parent_session_id)
-            if anchor is not None:
-                self._validate_fork_anchor(parent_session_id, anchor)
-            destination = sqlite3.connect(str(target))
-            try:
-                self._conn.backup(destination)
-            finally:
-                destination.close()
-
-        connection = sqlite3.connect(str(target))
-        try:
-            connection.execute("PRAGMA foreign_keys=OFF")
-            connection.execute("BEGIN IMMEDIATE")
-            if resolved_anchor is not None:
-                self._truncate_after_anchor(
-                    connection,
-                    parent_session_id,
-                    resolved_anchor,
-                )
-            connection.execute(
-                "UPDATE transcript_messages SET session_id = ? "
-                "WHERE session_id = ?",
-                (child_session_id, parent_session_id),
-            )
-            connection.execute(
-                "UPDATE transcript_turns SET session_id = ? "
-                "WHERE session_id = ?",
-                (child_session_id, parent_session_id),
-            )
-            connection.execute(
-                "UPDATE transcript_sessions SET session_id = ?, "
-                "user_id = ?, channel = ?, deleted_at = NULL, "
-                "next_turn_seq = (SELECT COALESCE(MAX(turn_seq), 0) + 1 "
-                "FROM transcript_turns WHERE session_id = ?), "
-                "updated_at = ? WHERE session_id = ?",
-                (
-                    child_session_id,
-                    child_user_id,
-                    child_channel,
-                    child_session_id,
-                    _utc_now(),
-                    parent_session_id,
-                ),
-            )
-            violations = connection.execute(
-                "PRAGMA foreign_key_check",
-            ).fetchall()
-            if violations:
-                raise RuntimeError(
-                    "forked transcript failed foreign key check",
-                )
-            connection.commit()
-            connection.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()
-            turn_count = int(
-                connection.execute(
-                    "SELECT COUNT(*) FROM transcript_turns "
-                    "WHERE session_id = ?",
-                    (child_session_id,),
-                ).fetchone()[0],
-            )
-            message_count = int(
-                connection.execute(
-                    "SELECT COUNT(*) FROM transcript_messages "
-                    "WHERE session_id = ?",
-                    (child_session_id,),
-                ).fetchone()[0],
-            )
-            return resolved_anchor, turn_count, message_count
-        except BaseException:
-            connection.rollback()
-            raise
-        finally:
-            connection.close()
-
-    def _latest_cursor(self, session_id: str) -> TranscriptCursor | None:
-        row = self._conn.execute(
-            "SELECT t.turn_seq, m.ordinal FROM transcript_messages m "
-            "JOIN transcript_turns t ON t.session_id = m.session_id "
-            "AND t.turn_id = m.turn_id WHERE m.session_id = ? "
-            "ORDER BY t.turn_seq DESC, m.ordinal DESC LIMIT 1",
-            (session_id,),
-        ).fetchone()
-        if row is None:
-            return None
-        return TranscriptCursor(
-            turn_seq=int(row["turn_seq"]),
-            ordinal=int(row["ordinal"]),
-        )
-
-    def _validate_fork_anchor(
-        self,
-        session_id: str,
-        anchor: TranscriptCursor,
-    ) -> None:
-        if anchor.ordinal is None:
-            row = self._conn.execute(
-                "SELECT 1 FROM transcript_turns "
-                "WHERE session_id = ? AND turn_seq = ?",
-                (session_id, anchor.turn_seq),
-            ).fetchone()
-        else:
-            row = self._conn.execute(
-                "SELECT 1 FROM transcript_messages m "
-                "JOIN transcript_turns t ON t.session_id = m.session_id "
-                "AND t.turn_id = m.turn_id WHERE m.session_id = ? "
-                "AND t.turn_seq = ? AND m.ordinal = ?",
-                (session_id, anchor.turn_seq, anchor.ordinal),
-            ).fetchone()
-        if row is None:
-            raise ValueError("fork anchor does not exist")
-
-    @staticmethod
-    def _truncate_after_anchor(
-        connection: sqlite3.Connection,
-        session_id: str,
-        anchor: TranscriptCursor,
-    ) -> None:
-        connection.execute(
-            "DELETE FROM transcript_messages WHERE session_id = ? "
-            "AND turn_id IN (SELECT turn_id FROM transcript_turns "
-            "WHERE session_id = ? AND turn_seq > ?)",
-            (session_id, session_id, anchor.turn_seq),
-        )
-        if anchor.ordinal is not None:
-            connection.execute(
-                "DELETE FROM transcript_messages WHERE session_id = ? "
-                "AND turn_id IN (SELECT turn_id FROM transcript_turns "
-                "WHERE session_id = ? AND turn_seq = ?) "
-                "AND ordinal > ?",
-                (
-                    session_id,
-                    session_id,
-                    anchor.turn_seq,
-                    anchor.ordinal,
-                ),
-            )
-        connection.execute(
-            "DELETE FROM transcript_turns WHERE session_id = ? "
-            "AND turn_seq > ?",
-            (session_id, anchor.turn_seq),
-        )
-
     def close(self) -> None:
         """Close the SQLite connection idempotently."""
         with self._lock:
             if self._closed:
                 return
             self._closed = True
-        if self._cleanup_executor is not None:
-            self._cleanup_executor.shutdown(wait=True)
         with self._lock:
             try:
                 self._conn.execute(

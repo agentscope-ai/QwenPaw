@@ -22,6 +22,7 @@ from qwenpaw.app.chats.api import (
 from qwenpaw.app.chats.models import ChatSpec
 from qwenpaw.app.chats.session import SafeJSONSession
 from qwenpaw.app.chats.transcript import TranscriptStore
+from qwenpaw.app.chats.transcript_catalog import TranscriptCatalog
 from qwenpaw.schemas import Message, MessageType, Role, RunStatus, TextContent
 from qwenpaw.token_usage.turn_usage import TURN_USAGE_META_KEY
 
@@ -308,69 +309,10 @@ async def test_get_chat_falls_back_when_transcript_read_fails() -> None:
 
 
 @pytest.mark.asyncio
-async def test_get_chat_hydrates_external_history_into_transcript(
-    tmp_path: Path,
-) -> None:
-    store = TranscriptStore(tmp_path / "session.db")
-
-    async def hydrate_session(**_kwargs) -> None:
-        store.import_history_if_missing(
-            session_id="session-1",
-            user_id="user-1",
-            channel="console",
-            source="harness_import",
-            turns=[
-                (
-                    "provider-turn",
-                    [
-                        Message(
-                            id="provider-message",
-                            role=Role.USER,
-                            content=[TextContent(text="restored")],
-                        ).completed(),
-                    ],
-                ),
-            ],
-        )
-
-    hydrate = AsyncMock(side_effect=hydrate_session)
-    session = SimpleNamespace(
-        get_session_state_dict=AsyncMock(
-            return_value={"agent": {"state": {"context": ["legacy"]}}},
-        ),
-    )
-    workspace = SimpleNamespace(
-        transcript_store=store,
-        config=SimpleNamespace(backend="codex", backend_settings={}),
-        task_tracker=SimpleNamespace(
-            get_status=AsyncMock(return_value="idle"),
-        ),
-        harness_runtime=SimpleNamespace(hydrate_session=hydrate),
-    )
-
-    history = await get_chat(
-        chat_id="chat-1",
-        include_app_owned=True,
-        mgr=SimpleNamespace(get_chat=AsyncMock(return_value=_chat())),
-        session=session,
-        workspace=workspace,
-    )
-
-    assert [message.id for message in history.messages] == [
-        "provider-message",
-    ]
-    assert history.history is not None
-    assert history.history.completeness == "partial"
-    hydrate.assert_awaited_once()
-    session.get_session_state_dict.assert_not_awaited()
-    store.close()
-
-
-@pytest.mark.asyncio
 async def test_delete_chat_data_removes_all_persistence(
     tmp_path: Path,
 ) -> None:
-    store = TranscriptStore(tmp_path / "session.db")
+    store = TranscriptCatalog(tmp_path)
     _append_turn(store, 1, "durable")
     session = SafeJSONSession(save_dir=str(tmp_path / "sessions"))
     await session.update_session_state(
@@ -413,12 +355,15 @@ async def test_delete_chat_data_removes_all_persistence(
         workspace,
         [("session-1", "user-1", "console")],
     )
+    store.close()
 
 
 @pytest.mark.asyncio
-async def test_delete_failure_keeps_chat_metadata_for_retry() -> None:
-    store = Mock(spec=TranscriptStore)
-    store.delete_session.side_effect = sqlite3.OperationalError("locked")
+async def test_delete_cleanup_failure_follows_chat_metadata_delete() -> None:
+    store = Mock(spec=TranscriptCatalog)
+    store.schedule_delete_session.side_effect = sqlite3.OperationalError(
+        "locked",
+    )
     manager = SimpleNamespace(
         get_chat=AsyncMock(return_value=_chat()),
         list_chats=AsyncMock(return_value=[_chat()]),
@@ -434,7 +379,7 @@ async def test_delete_failure_keeps_chat_metadata_for_retry() -> None:
         )
 
     assert exc_info.value.status_code == 500
-    manager.delete_chats.assert_not_awaited()
+    manager.delete_chats.assert_awaited_once_with(chat_ids=["chat-1"])
 
 
 @pytest.mark.asyncio
@@ -443,7 +388,7 @@ async def test_delete_keeps_data_while_another_chat_maps_same_session() -> (
 ):
     first = _chat()
     second = first.model_copy(update={"id": "chat-2"})
-    store = Mock(spec=TranscriptStore)
+    store = Mock(spec=TranscriptCatalog)
     manager = SimpleNamespace(
         get_chat=AsyncMock(return_value=first),
         list_chats=AsyncMock(return_value=[first, second]),
@@ -458,5 +403,5 @@ async def test_delete_keeps_data_while_another_chat_maps_same_session() -> (
     )
 
     assert result == {"deleted": True}
-    store.delete_session.assert_not_called()
+    store.schedule_delete_session.assert_not_called()
     manager.delete_chats.assert_awaited_once_with(chat_ids=[first.id])

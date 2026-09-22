@@ -7,10 +7,8 @@ import concurrent.futures
 import hashlib
 import json
 import logging
-import os
 import sqlite3
 import threading
-import uuid
 from collections import OrderedDict
 from contextlib import contextmanager
 from datetime import datetime, timezone
@@ -21,7 +19,7 @@ from .transcript import TranscriptCursor, TranscriptPage, TranscriptStore
 
 logger = logging.getLogger(__name__)
 
-_CATALOG_SCHEMA_VERSION = 2
+_CATALOG_SCHEMA_VERSION = 1
 _BUSY_TIMEOUT_MS = 5_000
 _DEFAULT_MAX_OPEN_STORES = 32
 
@@ -77,7 +75,6 @@ class TranscriptCatalog:
         self._condition = threading.Condition(self._lock)
         self._closed = False
         self._handles: OrderedDict[str, _SessionHandle] = OrderedDict()
-        self._publishing: set[str] = set()
         self._cleanup_executor = concurrent.futures.ThreadPoolExecutor(
             max_workers=1,
             thread_name_prefix="transcript-catalog-cleanup",
@@ -108,14 +105,9 @@ class TranscriptCatalog:
             version = int(
                 self._conn.execute("PRAGMA user_version").fetchone()[0],
             )
-            if version > _CATALOG_SCHEMA_VERSION:
-                raise RuntimeError(
-                    f"transcript catalog schema {version} is newer than "
-                    f"supported version {_CATALOG_SCHEMA_VERSION}",
-                )
             if version not in (0, _CATALOG_SCHEMA_VERSION):
                 raise RuntimeError(
-                    f"transcript catalog schema {version} is unsupported",
+                    f"unsupported transcript catalog schema version {version}",
                 )
             if version == 0:
                 self._conn.executescript(
@@ -125,14 +117,6 @@ class TranscriptCatalog:
                         user_id          TEXT NOT NULL,
                         channel          TEXT NOT NULL,
                         file_key         TEXT NOT NULL UNIQUE,
-                        origin           TEXT NOT NULL DEFAULT 'native'
-                                         CHECK(origin IN (
-                                             'native', 'conversation_branch'
-                                         )),
-                        parent_session_id TEXT,
-                        root_session_id  TEXT,
-                        fork_turn_seq    INTEGER,
-                        fork_ordinal     INTEGER,
                         created_at       TEXT NOT NULL,
                         updated_at       TEXT NOT NULL,
                         deleted_at       TEXT,
@@ -144,7 +128,6 @@ class TranscriptCatalog:
 
                     """,
                 )
-                version = 2
             self._conn.execute(
                 f"PRAGMA user_version={_CATALOG_SCHEMA_VERSION}",
             )
@@ -165,19 +148,6 @@ class TranscriptCatalog:
 
     def _store_path(self, file_key: str) -> Path:
         return self._transcript_dir / file_key[:2] / f"{file_key}.db"
-
-    @staticmethod
-    def _assert_database_integrity(path: Path) -> None:
-        uri = f"{path.resolve().as_uri()}?mode=ro"
-        connection = sqlite3.connect(uri, uri=True)
-        try:
-            result = connection.execute("PRAGMA quick_check").fetchone()
-            if result is None or result[0] != "ok":
-                raise RuntimeError(
-                    "transcript database integrity check failed",
-                )
-        finally:
-            connection.close()
 
     def _catalog_row(self, session_id: str) -> sqlite3.Row | None:
         return self._conn.execute(
@@ -203,8 +173,6 @@ class TranscriptCatalog:
         channel: str,
         create: bool,
     ) -> sqlite3.Row | None:
-        if session_id in self._publishing:
-            raise ValueError("transcript session is being published")
         row = self._catalog_row(session_id)
         if row is not None:
             self._assert_identity(row, user_id=user_id, channel=channel)
@@ -212,7 +180,7 @@ class TranscriptCatalog:
                 return None
             return row
 
-        if row is not None or not create:
+        if not create:
             return None
         file_key = self._file_key(
             session_id=session_id,
@@ -289,10 +257,7 @@ class TranscriptCatalog:
             if handle is None:
                 path = self._store_path(str(row["file_key"]))
                 path.parent.mkdir(parents=True, exist_ok=True)
-                store = TranscriptStore(
-                    path,
-                    background_cleanup=False,
-                )
+                store = TranscriptStore(path)
                 handle = _SessionHandle(store)
                 self._handles[session_id] = handle
             else:
@@ -328,17 +293,6 @@ class TranscriptCatalog:
         ) as handle:
             assert handle is not None
             return int(handle.write("start_turn", **kwargs))
-
-    def import_history_if_missing(self, **kwargs: Any) -> bool:
-        """Import one session into its independent database."""
-        with self._lease(
-            session_id=kwargs["session_id"],
-            user_id=kwargs["user_id"],
-            channel=kwargs["channel"],
-            create=True,
-        ) as handle:
-            assert handle is not None
-            return bool(handle.write("import_history_if_missing", **kwargs))
 
     def _write_existing(self, method_name: str, **kwargs: Any) -> Any:
         session_id = str(kwargs["session_id"])
@@ -394,107 +348,6 @@ class TranscriptCatalog:
                 max_bytes=max_bytes,
             )
 
-    def fork_session(
-        self,
-        *,
-        parent_session_id: str,
-        child_session_id: str,
-        child_user_id: str,
-        child_channel: str,
-        anchor: TranscriptCursor | None = None,
-    ) -> TranscriptCursor | None:
-        """Publish a conversation branch without invoking subagent fork."""
-        parent_identity = self._identity_for_session(parent_session_id)
-        if parent_identity is None:
-            raise ValueError("parent transcript session does not exist")
-        with self._condition:
-            if self._catalog_row(child_session_id) is not None:
-                raise ValueError("child transcript session already exists")
-            if child_session_id in self._publishing:
-                raise ValueError("child transcript session is being published")
-            self._publishing.add(child_session_id)
-
-        file_key = self._file_key(
-            session_id=child_session_id,
-            user_id=child_user_id,
-            channel=child_channel,
-        )
-        target = self._store_path(file_key)
-        staging = target.with_name(
-            f".{target.name}.{uuid.uuid4().hex}.forking",
-        )
-        try:
-            with self._lease(
-                session_id=parent_session_id,
-                user_id=parent_identity[0],
-                channel=parent_identity[1],
-                create=False,
-            ) as parent:
-                if parent is None:
-                    raise ValueError(
-                        "parent transcript session does not exist",
-                    )
-                result = parent.write(
-                    "fork_snapshot",
-                    parent_session_id=parent_session_id,
-                    child_session_id=child_session_id,
-                    child_user_id=child_user_id,
-                    child_channel=child_channel,
-                    target_path=staging,
-                    anchor=anchor,
-                )
-            resolved_anchor, _, _ = result
-            self._assert_database_integrity(staging)
-            target.parent.mkdir(parents=True, exist_ok=True)
-            os.replace(staging, target)
-            self._delete_files(staging)
-            timestamp = _utc_now()
-            with self._condition, self._conn:
-                parent_row = self._catalog_row(parent_session_id)
-                parent_root = None
-                if parent_row is not None:
-                    parent_root = parent_row["root_session_id"]
-                root_session_id = str(parent_root or parent_session_id)
-                self._conn.execute(
-                    "INSERT INTO transcript_files("
-                    "session_id, user_id, channel, file_key, "
-                    "origin, parent_session_id, root_session_id, "
-                    "fork_turn_seq, fork_ordinal, "
-                    "created_at, updated_at) VALUES "
-                    "(?, ?, ?, ?, 'conversation_branch', "
-                    "?, ?, ?, ?, ?, ?)",
-                    (
-                        child_session_id,
-                        child_user_id,
-                        child_channel,
-                        file_key,
-                        parent_session_id,
-                        root_session_id,
-                        (
-                            resolved_anchor.turn_seq
-                            if resolved_anchor is not None
-                            else None
-                        ),
-                        (
-                            resolved_anchor.ordinal
-                            if resolved_anchor is not None
-                            else None
-                        ),
-                        timestamp,
-                        timestamp,
-                    ),
-                )
-            return resolved_anchor
-        except BaseException:
-            self._delete_files(staging)
-            if self._catalog_row(child_session_id) is None:
-                self._delete_files(target)
-            raise
-        finally:
-            with self._condition:
-                self._publishing.discard(child_session_id)
-                self._condition.notify_all()
-
     def find_turn_for_message(self, **kwargs: Any) -> str | None:
         session_id = str(kwargs["session_id"])
         identity = self._identity_for_session(session_id)
@@ -509,10 +362,6 @@ class TranscriptCatalog:
             if handle is None:
                 return None
             return handle.store.find_turn_for_message(**kwargs)
-
-    def has_session(self, session_id: str) -> bool:
-        """Return whether the catalog contains an active session."""
-        return self._identity_for_session(session_id) is not None
 
     def mark_session_deleted(self, session_id: str) -> bool:
         """Persist a catalog tombstone before any physical deletion."""
@@ -612,12 +461,6 @@ class TranscriptCatalog:
             return False
         self._submit_cleanup(session_id)
         return True
-
-    def delete_session(self, session_id: str) -> bool:
-        """Hide and synchronously remove one session transcript."""
-        if not self.mark_session_deleted(session_id):
-            return False
-        return self._purge_deleted_session(session_id)
 
     def _resume_deleted_cleanup(self) -> None:
         with self._lock:

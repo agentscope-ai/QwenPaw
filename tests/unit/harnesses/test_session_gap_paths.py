@@ -14,7 +14,6 @@ from pathlib import Path
 import pytest
 
 from qwenpaw.app.chats.session import SafeJSONSession
-from qwenpaw.app.chats.transcript import TranscriptStore
 from qwenpaw.harnesses.events import HarnessHistoryItem, HarnessHistoryKind
 from qwenpaw.harnesses.session import HarnessSessionBridge
 from qwenpaw.schemas import (
@@ -171,61 +170,6 @@ class TestHydrate:
         persisted = await session.get_session_state_dict("s", "u", "c")
         context = persisted["agent"]["state"]["context"]
         assert len(context) == 5
-
-    async def test_hydrate_backfills_missing_durable_transcript(
-        self,
-        session,
-        tmp_path,
-    ):
-        snapshot_bridge = HarnessSessionBridge(session)
-        await snapshot_bridge.hydrate(
-            session_id="s",
-            user_id="u",
-            channel="c",
-            backend="codex",
-            history=self._history(),
-        )
-        store = TranscriptStore(tmp_path / "session.db")
-        bridge = HarnessSessionBridge(session, store)
-
-        assert (
-            await bridge.needs_hydration(
-                session_id="s",
-                user_id="u",
-                channel="c",
-            )
-            is True
-        )
-        await bridge.hydrate(
-            session_id="s",
-            user_id="u",
-            channel="c",
-            backend="codex",
-            history=self._history(),
-        )
-        page = store.get_page(
-            session_id="s",
-            user_id="u",
-            channel="c",
-        )
-
-        assert page is not None
-        assert page.completeness == "partial"
-        assert len(page.messages) == 5
-        assert len({message.id for message in page.messages}) == 5
-        assert all(
-            message.id.startswith("harness-history:codex:")
-            for message in page.messages
-        )
-        assert (
-            await bridge.needs_hydration(
-                session_id="s",
-                user_id="u",
-                channel="c",
-            )
-            is False
-        )
-        store.close()
 
 
 # ---------------------------------------------------------------------------

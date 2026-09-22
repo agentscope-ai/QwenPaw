@@ -748,11 +748,11 @@ class TestConsoleStreaming:
         assert len(events) == 1
         assert "data:" in events[0]
 
-    async def test_stream_one_embeds_usage_in_completed_response(
+    async def test_stream_one_emits_usage_after_completed_response(
         self,
         stream_channel,
     ):
-        """A consumer stopping at completion must receive usage metadata."""
+        """Usage remains a distinct trailing transport event."""
         from qwenpaw.schemas import (
             AgentResponse,
             ContentType,
@@ -767,9 +767,11 @@ class TestConsoleStreaming:
 
         class Workspace:
             chat_manager = None
+            finalized = False
 
             async def finalize_turn_usage(self, request):
                 del request
+                self.finalized = True
                 return usage, context_usage
 
         completed = AgentResponse(
@@ -791,7 +793,8 @@ class TestConsoleStreaming:
             del request
             yield completed
 
-        stream_channel._workspace = Workspace()
+        workspace = Workspace()
+        stream_channel._workspace = workspace
         stream_channel._process = mock_process
         payload = {
             "sender_id": "user123",
@@ -801,24 +804,19 @@ class TestConsoleStreaming:
             "meta": {},
         }
 
-        received = [
-            json.loads(event.removeprefix("data: ").strip())
-            async for event in stream_channel.stream_one(payload)
-        ]
+        stream = stream_channel.stream_one(payload)
+        completed_event = json.loads(
+            (await anext(stream)).removeprefix("data: ").strip(),
+        )
+        usage_event = json.loads(
+            (await anext(stream)).removeprefix("data: ").strip(),
+        )
 
-        assert [event.get("type") for event in received] == [
-            "response.completed",
-            "turn_usage",
-        ]
-        snapshot = received[0]["metadata"]["qwenpaw_turn_usage"]
-        assert snapshot == {
-            "usage": usage,
-            "context_usage": context_usage,
-        }
-        message_snapshot = received[0]["output"][-1]["metadata"][
-            "qwenpaw_turn_usage"
-        ]
-        assert message_snapshot == snapshot
+        assert workspace.finalized is True
+        assert completed_event["type"] == "response.completed"
+        assert usage_event["type"] == "turn_usage"
+        assert usage_event["usage"] == usage
+        assert usage_event["context_usage"] == context_usage
 
     @pytest.mark.parametrize("suffix", ("<", "<!", "<!--"))
     async def test_stream_one_flushes_pending_prefix_before_completion(
