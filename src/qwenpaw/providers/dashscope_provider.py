@@ -15,10 +15,13 @@ import json
 import logging
 from typing import Any, Dict, List
 
+import httpx
+
 from agentscope.model import ChatModelBase
 from pydantic import Field
 
 from .provider import ModelInfo
+from .dashscope_discovery import directory_url, fetch_directory
 from .capping_formatter import MAX_INLINE_MEDIA_BYTES
 from .capping_formatter import _CappingDashScopeFormatter
 from .openai_chat_model_compat import _sanitize_nullable_tool_schemas
@@ -70,7 +73,18 @@ class DashScopeProvider(OpenAIProvider):
         return any(marker in normalized for marker in non_chat_markers)
 
     async def fetch_models(self, timeout: float = 5) -> List[ModelInfo]:
-        """Fetch only catalog entries compatible with chat completions."""
+        """Use the native directory, with compatible listing for older APIs."""
+        url = directory_url(self.base_url)
+        if url:
+            headers = {
+                f"Authorization": f"Bearer {self.api_key}",
+                **self.custom_headers,
+            }
+            try:
+                return await fetch_directory(url, headers, timeout)
+            except httpx.HTTPStatusError as exc:
+                if exc.response.status_code not in {404, 405}:
+                    raise
         models = await super().fetch_models(timeout)
         return [
             model for model in models if not self._is_non_chat_model(model.id)
@@ -94,26 +108,10 @@ class DashScopeProvider(OpenAIProvider):
         budget: int,
     ) -> None:
         """Map agent thinking levels to the model-specific DashScope API."""
-        model_info = self.get_model_info(model_id)
-        param_style = (
-            model_info.thinking_param_style
-            if model_info and model_info.thinking_param_style
-            else self.thinking_param_style
-        )
-        if param_style == "effort":
-            extra_body = effective.get("extra_body")
-            if not isinstance(extra_body, dict):
-                extra_body = {}
-            extra_body["thinking"] = {
-                "type": "disabled" if level == "off" else "enabled",
-            }
-            if level == "off":
-                extra_body.pop("reasoning_effort", None)
-            else:
-                extra_body["reasoning_effort"] = level
-            effective.pop("thinking_enable", None)
-            effective.pop("thinking_budget", None)
-            effective["extra_body"] = extra_body
+        if self.thinking_control(model_id).kind == f"effort":
+            effective[f"thinking_enable"] = level != f"off"
+            if level != f"off":
+                effective[f"reasoning_effort"] = level
             return
 
         if level == "off":
@@ -142,29 +140,14 @@ class DashScopeProvider(OpenAIProvider):
             return
         enabled, budget, effort = self._get_thinking_config(model_id)
 
-        # Resolve the effective thinking_param_style for this model:
-        # model-level override takes precedence over the provider default.
-        model_info = self.get_model_info(model_id)
-        param_style = (
-            model_info.thinking_param_style
-            if model_info and model_info.thinking_param_style
-            else self.thinking_param_style
-        )
-
-        if param_style == "effort":
-            # Effort-style models (e.g. GLM-5.2) pass both ``thinking`` and
-            # ``reasoning_effort`` inside ``extra_body`` (OpenAI-compat path).
-            # They do NOT support ``enable_thinking`` (Qwen-style parameter).
-            eb = effective.setdefault("extra_body", {})
-            if not isinstance(eb, dict):
-                eb = {}
-                effective["extra_body"] = eb
-            if enabled is True:
-                eb.setdefault("thinking", {"type": "enabled"})
-            elif enabled is False:
-                eb.setdefault("thinking", {"type": "disabled"})
-            if effort is not None:
-                eb.setdefault("reasoning_effort", effort)
+        if self.thinking_control(model_id).kind == f"effort":
+            if enabled is not None:
+                effective.setdefault(f"thinking_enable", enabled)
+            if (
+                effort is not None
+                and effective.get(f"thinking_enable") is not False
+            ):
+                effective.setdefault(f"reasoning_effort", effort)
             return
 
         # Budget-style (default for DashScope Qwen models).
@@ -182,10 +165,43 @@ class DashScopeProvider(OpenAIProvider):
             if (
                 "thinking_budget" not in effective
                 and "thinking_budget" not in eb
+                and "reasoning_effort" not in effective
+                and "reasoning_effort" not in eb
             ):
                 effective["thinking_budget"] = budget
-        if effort is not None:
-            effective.setdefault("reasoning_effort", effort)
+        if (
+            effort is not None
+            and f"thinking_budget" not in effective
+            and f"thinking_budget" not in eb
+        ):
+            effective.setdefault(f"reasoning_effort", effort)
+
+    def resolve_thinking_kwargs(self, model_id: str, effective: dict) -> dict:
+        """Resolve native parameters identically for requests and display."""
+        effective = self._deep_merge({}, effective)
+        self._apply_thinking_config(model_id, effective)
+        # Back-compat: honour OpenAI-style ``extra_body`` so configs written
+        # for the old OpenAIProvider path keep working after migration to the
+        # native DashScopeChatModel.  Direct top-level keys take precedence.
+        # Mapped keys are promoted; unmapped keys stay in ``extra_body`` and
+        # are forwarded via ``extra_generate_kwargs``.
+        extra_body = effective.pop("extra_body", None)
+        if isinstance(extra_body, dict):
+            remaining_body = dict(extra_body)
+            _EXTRA_BODY_MAP = {
+                "enable_thinking": "thinking_enable",
+                "thinking_budget": "thinking_budget",
+                "top_k": "top_k",
+            }
+            for eb_key, param_key in _EXTRA_BODY_MAP.items():
+                if eb_key in remaining_body:
+                    if param_key not in effective:
+                        effective[param_key] = remaining_body[eb_key]
+                    del remaining_body[eb_key]
+            if remaining_body:
+                effective["extra_body"] = remaining_body
+
+        return effective
 
     def get_chat_model_instance(self, model_id: str) -> ChatModelBase:
         from agentscope.credential import DashScopeCredential
@@ -207,28 +223,7 @@ class DashScopeProvider(OpenAIProvider):
         )
 
         effective = self.get_effective_generate_kwargs(model_id)
-        self._apply_thinking_config(model_id, effective)
-
-        # Back-compat: honour OpenAI-style ``extra_body`` so configs written
-        # for the old OpenAIProvider path keep working after migration to the
-        # native DashScopeChatModel.  Direct top-level keys take precedence.
-        # Mapped keys are promoted; unmapped keys stay in ``extra_body`` and
-        # are forwarded via ``extra_generate_kwargs``.
-        extra_body = effective.pop("extra_body", None)
-        if isinstance(extra_body, dict):
-            remaining_body = dict(extra_body)
-            _EXTRA_BODY_MAP = {
-                "enable_thinking": "thinking_enable",
-                "thinking_budget": "thinking_budget",
-                "top_k": "top_k",
-            }
-            for eb_key, param_key in _EXTRA_BODY_MAP.items():
-                if eb_key in remaining_body:
-                    if param_key not in effective:
-                        effective[param_key] = remaining_body[eb_key]
-                    del remaining_body[eb_key]
-            if remaining_body:
-                effective["extra_body"] = remaining_body
+        effective = self.resolve_thinking_kwargs(model_id, effective)
 
         _PARAM_KEYS = (
             "max_tokens",

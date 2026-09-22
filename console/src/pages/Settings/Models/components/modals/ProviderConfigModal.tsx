@@ -1,3 +1,4 @@
+import { Switch } from "antd";
 import { useState, useEffect, useMemo, useRef } from "react";
 import type { KeyboardEvent, ReactNode, UIEvent } from "react";
 import {
@@ -16,6 +17,7 @@ import {
   RightOutlined,
 } from "@ant-design/icons";
 import type {
+  ActiveModelsInfo,
   BaseUrlOption,
   ProviderConfigRequest,
 } from "../../../../../api/types";
@@ -25,6 +27,7 @@ import { getLocalizedTestConnectionMessage } from "./testConnectionMessage";
 import { getValidApiKeyPrefixes } from "../../apiKeyValidation";
 import styles from "../../index.module.less";
 import { ProviderConnectionFields } from "./ProviderConnectionFields";
+import { ProviderApiKeyLink } from "../ProviderApiKeyLink";
 
 interface ProviderConfigFormValues
   extends Omit<
@@ -49,7 +52,7 @@ interface JsonCodeEditorProps {
 function highlightJson(text: string): ReactNode[] {
   const tokens: ReactNode[] = [];
   const pattern =
-    /("(?:\\.|[^"\\])*")(\s*:)?|\btrue\b|\bfalse\b|\bnull\b|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?|[{}\[\],:]/g;
+    /("(?:\\.|[^"\\])*")(\s*:)?|\btrue\b|\bfalse\b|\bnull\b|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?|[{}[\],:]/g;
 
   let lastIndex = 0;
   let match: RegExpExecArray | null;
@@ -263,10 +266,12 @@ function JsonCodeEditor({
 
 interface ProviderConfigModalProps {
   provider: {
+    enabled?: boolean;
     id: string;
     name: string;
     api_key?: string;
     api_key_prefix?: string;
+    require_api_key?: boolean;
     api_key_prefixes?: string[];
     base_url?: string;
     is_custom: boolean;
@@ -278,7 +283,7 @@ interface ProviderConfigModalProps {
     auth_mode?: "api_key" | "auth_token";
     meta?: Record<string, unknown>;
   };
-  activeModels: any;
+  activeModels: ActiveModelsInfo | null;
   open: boolean;
   onClose: () => void;
   onSaved: () => void;
@@ -377,8 +382,12 @@ export function ProviderConfigModal({
         prefix: validApiKeyPrefixes.join(", "),
       });
     }
-    return t("models.enterApiKeyOptional");
-  }, [provider.api_key, validApiKeyPrefixes, t]);
+    return t(
+      provider.require_api_key
+        ? "models.enterApiKeyRequired"
+        : "models.enterApiKeyOptional",
+    );
+  }, [provider.api_key, provider.require_api_key, validApiKeyPrefixes, t]);
 
   const apiKeyLabel =
     isAnthropicProvider && authMode === "auth_token"
@@ -457,6 +466,7 @@ export function ProviderConfigModal({
   useEffect(() => {
     if (open) {
       form.setFieldsValue({
+        enabled: provider.enabled !== false,
         api_key: undefined,
         name: provider.name,
         base_url: provider.base_url || undefined,
@@ -490,7 +500,7 @@ export function ProviderConfigModal({
 
       // Validate connection before saving
       // For local providers, we might skip this or just check if models exist (which the backend does)
-      if (provider.support_connection_check) {
+      if (values.enabled !== false && provider.support_connection_check) {
         const testHeaders = customHeaders
           .filter((h) => h.key.trim())
           .reduce<Record<string, string>>((acc, h) => {
@@ -520,6 +530,7 @@ export function ProviderConfigModal({
         }, {});
 
       await api.configureProvider(provider.id, {
+        enabled: values.enabled,
         api_key: values.api_key,
         name: provider.is_custom ? values.name?.trim() : undefined,
         base_url: values.base_url,
@@ -667,6 +678,7 @@ export function ProviderConfigModal({
         form={form}
         layout="vertical"
         initialValues={{
+          enabled: provider.enabled !== false,
           name: provider.name,
           base_url: provider.base_url || undefined,
           chat_model: provider.chat_model || "OpenAIChatModel",
@@ -678,6 +690,13 @@ export function ProviderConfigModal({
         }}
         onValuesChange={() => setFormDirty(true)}
       >
+        <Form.Item
+          name="enabled"
+          label={t("models.providerEnabled")}
+          valuePropName="checked"
+        >
+          <Switch />
+        </Form.Item>
         {provider.is_custom && (
           <Form.Item
             name="name"
@@ -731,7 +750,12 @@ export function ProviderConfigModal({
           baseUrlOptions={baseUrlOptions}
           baseUrlExtra={baseUrlExtra}
           baseUrlPlaceholder={baseUrlPlaceholder}
-          apiKeyLabel={apiKeyLabel}
+          apiKeyLabel={
+            <span>
+              {apiKeyLabel}
+              <ProviderApiKeyLink url={provider.meta?.api_key_url} />
+            </span>
+          }
           apiKeyPlaceholder={apiKeyPlaceholder}
           validApiKeyPrefixes={validApiKeyPrefixes}
           authMode={authMode}

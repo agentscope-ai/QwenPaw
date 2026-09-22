@@ -1,0 +1,83 @@
+@import (reference) "../../../../../styles/modelSurfaces.less";
+.editor {
+  .model-surface-tokens();
+  max-width: 720px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 4px 0 12px;
+}
+.capabilities,
+.limits,
+.thinking,
+.advanced {
+  background: var(--model-card);
+  border: 1px solid var(--model-hairline);
+  border-radius: 18px;
+  padding: 20px;
+  min-width: 0;
+}
+.capabilities:has(> div:empty) {
+  display: none;
+}
+.basics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  align-items: stretch;
+}
+.limits {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.thinking {
+  display: flex;
+  align-items: center;
+  padding: 8px;
+}
+.advanced > details > summary {
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--app-text-secondary);
+}
+.advanced > details[open] > summary {
+  margin-bottom: 16px;
+}
+.jsonHeading {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  font-size: 12px;
+  margin: 16px 0 8px;
+  color: var(--app-text-secondary);
+}
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 4px;
+}
+@media (max-width: 640px) {
+  .basics {
+    grid-template-columns: 1fr;
+  }
+  .capabilities,
+  .limits,
+  .advanced {
+    padding: 16px;
+  }
+}
+.capabilities > div {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-bottom: 0;
+}
+.capabilities button {
+  justify-content: flex-start;
+}
+@media (max-width: 420px) {
+  .capabilities > div {
+    grid-template-columns: 1fr;
+  }
+}

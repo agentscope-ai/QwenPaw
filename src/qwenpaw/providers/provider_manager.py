@@ -2,6 +2,7 @@
 """A Manager class to handle all providers, including built-in and custom ones.
 It provides a unified interface to manage providers, such as listing available
 providers, adding/removing custom providers, and fetching provider details."""
+
 # pylint: disable=unused-import
 
 import asyncio
@@ -23,6 +24,7 @@ from ..utils.io_utils import (
     run_async_to_completion,
     run_sync_io,
 )
+from .model_sync import invalidate_api_metadata
 from .provider import (
     ModelInfo,
     Provider,
@@ -37,6 +39,7 @@ from .hub_managed import (
     managed_provider,
     managed_slot,
 )
+from . import hub_model_selection
 from . import model_catalog
 from .capability_baseline import ExpectedCapabilityRegistry
 from .provider_catalog import (
@@ -109,6 +112,10 @@ class ProviderManager(
         self.custom_path = self.root_path / "custom"
         self.plugin_path = self.root_path / "plugin"  # Plugin provider configs
         self._plugin_registry = PluginProviderRegistry(self)
+        first_run = (
+            not self.root_path.exists()
+            and not (SECRET_DIR / f"providers.json").exists()
+        )
         self._prepare_disk_storage()
         self._index_provider_storage_paths()
         self._init_builtins()
@@ -117,8 +124,40 @@ class ProviderManager(
         except Exception as e:
             logger.warning("Failed to migrate legacy providers: %s", e)
         self._init_from_storage()
+        if first_run:
+            self._initialize_free_models()
         self._capability_registry = ExpectedCapabilityRegistry()
         self._apply_default_annotations()
+
+    def _initialize_free_models(self) -> None:
+        """Select starter models once, without changing existing installs."""
+        provider = self.builtin_providers[f"kilo"]
+        names = {
+            f"openrouter/free": f"OpenRouter - Free",
+            f"kilo-auto/free": f"Kilo Auto (Free Router)",
+        }
+        provider.enabled = True
+        starter_models = [
+            model.model_copy(
+                update={
+                    f"name": names[model.id],
+                    f"source": f"user",
+                    f"auto_enabled": True,
+                },
+                deep=True,
+            )
+            for model in provider.models
+            if model.id in names
+        ]
+        provider.models = [
+            model for model in provider.models if model.id not in names
+        ] + starter_models
+        self._save_provider(provider, is_builtin=True)
+        self.active_model = ModelSlotConfig(
+            provider_id=f"kilo",
+            model=f"kilo-auto/free",
+        )
+        self.save_active_model(self.active_model)
 
     def _prepare_disk_storage(self):
         """Prepare directory structure"""
@@ -136,9 +175,9 @@ class ProviderManager(
 
     def _init_builtins(self):
         """Register the ordered built-in provider catalog."""
-        catalog = model_catalog.load_model_catalog()
+        catalog = model_catalog.load_model_catalog(defaults_only=True)
         for provider in BUILTIN_PROVIDERS:
-            builtin = provider.model_copy(deep=True)
+            builtin = provider.configuration_snapshot()
             catalog_key = BUILTIN_PROVIDER_CATALOG_KEYS.get(provider.id)
             if catalog_key is not None:
                 builtin.models = [
@@ -152,20 +191,25 @@ class ProviderManager(
         # Each manager instance needs independent model objects for persisted
         # overrides and discovery metadata.
         provider_key = self._normalize_provider_id(provider.id)
-        self.builtin_providers[provider_key] = provider.model_copy(deep=True)
+        self.builtin_providers[
+            provider_key
+        ] = provider.configuration_snapshot()
 
     async def list_provider_info(self) -> List[ProviderInfo]:
+        """Read explicit model membership without changing selection."""
         tasks = [
-            provider.get_info() for provider in self.builtin_providers.values()
+            provider.get_info(include_candidates=False)
+            for provider in self.builtin_providers.values()
         ]
         tasks += [
-            provider.get_info() for provider in self.custom_providers.values()
+            provider.get_info(include_candidates=False)
+            for provider in self.custom_providers.values()
         ]
 
         provider_infos = await asyncio.gather(*tasks)
         if hub_mode():
             try:
-                provider = await run_sync_io(managed_provider)
+                provider = await run_sync_io(self.get_provider, PROVIDER_ID)
                 hub_info = await provider.get_info()
             except ProviderError:
                 hub_info = ProviderInfo(
@@ -196,7 +240,15 @@ class ProviderManager(
     def get_provider(self, provider_id: str) -> Provider | None:
         """Resolve a provider, refreshing Hub metadata via synchronous I/O."""
         if hub_mode() and provider_id == PROVIDER_ID:
-            return managed_provider()
+            provider = managed_provider()
+            state = hub_model_selection.read_selection(
+                self.root_path / f"hub-model-selection.json",
+            )
+            return hub_model_selection.apply_selection(
+                provider,
+                state,
+                self.active_model,
+            )
         # Return a provider instance by its ID. This will be used to create
         # chat model instances for the agent.
         # Normalize provider ID for backward compatibility
@@ -216,9 +268,10 @@ class ProviderManager(
 
     def get_active_model(self) -> ModelSlotConfig | None:
         """Resolve the active model; Hub resolution refreshes its catalog."""
-        if hub_mode() and (
-            not self.active_model
-            or self.active_model.provider_id == PROVIDER_ID
+        if (
+            hub_mode()
+            and self.active_model
+            and self.active_model.provider_id == PROVIDER_ID
         ):
             return managed_slot(self.active_model)[0]
         return self.active_model
@@ -258,7 +311,7 @@ class ProviderManager(
         if provider is None:
             return False
         revision = self._provider_revision(provider_id)
-        candidate = provider.model_copy(deep=True)
+        candidate = provider.configuration_snapshot()
         before_update = candidate.model_dump()
         candidate.update_config(config)
         changed_fields = {
@@ -271,6 +324,7 @@ class ProviderManager(
             candidate = self._provider_from_data(candidate.model_dump())
         if _CONNECTION_CONFIG_FIELDS.intersection(changed_fields):
             self._reset_model_availability(candidate)
+            invalidate_api_metadata(candidate)
             candidate.models_syncing = False
 
         provider_path = await self._provider_config_path_async(provider_id)
@@ -291,16 +345,7 @@ class ProviderManager(
         if current is None:
             await self._restore_latest_snapshot(provider_id, provider_path)
             return False
-        if provider_id in self.plugin_providers:
-            self.plugin_providers[provider_id]["info"] = ProviderInfo(
-                **candidate.model_dump(),
-            )
-        elif (
-            current.__class__ is not candidate.__class__ and current.is_custom
-        ):
-            self.custom_providers[provider_id] = candidate
-        else:
-            self._copy_provider_state(current, candidate)
+        await self._commit_provider_snapshot(provider_id, candidate)
         if changed_fields:
             self._bump_provider_revision(provider_id)
         return True
@@ -328,32 +373,36 @@ class ProviderManager(
                 )
             ):
                 return False
-            self._merge_persisted_discovery_state(provider_id, provider)
-            before_update = provider.model_dump()
-            provider.update_config(config)
+            candidate = provider.configuration_snapshot()
+            self._merge_persisted_discovery_state(provider_id, candidate)
+            before_update = candidate.model_dump()
+            candidate.update_config(config)
             changed_fields = {
                 field
                 for field in config
-                if field in provider.__class__.model_fields
-                and before_update.get(field) != getattr(provider, field)
+                if field in candidate.__class__.model_fields
+                and before_update.get(field) != getattr(candidate, field)
             }
-            snapshot = provider
-            if provider.is_custom:
+            snapshot = candidate
+            if candidate.is_custom:
                 snapshot = self._provider_from_data(
-                    provider.model_dump(),
+                    candidate.model_dump(),
                 )
             if _CONNECTION_CONFIG_FIELDS.intersection(changed_fields):
                 self._reset_model_availability(snapshot)
+                invalidate_api_metadata(snapshot)
                 snapshot.models_syncing = False
+            self._save_provider_snapshot(provider_id, snapshot)
+            retired = self._install_provider_snapshot(provider_id, snapshot)
             if changed_fields:
                 self._bump_provider_revision(provider_id)
-            self._save_provider_snapshot(provider_id, snapshot)
-            if provider_id in self.plugin_providers:
-                self.plugin_providers[provider_id]["info"] = ProviderInfo(
-                    **snapshot.model_dump(),
-                )
-            elif snapshot is not provider:
-                self.custom_providers[provider_id] = snapshot
+            if retired is not None:
+                try:
+                    loop = asyncio.get_running_loop()
+                except RuntimeError:
+                    asyncio.run(retired.close())
+                else:
+                    loop.create_task(retired.close())
             return True
 
     def _merge_persisted_discovery_state(
@@ -378,8 +427,13 @@ class ProviderManager(
         provider.models_last_sync_error = persisted.models_last_sync_error
 
     def _bump_provider_revision(self, provider_id: str) -> int:
-        """Advance the revision used to reject stale async operations."""
+        """Invalidate derived cards and reject stale async operations."""
         provider_id = self._normalize_provider_id(provider_id)
+        provider = self.get_provider(provider_id)
+        if provider is not None:
+            # The manager owns revision and derived-pool invalidation.
+            # pylint: disable-next=protected-access
+            provider._resolved_pool = None
         revision = self._provider_revisions.get(provider_id, 0) + 1
         self._provider_revisions[provider_id] = revision
         return revision
@@ -567,6 +621,8 @@ class ProviderManager(
             raise ProviderError(
                 message=f"Provider '{provider_id}' not found.",
             )
+        if not provider.enabled:
+            raise ProviderError(message=f"Provider is disabled")
         if not provider.has_model(model_id):
             raise ModelNotFoundException(
                 model_name=f"{provider_id}/{model_id}",
@@ -613,7 +669,11 @@ class ProviderManager(
         provider = self.get_provider(provider_id)
         # Auto-probe multimodal if not yet probed
         for model in provider.all_models():
-            if model.id == model_id and model.supports_multimodal is None:
+            if (
+                model.id == model_id
+                and provider.model_capabilities(model).supports_multimodal
+                is None
+            ):
                 asyncio.create_task(
                     self._auto_probe_multimodal(provider_id, model_id),
                 )
@@ -668,7 +728,9 @@ class ProviderManager(
             discovered = next(
                 (
                     model
-                    for model in candidate.discovered_models
+                    for model in await run_sync_io(
+                        candidate.discovery_candidates,
+                    )
                     if model.id.strip() == requested_model.id.strip()
                 ),
                 None,
@@ -724,6 +786,185 @@ class ProviderManager(
             )
         return await provider.get_info()
 
+    async def update_model_pool(
+        self,
+        provider_id: str,
+        model_id: str,
+        *,
+        selected: bool | None = None,
+        seen: bool = False,
+    ) -> ProviderInfo:
+        """Persist explicit selection and read state independently of sync."""
+
+        if hub_mode() and provider_id == PROVIDER_ID:
+            return await self._update_hub_selection(
+                model_id,
+                selected=selected,
+                seen=seen,
+            )
+
+        async def update(candidate: Provider) -> None:
+            model = next(
+                (
+                    item
+                    for item in await run_sync_io(
+                        candidate.discovery_candidates,
+                    )
+                    + candidate.extra_models
+                    if item.id == model_id
+                ),
+                None,
+            )
+            if model is None:
+                raise ProviderError(message=f"Model '{model_id}' not found")
+            if selected is True:
+                added, error = await candidate.add_model(
+                    model.model_copy(deep=True),
+                )
+                if not added and error:
+                    raise ProviderError(message=error)
+            elif selected is False:
+                active = await run_sync_io(self.get_active_model)
+                if (
+                    active
+                    and active.provider_id == provider_id
+                    and (active.model == model_id)
+                ):
+                    raise ProviderError(
+                        message=f"Choose another default model first",
+                    )
+                for item in candidate.models:
+                    if item.id == model_id:
+                        item.source = f"builtin"
+                if not any(
+                    item.id == model_id for item in candidate.discovered_models
+                ):
+                    copy = model.model_copy(deep=True)
+                    copy.source = f"discovered"
+                    candidate.discovered_models.append(copy)
+                candidate.extra_models = [
+                    item
+                    for item in candidate.extra_models
+                    if item.id != model_id
+                ]
+                if candidate.is_custom:
+                    candidate.models = [
+                        item
+                        for item in candidate.models
+                        if item.id != model_id
+                    ]
+            if seen and model_id not in candidate.seen_model_ids:
+                candidate.seen_model_ids.append(model_id)
+
+        if selected is None:
+            lock = self._provider_save_locks.setdefault(
+                provider_id,
+                asyncio.Lock(),
+            )
+            async with lock:
+                provider = await run_sync_io(self.get_provider, provider_id)
+                if provider is None:
+                    raise ProviderError(
+                        message=f"Provider '{provider_id}' not found",
+                    )
+                candidate = provider.configuration_snapshot()
+                await update(candidate)
+                path = await self._provider_config_path_async(provider_id)
+
+                async def save_read_state() -> None:
+                    await run_sync_io(
+                        self._save_provider_snapshot_locked,
+                        provider_id,
+                        candidate,
+                        path,
+                    )
+                    # Read receipts do not change the runtime configuration
+                    # or invalidate a discovery already in flight.
+                    provider.seen_model_ids = list(candidate.seen_model_ids)
+
+                await run_async_to_completion(save_read_state())
+        else:
+            await self._mutate_provider_async(provider_id, update)
+        provider = await run_sync_io(self.get_provider, provider_id)
+        if provider is None:
+            raise ProviderError(message=f"Provider '{provider_id}' not found")
+        return await provider.get_info(include_candidates=selected is not None)
+
+    async def select_all_models(
+        self,
+        provider_id: str,
+        *,
+        selected: bool,
+    ) -> ProviderInfo:
+        """Change the entire pool in one save, retaining model overrides."""
+        if hub_mode() and provider_id == PROVIDER_ID:
+            provider = await run_sync_io(self.get_provider, provider_id)
+            ids = [model.id for model in provider.models] if selected else []
+            state = await run_sync_io(
+                hub_model_selection.replace_selection,
+                self.root_path / f"hub-model-selection.json",
+                ids,
+            )
+            if not selected:
+                await self.clear_active_model_async(provider_id)
+            hub_model_selection.apply_selection(
+                provider,
+                state,
+                self.active_model,
+            )
+            return await provider.get_info()
+
+        async def update(candidate: Provider) -> None:
+            configured = candidate.configured_models()
+            selected_ids = {model.id for model in configured}
+            pool = await run_sync_io(candidate.discovery_candidates)
+            if selected:
+                for model in pool:
+                    if model.id in selected_ids:
+                        continue
+                    added, error = await candidate.add_model(
+                        model.model_copy(deep=True),
+                    )
+                    if not added and error:
+                        raise ProviderError(message=error)
+            else:
+                retained = {
+                    model.id: model for model in candidate.discovered_models
+                }
+                for model in configured:
+                    copy = model.model_copy(deep=True)
+                    copy.source = f"discovered"
+                    retained[model.id] = copy
+                candidate.discovered_models = list(retained.values())
+                candidate.extra_models = []
+                if candidate.is_custom:
+                    candidate.models = []
+                else:
+                    for model in candidate.models:
+                        model.source = f"builtin"
+
+        await self._mutate_provider_async(provider_id, update)
+        if not selected:
+            await self.clear_active_model_async(provider_id)
+        provider = await run_sync_io(self.get_provider, provider_id)
+        if provider is None:
+            raise ProviderError(message=f"Provider '{provider_id}' not found")
+        return await provider.get_info(include_candidates=False)
+
+    async def _update_hub_selection(self, model_id, **changes):
+        """Store personal membership without mutating managed providers."""
+        provider = await run_sync_io(self.get_provider, PROVIDER_ID)
+        if not any(model.id == model_id for model in provider.models):
+            raise ProviderError(message=f"Organization model unavailable")
+        state = await run_sync_io(
+            hub_model_selection.update_selection,
+            self.root_path / f"hub-model-selection.json",
+            model_id,
+            **changes,
+        )
+        hub_model_selection.apply_selection(provider, state, self.active_model)
+        return await provider.get_info()
+
     async def set_model_hidden(
         self,
         provider_id: str,
@@ -732,6 +973,8 @@ class ProviderManager(
         hidden: bool,
     ) -> ProviderInfo:
         """Persist whether one discovery candidate is hidden from the UI."""
+        if hub_mode() and provider_id == PROVIDER_ID:
+            return await self._update_hub_selection(model_id, hidden=hidden)
         provider_id = self._normalize_provider_id(provider_id)
         if (await run_sync_io(self.get_provider, provider_id)) is None:
             raise ProviderError(
@@ -772,6 +1015,16 @@ class ProviderManager(
         config_snapshot = dict(config)
 
         async def update_model(candidate: Provider) -> None:
+            if (
+                candidate.get_model_info(model_id) is None
+                and candidate.get_discovered_model_info(model_id) is None
+            ):
+                pool = await run_sync_io(candidate.discovery_candidates)
+                card = next((m for m in pool if m.id == model_id), None)
+                if card is not None:
+                    candidate.discovered_models.append(
+                        card.model_copy(deep=True),
+                    )
             if not candidate.update_model_config(model_id, config_snapshot):
                 raise ModelNotFoundException(
                     model_name=f"{provider_id}/{model_id}",
@@ -842,14 +1095,25 @@ class ProviderManager(
             for model in candidate.all_models():
                 if model.id != model_id:
                     continue
-                model.supports_image = probe_result.supports_image
-                if not image_only:
+                if (
+                    probe_result.supports_image is not None
+                    and f"supports_image" not in model.config_overrides
+                ):
+                    model.supports_image = probe_result.supports_image
+                if (
+                    not image_only
+                    and probe_result.supports_video is not None
+                    and f"supports_video" not in model.config_overrides
+                ):
                     model.supports_video = probe_result.supports_video
-                    model.supports_multimodal = (
-                        probe_result.supports_multimodal
-                    )
-                elif probe_result.supports_image:
-                    model.supports_multimodal = True
+                values = (model.supports_image, model.supports_video)
+                model.supports_multimodal = (
+                    True
+                    if True in values
+                    else False
+                    if all(v is False for v in values)
+                    else None
+                )
                 model.probe_source = getattr(
                     probe_result,
                     "probe_source",
@@ -1000,4 +1264,6 @@ class ProviderManager(
             raise ProviderError(
                 message=f"Active provider '{model.provider_id}' not found.",
             )
+        if not provider.enabled:
+            raise ProviderError(message=f"Provider is disabled")
         return provider.get_chat_model_instance(model.model)

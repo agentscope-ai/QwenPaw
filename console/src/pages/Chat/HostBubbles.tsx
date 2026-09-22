@@ -48,6 +48,7 @@ import type {
   ChatResponseData,
 } from "../../plugins/registry/types";
 import { DownloadableAudios } from "../../components/Chat/MediaDownload";
+import { ToolCallTurnBoundary } from "./turnEndedProvider";
 import ResponseArtifactList from "../../features/files-workspace/ResponseArtifactList";
 import { isToolLikeResponseMessageType } from "./responseMessageTypes";
 import {
@@ -469,5 +470,15 @@ export function HostResponseCard(props: {
   data: ChatResponseData;
   isLast?: boolean;
 }) {
-  return <MemoizedHostResponseCard {...props} />;
+  // Tool cards cannot tell a running call from one whose turn was interrupted
+  // because both lack a result message. Wrapping the whole card publishes the
+  // turn state without re-rendering its body: the memoized content bails out
+  // on unchanged props.
+  return (
+    <ToolCallTurnBoundary
+      data={props.data as unknown as IAgentScopeRuntimeResponse}
+    >
+      <MemoizedHostResponseCard {...props} />
+    </ToolCallTurnBoundary>
+  );
 }

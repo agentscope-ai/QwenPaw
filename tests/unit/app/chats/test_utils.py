@@ -501,7 +501,7 @@ def test_clean_title_empty_returns_empty():
     assert _clean_title("   ") == ""
 
 
-def test_clean_title_truncates_long_title():
+def test_clean_title_keeps_long_title():
     long_title = "x" * 200
     result = _clean_title(long_title)
-    assert len(result) <= 80
+    assert result == long_title

@@ -5,12 +5,16 @@ from __future__ import annotations
 
 import json
 import os
-from dataclasses import dataclass
+from copy import deepcopy
+from dataclasses import dataclass, field
 from typing import Any, Mapping
 from urllib.parse import urlparse
 
 from ...config.config import ModelSlotConfig
 from ...providers.openai_provider import OpenAIProvider
+from ...providers.openai_response_provider import OpenAIResponseProvider
+from ...providers.anthropic_provider import AnthropicProvider
+from ...providers.provider import Provider
 from ...providers.provider import ModelInfo
 
 RUNTIME_OPENAI_PROVIDER_ID = "runtime-openai"
@@ -64,6 +68,8 @@ class OpenAIRuntimeProviderConfig:
     model: str
     max_input_tokens: int | None = None
     max_output_tokens: int | None = None
+    protocol: str = f"chat"
+    model_overrides: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
     def from_env(
@@ -93,11 +99,29 @@ class OpenAIRuntimeProviderConfig:
             )
 
         model_info = _load_runtime_model_info(source)
+        protocol = model_info.get(f"protocol", f"chat")
+        if protocol not in {f"chat", f"responses", f"anthropic"}:
+            raise ValueError(f"Unsupported runtime model protocol")
+        fields = {
+            f"template_id",
+            f"supports_image",
+            f"supports_video",
+            f"supports_audio",
+            f"supports_tool_calling",
+            f"max_output_length",
+            f"generate_kwargs",
+        }
+        overrides = {
+            key: value for key, value in model_info.items() if key in fields
+        }
+        ModelInfo(id=values[f"OPENAI_MODEL"], name=f"runtime", **overrides)
 
         return cls(
             base_url=base_url,
             api_key=values["OPENAI_API_KEY"],
             model=values["OPENAI_MODEL"],
+            protocol=protocol,
+            model_overrides=overrides,
             max_input_tokens=_optional_int(
                 model_info,
                 "max_input_tokens",
@@ -118,9 +142,12 @@ class OpenAIRuntimeProviderConfig:
             model=self.model,
         )
 
-    def build_provider(self) -> OpenAIProvider:
+    def build_provider(self) -> Provider:
         """Create the in-memory provider without writing credentials."""
-        model_kwargs: dict[str, Any] = {}
+        model_kwargs: dict[str, Any] = deepcopy(self.model_overrides)
+        model_kwargs[f"config_overrides"] = list(self.model_overrides)
+        if model_kwargs.get(f"max_output_length") is not None:
+            model_kwargs[f"max_output_length_source"] = f"user"
         if self.max_input_tokens is not None:
             model_kwargs.update(
                 {
@@ -129,10 +156,19 @@ class OpenAIRuntimeProviderConfig:
                 },
             )
         if self.max_output_tokens is not None:
-            model_kwargs["generate_kwargs"] = {
-                "max_tokens": self.max_output_tokens,
-            }
-        return OpenAIProvider(
+            model_kwargs.setdefault(f"generate_kwargs", {})[
+                (
+                    f"max_output_tokens"
+                    if self.protocol == f"responses"
+                    else f"max_tokens"
+                )
+            ] = self.max_output_tokens
+        provider_class: type[Provider] = {
+            f"chat": OpenAIProvider,
+            f"responses": OpenAIResponseProvider,
+            f"anthropic": AnthropicProvider,
+        }[self.protocol]
+        return provider_class(
             id=RUNTIME_OPENAI_PROVIDER_ID,
             name="ACP Runtime OpenAI",
             base_url=self.base_url,

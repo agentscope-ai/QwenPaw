@@ -1,0 +1,193 @@
+{
+  "api_urls": [],
+  "remote_id": null,
+  "template_owner": false,
+  "default_model_ids": [
+    "gpt-5-chat",
+    "gpt-5-mini",
+    "gpt-5-nano",
+    "gpt-4.1",
+    "gpt-4.1-mini",
+    "gpt-4.1-nano",
+    "gpt-4o",
+    "gpt-4o-mini"
+  ],
+  "models": [
+    {
+      "id": "gpt-5-chat",
+      "name": "GPT-5 Chat",
+      "supports_image": true,
+      "supports_video": true,
+      "probe_source": "documentation",
+      "is_free": false,
+      "source": "builtin",
+      "availability_status": "unverified",
+      "availability_retryable": true,
+      "config_overrides": [],
+      "max_input_length": 131072,
+      "max_input_length_configured": false,
+      "generate_kwargs": {},
+      "relay_reasoning": true,
+      "billing": "paid",
+      "capability_provenance": {
+        "billing": {
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
+    },
+    {
+      "id": "gpt-5-mini",
+      "name": "GPT-5 Mini",
+      "supports_image": true,
+      "supports_video": true,
+      "probe_source": "documentation",
+      "is_free": false,
+      "source": "builtin",
+      "availability_status": "unverified",
+      "availability_retryable": true,
+      "config_overrides": [],
+      "max_input_length": 131072,
+      "max_input_length_configured": false,
+      "generate_kwargs": {},
+      "relay_reasoning": true,
+      "billing": "paid",
+      "capability_provenance": {
+        "billing": {
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
+    },
+    {
+      "id": "gpt-5-nano",
+      "name": "GPT-5 Nano",
+      "supports_image": true,
+      "supports_video": true,
+      "probe_source": "documentation",
+      "is_free": false,
+      "source": "builtin",
+      "availability_status": "unverified",
+      "availability_retryable": true,
+      "config_overrides": [],
+      "max_input_length": 131072,
+      "max_input_length_configured": false,
+      "generate_kwargs": {},
+      "relay_reasoning": true,
+      "billing": "paid",
+      "capability_provenance": {
+        "billing": {
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
+    },
+    {
+      "id": "gpt-4.1",
+      "name": "GPT-4.1",
+      "supports_image": true,
+      "supports_video": true,
+      "probe_source": "documentation",
+      "is_free": false,
+      "source": "builtin",
+      "availability_status": "unverified",
+      "availability_retryable": true,
+      "config_overrides": [],
+      "max_input_length": 131072,
+      "max_input_length_configured": false,
+      "generate_kwargs": {},
+      "relay_reasoning": true,
+      "billing": "paid",
+      "capability_provenance": {
+        "billing": {
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
+    },
+    {
+      "id": "gpt-4.1-mini",
+      "name": "GPT-4.1 Mini",
+      "supports_image": true,
+      "supports_video": true,
+      "probe_source": "documentation",
+      "is_free": false,
+      "source": "builtin",
+      "availability_status": "unverified",
+      "availability_retryable": true,
+      "config_overrides": [],
+      "max_input_length": 131072,
+      "max_input_length_configured": false,
+      "generate_kwargs": {},
+      "relay_reasoning": true,
+      "billing": "paid",
+      "capability_provenance": {
+        "billing": {
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
+    },
+    {
+      "id": "gpt-4.1-nano",
+      "name": "GPT-4.1 Nano",
+      "supports_image": true,
+      "supports_video": true,
+      "probe_source": "documentation",
+      "is_free": false,
+      "source": "builtin",
+      "availability_status": "unverified",
+      "availability_retryable": true,
+      "config_overrides": [],
+      "max_input_length": 131072,
+      "max_input_length_configured": false,
+      "generate_kwargs": {},
+      "relay_reasoning": true,
+      "billing": "paid",
+      "capability_provenance": {
+        "billing": {
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
+    },
+    {
+      "id": "gpt-4o",
+      "name": "GPT-4o",
+      "supports_image": true,
+      "supports_video": true,
+      "probe_source": "documentation",
+      "is_free": false,
+      "source": "builtin",
+      "availability_status": "unverified",
+      "availability_retryable": true,
+      "config_overrides": [],
+      "max_input_length": 131072,
+      "max_input_length_configured": false,
+      "generate_kwargs": {},
+      "relay_reasoning": true,
+      "billing": "paid",
+      "capability_provenance": {
+        "billing": {
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
+    },
+    {
+      "id": "gpt-4o-mini",
+      "name": "GPT-4o Mini",
+      "supports_image": true,
+      "supports_video": true,
+      "probe_source": "documentation",
+      "is_free": false,
+      "source": "builtin",
+      "availability_status": "unverified",
+      "availability_retryable": true,
+      "config_overrides": [],
+      "max_input_length": 131072,
+      "max_input_length_configured": false,
+      "generate_kwargs": {},
+      "relay_reasoning": true,
+      "billing": "paid",
+      "capability_provenance": {
+        "billing": {
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
+    }
+  ]
+}

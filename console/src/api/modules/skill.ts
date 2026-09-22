@@ -1,4 +1,4 @@
-import { request } from "../request";
+import { request, type RequestOptions } from "../request";
 import { getApiUrl } from "../config";
 import { buildAuthHeaders } from "../authHeaders";
 import type {
@@ -20,6 +20,11 @@ declare const VITE_API_BASE_URL: string;
 
 // Simple in-memory cache with TTL
 const CACHE_TTL_MS = 30000; // 30 seconds
+const LIST_REQUEST_OPTIONS: RequestOptions = {
+  timeout: 120_000,
+  retries: 2,
+  retryDelay: 1_000,
+};
 const apiCache = new Map<string, { data: unknown; timestamp: number }>();
 
 function getCached<T>(key: string): T | null {
@@ -125,7 +130,7 @@ export const skillApi = {
     const cached = getCached<SkillSpec[]>(cacheKey);
     if (cached) return cached;
 
-    const opts: RequestInit = {};
+    const opts: RequestOptions = { ...LIST_REQUEST_OPTIONS };
     if (agentId) opts.headers = new Headers({ "X-Agent-Id": agentId });
     const data = await request<SkillSpec[]>("/skills", opts);
     setCache(cacheKey, data);
@@ -137,7 +142,10 @@ export const skillApi = {
     const cached = getCached<WorkspaceSkillSummary[]>(cacheKey);
     if (cached) return cached;
 
-    const data = await request<WorkspaceSkillSummary[]>("/skills/workspaces");
+    const data = await request<WorkspaceSkillSummary[]>(
+      "/skills/workspaces",
+      LIST_REQUEST_OPTIONS,
+    );
     setCache(cacheKey, data);
     return data;
   },
@@ -147,7 +155,10 @@ export const skillApi = {
     const cached = getCached<PoolSkillSpec[]>(cacheKey);
     if (cached) return cached;
 
-    const data = await request<PoolSkillSpec[]>("/skills/pool");
+    const data = await request<PoolSkillSpec[]>(
+      "/skills/pool",
+      LIST_REQUEST_OPTIONS,
+    );
     // Ensure data is an array
     if (!Array.isArray(data)) {
       throw new Error(

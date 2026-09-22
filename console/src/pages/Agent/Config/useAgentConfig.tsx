@@ -24,6 +24,12 @@ export function useAgentConfig(
   const [savingTimezone, setSavingTimezone] = useState(false);
   const [approvalLevel, setApprovalLevel] =
     useState<ToolExecutionLevel>("AUTO");
+  // Monotonic successful-load counter. Consumers that derive local UI state
+  // from the loaded config (e.g. the reranker section's default expansion)
+  // can resynchronise on every load. Reset reloads the persisted config, so a
+  // watched field may come back with the same value and only this counter
+  // changes.
+  const [configLoadRevision, setConfigLoadRevision] = useState(0);
   const originalConfigRef = useRef<AgentsRunningConfig | null>(null);
   const latestConfigRequestRef = useRef(0);
 
@@ -88,6 +94,7 @@ export function useAgentConfig(
       // Store original config for complete save
       originalConfigRef.current = config;
       onConfigLoaded?.(config);
+      setConfigLoadRevision((revision) => revision + 1);
 
       setLanguage(langResp.language);
       setTimezone(tzResp.timezone || "UTC");
@@ -267,6 +274,7 @@ export function useAgentConfig(
     savingTimezone,
     approvalLevel,
     setApprovalLevel,
+    configLoadRevision,
     fetchConfig,
     handleSave,
     handleLanguageChange,

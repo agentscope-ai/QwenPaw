@@ -9,7 +9,7 @@ interface ProviderConnectionFieldsProps {
   baseUrlOptions: BaseUrlOption[];
   baseUrlExtra?: ReactNode;
   baseUrlPlaceholder: string;
-  apiKeyLabel: string;
+  apiKeyLabel: ReactNode;
   apiKeyPlaceholder: string;
   validApiKeyPrefixes: string[];
   authMode?: "api_key" | "auth_token";

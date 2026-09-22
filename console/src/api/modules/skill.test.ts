@@ -23,7 +23,10 @@ describe("skillApi.listSkills", () => {
 
   it("calls /skills without agent header when no agentId", async () => {
     await skillApi.listSkills();
-    expect(request).toHaveBeenCalledWith("/skills", {});
+    expect(request).toHaveBeenCalledWith(
+      "/skills",
+      expect.objectContaining({ timeout: 120_000, retries: 2 }),
+    );
   });
 
   it("passes X-Agent-Id header when agentId is provided", async () => {
@@ -75,7 +78,10 @@ describe("skillApi.listSkillWorkspaces", () => {
 
   it("calls /skills/workspaces", async () => {
     await skillApi.listSkillWorkspaces();
-    expect(request).toHaveBeenCalledWith("/skills/workspaces");
+    expect(request).toHaveBeenCalledWith(
+      "/skills/workspaces",
+      expect.objectContaining({ timeout: 120_000, retries: 2 }),
+    );
   });
 
   it("returns cached value on second call", async () => {
@@ -98,7 +104,10 @@ describe("skillApi.listSkillPoolSkills", () => {
   it("calls /skills/pool and returns data", async () => {
     vi.mocked(request).mockResolvedValue([{ name: "pool-skill" }]);
     const result = await skillApi.listSkillPoolSkills();
-    expect(request).toHaveBeenCalledWith("/skills/pool");
+    expect(request).toHaveBeenCalledWith(
+      "/skills/pool",
+      expect.objectContaining({ timeout: 120_000, retries: 2 }),
+    );
     expect(result).toEqual([{ name: "pool-skill" }]);
   });
 

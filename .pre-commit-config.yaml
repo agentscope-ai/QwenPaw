@@ -112,6 +112,7 @@ repos:
           --disable=W0201,
           --disable=C0302,
           --disable=W1203,
+          --disable=W1309,  # AGENTS.md requires f-strings, including literals.
           --disable=C2801,
           --disable=C0114,  # Disable missing module docstring for quick dev
           --disable=C0115,  # Disable missing class docstring for quick dev
