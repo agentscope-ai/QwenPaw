@@ -30,6 +30,13 @@ from qwenpaw.schemas import (
 )
 from qwenpaw.tool_calls import CancelReason
 from qwenpaw.utils.timeout import resolve_stream_task_timeout
+from ...providers.thinking import ThinkingPreference
+from ...services.session_thinking import (
+    session_model,
+    session_preference,
+    thinking_view,
+)
+from ...config.config import ModelSlotConfig
 from ...utils.logging import LOG_FILE_PATH, sanitize_log_value
 from ..agent_context import get_agent_for_request
 from ..approvals.display import approval_display_fields
@@ -125,7 +132,51 @@ def _extract_placeholder_name(content_parts: list) -> tuple[str, str]:
         first_text = ""
     if not first_text:
         return "Media Message", ""
-    return first_text[:10], first_text
+    return first_text, first_text
+
+
+async def _persist_pending_model_settings(workspace, chat, request_context):
+    """Bind first-turn model and reasoning before building the runtime."""
+    pending_model = request_context.pop(f"session_model", None)
+    if pending_model is not None and session_model(chat.meta) is None:
+        try:
+            selected = ModelSlotConfig.model_validate(pending_model)
+        except ValueError as exc:
+            raise HTTPException(422, f"Invalid session model") from exc
+        view = await thinking_view(workspace, model_override=selected)
+        if view[f"model"] is None:
+            raise HTTPException(422, f"Model provider is unavailable")
+        chat = await workspace.chat_manager.set_session_model(
+            chat.id,
+            selected.model_dump(),
+        )
+        if chat is None:
+            raise HTTPException(409, f"Session disappeared before saving")
+
+    pending_thinking = request_context.pop(f"session_thinking", None)
+    if pending_thinking is not None:
+        try:
+            preference = ThinkingPreference.model_validate(pending_thinking)
+        except ValueError as exc:
+            raise HTTPException(422, f"Invalid thinking preference") from exc
+        view = await thinking_view(
+            workspace,
+            preference,
+            session_model(chat.meta),
+        )
+        if preference.level != f"inherit" and view[f"reason"] is not None:
+            raise HTTPException(422, f"Invalid session thinking setting")
+        if session_preference(chat.meta, view[f"model_key"]) is None:
+            updated = await workspace.chat_manager.set_session_thinking(
+                chat.id,
+                preference,
+                view[f"model_key"],
+            )
+            if updated is None:
+                raise HTTPException(409, f"Session disappeared before saving")
+            chat = updated
+
+    return chat
 
 
 async def _persist_pending_project_dirs(
@@ -156,6 +207,12 @@ async def _persist_pending_project_dirs(
     request_context = native_payload["meta"].get("request_context")
     if not isinstance(request_context, dict):
         return chat
+
+    chat = await _persist_pending_model_settings(
+        workspace,
+        chat,
+        request_context,
+    )
 
     raw_list = request_context.pop("session_project_dirs", None)
     raw_single = request_context.pop("session_project_dir", None)

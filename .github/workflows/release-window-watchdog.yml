@@ -36,9 +36,22 @@
 #
 # Known residual risks — ALL fail closed (they can only delay a merge, never
 # allow one during a release window):
-#   * GitHub cron may be delayed (typically <= 15 minutes; no upper bound is
-#     guaranteed under load), so the unfreeze may lag release completion by
-#     that much. Manual label deletion + backfill is the human fallback.
+#   * GitHub cron may be delayed, so the unfreeze can lag release completion.
+#     MEASURED, not assumed (11 consecutive scheduled intervals on
+#     2026-09-19/20, from each run's created_at): median 13.9 min, but
+#     5 of 11 (45%) exceeded 15 min and the worst gap was 60.1 min. So "under
+#     15 minutes" describes the median only and badly understates the tail --
+#     in the worst observed case every open PR in the repo stayed frozen for an
+#     hour after the release had finished. The `workflow_run` trigger added
+#     below removes the dependence on cron timing for the normal path; cron
+#     remains as the backstop for the cases it cannot cover (a release run that
+#     never reaches `completed`, or a watchdog run that dies mid-sweep).
+#     Human fallback: prefer `gh workflow run release-window-watchdog.yml`
+#     over deleting the label by hand -- the dispatch runs this same sole
+#     unfreezer (so the sweep happens and the concurrency group still
+#     serialises it), whereas hand-deleting the marker bypasses the sole
+#     unfreezer and then still needs a `backfill=true` run to clear the
+#     remaining red stamps.
 #   * A seconds-scale TOCTOU remains between the final in-flight check and the
 #     label deletion (a brand-new release starting in exactly that window); it
 #     cannot be fully eliminated within GitHub Actions primitives.
@@ -62,6 +75,32 @@ name: Release Window Watchdog
 on:
   schedule:
     - cron: "*/5 * * * *"
+  # Run as soon as a release finishes, instead of waiting up to an hour for the
+  # next cron slot (measured tail: 60.1 min -- see the residual-risk note
+  # above). Fires on every conclusion, including failure: a failed release
+  # leaves the same freeze behind and needs the same unfreeze (that is exactly
+  # what run 35204357591 on 2026-09-17 did).
+  #
+  # Why `workflow_run` and NOT a job appended to release.yml:
+  #   * A job inside release.yml would have to call this watchdog while the
+  #     release run is still in_progress, and the in-flight check below would
+  #     then (correctly) refuse to unfreeze -- the trigger would deadlock
+  #     against its own precondition.
+  #   * It would also need `actions: write` on release.yml, which currently
+  #     declares only `actions: read`; escalating that scope for this purpose
+  #     is not worth it.
+  #   * `workflow_run` fires only after the triggering run reaches
+  #     `completed`, so by then the in-flight check genuinely passes.
+  #
+  # This does not change the architecture: this file stays the sole unfreezer,
+  # the in-flight/recorded-run/second-check gates below all still run
+  # unchanged, and the shared concurrency group still serialises a dispatched,
+  # scheduled and workflow_run-triggered patrol so two of them can never sweep
+  # at the same time. A concurrent second release keeps the freeze: the
+  # in-flight check sees it and exits.
+  workflow_run:
+    workflows: ["Release (unified)"]
+    types: [completed]
   workflow_dispatch:
     inputs:
       backfill:
@@ -103,6 +142,9 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
+          # Empty under schedule/workflow_run (inputs.* is only set by
+          # workflow_dispatch); the ${BACKFILL:-false} guard below makes an
+          # empty value mean false, so a patrol never accidentally backfills.
           BACKFILL: ${{ inputs.backfill }}
           WATCHDOG_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |

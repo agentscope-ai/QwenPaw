@@ -114,6 +114,52 @@ describe("wrapChatResponseUsageStream", () => {
     useTurnUsageStore.getState().invalidateTurn();
   });
 
+  it("publishes usage before EOF and accumulates cache across calls", async () => {
+    useTurnUsageStore.getState().setSnapshot({
+      usage: {
+        session_cache_read_tokens: 50,
+        session_cache_eligible_input_tokens: 100,
+        session_cache_observed: true,
+      },
+      context_usage: null,
+    });
+    const turn = useTurnUsageStore.getState().beginTurn("a", "s");
+    let source!: ReadableStreamDefaultController<Uint8Array>;
+    const stream = new ReadableStream<Uint8Array>({
+      start(c) {
+        source = c;
+      },
+    });
+    const { ref } = makeRef([assistantCard({})]);
+    const reader = wrapChatResponseUsageStream(
+      new Response(stream),
+      ref,
+      turn,
+    ).body!.getReader();
+    for (const count of [1, 2]) {
+      source.enqueue(
+        new TextEncoder().encode(
+          `data: ${JSON.stringify({
+            type: "turn_usage",
+            context_usage: ctx,
+            usage: {
+              total_tokens: count * 100,
+              cache_observed: true,
+              cache_read_tokens: count * 20,
+              cache_eligible_input_tokens: count * 100,
+            },
+          })}\n\n`,
+        ),
+      );
+      await reader.read();
+      expect(
+        useTurnUsageStore.getState().snapshot?.usage?.session_cache_read_tokens,
+      ).toBe(50 + count * 20);
+    }
+    source.close();
+    await reader.read();
+  });
+
   it("returns the original response when there is no body", () => {
     const bare = new Response(null);
     const chatRef = { current: null };

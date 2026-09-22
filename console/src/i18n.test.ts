@@ -17,6 +17,11 @@ async function freshI18n() {
   return mod.default;
 }
 
+async function freshI18nModule() {
+  vi.resetModules();
+  return import("./i18n");
+}
+
 describe("i18n initial language (#1604)", () => {
   afterEach(() => {
     localStorage.clear();
@@ -32,6 +37,7 @@ describe("i18n initial language (#1604)", () => {
     }
 
     expect(i18n.language).toBe("zh");
+    expect(i18n.t("common.loading")).toBe("加载中...");
   });
 
   it("falls back to navigator.language when nothing is persisted", async () => {
@@ -45,7 +51,71 @@ describe("i18n initial language (#1604)", () => {
     // ja-JP resolves into the Japanese bundle (nonExplicitSupportedLngs)
     expect(i18n.language).toBe("ja-JP");
     expect(i18n.language.startsWith("ja")).toBe(true);
+    expect(i18n.t("common.loading")).toBe("読み込み中...");
     spy.mockRestore();
+  });
+
+  it("loads a new locale when the language changes", async () => {
+    const i18n = await freshI18n();
+    if (!i18n.isInitialized) {
+      await new Promise((resolve) => i18n.on("initialized", resolve));
+    }
+
+    await i18n.changeLanguage("pt-BR");
+
+    expect(i18n.t("common.loading")).toBe("Carregando...");
+  });
+
+  it("retries a locale after its first load fails", async () => {
+    const mod = await freshI18nModule();
+    const loader = vi
+      .spyOn(mod.localeLoaders, "zh")
+      .mockRejectedValueOnce(new Error("network error"))
+      .mockResolvedValueOnce({ common: { loading: "加载中..." } });
+
+    await expect(mod.loadLocale("zh")).rejects.toThrow("network error");
+    await expect(mod.loadLocale("zh")).resolves.toEqual({
+      common: { loading: "加载中..." },
+    });
+    expect(loader).toHaveBeenCalledTimes(2);
+  });
+
+  it("logs and falls back to English when a locale fails to load", async () => {
+    const mod = await freshI18nModule();
+    const error = new Error("network error");
+    vi.spyOn(mod.localeLoaders, "zh").mockRejectedValueOnce(error);
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+
+    const i18n = mod.default;
+    if (!i18n.isInitialized) {
+      await new Promise((resolve) => i18n.on("initialized", resolve));
+    }
+    await i18n.changeLanguage("zh");
+
+    expect(consoleError).toHaveBeenCalledWith(
+      'Failed to load locale "zh", falling back:',
+      error,
+    );
+    expect(i18n.t("common.loading")).toBe("Loading...");
+  });
+
+  it("uses the initialized instance for built-in menu labels", async () => {
+    localStorage.setItem("language", "zh");
+
+    const i18n = await freshI18n();
+    if (!i18n.isInitialized) {
+      await new Promise((resolve) => i18n.on("initialized", resolve));
+    }
+
+    const { BUILTIN_MENU } = await import("./layouts/registry/builtinMenu");
+    const inbox = BUILTIN_MENU.find((item) => item.id === "core.inbox");
+
+    expect(typeof inbox?.label).toBe("function");
+    expect(typeof inbox?.label === "function" ? inbox.label() : null).toBe(
+      "收件箱",
+    );
   });
 
   it("defaults to en when neither localStorage nor navigator gives a language", async () => {

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { screen, waitFor } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import api from "../../../../../api";
@@ -129,5 +129,65 @@ describe("ModelConfigEditor output limits", () => {
         generate_kwargs: { temperature: 0.2 },
       }),
     );
+  });
+});
+
+describe("ModelConfigEditor automatic context", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("shows the runtime context without saving it as an override", async () => {
+    vi.mocked(api.configureModel).mockResolvedValue(provider);
+    const user = userEvent.setup();
+    renderEditor(
+      createModel({
+        effective_max_input_length: 1000000,
+        automatic_max_input_length: 1000000,
+        context_length_source: "template",
+      }),
+      "budget",
+    );
+    expect(
+      screen.getByRole("spinbutton", { name: "models.maxInputLengthLabel" }),
+    ).toHaveValue(1000000);
+    await user.hover(
+      within(screen.getByText("models.maxInputLengthLabel")).getByRole(
+        "button",
+        { name: "common.help" },
+      ),
+    );
+    expect(
+      await screen.findByText(/models.metadataSource.template/),
+    ).toBeInTheDocument();
+    await user.click(screen.getAllByRole("switch")[0]);
+    await user.click(screen.getByRole("button", { name: /Save/i }));
+    await waitFor(() => expect(api.configureModel).toHaveBeenCalledOnce());
+    expect(vi.mocked(api.configureModel).mock.calls[0][2]).not.toHaveProperty(
+      "max_input_length",
+    );
+  });
+
+  it("clears a manual override and previews the automatic context", async () => {
+    vi.mocked(api.configureModel).mockResolvedValue(provider);
+    const user = userEvent.setup();
+    renderEditor(
+      createModel({
+        max_input_length: 16000,
+        max_input_length_configured: true,
+        effective_max_input_length: 16000,
+        automatic_max_input_length: 64000,
+        context_length_source: "user",
+      }),
+    );
+    await user.click(
+      screen.getByRole("button", { name: "models.resetContextLength" }),
+    );
+    expect(
+      screen.getByRole("spinbutton", { name: "models.maxInputLengthLabel" }),
+    ).toHaveValue(64000);
+    await user.click(screen.getByRole("button", { name: /Save/i }));
+    await waitFor(() => expect(api.configureModel).toHaveBeenCalledOnce());
+    expect(
+      vi.mocked(api.configureModel).mock.calls[0][2].max_input_length,
+    ).toBeNull();
   });
 });

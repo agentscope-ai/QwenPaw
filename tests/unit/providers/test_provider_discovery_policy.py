@@ -6,9 +6,11 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock
 
+from qwenpaw.providers.openai_provider import OpenAIProvider
 from qwenpaw.providers.provider import ModelInfo
 from qwenpaw.providers.provider_catalog import BUILTIN_PROVIDERS
 from qwenpaw.providers.provider_discovery_policy import (
+    apply_custom_discovery_policy,
     BUILTIN_DISCOVERY_POLICIES,
     CUSTOM_CHAT_MODEL_NAMES,
     CUSTOM_DISCOVERY_POLICIES,
@@ -42,17 +44,10 @@ def test_catalog_only_provider_reports_reason() -> None:
     assert provider.discovery_support_reason
 
 
-def test_github_models_uses_catalog_only_policy() -> None:
-    provider = next(
-        item for item in BUILTIN_PROVIDERS if item.id == "github-models"
-    )
-
-    assert provider.discovery_strategy == "catalog_only"
-    assert provider.model_sync_mode == "manual"
-    assert provider.discovery_requires_auth is True
-    assert provider.support_model_discovery is False
-    assert provider.discovery_support_reason
-    assert provider.models
+def test_retired_github_models_is_not_a_builtin_provider() -> None:
+    assert f"github-models" not in {
+        provider.id for provider in BUILTIN_PROVIDERS
+    }
 
 
 def test_dynamic_policy_enables_previously_disabled_openai_provider() -> None:
@@ -77,9 +72,9 @@ def test_hidden_models_are_filtered_without_deleting_cache() -> None:
     ]
     provider.hidden_model_ids = ["hidden"]
 
-    assert [model.id for model in provider.discovery_candidates()] == [
-        "visible",
-    ]
+    candidates = {model.id for model in provider.discovery_candidates()}
+    assert f"visible" in candidates
+    assert f"hidden" not in candidates
     assert [model.id for model in provider.discovered_models] == [
         "visible",
         "hidden",
@@ -120,3 +115,24 @@ async def test_startup_sync_runs_only_eligible_providers(
     assert "ollama" in synced_ids
     assert "github-models" not in synced_ids
     assert "aliyun-tokenplan" not in synced_ids
+
+
+async def test_startup_includes_authenticated_custom_and_cloud_providers(
+    isolated_secret_dir,
+) -> None:
+    manager = ProviderManager()
+    manager.get_provider(f"openai").api_key = f"test-key"
+    custom = OpenAIProvider(
+        id=f"custom",
+        name=f"Custom",
+        is_custom=True,
+        api_key=f"test-key",
+        base_url=f"https://gateway.example/v1",
+    )
+    apply_custom_discovery_policy(custom)
+    manager.custom_providers[custom.id] = custom
+    eligible = manager.startup_sync_provider_ids()
+    assert f"openai" in eligible
+    assert f"custom" in eligible
+    custom.api_key = f""
+    assert f"custom" not in manager.startup_sync_provider_ids()

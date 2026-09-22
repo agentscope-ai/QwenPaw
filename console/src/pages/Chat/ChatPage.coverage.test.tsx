@@ -16,6 +16,7 @@ import sessionApi from "./sessionApi";
 import { stopBackgroundQueue } from "./backgroundQueueRegistry";
 import { chatExtensions } from "@/plugins/registry/chatExtensions";
 import { useSessionFilesDrawer } from "@/stores/filesSurfaceStore";
+import { useStoppedTurnsStore } from "./stoppedTurns";
 
 // ---------------------------------------------------------------------------
 // Hoisted mocks
@@ -148,6 +149,13 @@ vi.mock(
   }),
 );
 
+vi.mock("../../features/session-settings/sessionModel", () => ({
+  loadSessionModel: (...args: unknown[]) => mockGetActiveModels(...args),
+  readPendingModel: () => null,
+  migratePendingModel: vi.fn(),
+  withPendingModel: (body: unknown) => body,
+}));
+
 vi.mock("@/api/modules/provider", () => ({
   providerApi: {
     listProviders: mockListProviders,
@@ -224,11 +232,10 @@ vi.mock("./sessionApi", () => ({
     getBackendSessionId: vi.fn(() => "backend-session-1"),
     loadOlderHistory: vi.fn(async () => ({
       messages: [],
-      page: {
-        has_more: false,
-        next_before: null,
-      },
+      noMore: true,
     })),
+    setVisibleSession: vi.fn(),
+    getSession: vi.fn(async (id: string) => ({ id, messages: [] })),
     lastActiveChatId: "last-chat-1",
     getSessionIdentity: vi.fn(() => ({
       sessionId: "test-session",
@@ -577,6 +584,7 @@ describe("ChatPage coverage", () => {
       currentSendingId: null,
       lastMigratedTo: null,
     });
+    useStoppedTurnsStore.setState({ stoppedSessionIds: new Set() });
     mockBeginLoopModeSubmission.mockReset();
     mockBeginLoopModeSubmission.mockImplementation((text: string) => text);
     mockRequiresQwenPawModel.mockReset();
@@ -732,7 +740,7 @@ describe("ChatPage coverage", () => {
     });
     await screen.findByTestId("chat-ui");
     await act(async () => {});
-    expect(screen.getByTestId("model-selector")).toBeInTheDocument();
+    expect(screen.queryByTestId("model-selector")).not.toBeInTheDocument();
     expect(screen.getByTestId("action-group")).toBeInTheDocument();
     expect(screen.getByTestId("header-title")).toBeInTheDocument();
   });
@@ -1115,6 +1123,34 @@ describe("ChatPage coverage", () => {
       // stopChat should have been called
       await waitFor(() => expect(chatApi.stopChat).toHaveBeenCalled());
     }
+  });
+
+  it("marks the canceled session after switching to another session", async () => {
+    const { chatApi } = await import("@/api/modules/chat");
+    vi.mocked(sessionApi.getRealIdForSession).mockImplementation((id) =>
+      id === "chat-A" ? "chat-A" : null,
+    );
+    vi.mocked(sessionApi.getBackendSessionId).mockImplementation((id) =>
+      id === "chat-A" || id === "runtime-A" ? "runtime-A" : "runtime-B",
+    );
+
+    renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/chat-B"],
+    });
+    await screen.findByTestId("chat-ui");
+    sessionApi.lastActiveChatId = "chat-B";
+
+    await act(async () => {
+      await capturedOptions.api.cancel({
+        session_id: "runtime-A",
+        chatSessionId: "chat-A",
+      });
+    });
+
+    expect(chatApi.stopChat).toHaveBeenCalledWith("chat-A", "default");
+    expect(useStoppedTurnsStore.getState().stoppedSessionIds).toEqual(
+      new Set(["runtime-A"]),
+    );
   });
 
   // ── reconnect callback → calls fetch ───────────────────────────────────
@@ -2184,7 +2220,7 @@ describe("ChatPage coverage", () => {
   });
 
   // ── model-switched event with maxInputLength ───────────────────────────
-  it("model-switched event with maxInputLength patches context", async () => {
+  it("model-switched refreshes capabilities for the session model", async () => {
     renderWithProviders(<ChatPage />, {
       initialEntries: ["/chat/test-session"],
     });
@@ -2200,7 +2236,7 @@ describe("ChatPage coverage", () => {
       );
     });
 
-    // Should trigger both fetchMultimodalCaps and patchContextMaxInputLength
+    // Capability refresh uses the session model, without rewriting history.
     await waitFor(() => {
       expect(mockGetActiveModels).toHaveBeenCalled();
     });

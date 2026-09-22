@@ -11,7 +11,11 @@ import uuid
 from ...providers.openai_provider import token_limit_kwargs
 from ..database import utc_now
 from ..invitations import secret_digest
-from .provider_setup import model_provider, model_token_defaults
+from .provider_setup import (
+    model_provider,
+    model_token_defaults,
+    published_capabilities,
+)
 
 _SYSTEM = "__qwenpaw_hub_system__"
 _SCOPE = "organization-models"
@@ -335,6 +339,10 @@ class ModelCatalog:
                                 "output_token_limit",
                             )
                         },
+                        **published_capabilities(
+                            model,
+                            connections[model[f"connection_id"]],
+                        ),
                     },
                 )
         return {

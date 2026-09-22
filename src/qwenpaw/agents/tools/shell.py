@@ -210,8 +210,12 @@ def _kill_process_tree_win32(pid: int) -> None:
 
 
 def _windows_shell_creationflags() -> int:
-    """Return Windows process flags for shell commands."""
-    return getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+    """Return Windows flags that isolate shell commands from the host."""
+    return getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0) | getattr(
+        subprocess,
+        "CREATE_NO_WINDOW",
+        0,
+    )
 
 
 def _collapse_embedded_newlines(

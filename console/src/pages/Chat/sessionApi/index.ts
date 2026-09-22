@@ -40,35 +40,6 @@ function hydrateTurnUsageFromMessages(
 ): void {
   useTurnUsageStore.getState().invalidateTurn();
   const snap = extractLatestSnapshotFromCards(messages);
-  const activeMax = useTurnUsageStore.getState().activeMaxInputLength;
-  if (snap?.context_usage && typeof activeMax === "number" && activeMax > 0) {
-    const estimatedTokens = snap.context_usage.estimated_tokens;
-    const updatedContext = {
-      estimated_tokens: estimatedTokens,
-      max_input_length: activeMax,
-      context_usage_ratio: Math.min((estimatedTokens / activeMax) * 100, 100),
-    };
-    // Keep the latest assistant card in sync with the store. Otherwise
-    // patchContextMaxInputLength early-returns on stale card.max and the
-    // ring stops updating after a config change + model switch.
-    for (let i = messages.length - 1; i >= 0; i--) {
-      const msg = messages[i];
-      if (msg.role !== ROLE_ASSISTANT) continue;
-      const card = (
-        msg.cards as
-          | Array<{ code?: string; data?: Record<string, unknown> }>
-          | undefined
-      )?.find((c) => c?.code === CARD_RESPONSE);
-      if (!card?.data?.context_usage) continue;
-      card.data.context_usage = updatedContext;
-      break;
-    }
-    useTurnUsageStore.getState().setSnapshot({
-      usage: snap.usage,
-      context_usage: updatedContext,
-    });
-    return;
-  }
   useTurnUsageStore.getState().setSnapshot(snap);
 }
 
@@ -980,11 +951,39 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
    * Applies view-facing turn usage only while the owner epoch that started the
    * load is still active.
    */
+  private visibleSessionId: string | null | undefined;
+
+  setVisibleSession(sessionId: string | null): void {
+    if (this.visibleSessionId === sessionId) return;
+    this.visibleSessionId = sessionId;
+    const turn = useTurnUsageStore.getState().activeTurn;
+    if (
+      sessionId &&
+      turn?.agentId === this.activeOwner.agentId &&
+      this.getBackendSessionId(sessionId) === turn.sessionId
+    )
+      return;
+    useTurnUsageStore.getState().invalidateTurn();
+    useTurnUsageStore.getState().setActiveMaxInputLength(null);
+  }
+
+  private isVisibleSession(sessionId: string): boolean {
+    return (
+      this.visibleSessionId === undefined ||
+      (this.visibleSessionId !== null &&
+        this.getEffectiveSessionId(sessionId, null) ===
+          this.getEffectiveSessionId(this.visibleSessionId, null))
+    );
+  }
+
   private applySessionView(
     session: ExtendedSession,
     owner: SessionOwnerToken,
   ): void {
-    if (!this.isActiveOwner(owner)) return;
+    if (!this.isActiveOwner(owner) || !this.isVisibleSession(session.id))
+      return;
+    // A history response must not invalidate or overwrite a live stream.
+    if (useTurnUsageStore.getState().activeTurn) return;
     hydrateTurnUsageFromMessages(session.messages ?? []);
   }
 
@@ -993,6 +992,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
    * pristine page-load state so tests cannot leak state into each other.
    */
   resetForTests(): void {
+    this.visibleSessionId = undefined;
     this.activeOwner = { agentId: "", generation: 0 };
     this.sessionListRequest = null;
     this.invalidateSessionCreation();
@@ -1079,7 +1079,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     sessionId: string,
     owner: SessionOwnerToken,
   ): ExtendedSession {
-    if (this.isActiveOwner(owner)) {
+    if (this.isActiveOwner(owner) && this.isVisibleSession(sessionId)) {
       useTurnUsageStore.getState().setSnapshot(null);
     }
     return {
@@ -1404,7 +1404,10 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     // Check short-lived result cache first (populated by preloadSession).
     // Entries from a previous ownership epoch are never served.
     const cached = this.sessionResultCache.get(sessionId);
-    if (cached && this.isActiveOwner(cached.owner)) return cached.session;
+    if (cached && this.isActiveOwner(cached.owner)) {
+      this.applySessionView(cached.session as ExtendedSession, owner);
+      return cached.session;
+    }
 
     // Reuse an in-flight request only within the same ownership epoch, so a
     // new agent never adopts a request (and its captured owner) started by a

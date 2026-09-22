@@ -229,6 +229,7 @@ const VirtualRow = React.memo(function VirtualRow({
         <SessionItem
           sessionId={session.id!}
           name={session.name || "New Chat"}
+          updatedAt={session.updatedAt ?? session.createdAt}
           channelKey={channelKey || undefined}
           channelLabel={channelLabel}
           chatStatus={session.status}

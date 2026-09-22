@@ -335,7 +335,7 @@ function snapshotFromSsePayload(raw: string): TurnUsageSnapshot | null {
 }
 
 /**
- * Observe the SSE body and patch usage when the stream finishes.
+ * Observe usage during streaming and patch the final response card on close.
  *
  * Capture `turn_usage` directly from the response body because the chat SDK
  * treats it as a transport-only event and does not expose it as a message.
@@ -350,6 +350,38 @@ export function wrapChatResponseUsageStream(
   const decoder = new TextDecoder();
   let buffer = "";
   let pendingUsage: TurnUsageSnapshot | null = null;
+  const previousUsage = useTurnUsageStore.getState().snapshot?.usage;
+
+  function publishLive(snap: TurnUsageSnapshot) {
+    const usage = snap.usage;
+    if (
+      usage?.cache_observed !== undefined &&
+      usage.session_cache_observed === undefined
+    ) {
+      const read =
+        (previousUsage?.session_cache_read_tokens ?? 0) +
+        (usage.cache_read_tokens ?? 0);
+      const input =
+        (previousUsage?.session_cache_eligible_input_tokens ?? 0) +
+        (usage.cache_eligible_input_tokens ?? 0);
+      snap = {
+        ...snap,
+        usage: {
+          ...usage,
+          session_cache_read_tokens: read,
+          session_cache_eligible_input_tokens: input,
+          session_cache_observed: !!(
+            previousUsage?.session_cache_observed || usage.cache_observed
+          ),
+          session_cache_hit_rate: input > 0 ? (read / input) * 100 : null,
+        },
+      };
+    }
+    pendingUsage = snap;
+    const store = useTurnUsageStore.getState();
+    if (turn) store.setSnapshotForTurn(snap, turn);
+    else store.setSnapshot(snap);
+  }
 
   const transformed = response.body.pipeThrough(
     new TransformStream<Uint8Array, Uint8Array>({
@@ -360,7 +392,7 @@ export function wrapChatResponseUsageStream(
         buffer = parsed.rest;
         for (const raw of parsed.events) {
           const snap = snapshotFromSsePayload(raw);
-          if (snap) pendingUsage = snap;
+          if (snap) publishLive(snap);
         }
       },
       flush() {

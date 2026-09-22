@@ -1,3 +1,5 @@
+import InlineHelp from "../../../components/InlineHelp";
+import modelStyles from "./OrganizationModels.module.less";
 import { useTranslation } from "react-i18next";
 import { useCallback, useEffect, useState, useRef } from "react";
 import {
@@ -186,7 +188,7 @@ export default function OrganizationModels({
     }
   });
   return (
-    <div className={styles.panel}>
+    <div className={`${styles.panel} ${modelStyles.surface}`}>
       <div className={styles.heading}>
         <div>
           <h1 className={styles.modelTitle}>
@@ -215,8 +217,8 @@ export default function OrganizationModels({
                 </span>
               </Tooltip>
             )}
+            <InlineHelp>{t("hub.governance.models.subtitle")}</InlineHelp>
           </h1>
-          <p>{t("hub.governance.models.subtitle")}</p>
         </div>
         {tab !== "usage" && (
           <div className={styles.actions}>
@@ -253,7 +255,7 @@ export default function OrganizationModels({
       {policy && (
         <>
           <Tabs
-            className={styles.modelTabs}
+            className={`${styles.modelTabs} ${modelStyles.tabs}`}
             activeKey={tab}
             onChange={setTab}
             items={[
@@ -263,7 +265,7 @@ export default function OrganizationModels({
                 children: (
                   <div className={styles.panel}>
                     {!!models.length && (
-                      <article>
+                      <article className={modelStyles.defaults}>
                         <Form
                           form={policyForm}
                           layout="inline"
@@ -372,7 +374,10 @@ export default function OrganizationModels({
                     {connections.length ? (
                       <div className={styles.grid}>
                         {connections.map((c) => (
-                          <article className={styles.card} key={c.id}>
+                          <article
+                            className={`${styles.card} ${modelStyles.providerCard}`}
+                            key={c.id}
+                          >
                             <div className={styles.heading}>
                               <ProviderIcon
                                 providerId={c.provider_id || c.name}
@@ -458,6 +463,7 @@ export default function OrganizationModels({
         </>
       )}
       <Modal
+        className={modelStyles.modal}
         open={!!editing}
         centered
         destroyOnHidden

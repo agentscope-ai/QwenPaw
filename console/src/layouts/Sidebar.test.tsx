@@ -45,10 +45,25 @@ vi.mock("@agentscope-ai/icons", () => {
     SparkWifiLine: stub,
   };
 });
-vi.mock("i18next", () => ({
-  default: { t: (key: string, fallback?: string) => fallback ?? key },
-  t: (key: string, fallback?: string) => fallback ?? key,
-}));
+vi.mock("i18next", () => {
+  const t = (key: string, fallback?: string) => fallback ?? key;
+  const createInstance = () => {
+    const instance = {
+      t,
+      use: vi.fn(),
+      init: vi.fn(),
+    };
+    instance.use.mockReturnValue(instance);
+    instance.init.mockResolvedValue(instance);
+    return instance;
+  };
+
+  return {
+    createInstance,
+    default: { t },
+    t,
+  };
+});
 vi.mock("@/plugins/registry/store", () => ({
   menuRegistry: {
     addBuiltIn: vi.fn(),

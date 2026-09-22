@@ -1,0 +1,105 @@
+@import (reference) "../../../styles/modelSurfaces.less";
+.section {
+  margin-bottom: 24px;
+  h3 {
+    margin: 0 0 12px;
+    font-size: 15px;
+    font-weight: 600;
+  }
+}
+.row {
+  border-bottom: 1px solid var(--app-border-subtle);
+}
+.heading {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 16px;
+  background: transparent;
+  border: 0;
+  padding: 14px 4px;
+  color: var(--app-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.model {
+  margin-left: auto;
+  color: var(--app-text-secondary);
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.editor {
+  padding: 8px 0 16px;
+  max-width: 640px;
+}
+.choice {
+  display: flex;
+  gap: 8px;
+  :global(.ant-select),
+  :global(.qwenpaw-select) {
+    flex: 1;
+    min-width: 0;
+  }
+  > button {
+    width: 36px;
+    border: 0;
+    background: transparent;
+    border-radius: 8px;
+    color: var(--app-text-secondary);
+    cursor: pointer;
+    &:hover {
+      background: var(--app-fill);
+    }
+  }
+}
+
+.section {
+  .model-surface-tokens();
+  margin: 16px 0 0;
+  padding: 20px;
+  border: 1px solid var(--model-hairline);
+  border-radius: 20px;
+  background: var(--model-card);
+  max-width: 760px;
+}
+.row {
+  border: 0;
+}
+.heading {
+  padding: 8px 0;
+}
+.editor {
+  max-width: none;
+  padding-bottom: 0;
+}
+@media (max-width: 600px) {
+  .section {
+    margin-inline: 0;
+    padding: 16px;
+  }
+}
+
+.section {
+  max-width: 640px;
+  margin: 24px;
+  padding: 20px;
+}
+.choice {
+  align-items: center;
+}
+.choice > span {
+  font-size: 13px;
+  flex-shrink: 0;
+}
+.choice > button {
+  width: auto;
+}
+
+.choice > span:has(button) {
+  margin-left: auto;
+  min-width: 0;
+  flex-shrink: 1;
+}

@@ -26,7 +26,6 @@ from qwenpaw.providers.capping_formatter import (
 )
 from qwenpaw.providers.context_windows import DEFAULT_CONTEXT_WINDOW
 from qwenpaw.providers.openai_provider import (
-    GitHubModelsProvider,
     OpenCodeProvider,
     OpenAIProvider,
 )
@@ -178,7 +177,7 @@ def test_builtin_restore_preserves_catalog_free_flags() -> None:
     assert [model.is_free for model in builtin.models] == [True, False]
 
 
-def test_builtin_restore_drops_provider_unavailable_models() -> None:
+def test_builtin_restore_preserves_choices_until_live_refresh() -> None:
     builtin = OpenCodeProvider(
         id="opencode",
         name="OpenCode",
@@ -196,8 +195,12 @@ def test_builtin_restore_drops_provider_unavailable_models() -> None:
 
     ProviderManager._restore_builtin_provider(builtin, stored)
 
-    assert [model.id for model in builtin.extra_models] == ["user-model"]
+    assert [model.id for model in builtin.extra_models] == [
+        f"nemotron-3-super-free",
+        f"user-model",
+    ]
     assert [model.id for model in builtin.discovered_models] == [
+        f"deepseek-v4-flash-free",
         "remote-model",
     ]
 
@@ -653,6 +656,7 @@ async def test_cancelled_provider_mutation_commits_persisted_snapshot(
 
     with pytest.raises(asyncio.CancelledError):
         await mutation
+    provider = manager.get_provider("openai")
     assert "gpt-5" in provider.hidden_model_ids
     reloaded = ProviderManager().get_provider("openai")
     assert reloaded is not None
@@ -1003,6 +1007,8 @@ async def test_connection_config_change_resets_model_availability(
         "openai",
         {"api_key": "new-key"},
     )
+    provider = manager.get_provider("openai")
+    model = provider.models[0]
 
     assert model.availability_status == "unverified"
     assert model.availability_message is None
@@ -1038,6 +1044,8 @@ async def test_async_provider_update_commits_only_after_snapshot_write(
 
     release.set()
     assert await update is True
+    assert manager.get_provider("openai") is not provider
+    provider = manager.get_provider("openai")
     assert provider.api_key == "new-key"
 
 
@@ -1578,7 +1586,7 @@ async def test_add_custom_provider_avoids_plugin_id_collision(
     assert (manager.custom_path / "plugin-openai-new.json").exists()
 
 
-async def test_provider_info_exposes_derived_thinking_capability(
+async def test_provider_info_does_not_guess_unknown_thinking_capability(
     isolated_secret_dir,
 ) -> None:
     manager = ProviderManager()
@@ -1595,7 +1603,8 @@ async def test_provider_info_exposes_derived_thinking_capability(
     info = await provider.get_info()
     model = next(model for model in info.extra_models if model.id == model_id)
 
-    assert model.supports_agent_thinking is True
+    assert model.supports_agent_thinking is False
+    assert model.thinking_control.kind == f"unknown"
 
 
 def test_update_provider_for_builtin_persists_to_builtin_path(
@@ -1722,8 +1731,8 @@ async def test_sync_update_and_async_discovery_share_atomic_transaction(
     assert reloaded is not None
     assert reloaded.api_key == "new-key"
     assert not read_errors
-    assert reloaded.models_last_synced_at is not None
-    assert reloaded.get_discovered_model_info("fresh-model") is not None
+    assert reloaded.models_last_synced_at is None
+    assert reloaded.get_discovered_model_info("fresh-model") is None
 
 
 @pytest.mark.parametrize(
@@ -1841,8 +1850,12 @@ async def test_openrouter_metadata_probe_restores_and_persists_capabilities(
     )
 
     result = await manager.probe_model_multimodal("openrouter", model_id)
+    provider = manager.get_provider("openrouter")
 
     assert result["supports_image"] is True
+    poisoned_model = manager.get_provider("openrouter").get_model_info(
+        model_id,
+    )
     assert poisoned_model.supports_image is True
     assert poisoned_model.supports_video is False
     assert poisoned_model.supports_multimodal is True
@@ -1943,6 +1956,7 @@ async def test_discovery_keeps_user_models_and_persists_cache(
     monkeypatch.setattr(OpenAIProvider, "fetch_models", fetch_models)
 
     result = await manager.discover_provider_models("openai")
+    provider = manager.get_provider("openai")
 
     assert result.success is True
     assert result.discovered_count == 1
@@ -1999,6 +2013,7 @@ async def test_overlapping_discovery_does_not_start_twice(
     assert calls == 1
     first_release.set()
     assert (await first).success is True
+    provider = manager.get_provider("openai")
     assert provider.models_syncing is False
 
 
@@ -2028,6 +2043,7 @@ async def test_failed_discovery_preserves_last_cache_and_user_models(
     monkeypatch.setattr(OpenAIProvider, "fetch_models", fetch_models)
 
     result = await manager.discover_provider_models("openai")
+    provider = manager.get_provider("openai")
 
     assert result.success is False
     assert result.used_static_fallback is True
@@ -2074,6 +2090,7 @@ async def test_discovery_write_failure_preserves_live_model_cache(
     monkeypatch.setattr(manager, "_save_provider_snapshot", fail_first_save)
 
     result = await manager.discover_provider_models("openai")
+    provider = manager.get_provider("openai")
 
     assert result.success is False
     assert [model.id for model in provider.discovered_models] == [
@@ -2120,6 +2137,7 @@ async def test_startup_discovery_clears_syncing_after_completion(
     await manager.sync_startup_provider_models(provider_ids)
 
     assert calls == 1
+    provider = manager.get_provider("openai")
     assert provider.models_syncing is False
 
 
@@ -2188,6 +2206,8 @@ async def test_removed_builtin_model_stays_removed_after_restart(
     model_id = provider.models[0].id
 
     info = await manager.delete_model_from_provider("openai", model_id)
+    provider = manager.get_provider("openai")
+    model_id = provider.models[0].id
 
     assert model_id in info.removed_model_ids
     assert all(model.id != model_id for model in info.models)
@@ -2212,6 +2232,7 @@ async def test_removed_discovery_model_does_not_return_on_refresh(
     ]
 
     await manager.delete_model_from_provider("openai", "remote-removed")
+    provider = manager.get_provider("openai")
 
     async def fetch_models(_self, timeout=5):
         _ = timeout
@@ -2219,6 +2240,7 @@ async def test_removed_discovery_model_does_not_return_on_refresh(
 
     monkeypatch.setattr(OpenAIProvider, "fetch_models", fetch_models)
     result = await manager.discover_provider_models("openai")
+    provider = manager.get_provider("openai")
 
     assert result.success is True
     assert all(model.id != "remote-removed" for model in result.models)
@@ -2315,7 +2337,7 @@ async def test_removal_invalidates_inflight_discovery(
     assert provider.get_discovered_model_info("racing-model") is None
 
 
-async def test_discovery_empty_result_surfaces_connection_error(
+async def test_discovery_empty_result_does_not_probe_generation(
     isolated_secret_dir,
     monkeypatch,
 ) -> None:
@@ -2327,7 +2349,7 @@ async def test_discovery_empty_result_surfaces_connection_error(
         return []
 
     async def check_connection(_self, timeout=5):
-        return False, "API error (status=401): invalid api key"
+        raise AssertionError(f"Discovery must not call connection probes")
 
     monkeypatch.setattr(OpenAIProvider, "fetch_models", fetch_models)
     monkeypatch.setattr(
@@ -2337,10 +2359,11 @@ async def test_discovery_empty_result_surfaces_connection_error(
     )
 
     result = await manager.discover_provider_models("openai")
+    provider = manager.get_provider("openai")
 
     assert result.success is False
     assert result.used_static_fallback is True
-    assert "401" in result.error
+    assert result.error == f"Provider returned no models"
     assert provider.models_last_sync_error == result.error
 
 
@@ -2388,6 +2411,7 @@ async def test_discovery_merges_catalog_when_flag_enabled(
     monkeypatch.setattr(OpenAIProvider, "fetch_models", fetch_models)
 
     result = await manager.discover_provider_models("deepseek")
+    provider = manager.get_provider("deepseek")
 
     assert result.success is True
     discovered_ids = {model.id for model in provider.discovered_models}
@@ -2417,6 +2441,7 @@ async def test_discovery_skips_catalog_when_flag_disabled(
     monkeypatch.setattr(OpenAIProvider, "fetch_models", fetch_models)
 
     result = await manager.discover_provider_models("openai")
+    provider = manager.get_provider("openai")
 
     assert result.success is True
     assert [m.id for m in provider.discovered_models] == ["remote-only"]
@@ -2540,6 +2565,7 @@ async def test_discovery_preserves_explicit_context_override(
     monkeypatch.setattr(OpenRouterProvider, "fetch_models", fetch_models)
 
     result = await manager.discover_provider_models("openrouter")
+    provider = manager.get_provider("openrouter")
 
     assert result.success is True
     model = provider.get_discovered_model_info("vendor/model")
@@ -2576,6 +2602,8 @@ async def test_discovery_applies_metadata_to_configured_model(
     monkeypatch.setattr(OpenAIProvider, "fetch_models", fetch_models)
 
     result = await manager.discover_provider_models("openai")
+    provider = manager.get_provider("openai")
+    configured = provider.models[0]
 
     assert result.success is True
     assert configured.source == "builtin"
@@ -2685,6 +2713,7 @@ async def test_discovery_preserves_model_config_overrides(
     monkeypatch.setattr(OpenAIProvider, "fetch_models", fetch_models)
 
     result = await manager.discover_provider_models("openai")
+    provider = manager.get_provider("openai")
 
     assert result.success is True
     model = provider.get_discovered_model_info("remote-model")
@@ -2770,8 +2799,10 @@ async def test_preview_discovery_does_not_invalidate_saved_refresh(
         save=False,
         provider_override=provider.model_copy(deep=True),
     )
+    provider = manager.get_provider("openai")
     release_first.set()
     saved = await saved_task
+    provider = manager.get_provider("openai")
 
     assert preview.models[0].id == "preview-model"
     assert saved.success is True
@@ -3027,6 +3058,7 @@ async def test_model_check_uses_structured_http_status(
     assert result.status == "model_not_found"
     assert result.http_status == 404
     assert result.retryable is False
+    provider = manager.get_provider(f"openai")
     candidate = provider.get_discovered_model_info("missing-candidate")
     assert candidate is not None
     assert candidate.availability_status == "model_not_found"
@@ -3054,6 +3086,7 @@ async def test_legacy_tuple_model_check_is_unverified(
     )
 
     result = await manager.check_provider_model("openai", model.id)
+    model = manager.get_provider(f"openai").get_model_info(model.id)
 
     assert result.success is True
     assert result.verification == "unverified"
@@ -3084,6 +3117,7 @@ async def test_provider_only_model_check_preserves_evidence(
     )
 
     result = await manager.check_provider_model("openai", model.id)
+    model = manager.get_provider(f"openai").get_model_info(model.id)
 
     assert result.success is True
     assert result.verification == "provider_only"
@@ -3154,6 +3188,34 @@ async def test_remote_catalog_sync_runs_updates_in_threads(
     ]
 
 
+@pytest.mark.parametrize(f"enabled", [None, f"false", f"true"])
+async def test_remote_metadata_sync_requires_opt_in(
+    isolated_secret_dir,
+    monkeypatch,
+    enabled,
+) -> None:
+    manager = ProviderManager()
+    catalog = provider_manager_module.model_catalog
+    monkeypatch.delenv(catalog.METADATA_ENABLED_ENV, raising=False)
+    if enabled is not None:
+        monkeypatch.setenv(catalog.METADATA_ENABLED_ENV, enabled)
+    monkeypatch.setattr(
+        provider_manager_module.EnvVarLoader,
+        f"get_str",
+        lambda name: f"",
+    )
+    calls = []
+    monkeypatch.setattr(
+        catalog,
+        f"update_model_metadata",
+        lambda: calls.append(f"metadata"),
+    )
+
+    await manager.sync_remote_catalogs()
+
+    assert calls == ([f"metadata"] if enabled == f"true" else [])
+
+
 async def test_remote_catalog_sync_updates_live_manager_state(
     isolated_secret_dir,
     monkeypatch,
@@ -3188,7 +3250,7 @@ async def test_remote_catalog_sync_updates_live_manager_state(
         provider_manager_module.model_catalog,
         "load_model_catalog",
         lambda: {
-            "DEEPSEEK_MODELS": [
+            "deepseek": [
                 ModelInfo(
                     id=existing.id,
                     name="Updated Name",
@@ -3224,7 +3286,7 @@ async def test_remote_catalog_sync_respects_removed_model(
     await manager.delete_model_from_provider("deepseek", "ota-removed")
     await manager._refresh_builtin_catalog(
         {
-            "DEEPSEEK_MODELS": [
+            "deepseek": [
                 ModelInfo(id="ota-removed", name="OTA Removed"),
             ],
         },
@@ -3367,6 +3429,7 @@ async def test_discovery_fetch_override_saves_to_canonical_provider(
         "openai",
         provider_override=fetch_provider,
     )
+    canonical = manager.get_provider("openai")
 
     assert result.success is True
     assert [model.id for model in canonical.discovered_models] == [
@@ -3374,7 +3437,7 @@ async def test_discovery_fetch_override_saves_to_canonical_provider(
     ]
 
 
-async def test_discovery_failure_probe_uses_override_provider(
+async def test_discovery_failure_uses_override_without_probing(
     isolated_secret_dir,
     monkeypatch,
 ) -> None:
@@ -3412,7 +3475,7 @@ async def test_discovery_failure_probe_uses_override_provider(
     )
 
     assert result.success is False
-    assert result.error == "Temporary credential rejected"
+    assert result.error == f"Provider returned no models"
 
 
 @pytest.mark.parametrize(
@@ -4090,43 +4153,22 @@ def test_max_inline_media_bytes_defaults_when_absent(
     assert model.formatter.max_bytes == 2 * 1024 * 1024
 
 
-async def test_github_models_provider_uses_new_endpoint_and_prefixes(
-    isolated_secret_dir,
-) -> None:
-    manager = ProviderManager()
-    provider = manager.get_provider("github-models")
-
-    assert provider is not None
-    assert isinstance(provider, OpenAIProvider)
-    assert isinstance(provider, GitHubModelsProvider)
-    assert provider.base_url == "https://models.github.ai/inference"
-    assert provider.freeze_url is False
-    assert provider.api_key_prefix == "ghp_"
-    assert provider.api_key_prefixes == ["ghp_", "github_pat_"]
-
-    info = await provider.get_info()
-    assert info.base_url == "https://models.github.ai/inference"
-    assert info.freeze_url is False
-    assert info.api_key_prefix == "ghp_"
-    assert info.api_key_prefixes == ["ghp_", "github_pat_"]
-
-
 async def test_update_config_persists_api_key_prefixes(
     isolated_secret_dir,
 ) -> None:
     manager = ProviderManager()
-    provider = manager.get_provider("github-models")
+    provider = manager.get_provider("openai")
     assert provider is not None
 
     manager.update_provider(
-        "github-models",
-        {"api_key_prefixes": ["ghp_", "github_pat_"]},
+        "openai",
+        {"api_key_prefixes": ["sk-", "sk-proj-"]},
     )
 
-    provider = manager.get_provider("github-models")
-    assert provider.api_key_prefixes == ["ghp_", "github_pat_"]
+    provider = manager.get_provider("openai")
+    assert provider.api_key_prefixes == ["sk-", "sk-proj-"]
     info = await provider.get_info()
-    assert info.api_key_prefixes == ["ghp_", "github_pat_"]
+    assert info.api_key_prefixes == ["sk-", "sk-proj-"]
 
 
 async def test_activate_model_clears_rejects_media_for_selected_model(
@@ -4224,3 +4266,23 @@ async def test_restore_latest_snapshot_removes_orphan_file(
     await manager._restore_latest_snapshot("ghost", orphan_path)
 
     assert not orphan_path.exists()
+
+
+async def test_agentscope_platform_configuration_reloads(isolated_secret_dir):
+    manager = ProviderManager()
+    provider = manager.get_provider(f"agentscope-platform")
+    assert provider is not None
+    provider_class = type(provider)
+    assert provider_class.__name__ == f"AgentScopePlatformProvider"
+    assert provider.support_model_discovery
+    assert provider.discovery_strategy == f"openai_models"
+    assert await manager.update_provider_async(
+        provider.id,
+        {f"api_key": f"test-platform-key"},
+    )
+    restored = ProviderManager().get_provider(provider.id)
+    assert isinstance(restored, provider_class)
+    assert restored.api_key == f"test-platform-key"
+    assert restored.meta[f"api_key_url"] == (
+        f"https://platform.agentscope.io/model-calls"
+    )

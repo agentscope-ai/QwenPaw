@@ -9,7 +9,7 @@ import sqlite3
 from pathlib import Path
 from typing import Annotated, Literal, Optional
 from uuid import uuid4
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, ConfigDict, Field
 
 from agentscope.message import Msg
@@ -36,6 +36,12 @@ from ...services.project_directory import (
     resolve_effective_project_dirs,
     session_project_dirs_raw_from_meta,
 )
+from ...providers.thinking import ThinkingPreference
+from ...services.session_thinking import (
+    session_model,
+    thinking_view,
+)
+from ...config.config import ModelSlotConfig
 from ...checkpoints.runtime import RUNTIME as CHECKPOINT_RUNTIME
 
 logger = logging.getLogger(__name__)
@@ -820,6 +826,96 @@ async def clear_chat_project_dirs(
             detail=f"Chat not found: {chat_id}",
         )
     return await _project_dirs_response(updated, workspace)
+
+
+@router.get(f"/thinking-default")
+async def get_default_thinking(
+    provider_id: str | None = None,
+    model: str | None = None,
+    workspace=Depends(get_workspace),
+):
+    """Expose the agent default for a not-yet-created session."""
+    selected = (
+        ModelSlotConfig(provider_id=provider_id, model=model)
+        if provider_id and model
+        else None
+    )
+    return await thinking_view(workspace, model_override=selected)
+
+
+@router.get(f"/{{chat_id}}/thinking")
+async def get_chat_thinking(
+    chat_id: str,
+    mgr: ChatManager = Depends(get_chat_manager),
+    workspace=Depends(get_workspace),
+):
+    """Read the session override and effective model-specific setting."""
+    chat = await mgr.get_chat(chat_id)
+    if chat is None:
+        raise HTTPException(404, f"Chat not found")
+    return await thinking_view(
+        workspace,
+        model_override=session_model(chat.meta),
+        meta=chat.meta,
+    )
+
+
+@router.put(f"/{{chat_id}}/thinking")
+async def set_chat_thinking(
+    chat_id: str,
+    preference: ThinkingPreference,
+    mgr: ChatManager = Depends(get_chat_manager),
+    workspace=Depends(get_workspace),
+    model_key: str | None = None,
+):
+    """Persist a preference for subsequent turns of this session only."""
+    chat = await mgr.get_chat(chat_id)
+    if chat is None:
+        raise HTTPException(404, f"Chat not found")
+    view = await thinking_view(workspace, preference, session_model(chat.meta))
+    if model_key is not None and model_key != view[f"model_key"]:
+        raise HTTPException(409, f"Session model changed; reload its settings")
+    if preference.level != f"inherit" and view[f"reason"] is not None:
+        raise HTTPException(422, f"Thinking setting is invalid for this model")
+    chat = await mgr.set_session_thinking(
+        chat_id,
+        preference,
+        view[f"model_key"],
+    )
+    if chat is None:
+        raise HTTPException(404, f"Chat not found")
+    return await thinking_view(
+        workspace,
+        model_override=session_model(chat.meta),
+        meta=chat.meta,
+    )
+
+
+@router.put(f"/{{chat_id}}/model")
+async def set_chat_model(
+    chat_id: str,
+    model: ModelSlotConfig | None = Body(None),
+    mgr: ChatManager = Depends(get_chat_manager),
+    workspace=Depends(get_workspace),
+):
+    """Select the model for this conversation only."""
+    view = await thinking_view(workspace, model_override=model)
+    if model is not None and (view[f"provider_id"], view[f"model"]) != (
+        model.provider_id,
+        model.model,
+    ):
+        raise HTTPException(422, f"Model provider is unavailable")
+    chat = await mgr.set_session_model(
+        chat_id,
+        model.model_dump() if model else None,
+    )
+    if chat is None:
+        raise HTTPException(404, f"Chat not found")
+    return await thinking_view(
+        workspace,
+        model_override=session_model(chat.meta),
+        meta=chat.meta,
+    )
 
 
 # ----- Existing CRUD endpoints -----

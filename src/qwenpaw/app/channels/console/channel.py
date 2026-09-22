@@ -31,6 +31,7 @@ from qwenpaw.schemas import (
 from ....config.config import ConsoleConfig as ConsoleChannelConfig
 from ...console_push_store import append as push_store_append
 from ....constant import DEFAULT_MEDIA_DIR
+from ....token_usage.model_wrapper import TokenRecordingModelWrapper
 from ....exceptions import ModelQuotaExceededException
 from ..renderer import ChannelDisplayConfig
 from ..base import (
@@ -427,10 +428,31 @@ class ConsoleChannel(BaseChannel):
             send_meta.setdefault("bot_prefix", self.bot_prefix)
             last_response = None
             event_count = 0
+            last_usage = None
             headline_stream_states: dict[str, Any] = {}
             completed_response: Any | None = None
 
             async for event in self._process(request):
+                usage = TokenRecordingModelWrapper.peek_usage_for_session(
+                    session_id,
+                )
+                if usage is not None and usage is not last_usage:
+                    last_usage = usage
+                    tokens = usage.get(f"last_prompt_tokens", 0)
+                    limit = usage.get(f"context_size", 0)
+                    payload = {
+                        f"type": f"turn_usage",
+                        f"session_id": session_id,
+                        f"usage": usage,
+                        f"context_usage": {
+                            f"estimated_tokens": tokens,
+                            f"max_input_length": limit,
+                            f"context_usage_ratio": (
+                                min(tokens / limit * 100, 100) if limit else 0
+                            ),
+                        },
+                    }
+                    yield f"data: {_json.dumps(payload)}\n\n"
                 event_count += 1
                 obj = getattr(event, "object", None)
                 status = getattr(event, "status", None)
@@ -669,11 +691,8 @@ class ConsoleChannel(BaseChannel):
                 pm.builtin_providers.values(),
             ) + list(pm.custom_providers.values())
             for p in all_providers:
-                meta = getattr(p, "meta", None) or {}
-                if not meta.get("is_free_tier"):
-                    continue
-                for m in p.models:
-                    if getattr(m, "is_free", False):
+                for m in p.models + p.extra_models:
+                    if p.model_pricing(m) == f"free" and not m.remote_missing:
                         alternatives.append(
                             {
                                 "provider_id": p.id,
