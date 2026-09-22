@@ -696,7 +696,9 @@ def test_copy_bounded_regular_file_copies_bytes(tmp_path) -> None:
     reader._copy_bounded_regular_file(source, target, 1024)
 
     assert target.read_bytes() == b"\x00\x01\x02binary"
-    assert (target.stat().st_mode & 0o777) == 0o600
+    if os.name != "nt":
+        # Windows ignores the mode bits passed to os.open.
+        assert (target.stat().st_mode & 0o777) == 0o600
 
 
 def test_copy_bounded_regular_file_rejects_oversized_source(
@@ -806,7 +808,9 @@ def test_safe_sqlite_read_target_snapshots_wal_and_shm(tmp_path) -> None:
             target.with_name(target.name + "-shm").read_bytes()
             == b"shm-payload"
         )
-        assert (target.parent.stat().st_mode & 0o777) == 0o700
+        if os.name != "nt":
+            # Windows ignores the mode bits passed to os.chmod.
+            assert (target.parent.stat().st_mode & 0o777) == 0o700
 
     assert not target.parent.exists()
 
@@ -1173,6 +1177,10 @@ def test_read_sqlite_candidates_warns_when_globbing_fails(
     assert warnings == ["Could not list Codex SQLite stores: device busy"]
 
 
+@pytest.mark.skipif(
+    os.name == "nt",
+    reason="os.mkfifo and unprivileged symlinks are unavailable on Windows",
+)
 def test_read_sqlite_candidates_skips_unsafe_paths(tmp_path) -> None:
     root = tmp_path / "sqlite"
     root.mkdir()
