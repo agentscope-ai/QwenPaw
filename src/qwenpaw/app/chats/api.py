@@ -12,9 +12,6 @@ from uuid import uuid4
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, ConfigDict, Field
 
-from agentscope.message import Msg
-from agentscope.state import AgentState
-
 from .session import SafeJSONSession
 from .manager import ChatManager, MAX_BATCH_SIZE
 from .models import (
@@ -30,7 +27,7 @@ from .models import (
     ChatMessagePage,
 )
 from .transcript import TranscriptCursor, TranscriptPage
-from .utils import agentscope_msg_to_message, parse_legacy_memory_state
+from .utils import session_state_to_messages
 from ...services.project_directory import (
     agent_project_dirs_from_config,
     resolve_effective_project_dirs,
@@ -1055,27 +1052,7 @@ async def get_chat(
             history=ChatHistoryMetadata(),
         )
 
-    agent_raw = state.get("agent", {})
-    memories: list[Msg] = []
-
-    state_raw = agent_raw.get("state")
-    if isinstance(state_raw, dict):
-        try:
-            agent_state = AgentState.model_validate(state_raw)
-            memories = list(agent_state.context)
-        except Exception:
-            logger.debug(
-                "Failed to parse agent.state, falling back to legacy",
-                exc_info=True,
-            )
-
-    # Legacy fallback: 1.x ``agent.memory`` format.
-    if not memories:
-        memory_raw = agent_raw.get("memory", {})
-        if memory_raw:
-            memories, _summary = parse_legacy_memory_state(memory_raw)
-
-    messages = agentscope_msg_to_message(memories)
+    messages = session_state_to_messages(state)
     return ChatHistory(
         messages=messages,
         status=status,

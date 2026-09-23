@@ -3663,6 +3663,7 @@
     "newTask": "New task",
     "newChat": "New chat",
     "chatHistoryTooltip": "Chat history",
+    "historyLoadFailed": "Failed to load older messages",
     "messageDisplay": {
       "stepsRunning": "Running… · {{count}} steps",
       "stepsCanceled": "Canceled · {{count}} steps",

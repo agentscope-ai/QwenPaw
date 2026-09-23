@@ -9,9 +9,11 @@ from collections.abc import AsyncIterator
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 
+import qwenpaw.runtime as runtime_module
 from qwenpaw.app.workspace.workspace import Workspace
 
 
@@ -85,3 +87,38 @@ async def test_portability_adaptation_cannot_route_to_harness(
         _ = [item async for item in workspace.stream_query(request)]
 
     assert runtime.call is None
+
+
+@pytest.mark.asyncio
+async def test_closing_qwenpaw_stream_finishes_cancelled(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "qwenpaw.app.workspace.workspace.load_agent_config",
+        lambda _agent_id: SimpleNamespace(backend="qwenpaw"),
+    )
+
+    class FakeRuntime:
+        def __init__(self, **_kwargs: object) -> None:
+            pass
+
+        async def run(self, _request: object) -> AsyncIterator[str]:
+            yield "runtime-output"
+
+    monkeypatch.setattr(runtime_module, "Runtime", FakeRuntime)
+    recorder = Mock()
+    recorder.start = AsyncMock()
+    recorder.observe = AsyncMock()
+    recorder.finish = AsyncMock()
+    monkeypatch.setattr(
+        "qwenpaw.app.workspace.workspace.TranscriptRecorder",
+        Mock(return_value=recorder),
+    )
+    workspace = Workspace("agent-1", str(tmp_path / "workspace"))
+    stream = workspace.stream_query(object())
+
+    assert await anext(stream) == "runtime-output"
+    await stream.aclose()
+
+    recorder.finish.assert_awaited_once_with("cancelled")

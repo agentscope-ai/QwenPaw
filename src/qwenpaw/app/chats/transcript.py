@@ -159,6 +159,9 @@ class TranscriptStore:
     def _client_message_id(message: Message) -> str | None:
         metadata = message.metadata or {}
         value = metadata.get(QWENPAW_CLIENT_MESSAGE_ID_KEY)
+        nested = metadata.get("metadata")
+        if not value and isinstance(nested, dict):
+            value = nested.get(QWENPAW_CLIENT_MESSAGE_ID_KEY)
         return str(value) if value else None
 
     @contextmanager
@@ -192,6 +195,119 @@ class TranscriptStore:
     ) -> None:
         if row["user_id"] != user_id or row["channel"] != channel:
             raise ValueError("transcript session identity mismatch")
+
+    def has_session(
+        self,
+        *,
+        session_id: str,
+        user_id: str,
+        channel: str,
+    ) -> bool:
+        """Return whether this database already owns the session."""
+        with self._read_connection() as connection:
+            session = self._session_row(session_id, connection)
+            if session is None:
+                return False
+            self._assert_identity(
+                session,
+                user_id=user_id,
+                channel=channel,
+            )
+            return True
+
+    def recover_running_turns(self) -> int:
+        """Cancel turns left running by a previous process."""
+        with self._lock:
+            orphan = self._conn.execute(
+                "SELECT 1 FROM transcript_turns WHERE status = 'running' "
+                "LIMIT 1",
+            ).fetchone()
+            if orphan is None:
+                return 0
+            with self._transaction():
+                cursor = self._conn.execute(
+                    "UPDATE transcript_turns SET status = 'cancelled', "
+                    "finished_at = COALESCE(finished_at, ?) "
+                    "WHERE status = 'running'",
+                    (_utc_now(),),
+                )
+                return cursor.rowcount
+
+    def import_legacy_messages(
+        self,
+        *,
+        session_id: str,
+        user_id: str,
+        channel: str,
+        messages: list[Message],
+    ) -> bool:
+        """Atomically seed an empty transcript from legacy display history."""
+        if not messages:
+            return False
+        turns: list[list[Message]] = []
+        for message in messages:
+            if not turns or _enum_value(message.role) == "user":
+                turns.append([])
+            turns[-1].append(message)
+
+        now = _utc_now()
+        with self._transaction():
+            session = self._session_row(session_id)
+            if session is not None:
+                self._assert_identity(
+                    session,
+                    user_id=user_id,
+                    channel=channel,
+                )
+                return False
+            self._conn.execute(
+                "INSERT INTO transcript_sessions("
+                "session_id, user_id, channel, next_turn_seq) "
+                "VALUES (?, ?, ?, ?)",
+                (session_id, user_id, channel, len(turns) + 1),
+            )
+            for turn_seq, turn_messages in enumerate(turns, start=1):
+                first_metadata = turn_messages[0].metadata or {}
+                last_metadata = turn_messages[-1].metadata or {}
+                created_at = str(first_metadata.get("timestamp") or now)
+                finished_at = str(
+                    last_metadata.get("finished_at")
+                    or last_metadata.get("timestamp")
+                    or created_at,
+                )
+                turn_id = f"legacy:{turn_seq}"
+                self._conn.execute(
+                    "INSERT INTO transcript_turns("
+                    "session_id, turn_seq, turn_id, status, created_at, "
+                    "finished_at) VALUES (?, ?, ?, 'completed', ?, ?)",
+                    (
+                        session_id,
+                        turn_seq,
+                        turn_id,
+                        created_at,
+                        finished_at,
+                    ),
+                )
+                for ordinal, message in enumerate(turn_messages):
+                    metadata = message.metadata or {}
+                    self._conn.execute(
+                        "INSERT INTO transcript_messages("
+                        "session_id, turn_id, message_id, ordinal, role, "
+                        "payload_json, created_at, client_message_id, "
+                        "finished_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                        (
+                            session_id,
+                            turn_id,
+                            message.id,
+                            ordinal,
+                            _enum_value(message.role),
+                            message.model_dump_json(),
+                            str(metadata.get("timestamp") or created_at),
+                            self._client_message_id(message),
+                            metadata.get("finished_at"),
+                        ),
+                    )
+        return True
 
     def start_turn(
         self,

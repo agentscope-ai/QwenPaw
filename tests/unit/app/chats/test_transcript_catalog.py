@@ -140,6 +140,41 @@ def test_idle_handles_close_without_losing_history(
     catalog.close()
 
 
+def test_reopen_cancels_orphaned_running_turn(tmp_path: Path) -> None:
+    catalog = TranscriptCatalog(tmp_path)
+    _start(catalog, "session-a")
+    _upsert(catalog, "session-a")
+    catalog.upsert_message(
+        session_id="session-a",
+        turn_id="turn-session-a",
+        message=Message(
+            id="assistant-session-a",
+            role="assistant",
+            content=[TextContent(text="partial reply")],
+        ).completed(),
+        ordinal=1,
+    )
+    catalog.close()
+
+    reopened = TranscriptCatalog(tmp_path)
+    page = reopened.get_page(
+        session_id="session-a",
+        user_id="user-1",
+        channel="console",
+    )
+
+    assert page is not None
+    assert [message.id for message in page.messages] == [
+        "message-session-a",
+        "assistant-session-a",
+    ]
+    assert page.messages[0].metadata is not None
+    assert page.messages[0].metadata["qwenpaw_turn_state"]["status"] == (
+        "canceled"
+    )
+    reopened.close()
+
+
 def test_delete_waits_for_active_lease(tmp_path: Path) -> None:
     catalog = TranscriptCatalog(tmp_path)
     _start(catalog, "session-a")

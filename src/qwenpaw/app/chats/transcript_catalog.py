@@ -176,6 +176,7 @@ class TranscriptCatalog:
                             initialize_schema=not path.exists(),
                         ),
                     )
+                    handle.store.recover_running_turns()
                     self._handles[session_id] = handle
                 handle.active += 1
         if handle is None:
@@ -222,6 +223,25 @@ class TranscriptCatalog:
             handle.store.start_turn(**kwargs)
             with self._condition:
                 handle.running_turns.add(str(kwargs["turn_id"]))
+
+    def has_session(self, **kwargs: Any) -> bool:
+        """Return whether a durable transcript session already exists."""
+        with self._lease(create=False, **kwargs) as handle:
+            if handle is None:
+                return False
+            return handle.store.has_session(**kwargs)
+
+    def import_legacy_messages(self, **kwargs: Any) -> bool:
+        """Seed a new session database from legacy display history."""
+        with self._lease(
+            session_id=kwargs["session_id"],
+            user_id=kwargs["user_id"],
+            channel=kwargs["channel"],
+            create=True,
+        ) as handle:
+            if handle is None:
+                raise RuntimeError("failed to create transcript session")
+            return handle.store.import_legacy_messages(**kwargs)
 
     def _write_existing(self, method_name: str, **kwargs: Any) -> Any:
         session_id = str(kwargs["session_id"])

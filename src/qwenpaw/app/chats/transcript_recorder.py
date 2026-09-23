@@ -39,6 +39,7 @@ class TranscriptRecorder:
         *,
         store: TranscriptStore | TranscriptCatalog | None,
         request: Any,
+        legacy_messages: list[Message] | None = None,
     ) -> None:
         self._store = store
         self._request = request
@@ -52,6 +53,7 @@ class TranscriptRecorder:
             getattr(request, "channel", "") or "console",
         )
         self._turn_id = self._resolve_turn_id(request)
+        self._legacy_messages = legacy_messages or []
         request_context = getattr(request, "request_context", None)
         if not isinstance(request_context, dict):
             request_context = {}
@@ -68,6 +70,16 @@ class TranscriptRecorder:
         if self._store is None or self._started or self._degraded:
             return
         self._started = True
+        if self._legacy_messages:
+            await self._write(
+                self._store.import_legacy_messages,
+                session_id=self._session_id,
+                user_id=self._user_id,
+                channel=self._channel,
+                messages=self._legacy_messages,
+            )
+            if self._degraded:
+                return
         replaces_turn_id = await self._replacement_turn_id()
         if self._degraded:
             return
@@ -188,7 +200,16 @@ class TranscriptRecorder:
         try:
             return await asyncio.shield(task)
         except asyncio.CancelledError:
-            await task
+            try:
+                await task
+            except Exception:
+                self._degraded = True
+                logger.warning(
+                    "Transcript recording degraded during cancellation for "
+                    "session %s",
+                    self._session_id,
+                    exc_info=True,
+                )
             raise
         except Exception:
             self._degraded = True

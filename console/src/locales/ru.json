@@ -2962,6 +2962,7 @@
     },
     "modelSelectTooltip": "Выбор модели",
     "chatHistoryTooltip": "История чатов",
+    "historyLoadFailed": "Не удалось загрузить предыдущие сообщения",
     "messageDisplay": {
       "stepsRunning": "Выполняется… · шагов: {{count}}",
       "stepsCanceled": "Отменено · шагов: {{count}}",

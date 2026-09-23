@@ -50,6 +50,7 @@ from ..chats.transcript_recorder import (
     TRANSCRIPT_TURN_ID_CONTEXT_KEY,
     TranscriptRecorder,
 )
+from ..chats.utils import session_state_to_messages
 from ..crons.manager import CronManager
 from ..crons.repo.json_repo import JsonJobRepository
 from ...config.config import load_agent_config
@@ -473,16 +474,48 @@ class Workspace:  # pylint: disable=too-many-public-methods
 
         rt = Runtime(workspace=self, app_services=self._app_services)
         stream = rt.run(request)
+        transcript_store = self.transcript_store
+        legacy_messages = []
+        if (
+            transcript_store is not None
+            and self.session is not None
+            and getattr(request, "session_id", None)
+        ):
+            identity = {
+                "session_id": str(getattr(request, "session_id", "") or ""),
+                "user_id": str(getattr(request, "user_id", "") or ""),
+                "channel": str(
+                    getattr(request, "channel", "") or "console",
+                ),
+            }
+            try:
+                has_transcript = await asyncio.to_thread(
+                    transcript_store.has_session,
+                    **identity,
+                )
+                if not has_transcript:
+                    state = await self.session.get_session_state_dict(
+                        **identity,
+                    )
+                    legacy_messages = session_state_to_messages(state)
+            except Exception:
+                logger.warning(
+                    "Legacy transcript migration skipped for session %s",
+                    sanitize_log_value(identity["session_id"]),
+                    exc_info=True,
+                )
+                transcript_store = None
         recorder = TranscriptRecorder(
-            store=self.transcript_store,
+            store=transcript_store,
             request=request,
+            legacy_messages=legacy_messages,
         )
         try:
             await recorder.start()
             async for item in stream:
                 await recorder.observe(item)
                 yield item
-        except (asyncio.CancelledError, KeyboardInterrupt):
+        except (asyncio.CancelledError, GeneratorExit, KeyboardInterrupt):
             await asyncio.shield(recorder.finish("cancelled"))
             raise
         except BaseException as exc:

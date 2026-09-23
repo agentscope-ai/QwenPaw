@@ -2947,6 +2947,7 @@
     },
     "modelSelectTooltip": "モデルを選択",
     "chatHistoryTooltip": "チャット履歴",
+    "historyLoadFailed": "過去のメッセージを読み込めませんでした",
     "messageDisplay": {
       "stepsRunning": "実行中… · {{count}} ステップ",
       "stepsCanceled": "キャンセル済み · {{count}} ステップ",
