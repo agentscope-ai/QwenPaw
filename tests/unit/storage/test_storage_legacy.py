@@ -6,10 +6,12 @@ import sqlite3
 
 import pytest
 
-from qwenpaw.agents.context.scroll.history import HistoryStore
+from qwenpaw.storage.backends.sqlite.legacy_history import (
+    SQLiteHistoryStore as HistoryStore,
+)
 from qwenpaw.agents.context.types import LogEntry
-from qwenpaw.storage.history import History
-from qwenpaw.storage.legacy import import_history
+from qwenpaw.storage.repositories.history import SqlHistoryStore
+from qwenpaw.storage.migration.legacy import import_history
 
 
 @pytest.mark.asyncio
@@ -44,7 +46,7 @@ async def test_legacy_import_preserves_deleted_high_water_and_checkpoint(
         backup_directory=tmp_path / f"backup",
         checkpoints={f"chat": checkpoint},
     )
-    history = await History.open(
+    history = await SqlHistoryStore.open(
         db,
         tenant_id=f"tenant",
         workspace_id=f"workspace",

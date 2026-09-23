@@ -6,9 +6,9 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from .database import Database
-from .errors import MigrationConflictError
-from .schema import fence_write
+from ..contracts.database import Database
+from ..errors import MigrationConflictError
+from ..schema import fence_write
 
 
 def encode(value: Any) -> str:

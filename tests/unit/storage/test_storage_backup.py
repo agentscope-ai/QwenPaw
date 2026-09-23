@@ -8,13 +8,13 @@ from contextlib import closing
 
 import pytest
 
-from qwenpaw.storage.backup import backup_sqlite
+from qwenpaw.storage.backends.sqlite.backup import backup_sqlite
 from qwenpaw.storage.config import StorageConfig
-from qwenpaw.storage.database import Database
-from qwenpaw.storage.migration import migrate, plan
-from qwenpaw.storage.records import Records
+from qwenpaw.storage.factory import create_database
+from qwenpaw.storage.migration.service import MigrationService
+from qwenpaw.storage.repositories.records import Records
 from qwenpaw.storage.schema import identity, initialize
-from qwenpaw.storage import migration
+from qwenpaw.storage.backends.sqlite import database as sqlite_backend
 
 
 @pytest.mark.asyncio
@@ -56,7 +56,7 @@ async def test_backup_is_unique_and_reads_committed_wal(tmp_path):
 
 @pytest.mark.asyncio
 async def test_overwrite_creates_dated_native_backup(db, tmp_path):
-    target = Database(
+    target = create_database(
         StorageConfig(deployment_id=f"target"),
         tmp_path / f"target",
     )
@@ -68,10 +68,8 @@ async def test_overwrite_creates_dated_native_backup(db, tmp_path):
             f"old",
             {f"value": 9},
         )
-        approved = await plan(db, target)
-        result = await migrate(
-            db,
-            target,
+        approved = await MigrationService(db, target).plan()
+        result = await MigrationService(db, target).migrate(
             approved,
             backup_root=tmp_path / f"jobs",
             overwrite_hash=approved[f"plan_hash"],
@@ -79,7 +77,7 @@ async def test_overwrite_creates_dated_native_backup(db, tmp_path):
         path = target.config.sqlite.database_path(target.root)
         backups = list((path.parent / f"backups").glob(f"state.db.*.backup"))
         assert len(backups) == 1
-        assert result[f"sqlite_backup"] == str(backups[0])
+        assert result[f"native_backup"] == str(backups[0])
         with closing(sqlite3.connect(backups[0])) as saved:
             row = saved.execute(
                 f"SELECT payload FROM records WHERE record_id='old'",
@@ -91,7 +89,7 @@ async def test_overwrite_creates_dated_native_backup(db, tmp_path):
 
 @pytest.mark.asyncio
 async def test_backup_failure_aborts_overwrite(db, tmp_path, monkeypatch):
-    target = Database(
+    target = create_database(
         StorageConfig(deployment_id=f"target"),
         tmp_path / f"target",
     )
@@ -101,15 +99,13 @@ async def test_backup_failure_aborts_overwrite(db, tmp_path, monkeypatch):
     async def disk_full(*args, **kwargs):
         raise OSError(f"No space left on device")
 
-    monkeypatch.setattr(migration, f"backup_sqlite", disk_full)
+    monkeypatch.setattr(sqlite_backend, f"backup_sqlite", disk_full)
     try:
         records = Records(target, f"tenant", 1)
         await records.put(f"config", f"keep", {f"value": 9})
-        approved = await plan(db, target)
+        approved = await MigrationService(db, target).plan()
         with pytest.raises(OSError, match=f"No space"):
-            await migrate(
-                db,
-                target,
+            await MigrationService(db, target).migrate(
                 approved,
                 backup_root=tmp_path / f"jobs",
                 overwrite_hash=approved[f"plan_hash"],

@@ -7,7 +7,7 @@ from uuid import uuid4
 import pytest
 
 from qwenpaw.storage.config import PostgreSQLConfig, StorageConfig
-from qwenpaw.storage.database import Database
+from qwenpaw.storage.factory import create_database
 from qwenpaw.storage.schema import initialize
 
 
@@ -29,7 +29,7 @@ async def db(request, tmp_path, monkeypatch):
             table_prefix=f"a_",
         ),
     )
-    database = Database(config, tmp_path)
+    database = create_database(config, tmp_path)
     await database.open(create=True)
     await initialize(database)
     try:

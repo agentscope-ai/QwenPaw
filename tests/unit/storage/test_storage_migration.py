@@ -5,28 +5,28 @@ import pytest
 
 from qwenpaw.agents.context.types import LogEntry
 from qwenpaw.storage.config import StorageConfig
-from qwenpaw.storage.database import Database
+from qwenpaw.storage.factory import create_database
 from qwenpaw.storage.errors import (
     MigrationConflictError,
     StorageMaintenanceError,
 )
-from qwenpaw.storage.history import History
-from qwenpaw.storage.leases import Leases
-from qwenpaw.storage.migration import activate, migrate, plan
-from qwenpaw.storage.records import Records
+from qwenpaw.storage.repositories.history import SqlHistoryStore
+from qwenpaw.storage.repositories.leases import Leases
+from qwenpaw.storage.migration.service import MigrationService
+from qwenpaw.storage.repositories.records import Records
 from qwenpaw.storage.schema import initialize, identity
 
 
 @pytest.mark.asyncio
 async def test_bidirectional_switch_preserves_ids_and_new_data(db, tmp_path):
-    local = Database(
+    local = create_database(
         StorageConfig(deployment_id=f"local"),
         tmp_path / f"local",
     )
     await local.open(create=True)
     await initialize(local)
     try:
-        history = await History.open(
+        history = await SqlHistoryStore.open(
             db,
             tenant_id=f"tenant",
             workspace_id=f"workspace",
@@ -42,10 +42,8 @@ async def test_bidirectional_switch_preserves_ids_and_new_data(db, tmp_path):
         # Deleted high sequence values must never be reused after migration.
         async with db.transaction(write=True) as tx:
             await tx.execute(f"UPDATE {db.table('stores')} SET next_seq=51")
-        approved = await plan(db, local)
-        result = await migrate(
-            db,
-            local,
+        approved = await MigrationService(db, local).plan()
+        result = await MigrationService(db, local).migrate(
             approved,
             backup_root=tmp_path / f"backups",
         )
@@ -55,8 +53,8 @@ async def test_bidirectional_switch_preserves_ids_and_new_data(db, tmp_path):
                 f"a",
                 {},
             )
-        epoch = await activate(db, local, result[f"job_id"])
-        moved = await History.open(
+        epoch = await MigrationService(db, local).activate(result[f"job_id"])
+        moved = await SqlHistoryStore.open(
             local,
             tenant_id=f"tenant",
             workspace_id=f"workspace",
@@ -72,23 +70,19 @@ async def test_bidirectional_switch_preserves_ids_and_new_data(db, tmp_path):
             )
             == 51
         )
-        reverse = await plan(local, db)
+        reverse = await MigrationService(local, db).plan()
         assert reverse[f"requires_overwrite"]
         with pytest.raises(MigrationConflictError):
-            await migrate(
-                local,
-                db,
+            await MigrationService(local, db).migrate(
                 reverse,
                 backup_root=tmp_path / f"backups",
             )
-        result = await migrate(
-            local,
-            db,
+        result = await MigrationService(local, db).migrate(
             reverse,
             backup_root=tmp_path / f"backups",
             overwrite_hash=reverse[f"plan_hash"],
         )
-        await activate(local, db, result[f"job_id"])
+        await MigrationService(local, db).activate(result[f"job_id"])
         rows = await history.rows()
         assert [(r[f"seq"], r[f"content"]) for r in rows] == [
             (1, f"old"),
@@ -108,19 +102,17 @@ async def test_target_change_invalidates_approval_without_freezing_source(
     db,
     tmp_path,
 ):
-    target = Database(
+    target = create_database(
         StorageConfig(deployment_id=f"local"),
         tmp_path / f"target",
     )
     await target.open(create=True)
     await initialize(target)
     try:
-        approved = await plan(db, target)
+        approved = await MigrationService(db, target).plan()
         await Records(target, f"tenant", 1).put(f"config", f"changed", {})
         with pytest.raises(MigrationConflictError):
-            await migrate(
-                db,
-                target,
+            await MigrationService(db, target).migrate(
                 approved,
                 backup_root=tmp_path / f"backups",
             )
@@ -135,9 +127,12 @@ async def test_target_change_invalidates_approval_without_freezing_source(
 
 @pytest.mark.asyncio
 async def test_alias_cannot_copy_a_namespace_onto_itself(db, tmp_path):
-    approved = await plan(db, db)
+    approved = await MigrationService(db, db).plan()
     with pytest.raises(MigrationConflictError):
-        await migrate(db, db, approved, backup_root=tmp_path / f"backups")
+        await MigrationService(db, db).migrate(
+            approved,
+            backup_root=tmp_path / f"backups",
+        )
     assert (await identity(db))[f"status"] == f"active"
 
 
@@ -147,16 +142,16 @@ async def test_recovery_after_target_commit_keeps_both_ends_fenced(
     tmp_path,
     monkeypatch,
 ):
-    from qwenpaw.storage import migration
+    from qwenpaw.storage.migration import service as migration
 
-    target = Database(
+    target = create_database(
         StorageConfig(deployment_id=f"local"),
         tmp_path / f"target",
     )
     await target.open(create=True)
     await initialize(target)
     await Records(db, f"tenant", 1).put(f"config", f"key", {f"value": 7})
-    approved = await plan(db, target)
+    approved = await MigrationService(db, target).plan()
     original = migration.export_snapshot
 
     async def fail_verification(database, directory):
@@ -167,9 +162,7 @@ async def test_recovery_after_target_commit_keeps_both_ends_fenced(
     monkeypatch.setattr(migration, f"export_snapshot", fail_verification)
     try:
         with pytest.raises(OSError):
-            await migrate(
-                db,
-                target,
+            await MigrationService(db, target).migrate(
                 approved,
                 backup_root=tmp_path / f"backups",
             )
@@ -179,14 +172,12 @@ async def test_recovery_after_target_commit_keeps_both_ends_fenced(
         assert source_identity[f"status"] == f"frozen"
         assert target_identity[f"status"] == f"prepared"
         monkeypatch.setattr(migration, f"export_snapshot", original)
-        result = await migration.recover(
-            db,
-            target,
+        result = await MigrationService(db, target).recover(
             source_identity[f"migration_id"],
             backup_root=tmp_path / f"backups",
         )
         assert result[f"status"] == f"awaiting_restart"
-        epoch = await activate(db, target, result[f"job_id"])
+        epoch = await MigrationService(db, target).activate(result[f"job_id"])
         assert await Records(target, f"tenant", epoch).get(
             f"config",
             f"key",
@@ -199,7 +190,7 @@ async def test_recovery_after_target_commit_keeps_both_ends_fenced(
 
 @pytest.mark.asyncio
 async def test_active_session_must_drain_before_migration(db, tmp_path):
-    target = Database(
+    target = create_database(
         StorageConfig(deployment_id=f"local"),
         tmp_path / f"target",
     )
@@ -208,11 +199,9 @@ async def test_active_session_must_drain_before_migration(db, tmp_path):
     try:
         leases = Leases(db, 1)
         lease = await leases.acquire(f"store", f"session", f"instance")
-        approved = await plan(db, target)
+        approved = await MigrationService(db, target).plan()
         with pytest.raises(StorageMaintenanceError, match=f"Drain"):
-            await migrate(
-                db,
-                target,
+            await MigrationService(db, target).migrate(
                 approved,
                 backup_root=tmp_path / f"backups",
             )

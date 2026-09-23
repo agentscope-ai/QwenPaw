@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
 
-from .errors import StorageIdentityError
+from ...errors import StorageIdentityError
 
 
 def _backup_sqlite(

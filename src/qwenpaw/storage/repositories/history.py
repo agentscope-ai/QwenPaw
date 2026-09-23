@@ -9,11 +9,16 @@ from datetime import datetime, timezone
 from typing import Any
 from uuid import uuid4
 
-from ..agents.context.types import LogEntry
-from .database import Database, Transaction
-from .errors import StorageIdentityError, MigrationConflictError
-from .records import encode
-from .schema import fence_write
+from ...agents.context.types import LogEntry
+from ..contracts.history import HistoryStore
+from ..contracts.database import Database, Transaction
+from ..errors import (
+    StorageError,
+    StorageIdentityError,
+    MigrationConflictError,
+)
+from ..repositories.records import encode
+from ..schema import fence_write
 
 COLUMNS = (
     f"session_id",
@@ -34,7 +39,7 @@ COLUMNS = (
 JSON_COLUMNS = frozenset((f"tool_input", f"blocks", f"metadata"))
 
 
-class History:
+class SqlHistoryStore(HistoryStore):
     """Bind every operation to one previously validated history store."""
 
     def __init__(self, db: Database, store: dict, epoch: int) -> None:
@@ -44,6 +49,10 @@ class History:
         self.closed = False
         self.degraded = False
         self.write_failures = 0
+
+    def _check_open(self) -> None:
+        if self.closed:
+            raise StorageError(f"History handle is closed")
 
     @property
     def store_id(self) -> str:
@@ -58,7 +67,7 @@ class History:
         workspace_id: str,
         agent_id: str,
         epoch: int,
-    ) -> History:
+    ) -> SqlHistoryStore:
         """Resolve store identity within its tenant and workspace."""
         args = (tenant_id, workspace_id, agent_id)
         select = (
@@ -108,6 +117,7 @@ class History:
         entry: LogEntry,
         dedup_key: str | None,
     ) -> tuple[int, bool]:
+        self._check_open()
         db = self.db
         if dedup_key is not None:
             existing = await tx.one(
@@ -152,6 +162,7 @@ class History:
         dedup_key: str | None = None,
     ) -> int:
         """Commit an event and return its stable, store-local sequence."""
+        self._check_open()
         if agent_id not in (None, self.store[f"agent_id"]):
             raise StorageIdentityError(f"History belongs to another agent")
         async with self.db.transaction(write=True) as tx:
@@ -167,6 +178,7 @@ class History:
         agent_id: str | None = None,
     ) -> int:
         """Persist a bounded import batch in one transaction."""
+        self._check_open()
         if agent_id not in (None, self.store[f"agent_id"]):
             raise StorageIdentityError(f"History belongs to another agent")
         inserted = 0
@@ -179,6 +191,7 @@ class History:
 
     async def update_entry(self, seq: int, **changes: Any) -> None:
         """Update a row without allowing its owning scope to change."""
+        self._check_open()
         allowed = {
             f"content",
             f"headline",
@@ -226,6 +239,7 @@ class History:
         limit: int = 1000,
     ) -> list[dict]:
         """Read a bounded page in stable sequence order."""
+        self._check_open()
         if not 1 <= limit <= 10000:
             raise ValueError(f"History page limit must be between 1 and 10000")
         db = self.db
@@ -245,6 +259,7 @@ class History:
             )
 
     async def _select_seqs(self, seqs: set[int]) -> list[dict]:
+        self._check_open()
         if not seqs:
             return []
         db = self.db
@@ -265,15 +280,18 @@ class History:
         return rows
 
     async def existing_seqs(self, seqs: set[int]) -> set[int]:
+        self._check_open()
         return {row[f"seq"] for row in await self._select_seqs(seqs)}
 
     async def contents_by_seqs(self, seqs: set[int]) -> dict[int, str | None]:
+        self._check_open()
         return {
             row[f"seq"]: row[f"content"]
             for row in await self._select_seqs(seqs)
         }
 
     async def count(self, session_id: str) -> int:
+        self._check_open()
         db = self.db
         async with db.transaction() as tx:
             row = await tx.one(
@@ -294,6 +312,7 @@ class History:
         entries: Sequence[tuple[LogEntry, str | None]] = (),
     ) -> int:
         """Atomically persist a checkpoint and any accompanying events."""
+        self._check_open()
         db = self.db
         encoded = encode(payload)
         async with db.transaction(write=True) as tx:
@@ -332,6 +351,7 @@ class History:
         self,
         session_id: str,
     ) -> tuple[dict, int] | None:
+        self._check_open()
         db = self.db
         async with db.transaction() as tx:
             row = await tx.one(
@@ -356,3 +376,64 @@ class History:
     async def close(self) -> None:
         """Release this handle, leaving the application pool alive."""
         self.closed = True
+
+    def _purge_filter(
+        self,
+        before: str,
+        kinds: tuple[str, ...] | None,
+    ) -> tuple[str, list]:
+        db = self.db
+        where = (
+            f"store_id={db.bind(1)} AND created_at IS NOT NULL "
+            f"AND created_at<{db.bind(2)}"
+        )
+        params: list = [self.store_id, before]
+        if kinds:
+            where = f"{where} AND kind IN ({db.binds(len(kinds), 3)})"
+            params.extend(kinds)
+        return where, params
+
+    async def estimate_purge(
+        self,
+        *,
+        before: str,
+        kinds: tuple[str, ...] | None = None,
+    ) -> dict:
+        self._check_open()
+        where, params = self._purge_filter(before, kinds)
+        async with self.db.transaction() as tx:
+            row = await tx.one(
+                f"SELECT COUNT(*) AS rows, "
+                f"COALESCE(SUM(LENGTH(content)), 0) AS content_bytes "
+                f"FROM {self.db.table('history')} WHERE {where}",
+                *params,
+            )
+        assert row is not None
+        return row
+
+    async def purge(
+        self,
+        *,
+        before: str,
+        dry_run: bool = False,
+        kinds: tuple[str, ...] | None = None,
+    ) -> int:
+        self._check_open()
+        if dry_run:
+            return (await self.estimate_purge(before=before, kinds=kinds))[
+                f"rows"
+            ]
+        where, params = self._purge_filter(before, kinds)
+        async with self.db.transaction(write=True) as tx:
+            await fence_write(self.db, tx, self.epoch)
+            row = await tx.one(
+                f"SELECT COUNT(*) AS rows "
+                f"FROM {self.db.table('history')} WHERE {where}",
+                *params,
+            )
+            await tx.execute(
+                f"DELETE FROM {self.db.table('history')} WHERE {where}",
+                *params,
+            )
+        assert row is not None
+        return row[f"rows"]

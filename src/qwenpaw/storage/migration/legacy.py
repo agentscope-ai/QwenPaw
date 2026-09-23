@@ -10,11 +10,11 @@ from contextlib import closing
 from pathlib import Path
 from uuid import NAMESPACE_URL, uuid5
 
-from .database import Database
-from .errors import StorageIdentityError, MigrationConflictError
-from .history import COLUMNS
-from .records import encode
-from .schema import fence_write, identity
+from ..contracts.database import Database
+from ..errors import StorageIdentityError, MigrationConflictError
+from ..repositories.history import COLUMNS
+from ..repositories.records import encode
+from ..schema import fence_write, identity
 
 
 def snapshot_history(source: Path, destination: Path) -> None:

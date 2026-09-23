@@ -20,7 +20,6 @@ import asyncio
 import inspect
 import json
 import logging
-import sqlite3
 import time
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -342,7 +341,7 @@ class ScrollContextManager:
         try:
             self._persist_new(agent)
             return True
-        except (sqlite3.Error, OSError) as exc:
+        except self._history.write_errors as exc:
             self._history.note_write_failure(exc)
             logger.exception("ScrollContextManager write-through failed")
             return False

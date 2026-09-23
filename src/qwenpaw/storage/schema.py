@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from uuid import uuid4
 
-from .database import Database, Transaction, TABLES
+from .contracts.database import Database, Transaction, TABLES
 from .errors import StorageIdentityError, StorageMaintenanceError
 
 FORMAT_VERSION = 1
@@ -92,23 +92,7 @@ DEFINITIONS = {
 async def existing_tables(db: Database) -> set[str]:
     """Inspect the namespace without initializing or repairing anything."""
     async with db.transaction() as tx:
-        if db.postgres:
-            cfg = db.config.postgresql
-            rows = await tx.fetch(
-                f"SELECT table_name AS name FROM information_schema.tables "
-                f"WHERE table_schema = $1",
-                cfg.schema_name,
-            )
-            return {
-                row[f"name"][len(cfg.table_prefix) :]
-                for row in rows
-                if row[f"name"].startswith(cfg.table_prefix)
-                and row[f"name"][len(cfg.table_prefix) :] in TABLES
-            }
-        rows = await tx.fetch(
-            f"SELECT name FROM sqlite_master WHERE type = 'table'",
-        )
-        return {row[f"name"] for row in rows} & TABLES
+        return await db.existing_tables(tx)
 
 
 async def identity(db: Database, tx: Transaction | None = None) -> dict:
@@ -134,9 +118,7 @@ async def initialize(db: Database, *, dataset_id: str | None = None) -> dict:
             raise StorageIdentityError(f"Incomplete or unrecognized storage")
         return await validate(db)
     async with db.transaction(write=True) as tx:
-        if db.postgres:
-            schema = db.config.postgresql.schema_name
-            await tx.execute(f'CREATE SCHEMA IF NOT EXISTS "{schema}"')
+        await db.create_namespace(tx)
         for table, columns in DEFINITIONS.items():
             # Deliberately no IF NOT EXISTS: a concurrent initializer must
             # fail rather than partially adopt another deployment's tables.
@@ -148,13 +130,12 @@ async def initialize(db: Database, *, dataset_id: str | None = None) -> dict:
             dataset_id or str(uuid4()),
         )
         history = db.table(f"history")
-        prefix = db.config.postgresql.table_prefix if db.postgres else f""
         await tx.execute(
-            f'CREATE INDEX "{prefix}history_session" ON {history} '
+            f"CREATE INDEX {db.index('history_session')} ON {history} "
             f"(store_id, session_id, seq)",
         )
         await tx.execute(
-            f'CREATE INDEX "{prefix}history_created" ON {history} '
+            f"CREATE INDEX {db.index('history_created')} ON {history} "
             f"(store_id, created_at)",
         )
     return await validate(db)

@@ -5,9 +5,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from .database import Database, Transaction
-from .errors import StorageMaintenanceError
-from .schema import fence_write
+from ..contracts.database import Database, Transaction
+from ..errors import StorageMaintenanceError
+from ..schema import fence_write
 
 
 @dataclass(frozen=True)
@@ -18,13 +18,6 @@ class SessionLease:
     session_id: str
     owner_id: str
     token: int
-
-
-def database_time(db: Database) -> str:
-    """Avoid relying on synchronized application host clocks."""
-    if db.postgres:
-        return f"EXTRACT(EPOCH FROM clock_timestamp())"
-    return f"((julianday('now') - 2440587.5) * 86400.0)"
 
 
 class Leases:
@@ -47,7 +40,7 @@ class Leases:
         db = self.db
         async with db.transaction(write=True) as tx:
             await fence_write(db, tx, self.epoch)
-            now = database_time(db)
+            now = db.clock()
             row = await tx.one(
                 f"SELECT * FROM {db.table('leases')} "
                 f"WHERE store_id={db.bind(1)} AND session_id={db.bind(2)}",
@@ -101,7 +94,7 @@ class Leases:
             await check_lease(db, tx, lease)
             await tx.execute(
                 f"UPDATE {db.table('leases')} "
-                f"SET expires_at={database_time(db)}+{db.bind(1)} "
+                f"SET expires_at={db.clock()}+{db.bind(1)} "
                 f"WHERE store_id={db.bind(2)} AND session_id={db.bind(3)}",
                 ttl,
                 lease.store_id,
@@ -134,7 +127,7 @@ async def check_lease(
         f"SELECT token FROM {db.table('leases')} "
         f"WHERE store_id={db.bind(1)} AND session_id={db.bind(2)} "
         f"AND owner_id={db.bind(3)} AND token={db.bind(4)} "
-        f"AND expires_at>{database_time(db)}",
+        f"AND expires_at>{db.clock()}",
         lease.store_id,
         lease.session_id,
         lease.owner_id,

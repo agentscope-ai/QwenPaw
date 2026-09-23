@@ -9,10 +9,10 @@ import json
 import os
 from pathlib import Path
 
-from .database import Database, Transaction
-from .errors import StorageIdentityError, StorageMaintenanceError
-from .records import encode
-from .schema import identity
+from ..contracts.database import Database, Transaction
+from ..errors import StorageIdentityError, StorageMaintenanceError
+from ..repositories.records import encode
+from ..schema import identity
 
 ORDER = {
     f"stores": (f"store_id",),
@@ -166,19 +166,7 @@ async def table_columns(
     table: str,
 ) -> list[str]:
     """Read columns only for a validated product-owned table."""
-    qualified = db.table(table)
-    if db.postgres:
-        cfg = db.config.postgresql
-        rows = await tx.fetch(
-            f"SELECT column_name AS name FROM information_schema.columns "
-            f"WHERE table_schema=$1 AND table_name=$2 "
-            f"ORDER BY ordinal_position",
-            cfg.schema_name,
-            f"{cfg.table_prefix}{table}",
-        )
-    else:
-        rows = await tx.fetch(f"PRAGMA table_info({qualified})")
-    return [row[f"name"] for row in rows]
+    return await db.table_columns(tx, table)
 
 
 async def validate_references(db: Database, tx: Transaction) -> None:

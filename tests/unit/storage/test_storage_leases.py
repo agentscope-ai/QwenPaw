@@ -4,7 +4,7 @@
 import pytest
 
 from qwenpaw.storage.errors import StorageMaintenanceError
-from qwenpaw.storage.leases import Leases, check_lease
+from qwenpaw.storage.repositories.leases import Leases, check_lease
 from qwenpaw.storage.schema import fence_write
 
 

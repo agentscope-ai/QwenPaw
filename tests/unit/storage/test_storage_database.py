@@ -8,13 +8,13 @@ import pytest
 from pydantic import ValidationError
 
 from qwenpaw.storage.config import PostgreSQLConfig, StorageConfig
-from qwenpaw.storage.database import Database
+from qwenpaw.storage.factory import create_database
 from qwenpaw.storage.errors import (
     MigrationConflictError,
     StorageIdentityError,
     StorageMaintenanceError,
 )
-from qwenpaw.storage.records import Records
+from qwenpaw.storage.repositories.records import Records
 from qwenpaw.storage.schema import initialize
 
 
@@ -99,14 +99,18 @@ async def test_cancellation_rolls_back_before_connection_reuse(db):
 
 @pytest.mark.asyncio
 async def test_slow_database_does_not_block_loop(db):
-    if not db.postgres:
+    if db.config.backend == f"sqlite":
         # pylint: disable-next=protected-access
-        await db._sqlite.create_function(f"test_sleep", 1, time.sleep)
+        await db._connection.create_function(f"test_sleep", 1, time.sleep)
     ticks = 0
 
     async def slow_query():
         async with db.transaction() as tx:
-            fn = f"pg_sleep" if db.postgres else f"test_sleep"
+            fn = (
+                f"pg_sleep"
+                if db.config.backend == f"postgresql"
+                else f"test_sleep"
+            )
             await tx.one(f"SELECT {fn}(0.15)")
 
     task = asyncio.create_task(slow_query())
@@ -130,7 +134,7 @@ def test_pool_validation_and_identifier_qualification(tmp_path):
         backend=f"postgresql",
         postgresql=PostgreSQLConfig(schema=f"team", table_prefix=f"prod_"),
     )
-    db = Database(config, tmp_path)
+    db = create_database(config, tmp_path)
     assert db.table(f"history") == f'"team"."prod_history"'
     with pytest.raises(ValueError):
         db.table(f"history;DROP TABLE metadata")
@@ -139,7 +143,7 @@ def test_pool_validation_and_identifier_qualification(tmp_path):
 @pytest.mark.asyncio
 async def test_missing_sqlite_source_is_not_created(tmp_path):
     config = StorageConfig(deployment_id=f"deployment")
-    db = Database(config, tmp_path)
+    db = create_database(config, tmp_path)
     with pytest.raises(Exception, match=f"unable to open"):
         await db.open()
     assert not config.sqlite.database_path(tmp_path).exists()

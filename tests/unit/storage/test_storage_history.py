@@ -7,11 +7,11 @@ import pytest
 
 from qwenpaw.agents.context.types import LogEntry
 from qwenpaw.storage.errors import MigrationConflictError, StorageIdentityError
-from qwenpaw.storage.history import History
+from qwenpaw.storage.repositories.history import SqlHistoryStore
 
 
 async def open_history(db, tenant=f"tenant"):
-    return await History.open(
+    return await SqlHistoryStore.open(
         db,
         tenant_id=tenant,
         workspace_id=f"workspace",

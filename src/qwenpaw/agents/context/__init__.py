@@ -164,7 +164,7 @@ def build_scroll_components(
         # Imported lazily so the native path never pays for the scroll
         # machinery — and so a missing scroll dependency degrades to native
         # here rather than breaking import of this module.
-        from .scroll.history import HistoryStore
+        from ...storage.factory import create_legacy_history
         from .scroll.manager import ScrollContextManager
         from .scroll.recall_tool import RecallLoopGuard, make_recall_history
         from .scroll.repl import make_recall_history_python
@@ -183,7 +183,7 @@ def build_scroll_components(
         else:
             # Existing store: nudge toward a retention window if it grew large.
             _warn_db_size(db_path)
-        history = HistoryStore(db_path)
+        history = create_legacy_history(db_path)
         recall_loop_guard = RecallLoopGuard()
         scratch_root = str(Path(workspace_dir) / ".scroll")
 
@@ -200,7 +200,7 @@ def build_scroll_components(
             recall_loop_guard=recall_loop_guard,
         )
         tool = make_recall_history_python(
-            history_db_path=str(history.path),
+            history_db_path=str(db_path),
             session_id=session_id,
             agent_id=agent_id,
             scratch_root=scratch_root,
@@ -212,7 +212,7 @@ def build_scroll_components(
         # so fold stubs and the eviction index stay readable even when the
         # sandboxed REPL is unavailable.
         recall = make_recall_history(
-            history_db_path=str(history.path),
+            history_db_path=str(db_path),
             session_id=session_id,
             agent_id=agent_id,
             loop_guard=recall_loop_guard,
