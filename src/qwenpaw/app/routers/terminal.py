@@ -41,6 +41,11 @@ async def lifespan(app):
         await asyncio.to_thread(manager.shutdown)
 
 
+def verify_bearer_user(token):
+    """Verify direct Bearer access outside the middleware's auth path."""
+    return verify_token(token) if token and has_registered_users() else None
+
+
 async def context(request: Request, group: UUID):
     """Bind every operation to the validated Agent and authenticated user."""
     if not is_auth_enabled():
@@ -58,13 +63,15 @@ async def context(request: Request, group: UUID):
         # Hub authenticates the user before forwarding to their runtime.
         user = "hub-runtime"
     else:
-        authorization = request.headers.get("authorization", "")
-        token = (
-            authorization[7:] if authorization.startswith("Bearer ") else ""
-        )
-        user = (
-            verify_token(token) if token and has_registered_users() else None
-        )
+        user = getattr(request.state, "user", None)
+        if not user:
+            authorization = request.headers.get("authorization", "")
+            token = (
+                authorization[7:]
+                if authorization.startswith("Bearer ")
+                else ""
+            )
+            user = await asyncio.to_thread(verify_bearer_user, token)
         if not user:
             raise HTTPException(401, "Terminal requires authentication")
     configured_origins = {value.strip() for value in CORS_ORIGINS.split(",")}

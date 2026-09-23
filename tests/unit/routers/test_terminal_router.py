@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """Validate terminal boundary, directory resolution and payload contracts."""
 
+import threading
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
@@ -265,6 +266,44 @@ def test_terminal_routes_pass_through_authentication(monkeypatch):
     app.add_middleware(RuntimeBoundaryMiddleware)
     with TestClient(app) as http:
         assert http.post(f"/api/terminals/{uuid4()}").status_code == 401
+
+
+async def test_direct_bearer_verification_runs_off_event_loop(monkeypatch):
+    event_loop_thread = threading.get_ident()
+    verification_threads = []
+    manager = MagicMock()
+    workspace = SimpleNamespace(agent_id="agent-a")
+    request = SimpleNamespace(
+        headers={"authorization": "Bearer valid"},
+        state=SimpleNamespace(),
+        app=SimpleNamespace(
+            state=SimpleNamespace(terminal_manager=manager),
+        ),
+    )
+
+    monkeypatch.setattr(terminal, "is_auth_enabled", lambda: True)
+    monkeypatch.delenv("QWENPAW_RUNTIME_INTERNAL_TOKEN", raising=False)
+    monkeypatch.setattr(
+        terminal,
+        "verify_bearer_user",
+        lambda _token: verification_threads.append(threading.get_ident())
+        or "alice",
+    )
+    monkeypatch.setattr(terminal, "terminal_unavailable_reason", lambda: None)
+    monkeypatch.setattr(
+        terminal,
+        "get_agent_for_request",
+        AsyncMock(return_value=workspace),
+    )
+
+    _manager, owner, _workspace = await terminal.context(
+        request,
+        uuid4(),
+    )
+
+    assert owner[0] == "alice"
+    assert verification_threads
+    assert verification_threads[0] != event_loop_thread
 
 
 def test_router_lifespan_stops_owned_processes(monkeypatch):
