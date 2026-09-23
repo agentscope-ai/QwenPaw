@@ -8,8 +8,8 @@ import hashlib
 import os
 import re
 import uuid
-from collections.abc import Callable
-from functools import wraps
+from collections import OrderedDict
+from collections.abc import Callable, Iterable
 from pathlib import Path
 from typing import Any
 
@@ -41,6 +41,11 @@ from .prompts import (
 logger = __import__("logging").getLogger(__name__)
 
 MAX_MEMORY_SEARCH_RESULTS = 20
+MAX_MEMORY_SEARCH_ITEM_BYTES = 2 * 1024
+MAX_MEMORY_SEARCH_OUTPUT_BYTES = 8 * 1024
+MAX_READY_SESSIONS = 256
+MAX_PERSISTED_MESSAGE_IDS = 10_000
+PERSISTENCE_RETRY_DELAYS = (1.0, 2.0)
 TRUNCATION_MARKER = "\n[OpenViking result truncated by QwenPaw]"
 AUTO_COMMIT_POLICY = {
     "message_count_threshold": 20,
@@ -97,12 +102,12 @@ class OpenVikingMemoryManager(BaseMemoryManager):
         self._client: OpenVikingClient | None = None
         self._identity: OpenVikingIdentity | None = None
         self._installation_id = ""
-        self._ready_sessions: set[str] = set()
-        self._persisted_msg_ids: set[str] = set()
+        self._ready_sessions: OrderedDict[str, None] = OrderedDict()
+        self._persisted_msg_ids: OrderedDict[str, None] = OrderedDict()
         # A successful append followed by a failed commit is a partial
         # success.  Keep these IDs separate so retrying does not append the
-        # same turn again.  OpenViking v0.4.x exposes no idempotency key, so
-        # this is the strongest guarantee possible after a known success.
+        # same turn again. Unsettled progress is not evicted with the bounded
+        # completed-ID cache; ambiguous append responses can still duplicate.
         self._pending_commit_msg_ids: dict[str, set[str]] = {}
 
     async def start(self) -> None:
@@ -171,21 +176,18 @@ class OpenVikingMemoryManager(BaseMemoryManager):
         if self._client is None:
             return []
 
-        @wraps(self.memory_search)
-        async def openviking_memory_search(
-            query: str,
-            max_results: int = 5,
-        ) -> ToolChunk:
-            return await self.memory_search(query, max_results)
-
-        # Keep the public name stable for model prompts, while making the
-        # network boundary visible to the strict governance policy.
+        search_tool = self.memory_search
+        # Plugin metadata registers the network policy, but the toolkit
+        # builder does not bind it to the callable. Tag the underlying method
+        # function so the adapter selects OpenVikingMemorySearch instead of
+        # internal MemorySearch. All instances share this fixed policy; the
+        # bound method keeps its public name and signature without a wrapper.
         setattr(
-            openviking_memory_search,
+            search_tool.__func__,
             "_qwenpaw_policy_name",
             "OpenVikingMemorySearch",
         )
-        return [openviking_memory_search]
+        return [search_tool]
 
     def get_auto_memory_interval(self) -> int:
         return 1 if self._client is not None else 0
@@ -252,11 +254,51 @@ class OpenVikingMemoryManager(BaseMemoryManager):
         messages: list[Msg],
         **kwargs: Any,
     ) -> str:
-        """Append one sanitized turn and retry a known failed commit safely."""
+        """Retain this batch for bounded retries within the shared worker."""
+        max_attempts = len(PERSISTENCE_RETRY_DELAYS) + 1
+        for attempt in range(max_attempts):
+            try:
+                return await self._persist_turn_once(messages, **kwargs)
+            except OpenVikingConfigurationError:
+                # The shared worker exposes and logs this error. Do not copy
+                # arbitrary exception text, and do not retry invalid config.
+                raise OpenVikingConfigurationError(
+                    "OpenViking persistence configuration is invalid.",
+                ) from None
+            except OpenVikingServiceError:
+                if attempt == max_attempts - 1:
+                    raise OpenVikingServiceError(
+                        "OpenViking persistence failed after "
+                        f"{max_attempts} attempts.",
+                    ) from None
+                delay = PERSISTENCE_RETRY_DELAYS[attempt]
+                logger.warning(
+                    "OpenViking persistence attempt %s/%s failed; "
+                    "retrying in %.1f seconds.",
+                    attempt + 1,
+                    max_attempts,
+                    delay,
+                )
+                # Cancellation propagates to the inherited shutdown path.
+                await asyncio.sleep(delay)
+        raise AssertionError("Unreachable persistence retry state")
+
+    async def _persist_turn_once(
+        self,
+        messages: list[Msg],
+        **kwargs: Any,
+    ) -> str:
+        """Append once, retaining confirmed progress if commit fails."""
         client = self._client
         session_id = str(kwargs.get("session_id") or "")
-        if client is None or not session_id:
-            return ""
+        if client is None:
+            raise OpenVikingConfigurationError(
+                "OpenViking persistence client is unavailable.",
+            )
+        if not session_id:
+            raise OpenVikingConfigurationError(
+                "OpenViking persistence requires a session ID.",
+            )
 
         sanitized = self._messages_without_auto_memory_search(messages)
         candidates = [
@@ -265,48 +307,49 @@ class OpenVikingMemoryManager(BaseMemoryManager):
             if message.role in {"user", "assistant"}
             and message.id not in self._persisted_msg_ids
         ]
-        try:
-            await self._ensure_identity()
-            remote_session_id = self._map_session_id(session_id)
-            await self._ensure_session(remote_session_id)
-            pending = self._pending_commit_msg_ids.setdefault(
-                remote_session_id,
-                set(),
-            )
-            # Do not append a turn whose append call already completed before
-            # the commit call failed.  See the note in __init__.
-            new_messages = [
-                message for message in candidates if message.id not in pending
+        await self._ensure_identity()
+        remote_session_id = self._map_session_id(session_id)
+        await self._ensure_session(remote_session_id)
+        pending = self._pending_commit_msg_ids.get(remote_session_id, set())
+        # A commit retry must not append known-successful messages again.
+        new_messages = [
+            message for message in candidates if message.id not in pending
+        ]
+        payload = self._serialize_completed_turn(new_messages)
+        if payload:
+            await client.add_messages(remote_session_id, payload)
+            # Only track messages actually serialized, in source order.
+            new_ids = [
+                message_id
+                for item in payload
+                for message_id in item["source_message_ids"]
             ]
-            payload = self._serialize_completed_turn(new_messages)
-            if payload:
-                await client.add_messages(remote_session_id, payload)
-                new_ids = {message.id for message in new_messages}
-                if self._config and self._config.commit_policy == "every_turn":
-                    pending.update(new_ids)
-                else:
-                    self._persisted_msg_ids.update(new_ids)
-
             if self._config and self._config.commit_policy == "every_turn":
-                if pending:
-                    await client.commit(remote_session_id)
-                    self._persisted_msg_ids.update(pending)
-                    pending.clear()
-            return (
-                f"Processed {len(new_messages)} message(s) to OpenViking for "
-                f"agent '{self.agent_id}'."
-            )
-        except OpenVikingConfigurationError as exc:
-            logger.warning(
-                "OpenViking persistence configuration is invalid: %s",
-                self._safe_exception_summary(exc),
-            )
-        except OpenVikingServiceError as exc:
-            logger.warning(
-                "OpenViking persistence failed open: %s",
-                self._safe_exception_summary(exc),
-            )
-        return ""
+                pending.update(new_ids)
+                self._pending_commit_msg_ids[remote_session_id] = pending
+            else:
+                self._remember_persisted_message_ids(new_ids)
+
+        if self._config and self._config.commit_policy == "every_turn":
+            if pending:
+                await client.commit(remote_session_id)
+                self._remember_persisted_message_ids(sorted(pending))
+                self._pending_commit_msg_ids.pop(remote_session_id, None)
+        return (
+            "OpenViking persistence processing completed for "
+            f"agent '{self.agent_id}'."
+        )
+
+    def _remember_persisted_message_ids(
+        self,
+        message_ids: Iterable[str],
+    ) -> None:
+        """Bound completed history; evicted IDs no longer suppress replay."""
+        for message_id in message_ids:
+            self._persisted_msg_ids[message_id] = None
+            self._persisted_msg_ids.move_to_end(message_id)
+            if len(self._persisted_msg_ids) > MAX_PERSISTED_MESSAGE_IDS:
+                self._persisted_msg_ids.popitem(last=False)
 
     async def memory_search(
         self,
@@ -344,8 +387,15 @@ class OpenVikingMemoryManager(BaseMemoryManager):
                 ok=False,
             )
 
+        return self._render_search_results(results[:limit])
+
+    def _render_search_results(
+        self,
+        results: list[dict[str, Any]],
+    ) -> ToolChunk:
+        """Bound remote fields without clipping the local trust notice."""
         parts: list[str] = []
-        for index, item in enumerate(results[:limit], start=1):
+        for index, item in enumerate(results, start=1):
             uri = str(item.get("uri") or "")
             abstract = str(
                 item.get("abstract")
@@ -358,12 +408,23 @@ class OpenVikingMemoryManager(BaseMemoryManager):
                 score_text = f", score={float(score):.3f}"
             except (TypeError, ValueError):
                 score_text = ""
-            parts.append(f"[{index}] {uri}{score_text}\n{abstract}".rstrip())
+            item_text = f"[{index}] {uri}{score_text}\n{abstract}".rstrip()
+            parts.append(
+                self._clip_utf8(item_text, MAX_MEMORY_SEARCH_ITEM_BYTES),
+            )
         if not parts:
             return self._tool_chunk(OPENVIKING_NO_MEMORY_RESULTS)
-        return self._tool_chunk(
-            OPENVIKING_UNTRUSTED_HISTORY_NOTICE + "\n\n" + "\n\n".join(parts),
+        prefix = OPENVIKING_UNTRUSTED_HISTORY_NOTICE + "\n\n"
+        body_budget = MAX_MEMORY_SEARCH_OUTPUT_BYTES - len(
+            prefix.encode("utf-8"),
         )
+        if body_budget < len(TRUNCATION_MARKER.encode("utf-8")):
+            return self._tool_chunk(
+                "OpenViking search output budget is too small.",
+                ok=False,
+            )
+        body = self._clip_utf8("\n\n".join(parts), body_budget)
+        return self._tool_chunk(prefix + body)
 
     async def _search_context_for_session(
         self,
@@ -420,7 +481,10 @@ class OpenVikingMemoryManager(BaseMemoryManager):
         return self._tool_chunk(text)
 
     async def _ensure_session(self, session_id: str) -> None:
-        if session_id in self._ready_sessions or self._client is None:
+        if self._client is None:
+            return
+        if session_id in self._ready_sessions:
+            self._ready_sessions.move_to_end(session_id)
             return
         policy = (
             AUTO_COMMIT_POLICY
@@ -431,7 +495,10 @@ class OpenVikingMemoryManager(BaseMemoryManager):
             session_id,
             auto_commit_policy=policy,
         )
-        self._ready_sessions.add(session_id)
+        self._ready_sessions[session_id] = None
+        self._ready_sessions.move_to_end(session_id)
+        if len(self._ready_sessions) > MAX_READY_SESSIONS:
+            self._ready_sessions.popitem(last=False)
 
     async def _ensure_identity(self) -> None:
         if self._identity is not None or self._client is None:

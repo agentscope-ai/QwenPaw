@@ -3,7 +3,7 @@
 """Behavioral tests for the OpenViking memory plugin manager."""
 
 import asyncio
-from types import SimpleNamespace
+from types import MethodType, SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
@@ -11,10 +11,12 @@ from agentscope.message import Msg, TextBlock
 from agentscope.message import ToolResultState
 
 from plugins.memory.openviking.backend.client import (
+    OpenVikingConfigurationError,
     OpenVikingIdentity,
     OpenVikingServiceError,
 )
 from plugins.memory.openviking.backend.config import OpenVikingMemoryConfig
+from plugins.memory.openviking.backend import manager as manager_module
 from plugins.memory.openviking.backend.manager import OpenVikingMemoryManager
 from plugins.memory.openviking.backend.prompts import (
     OPENVIKING_UNTRUSTED_HISTORY_NOTICE,
@@ -22,7 +24,7 @@ from plugins.memory.openviking.backend.prompts import (
 from qwenpaw.governance import PolicyGuardedTool
 from qwenpaw.governance.policy import GovernanceAction, GovernancePolicy
 from qwenpaw.governance.tool_registry import DEFAULT_REGISTRY
-from qwenpaw.memory import MemoryBackendContext
+from qwenpaw.memory import BaseMemoryManager, MemoryBackendContext
 from qwenpaw.runtime.builder import AgentBuilder
 
 
@@ -84,6 +86,15 @@ def _attach(manager, client):
     manager._identity = OpenVikingIdentity("account", "user")
 
 
+async def _wait_for_memory_task(manager, task_id):
+    await asyncio.wait_for(manager._auto_memory_task_queue.join(), timeout=2)
+    return next(
+        task
+        for task in manager.list_auto_memory_tasks()
+        if task["task_id"] == task_id
+    )
+
+
 @pytest.mark.asyncio
 async def test_auto_recall_marks_remote_history_as_untrusted(tmp_path):
     manager = _manager(tmp_path)
@@ -134,13 +145,90 @@ def test_search_keeps_public_name_but_uses_network_policy(tmp_path):
     manager = _manager(tmp_path)
     _attach(manager, _client())
 
-    tool = PolicyGuardedTool(manager.list_memory_tools()[0])
+    search = manager.list_memory_tools()[0]
+    assert search.__self__ is manager
+    assert search.__func__ is OpenVikingMemoryManager.memory_search
+    assert search.__name__ == "memory_search"
+
+    tool = PolicyGuardedTool(search)
     tool._qp_raw_params = {"query": "remote query"}
     spec = tool._build_tc_spec()
 
     assert tool.name == "memory_search"
     assert spec.tool_name == "OpenVikingMemorySearch"
     assert spec.target == "remote query"
+    assert set(tool.input_schema["properties"]) == {"query", "max_results"}
+    assert tool.input_schema["properties"]["query"]["type"] == "string"
+    assert tool.input_schema["properties"]["max_results"]["type"] == "integer"
+    assert tool.input_schema["properties"]["max_results"]["default"] == 5
+    assert tool.input_schema["required"] == ["query"]
+
+
+def test_unconfigured_manager_does_not_expose_search(tmp_path):
+    assert not _manager(tmp_path).list_memory_tools()
+
+
+def test_openviking_policy_marker_does_not_change_base_search_identity(
+    tmp_path,
+):
+    manager = _manager(tmp_path)
+    _attach(manager, _client())
+    manager.list_memory_tools()
+
+    assert (
+        getattr(BaseMemoryManager.memory_search, "_qwenpaw_policy_name", "")
+        == ""
+    )
+    base_search = MethodType(BaseMemoryManager.memory_search, manager)
+    tool = PolicyGuardedTool(base_search)
+    tool._qp_raw_params = {"query": "local query"}
+    spec = tool._build_tc_spec()
+
+    assert tool.name == "memory_search"
+    assert spec.tool_name == "MemorySearch"
+    assert DEFAULT_REGISTRY.get_type(spec.tool_name) == "internal"
+
+
+@pytest.mark.asyncio
+async def test_search_methods_stay_bound_to_their_manager_instances(tmp_path):
+    first = _manager(tmp_path, agent_id="first-agent")
+    second = _manager(tmp_path, agent_id="second-agent")
+    first_client = _client()
+    second_client = _client()
+    first_client.search_memories.return_value = [{"abstract": "first result"}]
+    second_client.search_memories.return_value = [
+        {"abstract": "second result"},
+    ]
+    _attach(first, first_client)
+    _attach(second, second_client)
+
+    try:
+        first_search = first.list_memory_tools()[0]
+        second_search = second.list_memory_tools()[0]
+        assert first_search.__self__ is first
+        assert second_search.__self__ is second
+        assert first_search.__func__ is second_search.__func__
+
+        first_result, second_result = await asyncio.gather(
+            first_search("first query", max_results=3),
+            second_search("second query"),
+        )
+
+        first_client.search_memories.assert_awaited_once_with(
+            query="first query",
+            max_results=3,
+        )
+        second_client.search_memories.assert_awaited_once_with(
+            query="second query",
+            max_results=5,
+        )
+        assert "first result" in first_result.content[0].text
+        assert "second result" not in first_result.content[0].text
+        assert "second result" in second_result.content[0].text
+        assert "first result" not in second_result.content[0].text
+    finally:
+        await first.close()
+        await second.close()
 
 
 @pytest.mark.asyncio
@@ -242,7 +330,11 @@ async def test_close_cancels_blocked_append_before_client_close(
 
 
 @pytest.mark.asyncio
-async def test_commit_retry_does_not_repeat_known_successful_append(tmp_path):
+async def test_commit_retry_does_not_repeat_known_successful_append(
+    tmp_path,
+    monkeypatch,
+):
+    monkeypatch.setattr(manager_module, "PERSISTENCE_RETRY_DELAYS", (0, 0))
     config = OpenVikingMemoryConfig(
         api_key="test-key",
         commit_policy="every_turn",
@@ -256,19 +348,28 @@ async def test_commit_retry_does_not_repeat_known_successful_append(tmp_path):
     _attach(manager, client)
     messages = [_user("save this"), _assistant("saved")]
 
-    first = await manager.auto_memory(messages, session_id="chat-1")
-    second = await manager.auto_memory(messages, session_id="chat-1")
-
-    assert first == ""
-    assert "Processed 0 message(s)" in second
-    client.add_messages.assert_awaited_once()
-    assert client.commit.await_count == 2
-    assert {message.id for message in messages} <= manager._persisted_msg_ids
+    try:
+        task_id = manager.submit_auto_memory(messages, session_id="chat-1")
+        task = await _wait_for_memory_task(manager, task_id)
+        assert task["status"] == "completed"
+        assert task["error"] is None
+        client.add_messages.assert_awaited_once()
+        assert client.commit.await_count == 2
+        assert {message.id for message in messages} <= set(
+            manager._persisted_msg_ids,
+        )
+        assert not manager._pending_commit_msg_ids
+    finally:
+        await manager.close()
 
 
 @pytest.mark.asyncio
-async def test_lost_append_response_retries_unconfirmed_messages(tmp_path):
+async def test_lost_append_response_retries_unconfirmed_messages(
+    tmp_path,
+    monkeypatch,
+):
     """Document ambiguous delivery, not an exactly-once guarantee."""
+    monkeypatch.setattr(manager_module, "PERSISTENCE_RETRY_DELAYS", (0, 0))
     manager = _manager(
         tmp_path,
         config=OpenVikingMemoryConfig(
@@ -282,26 +383,240 @@ async def test_lost_append_response_retries_unconfirmed_messages(tmp_path):
     async def accept_then_lose_first_response(session_id, payload):
         accepted_batches.append((session_id, payload))
         if len(accepted_batches) == 1:
+            assert not manager._persisted_msg_ids
+            assert not manager._pending_commit_msg_ids
+            client.commit.assert_not_awaited()
             raise OpenVikingServiceError("append response timed out")
 
     client.add_messages.side_effect = accept_then_lose_first_response
     _attach(manager, client)
     messages = [_user("save this"), _assistant("saved")]
 
-    assert await manager.auto_memory(messages, session_id="chat-1") == ""
-    assert len(accepted_batches) == 1
-    assert not manager._persisted_msg_ids
-    assert not any(manager._pending_commit_msg_ids.values())
-    client.commit.assert_not_awaited()
+    try:
+        task_id = manager.submit_auto_memory(messages, session_id="chat-1")
+        task = await _wait_for_memory_task(manager, task_id)
+        assert task["status"] == "completed"
+        # Both batches were accepted: retries cannot promise exactly-once.
+        assert len(accepted_batches) == 2
+        assert accepted_batches[0] == accepted_batches[1]
+        assert client.add_messages.await_count == 2
+        client.commit.assert_awaited_once()
+        assert {message.id for message in messages} <= set(
+            manager._persisted_msg_ids,
+        )
+    finally:
+        await manager.close()
 
-    await manager.auto_memory(messages, session_id="chat-1")
 
-    # The server accepted both batches: an unknown outcome can duplicate input.
-    assert len(accepted_batches) == 2
-    assert accepted_batches[0] == accepted_batches[1]
-    assert client.add_messages.await_count == 2
-    client.commit.assert_awaited_once()
-    assert {message.id for message in messages} <= manager._persisted_msg_ids
+@pytest.mark.asyncio
+@pytest.mark.parametrize("policy", ["auto", "every_turn"])
+async def test_queued_append_recovers_without_resubmission(
+    tmp_path,
+    monkeypatch,
+    policy,
+):
+    monkeypatch.setattr(manager_module, "PERSISTENCE_RETRY_DELAYS", (0, 0))
+    manager = _manager(
+        tmp_path,
+        config=OpenVikingMemoryConfig(
+            api_key="test-key",
+            commit_policy=policy,
+        ),
+    )
+    client = _client()
+    retry_started = asyncio.Event()
+    service_restored = asyncio.Event()
+    events = []
+
+    async def append(*_args):
+        if client.add_messages.await_count == 1:
+            events.append("append failed")
+            raise OpenVikingServiceError("temporary failure")
+        retry_started.set()
+        await service_restored.wait()
+        events.append("append completed")
+
+    async def commit(*_args):
+        assert events == ["append failed", "append completed"]
+        events.append("commit completed")
+
+    client.add_messages.side_effect = append
+    client.commit.side_effect = commit
+    _attach(manager, client)
+    messages = [_user("save this"), _assistant("received")]
+    try:
+        task_id = manager.submit_auto_memory(messages, session_id="chat-1")
+        await asyncio.wait_for(retry_started.wait(), timeout=2)
+        assert manager.list_auto_memory_tasks()[0]["status"] == "running"
+        assert not manager._persisted_msg_ids
+        client.commit.assert_not_awaited()
+        service_restored.set()
+        task = await _wait_for_memory_task(manager, task_id)
+        assert task["status"] == "completed"
+        assert task["error"] is None
+        assert client.add_messages.await_count == 2
+        assert (
+            client.add_messages.await_args_list[0]
+            == client.add_messages.await_args_list[1]
+        )
+        assert client.commit.await_count == (
+            1 if policy == "every_turn" else 0
+        )
+        assert not manager._pending_commit_msg_ids
+        assert set(manager._persisted_msg_ids) == {msg.id for msg in messages}
+    finally:
+        service_restored.set()
+        await manager.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("operation", ["add_messages", "commit"])
+async def test_retry_exhaustion_exposes_safe_failure_and_worker_continues(
+    tmp_path,
+    monkeypatch,
+    caplog,
+    operation,
+):
+    monkeypatch.setattr(manager_module, "PERSISTENCE_RETRY_DELAYS", (0, 0))
+    secret = "fake-tenant-secret"
+    manager = _manager(
+        tmp_path,
+        config=OpenVikingMemoryConfig(
+            api_key=secret,
+            commit_policy="every_turn",
+        ),
+    )
+    client = _client(api_key=secret)
+    failing_call = getattr(client, operation)
+    failing_call.side_effect = OpenVikingServiceError(f"failure {secret}")
+    _attach(manager, client)
+    messages = [_user("save this"), _assistant("received")]
+    try:
+        task_id = manager.submit_auto_memory(messages, session_id="chat-1")
+        task = await _wait_for_memory_task(manager, task_id)
+        assert failing_call.await_count == 3
+        assert task["status"] == "failed"
+        assert task["result"] is None
+        assert (
+            task["error"] == "OpenViking persistence failed after 3 attempts."
+        )
+        assert secret not in str(manager.get_runtime_status())
+        assert secret not in caplog.text
+        assert not manager._persisted_msg_ids
+        if operation == "commit":
+            client.add_messages.assert_awaited_once()
+            assert manager._pending_commit_msg_ids[
+                manager._map_session_id("chat-1")
+            ] == {msg.id for msg in messages}
+        else:
+            client.commit.assert_not_awaited()
+            assert not manager._pending_commit_msg_ids
+
+        # Exhaustion does not kill the worker; a later submitted task can run.
+        failing_call.side_effect = None
+        later_id = manager.submit_auto_memory(messages, session_id="chat-1")
+        later = await _wait_for_memory_task(manager, later_id)
+        assert later["status"] == "completed"
+        assert not manager._pending_commit_msg_ids
+        if operation == "commit":
+            client.add_messages.assert_awaited_once()
+    finally:
+        await manager.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("operation", ["add_messages", "commit"])
+async def test_configuration_error_is_not_retried(
+    tmp_path,
+    caplog,
+    operation,
+):
+    manager = _manager(
+        tmp_path,
+        config=OpenVikingMemoryConfig(commit_policy="every_turn"),
+    )
+    client = _client()
+    failing_call = getattr(client, operation)
+    failing_call.side_effect = OpenVikingConfigurationError("secret-test-key")
+    _attach(manager, client)
+    try:
+        task_id = manager.submit_auto_memory(
+            [_user("save")],
+            session_id="chat",
+        )
+        task = await _wait_for_memory_task(manager, task_id)
+        assert task["status"] == "failed"
+        assert (
+            task["error"] == "OpenViking persistence configuration is invalid."
+        )
+        failing_call.assert_awaited_once()
+        assert "secret-test-key" not in caplog.text
+    finally:
+        await manager.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("missing", ["client", "session_id"])
+async def test_missing_persistence_prerequisite_is_not_success(
+    tmp_path,
+    missing,
+):
+    manager = _manager(tmp_path)
+    client = _client()
+    if missing != "client":
+        _attach(manager, client)
+    kwargs = {} if missing == "session_id" else {"session_id": "chat"}
+    try:
+        task_id = manager.submit_auto_memory([_user("save")], **kwargs)
+        task = await _wait_for_memory_task(manager, task_id)
+        assert task["status"] == "failed"
+        client.add_messages.assert_not_awaited()
+    finally:
+        await manager.close()
+
+
+@pytest.mark.asyncio
+async def test_close_cancels_retry_wait_before_client_close(
+    tmp_path,
+    monkeypatch,
+):
+    monkeypatch.setattr(manager_module, "PERSISTENCE_RETRY_DELAYS", (60, 60))
+    manager = _manager(tmp_path)
+    client = _client()
+    first_attempt = asyncio.Event()
+
+    async def fail_append(*_args):
+        first_attempt.set()
+        raise OpenVikingServiceError("unavailable")
+
+    async def close_client():
+        assert manager._auto_memory_worker_task is None
+        assert manager.list_auto_memory_tasks()[0]["status"] == "cancelled"
+        client.add_messages.assert_awaited_once()
+
+    shutdown = manager._shutdown_auto_memory_worker
+
+    async def short_shutdown():
+        return await shutdown(timeout=0.05)
+
+    monkeypatch.setattr(
+        manager,
+        "_shutdown_auto_memory_worker",
+        short_shutdown,
+    )
+    client.add_messages.side_effect = fail_append
+    client.close.side_effect = close_client
+    _attach(manager, client)
+    try:
+        manager.submit_auto_memory([_user("save")], session_id="chat")
+        worker = manager._auto_memory_worker_task
+        await asyncio.wait_for(first_attempt.wait(), timeout=2)
+        assert await asyncio.wait_for(manager.close(), timeout=2)
+        assert worker is not None and worker.done()
+        client.close.assert_awaited_once()
+        client.commit.assert_not_awaited()
+    finally:
+        await manager.close()
 
 
 @pytest.mark.asyncio
@@ -337,6 +652,28 @@ async def test_auto_memory_excludes_synthetic_recall_blocks(tmp_path):
     payload = client.add_messages.await_args.args[1]
     assert all("remote recalled" not in item["content"] for item in payload)
     assert [item["role"] for item in payload] == ["user", "assistant"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("policy", ["auto", "every_turn"])
+async def test_progress_only_records_serialized_message_ids(tmp_path, policy):
+    manager = _manager(
+        tmp_path,
+        config=OpenVikingMemoryConfig(commit_policy=policy),
+    )
+    client = _client()
+    _attach(manager, client)
+    user = _user("save this")
+    empty = _assistant("")
+    try:
+        await manager.auto_memory([user, empty], session_id="chat")
+        payload = client.add_messages.await_args.args[1]
+        assert len(payload) == 1
+        assert payload[0]["source_message_ids"] == [user.id]
+        assert set(manager._persisted_msg_ids) == {user.id}
+        assert not manager._pending_commit_msg_ids
+    finally:
+        await manager.close()
 
 
 @pytest.mark.asyncio

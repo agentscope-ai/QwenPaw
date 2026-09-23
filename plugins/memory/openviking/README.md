@@ -100,9 +100,33 @@ OpenViking server or credentials are required for those tests.
 
 ## Retry behavior
 
-When `every_turn` is selected and OpenViking accepts message append but the
-following commit request fails, the next lifecycle attempt retries the commit
-without appending those known-successful messages again. OpenViking v0.4.x does
-not document an idempotency-key contract for an interrupted append response;
-network failures where the server may or may not have accepted an append
-remain subject to the server API's delivery guarantees.
+The same background task retains its message batch and makes at most three
+attempts for service errors, waiting 1 second and then 2 seconds between
+attempts. Configuration errors are not retried. The host task remains `running`
+while retrying, becomes `completed` on success, and becomes `failed` if retries
+are exhausted. Shutdown cancellation propagates normally. There is no durable
+queue or automatic later retry after exhaustion or a process restart.
+
+In `every_turn` mode, a confirmed append followed by a failed commit retains
+its pending message IDs in the Manager. A retry commits without appending those
+messages again. If an append response is lost after the server accepted the
+messages, a retry may still append them twice; this is not an exactly-once
+guarantee. A successful commit request also does not prove that background
+memory extraction has finished.
+
+## Resource bounds
+
+Explicit search clips each formatted result to 2,048 UTF-8 bytes and the
+complete returned text to 8,192 UTF-8 bytes. The total includes the intact
+safety notice, separators, and truncation markers. These are text-output
+bounds, not HTTP response-size limits or exact token budgets.
+
+The Manager caches at most 256 recently used prepared sessions and 10,000
+recently recorded completed message IDs. Evicting a session cache entry only
+requires preparing that session again; it does not delete remote data.
+Evicting a completed message ID ends its local duplicate suppression, so
+replaying that older message may append it again. Pending-commit IDs are not
+evicted by these limits and are removed after a successful commit; empty
+pending entries are not retained. Pending work itself is not globally bounded
+by these cache limits. All these progress records are in memory and reset
+when the Manager is recreated.
