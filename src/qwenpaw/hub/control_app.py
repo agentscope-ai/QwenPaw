@@ -92,7 +92,7 @@ from .static_files import (
     resolve_console_response,
     resolve_console_static_dir,
 )
-from .invitations import InvitationService
+from .invitations import InvitationError, InvitationService
 from .model_service.storage import GovernanceStore
 from .model_service.catalog import ModelCatalog
 from .model_service.budget import TokenBudgetService
@@ -101,6 +101,16 @@ from .model_service.routes import governance_router
 from .model_service.listener import ModelListener
 from .model_service.runtime_policy import require_model_route
 from . import websocket_proxy
+
+# HTTP semantics for each structured invitation rejection reason. The
+# user-facing message lives next to the reason in invitations.py.
+_INVITATION_ERROR_STATUSES = {
+    "registration_closed": 403,
+    "not_found": 404,
+    "already_used": 409,
+    "revoked": 410,
+    "expired": 410,
+}
 
 
 def build_runtime_service(
@@ -651,6 +661,18 @@ def create_hub_app(  # pylint: disable=too-many-statements
                     body.username,
                     body.password,
                 )
+        except InvitationError as exc:
+            await record_auth_event(
+                "auth.register",
+                body.username,
+                client_ip,
+                outcome="failure",
+                reason=f"invitation.{exc.reason}",
+            )
+            raise HTTPException(
+                status_code=_INVITATION_ERROR_STATUSES.get(exc.reason, 403),
+                detail=str(exc),
+            ) from exc
         except PermissionError as exc:
             await record_auth_event(
                 "auth.register",
