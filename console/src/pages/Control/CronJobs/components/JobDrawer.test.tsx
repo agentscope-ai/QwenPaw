@@ -34,6 +34,10 @@ import type {
 
 const capturedSelects = vi.hoisted(() => new Map<string, unknown[]>());
 
+vi.mock("../../../../hooks/useAppMessage", () => ({
+  useAppMessage: () => ({ message: { destroy: vi.fn(), error: vi.fn() } }),
+}));
+
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
     t: (key: string) => key,
@@ -159,6 +163,30 @@ vi.mock("@agentscope-ai/design", async () => {
   };
 });
 
+vi.mock("@/components/interaction/SettingsDrawer", () => ({
+  SettingsDrawer: ({
+    open,
+    title,
+    children,
+    footer,
+  }: {
+    open: boolean;
+    title: React.ReactNode;
+    children: React.ReactNode;
+    footer: React.ReactNode;
+  }) =>
+    open ? (
+      <div>
+        {title}
+        {children}
+        {footer}
+      </div>
+    ) : null,
+}));
+vi.mock("../../Heartbeat/DurationWheel", () => ({
+  DurationWheel: () => <input data-testid="time-picker" />,
+}));
+
 import { JobDrawer } from "./JobDrawer";
 
 // ---- Fixtures --------------------------------------------------------------
@@ -236,14 +264,12 @@ describe("JobDrawer open lifecycle", () => {
     await waitFor(() => expect(onReloadTargets).toHaveBeenCalledTimes(1));
   });
 
-  it("shows the disabled id field only in edit mode", () => {
+  it("keeps the technical id out of the editor", () => {
     const job = { id: "job-1", name: "n" } as unknown as CronJobSpecOutput;
     renderDrawer({ editingJob: job });
     expect(screen.getByText("cronJobs.editJob")).toBeInTheDocument();
-    expect(screen.getByText("cronJobs.id")).toBeInTheDocument();
-    expect(
-      screen.getByPlaceholderText("cronJobs.jobIdPlaceholder"),
-    ).toBeDisabled();
+    expect(screen.queryByText("cronJobs.id")).not.toBeInTheDocument();
+    expect(screen.queryByText("common.create")).not.toBeInTheDocument();
   });
 
   it("renders nothing when closed", () => {
@@ -293,7 +319,7 @@ describe("JobDrawer schedule blocks", () => {
     expect(screen.getByText("cronJobs.cronDaySun")).toBeInTheDocument();
   });
 
-  it("renders the custom cron expression field with the crontab.guru helper link", async () => {
+  it("keeps custom cron syntax available without inline explanation", async () => {
     const { getForm } = renderDrawer();
     act(() => {
       getForm().setFieldValue("cronType", "custom");
@@ -303,9 +329,6 @@ describe("JobDrawer schedule blocks", () => {
         screen.getByText("cronJobs.cronCustomExpression"),
       ).toBeInTheDocument(),
     );
-    expect(
-      screen.getByRole("link", { name: /cronJobs\.cronHelperLink/ }),
-    ).toHaveAttribute("href", "https://crontab.guru/");
     expect(screen.getByPlaceholderText("0 9 * * *")).toBeInTheDocument();
   });
 
@@ -488,7 +511,7 @@ describe("JobDrawer request input validation", () => {
         target: { value: "杭州今天天气如何？" },
       },
     );
-    fireEvent.click(screen.getByText("common.save"));
+    fireEvent.click(screen.getByText("common.create"));
     await waitFor(() => expect(onSubmit).toHaveBeenCalledOnce());
     expect(JSON.parse(onSubmit.mock.calls[0][0].request.input)).toEqual([
       { role: "user", content: [{ type: "text", text: "杭州今天天气如何？" }] },
@@ -513,7 +536,7 @@ describe("JobDrawer request input validation", () => {
         },
       });
     });
-    fireEvent.click(screen.getByText("common.save"));
+    fireEvent.click(screen.getByText("common.create"));
     await waitFor(() =>
       expect(
         screen.getByText("cronJobs.invalidJsonFormat"),
@@ -525,7 +548,7 @@ describe("JobDrawer request input validation", () => {
     act(() => {
       getForm().setFieldValue(["request", "input"], '[{"role":"user"}]');
     });
-    fireEvent.click(screen.getByText("common.save"));
+    fireEvent.click(screen.getByText("common.create"));
     await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
   });
 });
@@ -571,12 +594,51 @@ describe("JobDrawer footer actions", () => {
         },
       });
     });
-    fireEvent.click(screen.getByText("common.save"));
+    fireEvent.click(screen.getByText("common.create"));
     await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
     expect(onSubmit.mock.calls[0][0]).toMatchObject({
       name: "my-job",
       task_type: "text",
       text: "say hi",
     });
+  });
+});
+
+describe("JobDrawer automatic edits", () => {
+  it("saves an existing task without dismissing its editor", async () => {
+    const { getForm, onSubmit, onClose } = renderDrawer({
+      editingJob: { id: "existing", name: "Before" } as CronJobSpecOutput,
+    });
+    act(() =>
+      getForm().setFieldsValue({
+        id: "existing",
+        name: "Before",
+        task_type: "text",
+        text: "Reminder",
+        dispatch: {
+          channel: "console",
+          target: { user_id: "admin", session_id: "default" },
+        },
+      }),
+    );
+    fireEvent.change(
+      screen.getByPlaceholderText("cronJobs.jobNamePlaceholder"),
+      {
+        target: { value: "After" },
+      },
+    );
+    await waitFor(
+      () =>
+        expect(onSubmit).toHaveBeenCalledWith(
+          expect.objectContaining({
+            id: "existing",
+            name: "After",
+            text: "Reminder",
+          }),
+        ),
+      { timeout: 2500 },
+    );
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.queryByText("common.create")).not.toBeInTheDocument();
   });
 });

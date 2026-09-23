@@ -1632,3 +1632,51 @@
     }
   }
 }
+
+/* Page-specific settings refinement. */
+
+.tabContent {
+  max-width: 1040px;
+  margin: 0 auto;
+  padding: 8px 16px 24px;
+}
+.mainTabs :global(.qwenpaw-tabs-nav) {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  background: var(--app-surface);
+  border-radius: 14px;
+  padding-block: 4px;
+}
+.footerActions {
+  position: sticky;
+  bottom: 0;
+  z-index: 4;
+  background: var(--app-surface);
+  border-top: 1px solid var(--app-border-subtle);
+  padding: 14px 20px;
+  box-shadow: 0 -6px 24px rgb(0 0 0 / 3%);
+}
+@media (max-width: 600px) {
+  .tabContent {
+    padding-inline: 0;
+  }
+}
+
+.footerButtons {
+  margin: 8px 16px 0;
+  border: 1px solid var(--app-border-subtle);
+  border-radius: 18px;
+  box-shadow: 0 4px 20px rgb(0 0 0 / 3%);
+}
+
+.tabContent {
+  margin-inline: 0;
+}
+
+.footerActions {
+  margin: 8px 16px 0;
+  border: 1px solid var(--app-border-subtle);
+  border-radius: 18px;
+  background: var(--app-surface);
+}

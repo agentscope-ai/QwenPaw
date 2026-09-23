@@ -10,12 +10,12 @@ import {
   Table,
 } from "@agentscope-ai/design";
 import {
-  CalendarOutlined,
-  LeftOutlined,
-  MoreOutlined,
-  RightOutlined,
-  UnorderedListOutlined,
-} from "@ant-design/icons";
+  Calendar as CalendarOutlined,
+  ChevronLeft as LeftOutlined,
+  Ellipsis as MoreOutlined,
+  ChevronRight as RightOutlined,
+  List as UnorderedListOutlined,
+} from "lucide-react";
 import dayjs from "dayjs";
 import timezone from "dayjs/plugin/timezone";
 import utc from "dayjs/plugin/utc";
@@ -34,12 +34,29 @@ import {
   useCronJobs,
   DEFAULT_FORM_VALUES,
 } from "./components";
-import { parseCron, serializeCron } from "./components/parseCron";
+import {
+  parseCron,
+  serializeCron,
+  type CronParts,
+} from "./components/parseCron";
 import { getCalendarDays, getCalendarWeekLabels } from "./calendar";
 import { PageHeader } from "@/components/PageHeader";
 import styles from "./index.module.less";
 
 type CronJob = CronJobSpecOutput;
+type JobFormValues = CronJob & {
+  scheduleType?: "once" | "cron";
+  onceRunAt?: dayjs.Dayjs | null;
+  onceRepeatEnabled?: boolean;
+  onceRepeatEveryDays?: number;
+  onceRepeatEndType?: "never" | "until" | "count";
+  onceRepeatUntil?: dayjs.Dayjs | null;
+  onceRepeatCount?: number;
+  cronType?: CronParts["type"];
+  cronTime?: dayjs.Dayjs;
+  cronDaysOfWeek?: string[];
+  cronCustom?: string;
+};
 type OneTimeCronJob = CronJob & {
   schedule: {
     type: "once";
@@ -217,7 +234,7 @@ function CronJobsPage() {
   const handleEdit = (job: CronJob) => {
     setEditingJob(job);
 
-    const formValues: any = {
+    const formValues: JobFormValues = {
       ...job,
       request: {
         ...job.request,
@@ -266,7 +283,9 @@ function CronJobsPage() {
       }
     }
 
-    form.setFieldsValue(formValues);
+    form.setFieldsValue(
+      formValues as Parameters<typeof form.setFieldsValue>[0],
+    );
     setDrawerOpen(true);
   };
 
@@ -334,8 +353,8 @@ function CronJobsPage() {
     }
   };
 
-  const handleSubmit = async (values: any) => {
-    let schedule: any = values.schedule || {};
+  const handleSubmit = async (values: JobFormValues) => {
+    let schedule: CronJob["schedule"] = values.schedule;
     if ((values.scheduleType || "cron") === "once") {
       const onceRepeatEnabled = Boolean(values.onceRepeatEnabled);
       const repeatEndType = values.onceRepeatEndType || "never";
@@ -343,7 +362,7 @@ function CronJobsPage() {
         type: "once",
         run_at: values.onceRunAt
           ? dayjs(values.onceRunAt).format("YYYY-MM-DDTHH:mm:00")
-          : undefined,
+          : "",
         timezone: values.schedule?.timezone || userTimezoneRef.current,
         repeat_every_days: onceRepeatEnabled
           ? Number(values.onceRepeatEveryDays || 1)
@@ -361,7 +380,7 @@ function CronJobsPage() {
             : undefined,
       };
     } else {
-      const cronParts: any = {
+      const cronParts: CronParts = {
         type: values.cronType || "daily",
       };
 
@@ -387,7 +406,7 @@ function CronJobsPage() {
       };
     }
 
-    let processedValues = {
+    const processedValues = {
       ...values,
       schedule,
     };
@@ -409,7 +428,7 @@ function CronJobsPage() {
     } else if (processedValues.task_type === "agent") {
       //Ensure request object exists
       if (!processedValues.request) {
-        processedValues.request = {};
+        processedValues.request = { input: [] };
       }
 
       if (processedValues.request.model_slot_override === null) {
@@ -441,16 +460,17 @@ function CronJobsPage() {
     setSaving(true);
     try {
       if (editingJob) {
-        success = await updateJob(editingJob.id, processedValues);
+        success = await updateJob(editingJob.id, processedValues, true);
       } else {
         success = await createJob(processedValues);
       }
     } finally {
       setSaving(false);
     }
-    if (success) {
+    if (success && !editingJob) {
       setDrawerOpen(false);
     }
+    return success;
   };
 
   const columns = createColumns({
@@ -637,7 +657,7 @@ function CronJobsPage() {
                 onClick={() => setViewMode("list")}
                 title={t("cronJobs.listView")}
               >
-                <UnorderedListOutlined />
+                <UnorderedListOutlined size="1em" />
               </button>
               <button
                 className={`${styles.viewToggleBtn} ${
@@ -646,7 +666,7 @@ function CronJobsPage() {
                 onClick={() => setViewMode("calendar")}
                 title={t("cronJobs.calendarView")}
               >
-                <CalendarOutlined />
+                <CalendarOutlined size="1em" />
               </button>
             </div>
             {!isMobile && (
@@ -761,7 +781,7 @@ function CronJobsPage() {
                       type="text"
                       size="small"
                       className={styles.mobileMoreBtn}
-                      icon={<MoreOutlined />}
+                      icon={<MoreOutlined size="1em" />}
                     />
                   </Dropdown>
                 </div>
@@ -775,7 +795,7 @@ function CronJobsPage() {
               dataSource={filteredListJobs}
               loading={loading}
               rowKey="id"
-              scroll={{ x: 2840 }}
+              scroll={{ x: 680 }}
               pagination={{
                 pageSize: 10,
                 showSizeChanger: false,
@@ -788,7 +808,7 @@ function CronJobsPage() {
           <div className={styles.calendarHeader}>
             <Button
               type="text"
-              icon={<LeftOutlined />}
+              icon={<LeftOutlined size="1em" />}
               onClick={() =>
                 setCalendarMonth((prev) => prev.subtract(1, "month"))
               }
@@ -798,7 +818,7 @@ function CronJobsPage() {
             </div>
             <Button
               type="text"
-              icon={<RightOutlined />}
+              icon={<RightOutlined size="1em" />}
               onClick={() => setCalendarMonth((prev) => prev.add(1, "month"))}
             />
           </div>

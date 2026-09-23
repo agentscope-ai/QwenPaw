@@ -6,7 +6,8 @@ export {
   MAX_TAG_LENGTH,
   type SkillDrawerFormValues,
 } from "./SkillDrawer";
-export { getFileIcon, getSkillVisual } from "./SkillCard";
+export { getFileIcon } from "@/components/SkillVisual";
+export { getSkillVisual } from "./SkillCard";
 export {
   getSkillDisplaySource,
   getPoolBuiltinStatusLabel,

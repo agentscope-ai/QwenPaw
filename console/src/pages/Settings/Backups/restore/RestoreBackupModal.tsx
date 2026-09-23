@@ -20,7 +20,7 @@ import {
   Tooltip,
   Space,
 } from "antd";
-import { QuestionCircleOutlined } from "@ant-design/icons";
+import { CircleHelp as QuestionCircleOutlined } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import api from "@/api";
 import { useAppMessage } from "@/hooks/useAppMessage";
@@ -397,7 +397,10 @@ export default function RestoreBackupModal({
               <div className={styles.workspaceDirLabel}>
                 {t("backup.defaultWorkspaceDir")}
                 <Tooltip title={t("backup.defaultWorkspaceDirHint")}>
-                  <QuestionCircleOutlined className={styles.hintIcon} />
+                  <QuestionCircleOutlined
+                    size="1em"
+                    className={styles.hintIcon}
+                  />
                 </Tooltip>
               </div>
               <Input

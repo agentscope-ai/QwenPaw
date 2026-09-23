@@ -15,7 +15,7 @@ export default function BottomSheet({
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  title: string;
+  title: ReactNode;
   children: ReactNode;
   tall?: boolean;
   initialSnap?: number;

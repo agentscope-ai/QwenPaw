@@ -36,7 +36,9 @@
     "paste": "粘贴",
     "yes": "是",
     "no": "否",
-    "advancedSettings": "高级"
+    "advancedSettings": "高级",
+    "done": "完成",
+    "autoSaveFailed": "未能保存改动"
   },
   "desktop": {
     "closeWindow": {
@@ -292,8 +294,8 @@
   },
   "sidebar": {
     "avatarLoadFailed": "头像加载失败，请重试",
-    "toolsCompact": "切换为精简样式",
-    "toolsDetailed": "切换为详细样式",
+    "toolsCompact": "展开精简菜单栏",
+    "toolsDetailed": "展开详细菜单栏",
     "changeAvatar": "头像管理",
     "uploadAvatar": "选择图片",
     "avatarHistory": "历史头像 · 最近 12 个",
@@ -310,8 +312,8 @@
     "tools": "Agent 与快捷导航",
     "pinTools": "固定工具区",
     "unpinTools": "取消固定工具区",
-    "foldTools": "收起工具区",
-    "expandTools": "展开工具区",
+    "foldTools": "折叠菜单栏",
+    "expandTools": "展开菜单栏",
     "dragHandle": "拖动侧栏悬浮；按回车切换停靠",
     "dock": "侧栏归位",
     "newVersion": "发现新版本 v{{version}}，点击前往升级",
@@ -443,7 +445,18 @@
       "global": "全局设置",
       "plugins": "插件功能"
     },
-    "alwaysVisible": "始终展示"
+    "alwaysVisible": "始终展示",
+    "moveEntry": "移动{{name}}",
+    "removeEntry": "移除{{name}}",
+    "addEntry": "添加{{name}}",
+    "dragHint": "拖动调整顺序，或移入右侧组件库。",
+    "mirrorHint": "把常用入口放在手边。",
+    "sidebarPreview": "侧边栏预览",
+    "preview": "预览",
+    "dropHere": "拖入常用入口",
+    "previewCaption": "完成后同步到侧边栏",
+    "availableEntries": "组件库",
+    "allAdded": "已全部添加"
   },
   "debug": {
     "title": "调试",
@@ -1026,6 +1039,7 @@
     }
   },
   "skills": {
+    "settingsDetails": "适用范围与高级设置",
     "title": "技能",
     "description": "管理智能体技能和能力。",
     "preload": "预加载",
@@ -1426,6 +1440,7 @@
     }
   },
   "heartbeat": {
+    "customInterval": "自定义间隔",
     "title": "心跳",
     "description": "按固定间隔用 HEARTBEAT.md 内容执行自检。默认静默运行不影响当前对话，也可选择将回复发到上次对话频道。",
     "enabled": "开启心跳",
@@ -1439,9 +1454,9 @@
     "unitMinutes": "分钟",
     "unitHours": "小时",
     "target": "回复目标",
-    "targetMain": "静默运行（默认，不发送到频道）",
-    "targetLast": "发到上次对话频道",
-    "targetInbox": "发送到收件箱",
+    "targetMain": "静默运行",
+    "targetLast": "上次对话",
+    "targetInbox": "收件箱",
     "activeHours": "活跃时段（可选）",
     "activeStart": "开始时间",
     "activeEnd": "结束时间",
@@ -1450,7 +1465,8 @@
     "saveFailed": "保存心跳配置失败",
     "runNow": "立即执行一次",
     "runNowSuccess": "已触发心跳执行，请稍后查看收件箱或目标渠道",
-    "runNowFailed": "触发心跳执行失败"
+    "runNowFailed": "触发心跳执行失败",
+    "intervalRange": "请选择 1 分钟至 23 小时 59 分钟"
   },
   "cronJobs": {
     "executionModel": "执行模型",
@@ -1686,6 +1702,10 @@
     }
   },
   "channels": {
+    "manualCredentials": "手动填写凭据",
+    "deliverySettings": "发送方式",
+    "presentationSettings": "消息呈现",
+    "advancedSettings": "高级设置",
     "title": "频道",
     "description": "管理和配置消息频道",
     "loading": "正在加载频道...",
@@ -2059,6 +2079,8 @@
     }
   },
   "tokenUsage": {
+    "year": "年份",
+    "futureDate": "尚未到来",
     "title": "Token 消耗",
     "totalTokens": "总 Token",
     "totalCalls": "LLM 调用",
@@ -2086,7 +2108,17 @@
     "allSelected": "全部",
     "itemsSelected": "已选 {{count}} 项",
     "selectModels": "选择模型",
-    "selectTokenTypes": "选择 Token 类型"
+    "selectTokenTypes": "选择 Token 类型",
+    "activity": "活跃度",
+    "activityHint": "选择日期查看用量",
+    "modelRanking": "模型排行",
+    "less": "少",
+    "more": "多",
+    "trends": "趋势",
+    "lastDays": "近 {{count}} 天",
+    "activeDays": "活跃天数",
+    "dailyAverage": "日均用量",
+    "peakDay": "用量高峰"
   },
   "agentStats": {
     "title": "智能体统计",
@@ -2793,6 +2825,7 @@
     "syncAsAgentDefault": "以后新任务默认使用此工作区配置"
   },
   "agentConfig": {
+    "advancedRuntime": "高级运行设置",
     "title": "运行配置",
     "projectDirectoryTitle": "默认智能体工作区",
     "projectDirectoryDescription": "文件和命令默认使用的智能体工作区。",
@@ -3473,6 +3506,8 @@
     "contextStrategyNative": "Native"
   },
   "tools": {
+    "search": "搜索工具",
+    "noSearchResults": "没有匹配的工具",
     "title": "内置工具",
     "description": "管理内置工具及其启用状态。禁用的工具将不会提供给智能体使用。",
     "emptyState": "暂无工具配置",

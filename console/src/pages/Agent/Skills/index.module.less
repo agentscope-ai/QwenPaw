@@ -191,7 +191,13 @@
   background: var(--app-surface);
   border: 1px solid var(--app-border);
   box-sizing: border-box;
-  transition: all 0.2s ease-in-out;
+  transition:
+    background-color 0.2s ease-in-out,
+    color 0.2s ease-in-out,
+    border-color 0.2s ease-in-out,
+    box-shadow 0.2s ease-in-out,
+    opacity 0.2s ease-in-out,
+    transform 0.2s ease-in-out;
   position: relative;
   overflow: hidden;
 
@@ -895,7 +901,13 @@
   border: 1px solid var(--app-border);
   border-radius: 4px;
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease,
+    border-color 0.15s ease,
+    box-shadow 0.15s ease,
+    opacity 0.15s ease,
+    transform 0.15s ease;
   min-width: 0;
 
   &:hover {
@@ -1086,7 +1098,13 @@
   background: var(--app-fill-subtle);
   color: var(--app-text-secondary);
   cursor: pointer;
-  transition: all 0.2s;
+  transition:
+    background-color 0.2s,
+    color 0.2s,
+    border-color 0.2s,
+    box-shadow 0.2s,
+    opacity 0.2s,
+    transform 0.2s;
 
   &:hover {
     background: var(--app-info-bg);
@@ -1124,7 +1142,13 @@
   cursor: pointer;
   border-radius: 4px;
   font-size: 16px;
-  transition: all 0.2s;
+  transition:
+    background-color 0.2s,
+    color 0.2s,
+    border-color 0.2s,
+    box-shadow 0.2s,
+    opacity 0.2s,
+    transform 0.2s;
 
   &:hover {
     color: var(--app-text);
@@ -1208,7 +1232,13 @@
   border-radius: 8px;
   background: var(--skills-disabled-item-bg);
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease,
+    border-color 0.15s ease,
+    box-shadow 0.15s ease,
+    opacity 0.15s ease,
+    transform 0.15s ease;
 
   &:hover {
     background: var(--skills-disabled-item-hover);
@@ -1623,4 +1653,85 @@
 :global(.dark-mode) .skillsPage .selectedCard {
   border-color: var(--app-accent) !important;
   box-shadow: var(--skills-selected-ring) !important;
+}
+
+/* Page-specific settings refinement. */
+
+.panelSection,
+.panelSectionDashed {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  margin: 16px;
+}
+.skillsGrid {
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr));
+  gap: 16px;
+}
+.skillsList {
+  border-radius: 18px;
+  overflow: hidden;
+  border: 1px solid var(--app-border-subtle);
+}
+.toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--app-surface);
+  border-radius: 16px;
+  border: 1px solid var(--app-border-subtle);
+}
+.providerSkillsSection {
+  margin: 16px;
+  border-radius: 20px;
+}
+.disabledSkillsGrid {
+  gap: 12px;
+}
+@media (max-width: 600px) {
+  .panelSection,
+  .panelSectionDashed,
+  .providerSkillsSection {
+    margin-inline: 0;
+  }
+  .skillsGrid {
+    grid-template-columns: 1fr;
+  }
+}
+.skillSummaryMeta {
+  display: flex;
+  gap: 12px;
+  font-size: 12px;
+  color: var(--app-text-tertiary);
+  margin: 8px 0 12px;
+}
+.skillActions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 16px;
+  border-top: 1px solid var(--app-border-subtle);
+  padding-top: 8px;
+}
+.skillUpdated {
+  flex: 1;
+  font-size: 12px;
+  color: var(--app-text-tertiary);
+}
+.skillCard {
+  height: 100%;
+  .descriptionSection {
+    background: transparent;
+    border: 0;
+    padding: 0;
+  }
+  .descriptionText {
+    min-height: 40px;
+    -webkit-line-clamp: 2;
+  }
+  .skillTitle {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
 }

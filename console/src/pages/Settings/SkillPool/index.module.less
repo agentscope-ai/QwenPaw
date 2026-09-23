@@ -252,7 +252,13 @@
   background: var(--app-fill-subtle);
   color: var(--app-text-secondary);
   cursor: pointer;
-  transition: all 0.2s;
+  transition:
+    background-color 0.2s,
+    color 0.2s,
+    border-color 0.2s,
+    box-shadow 0.2s,
+    opacity 0.2s,
+    transform 0.2s;
 
   &:hover {
     background: var(--app-info-bg);
@@ -290,7 +296,13 @@
   cursor: pointer;
   border-radius: 4px;
   font-size: 16px;
-  transition: all 0.2s;
+  transition:
+    background-color 0.2s,
+    color 0.2s,
+    border-color 0.2s,
+    box-shadow 0.2s,
+    opacity 0.2s,
+    transform 0.2s;
 
   &:hover {
     color: var(--app-text);
@@ -476,7 +488,13 @@
   background: var(--app-surface);
   border: 1px solid var(--app-border);
   box-sizing: border-box;
-  transition: all 0.2s ease-in-out;
+  transition:
+    background-color 0.2s ease-in-out,
+    color 0.2s ease-in-out,
+    border-color 0.2s ease-in-out,
+    box-shadow 0.2s ease-in-out,
+    opacity 0.2s ease-in-out,
+    transform 0.2s ease-in-out;
   position: relative;
   overflow: hidden;
 
@@ -1054,5 +1072,43 @@
     .metaInfoLabel {
       min-width: 64px;
     }
+  }
+}
+
+/* Page-specific settings refinement. */
+
+.toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  border-radius: 16px;
+  background: var(--app-surface);
+  border: 1px solid var(--app-border-subtle);
+  gap: 12px;
+}
+.skillsGrid {
+  gap: 16px;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr));
+}
+.skillsList {
+  border-radius: 18px;
+  border: 1px solid var(--app-border-subtle);
+  overflow: hidden;
+}
+.batchActions {
+  padding: 6px 12px;
+  border-radius: 12px;
+  background: var(--app-accent-faint);
+}
+.cardFooter {
+  gap: 8px;
+  flex-wrap: wrap;
+}
+@media (max-width: 600px) {
+  .headerRight {
+    flex-wrap: wrap;
+  }
+  .toolbar {
+    position: static;
   }
 }

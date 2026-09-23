@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Button, Modal, Select, Tooltip } from "@agentscope-ai/design";
-import { CheckOutlined } from "@ant-design/icons";
+import { Check as CheckOutlined } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type {
   PoolSkillSpec,
@@ -144,7 +144,7 @@ export function BroadcastModal({
                   <span
                     className={`${styles.pickerCheck} ${styles.compactPickerCheck}`}
                   >
-                    <CheckOutlined />
+                    <CheckOutlined size="1em" />
                   </span>
                 )}
                 <Tooltip title={skill.name}>
@@ -203,7 +203,7 @@ export function BroadcastModal({
                   <span
                     className={`${styles.pickerCheck} ${styles.compactPickerCheck}`}
                   >
-                    <CheckOutlined />
+                    <CheckOutlined size="1em" />
                   </span>
                 )}
                 <Tooltip title={`ID: ${workspace.agent_id}`}>

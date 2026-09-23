@@ -291,3 +291,40 @@
     border-top-color: var(--env-border);
   }
 }
+
+/* Page-specific settings refinement. */
+
+.page {
+  background: transparent;
+}
+.content {
+  padding-top: 12px;
+}
+.hero {
+  padding-bottom: 20px;
+}
+.hero h1 {
+  font-size: 28px;
+}
+.panel {
+  border-radius: 24px;
+  box-shadow: 0 4px 20px rgb(0 0 0 / 3%);
+}
+.row {
+  min-height: 64px;
+}
+.row:focus-within {
+  background: var(--app-accent-faint);
+}
+.filters {
+  gap: 12px;
+  flex-wrap: wrap;
+}
+@media (max-width: 600px) {
+  .content {
+    width: 100%;
+  }
+  .sectionHeading {
+    padding: 20px 16px 12px;
+  }
+}

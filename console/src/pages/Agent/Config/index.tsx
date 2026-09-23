@@ -1,3 +1,4 @@
+import { useAutoSave } from "@/hooks/useAutoSave";
 import { useState, useMemo, useEffect, useCallback } from "react";
 import { Button, Form, Tabs } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
@@ -48,9 +49,9 @@ function AgentConfigPage() {
   const {
     form,
     loading,
-    saving,
     error,
     language,
+    saving,
     savingLang,
     timezone,
     savingTimezone,
@@ -62,6 +63,10 @@ function AgentConfigPage() {
     handleLanguageChange,
     handleTimezoneChange,
   } = useAgentConfig(syncReindexRequirement);
+
+  const { schedule: scheduleSave, flush: flushSave } = useAutoSave(() =>
+    handleSave(true),
+  );
 
   const llmRetryEnabled = Form.useWatch("llm_retry_enabled", form) ?? true;
   const contextBackend =
@@ -268,7 +273,10 @@ function AgentConfigPage() {
         <div className={styles.tabContent}>
           <ToolExecutionLevelCard
             value={approvalLevel}
-            onChange={setApprovalLevel}
+            onChange={(value) => {
+              setApprovalLevel(value);
+              scheduleSave();
+            }}
             disabled={saving}
           />
         </div>
@@ -280,6 +288,8 @@ function AgentConfigPage() {
     t,
     language,
     savingLang,
+    saving,
+    scheduleSave,
     timezone,
     savingTimezone,
     handleLanguageChange,
@@ -291,7 +301,6 @@ function AgentConfigPage() {
     memoryBackends,
     approvalLevel,
     setApprovalLevel,
-    saving,
   ]);
 
   useEffect(() => {
@@ -350,6 +359,7 @@ function AgentConfigPage() {
             form={form}
             layout="vertical"
             className={styles.form}
+            onValuesChange={scheduleSave}
             onFieldsChange={handleRerankerFieldsChange(
               form,
               setRerankerExpanded,
@@ -358,25 +368,15 @@ function AgentConfigPage() {
             <Tabs
               className={styles.mainTabs}
               activeKey={activeTab}
-              onChange={setActiveTab}
+              onChange={(value) => {
+                void flushSave();
+                setActiveTab(value);
+              }}
               items={dynamicTabs}
               destroyInactiveTabPane={false}
             />
           </Form>
         </MemoryMaintenanceContext.Provider>
-      </div>
-
-      <div className={styles.footerActions}>
-        <Button
-          onClick={fetchConfig}
-          disabled={saving}
-          style={{ marginRight: 8 }}
-        >
-          {t("common.reset")}
-        </Button>
-        <Button type="primary" onClick={handleSave} loading={saving}>
-          {t("common.save")}
-        </Button>
       </div>
     </div>
   );

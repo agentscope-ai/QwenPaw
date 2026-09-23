@@ -14,6 +14,10 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import React from "react";
+import type { MCPAccessClientPanel } from "./MCPAccessClientPanel";
+import type { MCPAccessToolPanel } from "./MCPAccessToolPanel";
+type ClientProps = React.ComponentProps<typeof MCPAccessClientPanel>;
+type ToolProps = React.ComponentProps<typeof MCPAccessToolPanel>;
 
 const apiMocks = vi.hoisted(() => ({
   getMCPPolicy: vi.fn(),
@@ -25,6 +29,7 @@ const apiMocks = vi.hoisted(() => ({
 vi.mock("../../../../api", () => ({ default: apiMocks }));
 
 const messageMocks = vi.hoisted(() => ({
+  destroy: vi.fn(),
   success: vi.fn(),
   error: vi.fn(),
   warning: vi.fn(),
@@ -48,8 +53,12 @@ vi.mock("react-i18next", () => ({
 }));
 
 const confirmSpy = vi.hoisted(() => vi.fn());
-const clientPanelProps = vi.hoisted(() => ({ current: null as any }));
-const toolPanelProps = vi.hoisted(() => ({ current: null as any }));
+const clientPanelProps = vi.hoisted(() => ({
+  current: null as unknown as ClientProps,
+}));
+const toolPanelProps = vi.hoisted(() => ({
+  current: null as unknown as ToolProps,
+}));
 
 // The design package's Modal is a plain container here; the imperative
 // confirm is captured via a spy.
@@ -74,7 +83,7 @@ vi.mock("@agentscope-ai/design", () => {
           footer,
         )
       : null;
-  (Modal as any).confirm = confirmSpy;
+  Object.assign(Modal, { confirm: confirmSpy });
 
   const Button = ({
     children,
@@ -100,7 +109,7 @@ vi.mock("@agentscope-ai/design", () => {
 });
 
 vi.mock("./MCPAccessClientPanel", () => ({
-  MCPAccessClientPanel: (props: any) => {
+  MCPAccessClientPanel: (props: ClientProps) => {
     clientPanelProps.current = props;
     return React.createElement(
       "div",
@@ -152,7 +161,7 @@ vi.mock("./MCPAccessClientPanel", () => ({
 }));
 
 vi.mock("./MCPAccessToolPanel", () => ({
-  MCPAccessToolPanel: (props: any) => {
+  MCPAccessToolPanel: (props: ToolProps) => {
     toolPanelProps.current = props;
     const firstRules = props.groups[0]?.rules ?? [];
     return React.createElement(
@@ -255,8 +264,8 @@ function renderModal(
 describe("MCPAccessModal", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    clientPanelProps.current = null;
-    toolPanelProps.current = null;
+    clientPanelProps.current = null as unknown as ClientProps;
+    toolPanelProps.current = null as unknown as ToolProps;
     setupDefaultMocks();
   });
 
@@ -270,7 +279,7 @@ describe("MCPAccessModal", () => {
       expect(screen.getByTestId("client-panel")).toBeInTheDocument();
       expect(screen.getByTestId("tool-panel")).toBeInTheDocument();
     });
-    expect(toolPanelProps.current.groups.map((g: any) => g.toolName)).toEqual([
+    expect(toolPanelProps.current.groups.map((g) => g.toolName)).toEqual([
       "read_file",
       "write_file",
     ]);
@@ -288,7 +297,7 @@ describe("MCPAccessModal", () => {
     await waitFor(() =>
       expect(document.querySelector(".ant-spin")).toBeInTheDocument(),
     );
-    expect(screen.getByText("common.save")).toBeDisabled();
+    expect(screen.queryByText("common.save")).not.toBeInTheDocument();
   });
 
   it("shows the load error and disables save when the policy fetch fails", async () => {
@@ -297,7 +306,7 @@ describe("MCPAccessModal", () => {
     await waitFor(() =>
       expect(screen.getByText("mcp.access.loadError")).toBeInTheDocument(),
     );
-    expect(screen.getByText("common.save")).toBeDisabled();
+    expect(screen.queryByText("common.save")).not.toBeInTheDocument();
     expect(screen.queryByTestId("client-panel")).not.toBeInTheDocument();
   });
 
@@ -371,10 +380,11 @@ describe("MCPAccessModal", () => {
       expect(screen.getByTestId("client-panel")).toBeInTheDocument(),
     );
 
-    await user.click(screen.getByText("common.save"));
+    await user.click(screen.getByText("set-default-allow"));
+    await user.click(screen.getByRole("button", { name: "Close" }));
     await waitFor(() =>
       expect(onSave).toHaveBeenCalledWith(
-        expect.objectContaining({ default_effect: "deny" }),
+        expect.objectContaining({ default_effect: "allow" }),
       ),
     );
     await waitFor(() => expect(onClose).toHaveBeenCalled());
@@ -400,7 +410,8 @@ describe("MCPAccessModal", () => {
       expect(screen.getByTestId("client-panel")).toBeInTheDocument(),
     );
 
-    await user.click(screen.getByText("common.save"));
+    await user.click(screen.getByText("set-default-allow"));
+    await user.click(screen.getByRole("button", { name: "Close" }));
     await waitFor(() =>
       expect(messageMocks.error).toHaveBeenCalledWith(
         "mcp.access.validation.missingUserValue",
@@ -438,7 +449,8 @@ describe("MCPAccessModal", () => {
       expect(screen.getByTestId("client-panel")).toBeInTheDocument(),
     );
 
-    await user.click(screen.getByText("common.save"));
+    await user.click(screen.getByText("set-default-allow"));
+    await user.click(screen.getByRole("button", { name: "Close" }));
     await waitFor(() =>
       expect(messageMocks.warning).toHaveBeenCalledWith(
         "mcp.access.validation.unknownUserValue",
@@ -455,11 +467,12 @@ describe("MCPAccessModal", () => {
       expect(screen.getByTestId("client-panel")).toBeInTheDocument(),
     );
 
-    await user.click(screen.getByText("common.save"));
+    await user.click(screen.getByText("set-default-allow"));
+    await user.click(screen.getByRole("button", { name: "Close" }));
     await waitFor(() => expect(onSave).toHaveBeenCalled());
     expect(onClose).not.toHaveBeenCalled();
     // Saving state resets so the button becomes usable again.
-    expect(screen.getByText("common.save")).toBeEnabled();
+    expect(screen.getByTestId("client-panel")).toBeInTheDocument();
   });
 
   it("closes directly when there are no changes", async () => {
@@ -469,12 +482,12 @@ describe("MCPAccessModal", () => {
       expect(screen.getByTestId("client-panel")).toBeInTheDocument(),
     );
 
-    await user.click(screen.getByText("common.cancel"));
+    await user.click(screen.getByRole("button", { name: "Close" }));
     expect(onClose).toHaveBeenCalled();
     expect(confirmSpy).not.toHaveBeenCalled();
   });
 
-  it("asks for confirmation before discarding unsaved changes", async () => {
+  it("flushes pending edits before closing", async () => {
     const user = userEvent.setup();
     const { onClose } = renderModal();
     await waitFor(() =>
@@ -487,16 +500,9 @@ describe("MCPAccessModal", () => {
       expect(clientPanelProps.current.policy.default_effect).toBe("allow"),
     );
 
-    await user.click(screen.getByText("common.cancel"));
-    expect(onClose).not.toHaveBeenCalled();
-    expect(confirmSpy).toHaveBeenCalledWith(
-      expect.objectContaining({ title: "mcp.access.discardTitle" }),
-    );
-
-    // Confirming the discard closes the modal.
-    const call = confirmSpy.mock.calls[confirmSpy.mock.calls.length - 1][0];
-    call.onOk();
-    expect(onClose).toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: "Close" }));
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    expect(confirmSpy).not.toHaveBeenCalled();
   });
 
   it("adds a client access rule through the panel", async () => {

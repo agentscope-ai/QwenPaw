@@ -1,3 +1,4 @@
+import { InteractiveCard } from "@/components/interaction/InteractiveCard";
 /**
  * AppCard.tsx — Individual app card for the App Center grid.
  */
@@ -76,8 +77,7 @@ export const AppCard: FC<AppCardProps> = ({ app, onClick, onUninstall }) => {
   // icon_url points to an image while icon stays a legacy glyph. plugin.json
   // is developer-controlled, but reject script-like schemes anyway and fall
   // back when the image cannot load (e.g. the plugin was installed without a
-  // built ui/dist). Apps without an image icon show their plugin.json emoji
-  // (e.g. Kanban's 📋); only when that is missing too does the Lucide glyph
+  // built ui/dist). Apps without an image icon use a Lucide glyph.
   // kick in.
   const imageRef = /^(https?:\/\/|\/|data:image\/)/;
   const iconSrc = [app.icon_url ?? "", app.icon].find((ref) =>
@@ -117,7 +117,6 @@ export const AppCard: FC<AppCardProps> = ({ app, onClick, onUninstall }) => {
       : undefined
     : iconSrc;
   const isImageIcon = !!iconSrc && !iconFailed;
-  const emojiIcon = !isImageIcon && !imageRef.test(app.icon) ? app.icon : "";
 
   const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.target !== event.currentTarget) return;
@@ -127,69 +126,67 @@ export const AppCard: FC<AppCardProps> = ({ app, onClick, onUninstall }) => {
   };
 
   return (
-    <Card className={`${styles.appCard} ${styles.appCardClickable}`}>
-      <div
-        className={styles.cardOpenButton}
-        onClick={() => onClick(app)}
-        onKeyDown={handleKeyDown}
-        role="button"
-        tabIndex={0}
-        aria-label={app.name}
-      >
-        <div className={styles.cardIcon}>
-          {isImageIcon ? (
-            <img
-              src={displayIcon}
-              alt=""
-              className={styles.cardIconImage}
-              onError={() => setIconFailed(true)}
-            />
-          ) : emojiIcon ? (
-            <span className={styles.cardIconEmoji} aria-hidden>
-              {emojiIcon}
-            </span>
-          ) : (
-            <AppWindow size={32} strokeWidth={1.75} />
+    <InteractiveCard tilt={3} style={{ width: "100%" }}>
+      <Card className={`${styles.appCard} ${styles.appCardClickable}`}>
+        <div
+          className={styles.cardOpenButton}
+          onClick={() => onClick(app)}
+          onKeyDown={handleKeyDown}
+          role="button"
+          tabIndex={0}
+          aria-label={app.name}
+        >
+          <div className={styles.cardIcon}>
+            {isImageIcon ? (
+              <img
+                src={displayIcon}
+                alt=""
+                className={styles.cardIconImage}
+                onError={() => setIconFailed(true)}
+              />
+            ) : (
+              <AppWindow size={32} strokeWidth={1.75} />
+            )}
+          </div>
+          <div className={styles.cardBody}>
+            <div className={styles.cardHeader}>
+              <Text strong className={styles.cardTitle} ellipsis>
+                {app.name}
+              </Text>
+              {app.version && (
+                <span className={styles.versionBadge}>v{app.version}</span>
+              )}
+            </div>
+            <Paragraph
+              type="secondary"
+              className={styles.cardDesc}
+              ellipsis={{ rows: 2 }}
+            >
+              {pickAppDescription(app, i18n.language) ||
+                t("appCenter.noDescription", "No description")}
+            </Paragraph>
+            <div className={styles.cardFooter}>
+              {app.category && (
+                <span className={styles.cardMeta}>{app.category}</span>
+              )}
+            </div>
+          </div>
+        </div>
+        <div className={`${styles.cardActions} ${styles.cardHoverActions}`}>
+          <Button icon={<Play size={14} />} onClick={() => onClick(app)}>
+            {t("appCenter.openApp", "打开应用")}
+          </Button>
+          {onUninstall && (
+            <Button
+              danger
+              icon={<Trash2 size={14} />}
+              onClick={() => onUninstall(app)}
+            >
+              {t("appCenter.uninstall", "卸载")}
+            </Button>
           )}
         </div>
-        <div className={styles.cardBody}>
-          <div className={styles.cardHeader}>
-            <Text strong className={styles.cardTitle} ellipsis>
-              {app.name}
-            </Text>
-            {app.version && (
-              <span className={styles.versionBadge}>v{app.version}</span>
-            )}
-          </div>
-          <Paragraph
-            type="secondary"
-            className={styles.cardDesc}
-            ellipsis={{ rows: 2 }}
-          >
-            {pickAppDescription(app, i18n.language) ||
-              t("appCenter.noDescription", "No description")}
-          </Paragraph>
-          <div className={styles.cardFooter}>
-            {app.category && (
-              <span className={styles.cardMeta}>{app.category}</span>
-            )}
-          </div>
-        </div>
-      </div>
-      <div className={`${styles.cardActions} ${styles.cardHoverActions}`}>
-        <Button icon={<Play size={14} />} onClick={() => onClick(app)}>
-          {t("appCenter.openApp", "打开应用")}
-        </Button>
-        {onUninstall && (
-          <Button
-            danger
-            icon={<Trash2 size={14} />}
-            onClick={() => onUninstall(app)}
-          >
-            {t("appCenter.uninstall", "卸载")}
-          </Button>
-        )}
-      </div>
-    </Card>
+      </Card>
+    </InteractiveCard>
   );
 };

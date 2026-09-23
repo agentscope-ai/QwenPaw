@@ -1,3 +1,4 @@
+import { Puzzle } from "lucide-react";
 import { useState } from "react";
 import styles from "./SkillIcon.module.less";
 
@@ -56,7 +57,7 @@ export function SkillIcon({ url, alt, source }: SkillIconProps) {
 
   return (
     <div className={styles.skillIcon} aria-hidden>
-      🧩
+      <Puzzle size={24} aria-hidden="true" />
     </div>
   );
 }

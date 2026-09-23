@@ -1,18 +1,12 @@
-import React, { useEffect, useState } from "react";
+import { InteractiveCard } from "@/components/interaction/InteractiveCard";
+import React from "react";
 import { Card, Button, Checkbox, Tooltip } from "@agentscope-ai/design";
 import {
-  CalendarFilled,
-  FileTextFilled,
-  FileZipFilled,
-  FilePdfFilled,
-  FileWordFilled,
-  FileExcelFilled,
-  FilePptFilled,
-  FileImageFilled,
-  CodeFilled,
-  EyeOutlined,
-  EyeInvisibleOutlined,
-} from "@ant-design/icons";
+  Trash2,
+  Eye as EyeOutlined,
+  EyeOff as EyeInvisibleOutlined,
+} from "lucide-react";
+import { getFileIcon } from "@/components/SkillVisual";
 import dayjs from "dayjs";
 import type { SkillSpec } from "../../../../api/types";
 import { useTranslation } from "react-i18next";
@@ -31,112 +25,7 @@ interface SkillCardProps {
   onDelete?: (e?: React.MouseEvent) => void;
 }
 
-const useIsMobile = () => {
-  const [isMobile, setIsMobile] = useState(
-    typeof window !== "undefined" ? window.innerWidth <= 768 : false,
-  );
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const handleResize = () => setIsMobile(window.innerWidth <= 768);
-    window.addEventListener("resize", handleResize);
-    return () => window.removeEventListener("resize", handleResize);
-  }, []);
-
-  return isMobile;
-};
-
-const normalizeSkillIconKey = (value: string) =>
-  value
-    .trim()
-    .toLowerCase()
-    .split(/\s+/)[0]
-    ?.replace(/[^a-z0-9_-]/g, "") || "";
-
-export const getFileIcon = (filePath: string) => {
-  const skillKey = normalizeSkillIconKey(filePath);
-  const textSkillIcons = new Set([
-    "news",
-    "file_reader",
-    "browser",
-    "guidance",
-    "dingtalk_channel",
-  ]);
-
-  if (textSkillIcons.has(skillKey)) {
-    return <FileTextFilled style={{ color: "#1890ff" }} />;
-  }
-
-  switch (skillKey) {
-    case "docx":
-      return <FileWordFilled style={{ color: "#2B8DFF" }} />;
-    case "xlsx":
-      return <FileExcelFilled style={{ color: "#44C161" }} />;
-    case "pptx":
-      return <FilePptFilled style={{ color: "#FF5B3B" }} />;
-    case "pdf":
-      return <FilePdfFilled style={{ color: "#F04B57" }} />;
-    case "cron":
-      return <CalendarFilled style={{ color: "#13c2c2" }} />;
-    default:
-      break;
-  }
-
-  const extension = filePath.split(".").pop()?.toLowerCase() || "";
-
-  switch (extension) {
-    case "txt":
-    case "md":
-    case "markdown":
-      return <FileTextFilled style={{ color: "#1890ff" }} />;
-    case "zip":
-    case "rar":
-    case "7z":
-    case "tar":
-    case "gz":
-      return <FileZipFilled style={{ color: "#fa8c16" }} />;
-    case "pdf":
-      return <FilePdfFilled style={{ color: "#F04B57" }} />;
-    case "doc":
-    case "docx":
-      return <FileWordFilled style={{ color: "#2B8DFF" }} />;
-    case "xls":
-    case "xlsx":
-      return <FileExcelFilled style={{ color: "#44C161" }} />;
-    case "ppt":
-    case "pptx":
-      return <FilePptFilled style={{ color: "#FF5B3B" }} />;
-    case "jpg":
-    case "jpeg":
-    case "png":
-    case "gif":
-    case "svg":
-    case "webp":
-      return <FileImageFilled style={{ color: "#eb2f96" }} />;
-    case "py":
-    case "js":
-    case "ts":
-    case "jsx":
-    case "tsx":
-    case "java":
-    case "cpp":
-    case "c":
-    case "go":
-    case "rs":
-    case "rb":
-    case "php":
-      return <CodeFilled style={{ color: "#52c41a" }} />;
-    default:
-      return <FileTextFilled style={{ color: "#1890ff" }} />;
-  }
-};
-
-export const getSkillVisual = (name: string, emoji?: string) => {
-  if (emoji) {
-    return <span className={styles.skillEmoji}>{emoji}</span>;
-  }
-  return getFileIcon(name);
-};
+export const getSkillVisual = (name: string) => getFileIcon(name);
 
 export const SkillCard = React.memo(function SkillCard({
   skill,
@@ -151,8 +40,6 @@ export const SkillCard = React.memo(function SkillCard({
 }: SkillCardProps) {
   const { t } = useTranslation();
   const batchMode = selected !== undefined;
-  const [isHover, setIsHover] = useState(false);
-  const isMobile = useIsMobile();
 
   const handleToggleClick = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -183,137 +70,131 @@ export const SkillCard = React.memo(function SkillCard({
     skill.source === "system";
 
   return (
-    <Card
-      hoverable
-      onClick={handleCardClick}
-      onMouseEnter={() => {
-        setIsHover(true);
-        onMouseEnter?.();
-      }}
-      onMouseLeave={() => {
-        setIsHover(false);
-        onMouseLeave?.();
-      }}
-      className={`${styles.skillCard} ${selected ? styles.selectedCard : ""}`}
-      style={{ cursor: "pointer" }}
-    >
-      {/* Top row: Icon (left) + Status badge + Checkbox (right) */}
-      <div className={styles.cardTopRow}>
-        <span className={styles.fileIcon}>
-          {getSkillVisual(skill.name, skill.emoji)}
-        </span>
-        <div className={styles.cardTopRight}>
-          <span
-            className={`${styles.statusBadge} ${
-              skill.enabled ? styles.status_enabled : styles.status_disabled
-            }`}
-          >
-            <span className={styles.statusDot} />
-            {skill.enabled ? t("common.enabled") : t("common.disabled")}
-          </span>
-          {batchMode && (
-            <Checkbox checked={selected} onClick={handleSelectClick} />
-          )}
-        </div>
-      </div>
-
-      {/* Title + Built-in/Custom tag */}
-      <div className={styles.titleRow}>
-        <Tooltip title={skill.name}>
-          <h3 className={styles.skillTitle}>
-            {skill.name}{" "}
-            {isBuiltin ? (
-              <span className={styles.builtinTag}>{t("skills.builtin")}</span>
-            ) : (
-              <span className={styles.customTag}>{t("skills.custom")}</span>
+    <InteractiveCard tilt={3} style={{ width: "100%" }}>
+      <Card
+        hoverable
+        onClick={handleCardClick}
+        role="button"
+        tabIndex={0}
+        aria-label={skill.name}
+        onKeyDown={(event) => {
+          if (
+            event.target === event.currentTarget &&
+            ["Enter", " "].includes(event.key)
+          ) {
+            event.preventDefault();
+            event.currentTarget.click();
+          }
+        }}
+        onMouseEnter={() => {
+          onMouseEnter?.();
+        }}
+        onMouseLeave={() => {
+          onMouseLeave?.();
+        }}
+        className={`${styles.skillCard} ${selected ? styles.selectedCard : ""}`}
+        style={{ cursor: "pointer" }}
+      >
+        {/* Top row: Icon (left) + Status badge + Checkbox (right) */}
+        <div className={styles.cardTopRow}>
+          <span className={styles.fileIcon}>{getSkillVisual(skill.name)}</span>
+          <div className={styles.cardTopRight}>
+            <span
+              className={`${styles.statusBadge} ${
+                skill.enabled ? styles.status_enabled : styles.status_disabled
+              }`}
+            >
+              <span className={styles.statusDot} />
+              {skill.enabled ? t("common.enabled") : t("common.disabled")}
+            </span>
+            {batchMode && (
+              <Checkbox checked={selected} onClick={handleSelectClick} />
             )}
-            {skill.preload && (
-              <span className={styles.preloadTag}>{t("skills.preload")}</span>
-            )}
-          </h3>
-        </Tooltip>
-      </div>
-
-      {skill.version_text && (
-        <div className={styles.metaInfoRow}>
-          <span className={styles.metaInfoLabel}>{t("skillPool.version")}</span>
-          <span className={styles.metaInfoValue}>{skill.version_text}</span>
+          </div>
         </div>
-      )}
 
-      {/* Channels row */}
-      <div className={styles.metaInfoRow}>
-        <span className={styles.metaInfoLabel}>{t("skills.channels")}</span>
-        <span className={styles.metaInfoValue}>
-          {normalizeSkillChannels(skill.channels)
-            .map((ch) =>
-              getChannelName
-                ? getChannelName(ch)
-                : ch === "all"
-                ? t("skills.allChannels")
-                : ch,
-            )
-            .join(", ")}
-        </span>
-      </div>
+        {/* Title + Built-in/Custom tag */}
+        <div className={styles.titleRow}>
+          <Tooltip title={skill.name}>
+            <h3 className={styles.skillTitle}>
+              {skill.name}{" "}
+              {isBuiltin ? (
+                <span className={styles.builtinTag}>{t("skills.builtin")}</span>
+              ) : (
+                <span className={styles.customTag}>{t("skills.custom")}</span>
+              )}
+              {skill.preload && (
+                <span className={styles.preloadTag}>{t("skills.preload")}</span>
+              )}
+            </h3>
+          </Tooltip>
+        </div>
 
-      {/* Updated row */}
-      {skill.last_updated && (
-        <div className={styles.metaInfoRow}>
-          <span className={styles.metaInfoLabel}>
-            {t("skills.lastUpdated")}
-          </span>
-          <span className={styles.metaInfoValue}>
-            {dayjs(skill.last_updated).fromNow()}
+        <div className={styles.skillSummaryMeta}>
+          {skill.version_text && <span>v{skill.version_text}</span>}
+          <span title={t("skills.channels")}>
+            {normalizeSkillChannels(skill.channels)
+              .map((ch) =>
+                getChannelName
+                  ? getChannelName(ch)
+                  : ch === "all"
+                  ? t("skills.allChannels")
+                  : ch,
+              )
+              .join(", ")}
           </span>
         </div>
-      )}
-
-      {/* Tags row */}
-      <div className={styles.metaInfoRow}>
-        <span className={styles.metaInfoLabel}>{t("skills.tags")}</span>
         {skill.tags?.length ? (
           <div className={styles.tagChips}>
-            {skill.tags.map((tag) => (
-              <span key={tag} className={styles.tagChip}>
+            {skill.tags.slice(0, 3).map((tag) => (
+              <span className={styles.tagChip} key={tag}>
                 {tag}
               </span>
             ))}
           </div>
-        ) : (
-          <span style={{ color: "rgba(20,20,19,0.35)" }}>-</span>
-        )}
-      </div>
+        ) : null}
+        {/* Description */}
+        <div className={styles.descriptionSection}>
+          <p className={styles.descriptionText}>{skill.description || "-"}</p>
+        </div>
 
-      {/* Description */}
-      <div className={styles.descriptionSection}>
-        <p className={styles.descriptionText}>{skill.description || "-"}</p>
-      </div>
-
-      {/* Footer - only show on hover or batch mode, always on mobile */}
-      {(isHover || batchMode || isMobile) && (
-        <div className={styles.cardFooter}>
-          <Button
-            type="default"
-            className={styles.actionButton}
-            disabled={batchMode}
-            onClick={handleToggleClick}
-            icon={skill.enabled ? <EyeInvisibleOutlined /> : <EyeOutlined />}
+        <div className={styles.skillActions}>
+          <span className={styles.skillUpdated}>
+            {skill.last_updated ? dayjs(skill.last_updated).fromNow() : ""}
+          </span>
+          <Tooltip
+            title={skill.enabled ? t("common.disable") : t("common.enable")}
           >
-            {skill.enabled ? t("common.disable") : t("common.enable")}
-          </Button>
-          {onDelete && (
             <Button
-              danger
-              className={styles.deleteButton}
+              type="text"
+              aria-label={
+                skill.enabled ? t("common.disable") : t("common.enable")
+              }
               disabled={batchMode}
-              onClick={handleDeleteClick}
-            >
-              {t("common.delete")}
-            </Button>
+              onClick={handleToggleClick}
+              icon={
+                skill.enabled ? (
+                  <EyeInvisibleOutlined size={16} />
+                ) : (
+                  <EyeOutlined size={16} />
+                )
+              }
+            />
+          </Tooltip>
+          {onDelete && (
+            <Tooltip title={t("common.delete")}>
+              <Button
+                type="text"
+                danger
+                aria-label={t("common.delete")}
+                disabled={batchMode}
+                onClick={handleDeleteClick}
+                icon={<Trash2 size={16} />}
+              />
+            </Tooltip>
           )}
         </div>
-      )}
-    </Card>
+      </Card>
+    </InteractiveCard>
   );
 });

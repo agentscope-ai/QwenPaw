@@ -1,5 +1,7 @@
+import { Cascade } from "@/components/interaction/Cascade";
+import { SharedModal as Modal } from "@/components/interaction/SharedModal";
 import { useState, useCallback } from "react";
-import { Button, Empty, Modal, Input, Select } from "@agentscope-ai/design";
+import { Button, Empty, Input, Select } from "@agentscope-ai/design";
 import { Tabs } from "antd";
 import { LockKeyhole, Plus, Server } from "lucide-react";
 import type { MCPClientInfo } from "../../../api/types";
@@ -303,16 +305,17 @@ function MCPPage() {
               <div className={styles.sectionEmpty}>{t("mcp.emptyState")}</div>
             ) : (
               <div className={styles.mcpGrid}>
-                {clients.map((client) => (
-                  <MCPClientCard
-                    key={client.key}
-                    client={client}
-                    onToggle={handleToggleEnabled}
-                    onDelete={handleDelete}
-                    onUpdate={updateClient}
-                    onUpdatePolicy={updatePolicy}
-                    onRefresh={refreshClients}
-                  />
+                {clients.map((client, index) => (
+                  <Cascade key={client.key} index={index}>
+                    <MCPClientCard
+                      client={client}
+                      onToggle={handleToggleEnabled}
+                      onDelete={handleDelete}
+                      onUpdate={updateClient}
+                      onUpdatePolicy={updatePolicy}
+                      onRefresh={refreshClients}
+                    />
+                  </Cascade>
                 ))}
               </div>
             )}
@@ -367,6 +370,7 @@ function MCPPage() {
       )}
 
       <Modal
+        centered
         title={t("mcp.create")}
         open={createModalOpen}
         onCancel={() => {

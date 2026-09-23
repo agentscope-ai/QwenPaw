@@ -1,6 +1,7 @@
+import { Search } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
-import { PlusOutlined } from "@ant-design/icons";
+import { Plus as PlusOutlined } from "lucide-react";
 import { Button } from "@agentscope-ai/design";
 import {
   SkillCard,
@@ -221,7 +222,7 @@ function SkillsPage() {
               type="primary"
               className={styles.primaryActionButton}
               onClick={handleCreate}
-              icon={<PlusOutlined />}
+              icon={<PlusOutlined size="1em" />}
             >
               {t("skills.emptyStateCreate")}
             </Button>
@@ -229,7 +230,9 @@ function SkillsPage() {
         </div>
       ) : sortedSkills.length === 0 ? (
         <div className={styles.noSearchResults}>
-          <span className={styles.noSearchResultsIcon}>🔍</span>
+          <span className={styles.noSearchResultsIcon}>
+            <Search size={28} aria-hidden="true" />
+          </span>
           <span className={styles.noSearchResultsText}>
             {t("skills.noSearchResults")}
           </span>
@@ -292,7 +295,7 @@ function SkillsPage() {
                       onClick={() => handleEdit(skill)}
                     >
                       <span className={styles.disabledSkillGridIcon}>
-                        {getSkillVisual(skill.name, skill.emoji)}
+                        {getSkillVisual(skill.name)}
                       </span>
                       <span className={styles.disabledSkillGridName}>
                         {skill.name}

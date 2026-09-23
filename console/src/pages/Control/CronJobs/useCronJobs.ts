@@ -194,7 +194,11 @@ export function useCronJobs() {
     }
   };
 
-  const updateJob = async (jobId: string, values: CronJob) => {
+  const updateJob = async (
+    jobId: string,
+    values: CronJob,
+    automatic = false,
+  ) => {
     const original = jobs.find((j) => j.id === jobId);
     const updatePayload =
       original && requiresCronImportReview(original)
@@ -204,17 +208,24 @@ export function useCronJobs() {
     setJobs((prev) => prev.map((j) => (j.id === jobId ? optimisticUpdate : j)));
 
     try {
-      const updated = await api.replaceCronJob(jobId, updatePayload);
+      const updated = automatic
+        ? await api.replaceCronJob(
+            jobId,
+            updatePayload,
+            selectedAgent || "default",
+          )
+        : await api.replaceCronJob(jobId, updatePayload);
       setJobs((prev) =>
         prev.map((j) => (j.id === jobId ? (updated as CronJob) : j)),
       );
-      message.success("Updated successfully");
+      if (!automatic) message.success("Updated successfully");
       return true;
     } catch (error) {
       console.error("Failed to update cron job", error);
       if (original) {
         setJobs((prev) => prev.map((j) => (j.id === jobId ? original : j)));
       }
+      if (automatic) throw error;
       message.error(getDisplayErrorMessage(error, "Failed to save"));
       return false;
     }

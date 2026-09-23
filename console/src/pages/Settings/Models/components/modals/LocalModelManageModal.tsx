@@ -1,3 +1,4 @@
+import { SharedModal } from "@/components/interaction/SharedModal";
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import {
   Button,
@@ -9,11 +10,11 @@ import {
 } from "@agentscope-ai/design";
 import { useAppMessage } from "../../../../../hooks/useAppMessage.ts";
 import {
-  CloseOutlined,
-  DownloadOutlined,
-  DownOutlined,
-  SaveOutlined,
-} from "@ant-design/icons";
+  X as CloseOutlined,
+  Download as DownloadOutlined,
+  ChevronDown as DownOutlined,
+  Save as SaveOutlined,
+} from "lucide-react";
 import { Progress } from "antd";
 import type {
   LocalModelConfig,
@@ -853,7 +854,8 @@ export function LocalModelManageModal({
   // Removed isAdvancedDirty, now handled per-field
 
   return (
-    <Modal
+    <SharedModal
+      surfaceId={`provider:${provider.id}`}
       title={t("models.localModelsTitle", { provider: provider.name })}
       open={open}
       onCancel={handleClose}
@@ -928,7 +930,7 @@ export function LocalModelManageModal({
                         <Button
                           danger
                           size="small"
-                          icon={<CloseOutlined />}
+                          icon={<CloseOutlined size="1em" />}
                           onClick={() =>
                             handleCancelModelDownload(currentModelDownloadName)
                           }
@@ -1005,7 +1007,7 @@ export function LocalModelManageModal({
                   <Button
                     type="primary"
                     size="small"
-                    icon={<DownloadOutlined />}
+                    icon={<DownloadOutlined size="1em" />}
                     onClick={() => {
                       void handleStartCustomModelDownload();
                     }}
@@ -1059,6 +1061,7 @@ export function LocalModelManageModal({
               {t("models.localAdvancedConfigTitle")}
             </span>
             <DownOutlined
+              size="1em"
               className={
                 advancedOpen
                   ? styles.localAdvancedConfigChevronOpen
@@ -1080,7 +1083,7 @@ export function LocalModelManageModal({
                 <Button
                   type="primary"
                   size="small"
-                  icon={<SaveOutlined />}
+                  icon={<SaveOutlined size="1em" />}
                   loading={advancedSaving}
                   disabled={maxContextLength === savedMaxContextLength}
                   onClick={() => {
@@ -1122,7 +1125,7 @@ export function LocalModelManageModal({
                 <Button
                   type="primary"
                   size="small"
-                  icon={<SaveOutlined />}
+                  icon={<SaveOutlined size="1em" />}
                   loading={advancedSaving}
                   disabled={serverPort === savedServerPort}
                   onClick={() => {
@@ -1161,7 +1164,7 @@ export function LocalModelManageModal({
                 <Button
                   type="primary"
                   size="small"
-                  icon={<SaveOutlined />}
+                  icon={<SaveOutlined size="1em" />}
                   loading={advancedSaving}
                   disabled={
                     generateKwargsText === savedGenerateKwargsText ||
@@ -1197,6 +1200,6 @@ export function LocalModelManageModal({
           </div>
         ) : null}
       </section>
-    </Modal>
+    </SharedModal>
   );
 }

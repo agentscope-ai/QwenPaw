@@ -36,7 +36,9 @@
     "paste": "Paste",
     "yes": "Yes",
     "no": "No",
-    "advancedSettings": "Advanced"
+    "advancedSettings": "Advanced",
+    "done": "Done",
+    "autoSaveFailed": "Could not save changes"
   },
   "desktop": {
     "closeWindow": {
@@ -292,8 +294,8 @@
   },
   "sidebar": {
     "avatarLoadFailed": "Could not load avatars. Please retry.",
-    "toolsCompact": "Compact tools",
-    "toolsDetailed": "Detailed tools",
+    "toolsCompact": "Show compact menu",
+    "toolsDetailed": "Show detailed menu",
     "changeAvatar": "Avatar manager",
     "uploadAvatar": "Choose image",
     "avatarHistory": "Recent avatars · Last 12",
@@ -310,8 +312,8 @@
     "tools": "Agent and shortcuts",
     "pinTools": "Pin tools",
     "unpinTools": "Unpin tools",
-    "foldTools": "Collapse tools",
-    "expandTools": "Expand tools",
+    "foldTools": "Collapse menu",
+    "expandTools": "Expand menu",
     "dragHandle": "Drag sidebar to float; Enter to toggle docking",
     "dock": "Return sidebar to left edge",
     "newVersion": "New version available: v{{version}}, click to upgrade",
@@ -443,7 +445,18 @@
       "global": "Global settings",
       "plugins": "Plugin features"
     },
-    "alwaysVisible": "Always visible"
+    "alwaysVisible": "Always visible",
+    "moveEntry": "Move {{name}}",
+    "removeEntry": "Remove {{name}}",
+    "addEntry": "Add {{name}}",
+    "dragHint": "Drag to reorder, or move into the library.",
+    "mirrorHint": "Keep your everyday tools close.",
+    "sidebarPreview": "Sidebar preview",
+    "preview": "Preview",
+    "dropHere": "Drag shortcuts here",
+    "previewCaption": "Synced to your sidebar when you finish",
+    "availableEntries": "Library",
+    "allAdded": "All added"
   },
   "debug": {
     "title": "Debug",
@@ -1186,6 +1199,7 @@
     "mailPushWakeOptionSummary": "Summarize key points into the inbox"
   },
   "skills": {
+    "settingsDetails": "Scope & advanced settings",
     "title": "Skills",
     "description": "Manage agent skills and capabilities.",
     "preload": "Preload",
@@ -1587,6 +1601,7 @@
     }
   },
   "heartbeat": {
+    "customInterval": "Custom interval",
     "title": "Heartbeat",
     "description": "Run HEARTBEAT.md at a fixed interval for self-checks. By default runs silently without affecting current conversations, or optionally send replies to the last chat channel.",
     "enabled": "Enable heartbeat",
@@ -1611,7 +1626,8 @@
     "saveFailed": "Failed to save heartbeat config",
     "runNow": "Run Now",
     "runNowSuccess": "Heartbeat triggered. Check Inbox or target channel shortly.",
-    "runNowFailed": "Failed to trigger heartbeat run"
+    "runNowFailed": "Failed to trigger heartbeat run",
+    "intervalRange": "Choose between 1 minute and 23 hours 59 minutes"
   },
   "cronJobs": {
     "executionModel": "Execution model",
@@ -1847,6 +1863,10 @@
     }
   },
   "channels": {
+    "manualCredentials": "Manual credentials",
+    "deliverySettings": "Delivery options",
+    "presentationSettings": "Message presentation",
+    "advancedSettings": "Advanced settings",
     "title": "Channels",
     "description": "Manage and configure message channels",
     "loading": "Loading channels...",
@@ -2280,6 +2300,8 @@
     "searchCandidates": "Search candidate models..."
   },
   "tokenUsage": {
+    "year": "Year",
+    "futureDate": "Future date",
     "title": "Token Usage",
     "totalTokens": "Total Tokens",
     "totalCalls": "LLM Calls",
@@ -2307,7 +2329,17 @@
     "allSelected": "All",
     "itemsSelected": "{{count}} selected",
     "selectModels": "Select models",
-    "selectTokenTypes": "Select token types"
+    "selectTokenTypes": "Select token types",
+    "activity": "Activity",
+    "activityHint": "Select a day to inspect usage",
+    "modelRanking": "Model ranking",
+    "less": "Less",
+    "more": "More",
+    "trends": "Trends",
+    "lastDays": "Last {{count}} days",
+    "activeDays": "Active days",
+    "dailyAverage": "Daily average",
+    "peakDay": "Peak day"
   },
   "agentStats": {
     "title": "Agent Statistics",
@@ -2935,6 +2967,7 @@
     "syncAsAgentDefault": "Use this workspace setup for future tasks"
   },
   "agentConfig": {
+    "advancedRuntime": "Advanced runtime",
     "title": "Configuration",
     "projectDirectoryTitle": "Default Agent workspace",
     "projectDirectoryDescription": "The default Agent workspace used for files and commands.",
@@ -3615,6 +3648,8 @@
     "contextStrategyNative": "Native"
   },
   "tools": {
+    "search": "Search tools",
+    "noSearchResults": "No matching tools",
     "title": "Built-in Tools",
     "description": "Manage built-in tools and their enabled status. Disabled tools will not be available to the agent.",
     "emptyState": "No tools configured",

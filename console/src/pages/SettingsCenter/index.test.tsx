@@ -1,14 +1,43 @@
-import { act, screen, waitFor, within } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { Grid } from "antd";
 import type { ComponentType } from "react";
 import { useLocation } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { renderWithProviders } from "@/test/common_setup";
-import { ThemeProvider } from "@/contexts/ThemeContext";
+import { themeApi } from "@/api/modules/theme";
+import { ThemeProvider, useTheme } from "@/contexts/ThemeContext";
 import type { MenuItem } from "@/plugins/registry/types";
 import { DEFAULT_FOCUS_ITEM_IDS, useSidebarStore } from "@/stores/sidebarStore";
 import { useAgentStore } from "@/stores/agentStore";
+
+// JSDOM cannot run NumberFlow's custom-element animation lifecycle.
+vi.mock("@number-flow/react", () => ({
+  default: ({ value, suffix }: { value: number; suffix?: string }) => (
+    <span>
+      {value}
+      {suffix}
+    </span>
+  ),
+}));
+
+// Verify editor state separately from Motion's browser-only exit lifecycle.
+vi.mock("@/components/interaction/SharedModal", () => ({
+  SharedModal: ({ open, onCancel, children }: import("antd").ModalProps) =>
+    open ? (
+      <div role="dialog">
+        <button onClick={onCancel}>Close</button>
+        {children}
+      </div>
+    ) : null,
+}));
 
 const registry = vi.hoisted(() => ({
   routes: [] as Array<{
@@ -43,6 +72,7 @@ function LocationProbe() {
 describe("SettingsCenter", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    vi.spyOn(Grid, "useBreakpoint").mockReturnValue({ md: true });
     registry.routes = [];
     registry.agentMenu = [];
     registry.settingsMenu = [];
@@ -81,6 +111,7 @@ describe("SettingsCenter", () => {
     );
 
     expect(container.querySelector('[data-theme="dark"]')).not.toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: "Custom theme" }));
     await userEvent.click(
       screen.getByRole("combobox", { name: "Theme palette" }),
     );
@@ -96,6 +127,39 @@ describe("SettingsCenter", () => {
     ).toBe(true);
   });
 
+  it("flushes an edited theme when the editor closes", async () => {
+    vi.spyOn(themeApi, "get").mockResolvedValue({ radius: "8px" });
+    const update = vi
+      .spyOn(themeApi, "update")
+      .mockImplementation(async (theme) => theme);
+    function ThemeProbe() {
+      const { previewTheme } = useTheme();
+      return <output data-testid="theme-preview">{previewTheme.radius}</output>;
+    }
+    renderWithProviders(
+      <ThemeProvider>
+        <SettingsCenter />
+        <ThemeProbe />
+      </ThemeProvider>,
+      { initialEntries: ["/settings/general"] },
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId("theme-preview")).toHaveTextContent("8px"),
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Custom theme" }));
+    fireEvent.keyDown(screen.getByRole("slider"), {
+      key: "ArrowRight",
+      keyCode: 39,
+    });
+    expect(screen.getByTestId("theme-preview")).toHaveTextContent("9px");
+    await userEvent.click(screen.getByRole("button", { name: "Close" }));
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument(),
+    );
+    await waitFor(() => expect(update).toHaveBeenCalledWith({ radius: "9px" }));
+    expect(screen.getByTestId("theme-preview")).toHaveTextContent("9px");
+  });
+
   it("persists the standard and wide message widths", async () => {
     renderWithProviders(<SettingsCenter />, {
       initialEntries: ["/settings/general"],
@@ -109,7 +173,9 @@ describe("SettingsCenter", () => {
       .closest("section");
     expect(appearance).not.toBeNull();
     expect(messageDisplay).not.toBeNull();
-    expect(within(messageDisplay!).getByText("Message width")).toBeVisible();
+    await waitFor(() =>
+      expect(within(messageDisplay!).getByText("Message width")).toBeVisible(),
+    );
     expect(within(appearance!).getByText("Desktop Mode")).toBeVisible();
     expect(
       within(appearance!).getByRole("button", { name: "Open" }),
@@ -140,6 +206,7 @@ describe("SettingsCenter", () => {
       initialEntries: ["/settings/general"],
     });
 
+    await userEvent.click(screen.getByRole("button", { name: "Custom theme" }));
     const palette = screen.getByRole("combobox", {
       name: "Theme palette",
     });
@@ -182,7 +249,7 @@ describe("SettingsCenter", () => {
       initialEntries: ["/settings/general"],
     });
 
-    expect(screen.getByText("Card view")).toBeVisible();
+    await waitFor(() => expect(screen.getByText("Card view")).toBeVisible());
     const thinkingSwitch = screen.getByRole("switch");
     expect(thinkingSwitch).toBeChecked();
     await userEvent.click(thinkingSwitch);
@@ -277,7 +344,7 @@ describe("SettingsCenter", () => {
     });
   });
 
-  it("keeps operational workspaces out of settings navigation", () => {
+  it("includes scheduled tasks in agent settings", () => {
     const EmptyPage = () => null;
     registry.routes = [
       { id: "core.security", path: "/security", Component: EmptyPage },
@@ -303,11 +370,11 @@ describe("SettingsCenter", () => {
     expect(within(globalGroup!).queryByText("Cron Jobs")).toBeNull();
     expect(within(globalGroup!).queryByText("Heartbeat")).toBeNull();
     expect(within(agentGroup!).getByText("Channels")).toBeVisible();
-    expect(within(agentGroup!).queryByText("Cron Jobs")).toBeNull();
+    expect(within(agentGroup!).getByText("Cron Jobs")).toBeVisible();
     expect(within(agentGroup!).getByText("Heartbeat")).toBeVisible();
   });
 
-  it("keeps sidebar customization out of General settings", () => {
+  it("keeps sidebar customization out of General settings", async () => {
     renderWithProviders(<SettingsCenter />, {
       initialEntries: ["/settings/general"],
     });
@@ -317,16 +384,21 @@ describe("SettingsCenter", () => {
     ).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Back to app" })).toBeVisible();
     expect(screen.getByRole("heading", { name: "General" })).toBeVisible();
-    expect(
-      screen.getByRole("heading", { name: "Appearance & language" }),
-    ).toBeVisible();
+    await waitFor(() =>
+      expect(
+        screen.getByRole("heading", { name: "Appearance & language" }),
+      ).toBeVisible(),
+    );
     expect(screen.getByText("Language")).toBeVisible();
-    expect(screen.getByText("Theme")).toBeVisible();
+    await waitFor(() => expect(screen.getByText("Theme")).toBeVisible());
     expect(screen.getByText("Message width")).toBeVisible();
     expect(screen.queryByText("Sidebar content")).not.toBeInTheDocument();
-    const sidebarButton = screen.getByRole("button", { name: "Sidebar" });
-    expect(sidebarButton).toBeVisible();
-    expect(sidebarButton.querySelector("strong")).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "Sidebar" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "Sidebar", level: 3 }),
+    ).toBeVisible();
     expect(
       screen.queryByText("Language, theme and application behavior"),
     ).not.toBeInTheDocument();
@@ -411,12 +483,9 @@ describe("SettingsCenter", () => {
     expect(useSidebarStore.getState().focusItemIds).not.toContain(
       "core.import",
     );
-    expect(
-      screen.queryByRole("button", { name: "Marketplace" }),
-    ).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Extension" })).toBeVisible();
     for (const label of [
       "Sessions",
-      "Cron Jobs",
       "Files",
       "Agent Statistics",
       "Checkpoints",
@@ -447,22 +516,23 @@ describe("SettingsCenter", () => {
     ).not.toBeInTheDocument();
     await userEvent.clear(search);
 
-    await userEvent.click(screen.getByRole("button", { name: "Sidebar" }));
+    await userEvent.click(screen.getByRole("button", { name: "General" }));
+    await userEvent.click(screen.getByRole("button", { name: "Edit" }));
 
+    await waitFor(() =>
+      expect(
+        screen.getByRole("heading", { level: 3, name: "Agent configuration" }),
+      ).toBeVisible(),
+    );
     expect(
-      screen.getByRole("heading", {
-        level: 3,
-        name: "Agent configuration",
-      }),
+      screen.getByRole("button", { name: "Move Sessions" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Move Cron Jobs" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Move Marketplace" }),
     ).toBeVisible();
-    expect(
-      screen.getByRole("checkbox", { name: "Sessions" }),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByRole("checkbox", { name: "Cron Jobs" }),
-    ).toBeInTheDocument();
-    expect(screen.getByRole("checkbox", { name: "Extension" })).toBeChecked();
-    expect(screen.getByRole("checkbox", { name: "Extension" })).toBeDisabled();
   });
 
   it.each(["codex", "qoder"])(
@@ -548,7 +618,7 @@ describe("SettingsCenter", () => {
     );
 
     await userEvent.click(
-      screen.getByRole("button", { name: /Example extension/i }),
+      screen.getByRole("button", { name: "Example extension" }),
     );
     expect(screen.getByTestId("location")).toHaveTextContent(
       "/example-settings",
@@ -573,7 +643,7 @@ describe("SettingsCenter", () => {
       initialEntries: ["/settings/general"],
     });
     await userEvent.click(
-      screen.getByRole("button", { name: /External settings/i }),
+      screen.getByRole("button", { name: "External settings" }),
     );
 
     expect(open).toHaveBeenCalledWith(
@@ -601,17 +671,17 @@ describe("SettingsCenter", () => {
     ];
 
     renderWithProviders(<SettingsCenter />, {
-      initialEntries: ["/settings/navigation"],
+      initialEntries: ["/settings/general"],
     });
 
-    const checkbox = screen.getByRole("checkbox", {
-      name: "Example extension",
-    });
-    expect(checkbox).toBeChecked();
-
-    await userEvent.click(checkbox);
-
-    expect(checkbox).not.toBeChecked();
+    await userEvent.click(screen.getByRole("button", { name: "Edit" }));
+    await userEvent.click(
+      screen.getByRole("button", { name: "Remove Example extension" }),
+    );
+    expect(useSidebarStore.getState().hiddenPluginItemIds).not.toContain(
+      "example.settings.menu",
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Done" }));
     expect(useSidebarStore.getState().hiddenPluginItemIds).toContain(
       "example.settings.menu",
     );
@@ -636,18 +706,23 @@ describe("SettingsCenter", () => {
     ];
 
     renderWithProviders(<SettingsCenter />, {
-      initialEntries: ["/settings/navigation"],
+      initialEntries: ["/settings/general"],
     });
 
     expect(
-      screen.getByRole("heading", { level: 3, name: "Global settings" }),
-    ).toBeVisible();
-    const checkbox = screen.getByRole("checkbox", { name: "Security" });
-    expect(checkbox).not.toBeChecked();
-
-    await userEvent.click(checkbox);
-
-    expect(checkbox).toBeChecked();
+      screen.queryByRole("heading", { level: 3, name: "Global settings" }),
+    ).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Edit" }));
+    await waitFor(() =>
+      expect(
+        screen.getByRole("heading", { level: 3, name: "Global settings" }),
+      ).toBeVisible(),
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Add Security" }));
+    expect(useSidebarStore.getState().focusItemIds).not.toContain(
+      "core.security",
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Done" }));
     expect(useSidebarStore.getState().focusItemIds).toContain("core.security");
   });
 
@@ -676,35 +751,30 @@ describe("SettingsCenter", () => {
     ];
 
     renderWithProviders(<SettingsCenter />, {
-      initialEntries: ["/settings/navigation"],
+      initialEntries: ["/settings/general"],
     });
 
-    const security = screen.getByRole("checkbox", { name: "Security" });
-    const plugin = screen.getByRole("checkbox", {
-      name: "Example extension",
-    });
-    expect(security).not.toBeChecked();
-    expect(plugin).toBeChecked();
-
-    const globalSection = screen
-      .getByRole("heading", { level: 3, name: "Global settings" })
-      .closest("section");
-    const pluginSection = screen
-      .getByRole("heading", { name: "Plugin features" })
-      .closest("section");
-    expect(globalSection).not.toBeNull();
-    expect(pluginSection).not.toBeNull();
-
+    await userEvent.click(screen.getByRole("button", { name: "Edit" }));
+    await userEvent.click(screen.getByRole("button", { name: "Add Security" }));
     await userEvent.click(
-      within(globalSection!).getByRole("button", { name: "Select all" }),
+      screen.getByRole("button", { name: "Remove Example extension" }),
     );
-    expect(security).toBeChecked();
-    expect(plugin).toBeChecked();
-
+    await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(useSidebarStore.getState().focusItemIds).not.toContain(
+      "core.security",
+    );
+    expect(useSidebarStore.getState().hiddenPluginItemIds).not.toContain(
+      "example.settings.menu",
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Edit" }));
+    await userEvent.click(screen.getByRole("button", { name: "Add Security" }));
     await userEvent.click(
-      within(pluginSection!).getByRole("button", { name: "Invert" }),
+      screen.getByRole("button", { name: "Remove Example extension" }),
     );
-    expect(security).toBeChecked();
-    expect(plugin).not.toBeChecked();
+    await userEvent.click(screen.getByRole("button", { name: "Done" }));
+    expect(useSidebarStore.getState().focusItemIds).toContain("core.security");
+    expect(useSidebarStore.getState().hiddenPluginItemIds).toContain(
+      "example.settings.menu",
+    );
   });
 });

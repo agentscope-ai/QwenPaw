@@ -1,3 +1,4 @@
+import { InteractiveCard } from "@/components/interaction/InteractiveCard";
 import { Card } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
 import React, { useState } from "react";
@@ -38,49 +39,63 @@ export const ChannelCard = React.memo(function ChannelCard({
   };
 
   return (
-    <Card
-      hoverable
-      onClick={onClick}
-      onMouseEnter={() => setIsHover(true)}
-      onMouseLeave={() => setIsHover(false)}
-      className={getCardClassNames()}
-      bodyStyle={{ padding: 24 }}
-    >
-      {/* Top section: Icon and Status */}
-      <div className={styles.cardTopSection}>
-        <div className={styles.channelIcon}>{getChannelIcon()}</div>
-        <div className={styles.statusIndicator}>
-          <div
-            className={`${styles.statusDot} ${
-              enabled ? styles.enabled : styles.disabled
-            }`}
-          />
-          <span
-            className={`${styles.statusText} ${
-              enabled ? styles.enabled : styles.disabled
-            }`}
-          >
-            {enabled ? t("common.enabled") : t("common.disabled")}
-          </span>
+    <InteractiveCard tilt={3} style={{ width: "100%" }}>
+      <Card
+        hoverable
+        onClick={onClick}
+        role="button"
+        tabIndex={0}
+        aria-label={label}
+        onKeyDown={(event) => {
+          if (
+            event.target === event.currentTarget &&
+            ["Enter", " "].includes(event.key)
+          ) {
+            event.preventDefault();
+            onClick();
+          }
+        }}
+        onMouseEnter={() => setIsHover(true)}
+        onMouseLeave={() => setIsHover(false)}
+        className={getCardClassNames()}
+        bodyStyle={{ padding: 24 }}
+      >
+        {/* Top section: Icon and Status */}
+        <div className={styles.cardTopSection}>
+          <div className={styles.channelIcon}>{getChannelIcon()}</div>
+          <div className={styles.statusIndicator}>
+            <div
+              className={`${styles.statusDot} ${
+                enabled ? styles.enabled : styles.disabled
+              }`}
+            />
+            <span
+              className={`${styles.statusText} ${
+                enabled ? styles.enabled : styles.disabled
+              }`}
+            >
+              {enabled ? t("common.enabled") : t("common.disabled")}
+            </span>
+          </div>
         </div>
-      </div>
 
-      {/* Middle section: Name and Tag */}
-      <div className={styles.cardMiddleSection}>
-        <div className={styles.cardTitle}>{label}</div>
-        {isBuiltin ? (
-          <span className={styles.builtinTag}>{t("channels.builtin")}</span>
-        ) : (
-          <span className={styles.customTag}>{t("channels.custom")}</span>
-        )}
-      </div>
-
-      {/* Bottom section: Bot Prefix */}
-      <div className={styles.cardBottomSection}>
-        <div className={styles.cardDescription}>
-          {t("channels.botPrefix")}: {botPrefix || t("channels.notSet")}
+        {/* Middle section: Name and Tag */}
+        <div className={styles.cardMiddleSection}>
+          <div className={styles.cardTitle}>{label}</div>
+          {isBuiltin ? (
+            <span className={styles.builtinTag}>{t("channels.builtin")}</span>
+          ) : (
+            <span className={styles.customTag}>{t("channels.custom")}</span>
+          )}
         </div>
-      </div>
-    </Card>
+
+        {/* Bottom section: Bot Prefix */}
+        <div className={styles.cardBottomSection}>
+          <div className={styles.cardDescription}>
+            {t("channels.botPrefix")}: {botPrefix || t("channels.notSet")}
+          </div>
+        </div>
+      </Card>
+    </InteractiveCard>
   );
 });

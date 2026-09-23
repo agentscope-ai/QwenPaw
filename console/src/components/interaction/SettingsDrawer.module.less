@@ -1,0 +1,54 @@
+.form {
+  padding-top: 12px;
+}
+.footer {
+  position: sticky;
+  bottom: -1px;
+  margin-inline: -16px;
+  padding: 14px 16px;
+  background: var(--app-surface);
+  border-top: 1px solid var(--app-border-subtle);
+  z-index: 2;
+}
+.editor {
+  :global(.ant-btn-icon),
+  :global(.qwenpaw-btn-icon) {
+    display: inline-flex;
+    align-items: center;
+    > svg {
+      width: 16px;
+      height: 16px;
+      flex: 0 0 16px;
+    }
+  }
+  :global(.ant-modal-content),
+  :global(.qwenpaw-modal-content) {
+    padding: 28px;
+    border-radius: 28px;
+  }
+  :global(.ant-modal-title),
+  :global(.qwenpaw-modal-title) {
+    padding-right: 28px;
+    font-size: 18px;
+    background: transparent;
+  }
+  :global(.ant-modal-footer),
+  :global(.qwenpaw-modal-footer) {
+    padding-top: 16px;
+    border-top: 1px solid var(--app-border-subtle);
+  }
+}
+
+.editor {
+  :global(.ant-alert-info),
+  :global(.qwenpaw-alert-info) {
+    border-radius: 14px;
+    border: 0;
+    background: var(--app-fill-subtle);
+    color: var(--app-text-secondary);
+    :global(.ant-alert-icon),
+    :global(.qwenpaw-alert-icon) {
+      color: var(--app-accent);
+    }
+  }
+}

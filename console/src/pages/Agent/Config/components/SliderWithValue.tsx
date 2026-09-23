@@ -1,5 +1,6 @@
 import { Slider } from "@agentscope-ai/design";
-import styles from "../index.module.less";
+import NumberFlow from "@number-flow/react";
+import styles from "@/components/interaction/NumberSlider.module.less";
 
 interface SliderWithValueProps {
   value?: number;
@@ -18,13 +19,8 @@ export function SliderWithValue({
   marks,
   onChange,
 }: SliderWithValueProps) {
-  const formatValue = (v: number) => {
-    if (v >= 1) return v.toString();
-    return v.toFixed(2);
-  };
-
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+    <div className={styles.control}>
       <div style={{ flex: 1 }}>
         <Slider
           value={value}
@@ -36,8 +32,21 @@ export function SliderWithValue({
         />
       </div>
       <div style={{ minWidth: 50, textAlign: "right", lineHeight: "32px" }}>
-        <span className={styles.sliderValue}>
-          {value !== undefined ? formatValue(value) : "-"}
+        <span className={styles.value}>
+          {value !== undefined ? (
+            <NumberFlow
+              value={value}
+              respectMotionPreference
+              transformTiming={{ duration: 180, easing: "ease-out" }}
+              format={{
+                minimumFractionDigits: value < 1 ? 2 : 0,
+                maximumFractionDigits: 6,
+                useGrouping: false,
+              }}
+            />
+          ) : (
+            "-"
+          )}
         </span>
       </div>
     </div>

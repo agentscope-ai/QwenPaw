@@ -1,3 +1,4 @@
+import { useAutoSave } from "@/hooks/useAutoSave";
 import { useState, useEffect, useCallback } from "react";
 import {
   Card,
@@ -12,12 +13,12 @@ import {
 import { useAppMessage } from "../../../../hooks/useAppMessage";
 import { Space } from "antd";
 import {
-  PlusCircleOutlined,
-  DeleteOutlined,
-  FolderOutlined,
-  FileOutlined,
-  LockOutlined,
-} from "@ant-design/icons";
+  CirclePlus as PlusCircleOutlined,
+  Trash2 as DeleteOutlined,
+  Folder as FolderOutlined,
+  File as FileOutlined,
+  Lock as LockOutlined,
+} from "lucide-react";
 import { useTranslation } from "react-i18next";
 import api from "../../../../api";
 import styles from "../index.module.less";
@@ -53,9 +54,12 @@ export function FileGuardSection({
     useState(false);
   const [paths, setPaths] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
+  const saving = false;
   const [newPath, setNewPath] = useState("");
   const { message } = useAppMessage();
+  const { schedule, flush } = useAutoSave(async () => {
+    await api.updateFileGuard({ paths });
+  });
 
   const fetchData = useCallback(async () => {
     try {
@@ -115,32 +119,28 @@ export function FileGuardSection({
       return;
     }
     setPaths((prev) => [...prev, trimmed]);
+    schedule();
     setNewPath("");
   }, [newPath, paths, t]);
 
   const handleRemove = useCallback((path: string) => {
     setPaths((prev) => prev.filter((p) => p !== path));
+    schedule();
   }, []);
-
-  const handleSave = useCallback(async () => {
-    try {
-      setSaving(true);
-      await api.updateFileGuard({ paths });
-      message.success(t("security.fileGuard.saveSuccess"));
-    } catch {
-      message.error(t("security.fileGuard.saveFailed"));
-    } finally {
-      setSaving(false);
-    }
-  }, [paths, t]);
 
   const handleReset = useCallback(() => {
     fetchData();
   }, [fetchData]);
 
   useEffect(() => {
-    onSave?.({ save: handleSave, reset: handleReset, saving });
-  }, [handleSave, handleReset, saving, onSave]);
+    onSave?.({
+      save: async () => {
+        await flush();
+      },
+      reset: handleReset,
+      saving,
+    });
+  }, [flush, handleReset, saving, onSave]);
 
   const columns = [
     {
@@ -152,9 +152,9 @@ export function FileGuardSection({
         return (
           <Space>
             {isDir ? (
-              <FolderOutlined style={{ color: "#faad14" }} />
+              <FolderOutlined size="1em" style={{ color: "#faad14" }} />
             ) : (
-              <FileOutlined style={{ color: "#1890ff" }} />
+              <FileOutlined size="1em" style={{ color: "#1890ff" }} />
             )}
             <code>{path}</code>
             {isDir && (
@@ -175,7 +175,12 @@ export function FileGuardSection({
           okText={t("common.delete")}
           cancelText={t("common.cancel")}
         >
-          <Button type="text" danger icon={<DeleteOutlined />} size="small" />
+          <Button
+            type="text"
+            danger
+            icon={<DeleteOutlined size="1em" />}
+            size="small"
+          />
         </Popconfirm>
       ),
     },
@@ -233,7 +238,7 @@ export function FileGuardSection({
           />
           <Button
             type="primary"
-            icon={<PlusCircleOutlined />}
+            icon={<PlusCircleOutlined size="1em" />}
             onClick={handleAdd}
             disabled={!newPath.trim() || !enabled}
           >
@@ -262,7 +267,7 @@ export function FileGuardSection({
           <Card className={styles.formCard} style={{ marginTop: 16 }}>
             <div style={{ marginBottom: 12 }}>
               <h3 style={{ margin: 0, marginBottom: 4 }}>
-                <LockOutlined style={{ marginRight: 6 }} />
+                <LockOutlined size="1em" style={{ marginRight: 6 }} />
                 {t("security.denyPathsProtection")}
               </h3>
               <p style={{ margin: 0, fontSize: 13, color: "#666" }}>

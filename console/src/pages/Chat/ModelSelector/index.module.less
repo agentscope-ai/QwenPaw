@@ -785,7 +785,7 @@
   cursor: pointer;
   user-select: none;
 
-  :global(.anticon) {
+  :global(:is(.anticon, .lucide)) {
     font-size: 10px;
   }
 }
@@ -1630,35 +1630,10 @@
   max-height: none;
   flex: 1;
 }
-.pickerViewport .listContainer,
-.pickerSheet .listContainer {
+.pickerViewport .listContainer {
   max-height: none;
   flex: 1;
   overflow-anchor: none;
-}
-.pickerSheet {
-  :global(.ant-drawer-content),
-  :global(.qwenpaw-drawer-content) {
-    border-radius: 20px 20px 0 0;
-  }
-  :global(.ant-drawer-header),
-  :global(.qwenpaw-drawer-header) {
-    padding: 8px 16px;
-    border: 0;
-  }
-  :global(.ant-drawer-body),
-  :global(.qwenpaw-drawer-body) {
-    max-height: min(560px, calc(100dvh - 72px));
-    display: flex;
-    flex-direction: column;
-    padding: 0 12px max(12px, env(safe-area-inset-bottom));
-    overflow: hidden;
-  }
-  .embedded {
-    flex: 1;
-    min-height: 0;
-    max-height: none;
-  }
 }
 
 .settingLine > .pickerAnchor {
@@ -1680,20 +1655,6 @@
   &[aria-pressed="true"] {
     background: var(--app-accent-soft);
     color: var(--app-accent);
-  }
-}
-
-.pickerSheet {
-  border-radius: 20px 20px 0 0;
-  overflow: hidden;
-  :global(.ant-drawer-close),
-  :global(.qwenpaw-drawer-close) {
-    width: 36px;
-    height: 36px;
-    svg {
-      width: 18px;
-      height: 18px;
-    }
   }
 }
 
@@ -1748,5 +1709,35 @@
     &:focus-visible {
       outline: 2px solid var(--app-accent);
     }
+  }
+}
+
+// Keep popup geometry owned by the positioning engine; fade in place.
+:global(.qwenpaw-picker-fade-enter),
+:global(.qwenpaw-picker-fade-appear) {
+  opacity: 0;
+}
+:global(.qwenpaw-picker-fade-enter-active),
+:global(.qwenpaw-picker-fade-appear-active) {
+  opacity: 1;
+  transition: opacity 150ms ease;
+}
+:global(.qwenpaw-picker-fade-leave) {
+  opacity: 1;
+}
+:global(.qwenpaw-picker-fade-leave-active) {
+  opacity: 0;
+  transition: opacity 100ms ease;
+  pointer-events: none;
+}
+.pickerViewport {
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+@media (prefers-reduced-motion: reduce) {
+  :global(.qwenpaw-picker-fade-enter-active),
+  :global(.qwenpaw-picker-fade-appear-active),
+  :global(.qwenpaw-picker-fade-leave-active) {
+    transition-duration: 0.01ms;
   }
 }

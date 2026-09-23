@@ -1,7 +1,13 @@
+import { useAgentStore } from "@/stores/agentStore";
+import { useAppMessage } from "../../../hooks/useAppMessage";
+import { Cascade } from "@/components/interaction/Cascade";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Form } from "@agentscope-ai/design";
 import { Badge, Button, Space } from "antd";
-import { SafetyOutlined, AuditOutlined } from "@ant-design/icons";
+import {
+  ShieldCheck as SafetyOutlined,
+  ClipboardCheck as AuditOutlined,
+} from "lucide-react";
 import { useTranslation } from "react-i18next";
 import api from "../../../api";
 import {
@@ -15,7 +21,6 @@ import {
   type ChannelKey,
 } from "./components";
 import { PageHeader } from "@/components/PageHeader";
-import { useAppMessage } from "../../../hooks/useAppMessage";
 import { keepConsoleEnabled } from "./components/channelConfig";
 import styles from "./index.module.less";
 
@@ -23,14 +28,15 @@ type FilterType = "all" | "builtin" | "custom";
 
 function ChannelsPage() {
   const { t } = useTranslation();
-  const { message, modal } = useAppMessage();
+  const { selectedAgent } = useAgentStore();
+  const { modal } = useAppMessage();
   const {
     channels,
     orderedKeys,
     channelSchemas,
     isBuiltin,
     loading,
-    fetchChannels,
+    setChannels,
   } = useChannels();
   const [filter, setFilter] = useState<FilterType>("all");
   const [saving, setSaving] = useState(false);
@@ -133,6 +139,7 @@ function ChannelsPage() {
           const result = await api.checkChannelConflict(
             activeKey,
             proposedConfig,
+            selectedAgent || "default",
           );
           if (result.conflict) {
             const agentNames = result.agents
@@ -171,14 +178,18 @@ function ChannelsPage() {
         }
       }
 
-      await api.updateChannelConfig(activeKey, proposedConfig);
-      await fetchChannels();
-
-      setDrawerOpen(false);
-      message.success(t("channels.configSaved"));
+      await api.updateChannelConfig(
+        activeKey,
+        proposedConfig,
+        selectedAgent || "default",
+      );
+      setChannels((current) => ({
+        ...current,
+        [activeKey]: { ...current[activeKey], ...updatedChannel },
+      }));
     } catch (error) {
       console.error("Failed to update channel config:", error);
-      message.error(t("channels.configFailed"));
+      throw error;
     } finally {
       setSaving(false);
     }
@@ -216,14 +227,14 @@ function ChannelsPage() {
           <Space size={8}>
             <Badge dot={pendingCount > 0} offset={[-4, 4]}>
               <Button
-                icon={<AuditOutlined />}
+                icon={<AuditOutlined size="1em" />}
                 onClick={() => setPendingDrawerOpen(true)}
               >
                 {t("channels.pendingApprovals")}
               </Button>
             </Badge>
             <Button
-              icon={<SafetyOutlined />}
+              icon={<SafetyOutlined size="1em" />}
               onClick={() => setAclDrawerOpen(true)}
             >
               {t("channels.manageAccessControl")}
@@ -250,14 +261,15 @@ function ChannelsPage() {
 
               {enabledCards.length > 0 ? (
                 <div className={styles.channelsGrid}>
-                  {enabledCards.map(({ key, config }) => (
-                    <ChannelCard
-                      key={key}
-                      channelKey={key}
-                      config={config}
-                      iconUrl={channelSchemas[key]?.icon}
-                      onClick={() => handleCardClick(key)}
-                    />
+                  {enabledCards.map(({ key, config }, index) => (
+                    <Cascade key={key} index={index}>
+                      <ChannelCard
+                        channelKey={key}
+                        config={config}
+                        iconUrl={channelSchemas[key]?.icon}
+                        onClick={() => handleCardClick(key)}
+                      />
+                    </Cascade>
                   ))}
                 </div>
               ) : (

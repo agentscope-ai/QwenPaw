@@ -3,18 +3,18 @@ import { useTranslation } from "react-i18next";
 import { Input, Tooltip } from "antd";
 import { IconButton } from "@agentscope-ai/design";
 import {
-  SparkDragDotLine,
-  SparkEditLine,
-  SparkSendLine,
-  SparkDeleteLine,
-  SparkRefreshLine,
-  SparkNextSentenceLine,
-  SparkPauseLine,
-  SparkPlayFill,
-  SparkAlertLine,
-  SparkErrorCircleLine,
-  SparkClearLine,
-} from "@agentscope-ai/icons";
+  GripVertical as SparkDragDotLine,
+  Pencil as SparkEditLine,
+  Send as SparkSendLine,
+  Trash2 as SparkDeleteLine,
+  RefreshCw as SparkRefreshLine,
+  SkipForward as SparkNextSentenceLine,
+  Pause as SparkPauseLine,
+  Play as SparkPlayFill,
+  Bell as SparkAlertLine,
+  CircleAlert as SparkErrorCircleLine,
+  Eraser as SparkClearLine,
+} from "lucide-react";
 import { useTheme } from "../../../contexts/ThemeContext";
 import {
   type QueueItem,
@@ -204,7 +204,7 @@ export default function MessageQueuePanel({
                   fontWeight: 400,
                 }}
               >
-                <SparkErrorCircleLine style={{ fontSize: 11 }} />
+                <SparkErrorCircleLine size="1em" style={{ fontSize: 11 }} />
                 {t("chat.queue.sendFailed")}
               </span>
             )}
@@ -223,9 +223,13 @@ export default function MessageQueuePanel({
                 size="small"
                 icon={
                   isPausedOrError ? (
-                    <SparkPlayFill style={{ fontSize: 14, color: "#52c41a" }} />
+                    <SparkPlayFill
+                      size="1em"
+                      style={{ fontSize: 14, color: "#52c41a" }}
+                    />
                   ) : (
                     <SparkPauseLine
+                      size="1em"
                       style={{ fontSize: 14, color: "#faad14" }}
                     />
                   )
@@ -240,6 +244,7 @@ export default function MessageQueuePanel({
                   size="small"
                   icon={
                     <SparkClearLine
+                      size="1em"
                       style={{ fontSize: 14, color: mutedColor }}
                     />
                   }
@@ -257,7 +262,7 @@ export default function MessageQueuePanel({
           item.status === "failed"
             ? "#ff4d4f"
             : item.status === "sending"
-            ? "#1890ff"
+            ? "var(--app-accent-text)"
             : "#52c41a";
         const isHovered = hoveredId === item.id;
         const isEditing = editingId === item.id;
@@ -319,7 +324,7 @@ export default function MessageQueuePanel({
                   flexShrink: 0,
                 }}
               >
-                <SparkDragDotLine style={{ fontSize: 13 }} />
+                <SparkDragDotLine size="1em" style={{ fontSize: 13 }} />
               </span>
             </Tooltip>
 
@@ -350,7 +355,7 @@ export default function MessageQueuePanel({
                       item.status === "failed"
                         ? "#ff4d4f"
                         : item.status === "sending"
-                        ? "#1890ff"
+                        ? "var(--app-accent-text)"
                         : isDark
                         ? "#ddd"
                         : "#333",
@@ -420,6 +425,7 @@ export default function MessageQueuePanel({
                               />
                             ) : (
                               <SparkAlertLine
+                                size="1em"
                                 style={{ fontSize: 12, flexShrink: 0 }}
                               />
                             )}
@@ -454,7 +460,9 @@ export default function MessageQueuePanel({
                     <IconButton
                       bordered={false}
                       size="small"
-                      icon={<SparkEditLine style={{ fontSize: 13 }} />}
+                      icon={
+                        <SparkEditLine size="1em" style={{ fontSize: 13 }} />
+                      }
                       onClick={() => startEdit(item)}
                     />
                   </Tooltip>
@@ -470,7 +478,11 @@ export default function MessageQueuePanel({
                           size="small"
                           icon={
                             <SparkRefreshLine
-                              style={{ fontSize: 13, color: "#1890ff" }}
+                              size="1em"
+                              style={{
+                                fontSize: 13,
+                                color: "var(--app-accent-text)",
+                              }}
                             />
                           }
                           onClick={() => onRetry(item.id)}
@@ -485,6 +497,7 @@ export default function MessageQueuePanel({
                           size="small"
                           icon={
                             <SparkNextSentenceLine
+                              size="1em"
                               style={{ fontSize: 13, color: mutedColor }}
                             />
                           }
@@ -501,7 +514,9 @@ export default function MessageQueuePanel({
                     <IconButton
                       bordered={false}
                       size="small"
-                      icon={<SparkSendLine style={{ fontSize: 13 }} />}
+                      icon={
+                        <SparkSendLine size="1em" style={{ fontSize: 13 }} />
+                      }
                       onClick={() => onInterruptAndSend(item)}
                     />
                   </Tooltip>
@@ -512,6 +527,7 @@ export default function MessageQueuePanel({
                       size="small"
                       icon={
                         <SparkDeleteLine
+                          size="1em"
                           style={{ fontSize: 13, color: "#ff4d4f" }}
                         />
                       }

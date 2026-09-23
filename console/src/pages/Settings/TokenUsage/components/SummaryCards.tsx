@@ -1,3 +1,4 @@
+import { Cascade } from "@/components/interaction/Cascade";
 import { Card } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
 import { formatCompact } from "../../../../utils/formatNumber";
@@ -54,11 +55,13 @@ export function UsageSummaryCards({
 }) {
   return (
     <div className={styles.summaryCards}>
-      {items.map((item) => (
-        <Card className={styles.card} key={item.label}>
-          <div className={styles.cardValue}>{item.value}</div>
-          <div className={styles.cardLabel}>{item.label}</div>
-        </Card>
+      {items.map((item, index) => (
+        <Cascade key={item.label} index={index}>
+          <Card className={styles.card}>
+            <div className={styles.cardValue}>{item.value}</div>
+            <div className={styles.cardLabel}>{item.label}</div>
+          </Card>
+        </Cascade>
       ))}
     </div>
   );

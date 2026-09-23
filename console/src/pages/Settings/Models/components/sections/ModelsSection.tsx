@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from "react";
-import { SaveOutlined } from "@ant-design/icons";
+import { Save as SaveOutlined } from "lucide-react";
 import { Select, Button } from "@agentscope-ai/design";
 import type { ModelSlotRequest } from "../../../../../api/types";
 import api from "../../../../../api";
@@ -185,7 +185,7 @@ export const ModelsSection = React.memo(function ModelsSection({
             disabled={!canSave}
             onClick={handleSave}
             block
-            icon={<SaveOutlined />}
+            icon={<SaveOutlined size="1em" />}
           >
             {isActive ? t("models.saved") : t("models.save")}
           </Button>

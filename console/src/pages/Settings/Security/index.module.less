@@ -220,7 +220,13 @@
   border-radius: 12px;
   border: 1px solid var(--app-border);
   box-shadow: var(--app-shadow-sm);
-  transition: all 0.2s ease-in-out;
+  transition:
+    background-color 0.2s ease-in-out,
+    color 0.2s ease-in-out,
+    border-color 0.2s ease-in-out,
+    box-shadow 0.2s ease-in-out,
+    opacity 0.2s ease-in-out,
+    transform 0.2s ease-in-out;
 
   &:hover {
     box-shadow: var(--app-shadow-md);
@@ -324,7 +330,13 @@
   border: 1px solid var(--app-border);
   border-radius: 8px;
   background: var(--app-surface-sunken);
-  transition: all 0.2s;
+  transition:
+    background-color 0.2s,
+    color 0.2s,
+    border-color 0.2s,
+    box-shadow 0.2s,
+    opacity 0.2s,
+    transform 0.2s;
 
   &:hover {
     border-color: var(--app-border-hover);
@@ -363,7 +375,13 @@
   border-radius: 12px;
   border: 1px solid var(--app-border);
   box-shadow: var(--app-shadow-sm);
-  transition: all 0.2s ease-in-out;
+  transition:
+    background-color 0.2s ease-in-out,
+    color 0.2s ease-in-out,
+    border-color 0.2s ease-in-out,
+    box-shadow 0.2s ease-in-out,
+    opacity 0.2s ease-in-out,
+    transform 0.2s ease-in-out;
 
   &:hover {
     box-shadow: var(--app-shadow-md);
@@ -564,4 +582,51 @@
   .footerButtons {
     padding: 12px 16px;
   }
+}
+
+/* Page-specific settings refinement. */
+
+.content {
+  padding: 0 16px 24px;
+}
+.tabContent {
+  max-width: 1080px;
+  margin-inline: auto;
+}
+.mainTabs :global(.qwenpaw-tabs-nav) {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  background: var(--app-surface);
+  border-radius: 14px;
+}
+.tabDescription {
+  font-size: 13px;
+  max-width: 72ch;
+  line-height: 1.65;
+  margin-bottom: 16px;
+}
+.footerButtons {
+  position: sticky;
+  bottom: 0;
+  z-index: 4;
+  padding: 14px 20px;
+  border-top: 1px solid var(--app-border-subtle);
+  background: var(--app-surface);
+}
+@media (max-width: 600px) {
+  .content {
+    padding-inline: 0;
+  }
+}
+
+.footerButtons {
+  margin: 8px 16px 0;
+  border: 1px solid var(--app-border-subtle);
+  border-radius: 18px;
+  box-shadow: 0 4px 20px rgb(0 0 0 / 3%);
+}
+
+.tabContent {
+  margin-inline: 0;
 }

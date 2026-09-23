@@ -1,12 +1,12 @@
 import { Button, Tooltip } from "@agentscope-ai/design";
 import {
-  CloseOutlined,
-  DeleteOutlined,
-  ReloadOutlined,
-  SwapOutlined,
-  EyeOutlined,
-  EyeInvisibleOutlined,
-} from "@ant-design/icons";
+  X as CloseOutlined,
+  Trash2 as DeleteOutlined,
+  RefreshCw as ReloadOutlined,
+  ArrowLeftRight as SwapOutlined,
+  Eye as EyeOutlined,
+  EyeOff as EyeInvisibleOutlined,
+} from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { AddSkillDropdown } from "./AddSkillDropdown";
 import styles from "../index.module.less";
@@ -79,7 +79,7 @@ export function HeaderActions({
             <Button
               type="default"
               onClick={onClearSelection}
-              icon={<CloseOutlined />}
+              icon={<CloseOutlined size="1em" />}
             >
               {t("skills.clearSelection")}
             </Button>
@@ -93,26 +93,30 @@ export function HeaderActions({
                   onClearSelection();
                   void onUploadToPool(names);
                 }}
-                icon={<SwapOutlined />}
+                icon={<SwapOutlined size="1em" />}
               >
                 {t("skills.uploadToPool")}
               </Button>
             </Tooltip>
             <Button
               type="default"
-              icon={<EyeOutlined />}
+              icon={<EyeOutlined size="1em" />}
               onClick={onBatchEnable}
             >
               {t("skills.batchEnable")}
             </Button>
             <Button
               danger
-              icon={<EyeInvisibleOutlined />}
+              icon={<EyeInvisibleOutlined size="1em" />}
               onClick={onBatchDisable}
             >
               {t("skills.batchDisable")}
             </Button>
-            <Button danger icon={<DeleteOutlined />} onClick={onBatchDelete}>
+            <Button
+              danger
+              icon={<DeleteOutlined size="1em" />}
+              onClick={onBatchDelete}
+            >
               {t("common.delete")} ({selectedSkills.size})
             </Button>
           </>
@@ -126,7 +130,7 @@ export function HeaderActions({
             <Tooltip title={t("skills.refreshHint")}>
               <Button
                 type="default"
-                icon={<ReloadOutlined spin={loading} />}
+                icon={<ReloadOutlined size="1em" data-spinning={loading} />}
                 onClick={onHardRefresh}
                 disabled={loading}
               />
@@ -136,7 +140,7 @@ export function HeaderActions({
                 type="default"
                 className={styles.primaryTransferButton}
                 onClick={onOpenUploadPool}
-                icon={<SwapOutlined />}
+                icon={<SwapOutlined size="1em" />}
               >
                 {t("skills.uploadToPool")}
               </Button>

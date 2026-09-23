@@ -388,16 +388,22 @@ describe("Sidebar", () => {
   it("cycles collapsed, compact and detailed tools without folding on navigation", () => {
     localStorage.removeItem("qwenpaw_sidebar_tools_mode");
     renderSidebar();
-    expect(screen.queryByRole("button", { name: "Workspace" })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Workspace" }),
+    ).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Compact tools" }));
     fireEvent.click(screen.getByRole("button", { name: "Workspace" }));
-    expect(screen.getByRole("button", { name: "Detailed tools" })).toHaveAttribute("aria-expanded", "true");
+    expect(
+      screen.getByRole("button", { name: "Detailed tools" }),
+    ).toHaveAttribute("aria-expanded", "true");
     expect(localStorage.getItem("qwenpaw_sidebar_tools_mode")).toBe("1");
     fireEvent.click(screen.getByRole("button", { name: "Detailed tools" }));
     expect(localStorage.getItem("qwenpaw_sidebar_tools_mode")).toBe("2");
     fireEvent.click(screen.getByRole("button", { name: "Collapse tools" }));
     expect(localStorage.getItem("qwenpaw_sidebar_tools_mode")).toBe("0");
-    expect(screen.queryByRole("button", {name:"Pin tools"})).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Pin tools" }),
+    ).not.toBeInTheDocument();
   });
 
   it("renders the unified desktop sidebar with agent and settings menus", async () => {
@@ -577,6 +583,24 @@ describe("Sidebar", () => {
     fireEvent.click(await screen.findByRole("button", { name: /Primary/ }));
 
     expect(mocks.setSelectedAgent).toHaveBeenCalledWith("agent-1");
+  });
+
+  it("separates agent selection from the menu header hit area", () => {
+    renderSidebar();
+    const agent = screen.getByTestId("agent-selector");
+    const header = agent.parentElement!.parentElement!;
+    const background = header.querySelector<HTMLButtonElement>(
+      'button[aria-hidden="true"]',
+    )!;
+    const toggle =
+      header.querySelector<HTMLButtonElement>("button[data-mode]")!;
+    const initial = Number(toggle.dataset.mode);
+    fireEvent.click(agent);
+    expect(Number(toggle.dataset.mode)).toBe(initial);
+    fireEvent.click(background);
+    expect(Number(toggle.dataset.mode)).toBe((initial + 1) % 3);
+    fireEvent.click(toggle);
+    expect(Number(toggle.dataset.mode)).toBe((initial + 2) % 3);
   });
 
   it("keeps external plugin links working while floating", () => {

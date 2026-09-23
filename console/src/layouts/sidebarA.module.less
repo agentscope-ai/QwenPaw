@@ -26,10 +26,42 @@
   min-height: 38px;
 }
 .agent {
-  flex: 1;
+  flex: 0 1 auto;
+  width: max-content;
+  border-radius: 10px;
+  background: var(--app-surface);
+  &:hover,
+  &:focus-within {
+    background: var(--app-fill-subtle);
+  }
+  max-width: calc(100% - 36px);
   min-width: 0;
+  position: relative;
+  z-index: 1;
+  :global(.ant-select),
+  :global(.qwenpaw-select) {
+    width: auto !important;
+    min-width: 0;
+    max-width: 100%;
+  }
 }
+.toolHeaderHitArea {
+  transition: background 150ms ease;
+  &:hover {
+    background: var(--app-accent-faint);
+  }
+  position: absolute;
+  inset: -5px;
+  border: 0;
+  border-radius: 16px;
+  background: transparent;
+  cursor: pointer;
+}
+
 .toolButton {
+  margin-left: auto;
+  position: relative;
+  z-index: 1;
   flex-shrink: 0;
   display: grid;
   place-items: center;

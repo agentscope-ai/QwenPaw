@@ -89,7 +89,13 @@
   cursor: pointer;
   border-radius: 4px;
   font-size: 16px;
-  transition: all 0.2s;
+  transition:
+    background-color 0.2s,
+    color 0.2s,
+    border-color 0.2s,
+    box-shadow 0.2s,
+    opacity 0.2s,
+    transform 0.2s;
 
   &:hover {
     color: var(--app-text);
@@ -567,7 +573,13 @@
   background: var(--app-surface-raised);
   border: 1px solid var(--app-border);
   box-shadow: var(--app-shadow-sm);
-  transition: all 0.2s ease-in-out;
+  transition:
+    background-color 0.2s ease-in-out,
+    color 0.2s ease-in-out,
+    border-color 0.2s ease-in-out,
+    box-shadow 0.2s ease-in-out,
+    opacity 0.2s ease-in-out,
+    transform 0.2s ease-in-out;
 
   &:hover {
     border-color: var(--app-border-hover);
@@ -728,4 +740,86 @@
   display: flex;
   justify-content: flex-end;
   margin-top: 4px;
+}
+
+.jobEditor {
+  :global(.ant-segmented),
+  :global(.qwenpaw-segmented) {
+    border-radius: 14px;
+  }
+  :global(.ant-tabs-nav),
+  :global(.qwenpaw-tabs-nav) {
+    margin-bottom: 24px;
+  }
+  :global(.ant-form-item),
+  :global(.qwenpaw-form-item) {
+    margin-bottom: 20px;
+  }
+  :global(.ant-form-item:has(button[role="switch"])),
+  :global(.qwenpaw-form-item:has(button[role="switch"])) {
+    > div {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    :global(.ant-form-item-label),
+    :global(.qwenpaw-form-item-label) {
+      padding: 0;
+    }
+    :global(.ant-form-item-control),
+    :global(.qwenpaw-form-item-control) {
+      flex: 0 0 auto;
+    }
+  }
+}
+
+.taskName {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  padding: 8px 0;
+  text-align: left;
+  color: var(--app-text);
+  background: none;
+  border: 0;
+  cursor: pointer;
+  strong {
+    font-size: 14px;
+    font-weight: 600;
+  }
+  span {
+    color: var(--app-text-tertiary);
+    font-size: 12px;
+    max-width: 260px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  &:hover strong {
+    color: var(--app-accent-text);
+  }
+}
+
+.jobEditor {
+  :global(
+      .qwenpaw-form-item:has(button[role="switch"]) > .qwenpaw-form-item-row
+    ),
+  :global(.ant-form-item:has(button[role="switch"]) > .ant-form-item-row) {
+    flex-flow: row nowrap !important;
+    align-items: center;
+    > :first-child {
+      flex: 1;
+      width: auto;
+      text-align: left;
+    }
+    > :last-child {
+      flex: 0 0 auto;
+      width: auto;
+    }
+  }
+  :global(.qwenpaw-form-item-required-mark),
+  :global(.qwenpaw-form-item-required::before) {
+    display: none !important;
+  }
 }

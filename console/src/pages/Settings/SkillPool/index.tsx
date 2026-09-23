@@ -1,14 +1,15 @@
+import { Search } from "lucide-react";
 import { Button, Input, Select, Tooltip } from "@agentscope-ai/design";
 import { Badge } from "antd";
 import {
-  AppstoreOutlined,
-  CloseOutlined,
-  DeleteOutlined,
-  ReloadOutlined,
-  SendOutlined,
-  SyncOutlined,
-  UnorderedListOutlined,
-} from "@ant-design/icons";
+  LayoutGrid as AppstoreOutlined,
+  X as CloseOutlined,
+  Trash2 as DeleteOutlined,
+  RefreshCw as ReloadOutlined,
+  Send as SendOutlined,
+  RefreshCw as SyncOutlined,
+  List as UnorderedListOutlined,
+} from "lucide-react";
 import { useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
@@ -71,14 +72,14 @@ function SkillPoolPage() {
                 <Button
                   type="default"
                   onClick={pool.clearPoolSelection}
-                  icon={<CloseOutlined />}
+                  icon={<CloseOutlined size="1em" />}
                 >
                   {t("skills.clearSelection")}
                 </Button>
                 <Button
                   type="default"
                   className={styles.primaryTransferButton}
-                  icon={<SendOutlined />}
+                  icon={<SendOutlined size="1em" />}
                   disabled={pool.selectedPoolSkills.size === 0}
                   onClick={pool.openBatchBroadcast}
                 >
@@ -86,7 +87,7 @@ function SkillPoolPage() {
                 </Button>
                 <Button
                   danger
-                  icon={<DeleteOutlined />}
+                  icon={<DeleteOutlined size="1em" />}
                   onClick={pool.handleBatchDeletePool}
                 >
                   {t("common.delete")} ({pool.selectedPoolSkills.size})
@@ -101,7 +102,12 @@ function SkillPoolPage() {
                   <Tooltip title={t("skillPool.refreshHint")}>
                     <Button
                       type="default"
-                      icon={<ReloadOutlined spin={pool.loading} />}
+                      icon={
+                        <ReloadOutlined
+                          size="1em"
+                          data-spinning={pool.loading}
+                        />
+                      }
                       onClick={pool.handleRefresh}
                       disabled={pool.loading}
                     />
@@ -110,7 +116,7 @@ function SkillPoolPage() {
                     <Button
                       type="default"
                       className={styles.primaryTransferButton}
-                      icon={<SendOutlined />}
+                      icon={<SendOutlined size="1em" />}
                       onClick={() => pool.openBroadcast()}
                     >
                       {t("skillPool.broadcast")}
@@ -136,7 +142,7 @@ function SkillPoolPage() {
                     >
                       <Button
                         type="default"
-                        icon={<SyncOutlined />}
+                        icon={<SyncOutlined size="1em" />}
                         onClick={() => void pool.openImportBuiltin()}
                       >
                         {t("skillPool.importBuiltin")}
@@ -210,7 +216,7 @@ function SkillPoolPage() {
                   onClick={() => pool.setViewMode("list")}
                   title={t("skills.listView")}
                 >
-                  <UnorderedListOutlined />
+                  <UnorderedListOutlined size="1em" />
                 </button>
                 <button
                   className={`${styles.viewToggleBtn} ${
@@ -219,7 +225,7 @@ function SkillPoolPage() {
                   onClick={() => pool.setViewMode("card")}
                   title={t("skills.gridView")}
                 >
-                  <AppstoreOutlined />
+                  <AppstoreOutlined size="1em" />
                 </button>
               </div>
             </div>
@@ -232,7 +238,9 @@ function SkillPoolPage() {
           </div>
         ) : pool.sortedSkills.length === 0 && pool.skills.length > 0 ? (
           <div className={styles.noSearchResults}>
-            <span className={styles.noSearchResultsIcon}>🔍</span>
+            <span className={styles.noSearchResultsIcon}>
+              <Search size={28} aria-hidden="true" />
+            </span>
             <span className={styles.noSearchResultsText}>
               {t("skills.noSearchResults")}
             </span>

@@ -1,5 +1,6 @@
+import { useAutoSave } from "@/hooks/useAutoSave";
+import { SettingsDrawer as Drawer } from "@/components/interaction/SettingsDrawer";
 import {
-  Drawer,
   Form,
   Input,
   Switch,
@@ -7,7 +8,7 @@ import {
   Select,
   InputNumber,
 } from "@agentscope-ai/design";
-import { LinkOutlined } from "@ant-design/icons";
+import { Link as LinkOutlined } from "lucide-react";
 import type { FormInstance } from "antd";
 import { useTranslation } from "react-i18next";
 import {
@@ -29,7 +30,7 @@ interface ACPDrawerProps {
   canEditKey?: boolean;
   canDelete?: boolean;
   onClose: () => void;
-  onSubmit: (values: Record<string, unknown>) => void;
+  onSubmit: (values: Record<string, unknown>) => void | Promise<void>;
   onDelete?: () => void;
 }
 
@@ -113,6 +114,16 @@ export function ACPDrawer({
   onDelete,
 }: ACPDrawerProps) {
   const { t, i18n } = useTranslation();
+  const { schedule, flush } = useAutoSave(async () => {
+    if (isCreateMode) return;
+    const values = form.getFieldsValue(true);
+    try {
+      await form.validateFields();
+    } catch {
+      return false;
+    }
+    await onSubmit(values);
+  });
 
   return (
     <Drawer
@@ -124,7 +135,11 @@ export function ACPDrawer({
           : t("acp.editTitle")
       }
       open={open}
-      onClose={onClose}
+      onClose={() => {
+        void flush().then((saved) => {
+          if (saved) onClose();
+        });
+      }}
       width={520}
       footer={
         <div style={{ display: "flex", justifyContent: "space-between" }}>
@@ -135,16 +150,20 @@ export function ACPDrawer({
               </Button>
             ) : null}
           </div>
-          <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
-            <Button onClick={onClose}>{t("common.cancel")}</Button>
-            <Button
-              type="primary"
-              loading={saving}
-              onClick={() => form.submit()}
+          {isCreateMode && (
+            <div
+              style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}
             >
-              {t("common.save")}
-            </Button>
-          </div>
+              <Button onClick={onClose}>{t("common.cancel")}</Button>
+              <Button
+                type="primary"
+                loading={saving}
+                onClick={() => form.submit()}
+              >
+                {t("common.create")}
+              </Button>
+            </div>
+          )}
         </div>
       }
       destroyOnHidden
@@ -153,6 +172,7 @@ export function ACPDrawer({
         form={form}
         layout="vertical"
         initialValues={initialValues}
+        onValuesChange={isCreateMode ? undefined : schedule}
         onFinish={onSubmit}
       >
         <Form.Item
@@ -217,7 +237,7 @@ export function ACPDrawer({
           <Button
             type="text"
             size="small"
-            icon={<LinkOutlined />}
+            icon={<LinkOutlined size="1em" />}
             onClick={() => openExternalLink(getACPDocsUrl(i18n.language))}
             title={t("acp.docsHelp")}
             className={styles.dingtalkDocBtn}

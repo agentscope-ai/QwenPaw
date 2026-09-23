@@ -1,6 +1,9 @@
 import type { Dispatch, SetStateAction } from "react";
 import { Input, Select } from "@agentscope-ai/design";
-import { UnorderedListOutlined, AppstoreOutlined } from "@ant-design/icons";
+import {
+  List as UnorderedListOutlined,
+  LayoutGrid as AppstoreOutlined,
+} from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { SkillFilterDropdown } from "./SkillFilterDropdown";
 import styles from "../index.module.less";
@@ -73,7 +76,7 @@ export function SkillsToolbar({
             onClick={() => onViewModeChange("list")}
             title={t("skills.listView")}
           >
-            <UnorderedListOutlined />
+            <UnorderedListOutlined size="1em" />
           </button>
           <button
             className={`${styles.viewToggleBtn} ${
@@ -82,7 +85,7 @@ export function SkillsToolbar({
             onClick={() => onViewModeChange("card")}
             title={t("skills.gridView")}
           >
-            <AppstoreOutlined />
+            <AppstoreOutlined size="1em" />
           </button>
         </div>
       </div>

@@ -49,3 +49,27 @@
     padding: 12px 16px 24px;
   }
 }
+
+/* Page-specific settings refinement. */
+
+.headerActions {
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.nodeSettings {
+  gap: 16px;
+  padding: 12px 0;
+}
+.nodeLabel {
+  font-size: 13px;
+  color: var(--app-text-secondary);
+}
+.channelsGridMobile {
+  align-items: stretch;
+}
+@media (max-width: 768px) {
+  .channelsGridMobile {
+    padding: 0;
+    gap: 16px;
+  }
+}

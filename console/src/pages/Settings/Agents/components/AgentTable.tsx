@@ -15,11 +15,11 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import {
-  EditOutlined,
-  DeleteOutlined,
-  RobotOutlined,
-  CopyOutlined,
-} from "@ant-design/icons";
+  Pencil as EditOutlined,
+  Trash2 as DeleteOutlined,
+  Bot as RobotOutlined,
+  Copy as CopyOutlined,
+} from "lucide-react";
 import {
   EyeOff,
   Eye,
@@ -137,6 +137,7 @@ export function AgentTable({
             enabled={record.enabled}
           />
           <RobotOutlined
+            size="1em"
             style={{
               fontSize: 16,
               opacity: record.enabled ? 1 : 0.5,
@@ -280,7 +281,7 @@ export function AgentTable({
             <Button
               type="text"
               size="middle"
-              icon={<EditOutlined />}
+              icon={<EditOutlined size="1em" />}
               onClick={() => onEdit(record)}
               disabled={record.id === "default"}
               style={record.id === "default" ? disabledStyle : iconStyle}
@@ -293,7 +294,7 @@ export function AgentTable({
             <Button
               type="text"
               size="middle"
-              icon={<CopyOutlined />}
+              icon={<CopyOutlined size="1em" />}
               onClick={() => onCopy(record)}
               style={iconStyle}
               title={
@@ -345,7 +346,7 @@ export function AgentTable({
                 type="link"
                 size="middle"
                 danger
-                icon={<DeleteOutlined />}
+                icon={<DeleteOutlined size="1em" />}
                 disabled={toggleDisabled}
                 style={record.id === "default" ? disabledStyle : undefined}
                 title={

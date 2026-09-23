@@ -1,3 +1,4 @@
+import { useAutoSave } from "@/hooks/useAutoSave";
 import { useState, useCallback } from "react";
 import { Form } from "@agentscope-ai/design";
 import { useAppMessage } from "../../../hooks/useAppMessage";
@@ -105,54 +106,62 @@ export function useSecurityPage() {
   const { message } = useAppMessage();
 
   // Form handlers
-  const handleSave = useCallback(async () => {
-    try {
-      setSaving(true);
-      const values = await form.validateFields();
-      const guardedTools: string[] = values.guarded_tools ?? [];
-      const savedBody = buildSaveBody();
-      const body = {
-        enabled: values.enabled,
-        guarded_tools: guardedTools.length > 0 ? guardedTools : null,
-        denied_tools: values.denied_tools ?? [],
-        custom_rules: customRules,
-        disabled_rules: Array.from(savedBody.disabled_rules),
-        auto_denied_rules: savedBody.auto_denied_rules,
-        shell_evasion_checks: savedBody.shell_evasion_checks,
-      };
-      // Save sandbox FIRST so that if it fails (e.g. 403 for non-admin),
-      // Tool Guard has not been touched — avoiding a partial-save state
-      // where Tool Guard is persisted but sandbox is not.
-      // Only call the API when the value actually changed to skip
-      // unnecessary requests (and potential 403s) on unchanged toggles.
-      if (sandboxEnabled !== savedSandboxEnabled) {
-        await api.updateSandbox({ enabled: sandboxEnabled });
+  const handleSave = useCallback(
+    async (automatic = false) => {
+      try {
+        setSaving(true);
+        const values = await form.validateFields();
+        const guardedTools: string[] = values.guarded_tools ?? [];
+        const savedBody = buildSaveBody();
+        const body = {
+          enabled: values.enabled,
+          guarded_tools: guardedTools.length > 0 ? guardedTools : null,
+          denied_tools: values.denied_tools ?? [],
+          custom_rules: customRules,
+          disabled_rules: Array.from(savedBody.disabled_rules),
+          auto_denied_rules: savedBody.auto_denied_rules,
+          shell_evasion_checks: savedBody.shell_evasion_checks,
+        };
+        // Save sandbox FIRST so that if it fails (e.g. 403 for non-admin),
+        // Tool Guard has not been touched — avoiding a partial-save state
+        // where Tool Guard is persisted but sandbox is not.
+        // Only call the API when the value actually changed to skip
+        // unnecessary requests (and potential 403s) on unchanged toggles.
+        if (sandboxEnabled !== savedSandboxEnabled) {
+          await api.updateSandbox({ enabled: sandboxEnabled });
+        }
+        await api.updateToolGuard(body);
+        setEnabled(body.enabled);
+        markSandboxSaved();
+        if (!automatic) message.success(t("security.saveSuccess"));
+      } catch (err) {
+        if (err && typeof err === "object" && "errorFields" in err) {
+          return;
+        }
+        if (automatic) throw err;
+        const errMsg =
+          err instanceof Error ? err.message : t("security.saveFailed");
+        message.error(errMsg);
+      } finally {
+        setSaving(false);
       }
-      await api.updateToolGuard(body);
-      setEnabled(body.enabled);
-      markSandboxSaved();
-      message.success(t("security.saveSuccess"));
-    } catch (err) {
-      if (err instanceof Error && "errorFields" in err) {
-        return;
-      }
-      const errMsg =
-        err instanceof Error ? err.message : t("security.saveFailed");
-      message.error(errMsg);
-    } finally {
-      setSaving(false);
-    }
-  }, [
-    customRules,
-    buildSaveBody,
-    form,
-    t,
-    sandboxEnabled,
-    savedSandboxEnabled,
-    markSandboxSaved,
-    setEnabled,
-    message,
-  ]);
+    },
+    [
+      customRules,
+      buildSaveBody,
+      form,
+      t,
+      sandboxEnabled,
+      savedSandboxEnabled,
+      markSandboxSaved,
+      setEnabled,
+      message,
+    ],
+  );
+
+  const { schedule: scheduleSave, flush: flushSave } = useAutoSave(() =>
+    handleSave(true),
+  );
 
   const handleReset = useCallback(() => {
     form.resetFields();
@@ -224,6 +233,7 @@ export function useSecurityPage() {
         }
         addCustomRule(rule);
       }
+      scheduleSave();
       setEditModal(false);
     } catch {
       // validation failed
@@ -252,9 +262,15 @@ export function useSecurityPage() {
     form,
     config,
     enabled,
-    setEnabled,
+    setEnabled: (value: boolean) => {
+      setEnabled(value);
+      scheduleSave();
+    },
     sandboxEnabled,
-    setSandboxEnabled,
+    setSandboxEnabled: (value: boolean) => {
+      void setSandboxEnabled(value);
+      scheduleSave();
+    },
     sandboxEffective,
     sandboxReason,
     // Deny paths protection
@@ -266,21 +282,37 @@ export function useSecurityPage() {
     toolOptions,
     saving,
     handleSave,
+    scheduleSave,
+    flushSave,
     handleReset,
 
     // Rules
     mergedRules,
     builtinRules,
     customRules,
-    toggleRule,
-    toggleAutoDeny,
-    deleteCustomRule,
+    toggleRule: (...args: Parameters<typeof toggleRule>) => {
+      toggleRule(...args);
+      scheduleSave();
+    },
+    toggleAutoDeny: (...args: Parameters<typeof toggleAutoDeny>) => {
+      toggleAutoDeny(...args);
+      scheduleSave();
+    },
+    deleteCustomRule: (...args: Parameters<typeof deleteCustomRule>) => {
+      deleteCustomRule(...args);
+      scheduleSave();
+    },
     openAddRule,
     openEditRule,
 
     // Shell Evasion
     shellEvasionChecks,
-    toggleShellEvasionCheck,
+    toggleShellEvasionCheck: (
+      ...args: Parameters<typeof toggleShellEvasionCheck>
+    ) => {
+      toggleShellEvasionCheck(...args);
+      scheduleSave();
+    },
 
     // Modals
     editModal,

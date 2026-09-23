@@ -1,3 +1,5 @@
+import { SharedModal } from "@/components/interaction/SharedModal";
+import { Cascade } from "@/components/interaction/Cascade";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button, Form, Modal, Select } from "@agentscope-ai/design";
 import type { TFunction } from "i18next";
@@ -348,13 +350,21 @@ function ACPPage() {
       } else {
         await api.updateACPAgentConfig(targetKey, updatedConfig);
       }
-      await fetchACP();
-      setDrawerOpen(false);
-      message.success(
-        isCreateMode ? t("acp.createSuccess") : t("acp.configSaved"),
-      );
+      setAgents((current) => {
+        const next = { ...current };
+        if (activeKey && activeKey !== targetKey) delete next[activeKey];
+        next[targetKey] = updatedConfig;
+        return next;
+      });
+      if (isCreateMode) {
+        setDrawerOpen(false);
+        message.success(t("acp.createSuccess"));
+      } else {
+        setActiveKey(targetKey);
+      }
     } catch (error) {
       console.error("❌ Failed to update ACP config:", error);
+      if (!isCreateMode) throw error;
       message.error(t("acp.configFailed"));
     } finally {
       setSaving(false);
@@ -433,14 +443,15 @@ function ACPPage() {
           <div
             className={`${styles.channelsGrid} ${stylesACP.channelsGridMobile}`}
           >
-            {cards.map(({ key, config }) => (
-              <ACPCard
-                key={key}
-                agentKey={key}
-                config={config}
-                isBuiltin={isBuiltinACPAgent(key)}
-                onClick={() => handleCardClick(key)}
-              />
+            {cards.map(({ key, config }, index) => (
+              <Cascade key={key} index={index}>
+                <ACPCard
+                  agentKey={key}
+                  config={config}
+                  isBuiltin={isBuiltinACPAgent(key)}
+                  onClick={() => handleCardClick(key)}
+                />
+              </Cascade>
             ))}
           </div>
         )}
@@ -458,7 +469,7 @@ function ACPPage() {
         onSubmit={handleSubmit}
         onDelete={handleDelete}
       />
-      <Modal
+      <SharedModal
         title={t("acp.nodeSettings")}
         open={nodeModalOpen}
         onCancel={() => setNodeModalOpen(false)}
@@ -476,7 +487,7 @@ function ACPPage() {
             style={{ width: "100%" }}
           />
         </div>
-      </Modal>
+      </SharedModal>
     </div>
   );
 }

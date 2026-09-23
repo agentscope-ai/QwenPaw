@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback } from "react";
 import { Card, Button, Form } from "antd";
 import { useAppMessage } from "../../../hooks/useAppMessage";
-import { PlusOutlined } from "@ant-design/icons";
+import { Plus as PlusOutlined } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { agentsApi } from "../../../api/modules/agents";
 import { invalidateSkillCache, skillApi } from "../../../api/modules/skill";
@@ -326,7 +326,7 @@ export default function AgentsPage() {
           <div className={styles.headerRight}>
             <Button
               type="primary"
-              icon={<PlusOutlined />}
+              icon={<PlusOutlined size="1em" />}
               onClick={handleCreate}
             >
               {t("agent.create")}

@@ -1,4 +1,6 @@
-import { Card, Radio, Space, Alert } from "antd";
+import { PreferenceChoice } from "@/components/interaction/PreferenceChoice";
+import { MicOff, Cloud, Monitor } from "lucide-react";
+import { Card, Alert } from "antd";
 import { useTranslation } from "react-i18next";
 import type { LocalWhisperStatus } from "../useVoiceTranscription";
 import styles from "../index.module.less";
@@ -26,37 +28,29 @@ export function ProviderTypeCard({
       <p className={styles.cardDescription}>
         {t("voiceTranscription.providerTypeDescription")}
       </p>
-      <Radio.Group
-        value={providerType}
-        onChange={(e) => onProviderTypeChange(e.target.value)}
-      >
-        <Space direction="vertical" size="middle">
-          <Radio value="disabled">
-            <span className={styles.optionLabel}>
-              {t("voiceTranscription.providerTypeDisabled")}
-            </span>
-            <span className={styles.optionDescription}>
-              {t("voiceTranscription.providerTypeDisabledDesc")}
-            </span>
-          </Radio>
-          <Radio value="whisper_api">
-            <span className={styles.optionLabel}>
-              {t("voiceTranscription.providerTypeWhisperApi")}
-            </span>
-            <span className={styles.optionDescription}>
-              {t("voiceTranscription.providerTypeWhisperApiDesc")}
-            </span>
-          </Radio>
-          <Radio value="local_whisper">
-            <span className={styles.optionLabel}>
-              {t("voiceTranscription.providerTypeLocalWhisper")}
-            </span>
-            <span className={styles.optionDescription}>
-              {t("voiceTranscription.providerTypeLocalWhisperDesc")}
-            </span>
-          </Radio>
-        </Space>
-      </Radio.Group>
+      <div className={styles.choiceGrid}>
+        <PreferenceChoice
+          label={t("voiceTranscription.providerTypeDisabled")}
+          description={t("voiceTranscription.providerTypeDisabledDesc")}
+          icon={<MicOff size={20} />}
+          selected={providerType === "disabled"}
+          onSelect={() => onProviderTypeChange("disabled")}
+        />
+        <PreferenceChoice
+          label={t("voiceTranscription.providerTypeWhisperApi")}
+          description={t("voiceTranscription.providerTypeWhisperApiDesc")}
+          icon={<Cloud size={20} />}
+          selected={providerType === "whisper_api"}
+          onSelect={() => onProviderTypeChange("whisper_api")}
+        />
+        <PreferenceChoice
+          label={t("voiceTranscription.providerTypeLocalWhisper")}
+          description={t("voiceTranscription.providerTypeLocalWhisperDesc")}
+          icon={<Monitor size={20} />}
+          selected={providerType === "local_whisper"}
+          onSelect={() => onProviderTypeChange("local_whisper")}
+        />
+      </div>
 
       {isLocalWhisper && localWhisperStatus && (
         <div style={{ marginTop: 12 }}>

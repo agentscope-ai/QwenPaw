@@ -1,7 +1,7 @@
 /** BrowserCard — presentation for the Unified Browser SDK tool. */
 
 import React from "react";
-import { ChromeOutlined } from "@ant-design/icons";
+import { Globe as ChromeOutlined } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import type { ToolCallContent } from "../shared/types";
@@ -52,7 +52,7 @@ const BrowserCard: React.FC<BrowserCardProps> = ({ content, isStreaming }) => {
     <ToolCardShell
       content={shellContent}
       isStreaming={isStreaming}
-      icon={<ChromeOutlined />}
+      icon={<ChromeOutlined size="1em" />}
       title={title}
     >
       {code && <DefaultBlock title="Code" content={code} language="python" />}

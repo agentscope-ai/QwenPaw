@@ -1,4 +1,4 @@
-import { ModelCardSurface } from "../cards/ModelCardSurface";
+import { InteractiveCard } from "@/components/interaction/InteractiveCard";
 import styles from "./ModelConfigEditor.module.less";
 import InlineHelp from "../../../../../components/InlineHelp";
 import { ThinkingControl } from "@/features/thinking/ThinkingControl";
@@ -188,7 +188,7 @@ export function ModelConfigEditor({
 
   return (
     <div className={styles.editor}>
-      <ModelCardSurface as="section" tilt={0} className={styles.capabilities}>
+      <InteractiveCard as="section" tilt={0} className={styles.capabilities}>
         <ModelCapabilitiesFields
           model={model}
           changes={capabilities}
@@ -197,9 +197,9 @@ export function ModelConfigEditor({
             setDirty(true);
           }}
         />
-      </ModelCardSurface>
+      </InteractiveCard>
       <div className={styles.basics}>
-        <ModelCardSurface as="section" tilt={0} className={styles.limits}>
+        <InteractiveCard as="section" tilt={0} className={styles.limits}>
           <OutputTokenLimitField
             value={maxTokens}
             onChange={handleMaxTokensChange}
@@ -223,9 +223,9 @@ export function ModelConfigEditor({
                 : undefined
             }
           />
-        </ModelCardSurface>
+        </InteractiveCard>
         {(model.thinking_control || thinkingParamStyle) && (
-          <ModelCardSurface as="section" tilt={0} className={styles.thinking}>
+          <InteractiveCard as="section" tilt={0} className={styles.thinking}>
             <ThinkingControl
               control={
                 model.thinking_control ?? {
@@ -262,10 +262,10 @@ export function ModelConfigEditor({
                 setDirty(true);
               }}
             />
-          </ModelCardSurface>
+          </InteractiveCard>
         )}
       </div>
-      <ModelCardSurface tilt={0} className={styles.advanced}>
+      <InteractiveCard tilt={0} className={styles.advanced}>
         <details>
           <summary>{t("common.advancedSettings")}</summary>
           <ThinkingCapabilityFields
@@ -324,7 +324,7 @@ export function ModelConfigEditor({
             placeholder="{}"
           />
         </details>
-      </ModelCardSurface>
+      </InteractiveCard>
       <div className={styles.actions}>
         <Button
           type="primary"

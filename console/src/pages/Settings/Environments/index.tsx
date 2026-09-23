@@ -1,3 +1,4 @@
+import { DeleteAction } from "@/components/interaction/DeleteAction";
 import { useMemo, useState } from "react";
 import { Button, Input, Modal } from "@agentscope-ai/design";
 import { Tooltip } from "antd";
@@ -10,7 +11,6 @@ import {
   Plus,
   RotateCcw,
   Search,
-  Trash2,
   Zap,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -133,37 +133,35 @@ function EnvironmentsPage() {
     }
   };
 
-  const removeVariable = (key: string, reset = false) => {
+  const executeRemove = async (key: string, reset = false) => {
+    try {
+      if (reset) {
+        await api.resetEnv(key);
+      } else {
+        await api.deleteEnv(key);
+      }
+      message.success(
+        reset
+          ? t("environments.resetSuccess")
+          : t("environments.deleteSuccess", { name: key }),
+      );
+      await fetchAll();
+    } catch (removeError) {
+      message.error(
+        removeError instanceof Error
+          ? removeError.message
+          : t("environments.deleteFailed"),
+      );
+      throw removeError;
+    }
+  };
+  const removeVariable = (key: string) => {
     Modal.confirm({
-      title: reset
-        ? t("environments.resetVariable")
-        : t("environments.deleteVariable"),
+      title: t("environments.resetVariable"),
       content: t("environments.deleteConfirm", { name: key }),
-      okText: reset ? t("common.reset") : t("common.delete"),
-      okButtonProps: { danger: !reset },
+      okText: t("common.reset"),
       cancelText: t("common.cancel"),
-      onOk: async () => {
-        try {
-          if (reset) {
-            await api.resetEnv(key);
-          } else {
-            await api.deleteEnv(key);
-          }
-          message.success(
-            reset
-              ? t("environments.resetSuccess")
-              : t("environments.deleteSuccess", { name: key }),
-          );
-          await fetchAll();
-        } catch (removeError) {
-          message.error(
-            removeError instanceof Error
-              ? removeError.message
-              : t("environments.deleteFailed"),
-          );
-          throw removeError;
-        }
-      },
+      onOk: () => executeRemove(key, true),
     });
   };
 
@@ -208,7 +206,7 @@ function EnvironmentsPage() {
                   <button
                     type="button"
                     className={styles.iconButton}
-                    onClick={() => removeVariable(item.key, true)}
+                    onClick={() => removeVariable(item.key)}
                     aria-label={t("common.reset")}
                   >
                     <RotateCcw size={16} />
@@ -231,10 +229,7 @@ function EnvironmentsPage() {
         parent={t("environments.parent")}
         current={t("environments.environments")}
         className={styles.pageHeader}
-      />
-      <main className={styles.content}>
-        <section className={styles.hero}>
-          <h1>{t("environments.title")}</h1>
+        extra={
           <Button
             type="primary"
             icon={<Plus size={16} />}
@@ -242,8 +237,9 @@ function EnvironmentsPage() {
           >
             {t("environments.addVariable")}
           </Button>
-        </section>
-
+        }
+      />
+      <main className={styles.content}>
         <section className={styles.panel}>
           <div className={styles.filters}>
             <div className={styles.searchBox}>
@@ -303,14 +299,12 @@ function EnvironmentsPage() {
                         >
                           <Pencil size={16} />
                         </button>
-                        <button
-                          type="button"
-                          className={`${styles.iconButton} ${styles.danger}`}
-                          onClick={() => removeVariable(item.key)}
-                          aria-label={t("common.delete")}
-                        >
-                          <Trash2 size={16} />
-                        </button>
+                        <DeleteAction
+                          label={t("environments.deleteConfirm", {
+                            name: item.key,
+                          })}
+                          onConfirm={() => executeRemove(item.key)}
+                        />
                       </div>
                     </div>
                   ))

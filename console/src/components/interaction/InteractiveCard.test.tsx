@@ -1,7 +1,7 @@
 import { createPortal } from "react-dom";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { ModelCardSurface } from "./ModelCardSurface";
+import { InteractiveCard } from "./InteractiveCard";
 
 const preferences = vi.hoisted(() => ({ reducedMotion: false }));
 vi.mock("motion/react", async (importOriginal) => ({
@@ -12,10 +12,10 @@ vi.mock("motion/react", async (importOriginal) => ({
 function setup(tilt = 7) {
   const onClick = vi.fn();
   const { container } = render(
-    <ModelCardSurface tilt={tilt}>
+    <InteractiveCard tilt={tilt}>
       <button onClick={onClick}>Models</button>
       <input aria-label="Key" />
-    </ModelCardSurface>,
+    </InteractiveCard>,
   );
   const frame = container.firstElementChild as HTMLDivElement;
   const surface = tilt ? (frame.firstElementChild as HTMLDivElement) : frame;
@@ -55,7 +55,7 @@ beforeEach(() => {
   preferences.reducedMotion = false;
 });
 
-describe("ModelCardSurface", () => {
+describe("InteractiveCard", () => {
   it.each(["pointerup", "pointercancel", "pointerleave", "lostpointercapture"])(
     "follows touch and settles after %s",
     async (endEvent) => {
@@ -94,9 +94,9 @@ describe("ModelCardSurface", () => {
 
   it("ignores pointer events from portalled dialogs", () => {
     const { container } = render(
-      <ModelCardSurface>
+      <InteractiveCard>
         {createPortal(<button>Dialog action</button>, document.body)}
-      </ModelCardSurface>,
+      </InteractiveCard>,
     );
     const surface = container.firstElementChild!
       .firstElementChild as HTMLElement;

@@ -95,3 +95,55 @@
     padding: 12px 16px;
   }
 }
+
+/* Page-specific settings refinement. */
+
+.content {
+  max-width: 1040px;
+  width: 100%;
+  margin: 0 auto;
+  padding-top: 8px;
+}
+.card {
+  border-radius: 24px;
+  margin-bottom: 24px;
+  &:hover {
+    border-color: var(--app-border-subtle);
+    box-shadow: none;
+  }
+}
+.cardDescription {
+  max-width: 70ch;
+  margin-bottom: 20px;
+  line-height: 1.6;
+}
+.choiceGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
+  gap: 16px;
+}
+.footerButtons {
+  position: sticky;
+  bottom: 0;
+  z-index: 3;
+  padding: 14px 20px;
+}
+@media (max-width: 600px) {
+  .content {
+    padding-inline: 0;
+  }
+  .choiceGrid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.footerButtons {
+  margin: 8px 16px 0;
+  border: 1px solid var(--app-border-subtle);
+  border-radius: 18px;
+  box-shadow: 0 4px 20px rgb(0 0 0 / 3%);
+}
+
+.content {
+  margin-inline: 0;
+}

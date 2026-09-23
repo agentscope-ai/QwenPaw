@@ -24,6 +24,9 @@
   --models-positive-soft: var(--app-success-bg);
   background: var(--models-bg);
   color: var(--models-text);
+  border-radius: 28px;
+  overflow: hidden;
+  border: 1px solid var(--models-border);
 }
 
 .settingsPage
@@ -1443,7 +1446,13 @@
   border-radius: 6px;
   border: 1px solid var(--app-border);
   box-shadow: var(--app-shadow-sm);
-  transition: all 0.2s ease-in-out;
+  transition:
+    background-color 0.2s ease-in-out,
+    color 0.2s ease-in-out,
+    border-color 0.2s ease-in-out,
+    box-shadow 0.2s ease-in-out,
+    opacity 0.2s ease-in-out,
+    transform 0.2s ease-in-out;
 
   &:hover {
     box-shadow: var(--app-shadow-md);

@@ -57,7 +57,11 @@ export default function SidebarEntrySection({
       <div className={styles.settingsCard}>
         <div className={styles.itemGrid}>
           {entries.map((entry) => (
-            <label key={entry.key} className={styles.itemOption}>
+            <label
+              key={entry.key}
+              className={styles.itemOption}
+              data-selected={isItemVisible(entry.key)}
+            >
               <Checkbox
                 checked={isItemVisible(entry.key)}
                 onChange={(event) =>

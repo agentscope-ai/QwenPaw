@@ -1,12 +1,12 @@
 import React, { createContext, useContext } from "react";
-import { MenuOutlined } from "@ant-design/icons";
+import { Menu as MenuOutlined } from "lucide-react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import styles from "../index.module.less";
 
 type SortableHandleContextValue = {
-  attributes: any;
-  listeners: any;
+  attributes: ReturnType<typeof useSortable>["attributes"];
+  listeners: ReturnType<typeof useSortable>["listeners"];
   disabled: boolean;
 };
 
@@ -88,7 +88,7 @@ export function DragHandle({ disabled = false }: { disabled?: boolean }) {
       aria-disabled={disabled}
       {...dragBindings}
     >
-      <MenuOutlined />
+      <MenuOutlined size="1em" />
     </button>
   );
 }

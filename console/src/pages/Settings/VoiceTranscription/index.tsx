@@ -1,4 +1,4 @@
-import { Button } from "@agentscope-ai/design";
+import { useAutoSave } from "@/hooks/useAutoSave";
 import { Alert, Spin } from "antd";
 import { useTranslation } from "react-i18next";
 import { PageHeader } from "@/components/PageHeader";
@@ -14,7 +14,6 @@ function VoiceTranscriptionPage() {
   const { t } = useTranslation();
   const {
     loading,
-    saving,
     audioMode,
     setAudioMode,
     providerType,
@@ -26,9 +25,10 @@ function VoiceTranscriptionPage() {
     showProviderSection,
     isLocalWhisper,
     isWhisperApi,
-    fetchSettings,
     handleSave,
   } = useVoiceTranscription();
+
+  const { schedule } = useAutoSave(() => handleSave(true));
 
   if (loading) {
     return (
@@ -61,7 +61,10 @@ function VoiceTranscriptionPage() {
       <div className={styles.content}>
         <AudioModeCard
           audioMode={audioMode}
-          onAudioModeChange={setAudioMode}
+          onAudioModeChange={(value) => {
+            setAudioMode(value);
+            schedule();
+          }}
           localWhisperStatus={localWhisperStatus}
         />
 
@@ -69,7 +72,10 @@ function VoiceTranscriptionPage() {
           <>
             <ProviderTypeCard
               providerType={providerType}
-              onProviderTypeChange={setProviderType}
+              onProviderTypeChange={(value) => {
+                setProviderType(value);
+                schedule();
+              }}
               isLocalWhisper={isLocalWhisper}
               localWhisperStatus={localWhisperStatus}
             />
@@ -78,24 +84,14 @@ function VoiceTranscriptionPage() {
               <ProviderSelectCard
                 availableProviders={availableProviders}
                 selectedProviderId={selectedProviderId}
-                onProviderChange={setSelectedProviderId}
+                onProviderChange={(value) => {
+                  setSelectedProviderId(value);
+                  schedule();
+                }}
               />
             )}
           </>
         )}
-      </div>
-
-      <div className={styles.footerButtons}>
-        <Button
-          onClick={fetchSettings}
-          disabled={saving}
-          style={{ marginRight: 8 }}
-        >
-          {t("common.reset")}
-        </Button>
-        <Button type="primary" onClick={handleSave} loading={saving}>
-          {t("common.save")}
-        </Button>
       </div>
     </div>
   );

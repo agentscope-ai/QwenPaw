@@ -74,7 +74,13 @@
   font-size: 13px;
   color: var(--app-text-secondary);
   cursor: pointer;
-  transition: all 0.18s ease;
+  transition:
+    background-color 0.18s ease,
+    color 0.18s ease,
+    border-color 0.18s ease,
+    box-shadow 0.18s ease,
+    opacity 0.18s ease,
+    transform 0.18s ease;
 
   &:hover {
     color: var(--app-text);
@@ -178,7 +184,13 @@
   padding: 10px 12px;
   border-radius: 8px;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition:
+    background-color 0.2s ease,
+    color 0.2s ease,
+    border-color 0.2s ease,
+    box-shadow 0.2s ease,
+    opacity 0.2s ease,
+    transform 0.2s ease;
   background: var(--app-fill-faint);
   border: 1px solid var(--app-border);
 
@@ -288,7 +300,13 @@
   border: 1px solid var(--app-border);
   box-sizing: border-box;
   cursor: pointer;
-  transition: all 0.2s ease-in-out;
+  transition:
+    background-color 0.2s ease-in-out,
+    color 0.2s ease-in-out,
+    border-color 0.2s ease-in-out,
+    box-shadow 0.2s ease-in-out,
+    opacity 0.2s ease-in-out,
+    transform 0.2s ease-in-out;
 
   :global {
     .qwenpaw-card-body {
@@ -492,4 +510,111 @@
   margin-bottom: 12px;
   color: var(--app-text-tertiary);
   font-size: 13px;
+}
+
+/* Page-specific settings refinement. */
+
+.channelsContainer {
+  padding: 8px 16px 24px;
+}
+.panelSection,
+.panelSectionDashed {
+  margin: 0 0 24px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+.panelTitle {
+  padding: 0 4px;
+  margin-bottom: 16px;
+}
+.channelsGrid {
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr));
+  gap: 16px;
+  padding: 0;
+}
+.channelCard {
+  border-radius: 22px;
+  overflow: hidden;
+}
+.availableGrid {
+  gap: 12px;
+}
+.filterTab:focus-visible {
+  outline: 2px solid var(--app-accent);
+  outline-offset: 2px;
+}
+@media (max-width: 600px) {
+  .channelsContainer {
+    padding: 8px 0 24px;
+  }
+  .channelsGrid {
+    grid-template-columns: 1fr;
+  }
+}
+.channelDisclosure {
+  margin-top: 16px;
+  border-top: 1px solid var(--app-border-subtle) !important;
+  :global(.ant-collapse-header) {
+    padding: 18px 0 !important;
+    font-weight: 600;
+  }
+  :global(.ant-collapse-content-box) {
+    padding: 0 0 16px !important;
+  }
+}
+.presentationGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 24px;
+  @media (max-width: 600px) {
+    grid-template-columns: 1fr;
+  }
+}
+
+.channelEnabled {
+  :global(.qwenpaw-form-item-row) {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+  }
+  :global(.qwenpaw-form-item-label) {
+    flex: 1 1 auto;
+    width: auto;
+    padding: 0;
+  }
+  :global(.qwenpaw-form-item-control) {
+    flex: 0 0 auto;
+  }
+}
+
+.channelForm {
+  :global(.qwenpaw-form-item):has(button[role="switch"])
+    > :global(.qwenpaw-form-item-row) {
+    display: flex;
+    flex-flow: row nowrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+  }
+  :global(.qwenpaw-form-item):has(button[role="switch"])
+    :global(.qwenpaw-form-item-label) {
+    flex: 1 1 auto;
+    width: auto;
+    padding: 0;
+    text-align: left;
+  }
+  :global(.qwenpaw-form-item):has(button[role="switch"])
+    :global(.qwenpaw-form-item-control) {
+    flex: 0 0 auto;
+    width: auto;
+  }
+  .presentationGrid {
+    grid-template-columns: 1fr;
+    gap: 0;
+  }
+  .channelDisclosure {
+    border: 0;
+    margin-top: 8px;
+  }
 }

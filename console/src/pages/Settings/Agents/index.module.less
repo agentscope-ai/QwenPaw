@@ -213,7 +213,13 @@
   border: 1.5px solid var(--app-border);
   border-radius: 8px;
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease,
+    border-color 0.15s ease,
+    box-shadow 0.15s ease,
+    opacity 0.15s ease,
+    transform 0.15s ease;
 
   &:hover {
     border-color: var(--app-accent);
@@ -262,7 +268,7 @@
     color: var(--app-accent) !important;
   }
 
-  .anticon,
+  :is(.anticon, .lucide),
   svg,
   span[class*="lucide"] {
     color: inherit !important;
@@ -301,4 +307,28 @@
 :global(.dark-mode .ant-btn-link[disabled]) {
   color: rgba(255, 255, 255, 0.25) !important;
   opacity: 1 !important;
+}
+
+/* Page-specific settings refinement. */
+
+.tableCard {
+  margin: 12px 16px 24px;
+  border: 1px solid var(--app-border-subtle);
+  border-radius: 22px;
+  overflow: auto;
+}
+.agentsPage :global(.qwenpaw-table-cell) {
+  padding-block: 16px !important;
+}
+.agentsPage :global(.qwenpaw-table-tbody > tr:hover > td) {
+  background: var(--app-accent-faint);
+}
+.headerRight {
+  gap: 8px;
+  flex-wrap: wrap;
+}
+@media (max-width: 600px) {
+  .tableCard {
+    margin-inline: 0;
+  }
 }

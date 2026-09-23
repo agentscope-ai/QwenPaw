@@ -1,8 +1,9 @@
+import { NumberSlider } from "@/components/interaction/NumberSlider";
+import { Collapse } from "antd";
 import {
   Button,
   Form,
   Input,
-  InputNumber,
   Select,
   Card,
   Alert,
@@ -245,44 +246,6 @@ export function ReactAgentCard({
             style={{ width: "100%" }}
           />
         </Form.Item>
-
-        <Form.Item
-          label={t("agentConfig.shellCommandTimeout")}
-          name="shell_command_timeout"
-          rules={[
-            {
-              required: true,
-              message: t("agentConfig.shellCommandTimeoutRequired"),
-            },
-            {
-              type: "number",
-              min: 1,
-              message: t("agentConfig.shellCommandTimeoutMin"),
-            },
-          ]}
-          tooltip={t("agentConfig.shellCommandTimeoutTooltip")}
-          className={styles.reactAgentField}
-        >
-          <InputNumber
-            style={{ width: "100%" }}
-            min={1}
-            step={10}
-            placeholder={t("agentConfig.shellCommandTimeoutPlaceholder")}
-          />
-        </Form.Item>
-
-        <Form.Item
-          label={t("agentConfig.shellCommandExecutable")}
-          name="shell_command_executable"
-          tooltip={t("agentConfig.shellCommandExecutableTooltip")}
-          className={styles.reactAgentField}
-        >
-          <Input
-            style={{ width: "100%" }}
-            placeholder={t("agentConfig.shellCommandExecutablePlaceholder")}
-            allowClear
-          />
-        </Form.Item>
       </div>
 
       <div className={styles.reactAgentSettings}>
@@ -299,21 +262,79 @@ export function ReactAgentCard({
         <Switch />
       </Form.Item>
 
-      <div className={styles.reactAgentRow}>
-        <Form.Item
-          label={t("agentConfig.memoryManagerBackend")}
-          name="memory_manager_backend"
-          tooltip={t("agentConfig.memoryManagerBackendTooltip")}
-          className={styles.reactAgentField}
-        >
-          <Select options={memoryBackendOptions} style={{ width: "100%" }} />
-        </Form.Item>
-      </div>
-      <Alert
-        type="warning"
-        showIcon
-        message={t("agentConfig.memoryManagerBackendRestartWarning")}
-        style={{ marginBottom: 16 }}
+      <Collapse
+        ghost
+        items={[
+          {
+            key: "runtime",
+            label: t("agentConfig.advancedRuntime", "Advanced runtime"),
+            forceRender: true,
+            children: (
+              <>
+                <div className={styles.reactAgentRow}>
+                  {" "}
+                  <Form.Item
+                    label={t("agentConfig.shellCommandTimeout")}
+                    name="shell_command_timeout"
+                    rules={[
+                      {
+                        required: true,
+                        message: t("agentConfig.shellCommandTimeoutRequired"),
+                      },
+                      {
+                        type: "number",
+                        min: 1,
+                        message: t("agentConfig.shellCommandTimeoutMin"),
+                      },
+                    ]}
+                    tooltip={t("agentConfig.shellCommandTimeoutTooltip")}
+                    className={styles.reactAgentField}
+                  >
+                    <NumberSlider
+                      min={1}
+                      max={600}
+                      step={1}
+                      label={t("agentConfig.shellCommandTimeout")}
+                    />
+                  </Form.Item>
+                  <Form.Item
+                    label={t("agentConfig.shellCommandExecutable")}
+                    name="shell_command_executable"
+                    tooltip={t("agentConfig.shellCommandExecutableTooltip")}
+                    className={styles.reactAgentField}
+                  >
+                    <Input
+                      style={{ width: "100%" }}
+                      placeholder={t(
+                        "agentConfig.shellCommandExecutablePlaceholder",
+                      )}
+                      allowClear
+                    />
+                  </Form.Item>
+                </div>{" "}
+                <div className={styles.reactAgentRow}>
+                  <Form.Item
+                    label={t("agentConfig.memoryManagerBackend")}
+                    name="memory_manager_backend"
+                    tooltip={t("agentConfig.memoryManagerBackendTooltip")}
+                    className={styles.reactAgentField}
+                  >
+                    <Select
+                      options={memoryBackendOptions}
+                      style={{ width: "100%" }}
+                    />
+                  </Form.Item>
+                </div>
+                <Alert
+                  type="warning"
+                  showIcon
+                  message={t("agentConfig.memoryManagerBackendRestartWarning")}
+                  style={{ marginBottom: 16 }}
+                />
+              </>
+            ),
+          },
+        ]}
       />
     </Card>
   );

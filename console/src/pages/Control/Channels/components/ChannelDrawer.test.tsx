@@ -19,6 +19,7 @@ import type { FormInstance } from "antd";
 const langRef = vi.hoisted(() => ({ current: "en" }));
 const mockOpenExternalLink = vi.hoisted(() => vi.fn());
 const mockMessage = vi.hoisted(() => ({
+  destroy: vi.fn(),
   success: vi.fn(),
   error: vi.fn(),
   warning: vi.fn(),
@@ -52,10 +53,13 @@ vi.mock("react-i18next", () => ({
 }));
 
 vi.mock("../../../../stores/agentStore", () => ({
-  useAgentStore: () => ({
-    selectedAgent: "agent-a",
-    agents: [{ id: "agent-a", workspace_dir: "/ws" }],
-  }),
+  useAgentStore: Object.assign(
+    () => ({
+      selectedAgent: "agent-a",
+      agents: [{ id: "agent-a", workspace_dir: "/ws" }],
+    }),
+    { subscribe: () => () => {} },
+  ),
 }));
 
 vi.mock("../../../../utils/openExternalLink", () => ({
@@ -624,7 +628,10 @@ describe("ChannelDrawer matrix submit", () => {
         access_token: "syt_token",
       },
     });
-    fireEvent.click(screen.getByText("common.save"));
+    fireEvent.change(document.querySelector("input#bot_prefix")!, {
+      target: { value: "@new" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "common.close" }));
     await waitFor(() => expect(onSubmit).toHaveBeenCalled());
     const values = onSubmit.mock.calls[0][0];
     expect(values.password).toBe("");
@@ -650,7 +657,10 @@ describe("ChannelDrawer matrix submit", () => {
         screen.getByPlaceholderText("Account password for login"),
       ).toBeTruthy();
     });
-    fireEvent.click(screen.getByText("common.save"));
+    fireEvent.change(document.querySelector("input#bot_prefix")!, {
+      target: { value: "@new" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "common.close" }));
     await waitFor(() => expect(onSubmit).toHaveBeenCalled());
     const values = onSubmit.mock.calls[0][0];
     expect(values.access_token).toBe("");
@@ -664,19 +674,22 @@ describe("ChannelDrawer matrix submit", () => {
       onSubmit,
       initialValues: { bot_token: "xoxb-1", app_token: "xapp-1" },
     });
-    fireEvent.click(screen.getByText("common.save"));
+    fireEvent.change(document.querySelector("input#bot_prefix")!, {
+      target: { value: "@new" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "common.close" }));
     await waitFor(() => expect(onSubmit).toHaveBeenCalled());
     const values = onSubmit.mock.calls[0][0];
     expect(values.bot_token).toBe("xoxb-1");
     expect(values.app_token).toBe("xapp-1");
   });
 
-  it("cancel button closes the drawer without submitting", () => {
+  it("closing an unchanged drawer does not submit", async () => {
     const onClose = vi.fn();
     const onSubmit = vi.fn();
     renderDrawer({ activeKey: "slack", onClose, onSubmit });
-    fireEvent.click(screen.getByText("common.cancel"));
-    expect(onClose).toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "common.close" }));
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
     expect(onSubmit).not.toHaveBeenCalled();
   });
 });

@@ -167,12 +167,14 @@ vi.mock("./utils/traceUtils", async () => {
   return { ...actual };
 });
 
-vi.mock("lucide-react", () => {
+vi.mock("lucide-react", async () => {
+  const actual = await vi.importActual<object>("lucide-react");
   const make = (n: string) =>
     function Icon() {
       return <span data-testid={`icon-${n}`} />;
     };
   return {
+    ...actual,
     PackageOpen: make("pkg"),
     Bell: make("bell"),
     BellRing: make("bellring"),

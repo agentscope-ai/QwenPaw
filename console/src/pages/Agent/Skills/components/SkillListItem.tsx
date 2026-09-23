@@ -62,9 +62,7 @@ export function SkillListItem({
         />
       )}
       <div className={styles.listItemLeft}>
-        <span className={styles.fileIcon}>
-          {getSkillVisual(skill.name, skill.emoji)}
-        </span>
+        <span className={styles.fileIcon}>{getSkillVisual(skill.name)}</span>
         <div className={styles.listItemInfo}>
           <div className={styles.listItemHeader}>
             <span className={styles.skillTitle}>{skill.name}</span>

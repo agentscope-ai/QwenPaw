@@ -27,10 +27,11 @@ function makeApp(overrides: Partial<AppCardData> = {}): AppCardData {
 }
 
 describe("AppCard", () => {
-  it("renders the plugin.json emoji icon when no image icon is available", () => {
+  it("uses a Lucide fallback when no image icon is available", () => {
     render(<AppCard app={makeApp()} onClick={vi.fn()} />);
 
-    expect(screen.getByText("🎮")).toBeInTheDocument();
+    expect(screen.queryByText("🎮")).not.toBeInTheDocument();
+    expect(document.querySelector("svg.lucide-app-window")).toBeInTheDocument();
     expect(screen.getByText("Demo App")).toBeInTheDocument();
   });
 

@@ -113,93 +113,103 @@ export function useAgentConfig(
     fetchConfig();
   }, [fetchConfig]);
 
-  const handleSave = useCallback(async () => {
-    try {
-      await form.validateFields();
-      setSaving(true);
+  const handleSave = useCallback(
+    async (automatic = false) => {
+      try {
+        await form.validateFields();
+        setSaving(true);
 
-      // Include values written programmatically and fields inside collapsed
-      // editors. validateFields() only returns currently registered fields,
-      // which can omit custom loop gate identity and parameters.
-      const values = form.getFieldsValue(true);
+        // Include values written programmatically and fields inside collapsed
+        // editors. validateFields() only returns currently registered fields,
+        // which can omit custom loop gate identity and parameters.
+        const values = form.getFieldsValue(true);
 
-      // Deep-merge nested config objects so that collapsed (unrendered)
-      // Collapse panels don't lose their saved values.  Shallow spread
-      // would overwrite the entire nested object with only the rendered
-      // fields, dropping anything inside a collapsed panel.
-      const original = originalConfigRef.current!;
-      const formValues = values as AgentsRunningConfig;
+        // Deep-merge nested config objects so that collapsed (unrendered)
+        // Collapse panels don't lose their saved values.  Shallow spread
+        // would overwrite the entire nested object with only the rendered
+        // fields, dropping anything inside a collapsed panel.
+        const original = originalConfigRef.current!;
+        const formValues = values as AgentsRunningConfig;
 
-      const deepMergeConfig = <T,>(
-        base: T | undefined | null,
-        override: T | undefined | null,
-      ): T | undefined => {
-        if (!base) return override ?? undefined;
-        if (!override) return base;
-        const baseRecord = base as Record<string, unknown>;
-        const overrideRecord = override as Record<string, unknown>;
-        const result: Record<string, unknown> = { ...baseRecord };
-        for (const key of Object.keys(overrideRecord)) {
-          const overrideVal = overrideRecord[key];
-          const baseVal = baseRecord[key];
-          if (
-            overrideVal != null &&
-            typeof overrideVal === "object" &&
-            !Array.isArray(overrideVal) &&
-            baseVal != null &&
-            typeof baseVal === "object" &&
-            !Array.isArray(baseVal)
-          ) {
-            result[key] = deepMergeConfig(baseVal, overrideVal);
-          } else {
-            result[key] = overrideVal;
+        const deepMergeConfig = <T,>(
+          base: T | undefined | null,
+          override: T | undefined | null,
+        ): T | undefined => {
+          if (!base) return override ?? undefined;
+          if (!override) return base;
+          const baseRecord = base as Record<string, unknown>;
+          const overrideRecord = override as Record<string, unknown>;
+          const result: Record<string, unknown> = { ...baseRecord };
+          for (const key of Object.keys(overrideRecord)) {
+            const overrideVal = overrideRecord[key];
+            const baseVal = baseRecord[key];
+            if (
+              overrideVal != null &&
+              typeof overrideVal === "object" &&
+              !Array.isArray(overrideVal) &&
+              baseVal != null &&
+              typeof baseVal === "object" &&
+              !Array.isArray(baseVal)
+            ) {
+              result[key] = deepMergeConfig(baseVal, overrideVal);
+            } else {
+              result[key] = overrideVal;
+            }
           }
-        }
-        return result as T;
-      };
+          return result as T;
+        };
 
-      const configToSave: AgentsRunningConfig = {
-        ...original,
-        ...formValues,
-        // Deep-merge nested config sections to preserve collapsed fields
-        reme_light_memory_config: deepMergeConfig(
-          original.reme_light_memory_config,
-          formValues.reme_light_memory_config,
-        ) as typeof original.reme_light_memory_config,
-        light_context_config: deepMergeConfig(
-          original.light_context_config,
-          formValues.light_context_config,
-        ) as typeof original.light_context_config,
-        memory_backend_configs:
-          deepMergeConfig(
-            original.memory_backend_configs,
-            formValues.memory_backend_configs,
-          ) || {},
-        auto_title_config: deepMergeConfig(
-          original.auto_title_config,
-          formValues.auto_title_config,
-        ) as typeof original.auto_title_config,
-        approval_level: approvalLevel,
-        // Keep legacy max_iters aligned with the UI-bound iteration limit.
-        max_iters:
-          formValues.loop?.iteration?.max_iterations ?? original.max_iters,
-      };
+        const configToSave: AgentsRunningConfig = {
+          ...original,
+          ...formValues,
+          // Deep-merge nested config sections to preserve collapsed fields
+          reme_light_memory_config: deepMergeConfig(
+            original.reme_light_memory_config,
+            formValues.reme_light_memory_config,
+          ) as typeof original.reme_light_memory_config,
+          light_context_config: deepMergeConfig(
+            original.light_context_config,
+            formValues.light_context_config,
+          ) as typeof original.light_context_config,
+          memory_backend_configs:
+            deepMergeConfig(
+              original.memory_backend_configs,
+              formValues.memory_backend_configs,
+            ) || {},
+          auto_title_config: deepMergeConfig(
+            original.auto_title_config,
+            formValues.auto_title_config,
+          ) as typeof original.auto_title_config,
+          approval_level: approvalLevel,
+          // Keep legacy max_iters aligned with the UI-bound iteration limit.
+          max_iters:
+            formValues.loop?.iteration?.max_iterations ?? original.max_iters,
+        };
 
-      const savedConfig = await api.updateAgentRunningConfig(configToSave);
+        const savedConfig = automatic
+          ? await api.updateAgentRunningConfig(
+              configToSave,
+              selectedAgent || "default",
+            )
+          : await api.updateAgentRunningConfig(configToSave);
 
-      // Update original config after successful save
-      originalConfigRef.current = savedConfig;
-      onConfigLoaded?.(savedConfig);
-      message.success(t("agentConfig.saveSuccess"));
-    } catch (err) {
-      if (err instanceof Error && "errorFields" in err) return;
-      const errMsg =
-        err instanceof Error ? err.message : t("agentConfig.saveFailed");
-      message.error(errMsg);
-    } finally {
-      setSaving(false);
-    }
-  }, [form, t, selectedAgent, approvalLevel, onConfigLoaded]);
+        // Update original config after successful save
+        originalConfigRef.current = savedConfig;
+        onConfigLoaded?.(savedConfig);
+        if (!automatic) message.success(t("agentConfig.saveSuccess"));
+      } catch (err) {
+        if (err && typeof err === "object" && "errorFields" in err)
+          return false;
+        if (automatic) throw err;
+        const errMsg =
+          err instanceof Error ? err.message : t("agentConfig.saveFailed");
+        message.error(errMsg);
+      } finally {
+        setSaving(false);
+      }
+    },
+    [form, t, selectedAgent, approvalLevel, onConfigLoaded],
+  );
 
   const handleLanguageChange = useCallback(
     (value: string): void => {

@@ -5,9 +5,11 @@ import {
   type ComponentType,
   type ReactNode,
 } from "react";
-import { Button, Input, Spin } from "antd";
+import { Button, Input, Select, Spin } from "antd";
 import {
   Archive,
+  Blocks,
+  CalendarDays,
   ArrowLeft,
   Bot,
   Bug,
@@ -17,7 +19,6 @@ import {
   Globe,
   HeartPulse,
   Mic,
-  PanelLeft,
   Plug,
   Radio,
   ScanLine,
@@ -39,7 +40,6 @@ import { findMenuItem, flattenMenu } from "@/layouts/registry/adapter";
 import { useAgentStore } from "@/stores/agentStore";
 import { supportsPortabilityImport } from "@/utils/agentBackend";
 import GeneralSettings from "./GeneralSettings";
-import NavigationSettings from "./NavigationSettings";
 import SettingsAgentSelector from "./SettingsAgentSelector";
 import styles from "./index.module.less";
 
@@ -80,15 +80,6 @@ const SETTINGS_GROUPS: SettingsGroupDefinition[] = [
         Component: GeneralSettings,
         Icon: Wrench,
       },
-      {
-        key: "navigation",
-        labelKey: "settingsCenter.pages.navigation",
-        fallback: "Sidebar",
-        descriptionKey: "settingsCenter.descriptions.navigation",
-        descriptionFallback: "Choose which shortcuts appear in the sidebar",
-        Component: NavigationSettings,
-        Icon: PanelLeft,
-      },
     ],
   },
   {
@@ -96,6 +87,15 @@ const SETTINGS_GROUPS: SettingsGroupDefinition[] = [
     labelKey: "settingsCenter.groups.agentConfiguration",
     fallback: "Agent configuration",
     pages: [
+      {
+        key: "cron-jobs",
+        labelKey: "nav.cronJobs",
+        fallback: "Scheduled tasks",
+        descriptionKey: "nav.cronJobs",
+        descriptionFallback: "Scheduled tasks",
+        routeId: "core.cron-jobs",
+        Icon: CalendarDays,
+      },
       {
         key: "channels",
         labelKey: "nav.channels",
@@ -176,6 +176,15 @@ const SETTINGS_GROUPS: SettingsGroupDefinition[] = [
     labelKey: "settingsCenter.groups.global",
     fallback: "Global settings",
     pages: [
+      {
+        key: "marketplace",
+        labelKey: "nav.marketplace",
+        fallback: "Extensions",
+        descriptionKey: "nav.marketplace",
+        descriptionFallback: "Extensions",
+        routeId: "core.marketplace",
+        Icon: Blocks,
+      },
       {
         key: "agents",
         labelKey: "nav.agents",
@@ -427,6 +436,33 @@ export default function SettingsCenter() {
       data-theme={isDark ? "dark" : "light"}
     >
       <div className={styles.body}>
+        <div className={styles.mobileNavigation}>
+          <Button
+            type="text"
+            icon={<ArrowLeft size={18} />}
+            aria-label={t("settingsCenter.backToApp", "Back to app")}
+            onClick={() => navigate(returnTo)}
+          />
+          <Select
+            aria-label={t("nav.settings")}
+            value={activePage?.key}
+            onChange={(key) => {
+              const page = allPages.find((item) => item.key === key);
+              if (page) openPage(page);
+            }}
+            options={visibleGroups.map((group) => ({
+              label: t(group.labelKey, group.fallback),
+              options: group.pages.map((page) => ({
+                value: page.key,
+                label: pageLabel(page),
+              })),
+            }))}
+          />
+          {activePage?.routeId &&
+            SETTINGS_GROUPS[1].pages.some(
+              (page) => page.key === activePage.key,
+            ) && <SettingsAgentSelector />}
+        </div>
         <aside className={styles.sidebar}>
           <Button
             type="text"
@@ -460,6 +496,10 @@ export default function SettingsCenter() {
                     <button
                       key={page.key}
                       type="button"
+                      aria-current={
+                        activePage?.key === page.key ? "page" : undefined
+                      }
+                      data-press
                       className={`${styles.navItem} ${
                         activePage?.key === page.key ? styles.navItemActive : ""
                       }`}
@@ -482,7 +522,13 @@ export default function SettingsCenter() {
           </nav>
         </aside>
 
-        <main className={styles.content}>
+        <main
+          className={styles.content}
+          data-core-settings={
+            activePage?.key !== "models" &&
+            !activePage?.key.startsWith("extension-")
+          }
+        >
           {ActiveComponent ? (
             <ChunkErrorBoundary resetKey={activePage?.key ?? "settings"}>
               <Suspense

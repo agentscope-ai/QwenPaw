@@ -8,7 +8,10 @@ import { useState, useMemo } from "react";
 import type { Key } from "react";
 import { Checkbox, Input, Tag, Table, Spin, Typography } from "antd";
 import type { TableColumnsType } from "antd";
-import { SearchOutlined, RightOutlined } from "@ant-design/icons";
+import {
+  Search as SearchOutlined,
+  ChevronRight as RightOutlined,
+} from "lucide-react";
 import { useTranslation } from "react-i18next";
 import styles from "./RestoreAgentTable.module.less";
 
@@ -163,6 +166,7 @@ export default function RestoreAgentTable({
             className={styles.expandToggle}
           >
             <RightOutlined
+              size="1em"
               className={`${styles.expandIcon}${
                 agentsExpanded ? ` ${styles.open}` : ""
               }`}
@@ -187,6 +191,7 @@ export default function RestoreAgentTable({
                   size="small"
                   prefix={
                     <SearchOutlined
+                      size="1em"
                       style={{ color: "var(--app-text-quaternary)" }}
                     />
                   }

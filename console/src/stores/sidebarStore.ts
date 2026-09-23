@@ -11,6 +11,7 @@ export const DEFAULT_FOCUS_ITEM_IDS = [
   "core.files",
   "core.agent-config",
   "core.models",
+  "core.marketplace",
 ];
 
 interface SidebarStoreState {

@@ -1,3 +1,4 @@
+import { useAutoSave } from "@/hooks/useAutoSave";
 import { useState, useEffect, useCallback } from "react";
 import {
   Card,
@@ -27,9 +28,12 @@ export function AllowNoAuthHostsTab({ onSave }: AllowNoAuthHostsTabProps = {}) {
   const { t } = useTranslation();
   const [hosts, setHosts] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
+  const saving = false;
   const [newHost, setNewHost] = useState("");
   const { message } = useAppMessage();
+  const { schedule, flush } = useAutoSave(async () => {
+    await api.updateAllowNoAuthHosts({ hosts });
+  });
 
   const fetchData = useCallback(async () => {
     try {
@@ -75,32 +79,28 @@ export function AllowNoAuthHostsTab({ onSave }: AllowNoAuthHostsTabProps = {}) {
     }
 
     setHosts((prev) => [...prev, trimmed]);
+    schedule();
     setNewHost("");
   }, [newHost, hosts, t, message]);
 
   const handleRemove = useCallback((host: string) => {
     setHosts((prev) => prev.filter((h) => h !== host));
+    schedule();
   }, []);
-
-  const handleSave = useCallback(async () => {
-    try {
-      setSaving(true);
-      await api.updateAllowNoAuthHosts({ hosts });
-      message.success(t("security.allowNoAuthHosts.saveSuccess"));
-    } catch {
-      message.error(t("security.allowNoAuthHosts.saveFailed"));
-    } finally {
-      setSaving(false);
-    }
-  }, [hosts, t, message]);
 
   const handleReset = useCallback(() => {
     fetchData();
   }, [fetchData]);
 
   useEffect(() => {
-    onSave?.({ save: handleSave, reset: handleReset, saving });
-  }, [handleSave, handleReset, saving, onSave]);
+    onSave?.({
+      save: async () => {
+        await flush();
+      },
+      reset: handleReset,
+      saving,
+    });
+  }, [flush, handleReset, saving, onSave]);
 
   const isDefaultHost = (host: string) => {
     return host === "127.0.0.1" || host === "::1";

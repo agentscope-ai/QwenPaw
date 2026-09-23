@@ -76,11 +76,6 @@ function LoadMoreSentinel({ onVisible }: { onVisible: () => void }) {
 const FEATURED_APP_ICONS: Record<string, string> = {
   "@agentscope/qwenpaw-creator": "/creator-logo.png",
 };
-// Emoji icons from the plugins' own plugin.json (the market API carries no
-// icon field), so uninstalled cards match what the installed view shows.
-const FEATURED_APP_EMOJIS: Record<string, string> = {
-  "@zhijianma/agent-kanban": "📋",
-};
 // The upstream market entry ships the same English text under every locale
 // key, so curated apps carry their real translations here (keyed by language
 // prefix). Falls back to the upstream locales for everything else.
@@ -468,10 +463,6 @@ export function AppMarket({
                           alt=""
                           className={styles.marketLogo}
                         />
-                      ) : FEATURED_APP_EMOJIS[entry.id] ? (
-                        <span className={styles.cardIconEmoji} aria-hidden>
-                          {FEATURED_APP_EMOJIS[entry.id]}
-                        </span>
                       ) : (
                         <AppWindow size={24} strokeWidth={1.75} />
                       )}

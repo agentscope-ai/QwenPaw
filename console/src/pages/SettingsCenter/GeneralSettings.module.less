@@ -1,0 +1,241 @@
+.preferencePage {
+  width: min(920px, 100%);
+  margin: 0 auto;
+  padding-bottom: 24px;
+}
+.pageTitle {
+  margin: 0 0 28px;
+  h2 {
+    margin: 0;
+    font-size: 30px;
+    font-weight: 650;
+    letter-spacing: -0.035em;
+  }
+}
+.settingsCard {
+  overflow: hidden;
+  border: 1px solid var(--app-border-subtle);
+  border-radius: 24px;
+  background: var(--app-surface);
+  box-shadow: 0 4px 24px rgb(0 0 0 / 3%);
+}
+.settingRow {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 20px 24px;
+  min-height: 80px;
+  & + & {
+    border-top: 1px solid var(--app-border-subtle);
+  }
+  &:has(.appearanceChoices) {
+    flex-wrap: wrap;
+    background: radial-gradient(
+      ellipse at 50% 100%,
+      var(--app-accent-soft),
+      transparent 75%
+    );
+  }
+}
+.appearanceChoices {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  width: 100%;
+  gap: 16px;
+  padding-top: 8px;
+}
+.appearanceChoice {
+  position: relative;
+  display: block;
+  width: 100%;
+  padding: 12px;
+  border: 1px solid var(--app-border);
+  border-radius: 18px;
+  background: var(--app-surface);
+  color: var(--app-text-secondary);
+  cursor: pointer;
+  text-align: left;
+  &[aria-pressed="true"] {
+    border-color: var(--app-accent);
+    color: var(--app-text);
+  }
+  &:focus-visible {
+    outline: 2px solid var(--app-accent);
+    outline-offset: 4px;
+  }
+}
+.miniWindow {
+  display: flex;
+  height: 104px;
+  overflow: hidden;
+  border-radius: 9px;
+  background: #fff;
+  border: 1px solid rgb(0 0 0 / 8%);
+  [data-mode="dark"] & {
+    background: #252525;
+  }
+  [data-mode="system"] & {
+    background: linear-gradient(105deg, #fff 50%, #252525 50%);
+  }
+}
+.miniSidebar {
+  width: 29%;
+  padding: 18px 8px;
+  background: rgb(128 128 128 / 12%);
+  i {
+    display: block;
+    height: 5px;
+    margin-bottom: 9px;
+    border-radius: 3px;
+    background: #aaa6;
+  }
+  i:first-child {
+    background: var(--app-accent);
+  }
+}
+.miniChat {
+  flex: 1;
+  padding: 23px 12px;
+  i {
+    display: block;
+    width: 80%;
+    height: 5px;
+    margin-bottom: 9px;
+    border-radius: 3px;
+    background: #9995;
+  }
+  i:nth-child(2) {
+    width: 55%;
+  }
+  i:last-child {
+    width: 42%;
+    height: 12px;
+    margin-top: 15px;
+    background: var(--app-accent);
+    opacity: 0.65;
+  }
+}
+.modeLabel {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  font-size: 13px;
+  font-weight: 550;
+  svg:last-child:not(:first-child) {
+    margin-left: auto;
+  }
+}
+.customRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 24px;
+  border-top: 1px solid var(--app-border-subtle);
+}
+.paletteDots {
+  display: flex;
+  padding-left: 4px;
+  i {
+    width: 20px;
+    height: 20px;
+    border: 3px solid var(--app-surface);
+    border-radius: 50%;
+    margin-left: -4px;
+  }
+}
+.customButton {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  border: 1px solid var(--app-border);
+  padding: 9px 14px;
+  border-radius: 24px;
+  background: var(--app-surface);
+  color: var(--app-text);
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+}
+.themeEditor {
+  padding: 12px 0 4px;
+}
+.themeEditorHeader {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  > span {
+    display: none;
+  }
+}
+.themeActions {
+  display: flex;
+  gap: 8px;
+  margin-left: 0;
+  width: auto;
+}
+.themeFields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 22px;
+  margin: 24px 0;
+}
+@media (max-width: 767px) {
+  .settingRow {
+    padding: 16px;
+    flex-wrap: wrap;
+    gap: 12px;
+    > :last-child:not(span) {
+      max-width: 100%;
+    }
+  }
+  .appearanceChoices {
+    gap: 8px;
+  }
+  .appearanceChoice {
+    padding: 8px;
+    border-radius: 14px;
+  }
+  .miniWindow {
+    height: 76px;
+  }
+  .miniChat {
+    padding: 16px 6px;
+  }
+  .miniSidebar {
+    padding: 14px 5px;
+  }
+  .modeLabel {
+    gap: 4px;
+    font-size: 12px;
+  }
+  .themeFields {
+    gap: 16px;
+  }
+}
+@media (max-width: 420px) {
+  .themeFields {
+    grid-template-columns: 1fr;
+  }
+}
+@media (prefers-contrast: more) {
+  .settingsCard,
+  .appearanceChoice {
+    border-color: var(--app-text-secondary);
+  }
+}
+.themeEditor {
+  :global(.ant-slider-track),
+  :global(.qwenpaw-slider-track) {
+    background: var(--app-accent);
+  }
+  :global(.ant-slider-handle)::after,
+  :global(.qwenpaw-slider-handle)::after {
+    box-shadow: 0 0 0 2px var(--app-accent);
+  }
+}
+
+.appearanceChoice:active,
+.customButton:active {
+  box-shadow: inset 0 2px 5px rgb(0 0 0 / 12%);
+}

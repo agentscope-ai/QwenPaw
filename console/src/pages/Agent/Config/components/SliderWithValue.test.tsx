@@ -3,12 +3,33 @@ import { screen, fireEvent } from "@testing-library/react";
 import { renderWithProviders } from "@/test/common_setup";
 import { SliderWithValue } from "./SliderWithValue";
 
+// JSDOM does not implement the animated custom element lifecycle.
+vi.mock("@number-flow/react", () => ({
+  default: ({
+    value,
+    format,
+  }: {
+    value: number;
+    format: Intl.NumberFormatOptions;
+  }) => <span>{new Intl.NumberFormat("en", format).format(value)}</span>,
+}));
+
 // Mock the Slider component from @agentscope-ai/design
 vi.mock("@agentscope-ai/design", async () => {
   const actual = await vi.importActual("@agentscope-ai/design");
   return {
     ...actual,
-    Slider: ({ value, onChange, ...props }: any) => (
+    Slider: ({
+      value,
+      onChange,
+      ...props
+    }: {
+      value?: number;
+      onChange?: (value: number) => void;
+      min?: number;
+      max?: number;
+      step?: number;
+    }) => (
       <input
         type="range"
         data-testid="slider"

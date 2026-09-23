@@ -1,11 +1,13 @@
 import { useEffect, useState } from "react";
 import { Modal, type ModalProps } from "antd";
+import styles from "./SharedModal.module.less";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 
 /** Keep the accessible modal mounted until its shared surface returns home. */
 export function SharedModal({
   surfaceId,
   open,
+  className,
   ...props
 }: ModalProps & {
   surfaceId?: string;
@@ -17,7 +19,9 @@ export function SharedModal({
   }, [open]);
   return (
     <Modal
+      centered
       {...props}
+      className={`${styles.modal} ${className ?? ""}`}
       open={!!open || visible}
       transitionName=""
       modalRender={(node) => (
@@ -41,7 +45,7 @@ export function SharedModal({
               }}
               style={{ borderRadius: 24, background: "var(--app-surface)" }}
             >
-              <motion.div layout="position">{node}</motion.div>
+              {node}
             </motion.div>
           )}
         </AnimatePresence>

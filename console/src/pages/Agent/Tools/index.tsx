@@ -1,3 +1,6 @@
+import { useAutoSave } from "@/hooks/useAutoSave";
+import { SharedModal as Modal } from "@/components/interaction/SharedModal";
+import { Wrench, Check, TriangleAlert, Search } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Spin } from "antd";
 import {
@@ -5,7 +8,6 @@ import {
   Switch,
   Empty,
   Button,
-  Modal,
   Form,
   Input,
   InputNumber,
@@ -13,11 +15,10 @@ import {
 } from "@agentscope-ai/design";
 import api from "../../../api";
 import {
-  EyeInvisibleOutlined,
-  ThunderboltOutlined,
-  ClockCircleOutlined,
-  SettingOutlined,
-} from "@ant-design/icons";
+  Zap as ThunderboltOutlined,
+  Clock as ClockCircleOutlined,
+  Settings as SettingOutlined,
+} from "lucide-react";
 import { useTools } from "./useTools";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
@@ -25,41 +26,6 @@ import type { ToolInfo } from "../../../api/modules/tools";
 import { PageHeader } from "@/components/PageHeader";
 import { WebSearchConfigModal } from "./WebSearchConfigModal";
 import styles from "./index.module.less";
-
-/** Stable background colours for the initial-letter fallback icon. */
-const ICON_PALETTE = [
-  "#f56a00",
-  "#7265e6",
-  "#ffbf00",
-  "#00a2ae",
-  "#87d068",
-  "#1890ff",
-  "#eb2f96",
-  "#722ed1",
-];
-
-function hashStringToIndex(value: string, mod: number): number {
-  let hash = 0;
-  for (let i = 0; i < value.length; i++) {
-    hash = (hash * 31 + value.charCodeAt(i)) | 0;
-  }
-  return Math.abs(hash) % mod;
-}
-
-/** Renders the emoji icon or a coloured initial-letter badge as fallback. */
-function ToolIcon({ icon, name }: { icon: string; name: string }) {
-  if (icon) {
-    return <span>{icon}</span>;
-  }
-  const letter = name.charAt(0).toUpperCase();
-  const backgroundColor =
-    ICON_PALETTE[hashStringToIndex(name, ICON_PALETTE.length)];
-  return (
-    <span className={styles.toolIconFallback} style={{ backgroundColor }}>
-      {letter}
-    </span>
-  );
-}
 
 const BROWSER_TOOL_NAMES = new Set(["browser"]);
 const WEBSEARCH_TOOL_NAMES = new Set(["web_search"]);
@@ -113,7 +79,13 @@ export function BrowserExperimentalToggle({
       <Button
         className={`${styles.toggleButton} ${styles.browserModeButton}`}
         onClick={() => onChange(!experimental)}
-        icon={experimental ? <ThunderboltOutlined /> : <ClockCircleOutlined />}
+        icon={
+          experimental ? (
+            <ThunderboltOutlined size="1em" />
+          ) : (
+            <ClockCircleOutlined size="1em" />
+          )
+        }
       >
         {browserModeButtonLabel(experimental, t)}
       </Button>
@@ -134,7 +106,6 @@ function ToolConfigModal({
   onSave: (values: Record<string, unknown>) => Promise<void>;
 }) {
   const [form] = Form.useForm();
-  const [saving, setSaving] = useState(false);
   const [loadingConfig, setLoadingConfig] = useState(false);
   const { t } = useTranslation();
 
@@ -161,34 +132,30 @@ function ToolConfigModal({
     };
   }, [visible, tool.name, form]);
 
-  const handleSave = async () => {
+  const { schedule, flush } = useAutoSave(async () => {
+    if (loadingConfig) return;
+    const values = form.getFieldsValue(true);
     try {
-      const values = await form.validateFields();
-      setSaving(true);
-      await onSave(values);
-      // Success message is shown in useTools.saveToolConfig
-      onClose();
-    } catch (error) {
-      console.error("Failed to save config:", error);
-      // Error is already handled and shown in useTools
-    } finally {
-      setSaving(false);
+      await form.validateFields();
+    } catch {
+      return false;
     }
-  };
+    await onSave(values);
+  });
 
   return (
     <Modal
       title={`${t("tools.configure")} - ${tool.name}`}
       open={visible}
-      onCancel={onClose}
-      onOk={handleSave}
-      confirmLoading={saving || loadingConfig}
-      okButtonProps={{ disabled: loadingConfig }}
-      okText={t("common.save")}
-      cancelText={t("common.cancel")}
+      onCancel={() => {
+        void flush().then((saved) => {
+          if (saved) onClose();
+        });
+      }}
+      footer={null}
     >
       <Spin spinning={loadingConfig}>
-        <Form form={form} layout="vertical">
+        <Form form={form} layout="vertical" onValuesChange={schedule}>
           {tool.config_fields?.map((field) => {
             // Render different input types based on field type
             const renderInput = () => {
@@ -277,6 +244,11 @@ export default function ToolsPage() {
     loadTools,
     saveToolConfig,
   } = useTools();
+  const [query, setQuery] = useState("");
+  const matchesQuery = (tool: ToolInfo) =>
+    `${tool.name} ${tool.description}`
+      .toLowerCase()
+      .includes(query.toLowerCase());
   const [configModalVisible, setConfigModalVisible] = useState(false);
   const [currentTool, setCurrentTool] = useState<ToolInfo | null>(null);
 
@@ -320,6 +292,16 @@ export default function ToolsPage() {
     <div className={styles.toolsPage}>
       <PageHeader
         items={[{ title: t("nav.agent") }, { title: t("tools.title") }]}
+        center={
+          <Input
+            aria-label={t("tools.search", "Search tools")}
+            placeholder={t("tools.search", "Search tools")}
+            prefix={<Search size={16} />}
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            allowClear
+          />
+        }
         extra={
           <div className={styles.headerAction}>
             <Switch
@@ -343,6 +325,11 @@ export default function ToolsPage() {
           <Empty description={t("tools.emptyState")} />
         ) : (
           <>
+            {!tools.some(matchesQuery) && (
+              <Empty
+                description={t("tools.noSearchResults", "No matching tools")}
+              />
+            )}
             {/* Enabled Section */}
             <div className={styles.panelSection}>
               <div className={styles.panelTitle}>
@@ -355,24 +342,23 @@ export default function ToolsPage() {
 
               {enabledTools.length > 0 ? (
                 <div className={styles.toolsGrid}>
-                  {enabledTools.map((tool) => (
+                  {enabledTools.filter(matchesQuery).map((tool) => (
                     <Card
                       key={tool.name}
                       className={`${styles.toolCard} ${styles.enabledCard}`}
                     >
                       <div className={styles.cardHeader}>
                         <h3 className={styles.toolName} title={tool.name}>
-                          <ToolIcon icon={tool.icon} name={tool.name} />{" "}
+                          <Wrench size={18} aria-hidden="true" />{" "}
                           <span className={styles.toolNameText}>
                             {tool.name}
                           </span>
                         </h3>
-                        <div className={styles.statusContainer}>
-                          <span className={styles.statusDot} />
-                          <span className={styles.statusText}>
-                            {t("common.enabled")}
-                          </span>
-                        </div>
+                        <Switch
+                          aria-label={`${t("common.enabled")} ${tool.name}`}
+                          checked={tool.enabled}
+                          onChange={() => toggleEnabled(tool)}
+                        />
                       </div>
 
                       <p className={styles.toolDescription}>
@@ -401,11 +387,13 @@ export default function ToolsPage() {
                           {tool.config_values &&
                           Object.keys(tool.config_values).length > 0 ? (
                             <span className={styles.configured}>
-                              ✓ {t("tools.configured")}
+                              <Check size={13} aria-hidden="true" />{" "}
+                              {t("tools.configured")}
                             </span>
                           ) : (
                             <span className={styles.notConfigured}>
-                              ⚠ {t("tools.requiresConfig")}
+                              <TriangleAlert size={13} aria-hidden="true" />{" "}
+                              {t("tools.requiresConfig")}
                             </span>
                           )}
                         </div>
@@ -431,9 +419,9 @@ export default function ToolsPage() {
                             disabled={!tool.enabled}
                             icon={
                               tool.async_execution ? (
-                                <ThunderboltOutlined />
+                                <ThunderboltOutlined size="1em" />
                               ) : (
-                                <ClockCircleOutlined />
+                                <ClockCircleOutlined size="1em" />
                               )
                             }
                           >
@@ -447,7 +435,7 @@ export default function ToolsPage() {
                           <Button
                             className={styles.toggleButton}
                             onClick={() => handleConfigure(tool)}
-                            icon={<SettingOutlined />}
+                            icon={<SettingOutlined size="1em" />}
                           >
                             {t("tools.configure")}
                           </Button>
@@ -456,18 +444,11 @@ export default function ToolsPage() {
                           <Button
                             className={styles.toggleButton}
                             onClick={() => handleConfigure(tool)}
-                            icon={<SettingOutlined />}
+                            icon={<SettingOutlined size="1em" />}
                           >
                             {t("tools.configure")}
                           </Button>
                         )}
-                        <Button
-                          className={styles.toggleButton}
-                          onClick={() => toggleEnabled(tool)}
-                          icon={<EyeInvisibleOutlined />}
-                        >
-                          {t("common.disable")}
-                        </Button>
                       </div>
                     </Card>
                   ))}
@@ -497,13 +478,13 @@ export default function ToolsPage() {
                   {t("tools.available")}
                 </div>
                 <div className={styles.availableGrid}>
-                  {disabledTools.map((tool) => (
+                  {disabledTools.filter(matchesQuery).map((tool) => (
                     <div
                       key={tool.name}
                       className={styles.availableItem}
                       onClick={() => handleAvailableItemClick(tool)}
                     >
-                      <ToolIcon icon={tool.icon} name={tool.name} />
+                      <Wrench size={18} aria-hidden="true" />
                       <span
                         className={styles.availableItemName}
                         title={tool.name}

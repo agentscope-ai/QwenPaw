@@ -116,3 +116,56 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* Page-specific settings refinement. */
+
+.content {
+  padding: 16px 16px 32px;
+  gap: 28px;
+}
+.intro {
+  padding: 20px;
+  border-radius: 20px;
+  background: var(--app-accent-faint);
+  border: 1px solid var(--app-accent-border);
+}
+.intro p,
+.sectionHeading p {
+  max-width: 65ch;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--app-text-secondary);
+}
+.sourceGrid {
+  gap: 16px;
+}
+.sourceCard {
+  border-radius: 20px;
+}
+.sourceCard :global(.ant-card-body),
+.sourceCard :global(.qwenpaw-card-body) {
+  gap: 16px;
+  padding: 20px;
+}
+.assetRow {
+  padding: 10px 0;
+  min-height: 52px;
+}
+.logs {
+  border-radius: 14px;
+  padding: 16px;
+  background: var(--app-fill-faint);
+  border: 1px solid var(--app-border-subtle);
+}
+@media (max-width: 600px) {
+  .content {
+    padding-inline: 0;
+  }
+  .actions {
+    flex-wrap: wrap;
+  }
+  .row,
+  .assetRow {
+    flex-wrap: wrap;
+  }
+}

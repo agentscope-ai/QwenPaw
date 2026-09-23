@@ -1,5 +1,7 @@
+import { NumberSlider } from "@/components/interaction/NumberSlider";
+import { useAutoSave } from "@/hooks/useAutoSave";
+import { SettingsDrawer as Drawer } from "@/components/interaction/SettingsDrawer";
 import {
-  Drawer,
   Form,
   Input,
   InputNumber,
@@ -8,10 +10,10 @@ import {
   Select,
 } from "@agentscope-ai/design";
 import { useAppMessage } from "../../../../hooks/useAppMessage";
-import { Alert, ConfigProvider } from "antd";
-import { LinkOutlined } from "@ant-design/icons";
+import { Alert, Collapse, ConfigProvider } from "antd";
+import { Link as LinkOutlined } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import type { FormInstance } from "antd";
 import { getChannelLabel, isLoopbackHost, type ChannelKey } from "./constants";
 import { QrcodeAuthBlock } from "./QrcodeAuthBlock";
@@ -149,7 +151,7 @@ interface ChannelDrawerProps {
   isBuiltin: boolean;
   channelSchema?: ChannelSchema;
   onClose: () => void;
-  onSubmit: (values: Record<string, unknown>) => void;
+  onSubmit: (values: Record<string, unknown>) => void | Promise<void>;
 }
 
 export function ChannelDrawer({
@@ -157,7 +159,6 @@ export function ChannelDrawer({
   activeKey,
   activeLabel,
   form,
-  saving,
   initialValues,
   isBuiltin,
   channelSchema,
@@ -165,6 +166,16 @@ export function ChannelDrawer({
   onSubmit,
 }: ChannelDrawerProps) {
   const { t, i18n } = useTranslation();
+  const [expandedSections, setExpandedSections] = useState<string[]>([]);
+  useEffect(() => {
+    if (open)
+      setExpandedSections(activeKey === "console" ? ["presentation"] : []);
+  }, [open, activeKey]);
+  const disclosureProps = {
+    activeKey: expandedSections,
+    onChange: (keys: string | string[]) =>
+      setExpandedSections(Array.isArray(keys) ? keys : [keys]),
+  };
   const { selectedAgent, agents } = useAgentStore();
   const currentAgent = agents.find((a) => a.id === selectedAgent);
   const defaultMediaDir = currentAgent?.workspace_dir
@@ -408,6 +419,7 @@ export function ChannelDrawer({
                   client_id: credentials.client_id,
                   client_secret: credentials.client_secret,
                 });
+                schedule();
                 message.success(t("channels.dingtalkAuthSuccess"));
               }}
               onError={(type) => {
@@ -418,120 +430,146 @@ export function ChannelDrawer({
                 }
               }}
             />
-            <Form.Item
-              name="client_id"
-              label="Client ID"
-              rules={[{ required: true }]}
-            >
-              <Input placeholder="dingxxxxx" />
-            </Form.Item>
-            <Form.Item
-              name="client_secret"
-              label="Client Secret"
-              rules={[{ required: true }]}
-            >
-              <Input.Password />
-            </Form.Item>
-            <Form.Item
-              name="message_type"
-              label="Message Type"
-              tooltip="markdown: regular messages; card: AI interactive card"
-            >
-              <Select
-                options={[
-                  { label: "markdown", value: "markdown" },
-                  { label: "card", value: "card" },
-                ]}
-              />
-            </Form.Item>
-            <Form.Item
-              name="cron_message_type"
-              label="Cron Message Type"
-              tooltip="Message type for cron/scheduled task sends. Independent from the chat message type above."
-            >
-              <Select
-                options={[
-                  { label: "markdown", value: "markdown" },
-                  { label: "card", value: "card" },
-                ]}
-              />
-            </Form.Item>
-            <Form.Item
-              noStyle
-              shouldUpdate={(prev, cur) =>
-                prev.message_type !== cur.message_type ||
-                prev.cron_message_type !== cur.cron_message_type
-              }
-            >
-              {({ getFieldValue }) => {
-                const needsCard =
-                  getFieldValue("message_type") === "card" ||
-                  getFieldValue("cron_message_type") === "card";
-                if (!needsCard) return null;
-                return (
-                  <>
-                    <Form.Item
-                      name="card_template_id"
-                      label="Card Template ID"
-                      rules={[
-                        {
-                          required: true,
-                          message:
-                            "Please input card template id when message_type=card",
-                        },
-                      ]}
-                    >
-                      <Input placeholder="dt_card_template_xxx" />
-                    </Form.Item>
-                    <Form.Item
-                      name="card_template_key"
-                      label="Card Template Key"
-                      tooltip="Must exactly match the template variable name"
-                    >
-                      <Input placeholder="content" />
-                    </Form.Item>
-                    <Form.Item
-                      name="card_auto_layout"
-                      label={t("channels.cardAutoLayout")}
-                      tooltip={t("channels.cardAutoLayoutTooltip")}
-                      valuePropName="checked"
-                    >
-                      <Switch />
-                    </Form.Item>
-                  </>
-                );
-              }}
-            </Form.Item>
-            <Form.Item
-              name="robot_code"
-              label="Robot Code"
-              tooltip="Recommended to configure explicitly for group chats"
-            >
-              <Input placeholder="robot code (default client_id)" />
-            </Form.Item>
-            <Form.Item
-              name="endpoint"
-              label={t("channels.dingtalkEndpoint")}
-              tooltip={t("channels.dingtalkEndpointTooltip")}
-            >
-              <Input placeholder="https://api.dingtalk.com" />
-            </Form.Item>
-            <Form.Item
-              name="at_sender_on_reply"
-              label={t("channels.atSenderOnReply")}
-              tooltip={t("channels.atSenderOnReplyTooltip")}
-              valuePropName="checked"
-            >
-              <Switch />
-            </Form.Item>
-            <Form.Item
-              name="share_session_in_group"
-              label={t("channels.shareSessionInGroup")}
-              valuePropName="checked"
-              tooltip={t("channels.shareSessionInGroupTooltip")}
-            >
-              <Switch />
-            </Form.Item>
+            <Collapse
+              {...disclosureProps}
+              ghost
+              items={[
+                {
+                  key: "credentials",
+                  label: t("channels.manualCredentials", "Manual credentials"),
+                  forceRender: true,
+                  children: (
+                    <div className={styles.presentationGrid}>
+                      {" "}
+                      <Form.Item
+                        name="client_id"
+                        label="Client ID"
+                        rules={[{ required: true }]}
+                      >
+                        <Input placeholder="dingxxxxx" />
+                      </Form.Item>
+                      <Form.Item
+                        name="client_secret"
+                        label="Client Secret"
+                        rules={[{ required: true }]}
+                      >
+                        <Input.Password />
+                      </Form.Item>
+                    </div>
+                  ),
+                },
+                {
+                  key: "delivery",
+                  label: t("channels.deliverySettings", "Delivery options"),
+                  forceRender: true,
+                  children: (
+                    <div className={styles.presentationGrid}>
+                      {" "}
+                      <Form.Item
+                        name="message_type"
+                        label="Message Type"
+                        tooltip="markdown: regular messages; card: AI interactive card"
+                      >
+                        <Select
+                          options={[
+                            { label: "markdown", value: "markdown" },
+                            { label: "card", value: "card" },
+                          ]}
+                        />
+                      </Form.Item>
+                      <Form.Item
+                        name="cron_message_type"
+                        label="Cron Message Type"
+                        tooltip="Message type for cron/scheduled task sends. Independent from the chat message type above."
+                      >
+                        <Select
+                          options={[
+                            { label: "markdown", value: "markdown" },
+                            { label: "card", value: "card" },
+                          ]}
+                        />
+                      </Form.Item>
+                      <Form.Item
+                        noStyle
+                        shouldUpdate={(prev, cur) =>
+                          prev.message_type !== cur.message_type ||
+                          prev.cron_message_type !== cur.cron_message_type
+                        }
+                      >
+                        {({ getFieldValue }) => {
+                          const needsCard =
+                            getFieldValue("message_type") === "card" ||
+                            getFieldValue("cron_message_type") === "card";
+                          if (!needsCard) return null;
+                          return (
+                            <>
+                              <Form.Item
+                                name="card_template_id"
+                                label="Card Template ID"
+                                rules={[
+                                  {
+                                    required: true,
+                                    message:
+                                      "Please input card template id when message_type=card",
+                                  },
+                                ]}
+                              >
+                                <Input placeholder="dt_card_template_xxx" />
+                              </Form.Item>
+                              <Form.Item
+                                name="card_template_key"
+                                label="Card Template Key"
+                                tooltip="Must exactly match the template variable name"
+                              >
+                                <Input placeholder="content" />
+                              </Form.Item>
+                              <Form.Item
+                                name="card_auto_layout"
+                                label={t("channels.cardAutoLayout")}
+                                tooltip={t("channels.cardAutoLayoutTooltip")}
+                                valuePropName="checked"
+                              >
+                                <Switch />
+                              </Form.Item>
+                            </>
+                          );
+                        }}
+                      </Form.Item>
+                      <Form.Item
+                        name="robot_code"
+                        label="Robot Code"
+                        tooltip="Recommended to configure explicitly for group chats"
+                      >
+                        <Input placeholder="robot code (default client_id)" />
+                      </Form.Item>
+                      <Form.Item
+                        name="endpoint"
+                        label={t("channels.dingtalkEndpoint")}
+                        tooltip={t("channels.dingtalkEndpointTooltip")}
+                      >
+                        <Input placeholder="https://api.dingtalk.com" />
+                      </Form.Item>
+                      <Form.Item
+                        name="at_sender_on_reply"
+                        label={t("channels.atSenderOnReply")}
+                        tooltip={t("channels.atSenderOnReplyTooltip")}
+                        valuePropName="checked"
+                      >
+                        <Switch />
+                      </Form.Item>
+                      <Form.Item
+                        name="share_session_in_group"
+                        label={t("channels.shareSessionInGroup")}
+                        valuePropName="checked"
+                        tooltip={t("channels.shareSessionInGroupTooltip")}
+                      >
+                        <Switch />
+                      </Form.Item>
+                    </div>
+                  ),
+                },
+              ]}
+            />
           </>
         );
 
@@ -576,6 +614,7 @@ export function ChannelDrawer({
                   app_id: credentials.app_id,
                   app_secret: credentials.app_secret,
                 });
+                schedule();
                 message.success(t("channels.feishuAuthSuccess"));
               }}
               onError={(type) => {
@@ -648,6 +687,7 @@ export function ChannelDrawer({
                   client_secret: credentials.client_secret,
                   user_openid: credentials.user_openid,
                 });
+                schedule();
                 message.success(t("channels.qqAuthSuccess"));
               }}
               onError={(type) => {
@@ -1120,6 +1160,7 @@ export function ChannelDrawer({
                   bot_id: credentials.bot_id,
                   secret: credentials.secret,
                 });
+                schedule();
                 message.success(t("channels.wecomAuthSuccess"));
               }}
               onError={() => {
@@ -1224,6 +1265,7 @@ export function ChannelDrawer({
               pollInterval={2000}
               onSuccess={(credentials) => {
                 form.setFieldsValue({ bot_token: credentials.bot_token });
+                schedule();
                 message.success(t("channels.wechatLoginSuccess"));
               }}
               onError={(type) => {
@@ -1627,7 +1669,7 @@ export function ChannelDrawer({
           <Button
             type="text"
             size="small"
-            icon={<LinkOutlined />}
+            icon={<LinkOutlined size="1em" />}
             onClick={() => {
               const url =
                 CHANNEL_DOC_EN_URLS[activeKey]! ||
@@ -1660,7 +1702,7 @@ export function ChannelDrawer({
           <Button
             type="text"
             size="small"
-            icon={<LinkOutlined />}
+            icon={<LinkOutlined size="1em" />}
             onClick={() => openExternalLink(url)}
             className={styles.dingtalkDocBtn}
             style={{ color: "var(--app-accent)" }}
@@ -1673,7 +1715,7 @@ export function ChannelDrawer({
         <Button
           type="text"
           size="small"
-          icon={<LinkOutlined />}
+          icon={<LinkOutlined size="1em" />}
           onClick={() => openExternalLink(TWILIO_CONSOLE_URL)}
           className={styles.dingtalkDocBtn}
           style={{ color: "var(--app-accent)" }}
@@ -1686,45 +1728,60 @@ export function ChannelDrawer({
 
   // ── Render ───────────────────────────────────────────────────────────────
 
-  const drawerFooter = (
-    <div className={styles.formActions}>
-      <Button onClick={onClose}>{t("common.cancel")}</Button>
-      <Button type="primary" loading={saving} onClick={() => form.submit()}>
-        {t("common.save")}
-      </Button>
-    </div>
-  );
+  const { schedule, flush } = useAutoSave(async () => {
+    const values = form.getFieldsValue(true);
+    try {
+      await form.validateFields();
+    } catch {
+      return false;
+    }
+    if (activeKey !== "matrix") {
+      await onSubmit(values);
+      return;
+    }
+    const { auth_method, ...rest } = values;
+    await onSubmit(
+      auth_method === "password"
+        ? { ...rest, access_token: "" }
+        : { ...rest, password: "", encryption: false },
+    );
+  });
 
   return (
     <Drawer
-      width={420}
+      width={640}
       placement="right"
       title={drawerTitle}
       open={open}
-      onClose={onClose}
+      onClose={() => {
+        void flush().then((saved) => {
+          if (saved) onClose();
+        });
+      }}
       destroyOnHidden
-      footer={drawerFooter}
+      footer={null}
       key={activeKey} // Force remount when switching channels
     >
       {activeKey && (
         <Form
           form={form}
           layout="vertical"
+          className={styles.channelForm}
           initialValues={initialValues}
-          onFinish={(values: Record<string, unknown>) => {
-            if (activeKey !== "matrix") {
-              onSubmit(values);
-              return;
-            }
-            const { auth_method, ...rest } = values;
-            if (auth_method === "password") {
-              onSubmit({ ...rest, access_token: "" });
-            } else {
-              onSubmit({ ...rest, password: "", encryption: false });
-            }
-          }}
+          onFinishFailed={() =>
+            setExpandedSections([
+              "credentials",
+              "delivery",
+              "presentation",
+              "advanced",
+            ])
+          }
+          onValuesChange={schedule}
+          onFinish={() => void flush()}
         >
           <Form.Item
+            className={styles.channelEnabled}
+            hidden={activeKey === "console"}
             name="enabled"
             label={t("common.enabled")}
             valuePropName="checked"
@@ -1732,111 +1789,155 @@ export function ChannelDrawer({
             <Switch disabled={activeKey === "console"} />
           </Form.Item>
 
-          {activeKey !== "voice" && (
-            <Form.Item name="bot_prefix" label="Bot Prefix">
-              <Input placeholder="@bot" />
-            </Form.Item>
-          )}
-
-          <>
-            <Form.Item
-              name="show_tool_calls"
-              label={t("channels.showToolCalls")}
-              valuePropName="checked"
-              tooltip={t("channels.showToolCallsTooltip")}
-            >
-              <Switch />
-            </Form.Item>
-            {showToolCalls && (
-              <Form.Item
-                name="tool_call_max_length"
-                label={t("channels.toolCallMaxLength")}
-                tooltip={t("channels.toolMaxLengthTooltip")}
-              >
-                <InputNumber min={0} style={{ width: "100%" }} />
-              </Form.Item>
-            )}
-            <Form.Item
-              name="show_tool_results"
-              label={t("channels.showToolResults")}
-              valuePropName="checked"
-              tooltip={t("channels.showToolResultsTooltip")}
-            >
-              <Switch />
-            </Form.Item>
-            {showToolResults && (
-              <Form.Item
-                name="tool_result_max_length"
-                label={t("channels.toolResultMaxLength")}
-                tooltip={t("channels.toolMaxLengthTooltip")}
-              >
-                <InputNumber min={0} style={{ width: "100%" }} />
-              </Form.Item>
-            )}
-            {activeKey !== "console" && (
-              <Form.Item
-                name="show_thinking"
-                label={t("channels.showThinking")}
-                valuePropName="checked"
-                tooltip={t("channels.showThinkingTooltip")}
-              >
-                <Switch />
-              </Form.Item>
-            )}
-          </>
-
-          {(activeKey === "wecom" ||
-            activeKey === "telegram" ||
-            activeKey === "dingtalk" ||
-            activeKey === "feishu" ||
-            activeKey === "discord" ||
-            activeKey === "slack" ||
-            activeKey === "matrix") && (
-            <>
-              <Form.Item
-                name="streaming_enabled"
-                label={t("channels.streamingEnabled")}
-                valuePropName="checked"
-                tooltip={
-                  activeKey === "dingtalk"
-                    ? t("channels.streamingEnabledDingtalkHint")
-                    : activeKey === "feishu"
-                    ? t("channels.streamingEnabledFeishuHint")
-                    : undefined
-                }
-              >
-                <Switch />
-              </Form.Item>
-              {activeKey === "feishu" && streamingEnabled && (
-                <Form.Item
-                  name="auto_collapse_thinking"
-                  label={t("channels.autoCollapseThinking")}
-                  valuePropName="checked"
-                  tooltip={t("channels.autoCollapseThinkingTooltip")}
-                >
-                  <Switch />
-                </Form.Item>
-              )}
-            </>
-          )}
-
           {isBuiltin
             ? renderBuiltinExtraFields(activeKey)
             : renderCustomExtraFields(initialValues)}
 
-          {CHANNELS_WITH_ACCESS_CONTROL.includes(activeKey) &&
-            renderAccessControlFields()}
+          <Collapse
+            {...disclosureProps}
+            className={styles.channelDisclosure}
+            ghost
+            items={[
+              {
+                key: "presentation",
+                label: t(
+                  "channels.presentationSettings",
+                  "Message presentation",
+                ),
+                forceRender: true,
+                children: (
+                  <div className={styles.presentationGrid}>
+                    {" "}
+                    {activeKey !== "voice" && (
+                      <Form.Item name="bot_prefix" label="Bot Prefix">
+                        <Input placeholder="@bot" />
+                      </Form.Item>
+                    )}
+                    <>
+                      <Form.Item
+                        name="show_tool_calls"
+                        label={t("channels.showToolCalls")}
+                        valuePropName="checked"
+                        tooltip={t("channels.showToolCallsTooltip")}
+                      >
+                        <Switch />
+                      </Form.Item>
+                      {showToolCalls && (
+                        <Form.Item
+                          name="tool_call_max_length"
+                          label={t("channels.toolCallMaxLength")}
+                          tooltip={t("channels.toolMaxLengthTooltip")}
+                        >
+                          <NumberSlider
+                            min={0}
+                            max={2000}
+                            label={t("channels.toolMaxLengthTooltip")}
+                          />
+                        </Form.Item>
+                      )}
+                      <Form.Item
+                        name="show_tool_results"
+                        label={t("channels.showToolResults")}
+                        valuePropName="checked"
+                        tooltip={t("channels.showToolResultsTooltip")}
+                      >
+                        <Switch />
+                      </Form.Item>
+                      {showToolResults && (
+                        <Form.Item
+                          name="tool_result_max_length"
+                          label={t("channels.toolResultMaxLength")}
+                          tooltip={t("channels.toolMaxLengthTooltip")}
+                        >
+                          <NumberSlider
+                            min={0}
+                            max={2000}
+                            label={t("channels.toolMaxLengthTooltip")}
+                          />
+                        </Form.Item>
+                      )}
+                      {activeKey !== "console" && (
+                        <Form.Item
+                          name="show_thinking"
+                          label={t("channels.showThinking")}
+                          valuePropName="checked"
+                          tooltip={t("channels.showThinkingTooltip")}
+                        >
+                          <Switch />
+                        </Form.Item>
+                      )}
+                    </>
+                    {(activeKey === "wecom" ||
+                      activeKey === "telegram" ||
+                      activeKey === "dingtalk" ||
+                      activeKey === "feishu" ||
+                      activeKey === "discord" ||
+                      activeKey === "slack" ||
+                      activeKey === "matrix") && (
+                      <>
+                        <Form.Item
+                          name="streaming_enabled"
+                          label={t("channels.streamingEnabled")}
+                          valuePropName="checked"
+                          tooltip={
+                            activeKey === "dingtalk"
+                              ? t("channels.streamingEnabledDingtalkHint")
+                              : activeKey === "feishu"
+                              ? t("channels.streamingEnabledFeishuHint")
+                              : undefined
+                          }
+                        >
+                          <Switch />
+                        </Form.Item>
+                        {activeKey === "feishu" && streamingEnabled && (
+                          <Form.Item
+                            name="auto_collapse_thinking"
+                            label={t("channels.autoCollapseThinking")}
+                            valuePropName="checked"
+                            tooltip={t("channels.autoCollapseThinkingTooltip")}
+                          >
+                            <Switch />
+                          </Form.Item>
+                        )}
+                      </>
+                    )}
+                  </div>
+                ),
+              },
+            ]}
+          />
 
           {activeKey !== "console" && (
-            <Form.Item
-              name="no_text_debounce"
-              label={t("channels.noTextDebounce")}
-              valuePropName="checked"
-              tooltip={t("channels.noTextDebounceTooltip")}
-              initialValue={true}
-            >
-              <Switch />
-            </Form.Item>
+            <Collapse
+              {...disclosureProps}
+              ghost
+              className={styles.channelDisclosure}
+              items={[
+                {
+                  key: "advanced",
+                  label: t("channels.advancedSettings", "Advanced settings"),
+                  forceRender: true,
+                  children: (
+                    <>
+                      {" "}
+                      {CHANNELS_WITH_ACCESS_CONTROL.includes(activeKey) &&
+                        renderAccessControlFields()}
+                      {activeKey !== "console" && (
+                        <Form.Item
+                          name="no_text_debounce"
+                          label={t("channels.noTextDebounce")}
+                          valuePropName="checked"
+                          tooltip={t("channels.noTextDebounceTooltip")}
+                          initialValue={true}
+                        >
+                          <Switch />
+                        </Form.Item>
+                      )}
+                    </>
+                  ),
+                },
+              ]}
+            />
           )}
         </Form>
       )}

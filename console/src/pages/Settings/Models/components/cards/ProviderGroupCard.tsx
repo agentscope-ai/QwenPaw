@@ -1,6 +1,6 @@
 import { ProviderCredentialField } from "./ProviderCredentialField";
 import { ProviderCardStatus } from "./ProviderCardStatus";
-import { ModelCardSurface } from "./ModelCardSurface";
+import { InteractiveCard } from "@/components/interaction/InteractiveCard";
 import { ChevronRight } from "lucide-react";
 import { ProviderCloseButton } from "./ProviderCloseButton";
 import React, { useState } from "react";
@@ -53,7 +53,10 @@ export const ProviderGroupCard = React.memo(function ProviderGroupCard({
   const hasFreeTier = activeProvider.is_free_tier;
 
   return (
-    <ModelCardSurface className={styles.groupCardGlass}>
+    <InteractiveCard
+      layoutId={`provider:${activeProvider.id}`}
+      className={styles.groupCardGlass}
+    >
       <ProviderCloseButton
         ids={group.providers.map((provider) => provider.id)}
         onSaved={onSaved}
@@ -130,6 +133,6 @@ export const ProviderGroupCard = React.memo(function ProviderGroupCard({
           <ChevronRight size={16} />
         </button>
       </div>
-    </ModelCardSurface>
+    </InteractiveCard>
   );
 });

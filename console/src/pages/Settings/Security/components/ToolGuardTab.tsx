@@ -6,7 +6,7 @@ import {
   Select,
   Alert,
 } from "@agentscope-ai/design";
-import { PlusCircleOutlined } from "@ant-design/icons";
+import { CirclePlus as PlusCircleOutlined } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { MergedRule } from "../useToolGuard";
 import type { ToolGuardConfig } from "../../../../api/modules/security";
@@ -15,6 +15,7 @@ import { RuleTable, ShellEvasionSection } from "./index";
 import styles from "../index.module.less";
 
 interface ToolGuardTabProps {
+  onValuesChange?: () => void;
   form: FormInstance;
   config: ToolGuardConfig | null;
   enabled: boolean;
@@ -36,6 +37,7 @@ interface ToolGuardTabProps {
 
 export function ToolGuardTab({
   form,
+  onValuesChange,
   config,
   enabled,
   setEnabled,
@@ -64,6 +66,7 @@ export function ToolGuardTab({
 
         <Card className={styles.formCard}>
           <Form
+            onValuesChange={onValuesChange}
             form={form}
             layout="vertical"
             className={styles.form}
@@ -150,7 +153,7 @@ export function ToolGuardTab({
           <h2 className={styles.sectionTitle}>{t("security.rules.title")}</h2>
           <Button
             type="primary"
-            icon={<PlusCircleOutlined />}
+            icon={<PlusCircleOutlined size="1em" />}
             onClick={openAddRule}
             disabled={!enabled}
             size="middle"

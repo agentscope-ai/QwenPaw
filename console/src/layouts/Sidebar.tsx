@@ -1,3 +1,4 @@
+import { NotificationBell } from "@/components/interaction/NotificationBell";
 import {
   Layout,
   Button,
@@ -25,7 +26,6 @@ import {
 import { useAppMessage } from "../hooks/useAppMessage";
 import AgentSelector from "../components/AgentSelector";
 import {
-  Mail as SparkEmailLine,
   Bot as SparkAgentLine,
   SquarePen as SparkNewChatLine,
   ChevronLeft as SparkOperateLeftLine,
@@ -69,7 +69,6 @@ import {
   filterSidebarMenuItems,
   orderSidebarEntries,
 } from "./registry/sidebarEntries";
-import type { ReactNode } from "react";
 import { hubApi } from "../api/modules/hub";
 import AppBrand from "./AppBrand";
 import { AgentStatusIndicator } from "../components/AgentStatusIndicator";
@@ -174,7 +173,7 @@ export default function Sidebar({
       /* Storage can be disabled. */
     }
   };
-  const [hasUnreadMessages, setHasUnreadMessages] = useState(false);
+  const [unreadCount, setUnreadCount] = useState(0);
   const [hasPendingApprovals, setHasPendingApprovals] = useState(false);
   const [shakeInbox, setShakeInbox] = useState(false);
   const [wobbleEnabled] = useInboxWobble();
@@ -347,7 +346,11 @@ export default function Sidebar({
           currentIds.size > 0 &&
           [...currentIds].some((id) => !seenApprovalIdsRef.current.has(id));
         setShakeInbox(hasNewApprovals);
-        setHasUnreadMessages(hasUnreadEvents);
+        setUnreadCount(
+          inboxRes?.unread_count ??
+            inboxRes?.total ??
+            (hasUnreadEvents ? 1 : 0),
+        );
         setHasPendingApprovals(currentIds.size > 0);
       } catch {
         // Keep previous state when polling fails.
@@ -388,10 +391,6 @@ export default function Sidebar({
   }, []);
 
   // ── Inbox badge dot & wobble ─────────────────────────────────────────────
-  const hasInboxUnread = hasUnreadMessages || hasPendingApprovals;
-  const inboxDotColor = hasPendingApprovals
-    ? "var(--app-error)"
-    : "var(--app-accent-hover)";
   const effectiveShake = shakeInbox && wobbleEnabled;
 
   // ── Adapter: convert MenuItem trees to antd, with inbox badge decoration.
@@ -405,24 +404,6 @@ export default function Sidebar({
   const collapsedNavItems = useMemo(() => {
     // Inbox in collapsed mode shows a dot overlay on its icon (kept Sidebar-local
     // for the same reason as decorateLabel: live state isn't menu data).
-    const decorateInboxIcon = (icon: ReactNode): ReactNode => (
-      <span style={{ position: "relative", display: "inline-flex" }}>
-        {icon ?? <SparkEmailLine size={18} />}
-        {hasInboxUnread && (
-          <span
-            style={{
-              position: "absolute",
-              top: -1,
-              right: -3,
-              width: 6,
-              height: 6,
-              borderRadius: "50%",
-              background: inboxDotColor,
-            }}
-          />
-        )}
-      </span>
-    );
     const scrollableEntries = [
       ...flattenMenu(agentMenu, routes, 18),
       ...flattenMenu(selectedSettingsMenu, routes, 18),
@@ -430,24 +411,24 @@ export default function Sidebar({
     const inboxEntry = scrollableEntries.find(
       (entry) => entry.key === "core.inbox",
     );
-    const marketplaceEntry = scrollableEntries.find(
-      (entry) => entry.key === "core.marketplace",
-    );
     const orderedEntries = orderSidebarEntries(
-      scrollableEntries.filter(
-        (entry) =>
-          entry.key !== "core.inbox" && entry.key !== "core.marketplace",
-      ),
+      scrollableEntries.filter((entry) => entry.key !== "core.inbox"),
       focusItemIds,
     );
-    const flat = [
-      ...(inboxEntry ? [inboxEntry] : []),
-      ...(marketplaceEntry ? [marketplaceEntry] : []),
-      ...orderedEntries,
-    ];
+    const flat = [...(inboxEntry ? [inboxEntry] : []), ...orderedEntries];
     return flat.map((entry) =>
       entry.key === "core.inbox"
-        ? { ...entry, icon: decorateInboxIcon(entry.icon) }
+        ? {
+            ...entry,
+            icon: (
+              <NotificationBell
+                count={unreadCount}
+                attention={hasPendingApprovals}
+                animate={wobbleEnabled}
+                ring={effectiveShake}
+              />
+            ),
+          }
         : entry,
     );
   }, [
@@ -455,8 +436,10 @@ export default function Sidebar({
     focusItemIds,
     selectedSettingsMenu,
     routes,
-    hasInboxUnread,
-    inboxDotColor,
+    unreadCount,
+    hasPendingApprovals,
+    wobbleEnabled,
+    effectiveShake,
     language,
   ]);
 
@@ -614,10 +597,6 @@ export default function Sidebar({
           aria-label={typeof item.label === "string" ? item.label : undefined}
           className={`${styles.collapsedNavItem} ${
             isActive ? styles.collapsedNavItemActive : ""
-          }${
-            item.key === "core.inbox" && effectiveShake
-              ? ` ${styles.inboxShake}`
-              : ""
           }`}
           onClick={() => {
             if (item.href) {
@@ -649,7 +628,7 @@ export default function Sidebar({
         onMouseEnter={isInbox ? handleInboxHover : undefined}
         className={`${styles.navigationItem} ${
           isActive ? styles.navigationItemActive : ""
-        } ${isInbox && effectiveShake ? styles.inboxShake : ""}`}
+        }`}
         onClick={() => {
           if (entry.href) {
             openExternalLink(entry.href);
@@ -659,15 +638,24 @@ export default function Sidebar({
         }}
       >
         <span className={styles.inboxIcon}>
-          {entry.icon ?? <Puzzle size={18} />}
-          {isInbox && hasInboxUnread && (
-            <span
-              className={styles.inboxUnreadDot}
-              style={{ background: inboxDotColor }}
+          {isInbox ? (
+            <NotificationBell
+              count={unreadCount}
+              attention={hasPendingApprovals}
+              animate={wobbleEnabled}
+              ring={effectiveShake}
             />
+          ) : (
+            entry.icon ?? <Puzzle size={18} />
           )}
         </span>
-        <span className={skin.navLabel}>{entry.label}</span>
+        <motion.span
+          className={skin.navLabel}
+          animate={{ opacity: toolsMode === 2 ? 1 : 0 }}
+          transition={{ duration: reducedMotion ? 0 : 0.18 }}
+        >
+          {entry.label}
+        </motion.span>
       </button>
     );
   };
@@ -854,6 +842,14 @@ export default function Sidebar({
               aria-label={t("sidebar.tools", "Agent and shortcuts")}
             >
               <div className={skin.toolHeader}>
+                <button
+                  type="button"
+                  className={skin.toolHeaderHitArea}
+                  aria-hidden="true"
+                  tabIndex={-1}
+                  title={modeLabel}
+                  onClick={cycleTools}
+                />
                 <div className={skin.agent}>
                   <AgentSelector compact />
                 </div>
@@ -875,6 +871,7 @@ export default function Sidebar({
                 {toolsOpen && (
                   <motion.div
                     key="tools"
+                    layout="size"
                     initial={{ height: 0, opacity: 0 }}
                     animate={{ height: "auto", opacity: 1 }}
                     exit={{ height: 0, opacity: 0 }}
@@ -885,7 +882,17 @@ export default function Sidebar({
                     }
                     style={{ overflow: "hidden" }}
                   >
-                    <div
+                    <motion.div
+                      layout
+                      transition={
+                        reducedMotion
+                          ? { duration: 0 }
+                          : {
+                              type: "spring",
+                              stiffness: 420,
+                              damping: 40,
+                            }
+                      }
                       ref={navScrollRef}
                       className={`${skin.navGrid} ${
                         toolsMode === 2 ? skin.navDetailed : ""
@@ -894,6 +901,7 @@ export default function Sidebar({
                       {selectedFlatNav.map((entry, index) => (
                         <motion.div
                           key={entry.key}
+                          layout="position"
                           initial={reducedMotion ? false : { y: 7, opacity: 0 }}
                           animate={{ y: 0, opacity: 1 }}
                           transition={{
@@ -921,7 +929,7 @@ export default function Sidebar({
                           {t("nav.moreSettings", "More settings")}
                         </span>
                       </button>
-                    </div>
+                    </motion.div>
                   </motion.div>
                 )}
               </AnimatePresence>

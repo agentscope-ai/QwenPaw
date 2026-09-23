@@ -1,6 +1,9 @@
 import { Checkbox, Input } from "@agentscope-ai/design";
-import { SparkDeleteLine, SparkPlusLine } from "@agentscope-ai/icons";
-import { EyeOutlined, EyeInvisibleOutlined } from "@ant-design/icons";
+import { Trash2 as SparkDeleteLine, Plus as SparkPlusLine } from "lucide-react";
+import {
+  Eye as EyeOutlined,
+  EyeOff as EyeInvisibleOutlined,
+} from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import styles from "../index.module.less";
@@ -79,7 +82,11 @@ export function EnvRow({
                     : t("environments.showValue")
                 }
               >
-                {isPasswordVisible ? <EyeOutlined /> : <EyeInvisibleOutlined />}
+                {isPasswordVisible ? (
+                  <EyeOutlined size="1em" />
+                ) : (
+                  <EyeInvisibleOutlined size="1em" />
+                )}
               </button>
             }
           />
@@ -92,14 +99,14 @@ export function EnvRow({
           onClick={() => onInsert(idx)}
           title={t("environments.insertRowBelow")}
         >
-          <SparkPlusLine />
+          <SparkPlusLine size="1em" />
         </button>
         <button
           className={`${styles.rowIconBtn} ${styles.rowIconBtnDanger}`}
           onClick={() => onRemove(idx)}
           title={t("environments.deleteRow")}
         >
-          <SparkDeleteLine />
+          <SparkDeleteLine size="1em" />
         </button>
       </div>
 

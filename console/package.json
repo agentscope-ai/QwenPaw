@@ -25,7 +25,6 @@
   "dependencies": {
     "@agentscope-ai/chat": "1.2.0-beta.1789540479556",
     "@agentscope-ai/design": "1.0.29",
-    "@agentscope-ai/icons": "1.0.67",
     "@ant-design/icons": "^5.0.1",
     "@ant-design/plots": "^2.6.8",
     "@ant-design/x-markdown": "^2.2.2",
@@ -34,6 +33,7 @@
     "@dnd-kit/utilities": "^3.2.2",
     "@lexical/react": "0.48.0",
     "@monaco-editor/react": "^4.7.0",
+    "@ncdai/react-wheel-picker": "^1.2.3",
     "@number-flow/react": "^0.6.2",
     "@tauri-apps/api": "^2.10.1",
     "@tauri-apps/plugin-dialog": "^2.7.1",

@@ -58,7 +58,8 @@ export function useVoiceTranscription() {
     fetchSettings();
   }, []);
 
-  const handleSave = async () => {
+  const handleSave = async (automatic = false) => {
+    if (providerType === "whisper_api" && !selectedProviderId) return;
     setSaving(true);
     try {
       const promises: Promise<unknown>[] = [
@@ -69,8 +70,9 @@ export function useVoiceTranscription() {
         promises.push(api.updateTranscriptionProvider(selectedProviderId));
       }
       await Promise.all(promises);
-      message.success(t("voiceTranscription.saveSuccess"));
+      if (!automatic) message.success(t("voiceTranscription.saveSuccess"));
     } catch (err) {
+      if (automatic) throw err;
       console.error("Failed to save voice transcription settings:", err);
       message.error(t("voiceTranscription.saveFailed"));
     } finally {

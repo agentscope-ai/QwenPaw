@@ -49,7 +49,7 @@ export function useTools() {
         setTools((prev) =>
           prev.map((t) => (t.name === result.name ? { ...t, ...result } : t)),
         );
-      } catch (error) {
+      } catch {
         // Revert optimistic update on error
         setTools((prev) =>
           prev.map((t) =>
@@ -87,7 +87,7 @@ export function useTools() {
         setTools((prev) =>
           prev.map((t) => (t.name === result.name ? { ...t, ...result } : t)),
         );
-      } catch (error) {
+      } catch {
         // Revert optimistic update on error
         setTools((prev) =>
           prev.map((t) =>
@@ -125,7 +125,7 @@ export function useTools() {
           return result ? { ...t, ...result } : t;
         }),
       );
-    } catch (error) {
+    } catch {
       message.error(t("tools.toggleError"));
       // Reload on error to sync with server
       await loadTools();
@@ -157,7 +157,7 @@ export function useTools() {
           return result ? { ...t, ...result } : t;
         }),
       );
-    } catch (error) {
+    } catch {
       message.error(t("tools.toggleError"));
       // Reload on error to sync with server
       await loadTools();
@@ -167,10 +167,9 @@ export function useTools() {
   }, [tools, t, loadTools]);
 
   const saveToolConfig = useCallback(
-    async (toolName: string, config: Record<string, any>) => {
+    async (toolName: string, config: Record<string, unknown>) => {
       try {
         await api.updateToolConfig(toolName, config);
-        message.success(t("tools.configSaved"));
       } catch (error) {
         console.error("Failed to save tool config:", error);
         message.error(t("tools.configSaveError"));

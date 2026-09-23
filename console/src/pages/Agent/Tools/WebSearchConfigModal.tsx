@@ -1,6 +1,8 @@
+import { SharedModal as Modal } from "@/components/interaction/SharedModal";
+import { useAutoSave } from "@/hooks/useAutoSave";
 import { useEffect, useState } from "react";
 import { Spin, Typography } from "antd";
-import { Modal, Form, Input, Select } from "@agentscope-ai/design";
+import { Form, Input, Select } from "@agentscope-ai/design";
 import api from "../../../api";
 import { useTranslation } from "react-i18next";
 import type { ToolInfo } from "../../../api/modules/tools";
@@ -27,7 +29,6 @@ export function WebSearchConfigModal({
   onSave: (values: Record<string, unknown>) => Promise<void>;
 }) {
   const [form] = Form.useForm();
-  const [saving, setSaving] = useState(false);
   const [loadingConfig, setLoadingConfig] = useState(false);
   const { t } = useTranslation();
   const providerValue = Form.useWatch("provider", form);
@@ -83,35 +84,35 @@ export function WebSearchConfigModal({
     };
   }, [visible, tool.name, providerValue, form]);
 
-  const handleSave = async () => {
+  const { schedule, flush } = useAutoSave(async () => {
+    if (loadingConfig) return false;
+    const values = form.getFieldsValue(true);
     try {
-      const values = await form.validateFields();
-      if (values.provider === "tavily") {
-        delete values.api_key;
-      }
-      setSaving(true);
-      await onSave(values);
-      onClose();
-    } catch (error) {
-      console.error("Failed to save config:", error);
-    } finally {
-      setSaving(false);
+      await form.validateFields();
+    } catch {
+      return false;
     }
-  };
+    if (values.provider === "tavily") delete values.api_key;
+    await onSave(values);
+  });
+
+  useEffect(() => {
+    if (!loadingConfig && form.isFieldsTouched()) schedule();
+  }, [loadingConfig, form, schedule]);
 
   return (
     <Modal
       title={`${t("tools.configure")} - ${tool.name}`}
       open={visible}
-      onCancel={onClose}
-      onOk={handleSave}
-      confirmLoading={saving || loadingConfig}
-      okButtonProps={{ disabled: loadingConfig }}
-      okText={t("common.save")}
-      cancelText={t("common.cancel")}
+      onCancel={() => {
+        void flush().then((saved) => {
+          if (saved) onClose();
+        });
+      }}
+      footer={null}
     >
       <Spin spinning={loadingConfig}>
-        <Form form={form} layout="vertical">
+        <Form form={form} layout="vertical" onValuesChange={schedule}>
           <Form.Item
             name="provider"
             label={t("tools.webSearchProviderLabel")}
