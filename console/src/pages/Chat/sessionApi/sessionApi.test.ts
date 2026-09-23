@@ -350,7 +350,7 @@ describe("durable transcript pagination", () => {
 
     expect(getMessages).toHaveBeenCalledExactlyOnceWith(chatId, {
       before: "2:0",
-      limit: 50,
+      limit: 20,
       signal: undefined,
     });
     expect(first.messages).toHaveLength(1);

@@ -89,8 +89,8 @@ async def _read_transcript_page(
     chat: ChatSpec,
     *,
     before: TranscriptCursor | None = None,
-    limit: int = 50,
-    max_bytes: int = 512 * 1024,
+    limit: int = 20,
+    max_bytes: int = 2 * 1024 * 1024,
 ) -> TranscriptPage | None:
     """Read one transcript page without blocking the event loop."""
     store = getattr(workspace, "transcript_store", None)
@@ -965,16 +965,17 @@ async def get_chat_status(
 async def get_chat_messages(
     chat_id: str,
     before: Optional[str] = Query(None),
-    limit: int = Query(50, ge=1, le=100),
+    limit: int = Query(20, ge=1, le=100),
     max_bytes: Annotated[
         int,
         Query(ge=1024, le=4 * 1024 * 1024),
-    ] = 512
+    ] = 2
+    * 1024
     * 1024,
     mgr: ChatManager = Depends(get_chat_manager),
     workspace=Depends(get_workspace),
 ) -> ChatMessagePage:
-    """Return one item-bounded page of durable chat messages."""
+    """Return one turn-bounded page of durable chat messages."""
     chat = await mgr.get_chat(chat_id)
     if chat is None:
         raise HTTPException(

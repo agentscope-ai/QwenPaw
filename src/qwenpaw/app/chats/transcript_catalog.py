@@ -286,8 +286,8 @@ class TranscriptCatalog:
         user_id: str,
         channel: str,
         before: TranscriptCursor | None = None,
-        limit: int = 50,
-        max_bytes: int = 512 * 1024,
+        limit: int = 20,
+        max_bytes: int = 2 * 1024 * 1024,
     ) -> TranscriptPage | None:
         """Read one page without holding a workspace-wide message lock."""
         with self._lease(

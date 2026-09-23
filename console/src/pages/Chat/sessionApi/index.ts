@@ -732,7 +732,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     const request = api
       .getChatMessages(backendId, {
         before: page.next_before,
-        limit: 50,
+        limit: 20,
         signal,
       })
       .then((result) => {

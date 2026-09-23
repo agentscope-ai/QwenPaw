@@ -19,7 +19,7 @@ from ...token_usage.turn_usage import TURN_USAGE_META_KEY
 
 _BUSY_TIMEOUT_MS = 5000
 TurnStatus = Literal["running", "completed", "failed", "cancelled"]
-_DEFAULT_PAGE_MAX_BYTES = 512 * 1024
+_DEFAULT_PAGE_MAX_BYTES = 2 * 1024 * 1024
 
 
 def _utc_now() -> str:
@@ -41,7 +41,7 @@ class TranscriptCursor:
 
 @dataclass(frozen=True)
 class TranscriptPage:
-    """One item-bounded transcript page in chronological display order."""
+    """One turn-bounded transcript page in chronological display order."""
 
     messages: list[Message]
     next_before: TranscriptCursor | None
@@ -558,12 +558,14 @@ class TranscriptStore:
         user_id: str,
         channel: str,
         before: TranscriptCursor | None = None,
-        limit: int = 50,
+        limit: int = 20,
         max_bytes: int = _DEFAULT_PAGE_MAX_BYTES,
     ) -> TranscriptPage | None:
-        """Read one item-bounded page without replaying active outputs."""
+        """Read complete turns without replaying active outputs."""
         if limit < 1 or limit > 100:
-            raise ValueError("transcript page limit must be between 1 and 100")
+            raise ValueError(
+                "transcript turn limit must be between 1 and 100",
+            )
         if max_bytes < 1:
             raise ValueError("transcript page max_bytes must be positive")
         with self._read_connection() as connection:
@@ -575,58 +577,76 @@ class TranscriptStore:
                 user_id=user_id,
                 channel=channel,
             )
-            # Drive the join from the turn primary key so SQLite can stream
-            # newest messages without sorting the full session history.
-            sql = (
-                "SELECT m.payload_json, length(CAST(m.payload_json AS BLOB)) "
-                "AS payload_bytes, m.created_at AS message_created_at, "
+            turn_sql = (
+                "WITH page_turns AS ("
+                "SELECT t.session_id, t.turn_id, t.turn_seq, t.status "
+                "FROM transcript_turns t WHERE t.session_id = ? "
+            )
+            params: list[Any] = [session_id]
+            if before is not None:
+                operator = "<" if before.ordinal == 0 else "<="
+                turn_sql += f"AND t.turn_seq {operator} ? "
+                params.append(before.turn_seq)
+            turn_sql += (
+                "AND EXISTS (SELECT 1 FROM transcript_messages vm "
+                "WHERE vm.session_id = t.session_id "
+                "AND vm.turn_id = t.turn_id "
+                "AND vm.superseded_at IS NULL "
+                "AND (t.status != 'running' OR vm.role = 'user')) "
+                "ORDER BY t.turn_seq DESC LIMIT ?) "
+                "SELECT t.turn_seq, "
+                "SUM(length(CAST(m.payload_json AS BLOB))) AS payload_bytes "
+                "FROM page_turns t CROSS JOIN transcript_messages m "
+                "ON m.session_id = t.session_id AND m.turn_id = t.turn_id "
+                "WHERE m.superseded_at IS NULL "
+                "AND (t.status != 'running' OR m.role = 'user')"
+            )
+            params.append(limit + 1)
+            turn_sql += " GROUP BY t.turn_seq ORDER BY t.turn_seq DESC"
+            candidates = connection.execute(turn_sql, params).fetchall()
+            selected_turns: list[int] = []
+            payload_bytes = 0
+            for row in candidates[:limit]:
+                turn_bytes = int(row["payload_bytes"])
+                if selected_turns and payload_bytes + turn_bytes > max_bytes:
+                    break
+                selected_turns.append(int(row["turn_seq"]))
+                payload_bytes += turn_bytes
+                if payload_bytes >= max_bytes:
+                    break
+            has_more = len(selected_turns) < len(candidates)
+            if not selected_turns:
+                return TranscriptPage(
+                    messages=[],
+                    next_before=None,
+                    has_more=False,
+                )
+            placeholders = ",".join("?" for _ in selected_turns)
+            message_sql = (
+                "SELECT m.payload_json, "
+                "m.created_at AS message_created_at, "
                 "m.finished_at AS message_finished_at, m.ordinal, "
                 "t.turn_id, t.turn_seq, t.status AS turn_status, "
                 "t.error_json, t.finished_at AS turn_finished_at "
                 "FROM transcript_turns t CROSS JOIN transcript_messages m "
                 "ON m.session_id = t.session_id AND m.turn_id = t.turn_id "
                 "WHERE t.session_id = ? AND m.superseded_at IS NULL "
-                "AND (t.status != 'running' OR m.role = 'user')"
+                "AND (t.status != 'running' OR m.role = 'user') "
+                f"AND t.turn_seq IN ({placeholders}) "
+                "ORDER BY t.turn_seq, m.ordinal"
             )
-            params: list[Any] = [session_id]
-            if before is not None:
-                sql += (
-                    " AND (t.turn_seq < ? OR (t.turn_seq = ? "
-                    "AND m.ordinal < ?))"
-                )
-                params.extend(
-                    [before.turn_seq, before.turn_seq, before.ordinal],
-                )
-            sql += " ORDER BY t.turn_seq DESC, m.ordinal DESC LIMIT ?"
-            params.append(limit + 1)
-            candidates = connection.execute(sql, params).fetchall()
-            selected: list[sqlite3.Row] = []
-            payload_bytes = 0
-            for row in candidates[:limit]:
-                row_bytes = int(row["payload_bytes"])
-                if selected and payload_bytes + row_bytes > max_bytes:
-                    break
-                selected.append(row)
-                payload_bytes += row_bytes
-                if payload_bytes >= max_bytes:
-                    break
-            has_more = len(selected) < len(candidates)
-            if not selected:
-                return TranscriptPage(
-                    messages=[],
-                    next_before=None,
-                    has_more=False,
-                )
-            selected.reverse()
-            first = selected[0]
+            rows = connection.execute(
+                message_sql,
+                [session_id, *selected_turns],
+            ).fetchall()
             next_before = None
             if has_more:
                 next_before = TranscriptCursor(
-                    turn_seq=int(first["turn_seq"]),
-                    ordinal=int(first["ordinal"]),
+                    turn_seq=selected_turns[-1],
+                    ordinal=0,
                 )
             return TranscriptPage(
-                messages=[self._message_from_row(row) for row in selected],
+                messages=[self._message_from_row(row) for row in rows],
                 next_before=next_before,
                 has_more=has_more,
             )

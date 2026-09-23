@@ -267,7 +267,7 @@ def test_attach_turn_usage_updates_only_closing_assistant(tmp_path):
     store.close()
 
 
-def test_high_fanout_turn_spans_pages_without_losing_items(tmp_path):
+def test_high_fanout_turn_stays_on_one_page(tmp_path):
     store = TranscriptStore(tmp_path / "session.db")
     _start(store, "turn-1")
     for ordinal in range(5):
@@ -287,37 +287,41 @@ def test_high_fanout_turn_spans_pages_without_losing_items(tmp_path):
         status="completed",
     )
 
-    cursor = None
-    message_ids: list[str] = []
-    page_sizes: list[int] = []
-    while True:
-        page = store.get_page(
-            session_id="session-1",
-            user_id="user-1",
-            channel="console",
-            before=cursor,
-            limit=2,
-        )
-        assert page is not None
-        message_ids = [message.id for message in page.messages] + message_ids
-        page_sizes.append(len(page.messages))
-        if not page.has_more:
-            break
-        assert page.next_before is not None
-        cursor = page.next_before
+    page = store.get_page(
+        session_id="session-1",
+        user_id="user-1",
+        channel="console",
+        limit=1,
+    )
 
-    assert page_sizes == [2, 2, 1]
-    assert message_ids == [f"message-{ordinal}" for ordinal in range(5)]
+    assert page is not None
+    assert [message.id for message in page.messages] == [
+        f"message-{ordinal}" for ordinal in range(5)
+    ]
+    assert page.has_more is False
+    assert page.next_before is None
     store.close()
 
 
-def test_page_byte_limit_always_returns_one_oversized_item(tmp_path):
+def test_page_byte_limit_always_returns_one_oversized_turn(tmp_path):
     store = TranscriptStore(tmp_path / "session.db")
     _start(store, "turn-1")
+    store.upsert_message(
+        session_id="session-1",
+        turn_id="turn-1",
+        message=_message("old-user", "old"),
+        ordinal=0,
+    )
+    store.finish_turn(
+        session_id="session-1",
+        turn_id="turn-1",
+        status="completed",
+    )
+    _start(store, "turn-2")
     for ordinal in range(2):
         store.upsert_message(
             session_id="session-1",
-            turn_id="turn-1",
+            turn_id="turn-2",
             message=_message(
                 f"message-{ordinal}",
                 "x" * 2_000,
@@ -327,7 +331,7 @@ def test_page_byte_limit_always_returns_one_oversized_item(tmp_path):
         )
     store.finish_turn(
         session_id="session-1",
-        turn_id="turn-1",
+        turn_id="turn-2",
         status="completed",
     )
 
@@ -340,9 +344,24 @@ def test_page_byte_limit_always_returns_one_oversized_item(tmp_path):
     )
 
     assert page is not None
-    assert [message.id for message in page.messages] == ["message-1"]
+    assert [message.id for message in page.messages] == [
+        "message-0",
+        "message-1",
+    ]
     assert page.has_more is True
-    assert page.next_before == TranscriptCursor(turn_seq=1, ordinal=1)
+    assert page.next_before == TranscriptCursor(turn_seq=2, ordinal=0)
+
+    older = store.get_page(
+        session_id="session-1",
+        user_id="user-1",
+        channel="console",
+        before=page.next_before,
+        limit=50,
+        max_bytes=100,
+    )
+    assert older is not None
+    assert [message.id for message in older.messages] == ["old-user"]
+    assert older.has_more is False
     store.close()
 
 
