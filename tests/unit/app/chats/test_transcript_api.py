@@ -10,7 +10,7 @@ from unittest.mock import AsyncMock, Mock, patch
 import pytest
 from agentscope.message import Msg
 from agentscope.state import AgentState
-from fastapi import HTTPException
+from fastapi import BackgroundTasks, HTTPException
 
 from qwenpaw.app.chats.api import (
     _delete_chat_data,
@@ -83,6 +83,7 @@ async def test_get_chat_prefers_transcript_page(tmp_path: Path) -> None:
 
     history = await get_chat(
         chat_id="chat-1",
+        background_tasks=BackgroundTasks(),
         include_app_owned=True,
         mgr=SimpleNamespace(get_chat=AsyncMock(return_value=_chat())),
         session=session,
@@ -144,6 +145,7 @@ async def test_get_chat_restores_durable_turn_usage(tmp_path: Path) -> None:
 
     history = await get_chat(
         chat_id="chat-1",
+        background_tasks=BackgroundTasks(),
         include_app_owned=True,
         mgr=SimpleNamespace(get_chat=AsyncMock(return_value=_chat())),
         session=SimpleNamespace(get_session_state_dict=AsyncMock()),
@@ -225,6 +227,7 @@ async def test_get_chat_falls_back_without_transcript() -> None:
 
     history = await get_chat(
         chat_id="chat-1",
+        background_tasks=BackgroundTasks(),
         include_app_owned=True,
         mgr=SimpleNamespace(get_chat=AsyncMock(return_value=_chat())),
         session=session,
@@ -234,6 +237,55 @@ async def test_get_chat_falls_back_without_transcript() -> None:
     assert history.messages[0].content[0].text == "fallback"
     assert history.history is not None
     assert history.history.has_more is False
+
+
+@pytest.mark.asyncio
+async def test_get_chat_migrates_legacy_history_after_response(
+    tmp_path: Path,
+) -> None:
+    fallback = Msg(
+        name="user",
+        role="user",
+        content=[{"type": "text", "text": "fallback"}],
+    )
+    state = AgentState(context=[fallback]).model_dump(mode="json")
+    session = SimpleNamespace(
+        get_session_state_dict=AsyncMock(
+            return_value={"agent": {"state": state}},
+        ),
+    )
+    store = TranscriptCatalog(tmp_path)
+    tasks = BackgroundTasks()
+
+    history = await get_chat(
+        chat_id="chat-1",
+        background_tasks=tasks,
+        include_app_owned=True,
+        mgr=SimpleNamespace(get_chat=AsyncMock(return_value=_chat())),
+        session=session,
+        workspace=_workspace(store),
+    )
+
+    assert history.messages[0].content[0].text == "fallback"
+    assert (
+        store.get_page(
+            session_id="session-1",
+            user_id="user-1",
+            channel="console",
+        )
+        is None
+    )
+
+    await tasks()
+
+    page = store.get_page(
+        session_id="session-1",
+        user_id="user-1",
+        channel="console",
+    )
+    assert page is not None
+    assert page.messages[0].content[0].text == "fallback"
+    store.close()
 
 
 @pytest.mark.asyncio

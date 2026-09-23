@@ -9,7 +9,15 @@ import sqlite3
 from pathlib import Path
 from typing import Annotated, Literal, Optional
 from uuid import uuid4
-from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Body,
+    Depends,
+    HTTPException,
+    Query,
+    Request,
+)
 from pydantic import BaseModel, ConfigDict, Field
 
 from .session import SafeJSONSession
@@ -34,6 +42,7 @@ from ...services.project_directory import (
     session_project_dirs_raw_from_meta,
 )
 from ...providers.thinking import ThinkingPreference
+from ...schemas import Message
 from ...services.session_thinking import (
     session_model,
     thinking_view,
@@ -104,6 +113,30 @@ async def _read_transcript_page(
             exc_info=True,
         )
         return None
+
+
+def _migrate_legacy_messages(
+    workspace,
+    chat: ChatSpec,
+    messages: list[Message],
+) -> None:
+    """Best-effort import of legacy display history after a response."""
+    store = getattr(workspace, "transcript_store", None)
+    if store is None or not messages:
+        return
+    try:
+        store.import_legacy_messages(
+            session_id=chat.session_id,
+            user_id=chat.user_id,
+            channel=chat.channel,
+            messages=messages,
+        )
+    except Exception:
+        logger.warning(
+            "Failed to migrate legacy transcript for session %s",
+            chat.session_id,
+            exc_info=True,
+        )
 
 
 async def _delete_chat_data(workspace, chats: list[ChatSpec]) -> None:
@@ -967,6 +1000,7 @@ async def get_chat_messages(
 @router.get("/{chat_id}", response_model=ChatHistory)
 async def get_chat(
     chat_id: str,
+    background_tasks: BackgroundTasks,
     include_app_owned: bool = Query(
         True,
         description=(
@@ -1052,7 +1086,13 @@ async def get_chat(
             history=ChatHistoryMetadata(),
         )
 
-    messages = session_state_to_messages(state)
+    messages = await asyncio.to_thread(session_state_to_messages, state)
+    background_tasks.add_task(
+        _migrate_legacy_messages,
+        workspace,
+        chat_spec,
+        messages,
+    )
     return ChatHistory(
         messages=messages,
         status=status,

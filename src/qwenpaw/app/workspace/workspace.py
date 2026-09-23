@@ -497,19 +497,23 @@ class Workspace:  # pylint: disable=too-many-public-methods
                     state = await self.session.get_session_state_dict(
                         **identity,
                     )
-                    legacy_messages = session_state_to_messages(state)
+                    legacy_messages = await asyncio.to_thread(
+                        session_state_to_messages,
+                        state,
+                    )
+                    del state
             except Exception:
                 logger.warning(
                     "Legacy transcript migration skipped for session %s",
                     sanitize_log_value(identity["session_id"]),
                     exc_info=True,
                 )
-                transcript_store = None
         recorder = TranscriptRecorder(
             store=transcript_store,
             request=request,
             legacy_messages=legacy_messages,
         )
+        del legacy_messages
         try:
             await recorder.start()
             async for item in stream:

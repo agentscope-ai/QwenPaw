@@ -71,12 +71,14 @@ class TranscriptRecorder:
             return
         self._started = True
         if self._legacy_messages:
+            legacy_messages = self._legacy_messages
+            self._legacy_messages = []
             await self._write(
                 self._store.import_legacy_messages,
                 session_id=self._session_id,
                 user_id=self._user_id,
                 channel=self._channel,
-                messages=self._legacy_messages,
+                messages=legacy_messages,
             )
             if self._degraded:
                 return
