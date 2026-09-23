@@ -42,7 +42,13 @@ def shell_command() -> list[str]:
     """Select an installed interactive shell without evaluating shell text."""
     if os.name == "nt":
         shell = shutil.which("pwsh") or shutil.which("powershell.exe")
-        return [shell, "-NoLogo"] if shell else [os.environ["COMSPEC"]]
+        return (
+            [shell, "-NoLogo"]
+            if shell
+            else [
+                os.environ.get("COMSPEC", "cmd.exe"),
+            ]
+        )
     shell = os.environ.get("SHELL") or "/bin/sh"
     if not Path(shell).is_file():
         shell = "/bin/sh"

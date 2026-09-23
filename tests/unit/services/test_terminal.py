@@ -21,6 +21,14 @@ if os.name != "nt":
     import fcntl
 
 
+def test_windows_shell_falls_back_when_comspec_is_missing(monkeypatch):
+    monkeypatch.setattr(terminal.os, "name", "nt")
+    monkeypatch.delenv("COMSPEC", raising=False)
+    monkeypatch.setattr(terminal.shutil, "which", lambda _name: None)
+
+    assert terminal.shell_command() == ["cmd.exe"]
+
+
 @pytest.mark.skipif(os.name == "nt", reason="POSIX descriptor inheritance")
 async def test_pty_does_not_inherit_service_socket(tmp_path, monkeypatch):
     monkeypatch.setenv("SHELL", "/bin/sh")
