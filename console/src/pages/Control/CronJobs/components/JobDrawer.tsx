@@ -7,12 +7,13 @@ import {
   Button,
   Checkbox,
 } from "@agentscope-ai/design";
-import { DatePicker, Tabs, Segmented } from "antd";
+import { AutoComplete, DatePicker, Tabs, Segmented, Radio } from "antd";
 import dayjs, { type Dayjs } from "dayjs";
 import { SettingsDrawer as Drawer } from "@/components/interaction/SettingsDrawer";
+import InlineHelp from "@/components/InlineHelp";
 import { NumberSlider } from "@/components/interaction/NumberSlider";
 import { useAutoSave } from "@/hooks/useAutoSave";
-import { DurationWheel } from "../../Heartbeat/DurationWheel";
+import { DurationWheel } from "@/components/interaction/DurationWheel";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { FormInstance } from "antd";
@@ -81,9 +82,19 @@ export function JobDrawer({
   const { t } = useTranslation();
   const timezoneOptions = useTimezoneOptions();
   const [saveInboxTouched, setSaveInboxTouched] = useState(false);
-  const [channelSearch, setChannelSearch] = useState("");
-  const [userSearch, setUserSearch] = useState("");
-  const [sessionSearch, setSessionSearch] = useState("");
+  const [activeTab, setActiveTab] = useState("schedule");
+  const [invalidField, setInvalidField] = useState<(string | number)[] | null>(
+    null,
+  );
+
+  useEffect(() => {
+    if (!invalidField) return;
+    const frame = requestAnimationFrame(() => {
+      form.scrollToField(invalidField, { block: "center", focus: true });
+      setInvalidField(null);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [form, invalidField, activeTab]);
   const selectedChannel = Form.useWatch(["dispatch", "channel"], form);
   const selectedTaskType = Form.useWatch("task_type", form);
   const selectedTargetUserId = Form.useWatch(
@@ -117,9 +128,8 @@ export function JobDrawer({
   useEffect(() => {
     if (open) {
       setSaveInboxTouched(false);
-      setChannelSearch("");
-      setUserSearch("");
-      setSessionSearch("");
+      setActiveTab("schedule");
+      setInvalidField(null);
       onReloadTargets().catch((error) =>
         console.error("Failed to reload cron dispatch targets", error),
       );
@@ -153,8 +163,8 @@ export function JobDrawer({
   };
 
   const channelOptions = useMemo(() => {
-    return mergeOptions(targetChannels, selectedChannel, channelSearch);
-  }, [channelSearch, selectedChannel, targetChannels]);
+    return mergeOptions(targetChannels, selectedChannel);
+  }, [selectedChannel, targetChannels]);
 
   const userOptions = useMemo(() => {
     const options = new Set<string>();
@@ -163,8 +173,8 @@ export function JobDrawer({
         options.add(item.user_id);
       }
     });
-    return mergeOptions(options, selectedTargetUserId, userSearch);
-  }, [targetItems, selectedChannel, selectedTargetUserId, userSearch]);
+    return mergeOptions(options, selectedTargetUserId);
+  }, [targetItems, selectedChannel, selectedTargetUserId]);
 
   const sessionOptions = useMemo(() => {
     const options = new Set<string>();
@@ -181,8 +191,8 @@ export function JobDrawer({
       "target",
       "session_id",
     ]);
-    return mergeOptions(options, selectedSessionId, sessionSearch);
-  }, [form, selectedChannel, selectedTargetUserId, sessionSearch, targetItems]);
+    return mergeOptions(options, selectedSessionId);
+  }, [form, selectedChannel, selectedTargetUserId, targetItems]);
 
   return (
     <Drawer
@@ -216,6 +226,29 @@ export function JobDrawer({
           if (isEdit) scheduleSave();
         }}
         onFinish={onSubmit}
+        onFinishFailed={({ errorFields }) => {
+          const field = errorFields[0]?.name;
+          if (!field) return;
+          const root = field[0];
+          if (
+            root === "text" ||
+            root === "task_type" ||
+            (root === "request" && field[1] === "input")
+          ) {
+            setActiveTab("content");
+          } else if (
+            root === "dispatch" ||
+            root === "save_result_to_inbox" ||
+            (root === "request" && field[1] === "model_slot_override")
+          ) {
+            setActiveTab("delivery");
+          } else if (root === "runtime") {
+            setActiveTab("runtime");
+          } else if (root !== "name" && root !== "request") {
+            setActiveTab("schedule");
+          }
+          setInvalidField(field);
+        }}
         initialValues={DEFAULT_FORM_VALUES}
       >
         <Form.Item name="id" hidden>
@@ -291,7 +324,9 @@ export function JobDrawer({
         </Form.Item>
 
         <Tabs
-          onChange={() => {
+          activeKey={activeTab}
+          onChange={(key) => {
+            setActiveTab(key);
             void flush();
           }}
           items={[
@@ -484,15 +519,17 @@ export function JobDrawer({
                       const cronType = getFieldValue("cronType");
                       return (
                         <>
-                          <Form.Item
-                            label={t("cronJobs.scheduleCronLabel")}
-                            required
-                            tooltip={t("cronJobs.cronTooltip")}
-                          >
+                          <Form.Item label={t("cronJobs.frequency")} required>
                             <Form.Item name="cronType" noStyle>
-                              <Segmented
-                                block
+                              <Radio.Group
+                                className={styles.frequencyChoices}
+                                optionType="button"
+                                buttonStyle="solid"
                                 options={[
+                                  {
+                                    value: "minutes",
+                                    label: t("cronJobs.cronTypeMinutes"),
+                                  },
                                   {
                                     value: "hourly",
                                     label: t("cronJobs.cronTypeHourly"),
@@ -506,14 +543,56 @@ export function JobDrawer({
                                     label: t("cronJobs.cronTypeWeekly"),
                                   },
                                   {
+                                    value: "monthly",
+                                    label: t("cronJobs.cronTypeMonthly"),
+                                  },
+                                  {
                                     value: "custom",
-                                    label: t("cronJobs.cronTypeCustom"),
+                                    label: t("common.advancedSettings"),
                                   },
                                 ]}
                               />
                             </Form.Item>
                           </Form.Item>
-                          {(cronType === "daily" || cronType === "weekly") && (
+                          {cronType === "minutes" && (
+                            <Form.Item
+                              name="cronInterval"
+                              initialValue={5}
+                              label={t("cronJobs.intervalMinutes")}
+                            >
+                              <Select
+                                options={[1, 2, 3, 5, 10, 15, 20, 30].map(
+                                  (value) => ({
+                                    value,
+                                    label: t("cronJobs.everyMinutes", {
+                                      count: value,
+                                    }),
+                                  }),
+                                )}
+                              />
+                            </Form.Item>
+                          )}
+                          {cronType === "monthly" && (
+                            <Form.Item
+                              name="cronMonthDay"
+                              initialValue={1}
+                              label={t("cronJobs.monthDay")}
+                              extra={t("cronJobs.shortMonthHint")}
+                            >
+                              <Select
+                                options={Array.from(
+                                  { length: 31 },
+                                  (_, index) => ({
+                                    value: index + 1,
+                                    label: String(index + 1),
+                                  }),
+                                )}
+                              />
+                            </Form.Item>
+                          )}
+                          {["daily", "weekly", "monthly"].includes(
+                            cronType,
+                          ) && (
                             <Form.Item
                               name="cronTime"
                               label={t("cronJobs.cronTime")}
@@ -545,7 +624,10 @@ export function JobDrawer({
                             name="cronDaysOfWeek"
                             label={t("cronJobs.cronDaysOfWeek")}
                             rules={[
-                              { required: true, message: "请选择至少一天" },
+                              {
+                                required: true,
+                                message: t("cronJobs.selectAtLeastOneDay"),
+                              },
                             ]}
                           >
                             <Checkbox.Group
@@ -604,14 +686,20 @@ export function JobDrawer({
                         return (
                           <Form.Item
                             name="cronCustom"
-                            label={t("cronJobs.cronCustomExpression")}
+                            label={
+                              <span>
+                                {t("cronJobs.cronCustomExpression")}{" "}
+                                <InlineHelp>
+                                  {t("cronJobs.cronExample")}
+                                </InlineHelp>
+                              </span>
+                            }
                             rules={[
                               {
                                 required: true,
                                 message: t("cronJobs.pleaseInputCron"),
                               },
                             ]}
-                            tooltip={t("cronJobs.cronExample")}
                           >
                             <Input placeholder="0 9 * * *" />
                           </Form.Item>
@@ -779,14 +867,12 @@ export function JobDrawer({
                     ]}
                     tooltip={t("cronJobs.dispatchChannelTooltip")}
                   >
-                    <Select
-                      showSearch
-                      loading={targetsLoading}
+                    <AutoComplete
+                      notFoundContent={
+                        targetsLoading ? t("common.loading") : null
+                      }
                       placeholder="console"
                       options={channelOptions}
-                      onSearch={setChannelSearch}
-                      onBlur={() => setChannelSearch("")}
-                      notFoundContent="输入自定义值后按 Enter"
                       filterOption={(input, option) =>
                         (option?.label?.toString() || "")
                           .toLowerCase()
@@ -806,14 +892,12 @@ export function JobDrawer({
                     ]}
                     tooltip={t("cronJobs.dispatchTargetUserIdTooltip")}
                   >
-                    <Select
-                      showSearch
-                      loading={targetsLoading}
+                    <AutoComplete
+                      notFoundContent={
+                        targetsLoading ? t("common.loading") : null
+                      }
                       placeholder="admin"
                       options={userOptions}
-                      onSearch={setUserSearch}
-                      onBlur={() => setUserSearch("")}
-                      notFoundContent="输入自定义值后按 Enter"
                       filterOption={(input, option) =>
                         (option?.label?.toString() || "")
                           .toLowerCase()
@@ -833,14 +917,12 @@ export function JobDrawer({
                     ]}
                     tooltip={t("cronJobs.dispatchTargetSessionIdTooltip")}
                   >
-                    <Select
-                      showSearch
-                      loading={targetsLoading}
+                    <AutoComplete
+                      notFoundContent={
+                        targetsLoading ? t("common.loading") : null
+                      }
                       placeholder="default"
                       options={sessionOptions}
-                      onSearch={setSessionSearch}
-                      onBlur={() => setSessionSearch("")}
-                      notFoundContent="输入自定义值后按 Enter"
                       filterOption={(input, option) =>
                         (option?.label?.toString() || "")
                           .toLowerCase()

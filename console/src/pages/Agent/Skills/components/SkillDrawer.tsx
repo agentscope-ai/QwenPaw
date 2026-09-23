@@ -1,4 +1,5 @@
 import { Collapse } from "antd";
+import { useAutoSave } from "@/hooks/useAutoSave";
 import { SettingsDrawer as Drawer } from "@/components/interaction/SettingsDrawer";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { Form, Input, Button, Select, Switch } from "@agentscope-ai/design";
@@ -70,7 +71,7 @@ interface SkillDrawerProps {
   form: FormInstance<SkillDrawerFormValues>;
   availableTags?: string[];
   onClose: () => void;
-  onSubmit: (values: SkillDetail) => void;
+  onSubmit: (values: SkillDetail) => void | boolean | Promise<void | boolean>;
   onContentChange?: (content: string) => void;
 }
 
@@ -154,10 +155,10 @@ export function SkillDrawer({
       } catch {
         setConfigError(t("skills.configInvalidJson"));
         setMetadataOpen(true);
-        return;
+        return false;
       }
     }
-    onSubmit({
+    return await onSubmit({
       ...editingSkill,
       ...values,
       content: contentValue || values.content,
@@ -166,9 +167,25 @@ export function SkillDrawer({
     });
   };
 
+  const { schedule, flush } = useAutoSave(async () => {
+    if (!editing || loading) return false;
+    let values: SkillDrawerFormValues;
+    try {
+      values = await form.validateFields();
+    } catch {
+      setMetadataOpen(true);
+      return false;
+    }
+    return await handleSubmit(values);
+  });
+  const closeEditor = async () => {
+    if (!editing || (await flush())) onClose();
+  };
+
   const handleContentChange = (content: string) => {
     setContentValue(content);
     form.setFieldsValue({ content });
+    if (editing) schedule();
     form.validateFields(["content"]).catch(() => {});
     if (onContentChange) {
       onContentChange(content);
@@ -258,14 +275,7 @@ export function SkillDrawer({
         </Button>
       </div>
     </div>
-  ) : (
-    <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
-      <Button onClick={onClose}>{t("common.cancel")}</Button>
-      <Button type="primary" onClick={() => form.submit()} disabled={loading}>
-        {t("common.save")}
-      </Button>
-    </div>
-  );
+  ) : null;
 
   return (
     <Drawer
@@ -277,7 +287,7 @@ export function SkillDrawer({
           : t("skills.createSkill")
       }
       open={open}
-      onClose={onClose}
+      onClose={() => void closeEditor()}
       destroyOnHidden
       footer={drawerFooter}
     >
@@ -290,25 +300,28 @@ export function SkillDrawer({
           form={form}
           layout="vertical"
           onFinish={handleSubmit}
+          onValuesChange={() => {
+            if (editing) schedule();
+          }}
           onFinishFailed={() => setMetadataOpen(true)}
         >
           {!editing ? (
             <Form.Item
               name="name"
-              label="Name"
+              label={t("skills.name")}
               rules={[{ required: true, message: t("skills.pleaseInputName") }]}
             >
               <Input placeholder={t("skills.skillNamePlaceholder")} />
             </Form.Item>
           ) : (
-            <Form.Item name="name" label="Name">
+            <Form.Item name="name" label={t("skills.name")}>
               <Input />
             </Form.Item>
           )}
 
           <Form.Item
             name="content"
-            label="Content"
+            label={t("skills.skillContent")}
             rules={[{ required: true, validator: validateFrontmatter }]}
           >
             <MarkdownCopy
@@ -403,6 +416,7 @@ export function SkillDrawer({
                         onChange={(value) => {
                           setConfigText(value);
                           setConfigError("");
+                          if (editing) schedule();
                         }}
                         requirements={
                           editing ? editingSkill?.requirements : undefined

@@ -532,8 +532,8 @@ describe("CronJobsPage column handlers", () => {
       mockForm.setFieldsValue.mock.calls[
         mockForm.setFieldsValue.mock.calls.length - 1
       ]?.[0];
-    expect(values.cronType).toBe("custom");
-    expect(values.cronCustom).toBe("*/15 * * * *");
+    expect(values.cronType).toBe("minutes");
+    expect(values.cronInterval).toBe(15);
   });
 
   it("handleEdit prefills one-time jobs including repeat settings", async () => {
@@ -688,6 +688,37 @@ describe("CronJobsPage drawer submit", () => {
     // failed submit keeps the drawer open
     await waitFor(() => expect(capturedDrawer.props!.open).toBe(true));
   });
+
+  it.each([
+    { cronType: "minutes", cronInterval: 15, expected: "*/15 * * * *" },
+    { cronType: "monthly", cronMonthDay: 31, expected: "30 9 31 * *" },
+  ])(
+    "serializes visual $cronType schedules without leaking form fields",
+    async ({ expected, ...fields }) => {
+      const createJob = vi.fn().mockResolvedValue(false);
+      const drawer = await renderPage({ createJob });
+      await act(async () => {
+        await drawer.onSubmit({
+          name: "Visual",
+          task_type: "text",
+          scheduleType: "cron",
+          schedule: { timezone: "Asia/Shanghai" },
+          cronTime: dayjs().hour(9).minute(30),
+          ...fields,
+        });
+      });
+      const submitted = createJob.mock.calls[0][0];
+      expect(submitted.schedule.cron).toBe(expected);
+      expect(submitted.schedule.timezone).toBe("Asia/Shanghai");
+      for (const key of [
+        "cronType",
+        "cronInterval",
+        "cronMonthDay",
+        "cronTime",
+      ])
+        expect(submitted).not.toHaveProperty(key);
+    },
+  );
 
   it("builds weekly and custom cron schedules", async () => {
     const createJob = vi.fn().mockResolvedValue(false);
@@ -932,7 +963,7 @@ describe("CronJobsPage mobile schedule formatting", () => {
         "cronJobs.cronTypeWeekly cronJobs.cronDayMon,cronJobs.cronDayWed",
       ),
     ).toBeTruthy();
-    expect(screen.getByText("*/15 * * * *")).toBeTruthy();
+    expect(screen.getByText('cronJobs.everyMinutes:{"count":15}')).toBeTruthy();
     expect(screen.getByText(onceAt.format("YYYY-MM-DD HH:mm"))).toBeTruthy();
     expect(screen.getByText("-")).toBeTruthy();
   });
@@ -965,16 +996,16 @@ describe("CronJobsPage schedule filter", () => {
       expect(screen.getByTestId("cron-table").textContent).toBe("rows:2"),
     );
 
-    fireEvent.change(screen.getByTestId("schedule-filter"), {
-      target: { value: "once" },
-    });
+    fireEvent.click(
+      screen.getByRole("radio", { name: "cronJobs.scheduleTypeOnce" }),
+    );
     await waitFor(() =>
       expect(screen.getByTestId("cron-table").textContent).toBe("rows:1"),
     );
 
-    fireEvent.change(screen.getByTestId("schedule-filter"), {
-      target: { value: "all" },
-    });
+    fireEvent.click(
+      screen.getByRole("radio", { name: "cronJobs.scheduleFilterAll" }),
+    );
     await waitFor(() =>
       expect(screen.getByTestId("cron-table").textContent).toBe("rows:2"),
     );

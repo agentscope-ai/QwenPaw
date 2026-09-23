@@ -1,6 +1,7 @@
 import type { Dispatch, SetStateAction } from "react";
 import { Input, Select } from "@agentscope-ai/design";
 import {
+  Search,
   List as UnorderedListOutlined,
   LayoutGrid as AppstoreOutlined,
 } from "lucide-react";
@@ -38,11 +39,15 @@ export function SkillsToolbar({
       <div className={styles.searchContainer}>
         <Input
           className={styles.searchInput}
+          aria-label={t("skills.searchPlaceholder")}
+          prefix={<Search size={16} aria-hidden />}
+          allowClear
           placeholder={t("skills.searchPlaceholder")}
           value={searchQuery}
           onChange={(e) => onSearchChange(e.target.value)}
         />
         <Select
+          aria-label={t("skills.filterByTag")}
           mode="multiple"
           className={styles.tagSelect}
           placeholder={t("skills.filterByTag")}
@@ -74,6 +79,10 @@ export function SkillsToolbar({
               viewMode === "list" ? styles.viewToggleBtnActive : ""
             }`}
             onClick={() => onViewModeChange("list")}
+            type="button"
+            data-press
+            aria-label={t("skills.listView")}
+            aria-pressed={viewMode === "list"}
             title={t("skills.listView")}
           >
             <UnorderedListOutlined size="1em" />
@@ -83,6 +92,10 @@ export function SkillsToolbar({
               viewMode === "card" ? styles.viewToggleBtnActive : ""
             }`}
             onClick={() => onViewModeChange("card")}
+            type="button"
+            data-press
+            aria-label={t("skills.gridView")}
+            aria-pressed={viewMode === "card"}
             title={t("skills.gridView")}
           >
             <AppstoreOutlined size="1em" />

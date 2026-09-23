@@ -1,7 +1,8 @@
 import { InteractiveCard } from "@/components/interaction/InteractiveCard";
 import { Card } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
-import React, { useState } from "react";
+import React from "react";
+import { ArrowUpRight } from "lucide-react";
 import { ChannelIcon } from "./ChannelIcon";
 import { getChannelLabel, type ChannelKey } from "./constants";
 import styles from "../index.module.less";
@@ -20,7 +21,6 @@ export const ChannelCard = React.memo(function ChannelCard({
   iconUrl,
 }: ChannelCardProps) {
   const { t } = useTranslation();
-  const [isHover, setIsHover] = useState(false);
   const enabled = Boolean(config.enabled);
   const isBuiltin = Boolean(config.isBuiltin);
   const label = getChannelLabel(channelKey, t);
@@ -32,16 +32,9 @@ export const ChannelCard = React.memo(function ChannelCard({
     <ChannelIcon channelKey={channelKey} size={32} iconUrl={iconUrl} />
   );
 
-  const getCardClassNames = () => {
-    if (isHover) return `${styles.channelCard} ${styles.hover}`;
-    if (enabled) return `${styles.channelCard} ${styles.enabled}`;
-    return `${styles.channelCard} ${styles.normal}`;
-  };
-
   return (
-    <InteractiveCard tilt={3} style={{ width: "100%" }}>
+    <InteractiveCard tilt={2} className={styles.channelSurface}>
       <Card
-        hoverable
         onClick={onClick}
         role="button"
         tabIndex={0}
@@ -55,9 +48,7 @@ export const ChannelCard = React.memo(function ChannelCard({
             onClick();
           }
         }}
-        onMouseEnter={() => setIsHover(true)}
-        onMouseLeave={() => setIsHover(false)}
-        className={getCardClassNames()}
+        className={styles.channelCard}
         bodyStyle={{ padding: 24 }}
       >
         {/* Top section: Icon and Status */}
@@ -94,6 +85,10 @@ export const ChannelCard = React.memo(function ChannelCard({
           <div className={styles.cardDescription}>
             {t("channels.botPrefix")}: {botPrefix || t("channels.notSet")}
           </div>
+          <span className={styles.configureAction}>
+            {t("channels.configureAction")}{" "}
+            <ArrowUpRight size={16} aria-hidden />
+          </span>
         </div>
       </Card>
     </InteractiveCard>

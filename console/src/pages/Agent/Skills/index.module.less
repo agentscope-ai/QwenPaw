@@ -1735,3 +1735,249 @@
     white-space: nowrap;
   }
 }
+
+.skillsPage,
+:global(.dark-mode) .skillsPage {
+  --skills-warm-banner-border: var(--app-border);
+  --skills-warm-banner-bg: var(--app-surface-subtle);
+  --skills-warm-heading: var(--app-text);
+  --skills-warm-muted: var(--app-text-secondary);
+  --skills-warm-card: var(--app-surface);
+  --skills-warm-border: var(--app-border);
+  --skills-warm-section-border: var(--app-border-subtle);
+  --skills-warm-border-hover: var(--app-accent-border);
+  --skills-warm-body: var(--app-text-secondary);
+  --skills-warm-meta-text: var(--app-text-secondary);
+  --skills-warm-meta-bg: var(--app-fill-subtle);
+  --skills-warm-enabled: var(--app-success-text);
+  --skills-warm-disabled: var(--app-text-tertiary);
+}
+.skillsPage .skillSurface {
+  width: 100%;
+  border-radius: 20px;
+  --reflection-highlight: var(--app-accent-faint);
+  --reflection-silver: transparent;
+  --reflection-edge: var(--app-accent-border);
+  --reflection-shadow: transparent;
+}
+.skillsGrid {
+  padding: 4px;
+  gap: 20px;
+}
+.skillCard {
+  min-height: 248px;
+  :global(.qwenpaw-card-body),
+  :global(.ant-card-body) {
+    display: flex;
+    flex-direction: column;
+    padding: 20px !important;
+    height: 100%;
+  }
+  :global(.qwenpaw-spark-card-wrapper) {
+    padding: 0 !important;
+  }
+  &:hover {
+    box-shadow: var(--app-shadow-sm);
+  }
+  .titleRow {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+    margin-top: 12px;
+  }
+  .skillTitle {
+    width: 100%;
+    margin: 0;
+    white-space: normal;
+  }
+  .descriptionText {
+    font-size: 14px;
+    line-height: 1.6;
+    min-height: 44px;
+    margin-bottom: 16px;
+  }
+}
+.skillNameButton {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  color: var(--app-text);
+  font: inherit;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.45;
+  text-align: start;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+  &:hover {
+    color: var(--app-accent-text);
+  }
+  &:focus-visible {
+    outline: 2px solid var(--app-focus-ring);
+    outline-offset: 3px;
+    border-radius: 4px;
+  }
+}
+.skillSummaryMeta {
+  flex-wrap: wrap;
+  overflow-wrap: anywhere;
+}
+.skillActions {
+  margin-top: auto;
+  padding-top: 12px;
+  gap: 12px;
+}
+.fileIcon {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  background: var(--app-accent-faint);
+  font-size: 22px;
+}
+.preloadTag,
+.preloadListTag {
+  background: var(--app-success-bg);
+  color: var(--app-success-text);
+  border-radius: 6px;
+  margin: 0;
+}
+.toolbar {
+  position: relative;
+  top: auto;
+  margin: 0 16px 8px;
+  padding: 12px;
+  border-radius: 16px;
+  gap: 16px;
+}
+.searchContainer {
+  max-width: none;
+}
+.searchInput {
+  min-height: 40px;
+  border-radius: 10px;
+}
+.tagSelect {
+  min-width: 180px;
+}
+.viewToggle {
+  padding: 3px;
+  border-radius: 12px;
+  background: var(--app-fill-subtle);
+}
+.viewToggleBtn {
+  width: 40px;
+  height: 40px;
+  border-radius: 9px;
+  font-size: 18px;
+}
+.filterOption {
+  min-height: 32px;
+  border: 1px solid var(--app-border);
+  border-radius: 8px;
+  font: inherit;
+  font-size: 13px;
+}
+.filterOption:hover,
+.filterOptionActive {
+  color: var(--app-accent-text);
+  background: var(--app-accent-soft);
+  border-color: var(--app-accent-border);
+}
+.skillsList {
+  padding: 0;
+}
+.listItemDesc {
+  white-space: normal;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  line-height: 1.6;
+}
+.listItemHeader {
+  min-width: 0;
+}
+.listItemRight {
+  margin-left: 8px;
+}
+.providerSkillCard {
+  border-radius: 16px;
+}
+@media (max-width: 600px) {
+  .toolbar {
+    margin-inline: 0;
+  }
+  .searchContainer {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .tagSelect {
+    max-width: none;
+    width: 100%;
+  }
+  .searchInput :global(input) {
+    text-align: start;
+  }
+  .skillListItem {
+    flex-wrap: wrap;
+    gap: 16px;
+  }
+  .listItemLeft {
+    flex-basis: 100%;
+  }
+  .listItemRight {
+    margin-left: auto;
+  }
+  .toolbarRight {
+    justify-content: flex-end;
+  }
+}
+@media (pointer: coarse) {
+  .viewToggleBtn {
+    width: 44px;
+    height: 44px;
+  }
+}
+
+.skillsPage .skillCard {
+  box-shadow: var(--app-shadow-sm);
+  .titleRow {
+    min-height: 48px;
+    align-items: flex-start;
+  }
+  .descriptionText {
+    background: transparent;
+    border: 0;
+    padding: 0;
+  }
+  :global(.qwenpaw-spark-card-wrapper) {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+  }
+}
+
+// A skill is identified by its name; repeated document icons add no information.
+.skillsPage .skillCard {
+  min-height: 160px;
+
+  .titleRow {
+    flex-wrap: nowrap;
+    align-items: flex-start;
+    min-height: 48px;
+    margin-top: 0;
+  }
+
+  .skillTitle {
+    flex: 1;
+    min-width: 0;
+    width: auto;
+  }
+
+  .skillSummaryMeta {
+    gap: 8px;
+    margin: 8px 0 20px;
+  }
+}

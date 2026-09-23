@@ -32,6 +32,27 @@ function triggerIntersection() {
 }
 
 describe("useProgressiveRender", () => {
+  it("retains the mounted slice across status changes with a stable identity key", () => {
+    const items = Array.from({ length: 50 }, (_, id) => ({
+      id,
+      enabled: true,
+    }));
+    const { result, rerender } = renderHook(
+      ({ values, resetKey }) => useProgressiveRender(values, resetKey),
+      { initialProps: { values: items, resetKey: "agent:all" } },
+    );
+    act(() => result.current.sentinelRef(document.createElement("div")));
+    act(triggerIntersection);
+    rerender({
+      values: items.map((item) => ({ ...item, enabled: false })),
+      resetKey: "agent:all",
+    });
+    expect(result.current.visibleItems).toHaveLength(40);
+    expect(result.current.visibleItems[0].enabled).toBe(false);
+    rerender({ values: items, resetKey: "other-agent:all" });
+    expect(result.current.visibleItems).toHaveLength(20);
+  });
+
   it("shows all items when total < INITIAL_COUNT (10 items)", () => {
     const items = Array.from({ length: 10 }, (_, i) => i);
     const { result } = renderHook(() => useProgressiveRender(items));

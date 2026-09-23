@@ -16,7 +16,9 @@ export function SettingsDrawer({
   const screens = Grid.useBreakpoint();
   const content = (
     <ConfigProvider
-      getPopupContainer={(trigger) => trigger?.parentElement ?? document.body}
+      getPopupContainer={(trigger) =>
+        trigger?.closest<HTMLElement>('[role="dialog"]') ?? document.body
+      }
     >
       <div className={styles.form}>{children}</div>
     </ConfigProvider>

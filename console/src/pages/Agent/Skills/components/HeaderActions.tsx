@@ -120,7 +120,7 @@ export function HeaderActions({
               {t("common.delete")} ({selectedSkills.size})
             </Button>
           </>
-          <Button type="primary" onClick={onToggleBatchMode}>
+          <Button type="default" onClick={onToggleBatchMode}>
             {t("skills.exitBatch")}
           </Button>
         </div>
@@ -131,6 +131,7 @@ export function HeaderActions({
               <Button
                 type="default"
                 icon={<ReloadOutlined size="1em" data-spinning={loading} />}
+                aria-label={t("skills.refreshHint")}
                 onClick={onHardRefresh}
                 disabled={loading}
               />
@@ -147,7 +148,7 @@ export function HeaderActions({
             </Tooltip>
           </div>
           <div className={styles.headerActionsRight}>
-            <Button type="primary" onClick={onToggleBatchMode}>
+            <Button type="default" onClick={onToggleBatchMode}>
               {t("skills.batchOperation")}
             </Button>
             <AddSkillDropdown

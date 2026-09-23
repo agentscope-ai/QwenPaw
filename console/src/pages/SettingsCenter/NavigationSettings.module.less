@@ -2,233 +2,242 @@
   width: 100%;
   min-width: 0;
 }
-.header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 20px;
-  margin-bottom: 12px;
-  h3 {
-    font-size: 16px;
-    margin: 0;
-  }
-  p {
-    color: var(--app-text-tertiary);
-    font-size: 13px;
-    margin: 8px 0 0;
-  }
-}
+.header,
+.header > div,
+.previewHeader,
 .actions {
   display: flex;
   align-items: center;
   gap: 8px;
-  flex-shrink: 0;
-  justify-content: flex-end;
+}
+.header {
+  margin: 0 2px 10px;
+  h3 {
+    margin: 0;
+    color: var(--app-text-secondary);
+    font-size: 0.875rem;
+    font-weight: 600;
+    line-height: 22px;
+  }
+}
+.helpButton {
+  color: var(--app-text-secondary);
+}
+.previewHeader {
+  justify-content: space-between;
   margin-bottom: 16px;
+}
+.previewTitle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.8125rem;
+  color: var(--app-text-secondary);
+}
+.entryCount {
+  font-variant-numeric: tabular-nums;
+}
+.actions {
+  flex-shrink: 0;
+}
+.actions button,
+.helpButton {
+  min-width: 40px;
+  min-height: 40px;
 }
 .workspace {
   display: grid;
-  grid-template-columns: minmax(0, 1fr);
   gap: 16px;
-  align-items: start;
-  width: 100%;
+  min-width: 0;
 }
-.preview {
+.preview,
+.library {
   border: 1px solid var(--app-border-subtle);
-  border-radius: 24px;
-  padding: 24px;
+  border-radius: 20px;
+  padding: 20px;
   background: var(--app-surface);
-  box-shadow: 0 4px 24px rgb(0 0 0 / 3%);
-  position: relative;
 }
-.previewCard {
-  padding: 0;
-}
+.previewCard,
 .libraryReveal {
   min-width: 0;
+}
+.libraryReveal {
   overflow: hidden;
 }
 .previewDrop,
 .libraryGrid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(88px, 1fr));
-  gap: 10px 4px;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 8px;
+  border-radius: 12px;
 }
-.previewDrop {
-  min-height: 96px;
-  padding: 6px 0;
-  border-radius: 16px;
-  transition: background 0.15s;
+.previewDrop[data-over="true"],
+.library[data-over="true"] {
+  background: var(--app-accent-soft);
 }
-.previewDrop[data-over="true"] {
-  background: rgba(255, 128, 0, 0.08);
-}
-.library {
-  padding: 24px;
-  border: 1px solid var(--app-border-subtle);
-  border-radius: 24px;
-  background: var(--app-bg-container);
-  min-height: 280px;
-  transition: background 0.15s;
-  > h3 {
-    margin: 0 0 24px;
-    font-size: 15px;
-  }
-  &[data-over="true"] {
-    background: var(--app-primary-bg, rgba(255, 128, 0, 0.05));
-  }
-}
-.libraryGrid {
-  grid-template-columns: repeat(auto-fill, minmax(86px, 1fr));
-  gap: 14px 8px;
+.library > h3 {
+  margin: 0 0 16px;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--app-text);
 }
 .groupTitle {
-  font-size: 12px;
+  font-size: 0.8125rem;
   font-weight: 500;
-  color: var(--app-text-tertiary);
-  margin: 22px 0 12px;
+  color: var(--app-text-secondary);
+  margin: 20px 0 8px;
 }
 .tile {
   min-width: 0;
   position: relative;
-  z-index: 1;
-  &[data-dragging="true"] {
-    opacity: 0.18;
-  }
 }
-.tileBody {
-  position: relative;
-  transform-origin: 50% 40%;
+.tile[data-dragging="true"] {
+  opacity: 0.25;
+}
+.tileBody,
+.fixedTile {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 60px;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  background: var(--app-surface-subtle);
 }
 .tileBody[data-editing="true"] {
-  animation: wiggle 0.27s ease-in-out infinite alternate;
+  border-color: var(--app-border);
+  &:focus-within {
+    border-color: var(--app-focus-ring);
+  }
 }
 .dragHandle {
-  border: 0;
-  background: none;
-  color: var(--app-text-primary);
-  width: 100%;
   display: flex;
-  flex-direction: column;
   align-items: center;
-  gap: 8px;
-  padding: 6px 2px;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+  min-height: 60px;
+  padding: 10px;
+  border: 0;
+  border-radius: 12px;
+  background: none;
+  color: var(--app-text);
+  text-align: start;
+  font: inherit;
   cursor: grab;
   touch-action: none;
   &:disabled {
     cursor: default;
     opacity: 1;
+    touch-action: auto;
   }
-  &:focus-visible {
-    outline: 2px solid var(--app-primary, #ff8000);
-    border-radius: 14px;
-  }
-  &:active {
+  &:active:not(:disabled) {
     cursor: grabbing;
   }
 }
+.grip {
+  flex-shrink: 0;
+  color: var(--app-text-tertiary);
+}
 .icon {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 46px;
-  height: 46px;
-  border-radius: 14px;
-  background: var(--app-fill-tertiary, rgba(127, 127, 127, 0.065));
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: var(--app-fill);
   color: var(--app-text-secondary);
   svg {
-    width: 22px;
-    height: 22px;
-    stroke-width: 1.7;
+    width: 18px;
+    height: 18px;
+    stroke-width: 1.75;
   }
 }
 .label {
-  font-size: 11px;
-  max-width: 100%;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  font-size: 0.8125rem;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+  min-width: 0;
 }
 .badge {
-  position: absolute;
-  top: 0;
-  left: calc(50% - 30px);
-  width: 22px;
-  height: 22px;
-  padding: 0;
-  box-sizing: border-box;
-  line-height: 0;
-  svg {
-    display: block;
-    width: 12px;
-    height: 12px;
-    flex-shrink: 0;
-  }
   display: grid;
   place-items: center;
-  border-radius: 50%;
-  border: 2px solid var(--app-bg-container);
-  background: var(--app-primary, #ff8000);
-  color: white;
+  flex: none;
+  width: 40px;
+  height: 40px;
+  margin-right: 4px;
+  padding: 0;
+  border: 0;
+  border-radius: 10px;
+  background: var(--app-accent-soft);
+  color: var(--app-accent-text);
   cursor: pointer;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.08);
+  svg {
+    width: 16px;
+    height: 16px;
+  }
   &[data-selected="true"] {
-    background: var(--app-text-secondary);
+    color: var(--app-text-secondary);
+    background: var(--app-fill);
+  }
+  &:active {
+    box-shadow: inset 0 2px 4px var(--app-border);
   }
 }
+.page button:focus-visible {
+  outline: 2px solid var(--app-focus-ring);
+  outline-offset: 2px;
+}
 .empty {
-  font-size: 12px;
-  color: var(--app-text-tertiary);
+  margin: 0;
+  padding: 16px 0;
+  font-size: 0.8125rem;
+  color: var(--app-text-secondary);
   grid-column: 1/-1;
-  align-self: center;
-  text-align: center;
-  padding: 14px 0;
 }
 .dragPreview {
   display: flex;
-  flex-direction: column;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--app-accent-border);
+  border-radius: 12px;
+  background: var(--app-surface-raised);
+  color: var(--app-text);
+  box-shadow: var(--app-shadow-md);
+  font-size: 0.8125rem;
+}
+.fixedTile {
   padding: 10px;
-  border-radius: 18px;
-  background: var(--app-bg-elevated);
-  box-shadow: 0 14px 32px rgba(0, 0, 0, 0.16);
-  font-size: 11px;
-  transform: scale(1.08);
-}
-@keyframes wiggle {
-  from {
-    transform: rotate(-1.1deg);
-  }
-  to {
-    transform: rotate(1.1deg);
+  gap: 10px;
+  color: var(--app-text-secondary);
+  > svg {
+    margin-left: auto;
+    flex-shrink: 0;
   }
 }
-@media (prefers-reduced-motion: reduce) {
-  .tileBody[data-editing="true"] {
-    animation: none;
-  }
-  .previewDrop,
-  .library {
-    transition: none;
-  }
+.page[data-editing="true"] :is(.previewDrop, .libraryGrid) {
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
 }
-@media (max-width: 760px) {
+@media (max-width: 600px) {
   .preview,
   .library {
     padding: 16px;
   }
   .previewDrop,
   .libraryGrid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .actions {
+    gap: 4px;
   }
 }
-
-.fixedTile {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 2px;
-  color: var(--app-text-secondary);
+@media (pointer: coarse) {
+  .badge,
+  .actions button,
+  .helpButton {
+    min-width: 44px;
+    min-height: 44px;
+  }
 }

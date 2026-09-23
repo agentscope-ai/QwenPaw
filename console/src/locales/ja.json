@@ -804,7 +804,9 @@
     "noTags": "利用可能なタグがありません",
     "enabledSkills": "有効なスキル",
     "disabledSkills": "無効なスキル",
-    "active": "個有効"
+    "active": "個有効",
+    "settingsDetails": "適用範囲と詳細設定",
+    "name": "スキル名"
   },
   "skillPool": {
     "description": "ビルトインスキルとワークスペースアップロード用の共有ローカルスキルプール。ClawHub や LobeHub などの外部インポートは別機能です。",
@@ -1080,7 +1082,11 @@
     "targetInbox": "受信トレイに送信",
     "runNow": "今すぐ実行",
     "runNowSuccess": "ハートビートを実行しました。受信トレイまたは送信先チャンネルを確認してください。",
-    "runNowFailed": "ハートビートの実行に失敗しました"
+    "runNowFailed": "ハートビートの実行に失敗しました",
+    "instructionsTitle": "ハートビートの指示",
+    "instructionsLoadFailed": "指示を読み込めませんでした。再試行してください。",
+    "customInterval": "間隔を指定",
+    "intervalRange": "1分から23時間59分の範囲で選択してください"
   },
   "cronJobs": {
     "executionModel": "実行モデル",
@@ -1101,7 +1107,7 @@
     "enabled": "ステータス",
     "scheduleType": "スケジュールタイプ",
     "scheduleCron": "スケジュール（Cron）",
-    "scheduleCronLabel": "スケジュール（Cron）",
+    "scheduleCronLabel": "実行時刻",
     "scheduleTimezone": "タイムゾーン",
     "cronType": "頻度",
     "cronTypeHourly": "毎時",
@@ -1159,7 +1165,7 @@
     "idTooltip": "タスクの作成時にシステムによって生成され、編集不可の一意のUUID。",
     "nameTooltip": "このジョブを識別するためのわかりやすい名前。",
     "cronTooltip": "タスクの実行タイミングを定義します",
-    "cronExample": "よく使う例: '0 9 * * *' = 毎日9時 | '*/30 * * * *' = 30分ごと | '0 */2 * * *' = 2時間ごと | '0 0 * * 0' = 日曜0時",
+    "cronExample": "よく使う例: '0 9 * * *' = 毎日9時 | '*/30 * * * *' = 30分ごと | '0 */2 * * *' = 2時間ごと | '0 0 * * sun' = 日曜0時",
     "cronHelper": "Cron式に慣れていませんか？",
     "cronHelperLink": "オンラインジェネレーターを使う",
     "timezoneTooltip": "Cronスケジュールのタイムゾーン。デフォルト: UTC",
@@ -1300,7 +1306,35 @@
         "description": "毎週会議前に、直近1週間の memory をもとに業務サマリーを生成します。",
         "frequency": "初回：2026-01-02 08:30｜7日ごと｜2026-03-01まで"
       }
-    }
+    },
+    "calendarScope": "日時指定のタスクのみ",
+    "viewMode": "表示形式",
+    "emptyList": "この表示にはタスクがありません",
+    "previousMonth": "前の月",
+    "nextMonth": "次の月",
+    "cronExpression": "Cron 式",
+    "cronFormatHint": "形式：分 時 日 月 曜日",
+    "importReviewBadge": "インポート後の確認が必要",
+    "importReviewApprove": "確認を承認",
+    "importReviewTitle": "インポートした定期タスクを確認",
+    "importReviewContent": "「{{name}}」の指示、作業ディレクトリ、権限を確認し、QwenPaw で安全に実行できると判断しましたか？承認後も無効のままです。有効化は別途行ってください。",
+    "importReviewConfirm": "確認を承認",
+    "importReviewSuccess": "確認を承認しました。準備ができたら別途有効にしてください。",
+    "importReviewFailed": "確認を承認できませんでした",
+    "importReviewBlocked": "インポートしたタスクは、有効化や実行の前に確認が必要です。",
+    "importReviewProjectDirLabel": "ローカルプロジェクトの場所",
+    "importReviewProjectDirTooltip": "元の作業ディレクトリをこの端末の実在するプロジェクトに対応付けます。このフォームで移行メタデータや確認条件は変更できません。",
+    "importReviewProjectDirExtra": "リモートまたは検証不能なディレクトリは確認前に対応付けが必要です。その他は任意です。",
+    "importReviewProjectDirPlaceholder": "例：/Users/me/Documents/my-project",
+    "importReviewProjectDirRequired": "承認前にタスクを編集し、有効なローカルプロジェクトの場所を指定してください。",
+    "frequency": "実行頻度",
+    "cronTypeMinutes": "分間隔",
+    "cronTypeMonthly": "毎月",
+    "intervalMinutes": "繰り返し間隔",
+    "everyMinutes": "{{count}} 分ごと",
+    "monthDay": "毎月の日付",
+    "shortMonthHint": "指定日がない月はスキップされます。",
+    "selectAtLeastOneDay": "曜日を少なくとも1つ選択してください。"
   },
   "channels": {
     "title": "チャンネル",
@@ -1527,7 +1561,73 @@
     "availableSection": "未有効",
     "enableAction": "有効にする",
     "noEnabledChannels": "有効なチャンネルはありません",
-    "goEnableChannels": "チャンネルを有効にする"
+    "goEnableChannels": "チャンネルを有効にする",
+    "configureAction": "設定",
+    "advancedSettings": "詳細設定",
+    "deliverySettings": "配信オプション",
+    "manualCredentials": "認証情報を手動入力",
+    "presentationSettings": "メッセージ表示",
+    "welcomeText": "ウェルカムメッセージ",
+    "welcomeTextPlaceholder": "こんにちは！QwenPawです。何かお手伝いできますか？",
+    "welcomeTextTooltip": "ユーザーがその日初めてボットとの個別チャットを開いたときに自動送信します",
+    "xiaoyiSetupGuide": "Huawei開発者プラットフォームでエージェントを作成し、AK/SKとエージェントIDを取得してください。AK/SKは認証情報管理ページにあります。",
+    "fieldHomeserverURL": "ホームサーバーURL",
+    "fieldAuthMethod": "認証方法",
+    "fieldAccessToken": "アクセストークン",
+    "fieldPassword": "パスワード",
+    "fieldEnableEndtoEndEncryption": "エンドツーエンド暗号化",
+    "fieldDeviceName": "デバイス名",
+    "fieldDBPath": "データベースのパス",
+    "fieldPollIntervalsec": "ポーリング間隔（秒）",
+    "fieldHTTPProxy": "HTTPプロキシ",
+    "fieldHTTPProxyAuth": "HTTPプロキシ認証",
+    "fieldClientID": "クライアントID",
+    "fieldClientSecret": "クライアントシークレット",
+    "fieldMessageType": "メッセージ形式",
+    "fieldCronMessageType": "定期タスクのメッセージ形式",
+    "fieldCardTemplateID": "カードテンプレートID",
+    "fieldCardTemplateKey": "カードテンプレート変数名",
+    "fieldRobotCode": "ボットコード",
+    "fieldAppID": "アプリID",
+    "fieldAppSecret": "アプリシークレット",
+    "fieldEncryptKey": "暗号化キー",
+    "fieldVerificationToken": "検証トークン",
+    "fieldAPIBaseURL": "APIベースURL",
+    "fieldShowTyping": "入力中の状態を表示",
+    "fieldMQTTHost": "MQTTホスト",
+    "fieldMQTTPort": "MQTTポート",
+    "fieldCleanSession": "セッションをクリア",
+    "fieldQoS": "サービス品質（QoS）",
+    "fieldMQTTUsername": "MQTTユーザー名",
+    "fieldMQTTPassword": "MQTTパスワード",
+    "fieldSubscribeTopic": "購読トピック",
+    "fieldPublishTopic": "配信トピック",
+    "fieldTLSEnabled": "TLSを有効化",
+    "fieldTLSCACerts": "TLS CA証明書",
+    "fieldTLSCertfile": "TLS証明書ファイル",
+    "fieldTLSKeyfile": "TLS鍵ファイル",
+    "fieldMattermostURL": "Mattermost URL",
+    "fieldThreadFollowWithoutMention": "メンションなしでスレッドに応答",
+    "fieldBotID": "ボットID",
+    "fieldSecret": "シークレット",
+    "fieldAccessKeyAK": "アクセスキー（AK）",
+    "fieldSecretKeySK": "シークレットキー（SK）",
+    "fieldAgentID": "エージェントID",
+    "fieldAPIDomain": "APIドメイン",
+    "fieldWebSocketHost": "WebSocketホスト",
+    "fieldWebSocketPort": "WebSocketポート",
+    "matrixUserHelp": "完全なMXID（例：@bot:matrix.org）またはローカル名（例：bot）を入力できます。",
+    "matrixEncryptionHelp": "有効化後、Matrixクライアント（Elementなど）でデバイスを検証し、pip install matrix-nio[e2e] を実行してください。",
+    "matrixDeviceHelp": "Matrixクライアントの固定デバイス名。空欄の場合は qwenpaw-worker。",
+    "messageTypeHelp": "markdown：通常のメッセージ、card：AI対話カード。",
+    "scheduledMessageTypeHelp": "定期タスクの送信形式。チャットの形式とは独立しています。",
+    "cardVariableHelp": "テンプレートの変数名と完全に一致させてください。",
+    "robotCodeHelp": "グループチャットでは明示的に設定してください。",
+    "apiDomainHelp": "署名トークン認証のREST APIドメイン。既定：bot.yuanbao.tencent.com。",
+    "requiredField": "{{field}}を入力してください",
+    "portRange": "ポートは1〜65535で指定してください",
+    "developmentMode": "開発（pyVoIP）",
+    "productionMode": "本番（LiveKit）"
   },
   "sessions": {
     "title": "セッション",
@@ -1647,7 +1747,8 @@
       "user": "QwenPaw",
       "system": "システム",
       "default": "既定値"
-    }
+    },
+    "qwenpawSettings": "QwenPaw の環境設定"
   },
   "tokenUsage": {
     "title": "Token 使用量",
@@ -2739,10 +2840,14 @@
       "offDesc": "ツールとファイルの承認を無効にします"
     },
     "saveLevelSuccess": "ツール承認モードを保存しました",
-    "saveLevelFailed": "ツール承認モードの保存に失敗しました"
+    "saveLevelFailed": "ツール承認モードの保存に失敗しました",
+    "offloadPolicy": {
+      "title": "ツールのバックグラウンド実行ポリシー"
+    },
+    "memoryAutoRecordTitle": "会話メモリを有効にする"
   },
   "tools": {
-    "title": "ビルトインツール",
+    "title": "ツール",
     "description": "ビルトインツールとその有効状態を管理します。無効なツールはエージェントで使用できません。",
     "emptyState": "ツールが設定されていません",
     "loadError": "ツールの読み込みに失敗しました",
@@ -2779,7 +2884,157 @@
     "noEnabled": "有効なツールはありません",
     "goEnableBtn": "有効にする",
     "configureAction": "設定 →",
-    "enableAction": "有効化 →"
+    "enableAction": "有効化 →",
+    "catalog": {
+      "execute_shell_command": {
+        "name": "コマンドを実行",
+        "description": "ターミナルのコマンドやスクリプトを実行します。"
+      },
+      "read_file": {
+        "name": "ファイルを読む",
+        "description": "テキストファイル全体または指定した行を読み取ります。"
+      },
+      "write_file": {
+        "name": "ファイルに書き込む",
+        "description": "ファイルを作成し、新しい内容を書き込みます。"
+      },
+      "edit_file": {
+        "name": "ファイルを編集",
+        "description": "ファイル内の特定の内容を検索して置換します。"
+      },
+      "append_file": {
+        "name": "ファイルに追記",
+        "description": "既存の内容を残したままテキストを追加します。"
+      },
+      "grep_search": {
+        "name": "ファイル内を検索",
+        "description": "キーワードやパターンでファイル内のテキストを検索します。"
+      },
+      "glob_search": {
+        "name": "ファイルを探す",
+        "description": "名前やパスのパターンでファイルを探します。"
+      },
+      "ast_search": {
+        "name": "コード構造を検索",
+        "description": "構文を考慮してコードのパターンを検索します。"
+      },
+      "desktop_screenshot": {
+        "name": "デスクトップを撮影",
+        "description": "エージェントが確認できるよう画面を撮影します。"
+      },
+      "view_image": {
+        "name": "画像を確認",
+        "description": "モデルが理解できるよう画像を読み込みます。"
+      },
+      "view_video": {
+        "name": "動画を確認",
+        "description": "モデルが分析できるよう動画を読み込みます。"
+      },
+      "enhance_and_generate_image": {
+        "name": "プロンプトを改善して画像を生成",
+        "description": "画像のプロンプトを調整し、画像を生成します。"
+      },
+      "web_search": {
+        "name": "ウェブ検索",
+        "description": "最新の情報や情報源をオンラインで検索します。"
+      },
+      "web_fetch": {
+        "name": "ウェブページを読む",
+        "description": "ページの内容を取得し、閲覧や分析に使います。"
+      },
+      "browser": {
+        "name": "ブラウザーを操作",
+        "description": "ページを閲覧し、ウェブ上の要素を操作します。"
+      },
+      "list_agents": {
+        "name": "エージェント一覧",
+        "description": "連携できるエージェントを探します。"
+      },
+      "chat_with_agent": {
+        "name": "エージェントと会話",
+        "description": "別のエージェントにメッセージを送り、返答を受け取ります。"
+      },
+      "submit_to_agent": {
+        "name": "タスクを委任",
+        "description": "別のエージェントにバックグラウンドタスクを依頼します。"
+      },
+      "check_agent_task": {
+        "name": "タスクの進捗を確認",
+        "description": "委任したタスクの状態と結果を確認します。"
+      },
+      "spawn_subagent": {
+        "name": "サブエージェントを起動",
+        "description": "独立したタスク用に一時的なエージェントを起動します。"
+      },
+      "delegate_external_agent": {
+        "name": "外部エージェントに委任",
+        "description": "設定済みの外部エージェントに作業を依頼します。"
+      },
+      "send_file_to_user": {
+        "name": "ファイルを送信",
+        "description": "現在の会話でユーザーにファイルを送信します。"
+      },
+      "get_current_time": {
+        "name": "現在時刻を取得",
+        "description": "現在の日付と時刻を取得します。"
+      },
+      "set_user_timezone": {
+        "name": "タイムゾーンを設定",
+        "description": "時刻に関わるタスク用にユーザーのタイムゾーンを設定します。"
+      },
+      "get_token_usage": {
+        "name": "トークン使用量を確認",
+        "description": "モデル呼び出しのトークン使用量を確認します。"
+      },
+      "materialize_skill": {
+        "name": "スキルをファイル化",
+        "description": "スキルの定義をワークスペースに書き出します。"
+      },
+      "run_tool_batch": {
+        "name": "ツールを一括実行",
+        "description": "JSON ファイルで定義されたツール呼び出しを実行します。"
+      },
+      "activate_f1_exploration_mode": {
+        "name": "メール承認を体験",
+        "description": "メール承認のガイド付き探索モードを開始します。"
+      },
+      "migration_compat_inspect": {
+        "name": "移行データを検査",
+        "description": "準備されたデータと現在の QwenPaw の機能を確認します。"
+      },
+      "migration_compat_read_file": {
+        "name": "移行ファイルを読む",
+        "description": "準備されたデータファイルをページごとに読み取ります。"
+      },
+      "migration_compat_write_file": {
+        "name": "移行ファイルに書き込む",
+        "description": "修復対象のデータ内でテキストファイルを作成または上書きします。"
+      },
+      "migration_compat_update": {
+        "name": "移行設定を更新",
+        "description": "変更が許可された MCP や定期タスクの項目を更新します。"
+      },
+      "migration_compat_finalize": {
+        "name": "移行を検証して完了",
+        "description": "最終テストを実行し、成功したら修復済みデータを適用します。"
+      }
+    },
+    "search": "ツールを検索",
+    "noSearchResults": "一致するツールがありません",
+    "filterAll": "すべてのツール",
+    "filterEnabled": "有効",
+    "filterDisabled": "無効",
+    "enabledCount": "{{total}} 個中 {{enabled}} 個が有効",
+    "enableAllConfirm": "{{count}} 個のツールをすべて有効にしますか？",
+    "groups": {
+      "files": "ファイルとコード",
+      "web": "ウェブとブラウザー",
+      "media": "画像と動画",
+      "agents": "エージェント連携",
+      "runtime": "実行と自動化",
+      "migration": "アプリの移行",
+      "other": "未分類"
+    }
   },
   "modelConfig": {
     "promptTitle": "LLMモデルが必要です — 設定後にChatページで選択",
@@ -2933,7 +3188,20 @@
       "global": "グローバル設定",
       "plugins": "プラグイン機能"
     },
-    "alwaysVisible": "常に表示"
+    "alwaysVisible": "常に表示",
+    "sidebarEditHelp": "ハンドルをドラッグして並べ替えます。キーボードではスペースで選択し、矢印キーで移動、再びスペースで配置します。＋／−で追加・削除できます。変更は自動保存されます。",
+    "fixedEntry": "常に表示",
+    "addEntry": "{{name}} を追加",
+    "allAdded": "すべて追加済み",
+    "availableEntries": "利用可能な項目",
+    "dragHint": "ドラッグして並べ替えるか、項目一覧に戻します。",
+    "dropHere": "ここにショートカットをドラッグ",
+    "mirrorHint": "よく使うツールを手元に。",
+    "moveEntry": "{{name}} を移動",
+    "preview": "プレビュー",
+    "previewCaption": "変更は自動保存されます",
+    "removeEntry": "{{name}} を削除",
+    "sidebarPreview": "表示中の項目"
   },
   "chat": {
     "newTask": "新しいタスク",
@@ -3286,7 +3554,8 @@
         "goToWhitelist": "ホワイトリストへ",
         "moreFindings": "他に {{count}} 件は表示していません（一覧は 設定 → セキュリティ → スキルスキャナ を参照）。"
       }
-    }
+    },
+    "sandboxEnabled": "サンドボックス保護"
   },
   "hub": {
     "brand": {

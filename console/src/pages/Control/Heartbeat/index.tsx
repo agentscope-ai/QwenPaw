@@ -3,11 +3,10 @@ import { useAutoSave } from "@/hooks/useAutoSave";
 import { Activity, Moon, Inbox, MessagesSquare } from "lucide-react";
 import { InteractiveCard } from "@/components/interaction/InteractiveCard";
 import { PreferenceChoice } from "@/components/interaction/PreferenceChoice";
-import { RunningGlow } from "@/components/interaction/RunningGlow";
 import { useEffect, useState } from "react";
 import { Form, Switch } from "@agentscope-ai/design";
 import { useAppMessage } from "../../../hooks/useAppMessage";
-import { TimePicker, Collapse } from "antd";
+import { TimePicker, Collapse, Spin } from "antd";
 import dayjs from "dayjs";
 import customParseFormat from "dayjs/plugin/customParseFormat";
 import { useTranslation } from "react-i18next";
@@ -15,7 +14,7 @@ import api from "../../../api";
 import { useAgentStore } from "../../../stores/agentStore";
 import type { HeartbeatConfig } from "../../../api/types/heartbeat";
 import { parseEvery, serializeEvery } from "./parseEvery";
-import { DurationWheel } from "./DurationWheel";
+import { DurationWheel } from "@/components/interaction/DurationWheel";
 import { PageHeader } from "@/components/PageHeader";
 import { HeartbeatInstructions } from "./HeartbeatInstructions";
 import styles from "./index.module.less";
@@ -138,19 +137,17 @@ function HeartbeatPage() {
   if (loading) {
     return (
       <div className={styles.heartbeatPage}>
-        <PageHeader
-          items={[{ title: t("nav.control") }, { title: t("heartbeat.title") }]}
-        />
-        <span className={styles.description}>{t("common.loading")}</span>
+        <PageHeader items={[{ title: t("heartbeat.title") }]} />
+        <div className={styles.loading}>
+          <Spin aria-label={t("common.loading")} />
+        </div>
       </div>
     );
   }
 
   return (
     <div className={styles.heartbeatPage}>
-      <PageHeader
-        items={[{ title: t("nav.control") }, { title: t("heartbeat.title") }]}
-      />
+      <PageHeader items={[{ title: t("heartbeat.title") }]} />
       <Form
         form={form}
         layout="vertical"
@@ -203,7 +200,6 @@ function HeartbeatPage() {
               </button>
             ))}
           </div>
-          <RunningGlow active={enabled} />
         </InteractiveCard>
         <HeartbeatInstructions
           key={selectedAgent || "default"}

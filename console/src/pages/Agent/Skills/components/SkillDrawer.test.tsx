@@ -1,5 +1,11 @@
 import type { ReactNode, ComponentProps } from "react";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // `t` and `i18n` must be referentially stable: `validateFrontmatter` is a
@@ -9,7 +15,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const h = vi.hoisted(() => ({
   stableT: (key: string) => key,
   stableI18n: { language: "en" },
-  message: { success: vi.fn(), error: vi.fn(), warning: vi.fn() },
+  message: {
+    success: vi.fn(),
+    error: vi.fn(),
+    warning: vi.fn(),
+    destroy: vi.fn(),
+  },
   streamOptimizeSkill: vi.fn(),
   // Captured from the mocked Form/Form.Item so the tests can drive submit and
   // the two inline validators directly instead of going through real antd.
@@ -348,16 +359,16 @@ describe("SkillDrawer rendering", () => {
     expect(screen.queryByTestId("skill-form")).not.toBeInTheDocument();
   });
 
-  it("disables the save button while loading in edit mode", () => {
+  it("omits manual save while loading in edit mode", () => {
     setup({ editing: true, loading: true, editingSkill: null });
-    expect(screen.getByText("common.save").closest("button")).toBeDisabled();
+    expect(screen.queryByText("common.save")).not.toBeInTheDocument();
   });
 
   it("renders the AI optimize footer only when creating", () => {
     setup();
     expect(screen.getByText("skills.optimizeWithAI")).toBeInTheDocument();
     setup({ editing: true });
-    expect(screen.getAllByText("common.save").length).toBeGreaterThan(0);
+    expect(screen.queryByText("common.save")).not.toBeInTheDocument();
   });
 
   it("shows the installed-from label only in edit mode with a skill", () => {
@@ -867,5 +878,59 @@ describe("SkillDrawer channels field", () => {
     } as unknown as DrawerProps["channelOptions"];
     setup({ channelOptions });
     expect(screen.getByTestId("channel-select")).toBeInTheDocument();
+  });
+});
+
+describe("SkillDrawer automatic persistence", () => {
+  it("saves edited content after one idle second without closing", async () => {
+    vi.useFakeTimers();
+    const { props, unmount } = setup({
+      editing: true,
+      editingSkill: { name: "demo", content: VALID_CONTENT } as EditingSkill,
+    });
+    fireEvent.change(screen.getByTestId("md-textarea"), {
+      target: { value: VALID_CONTENT + " updated" },
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(999);
+    });
+    expect(props.onSubmit).not.toHaveBeenCalled();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1);
+    });
+    expect(props.onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({ content: VALID_CONTENT + " updated" }),
+    );
+    expect(props.onClose).not.toHaveBeenCalled();
+    unmount();
+    vi.useRealTimers();
+  });
+  it("flushes content when navigating away before the debounce", async () => {
+    const { props, unmount } = setup({
+      editing: true,
+      editingSkill: { name: "demo", content: VALID_CONTENT } as EditingSkill,
+    });
+    fireEvent.change(screen.getByTestId("md-textarea"), {
+      target: { value: VALID_CONTENT + " pending" },
+    });
+    await act(async () => {
+      unmount();
+    });
+    expect(props.onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({ content: VALID_CONTENT + " pending" }),
+    );
+  });
+  it("does not autosave new skills", async () => {
+    vi.useFakeTimers();
+    const { props, unmount } = setup();
+    fireEvent.change(screen.getByTestId("md-textarea"), {
+      target: { value: VALID_CONTENT },
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1000);
+    });
+    expect(props.onSubmit).not.toHaveBeenCalled();
+    unmount();
+    vi.useRealTimers();
   });
 });

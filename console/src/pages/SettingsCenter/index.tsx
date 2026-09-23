@@ -1,6 +1,7 @@
 import {
   Suspense,
   useMemo,
+  useRef,
   useState,
   type ComponentType,
   type ReactNode,
@@ -42,6 +43,12 @@ import { supportsPortabilityImport } from "@/utils/agentBackend";
 import GeneralSettings from "./GeneralSettings";
 import SettingsAgentSelector from "./SettingsAgentSelector";
 import styles from "./index.module.less";
+import {
+  matchesSettingsSearch,
+  searchSettingsItems,
+  SETTINGS_SEARCH_TABS,
+} from "./settingsSearch";
+import { useSettingsSearchTarget } from "./useSettingsSearchTarget";
 
 interface SettingsPageDefinition {
   key: string;
@@ -368,6 +375,17 @@ export default function SettingsCenter() {
       : page.fallback;
   };
 
+  const contentRef = useRef<HTMLElement>(null);
+  const [searchTarget, setSearchTarget] = useState<{
+    page: string;
+    label: string;
+    tab?: string;
+  } | null>(null);
+  useSettingsSearchTarget(contentRef, searchTarget, activePage?.key);
+  const matchingItems = new Map(
+    allPages.map((page) => [page.key, searchSettingsItems(page.key, query, t)]),
+  );
+
   const normalizedQuery = query.trim().toLocaleLowerCase();
   const filterNavigation = normalizedQuery !== "" || !canImport;
   const visibleGroups = filterNavigation
@@ -378,12 +396,14 @@ export default function SettingsCenter() {
             (page) =>
               (page.routeId !== "core.import" || canImport) &&
               (!normalizedQuery ||
-                `${searchablePageLabel(page)} ${t(
-                  page.descriptionKey,
-                  page.descriptionFallback,
-                )}`
-                  .toLocaleLowerCase()
-                  .includes(normalizedQuery)),
+                matchesSettingsSearch(
+                  normalizedQuery,
+                  `${searchablePageLabel(page)} ${t(
+                    page.descriptionKey,
+                    page.descriptionFallback,
+                  )} ${page.fallback}`,
+                ) ||
+                (matchingItems.get(page.key)?.length ?? 0) > 0),
           ),
         }))
         .filter((group) => group.pages.length > 0)
@@ -446,16 +466,37 @@ export default function SettingsCenter() {
           <Select
             aria-label={t("nav.settings")}
             value={activePage?.key}
-            onChange={(key) => {
-              const page = allPages.find((item) => item.key === key);
-              if (page) openPage(page);
+            showSearch
+            filterOption={false}
+            onSearch={setQuery}
+            onChange={(value) => {
+              const [pageKey, itemKey] = value.split("::");
+              const page = allPages.find((item) => item.key === pageKey);
+              if (page) {
+                setSearchTarget(
+                  itemKey
+                    ? {
+                        page: pageKey,
+                        label: t(itemKey),
+                        tab: SETTINGS_SEARCH_TABS[itemKey]
+                          ? t(SETTINGS_SEARCH_TABS[itemKey])
+                          : undefined,
+                      }
+                    : null,
+                );
+                openPage(page);
+              }
+              setQuery("");
             }}
             options={visibleGroups.map((group) => ({
               label: t(group.labelKey, group.fallback),
-              options: group.pages.map((page) => ({
-                value: page.key,
-                label: pageLabel(page),
-              })),
+              options: group.pages.flatMap((page) => [
+                { value: page.key, label: pageLabel(page) },
+                ...(matchingItems.get(page.key) ?? []).map((key) => ({
+                  value: `${page.key}::${key}`,
+                  label: `${searchablePageLabel(page)} · ${t(key)}`,
+                })),
+              ]),
             }))}
           />
           {activePage?.routeId &&
@@ -481,7 +522,10 @@ export default function SettingsCenter() {
               "settingsCenter.searchPlaceholder",
               "Search settings",
             )}
-            onChange={(event) => setQuery(event.target.value)}
+            onChange={(event) => {
+              setQuery(event.target.value);
+              setSearchTarget(null);
+            }}
           />
           <nav className={styles.navigation}>
             {visibleGroups.map((group) => (
@@ -493,23 +537,48 @@ export default function SettingsCenter() {
                 {group.pages.map((page) => {
                   const Icon = page.Icon;
                   return (
-                    <button
-                      key={page.key}
-                      type="button"
-                      aria-current={
-                        activePage?.key === page.key ? "page" : undefined
-                      }
-                      data-press
-                      className={`${styles.navItem} ${
-                        activePage?.key === page.key ? styles.navItemActive : ""
-                      }`}
-                      onClick={() => openPage(page)}
-                    >
-                      {page.icon ?? (Icon ? <Icon size={16} /> : null)}
-                      <span className={styles.navItemLabel}>
-                        {pageLabel(page)}
-                      </span>
-                    </button>
+                    <div key={page.key}>
+                      <button
+                        type="button"
+                        aria-current={
+                          activePage?.key === page.key ? "page" : undefined
+                        }
+                        data-press
+                        className={`${styles.navItem} ${
+                          activePage?.key === page.key
+                            ? styles.navItemActive
+                            : ""
+                        }`}
+                        onClick={() => {
+                          setSearchTarget(null);
+                          openPage(page);
+                        }}
+                      >
+                        {page.icon ?? (Icon ? <Icon size={16} /> : null)}
+                        <span className={styles.navItemLabel}>
+                          {pageLabel(page)}
+                        </span>
+                      </button>
+                      {(matchingItems.get(page.key) ?? []).map((key) => (
+                        <button
+                          key={key}
+                          type="button"
+                          className={styles.searchResult}
+                          onClick={() => {
+                            setSearchTarget({
+                              page: page.key,
+                              label: t(key),
+                              tab: SETTINGS_SEARCH_TABS[key]
+                                ? t(SETTINGS_SEARCH_TABS[key])
+                                : undefined,
+                            });
+                            openPage(page);
+                          }}
+                        >
+                          <span>{t(key)}</span>
+                        </button>
+                      ))}
+                    </div>
                   );
                 })}
               </section>
@@ -523,6 +592,7 @@ export default function SettingsCenter() {
         </aside>
 
         <main
+          ref={contentRef}
           className={styles.content}
           data-core-settings={
             activePage?.key !== "models" &&

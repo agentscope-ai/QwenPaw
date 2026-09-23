@@ -716,6 +716,23 @@ html.dark-mode .ant-tooltip-arrow::before {
   background: var(--app-surface-raised) !important;
 }
 
+/* Help remains readable inside scrolling editors and on narrow screens. */
+.qwenpaw-tooltip, .ant-tooltip {
+  max-width: min(320px, calc(100vw - 32px));
+}
+.qwenpaw-tooltip-inner, .ant-tooltip-inner {
+  box-sizing: border-box;
+  height: auto;
+  max-height: min(360px, 60dvh);
+  overflow: auto;
+  padding: 10px 12px;
+  border-radius: 12px;
+  font-size: 13px;
+  line-height: 1.5;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
 /* Tooltip global override — force opaque background in light mode */
 .qwenpaw-tooltip-inner,
 .ant-tooltip-inner {

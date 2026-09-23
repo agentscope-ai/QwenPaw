@@ -276,7 +276,7 @@ describe("drawer lifecycle", () => {
     expect(result.current.editingSkillName).toBe("");
   });
 
-  it("toggles enabled and refreshes", async () => {
+  it("toggles enabled without unmounting the list for a refresh", async () => {
     const { result } = renderHook(() => useSkillsPage());
     const stopPropagation = vi.fn();
     await act(async () => {
@@ -289,7 +289,7 @@ describe("drawer lifecycle", () => {
     });
     expect(stopPropagation).toHaveBeenCalled();
     expect(mocks.toggleEnabled).toHaveBeenCalled();
-    expect(mocks.refreshSkills).toHaveBeenCalled();
+    expect(mocks.refreshSkills).not.toHaveBeenCalled();
   });
 
   it("delegates deletion to the skills hook", async () => {
@@ -380,10 +380,20 @@ describe("submit — edit path", () => {
         content: "new",
         overwrite: false,
       }),
+      "agent-1",
     );
-    expect(mocks.updateSkillChannels).toHaveBeenCalledWith("alpha", ["web"]);
-    expect(mocks.updateSkillTags).toHaveBeenCalledWith("alpha", ["x"]);
-    expect(result.current.drawerOpen).toBe(false);
+    expect(mocks.updateSkillChannels).toHaveBeenCalledWith(
+      "alpha",
+      ["web"],
+      "agent-1",
+    );
+    expect(mocks.updateSkillTags).toHaveBeenCalledWith(
+      "alpha",
+      ["x"],
+      "agent-1",
+    );
+    expect(result.current.drawerOpen).toBe(true);
+    expect(mocks.message.success).not.toHaveBeenCalled();
   });
 
   it("passes source_name on rename", async () => {
@@ -408,8 +418,21 @@ describe("submit — edit path", () => {
     });
     expect(mocks.saveSkill).toHaveBeenCalledWith(
       expect.objectContaining({ source_name: "alpha" }),
+      "agent-1",
     );
-    expect(mocks.message.success).toHaveBeenCalled();
+    expect(mocks.message.success).not.toHaveBeenCalled();
+    await act(async () => {
+      await result.current.handleSubmit({
+        name: "renamed",
+        content: "next",
+        channels: ["all"],
+        tags: [],
+      } as never);
+    });
+    expect(mocks.saveSkill).toHaveBeenLastCalledWith(
+      expect.objectContaining({ source_name: undefined, name: "renamed" }),
+      "agent-1",
+    );
   });
 
   it("confirms overwrite on conflict and retries", async () => {
@@ -438,6 +461,7 @@ describe("submit — edit path", () => {
     expect(mocks.saveSkill).toHaveBeenCalledTimes(2);
     expect(mocks.saveSkill).toHaveBeenLastCalledWith(
       expect.objectContaining({ overwrite: true }),
+      "agent-1",
     );
   });
 
@@ -467,7 +491,7 @@ describe("submit — edit path", () => {
     expect(mocks.saveSkill).toHaveBeenCalledTimes(1);
   });
 
-  it("shows an error toast for non-conflict save failures", async () => {
+  it("propagates failure to the autosave retry feedback", async () => {
     mocks.getSkill.mockResolvedValue({
       name: "alpha",
       content: "old",
@@ -480,14 +504,16 @@ describe("submit — edit path", () => {
       await result.current.handleEdit(result.current.skills[0] as never);
     });
     await act(async () => {
-      await result.current.handleSubmit({
-        name: "alpha",
-        content: "new",
-        channels: ["all"],
-        tags: [],
-      } as never);
+      await expect(
+        result.current.handleSubmit({
+          name: "alpha",
+          content: "new",
+          channels: ["all"],
+          tags: [],
+        } as never),
+      ).rejects.toThrow("disk full");
     });
-    expect(mocks.message.error).toHaveBeenCalledWith("disk full");
+    expect(result.current.drawerOpen).toBe(true);
   });
 });
 

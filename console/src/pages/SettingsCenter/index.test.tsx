@@ -726,6 +726,40 @@ describe("SettingsCenter", () => {
     expect(useSidebarStore.getState().focusItemIds).toContain("core.security");
   });
 
+  it("finds nested settings and navigates to their page", async () => {
+    registry.routes = [
+      {
+        id: "core.cron-jobs",
+        path: "/cron-jobs",
+        Component: () => <div>Jobs page</div>,
+      },
+    ];
+    renderWithProviders(
+      <>
+        <SettingsCenter />
+        <LocationProbe />
+      </>,
+      { initialEntries: ["/settings/cron-jobs"] },
+    );
+    await userEvent.type(
+      screen.getByPlaceholderText("Search settings"),
+      "sidebar",
+    );
+    const navigation = screen.getByRole("navigation");
+    expect(
+      within(navigation).getByRole("button", { name: "General" }),
+    ).toBeInTheDocument();
+    await userEvent.click(
+      within(navigation).getByRole("button", { name: "Sidebar" }),
+    );
+    expect(screen.getByTestId("location")).toHaveTextContent(
+      "/settings/general",
+    );
+    expect(
+      screen.getByRole("heading", { name: "Sidebar" }),
+    ).toBeInTheDocument();
+  });
+
   it("controls built-in and plugin shortcuts independently by section", async () => {
     registry.routes = [
       { id: "core.security", path: "/security", Component: () => null },
@@ -754,18 +788,6 @@ describe("SettingsCenter", () => {
       initialEntries: ["/settings/general"],
     });
 
-    await userEvent.click(screen.getByRole("button", { name: "Edit" }));
-    await userEvent.click(screen.getByRole("button", { name: "Add Security" }));
-    await userEvent.click(
-      screen.getByRole("button", { name: "Remove Example extension" }),
-    );
-    await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
-    expect(useSidebarStore.getState().focusItemIds).not.toContain(
-      "core.security",
-    );
-    expect(useSidebarStore.getState().hiddenPluginItemIds).not.toContain(
-      "example.settings.menu",
-    );
     await userEvent.click(screen.getByRole("button", { name: "Edit" }));
     await userEvent.click(screen.getByRole("button", { name: "Add Security" }));
     await userEvent.click(

@@ -1,3 +1,4 @@
+import { LayoutGroup } from "motion/react";
 import { Search } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
@@ -12,7 +13,6 @@ import {
   SkillsToolbar,
   SkillListItem,
   ProviderSkillDrawer,
-  getSkillVisual,
 } from "./components";
 import type { SkillSpec } from "../../../api/types";
 import type { HarnessDiscoveredSkill } from "../../../api/modules/harness";
@@ -80,7 +80,6 @@ function SkillsPage() {
     clearSelection,
     toggleBatchMode,
     toggleEnabled,
-    refreshSkills,
     hardRefresh,
     cancelImport,
   } = useSkillsPage();
@@ -120,7 +119,6 @@ function SkillsPage() {
         onClick={() => handleEdit(skill)}
         onToggleEnabled={async () => {
           await toggleEnabled(skill);
-          await refreshSkills();
         }}
         onDelete={() => handleDelete(skill)}
       />
@@ -132,7 +130,6 @@ function SkillsPage() {
       toggleSelect,
       handleEdit,
       toggleEnabled,
-      refreshSkills,
       handleDelete,
     ],
   );
@@ -140,7 +137,7 @@ function SkillsPage() {
   return (
     <div className={styles.skillsPage}>
       <PageHeader
-        items={[{ title: t("nav.agent") }, { title: t("skills.title") }]}
+        items={[{ title: t("skills.title") }]}
         extra={
           <HeaderActions
             batchModeEnabled={batchModeEnabled}
@@ -238,7 +235,7 @@ function SkillsPage() {
           </span>
         </div>
       ) : (
-        <>
+        <LayoutGroup>
           {/* Enabled Skills Section */}
           {enabledSkills.length > 0 && (
             <div className={styles.panelSection}>
@@ -287,29 +284,24 @@ function SkillsPage() {
                 {t("skills.disabledSkills")}
               </div>
               {viewMode === "card" ? (
-                <div className={styles.disabledSkillsGrid}>
+                <div className={styles.skillsGrid}>
                   {disabledSkills.map((skill) => (
-                    <div
+                    <SkillCard
                       key={skill.name}
-                      className={styles.disabledSkillGridItem}
+                      skill={skill}
+                      getChannelName={getChannelName}
+                      selected={
+                        batchModeEnabled
+                          ? selectedSkills.has(skill.name)
+                          : undefined
+                      }
+                      onSelect={() => toggleSelect(skill.name)}
                       onClick={() => handleEdit(skill)}
-                    >
-                      <span className={styles.disabledSkillGridIcon}>
-                        {getSkillVisual(skill.name)}
-                      </span>
-                      <span className={styles.disabledSkillGridName}>
-                        {skill.name}
-                      </span>
-                      <span
-                        className={styles.disabledSkillGridAction}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleToggleEnabled(skill, e);
-                        }}
-                      >
-                        {t("common.enable")}
-                      </span>
-                    </div>
+                      onToggleEnabled={(event) =>
+                        handleToggleEnabled(skill, event)
+                      }
+                      onDelete={(event) => handleDelete(skill, event)}
+                    />
                   ))}
                 </div>
               ) : (
@@ -326,7 +318,7 @@ function SkillsPage() {
               style={{ height: 1, minHeight: 1, flexShrink: 0 }}
             />
           )}
-        </>
+        </LayoutGroup>
       )}
 
       {providerSkills.length > 0 && (

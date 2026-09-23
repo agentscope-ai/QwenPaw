@@ -35,7 +35,9 @@ export function SkillFilterDropdown({
               const value = `${TAG_PREFIX}${tag}`;
               const active = searchTags.includes(value);
               return (
-                <div
+                <button
+                  type="button"
+                  aria-pressed={active}
                   key={tag}
                   className={`${styles.filterOption} ${
                     active ? styles.filterOptionActive : ""
@@ -43,7 +45,7 @@ export function SkillFilterDropdown({
                   onClick={() => toggle(value)}
                 >
                   {tag}
-                </div>
+                </button>
               );
             })}
           </div>

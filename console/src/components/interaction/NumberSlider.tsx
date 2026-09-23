@@ -23,7 +23,8 @@ export function NumberSlider({
   return (
     <div className={styles.control}>
       <Slider
-        aria-label={label}
+        ariaLabelForHandle={label}
+        tooltip={{ open: false }}
         style={{ flex: 1, minWidth: 70 }}
         min={min}
         max={Math.max(max, value ?? min)}

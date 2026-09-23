@@ -1,480 +1,316 @@
 .toolsPage {
-  height: 100%;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
+  min-width: 0;
+  color: var(--app-text);
 }
 
 .toolsContainer {
-  flex: 1;
-  overflow-y: auto;
-  min-height: 0;
+  margin-inline: 16px;
+  padding-bottom: 24px;
 }
 
-.headerAction {
-  flex-shrink: 0;
+.toolbar,
+.summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px 16px;
+}
 
-  :global {
-    .qwenpaw-switch-inner-unchecked {
-      color: var(--app-text) !important;
-    }
+.toolbar {
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--app-border-subtle);
+}
+
+.search {
+  width: min(320px, 100%);
+  min-height: 40px;
+}
+
+.summary {
+  margin: 8px 0 24px;
+  color: var(--app-text-secondary);
+  font-size: 0.8125rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.batchActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+
+  > button {
+    min-height: 40px;
+    border-radius: 10px;
   }
 }
 
-.loading {
-  text-align: center;
-  padding: 60px;
-  color: var(--app-text-tertiary);
+.section {
+  margin-bottom: 32px;
 }
 
-.toolsGrid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: 12px;
-  margin-bottom: 16px;
-}
-
-/* ---- Panel Section (grouped containers) ---- */
-
-.panelSection {
-  background: color-mix(in srgb, var(--app-surface) 50%, transparent);
-  border: 1px solid var(--app-border);
-  border-radius: 12px;
-  padding: 18px;
-  margin: 16px;
-}
-
-.panelSectionDashed {
-  background: var(--app-surface);
-  border: 1px dashed var(--app-border-strong);
-  border-radius: 12px;
-  padding: 18px;
-  margin: 0 16px 16px;
-}
-
-.panelTitle {
-  font-size: 13px;
+.sectionTitle {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0 0 16px;
+  font-size: 1rem;
   font-weight: 600;
+  line-height: 1.4;
+}
+
+.count {
   color: var(--app-text-secondary);
-  margin-bottom: 14px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.panelDotGreen {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--app-success);
-  flex-shrink: 0;
-}
-
-.panelDotGray {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--app-text-quaternary);
-  flex-shrink: 0;
-}
-
-.panelCount {
-  font-size: 11px;
-  color: var(--app-success-text);
+  font-size: 0.8125rem;
   font-weight: 400;
-  margin-left: auto;
+  font-variant-numeric: tabular-nums;
 }
 
-.emptyEnabled {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  padding: 48px 24px;
-  border: 2px dashed var(--app-border-strong);
-  border-radius: 12px;
-  margin-bottom: 24px;
-  text-align: center;
-}
-
-.emptyEnabled p {
-  font-size: 14px;
-  color: var(--app-text-secondary);
-  margin-bottom: 16px;
-}
-
-.availableGrid {
+.toolList {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  gap: 8px;
-}
-
-.availableItem {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 14px;
-  border: 1px solid var(--app-border);
-  border-radius: 8px;
-  background: var(--app-fill-faint);
-  cursor: pointer;
-  transition:
-    background-color 0.15s ease,
-    color 0.15s ease,
-    border-color 0.15s ease,
-    box-shadow 0.15s ease,
-    opacity 0.15s ease,
-    transform 0.15s ease;
-}
-
-.availableItem:hover {
-  background: var(--app-surface);
-  border-color: var(--app-accent);
-  box-shadow: 0 2px 8px var(--app-accent-ring);
-}
-
-.availableItemName {
-  font-size: 13px;
-  font-weight: 500;
-  flex: 1;
-  color: var(--app-text);
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-  min-width: 0;
-}
-
-.availableItemAction {
-  font-size: 11px;
-  color: var(--app-accent-text);
-  font-weight: 500;
-  white-space: nowrap;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr));
+  gap: 16px;
 }
 
 .toolCard {
-  height: auto;
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  border-radius: var(--border-radius, 8px);
-  background: var(--app-surface-raised);
+  min-width: 0;
+  padding: 16px;
   border: 1px solid var(--app-border);
-  box-sizing: border-box;
-  transition:
-    background-color 0.2s ease-in-out,
-    color 0.2s ease-in-out,
-    border-color 0.2s ease-in-out,
-    box-shadow 0.2s ease-in-out,
-    opacity 0.2s ease-in-out,
-    transform 0.2s ease-in-out;
-
-  :global(.qwenpaw-card-body) {
-    padding: 0 !important;
-  }
-
-  &.enabledCard {
-    .statusDot {
-      background-color: var(--app-success);
-    }
-
-    .statusText {
-      color: var(--app-success-text);
-    }
-  }
-
-  box-shadow: var(--app-shadow-sm);
-
-  &:hover {
-    border-color: var(--app-border-hover);
-    box-shadow: var(--app-shadow-md);
-  }
+  border-radius: 16px;
+  background: var(--app-surface);
 }
 
 .cardHeader {
   display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
+  align-items: center;
+  gap: 12px;
+  min-height: 44px;
+}
+
+.toolIcon {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  background: var(--app-surface-subtle);
+  color: var(--app-text-secondary);
 }
 
 .toolName {
+  flex: 1;
+  min-width: 0;
   margin: 0;
-  font-size: 14px;
-  font-weight: 500;
-  color: var(--app-text);
-  line-height: 24px;
+  overflow-wrap: anywhere;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.description {
+  margin: 12px 0 16px;
+  min-height: 3em;
+  color: var(--app-text-secondary);
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  text-wrap: pretty;
+}
+
+.cardFooter {
   display: flex;
   align-items: center;
-  gap: 6px;
-  max-width: 200px;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: auto;
+  min-height: 40px;
 }
 
-.toolNameText {
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-  min-width: 0;
-}
-
-.toolIconFallback {
+.state {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
-  width: 20px;
-  height: 20px;
-  border-radius: 4px;
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--app-text-inverse);
-  flex-shrink: 0;
-  line-height: 1;
+  gap: 6px;
+  font-size: 0.75rem;
+  color: var(--app-text-secondary);
+
+  > span {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--app-text-tertiary);
+  }
+
+  &[data-enabled="true"] > span {
+    background: var(--app-success);
+  }
 }
 
-.statusContainer {
+.rowActions {
   display: flex;
   align-items: center;
   gap: 4px;
-  font-size: 11px;
-  flex-shrink: 0;
+  margin-left: auto;
 }
 
-.statusDot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  flex-shrink: 0;
-  background-color: var(--app-text-quaternary);
-}
-
-.statusText {
-  font-family: Lato;
-  font-size: 12px;
-  font-weight: normal;
-  line-height: 19px;
-  letter-spacing: normal;
-  color: var(--app-text-tertiary);
-}
-
-.toolDescription {
-  margin: 4px 0 12px 0;
+.helpButton {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
   color: var(--app-text-secondary);
-  font-size: 12px;
-  line-height: 1.5;
-  min-height: 36px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-}
+  cursor: pointer;
+  transition:
+    color 150ms ease,
+    background-color 150ms ease;
 
-.configStatus {
-  margin: 8px 0;
-  font-size: 12px;
-
-  .configured {
-    color: var(--app-success-text);
-    font-weight: 500;
-  }
-
-  .notConfigured {
-    color: var(--app-accent-text);
-    font-weight: 500;
+  &:hover {
+    background: var(--app-fill);
+    color: var(--app-text);
   }
 }
 
-.cardFooter {
-  display: flex;
+.switchTarget {
+  display: inline-flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding-top: 10px;
-  margin-top: auto;
-  border-top: 1px solid var(--app-border-subtle);
-}
-
-.browserModeControl {
-  flex: 1;
-  min-width: 0;
-}
-
-.browserModeButton {
-  width: 100%;
-  white-space: normal;
-  line-height: 1.3;
-}
-
-.browserRestartPending {
-  display: block;
-  margin-top: 4px;
-  font-weight: 500;
+  justify-content: flex-end;
+  min-width: 44px;
+  min-height: 44px;
 }
 
 .toggleButton {
-  flex: 1;
-  padding: 6px 12px;
-  border-radius: 6px;
-  font-size: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 40px;
+  border-radius: 10px;
+  font-size: 0.8125rem;
   color: var(--app-text-secondary);
   background: transparent;
-  border: 1px solid var(--app-border-strong);
-  cursor: pointer;
-  transition:
-    background-color 0.18s ease,
-    color 0.18s ease,
-    border-color 0.18s ease,
-    box-shadow 0.18s ease,
-    opacity 0.18s ease,
-    transform 0.18s ease;
+  border-color: var(--app-border);
 
-  &:hover:not(:disabled) {
-    color: var(--app-text);
-    border-color: var(--app-border-hover);
-  }
-
-  &:disabled {
-    color: var(--app-text-quaternary);
-    border-color: var(--app-border-subtle);
-    cursor: not-allowed;
+  &[aria-pressed="true"] {
+    color: var(--app-accent-text);
+    background: var(--app-accent-soft);
+    border-color: var(--app-accent-border);
   }
 }
 
-/* ─── Dark mode ─────────────────────────────────────────────────────────────── */
-:global(.dark-mode) {
-  /* Switch component in dark mode */
-  .headerAction {
-    :global(.qwenpaw-switch) {
-      background-color: var(--app-fill-strong);
-
-      &:hover:not(.qwenpaw-switch-disabled) {
-        background-color: var(--app-border-hover);
-      }
-
-      &.qwenpaw-switch-disabled {
-        background-color: var(--app-fill);
-        opacity: 0.65;
-
-        :global(.qwenpaw-switch-inner) {
-          color: var(--app-text-tertiary);
-        }
-      }
-    }
-
-    :global(.qwenpaw-switch-checked) {
-      background-color: var(--app-accent);
-
-      &:hover:not(.qwenpaw-switch-disabled) {
-        background-color: var(--app-accent-hover);
-      }
-
-      &.qwenpaw-switch-disabled {
-        background-color: color-mix(
-          in srgb,
-          var(--app-accent) 35%,
-          transparent
-        );
-        opacity: 0.65;
-
-        :global(.qwenpaw-switch-inner) {
-          color: var(--app-text-inverse);
-        }
-      }
-    }
-
-    :global(.qwenpaw-switch-inner) {
-      color: var(--app-text-inverse);
-    }
-  }
-}
-
-/* Page-specific settings refinement. */
-
-.panelSection,
-.panelSectionDashed {
-  border: 0;
-  padding: 0;
-  background: transparent;
-  margin: 16px 16px 24px;
-}
-.toolsGrid {
-  gap: 16px;
-  grid-template-columns: repeat(auto-fill, minmax(min(100%, 290px), 1fr));
-}
-.toolCard {
-  border-radius: 22px;
-  height: 100%;
-}
-.toolDescription {
-  font-size: 13px;
-  line-height: 1.65;
-  min-height: 42px;
-}
-.cardFooter {
-  border-top: 1px solid var(--app-border-subtle);
+.extraActions {
+  margin-top: 12px;
   padding-top: 12px;
-  gap: 8px;
-  flex-wrap: wrap;
+  border-top: 1px solid var(--app-border-subtle);
 }
-.availableItem {
-  border-radius: 14px;
-  min-height: 52px;
+
+.pluginSource {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
-@media (max-width: 600px) {
-  .panelSection,
-  .panelSectionDashed {
+
+.pluginSource,
+.notConfigured,
+.pending {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--app-text-secondary);
+  font-size: 0.75rem;
+  line-height: 1.5;
+}
+
+.empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 48px 24px;
+  color: var(--app-text-secondary);
+  font-size: 0.875rem;
+}
+
+.toolsPage :is(button, input):focus-visible {
+  outline: 2px solid var(--app-focus-ring);
+  outline-offset: 3px;
+}
+
+.helpContent {
+  max-width: min(320px, calc(100vw - 64px));
+  color: var(--app-text);
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+
+  code {
+    color: var(--app-text-secondary);
+  }
+
+  p {
+    margin: 8px 0 0;
+  }
+}
+
+@media (max-width: 900px) {
+  .toolsContainer {
     margin-inline: 0;
   }
-  .toolsGrid {
-    grid-template-columns: 1fr;
+
+  .toolsPage > [data-page-header] {
+    margin-inline: -16px;
   }
 }
-.toolsGrid {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0 24px;
-  border: 1px solid var(--app-border-subtle);
-  border-radius: 22px;
-  overflow: hidden;
-  background: var(--app-surface);
-  padding: 0 20px;
-}
-.toolCard {
-  border: 0 !important;
-  border-bottom: 1px solid var(--app-border-subtle) !important;
-  border-radius: 0 !important;
-  box-shadow: none !important;
-  background: transparent !important;
-  :global(.qwenpaw-card-body) {
-    padding: 18px 0;
+
+@media (max-width: 600px) {
+  .search {
+    width: 100%;
   }
-  .cardHeader {
-    align-items: center;
-    gap: 16px;
-    margin-bottom: 6px;
-  }
-  .toolName {
-    font-size: 14px;
-  }
-  .toolDescription {
-    min-height: 0;
-    margin: 0 52px 0 30px;
-    font-size: 12px;
-    line-height: 1.5;
-  }
-  .cardFooter {
-    border: 0;
-    margin: 10px 0 0 30px;
-    padding: 0;
-    justify-content: flex-start;
-    &:empty {
-      display: none;
-    }
-    > button {
-      flex: 0 1 auto;
-      width: auto;
-    }
+
+  .summary {
+    gap: 4px;
   }
 }
-@media (max-width: 950px) {
-  .toolsGrid {
-    grid-template-columns: 1fr;
+
+@media (pointer: coarse) {
+  .helpButton,
+  .toggleButton,
+  .batchActions > button {
+    min-width: 44px;
+    min-height: 44px;
   }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .helpButton {
+    transition: none;
+  }
+}
+
+.toolsPage .toolCard {
+  height: 100%;
+  --reflection-highlight: var(--app-accent-faint);
+  --reflection-silver: transparent;
+  --reflection-edge: var(--app-accent-border);
+  --reflection-shadow: var(--app-border-subtle);
+
+  &:focus-within {
+    border-color: var(--app-accent-border);
+  }
+}
+
+.toolsPage button[data-press]:active:not(:disabled) {
+  box-shadow: inset 0 2px 4px var(--app-fill);
+}
+
+.switchTarget :global(.qwenpaw-switch:not(.qwenpaw-switch-checked)) {
+  background: var(--app-fill-strong);
+}
+
+.rowActions > div > .toggleButton {
+  border-radius: 20px;
 }

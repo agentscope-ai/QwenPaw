@@ -361,7 +361,7 @@ export default function GeneralSettings() {
               )}
             </h3>
             <div className={styles.settingsCard}>
-              <div className={styles.settingRow}>
+              <div className={styles.settingRow} data-setting-block>
                 <span className={styles.settingIcon}>
                   <Languages size={18} />
                 </span>
@@ -382,7 +382,7 @@ export default function GeneralSettings() {
                 />
               </div>
 
-              <div className={styles.settingRow}>
+              <div className={styles.settingRow} data-setting-block>
                 <span className={styles.settingIcon}>
                   <Palette size={18} />
                 </span>
@@ -439,7 +439,7 @@ export default function GeneralSettings() {
                   })}
                 </div>
               </div>
-              <div className={styles.settingRow}>
+              <div className={styles.settingRow} data-setting-block>
                 <span className={styles.settingIcon}>
                   <Monitor size={18} />
                 </span>
@@ -489,7 +489,7 @@ export default function GeneralSettings() {
           </Cascade>
         </section>
 
-        <section className={styles.settingsSection}>
+        <section className={styles.settingsSection} data-setting-block>
           <NavigationSettings />
         </section>
 
@@ -499,7 +499,7 @@ export default function GeneralSettings() {
               {t("settingsCenter.chatDisplay", "Message display")}
             </h3>
             <div className={styles.settingsCard}>
-              <div className={styles.settingRow}>
+              <div className={styles.settingRow} data-setting-block>
                 <span className={styles.settingIcon}>
                   <Expand size={18} />
                 </span>
@@ -534,7 +534,7 @@ export default function GeneralSettings() {
                   onChange={changeContentWidth}
                 />
               </div>
-              <div className={styles.settingRow}>
+              <div className={styles.settingRow} data-setting-block>
                 <span className={styles.settingIcon}>
                   <MessageSquareText size={18} />
                 </span>
@@ -578,7 +578,7 @@ export default function GeneralSettings() {
                   onChange={changeAssistantDisplayMode}
                 />
               </div>
-              <div className={styles.settingRow}>
+              <div className={styles.settingRow} data-setting-block>
                 <span className={styles.settingIcon}>
                   <BrainCircuit size={18} />
                 </span>
@@ -602,7 +602,7 @@ export default function GeneralSettings() {
                   onChange={changeShowThinking}
                 />
               </div>
-              <div className={styles.settingRow}>
+              <div className={styles.settingRow} data-setting-block>
                 <span className={styles.settingIcon}>
                   <Wrench size={18} />
                 </span>
@@ -650,7 +650,7 @@ export default function GeneralSettings() {
                 {t("settingsCenter.desktopApplication", "Desktop app")}
               </h3>
               <div className={styles.settingsCard}>
-                <div className={styles.settingRow}>
+                <div className={styles.settingRow} data-setting-block>
                   <span className={styles.settingIcon}>
                     <Monitor size={18} />
                   </span>

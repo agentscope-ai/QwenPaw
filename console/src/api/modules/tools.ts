@@ -16,6 +16,9 @@ export interface ToolConfigField {
 export interface ToolInfo {
   name: string;
   enabled: boolean;
+  source_plugin_id?: string | null;
+  source_plugin_name?: string | null;
+  category?: string | null;
   description: string;
   async_execution: boolean;
   icon: string;

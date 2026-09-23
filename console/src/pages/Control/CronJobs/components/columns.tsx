@@ -1,4 +1,4 @@
-import { Button, Tooltip, Dropdown, Tag, Switch } from "@agentscope-ai/design";
+import { Button, Popover, Dropdown, Tag, Switch } from "@agentscope-ai/design";
 import type { ColumnsType } from "antd/es/table";
 import type { MenuProps } from "antd";
 import {
@@ -73,9 +73,11 @@ export const createColumns = (
             ? dayjs(schedule.run_at).format("YYYY-MM-DD HH:mm")
             : "-";
           return (
-            <Tooltip title={schedule?.run_at || displayText}>
-              <span className={styles.cronText}>{displayText}</span>
-            </Tooltip>
+            <Popover trigger="click" content={schedule?.run_at || displayText}>
+              <button type="button" className={styles.cronText}>
+                {displayText}
+              </button>
+            </Popover>
           );
         }
         const cron = schedule?.cron || "0 9 * * *";
@@ -84,6 +86,18 @@ export const createColumns = (
         let displayText = "";
 
         switch (cronParts.type) {
+          case "minutes":
+            displayText = handlers.t("cronJobs.everyMinutes", {
+              count: cronParts.intervalMinutes,
+            });
+            break;
+          case "monthly":
+            displayText = `${handlers.t("cronJobs.cronTypeMonthly")} · ${
+              cronParts.dayOfMonth
+            } · ${String(cronParts.hour).padStart(2, "0")}:${String(
+              cronParts.minute,
+            ).padStart(2, "0")}`;
+            break;
           case "hourly":
             displayText = handlers.t("cronJobs.cronTypeHourly");
             break;
@@ -120,21 +134,26 @@ export const createColumns = (
         }
 
         return (
-          <Tooltip
-            title={
+          <Popover
+            trigger="click"
+            content={
               <div>
-                <div>Cron 表达式：{cron}</div>
+                <div>
+                  {handlers.t("cronJobs.cronExpression")}: {cron}
+                </div>
                 <div
                   className={styles.tableText}
                   style={{ opacity: 0.8, marginTop: 4 }}
                 >
-                  格式：分钟 小时 日 月 星期
+                  {handlers.t("cronJobs.cronFormatHint")}
                 </div>
               </div>
             }
           >
-            <span className={styles.cronText}>{displayText}</span>
-          </Tooltip>
+            <button type="button" className={styles.cronText}>
+              {displayText}
+            </button>
+          </Popover>
         );
       },
     },
@@ -163,7 +182,7 @@ export const createColumns = (
           <div className={styles.actionColumn}>
             {reviewRequired && (
               <Button
-                type="link"
+                type="text"
                 size="small"
                 loading={handlers.promotingJobIds.has(record.id)}
                 onClick={() => handlers.onPromoteImported(record)}
@@ -172,7 +191,7 @@ export const createColumns = (
               </Button>
             )}
             <Button
-              type="link"
+              type="text"
               size="small"
               disabled={reviewRequired}
               onClick={() => handlers.onExecuteNow(record)}
@@ -181,7 +200,7 @@ export const createColumns = (
               icon={<Play size={16} />}
             />
             <Button
-              type="link"
+              type="text"
               size="small"
               onClick={() => handlers.onViewHistory(record)}
               aria-label={handlers.t("cronJobs.executionHistory")}

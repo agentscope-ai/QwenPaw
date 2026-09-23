@@ -6,7 +6,7 @@ import {
   useMotionValue,
   useReducedMotion,
 } from "motion/react";
-import { Menu, PanelLeft } from "lucide-react";
+import { GripVertical, PanelLeft } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { constrainSidebar } from "./sidebarPlacement";
 import styles from "./dockableSidebar.module.less";
@@ -355,7 +355,7 @@ export default function DockableSidebar({
               onLostPointerCapture={cancel}
               onKeyDown={keyDown}
             >
-              <Menu size={17} />
+              <GripVertical size={17} aria-hidden />
             </button>
             {floating && (
               <button

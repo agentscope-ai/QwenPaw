@@ -1,6 +1,7 @@
 import { SharedModal as Modal } from "@/components/interaction/SharedModal";
 import { useAutoSave } from "@/hooks/useAutoSave";
 import { useEffect, useState } from "react";
+import { X, ChevronDown } from "lucide-react";
 import { Spin, Typography } from "antd";
 import { Form, Input, Select } from "@agentscope-ai/design";
 import api from "../../../api";
@@ -22,8 +23,10 @@ export function WebSearchConfigModal({
   visible,
   onClose,
   onSave,
+  surfaceId,
 }: {
   tool: ToolInfo;
+  surfaceId?: string;
   visible: boolean;
   onClose: () => void;
   onSave: (values: Record<string, unknown>) => Promise<void>;
@@ -102,7 +105,12 @@ export function WebSearchConfigModal({
 
   return (
     <Modal
-      title={`${t("tools.configure")} - ${tool.name}`}
+      closeIcon={<X size={18} aria-hidden />}
+      surfaceId={surfaceId}
+      title={`${t("tools.configure")} · ${t(
+        `tools.catalog.${tool.name}.name`,
+        tool.name,
+      )}`}
       open={visible}
       onCancel={() => {
         void flush().then((saved) => {
@@ -118,7 +126,7 @@ export function WebSearchConfigModal({
             label={t("tools.webSearchProviderLabel")}
             initialValue="tavily"
           >
-            <Select>
+            <Select suffixIcon={<ChevronDown size={16} aria-hidden />}>
               <Select.Option value="tavily">tavily</Select.Option>
               <Select.Option value="anysearch">anysearch</Select.Option>
             </Select>

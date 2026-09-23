@@ -7,7 +7,6 @@ export {
   type SkillDrawerFormValues,
 } from "./SkillDrawer";
 export { getFileIcon } from "@/components/SkillVisual";
-export { getSkillVisual } from "./SkillCard";
 export {
   getSkillDisplaySource,
   getPoolBuiltinStatusLabel,

@@ -1,7 +1,18 @@
 import { useState, type ReactNode } from "react";
-import { Button } from "antd";
+import { Button, Popover } from "antd";
+import { useAutoSave } from "@/hooks/useAutoSave";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
-import { Check, Minus, Plus, Pencil, RotateCcw, Inbox, X } from "lucide-react";
+import {
+  Check,
+  Minus,
+  Plus,
+  Pencil,
+  RotateCcw,
+  Inbox,
+  GripVertical,
+  CircleHelp,
+  LockKeyhole,
+} from "lucide-react";
 import {
   DndContext,
   DragOverlay,
@@ -49,13 +60,11 @@ function EntryTile({
   entry,
   editing,
   selected,
-  index,
   onToggle,
 }: {
   entry: FlatMenuEntry;
   editing: boolean;
   selected: boolean;
-  index: number;
   onToggle: () => void;
 }) {
   const { t } = useTranslation();
@@ -74,11 +83,7 @@ function EntryTile({
       data-dragging={isDragging}
       style={{ transform: CSS.Transform.toString(transform), transition }}
     >
-      <div
-        className={styles.tileBody}
-        data-editing={editing}
-        style={{ animationDelay: `${(index % 3) * -0.07}s` }}
-      >
+      <div className={styles.tileBody} data-editing={editing}>
         <button
           type="button"
           className={styles.dragHandle}
@@ -87,6 +92,9 @@ function EntryTile({
           {...listeners}
           aria-label={t("settingsCenter.moveEntry", { name: entry.label })}
         >
+          {editing && (
+            <GripVertical className={styles.grip} size={16} aria-hidden />
+          )}
           <span className={styles.icon}>{entry.icon}</span>
           <span className={styles.label}>{entry.label}</span>
         </button>
@@ -94,6 +102,7 @@ function EntryTile({
           <button
             type="button"
             className={styles.badge}
+            data-press
             data-selected={selected}
             onClick={onToggle}
             aria-label={t(
@@ -146,13 +155,15 @@ export default function NavigationSettings() {
       coordinateGetter: sortableKeyboardCoordinates,
     }),
   );
-  const toggle = (id: string) =>
+  const toggle = (id: string) => {
     setDraft((current) =>
       current.includes(id)
         ? current.filter((item) => item !== id)
         : [...current, id],
     );
-  const finish = () => {
+    scheduleSave();
+  };
+  const { schedule: scheduleSave, flush } = useAutoSave(async () => {
     const editableIds = new Set(entries.map((entry) => entry.key));
     setFocusItemIds([
       ...draft,
@@ -170,13 +181,18 @@ export default function NavigationSettings() {
         .map((entry) => entry.key),
       true,
     );
-    setEditing(false);
+  });
+  const finish = () => {
+    void flush().then((saved) => {
+      if (saved) setEditing(false);
+    });
   };
   const onDragEnd = ({ active, over }: DragEndEvent) => {
     setActiveId(null);
     if (!over || active.id === over.id) return;
     const id = String(active.id);
     const target = String(over.id);
+    scheduleSave();
     setDraft((current) => {
       const from = current.indexOf(id);
       const to = current.indexOf(target);
@@ -208,14 +224,50 @@ export default function NavigationSettings() {
     },
   ];
   return (
-    <div className={styles.page}>
+    <div className={styles.page} data-editing={editing}>
       <header className={styles.header}>
         <div>
           <h3>{t("settingsCenter.pages.navigation")}</h3>
+          <Popover
+            trigger="click"
+            content={t("settingsCenter.sidebarEditHelp")}
+          >
+            <Button
+              type="text"
+              className={styles.helpButton}
+              aria-label={`${t("settingsCenter.pages.navigation")} · ${t(
+                "common.help",
+              )}`}
+              icon={<CircleHelp size={16} />}
+            />
+          </Popover>
         </div>
       </header>
       <DndContext
         sensors={sensors}
+        accessibility={{
+          screenReaderInstructions: {
+            draggable: t("settingsCenter.sidebarEditHelp"),
+          },
+          announcements: {
+            onDragStart: ({ active }) =>
+              t("settingsCenter.moveEntry", {
+                name:
+                  entries.find((entry) => entry.key === active.id)?.label ??
+                  active.id,
+              }),
+            onDragOver: ({ over }) =>
+              over
+                ? t("settingsCenter.moveEntry", {
+                    name:
+                      entries.find((entry) => entry.key === over.id)?.label ??
+                      t("settingsCenter.sidebarPreview"),
+                  })
+                : undefined,
+            onDragEnd: () => t("common.done"),
+            onDragCancel: () => t("common.cancel"),
+          },
+        }}
         collisionDetection={closestCenter}
         onDragStart={({ active }) => setActiveId(String(active.id))}
         onDragEnd={onDragEnd}
@@ -235,47 +287,52 @@ export default function NavigationSettings() {
             className={styles.preview}
             aria-label={t("settingsCenter.sidebarPreview")}
           >
-            <div className={styles.actions}>
-              {editing ? (
-                <>
-                  <Button
-                    type="text"
-                    aria-label={t("common.cancel")}
-                    title={t("common.cancel")}
-                    icon={<X size={16} />}
-                    onClick={() => setEditing(false)}
-                  />
-                  <Button
-                    type="primary"
-                    data-press
-                    icon={<Check size={15} />}
-                    aria-label={t("common.done")}
-                    title={t("common.done")}
-                    onClick={finish}
-                  />
-                </>
-              ) : (
-                <>
-                  <Button
-                    type="text"
-                    aria-label={t("common.reset")}
-                    title={t("common.reset")}
-                    icon={<RotateCcw size={16} />}
-                    onClick={resetFocusItemIds}
-                  />
-                  <Button
-                    type="primary"
-                    data-press
-                    icon={<Pencil size={15} />}
-                    aria-label={t("common.edit")}
-                    title={t("common.edit")}
-                    onClick={() => {
-                      setDraft(visible);
-                      setEditing(true);
-                    }}
-                  />
-                </>
-              )}
+            <div className={styles.previewHeader}>
+              <span className={styles.previewTitle}>
+                {t("settingsCenter.sidebarPreview")}
+                <span className={styles.entryCount}>
+                  {selectedEntries.length + 1}
+                </span>
+              </span>
+              <div className={styles.actions}>
+                {editing ? (
+                  <>
+                    <Button
+                      type="primary"
+                      data-press
+                      icon={<Check size={15} />}
+                      aria-label={t("common.done")}
+                      title={t("common.done")}
+                      onClick={finish}
+                    >
+                      {t("common.done")}
+                    </Button>
+                  </>
+                ) : (
+                  <>
+                    <Button
+                      type="text"
+                      aria-label={t("common.reset")}
+                      title={t("common.reset")}
+                      icon={<RotateCcw size={16} />}
+                      onClick={resetFocusItemIds}
+                    />
+                    <Button
+                      type="primary"
+                      data-press
+                      icon={<Pencil size={15} />}
+                      aria-label={t("common.edit")}
+                      title={t("common.edit")}
+                      onClick={() => {
+                        setDraft(visible);
+                        setEditing(true);
+                      }}
+                    >
+                      {t("common.edit")}
+                    </Button>
+                  </>
+                )}
+              </div>
             </div>
             <div className={styles.previewCard}>
               <DropZone id="preview" className={styles.previewDrop}>
@@ -283,11 +340,10 @@ export default function NavigationSettings() {
                   items={selected}
                   strategy={rectSortingStrategy}
                 >
-                  {selectedEntries.map((entry, index) => (
+                  {selectedEntries.map((entry) => (
                     <EntryTile
                       key={entry.key}
                       entry={entry}
-                      index={index}
                       selected
                       editing={editing}
                       onToggle={() => toggle(entry.key)}
@@ -297,11 +353,18 @@ export default function NavigationSettings() {
                 {!selectedEntries.length && (
                   <p className={styles.empty}>{t("settingsCenter.dropHere")}</p>
                 )}
-                <div className={styles.fixedTile}>
+                <div
+                  className={styles.fixedTile}
+                  title={t("settingsCenter.fixedEntry")}
+                >
                   <span className={styles.icon}>
                     <Inbox size={22} />
                   </span>
                   <span className={styles.label}>{t("nav.inbox")}</span>
+                  <LockKeyhole
+                    size={14}
+                    aria-label={t("settingsCenter.fixedEntry")}
+                  />
                 </div>
               </DropZone>
             </div>
@@ -334,11 +397,10 @@ export default function NavigationSettings() {
                               items={available.map((entry) => entry.key)}
                               strategy={rectSortingStrategy}
                             >
-                              {available.map((entry, index) => (
+                              {available.map((entry) => (
                                 <EntryTile
                                   key={entry.key}
                                   entry={entry}
-                                  index={index}
                                   selected={false}
                                   editing={editing}
                                   onToggle={() => toggle(entry.key)}
@@ -361,7 +423,11 @@ export default function NavigationSettings() {
           </AnimatePresence>
         </motion.div>
         <DragOverlay
-          dropAnimation={{ duration: 220, easing: "cubic-bezier(.2,.8,.2,1)" }}
+          dropAnimation={
+            reducedMotion
+              ? null
+              : { duration: 220, easing: "cubic-bezier(.2,.8,.2,1)" }
+          }
         >
           {active && (
             <div className={styles.dragPreview}>

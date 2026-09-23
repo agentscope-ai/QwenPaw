@@ -49,6 +49,16 @@ vi.mock("antd", async () => {
   const actual = await vi.importActual<Record<string, unknown>>("antd");
   return {
     ...actual,
+    AutoComplete: (props: Record<string, unknown>) => {
+      capturedSelects.set(
+        String(props.placeholder ?? ""),
+        (props.options ?? []) as unknown[],
+      );
+      return React.createElement(
+        actual.AutoComplete as React.ComponentType<Record<string, unknown>>,
+        props,
+      );
+    },
     DatePicker: (props: Record<string, unknown>) => (
       <input
         data-testid="date-picker"
@@ -183,7 +193,7 @@ vi.mock("@/components/interaction/SettingsDrawer", () => ({
       </div>
     ) : null,
 }));
-vi.mock("../../Heartbeat/DurationWheel", () => ({
+vi.mock("@/components/interaction/DurationWheel", () => ({
   DurationWheel: () => <input data-testid="time-picker" />,
 }));
 
@@ -441,6 +451,61 @@ describe("JobDrawer dispatch target options", () => {
     capturedSelects.clear();
   });
 
+  it("accepts typed user and session IDs without selecting an option", async () => {
+    const { getForm } = renderDrawer();
+    fireEvent.click(screen.getByRole("tab", { name: "heartbeat.target" }));
+    fireEvent.change(
+      screen.getByRole("combobox", { name: /cronJobs.dispatchTargetUserId/ }),
+      {
+        target: { value: "custom-user" },
+      },
+    );
+    fireEvent.blur(
+      screen.getByRole("combobox", { name: /cronJobs.dispatchTargetUserId/ }),
+    );
+    fireEvent.change(
+      screen.getByRole("combobox", {
+        name: /cronJobs.dispatchTargetSessionId/,
+      }),
+      {
+        target: { value: "custom-session" },
+      },
+    );
+    fireEvent.blur(
+      screen.getByRole("combobox", {
+        name: /cronJobs.dispatchTargetSessionId/,
+      }),
+    );
+    expect(getForm().getFieldValue(["dispatch", "target", "user_id"])).toBe(
+      "custom-user",
+    );
+    expect(getForm().getFieldValue(["dispatch", "target", "session_id"])).toBe(
+      "custom-session",
+    );
+  });
+
+  it("selects an existing ID from the real autocomplete menu", async () => {
+    const { getForm } = renderDrawer();
+    fireEvent.click(screen.getByRole("tab", { name: "heartbeat.target" }));
+    fireEvent.mouseDown(
+      screen.getByRole("combobox", { name: /cronJobs.dispatchTargetUserId/ }),
+    );
+    fireEvent.change(
+      screen.getByRole("combobox", { name: /cronJobs.dispatchTargetUserId/ }),
+      {
+        target: { value: "u" },
+      },
+    );
+    fireEvent.click(
+      await screen.findByText("u1", {
+        selector: ".ant-select-item-option-content",
+      }),
+    );
+    expect(getForm().getFieldValue(["dispatch", "target", "user_id"])).toBe(
+      "u1",
+    );
+  });
+
   it("lists backend channels in the channel select", async () => {
     renderDrawer();
     await screen.findByText("cronJobs.createJob");
@@ -478,9 +543,11 @@ describe("JobDrawer dispatch target options", () => {
   it("merges a typed search term into the channel option list", async () => {
     renderDrawer();
     await screen.findByText("cronJobs.createJob");
-    // typing into the searchable channel select triggers onSearch, whose
-    // value is merged into the option list (custom value support)
-    const searchInput = screen.getByTestId("search-console");
+    fireEvent.click(screen.getByRole("tab", { name: "heartbeat.target" }));
+    // Free text is a committed form value, not an uncommitted search query.
+    const searchInput = screen.getByRole("combobox", {
+      name: /cronJobs.dispatchChannel/,
+    });
     act(() => {
       fireEvent.change(searchInput, { target: { value: "typed-channel" } });
     });
@@ -572,6 +639,38 @@ describe("JobDrawer task type effects", () => {
 });
 
 describe("JobDrawer footer actions", () => {
+  it("reveals required fields on hidden tabs when creation is blocked", async () => {
+    const { getForm, onSubmit } = renderDrawer();
+    act(() => getForm().setFieldValue("name", "new task"));
+    fireEvent.click(screen.getByText("common.create"));
+    await waitFor(() =>
+      expect(
+        screen.getByRole("tab", { name: "cronJobs.taskType" }),
+      ).toHaveAttribute("aria-selected", "true"),
+    );
+    expect(onSubmit).not.toHaveBeenCalled();
+    act(() =>
+      getForm().setFieldValue(["request", "input"], '[{"role":"user"}]'),
+    );
+    fireEvent.click(screen.getByText("common.create"));
+    await waitFor(() =>
+      expect(
+        screen.getByRole("tab", { name: "heartbeat.target" }),
+      ).toHaveAttribute("aria-selected", "true"),
+    );
+    expect(onSubmit).not.toHaveBeenCalled();
+    act(() =>
+      getForm().setFieldsValue({
+        dispatch: {
+          channel: "console",
+          target: { user_id: "u1", session_id: "s1" },
+        },
+      }),
+    );
+    fireEvent.click(screen.getByText("common.create"));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledOnce());
+  });
+
   it("cancel calls onClose", () => {
     const onClose = vi.fn();
     renderDrawer({ onClose });
@@ -640,5 +739,26 @@ describe("JobDrawer automatic edits", () => {
     );
     expect(onClose).not.toHaveBeenCalled();
     expect(screen.queryByText("common.create")).not.toBeInTheDocument();
+  });
+});
+
+describe("visual recurring schedules", () => {
+  it("offers intervals and monthly dates without exposing a Cron input", async () => {
+    const { getForm } = renderDrawer();
+    expect(screen.queryByPlaceholderText("0 9 * * *")).not.toBeInTheDocument();
+    fireEvent.click(
+      screen.getByRole("radio", { name: "cronJobs.cronTypeMinutes" }),
+    );
+    expect(
+      await screen.findByText("cronJobs.intervalMinutes"),
+    ).toBeInTheDocument();
+    expect(getForm().getFieldValue("cronInterval")).toBe(5);
+    fireEvent.click(
+      screen.getByRole("radio", { name: "cronJobs.cronTypeMonthly" }),
+    );
+    expect(await screen.findByText("cronJobs.monthDay")).toBeInTheDocument();
+    expect(screen.getByText("cronJobs.shortMonthHint")).toBeInTheDocument();
+    expect(getForm().getFieldValue("cronMonthDay")).toBe(1);
+    expect(screen.queryByPlaceholderText("0 9 * * *")).not.toBeInTheDocument();
   });
 });

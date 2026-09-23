@@ -451,12 +451,14 @@
     "addEntry": "Add {{name}}",
     "dragHint": "Drag to reorder, or move into the library.",
     "mirrorHint": "Keep your everyday tools close.",
-    "sidebarPreview": "Sidebar preview",
+    "sidebarPreview": "Visible entries",
     "preview": "Preview",
     "dropHere": "Drag shortcuts here",
-    "previewCaption": "Synced to your sidebar when you finish",
-    "availableEntries": "Library",
-    "allAdded": "All added"
+    "previewCaption": "Changes save automatically",
+    "availableEntries": "Available entries",
+    "allAdded": "All added",
+    "sidebarEditHelp": "Drag the handle to reorder. With a keyboard, press Space to pick up, arrow keys to move, and Space to drop. Use + or − to add or remove entries. Changes save automatically.",
+    "fixedEntry": "Always visible"
   },
   "debug": {
     "title": "Debug",
@@ -1344,7 +1346,8 @@
     "noTags": "No tags available",
     "enabledSkills": "Enabled Skills",
     "disabledSkills": "Disabled Skills",
-    "active": "active"
+    "active": "active",
+    "name": "Skill name"
   },
   "skillPool": {
     "description": "Shared local skill pool for built-in skills and workspace uploads. External hub imports such as ClawHub or LobeHub are separate.",
@@ -1627,7 +1630,9 @@
     "runNow": "Run Now",
     "runNowSuccess": "Heartbeat triggered. Check Inbox or target channel shortly.",
     "runNowFailed": "Failed to trigger heartbeat run",
-    "intervalRange": "Choose between 1 minute and 23 hours 59 minutes"
+    "intervalRange": "Choose between 1 minute and 23 hours 59 minutes",
+    "instructionsTitle": "Heartbeat instructions",
+    "instructionsLoadFailed": "Instructions could not be loaded. Retry to continue."
   },
   "cronJobs": {
     "executionModel": "Execution model",
@@ -1662,7 +1667,7 @@
     "scheduleTypeRecurring": "Recurring",
     "scheduleTypeOnce": "Scheduled",
     "scheduleCron": "Schedule (Cron)",
-    "scheduleCronLabel": "Schedule (Cron)",
+    "scheduleCronLabel": "Scheduled time",
     "onceRunAt": "Run At",
     "repeatEnabled": "Repeat",
     "repeatEnabledTooltip": "Enable recurring schedule from this start time",
@@ -1762,7 +1767,7 @@
     "idTooltip": "System-generated, non-editable, unique UUID assigned at task creation.",
     "nameTooltip": "A friendly name to help you identify this job.",
     "cronTooltip": "Define when the task should run",
-    "cronExample": "Common examples: '0 9 * * *' = 9 AM daily | '*/30 * * * *' = every 30 min | '0 */2 * * *' = every 2 hours | '0 0 * * 0' = Sunday midnight",
+    "cronExample": "Common examples: '0 9 * * *' = 9 AM daily | '*/30 * * * *' = every 30 min | '0 */2 * * *' = every 2 hours | '0 0 * * sun' = Sunday midnight",
     "cronHelper": "New to Cron expressions?",
     "cronHelperLink": "Use online generator",
     "timezoneTooltip": "Timezone for the cron schedule. Default: UTC",
@@ -1860,7 +1865,22 @@
         "description": "Before each weekly meeting, summarize the last week's memory.",
         "frequency": "First run: 2026-01-02 08:30 | Every 7 days | Until 2026-03-01"
       }
-    }
+    },
+    "calendarScope": "Scheduled jobs only",
+    "viewMode": "View",
+    "emptyList": "No tasks in this view",
+    "previousMonth": "Previous month",
+    "nextMonth": "Next month",
+    "cronExpression": "Cron expression",
+    "cronFormatHint": "Format: minute hour day month weekday",
+    "frequency": "Frequency",
+    "cronTypeMinutes": "Minutes",
+    "cronTypeMonthly": "Monthly",
+    "intervalMinutes": "Repeat every",
+    "everyMinutes": "Every {{count}} min",
+    "monthDay": "Day of month",
+    "shortMonthHint": "Months without this date are skipped.",
+    "selectAtLeastOneDay": "Select at least one day."
   },
   "channels": {
     "manualCredentials": "Manual credentials",
@@ -2095,7 +2115,65 @@
     "availableSection": "Available",
     "enableAction": "Enable",
     "noEnabledChannels": "No enabled channels",
-    "goEnableChannels": "Enable channels"
+    "goEnableChannels": "Enable channels",
+    "configureAction": "Configure",
+    "fieldHomeserverURL": "Homeserver URL",
+    "fieldAuthMethod": "Auth Method",
+    "fieldAccessToken": "Access Token",
+    "fieldPassword": "Password",
+    "fieldEnableEndtoEndEncryption": "Enable End-to-End Encryption",
+    "fieldDeviceName": "Device Name",
+    "fieldDBPath": "DB Path",
+    "fieldPollIntervalsec": "Poll Interval (sec)",
+    "fieldHTTPProxy": "HTTP Proxy",
+    "fieldHTTPProxyAuth": "HTTP Proxy Auth",
+    "fieldClientID": "Client ID",
+    "fieldClientSecret": "Client Secret",
+    "fieldMessageType": "Message Type",
+    "fieldCronMessageType": "Cron Message Type",
+    "fieldCardTemplateID": "Card Template ID",
+    "fieldCardTemplateKey": "Card Template Key",
+    "fieldRobotCode": "Robot Code",
+    "fieldAppID": "App ID",
+    "fieldAppSecret": "App Secret",
+    "fieldEncryptKey": "Encrypt Key",
+    "fieldVerificationToken": "Verification Token",
+    "fieldAPIBaseURL": "API Base URL",
+    "fieldShowTyping": "Show Typing",
+    "fieldMQTTHost": "MQTT Host",
+    "fieldMQTTPort": "MQTT Port",
+    "fieldCleanSession": "Clean Session",
+    "fieldQoS": "QoS",
+    "fieldMQTTUsername": "MQTT Username",
+    "fieldMQTTPassword": "MQTT Password",
+    "fieldSubscribeTopic": "Subscribe Topic",
+    "fieldPublishTopic": "Publish Topic",
+    "fieldTLSEnabled": "TLS Enabled",
+    "fieldTLSCACerts": "TLS CA Certs",
+    "fieldTLSCertfile": "TLS Certfile",
+    "fieldTLSKeyfile": "TLS Keyfile",
+    "fieldMattermostURL": "Mattermost URL",
+    "fieldThreadFollowWithoutMention": "Thread Follow Without Mention",
+    "fieldBotID": "Bot ID",
+    "fieldSecret": "Secret",
+    "fieldAccessKeyAK": "Access Key (AK)",
+    "fieldSecretKeySK": "Secret Key (SK)",
+    "fieldAgentID": "Agent ID",
+    "fieldAPIDomain": "API Domain",
+    "fieldWebSocketHost": "WebSocket Host",
+    "fieldWebSocketPort": "WebSocket Port",
+    "matrixUserHelp": "Accepts a full MXID (e.g. @bot:matrix.org) or just the localpart (e.g. bot).",
+    "matrixEncryptionHelp": "After enabling, you must verify the device in a Matrix client (e.g. Element). E2EE requires manually installing matrix-nio[e2e] (pip install matrix-nio[e2e]).",
+    "matrixDeviceHelp": "A stable device identity for the Matrix client. Defaults to 'qwenpaw-worker' if left empty.",
+    "messageTypeHelp": "markdown: regular messages; card: AI interactive card",
+    "scheduledMessageTypeHelp": "Message type for cron/scheduled task sends. Independent from the chat message type above.",
+    "cardVariableHelp": "Must exactly match the template variable name",
+    "robotCodeHelp": "Recommended to configure explicitly for group chats",
+    "apiDomainHelp": "REST API domain for sign-token auth (default: bot.yuanbao.tencent.com)",
+    "requiredField": "Enter {{field}}",
+    "portRange": "Port must be between 1 and 65535",
+    "developmentMode": "Development (pyVoIP)",
+    "productionMode": "Production (LiveKit)"
   },
   "sessions": {
     "title": "Sessions",
@@ -3650,14 +3728,14 @@
   "tools": {
     "search": "Search tools",
     "noSearchResults": "No matching tools",
-    "title": "Built-in Tools",
+    "title": "Tools",
     "description": "Manage built-in tools and their enabled status. Disabled tools will not be available to the agent.",
     "emptyState": "No tools configured",
     "loadError": "Failed to load tools",
     "enableSuccess": "Tool enabled successfully",
     "disableSuccess": "Tool disabled successfully",
     "toggleError": "Failed to toggle tool status",
-    "enableAllConfirm": "Enable all {{count}} models?",
+    "enableAllConfirm": "Enable all {{count}} tools?",
     "enableAll": "Enable All",
     "disableAll": "Disable All",
     "enableAllSuccess": "All tools enabled",
@@ -3688,7 +3766,154 @@
     "noEnabled": "No tools enabled",
     "goEnableBtn": "Go enable",
     "configureAction": "Configure →",
-    "enableAction": "Enable →"
+    "enableAction": "Enable →",
+    "catalog": {
+      "execute_shell_command": {
+        "name": "Run commands",
+        "description": "Run terminal commands and scripts."
+      },
+      "read_file": {
+        "name": "Read files",
+        "description": "Read text files or selected lines."
+      },
+      "write_file": {
+        "name": "Write files",
+        "description": "Create files or write new content."
+      },
+      "edit_file": {
+        "name": "Edit files",
+        "description": "Find and replace specific file content."
+      },
+      "append_file": {
+        "name": "Append to files",
+        "description": "Add text to a file without replacing its content."
+      },
+      "grep_search": {
+        "name": "Search file content",
+        "description": "Find text in files by keyword or pattern."
+      },
+      "glob_search": {
+        "name": "Find files",
+        "description": "Locate files by name or path pattern."
+      },
+      "ast_search": {
+        "name": "Search code structure",
+        "description": "Find code patterns using syntax-aware search."
+      },
+      "desktop_screenshot": {
+        "name": "Capture desktop",
+        "description": "Take a desktop screenshot for the agent to inspect."
+      },
+      "view_image": {
+        "name": "View images",
+        "description": "Load images for the model to understand."
+      },
+      "view_video": {
+        "name": "View videos",
+        "description": "Load videos for the model to analyze."
+      },
+      "enhance_and_generate_image": {
+        "name": "Enhance and generate images",
+        "description": "Refine an image prompt and generate the result."
+      },
+      "web_search": {
+        "name": "Search the web",
+        "description": "Find current information and sources online."
+      },
+      "web_fetch": {
+        "name": "Read web pages",
+        "description": "Retrieve page content for reading and analysis."
+      },
+      "browser": {
+        "name": "Use the browser",
+        "description": "Browse pages and interact with web content."
+      },
+      "list_agents": {
+        "name": "List agents",
+        "description": "Find available agents for collaboration."
+      },
+      "chat_with_agent": {
+        "name": "Chat with an agent",
+        "description": "Send a message to another agent and get a reply."
+      },
+      "submit_to_agent": {
+        "name": "Delegate a task",
+        "description": "Submit a background task to another agent."
+      },
+      "check_agent_task": {
+        "name": "Check task progress",
+        "description": "Check the status and result of a delegated task."
+      },
+      "spawn_subagent": {
+        "name": "Spawn a subagent",
+        "description": "Start a temporary agent for a separate task."
+      },
+      "delegate_external_agent": {
+        "name": "Delegate to an external agent",
+        "description": "Hand work to a configured external agent."
+      },
+      "send_file_to_user": {
+        "name": "Send files",
+        "description": "Send a file to the user in the current conversation."
+      },
+      "get_current_time": {
+        "name": "Get current time",
+        "description": "Read the current date and time."
+      },
+      "set_user_timezone": {
+        "name": "Set timezone",
+        "description": "Set the user timezone for time-based tasks."
+      },
+      "get_token_usage": {
+        "name": "Check token usage",
+        "description": "Inspect token usage for model calls."
+      },
+      "materialize_skill": {
+        "name": "Materialize a skill",
+        "description": "Write a skill definition into the workspace."
+      },
+      "run_tool_batch": {
+        "name": "Run a tool batch",
+        "description": "Execute tool calls defined in a JSON file."
+      },
+      "activate_f1_exploration_mode": {
+        "name": "Explore mail approvals",
+        "description": "Enter the guided mail approval exploration mode."
+      },
+      "migration_compat_inspect": {
+        "name": "Inspect migration assets",
+        "description": "Inspect a staged asset and current QwenPaw capabilities."
+      },
+      "migration_compat_read_file": {
+        "name": "Read migration files",
+        "description": "Read a staged asset file in pages."
+      },
+      "migration_compat_write_file": {
+        "name": "Write migration files",
+        "description": "Create or overwrite text files in a repair asset."
+      },
+      "migration_compat_update": {
+        "name": "Update migration settings",
+        "description": "Update allowed MCP or scheduled-task fields."
+      },
+      "migration_compat_finalize": {
+        "name": "Validate and finish migration",
+        "description": "Run final tests and promote the repaired asset on success."
+      }
+    },
+    "groups": {
+      "files": "Files & code",
+      "web": "Web & browser",
+      "media": "Images & video",
+      "agents": "Agent collaboration",
+      "runtime": "Runtime & automation",
+      "migration": "App migration",
+      "other": "Uncategorized"
+    },
+    "filterAll": "All tools",
+    "filterEnabled": "Enabled",
+    "filterDisabled": "Disabled",
+    "enabledCount": "{{enabled}} / {{total}} enabled"
   },
   "modelConfig": {
     "promptTitle": "LLM Model Required — Select in Chat After Configuration",

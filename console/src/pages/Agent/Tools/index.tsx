@@ -1,12 +1,10 @@
 import { useAutoSave } from "@/hooks/useAutoSave";
 import { SharedModal as Modal } from "@/components/interaction/SharedModal";
-import { Wrench, Check, TriangleAlert, Search } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
-import { Spin } from "antd";
+import { CircleHelp, TriangleAlert, Search, Wrench, X } from "lucide-react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { Spin, Popover, Segmented } from "antd";
 import {
-  Card,
   Switch,
-  Empty,
   Button,
   Form,
   Input,
@@ -26,6 +24,10 @@ import type { ToolInfo } from "../../../api/modules/tools";
 import { PageHeader } from "@/components/PageHeader";
 import { WebSearchConfigModal } from "./WebSearchConfigModal";
 import styles from "./index.module.less";
+import { motion, useReducedMotion } from "motion/react";
+import { InteractiveCard } from "@/components/interaction/InteractiveCard";
+import { Cascade } from "@/components/interaction/Cascade";
+import { TOOL_GROUPS, TOOL_PRESENTATION, toolGroup } from "./toolPresentation";
 
 const BROWSER_TOOL_NAMES = new Set(["browser"]);
 const WEBSEARCH_TOOL_NAMES = new Set(["web_search"]);
@@ -75,9 +77,10 @@ export function BrowserExperimentalToggle({
   if (!BROWSER_TOOL_NAMES.has(toolName)) return null;
 
   return (
-    <div className={styles.browserModeControl}>
+    <div>
       <Button
-        className={`${styles.toggleButton} ${styles.browserModeButton}`}
+        data-press
+        className={styles.toggleButton}
         onClick={() => onChange(!experimental)}
         icon={
           experimental ? (
@@ -99,8 +102,10 @@ function ToolConfigModal({
   visible,
   onClose,
   onSave,
+  surfaceId,
 }: {
   tool: ToolInfo;
+  surfaceId?: string;
   visible: boolean;
   onClose: () => void;
   onSave: (values: Record<string, unknown>) => Promise<void>;
@@ -145,7 +150,13 @@ function ToolConfigModal({
 
   return (
     <Modal
-      title={`${t("tools.configure")} - ${tool.name}`}
+      closeIcon={<X size={18} aria-hidden />}
+      surfaceId={surfaceId}
+      title={`${t("tools.configure")} · ${
+        tool.source_plugin_id
+          ? tool.name
+          : t(`tools.catalog.${tool.name}.name`, tool.name)
+      }`}
       open={visible}
       onCancel={() => {
         void flush().then((saved) => {
@@ -233,6 +244,9 @@ function ToolConfigModal({
 
 export default function ToolsPage() {
   const { t } = useTranslation();
+  const instanceId = useId();
+  const reducedMotion = useReducedMotion();
+  const entered = useRef(false);
   const {
     tools,
     loading,
@@ -244,11 +258,25 @@ export default function ToolsPage() {
     loadTools,
     saveToolConfig,
   } = useTools();
+  useEffect(() => {
+    if (tools.length > 0) entered.current = true;
+  }, [tools.length]);
   const [query, setQuery] = useState("");
+  const [filter, setFilter] = useState("all");
+  const toolLabel = (tool: ToolInfo) =>
+    tool.source_plugin_id
+      ? tool.name
+      : t(`tools.catalog.${tool.name}.name`, tool.name);
+  const toolDescription = (tool: ToolInfo) =>
+    tool.source_plugin_id
+      ? tool.description
+      : t(`tools.catalog.${tool.name}.description`, tool.description);
   const matchesQuery = (tool: ToolInfo) =>
-    `${tool.name} ${tool.description}`
+    `${tool.name} ${tool.description} ${toolLabel(tool)} ${toolDescription(
+      tool,
+    )}`
       .toLowerCase()
-      .includes(query.toLowerCase());
+      .includes(query.trim().toLowerCase());
   const [configModalVisible, setConfigModalVisible] = useState(false);
   const [currentTool, setCurrentTool] = useState<ToolInfo | null>(null);
 
@@ -288,220 +316,287 @@ export default function ToolsPage() {
     }
   };
 
+  const visibleTools = tools.filter(
+    (tool) =>
+      matchesQuery(tool) &&
+      (filter === "all" || tool.enabled === (filter === "enabled")),
+  );
+  const groups = TOOL_GROUPS.map((key) => ({
+    key,
+    label: t(`tools.groups.${key}`),
+    tools: visibleTools.filter((tool) => toolGroup(tool) === key),
+  }));
+
   return (
     <div className={styles.toolsPage}>
-      <PageHeader
-        items={[{ title: t("nav.agent") }, { title: t("tools.title") }]}
-        center={
+      <PageHeader items={[{ title: t("tools.title") }]} />
+      <div className={styles.toolsContainer}>
+        <div className={styles.toolbar}>
+          <Segmented
+            aria-label={t("tools.title")}
+            value={filter}
+            onChange={(value) => setFilter(String(value))}
+            options={[
+              { value: "all", label: t("tools.filterAll") },
+              { value: "enabled", label: t("tools.filterEnabled") },
+              { value: "disabled", label: t("tools.filterDisabled") },
+            ]}
+          />
           <Input
+            className={styles.search}
             aria-label={t("tools.search", "Search tools")}
             placeholder={t("tools.search", "Search tools")}
-            prefix={<Search size={16} />}
+            prefix={<Search size={16} aria-hidden />}
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            allowClear
           />
-        }
-        extra={
-          <div className={styles.headerAction}>
-            <Switch
-              checked={enabledTools.length > 0 && disabledTools.length === 0}
-              onChange={() =>
-                disabledTools.length > 0 ? enableAll() : disableAll()
-              }
-              disabled={batchLoading || loading}
-              checkedChildren={t("tools.enableAll")}
-              unCheckedChildren={t("tools.disableAll")}
-            />
+        </div>
+        <div className={styles.summary}>
+          <span>
+            {t("tools.enabledCount", {
+              enabled: enabledTools.length,
+              total: tools.length,
+            })}
+          </span>
+          <div className={styles.batchActions}>
+            <Button
+              data-press
+              disabled={batchLoading || loading || disabledTools.length === 0}
+              onClick={enableAll}
+            >
+              {t("tools.enableAll")}
+            </Button>
+            <Button
+              data-press
+              disabled={batchLoading || loading || enabledTools.length === 0}
+              onClick={disableAll}
+            >
+              {t("tools.disableAll")}
+            </Button>
           </div>
-        }
-      />
-      <div className={styles.toolsContainer}>
+        </div>
         {loading ? (
-          <div className={styles.loading}>
-            <p>{t("common.loading")}</p>
+          <div className={styles.empty} role="status">
+            <Spin />
+            <span>{t("common.loading")}</span>
           </div>
-        ) : tools.length === 0 ? (
-          <Empty description={t("tools.emptyState")} />
+        ) : tools.length === 0 || visibleTools.length === 0 ? (
+          <div className={styles.empty} role="status">
+            <Search size={24} aria-hidden />
+            <span>
+              {tools.length === 0
+                ? t("tools.emptyState")
+                : t("tools.noSearchResults", "No matching tools")}
+            </span>
+          </div>
         ) : (
-          <>
-            {!tools.some(matchesQuery) && (
-              <Empty
-                description={t("tools.noSearchResults", "No matching tools")}
-              />
-            )}
-            {/* Enabled Section */}
-            <div className={styles.panelSection}>
-              <div className={styles.panelTitle}>
-                <span className={styles.panelDotGreen} />
-                {t("common.enabled")}
-                <span className={styles.panelCount}>
-                  {enabledTools.length} {t("tools.active")}
-                </span>
-              </div>
-
-              {enabledTools.length > 0 ? (
-                <div className={styles.toolsGrid}>
-                  {enabledTools.filter(matchesQuery).map((tool) => (
-                    <Card
-                      key={tool.name}
-                      className={`${styles.toolCard} ${styles.enabledCard}`}
-                    >
-                      <div className={styles.cardHeader}>
-                        <h3 className={styles.toolName} title={tool.name}>
-                          <Wrench size={18} aria-hidden="true" />{" "}
-                          <span className={styles.toolNameText}>
-                            {tool.name}
-                          </span>
-                        </h3>
-                        <Switch
-                          aria-label={`${t("common.enabled")} ${tool.name}`}
-                          checked={tool.enabled}
-                          onChange={() => toggleEnabled(tool)}
-                        />
-                      </div>
-
-                      <p className={styles.toolDescription}>
-                        {tool.name === "browser"
-                          ? browserTrackLabel(tool, t)
-                          : tool.description}
-                        {tool.name === "browser" &&
-                          browserRestartPending(tool) && (
-                            <span
-                              className={styles.browserRestartPending}
-                              role="status"
-                            >
-                              {t("tools.browserRestartPending", {
-                                mode: browserModeLabel(
-                                  tool.config_values?.experimental !== false,
-                                  t,
-                                ),
-                              })}
-                            </span>
-                          )}
-                      </p>
-
-                      {/* Show config status */}
-                      {tool.requires_config && (
-                        <div className={styles.configStatus}>
-                          {tool.config_values &&
-                          Object.keys(tool.config_values).length > 0 ? (
-                            <span className={styles.configured}>
-                              <Check size={13} aria-hidden="true" />{" "}
-                              {t("tools.configured")}
-                            </span>
-                          ) : (
-                            <span className={styles.notConfigured}>
-                              <TriangleAlert size={13} aria-hidden="true" />{" "}
-                              {t("tools.requiresConfig")}
-                            </span>
-                          )}
-                        </div>
-                      )}
-
-                      <div className={styles.cardFooter}>
-                        {BROWSER_TOOL_NAMES.has(tool.name) && (
-                          <BrowserExperimentalToggle
-                            toolName={tool.name}
-                            experimental={
-                              tool.config_values?.experimental !== false
-                            }
-                            onChange={handleExperimentalChange}
-                          />
-                        )}
-                        {[
-                          "execute_shell_command",
-                          "delegate_external_agent",
-                        ].includes(tool.name) && (
-                          <Button
-                            className={styles.toggleButton}
-                            onClick={() => toggleAsyncExecution(tool)}
-                            disabled={!tool.enabled}
-                            icon={
-                              tool.async_execution ? (
-                                <ThunderboltOutlined size="1em" />
-                              ) : (
-                                <ClockCircleOutlined size="1em" />
-                              )
-                            }
-                          >
-                            {tool.async_execution
-                              ? t("tools.asyncExecutionEnabled")
-                              : t("tools.asyncExecutionDisabled")}
-                          </Button>
-                        )}
-                        {/* Add configure button */}
-                        {tool.requires_config && (
-                          <Button
-                            className={styles.toggleButton}
-                            onClick={() => handleConfigure(tool)}
-                            icon={<SettingOutlined size="1em" />}
-                          >
-                            {t("tools.configure")}
-                          </Button>
-                        )}
-                        {WEBSEARCH_TOOL_NAMES.has(tool.name) && (
-                          <Button
-                            className={styles.toggleButton}
-                            onClick={() => handleConfigure(tool)}
-                            icon={<SettingOutlined size="1em" />}
-                          >
-                            {t("tools.configure")}
-                          </Button>
-                        )}
-                      </div>
-                    </Card>
-                  ))}
-                </div>
-              ) : (
-                <div className={styles.emptyEnabled}>
-                  <p>{t("tools.noEnabled")}</p>
-                  <Button
-                    type="primary"
-                    onClick={() => {
-                      document
-                        .getElementById("available-tools")
-                        ?.scrollIntoView({ behavior: "smooth" });
-                    }}
-                  >
-                    {t("tools.goEnableBtn")}
-                  </Button>
-                </div>
-              )}
-            </div>
-
-            {/* Available Section */}
-            {disabledTools.length > 0 && (
-              <div id="available-tools" className={styles.panelSectionDashed}>
-                <div className={styles.panelTitle}>
-                  <span className={styles.panelDotGray} />
-                  {t("tools.available")}
-                </div>
-                <div className={styles.availableGrid}>
-                  {disabledTools.filter(matchesQuery).map((tool) => (
-                    <div
-                      key={tool.name}
-                      className={styles.availableItem}
-                      onClick={() => handleAvailableItemClick(tool)}
-                    >
-                      <Wrench size={18} aria-hidden="true" />
-                      <span
-                        className={styles.availableItemName}
-                        title={tool.name}
-                      >
-                        {tool.name}
-                      </span>
-                      <span className={styles.availableItemAction}>
-                        {tool.requires_config && !isToolConfigured(tool)
-                          ? t("tools.configureAction")
-                          : t("tools.enableAction")}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </>
+          groups.map(
+            (group) =>
+              group.tools.length > 0 && (
+                <section
+                  className={styles.section}
+                  key={group.label}
+                  aria-label={group.label}
+                >
+                  <h2 className={styles.sectionTitle}>
+                    {group.label}
+                    <span className={styles.count}>{group.tools.length}</span>
+                  </h2>
+                  <div className={styles.toolList}>
+                    {group.tools.map((tool, index) => {
+                      const Icon = tool.source_plugin_id
+                        ? Wrench
+                        : TOOL_PRESENTATION[tool.name]?.Icon ?? Wrench;
+                      const hasActions =
+                        tool.enabled &&
+                        (BROWSER_TOOL_NAMES.has(tool.name) ||
+                          [
+                            "execute_shell_command",
+                            "delegate_external_agent",
+                          ].includes(tool.name));
+                      return (
+                        <Cascade
+                          key={tool.name}
+                          index={index}
+                          animate={!entered.current}
+                        >
+                          <InteractiveCard className={styles.toolCard} tilt={2}>
+                            <div className={styles.cardHeader}>
+                              <span className={styles.toolIcon}>
+                                <Icon
+                                  size={20}
+                                  strokeWidth={1.75}
+                                  aria-hidden
+                                />
+                              </span>
+                              <h3 className={styles.toolName}>
+                                {toolLabel(tool)}
+                              </h3>
+                              <span className={styles.switchTarget}>
+                                <Switch
+                                  aria-label={`${t(
+                                    tool.enabled
+                                      ? "common.disable"
+                                      : "common.enable",
+                                  )} ${toolLabel(tool)}`}
+                                  checked={tool.enabled}
+                                  disabled={batchLoading}
+                                  onChange={() =>
+                                    tool.enabled
+                                      ? toggleEnabled(tool)
+                                      : handleAvailableItemClick(tool)
+                                  }
+                                />
+                              </span>
+                            </div>
+                            <p className={styles.description}>
+                              {toolDescription(tool)}
+                            </p>
+                            {tool.name === "browser" &&
+                              browserRestartPending(tool) && (
+                                <span className={styles.pending} role="status">
+                                  {t("tools.browserRestartPending", {
+                                    mode: browserModeLabel(
+                                      tool.config_values?.experimental !==
+                                        false,
+                                      t,
+                                    ),
+                                  })}
+                                </span>
+                              )}
+                            <div className={styles.cardFooter}>
+                              <span
+                                className={styles.state}
+                                data-enabled={tool.enabled}
+                              >
+                                <span aria-hidden />
+                                {t(
+                                  tool.enabled
+                                    ? "tools.filterEnabled"
+                                    : "tools.filterDisabled",
+                                )}
+                              </span>
+                              {tool.source_plugin_id && (
+                                <span className={styles.pluginSource}>
+                                  {tool.source_plugin_name ||
+                                    tool.source_plugin_id}
+                                </span>
+                              )}
+                              {tool.requires_config &&
+                                !isToolConfigured(tool) && (
+                                  <span className={styles.notConfigured}>
+                                    <TriangleAlert size={14} aria-hidden />
+                                    {t("tools.requiresConfig")}
+                                  </span>
+                                )}
+                              <div className={styles.rowActions}>
+                                {(tool.requires_config ||
+                                  WEBSEARCH_TOOL_NAMES.has(tool.name)) && (
+                                  <motion.div
+                                    layoutId={
+                                      reducedMotion
+                                        ? undefined
+                                        : `${instanceId}-${tool.name}-config`
+                                    }
+                                    style={{
+                                      borderRadius: 20,
+                                      background: "var(--app-surface)",
+                                    }}
+                                    transition={{
+                                      type: "spring",
+                                      stiffness: 360,
+                                      damping: 38,
+                                    }}
+                                  >
+                                    <Button
+                                      data-press
+                                      className={styles.toggleButton}
+                                      aria-label={`${t(
+                                        "tools.configure",
+                                      )} ${toolLabel(tool)}`}
+                                      onClick={() => handleConfigure(tool)}
+                                      icon={
+                                        <SettingOutlined
+                                          size={16}
+                                          aria-hidden
+                                        />
+                                      }
+                                    >
+                                      {t("tools.configure")}
+                                    </Button>
+                                  </motion.div>
+                                )}
+                                <Popover
+                                  trigger="click"
+                                  content={
+                                    <div className={styles.helpContent}>
+                                      <code>{tool.name}</code>
+                                      <p>
+                                        {tool.name === "browser"
+                                          ? browserTrackLabel(tool, t)
+                                          : toolDescription(tool)}
+                                      </p>
+                                    </div>
+                                  }
+                                >
+                                  <button
+                                    type="button"
+                                    data-press
+                                    className={styles.helpButton}
+                                    aria-label={`${toolLabel(tool)} · ${t(
+                                      "common.help",
+                                    )}`}
+                                  >
+                                    <CircleHelp
+                                      size={16}
+                                      strokeWidth={1.75}
+                                      aria-hidden
+                                    />
+                                  </button>
+                                </Popover>
+                              </div>
+                            </div>
+                            {hasActions && (
+                              <div className={styles.extraActions}>
+                                {BROWSER_TOOL_NAMES.has(tool.name) ? (
+                                  <BrowserExperimentalToggle
+                                    toolName={tool.name}
+                                    experimental={
+                                      tool.config_values?.experimental !== false
+                                    }
+                                    onChange={handleExperimentalChange}
+                                  />
+                                ) : (
+                                  <Button
+                                    data-press
+                                    className={styles.toggleButton}
+                                    aria-pressed={tool.async_execution}
+                                    onClick={() => toggleAsyncExecution(tool)}
+                                    disabled={batchLoading}
+                                    icon={
+                                      <ClockCircleOutlined
+                                        size={16}
+                                        aria-hidden
+                                      />
+                                    }
+                                  >
+                                    {t(
+                                      tool.async_execution
+                                        ? "tools.asyncExecutionEnabled"
+                                        : "tools.asyncExecutionDisabled",
+                                    )}
+                                  </Button>
+                                )}
+                              </div>
+                            )}
+                          </InteractiveCard>
+                        </Cascade>
+                      );
+                    })}
+                  </div>
+                </section>
+              ),
+          )
         )}
       </div>
 
@@ -509,6 +604,7 @@ export default function ToolsPage() {
       {currentTool && WEBSEARCH_TOOL_NAMES.has(currentTool.name) ? (
         <WebSearchConfigModal
           key={currentTool.name}
+          surfaceId={`${instanceId}-${currentTool.name}-config`}
           tool={currentTool}
           visible={configModalVisible}
           onClose={() => setConfigModalVisible(false)}
@@ -518,6 +614,7 @@ export default function ToolsPage() {
         currentTool && (
           <ToolConfigModal
             key={currentTool.name}
+            surfaceId={`${instanceId}-${currentTool.name}-config`}
             tool={currentTool}
             visible={configModalVisible}
             onClose={() => setConfigModalVisible(false)}

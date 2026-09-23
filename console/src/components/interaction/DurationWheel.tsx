@@ -1,3 +1,4 @@
+import { useReducedMotion } from "motion/react";
 import { useEffect, useRef } from "react";
 import { WheelPicker, WheelPickerWrapper } from "@ncdai/react-wheel-picker";
 import "@ncdai/react-wheel-picker/style.css";
@@ -21,6 +22,7 @@ export function DurationWheel({
   onChange?: (value: number) => void;
 }) {
   const { t } = useTranslation();
+  const reducedMotion = useReducedMotion();
   const root = useRef<HTMLDivElement>(null);
   const hour = Math.min(23, Math.floor(value / 60));
   const minute = value % 60;
@@ -53,6 +55,8 @@ export function DurationWheel({
               options={hours}
               value={hour}
               onValueChange={(next) => onChange?.(next * 60 + minute)}
+              reducedMotion={!!reducedMotion}
+              animateValueChanges={!reducedMotion}
               infinite
               visibleCount={8}
               optionItemHeight={72}
@@ -66,6 +70,8 @@ export function DurationWheel({
               options={minutes}
               value={minute}
               onValueChange={(next) => onChange?.(hour * 60 + next)}
+              reducedMotion={!!reducedMotion}
+              animateValueChanges={!reducedMotion}
               infinite
               visibleCount={8}
               optionItemHeight={72}

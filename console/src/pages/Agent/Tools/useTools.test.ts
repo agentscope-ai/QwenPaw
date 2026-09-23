@@ -203,7 +203,7 @@ describe("useTools", () => {
     expect(result.current.tools.every((t) => t.enabled)).toBe(true);
   });
 
-  it("saveToolConfig success shows message.success('tools.configSaved')", async () => {
+  it("saveToolConfig succeeds silently for autosave", async () => {
     apiMocks.updateToolConfig.mockResolvedValue({
       status: "ok",
       message: "saved",
@@ -221,7 +221,7 @@ describe("useTools", () => {
     expect(apiMocks.updateToolConfig).toHaveBeenCalledWith("a", {
       key: "value",
     });
-    expect(messageMock.success).toHaveBeenCalledWith("tools.configSaved");
+    expect(messageMock.success).not.toHaveBeenCalled();
   });
 
   it("saveToolConfig failure shows message.error('tools.configSaveError') and rethrows", async () => {

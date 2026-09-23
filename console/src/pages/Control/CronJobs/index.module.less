@@ -1,4 +1,6 @@
 .cronJobsPage {
+  min-width: 0;
+  color: var(--app-text);
   :global {
     .qwenpaw-spark-card-wrapper {
       padding: 0 !important;
@@ -71,41 +73,63 @@
   gap: 8px;
 }
 
-.viewToggle {
+.toolbar {
   display: flex;
   align-items: center;
-  gap: 4px;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 0 16px 24px;
 }
-
-.viewToggleBtn {
+.calendarScope {
+  color: var(--app-text-secondary);
+  font-size: 0.8125rem;
+}
+.viewToggle {
+  margin-inline-start: auto;
   display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
-  border: none;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 12px;
+  background: var(--app-fill);
+}
+.viewToggleBtn {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border: 0;
+  border-radius: 8px;
+  color: var(--app-text-secondary);
   background: transparent;
-  color: var(--app-text-tertiary);
   cursor: pointer;
-  border-radius: 4px;
-  font-size: 16px;
   transition:
-    background-color 0.2s,
-    color 0.2s,
-    border-color 0.2s,
-    box-shadow 0.2s,
-    opacity 0.2s,
-    transform 0.2s;
-
+    color 150ms,
+    background-color 150ms;
+  &[aria-pressed="true"] {
+    color: var(--app-accent-text);
+    background: var(--app-surface);
+  }
   &:hover {
     color: var(--app-text);
-    background: var(--app-fill-subtle);
   }
-
-  &.viewToggleBtnActive {
-    color: var(--app-text);
-    background: var(--app-fill);
-  }
+}
+.tableCard,
+.calendarCard {
+  margin-inline: 16px;
+  overflow: hidden;
+  border: 1px solid var(--app-border);
+  border-radius: 20px;
+  background: var(--app-surface);
+}
+.emptyState {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  padding: 40px 16px;
+  font-size: 0.875rem;
+  color: var(--app-text-secondary);
 }
 
 .calendarCard {
@@ -119,15 +143,17 @@
   align-items: center;
   justify-content: center;
   gap: 8px;
-  height: 54px;
+  min-height: 64px;
+  padding: 8px;
   border-bottom: 1px solid var(--app-border-subtle);
 }
 
 .calendarTitle {
   min-width: 120px;
   text-align: center;
-  font-size: 16px;
+  font-size: 1rem;
   font-weight: 600;
+  font-variant-numeric: tabular-nums;
   color: var(--app-text);
 }
 
@@ -174,7 +200,7 @@
 }
 
 .calendarCellToday {
-  box-shadow: inset 0 0 0 1px var(--app-info-border);
+  box-shadow: inset 0 0 0 1px var(--app-accent-border);
 }
 
 .calendarCellDate {
@@ -228,7 +254,7 @@
 .calendarMoreBtn {
   border: none;
   background: transparent;
-  color: var(--app-info-text);
+  color: var(--app-accent-text);
   padding: 0;
   font-size: 12px;
   text-align: left;
@@ -249,7 +275,7 @@
 }
 
 .dayJobPopover {
-  width: 380px;
+  width: min(380px, calc(100vw - 64px));
 }
 
 .dayJobPopoverOverlay {
@@ -267,16 +293,16 @@
 }
 
 .dayJobPopoverDay {
-  font-size: 54px;
+  font-size: 1.5rem;
   line-height: 1;
   font-weight: 600;
-  color: var(--app-info-text);
+  color: var(--app-accent-text);
 }
 
 .dayJobPopoverWeek {
-  font-size: 28px;
+  font-size: 1rem;
   line-height: 1;
-  color: var(--app-info-text);
+  color: var(--app-accent-text);
   font-weight: 600;
 }
 
@@ -291,7 +317,7 @@
   transition: background 0.2s;
 
   &:hover {
-    background: var(--app-info-bg);
+    background: var(--app-accent-soft);
   }
 }
 
@@ -316,6 +342,7 @@
 }
 
 .templateModalHeader {
+  flex-wrap: wrap;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -331,13 +358,15 @@
 .templateGrid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
+  gap: 16px;
 }
 
 .templateCard {
+  height: 100%;
+  min-width: 0;
   border: 1px solid var(--app-border);
-  border-radius: 10px;
-  padding: 14px;
+  border-radius: 16px;
+  padding: 20px;
   background: var(--app-surface-raised);
   display: flex;
   flex-direction: column;
@@ -377,14 +406,18 @@
 
 .templateTagRecommended {
   font-size: 11px;
-  color: var(--app-info-text);
-  background: var(--app-info-bg);
+  color: var(--app-accent-text);
+  background: var(--app-accent-soft);
   border-radius: 999px;
   padding: 2px 8px;
 }
 
 .templateActions {
-  margin-top: 4px;
+  margin-top: auto;
+  padding-top: 8px;
+  button {
+    min-height: 40px;
+  }
 }
 
 .historyList {
@@ -460,7 +493,7 @@
   padding: 0;
   border: none;
   background: transparent;
-  color: var(--app-info-text);
+  color: var(--app-accent-text);
   font-size: 12px;
   cursor: pointer;
 
@@ -503,8 +536,17 @@
 }
 
 .cronText {
-  font-size: 12px;
-  cursor: help;
+  min-height: 40px;
+  padding: 4px 0;
+  border: 0;
+  background: transparent;
+  color: var(--app-text);
+  font: inherit;
+  font-size: 0.8125rem;
+  text-align: start;
+  cursor: pointer;
+  text-decoration: underline dotted var(--app-border);
+  text-underline-offset: 4px;
 }
 
 .codeText {
@@ -536,7 +578,7 @@
   position: absolute;
   top: 0;
   right: 0;
-  color: var(--app-info-text);
+  color: var(--app-accent-text);
   z-index: 10;
 }
 
@@ -547,7 +589,7 @@
 }
 
 .formHelperLink {
-  color: var(--app-info-text);
+  color: var(--app-accent-text);
 }
 
 /* Action column */
@@ -563,13 +605,14 @@
   display: flex;
   flex-direction: column;
   gap: 16px;
-  padding: 16px 0;
+  padding: 0;
   overflow: auto;
   -webkit-overflow-scrolling: touch;
 }
 
 .mobileJobCard {
-  border-radius: var(--border-radius, 8px);
+  overflow: hidden;
+  border-radius: 16px;
   background: var(--app-surface-raised);
   border: 1px solid var(--app-border);
   box-shadow: var(--app-shadow-sm);
@@ -597,11 +640,9 @@
 
 .mobileJobName {
   font-weight: 600;
-  font-size: 17px;
+  font-size: 0.9375rem;
   color: var(--app-text);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: normal;
   flex: 1;
   min-width: 0;
   line-height: 26px;
@@ -682,7 +723,17 @@
 
 @media (max-width: 768px) {
   .cronJobsPage {
-    padding: 0 16px 16px;
+    padding-bottom: 16px;
+  }
+  .toolbar {
+    margin-inline: 0;
+  }
+  .tableCard,
+  .calendarCard {
+    margin-inline: 0;
+  }
+  .templateGrid {
+    grid-template-columns: 1fr;
   }
 
   .headerActions {
@@ -700,31 +751,12 @@
     }
   }
 
-  .viewToggleBtn {
-    width: 28px;
-    height: 28px;
-    font-size: 14px;
-  }
-
-  .cronJobsPage {
-    height: 100%;
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-  }
-
-  .tableCard,
   .calendarCard {
-    flex: 1;
-    overflow: hidden;
-
-    :global(.ant-card-body) {
-      height: 100%;
-    }
+    overflow-x: auto;
   }
-
-  .calendarCard {
-    overflow: auto;
+  .calendarGrid,
+  .calendarWeekHeader {
+    min-width: 560px;
   }
 }
 
@@ -821,5 +853,88 @@
   :global(.qwenpaw-form-item-required-mark),
   :global(.qwenpaw-form-item-required::before) {
     display: none !important;
+  }
+}
+
+.cronJobsPage :is(button, input):focus-visible {
+  outline: 2px solid var(--app-focus-ring);
+  outline-offset: 2px;
+}
+.calendarEvent,
+.dayJobItem {
+  width: 100%;
+  min-height: 32px;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  font-size: 0.8125rem;
+  text-align: start;
+}
+.mobileJobName {
+  border: 0;
+  padding: 0;
+  color: var(--app-text);
+  background: transparent;
+  text-align: start;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+.actionColumn button,
+.headerActions button,
+.calendarHeader button {
+  min-width: 40px;
+  min-height: 40px;
+}
+.mobileJobActions button {
+  min-height: 40px;
+}
+.historyItemTime,
+.cronText {
+  font-variant-numeric: tabular-nums;
+}
+@media (pointer: coarse) {
+  .viewToggleBtn,
+  .headerActions button,
+  .mobileJobActions button,
+  .calendarHeader button {
+    min-height: 44px;
+    min-width: 44px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .viewToggleBtn {
+    transition: none;
+  }
+}
+
+.templateGrid .templateCard {
+  --reflection-highlight: var(--app-accent-faint);
+  --reflection-silver: transparent;
+  --reflection-edge: var(--app-accent-border);
+  --reflection-shadow: var(--app-border-subtle);
+}
+
+.frequencyChoices {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  :global(.ant-radio-button-wrapper),
+  :global(.qwenpaw-radio-button-wrapper) {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: auto;
+    min-height: 44px;
+    padding: 8px 12px;
+    border: 1px solid var(--app-border);
+    border-radius: 12px;
+    text-align: center;
+    line-height: 1.4;
+    &::before {
+      display: none;
+    }
+  }
+  @media (max-width: 480px) {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }

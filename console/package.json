@@ -20,7 +20,8 @@
     "preview:test": "vite preview --mode test",
     "test": "vitest",
     "test:run": "node --max-old-space-size=4096 ./node_modules/vitest/vitest.mjs run",
-    "test:coverage": "node --max-old-space-size=4096 ./node_modules/vitest/vitest.mjs run --coverage"
+    "test:coverage": "node --max-old-space-size=4096 ./node_modules/vitest/vitest.mjs run --coverage",
+    "postinstall": "patch-package"
   },
   "dependencies": {
     "@agentscope-ai/chat": "1.2.0-beta.1789540479556",
@@ -93,6 +94,7 @@
     "globals": "^16.0.0",
     "jsdom": "^29.0.2",
     "less": "^4.5.1",
+    "patch-package": "^8.0.1",
     "prettier": "3.0.0",
     "typescript": "~5.8.3",
     "typescript-eslint": "^8.30.1",

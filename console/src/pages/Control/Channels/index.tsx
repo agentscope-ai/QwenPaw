@@ -207,12 +207,15 @@ function ChannelsPage() {
     <div className={styles.channelsPage}>
       <PageHeader
         className={styles.pageHeader}
-        items={[{ title: t("nav.control") }, { title: t("channels.title") }]}
+        items={[{ title: t("channels.title") }]}
         center={
           <div className={styles.filterTabs}>
             {FILTER_TABS.map(({ key, label }) => (
               <button
                 key={key}
+                type="button"
+                data-press
+                aria-pressed={filter === key}
                 className={`${styles.filterTab} ${
                   filter === key ? styles.filterTabActive : ""
                 }`}
@@ -224,7 +227,7 @@ function ChannelsPage() {
           </div>
         }
         extra={
-          <Space size={8}>
+          <Space size={8} wrap>
             <Badge dot={pendingCount > 0} offset={[-4, 4]}>
               <Button
                 icon={<AuditOutlined size="1em" />}

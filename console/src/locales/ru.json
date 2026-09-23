@@ -804,7 +804,9 @@
     "noTags": "Нет доступных тегов",
     "enabledSkills": "Активные навыки",
     "disabledSkills": "Неактивные навыки",
-    "active": "активно"
+    "active": "активно",
+    "settingsDetails": "Область действия и дополнительные настройки",
+    "name": "Название навыка"
   },
   "skillPool": {
     "description": "Общий локальный пул навыков для встроенных навыков и загрузок из рабочих пространств. Внешние импорты (ClawHub, LobeHub) — отдельная функция.",
@@ -1080,7 +1082,11 @@
     "targetInbox": "Отправлять во входящие",
     "runNow": "Запустить сейчас",
     "runNowSuccess": "Пульс запущен. Через несколько секунд проверьте входящие или целевой канал.",
-    "runNowFailed": "Не удалось запустить выполнение пульса"
+    "runNowFailed": "Не удалось запустить выполнение пульса",
+    "instructionsTitle": "Инструкции пульса",
+    "instructionsLoadFailed": "Не удалось загрузить инструкции. Повторите попытку.",
+    "customInterval": "Свой интервал",
+    "intervalRange": "Выберите от 1 минуты до 23 часов 59 минут"
   },
   "cronJobs": {
     "executionModel": "Модель выполнения",
@@ -1101,7 +1107,7 @@
     "enabled": "Статус",
     "scheduleType": "Тип расписания",
     "scheduleCron": "Расписание (Cron)",
-    "scheduleCronLabel": "Расписание (Cron)",
+    "scheduleCronLabel": "Время выполнения",
     "scheduleTimezone": "Часовой пояс",
     "cronType": "Частота",
     "cronTypeHourly": "Каждый час",
@@ -1159,7 +1165,7 @@
     "idTooltip": "Генерируемый системой, нередактируемый уникальный UUID, присваиваемый при создании задачи.",
     "nameTooltip": "Понятное имя, чтобы вам было проще найти эту задачу.",
     "cronTooltip": "Определите, когда задача должна запускаться",
-    "cronExample": "Популярные примеры: '0 9 * * *' = ежедневно в 09:00 | '*/30 * * * *' = каждые 30 мин | '0 */2 * * *' = каждые 2 часа | '0 0 * * 0' = воскресенье, полночь",
+    "cronExample": "Популярные примеры: '0 9 * * *' = ежедневно в 09:00 | '*/30 * * * *' = каждые 30 мин | '0 */2 * * *' = каждые 2 часа | '0 0 * * sun' = воскресенье, полночь",
     "cronHelper": "Впервые работаете с cron-выражениями?",
     "cronHelperLink": "Использовать онлайн-генератор",
     "timezoneTooltip": "Часовой пояс для cron-расписания. По умолчанию: UTC",
@@ -1300,7 +1306,35 @@
         "description": "Перед каждой недельной встречей формировать рабочий итог на основе memory за последнюю неделю.",
         "frequency": "Первый запуск: 2026-01-02 08:30 | Каждые 7 дней | До 2026-03-01"
       }
-    }
+    },
+    "calendarScope": "Только задачи на заданную дату",
+    "viewMode": "Вид",
+    "emptyList": "В этом представлении нет задач",
+    "previousMonth": "Предыдущий месяц",
+    "nextMonth": "Следующий месяц",
+    "cronExpression": "Выражение Cron",
+    "cronFormatHint": "Формат: минута час день месяц день недели",
+    "importReviewBadge": "Требуется проверка импорта",
+    "importReviewApprove": "Одобрить",
+    "importReviewTitle": "Проверка импортированной задачи",
+    "importReviewContent": "Вы проверили инструкции, рабочий каталог и разрешения задачи «{{name}}» и подтвердили безопасность её запуска в QwenPaw? После одобрения задача останется отключённой; включите её отдельно.",
+    "importReviewConfirm": "Одобрить",
+    "importReviewSuccess": "Проверка пройдена. Задача отключена; включите её, когда будете готовы.",
+    "importReviewFailed": "Не удалось одобрить проверку",
+    "importReviewBlocked": "Импортированные задачи нужно проверить перед включением или запуском.",
+    "importReviewProjectDirLabel": "Локальный каталог проекта",
+    "importReviewProjectDirTooltip": "Сопоставьте исходный рабочий каталог с существующим проектом на этом устройстве. Эта форма не меняет метаданные миграции и требования проверки.",
+    "importReviewProjectDirExtra": "Для удалённых или непроверяемых каталогов сопоставление обязательно до проверки. Для остальных задач оно необязательно.",
+    "importReviewProjectDirPlaceholder": "Например: /Users/me/Documents/my-project",
+    "importReviewProjectDirRequired": "Перед одобрением укажите в настройках задачи действительный локальный каталог проекта.",
+    "frequency": "Частота",
+    "cronTypeMinutes": "Минуты",
+    "cronTypeMonthly": "Ежемесячно",
+    "intervalMinutes": "Интервал",
+    "everyMinutes": "Каждые {{count}} мин",
+    "monthDay": "День месяца",
+    "shortMonthHint": "Месяцы без указанного дня пропускаются.",
+    "selectAtLeastOneDay": "Выберите хотя бы один день."
   },
   "channels": {
     "title": "Каналы",
@@ -1527,7 +1561,73 @@
     "availableSection": "Доступные",
     "enableAction": "Активировать",
     "noEnabledChannels": "Нет активированных каналов",
-    "goEnableChannels": "Активировать каналы"
+    "goEnableChannels": "Активировать каналы",
+    "configureAction": "Настроить",
+    "advancedSettings": "Дополнительные настройки",
+    "deliverySettings": "Параметры доставки",
+    "manualCredentials": "Ввести учётные данные",
+    "presentationSettings": "Отображение сообщений",
+    "welcomeText": "Приветственное сообщение",
+    "welcomeTextPlaceholder": "Здравствуйте! Я QwenPaw. Чем могу помочь?",
+    "welcomeTextTooltip": "Отправляется автоматически при первом открытии личного чата с ботом за день",
+    "xiaoyiSetupGuide": "Создайте агента на платформе разработчиков Huawei и получите AK/SK и ID агента. AK/SK находятся на странице управления учётными данными.",
+    "fieldHomeserverURL": "URL домашнего сервера",
+    "fieldAuthMethod": "Способ аутентификации",
+    "fieldAccessToken": "Токен доступа",
+    "fieldPassword": "Пароль",
+    "fieldEnableEndtoEndEncryption": "Сквозное шифрование",
+    "fieldDeviceName": "Имя устройства",
+    "fieldDBPath": "Путь к базе данных",
+    "fieldPollIntervalsec": "Интервал опроса (с)",
+    "fieldHTTPProxy": "HTTP-прокси",
+    "fieldHTTPProxyAuth": "Аутентификация HTTP-прокси",
+    "fieldClientID": "ID клиента",
+    "fieldClientSecret": "Секрет клиента",
+    "fieldMessageType": "Тип сообщения",
+    "fieldCronMessageType": "Тип сообщения по расписанию",
+    "fieldCardTemplateID": "ID шаблона карточки",
+    "fieldCardTemplateKey": "Переменная шаблона карточки",
+    "fieldRobotCode": "Код бота",
+    "fieldAppID": "ID приложения",
+    "fieldAppSecret": "Секрет приложения",
+    "fieldEncryptKey": "Ключ шифрования",
+    "fieldVerificationToken": "Токен проверки",
+    "fieldAPIBaseURL": "Базовый URL API",
+    "fieldShowTyping": "Показывать набор текста",
+    "fieldMQTTHost": "Хост MQTT",
+    "fieldMQTTPort": "Порт MQTT",
+    "fieldCleanSession": "Очистка сессии",
+    "fieldQoS": "Качество обслуживания (QoS)",
+    "fieldMQTTUsername": "Имя пользователя MQTT",
+    "fieldMQTTPassword": "Пароль MQTT",
+    "fieldSubscribeTopic": "Тема подписки",
+    "fieldPublishTopic": "Тема публикации",
+    "fieldTLSEnabled": "Включить TLS",
+    "fieldTLSCACerts": "Сертификаты TLS CA",
+    "fieldTLSCertfile": "Файл сертификата TLS",
+    "fieldTLSKeyfile": "Файл ключа TLS",
+    "fieldMattermostURL": "URL Mattermost",
+    "fieldThreadFollowWithoutMention": "Ответы в ветке без упоминания",
+    "fieldBotID": "ID бота",
+    "fieldSecret": "Секрет",
+    "fieldAccessKeyAK": "Ключ доступа (AK)",
+    "fieldSecretKeySK": "Секретный ключ (SK)",
+    "fieldAgentID": "ID агента",
+    "fieldAPIDomain": "Домен API",
+    "fieldWebSocketHost": "Хост WebSocket",
+    "fieldWebSocketPort": "Порт WebSocket",
+    "matrixUserHelp": "Полный MXID (например, @bot:matrix.org) или локальное имя (bot).",
+    "matrixEncryptionHelp": "После включения подтвердите устройство в Matrix (например, Element) и установите пакет: pip install matrix-nio[e2e].",
+    "matrixDeviceHelp": "Постоянное имя устройства Matrix. По умолчанию: qwenpaw-worker.",
+    "messageTypeHelp": "markdown: обычные сообщения; card: интерактивная карточка ИИ.",
+    "scheduledMessageTypeHelp": "Тип сообщений задач по расписанию, независимо от формата чата.",
+    "cardVariableHelp": "Должно точно совпадать с именем переменной шаблона.",
+    "robotCodeHelp": "Для групповых чатов рекомендуется указать явно.",
+    "apiDomainHelp": "Домен REST API для авторизации по токену. По умолчанию: bot.yuanbao.tencent.com.",
+    "requiredField": "Введите {{field}}",
+    "portRange": "Порт должен быть от 1 до 65535",
+    "developmentMode": "Разработка (pyVoIP)",
+    "productionMode": "Эксплуатация (LiveKit)"
   },
   "sessions": {
     "title": "Сессии",
@@ -1647,7 +1747,8 @@
       "user": "QwenPaw",
       "system": "Система",
       "default": "По умолчанию"
-    }
+    },
+    "qwenpawSettings": "Переменные среды QwenPaw"
   },
   "tokenUsage": {
     "title": "Использование токенов",
@@ -2754,10 +2855,14 @@
       "offDesc": "Одобрение инструментов и файлов отключено"
     },
     "saveLevelSuccess": "Режим одобрения инструментов сохранён",
-    "saveLevelFailed": "Не удалось сохранить режим одобрения инструментов"
+    "saveLevelFailed": "Не удалось сохранить режим одобрения инструментов",
+    "offloadPolicy": {
+      "title": "Политика фонового выполнения инструментов"
+    },
+    "memoryAutoRecordTitle": "Включить память разговоров"
   },
   "tools": {
-    "title": "Встроенные инструменты",
+    "title": "Инструменты",
     "description": "Управляйте встроенными инструментами и их статусом. Отключённые инструменты не будут доступны агенту.",
     "emptyState": "Нет настроенных инструментов",
     "loadError": "Не удалось загрузить инструменты",
@@ -2794,7 +2899,157 @@
     "noEnabled": "Нет включённых инструментов",
     "goEnableBtn": "Включить",
     "configureAction": "Настроить →",
-    "enableAction": "Включить →"
+    "enableAction": "Включить →",
+    "catalog": {
+      "execute_shell_command": {
+        "name": "Выполнить команды",
+        "description": "Запуск команд и скриптов в терминале."
+      },
+      "read_file": {
+        "name": "Прочитать файлы",
+        "description": "Чтение текстовых файлов целиком или по строкам."
+      },
+      "write_file": {
+        "name": "Записать файлы",
+        "description": "Создание файлов или запись нового содержимого."
+      },
+      "edit_file": {
+        "name": "Изменить файлы",
+        "description": "Поиск и замена определённого содержимого файлов."
+      },
+      "append_file": {
+        "name": "Дополнить файлы",
+        "description": "Добавление текста без замены существующего содержимого."
+      },
+      "grep_search": {
+        "name": "Найти текст в файлах",
+        "description": "Поиск текста по ключевому слову или шаблону."
+      },
+      "glob_search": {
+        "name": "Найти файлы",
+        "description": "Поиск файлов по имени или шаблону пути."
+      },
+      "ast_search": {
+        "name": "Найти структуру кода",
+        "description": "Поиск шаблонов кода с учётом синтаксиса."
+      },
+      "desktop_screenshot": {
+        "name": "Снять скриншот",
+        "description": "Снимок рабочего стола для анализа агентом."
+      },
+      "view_image": {
+        "name": "Просмотреть изображения",
+        "description": "Загрузка изображений для понимания моделью."
+      },
+      "view_video": {
+        "name": "Просмотреть видео",
+        "description": "Загрузка видео для анализа моделью."
+      },
+      "enhance_and_generate_image": {
+        "name": "Улучшить запрос и создать изображение",
+        "description": "Уточнение запроса и генерация изображения."
+      },
+      "web_search": {
+        "name": "Искать в интернете",
+        "description": "Поиск актуальной информации и источников в интернете."
+      },
+      "web_fetch": {
+        "name": "Прочитать веб-страницы",
+        "description": "Получение содержимого страниц для чтения и анализа."
+      },
+      "browser": {
+        "name": "Управлять браузером",
+        "description": "Просмотр страниц и взаимодействие с веб-контентом."
+      },
+      "list_agents": {
+        "name": "Показать агентов",
+        "description": "Поиск доступных агентов для совместной работы."
+      },
+      "chat_with_agent": {
+        "name": "Написать агенту",
+        "description": "Отправка сообщения другому агенту и получение ответа."
+      },
+      "submit_to_agent": {
+        "name": "Делегировать задачу",
+        "description": "Передача фоновой задачи другому агенту."
+      },
+      "check_agent_task": {
+        "name": "Проверить ход задачи",
+        "description": "Проверка состояния и результата делегированной задачи."
+      },
+      "spawn_subagent": {
+        "name": "Запустить субагента",
+        "description": "Запуск временного агента для отдельной задачи."
+      },
+      "delegate_external_agent": {
+        "name": "Передать внешнему агенту",
+        "description": "Передача работы настроенному внешнему агенту."
+      },
+      "send_file_to_user": {
+        "name": "Отправить файлы",
+        "description": "Отправка файла пользователю в текущем диалоге."
+      },
+      "get_current_time": {
+        "name": "Узнать текущее время",
+        "description": "Получение текущих даты и времени."
+      },
+      "set_user_timezone": {
+        "name": "Задать часовой пояс",
+        "description": "Настройка часового пояса для задач, зависящих от времени."
+      },
+      "get_token_usage": {
+        "name": "Проверить расход токенов",
+        "description": "Просмотр расхода токенов при вызовах модели."
+      },
+      "materialize_skill": {
+        "name": "Сохранить навык в файлы",
+        "description": "Запись определения навыка в рабочую область."
+      },
+      "run_tool_batch": {
+        "name": "Выполнить набор инструментов",
+        "description": "Выполнение вызовов инструментов из JSON-файла."
+      },
+      "activate_f1_exploration_mode": {
+        "name": "Изучить согласование почты",
+        "description": "Запуск режима знакомства с согласованием почты."
+      },
+      "migration_compat_inspect": {
+        "name": "Проверить данные миграции",
+        "description": "Проверка подготовленных данных и текущих возможностей QwenPaw."
+      },
+      "migration_compat_read_file": {
+        "name": "Прочитать файлы миграции",
+        "description": "Постраничное чтение подготовленного файла данных."
+      },
+      "migration_compat_write_file": {
+        "name": "Записать файлы миграции",
+        "description": "Создание или перезапись текстовых файлов в исправляемых данных."
+      },
+      "migration_compat_update": {
+        "name": "Обновить настройки миграции",
+        "description": "Обновление разрешённых полей MCP или задач по расписанию."
+      },
+      "migration_compat_finalize": {
+        "name": "Проверить и завершить миграцию",
+        "description": "Финальная проверка и применение исправленных данных при успехе."
+      }
+    },
+    "search": "Поиск инструментов",
+    "noSearchResults": "Инструменты не найдены",
+    "filterAll": "Все инструменты",
+    "filterEnabled": "Включены",
+    "filterDisabled": "Отключены",
+    "enabledCount": "Включено {{enabled}} из {{total}}",
+    "enableAllConfirm": "Включить все инструменты ({{count}})?",
+    "groups": {
+      "files": "Файлы и код",
+      "web": "Интернет и браузер",
+      "media": "Изображения и видео",
+      "agents": "Совместная работа агентов",
+      "runtime": "Выполнение и автоматизация",
+      "migration": "Миграция приложений",
+      "other": "Без категории"
+    }
   },
   "modelConfig": {
     "promptTitle": "Требуется LLM-модель — выберите в Chat после настройки",
@@ -2948,7 +3203,20 @@
       "global": "Глобальные настройки",
       "plugins": "Функции плагинов"
     },
-    "alwaysVisible": "Всегда отображать"
+    "alwaysVisible": "Всегда отображать",
+    "sidebarEditHelp": "Перетащите маркер для сортировки. С клавиатуры: пробел — выбрать, стрелки — переместить, пробел — отпустить. Кнопки + и − добавляют и убирают пункты. Изменения сохраняются автоматически.",
+    "fixedEntry": "Всегда виден",
+    "addEntry": "Добавить {{name}}",
+    "allAdded": "Всё добавлено",
+    "availableEntries": "Доступные пункты",
+    "dragHint": "Перетащите для сортировки или возврата в список.",
+    "dropHere": "Перетащите ярлыки сюда",
+    "mirrorHint": "Держите нужные инструменты под рукой.",
+    "moveEntry": "Переместить {{name}}",
+    "preview": "Предпросмотр",
+    "previewCaption": "Изменения сохраняются автоматически",
+    "removeEntry": "Убрать {{name}}",
+    "sidebarPreview": "Видимые пункты"
   },
   "chat": {
     "newTask": "Новая задача",
@@ -3301,7 +3569,8 @@
         "goToWhitelist": "Перейти к белому списку",
         "moreFindings": "Ещё {{count}} записей не показано (полный список: Настройки → Безопасность → Сканер навыков)."
       }
-    }
+    },
+    "sandboxEnabled": "Защита песочницы"
   },
   "hub": {
     "brand": {

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import { Button, Input, Spin, Tooltip } from "antd";
-import { CircleHelp } from "lucide-react";
+import { Button, Input, Spin, Alert } from "antd";
+import InlineHelp from "@/components/InlineHelp";
 import { useTranslation } from "react-i18next";
 import api from "@/api";
 import { useAutoSave } from "@/hooks/useAutoSave";
@@ -41,19 +41,23 @@ export function HeartbeatInstructions({ agentId }: { agentId: string }) {
   return (
     <section className={styles.instructions}>
       <header>
-        <h2>HEARTBEAT.md</h2>
-        <Tooltip title={t("heartbeat.description")}>
-          <button type="button" aria-label={t("heartbeat.description")}>
-            <CircleHelp size={16} />
-          </button>
-        </Tooltip>
+        <h2>{t("heartbeat.instructionsTitle")}</h2>
+        <InlineHelp>{t("heartbeat.description")}</InlineHelp>
+        <span className={styles.fileName}>HEARTBEAT.md</span>
       </header>
       {loading ? (
         <Spin />
       ) : failed ? (
-        <Button onClick={() => setAttempt((value) => value + 1)}>
-          {t("common.retry")}
-        </Button>
+        <Alert
+          type="error"
+          showIcon
+          message={t("heartbeat.instructionsLoadFailed")}
+          action={
+            <Button onClick={() => setAttempt((value) => value + 1)}>
+              {t("common.retry")}
+            </Button>
+          }
+        />
       ) : (
         <Input.TextArea
           aria-label="HEARTBEAT.md"

@@ -446,17 +446,19 @@
       "plugins": "插件功能"
     },
     "alwaysVisible": "始终展示",
-    "moveEntry": "移动{{name}}",
-    "removeEntry": "移除{{name}}",
-    "addEntry": "添加{{name}}",
-    "dragHint": "拖动调整顺序，或移入右侧组件库。",
-    "mirrorHint": "把常用入口放在手边。",
-    "sidebarPreview": "侧边栏预览",
+    "moveEntry": "移动 {{name}}",
+    "removeEntry": "移除 {{name}}",
+    "addEntry": "添加 {{name}}",
+    "dragHint": "拖动排序，或移入入口库。",
+    "mirrorHint": "让常用工具触手可及。",
+    "sidebarPreview": "已显示入口",
     "preview": "预览",
-    "dropHere": "拖入常用入口",
-    "previewCaption": "完成后同步到侧边栏",
-    "availableEntries": "组件库",
-    "allAdded": "已全部添加"
+    "dropHere": "将快捷入口拖到这里",
+    "previewCaption": "修改会自动保存",
+    "availableEntries": "可用入口",
+    "allAdded": "已全部添加",
+    "sidebarEditHelp": "拖动手柄调整顺序；键盘按空格选中、方向键移动，再按空格放下。使用加减按钮添加或移除入口，修改会自动保存。",
+    "fixedEntry": "始终显示"
   },
   "debug": {
     "title": "调试",
@@ -1183,7 +1185,9 @@
     "noTags": "暂无标签",
     "enabledSkills": "已激活的技能",
     "disabledSkills": "未激活的技能",
-    "active": "个激活"
+    "active": "个激活",
+    "renameSingleOnly": "仅选中一个技能时可重命名。",
+    "name": "技能名称"
   },
   "skillPool": {
     "description": "共享本地技能池，包含内置技能和工作区上传。ClawHub 或 LobeHub 等外部导入为独立功能。",
@@ -1466,7 +1470,9 @@
     "runNow": "立即执行一次",
     "runNowSuccess": "已触发心跳执行，请稍后查看收件箱或目标渠道",
     "runNowFailed": "触发心跳执行失败",
-    "intervalRange": "请选择 1 分钟至 23 小时 59 分钟"
+    "intervalRange": "请选择 1 分钟至 23 小时 59 分钟",
+    "instructionsTitle": "心跳指令",
+    "instructionsLoadFailed": "指令加载失败，请重试。"
   },
   "cronJobs": {
     "executionModel": "执行模型",
@@ -1501,7 +1507,7 @@
     "scheduleTypeRecurring": "循环任务",
     "scheduleTypeOnce": "日程任务",
     "scheduleCron": "执行时间（Cron）",
-    "scheduleCronLabel": "执行时间（Cron）",
+    "scheduleCronLabel": "执行时间",
     "onceRunAt": "执行时间",
     "repeatEnabled": "重复执行",
     "repeatEnabledTooltip": "从该开始时间按固定天数重复执行",
@@ -1601,7 +1607,7 @@
     "idTooltip": "任务的唯一标识符（UUID）由系统在创建时自动分配，不可修改。",
     "nameTooltip": "任务的友好名称，便于识别。",
     "cronTooltip": "定义任务执行时间",
-    "cronExample": "常用示例：'0 9 * * *' = 每天9点 | '*/30 * * * *' = 每30分钟 | '0 */2 * * *' = 每2小时 | '0 0 * * 0' = 每周日0点",
+    "cronExample": "常用示例：'0 9 * * *' = 每天9点 | '*/30 * * * *' = 每30分钟 | '0 */2 * * *' = 每2小时 | '0 0 * * sun' = 每周日0点",
     "cronHelper": "不熟悉 Cron 表达式？",
     "cronHelperLink": "使用在线工具生成",
     "timezoneTooltip": "Cron 计划使用的时区。默认：UTC",
@@ -1699,7 +1705,22 @@
         "description": "每次周会前基于最近一周 memory 生成工作总结。",
         "frequency": "首次执行：2026年1月2日 08:30｜每7天一次｜截止到2026年3月1日"
       }
-    }
+    },
+    "calendarScope": "仅显示指定日期的任务",
+    "viewMode": "视图",
+    "emptyList": "当前视图暂无任务",
+    "previousMonth": "上个月",
+    "nextMonth": "下个月",
+    "cronExpression": "Cron 表达式",
+    "cronFormatHint": "格式：分钟 小时 日 月 星期",
+    "frequency": "执行频率",
+    "cronTypeMinutes": "分钟间隔",
+    "cronTypeMonthly": "每月",
+    "intervalMinutes": "重复间隔",
+    "everyMinutes": "每 {{count}} 分钟",
+    "monthDay": "每月日期",
+    "shortMonthHint": "没有该日期的月份会跳过。",
+    "selectAtLeastOneDay": "请选择至少一天。"
   },
   "channels": {
     "manualCredentials": "手动填写凭据",
@@ -1953,7 +1974,66 @@
     "availableSection": "未激活",
     "enableAction": "启用",
     "noEnabledChannels": "暂无已激活频道",
-    "goEnableChannels": "去启用频道"
+    "goEnableChannels": "去启用频道",
+    "configureAction": "配置",
+    "username": "用户名",
+    "fieldHomeserverURL": "主服务器地址",
+    "fieldAuthMethod": "认证方式",
+    "fieldAccessToken": "访问令牌",
+    "fieldPassword": "密码",
+    "fieldEnableEndtoEndEncryption": "端到端加密",
+    "fieldDeviceName": "设备名称",
+    "fieldDBPath": "数据库路径",
+    "fieldPollIntervalsec": "轮询间隔（秒）",
+    "fieldHTTPProxy": "HTTP 代理",
+    "fieldHTTPProxyAuth": "HTTP 代理认证",
+    "fieldClientID": "客户端 ID",
+    "fieldClientSecret": "客户端密钥",
+    "fieldMessageType": "消息类型",
+    "fieldCronMessageType": "定时任务消息类型",
+    "fieldCardTemplateID": "卡片模板 ID",
+    "fieldCardTemplateKey": "卡片模板变量名",
+    "fieldRobotCode": "机器人编码",
+    "fieldAppID": "应用 ID",
+    "fieldAppSecret": "应用密钥",
+    "fieldEncryptKey": "加密密钥",
+    "fieldVerificationToken": "验证令牌",
+    "fieldAPIBaseURL": "API 基础地址",
+    "fieldShowTyping": "显示输入状态",
+    "fieldMQTTHost": "MQTT 主机",
+    "fieldMQTTPort": "MQTT 端口",
+    "fieldCleanSession": "清理会话",
+    "fieldQoS": "服务质量（QoS）",
+    "fieldMQTTUsername": "MQTT 用户名",
+    "fieldMQTTPassword": "MQTT 密码",
+    "fieldSubscribeTopic": "订阅主题",
+    "fieldPublishTopic": "发布主题",
+    "fieldTLSEnabled": "启用 TLS",
+    "fieldTLSCACerts": "TLS CA 证书",
+    "fieldTLSCertfile": "TLS 证书文件",
+    "fieldTLSKeyfile": "TLS 密钥文件",
+    "fieldMattermostURL": "Mattermost 地址",
+    "fieldThreadFollowWithoutMention": "无需提及即可跟进话题",
+    "fieldBotID": "机器人 ID",
+    "fieldSecret": "密钥",
+    "fieldAccessKeyAK": "访问密钥（AK）",
+    "fieldSecretKeySK": "私有密钥（SK）",
+    "fieldAgentID": "智能体 ID",
+    "fieldAPIDomain": "API 域名",
+    "fieldWebSocketHost": "WebSocket 主机",
+    "fieldWebSocketPort": "WebSocket 端口",
+    "matrixUserHelp": "可填写完整 MXID（如 @bot:matrix.org）或本地名称（如 bot）。",
+    "matrixEncryptionHelp": "启用后需在 Matrix 客户端（如 Element）验证设备，并安装 matrix-nio[e2e]：pip install matrix-nio[e2e]。",
+    "matrixDeviceHelp": "Matrix 客户端的固定设备名称，留空时使用 qwenpaw-worker。",
+    "messageTypeHelp": "markdown：普通消息；card：AI 交互卡片。",
+    "scheduledMessageTypeHelp": "定时任务发送的消息类型，与聊天消息类型独立。",
+    "cardVariableHelp": "必须与模板变量名完全一致。",
+    "robotCodeHelp": "群聊建议显式填写机器人编码。",
+    "apiDomainHelp": "签名令牌认证的 REST API 域名，默认 bot.yuanbao.tencent.com。",
+    "requiredField": "请填写{{field}}",
+    "portRange": "端口须在 1 至 65535 之间",
+    "developmentMode": "开发（pyVoIP）",
+    "productionMode": "生产（LiveKit）"
   },
   "sessions": {
     "title": "会话",
@@ -3508,14 +3588,14 @@
   "tools": {
     "search": "搜索工具",
     "noSearchResults": "没有匹配的工具",
-    "title": "内置工具",
+    "title": "工具",
     "description": "管理内置工具及其启用状态。禁用的工具将不会提供给智能体使用。",
     "emptyState": "暂无工具配置",
     "loadError": "加载工具失败",
     "enableSuccess": "工具启用成功",
     "disableSuccess": "工具禁用成功",
     "toggleError": "切换工具状态失败",
-    "enableAllConfirm": "启用全部 {{count}} 个模型？",
+    "enableAllConfirm": "启用全部 {{count}} 个工具？",
     "enableAll": "全部启用",
     "disableAll": "全部禁用",
     "enableAllSuccess": "全部工具已启用",
@@ -3546,7 +3626,154 @@
     "noEnabled": "暂无已启用的工具",
     "goEnableBtn": "去启用",
     "configureAction": "配置 →",
-    "enableAction": "启用 →"
+    "enableAction": "启用 →",
+    "catalog": {
+      "execute_shell_command": {
+        "name": "执行命令",
+        "description": "运行终端命令，完成系统操作与脚本任务。"
+      },
+      "read_file": {
+        "name": "读取文件",
+        "description": "读取文本文件，查看内容或指定行。"
+      },
+      "write_file": {
+        "name": "写入文件",
+        "description": "创建文件，或写入新的文件内容。"
+      },
+      "edit_file": {
+        "name": "编辑文件",
+        "description": "查找并替换文件中的指定内容。"
+      },
+      "append_file": {
+        "name": "追加内容",
+        "description": "在文件末尾添加文本，保留已有内容。"
+      },
+      "grep_search": {
+        "name": "搜索文件内容",
+        "description": "按关键词或模式查找文件中的文本。"
+      },
+      "glob_search": {
+        "name": "查找文件",
+        "description": "按文件名或路径模式定位文件。"
+      },
+      "ast_search": {
+        "name": "搜索代码结构",
+        "description": "按语法结构查找代码中的匹配片段。"
+      },
+      "desktop_screenshot": {
+        "name": "桌面截图",
+        "description": "截取当前桌面，供智能体查看和分析。"
+      },
+      "view_image": {
+        "name": "查看图片",
+        "description": "读取图片，让模型理解画面内容。"
+      },
+      "view_video": {
+        "name": "查看视频",
+        "description": "读取视频，让模型分析视频内容。"
+      },
+      "enhance_and_generate_image": {
+        "name": "增强并生成图片",
+        "description": "完善图片描述，再生成所需画面。"
+      },
+      "web_search": {
+        "name": "搜索网页",
+        "description": "搜索互联网，获取最新信息与来源。"
+      },
+      "web_fetch": {
+        "name": "读取网页",
+        "description": "提取指定网页的内容，供阅读和分析。"
+      },
+      "browser": {
+        "name": "浏览器操作",
+        "description": "浏览网页，并与页面上的内容和控件交互。"
+      },
+      "list_agents": {
+        "name": "查看智能体",
+        "description": "列出可用智能体，了解可协作的对象。"
+      },
+      "chat_with_agent": {
+        "name": "与智能体对话",
+        "description": "向另一个智能体发送消息并获取回复。"
+      },
+      "submit_to_agent": {
+        "name": "委派后台任务",
+        "description": "将任务交给其他智能体在后台执行。"
+      },
+      "check_agent_task": {
+        "name": "查看任务进度",
+        "description": "查询已委派任务的运行状态与结果。"
+      },
+      "spawn_subagent": {
+        "name": "创建子任务",
+        "description": "启动临时子智能体，处理独立的工作。"
+      },
+      "delegate_external_agent": {
+        "name": "委派外部智能体",
+        "description": "将工作交给已配置的外部智能体。"
+      },
+      "send_file_to_user": {
+        "name": "发送文件",
+        "description": "将文件发送给当前对话中的用户。"
+      },
+      "get_current_time": {
+        "name": "获取当前时间",
+        "description": "查询当前日期和时间。"
+      },
+      "set_user_timezone": {
+        "name": "设置时区",
+        "description": "设置用户时区，用于时间相关任务。"
+      },
+      "get_token_usage": {
+        "name": "查看 Token 用量",
+        "description": "查询模型调用的 Token 消耗。"
+      },
+      "materialize_skill": {
+        "name": "部署技能",
+        "description": "将技能定义写入当前工作区。"
+      },
+      "run_tool_batch": {
+        "name": "批量执行工具",
+        "description": "按 JSON 文件中的定义执行一组工具调用。"
+      },
+      "activate_f1_exploration_mode": {
+        "name": "邮件审批探索",
+        "description": "进入逐步处理邮件审批的探索模式。"
+      },
+      "migration_compat_inspect": {
+        "name": "检查迁移资源",
+        "description": "检查暂存资源与当前 QwenPaw 支持的能力。"
+      },
+      "migration_compat_read_file": {
+        "name": "读取迁移文件",
+        "description": "分页读取暂存资源中的文件内容。"
+      },
+      "migration_compat_write_file": {
+        "name": "写入迁移文件",
+        "description": "创建或覆盖待修复资源中的文本文件。"
+      },
+      "migration_compat_update": {
+        "name": "更新迁移配置",
+        "description": "修改允许更新的 MCP 或定时任务字段。"
+      },
+      "migration_compat_finalize": {
+        "name": "验证并完成迁移",
+        "description": "运行最终测试，通过后启用修复完成的资源。"
+      }
+    },
+    "groups": {
+      "files": "文件与代码",
+      "web": "网页与浏览器",
+      "media": "图像与视频",
+      "agents": "智能体协作",
+      "runtime": "运行与自动化",
+      "migration": "应用迁移",
+      "other": "未分类"
+    },
+    "filterAll": "全部工具",
+    "filterEnabled": "已启用",
+    "filterDisabled": "未启用",
+    "enabledCount": "已启用 {{enabled}} / {{total}}"
   },
   "modelConfig": {
     "promptTitle": "需要配置 LLM 模型，配置模型后在 Chat 页面选择",

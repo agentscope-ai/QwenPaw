@@ -356,3 +356,70 @@
     padding: 18px;
   }
 }
+
+.loading {
+  padding: 64px 24px;
+  text-align: center;
+}
+.heartbeatPage .pulseCard {
+  --reflection-highlight: var(--app-accent-faint);
+  --reflection-silver: transparent;
+  --reflection-edge: var(--app-accent-border);
+  --reflection-shadow: transparent;
+}
+.schedule {
+  max-width: none;
+  grid-template-columns: minmax(280px, 0.85fr) minmax(320px, 1.3fr);
+  gap: 24px;
+}
+.pulseCard,
+.instructions,
+.delivery {
+  border-radius: 20px;
+}
+.instructions header {
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.fileName {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--app-text-tertiary);
+}
+.instructions textarea {
+  font-family: inherit;
+  font-size: 14px;
+  padding: 16px;
+  border-radius: 12px;
+}
+.delivery h2 {
+  font-size: 16px;
+}
+.presets {
+  flex-wrap: wrap;
+}
+.presets button {
+  min-height: 44px;
+}
+.targetChoices button {
+  min-height: 80px;
+}
+@media (max-width: 1000px) {
+  .schedule {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+@media (max-width: 600px) {
+  .pulseCard,
+  .instructions,
+  .delivery {
+    padding: 20px;
+  }
+  .schedule {
+    gap: 16px;
+  }
+  .fileName {
+    width: 100%;
+    margin-top: 4px;
+  }
+}

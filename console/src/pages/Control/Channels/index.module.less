@@ -357,7 +357,7 @@
 }
 
 .statusText {
-  font-family: Lato;
+  font-family: inherit;
   font-size: 12px;
   font-weight: normal;
   line-height: 19px;
@@ -616,5 +616,101 @@
   .channelDisclosure {
     border: 0;
     margin-top: 8px;
+  }
+}
+
+.channelsPage .channelSurface {
+  width: 100%;
+  border-radius: 20px;
+  --reflection-highlight: var(--app-accent-faint);
+  --reflection-silver: transparent;
+  --reflection-edge: var(--app-accent-border);
+  --reflection-shadow: var(--app-accent-faint);
+}
+.channelCard {
+  padding: 24px;
+  min-height: 196px;
+  &:hover {
+    border-color: var(--app-accent-border);
+  }
+  &:focus-visible {
+    outline: 2px solid var(--app-focus-ring);
+    outline-offset: 2px;
+  }
+}
+.cardTitle {
+  font-size: 16px;
+  font-weight: 600;
+  margin: 16px 0 12px;
+  overflow-wrap: anywhere;
+}
+.cardMiddleSection {
+  min-width: 0;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.builtinTag,
+.customTag {
+  margin-left: 0;
+  border-radius: 6px;
+  padding: 2px 8px;
+}
+.cardBottomSection {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 0 0;
+  border-top: 1px solid var(--app-border-subtle);
+}
+.cardDescription {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+}
+.configureAction {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 13px;
+  color: var(--app-accent-text);
+}
+.availableGrid {
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 240px), 1fr));
+}
+.availableItem {
+  min-height: 68px;
+  padding: 16px;
+  border-radius: 16px;
+  text-align: start;
+  font-family: inherit;
+}
+.availableItemName {
+  font-size: 14px;
+}
+.panelTitle {
+  font-size: 14px;
+  font-weight: 600;
+}
+.panelCount {
+  margin-left: auto;
+  font-size: 12px;
+  font-weight: 400;
+}
+.filterTab {
+  min-height: 40px;
+}
+.channelsPage .pageHeader {
+  flex-wrap: wrap;
+  gap: 16px;
+  border: 0;
+  padding: 0 16px 24px;
+}
+.channelsPage .pageHeader > [class*="center"] {
+  position: static;
+  transform: none;
+}
+@media (max-width: 600px) {
+  .channelsPage .pageHeader {
+    padding-inline: 0;
   }
 }

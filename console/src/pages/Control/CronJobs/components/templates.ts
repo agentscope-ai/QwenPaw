@@ -1,4 +1,5 @@
 import dayjs from "dayjs";
+import { parseCron } from "./parseCron";
 
 export type CronTemplateCategory = "cron" | "once";
 export type CronTemplateTag = "personal" | "team" | "reminder" | "calendar";
@@ -57,48 +58,57 @@ const createCustomCronTemplate = (
   source: "builtin",
   tags,
   showInCalendarRecommended: true,
-  toFormValues: (timezone) => ({
-    name: "",
-    enabled: true,
-    scheduleType: "cron",
-    cronType: "custom",
-    cronCustom,
-    schedule: {
-      type: "cron",
-      timezone,
-    },
-    task_type: options.taskType || "text",
-    text: options.taskType === "agent" ? "" : options.textContent || "",
-    request:
-      options.taskType === "agent"
-        ? {
-            input: JSON.stringify(
-              [
-                {
-                  role: "user",
-                  content: [
-                    {
-                      type: "text",
-                      text: options.agentPrompt || "",
-                    },
-                  ],
-                },
-              ],
-              null,
-              2,
-            ),
-            session_id: "",
-            user_id: "",
-          }
-        : undefined,
-    dispatch: buildDispatch(),
-    runtime: buildRuntime(),
-    meta: {
-      template_id: id,
-      template_source: "builtin",
-      show_in_calendar: true,
-    },
-  }),
+  toFormValues: (timezone) => {
+    const parts = parseCron(cronCustom);
+    return {
+      name: "",
+      enabled: true,
+      scheduleType: "cron",
+      cronType: parts.type,
+      cronCustom,
+      cronInterval: parts.intervalMinutes ?? 5,
+      cronMonthDay: parts.dayOfMonth ?? 1,
+      cronDaysOfWeek: parts.daysOfWeek,
+      cronTime: dayjs()
+        .hour(parts.hour ?? 9)
+        .minute(parts.minute ?? 0),
+      schedule: {
+        type: "cron",
+        timezone,
+      },
+      task_type: options.taskType || "text",
+      text: options.taskType === "agent" ? "" : options.textContent || "",
+      request:
+        options.taskType === "agent"
+          ? {
+              input: JSON.stringify(
+                [
+                  {
+                    role: "user",
+                    content: [
+                      {
+                        type: "text",
+                        text: options.agentPrompt || "",
+                      },
+                    ],
+                  },
+                ],
+                null,
+                2,
+              ),
+              session_id: "",
+              user_id: "",
+            }
+          : undefined,
+      dispatch: buildDispatch(),
+      runtime: buildRuntime(),
+      meta: {
+        template_id: id,
+        template_source: "builtin",
+        show_in_calendar: true,
+      },
+    };
+  },
 });
 
 const createScheduledTemplate = (

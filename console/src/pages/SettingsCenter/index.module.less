@@ -779,3 +779,34 @@
   max-width: none;
   width: 100%;
 }
+
+.searchResult {
+  display: block;
+  width: calc(100% - 22px);
+  margin: 2px 0 2px 22px;
+  padding: 9px 12px;
+  border: 0;
+  border-left: 1px solid var(--app-border);
+  border-radius: 0 8px 8px 0;
+  background: transparent;
+  color: var(--app-text-secondary);
+  text-align: left;
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+
+  &:hover,
+  &:focus-visible {
+    color: var(--app-text);
+    background: var(--app-fill);
+  }
+}
+
+.content :global([data-search-highlight="true"]) {
+  outline: 2px solid var(--app-accent-border);
+  outline-offset: 5px;
+  border-radius: 8px;
+  scroll-margin-block: 24px;
+}
