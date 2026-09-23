@@ -114,7 +114,11 @@ class TerminalSession:
             self.cursor += len(data)
             if not self.notified and not self.loop.is_closed():
                 self.notified = True
-                self.loop.call_soon_threadsafe(self._notify)
+                try:
+                    self.loop.call_soon_threadsafe(self._notify)
+                except RuntimeError:
+                    # The loop may close after is_closed() during shutdown.
+                    self.notified = False
 
     def _read(self):
         try:

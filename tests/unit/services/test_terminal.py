@@ -202,6 +202,24 @@ async def test_replay_is_bounded_and_cursor_detects_loss():
     assert next_result["cursor"] == 100 + terminal.MAX_CHUNK * 2
 
 
+def test_append_tolerates_event_loop_shutdown_race():
+    session = terminal.TerminalSession.__new__(terminal.TerminalSession)
+    session.lock = threading.Lock()
+    session.loop = MagicMock()
+    session.loop.is_closed.return_value = False
+    session.loop.call_soon_threadsafe.side_effect = RuntimeError("closed")
+    session.changed = MagicMock()
+    session.notified = False
+    session.buffer = ""
+    session.cursor = 0
+
+    session._append("done")
+
+    assert session.buffer == "done"
+    assert session.cursor == 4
+    assert not session.notified
+
+
 async def test_limits_and_owner_isolation(tmp_path, monkeypatch):
     def fake_session(owner, _cwd, _loop):
         session = MagicMock()
