@@ -77,6 +77,9 @@ class HistoryStore:
     _integrity_probe_condition = threading.Condition()
     _integrity_probe_inflight: set[tuple[int, Path]] = set()
     _integrity_probe_checked: dict[tuple[int, Path], tuple[int, int]] = {}
+    # FTS checks need a writer lock. Cache them separately so a deferred FTS
+    # probe can retry without repeating an already successful quick_check.
+    _fts_probe_checked: dict[tuple[int, Path], tuple[int, int]] = {}
 
     def __init__(self, db_path: str | Path) -> None:
         self._path = Path(db_path).expanduser()
@@ -96,6 +99,7 @@ class HistoryStore:
         # teardown race from a real disk outage (see ``closed``).
         self._closed = False
         self._checked_identity: tuple[int, int] | None = None
+        self._fts_checked_identity: tuple[int, int] | None = None
         probe_key, cached_identity = self._claim_integrity_probe(
             self._path,
         )
@@ -121,6 +125,7 @@ class HistoryStore:
                 # the old result before recovery and always check the new DB.
                 with self._integrity_probe_condition:
                     self._integrity_probe_checked.pop(probe_key, None)
+                    self._fts_probe_checked.pop(probe_key, None)
                 self._quarantine(exc)
                 self._open_and_init()
         except BaseException:
@@ -135,6 +140,7 @@ class HistoryStore:
             probe_key,
             succeeded=True,
             checked_identity=self._checked_identity,
+            fts_checked_identity=self._fts_checked_identity,
         )
 
     @staticmethod
@@ -183,18 +189,21 @@ class HistoryStore:
         *,
         succeeded: bool,
         checked_identity: tuple[int, int] | None = None,
+        fts_checked_identity: tuple[int, int] | None = None,
     ) -> None:
         """Publish a probe result and wake constructors waiting on it."""
         condition = cls._integrity_probe_condition
         with condition:
-            if not succeeded:
-                cls._integrity_probe_checked.pop(key, None)
-            elif checked_identity is not None:
+            identity = cls._file_identity(key[1])
+            for cache, checked in (
+                (cls._integrity_probe_checked, checked_identity),
+                (cls._fts_probe_checked, fts_checked_identity),
+            ):
+                if not succeeded or cache.get(key) != identity:
+                    cache.pop(key, None)
                 # Never associate a result with a replacement we did not scan.
-                if cls._file_identity(key[1]) == checked_identity:
-                    cls._integrity_probe_checked[key] = checked_identity
-                else:
-                    cls._integrity_probe_checked.pop(key, None)
+                if succeeded and checked is not None and identity == checked:
+                    cache[key] = checked
             cls._integrity_probe_inflight.discard(key)
             condition.notify_all()
 
@@ -226,6 +235,7 @@ class HistoryStore:
         # ``self._lock`` provides the serialization SQLite would get from
         # same-thread affinity.
         self._checked_identity = None
+        self._fts_checked_identity = None
         identity_before_open = self._file_identity(self._path)
         self._conn = sqlite3.connect(
             str(self._path),
@@ -249,7 +259,15 @@ class HistoryStore:
             if identity_before_open in (None, identity_after_open):
                 self._checked_identity = identity_after_open
         self._init_schema()
-        if self._fts:
+        probe_key = os.getpid(), self._path.resolve(strict=False)
+        with self._integrity_probe_condition:
+            cached_fts = self._fts_probe_checked.get(probe_key)
+        can_skip_fts = (
+            cached_fts is not None
+            and identity_before_open == cached_fts
+            and identity_after_open == cached_fts
+        )
+        if self._fts and not can_skip_fts:
             try:
                 # FTS integrity-check is an INSERT and needs a writer lock.
                 # This optional probe must not stall request construction
@@ -272,10 +290,13 @@ class HistoryStore:
                         "Deferring history FTS check until a later open: %s",
                         self._path,
                     )
+                    return
                 elif self._is_corruption(exc):
                     self._repair_fts()
                 else:
                     raise
+            if identity_before_open in (None, identity_after_open):
+                self._fts_checked_identity = identity_after_open
 
     @staticmethod
     def _is_fts_only_corruption(results: Sequence[str]) -> bool:
@@ -327,6 +348,7 @@ class HistoryStore:
             )
 
     def _repair_fts(self) -> None:
+        self._invalidate_fts_probe()
         logger.warning("Rebuilding damaged history FTS index: %s", self._path)
         try:
             with self._conn:
@@ -339,6 +361,12 @@ class HistoryStore:
                 f"History FTS repair failed; history preserved: {self._path}",
             ) from exc
         logger.info("History FTS index repaired: %s", self._path)
+
+    def _invalidate_fts_probe(self) -> None:
+        """Require a new startup probe after observed corruption/recreation."""
+        key = os.getpid(), self._path.resolve(strict=False)
+        with self._integrity_probe_condition:
+            self._fts_probe_checked.pop(key, None)
 
     def _delete_fts_row(self, row: sqlite3.Row) -> None:
         # Older rebuilds may have indexed recall rows. The docsize table
@@ -466,6 +494,7 @@ class HistoryStore:
                 "content_rowid='seq', tokenize='porter unicode61')",
             )
             if not existed:
+                self._invalidate_fts_probe()
                 self._rebuild_fts()
             self._fts = True
         except sqlite3.OperationalError as exc:
@@ -968,6 +997,8 @@ class HistoryStore:
         Logs prominently on the first failure (then counts the rest, to avoid
         log spam). Read ``degraded`` to gate any "fully durable" guarantees.
         """
+        if isinstance(exc, sqlite3.DatabaseError) and self._is_corruption(exc):
+            self._invalidate_fts_probe()
         self.write_failures += 1
         if not self.degraded:
             self.degraded = True

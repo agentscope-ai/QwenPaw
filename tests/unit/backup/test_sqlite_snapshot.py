@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """SQLite backup consistency and cancellation regressions."""
+
 # pylint: disable=protected-access
 
 import sqlite3
@@ -16,11 +17,10 @@ from qwenpaw.backup._ops import sqlite_snapshot
 from qwenpaw.backup._utils.constants import PREFIX_WORKSPACES
 
 
-@pytest.mark.parametrize(
-    "filename",
-    ["history.db", "custom memory?name", "nested/cache.sqlite3"],
-)
-def test_live_wal_snapshot_restores_committed_data(tmp_path, filename):
+def test_live_wal_snapshot_restores_committed_data(tmp_path):
+    # One filename covers nesting, custom extensions and URI escaping on
+    # Windows too (unlike '?', '#' is a valid Windows filename character).
+    filename = "nested/custom memory#name"
     ws = tmp_path / "workspace"
     source = ws / filename
     source.parent.mkdir(parents=True)
