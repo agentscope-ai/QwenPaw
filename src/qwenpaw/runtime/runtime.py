@@ -19,6 +19,8 @@ import logging
 import uuid
 from typing import Any, AsyncGenerator
 
+from agentscope.event import ReplyFinishedReason
+
 from ..agents.acp.meta import ACP_EPHEMERAL_META_KEY
 from ..exceptions import ConfigurationException
 from ..utils.daily_telemetry import record_agent_activity
@@ -136,9 +138,35 @@ class Runtime:
                 await record_agent_activity()
                 async for ev in executor.run(ctx.input_msgs):
                     yield ev
+                ctx.reply_finished_reason = getattr(
+                    executor,
+                    "finished_reason",
+                    None,
+                )
                 context_manager = getattr(ctx.agent, "_context_manager", None)
-                if callable(getattr(context_manager, "complete_turn", None)):
-                    context_manager.complete_turn()
+                # Stream exhaustion alone does not mean the reply succeeded:
+                # model/tool interruptions can emit REPLY_END and return.
+                if (
+                    ctx.reply_finished_reason
+                    == ReplyFinishedReason.INTERRUPTED
+                ):
+                    mark_interrupted = getattr(
+                        context_manager,
+                        "mark_interrupted_turn",
+                        None,
+                    )
+                    if callable(mark_interrupted):
+                        context_manager.mark_interrupted_turn(ctx.agent)
+                elif (
+                    ctx.reply_finished_reason == ReplyFinishedReason.COMPLETED
+                ):
+                    complete_turn = getattr(
+                        context_manager,
+                        "complete_turn",
+                        None,
+                    )
+                    if callable(complete_turn):
+                        context_manager.complete_turn()
 
             # --- [phase 6] POST_RESPONSE ---
             await hooks.run(Phase.POST_RESPONSE, ctx)

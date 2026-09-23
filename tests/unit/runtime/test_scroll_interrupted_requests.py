@@ -9,17 +9,23 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
+from agentscope.event import ReplyEndEvent, ReplyFinishedReason
 from agentscope.message import Msg, TextBlock
 
 from qwenpaw.agents.context.scroll.history import HistoryStore
 from qwenpaw.agents.context.scroll.manager import ScrollContextManager
+from qwenpaw.app.chats.session import SafeJSONSession
 from qwenpaw.hooks.session.session_hook import SessionSaveHook
+from qwenpaw.runtime.console_turn_state import CLIENT_ID, TURN_STATE
 from qwenpaw.runtime.hooks import HookRegistry
 from qwenpaw.runtime.runtime import Runtime
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("ending", ["success", "cancel", "error"])
+@pytest.mark.parametrize(
+    "ending",
+    ["success", "interrupted", "cancel", "error"],
+)
 async def test_runtime_checkpoints_interrupted_instructions(
     tmp_path,
     monkeypatch,
@@ -41,7 +47,7 @@ async def test_runtime_checkpoints_interrupted_instructions(
             },
             "scroll": manager.to_dict(),
         }
-        session = SimpleNamespace(save_session_state=AsyncMock())
+        session = SafeJSONSession(save_dir=str(tmp_path))
         hooks = HookRegistry()
         hooks.register(SessionSaveHook())
         workspace = SimpleNamespace(
@@ -64,29 +70,35 @@ async def test_runtime_checkpoints_interrupted_instructions(
             AsyncMock(),
         )
 
-        class Executor:
-            def __init__(self, *_args):
-                pass
+        async def reply_stream(inputs):
+            agent.state.context.extend(inputs)
+            if ending == "cancel":
+                raise asyncio.CancelledError()
+            if ending == "error":
+                raise RuntimeError("model unavailable")
+            reasons = {
+                "success": ReplyFinishedReason.COMPLETED,
+                "interrupted": ReplyFinishedReason.INTERRUPTED,
+            }
+            yield ReplyEndEvent(
+                session_id="s",
+                reply_id="reply",
+                finished_reason=reasons[ending],
+            )
 
-            async def run(self, inputs):
-                agent.state.context.extend(inputs)
-                if ending == "cancel":
-                    raise asyncio.CancelledError()
-                if ending == "error":
-                    raise RuntimeError("model unavailable")
-                if False:  # pylint: disable=using-constant-test
-                    yield
-
-        monkeypatch.setattr("qwenpaw.runtime.runtime.AgentExecutor", Executor)
+        agent.reply_stream = reply_stream
         runtime = Runtime(workspace=workspace, app_services=None)
 
         async def consume():
             async for _ in runtime.run(
                 {
                     "session_id": "s",
+                    "user_id": "user",
+                    "channel": "console",
                     "input": [
                         {
                             "role": "user",
+                            "metadata": {CLIENT_ID: "request-b"},
                             "content": [{"type": "text", "text": "B"}],
                         },
                     ],
@@ -102,12 +114,31 @@ async def test_runtime_checkpoints_interrupted_instructions(
                 await consume()
         else:
             await consume()
-        session.save_session_state.assert_awaited_once()
-        saved = session.save_session_state.call_args.kwargs["agent"].data
+        saved = (await session.get_session_state_dict("s", "user", "console"))[
+            "agent"
+        ]
         pinned = set(saved["scroll"]["interrupted_user_ids"])
         if ending == "success":
             assert pinned == set()
-        elif ending == "cancel":
+        elif ending in {"cancel", "interrupted"}:
             assert pinned == {m.id for m in agent.state.context}
         else:
             assert pinned == {original.id}
+        if ending in {"cancel", "interrupted", "success"}:
+            assert saved["state"]["context"][-1]["metadata"][TURN_STATE] == {
+                "status": "completed" if ending == "success" else "canceled",
+            }
+
+        if ending != "interrupted":
+            return
+
+        # The event-interrupted turn stays pinned on reload until completion.
+        manager.load_state(saved["scroll"])
+        agent.state.context = [
+            Msg.model_validate(message)
+            for message in saved["state"]["context"]
+        ]
+        ending = "success"
+        await consume()
+        resumed = await session.get_session_state_dict("s", "user", "console")
+        assert resumed["agent"]["scroll"]["interrupted_user_ids"] == []
