@@ -38,8 +38,7 @@ function successfulFileIo(path: string, name = "write_file") {
 }
 
 /**
- * A successful ``send_file_to_user`` result, mirroring the shape observed in
- * persisted console sessions.
+ * A successful ``send_file_to_user`` result in block or chat-history form.
  *
  * The DataBlock source shape varies with the delivery path: text files arrive
  * as ``{type: "url", url: "file://…"}`` while images are inlined as
@@ -47,8 +46,16 @@ function successfulFileIo(path: string, name = "write_file") {
  * base64 shape is deliberately used here as the stricter fixture — it fails
  * immediately if any ``source.url`` coupling is reintroduced.
  */
-function successfulSendFile(path: string) {
+function successfulSendFile(path: string, serializedOutput = false) {
   const name = path.split("/").pop() ?? path;
+  const output = [
+    {
+      type: "data",
+      source: { type: "base64", data: "iVBORw0KGgoAAAANSUhEUg" },
+      name,
+    },
+    { type: "text", text: "File sent successfully." },
+  ];
   return [
     {
       id: `result-send-${path}`,
@@ -66,14 +73,7 @@ function successfulSendFile(path: string) {
           data: {
             call_id: `call-send-${path}`,
             state: "success",
-            output: [
-              {
-                type: "data",
-                source: { type: "base64", data: "iVBORw0KGgoAAAANSUhEUg" },
-                name,
-              },
-              { type: "text", text: "File sent successfully." },
-            ],
+            output: serializedOutput ? JSON.stringify(output) : output,
           },
         },
       ],
@@ -86,7 +86,10 @@ function successfulSendFile(path: string) {
  * even for errors, but the result carries only a TextBlock (no DataBlock),
  * so ResponseArtifactList must not surface an artifact.
  */
-function failedSendFile(path: string) {
+function failedSendFile(path: string, serializedOutput = false) {
+  const output = [
+    { type: "text", text: `Error: The file ${path} does not exist.` },
+  ];
   return [
     {
       id: `result-sendfail-${path}`,
@@ -104,9 +107,7 @@ function failedSendFile(path: string) {
           data: {
             call_id: `call-sendfail-${path}`,
             state: "success",
-            output: [
-              { type: "text", text: `Error: The file ${path} does not exist.` },
-            ],
+            output: serializedOutput ? JSON.stringify(output) : output,
           },
         },
       ],
@@ -294,6 +295,17 @@ describe("ResponseArtifactList", () => {
     expect(screen.getByText("reports/summary.pdf")).toBeInTheDocument();
   });
 
+  it("surfaces a sent file from serialized chat history output", () => {
+    render(
+      <ResponseArtifactList
+        messages={successfulSendFile("reports/summary.pdf", true)}
+      />,
+    );
+
+    expect(screen.getByText("summary.pdf")).toBeInTheDocument();
+    expect(screen.getByText("已发送")).toBeInTheDocument();
+  });
+
   it("marks sent files with the sent status", () => {
     render(<ResponseArtifactList messages={successfulSendFile("notes.txt")} />);
 
@@ -303,6 +315,14 @@ describe("ResponseArtifactList", () => {
   it("does not show send_file_to_user when the result has no DataBlock", () => {
     const { container } = render(
       <ResponseArtifactList messages={failedSendFile("missing.pdf")} />,
+    );
+
+    expect(container).toBeEmptyDOMElement();
+  });
+
+  it("requires a data block for serialized send artifacts", () => {
+    const { container } = render(
+      <ResponseArtifactList messages={failedSendFile("missing.pdf", true)} />,
     );
 
     expect(container).toBeEmptyDOMElement();
