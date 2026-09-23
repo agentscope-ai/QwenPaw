@@ -1,8 +1,8 @@
 diff --git a/packages/datapaw-host-core/frontend/src/App.tsx b/packages/datapaw-host-core/frontend/src/App.tsx
-index 7a150a4..aceb2c3 100644
+index 66b7f6dd..8e182f6a 100644
 --- a/packages/datapaw-host-core/frontend/src/App.tsx
 +++ b/packages/datapaw-host-core/frontend/src/App.tsx
-@@ -3,19 +3,18 @@ import { useDataPawColorMode } from '@datapaw/ui-tokens';
+@@ -3,20 +3,19 @@ import { useDataPawColorMode } from '@datapaw/ui-tokens';
  import enUS from 'antd/locale/en_US';
  import zhCN from 'antd/locale/zh_CN';
  import { lazy, Suspense, useLayoutEffect, useMemo, type ReactNode } from 'react';
@@ -18,6 +18,7 @@ index 7a150a4..aceb2c3 100644
 -const McpSettingsPage = lazy(() => import('./pages/McpSettings'));
  const ConsolePage = lazy(() => import('./pages/Console'));
  const CronJobsPage = lazy(() => import('./pages/CronJobs'));
+ const SettlementCenterPage = lazy(() => import('./pages/SettlementCenter'));
  const SessionsPage = lazy(() => import('./pages/Sessions'));
 -const SkillsHubPage = lazy(() => import('./pages/SkillsHub'));
 +const SkillsHubPage = lazy(() => import('./pages/SkillsContribution'));
@@ -25,7 +26,7 @@ index 7a150a4..aceb2c3 100644
  
  function RedirectToConsole() {
    const location = useLocation();
-@@ -81,7 +80,7 @@ function LocalizedApp() {
+@@ -82,7 +81,7 @@ function LocalizedApp() {
        {...themeProviderProps}
        locale={language === 'zh' ? zhCN : enUS}
      >
@@ -34,7 +35,7 @@ index 7a150a4..aceb2c3 100644
          <Suspense fallback={<AppLoadingFallback label={t('common.loading')} />}>
            <Routes>
              <Route path="/console" element={<ConsoleLayout />}>
-@@ -106,18 +105,14 @@ function LocalizedApp() {
+@@ -111,18 +110,14 @@ function LocalizedApp() {
                  element={<InitialLoadingCleanup><AgentSettingsPage /></InitialLoadingCleanup>}
                />
                <Route
@@ -57,7 +58,7 @@ index 7a150a4..aceb2c3 100644
    );
  }
 diff --git a/packages/datapaw-host-core/frontend/src/features/console/components/ConsoleSettingsMenu/index.tsx b/packages/datapaw-host-core/frontend/src/features/console/components/ConsoleSettingsMenu/index.tsx
-index ea5b698..d2d8d69 100644
+index ea5b698f..d2d8d691 100644
 --- a/packages/datapaw-host-core/frontend/src/features/console/components/ConsoleSettingsMenu/index.tsx
 +++ b/packages/datapaw-host-core/frontend/src/features/console/components/ConsoleSettingsMenu/index.tsx
 @@ -1,14 +1,11 @@
@@ -101,10 +102,10 @@ index ea5b698..d2d8d69 100644
              }
            },
 diff --git a/packages/datapaw-host-core/frontend/src/features/console/components/GlobalProductNav/index.tsx b/packages/datapaw-host-core/frontend/src/features/console/components/GlobalProductNav/index.tsx
-index e868968..8d760a7 100644
+index 72ae3157..0f8cf32f 100644
 --- a/packages/datapaw-host-core/frontend/src/features/console/components/GlobalProductNav/index.tsx
 +++ b/packages/datapaw-host-core/frontend/src/features/console/components/GlobalProductNav/index.tsx
-@@ -314,7 +314,7 @@ export default function GlobalProductNav({
+@@ -347,7 +347,7 @@ export default function GlobalProductNav({
            workspaceIcon={<HomeOutlined />}
            usernameAriaLabel={`${t('nav.currentUser')}: ${username}`}
            workspaceAriaLabel={`${t('nav.currentWorkspace')}: ${activeWorkspaceName}`}
@@ -113,7 +114,7 @@ index e868968..8d760a7 100644
              <Dropdown
                getPopupContainer={getAccountCardPopupContainer}
                overlayClassName="datapaw-sider-account-dropdown"
-@@ -326,7 +326,7 @@ export default function GlobalProductNav({
+@@ -359,7 +359,7 @@ export default function GlobalProductNav({
              >
                {trigger}
              </Dropdown>
@@ -123,10 +124,10 @@ index e868968..8d760a7 100644
              <Dropdown
                getPopupContainer={getAccountCardPopupContainer}
 diff --git a/packages/datapaw-host-core/frontend/src/features/console/components/RuntimeConversation/index.tsx b/packages/datapaw-host-core/frontend/src/features/console/components/RuntimeConversation/index.tsx
-index 6b0fa9a..21b1ee2 100644
+index 14bcff82..d81cab22 100644
 --- a/packages/datapaw-host-core/frontend/src/features/console/components/RuntimeConversation/index.tsx
 +++ b/packages/datapaw-host-core/frontend/src/features/console/components/RuntimeConversation/index.tsx
-@@ -13,6 +13,7 @@ import type {
+@@ -20,6 +20,7 @@ import type {
    IAgentScopeRuntimeMessage,
  } from '@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/AgentScopeRuntime/types';
  import {
@@ -134,7 +135,7 @@ index 6b0fa9a..21b1ee2 100644
    AgentScopeRuntimeMessageType,
  } from '@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/AgentScopeRuntime/types';
  import {
-@@ -455,6 +456,17 @@ type RuntimeResponseSection = ChatTimelineSection | {
+@@ -482,6 +483,17 @@ type RuntimeResponseSection = ChatTimelineSection | {
    items: null;
  };
  
@@ -152,31 +153,31 @@ index 6b0fa9a..21b1ee2 100644
  function mergeRuntimeDisplayEntries(
    entries: RuntimeDisplayEntry[],
  ): RuntimeDisplayEntry[] {
-@@ -506,6 +518,7 @@ function RuntimeProcessTimeline({
-   timeline,
+@@ -539,6 +551,7 @@ function RuntimeProcessTimeline({
+   showConfidence,
    terminal,
    chatId,
 +  sessionId,
    initialHistoricalSegmentKeys,
+   lastSessionSegmentKey,
    onArtifactOpen,
-   onArtifactDownload,
-@@ -515,6 +528,7 @@ function RuntimeProcessTimeline({
-   timeline?: ChatTimelineItem[] | null;
+@@ -550,6 +563,7 @@ function RuntimeProcessTimeline({
+   showConfidence: boolean;
    terminal: boolean;
    chatId?: string | null;
 +  sessionId?: string;
    initialHistoricalSegmentKeys: ReadonlySet<string>;
+   lastSessionSegmentKey: string | null;
    onArtifactOpen?: (artifact: Artifact) => void;
-   onArtifactDownload?: (artifact: Artifact) => void;
-@@ -560,6 +574,7 @@ function RuntimeProcessTimeline({
-           return (
-             <RuntimeSegmentCard
-               data={projection.segment}
+@@ -600,6 +614,7 @@ function RuntimeProcessTimeline({
+               events={projection.events}
+               showTerminalEvent={Boolean(chatId && lastSessionSegmentKey ===
+                 segmentInstanceKey(chatId, projection.segment.segment_id))}
 +              sessionId={sessionId}
                defaultOpen={
                  !chatId
                  || !initialHistoricalSegmentKeys.has(
-@@ -587,7 +602,10 @@ function RuntimeProcessTimeline({
+@@ -627,7 +642,10 @@ function RuntimeProcessTimeline({
            return <RuntimeError data={runtimeMessage} key={runtimeMessage.id} />;
          }
          if (runtimeMessage.type === AgentScopeRuntimeMessageType.MESSAGE) {
@@ -188,43 +189,43 @@ index 6b0fa9a..21b1ee2 100644
          }
          return null;
        })}
-@@ -922,6 +940,7 @@ function RuntimeResponseMessage({
-   timeline,
+@@ -967,6 +985,7 @@ function RuntimeResponseMessage({
+   showConfidence,
    terminal,
    chatId,
 +  sessionId,
    initialHistoricalSegmentKeys,
+   lastSessionSegmentKey,
    running,
-   waitingForInput,
-@@ -936,6 +955,7 @@ function RuntimeResponseMessage({
-   timeline?: ChatTimelineItem[] | null;
+@@ -985,6 +1004,7 @@ function RuntimeResponseMessage({
+   showConfidence: boolean;
    terminal: boolean;
    chatId?: string | null;
 +  sessionId?: string;
    initialHistoricalSegmentKeys: ReadonlySet<string>;
+   lastSessionSegmentKey: string | null;
    running: boolean;
-   waitingForInput?: boolean;
-@@ -960,6 +980,7 @@ function RuntimeResponseMessage({
-               timeline={timeline}
+@@ -1013,6 +1033,7 @@ function RuntimeResponseMessage({
+               showConfidence={showConfidence}
                terminal={terminal}
                chatId={chatId}
 +              sessionId={sessionId}
                initialHistoricalSegmentKeys={initialHistoricalSegmentKeys}
+               lastSessionSegmentKey={lastSessionSegmentKey}
                onArtifactOpen={onArtifactOpen}
-               onArtifactDownload={onArtifactDownload}
-@@ -1784,6 +1805,7 @@ const RuntimeConversation = forwardRef<
-                 <RuntimeResponseMessage
-                   key={section.id}
-                   chatId={chatId}
+@@ -2128,6 +2149,7 @@ const RuntimeConversation = forwardRef<
+                   showConfidence={controller.session?.agent_id !== 'review'}
+                   failure={index === lastResponseIndex ? selectResponseFailure(projection?.chat, data) : null}
+                   readOnly={controller.readOnly}
 +                  sessionId={controller.session?.id}
                    messages={data.output}
                    timeline={section.items}
                    terminal={projection ? projection.chat.status !== 'running' : !running}
 diff --git a/packages/datapaw-host-core/frontend/src/features/console/components/RuntimeSegmentCard/index.module.less b/packages/datapaw-host-core/frontend/src/features/console/components/RuntimeSegmentCard/index.module.less
-index 781c181..d528bbc 100644
+index 437aa641..09d1967e 100644
 --- a/packages/datapaw-host-core/frontend/src/features/console/components/RuntimeSegmentCard/index.module.less
 +++ b/packages/datapaw-host-core/frontend/src/features/console/components/RuntimeSegmentCard/index.module.less
-@@ -472,6 +472,65 @@
+@@ -519,6 +519,65 @@
    }
  }
  
@@ -290,7 +291,7 @@ index 781c181..d528bbc 100644
  .artifactGroupTitle {
    color: var(--console-primary-active);
    font-size: var(--text-micro);
-@@ -540,6 +599,7 @@
+@@ -587,6 +646,7 @@
  }
  
  :global(:root[data-datapaw-theme='dark']) .segmentSummaryGrid > div,
@@ -299,54 +300,61 @@ index 781c181..d528bbc 100644
    background: var(--datapaw-color-fill-tertiary);
  }
 diff --git a/packages/datapaw-host-core/frontend/src/features/console/components/RuntimeSegmentCard/index.tsx b/packages/datapaw-host-core/frontend/src/features/console/components/RuntimeSegmentCard/index.tsx
-index f2e8d85..eb42642 100644
+index 85a5e797..58045520 100644
 --- a/packages/datapaw-host-core/frontend/src/features/console/components/RuntimeSegmentCard/index.tsx
 +++ b/packages/datapaw-host-core/frontend/src/features/console/components/RuntimeSegmentCard/index.tsx
-@@ -5,12 +5,14 @@ import { Badge } from 'antd';
+@@ -7,6 +7,7 @@ import { Badge, Tooltip } from 'antd';
  import VirtualList from 'rc-virtual-list';
  import type { ListRef } from 'rc-virtual-list';
- import { forwardRef, memo, useLayoutEffect, useMemo, useRef, useState } from 'react';
+ import { forwardRef, memo, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 +import type { CSSProperties } from 'react';
- import type { Segment, SegmentArtifact } from '../../api/types';
- import { formatSegmentDuration } from '../../model/runtime/runtimeProjection';
- import { formatSegmentMarkdown } from '../../model/artifacts/segmentMarkdown';
- import type { Artifact } from '../../types';
+ import type { BizEvent, Segment, SegmentArtifact } from '../../api/types';
+ import { segmentDurationSeconds } from '../../model/runtime/runtimeProjection';
+ import { readSegmentConfidence } from '../../model/runtime/segmentConfidence';
+@@ -15,6 +16,7 @@ import type { Artifact } from '../../types';
  import { useAppI18n } from '@/i18n';
  import ArtifactCard from '../ArtifactCard';
+ import RuntimeBizEventCard from '../RuntimeBizEventCard';
 +import ArtifactPreview from '../ArtifactPreview';
  import sharedStyles from '../../index.module.less';
  import { mergeStyleModules } from '../../styleModules';
  import ownerStyles from './index.module.less';
-@@ -23,11 +25,14 @@ const ARTIFACT_CARD_GAP = 6;
- const ARTIFACT_ITEM_HEIGHT = ARTIFACT_CARD_HEIGHT + ARTIFACT_CARD_GAP;
+@@ -28,6 +30,8 @@ const ARTIFACT_ITEM_HEIGHT = ARTIFACT_CARD_HEIGHT + ARTIFACT_CARD_GAP;
  const ARTIFACT_LIST_HEIGHT = ARTIFACT_ITEM_HEIGHT * ARTIFACT_BATCH_SIZE;
  const ARTIFACT_VIRTUAL_THRESHOLD = 50;
+ const EMPTY_BIZ_EVENTS: BizEvent[] = [];
 +const INLINE_REPORT_PEEK_HEIGHT = 320;
 +const INLINE_REPORT_EXPANDED_HEIGHT = 'min(680px, 72vh)';
  const EMPTY_SEGMENT_ARTIFACTS: SegmentArtifact[] = [];
  
  interface RuntimeSegmentCardProps {
-   data: Segment;
-   index: number;
+@@ -36,6 +40,7 @@ interface RuntimeSegmentCardProps {
+   events?: BizEvent[];
+   showConfidence?: boolean;
+   showTerminalEvent?: boolean;
 +  sessionId?: string;
    defaultOpen?: boolean;
    onArtifactOpen?: (artifact: Artifact) => void;
    onArtifactDownload?: (artifact: Artifact) => void;
-@@ -84,6 +89,7 @@ const ArtifactListItem = memo(forwardRef<HTMLDivElement, ArtifactListItemProps>(
- export default function RuntimeSegmentCard({
-   data,
-   index,
+@@ -95,6 +100,7 @@ export default function RuntimeSegmentCard({
+   events = EMPTY_BIZ_EVENTS,
+   showConfidence = true,
+   showTerminalEvent = false,
 +  sessionId,
    defaultOpen = true,
    onArtifactOpen,
    onArtifactDownload,
-@@ -94,15 +100,25 @@ export default function RuntimeSegmentCard({
-   const artifactScrollAnimationRef = useRef<number | null>(null);
+@@ -106,6 +112,7 @@ export default function RuntimeSegmentCard({
    const pendingArtifactScrollRef = useRef(false);
    const [open, setOpen] = useState(defaultOpen);
+   const { cardRef, preserveHeader } = useCardExpansionAnchor();
 +  const [reportExpanded, setReportExpanded] = useState(false);
    const [visibleArtifactLimit, setVisibleArtifactLimit] = useState(ARTIFACT_BATCH_SIZE);
-   const duration = formatSegmentDuration(data.started_at, data.ended_at);
+   const trajectoryId = useId();
+   const [trajectoryOpen, setTrajectoryOpen] = useState(false);
+@@ -116,12 +123,21 @@ export default function RuntimeSegmentCard({
+     : t('runtime.workedFor', { minutes: Math.floor(duration / 60), seconds: duration % 60 });
+   const terminalEvent = showTerminalEvent ? events[events.length - 1] : undefined;
    const sourceArtifacts = data.artifact ?? EMPTY_SEGMENT_ARTIFACTS;
 +  const inlineReport = useMemo(() => {
 +    const htmlArtifacts = sourceArtifacts.filter((artifact) => /\.html?$/i.test(artifact.name));
@@ -366,7 +374,7 @@ index f2e8d85..eb42642 100644
    const shouldVirtualizeArtifacts = visibleArtifacts.length > ARTIFACT_VIRTUAL_THRESHOLD;
    const artifactListHeight = Math.min(
      ARTIFACT_LIST_HEIGHT,
-@@ -215,6 +231,39 @@ export default function RuntimeSegmentCard({
+@@ -253,6 +269,39 @@ export default function RuntimeSegmentCard({
                      baseLineHeight={1.6}
                    />
                  </div>
@@ -407,10 +415,10 @@ index f2e8d85..eb42642 100644
                    <div className={styles.inlineArtifact}>
                      <span className={styles.artifactGroupTitle}>{t('runtime.keyArtifacts')}</span>
 diff --git a/packages/datapaw-host-core/frontend/src/i18n/locales.ts b/packages/datapaw-host-core/frontend/src/i18n/locales.ts
-index 21f77a0..84d0832 100644
+index 109c748e..f1728f19 100644
 --- a/packages/datapaw-host-core/frontend/src/i18n/locales.ts
 +++ b/packages/datapaw-host-core/frontend/src/i18n/locales.ts
-@@ -53,6 +53,7 @@ export const zhMessages = {
+@@ -141,6 +141,7 @@ export const zhMessages = {
    'settings.dataBridge': '数据语义配置中心',
    'settings.agentConfiguration': '智能体配置',
    'settings.channelConfiguration': '接入渠道配置',
@@ -418,17 +426,17 @@ index 21f77a0..84d0832 100644
    'settings.mcpConfiguration': '工具配置',
  
    'workspace.tasks': '任务',
-@@ -183,6 +184,9 @@ export const zhMessages = {
-   'runtime.output': '输出',
-   'runtime.execution': '执行',
-   'runtime.conclusion': '结论',
+@@ -300,6 +301,9 @@ export const zhMessages = {
+   'runtime.confidence.high': '高置信度',
+   'runtime.confidence.medium': '中置信度',
+   'runtime.confidence.low': '低置信度',
 +  'runtime.inlineReport': '报告预览',
 +  'runtime.inlineReportExpand': '展开',
 +  'runtime.inlineReportCollapse': '收起',
    'runtime.keyArtifacts': '关键产物',
    'runtime.loadMoreArtifacts': '加载更多',
    'runtime.noInput': '无输入',
-@@ -781,6 +785,7 @@ export const enMessages: Record<MessageKey, string> = {
+@@ -1023,6 +1027,7 @@ export const enMessages: Record<MessageKey, string> = {
    'settings.dataBridge': 'Data Bridge',
    'settings.agentConfiguration': 'Agent Configuration',
    'settings.channelConfiguration': 'Channel Configuration',
@@ -436,10 +444,10 @@ index 21f77a0..84d0832 100644
    'settings.mcpConfiguration': 'Tool Configuration',
  
    'workspace.tasks': 'Tasks',
-@@ -911,6 +916,9 @@ export const enMessages: Record<MessageKey, string> = {
-   'runtime.output': 'Output',
-   'runtime.execution': 'Execution',
-   'runtime.conclusion': 'Conclusion',
+@@ -1182,6 +1187,9 @@ export const enMessages: Record<MessageKey, string> = {
+   'runtime.confidence.high': 'High confidence',
+   'runtime.confidence.medium': 'Medium confidence',
+   'runtime.confidence.low': 'Low confidence',
 +  'runtime.inlineReport': 'Report preview',
 +  'runtime.inlineReportExpand': 'Expand',
 +  'runtime.inlineReportCollapse': 'Collapse',
@@ -448,7 +456,7 @@ index 21f77a0..84d0832 100644
    'runtime.noInput': 'No input',
 diff --git a/packages/datapaw-host-core/frontend/src/pages/DataBridgeSettings/index.tsx b/packages/datapaw-host-core/frontend/src/pages/DataBridgeSettings/index.tsx
 new file mode 100644
-index 0000000..aaffa44
+index 00000000..aaffa449
 --- /dev/null
 +++ b/packages/datapaw-host-core/frontend/src/pages/DataBridgeSettings/index.tsx
 @@ -0,0 +1,447 @@
@@ -901,7 +909,7 @@ index 0000000..aaffa44
 +}
 diff --git a/packages/datapaw-host-core/frontend/src/pages/SkillsContribution.tsx b/packages/datapaw-host-core/frontend/src/pages/SkillsContribution.tsx
 new file mode 100644
-index 0000000..a655dba
+index 00000000..a655dba6
 --- /dev/null
 +++ b/packages/datapaw-host-core/frontend/src/pages/SkillsContribution.tsx
 @@ -0,0 +1,40 @@
@@ -946,7 +954,7 @@ index 0000000..a655dba
 +  );
 +}
 diff --git a/packages/datapaw-host-core/frontend/src/services/auth.ts b/packages/datapaw-host-core/frontend/src/services/auth.ts
-index 1e81bc4..6f0e81c 100644
+index 1a4d6227..4ab69bae 100644
 --- a/packages/datapaw-host-core/frontend/src/services/auth.ts
 +++ b/packages/datapaw-host-core/frontend/src/services/auth.ts
 @@ -1,4 +1,4 @@
@@ -954,16 +962,16 @@ index 1e81bc4..6f0e81c 100644
 +import { getApiUrl, getAuthApiUrl } from "./config.js";
  
  interface AuthStatusResponse {
-   enabled: boolean;
-@@ -24,7 +24,6 @@ export interface HostCurrentUser {
+   enabled: boolean; // 是否启用登录认证。
+@@ -26,7 +26,6 @@ export interface HostCurrentUser {
  }
  
  let refreshInFlight: Promise<boolean> | null = null;
 -let ssoLoginPath: string | null = null;
  let currentUser: HostCurrentUser | null = null;
  
- export function getHostCurrentUser(): HostCurrentUser | null {
-@@ -54,12 +53,9 @@ export function refreshAuthSession(): Promise<boolean> {
+ let authContext = { revision: 0, ready: false };
+@@ -72,12 +71,9 @@ export function refreshAuthSession(): Promise<boolean> {
  
  export function redirectToLogin(): void {
    if (typeof window === "undefined") return;
@@ -979,16 +987,16 @@ index 1e81bc4..6f0e81c 100644
  }
  
  export async function fetchWithAuthRetry(
-@@ -96,7 +92,6 @@ export async function bootstrapHostAuth(): Promise<boolean> {
+@@ -115,7 +111,6 @@ export async function bootstrapHostAuth(): Promise<boolean> {
    }
  
    const status = await statusResponse.json() as AuthStatusResponse;
 -  ssoLoginPath = status.sso_enabled ? status.sso_login_path : null;
-   if (!status.enabled) return true;
- 
-   const meResponse = await fetchWithAuthRetry(getAuthApiUrl("/me"));
+   if (revision !== authContext.revision) return false;
+   if (!status.enabled) {
+     publishAuthContext(true);
 diff --git a/packages/datapaw-host-core/frontend/src/services/config.ts b/packages/datapaw-host-core/frontend/src/services/config.ts
-index d3ce27e..6a1bd30 100644
+index d3ce27e7..6a1bd30b 100644
 --- a/packages/datapaw-host-core/frontend/src/services/config.ts
 +++ b/packages/datapaw-host-core/frontend/src/services/config.ts
 @@ -28,7 +28,7 @@ export function getApiUrl(path: string): string {
@@ -1000,3 +1008,25 @@ index d3ce27e..6a1bd30 100644
    return `${base}${prefixedPath}`;
  }
  
+diff --git a/packages/datapaw-host-core/frontend/vite.config.ts b/packages/datapaw-host-core/frontend/vite.config.ts
+index 9dc7d5e8..b8ec3e46 100644
+--- a/packages/datapaw-host-core/frontend/vite.config.ts
++++ b/packages/datapaw-host-core/frontend/vite.config.ts
+@@ -70,8 +70,15 @@ export default defineConfig(({ mode }) => {
+       minify: 'terser',
+       rollupOptions: {
+         output: {
+-          entryFileNames: 'assets/[name]-[hash].js',
+-          assetFileNames: 'assets/[name]-[hash][extname]',
++          // The embedded snapshot verifier and host bridge address the entry
++          // assets by stable names; lazy chunks remain content-addressed.
++          entryFileNames: 'assets/index.js',
++          chunkFileNames: 'assets/[name]-[hash].js',
++          assetFileNames: (assetInfo) => (
++            assetInfo.name?.endsWith('.css')
++              ? 'assets/style.css'
++              : 'assets/[name]-[hash][extname]'
++          ),
+           // Let Rollup keep shared style initialization in dependency order.
+           // Isolating chat alone creates a cycle with the entry's antd-style exports.
+         },
