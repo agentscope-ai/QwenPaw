@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """Keep Windows PTY handles and console control outside the server process."""
 
+import codecs
 import ctypes
 import importlib
 import multiprocessing
@@ -37,6 +38,28 @@ def write_input(process, data):
             process.write(part)
 
 
+def forward_output(process, output):
+    """Decode pywinpty's UTF-8 socket stream without spinning at EOF."""
+    decoder = codecs.getincrementaldecoder("utf-8")("replace")
+    try:
+        while True:
+            data = process.fileobj.recv(4096)
+            if not data:
+                tail = decoder.decode(b"", final=True)
+                if tail:
+                    output.send(tail)
+                return
+            if data == b"0011Ignore":
+                continue
+            text = decoder.decode(data)
+            if text:
+                output.send(text)
+    except OSError:
+        pass
+    finally:
+        output.close()
+
+
 def pty_worker(control, output, command, cwd, env, dimensions):
     """Own one native PTY; process exit releases its OS handles as well."""
     try:
@@ -49,18 +72,11 @@ def pty_worker(control, output, command, cwd, env, dimensions):
         )
         control.send((True, process.pid))
 
-        def read_output():
-            try:
-                while True:
-                    data = process.read(4096)
-                    if data:
-                        output.send(data)
-            except (EOFError, OSError):
-                pass
-            finally:
-                output.close()
-
-        threading.Thread(target=read_output, daemon=True).start()
+        threading.Thread(
+            target=forward_output,
+            args=(process, output),
+            daemon=True,
+        ).start()
         while True:
             operation, args = control.recv()
             try:

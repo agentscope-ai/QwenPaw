@@ -19,7 +19,7 @@ def test_worker_protocol_and_eof(monkeypatch):
     native = MagicMock()
     process = native.PtyProcess.spawn.return_value
     process.pid = 123
-    process.read.side_effect = EOFError()
+    process.fileobj.recv.return_value = b""
     process.isalive.return_value = False
     process.exitstatus = 7
     monkeypatch.setattr(windows.importlib, "import_module", lambda _: native)
@@ -52,6 +52,26 @@ def test_worker_protocol_and_eof(monkeypatch):
         output.close()
         worker.join(timeout=3)
     assert not worker.is_alive()
+
+
+def test_output_decoder_handles_split_utf8_and_incomplete_eof():
+    process = MagicMock()
+    process.fileobj.recv.side_effect = [
+        b"before\xe4",
+        b"\xbd\xa0after",
+        b"\xe5",
+        b"",
+    ]
+    output = MagicMock()
+
+    windows.forward_output(process, output)
+
+    assert [call.args[0] for call in output.send.call_args_list] == [
+        "before",
+        "你after",
+        "�",
+    ]
+    output.close.assert_called_once_with()
 
 
 def fake_worker(control, output, _command, _cwd, _env, _dimensions):
