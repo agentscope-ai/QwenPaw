@@ -8,7 +8,6 @@ import json
 import logging
 import sqlite3
 import threading
-from collections import OrderedDict
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterator
@@ -18,7 +17,6 @@ from .transcript import TranscriptCursor, TranscriptPage, TranscriptStore
 logger = logging.getLogger(__name__)
 
 _BUSY_TIMEOUT_MS = 5_000
-_DEFAULT_MAX_OPEN_STORES = 32
 
 
 class _SessionHandle:
@@ -27,11 +25,7 @@ class _SessionHandle:
     def __init__(self, store: TranscriptStore) -> None:
         self.store = store
         self.active = 0
-
-    def write(self, method_name: str, **kwargs: Any) -> Any:
-        """Run one mutation under the store's per-session lock."""
-        method = getattr(self.store, method_name)
-        return method(**kwargs)
+        self.running_turns: set[str] = set()
 
     def close(self) -> None:
         """Close the session database."""
@@ -44,20 +38,16 @@ class TranscriptCatalog:
     def __init__(
         self,
         workspace_dir: str | Path,
-        max_open_stores: int = _DEFAULT_MAX_OPEN_STORES,
     ) -> None:
-        if max_open_stores < 1:
-            raise ValueError("max_open_stores must be positive")
         self._workspace_dir = Path(workspace_dir).expanduser()
         self._workspace_dir.mkdir(parents=True, exist_ok=True)
         self._path = self._workspace_dir / "transcript_catalog.db"
         self._transcript_dir = self._workspace_dir / "transcripts"
         self._transcript_dir.mkdir(parents=True, exist_ok=True)
-        self._max_open_stores = max_open_stores
         self._lock = threading.RLock()
         self._condition = threading.Condition(self._lock)
         self._closed = False
-        self._handles: OrderedDict[str, _SessionHandle] = OrderedDict()
+        self._handles: dict[str, _SessionHandle] = {}
         self._conn = sqlite3.connect(
             str(self._path),
             check_same_thread=False,
@@ -156,26 +146,6 @@ class TranscriptCatalog:
             )
         return self._catalog_row(session_id)
 
-    def _close_handles(self, handles: list[_SessionHandle]) -> None:
-        for handle in handles:
-            handle.close()
-
-    def _evict_idle_locked(self) -> list[_SessionHandle]:
-        evicted: list[_SessionHandle] = []
-        while len(self._handles) > self._max_open_stores:
-            candidate_id = next(
-                (
-                    session_id
-                    for session_id, handle in self._handles.items()
-                    if handle.active == 0
-                ),
-                None,
-            )
-            if candidate_id is None:
-                break
-            evicted.append(self._handles.pop(candidate_id))
-        return evicted
-
     @contextmanager
     def _lease(
         self,
@@ -185,7 +155,7 @@ class TranscriptCatalog:
         channel: str,
         create: bool,
     ) -> Iterator[_SessionHandle | None]:
-        evicted: list[_SessionHandle] = []
+        handle: _SessionHandle | None = None
         with self._condition:
             if self._closed:
                 raise RuntimeError("transcript catalog is closed")
@@ -195,29 +165,37 @@ class TranscriptCatalog:
                 channel=channel,
                 create=create,
             )
-            if row is None:
-                yield None
-                return
-            handle = self._handles.get(session_id)
-            if handle is None:
-                path = self._store_path(str(row["file_key"]))
-                path.parent.mkdir(parents=True, exist_ok=True)
-                store = TranscriptStore(path)
-                handle = _SessionHandle(store)
-                self._handles[session_id] = handle
-            else:
-                self._handles.move_to_end(session_id)
-            handle.active += 1
-            evicted = self._evict_idle_locked()
-        self._close_handles(evicted)
+            if row is not None:
+                handle = self._handles.get(session_id)
+                if handle is None:
+                    path = self._store_path(str(row["file_key"]))
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    handle = _SessionHandle(TranscriptStore(path))
+                    self._handles[session_id] = handle
+                handle.active += 1
+        if handle is None:
+            yield None
+            return
         try:
             yield handle
         finally:
             with self._condition:
                 handle.active -= 1
+                if handle.active == 0 and not handle.running_turns:
+                    self._handles.pop(session_id, None)
+                    handle.close()
                 self._condition.notify_all()
-                evicted = self._evict_idle_locked()
-            self._close_handles(evicted)
+
+    def _release_turn(self, session_id: str, turn_id: str) -> None:
+        with self._condition:
+            handle = self._handles.get(session_id)
+            if handle is None:
+                return
+            handle.running_turns.discard(turn_id)
+            if handle.active == 0 and not handle.running_turns:
+                self._handles.pop(session_id, None)
+                handle.close()
+            self._condition.notify_all()
 
     def _identity_for_session(self, session_id: str) -> tuple[str, str] | None:
         with self._lock:
@@ -234,8 +212,11 @@ class TranscriptCatalog:
             channel=kwargs["channel"],
             create=True,
         ) as handle:
-            assert handle is not None
-            handle.write("start_turn", **kwargs)
+            if handle is None:
+                raise RuntimeError("failed to create transcript session")
+            handle.store.start_turn(**kwargs)
+            with self._condition:
+                handle.running_turns.add(str(kwargs["turn_id"]))
 
     def _write_existing(self, method_name: str, **kwargs: Any) -> Any:
         session_id = str(kwargs["session_id"])
@@ -251,13 +232,24 @@ class TranscriptCatalog:
         ) as handle:
             if handle is None:
                 raise ValueError("transcript session does not exist")
-            return handle.write(method_name, **kwargs)
+            method = getattr(handle.store, method_name)
+            try:
+                return method(**kwargs)
+            except BaseException:
+                turn_id = kwargs.get("turn_id")
+                if turn_id is not None:
+                    self._release_turn(session_id, str(turn_id))
+                raise
 
     def upsert_message(self, **kwargs: Any) -> None:
         self._write_existing("upsert_message", **kwargs)
 
     def finish_turn(self, **kwargs: Any) -> None:
         self._write_existing("finish_turn", **kwargs)
+        self._release_turn(
+            str(kwargs["session_id"]),
+            str(kwargs["turn_id"]),
+        )
 
     def attach_turn_usage(self, **kwargs: Any) -> bool:
         return bool(self._write_existing("attach_turn_usage", **kwargs))
@@ -340,7 +332,8 @@ class TranscriptCatalog:
                 self._condition.wait()
             handles = list(self._handles.values())
             self._handles.clear()
-        self._close_handles(handles)
+        for handle in handles:
+            handle.close()
         with self._lock:
             self._conn.close()
 

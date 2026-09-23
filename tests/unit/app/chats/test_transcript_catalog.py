@@ -7,6 +7,8 @@ import concurrent.futures
 import threading
 from pathlib import Path
 
+import pytest
+
 from qwenpaw.app.chats.transcript_catalog import TranscriptCatalog
 from qwenpaw.schemas import Message, TextContent
 
@@ -34,6 +36,14 @@ def _upsert(catalog: TranscriptCatalog, session_id: str) -> None:
         turn_id=f"turn-{session_id}",
         message=_message(f"message-{session_id}", session_id),
         ordinal=0,
+    )
+
+
+def _finish(catalog: TranscriptCatalog, session_id: str) -> None:
+    catalog.finish_turn(
+        session_id=session_id,
+        turn_id=f"turn-{session_id}",
+        status="completed",
     )
 
 
@@ -100,16 +110,23 @@ def test_different_sessions_do_not_share_a_writer_lock(tmp_path: Path) -> None:
     catalog.close()
 
 
-def test_lru_reopens_evicted_session_without_losing_history(
+def test_idle_handles_close_without_losing_history(
     tmp_path: Path,
 ) -> None:
-    catalog = TranscriptCatalog(tmp_path, max_open_stores=1)
+    catalog = TranscriptCatalog(tmp_path)
     _start(catalog, "session-a")
+    handle = catalog._handles["session-a"]  # pylint: disable=protected-access
     _upsert(catalog, "session-a")
+    assert (  # pylint: disable=protected-access
+        catalog._handles["session-a"] is handle
+    )
+    _finish(catalog, "session-a")
+    assert not catalog._handles  # pylint: disable=protected-access
     _start(catalog, "session-b")
     _upsert(catalog, "session-b")
+    _finish(catalog, "session-b")
 
-    assert len(catalog._handles) == 1  # pylint: disable=protected-access
+    assert not catalog._handles  # pylint: disable=protected-access
     page = catalog.get_page(
         session_id="session-a",
         user_id="user-1",
@@ -117,7 +134,7 @@ def test_lru_reopens_evicted_session_without_losing_history(
     )
     assert page is not None
     assert [message.id for message in page.messages] == ["message-session-a"]
-    assert len(catalog._handles) == 1  # pylint: disable=protected-access
+    assert not catalog._handles  # pylint: disable=protected-access
     catalog.close()
 
 
@@ -150,4 +167,58 @@ def test_delete_removes_catalog_entry_and_session_file(
     ).fetchone()
     assert row is None
     assert catalog.delete_session("session-a") is False
+    catalog.close()
+
+
+def test_delete_waits_for_active_lease(tmp_path: Path) -> None:
+    catalog = TranscriptCatalog(tmp_path)
+    _start(catalog, "session-a")
+    entered = threading.Event()
+    delete_started = threading.Event()
+    release = threading.Event()
+
+    def hold_lease() -> None:
+        with catalog._lease(  # pylint: disable=protected-access
+            session_id="session-a",
+            user_id="user-1",
+            channel="console",
+            create=False,
+        ):
+            entered.set()
+            assert release.wait(timeout=5)
+
+    def delete_session() -> bool:
+        delete_started.set()
+        return catalog.delete_session("session-a")
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+        lease = executor.submit(hold_lease)
+        assert entered.wait(timeout=5)
+        deletion = executor.submit(delete_session)
+        assert delete_started.wait(timeout=5)
+        with pytest.raises(concurrent.futures.TimeoutError):
+            deletion.result(timeout=0.1)
+        release.set()
+        lease.result(timeout=5)
+        assert deletion.result(timeout=5) is True
+
+    catalog.close()
+
+
+def test_failed_turn_write_releases_handle(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    catalog = TranscriptCatalog(tmp_path)
+    _start(catalog, "session-a")
+    handle = catalog._handles["session-a"]  # pylint: disable=protected-access
+
+    def fail_write(**_kwargs) -> None:
+        raise RuntimeError("write failed")
+
+    monkeypatch.setattr(handle.store, "upsert_message", fail_write)
+    with pytest.raises(RuntimeError, match="write failed"):
+        _upsert(catalog, "session-a")
+
+    assert not catalog._handles  # pylint: disable=protected-access
     catalog.close()
