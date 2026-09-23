@@ -2737,6 +2737,7 @@
     "toolGuardDescription": "Cấu hình quét bảo mật cho lời gọi công cụ. Các thao tác nguy hiểm sẽ yêu cầu phê duyệt trước khi thực thi.",
     "enabled": "Bật Tool Guard",
     "enabledTooltip": "Khi bật, lời gọi công cụ sẽ được quét các mẫu nguy hiểm trước khi thực thi",
+    "scrollRecallSandboxDisabled": "Sandbox đã tắt: khả năng truy xuất lịch sử nâng cao bị hạn chế",
     "guardedTools": "Công cụ được giám sát",
     "guardedToolsTooltip": "Công cụ yêu cầu phê duyệt khi phát hiện mẫu nguy hiểm. Để trống để dùng bộ mặc định tích hợp.",
     "guardedToolsPlaceholder": "Chọn công cụ hoặc nhập tên tùy chỉnh",

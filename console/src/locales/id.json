@@ -1772,6 +1772,7 @@
     "toolGuardTitle": "Tool Guard",
     "toolGuardDescription": "Konfigurasi pemindaian keamanan untuk panggilan tool. Operasi berbahaya akan memerlukan persetujuan eksplisit sebelum dieksekusi.",
     "enabled": "Aktifkan Tool Guard",
+    "scrollRecallSandboxDisabled": "Sandbox dinonaktifkan: pengambilan riwayat tingkat lanjut terbatas",
     "guardedTools": "Tool yang Diawasi",
     "deniedTools": "Tool yang Ditolak",
     "saveSuccess": "Pengaturan Tool Guard tersimpan",

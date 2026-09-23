@@ -3265,6 +3265,7 @@
     "toolGuardDescription": "Configure security scanning for tool calls. Dangerous operations will require your explicit approval before execution.",
     "enabled": "Ativar Tool Guard",
     "enabledTooltip": "When enabled, tool calls are scanned for dangerous patterns before execution",
+    "scrollRecallSandboxDisabled": "Sandbox desativado: a recuperação avançada de histórico está limitada",
     "guardedTools": "Guarded Ferramentas",
     "guardedToolsTooltip": "Tools that require approval when dangerous patterns are detected. Leave empty to use the built-in default set.",
     "guardedToolsPlaceholder": "Select tools or type custom tool names",

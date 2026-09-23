@@ -3014,6 +3014,7 @@
     "toolGuardDescription": "ツール呼び出しのセキュリティスキャンを設定します。危険な操作は実行前に明示的な承認が必要になります。",
     "enabled": "ツールガードを有効にする",
     "enabledTooltip": "有効にすると、ツール呼び出しが実行前に危険なパターンをスキャンされます",
+    "scrollRecallSandboxDisabled": "サンドボックスが無効です：高度な履歴想起機能が制限されています",
     "guardedTools": "保護対象ツール",
     "guardedToolsTooltip": "危険なパターンが検出された場合に承認が必要なツール。空の場合はデフォルトセットが使用されます。",
     "guardedToolsPlaceholder": "ツールを選択またはカスタムツール名を入力",
