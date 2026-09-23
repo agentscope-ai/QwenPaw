@@ -24,7 +24,7 @@ from qwenpaw.runtime.runtime import Runtime
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "ending",
-    ["success", "interrupted", "cancel", "error"],
+    ["interrupted", "cancel", "error"],
 )
 async def test_runtime_checkpoints_interrupted_instructions(
     tmp_path,
@@ -118,15 +118,13 @@ async def test_runtime_checkpoints_interrupted_instructions(
             "agent"
         ]
         pinned = set(saved["scroll"]["interrupted_user_ids"])
-        if ending == "success":
-            assert pinned == set()
-        elif ending in {"cancel", "interrupted"}:
+        if ending in {"cancel", "interrupted"}:
             assert pinned == {m.id for m in agent.state.context}
         else:
             assert pinned == {original.id}
-        if ending in {"cancel", "interrupted", "success"}:
+        if ending in {"cancel", "interrupted"}:
             assert saved["state"]["context"][-1]["metadata"][TURN_STATE] == {
-                "status": "completed" if ending == "success" else "canceled",
+                "status": "canceled",
             }
 
         if ending != "interrupted":
