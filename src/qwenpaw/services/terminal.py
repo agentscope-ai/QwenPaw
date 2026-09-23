@@ -209,8 +209,16 @@ class TerminalManager:
 
     def __init__(self):
         self.sessions = {}
+        self.creating = {}
         self.lock = threading.RLock()
         self.stopping = False
+
+    def _release_creation(self, owner):
+        remaining = self.creating.get(owner, 0) - 1
+        if remaining > 0:
+            self.creating[owner] = remaining
+        else:
+            self.creating.pop(owner, None)
 
     def list(self, owner):
         """List only terminals belonging to this exact owner tuple."""
@@ -221,16 +229,34 @@ class TerminalManager:
             return [s.info() for s in found]
 
     def create(self, owner, cwd, loop):
-        """Reserve limits under a lock, including concurrent creations."""
+        """Reserve capacity under lock, then start the PTY without it."""
         with self.lock:
             if self.stopping:
                 raise ValueError("Terminal service is shutting down")
             count = sum(s.owner == owner for s in self.sessions.values())
+            count += self.creating.get(owner, 0)
             if count >= 8 or len(self.sessions) >= 32:
                 raise ValueError("Terminal limit reached; close a tab first")
+            if len(self.sessions) + sum(self.creating.values()) >= 32:
+                raise ValueError("Terminal limit reached; close a tab first")
+            self.creating[owner] = self.creating.get(owner, 0) + 1
+        try:
             session = TerminalSession(owner, cwd, loop)
-            self.sessions[session.id] = session
-            return session.info()
+        except BaseException:
+            with self.lock:
+                self._release_creation(owner)
+            raise
+        with self.lock:
+            self._release_creation(owner)
+            if self.stopping:
+                should_close = True
+            else:
+                should_close = False
+                self.sessions[session.id] = session
+        if should_close:
+            session.close()
+            raise ValueError("Terminal service is shutting down")
+        return session.info()
 
     def get(self, owner, terminal_id):
         """Hide foreign IDs behind the same response as nonexistent IDs."""

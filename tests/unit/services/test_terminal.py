@@ -227,3 +227,60 @@ async def test_limits_and_owner_isolation(tmp_path, monkeypatch):
     manager.shutdown()
     with pytest.raises(ValueError, match="shutting down"):
         manager.create(owner, tmp_path, loop)
+
+
+async def test_slow_creation_does_not_block_other_manager_operations(
+    tmp_path,
+    monkeypatch,
+):
+    started = threading.Event()
+    release = threading.Event()
+
+    def slow_session(owner, _cwd, _loop):
+        started.set()
+        assert release.wait(3)
+        session = MagicMock()
+        session.id = str(uuid4())
+        session.owner = owner
+        session.info.return_value = {"id": session.id}
+        return session
+
+    monkeypatch.setattr(terminal, "TerminalSession", slow_session)
+    manager = terminal.TerminalManager()
+    owner = ("alice", "agent", "group")
+
+    loop = asyncio.get_running_loop()
+    creator = threading.Thread(
+        target=lambda: manager.create(owner, tmp_path, loop),
+    )
+    creator.start()
+    try:
+        assert started.wait(1)
+        probe = threading.Thread(target=lambda: manager.list(owner))
+        probe.start()
+        probe.join(timeout=1)
+        assert not probe.is_alive()
+        assert manager.list(owner) == []
+    finally:
+        release.set()
+        creator.join(timeout=3)
+    assert not creator.is_alive()
+    assert len(manager.list(owner)) == 1
+
+
+async def test_failed_creation_releases_reserved_capacity(
+    tmp_path,
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        terminal,
+        "TerminalSession",
+        MagicMock(side_effect=OSError("spawn failed")),
+    )
+    manager = terminal.TerminalManager()
+    owner = ("alice", "agent", "group")
+
+    with pytest.raises(OSError, match="spawn failed"):
+        manager.create(owner, tmp_path, asyncio.get_running_loop())
+
+    assert not manager.creating
