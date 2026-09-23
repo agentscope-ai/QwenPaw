@@ -3266,6 +3266,8 @@
     "enabled": "Ativar Tool Guard",
     "enabledTooltip": "When enabled, tool calls are scanned for dangerous patterns before execution",
     "scrollRecallSandboxDisabled": "Sandbox desativado: a recuperação avançada de histórico está limitada",
+    "scrollRecallSandboxUnsupported": "Nenhum sandbox compatível: a recuperação avançada de histórico está limitada",
+    "scrollRecallSandboxDescription": "Para agentes Scroll, a recuperação avançada de histórico com Python fica indisponível sem um sandbox utilizável, a menos que um operador habilite explicitamente a recuperação sem sandbox. A pesquisa básica no histórico, a expansão de mensagens e a recuperação de resultados de ferramentas continuam disponíveis. Ativar esta opção requer um backend de sandbox compatível; no Linux, é possível usar Bubblewrap ou Landlock. As alterações são aplicadas quando um agente é reconstruído.",
     "guardedTools": "Guarded Ferramentas",
     "guardedToolsTooltip": "Tools that require approval when dangerous patterns are detected. Leave empty to use the built-in default set.",
     "guardedToolsPlaceholder": "Select tools or type custom tool names",

@@ -1773,6 +1773,8 @@
     "toolGuardDescription": "Konfigurasi pemindaian keamanan untuk panggilan tool. Operasi berbahaya akan memerlukan persetujuan eksplisit sebelum dieksekusi.",
     "enabled": "Aktifkan Tool Guard",
     "scrollRecallSandboxDisabled": "Sandbox dinonaktifkan: pengambilan riwayat tingkat lanjut terbatas",
+    "scrollRecallSandboxUnsupported": "Tidak ada sandbox yang didukung: pengambilan riwayat tingkat lanjut terbatas",
+    "scrollRecallSandboxDescription": "Untuk agen Scroll, pengambilan riwayat tingkat lanjut dengan Python tidak tersedia tanpa sandbox yang dapat digunakan, kecuali operator secara eksplisit mengaktifkan pengambilan riwayat tanpa sandbox. Pencarian riwayat dasar, perluasan pesan, dan pengambilan hasil tool tetap tersedia. Mengaktifkan opsi ini memerlukan backend sandbox yang didukung; Linux dapat menggunakan Bubblewrap atau Landlock. Perubahan berlaku saat agen dibangun ulang.",
     "guardedTools": "Tool yang Diawasi",
     "deniedTools": "Tool yang Ditolak",
     "saveSuccess": "Pengaturan Tool Guard tersimpan",

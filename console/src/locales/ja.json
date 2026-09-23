@@ -3015,6 +3015,8 @@
     "enabled": "ツールガードを有効にする",
     "enabledTooltip": "有効にすると、ツール呼び出しが実行前に危険なパターンをスキャンされます",
     "scrollRecallSandboxDisabled": "サンドボックスが無効です：高度な履歴想起機能が制限されています",
+    "scrollRecallSandboxUnsupported": "対応するサンドボックスがありません：高度な履歴想起機能が制限されています",
+    "scrollRecallSandboxDescription": "Scroll エージェントでは、利用可能なサンドボックスがない場合、管理者がサンドボックスなしでの履歴想起を明示的に有効にしない限り、Python による高度な履歴想起機能は利用できません。基本的な履歴検索、メッセージの展開、ツール結果の想起は引き続き利用できます。このスイッチを有効にするには、対応するサンドボックスバックエンドが必要です。Linux では Bubblewrap または Landlock を使用できます。変更はエージェントの再構築時に適用されます。",
     "guardedTools": "保護対象ツール",
     "guardedToolsTooltip": "危険なパターンが検出された場合に承認が必要なツール。空の場合はデフォルトセットが使用されます。",
     "guardedToolsPlaceholder": "ツールを選択またはカスタムツール名を入力",
