@@ -234,8 +234,12 @@ async def test_limits_and_owner_isolation(tmp_path, monkeypatch):
     loop = asyncio.get_running_loop()
     for _ in range(8):
         manager.create(owner, tmp_path, loop)
-    with pytest.raises(ValueError, match="limit"):
+    with pytest.raises(ValueError, match="this conversation"):
         manager.create(owner, tmp_path, loop)
+    for index in range(24):
+        manager.create((f"user-{index}", "a", "g"), tmp_path, loop)
+    with pytest.raises(ValueError, match="service capacity"):
+        manager.create(("extra", "a", "g"), tmp_path, loop)
     terminal_id = manager.list(owner)[0]["id"]
     for foreign in [
         ("bob", "a", "g"),

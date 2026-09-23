@@ -245,10 +245,14 @@ class TerminalManager:
                 raise ValueError("Terminal service is shutting down")
             count = sum(s.owner == owner for s in self.sessions.values())
             count += self.creating.get(owner, 0)
-            if count >= 8 or len(self.sessions) >= 32:
-                raise ValueError("Terminal limit reached; close a tab first")
+            if count >= 8:
+                raise ValueError(
+                    "Terminal limit reached for this conversation",
+                )
             if len(self.sessions) + sum(self.creating.values()) >= 32:
-                raise ValueError("Terminal limit reached; close a tab first")
+                raise ValueError(
+                    "Terminal service capacity reached; try again later",
+                )
             self.creating[owner] = self.creating.get(owner, 0) + 1
         try:
             session = TerminalSession(owner, cwd, loop)
