@@ -68,6 +68,7 @@ class TerminalSession:
         self.changed = asyncio.Event()
         self.lock = threading.Lock()
         self.io_lock = threading.Lock()
+        self.close_lock = threading.Lock()
         self.buffer = ""
         self.cursor = 0
         self.exited = False
@@ -180,7 +181,7 @@ class TerminalSession:
 
     def close(self):
         """Terminate shell descendants and release the PTY descriptor."""
-        with self.io_lock:
+        with self.close_lock:
             if self.closed:
                 return
             self.closed = True
@@ -204,10 +205,14 @@ class TerminalSession:
                     self.root.kill()
             except psutil.Error:
                 pass
-            try:
-                self.process.close(force=True)
-            except (EOFError, OSError):
-                pass
+            # Killing the process tree releases a writer blocked by PTY
+            # backpressure. Only close the descriptor after that writer has
+            # left its critical section, avoiding descriptor reuse races.
+            with self.io_lock:
+                try:
+                    self.process.close(force=True)
+                except (EOFError, OSError):
+                    pass
             psutil.wait_procs(children, timeout=1)
         self.reader.join(timeout=2)
         self.exited = True

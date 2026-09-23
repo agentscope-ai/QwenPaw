@@ -150,6 +150,55 @@ async def test_real_pty_cwd_unicode_resize_interrupt_and_cleanup(
 
 
 @pytest.mark.skipif(os.name == "nt", reason="Unix shell syntax")
+async def test_close_releases_write_blocked_by_pty_backpressure(
+    tmp_path,
+    monkeypatch,
+):
+    monkeypatch.setenv("SHELL", "/bin/sh")
+    manager = terminal.TerminalManager()
+    owner = ("alice", "agent", "group")
+    info = manager.create(owner, tmp_path, asyncio.get_running_loop())
+    session = manager.get(owner, info["id"])
+    writer_done = threading.Event()
+
+    def fill_input_queue():
+        try:
+            while True:
+                session.write("x" * 16384)
+        except (EOFError, OSError, ValueError):
+            pass
+        finally:
+            writer_done.set()
+
+    try:
+        session.write("stty -echo -icanon; sleep 60\r")
+        for _ in range(100):
+            if psutil.Process(session.process.pid).children():
+                break
+            await asyncio.sleep(0.01)
+        writer = threading.Thread(target=fill_input_queue, daemon=True)
+        writer.start()
+        await asyncio.sleep(0.3)
+        assert not writer_done.is_set()
+
+        closer = threading.Thread(target=session.close, daemon=True)
+        closer.start()
+        closer.join(timeout=3)
+
+        closed_in_time = not closer.is_alive()
+        if not closed_in_time:
+            root = psutil.Process(session.process.pid)
+            for child in root.children(recursive=True):
+                child.kill()
+            root.kill()
+            closer.join(timeout=3)
+        assert closed_in_time
+        assert writer_done.wait(1)
+    finally:
+        manager.shutdown()
+
+
+@pytest.mark.skipif(os.name == "nt", reason="Unix shell syntax")
 async def test_exit_replay_and_detached_reclamation(tmp_path, monkeypatch):
     monkeypatch.setenv("SHELL", "/bin/sh")
     manager = terminal.TerminalManager()
