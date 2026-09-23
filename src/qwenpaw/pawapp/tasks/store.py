@@ -369,6 +369,23 @@ class TaskStore:
             lambda connection: self._get(connection, scope, task_id),
         )
 
+    async def find_run(
+        self, scope: TaskScope, run: ExecutorRunRef
+    ) -> TaskSubmission:
+        """Resolve an App's native run without leaking another scope's task."""
+
+        def operation(connection):
+            row = connection.execute(
+                "SELECT task_id FROM executor_runs WHERE executor_id = ? "
+                "AND session_id = ? AND run_id = ?",
+                (run.executor_id, run.session_id, run.run_id),
+            ).fetchone()
+            if row is None:
+                raise TaskStoreError("task_not_found")
+            return self._get(connection, scope, row["task_id"])
+
+        return await self._run(operation)
+
     @staticmethod
     def _command(
         connection: sqlite3.Connection,

@@ -38,6 +38,54 @@ REF = ExecutorRunRef(
 )
 
 
+def test_explicit_stage_survives_normal_events_and_replay():
+    from importlib import import_module
+
+    events = import_module(BRIDGE.__name__ + ".events")
+    projection = events.TextProjection(REF)
+    updates = frames(
+        {"object": "analysis.progress", "stage": "analyze"},
+        {"object": "task_status"},
+        {"object": "analysis.progress", "stage": "publish_report"},
+        {"object": "task_status"},
+    )
+    assert [
+        projection.apply(frame).detail["analysis_stage"] for frame in updates
+    ] == [
+        "analyze",
+        "analyze",
+        "publish_report",
+        "publish_report",
+    ]
+    with pytest.raises(TaskStoreError):
+        projection.apply(
+            {
+                **updates[-1],
+                "sequence_number": 4,
+                "object": "analysis.progress",
+                "stage": "invented",
+            }
+        )
+
+
+def test_explicit_artifact_role_overrides_legacy_filename_heuristic():
+    from importlib import import_module
+
+    adapter = import_module(BRIDGE.__name__ + ".adapter")
+    result = adapter._artifact_presentation(
+        {
+            "name": "report.html",
+            "media_type": "text/html",
+            "presentation": {
+                "role": "diagnostic",
+                "kind": "data/diagnostic",
+                "visibility": "app_only",
+            },
+        }
+    )
+    assert result["visibility"] == "app_only"
+
+
 @pytest.fixture
 async def submission(tmp_path):
     store = await TaskStore.open(tmp_path / "tasks.db")
@@ -699,6 +747,32 @@ async def test_resume_rebuilds_projection_and_only_emits_after_cursor(
     events = await collect(client(resumed, events=items), resumed)
     assert [event.sequence for event in events] == [2, 3]
     assert events[-1].text_result == "Revenue"
+
+
+async def test_resume_after_non_text_event_retains_last_text_snapshot(
+    submission,
+):
+    items = frames(
+        message(),
+        text("Revenue"),
+        {"object": "analysis.progress", "stage": "analyze"},
+        {"object": "response", "status": "completed"},
+    )
+    resumed = submission.model_copy(
+        update={
+            "handle": submission.handle.model_copy(
+                update={
+                    "replay_cursor": "2",
+                    "executor_sequence": 2,
+                    "text_result": "Revenue",
+                }
+            )
+        }
+    )
+    events = await collect(client(resumed, events=items), resumed)
+    assert [event.sequence for event in events] == [3]
+    assert events[0].status == "succeeded"
+    assert events[0].text_result == "Revenue"
 
 
 @pytest.mark.parametrize(

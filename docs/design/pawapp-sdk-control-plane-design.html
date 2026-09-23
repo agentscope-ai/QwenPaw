@@ -843,6 +843,7 @@ Production constraints:
 <p>设计可按阶段进入实施。P1a 的发布门槛是引擎幂等提交与命令协议、固定兼容版本及恢复验收；P1b 的 artifact 配额、P2 的真实 provider 预算各自在阶段开始前明确。证据索引的历史源码基线不代表这些能力已经交付；上段状态仅描述当前 worktree，仍受对应验收门槛约束。</p>
 
 <h3>证据索引</h3>
+<p><strong>2026-09-23 Data 补齐状态（开发分支）</strong>：新增 Engine 显式 <code>analysis.progress</code> 与 artifact presentation；自动发现的文件默认留在 App，领域 Agent 显式发布成果。Data Console 的 evidence/diagnostics 已映射到 artifacts/trace。原生 Console 通过 Direct-only <code>analyze-session</code> 和同一 durable submission/command 协议保留既有 session、附件与批注；新 action 需要单独授权，旧 unscoped session 不自动迁移。Host↔独立 Engine 的受控集成测试不调用真实 provider，不等于生产验收。具体升级约束见 <a href="pawapp-data-task-adapter.md">Data adapter contract</a>；历史状态段不应作为当前发布证明。</p>
 <p> 基线：Host checkout <code>4be5b4dd</code>（分支 <code>dev/qwenpaw-data-app</code>）；QwenPaw-Data 引擎源码 HEAD <code>1cbd681</code>（<code>/Users/yilei.z/dev/QwenPaw-Data</code>，仅审阅源码，运行/安装版本未核实）；行号对应上述源码基线。</p>
 <table>
   <tr><th style="width:32%">主题</th><th>路径</th></tr>

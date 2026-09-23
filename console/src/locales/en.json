@@ -376,10 +376,10 @@
       "extension": "Settings provided by an extension",
       "appAccess": "Control which App actions this agent may run"
     },
-    "appAccessDescription": "Choose the capabilities this agent may use in Main Chat. Advanced action limits are available when you need resource-level control.",
-    "appCapabilitiesTitle": "Main Chat capabilities",
+    "appAccessDescription": "Choose the App task capabilities available in this workspace, including Main Chat delegation and registered in-app tasks. Advanced action limits provide resource-level control.",
+    "appCapabilitiesTitle": "App task capabilities",
     "appCapabilitiesHint": "Choose what this agent may do. Changes apply to the whole capability bundle.",
-    "appPanelScope": "Main Chat access",
+    "appPanelScope": "App task access",
     "appPanelCapabilityCount": "{{count}} capabilities",
     "appCapabilityGranted": "Capability enabled",
     "appCapabilityRevoked": "Capability disabled",

@@ -21,6 +21,7 @@ _ALLOWED_ROUTES = (
 # Engine IM-channel management stays unreachable through the plugin:
 # the QwenPaw host's channel infrastructure is the delivery layer.
 _DENIED_ROUTES = (
+    ("/api/v1/submissions", True),
     ("/api/v1/system/channel-config", True),
     ("/api/v1/channels/reload", False),
 )
@@ -66,8 +67,15 @@ class EngineGateway:
         *,
         body: Any = None,
         params: dict[str, Any] | None = None,
+        user_id: str | None = None,
     ) -> Any:
-        response = await self._request(method, path, json=body, params=params)
+        response = await self._request(
+            method,
+            path,
+            json=body,
+            params=params,
+            headers={"X-User-Id": user_id} if user_id else {},
+        )
         try:
             response.raise_for_status()
         except httpx.HTTPStatusError as exc:
@@ -77,17 +85,22 @@ class EngineGateway:
             ) from exc
         return response.json()
 
-    async def proxy(self, path: str, request: Request) -> Response:
+    async def proxy(
+        self, path: str, request: Request, *, user_id: str | None = None
+    ) -> Response:
         upstream_path = self._upstream_path(path)
         if request.method == "GET" and _SSE_PATH_RE.search(upstream_path):
-            return await self._stream(upstream_path, request)
+            return await self._stream(upstream_path, request, user_id=user_id)
         body = await request.body()
+        headers = self._request_headers(request)
+        if user_id is not None:
+            headers["X-User-Id"] = user_id
         response = await self._request(
             request.method,
             upstream_path,
             content=body or None,
             params=list(request.query_params.multi_items()),
-            headers=self._request_headers(request),
+            headers=headers,
         )
         return Response(
             content=response.content,
@@ -96,12 +109,17 @@ class EngineGateway:
             media_type=response.headers.get("content-type"),
         )
 
-    async def _stream(self, path: str, request: Request) -> StreamingResponse:
+    async def _stream(
+        self, path: str, request: Request, *, user_id: str | None = None
+    ) -> StreamingResponse:
+        headers = self._request_headers(request)
+        if user_id is not None:
+            headers["X-User-Id"] = user_id
         upstream_request = self._build_request(
             "GET",
             path,
             params=list(request.query_params.multi_items()),
-            headers=self._request_headers(request),
+            headers=headers,
             timeout=httpx.Timeout(120.0, connect=5.0, read=None),
         )
         client = self._require_client()

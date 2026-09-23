@@ -317,7 +317,7 @@ export default function PawAppAccessSettings() {
               <div>
                 <h3>{appId}</h3>
                 <span>
-                  {t("settingsCenter.appPanelScope", "Main Chat access")}
+                  {t("settingsCenter.appPanelScope", "App task access")}
                 </span>
               </div>
             </div>
@@ -335,7 +335,7 @@ export default function PawAppAccessSettings() {
                   <strong>
                     {t(
                       "settingsCenter.appCapabilitiesTitle",
-                      "Main Chat capabilities",
+                      "App task capabilities",
                     )}
                   </strong>
                   <span>

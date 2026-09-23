@@ -26,7 +26,7 @@ from qwenpaw.pawapp.tasks import (
     TaskStoreError,
     TaskSubmission,
 )
-from qwenpaw.pawapp.tasks.contracts import content_digest
+from qwenpaw.pawapp.tasks.contracts import ArtifactPresentation, content_digest
 
 from .events import TextProjection, read_frames
 
@@ -60,14 +60,56 @@ def data_action_descriptor() -> ActionDescriptor:
     )
 
 
-def data_task_experience() -> TaskExperienceDefinition:
+def data_session_action_descriptor() -> ActionDescriptor:
+    """Native Console turns keep the selected session and its input context."""
+    base = data_action_descriptor()
+    schema = base.model_dump(mode="json")["input_schema"]
+    schema["properties"].update(
+        {
+            "session_id": {"type": "string", "minLength": 1, "maxLength": 256},
+            "attachment_ids": {
+                "type": "array",
+                "maxItems": 32,
+                "items": {"type": "string"},
+            },
+            "artifact_comments": {
+                "type": "array",
+                "maxItems": 64,
+                "items": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "properties": {
+                        "path": {"type": "string"},
+                        "line_start": {"type": "integer"},
+                        "line_end": {"type": "integer"},
+                        "comment": {"type": "string"},
+                    },
+                    "required": ["path", "line_start", "line_end", "comment"],
+                },
+            },
+        }
+    )
+    schema["required"].append("session_id")
+    return base.model_copy(
+        update={
+            "action_id": "analyze-session",
+            "engagements": ("direct",),
+            "summary": "Analyze data in an existing Data session, retaining its files and history.",
+            "input_schema": schema,
+        }
+    )
+
+
+def data_task_experience(
+    action_id: str = "analyze",
+) -> TaskExperienceDefinition:
     """Describe Data's business-facing task experience for Main Chat."""
 
     def text(default: str, zh: str) -> LocalizedText:
         return LocalizedText(default=default, translations={"zh-CN": zh})
 
     return TaskExperienceDefinition(
-        action_id="analyze",
+        action_id=action_id,
         title=text("Data analysis", "数据分析"),
         steps=tuple(
             TaskExperienceStepDefinition(id=step_id, label=text(en, zh))
@@ -108,12 +150,8 @@ def _data_experience_update(
         active = "confirm_scope"
     elif event.status == "succeeded":
         active = "publish_report"
-    elif event.detail.get("artifact") is not None:
-        active = "publish_report"
-    elif event.sequence == 0:
-        active = "read_data"
     else:
-        active = "analyze"
+        active = event.detail.get("analysis_stage", "read_data")
     active_index = step_ids.index(active)
     failed = event.status in {"failed", "cancelled", "interrupted"}
     succeeded = event.status == "succeeded"
@@ -149,6 +187,11 @@ def _data_experience_update(
 
 
 def _artifact_presentation(source: dict[str, Any]) -> dict[str, Any]:
+    if source.get("presentation") is not None:
+        return ArtifactPresentation.model_validate(
+            source["presentation"]
+        ).model_dump(mode="json")
+    # Compatibility only: new Engines explicitly classify every artifact.
     name = str(source.get("name", "")).casefold()
     path = str(source.get("path", "")).casefold()
     media_type = str(source.get("media_type", "")).casefold()
@@ -330,7 +373,36 @@ class DataTaskAdapter:
 
         try:
             connection = self._connection(scope)
-            await self._check_protocol(connection)
+            caps = await self._check_protocol(connection)
+            if (
+                "session_id" in inputs
+                and caps.get("session_submissions") is not True
+            ):
+                return Readiness(
+                    state="blocked", reason="unsupported_session_submissions"
+                )
+            if "session_id" in inputs:
+                session_id = inputs["session_id"]
+                if not isinstance(session_id, str) or not _ID.fullmatch(
+                    session_id
+                ):
+                    return Readiness(
+                        state="blocked", reason="session_unavailable"
+                    )
+                try:
+                    session = await self._json(
+                        connection,
+                        "GET",
+                        f"/api/v1/sessions/{session_id}/submission-readiness",
+                    )
+                except TaskStoreError as exc:
+                    if exc.code == "engine_http_404":
+                        return Readiness(
+                            state="blocked", reason="session_unavailable"
+                        )
+                    raise
+                if session.get("ready") is not True:
+                    return Readiness(state="blocked", reason="session_busy")
             model = await self._json(
                 connection,
                 "GET",
@@ -417,15 +489,28 @@ class DataTaskAdapter:
         return submission_id
 
     async def submit(self, submission: TaskSubmission) -> ExecutorRunRef:
-        descriptor = data_action_descriptor()
+        descriptor = (
+            data_session_action_descriptor()
+            if submission.action.action_id == "analyze-session"
+            else data_action_descriptor()
+        )
         if submission.action.descriptor_digest != descriptor.descriptor_digest:
             raise TaskStoreError("data_action_mismatch")
         descriptor.validate_inputs(submission.inputs)
-        if any(not value.strip() for value in submission.inputs.values()):
+        if any(
+            not value.strip()
+            for value in submission.inputs.values()
+            if isinstance(value, str)
+        ):
             raise TaskStoreError("invalid_data_action_input")
         submission_id = self._submission_id(submission)
         connection = self._connection(submission.handle.scope)
-        await self._check_protocol(connection)
+        caps = await self._check_protocol(connection)
+        if (
+            "session_id" in submission.inputs
+            and caps.get("session_submissions") is not True
+        ):
+            raise TaskStoreError("unsupported_session_submissions")
         body = {
             "protocol_version": 1,
             "submission_id": submission_id,
@@ -620,6 +705,7 @@ class DataTaskAdapter:
             raise TaskStoreError("run_conflict")
         base, headers = connection
         projection = TextProjection(ref)
+        replayed_text = None
         try:
             async with self._client.stream(
                 "GET",
@@ -636,6 +722,8 @@ class DataTaskAdapter:
                     raise TaskStoreError("invalid_engine_stream")
                 async for frame in read_frames(response.aiter_lines()):
                     event = projection.apply(frame)
+                    if event.text_result is not None:
+                        replayed_text = event.text_result
                     if submission.handle.experience is not None:
                         detail = dict(event.detail)
                         detail["experience_update"] = _data_experience_update(
@@ -645,7 +733,7 @@ class DataTaskAdapter:
                         event = event.model_copy(update={"detail": detail})
                     if event.sequence == after and (
                         handle.text_result is not None
-                        and event.text_result != handle.text_result
+                        and replayed_text != handle.text_result
                     ):
                         raise TaskStoreError("engine_replay_conflict")
                     if event.sequence > after:

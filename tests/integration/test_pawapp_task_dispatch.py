@@ -3,10 +3,15 @@
 """Authenticated Host HTTP → independent Engine process → Host task result."""
 
 import json
-from types import SimpleNamespace
+import asyncio
+import importlib
+import sys
+from pathlib import Path
+from types import SimpleNamespace, ModuleType
 from unittest.mock import AsyncMock
 
 import pytest
+from fastapi import Request
 
 from qwenpaw.app.channels.console.channel import ConsoleChannel
 from qwenpaw.app.chats.session import SafeJSONSession
@@ -28,10 +33,158 @@ from tests.unit.pawapp.test_task_runtime import (
     ACTION,
     BODY,
     PREFIX,
+    SCOPE,
 )
 
 engine = engine_fixture
 host = host_fixture
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("intent", ["finish", "clarify", "pause"])
+async def test_native_console_uses_durable_existing_session(
+    host, engine, intent
+):
+    package = ModuleType("native_data_under_test")
+    package.__path__ = [
+        str(
+            Path(__file__).resolve().parents[2]
+            / "plugins/apps/qwenpaw-data/backend"
+        )
+    ]
+    sys.modules[package.__name__] = package
+    direct = importlib.import_module(package.__name__ + ".direct_tasks")
+    gateway_type = importlib.import_module(
+        package.__name__ + ".engine_gateway"
+    ).EngineGateway
+    gateway = gateway_type(
+        SimpleNamespace(is_external=False, base_url=engine.base), TOKEN
+    )
+    action = BRIDGE.data_session_action_descriptor()
+    host.registrations[(action.app_id, action.action_id)] = ActionRegistration(
+        action=action,
+        factory=lambda: BRIDGE.DataTaskAdapter(
+            engine.endpoint, executor_id="qwenpaw-data.engine"
+        ),
+        settings_entry="/apps/qwenpaw-data",
+    )
+    await host.app.state.pawapp_tasks.set_action_grant(
+        SCOPE,
+        action.action_id,
+        enabled=True,
+        input_values={},
+        expected_revision=0,
+    )
+    workspace = await host.app.state.pawapp_task_origins.manager.get_agent(
+        "sales"
+    )
+
+    async def create_chat(chat):
+        host.chats[chat.id] = chat
+        return chat
+
+    workspace.chat_manager.create_chat = create_chat
+
+    @host.app.post("/api/native-console")
+    async def dispatch(request: Request):
+        return await direct.dispatch_console_chat(request, gateway)
+
+    @host.app.post("/api/native-command/{session_id}/{run_id}/{kind}")
+    async def command(
+        request: Request, session_id: str, run_id: str, kind: str
+    ):
+        return await direct.command_console_chat(
+            request, gateway, session_id, run_id, kind
+        )
+
+    await gateway.start()
+    try:
+        session = await gateway.json(
+            "POST",
+            "/api/v1/sessions",
+            body={"title": "March GAAP"},
+            user_id=BRIDGE.DataTaskAdapter.identity_namespace(SCOPE),
+        )
+        session_id = session["session"]["id"]
+        body = {
+            "session_id": session_id,
+            "datasource_id": "sales",
+            "text": intent,
+        }
+        headers = {"X-Agent-Id": "sales", "X-Request-Id": "native-first"}
+        legacy = await gateway.json(
+            "POST", "/api/v1/sessions", body={"title": "Legacy"}
+        )
+        denied = await host.client.post(
+            "/api/native-console",
+            json={**body, "session_id": legacy["session"]["id"]},
+            headers={**headers, "X-Request-Id": "legacy"},
+        )
+        assert denied.status_code == 409
+        assert "start a new session" in denied.text
+        assert engine.count_runs() == 0
+        first = await host.client.post(
+            "/api/native-console", json=body, headers=headers
+        )
+        assert first.status_code == 200, first.text
+        assert first.json()["chat"]["session_id"] == session_id
+        task_id = first.json()["task_id"]
+        expected = "succeeded"
+        if intent != "finish":
+            async with asyncio.timeout(5):
+                while True:
+                    pending = await host.store.get(SCOPE, task_id)
+                    if (
+                        intent == "clarify"
+                        and pending.handle.status == "waiting_for_input"
+                    ) or (intent == "pause" and pending.handle.text_result):
+                        break
+                    await asyncio.sleep(0.01)
+            kind = "answer" if intent == "clarify" else "cancel"
+            command_body = {
+                "clarification_id": "clarification-1",
+                "result": {
+                    "status": "answered",
+                    "answers": [
+                        {
+                            "question": "Which period?",
+                            "selected_options": ["Q1"],
+                        }
+                    ],
+                },
+            }
+            response = await host.client.post(
+                f"/api/native-command/{session_id}/{first.json()['chat']['id']}/{kind}",
+                json=command_body,
+                headers=headers,
+            )
+            assert response.status_code == 200, response.text
+            expected = "succeeded" if intent == "clarify" else "cancelled"
+        async with asyncio.timeout(5):
+            while True:
+                task = await host.store.get(SCOPE, task_id)
+                if task.handle.status == expected:
+                    break
+                await asyncio.sleep(0.01)
+        assert task.handle.origin.engagement == "direct"
+        assert task.handle.origin.return_session_ref is None
+        again = await host.client.post(
+            "/api/native-console", json=body, headers=headers
+        )
+        assert again.json()["task_id"] == task.handle.task_id
+        assert engine.count_runs() == 1
+        changed = await host.client.post(
+            "/api/native-console",
+            json={**body, "text": "changed"},
+            headers=headers,
+        )
+        assert changed.status_code == 409
+        invalid = await host.client.post(
+            "/api/native-console", content="{", headers=headers
+        )
+        assert invalid.status_code == 422
+    finally:
+        await gateway.stop()
 
 
 @pytest.mark.asyncio

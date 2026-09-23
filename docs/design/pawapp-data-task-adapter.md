@@ -80,6 +80,55 @@ response bodies or credentials.
 
 ## Event projection
 
+### Explicit analysis experience (2026-09-23)
+
+Engines advertising `analysis_experience: true` emit `analysis.progress`
+with an App-owned stage: `read_data`, `confirm_scope`, `analyze`, or
+`publish_report`. The adapter translates these into generic TaskExperience
+step IDs; the Host renderer does not understand SQL or Data-specific events.
+Replay retains the last declared stage across ordinary text/file events.
+Waiting for input and terminal success still take precedence. Event counts
+and file creation are not evidence of analytical progress.
+
+The Engine's private `report_analysis_progress` and
+`publish_analysis_artifact` tools let its domain agent declare progress and
+select deliverables. Each artifact can carry the shared presentation contract
+(`schema_version`, `role`, `kind`, `visibility`, `preview`, `rank`). New Engine
+automatic file discovery explicitly emits diagnostic/app-only artifacts;
+only intentional publication selects reports/charts for Main Chat. Valid
+explicit metadata overrides filename heuristics. Legacy events without
+metadata retain the compatibility classifier; this is not a new-app contract.
+Presentation is not authorization: all downloads still require scoped access.
+
+The Data Console consumes `paw_view=evidence` as its artifacts workspace and
+`paw_view=diagnostics` as its trace workspace. Unknown hints open the ordinary
+turns view; hints cannot select arbitrary URLs or transfer interaction ownership.
+
+### Native Console admission
+
+The native Console's chat POST now enters the same Host coordinator through
+the Direct-only `analyze-session` action. It requires an explicit grant, a
+stable `X-Request-Id`, and Engine `session_submissions: true`. The submission
+retains the existing Engine session, attachment IDs and artifact comments.
+Scoped `submission-readiness` checks reject legacy/unavailable or busy sessions
+before task creation; the Engine transaction rechecks ownership and concurrency.
+The Host stamps Engine calls with the authenticated principal/workspace
+namespace and records a deterministic, App-owned ChatSpec as the Direct origin.
+Completion stays in the App; it does not wake Main Chat.
+
+Native clarification and cancellation resolve the scoped persisted run mapping
+and use durable task commands. Raw browser submission endpoints are denied;
+uncertain admission must be retried with the same request ID, never through
+legacy chat creation. This does not make every legacy Engine read API tenant
+isolated: the Engine remains a trusted service behind the Host.
+
+Upgrade constraints: legacy sessions created under the unscoped Engine identity
+are not silently adopted. Start a new scoped session (or perform a separately
+reviewed migration). Legacy unmanaged runs cannot use durable task commands.
+Nonempty dataset filters and disabled clarification are rejected explicitly,
+not silently discarded. Existing `analyze` grants do not automatically grant
+the new `analyze-session` descriptor; enable it in App access.
+
 Each complete SSE frame must contain a matching SSE ID, session/run identity,
 and contiguous numeric source sequence. Malformed JSON, mismatched identities,
 sequence gaps, truncated frames, or events over 4 MiB fail the attachment. EOF

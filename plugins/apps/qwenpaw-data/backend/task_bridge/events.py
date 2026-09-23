@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from typing import Any, AsyncIterator
 
 from qwenpaw.pawapp.tasks import ExecutorEvent, ExecutorRunRef, TaskStoreError
-from qwenpaw.pawapp.tasks.contracts import content_digest
+from qwenpaw.pawapp.tasks.contracts import ArtifactPresentation, content_digest
 
 _DIGEST = re.compile(r"sha256:[0-9a-f]{64}\Z")
 
@@ -96,6 +96,7 @@ class TextProjection:
         self._messages: dict[str, _Message] = {}
         self.terminal = False
         self._waiting_request: str | None = None
+        self.analysis_stage = "read_data"
 
     @property
     def text(self) -> str:
@@ -172,6 +173,16 @@ class TextProjection:
                 "cancelled",
                 "interrupted",
             }
+        elif kind == "analysis.progress":
+            stage = frame.get("stage")
+            if stage not in {
+                "read_data",
+                "confirm_scope",
+                "analyze",
+                "publish_report",
+            }:
+                raise _invalid()
+            self.analysis_stage = stage
         elif kind == "artifact.registered":
             artifact = frame.get("artifact")
             if not isinstance(artifact, dict):
@@ -217,6 +228,16 @@ class TextProjection:
                 "size_bytes": size_bytes,
                 "digest": digest,
             }
+            if artifact.get("presentation") is not None:
+                try:
+                    presentation = ArtifactPresentation.model_validate(
+                        artifact["presentation"]
+                    )
+                except ValueError:
+                    raise _invalid() from None
+                detail["artifact"]["presentation"] = presentation.model_dump(
+                    mode="json"
+                )
         elif kind not in {
             "error",
             "task_status",
@@ -225,6 +246,7 @@ class TextProjection:
             "followup.generated",
         }:
             raise _invalid()
+        detail["analysis_stage"] = self.analysis_stage
         return ExecutorEvent(
             run_ref=self.run_ref,
             sequence=self.sequence,
@@ -235,9 +257,9 @@ class TextProjection:
             text_result=(
                 _render_input_request(detail["input_request"])
                 if status == "waiting_for_input"
-                else self.text
-                if self.text != before or self.terminal
-                else None
+                else (
+                    self.text if self.text != before or self.terminal else None
+                )
             ),
             detail=detail,
         )

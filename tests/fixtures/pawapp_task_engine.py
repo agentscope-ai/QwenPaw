@@ -35,23 +35,23 @@ def main():
     home = Path(sys.argv[1])
     port_file = Path(sys.argv[2])
     app = create_app(home=home, model=object())
-    app.dependency_overrides[
-        get_context_manager_client
-    ] = lambda: SimpleNamespace(
-        list_datasources=lambda: SimpleNamespace(
-            items=[
-                SimpleNamespace(
-                    datasource_id="sales",
-                    datasource_name="Sales",
-                    datasource_type="test",
-                ),
-            ],
-        ),
+    app.dependency_overrides[get_context_manager_client] = (
+        lambda: SimpleNamespace(
+            list_datasources=lambda: SimpleNamespace(
+                items=[
+                    SimpleNamespace(
+                        datasource_id="sales",
+                        datasource_name="Sales",
+                        datasource_type="test",
+                    ),
+                ],
+            ),
+        )
     )
     resume = asyncio.Event()
 
-    async def execute(runtime, chat_id, *, identity):
-        del identity
+    async def execute(runtime, chat_id, *, identity, capability_bridge=None):
+        del identity, capability_bridge
         chat = await runtime.chats.get(chat_id)
         stream = OutputStream(
             runtime.events,

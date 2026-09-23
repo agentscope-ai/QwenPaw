@@ -84,6 +84,24 @@ async def accept(store, scope, action, origin):
     return await store.record_accepted(scope, task_id, run_ref())
 
 
+async def test_native_run_lookup_is_scoped(store, scope, action, origin):
+    accepted = await accept(store, scope, action, origin)
+    assert (
+        await store.find_run(scope, run_ref())
+    ).handle.task_id == accepted.handle.task_id
+    for field, value in (
+        ("principal_id", "bob"),
+        ("workspace_id", "other"),
+        ("app_id", "other"),
+    ):
+        with pytest.raises(TaskStoreError, match="task_not_found"):
+            await store.find_run(
+                scope.model_copy(update={field: value}), run_ref()
+            )
+    with pytest.raises(TaskStoreError, match="task_not_found"):
+        await store.find_run(scope, run_ref("missing"))
+
+
 async def wait_for_period(store, scope, task_id):
     return await store.apply_event(
         scope,

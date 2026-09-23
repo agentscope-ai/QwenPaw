@@ -376,10 +376,10 @@
       "extension": "插件提供的设置",
       "appAccess": "控制此智能体可以执行的应用操作"
     },
-    "appAccessDescription": "选择此智能体在主对话中可以使用的能力；需要按资源精细控制时，可展开高级操作限制。",
-    "appCapabilitiesTitle": "主对话能力",
+    "appAccessDescription": "选择此工作区可用的应用任务能力，包括主对话委托和已注册的应用内任务；需要按资源精细控制时，可展开高级操作限制。",
+    "appCapabilitiesTitle": "应用任务能力",
     "appCapabilitiesHint": "选择此智能体可以做什么；更改会原子地应用到整个能力组。",
-    "appPanelScope": "主对话访问",
+    "appPanelScope": "应用任务访问",
     "appPanelCapabilityCount": "{{count}} 项能力",
     "appCapabilityGranted": "能力已启用",
     "appCapabilityRevoked": "能力已停用",

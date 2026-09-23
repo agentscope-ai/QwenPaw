@@ -5,6 +5,12 @@ from .adapter import (
     DataTaskAdapter,
     data_action_descriptor,
     data_task_experience,
+    data_session_action_descriptor,
 )
 
-__all__ = ["DataTaskAdapter", "data_action_descriptor", "data_task_experience"]
+__all__ = [
+    "DataTaskAdapter",
+    "data_action_descriptor",
+    "data_task_experience",
+    "data_session_action_descriptor",
+]

@@ -48,10 +48,16 @@ if __package__ and __package__.startswith("plugin_"):
     )
     from .backend.context_gateway import ContextGateway
     from .backend.engine_gateway import EngineGateway
+    from .backend.direct_tasks import (
+        console_scope,
+        dispatch_console_chat,
+        command_console_chat,
+    )
     from .backend.task_bridge import (
         DataTaskAdapter,
         data_action_descriptor,
         data_task_experience,
+        data_session_action_descriptor,
     )
     from .backend.runtime import (
         context_python,
@@ -86,10 +92,16 @@ else:
     )
     from backend.context_gateway import ContextGateway  # noqa: E402
     from backend.engine_gateway import EngineGateway  # noqa: E402
+    from backend.direct_tasks import (
+        console_scope,
+        dispatch_console_chat,
+        command_console_chat,
+    )
     from backend.task_bridge import (  # noqa: E402
         DataTaskAdapter,
         data_action_descriptor,
         data_task_experience,
+        data_session_action_descriptor,
     )
     from backend.runtime import (  # noqa: E402
         context_python,
@@ -340,6 +352,23 @@ app.task_action(
         capability_risk="analysis",
         experience=data_task_experience(),
     ),
+)
+
+app.task_action(
+    ActionRegistration(
+        action=data_session_action_descriptor(),
+        factory=lambda: DataTaskAdapter(
+            _engine_endpoint,
+            executor_id="qwenpaw-data.engine",
+            capability_bridge=task_capability_bridge,
+        ),
+        settings_entry="/apps/qwenpaw-data",
+        capability_id="data_analysis",
+        capability_label="Analyze data",
+        capability_summary="Run governed analysis against an approved data source.",
+        capability_risk="analysis",
+        experience=data_task_experience("analyze-session"),
+    )
 )
 
 _bridge_store = BridgeSessionStore(path=APP_DATA_DIR / "bridge_sessions.json")
@@ -850,7 +879,39 @@ async def context_proxy(path: str, request: Request) -> Any:
 )
 async def engine_proxy(path: str, request: Request) -> Any:
     """Forward session/chat traffic to the analysis engine sidecar."""
-    return await _engine_gateway.proxy(path, request)
+    normalized = _engine_gateway._upstream_path(path).rstrip("/")
+    if request.method == "POST" and normalized == "/api/v1/console/chat":
+        return await dispatch_console_chat(request, _engine_gateway)
+    if request.method == "POST" and normalized == "/api/v1/console/chat/stop":
+        return await command_console_chat(
+            request,
+            _engine_gateway,
+            request.query_params.get("session_id", ""),
+            request.query_params.get("chat_id", ""),
+            "cancel",
+        )
+    command_path = re.fullmatch(
+        r"/api/v1/sessions/([^/]+)/chats/([^/]+)/(stop|clarification/answer)",
+        normalized,
+    )
+    if request.method == "POST" and command_path:
+        return await command_console_chat(
+            request,
+            _engine_gateway,
+            command_path[1],
+            command_path[2],
+            "cancel" if command_path[3] == "stop" else "answer",
+        )
+    if request.method == "POST" and re.fullmatch(
+        r"/api/v1/sessions/[^/]+/chats", normalized
+    ):
+        raise HTTPException(409, "Use the governed Console chat endpoint")
+    scope = await console_scope(request)
+    return await _engine_gateway.proxy(
+        path,
+        request,
+        user_id=DataTaskAdapter.identity_namespace(scope),
+    )
 
 
 @router.get("/config")
