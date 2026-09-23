@@ -70,6 +70,13 @@ def is_config_independent_command(request: Any) -> bool:
     )
 
 
+def _unavailable_message(exc: BaseException) -> str:
+    """Keep the original wording, which names the file and the fix."""
+    detail = getattr(exc, "message", None) or str(exc)
+    headline = "Agent model configuration is temporarily unavailable"
+    return f"{headline}: {detail}" if detail else headline
+
+
 async def load_runtime_agent_config(agent_id: str) -> "AgentProfileConfig":
     """Load one agent configuration without blocking the event loop.
 
@@ -83,13 +90,13 @@ async def load_runtime_agent_config(agent_id: str) -> "AgentProfileConfig":
         if exc.error_code:
             raise
         raise ConfigurationException(
-            "Agent model configuration is temporarily unavailable",
+            _unavailable_message(exc),
             config_key=exc.config_key or "agent",
             error_code=AGENT_CONFIG_UNAVAILABLE,
         ) from exc
     except (OSError, TypeError, ValueError, AppBaseException) as exc:
         raise ConfigurationException(
-            "Agent model configuration is temporarily unavailable",
+            _unavailable_message(exc),
             config_key="agent",
             error_code=AGENT_CONFIG_UNAVAILABLE,
         ) from exc

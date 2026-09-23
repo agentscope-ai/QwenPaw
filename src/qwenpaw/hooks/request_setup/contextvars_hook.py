@@ -138,7 +138,7 @@ class ContextVarsSetupHook(LifecycleHook):
                     pruning_cfg.pruning_recent_msg_max_bytes,
                 )
                 set_current_shell_command_timeout(
-                    running.shell_command_timeout
+                    running.shell_command_timeout,
                 )
                 set_current_shell_command_executable(
                     running.shell_command_executable or None,

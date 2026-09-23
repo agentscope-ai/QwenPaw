@@ -422,8 +422,8 @@ class Workspace:
         Drop-in replacement for the old ``Runner.stream_query()``.
         """
         # Lazy: importing qwenpaw.runtime pulls in the builder and agents.
+        from ...exceptions import CONFIGURATION_REQUIRED
         from ...runtime.configuration import (
-            CONFIGURATION_REQUIRED,
             is_config_independent_command,
             load_runtime_agent_config,
         )

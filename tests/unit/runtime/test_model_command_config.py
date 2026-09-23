@@ -6,6 +6,8 @@ A configuration that cannot be read is not a reason to refuse ``/model`` or
 manager. A write still needs the real file.
 """
 
+# pylint: disable=protected-access,redefined-outer-name
+
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
@@ -107,7 +109,7 @@ class TestGetAgentConfig:
     async def test_reports_a_stored_failure(self):
         with pytest.raises(ConfigurationException) as caught:
             await _get_agent_config(
-                _context(agent_config_error=_unavailable())
+                _context(agent_config_error=_unavailable()),
             )
 
         assert caught.value.error_code == AGENT_CONFIG_UNAVAILABLE

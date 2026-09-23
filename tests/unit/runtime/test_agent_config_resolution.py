@@ -6,8 +6,10 @@ answered without an agent configuration, and the request-scoped snapshot
 the runtime pins before any hook runs.
 """
 
+# pylint: disable=protected-access
+
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -16,12 +18,16 @@ from qwenpaw.exceptions import (
     AgentConfigConflictError,
     ConfigurationException,
 )
+from qwenpaw.providers.provider_manager import ProviderManager
 from qwenpaw.runtime import configuration as configuration_module
+from qwenpaw.runtime.builtin_commands import _collect_control_specs
 from qwenpaw.runtime.configuration import (
     is_config_independent_command,
     load_runtime_agent_config,
 )
+from qwenpaw.runtime.hooks import HookAction, HookResult
 from qwenpaw.runtime.runtime import Runtime
+from qwenpaw.runtime.slash_command_registry import SlashCommandRegistry
 from qwenpaw.schemas import AgentRequest
 
 pytestmark = [pytest.mark.unit, pytest.mark.p1]
@@ -106,6 +112,46 @@ class TestLoadRuntimeAgentConfig:
             await load_runtime_agent_config("agent-1")
 
         assert caught.value.error_code == "MODEL_NOT_CONFIGURED"
+
+    async def test_a_codeless_failure_keeps_its_original_message(
+        self,
+        monkeypatch,
+    ):
+        # This is the production shape of the main path: config.py raises a
+        # ConfigurationException naming the file and the fix, with no code.
+        original = ConfigurationException(
+            "Agent 'agent-1' configuration file contains invalid JSON. "
+            "Path: /tmp/agent.json",
+        )
+        monkeypatch.setattr(
+            configuration_module,
+            "load_agent_config_async",
+            AsyncMock(side_effect=original),
+        )
+
+        with pytest.raises(ConfigurationException) as caught:
+            await load_runtime_agent_config("agent-1")
+
+        assert caught.value.error_code == AGENT_CONFIG_UNAVAILABLE
+        # The path and the fix must survive: they are what the user acts on.
+        assert "/tmp/agent.json" in str(caught.value)
+
+    async def test_an_empty_failure_message_still_reads_as_a_sentence(
+        self,
+        monkeypatch,
+    ):
+        monkeypatch.setattr(
+            configuration_module,
+            "load_agent_config_async",
+            AsyncMock(side_effect=OSError()),
+        )
+
+        with pytest.raises(ConfigurationException) as caught:
+            await load_runtime_agent_config("agent-1")
+
+        assert str(caught.value) == (
+            "Agent model configuration is temporarily unavailable"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -271,3 +317,127 @@ class TestResolveAgentConfig:
             is True
         )
         assert allowed.extras["agent_config_error"] is error
+
+
+# ---------------------------------------------------------------------------
+# Real Runtime flow
+# ---------------------------------------------------------------------------
+
+
+class _StubHooks:
+    """A hook registry that lets every phase continue."""
+
+    def __init__(self) -> None:
+        self.phases: list[str] = []
+
+    async def run(self, phase, _ctx) -> HookResult:
+        self.phases.append(str(phase))
+        return HookResult(action=HookAction.CONTINUE)
+
+
+def _fake_workspace(hooks: _StubHooks) -> SimpleNamespace:
+    # Control specs only: the conversation specs import an optional package
+    # (``reme``) that a unit-test environment need not have.
+    registry = SlashCommandRegistry()
+    for spec in _collect_control_specs():
+        registry.register(spec)
+    return SimpleNamespace(
+        agent_id="agent-1",
+        workspace_dir=None,
+        app_services=None,
+        channel_manager=None,
+        plugins=SimpleNamespace(
+            hook_registry=hooks,
+            slash_command_registry=registry,
+        ),
+    )
+
+
+def _slash_request(text: str) -> AgentRequest:
+    return AgentRequest(
+        input=[
+            {"role": "user", "content": [{"type": "text", "text": text}]},
+        ],
+        session_id="session-1",
+        channel="console",
+    )
+
+
+def _texts(events) -> str:
+    texts: list[str] = []
+    for event in events:
+        for message in getattr(event, "output", None) or []:
+            for block in getattr(message, "content", None) or []:
+                text = getattr(block, "text", None)
+                if text:
+                    texts.append(text)
+    return "\n".join(texts)
+
+
+def _failure_errors(events) -> list[dict]:
+    errors: list[dict] = []
+    for event in events:
+        if getattr(event, "status", None) != "failed":
+            continue
+        error = getattr(event, "error", None)
+        if isinstance(error, dict):
+            errors.append(error)
+    return errors
+
+
+class TestRuntimeRunWithUnavailableConfig:
+    """Drive the shared entry point so a broken lazy import cannot hide."""
+
+    async def test_model_command_still_answers(self):
+        slot = SimpleNamespace(provider_id="openai", model="gpt-4o")
+        error = ConfigurationException(
+            "agent.json is invalid",
+            config_key="agent",
+            error_code=AGENT_CONFIG_UNAVAILABLE,
+        )
+        hooks = _StubHooks()
+        runtime = Runtime(
+            workspace=_fake_workspace(hooks),
+            app_services=None,
+            config_error=error,
+        )
+
+        with patch.object(
+            ProviderManager,
+            "get_instance",
+            return_value=SimpleNamespace(get_active_model=lambda: slot),
+        ):
+            events = [
+                event async for event in runtime.run(_slash_request("/model"))
+            ]
+
+        # The read-only command answered from the global model instead of
+        # failing, even though the agent configuration is unreadable.
+        assert "Current Model" in _texts(events)
+        assert "global default" in _texts(events)
+        assert hooks.phases
+
+    async def test_a_normal_turn_reports_the_configuration_failure(self):
+        error = ConfigurationException(
+            "agent.json is invalid",
+            config_key="agent",
+            error_code=AGENT_CONFIG_UNAVAILABLE,
+        )
+        runtime = Runtime(
+            workspace=_fake_workspace(_StubHooks()),
+            app_services=None,
+            config_error=error,
+        )
+
+        events = [
+            event async for event in runtime.run(_slash_request("hello"))
+        ]
+
+        # A terminal event carries the code and the original wording, so a
+        # client can tell this apart from a missing model selection and name
+        # the file to fix.
+        errors = _failure_errors(events)
+        assert [error.get("code") for error in errors] == [
+            AGENT_CONFIG_UNAVAILABLE,
+        ]
+        assert errors[0].get("message") == "agent.json is invalid"

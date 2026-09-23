@@ -620,6 +620,37 @@ class TestGetActiveModels:
         # with the global model would report a model the agent does not use.
         assert caught.value.status_code == 503
         assert caught.value.detail["code"] == "AGENT_CONFIG_UNAVAILABLE"
+        # The message keeps the part the user acts on.
+        assert "corrupt config" in caught.value.detail["message"]
+
+    async def test_agent_scope_reports_the_same_verdict(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        manager = self._manager_with_global(
+            ModelSlotConfig(provider_id="p", model="global-m"),
+        )
+        monkeypatch.setattr(
+            providers_mod,
+            "get_agent_for_request",
+            AsyncMock(return_value=SimpleNamespace(agent_id="agent-1")),
+        )
+        monkeypatch.setattr(
+            providers_mod,
+            "load_agent_config",
+            MagicMock(side_effect=ValueError("corrupt config")),
+        )
+        # Every call site maps the failure, not only the effective scope.
+        with pytest.raises(HTTPException) as caught:
+            await providers_mod.get_active_models(
+                request=MagicMock(),
+                manager=manager,
+                scope="agent",
+                agent_id="agent-1",
+            )
+
+        assert caught.value.status_code == 503
+        assert caught.value.detail["code"] == "AGENT_CONFIG_UNAVAILABLE"
 
     async def test_effective_scope_stale_config_reports_409(
         self,

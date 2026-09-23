@@ -119,7 +119,7 @@ def _console_request(client_id=_CLIENT_ID):
     return SimpleNamespace(
         channel="console",
         input=[
-            SimpleNamespace(metadata={"qwenpaw_client_message_id": client_id})
+            SimpleNamespace(metadata={"qwenpaw_client_message_id": client_id}),
         ],
     )
 
