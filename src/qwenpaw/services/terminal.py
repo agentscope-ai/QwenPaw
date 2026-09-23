@@ -197,8 +197,8 @@ class TerminalSession:
                     child.kill()
                 except psutil.Error:
                     pass
-            # Closing BufferedRWPair first waits on the reader's lock. Stop
-            # the process before closing its PTY so blocking read sees EOF.
+            # Stop the process before closing its PTY so a blocking reader
+            # sees EOF without delaying teardown.
             try:
                 if self.root and self.root.is_running():
                     self.root.kill()
