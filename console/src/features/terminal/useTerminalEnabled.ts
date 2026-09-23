@@ -1,12 +1,20 @@
 import { useEffect, useState } from "react";
 import { request } from "../../api/request";
 
+interface TerminalCapability {
+  enabled: boolean;
+  reason: string;
+  confirmed: boolean;
+}
+
+const UNKNOWN_CAPABILITY: TerminalCapability = {
+  enabled: false,
+  reason: "unavailable",
+  confirmed: false,
+};
+
 export function useTerminalEnabled(agentId: string) {
-  const [state, setState] = useState({
-    agentId: "",
-    enabled: false,
-    reason: "",
-  });
+  const [states, setStates] = useState<Record<string, TerminalCapability>>({});
   useEffect(() => {
     const controller = new AbortController();
     const refresh = async () => {
@@ -18,15 +26,18 @@ export function useTerminalEnabled(agentId: string) {
             signal: controller.signal,
           },
         );
-        if (!controller.signal.aborted)
-          setState({
-            agentId,
-            enabled: status.enabled === true,
-            reason: status.reason ?? "",
-          });
+        if (!controller.signal.aborted) {
+          setStates((current) => ({
+            ...current,
+            [agentId]: {
+              enabled: status.enabled === true,
+              reason: status.reason ?? "",
+              confirmed: true,
+            },
+          }));
+        }
       } catch {
-        if (!controller.signal.aborted)
-          setState({ agentId, enabled: false, reason: "unavailable" });
+        // Keep the last confirmed state during transient request failures.
       }
     };
     void refresh();
@@ -36,7 +47,5 @@ export function useTerminalEnabled(agentId: string) {
       window.removeEventListener("focus", refresh);
     };
   }, [agentId]);
-  return state.agentId === agentId
-    ? state
-    : { enabled: false, reason: "unavailable" };
+  return states[agentId] ?? UNKNOWN_CAPABILITY;
 }

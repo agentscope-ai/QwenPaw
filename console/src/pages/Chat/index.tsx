@@ -1310,8 +1310,11 @@ export default function ChatPage() {
     [selectedAgent],
   );
   const sdkSessionApi = sdkSessionAdapter.api;
-  const { enabled: terminalEnabled, reason: terminalDisabledReason } =
-    useTerminalEnabled(selectedAgent);
+  const {
+    enabled: terminalEnabled,
+    reason: terminalDisabledReason,
+    confirmed: terminalCapabilityConfirmed,
+  } = useTerminalEnabled(selectedAgent);
   const backendChatId = resolveBackendChatId(chatId);
   useEffect(() => {
     sessionApi.setVisibleSession(
@@ -1356,8 +1359,10 @@ export default function ChatPage() {
     [currentSessionFilesScopeKey],
   );
   useEffect(() => {
-    if (!terminalEnabled) setTerminalOpen(false);
-  }, [terminalEnabled, setTerminalOpen]);
+    if (terminalCapabilityConfirmed && !terminalEnabled) {
+      setTerminalOpen(false);
+    }
+  }, [terminalCapabilityConfirmed, terminalEnabled, setTerminalOpen]);
   const filesDrawerState = useSessionFilesDrawer(currentSessionFilesScopeKey);
   const dispatchFilesDrawer = useCallback(
     (event: FilesDrawerEvent) => {
