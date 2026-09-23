@@ -13,6 +13,7 @@ that authorizes Files API roots.
 from __future__ import annotations
 
 import io
+import os
 import zipfile
 from pathlib import Path
 from types import SimpleNamespace
@@ -119,7 +120,9 @@ class TestReservePath:
         assert workspace_router._reserve_path(target) is True
         assert target.exists()
         assert target.stat().st_size == 0
-        assert oct(target.stat().st_mode & 0o777) == "0o600"
+        if os.name != "nt":
+            # Windows ignores the mode bits passed to os.open.
+            assert oct(target.stat().st_mode & 0o777) == "0o600"
 
     def test_existing_file_is_not_reserved(self, tmp_path):
         target = tmp_path / "a.txt"
