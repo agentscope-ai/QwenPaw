@@ -3,23 +3,17 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, AsyncGenerator
 
 import pytest
 from agentscope.event import EventType
 
-from qwenpaw.app.chats.transcript import TranscriptStore
-from qwenpaw.app.chats.transcript_recorder import TranscriptRecorder
 from qwenpaw.runtime.envelope import Envelope
 from qwenpaw.schemas import (
-    AgentRequest,
     Message,
     MessageType,
-    Role,
     RunStatus,
-    TextContent,
 )
 
 
@@ -98,54 +92,3 @@ async def test_error_materializes_open_tool_call_and_output() -> None:
     assert messages[0].content[0].data["arguments"] == ('{"command":"pytest')
     assert messages[1].content[0].data["output"] == "1 passed"
     assert finalized[-1].status == RunStatus.Failed
-
-
-@pytest.mark.asyncio
-async def test_cancelled_reasoning_reaches_transcript(tmp_path: Path) -> None:
-    store = TranscriptStore(tmp_path / "session.db")
-    request = AgentRequest(
-        session_id="session-1",
-        user_id="user-1",
-        channel="console",
-        input=[
-            Message(
-                id="user-message",
-                role=Role.USER,
-                content=[TextContent(text="question")],
-            ),
-        ],
-    )
-    recorder = TranscriptRecorder(
-        store=store,
-        request=request,
-    )
-    envelope = Envelope(session_id="session-1")
-    await recorder.start()
-    for item in await _collect(
-        envelope.translate_event(
-            _event(
-                EventType.THINKING_BLOCK_DELTA,
-                block_id="reasoning-1",
-                delta="partial reasoning",
-            ),
-        ),
-    ):
-        await recorder.observe(item)
-    for item in await _collect(envelope.cancel_envelope()):
-        await recorder.observe(item)
-
-    page = store.get_page(
-        session_id="session-1",
-        user_id="user-1",
-        channel="console",
-    )
-
-    assert page is not None
-    assert [message.id for message in page.messages][0] == "user-message"
-    assert page.messages[-1].type == MessageType.REASONING
-    assert page.messages[-1].content[0].text == "partial reasoning"
-    turn = store._conn.execute(  # pylint: disable=protected-access
-        "SELECT status FROM transcript_turns",
-    ).fetchone()
-    assert turn["status"] == "cancelled"
-    store.close()

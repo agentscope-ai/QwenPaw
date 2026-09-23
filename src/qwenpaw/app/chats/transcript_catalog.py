@@ -170,7 +170,12 @@ class TranscriptCatalog:
                 if handle is None:
                     path = self._store_path(str(row["file_key"]))
                     path.parent.mkdir(parents=True, exist_ok=True)
-                    handle = _SessionHandle(TranscriptStore(path))
+                    handle = _SessionHandle(
+                        TranscriptStore(
+                            path,
+                            initialize_schema=not path.exists(),
+                        ),
+                    )
                     self._handles[session_id] = handle
                 handle.active += 1
         if handle is None:

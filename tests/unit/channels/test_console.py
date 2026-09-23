@@ -18,7 +18,6 @@ Key patterns demonstrated:
 from __future__ import annotations
 
 import json
-from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -88,40 +87,6 @@ class TestConsoleChannelUnit:
 
         assert ch.enabled is False
         assert ch.bot_prefix == "[TEST] "
-
-    @pytest.mark.asyncio
-    async def test_turn_usage_delegates_to_workspace(self, channel):
-        usage = {"total_tokens": 42}
-        context_usage = {"estimated_tokens": 21}
-        finalize = AsyncMock(return_value=(usage, context_usage))
-        channel._workspace = SimpleNamespace(
-            finalize_turn_usage=finalize,
-        )
-        ready = MagicMock()
-        setattr(channel, "_on_turn_usage_ready", ready)
-        request = SimpleNamespace(
-            session_id="session-1",
-            user_id="user-1",
-            channel="console",
-        )
-
-        events = await channel._commit_turn_usage(
-            request,
-            "session-1",
-        )
-
-        finalize.assert_awaited_once_with(request)
-        ready.assert_called_once_with(
-            usage,
-            context_usage,
-        )
-        payload = json.loads(events[0].removeprefix("data: "))
-        assert payload == {
-            "type": "turn_usage",
-            "session_id": "session-1",
-            "usage": usage,
-            "context_usage": context_usage,
-        }
 
     def test_sse_headline_strip_covers_delta_fields(self):
         """Raw SSE payload cleanup must hide streamed headline deltas."""

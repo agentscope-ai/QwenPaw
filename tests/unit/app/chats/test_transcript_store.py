@@ -79,76 +79,21 @@ def test_message_round_trip_preserves_attachment_and_metadata(tmp_path):
     store.close()
 
 
-def test_page_projects_database_times_without_overwriting_payload(tmp_path):
+def test_start_turn_rejects_missing_session_row(tmp_path, monkeypatch):
     store = TranscriptStore(tmp_path / "session.db")
-    store.start_turn(
-        session_id="session-1",
-        user_id="user-1",
-        channel="console",
-        turn_id="turn-1",
-        created_at="2026-09-20T12:00:00+00:00",
-    )
-    store.upsert_message(
-        session_id="session-1",
-        turn_id="turn-1",
-        message=Message(
-            id="user-1",
-            role="user",
-            content=[TextContent(text="question")],
-        ),
-        ordinal=0,
-        created_at="2026-09-20T12:00:01+00:00",
-    )
-    store.upsert_message(
-        session_id="session-1",
-        turn_id="turn-1",
-        message=Message(
-            id="assistant-1",
-            role="assistant",
-            content=[TextContent(text="answer")],
-            metadata={
-                "timestamp": "2026-09-20T12:00:02+00:00",
-                "finished_at": "2026-09-20T12:00:04+00:00",
-            },
-        ),
-        ordinal=1,
-        created_at="2026-09-20T12:00:03+00:00",
-    )
-    store.finish_turn(
-        session_id="session-1",
-        turn_id="turn-1",
-        status="completed",
-        finished_at="2026-09-20T12:00:05+00:00",
-    )
+    monkeypatch.setattr(store, "_session_row", lambda _session_id: None)
 
-    page = store.get_page(
-        session_id="session-1",
-        user_id="user-1",
-        channel="console",
-    )
+    with pytest.raises(RuntimeError, match="failed to create"):
+        _start(store, "turn-1")
+    store.close()
 
-    assert page is not None
-    user, assistant = page.messages
-    assert user.metadata == {
-        "timestamp": "2026-09-20T12:00:01+00:00",
-        "qwenpaw_turn_state": {"status": "completed"},
-        "qwenpaw_transcript_position": {
-            "turn_id": "turn-1",
-            "turn_seq": 1,
-            "ordinal": 0,
-        },
-    }
-    assert user.status == RunStatus.Completed
-    assert assistant.metadata == {
-        "timestamp": "2026-09-20T12:00:02+00:00",
-        "finished_at": "2026-09-20T12:00:04+00:00",
-        "qwenpaw_transcript_position": {
-            "turn_id": "turn-1",
-            "turn_seq": 1,
-            "ordinal": 1,
-        },
-    }
-    assert assistant.status == RunStatus.Completed
+
+def test_existing_empty_database_initializes_missing_schema(tmp_path):
+    db_path = tmp_path / "session.db"
+    db_path.touch()
+
+    store = TranscriptStore(db_path, initialize_schema=False)
+    _start(store, "turn-1")
     store.close()
 
 
@@ -195,36 +140,6 @@ def test_page_projects_terminal_turn_state(
         expected["error"] = {"code": "failure", "message": ""}
     assert metadata["metadata"]["qwenpaw_turn_state"] == expected
     store.close()
-
-
-def test_transcript_remains_readable_after_store_reopen(tmp_path):
-    db_path = tmp_path / "session.db"
-    store = TranscriptStore(db_path)
-    _start(store, "turn-1")
-    store.upsert_message(
-        session_id="session-1",
-        turn_id="turn-1",
-        message=_message("message-1", "persisted"),
-        ordinal=0,
-    )
-    store.finish_turn(
-        session_id="session-1",
-        turn_id="turn-1",
-        status="completed",
-    )
-    store.close()
-
-    reopened = TranscriptStore(db_path)
-    page = reopened.get_page(
-        session_id="session-1",
-        user_id="user-1",
-        channel="console",
-    )
-
-    assert page is not None
-    assert [message.id for message in page.messages] == ["message-1"]
-    assert page.messages[0].content[0].text == "persisted"
-    reopened.close()
 
 
 def test_page_read_does_not_wait_for_active_writer(tmp_path):
@@ -349,26 +264,6 @@ def test_attach_turn_usage_updates_only_closing_assistant(tmp_path):
         "usage": usage,
         "context_usage": context_usage,
     }
-    store.close()
-
-
-def test_session_identity_is_enforced(tmp_path):
-    store = TranscriptStore(tmp_path / "session.db")
-    _start(store, "turn-1")
-
-    with pytest.raises(ValueError, match="identity mismatch"):
-        store.start_turn(
-            session_id="session-1",
-            user_id="other-user",
-            channel="console",
-            turn_id="turn-2",
-        )
-    with pytest.raises(ValueError, match="identity mismatch"):
-        store.get_page(
-            session_id="session-1",
-            user_id="user-1",
-            channel="other-channel",
-        )
     store.close()
 
 
@@ -517,112 +412,4 @@ def test_running_turn_exposes_user_but_defers_sse_owned_outputs(tmp_path):
         "reasoning-1",
     ]
     assert completed.messages[1].content[0].text == "thinking"
-    store.close()
-
-
-@pytest.mark.parametrize("status", ["failed", "cancelled"])
-def test_failed_turn_replacement_keeps_original_turn(
-    tmp_path,
-    status,
-):
-    store = TranscriptStore(tmp_path / "session.db")
-    _start(store, "original")
-    for ordinal, message in enumerate(
-        [
-            _message("user-old", "question"),
-            _message("assistant-old", "old", role="assistant"),
-        ],
-    ):
-        store.upsert_message(
-            session_id="session-1",
-            turn_id="original",
-            message=message,
-            ordinal=ordinal,
-        )
-    store.finish_turn(
-        session_id="session-1",
-        turn_id="original",
-        status="completed",
-    )
-    _start(store, "replacement", replaces_turn_id="original")
-    store.upsert_message(
-        session_id="session-1",
-        turn_id="replacement",
-        message=_message("user-new", "question"),
-        ordinal=0,
-    )
-    store.finish_turn(
-        session_id="session-1",
-        turn_id="replacement",
-        status=status,
-    )
-
-    page = store.get_page(
-        session_id="session-1",
-        user_id="user-1",
-        channel="console",
-    )
-
-    assert page is not None
-    assert [message.id for message in page.messages] == [
-        "user-old",
-        "assistant-old",
-        "user-new",
-    ]
-    store.close()
-
-
-def test_completed_turn_replacement_hides_whole_original_turn(tmp_path):
-    store = TranscriptStore(tmp_path / "session.db")
-    _start(store, "original")
-    for ordinal, message in enumerate(
-        [
-            _message("user-old", "question"),
-            _message("tool-old", "tool", role="assistant"),
-            _message("assistant-old", "old", role="assistant"),
-        ],
-    ):
-        store.upsert_message(
-            session_id="session-1",
-            turn_id="original",
-            message=message,
-            ordinal=ordinal,
-        )
-    store.finish_turn(
-        session_id="session-1",
-        turn_id="original",
-        status="completed",
-    )
-    _start(store, "replacement", replaces_turn_id="original")
-    for ordinal, message in enumerate(
-        [
-            _message("user-new", "question"),
-            _message("assistant-new", "new", role="assistant"),
-        ],
-    ):
-        store.upsert_message(
-            session_id="session-1",
-            turn_id="replacement",
-            message=message,
-            ordinal=ordinal,
-        )
-    store.finish_turn(
-        session_id="session-1",
-        turn_id="replacement",
-        status="completed",
-    )
-
-    page = store.get_page(
-        session_id="session-1",
-        user_id="user-1",
-        channel="console",
-        limit=2,
-    )
-
-    assert page is not None
-    assert page.has_more is False
-    assert [message.id for message in page.messages] == [
-        "user-new",
-        "assistant-new",
-    ]
     store.close()

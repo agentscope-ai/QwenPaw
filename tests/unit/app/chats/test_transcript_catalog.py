@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 
+from qwenpaw.app.chats.transcript import TranscriptStore
 from qwenpaw.app.chats.transcript_catalog import TranscriptCatalog
 from qwenpaw.schemas import Message, TextContent
 
@@ -112,6 +113,7 @@ def test_different_sessions_do_not_share_a_writer_lock(tmp_path: Path) -> None:
 
 def test_idle_handles_close_without_losing_history(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     catalog = TranscriptCatalog(tmp_path)
     _start(catalog, "session-a")
@@ -122,11 +124,11 @@ def test_idle_handles_close_without_losing_history(
     )
     _finish(catalog, "session-a")
     assert not catalog._handles  # pylint: disable=protected-access
-    _start(catalog, "session-b")
-    _upsert(catalog, "session-b")
-    _finish(catalog, "session-b")
-
-    assert not catalog._handles  # pylint: disable=protected-access
+    monkeypatch.setattr(
+        TranscriptStore,
+        "_create_schema",
+        lambda _store: pytest.fail("existing store recreated its schema"),
+    )
     page = catalog.get_page(
         session_id="session-a",
         user_id="user-1",
@@ -135,38 +137,6 @@ def test_idle_handles_close_without_losing_history(
     assert page is not None
     assert [message.id for message in page.messages] == ["message-session-a"]
     assert not catalog._handles  # pylint: disable=protected-access
-    catalog.close()
-
-
-def test_delete_removes_catalog_entry_and_session_file(
-    tmp_path: Path,
-) -> None:
-    catalog = TranscriptCatalog(tmp_path)
-    _start(catalog, "session-a")
-    _upsert(catalog, "session-a")
-    row = catalog._conn.execute(  # pylint: disable=protected-access
-        "SELECT file_key FROM transcript_files WHERE session_id = 'session-a'",
-    ).fetchone()
-    path = catalog._store_path(  # pylint: disable=protected-access
-        row["file_key"],
-    )
-
-    assert catalog.delete_session("session-a") is True
-    assert (
-        catalog.get_page(
-            session_id="session-a",
-            user_id="user-1",
-            channel="console",
-        )
-        is None
-    )
-    assert not path.exists()
-    row = catalog._conn.execute(  # pylint: disable=protected-access
-        "SELECT session_id FROM transcript_files "
-        "WHERE session_id = 'session-a'",
-    ).fetchone()
-    assert row is None
-    assert catalog.delete_session("session-a") is False
     catalog.close()
 
 
@@ -202,6 +172,15 @@ def test_delete_waits_for_active_lease(tmp_path: Path) -> None:
         lease.result(timeout=5)
         assert deletion.result(timeout=5) is True
 
+    assert (
+        catalog.get_page(
+            session_id="session-a",
+            user_id="user-1",
+            channel="console",
+        )
+        is None
+    )
+    assert catalog.delete_session("session-a") is False
     catalog.close()
 
 

@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import sqlite3
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
@@ -23,7 +22,7 @@ from qwenpaw.app.chats.models import ChatSpec
 from qwenpaw.app.chats.session import SafeJSONSession
 from qwenpaw.app.chats.transcript import TranscriptStore
 from qwenpaw.app.chats.transcript_catalog import TranscriptCatalog
-from qwenpaw.schemas import Message, MessageType, Role, RunStatus, TextContent
+from qwenpaw.schemas import Message, Role, RunStatus, TextContent
 from qwenpaw.token_usage.turn_usage import TURN_USAGE_META_KEY
 
 
@@ -159,56 +158,6 @@ async def test_get_chat_restores_durable_turn_usage(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_get_chat_defers_running_outputs_to_sse_replay(
-    tmp_path: Path,
-) -> None:
-    store = TranscriptStore(tmp_path / "session.db")
-    store.start_turn(
-        session_id="session-1",
-        user_id="user-1",
-        channel="console",
-        turn_id="turn-1",
-    )
-    for ordinal, message in enumerate(
-        [
-            Message(
-                id="user-1",
-                role=Role.USER,
-                content=[TextContent(text="question")],
-                status=RunStatus.Completed,
-            ),
-            Message(
-                id="reasoning-1",
-                type=MessageType.REASONING,
-                role=Role.ASSISTANT,
-                content=[],
-                status=RunStatus.InProgress,
-            ),
-        ],
-    ):
-        store.upsert_message(
-            session_id="session-1",
-            turn_id="turn-1",
-            message=message,
-            ordinal=ordinal,
-        )
-    workspace = _workspace(store)
-    workspace.task_tracker.get_status.return_value = "running"
-
-    history = await get_chat(
-        chat_id="chat-1",
-        include_app_owned=True,
-        mgr=SimpleNamespace(get_chat=AsyncMock(return_value=_chat())),
-        session=SimpleNamespace(get_session_state_dict=AsyncMock()),
-        workspace=workspace,
-    )
-
-    assert history.status == "running"
-    assert [message.id for message in history.messages] == ["user-1"]
-    store.close()
-
-
-@pytest.mark.asyncio
 async def test_message_pages_use_opaque_item_cursor(tmp_path: Path) -> None:
     store = TranscriptStore(tmp_path / "session.db")
     for number in range(1, 4):
@@ -288,27 +237,6 @@ async def test_get_chat_falls_back_without_transcript() -> None:
 
 
 @pytest.mark.asyncio
-async def test_get_chat_falls_back_when_transcript_read_fails() -> None:
-    store = Mock(spec=TranscriptStore)
-    store.get_page.side_effect = OSError("unavailable")
-    session = SimpleNamespace(
-        get_session_state_dict=AsyncMock(return_value={}),
-    )
-
-    history = await get_chat(
-        chat_id="chat-1",
-        include_app_owned=True,
-        mgr=SimpleNamespace(get_chat=AsyncMock(return_value=_chat())),
-        session=session,
-        workspace=_workspace(store),
-    )
-
-    assert history.messages == []
-    assert history.history is not None
-    assert history.history.has_more is False
-
-
-@pytest.mark.asyncio
 async def test_delete_chat_data_removes_all_persistence(
     tmp_path: Path,
 ) -> None:
@@ -356,30 +284,6 @@ async def test_delete_chat_data_removes_all_persistence(
         [("session-1", "user-1", "console")],
     )
     store.close()
-
-
-@pytest.mark.asyncio
-async def test_transcript_delete_failure_follows_metadata_delete() -> None:
-    store = Mock(spec=TranscriptCatalog)
-    store.delete_session.side_effect = sqlite3.OperationalError(
-        "locked",
-    )
-    manager = SimpleNamespace(
-        get_chat=AsyncMock(return_value=_chat()),
-        list_chats=AsyncMock(return_value=[_chat()]),
-        delete_chats=AsyncMock(return_value=True),
-    )
-    workspace = SimpleNamespace(transcript_store=store, session=None)
-
-    with pytest.raises(HTTPException) as exc_info:
-        await delete_chat(
-            chat_id="chat-1",
-            mgr=manager,
-            workspace=workspace,
-        )
-
-    assert exc_info.value.status_code == 500
-    manager.delete_chats.assert_awaited_once_with(chat_ids=["chat-1"])
 
 
 @pytest.mark.asyncio

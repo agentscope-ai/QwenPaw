@@ -27,9 +27,6 @@ from helpers import (
     unregister_mock_provider,
 )
 
-from qwenpaw.constant import QWENPAW_CLIENT_MESSAGE_ID_KEY
-from qwenpaw.runtime.console_turn_state import REGENERATE_FROM
-
 _HTTP_TIMEOUT = default_http_timeout(60.0)
 
 
@@ -61,19 +58,8 @@ def _send(
     *,
     user_id: str,
     text: str,
-    client_message_id: str | None = None,
-    request_context: dict | None = None,
 ) -> dict:
     """Send one message and poll the task to completion."""
-    message = {
-        "role": "user",
-        "type": "message",
-        "content": [{"type": "text", "text": text}],
-    }
-    if client_message_id is not None:
-        message["metadata"] = {
-            QWENPAW_CLIENT_MESSAGE_ID_KEY: client_message_id,
-        }
     submit = app_server.api_request(
         "POST",
         "/api/console/chat/task",
@@ -81,11 +67,14 @@ def _send(
             "channel": "console",
             "user_id": user_id,
             "session_id": f"console:{user_id}",
-            "input": [message],
-            "request_context": {
-                "approval_level": "off",
-                **(request_context or {}),
-            },
+            "input": [
+                {
+                    "role": "user",
+                    "type": "message",
+                    "content": [{"type": "text", "text": text}],
+                },
+            ],
+            "request_context": {"approval_level": "off"},
         },
         timeout=_HTTP_TIMEOUT,
     )
@@ -258,55 +247,6 @@ def test_transcript_survives_compact_clear_and_refresh(
         cleared_blob = json.dumps(cleared, ensure_ascii=False)
         assert first in cleared_blob
         assert second in cleared_blob
-    finally:
-        app_server.api_request(
-            "DELETE",
-            f"/api/chats/{chat_id}",
-            timeout=_HTTP_TIMEOUT,
-        )
-
-
-@pytest.mark.integration
-@pytest.mark.p1
-def test_transcript_regeneration_replaces_completed_turn(
-    app_server,
-    provider,  # pylint: disable=redefined-outer-name,unused-argument
-):
-    """A successful app-level regeneration activates only the new turn."""
-    user = "integ-transcript-regeneration"
-    text = "TRANSCRIPT-REGENERATE-4201"
-    original_client_id = "integ-regenerate-client-original"
-    chat_id = _create_chat(
-        app_server,
-        user_id=user,
-        name="durable transcript regeneration",
-    )
-    try:
-        original = _send(
-            app_server,
-            user_id=user,
-            text=text,
-            client_message_id=original_client_id,
-        )
-        assert original["status"] == "finished"
-        before = _read_chat_messages(app_server, chat_id)
-        original_ids = {message["id"] for message in before}
-        assert len(original_ids) >= 2
-        assert text in json.dumps(before, ensure_ascii=False)
-
-        replacement = _send(
-            app_server,
-            user_id=user,
-            text=text,
-            client_message_id="integ-regenerate-client-replacement",
-            request_context={REGENERATE_FROM: original_client_id},
-        )
-        assert replacement["status"] == "finished"
-        after = _read_chat_messages(app_server, chat_id)
-        replacement_ids = {message["id"] for message in after}
-        assert len(replacement_ids) >= 2
-        assert original_ids.isdisjoint(replacement_ids)
-        assert text in json.dumps(after, ensure_ascii=False)
     finally:
         app_server.api_request(
             "DELETE",

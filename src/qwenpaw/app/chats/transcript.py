@@ -51,7 +51,12 @@ class TranscriptPage:
 class TranscriptStore:
     """Workspace-owned SQLite store for user-visible chat transcripts."""
 
-    def __init__(self, db_path: str | Path) -> None:
+    def __init__(
+        self,
+        db_path: str | Path,
+        *,
+        initialize_schema: bool = True,
+    ) -> None:
         self._path = Path(db_path).expanduser()
         self._path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
@@ -64,13 +69,22 @@ class TranscriptStore:
         self._conn.execute("PRAGMA foreign_keys=ON")
         self._conn.execute(f"PRAGMA busy_timeout={_BUSY_TIMEOUT_MS}")
         try:
-            self._conn.execute("PRAGMA journal_mode=DELETE")
-            with self._conn:
-                self._create_schema()
+            needs_schema = initialize_schema or not self._schema_exists()
+            if needs_schema:
+                self._conn.execute("PRAGMA journal_mode=DELETE")
+                with self._conn:
+                    self._create_schema()
         except BaseException:
             self._conn.close()
             self._closed = True
             raise
+
+    def _schema_exists(self) -> bool:
+        row = self._conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' "
+            "AND name = 'transcript_sessions'",
+        ).fetchone()
+        return row is not None
 
     @contextmanager
     def _read_connection(self) -> Iterator[sqlite3.Connection]:
@@ -203,7 +217,8 @@ class TranscriptStore:
                 ),
             )
             session = self._session_row(session_id)
-            assert session is not None
+            if session is None:
+                raise RuntimeError("failed to create transcript session")
             self._assert_identity(
                 session,
                 user_id=user_id,

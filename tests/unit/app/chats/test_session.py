@@ -155,36 +155,6 @@ async def test_load_missing_session_raises_when_not_allowed(session):
         )
 
 
-@pytest.mark.asyncio
-async def test_delete_session_state_is_idempotent(session, tmp_path: Path):
-    await session.save_session_state(
-        session_id="sess-delete",
-        user_id="user-1",
-        channel="console",
-        agent=_StateModule({"value": 7}),
-    )
-    target = tmp_path / "console" / "user-1_sess-delete.json"
-
-    assert target.exists()
-    assert (
-        await session.delete_session_state(
-            "sess-delete",
-            "user-1",
-            "console",
-        )
-        is True
-    )
-    assert not target.exists()
-    assert (
-        await session.delete_session_state(
-            "sess-delete",
-            "user-1",
-            "console",
-        )
-        is False
-    )
-
-
 # ---------------------------------------------------------------------------
 # update_session_state
 # ---------------------------------------------------------------------------

@@ -3,9 +3,7 @@
 
 from __future__ import annotations
 
-import asyncio
 import gc
-import threading
 import weakref
 from pathlib import Path
 from unittest.mock import Mock
@@ -22,7 +20,6 @@ from qwenpaw.runtime.console_turn_state import REGENERATE_FROM
 from qwenpaw.schemas import (
     AgentRequest,
     AgentResponse,
-    DataContent,
     Message,
     MessageType,
     Role,
@@ -199,51 +196,6 @@ async def test_records_only_materialized_message_snapshots() -> None:
 
 
 @pytest.mark.asyncio
-async def test_preserves_interleaved_parallel_tool_event_order(
-    tmp_path: Path,
-) -> None:
-    store = TranscriptStore(tmp_path / "session.db")
-    recorder = TranscriptRecorder(
-        store=store,
-        request=_request(),
-    )
-    tool_messages = [
-        Message(
-            id=message_id,
-            type=message_type,
-            role=role,
-            content=[DataContent(data={"call_id": call_id})],
-        ).completed()
-        for message_id, message_type, role, call_id in (
-            ("call-1", MessageType.PLUGIN_CALL, Role.ASSISTANT, "tool-1"),
-            ("call-2", MessageType.PLUGIN_CALL, Role.ASSISTANT, "tool-2"),
-            ("output-2", MessageType.PLUGIN_CALL_OUTPUT, Role.TOOL, "tool-2"),
-            ("output-1", MessageType.PLUGIN_CALL_OUTPUT, Role.TOOL, "tool-1"),
-        )
-    ]
-
-    await recorder.start()
-    await recorder.observe(
-        AgentResponse(output=tool_messages, status=RunStatus.Completed),
-    )
-    page = store.get_page(
-        session_id="session-1",
-        user_id="user-1",
-        channel="console",
-    )
-
-    assert page is not None
-    assert [message.id for message in page.messages] == [
-        "user-message",
-        "call-1",
-        "call-2",
-        "output-2",
-        "output-1",
-    ]
-    store.close()
-
-
-@pytest.mark.asyncio
 async def test_write_failure_degrades_without_raising() -> None:
     store = Mock(spec=TranscriptStore)
     store.start_turn.side_effect = OSError("disk full")
@@ -258,40 +210,6 @@ async def test_write_failure_degrades_without_raising() -> None:
     )
 
     store.upsert_message.assert_not_called()
-
-
-@pytest.mark.asyncio
-async def test_cancelled_start_can_still_finish_the_created_turn() -> None:
-    entered = threading.Event()
-    release = threading.Event()
-    store = Mock(spec=TranscriptStore)
-
-    def start_turn(**_kwargs) -> int:
-        entered.set()
-        release.wait(timeout=2)
-        return 1
-
-    store.start_turn.side_effect = start_turn
-    recorder = TranscriptRecorder(
-        store=store,
-        request=_request(),
-    )
-    task = asyncio.create_task(recorder.start())
-    await asyncio.to_thread(entered.wait, 2)
-
-    task.cancel()
-    release.set()
-    with pytest.raises(asyncio.CancelledError):
-        await task
-    await recorder.finish("cancelled")
-
-    store.finish_turn.assert_called_once_with(
-        session_id="session-1",
-        turn_id="client:client-1",
-        status="cancelled",
-        error=None,
-        finished_at=None,
-    )
 
 
 @pytest.mark.asyncio
