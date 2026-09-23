@@ -11,10 +11,12 @@ export default function TerminalView({
   terminal,
   api,
   isDark,
+  onExit,
 }: {
   terminal: TerminalInfo;
   api: TerminalApi;
   isDark: boolean;
+  onExit?: (terminalId: string, exitCode: number | null) => void;
 }) {
   const { t } = useTranslation();
   const host = useRef<HTMLDivElement>(null);
@@ -132,6 +134,7 @@ export default function TerminalView({
         cursor = output.cursor;
         if (output.exited) {
           setExited(true);
+          onExit?.(terminal.id, output.exit_code);
           term.options.disableStdin = true;
           break;
         }
@@ -147,7 +150,7 @@ export default function TerminalView({
       term.dispose();
       instance.current = undefined;
     };
-  }, [api, terminal.id, attempt, t]);
+  }, [api, terminal.id, attempt, t, onExit]);
 
   useEffect(() => {
     if (instance.current)

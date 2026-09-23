@@ -1,6 +1,7 @@
 import {
   lazy,
   Suspense,
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -152,6 +153,18 @@ function Dock({
     [agentId, group],
   );
   const selected = tabs.find((tab) => tab.id === active) ?? tabs[0];
+  const markExited = useCallback(
+    (terminalId: string, exitCode: number | null) => {
+      setTabs((current) =>
+        current.map((tab) =>
+          tab.id === terminalId
+            ? { ...tab, exited: true, exit_code: exitCode }
+            : tab,
+        ),
+      );
+    },
+    [],
+  );
   useEffect(() => {
     if (selected) {
       try {
@@ -422,6 +435,7 @@ function Dock({
                 terminal={selected}
                 api={io}
                 isDark={isDark}
+                onExit={markExited}
               />
             </Suspense>
           ) : (

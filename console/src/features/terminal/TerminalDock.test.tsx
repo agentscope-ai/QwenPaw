@@ -45,8 +45,19 @@ const mocks = vi.hoisted(() => ({
 }));
 vi.mock("./terminalApi", () => ({ terminalApi: () => mocks }));
 vi.mock("./TerminalView", () => ({
-  default: ({ terminal }: { terminal: { id: string } }) => (
-    <div data-testid="terminal-view">{terminal.id}</div>
+  default: ({
+    terminal,
+    onExit,
+  }: {
+    terminal: { id: string };
+    onExit?: (terminalId: string, exitCode: number | null) => void;
+  }) => (
+    <button
+      data-testid="terminal-view"
+      onClick={() => onExit?.(terminal.id, 7)}
+    >
+      {terminal.id}
+    </button>
   ),
 }));
 vi.mock("react-i18next", () => ({
@@ -214,6 +225,21 @@ describe("conversation terminal dock", () => {
       "first",
       "second",
     ]);
+  });
+
+  it("shows restart as soon as the active terminal exits", async () => {
+    mocks.list.mockResolvedValue([tab("first")]);
+    render(
+      <TerminalDock scope={scope} isDark={false}>
+        <Chat />
+      </TerminalDock>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Terminal" }));
+    fireEvent.click(await screen.findByTestId("terminal-view"));
+
+    expect(
+      await screen.findByRole("button", { name: "Restart terminal" }),
+    ).toBeInTheDocument();
   });
 
   it("adds and switches independent tabs, and collapses without terminating", async () => {

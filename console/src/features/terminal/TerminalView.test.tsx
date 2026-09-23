@@ -126,6 +126,29 @@ describe("PTY output and input lifecycle", () => {
     expect(state.dispose).toHaveBeenCalledTimes(1);
   });
 
+  it("reports process exit without waiting for a tab refresh", async () => {
+    vi.mocked(api.output).mockResolvedValueOnce({
+      data: "done",
+      cursor: 4,
+      reset: false,
+      exited: true,
+      exit_code: 7,
+    });
+    const onExit = vi.fn();
+
+    render(
+      <TerminalView
+        api={api}
+        terminal={terminal}
+        isDark={false}
+        onExit={onExit}
+      />,
+    );
+
+    await waitFor(() => expect(onExit).toHaveBeenCalledWith("pty", 7));
+    expect(api.output).toHaveBeenCalledTimes(1);
+  });
+
   it("preserves paste order and changes theme without restarting the PTY view", async () => {
     const { rerender } = render(
       <TerminalView api={api} terminal={terminal} isDark={false} />,
