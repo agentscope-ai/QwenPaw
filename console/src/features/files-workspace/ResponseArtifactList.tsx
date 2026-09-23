@@ -180,13 +180,20 @@ function targetForPath(path: string): FileTarget | null {
  * ``{type: "base64", data: …}``. Keying on the block type rather than the
  * source shape keeps both covered.
  *
- * ``output`` is always a block array for this tool — the backend builds
- * ``content=[DataBlock, TextBlock]`` — so no string/JSON parsing is needed
- * and an inlined base64 payload is never parsed on the render path.
+ * Tool results can carry a block array. Chat history carries the same blocks
+ * as a JSON string. Both forms use the DataBlock success signal.
  */
 function hasDeliveredFile(output: unknown): boolean {
-  if (!Array.isArray(output)) return false;
-  return output.some((block) => record(block)?.type === "data");
+  let blocks = output;
+  if (typeof blocks === "string") {
+    try {
+      blocks = JSON.parse(blocks);
+    } catch {
+      return false;
+    }
+  }
+  if (!Array.isArray(blocks)) return false;
+  return blocks.some((block) => record(block)?.type === "data");
 }
 
 function extractResponseArtifacts(messages: unknown): ResponseArtifact[] {

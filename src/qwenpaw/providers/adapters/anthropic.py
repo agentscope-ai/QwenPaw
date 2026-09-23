@@ -11,6 +11,49 @@ from .cache_policy import mark_stable_prefix
 from .wire_protocol import anthropic_base_url
 
 
+def resolve_parameters(
+    generate_kwargs: dict,
+    output_capacity: int | None,
+) -> tuple[AnthropicChatModel.Parameters, dict]:
+    """Resolve model parameters without constructing a client."""
+    extra = dict(generate_kwargs)
+    default_output = (
+        min(16_384, output_capacity) if output_capacity else 16_384
+    )
+    max_tokens = extra.pop(f"max_tokens", None)
+    max_tokens = default_output if max_tokens is None else max_tokens
+    if output_capacity and max_tokens > output_capacity:
+        raise ValueError(
+            f"Output limit exceeds model capacity {output_capacity}",
+        )
+    params = {f"max_tokens": max_tokens}
+    for key in (f"thinking_enable", f"thinking_budget"):
+        if key in extra:
+            params[key] = extra.pop(key)
+    return AnthropicChatModel.Parameters(**params), extra
+
+
+def resolve_request_parameters(
+    parameters: AnthropicChatModel.Parameters,
+    generate_kwargs: dict,
+) -> dict:
+    """Share thinking defaults between request serialization and display."""
+    extra = dict(generate_kwargs)
+    if extra.pop(f"disable_thinking", False):
+        extra[f"thinking"] = {f"type": f"disabled"}
+    max_tokens = parameters.max_tokens or 8192
+    result = {f"max_tokens": max_tokens, **extra}
+    if parameters.thinking_enable and f"thinking" not in result:
+        budget = parameters.thinking_budget or (max_tokens // 2)
+        if budget >= max_tokens:
+            result[f"max_tokens"] = budget + 1024
+        result[f"thinking"] = {
+            f"type": f"enabled",
+            f"budget_tokens": budget,
+        }
+    return result
+
+
 async def strip_api_key_header(request: Any) -> None:
     """Keep bearer authentication exclusive on the SDK transport."""
     request.headers.pop(f"x-api-key", None)
@@ -104,26 +147,11 @@ class AnthropicModel(AnthropicChatModel):
                 f"anthropic",
                 generate_kwargs,
             )
-        # Translate the neutral ``disable_thinking`` flag
-        if generate_kwargs.pop("disable_thinking", False):
-            generate_kwargs["thinking"] = {"type": "disabled"}
-
-        max_tokens = self.parameters.max_tokens or 8192
         kw: Dict[str, Any] = {
-            "model": model_name,
-            "max_tokens": max_tokens,
-            "stream": self.stream,
-            **generate_kwargs,
+            f"model": model_name,
+            f"stream": self.stream,
+            **resolve_request_parameters(self.parameters, generate_kwargs),
         }
-        if self.parameters.thinking_enable and "thinking" not in kw:
-            budget = self.parameters.thinking_budget or (max_tokens // 2)
-            if budget >= max_tokens:
-                max_tokens = budget + 1024
-                kw["max_tokens"] = max_tokens
-            kw["thinking"] = {
-                "type": "enabled",
-                "budget_tokens": budget,
-            }
 
         capacity = self._qp_output_capacity
         if capacity and kw[f"max_tokens"] > capacity:

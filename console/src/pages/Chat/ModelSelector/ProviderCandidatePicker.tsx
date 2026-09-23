@@ -18,7 +18,7 @@ export default function ProviderCandidatePicker({
 }: {
   providerId: string;
   tier?: "free";
-  onSaved: () => Promise<void>;
+  onSaved: (modelId: string) => Promise<void>;
 }) {
   const { t } = useTranslation();
   const { message } = useAppMessage();
@@ -96,7 +96,7 @@ export default function ProviderCandidatePicker({
                       seen: true,
                     });
                     setRevision((value) => value + 1);
-                    await onSaved();
+                    await onSaved(model.id);
                   } catch (error) {
                     message.error(
                       error instanceof Error ? error.message : String(error),

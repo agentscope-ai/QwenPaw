@@ -1,4 +1,4 @@
-import { ModelCardSurface } from "./components/cards/ModelCardSurface";
+import { motion, useReducedMotion } from "motion/react";
 import { ModelChoice } from "../../Chat/ModelSelector/ModelChoice";
 import { providerApi } from "@/api/modules/provider";
 import { useAppMessage } from "@/hooks/useAppMessage";
@@ -13,7 +13,7 @@ import {
 import { useSearchParams } from "react-router-dom";
 import { Button, Input, Modal } from "@agentscope-ai/design";
 import { Alert } from "antd";
-import { Plus, Search, RefreshCw } from "lucide-react";
+import { Plus, Search, RefreshCw, Plug, ChevronRight } from "lucide-react";
 import { useProviders } from "./useProviders";
 import {
   LoadingState,
@@ -39,6 +39,7 @@ import styles from "./index.module.less";
 /* ------------------------------------------------------------------ */
 
 function ModelsPage() {
+  const reducedMotion = useReducedMotion();
   const [scopeTab, setScopeTab] = useState<"global" | "agent">("global");
   const { t } = useTranslation();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -149,7 +150,8 @@ function ModelsPage() {
       if (p.is_local) {
         return hasModels || getIsConfigured(p);
       }
-      return getIsConfigured(p);
+      // OpenCode is opt-in; keep its card visible while credentials are pending.
+      return (p.id === "opencode" && p.enabled === true) || getIsConfigured(p);
     };
 
     // QwenPaw Local is always "configured" (embedded)
@@ -478,19 +480,16 @@ function ModelsPage() {
                         </div>
                       ) : (
                         <div className={styles.emptyConfigured}>
-                          <p>{t("models.noConfigured")}</p>
-                          <Button
-                            type="primary"
-                            onClick={() => {
-                              document
-                                .getElementById("available-providers")
-                                ?.scrollIntoView({
-                                  behavior: "smooth",
-                                });
-                            }}
+                          <span
+                            className={styles.emptyConfiguredIcon}
+                            aria-hidden="true"
                           >
-                            {t("models.goConfigureBtn")}
-                          </Button>
+                            <Plug size={22} strokeWidth={1.6} />
+                          </span>
+                          <div>
+                            <h3>{t("models.connectProviderTitle")}</h3>
+                            <p>{t("models.noConfigured")}</p>
+                          </div>
                         </div>
                       )}
                     </div>
@@ -507,8 +506,16 @@ function ModelsPage() {
                         </div>
                         <div className={styles.availableGrid}>
                           {cloudAvailableGroups.map((g) => (
-                            <ModelCardSurface
-                              tilt={5}
+                            <motion.button
+                              type="button"
+                              whileTap={
+                                reducedMotion ? undefined : { scale: 0.98 }
+                              }
+                              transition={{
+                                type: "spring",
+                                stiffness: 400,
+                                damping: 30,
+                              }}
                               key={g.key}
                               className={styles.availableItem}
                               onClick={() => {
@@ -531,8 +538,13 @@ function ModelsPage() {
                               )}
                               <span className={styles.availableItemAction}>
                                 {t("models.configureAction")}
+                                <ChevronRight
+                                  size={14}
+                                  strokeWidth={1.7}
+                                  aria-hidden="true"
+                                />
                               </span>
-                            </ModelCardSurface>
+                            </motion.button>
                           ))}
                         </div>
                       </div>
@@ -564,8 +576,16 @@ function ModelsPage() {
                         </div>
                         <div className={styles.availableGrid}>
                           {localAvailable.map((provider) => (
-                            <ModelCardSurface
-                              tilt={5}
+                            <motion.button
+                              type="button"
+                              whileTap={
+                                reducedMotion ? undefined : { scale: 0.98 }
+                              }
+                              transition={{
+                                type: "spring",
+                                stiffness: 400,
+                                damping: 30,
+                              }}
                               key={provider.id}
                               className={styles.availableItem}
                               onClick={() => handleOpenConfig(provider)}
@@ -579,8 +599,13 @@ function ModelsPage() {
                               </span>
                               <span className={styles.availableItemAction}>
                                 {t("models.configureAction")}
+                                <ChevronRight
+                                  size={14}
+                                  strokeWidth={1.7}
+                                  aria-hidden="true"
+                                />
                               </span>
-                            </ModelCardSurface>
+                            </motion.button>
                           ))}
                         </div>
                       </div>

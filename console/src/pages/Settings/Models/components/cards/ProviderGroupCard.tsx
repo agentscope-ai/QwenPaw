@@ -20,6 +20,8 @@ interface ProviderGroupCardProps {
 
 const VARIANT_LABELS: Record<string, string> = {
   dashscope: "DashScope",
+  chat_completions: "Chat Completions",
+  responses: "Responses",
   open_platform: "Open Platform",
   open_platform_cn: "China",
   open_platform_intl: "International",

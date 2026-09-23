@@ -81,7 +81,6 @@
         "kind": "budget",
         "budget_min": 1,
         "budget_max": 32768,
-        "budget_default": 4000,
         "supports_off": true,
         "wire": "compat_budget"
       },
@@ -121,7 +120,6 @@
         "kind": "budget",
         "budget_min": 1,
         "budget_max": 32768,
-        "budget_default": 4000,
         "supports_off": true,
         "wire": "compat_budget"
       },
@@ -161,7 +159,6 @@
         "kind": "budget",
         "budget_min": 1,
         "budget_max": 32768,
-        "budget_default": 4000,
         "supports_off": true,
         "wire": "compat_budget"
       },

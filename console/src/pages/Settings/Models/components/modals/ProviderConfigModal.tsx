@@ -17,6 +17,7 @@ import {
   RightOutlined,
 } from "@ant-design/icons";
 import type {
+  ActiveModelsInfo,
   BaseUrlOption,
   ProviderConfigRequest,
 } from "../../../../../api/types";
@@ -51,7 +52,7 @@ interface JsonCodeEditorProps {
 function highlightJson(text: string): ReactNode[] {
   const tokens: ReactNode[] = [];
   const pattern =
-    /("(?:\\.|[^"\\])*")(\s*:)?|\btrue\b|\bfalse\b|\bnull\b|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?|[{}\[\],:]/g;
+    /("(?:\\.|[^"\\])*")(\s*:)?|\btrue\b|\bfalse\b|\bnull\b|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?|[{}[\],:]/g;
 
   let lastIndex = 0;
   let match: RegExpExecArray | null;
@@ -270,6 +271,7 @@ interface ProviderConfigModalProps {
     name: string;
     api_key?: string;
     api_key_prefix?: string;
+    require_api_key?: boolean;
     api_key_prefixes?: string[];
     base_url?: string;
     is_custom: boolean;
@@ -281,7 +283,7 @@ interface ProviderConfigModalProps {
     auth_mode?: "api_key" | "auth_token";
     meta?: Record<string, unknown>;
   };
-  activeModels: any;
+  activeModels: ActiveModelsInfo | null;
   open: boolean;
   onClose: () => void;
   onSaved: () => void;
@@ -380,8 +382,12 @@ export function ProviderConfigModal({
         prefix: validApiKeyPrefixes.join(", "),
       });
     }
-    return t("models.enterApiKeyOptional");
-  }, [provider.api_key, validApiKeyPrefixes, t]);
+    return t(
+      provider.require_api_key
+        ? "models.enterApiKeyRequired"
+        : "models.enterApiKeyOptional",
+    );
+  }, [provider.api_key, provider.require_api_key, validApiKeyPrefixes, t]);
 
   const apiKeyLabel =
     isAnthropicProvider && authMode === "auth_token"

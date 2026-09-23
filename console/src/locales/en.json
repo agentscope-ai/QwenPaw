@@ -2175,6 +2175,8 @@
     }
   },
   "modelSelector": {
+    "chooseProvider": "Choose provider",
+    "configureProviderHint": "Connect a provider and choose a model to get started.",
     "manageModels": "Manage models",
     "addModels": "Add models",
     "noProviders": "No providers yet",
@@ -2318,6 +2320,7 @@
     "retry": "Retry"
   },
   "models": {
+    "connectProviderTitle": "Connect your first model",
     "cardStatus": {
       "configured": "Configured",
       "configuredCount": "{{count}} configured",
@@ -2408,6 +2411,7 @@
     "optionalSelfHosted": "Optional for self-hosted services",
     "leaveBlankKeep": "Leave blank to keep current key",
     "enterApiKey": "Enter API key ({{prefix}}...)",
+    "enterApiKeyRequired": "Enter API key",
     "enterApiKeyOptional": "Enter API key (optional)",
     "openAIEndpoint": "OpenAI endpoint, e.g. https://api.openai.com/v1",
     "openAICompatibleEndpoint": "OpenAI-compatible endpoint, e.g. https://api.example.com (append /v1 only if your provider requires it)",
@@ -2468,7 +2472,7 @@
     "goConfigureBtn": "Configure a Provider",
     "availableGroup": "Available Providers",
     "clickToConfigure": "Click to configure",
-    "configureAction": "Configure →",
+    "configureAction": "Configure",
     "endpointCount": "{{count}} endpoints",
     "connect": "OAuth",
     "saveApiKey": "Save",
@@ -5230,6 +5234,7 @@
     }
   },
   "thinkingControl": {
+    "default": "Default",
     "resetModel": "Restore default model",
     "title": "Thinking intensity",
     "reset": "Restore defaults",
@@ -5246,13 +5251,13 @@
     "deep": "Deep",
     "intensive": "Intensive",
     "budget": "Thinking budget",
-    "unsupported": "This model does not support adjusting thinking.",
+    "unsupported": "Thinking depth cannot be adjusted",
     "budgetHint": "Adjust the exact thinking token limit. Labels indicate intensity, not fixed presets.",
     "effortHint": "Only levels supported by this model are shown.",
     "sessionHint": "Applies to this conversation, starting with the next request.",
     "adapted": "The saved preference was adjusted to this model’s capabilities.",
     "saveFailed": "Could not save thinking settings",
-    "unknown": "Thinking settings unconfirmed",
+    "unknown": "Thinking depth cannot be adjusted",
     "declaration": "Thinking capabilities (advanced)",
     "declarationHint": "Declare capabilities for models without a card. Confirm levels and limits against your endpoint documentation; initial values are examples. Automatic uses catalog or plugin metadata.",
     "controlType": "Control type",

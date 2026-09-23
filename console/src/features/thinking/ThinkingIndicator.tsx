@@ -56,12 +56,25 @@ export function ThinkingIndicator({
       : ratio < 0.85
       ? "deep"
       : "intensive";
-  const label = t(
-    `thinkingControl.${value.level === "budget" ? band : value.level}`,
-  );
+  const state =
+    control.kind === "unknown" || control.kind === "unsupported"
+      ? control.kind
+      : value.level === "budget"
+      ? band
+      : value.level;
+  const label = t(`thinkingControl.${state}`);
   const animate = active && inView && visible && !reduced;
+  if (control.kind === "unknown" || control.kind === "unsupported") return null;
   return (
-    <span ref={ref} className={styles.thinkingIndicator}>
+    <span
+      ref={ref}
+      className={styles.thinkingIndicator}
+      title={label}
+      data-state={state}
+    >
+      {!active && (
+        <Brain size={18} strokeWidth={1.65} role="img" aria-label={label} />
+      )}
       {active && (
         <svg
           viewBox="0 0 24 24"

@@ -207,6 +207,9 @@ export function Footer() {
                 </a>
               ))}
             </div>
+            <Link to="/usage-policy" className={`${linkClass} mt-8 text-right`}>
+              {t("footer.links.usagePolicy")}
+            </Link>
           </section>
         </div>
       </div>
