@@ -2,7 +2,9 @@
 """Tests for structured invitation redemption failure reasons."""
 
 import json
+import threading
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
@@ -171,3 +173,67 @@ def test_redeem_success_consumes_code_and_creates_member(
     assert invite["redeemed_by"] == user.user_id
     assert invite["redeemed_at"]
     assert budget["token_limit"] == 100
+
+
+def test_rejection_priority_prefers_specific_states(
+    tmp_path: Path,
+) -> None:
+    """Revoked and used outrank expiry so reasons stay actionable."""
+    service, database = _service(tmp_path)
+    _set_mode(database, "invite")
+    batch = _issue(service, count=2)
+    used_code = batch["codes"][0]["code"]
+    service.redeem(used_code, "member", "safe-password")
+    past = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+    with connect_hub_database(database) as db:
+        db.execute(
+            "UPDATE hub_invites SET expires_at = ?",
+            (past,),
+        )
+    service.revoke(batch["id"])
+
+    with pytest.raises(InvitationError) as used_expired:
+        service.redeem(used_code, "late", "safe-password")
+    assert used_expired.value.reason == "already_used"
+
+    with pytest.raises(InvitationError) as revoked_expired:
+        service.redeem(
+            batch["codes"][1]["code"],
+            "blocked",
+            "safe-password",
+        )
+    assert revoked_expired.value.reason == "revoked"
+
+
+def test_concurrent_redemption_consumes_code_once(
+    tmp_path: Path,
+) -> None:
+    """Racing two redemptions must create exactly one member."""
+    service, database = _service(tmp_path)
+    _set_mode(database, "invite")
+    code = _issue(service)["codes"][0]["code"]
+    barrier = threading.Barrier(2, timeout=10)
+
+    def race(index: int) -> object:
+        barrier.wait()
+        try:
+            return service.redeem(
+                code,
+                f"racer-{index}",
+                "safe-password",
+            )
+        except InvitationError as exc:
+            return exc
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(race, range(2)))
+
+    wins = [
+        result for result in results if not isinstance(result, InvitationError)
+    ]
+    losses = [
+        result for result in results if isinstance(result, InvitationError)
+    ]
+    assert len(wins) == 1
+    assert len(losses) == 1
+    assert losses[0].reason == "already_used"
