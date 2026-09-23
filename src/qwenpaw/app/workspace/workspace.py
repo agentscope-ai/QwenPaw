@@ -44,6 +44,8 @@ from ..chats.session import SafeJSONSession
 from ..crons.manager import CronManager
 from ..crons.repo.json_repo import JsonJobRepository
 from ...config.config import load_agent_config
+from ...exceptions import ConfigurationException
+from ...utils.io_utils import run_sync_io
 from ...utils.logging import sanitize_log_value
 
 if TYPE_CHECKING:
@@ -419,7 +421,39 @@ class Workspace:
 
         Drop-in replacement for the old ``Runner.stream_query()``.
         """
-        config = load_agent_config(self.agent_id)
+        # Lazy: importing qwenpaw.runtime pulls in the builder and agents.
+        from ...runtime.configuration import (
+            CONFIGURATION_REQUIRED,
+            is_config_independent_command,
+            load_runtime_agent_config,
+        )
+        from ...runtime.envelope import Envelope
+
+        try:
+            config = await load_runtime_agent_config(self.agent_id)
+        except ConfigurationException as exc:
+            if is_config_independent_command(request):
+                from ...runtime import Runtime
+
+                rt = Runtime(
+                    workspace=self,
+                    app_services=self._app_services,
+                    config_error=exc,
+                )
+                async for item in rt.run(request):
+                    yield item
+                return
+            envelope = Envelope(
+                session_id=getattr(request, "session_id", "") or "",
+            )
+            async for item in envelope.error_envelope(
+                exc.message or str(exc),
+                exc.error_code or CONFIGURATION_REQUIRED,
+            ):
+                yield item
+            # Keep failing loudly: cron, mail and ACP consumers treat an
+            # exception from this generator as a failed run.
+            raise
         backend = config.backend
         if backend != "qwenpaw":
             request_context = dict(
@@ -447,7 +481,7 @@ class Workspace:
             async for item in self.harness_runtime.stream(
                 backend=backend,
                 request=request,
-                cwd=self.workspace_dir.resolve(),
+                cwd=await run_sync_io(self.workspace_dir.resolve),
                 settings=settings,
             ):
                 yield item
@@ -455,7 +489,11 @@ class Workspace:
 
         from ...runtime import Runtime
 
-        rt = Runtime(workspace=self, app_services=self._app_services)
+        rt = Runtime(
+            workspace=self,
+            app_services=self._app_services,
+            agent_config=config,
+        )
         async for item in rt.run(request):
             yield item
 

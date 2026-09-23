@@ -29,6 +29,9 @@ def _context(active_model=None, raw_args=""):
         user_id="user1",
         agent_id="default",
         args={"_raw_args": raw_args},
+        # Read-only commands take the request-scoped snapshot the runtime
+        # pins for every turn.
+        agent_config=config,
     )
 
 

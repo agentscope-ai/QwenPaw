@@ -18,6 +18,8 @@ from fastapi import (
 from pydantic import BaseModel, Field, field_validator
 
 from qwenpaw.exceptions import (
+    AGENT_CONFIG_UNAVAILABLE,
+    AgentConfigConflictError,
     AppBaseException,
 )
 
@@ -998,18 +1000,44 @@ async def get_active_models(
                 agent_model,
             )
             return await run_sync_io(_active_models_info, manager, agent_model)
-    except (
-        HTTPException,
-        OSError,
-        ValueError,
-        TypeError,
-        AppBaseException,
-    ) as exc:
+    except HTTPException:
+        raise
+    except AgentConfigConflictError as exc:
+        logger.warning(
+            "Agent configuration changed while reading: %s",
+            exc,
+            exc_info=True,
+        )
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": exc.error_code or "AGENT_CONFIG_STALE",
+                "message": str(exc),
+            },
+        ) from exc
+    except (OSError, ValueError, TypeError, AppBaseException) as exc:
         logger.warning(
             "Failed to get agent-specific model: %s",
             exc,
             exc_info=True,
         )
+        # An unreadable configuration is not "no model selected". Report it
+        # so the client can retry instead of sending the user to settings.
+        error_code = getattr(exc, "error_code", None)
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": error_code or AGENT_CONFIG_UNAVAILABLE,
+                "message": (
+                    str(exc)
+                    if error_code
+                    else (
+                        "Agent model configuration is temporarily "
+                        "unavailable"
+                    )
+                ),
+            },
+        ) from exc
 
     global_model = await run_sync_io(manager.get_active_model)
     logger.info("Returning global model: %s", global_model)

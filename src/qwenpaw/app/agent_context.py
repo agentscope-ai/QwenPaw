@@ -12,6 +12,7 @@ from typing import Optional, TYPE_CHECKING
 from fastapi import Request
 from .multi_agent_manager import MultiAgentManager
 from ..config.utils import load_config
+from ..utils.io_utils import run_sync_io
 
 if TYPE_CHECKING:
     from .workspace import Workspace
@@ -90,12 +91,12 @@ async def get_agent_for_request(
     config = None
     if not target_agent_id:
         # Fallback to active agent from config
-        config = load_config()
+        config = await run_sync_io(load_config)
         target_agent_id = config.agents.active_agent or "default"
 
     # Check if agent exists and is enabled
     if config is None:
-        config = load_config()
+        config = await run_sync_io(load_config)
     if target_agent_id not in config.agents.profiles:
         raise HTTPException(
             status_code=404,
