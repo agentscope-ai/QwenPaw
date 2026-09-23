@@ -824,7 +824,9 @@ class TestSkillIntegrityProtection:
             {"command": f"rmdir /s /q {skills_dir}"},
         )
         assert len(findings) >= 1
-        assert any(f.rule_id == "PROTECTED_SKILL_MODIFICATION" for f in findings)
+        assert any(
+            f.rule_id == "PROTECTED_SKILL_MODIFICATION" for f in findings
+        )
 
     def test_skill_shell_redirect_overwrite_blocked(self, guardian, tmp_path):
         skill_file = str(tmp_path / "skills" / "demo" / "SKILL.md")
@@ -833,7 +835,9 @@ class TestSkillIntegrityProtection:
             {"command": f"> {skill_file}"},
         )
         assert len(findings) >= 1
-        assert any(f.rule_id == "PROTECTED_SKILL_MODIFICATION" for f in findings)
+        assert any(
+            f.rule_id == "PROTECTED_SKILL_MODIFICATION" for f in findings
+        )
 
     @pytest.mark.parametrize("tool", ["delete_file", "append_file"])
     def test_skill_mutation_tools_blocked(self, guardian, tmp_path, tool):
@@ -849,7 +853,9 @@ class TestSkillIntegrityProtection:
             {"command": f"rm -rf {skills_dir}"},
         )
         assert len(findings) >= 1
-        assert any(f.rule_id == "PROTECTED_SKILL_MODIFICATION" for f in findings)
+        assert any(
+            f.rule_id == "PROTECTED_SKILL_MODIFICATION" for f in findings
+        )
 
     def test_protect_skills_disabled_allows_write(self, guardian, tmp_path):
         guardian._protect_skills = False
