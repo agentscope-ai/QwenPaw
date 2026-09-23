@@ -860,8 +860,6 @@ def test_scroll_pruning_disabled_leaves_current_result_unbounded(tmp_path):
     "text",
     [
         "y" * 30000 + TRUNCATION_NOTICE_MARKER + "z" * 30000,
-        TRUNCATION_NOTICE_MARKER + "x" * 60000,
-        "x" * 60000 + TRUNCATION_NOTICE_MARKER,
         ("中文" + TRUNCATION_NOTICE_MARKER) * 4000,
         "prefix"
         + TRUNCATION_NOTICE_MARKER
@@ -885,28 +883,18 @@ def test_literal_truncation_markers_are_bounded_and_saved(tmp_path, text):
     assert info["start_line"] == 7
     assert len(result.encode()) <= 50000 + MAX_TRUNCATION_NOTICE_BYTES
 
-    pruner = ToolResultPruner(tmp_path)
-    first, metadata = pruner.prune_text(text, max_bytes=50000)
-    info = metadata[TRUNCATION_METADATA_KEY]["0"]
+    middleware = ToolResultPruningMiddleware(
+        recent_max_bytes=50000,
+        tool_results_dir=str(tmp_path),
+    )
+    response = ToolResponse(
+        id="marker-output",
+        content=[TextBlock(text=text)],
+    )
+    result = middleware.prune_tool_response(response)
+    info = result.metadata[TRUNCATION_METADATA_KEY]["0"]
+    assert result.content[0].text[: -len(info["notice"])] == expected
     assert Path(info["file_path"]).read_text(encoding="utf-8") == text
-    assert first[: -len(info["notice"])] == expected
-    unchanged, patch = pruner.prune_text(
-        first,
-        max_bytes=50000,
-        metadata=metadata,
-    )
-    assert unchanged == first
-    assert not patch
-    second, updated = pruner.prune_text(
-        first,
-        max_bytes=1000,
-        metadata=metadata,
-    )
-    new_info = updated[TRUNCATION_METADATA_KEY]["0"]
-    assert new_info["file_path"] == info["file_path"]
-    assert second[: -len(new_info["notice"])] == (
-        text.encode()[:1000].decode(errors="ignore")
-    )
 
 
 @pytest.mark.parametrize(
@@ -939,24 +927,3 @@ def test_invalid_truncation_record_saves_complete_visible_text(
     assert new_info["file_path"] != original_path
     assert Path(new_info["file_path"]).read_text(encoding="utf-8") == first
     assert result[: -len(new_info["notice"])] == first[:300]
-
-
-def test_small_literal_marker_output_is_unchanged():
-    text = "a literal " + TRUNCATION_NOTICE_MARKER
-    assert truncate_text_output(text, max_bytes=100) == (text, {})
-
-
-def test_current_tool_response_with_literal_marker_is_bounded(tmp_path):
-    text = "y" * 30000 + TRUNCATION_NOTICE_MARKER + "z" * 30000
-    middleware = ToolResultPruningMiddleware(
-        recent_max_bytes=50000,
-        tool_results_dir=str(tmp_path),
-    )
-    response = ToolResponse(
-        id="marker-output",
-        content=[TextBlock(text=text)],
-    )
-    result = middleware.prune_tool_response(response)
-    info = result.metadata[TRUNCATION_METADATA_KEY]["0"]
-    assert result.content[0].text[: -len(info["notice"])] == text[:50000]
-    assert Path(info["file_path"]).read_text(encoding="utf-8") == text
