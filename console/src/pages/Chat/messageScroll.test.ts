@@ -55,6 +55,18 @@ describe("durable history scroll anchors", () => {
     expect(isOldestLoadedMessageVisible(scroller, oldest)).toBe(true);
   });
 
+  it("waits for the top of a tall oldest message", () => {
+    const scroller = document.createElement("div");
+    const oldest = document.createElement("div");
+    scroller.append(oldest);
+    scroller.getBoundingClientRect = () =>
+      ({ top: 50, bottom: 550 }) as DOMRect;
+    oldest.getBoundingClientRect = () =>
+      ({ top: -600, bottom: 300 }) as DOMRect;
+
+    expect(isOldestLoadedMessageVisible(scroller, oldest)).toBe(false);
+  });
+
   it("restores the same message viewport offset after prepend", () => {
     const scroller = document.createElement("div");
     const anchor = document.createElement("div");

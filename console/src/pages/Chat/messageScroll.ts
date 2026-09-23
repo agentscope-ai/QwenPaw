@@ -20,7 +20,7 @@ export function isOldestLoadedMessageVisible(
   const scrollerRect = scroller.getBoundingClientRect();
   const messageRect = message.getBoundingClientRect();
   return (
-    messageRect.bottom >= scrollerRect.top - tolerance &&
+    messageRect.top >= scrollerRect.top - tolerance &&
     messageRect.top <= scrollerRect.bottom + tolerance
   );
 }
