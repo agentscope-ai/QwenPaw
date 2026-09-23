@@ -33,7 +33,9 @@ describe("parseSseDataEvents", () => {
   });
 
   it("ignores non-data fields and keeps the incomplete tail", () => {
-    const parsed = parseSseDataEvents('event: ping\ndata: {"a":1}\n\ndata: {"b"');
+    const parsed = parseSseDataEvents(
+      'event: ping\ndata: {"a":1}\n\ndata: {"b"',
+    );
     expect(parsed.events).toEqual(['{"a":1}']);
     expect(parsed.rest).toBe('data: {"b"');
   });

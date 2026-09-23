@@ -89,7 +89,12 @@ describe("getChatResponseOutcome", () => {
   it("reads a completed terminal", () => {
     expect(
       getChatResponseOutcome({ object: "response", status: "completed" }),
-    ).toEqual({ status: "completed", errorCode: undefined, errorMessage: undefined });
+    ).toEqual({
+      status: "completed",
+      errorCode: undefined,
+      errorMessage: undefined,
+      hasOutput: false,
+    });
   });
 
   it("reads a failed terminal with its code", () => {
@@ -103,7 +108,25 @@ describe("getChatResponseOutcome", () => {
       status: "failed",
       errorCode: "AGENT_CONFIG_STALE",
       errorMessage: "changed on disk",
+      hasOutput: false,
     });
+  });
+
+  it("reports whether the failed terminal produced output", () => {
+    expect(
+      getChatResponseOutcome({
+        object: "response",
+        status: "failed",
+        output: [{ role: "assistant", content: [{ type: "text" }] }],
+      })?.hasOutput,
+    ).toBe(true);
+    expect(
+      getChatResponseOutcome({
+        object: "response",
+        status: "failed",
+        output: [],
+      })?.hasOutput,
+    ).toBe(false);
   });
 
   it("ignores non-terminal payloads", () => {
@@ -113,6 +136,17 @@ describe("getChatResponseOutcome", () => {
       getChatResponseOutcome({ object: "response", status: "in_progress" }),
     ).toBeNull();
     expect(getChatResponseOutcome("not json")).toBeNull();
+  });
+
+  it("does not report a cancelled run as an outcome", () => {
+    // Cancellation is not a configuration failure, and the host normalizes
+    // the wire spelling for the SDK in its own response parser.
+    expect(
+      getChatResponseOutcome({ object: "response", status: "cancelled" }),
+    ).toBeNull();
+    expect(
+      getChatResponseOutcome({ object: "response", status: "canceled" }),
+    ).toBeNull();
   });
 });
 
@@ -125,9 +159,6 @@ describe("isPreExecutionConfigurationError", () => {
     expect(isPreExecutionConfigurationError("AGENT_CONFIG_STALE")).toBe(true);
     expect(isPreExecutionConfigurationError("CONFIGURATION_REQUIRED")).toBe(
       true,
-    );
-    expect(isPreExecutionConfigurationError("CHAT_STREAM_INCOMPLETE")).toBe(
-      false,
     );
     expect(isPreExecutionConfigurationError(undefined)).toBe(false);
   });
@@ -143,45 +174,75 @@ describe("wrapChatResponseOutcomeStream", () => {
 
     const text = await drain(response);
 
-    expect(text).toContain(failedTerminal);
-    expect(text).not.toContain("CHAT_STREAM_INCOMPLETE");
+    expect(text).toBe(`data: ${failedTerminal}\n\n`);
     expect(onOutcome).toHaveBeenCalledWith({
       status: "failed",
       errorCode: "MODEL_NOT_CONFIGURED",
       errorMessage: "No active model",
+      hasOutput: false,
     });
   });
 
-  it("synthesizes a terminal when the stream closed without one", async () => {
+  it.each([
+    ["an empty stream", [] as string[]],
+    ["a stream without a terminal", ['data: {"type":"turn_usage"}\n\n']],
+    [
+      "a cancelled stream",
+      ['data: {"object":"response","status":"cancelled","output":[]}\n\n'],
+    ],
+  ])("forwards %s byte for byte", async (_label, chunks) => {
     const onOutcome = vi.fn();
-    const response = wrapChatResponseOutcomeStream(
-      sseResponse(['data: {"type":"turn_usage"}\n\n']),
-      { onOutcome },
-    );
+    const source = sseResponse(chunks);
+    const response = wrapChatResponseOutcomeStream(source, { onOutcome });
 
     const text = await drain(response);
 
-    expect(text).toContain("CHAT_STREAM_INCOMPLETE");
+    // A reconnect that finds no active run legitimately answers with an empty
+    // event stream; injecting a terminal there would turn a healthy attach
+    // into a failed run.
+    expect(text).toBe(chunks.join(""));
     expect(onOutcome).not.toHaveBeenCalled();
   });
 
-  it("synthesizes a terminal when the transport errors mid-stream", async () => {
+  it("forwards what arrived before the transport errored", async () => {
+    let sent = false;
     const body = new ReadableStream<Uint8Array>({
-      start(controller) {
-        controller.enqueue(encoder.encode('data: {"object":"response"'));
+      pull(controller) {
+        if (!sent) {
+          sent = true;
+          controller.enqueue(encoder.encode("data: partial\n\n"));
+          return;
+        }
         controller.error(new Error("connection reset"));
       },
     });
-    const response = wrapChatResponseOutcomeStream(
+    const reader = wrapChatResponseOutcomeStream(
       new Response(body, {
         status: 200,
         headers: { "Content-Type": "text/event-stream" },
       }),
+    ).body!.getReader();
+    const decoder = new TextDecoder();
+
+    const first = await reader.read();
+    expect(decoder.decode(first.value)).toBe("data: partial\n\n");
+
+    // The failure stays a failure: the cause reaches the SDK's disconnect
+    // handling instead of being reported as a clean end of stream.
+    await expect(reader.read()).rejects.toThrow("connection reset");
+  });
+
+  it("lets a caller callback throw instead of hiding it", async () => {
+    const response = wrapChatResponseOutcomeStream(
+      sseResponse([`data: ${failedTerminal}\n\n`]),
+      {
+        onOutcome: () => {
+          throw new Error("callback exploded");
+        },
+      },
     );
 
-    const text = await drain(response);
-
-    expect(text).toContain("CHAT_STREAM_INCOMPLETE");
+    await expect(drain(response)).rejects.toThrow("callback exploded");
   });
 
   it("leaves non-event-stream responses untouched", async () => {
@@ -204,7 +265,11 @@ describe("wrapChatResponseOutcomeStream", () => {
   it("leaves a partial response shape untouched", () => {
     // Hosts and tests build minimal response objects; the wrapper must not
     // require the whole DOM Response surface to pass them through.
-    const partial = { ok: true, status: 200, body: null } as unknown as Response;
+    const partial = {
+      ok: true,
+      status: 200,
+      body: null,
+    } as unknown as Response;
     expect(wrapChatResponseOutcomeStream(partial)).toBe(partial);
   });
 });
@@ -228,6 +293,7 @@ describe("readErrorPayload", () => {
     const partial = {
       ok: false,
       status: 503,
+      headers: new Headers({ "Content-Type": "application/json" }),
       json: async () => ({ detail: { code: "AGENT_CONFIG_UNAVAILABLE" } }),
     } as unknown as Response;
     await expect(readErrorPayload(partial)).resolves.toEqual({
@@ -240,6 +306,21 @@ describe("readErrorPayload", () => {
       status: 502,
       headers: { "Content-Type": "text/html" },
     });
+    await expect(readErrorPayload(response)).resolves.toBeNull();
+  });
+
+  it("does not await a non-JSON body", async () => {
+    // A non-JSON error stream may never end; reading it would hang the send.
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(encoder.encode("data: partial\n\n"));
+      },
+    });
+    const response = new Response(body, {
+      status: 500,
+      headers: { "Content-Type": "text/event-stream" },
+    });
+
     await expect(readErrorPayload(response)).resolves.toBeNull();
   });
 });

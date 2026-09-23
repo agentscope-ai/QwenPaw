@@ -6,14 +6,16 @@ export interface ParsedSseData {
 function findEventBoundary(
   value: string,
 ): { index: number; length: number } | null {
-  const boundaries = ["\r\n\r\n", "\n\n", "\r\r"]
-    .map((separator) => ({
-      index: value.indexOf(separator),
-      length: separator.length,
-    }))
-    .filter((candidate) => candidate.index >= 0)
-    .sort((left, right) => left.index - right.index);
-  return boundaries[0] ?? null;
+  let index = -1;
+  let length = 2;
+  for (const separator of ["\r\n\r\n", "\n\n", "\r\r"]) {
+    const found = value.indexOf(separator);
+    if (found >= 0 && (index < 0 || found < index)) {
+      index = found;
+      length = separator.length;
+    }
+  }
+  return index < 0 ? null : { index, length };
 }
 
 function dataFromBlock(block: string): string | null {

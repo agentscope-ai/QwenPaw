@@ -3406,12 +3406,14 @@ export default function ChatPage() {
         onOutcome: (outcome) => {
           if (
             outcome.status !== "failed" ||
+            outcome.hasOutput ||
             !isPreExecutionConfigurationError(outcome.errorCode)
           ) {
             return;
           }
           // The turn never started: put the user message and draft back so the
-          // failure does not also cost the input the user just typed.
+          // failure does not also cost the input the user just typed. A
+          // failure that produced output did run, so its history stays.
           sessionApi.discardLastUserMessage(pendingSessionIds, clientMessageId);
           if (directSubmission && submittedSenderValue !== null) {
             if (submittedDraft !== null) {
@@ -4346,7 +4348,7 @@ export default function ChatPage() {
           // Fast-forward the replayed section: render the already
           // generated part instantly instead of re-animating it.
           return wrapChatResponseUsageStream(
-            wrapChatResponseOutcomeStream(wrapReplayFastForward(response)),
+            wrapReplayFastForward(response),
             chatRef,
             usageTurn,
           );

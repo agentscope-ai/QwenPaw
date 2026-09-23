@@ -6,16 +6,13 @@ export interface ChatResponseOutcome {
   status: ChatResponseStatus;
   errorCode?: string;
   errorMessage?: string;
+  /**
+   * Whether the terminal response carried output. A failure with output
+   * happened after the turn started; only a failure without one can mean the
+   * turn never ran.
+   */
+  hasOutput: boolean;
 }
-
-const INCOMPLETE_STREAM_EVENT = {
-  object: "response",
-  status: "failed",
-  error: {
-    code: "CHAT_STREAM_INCOMPLETE",
-    message: "Chat stream ended before completion",
-  },
-};
 
 /**
  * Failures that mean the turn never started, so the client may roll the user
@@ -57,6 +54,13 @@ export function isModelNotConfiguredError(payload: unknown): boolean {
   return getChatErrorCode(payload) === "MODEL_NOT_CONFIGURED";
 }
 
+/**
+ * Read a terminal runtime response, or null when the payload is not one.
+ *
+ * `cancelled` (the wire spelling) is deliberately not a reported outcome: a
+ * cancel is not a configuration failure, and the host normalizes the spelling
+ * for the SDK in its own response parser.
+ */
 export function getChatResponseOutcome(
   payload: unknown,
 ): ChatResponseOutcome | null {
@@ -70,6 +74,7 @@ export function getChatResponseOutcome(
     status,
     errorCode: getChatErrorCode(record),
     errorMessage: readErrorField(record, "message"),
+    hasOutput: Array.isArray(record.output) && record.output.length > 0,
   };
 }
 
@@ -93,6 +98,12 @@ function isEventStream(response: Response): boolean {
  * Read an error body without consuming the response callers may still read.
  */
 export async function readErrorPayload(response: Response): Promise<unknown> {
+  const contentType = response.headers?.get?.("content-type") || "";
+  if (!contentType.includes("json")) {
+    // Only a JSON body can carry a structured code. Never await the body of
+    // something else: a non-JSON error stream would never settle.
+    return null;
+  }
   try {
     if (typeof response.clone === "function") {
       return await response.clone().json();
@@ -107,13 +118,14 @@ export async function readErrorPayload(response: Response): Promise<unknown> {
 }
 
 /**
- * Observe the response stream and guarantee a terminal event.
+ * Report terminal runtime responses seen on the stream. Bytes are forwarded
+ * untouched.
  *
- * The SDK leaves its loading state on a terminal `{object: "response"}` event.
- * A dropped connection, a proxy rewrite or a backend crash can close the
- * transport without one, which would strand the turn in "loading" forever, so
- * synthesize an explicit incomplete-stream failure in that case. Chunks are
- * forwarded untouched; only the missing terminal is appended.
+ * This observes; it never injects events. A synthetic failure would be
+ * indistinguishable from a real one and would take over the SDK's own
+ * handling of an interrupted stream, which its disconnected path (and the
+ * host's reattach logic) depend on. The backend legitimately ends a stream
+ * without a terminal when a reconnect finds no active run.
  */
 export function wrapChatResponseOutcomeStream(
   response: Response,
@@ -123,12 +135,10 @@ export function wrapChatResponseOutcomeStream(
     return response;
   }
 
-  const encoder = new TextEncoder();
   const source = response.body;
   const reader = source.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
-  let seenTerminal = false;
   let closed = false;
 
   const inspect = (raw: string) => {
@@ -139,48 +149,44 @@ export function wrapChatResponseOutcomeStream(
       return;
     }
     const outcome = getChatResponseOutcome(parsed);
-    if (!outcome) return;
-    seenTerminal = true;
-    options.onOutcome?.(outcome);
+    if (outcome) options.onOutcome?.(outcome);
   };
 
   const stream = new ReadableStream<Uint8Array>({
     async pull(controller) {
       if (closed) return;
+
+      let done = false;
+      let chunk: Uint8Array | undefined;
       try {
         const result = await reader.read();
-        if (closed) return;
-        if (!result.done) {
-          controller.enqueue(result.value);
-          buffer += decoder.decode(result.value, { stream: true });
-          const parsed = parseSseDataEvents(buffer);
-          buffer = parsed.rest;
-          parsed.events.forEach(inspect);
-          return;
-        }
+        done = result.done;
+        chunk = result.value;
+      } catch (error) {
+        // Propagate the transport failure: closing normally would erase the
+        // cause and report a generic "ended before a terminal event" instead.
+        closed = true;
+        controller.error(error);
+        return;
+      }
+      if (closed) return;
 
+      if (done) {
         buffer += decoder.decode();
+        // Outside any try: a throw from the caller's callback is a bug in the
+        // caller, and swallowing it would hide the missing side effect.
         parseSseDataEvents(buffer, true).events.forEach(inspect);
-        if (!seenTerminal) {
-          controller.enqueue(
-            encoder.encode(
-              `data: ${JSON.stringify(INCOMPLETE_STREAM_EVENT)}\n\n`,
-            ),
-          );
-        }
         closed = true;
         controller.close();
-      } catch {
-        if (closed) return;
-        if (!seenTerminal) {
-          controller.enqueue(
-            encoder.encode(
-              `data: ${JSON.stringify(INCOMPLETE_STREAM_EVENT)}\n\n`,
-            ),
-          );
-        }
-        closed = true;
-        controller.close();
+        return;
+      }
+
+      if (chunk) {
+        controller.enqueue(chunk);
+        buffer += decoder.decode(chunk, { stream: true });
+        const parsed = parseSseDataEvents(buffer);
+        buffer = parsed.rest;
+        parsed.events.forEach(inspect);
       }
     },
     cancel(reason) {
