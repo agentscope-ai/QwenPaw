@@ -34,14 +34,17 @@ def test_worker_protocol_and_eof(monkeypatch):
     try:
         assert control.poll(3)
         assert control.recv() == (True, 123)
-        for operation, args, expected in [
-            ("write", ("hello",), None),
-            ("resize", (30, 100), None),
-            ("status", (), (False, 7)),
-        ]:
-            control.send((operation, args))
+        for request_id, (operation, args, expected) in enumerate(
+            [
+                ("write", ("hello",), None),
+                ("resize", (30, 100), None),
+                ("status", (), (False, 7)),
+            ],
+            start=1,
+        ):
+            control.send((request_id, operation, args))
             assert control.poll(3)
-            assert control.recv() == (True, expected)
+            assert control.recv() == (request_id, True, expected)
         process.write.assert_called_once_with("hello")
         process.setwinsize.assert_called_once_with(30, 100)
         assert output.poll(3)
@@ -81,11 +84,41 @@ def fake_worker(control, output, _command, _cwd, _env, _dimensions):
         control.send((True, shell.pid))
         output.send(str(host.pid))
         while True:
-            operation, _args = control.recv()
+            request_id, operation, _args = control.recv()
             if operation == "status":
-                control.send((True, (True, None)))
+                control.send((request_id, True, (True, None)))
             else:
-                control.send((True, None))
+                control.send((request_id, True, None))
+
+
+def test_receive_call_discards_late_reply():
+    adapter = windows.WindowsPty.__new__(windows.WindowsPty)
+    adapter.control = MagicMock()
+    adapter.control.poll.return_value = True
+    adapter.control.recv.side_effect = [
+        (1, True, None),
+        (2, True, "current"),
+    ]
+
+    assert adapter._receive_call(2) == "current"
+
+
+def test_write_timeout_does_not_close_worker():
+    adapter = windows.WindowsPty.__new__(windows.WindowsPty)
+    adapter.control = MagicMock()
+    adapter.lock = threading.Lock()
+    adapter.closed = False
+    adapter.request_id = 0
+    adapter._receive_call = MagicMock(
+        side_effect=TimeoutError("Terminal worker did not respond"),
+    )
+    adapter.close = MagicMock()
+
+    with pytest.raises(TimeoutError, match="did not respond"):
+        adapter.write("hello")
+
+    adapter.control.send.assert_called_once_with((1, "write", ("hello",)))
+    adapter.close.assert_not_called()
 
 
 def test_missing_or_broken_native_dependency(monkeypatch):

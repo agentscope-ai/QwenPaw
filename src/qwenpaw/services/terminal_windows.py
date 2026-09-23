@@ -78,7 +78,7 @@ def pty_worker(control, output, command, cwd, env, dimensions):
             daemon=True,
         ).start()
         while True:
-            operation, args = control.recv()
+            request_id, operation, args = control.recv()
             try:
                 if operation == "write":
                     write_input(process, *args)
@@ -90,9 +90,9 @@ def pty_worker(control, output, command, cwd, env, dimensions):
                     result = (process.isalive(), process.exitstatus)
                 else:
                     raise ValueError("Unknown terminal operation")
-                control.send((True, result))
+                control.send((request_id, True, result))
             except Exception as exc:
-                control.send((False, str(exc)))
+                control.send((request_id, False, str(exc)))
     except (EOFError, OSError):
         pass
     except Exception as exc:
@@ -112,6 +112,7 @@ class WindowsPty:
         self.lock = threading.Lock()
         self.exitstatus = None
         self.closed = False
+        self.request_id = 0
         try:
             self.owner = psutil.Process(worker.pid)
         except psutil.NoSuchProcess:
@@ -168,15 +169,36 @@ class WindowsPty:
             raise OSError(result)
         return result
 
+    def _receive_call(self, request_id, timeout=5):
+        """Receive one matching reply, discarding late earlier replies."""
+        deadline = time.monotonic() + timeout
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0 or not self.control.poll(remaining):
+                raise TimeoutError("Terminal worker did not respond")
+            try:
+                response_id, ok, result = self.control.recv()
+            except EOFError as exc:
+                raise OSError("Terminal worker exited") from exc
+            if response_id != request_id:
+                continue
+            if not ok:
+                raise OSError(result)
+            return result
+
     def _call(self, operation, *args):
         try:
             with self.lock:
                 if self.closed:
                     raise OSError("Terminal worker closed")
-                self.control.send((operation, args))
-                return self._receive()
+                self.request_id += 1
+                request_id = self.request_id
+                self.control.send((request_id, operation, args))
+                return self._receive_call(request_id)
+        except TimeoutError:
+            # A slow write is not proof that the worker or PTY has exited.
+            raise
         except (EOFError, OSError):
-            # A timed-out reply must not be consumed by the next request.
             self.close()
             raise
 
