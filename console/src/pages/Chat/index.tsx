@@ -215,7 +215,6 @@ import {
   toStoredName,
   copyText,
   extractCopyableText,
-  buildModelError,
   normalizeContentUrls,
   extractUserMessageText,
   extractTextFromMessage,
@@ -227,6 +226,12 @@ import {
   type CopyableResponse,
   type RuntimeLoadingBridgeApi,
 } from "./utils";
+import {
+  isPreExecutionConfigurationError,
+  isModelNotConfiguredError,
+  readErrorPayload,
+  wrapChatResponseOutcomeStream,
+} from "./chatResponseOutcome";
 import {
   CHAT_BASE_PATH,
   buildChatPath,
@@ -3201,25 +3206,6 @@ export default function ChatPage() {
         headers["X-Agent-Id"] = entrySnapshot.agentId;
       }
 
-      if (usesQwenPawBackend) {
-        try {
-          const activeModels = await loadSessionModel(entrySnapshot.agentId, {
-            sessionId: fallbackLocalChatId || "new",
-            chatId: resolveBackendChatId(fallbackLocalChatId || undefined),
-          });
-          if (
-            !activeModels?.active_llm?.provider_id ||
-            !activeModels?.active_llm?.model
-          ) {
-            setShowModelPrompt(true);
-            return buildModelError();
-          }
-        } catch {
-          setShowModelPrompt(true);
-          return buildModelError();
-        }
-      }
-
       const { input = [], biz_params } = data;
       const session: SessionInfo = input[input.length - 1]?.session || {};
       const lastInput = input.slice(-1);
@@ -3375,6 +3361,14 @@ export default function ChatPage() {
       if (!response.ok && backendChatId) {
         sessionApi.discardLastUserMessage(pendingSessionIds, clientMessageId);
       }
+      if (!response.ok) {
+        // Only an explicit backend verdict may offer the configuration prompt.
+        // A transport, timeout or auth failure must keep its own error.
+        const errorPayload = await readErrorPayload(response);
+        if (isModelNotConfiguredError(errorPayload)) {
+          setShowModelPrompt(true);
+        }
+      }
 
       // Session allocation can replace the SDK Input before its own acceptance
       // callback clears it. Clear the current composer only when it still holds
@@ -3408,7 +3402,30 @@ export default function ChatPage() {
         sessionApi.triggerResolve(localIdToResolve);
       }
 
-      return wrapChatResponseUsageStream(response, chatRef, usageTurn);
+      const observed = wrapChatResponseOutcomeStream(response, {
+        onOutcome: (outcome) => {
+          if (
+            outcome.status !== "failed" ||
+            !isPreExecutionConfigurationError(outcome.errorCode)
+          ) {
+            return;
+          }
+          // The turn never started: put the user message and draft back so the
+          // failure does not also cost the input the user just typed.
+          sessionApi.discardLastUserMessage(pendingSessionIds, clientMessageId);
+          if (directSubmission && submittedSenderValue !== null) {
+            if (submittedDraft !== null) {
+              localStorage.setItem(draftStorageKey, submittedDraft);
+            }
+            const textarea = getActiveSenderTextarea();
+            if (textarea) setTextareaValue(textarea, submittedSenderValue);
+          }
+          if (outcome.errorCode === "MODEL_NOT_CONFIGURED") {
+            setShowModelPrompt(true);
+          }
+        },
+      });
+      return wrapChatResponseUsageStream(observed, chatRef, usageTurn);
     },
     [extLists, selectedAgent, runningConfigApprovalLevel, usesQwenPawBackend],
   );
@@ -4329,7 +4346,7 @@ export default function ChatPage() {
           // Fast-forward the replayed section: render the already
           // generated part instantly instead of re-animating it.
           return wrapChatResponseUsageStream(
-            wrapReplayFastForward(response),
+            wrapChatResponseOutcomeStream(wrapReplayFastForward(response)),
             chatRef,
             usageTurn,
           );

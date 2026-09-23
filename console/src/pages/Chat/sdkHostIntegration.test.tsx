@@ -1116,8 +1116,8 @@ describe("ChatPage coverage", () => {
     }
   });
 
-  // ── customFetch: no active model → shows model prompt ─────────────────
-  it("customFetch shows model prompt when no active model", async () => {
+  // ── customFetch: a model probe must never block the send ──────────────
+  it("customFetch sends the turn when the probe reports no model", async () => {
     mockGetActiveModels.mockResolvedValueOnce({
       active_llm: { provider_id: null, model: null },
     });
@@ -1131,13 +1131,16 @@ describe("ChatPage coverage", () => {
         input: [{ role: "user", content: "hello" }],
         signal: undefined,
       });
-      // Should return a buildModelError response
       expect(result).toBeTruthy();
     }
+    expect(vi.mocked(fetch)).toHaveBeenCalledWith(
+      expect.stringContaining("/console/chat"),
+      expect.anything(),
+    );
   });
 
-  // ── customFetch: getActiveModels throws → shows model prompt ──────────
-  it("customFetch shows model prompt when getActiveModels throws", async () => {
+  // ── customFetch: probe failure keeps its own error ────────────────────
+  it("customFetch sends the turn when the probe fails", async () => {
     mockGetActiveModels.mockRejectedValueOnce(new Error("network error"));
     renderWithProviders(<ChatPage />, {
       initialEntries: ["/chat/test-session"],
@@ -1151,6 +1154,10 @@ describe("ChatPage coverage", () => {
       });
       expect(result).toBeTruthy();
     }
+    expect(vi.mocked(fetch)).toHaveBeenCalledWith(
+      expect.stringContaining("/console/chat"),
+      expect.anything(),
+    );
   });
 
   // ── cancel callback → calls stopChat ───────────────────────────────────
