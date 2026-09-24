@@ -116,33 +116,45 @@ class ContextVarsSetupHook(LifecycleHook):
 
         agent_project_dir = None
         agent_project_dirs = None
-        try:
-            from ...config.config import load_agent_config
+        cfg = getattr(ctx, "agent_config", None)
+        if cfg is None:
+            try:
+                from ...config.config import load_agent_config
 
-            cfg = load_agent_config(ctx.agent_id)
-            running = cfg.running
-            pruning_cfg = (
-                running.light_context_config.tool_result_pruning_config
-            )
-            set_current_recent_max_bytes(
-                pruning_cfg.pruning_recent_msg_max_bytes,
-            )
-            set_current_shell_command_timeout(running.shell_command_timeout)
-            set_current_shell_command_executable(
-                running.shell_command_executable or None,
-            )
-            agent_project_dir = cfg.project_dir
-            from ...services.project_directory import (
-                agent_project_dirs_from_config,
-            )
+                cfg = load_agent_config(ctx.agent_id)
+            except Exception:
+                logger.warning(
+                    "contextvars_setup: config unavailable; "
+                    "tools may see defaults",
+                    exc_info=True,
+                )
+        if cfg is not None:
+            try:
+                running = cfg.running
+                pruning_cfg = (
+                    running.light_context_config.tool_result_pruning_config
+                )
+                set_current_recent_max_bytes(
+                    pruning_cfg.pruning_recent_msg_max_bytes,
+                )
+                set_current_shell_command_timeout(
+                    running.shell_command_timeout,
+                )
+                set_current_shell_command_executable(
+                    running.shell_command_executable or None,
+                )
+                agent_project_dir = cfg.project_dir
+                from ...services.project_directory import (
+                    agent_project_dirs_from_config,
+                )
 
-            agent_project_dirs = agent_project_dirs_from_config(cfg)
-        except Exception:
-            logger.warning(
-                "contextvars_setup: config-derived vars failed; "
-                "tools may see defaults",
-                exc_info=True,
-            )
+                agent_project_dirs = agent_project_dirs_from_config(cfg)
+            except Exception:
+                logger.warning(
+                    "contextvars_setup: config-derived vars failed; "
+                    "tools may see defaults",
+                    exc_info=True,
+                )
 
         from ...constant import WORKING_DIR
 

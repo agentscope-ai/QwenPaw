@@ -18,6 +18,8 @@ from fastapi import (
 from pydantic import BaseModel, Field, field_validator
 
 from qwenpaw.exceptions import (
+    AGENT_CONFIG_UNAVAILABLE,
+    AgentConfigConflictError,
     AppBaseException,
 )
 
@@ -336,12 +338,53 @@ async def _load_agent_model(
     agent_id: str,
 ) -> ModelSlotConfig | None:
     """Load the model configured for a specific agent."""
-    workspace = await get_agent_for_request(request, agent_id=agent_id)
-    agent_config = await run_sync_io(
-        load_agent_config,
-        workspace.agent_id,
-    )
+    try:
+        workspace = await get_agent_for_request(request, agent_id=agent_id)
+        agent_config = await run_sync_io(
+            load_agent_config,
+            workspace.agent_id,
+        )
+    except (
+        AgentConfigConflictError,
+        OSError,
+        ValueError,
+        TypeError,
+        AppBaseException,
+    ) as exc:
+        raise _agent_config_http_error(exc) from exc
     return agent_config.active_model
+
+
+def _agent_config_http_error(exc: Exception) -> HTTPException:
+    """Map a configuration read failure onto a stable HTTP verdict.
+
+    An unreadable configuration is not "no model selected": reporting the
+    failure lets a client retry instead of sending the user to settings.
+    The original message is kept because it names the file and the fix.
+    """
+    logger.warning(
+        "Failed to read agent model configuration: %s",
+        exc,
+        exc_info=True,
+    )
+    error_code = getattr(exc, "error_code", None)
+    detail = getattr(exc, "message", None) or str(exc)
+    if isinstance(exc, AgentConfigConflictError):
+        return HTTPException(
+            status_code=409,
+            detail={
+                "code": error_code or "AGENT_CONFIG_STALE",
+                "message": detail,
+            },
+        )
+    code = error_code or AGENT_CONFIG_UNAVAILABLE
+    message = "Agent model configuration is temporarily unavailable"
+    if detail:
+        message = f"{message}: {detail}"
+    return HTTPException(
+        status_code=503,
+        detail={"code": code, "message": message},
+    )
 
 
 @router.get(
@@ -952,7 +995,8 @@ async def get_active_models(
             if agent_id is None:
                 workspace = await get_agent_for_request(request)
                 agent_id = workspace.agent_id
-            selected = await _load_agent_model(request, agent_id) or selected
+            agent_model = await _load_agent_model(request, agent_id)
+            selected = agent_model or selected
         if selected is not None and selected.provider_id == PROVIDER_ID:
             catalog = await run_sync_io(directory)
             if selected and selected.model not in {
@@ -984,32 +1028,21 @@ async def get_active_models(
             await _load_agent_model(request, agent_id),
         )
 
-    try:
-        target_agent_id = agent_id
-        if target_agent_id is None:
-            workspace = await get_agent_for_request(request)
-            target_agent_id = workspace.agent_id
+    target_agent_id = agent_id
+    if target_agent_id is None:
+        # Raises its own 403/404 for a missing or disabled agent, which must
+        # reach the client rather than fall back to the global model.
+        workspace = await get_agent_for_request(request)
+        target_agent_id = workspace.agent_id
 
-        agent_model = await _load_agent_model(request, target_agent_id)
-        if agent_model:
-            logger.info(
-                "Returning agent-specific model for %s: %s",
-                sanitize_log_value(target_agent_id),
-                agent_model,
-            )
-            return await run_sync_io(_active_models_info, manager, agent_model)
-    except (
-        HTTPException,
-        OSError,
-        ValueError,
-        TypeError,
-        AppBaseException,
-    ) as exc:
-        logger.warning(
-            "Failed to get agent-specific model: %s",
-            exc,
-            exc_info=True,
+    agent_model = await _load_agent_model(request, target_agent_id)
+    if agent_model:
+        logger.info(
+            "Returning agent-specific model for %s: %s",
+            sanitize_log_value(target_agent_id),
+            agent_model,
         )
+        return await run_sync_io(_active_models_info, manager, agent_model)
 
     global_model = await run_sync_io(manager.get_active_model)
     logger.info("Returning global model: %s", global_model)

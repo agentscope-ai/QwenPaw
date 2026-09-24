@@ -28,6 +28,8 @@ class ControlContext:
         user_id: User ID from request
         agent_id: Agent ID for permission checks
         args: Parsed command arguments (command-specific)
+        agent_config: Per-request configuration snapshot, when available
+        agent_config_error: Why the snapshot is unavailable, when it is
     """
 
     workspace: "Workspace"
@@ -37,6 +39,8 @@ class ControlContext:
     user_id: str
     agent_id: str
     args: Dict[str, Any]
+    agent_config: Any | None = None
+    agent_config_error: BaseException | None = None
 
 
 class BaseControlCommandHandler(ABC):
