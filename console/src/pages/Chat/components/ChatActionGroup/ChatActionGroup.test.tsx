@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
+import { fireEvent, screen } from "@testing-library/react";
 import { renderWithProviders } from "@/test/common_setup";
 
 import ChatActionGroup from "./index";
@@ -16,11 +17,36 @@ describe("ChatActionGroup", () => {
     expect(document.querySelector(".anticon-more")).not.toBeInTheDocument();
   });
 
-  it("renders the shared new task icon button", () => {
-    renderWithProviders(<ChatActionGroup />);
+  it("replaces the new task action with the terminal before the workspace toggle", () => {
+    const onToggleTerminal = vi.fn();
+    renderWithProviders(
+      <ChatActionGroup
+        terminalEnabled
+        onToggleTerminal={onToggleTerminal}
+        onToggleWorkspace={vi.fn()}
+      />,
+    );
     expect(
       document.querySelector('[data-icon="SparkNewChatLine"]'),
-    ).toBeInTheDocument();
+    ).not.toBeInTheDocument();
+
+    const terminal = screen.getByRole("button", { name: "terminal.title" });
+    const workspace = screen.getByRole("button", {
+      name: "files.openWorkspace",
+    });
+    expect(screen.getAllByRole("button")).toEqual([terminal, workspace]);
+    expect(terminal).toHaveAttribute("aria-expanded", "false");
+    expect(terminal).toHaveStyle({
+      width: "32px",
+      height: "32px",
+      padding: "0px",
+    });
+    expect(terminal.querySelector("svg")).toHaveStyle({
+      width: "16px",
+      height: "16px",
+    });
+    fireEvent.click(terminal);
+    expect(onToggleTerminal).toHaveBeenCalledOnce();
   });
 
   it("renders the Session workspace toggle next to essential actions", () => {

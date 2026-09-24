@@ -1,4 +1,22 @@
 {
+  "terminal": {
+    "authRequired": "使用终端前，请设置 QWENPAW_AUTH_ENABLED=true，重启服务并登录。",
+    "dependencyMissing": "终端不可用：请在后端 Python 环境安装 pywinpty 并重启服务。",
+    "unavailable": "终端暂不可用，请检查后端服务后重试。",
+    "closeOthers": "关闭其他终端",
+    "closeAll": "关闭所有终端",
+    "hide": "收起终端面板",
+    "title": "终端",
+    "tabs": "终端标签页",
+    "new": "新建终端",
+    "close": "关闭终端",
+    "restart": "重启终端",
+    "rename": "重命名终端",
+    "resize": "调整终端高度",
+    "reconnect": "重新连接",
+    "exited": "进程已退出",
+    "inputTooLarge": "输入内容过大，请重新连接后继续。"
+  },
   "common": {
     "save": "保存",
     "reset": "重置",
