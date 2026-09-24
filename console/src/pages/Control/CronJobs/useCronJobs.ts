@@ -221,7 +221,8 @@ export function useCronJobs() {
   };
 
   const deleteJob = async (jobId: string) => {
-    const original = jobs.find((j) => j.id === jobId);
+    const index = jobs.findIndex((j) => j.id === jobId);
+    const original = jobs[index];
     setJobs((prev) => prev.filter((j) => j.id !== jobId));
 
     try {
@@ -231,7 +232,11 @@ export function useCronJobs() {
     } catch (error) {
       console.error("Failed to delete cron job", error);
       if (original) {
-        setJobs((prev) => [...prev, original]);
+        setJobs((prev) => {
+          const restored = [...prev];
+          restored.splice(index, 0, original);
+          return restored;
+        });
       }
       message.error("Failed to delete");
       return false;
