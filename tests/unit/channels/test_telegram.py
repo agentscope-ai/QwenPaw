@@ -1816,6 +1816,8 @@ class TestTelegramBuildContentParts:
 
         mock_entity = MagicMock()
         mock_entity.type = "bot_command"
+        mock_entity.offset = 0
+        mock_entity.length = 6  # /start
         mock_message.entities = [mock_entity]
         mock_message.caption_entities = None
         mock_message.photo = []
@@ -1844,6 +1846,232 @@ class TestTelegramBuildContentParts:
         assert has_command is True
         assert len(parts) == 1
         assert parts[0].text == "/start"
+
+    async def test_command_addressed_to_this_bot(self, tmp_path: Path):
+        """``/cmd@test_bot`` opens the gate and loses its ``@test_bot``."""
+        from qwenpaw.app.channels.telegram.channel import (
+            _build_content_parts_from_message,
+        )
+
+        mock_update = MagicMock()
+        mock_message = MagicMock()
+        mock_message.text = "/start@test_bot do it"
+        mock_message.caption = None
+
+        mock_entity = MagicMock()
+        mock_entity.type = "bot_command"
+        mock_entity.offset = 0
+        mock_entity.length = 15  # /start@test_bot
+        mock_message.entities = [mock_entity]
+        mock_message.caption_entities = None
+        mock_message.photo = []
+        mock_message.document = None
+        mock_message.video = None
+        mock_message.voice = None
+        mock_message.audio = None
+        mock_update.message = mock_message
+        mock_update.edited_message = None
+
+        mock_bot = MagicMock()
+        mock_bot.username = "test_bot"
+        mock_bot.id = "12345"
+
+        (
+            parts,
+            has_command,
+            _is_mentioned,
+        ) = await _build_content_parts_from_message(
+            mock_update,
+            bot=mock_bot,
+            media_dir=tmp_path,
+        )
+
+        assert has_command is True
+        # Command matchers read the first word verbatim: strip the address,
+        # keep the arguments -- "/start@test_bot do it" -> "/start do it".
+        assert parts[0].text == "/start do it"
+
+    async def test_command_addressed_to_this_bot_without_arguments(
+        self,
+        tmp_path: Path,
+    ):
+        """A bare ``/cmd@test_bot`` strips down to ``/cmd``."""
+        from qwenpaw.app.channels.telegram.channel import (
+            _build_content_parts_from_message,
+        )
+
+        mock_update = MagicMock()
+        mock_message = MagicMock()
+        mock_message.text = "/model@test_bot"
+        mock_message.caption = None
+
+        mock_entity = MagicMock()
+        mock_entity.type = "bot_command"
+        mock_entity.offset = 0
+        mock_entity.length = 15  # /model@test_bot
+        mock_message.entities = [mock_entity]
+        mock_message.caption_entities = None
+        mock_message.photo = []
+        mock_message.document = None
+        mock_message.video = None
+        mock_message.voice = None
+        mock_message.audio = None
+        mock_update.message = mock_message
+        mock_update.edited_message = None
+
+        mock_bot = MagicMock()
+        mock_bot.username = "test_bot"
+        mock_bot.id = "12345"
+
+        (
+            parts,
+            has_command,
+            _is_mentioned,
+        ) = await _build_content_parts_from_message(
+            mock_update,
+            bot=mock_bot,
+            media_dir=tmp_path,
+        )
+
+        assert has_command is True
+        assert parts[0].text == "/model"
+
+    async def test_command_gate_opens_when_username_unknown(
+        self,
+        tmp_path: Path,
+    ):
+        """An unresolved username must not lock addressed commands out."""
+        from qwenpaw.app.channels.telegram.channel import (
+            _build_content_parts_from_message,
+        )
+
+        mock_update = MagicMock()
+        mock_message = MagicMock()
+        mock_message.text = "/start@anyone"
+        mock_message.caption = None
+
+        mock_entity = MagicMock()
+        mock_entity.type = "bot_command"
+        mock_entity.offset = 0
+        mock_entity.length = 12  # /start@anyone
+        mock_message.entities = [mock_entity]
+        mock_message.caption_entities = None
+        mock_message.photo = []
+        mock_message.document = None
+        mock_message.video = None
+        mock_message.voice = None
+        mock_message.audio = None
+        mock_update.message = mock_message
+        mock_update.edited_message = None
+
+        mock_bot = MagicMock()
+        mock_bot.username = ""
+        mock_bot.id = "12345"
+
+        (
+            parts,
+            has_command,
+            _is_mentioned,
+        ) = await _build_content_parts_from_message(
+            mock_update,
+            bot=mock_bot,
+            media_dir=tmp_path,
+        )
+
+        assert has_command is True
+        # Nothing to strip against, so the text is handed on untouched.
+        assert parts[0].text == "/start@anyone"
+
+    async def test_command_addressed_to_another_bot(self, tmp_path: Path):
+        """``/cmd@other_bot`` must not wake this bot.
+
+        Bots in a group see each other's messages once bot-to-bot
+        delivery is on; a stray ``/cmd@other_bot`` rendered as a
+        bot_command entity used to open every opted-in bot's gate.
+        """
+        from qwenpaw.app.channels.telegram.channel import (
+            _build_content_parts_from_message,
+        )
+
+        mock_update = MagicMock()
+        mock_message = MagicMock()
+        mock_message.text = "/b2b_probe@other_bot ping"
+        mock_message.caption = None
+
+        mock_entity = MagicMock()
+        mock_entity.type = "bot_command"
+        mock_entity.offset = 0
+        mock_entity.length = 20  # /b2b_probe@other_bot
+        mock_message.entities = [mock_entity]
+        mock_message.caption_entities = None
+        mock_message.photo = []
+        mock_message.document = None
+        mock_message.video = None
+        mock_message.voice = None
+        mock_message.audio = None
+        mock_update.message = mock_message
+        mock_update.edited_message = None
+
+        mock_bot = MagicMock()
+        mock_bot.username = "test_bot"
+        mock_bot.id = "12345"
+
+        (
+            parts,
+            has_command,
+            _is_mentioned,
+        ) = await _build_content_parts_from_message(
+            mock_update,
+            bot=mock_bot,
+            media_dir=tmp_path,
+        )
+
+        assert has_command is False
+        assert parts[0].text == "/b2b_probe@other_bot ping"
+
+    async def test_command_target_match_is_case_insensitive(
+        self,
+        tmp_path: Path,
+    ):
+        """``/cmd@Test_BOT`` still counts as addressed to this bot."""
+        from qwenpaw.app.channels.telegram.channel import (
+            _build_content_parts_from_message,
+        )
+
+        mock_update = MagicMock()
+        mock_message = MagicMock()
+        mock_message.text = "/start@Test_BOT"
+        mock_message.caption = None
+
+        mock_entity = MagicMock()
+        mock_entity.type = "bot_command"
+        mock_entity.offset = 0
+        mock_entity.length = 15
+        mock_message.entities = [mock_entity]
+        mock_message.caption_entities = None
+        mock_message.photo = []
+        mock_message.document = None
+        mock_message.video = None
+        mock_message.voice = None
+        mock_message.audio = None
+        mock_update.message = mock_message
+        mock_update.edited_message = None
+
+        mock_bot = MagicMock()
+        mock_bot.username = "test_bot"
+        mock_bot.id = "12345"
+
+        (
+            _parts,
+            has_command,
+            _is_mentioned,
+        ) = await _build_content_parts_from_message(
+            mock_update,
+            bot=mock_bot,
+            media_dir=tmp_path,
+        )
+
+        assert has_command is True
 
     async def test_message_with_mention(self, tmp_path: Path):
         """Should detect bot mention."""

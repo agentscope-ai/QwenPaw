@@ -218,6 +218,58 @@ async def _resolve_telegram_file_url(
     return f"{base_file_url}{bot_token}/{file_path}"
 
 
+def _is_command_for_bot(text: str, entity: Any, bot_username: str) -> bool:
+    """Whether a bot_command entity is meant for this bot.
+
+    Bare ``/cmd`` and ``/cmd@this_bot`` are; ``/cmd@other_bot`` belongs to
+    another bot and must not wake this one.  With no username to compare
+    against, stay permissive rather than locking addressed commands out.
+    """
+    if not bot_username:
+        return True
+    offset = getattr(entity, "offset", 0)
+    length = getattr(entity, "length", 0)
+    command = text[offset : offset + length]
+    _, _, target = command.partition("@")
+    return not target or target.lower() == bot_username.lower()
+
+
+def _strip_own_address(text: str, entity: Any, bot_username: str) -> str:
+    """Drop ``@this_bot`` from a leading command token.
+
+    A group menu tap arrives as ``/cmd@this_bot [args]``, but the command
+    matchers downstream compare the first whitespace-delimited word against
+    a bare name, so the suffixed form reaches its bot and then does
+    nothing.  Keep the arguments; leave commands inside prose untouched.
+    """
+    if not bot_username or getattr(entity, "offset", 0) != 0:
+        return text
+    length = getattr(entity, "length", 0)
+    name, at, target = text[:length].partition("@")
+    if (
+        not at
+        or not name.startswith("/")
+        or target.lower() != bot_username.lower()
+    ):
+        return text
+    return name + text[length:]
+
+
+def _command_gate_for_entity(
+    text: str,
+    entity: Any,
+    bot_username: str,
+) -> tuple[bool, str]:
+    """Return ``(addressed_here, text)`` for one bot_command entity.
+
+    One helper for gate and stripping so the entity loop -- already at
+    pylint's statement ceiling -- spends one statement on both.
+    """
+    if not _is_command_for_bot(text, entity, bot_username):
+        return False, text
+    return True, _strip_own_address(text, entity, bot_username)
+
+
 async def _build_content_parts_from_message(
     update: Any,
     *,
@@ -253,7 +305,12 @@ async def _build_content_parts_from_message(
         for entity in entities:
             etype = getattr(entity, "type", None)
             if etype == "bot_command":
-                has_bot_command = True
+                for_this_bot, text = _command_gate_for_entity(
+                    text,
+                    entity,
+                    bot_username,
+                )
+                has_bot_command = has_bot_command or for_this_bot
             elif etype == "mention" and bot_username:
                 offset = getattr(entity, "offset", 0)
                 length = getattr(entity, "length", 0)
