@@ -1116,8 +1116,8 @@ describe("ChatPage coverage", () => {
     }
   });
 
-  // ── customFetch: no active model → shows model prompt ─────────────────
-  it("customFetch shows model prompt when no active model", async () => {
+  // ── customFetch: a model probe must never block the send ──────────────
+  it("customFetch sends the turn when the probe reports no model", async () => {
     mockGetActiveModels.mockResolvedValueOnce({
       active_llm: { provider_id: null, model: null },
     });
@@ -1131,13 +1131,16 @@ describe("ChatPage coverage", () => {
         input: [{ role: "user", content: "hello" }],
         signal: undefined,
       });
-      // Should return a buildModelError response
       expect(result).toBeTruthy();
     }
+    expect(vi.mocked(fetch)).toHaveBeenCalledWith(
+      expect.stringContaining("/console/chat"),
+      expect.anything(),
+    );
   });
 
-  // ── customFetch: getActiveModels throws → shows model prompt ──────────
-  it("customFetch shows model prompt when getActiveModels throws", async () => {
+  // ── customFetch: probe failure keeps its own error ────────────────────
+  it("customFetch sends the turn when the probe fails", async () => {
     mockGetActiveModels.mockRejectedValueOnce(new Error("network error"));
     renderWithProviders(<ChatPage />, {
       initialEntries: ["/chat/test-session"],
@@ -1151,6 +1154,110 @@ describe("ChatPage coverage", () => {
       });
       expect(result).toBeTruthy();
     }
+    expect(vi.mocked(fetch)).toHaveBeenCalledWith(
+      expect.stringContaining("/console/chat"),
+      expect.anything(),
+    );
+  });
+
+  // ── the live path: a pre-execution failure arrives as a terminal event ──
+  it("rolls back a MODEL_NOT_CONFIGURED terminal and offers the prompt", async () => {
+    renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/test-session"],
+    });
+    await screen.findByTestId("chat-ui");
+    const { getDraftStorageKey } = await import("./chatInputDraft");
+    const key = getDraftStorageKey("default");
+    // A direct submission needs history and ownership settled first.
+    const { holdOwnershipLock } = await import("@/stores/messageQueueStore");
+    await waitFor(() =>
+      expect(holdOwnershipLock).toHaveBeenCalledWith(
+        "test-session",
+        expect.any(Function),
+        expect.any(AbortSignal),
+      ),
+    );
+    localStorage.setItem(key, "submitted-draft");
+    expect(
+      await capturedOptions.sender.beforeSubmit({
+        query: "hello",
+        fileList: [],
+      }),
+    ).toMatchObject({ proceed: true });
+
+    const terminal = JSON.stringify({
+      object: "response",
+      status: "failed",
+      output: [],
+      error: {
+        code: "MODEL_NOT_CONFIGURED",
+        message: "No active model configured",
+      },
+    });
+    global.fetch = vi.fn(
+      async () =>
+        new Response(`data: ${terminal}\n\n`, {
+          status: 200,
+          headers: { "Content-Type": "text/event-stream" },
+        }),
+    ) as any;
+
+    const sessionApiModule = (await import("./sessionApi")).default;
+    await act(async () => {
+      const response = await capturedOptions.api.fetch({
+        input: [{ role: "user", content: "hello" }],
+        signal: undefined,
+      });
+      // The SDK drains the stream; draining it here drives the same wrapper.
+      await response.text();
+    });
+
+    await waitFor(() =>
+      expect(document.body.textContent).toContain("LLM Model Required"),
+    );
+    expect(sessionApiModule.discardLastUserMessage).toHaveBeenCalledWith(
+      expect.any(Array),
+      expect.any(String),
+    );
+    expect(localStorage.getItem(key)).toBe("submitted-draft");
+    localStorage.removeItem(key);
+  });
+
+  // ── a failure that produced output keeps its history ──────────────────
+  it("keeps the turn when a terminal failure carries output", async () => {
+    renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/test-session"],
+    });
+    await screen.findByTestId("chat-ui");
+
+    const terminal = JSON.stringify({
+      object: "response",
+      status: "failed",
+      output: [{ role: "assistant", content: [{ type: "text", text: "hi" }] }],
+      error: {
+        code: "MODEL_NOT_CONFIGURED",
+        message: "No active model configured",
+      },
+    });
+    global.fetch = vi.fn(
+      async () =>
+        new Response(`data: ${terminal}\n\n`, {
+          status: 200,
+          headers: { "Content-Type": "text/event-stream" },
+        }),
+    ) as any;
+
+    const sessionApiModule = (await import("./sessionApi")).default;
+    await act(async () => {
+      const response = await capturedOptions.api.fetch({
+        input: [{ role: "user", content: "hello" }],
+        signal: undefined,
+      });
+      await response.text();
+    });
+
+    // This turn ran, so its message and history are not rolled back.
+    expect(sessionApiModule.discardLastUserMessage).not.toHaveBeenCalled();
   });
 
   // ── cancel callback → calls stopChat ───────────────────────────────────

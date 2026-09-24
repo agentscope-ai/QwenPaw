@@ -114,21 +114,6 @@ export function formatMessageTime(ts: number): string {
 }
 
 // ---------------------------------------------------------------------------
-// Error response utilities
-// ---------------------------------------------------------------------------
-
-/** Build a 400 error response when model is not configured. */
-export function buildModelError(): Response {
-  return new Response(
-    JSON.stringify({
-      error: "Model not configured",
-      message: "Please configure a model first",
-    }),
-    { status: 400, headers: { "Content-Type": "application/json" } },
-  );
-}
-
-// ---------------------------------------------------------------------------
 // URL normalization utilities
 // ---------------------------------------------------------------------------
 

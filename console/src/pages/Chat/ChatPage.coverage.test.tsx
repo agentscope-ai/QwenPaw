@@ -1061,8 +1061,8 @@ describe("ChatPage coverage", () => {
     }
   });
 
-  // ── customFetch: no active model → shows model prompt ─────────────────
-  it("customFetch shows model prompt when no active model", async () => {
+  // ── customFetch: a model probe must never block the send ──────────────
+  it("customFetch sends the turn when the probe reports no model", async () => {
     mockGetActiveModels.mockResolvedValueOnce({
       active_llm: { provider_id: null, model: null },
     });
@@ -1077,13 +1077,17 @@ describe("ChatPage coverage", () => {
         input: [{ role: "user", content: "hello" }],
         signal: undefined,
       });
-      // Should return a buildModelError response
       expect(result).toBeTruthy();
     }
+    // The backend owns the verdict; the request must reach it.
+    expect(vi.mocked(fetch)).toHaveBeenCalledWith(
+      expect.stringContaining("/console/chat"),
+      expect.anything(),
+    );
   });
 
-  // ── customFetch: getActiveModels throws → shows model prompt ──────────
-  it("customFetch shows model prompt when getActiveModels throws", async () => {
+  // ── customFetch: probe failure keeps its own error ────────────────────
+  it("customFetch sends the turn when the probe fails", async () => {
     mockGetActiveModels.mockRejectedValueOnce(new Error("network error"));
     renderWithProviders(<ChatPage />, {
       initialEntries: ["/chat/test-session"],
@@ -1098,6 +1102,77 @@ describe("ChatPage coverage", () => {
       });
       expect(result).toBeTruthy();
     }
+    expect(vi.mocked(fetch)).toHaveBeenCalledWith(
+      expect.stringContaining("/console/chat"),
+      expect.anything(),
+    );
+  });
+
+  // ── customFetch: only an explicit verdict offers the model prompt ─────
+  it("customFetch offers the model prompt for MODEL_NOT_CONFIGURED", async () => {
+    vi.mocked(fetch).mockResolvedValue({
+      ok: false,
+      status: 400,
+      headers: new Headers({ "Content-Type": "application/json" }),
+      json: async () => ({
+        detail: {
+          code: "MODEL_NOT_CONFIGURED",
+          message: "No active model configured",
+        },
+      }),
+      clone() {
+        return this;
+      },
+    } as unknown as Response);
+    renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/test-session"],
+    });
+    await screen.findByTestId("chat-ui");
+    await act(async () => {});
+
+    if (capturedOptions?.api?.fetch) {
+      await capturedOptions.api.fetch({
+        input: [{ role: "user", content: "hello" }],
+        signal: undefined,
+      });
+    }
+
+    await waitFor(() => {
+      // antd renders the dialog inside a portal; jsdom's visibility
+      // computation hides it from role queries, so assert on its title.
+      expect(document.body.textContent).toContain("LLM Model Required");
+    });
+  });
+
+  it("customFetch keeps an unavailable config out of the model prompt", async () => {
+    vi.mocked(fetch).mockResolvedValue({
+      ok: false,
+      status: 503,
+      headers: new Headers({ "Content-Type": "application/json" }),
+      json: async () => ({
+        detail: {
+          code: "AGENT_CONFIG_UNAVAILABLE",
+          message: "temporarily unavailable",
+        },
+      }),
+      clone() {
+        return this;
+      },
+    } as unknown as Response);
+    renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/test-session"],
+    });
+    await screen.findByTestId("chat-ui");
+    await act(async () => {});
+
+    if (capturedOptions?.api?.fetch) {
+      await capturedOptions.api.fetch({
+        input: [{ role: "user", content: "hello" }],
+        signal: undefined,
+      });
+    }
+
+    expect(document.body.textContent).not.toContain("LLM Model Required");
   });
 
   // ── cancel callback → calls stopChat ───────────────────────────────────

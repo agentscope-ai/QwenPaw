@@ -2,7 +2,6 @@ import { describe, it, test, expect, vi } from "vitest";
 import {
   extractCopyableText,
   extractUserMessageText,
-  buildModelError,
   toStoredName,
   normalizeContentUrls,
   toDisplayUrl,
@@ -260,28 +259,6 @@ describe("clearSubmittedSenderInput", () => {
     expect(clearSubmittedSenderInput("sent message")).toBe(false);
     expect(textarea.value).toBe("next message");
     document.body.innerHTML = "";
-  });
-});
-
-// ---------------------------------------------------------------------------
-// buildModelError
-// ---------------------------------------------------------------------------
-describe("buildModelError", () => {
-  it("returns 400 status code", () => {
-    const response = buildModelError();
-    expect(response.status).toBe(400);
-  });
-
-  it("response body contains error and message fields", async () => {
-    const response = buildModelError();
-    const body = await response.json();
-    expect(body).toHaveProperty("error");
-    expect(body).toHaveProperty("message");
-  });
-
-  it("Content-Type is application/json", () => {
-    const response = buildModelError();
-    expect(response.headers.get("Content-Type")).toBe("application/json");
   });
 });
 
