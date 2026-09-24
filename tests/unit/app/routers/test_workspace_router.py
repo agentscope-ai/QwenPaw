@@ -457,7 +457,9 @@ async def test_plugin_backend_selection_blocks_unload_until_reload_handoff(
 
 
 @pytest.mark.asyncio
-async def test_failed_plugin_backend_reload_rolls_back_selection(tmp_path):
+async def test_failed_plugin_backend_reload_rolls_back_and_restores_runtime(
+    tmp_path,
+):
     owner = "selection-rollback-plugin"
     backend_id = "selection-rollback-memory"
     memory_registry.register_backend(
@@ -480,10 +482,17 @@ async def test_failed_plugin_backend_reload_rolls_back_selection(tmp_path):
         workspace_dir=tmp_path,
     )
     completion: Any = None
+    scheduled_backends: list[str] = []
+    scheduled_completions: list[Any] = []
 
     def schedule_reload(_request, _agent_id, *, on_complete=None):
         nonlocal completion
-        completion = on_complete
+        scheduled_backends.append(
+            agent_config.running.memory_manager_backend,
+        )
+        scheduled_completions.append(on_complete)
+        if on_complete is not None:
+            completion = on_complete
         return True
 
     try:
@@ -507,6 +516,8 @@ async def test_failed_plugin_backend_reload_rolls_back_selection(tmp_path):
             await completion(False)  # pylint: disable=not-callable
 
         assert agent_config.running.memory_manager_backend == "none"
+        assert scheduled_backends == [backend_id, "none"]
+        assert scheduled_completions == [completion, None]
         assert memory_registry.begin_owner_unload(owner) == []
     finally:
         memory_registry.cancel_owner_unload(owner)
