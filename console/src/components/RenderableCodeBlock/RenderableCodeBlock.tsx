@@ -19,6 +19,16 @@ type RenderableCodeBlockProps = Partial<ComponentProps> & {
   children?: ReactNode;
 };
 
+const SOURCE_LANGUAGE_ALIASES: Record<string, string> = {
+  cginc: "hlsl",
+  cs: "csharp",
+  frag: "glsl",
+  gd: "gdscript",
+  gdshader: "glsl",
+  shader: "hlsl",
+  vert: "glsl",
+};
+
 const LANGUAGE_ALIASES: Record<string, RenderableLanguage> = {
   latex: "latex",
   math: "latex",
@@ -29,6 +39,9 @@ const LANGUAGE_ALIASES: Record<string, RenderableLanguage> = {
 const LANGUAGE_EXTENSIONS: Record<string, string> = {
   bash: "sh",
   csharp: "cs",
+  gdscript: "gd",
+  glsl: "glsl",
+  hlsl: "hlsl",
   javascript: "js",
   kotlin: "kt",
   markdown: "md",
@@ -38,6 +51,7 @@ const LANGUAGE_EXTENSIONS: Record<string, string> = {
   rust: "rs",
   shell: "sh",
   typescript: "ts",
+  wgsl: "wgsl",
   yaml: "yml",
   zsh: "sh",
 };
@@ -57,7 +71,8 @@ function extractText(children: ReactNode): string {
 function resolveLanguage(lang?: string, className?: string): string {
   const explicit = lang?.trim().split(/\s+/, 1)[0];
   const fromClassName = className?.match(/(?:^|\s)language-([^\s]+)/)?.[1];
-  return (explicit || fromClassName || "").toLowerCase();
+  const language = (explicit || fromClassName || "").toLowerCase();
+  return SOURCE_LANGUAGE_ALIASES[language] || language;
 }
 
 function downloadSource(source: string, language: string) {
