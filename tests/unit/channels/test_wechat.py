@@ -6,6 +6,7 @@ import base64
 import hashlib
 import json
 import ssl
+import time
 from pathlib import Path
 import sys
 from types import SimpleNamespace
@@ -1056,3 +1057,28 @@ async def test_console_qr_checks_new_token_and_releases_before_reload(
             owners.release(claim, receipt)
         owners.release(owner, receipt)
         assert owners.leases() == baseline
+
+
+@pytest.mark.asyncio
+class TestILinkClientLoginWait:
+    """``wait_for_login`` bounds total wall time, not the number of polls."""
+
+    async def test_slow_status_poll_still_honours_max_wait(self) -> None:
+        client = module("wechat", "client").ILinkClient()
+
+        async def _waiting(qrcode: str) -> dict:
+            # iLink holds each status request open for ~30s, so a poll costs
+            # real time rather than poll_interval.
+            await asyncio.sleep(0.3)
+            return {"status": "waiting"}
+
+        client.get_qrcode_status = _waiting
+        started = time.monotonic()
+        with pytest.raises(TimeoutError):
+            await client.wait_for_login(
+                "qr",
+                poll_interval=0.05,
+                max_wait=0.5,
+            )
+        waited = time.monotonic() - started
+        assert waited < 1.0, f"max_wait=0.5s blocked for {waited:.2f}s"
