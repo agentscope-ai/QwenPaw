@@ -21,6 +21,7 @@ Run:
     pytest tests/unit/channels/test_telegram.py -v
     pytest tests/unit/channels/test_telegram.py::TestTelegramChannelInit -v
 """
+
 # pylint: disable=redefined-outer-name,protected-access,unused-argument
 # pylint: disable=broad-exception-raised,using-constant-test
 from __future__ import annotations
@@ -1915,6 +1916,49 @@ class TestTelegramBuildContentParts:
         assert parts == []
         assert has_command is False
         assert is_mentioned is False
+
+
+# =============================================================================
+# /start platform handshake
+# =============================================================================
+
+
+class TestTelegramStartHandshake:
+    """Bare ``/start`` is the platform handshake, not a user utterance."""
+
+    def test_bare_start_matches(self):
+        from qwenpaw.app.channels.telegram.channel import (
+            _is_start_handshake,
+        )
+
+        assert _is_start_handshake("/start")
+        assert _is_start_handshake("  /start  ")
+        assert _is_start_handshake("/START")
+
+    def test_start_addressed_to_a_bot_matches(self):
+        """Group menu taps arrive as ``/start@thisbot``: same handshake."""
+        from qwenpaw.app.channels.telegram.channel import (
+            _is_start_handshake,
+        )
+
+        assert _is_start_handshake("/start@test_bot")
+        assert _is_start_handshake("/Start@Test_Bot")
+        # No length guessing: any @suffix form is the handshake shape.
+        assert _is_start_handshake("/start@A_reasonably_long_bot_name_9")
+
+    def test_deep_link_and_prose_pass_through(self):
+        """``/start <param>`` is a deep-link payload, not the handshake."""
+        from qwenpaw.app.channels.telegram.channel import (
+            _is_start_handshake,
+        )
+
+        assert not _is_start_handshake("/start param")
+        assert not _is_start_handshake("/start me something")
+        assert not _is_start_handshake("/startup")
+        assert not _is_start_handshake("/start@test_bot extra")
+        assert not _is_start_handshake("please start")
+        assert not _is_start_handshake("")
+        assert not _is_start_handshake(None)
 
 
 # =============================================================================
