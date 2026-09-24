@@ -49,7 +49,12 @@ export const chatApi = {
     if (!filename) return "";
     if (filename.startsWith("http://") || filename.startsWith("https://"))
       return filename;
-    let cleaned = filename.replace(/^\/+/, "");
+    // Input is a filesystem path. Encode each segment exactly once.
+    const cleaned = filename
+      .replace(/^\/+/, "")
+      .split("/")
+      .map(encodeURIComponent)
+      .join("/");
     const path = `${FILES_PREVIEW}/${cleaned}`;
     const url = getApiUrl(path);
 
