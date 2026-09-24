@@ -172,28 +172,33 @@ class ResourceGovernor:
         """Load policy and probe sandbox capabilities."""
         with get_sync_path_lock(self._policy_path):
             self._policy_dir.mkdir(parents=True, exist_ok=True)
-            self._policy = load_governance_policy(
+            self._policy, policy_changed = load_governance_policy(
                 str(self._policy_dir),
                 str(self.workspace_dir),
                 str(self.coding_project_dir),
                 extra_project_dirs=[
                     str(path) for path in self.extra_project_dirs
                 ],
+                return_changed=True,
             )
 
-            # Persist migrations/defaults while holding the same lock used by
-            # approval transactions in other governor instances.
-            try:
-                save_governance_policy(
-                    self._policy,
-                    str(self._policy_dir),
-                    str(self.workspace_dir),
-                    str(self.coding_project_dir),
-                )
-            except Exception:
-                logger.exception(
-                    "ResourceGovernor.start: failed to persist policy.yaml",
-                )
+            # Persist migrations/defaults while holding the same lock used
+            # by approval transactions in other governor instances. An
+            # unchanged load yields a byte-identical rewrite, so skip it —
+            # request-scoped governors start on every turn.
+            if policy_changed:
+                try:
+                    save_governance_policy(
+                        self._policy,
+                        str(self._policy_dir),
+                        str(self.workspace_dir),
+                        str(self.coding_project_dir),
+                    )
+                except Exception:
+                    logger.exception(
+                        "ResourceGovernor.start: failed to persist "
+                        "policy.yaml",
+                    )
 
         self._sandbox_capability = probe_sandbox_support()
         self._sandbox_available = self._sandbox_capability.supported
