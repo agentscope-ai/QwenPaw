@@ -2137,8 +2137,24 @@ class AgentMailCredential(BaseModel):
             "Mail service provider for enterprise mailboxes with a "
             "custom domain. Empty string means auto-detect by domain. "
             "Allowed values: '', 'tencent_exmail', 'aliyun_qiye', "
-            "'netease_qiye'."
+            "'netease_qiye', 'custom' (user-supplied IMAP/SMTP hosts)."
         ),
+    )
+    imap_host: str = Field(
+        default="",
+        description="IMAP host; required for provider 'custom', else empty",
+    )
+    imap_port: Optional[int] = Field(
+        default=None,
+        description="IMAP port for provider 'custom' (default 993)",
+    )
+    smtp_host: str = Field(
+        default="",
+        description="SMTP host; required for provider 'custom', else empty",
+    )
+    smtp_port: Optional[int] = Field(
+        default=None,
+        description="SMTP port for provider 'custom' (default 465)",
     )
 
 
@@ -2208,6 +2224,10 @@ def _agent_mail_public_identity(mail: AgentMailConfig) -> dict[str, object]:
         "name": (credential.name or "").strip().lower(),
         "domain": (credential.domain or "").strip().lower(),
         "provider": (credential.provider or "").strip().lower(),
+        "imap_host": (credential.imap_host or "").strip().lower(),
+        "imap_port": credential.imap_port,
+        "smtp_host": (credential.smtp_host or "").strip().lower(),
+        "smtp_port": credential.smtp_port,
     }
 
 

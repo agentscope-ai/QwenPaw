@@ -59,8 +59,20 @@ domains:
 | `aliyun.com`  | Aliyun Mail          | Mailbox login password          | `imap.aliyun.com:993` / `smtp.aliyun.com:465` |
 | `gmail.com`   | Gmail                | 16-character app password       | `imap.gmail.com:993` / `smtp.gmail.com:465`   |
 
-The managed QwenPaw workflow does not currently support enterprise mail,
-custom domains, or Microsoft mailboxes.
+Enterprise mailboxes on a custom domain select the provider hosting the domain
+(Tencent Exmail, Alibaba Enterprise Mail, or Netease Enterprise Mail); QwenPaw
+then uses that provider's IMAP/SMTP endpoints.
+
+Any other mailbox — a self-hosted server or a provider not listed above — uses
+the **Other (custom server)** provider. Enter the IMAP host and SMTP host
+yourself; the ports default to `993` (IMAP over SSL) and `465` (SMTP over SSL)
+and can be changed. QwenPaw connects only over SSL/TLS, so plain-text ports
+such as `143` or `25` do not work. The credential is whatever the server
+expects for IMAP/SMTP login, usually the mailbox password. New-mail monitoring
+works the same way as for built-in providers.
+
+Microsoft mailboxes (Outlook, Hotmail, Live, Office 365) are not supported
+because they require OAuth2.
 
 > The qwenpawmail MCP package can also run independently of QwenPaw. In a
 > standalone deployment, use `QWENPAWMAIL_IMAP_HOST`,

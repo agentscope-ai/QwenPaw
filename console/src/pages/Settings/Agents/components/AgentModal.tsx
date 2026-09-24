@@ -3,6 +3,7 @@ import {
   Modal,
   Form,
   Input,
+  InputNumber,
   Button,
   Select,
   Radio,
@@ -45,11 +46,20 @@ const MAIL_AUTH_CODE_DOMAINS = [
   "gmail.com",
 ];
 
+const MAIL_CUSTOM_PROVIDER = "custom";
+
 const MAIL_PROVIDER_OPTIONS: Array<{ value: string; labelKey: string }> = [
   { value: "tencent_exmail", labelKey: "agent.mailProviderTencentExmail" },
   { value: "aliyun_qiye", labelKey: "agent.mailProviderAliyunQiye" },
   { value: "netease_qiye", labelKey: "agent.mailProviderNeteaseQiye" },
+  { value: MAIL_CUSTOM_PROVIDER, labelKey: "agent.mailProviderCustom" },
 ];
+
+// A dedicated mailbox is registered at a known provider, so the custom
+// server option only applies to an existing personal mailbox.
+const MAIL_DEDICATED_PROVIDER_OPTIONS = MAIL_PROVIDER_OPTIONS.filter(
+  ({ value }) => value !== MAIL_CUSTOM_PROVIDER,
+);
 
 const MAIL_DOMAIN_PATTERN =
   /^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?)+$/;
@@ -97,6 +107,7 @@ export function AgentModal({
   const mailMode = Form.useWatch("mail_mode", form);
   const mailPushMode = Form.useWatch(["mail_push", "mode"], form);
   const mailDomain = Form.useWatch(["mail_credential", "domain"], form);
+  const mailProvider = Form.useWatch(["mail_credential", "provider"], form);
   const mailCredential = Form.useWatch(["mail_credential", "auth_code"], form);
   const selectedBackend = Form.useWatch("backend", form) ?? "qwenpaw";
 
@@ -308,6 +319,55 @@ export function AgentModal({
                 />
               </Form.Item>
             )}
+            {isCustomMailDomain && mailProvider === MAIL_CUSTOM_PROVIDER && (
+              <>
+                <Form.Item
+                  name={["mail_credential", "imap_host"]}
+                  label={t("agent.mailImapHost")}
+                  extra={t("agent.mailCustomHostsHint")}
+                  rules={[
+                    {
+                      required: true,
+                      message: t("agent.mailImapHostRequired"),
+                    },
+                    {
+                      pattern: MAIL_DOMAIN_PATTERN,
+                      message: t("agent.mailImapHostInvalid"),
+                    },
+                  ]}
+                >
+                  <Input placeholder="imap.example.com" />
+                </Form.Item>
+                <Form.Item
+                  name={["mail_credential", "imap_port"]}
+                  label={t("agent.mailImapPort")}
+                >
+                  <InputNumber min={1} max={65535} placeholder="993" />
+                </Form.Item>
+                <Form.Item
+                  name={["mail_credential", "smtp_host"]}
+                  label={t("agent.mailSmtpHost")}
+                  rules={[
+                    {
+                      required: true,
+                      message: t("agent.mailSmtpHostRequired"),
+                    },
+                    {
+                      pattern: MAIL_DOMAIN_PATTERN,
+                      message: t("agent.mailSmtpHostInvalid"),
+                    },
+                  ]}
+                >
+                  <Input placeholder="smtp.example.com" />
+                </Form.Item>
+                <Form.Item
+                  name={["mail_credential", "smtp_port"]}
+                  label={t("agent.mailSmtpPort")}
+                >
+                  <InputNumber min={1} max={65535} placeholder="465" />
+                </Form.Item>
+              </>
+            )}
             <Form.Item
               name={["mail_credential", "auth_code"]}
               label={
@@ -373,10 +433,12 @@ export function AgentModal({
               >
                 <Select
                   placeholder={t("agent.mailProviderPlaceholder")}
-                  options={MAIL_PROVIDER_OPTIONS.map(({ value, labelKey }) => ({
-                    value,
-                    label: t(labelKey),
-                  }))}
+                  options={MAIL_DEDICATED_PROVIDER_OPTIONS.map(
+                    ({ value, labelKey }) => ({
+                      value,
+                      label: t(labelKey),
+                    }),
+                  )}
                 />
               </Form.Item>
             )}
