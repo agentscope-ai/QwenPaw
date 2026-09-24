@@ -432,22 +432,44 @@ class DriverManager:
             (request_context or {}).get(DRIVER_SCOPE_CONTEXT_KEY) or "",
         )
         handlers = self._iter_handlers(protocol, scope_id=scope_id)
-        capabilities: list[DriverCapability] = []
-        for handler in handlers:
-            try:
-                handler_capabilities = await handler.list_capabilities(
+        handlers = list(handlers)
+        tasks = [
+            asyncio.create_task(
+                handler.list_capabilities(
                     request_context=request_context,
-                )
-            except Exception as exc:
+                ),
+                name=f"driver-capabilities:{handler.name}",
+            )
+            for handler in handlers
+        ]
+        try:
+            capability_groups = await asyncio.gather(
+                *tasks,
+                return_exceptions=True,
+            )
+        except BaseException:
+            for task in tasks:
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+            raise
+        capabilities: list[DriverCapability] = []
+        for handler, group in zip(handlers, capability_groups):
+            if isinstance(group, BaseException) and not isinstance(
+                group,
+                Exception,
+            ):
+                raise group
+            if isinstance(group, Exception):
                 # Keep healthy Drivers available during partial failures.
                 logger.warning(
                     "Failed to list capabilities for Driver '%s': %s",
                     handler.name,
-                    exc,
-                    exc_info=True,
+                    group,
+                    exc_info=group,
                 )
                 continue
-            for capability in handler_capabilities:
+            for capability in group:
                 if kind is None or capability.kind == kind:
                     capabilities.append(capability)
         return sorted(capabilities, key=lambda item: item.capability_id)
