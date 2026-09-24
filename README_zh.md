@@ -405,7 +405,7 @@ QwenPaw 内置五层核心安全防护：
 | [控制台](https://qwenpaw.agentscope.io/docs/console)                 | Web 界面：对话与智能体配置                       |
 | [终端界面（TUI）](https://qwenpaw.agentscope.io/docs/tui)            | 终端全屏对话，与控制台共用同一智能体             |
 | [桌面应用](https://qwenpaw.agentscope.io/docs/desktop)               | 桌面应用安装与使用                               |
-| [模型](https://qwenpaw.agentscope.io/docs/models)                    | 配置云端、本地与自定义提供商                     |
+| [模型](https://qwenpaw.agentscope.io/docs/models)                    | 配置提供商、模型切换与媒体错误恢复                     |
 | [频道配置](https://qwenpaw.agentscope.io/docs/channels)              | 钉钉、飞书、QQ、Discord、iMessage 等             |
 | [Skills](https://qwenpaw.agentscope.io/docs/skills)                  | 扩展与自定义能力                                 |
 | [插件系统](https://qwenpaw.agentscope.io/docs/plugins)               | 插件体系与 Plugin Market                         |
