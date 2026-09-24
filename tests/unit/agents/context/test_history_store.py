@@ -87,20 +87,22 @@ def test_created_at_index_migrates_existing_populated_store(
         migrated.close()
 
 
+@pytest.mark.parametrize("probe", ["_run_integrity_check", "_check_fts"])
 def test_integrity_check_runs_once_per_process_for_same_file(
     tmp_path: Path,
     monkeypatch,
+    probe,
 ):
     db_path = tmp_path / "history.db"
     calls = 0
-    original = HistoryStore._run_integrity_check
+    original = getattr(HistoryStore, probe)
 
     def tracked(store):
         nonlocal calls
         calls += 1
         return original(store)
 
-    monkeypatch.setattr(HistoryStore, "_run_integrity_check", tracked)
+    monkeypatch.setattr(HistoryStore, probe, tracked)
 
     first = HistoryStore(db_path)
     first.close()
@@ -110,9 +112,53 @@ def test_integrity_check_runs_once_per_process_for_same_file(
     assert calls == 1
 
 
+@pytest.mark.asyncio
+async def test_cached_open_does_not_lock_out_other_session(
+    tmp_path,
+    monkeypatch,
+):
+    path = tmp_path / "history.db"
+    writer = HistoryStore(path)  # Warm both probe caches.
+    writer._conn.execute("PRAGMA busy_timeout=0")
+    ready = threading.Event()
+    release = threading.Event()
+    original = HistoryStore._check_fts
+
+    def check(store):
+        original(store)
+        # A regression that reruns the probe pauses inside its write
+        # transaction, making a competing append fail without timing asserts.
+        ready.set()
+        assert release.wait(timeout=5)
+
+    def open_store():
+        opened = HistoryStore(path)
+        try:
+            ready.set()
+            assert release.wait(timeout=5)
+        finally:
+            opened.close()
+
+    monkeypatch.setattr(HistoryStore, "_check_fts", check)
+    try:
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            future = pool.submit(open_store)
+            try:
+                assert await asyncio.to_thread(ready.wait, 5)
+                writer.append(session_id="other", entry=_entry("zebra"))
+                assert writer.count("other") == 1
+            finally:
+                release.set()
+                future.result(timeout=5)
+    finally:
+        writer.close()
+
+
+@pytest.mark.parametrize("probe", ["_run_integrity_check", "_check_fts"])
 def test_integrity_check_is_single_flight_for_concurrent_openers(
     tmp_path: Path,
     monkeypatch,
+    probe,
 ):
     db_path = tmp_path / "history.db"
     calls = 0
@@ -120,7 +166,7 @@ def test_integrity_check_is_single_flight_for_concurrent_openers(
     barrier = threading.Barrier(8)
     probe_started = threading.Event()
     release_probe = threading.Event()
-    original = HistoryStore._run_integrity_check
+    original = getattr(HistoryStore, probe)
 
     def tracked(store):
         nonlocal calls
@@ -135,7 +181,7 @@ def test_integrity_check_is_single_flight_for_concurrent_openers(
         history = HistoryStore(db_path)
         history.close()
 
-    monkeypatch.setattr(HistoryStore, "_run_integrity_check", tracked)
+    monkeypatch.setattr(HistoryStore, probe, tracked)
     with ThreadPoolExecutor(max_workers=8) as pool:
         futures = [pool.submit(open_store) for _ in range(8)]
         assert probe_started.wait(timeout=5)
@@ -146,21 +192,23 @@ def test_integrity_check_is_single_flight_for_concurrent_openers(
     assert calls == 1
 
 
+@pytest.mark.parametrize("probe", ["_run_integrity_check", "_check_fts"])
 def test_integrity_check_repeats_when_database_file_is_replaced(
     tmp_path: Path,
     monkeypatch,
+    probe,
 ):
     db_path = tmp_path / "history.db"
     replacement_path = tmp_path / "replacement.db"
     calls = 0
-    original = HistoryStore._run_integrity_check
+    original = getattr(HistoryStore, probe)
 
     def tracked(store):
         nonlocal calls
         calls += 1
         return original(store)
 
-    monkeypatch.setattr(HistoryStore, "_run_integrity_check", tracked)
+    monkeypatch.setattr(HistoryStore, probe, tracked)
     first = HistoryStore(db_path)
     first.close()
 
@@ -556,12 +604,17 @@ def test_init_fts_degrades_and_warns_without_fts5(tmp_path: Path, caplog):
 
 
 def test_note_write_failure_sets_degraded(store: HistoryStore):
+    key = (os.getpid(), store.path.resolve())
     assert store.degraded is False
     store.note_write_failure(sqlite3.OperationalError("disk full"))
     assert store.degraded is True
     assert store.write_failures == 1
-    store.note_write_failure(OSError("still bad"))
+    assert key in HistoryStore._fts_probe_checked
+    corruption = sqlite3.DatabaseError("index is corrupt")
+    corruption.sqlite_errorcode = sqlite3.SQLITE_CORRUPT_VTAB
+    store.note_write_failure(corruption)
     assert store.write_failures == 2  # counted, stays degraded
+    assert key not in HistoryStore._fts_probe_checked
 
 
 def test_append_works_from_a_worker_thread(store: HistoryStore):
@@ -671,6 +724,7 @@ def test_cache_hit_replacement_is_checked_before_constructor_returns(
     assert checks == expected_checks
 
 
+@pytest.mark.skipif(os.name != "posix", reason="Requires replacing an open DB")
 @pytest.mark.parametrize("replace_during", ["check", "schema"])
 def test_replacement_during_open_is_not_cached(
     tmp_path,
@@ -926,6 +980,8 @@ def test_fts_repair_preserves_history_and_exclusions(
         if reopen:
             _damage_fts(store)
             store.close()
+            # A new process has no successful FTS probe cached.
+            monkeypatch.setattr(HistoryStore, "_fts_probe_checked", {})
             if reopen == "fts_only":
                 # Emulate builds/damage where quick_check misses FTS damage.
                 original_connect = sqlite3.connect
@@ -1038,6 +1094,7 @@ def test_startup_failed_fts_repair_preserves_file(tmp_path, monkeypatch):
     store.append(session_id="s", entry=_entry("aardvark"))
     _damage_fts(store)
     store.close()
+    monkeypatch.setattr(HistoryStore, "_fts_probe_checked", {})
 
     def rebuild(self):
         raise sqlite3.OperationalError("disk full")
@@ -1096,6 +1153,7 @@ def test_startup_fts_check_defers_while_wal_writer_is_active(
     initial = HistoryStore(path)
     initial.append(session_id="s", entry=_entry("aardvark"))
     initial.close()
+    monkeypatch.setattr(HistoryStore, "_fts_probe_checked", {})
     original_check = HistoryStore._check_fts
     attempts = []
 
@@ -1137,6 +1195,9 @@ def test_startup_fts_check_defers_while_wal_writer_is_active(
         assert reopened.count("s") == 2
     finally:
         reopened.close()
+    # Once the deferred check succeeds, later opens must not repeat it.
+    HistoryStore(path).close()
+    assert attempts == [sqlite3.SQLITE_BUSY, "ok"]
     assert not list(tmp_path.glob("*.corrupt-*"))
 
 
@@ -1158,6 +1219,7 @@ def test_startup_fts_defers_only_contention(
 ):
     path = tmp_path / "history.db"
     HistoryStore(path).close()
+    monkeypatch.setattr(HistoryStore, "_fts_probe_checked", {})
 
     def check(store):
         error = sqlite3.OperationalError("synthetic FTS check error")
