@@ -7,6 +7,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { forwardRef, useImperativeHandle, useEffect } from "react";
 import { screen, waitFor, act, fireEvent } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { useNavigate } from "react-router-dom";
 import { renderWithProviders } from "@/test/common_setup";
 import { useMessageQueueStore } from "@/stores/messageQueueStore";
@@ -279,7 +280,24 @@ vi.mock("./ModelSelector", () => ({
 }));
 
 vi.mock("./components/ChatActionGroup", () => ({
-  default: () => <div data-testid="action-group" />,
+  default: ({
+    onToggleAutoScroll,
+    scrollLocked,
+  }: {
+    onToggleAutoScroll?: () => void;
+    scrollLocked?: boolean;
+  }) => (
+    <div data-testid="action-group">
+      {onToggleAutoScroll ? (
+        <button
+          aria-pressed={scrollLocked}
+          data-testid="auto-scroll-toggle"
+          onClick={onToggleAutoScroll}
+          type="button"
+        />
+      ) : null}
+    </div>
+  ),
 }));
 
 vi.mock("./components/ChatHeaderTitle", () => ({
@@ -742,6 +760,35 @@ describe("ChatPage coverage", () => {
     expect(screen.queryByTestId("model-selector")).not.toBeInTheDocument();
     expect(screen.getByTestId("action-group")).toBeInTheDocument();
     expect(screen.getByTestId("header-title")).toBeInTheDocument();
+  });
+
+  it("lets users lock streaming auto-scroll from the chat header", async () => {
+    const user = userEvent.setup();
+
+    renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/test-session"],
+    });
+    await screen.findByTestId("chat-ui");
+
+    expect(capturedOptions.theme.bubbleList.autoScroll.enabled).toBe(true);
+
+    await user.click(screen.getByTestId("auto-scroll-toggle"));
+
+    await waitFor(() => {
+      expect(capturedOptions.theme.bubbleList.autoScroll.enabled).toBe(false);
+    });
+    expect(localStorage.getItem("qwenpaw_chat_scroll_locked")).toBe("true");
+  });
+
+  it("restores the persisted streaming auto-scroll lock preference", async () => {
+    localStorage.setItem("qwenpaw_chat_scroll_locked", "true");
+
+    renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/test-session"],
+    });
+    await screen.findByTestId("chat-ui");
+
+    expect(capturedOptions.theme.bubbleList.autoScroll.enabled).toBe(false);
   });
 
   it("invokes customFetch via captured options", async () => {

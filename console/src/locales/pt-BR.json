@@ -3204,6 +3204,12 @@
       "stepsFailed": "Falhou · {{count}} etapas",
       "stepsCompleted": "{{count}} etapas concluídas"
     },
+    "lockScrollTooltip": "Bloquear rolagem automática",
+    "followScrollTooltip": "Seguir mensagem mais recente",
+    "allChats": "Todos Chats",
+    "createNewChat": "Criar Novo Chat",
+    "pinDrawer": "Fixar",
+    "unpinDrawer": "Desafixar",
     "statusIdle": "Idle",
     "statusInProgress": "In progress",
     "disclaimer": "Works for you, grows with you",
