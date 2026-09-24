@@ -979,16 +979,35 @@ class LangfuseToolSpanMiddleware(MiddlewareBase):
             metadata={"tool_call_id": getattr(tool_call, "id", None)},
         ) as observation:
             final_response = None
-            async for event in next_handler():
-                if isinstance(event, ToolResponse):
-                    final_response = event
-                yield event
-            if observation is not None and final_response is not None:
+            output_recorded = False
+
+            def _record_output(response: ToolResponse) -> None:
+                # 将工具执行结果写入 Langfuse observation 的 output
+                if observation is None:
+                    return
                 observation.update(
                     output={
                         "content": [
                             getattr(b, "text", str(b))
-                            for b in (final_response.content or [])
+                            for b in (response.content or [])
                         ],
                     },
                 )
+
+            try:
+                async for event in next_handler():
+                    if isinstance(event, ToolResponse):
+                        final_response = event
+                        # 必须在 yield 之前、且在 async with 退出之前写入
+                        # output：外层 ToolCoordinator 的 _drain 收到
+                        # ToolResponse 后会立刻 return，不再驱动本生成器，
+                        # yield 之后的代码不会执行
+                        _record_output(event)
+                        output_recorded = True
+                    yield event
+            finally:
+                # 兜底：生成器被提前关闭（GeneratorExit）时也要记录
+                # output；注意必须位于 async with 内部，否则会先执行
+                # observation.end() 再 update，output 仍会丢失
+                if not output_recorded and final_response is not None:
+                    _record_output(final_response)

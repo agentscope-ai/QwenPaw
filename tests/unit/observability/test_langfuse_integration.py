@@ -36,19 +36,24 @@ class FakeObservation:
         self.id = observation_id
         self.updates: list[dict] = []
         self.ended = False
+        # 记录调用顺序，用于断言 update 必须发生在 end 之前
+        self.calls: list[str] = []
 
     def update(self, **kwargs):
         self.updates.append(kwargs)
+        self.calls.append("update")
         return self
 
     def end(self):
         self.ended = True
+        self.calls.append("end")
         return self
 
 
 class FakeClient:
     def __init__(self, *, trace_id=None, observation_id=None):
         self.started: list[dict] = []
+        self.observations: list[FakeObservation] = []
         self.next_id = 0
         self._trace_id = trace_id
         self._observation_id = observation_id
@@ -56,13 +61,17 @@ class FakeClient:
     def start_observation(self, **kwargs):
         self.started.append(kwargs)
         self.next_id += 1
-        return FakeObservation(f"obs-{self.next_id}")
+        obs = FakeObservation(f"obs-{self.next_id}")
+        self.observations.append(obs)
+        return obs
 
     @contextmanager
     def start_as_current_observation(self, **kwargs):
         self.started.append(kwargs)
         self.next_id += 1
-        yield FakeObservation(f"obs-{self.next_id}")
+        obs = FakeObservation(f"obs-{self.next_id}")
+        self.observations.append(obs)
+        yield obs
 
     def get_current_observation_id(self):
         return self._observation_id or f"obs-{self.next_id}"
@@ -358,6 +367,110 @@ class TestLangfuseToolSpanMiddleware:
         assert len(client.started) == 1
         assert client.started[0]["name"] == "tool.execute_shell"
         assert client.started[0]["as_type"] == "tool"
+
+    async def test_records_output_on_normal_drain(self, monkeypatch):
+        """Output is recorded exactly once when the consumer fully drains."""
+        from agentscope.message import TextBlock
+        from agentscope.tool import ToolResponse
+
+        from qwenpaw.agents.middlewares import LangfuseToolSpanMiddleware
+
+        client = FakeClient()
+        monkeypatch.setattr(lf, "is_langfuse_enabled", lambda: True)
+        monkeypatch.setattr(lf, "_langfuse_client", lambda: client)
+
+        lf.set_current_trace(
+            trace_id="trace-1",
+            parent_observation_id="root-obs",
+            name="agent.react_loop",
+            metadata={"session_id": "s1"},
+        )
+
+        tool_response = ToolResponse(
+            content=[TextBlock(type="text", text="result data")],
+            id="tc-1",
+        )
+
+        async def fake_next_handler():
+            yield tool_response
+
+        mw = LangfuseToolSpanMiddleware()
+        agent = SimpleNamespace()
+        input_kwargs = {
+            "tool_call": SimpleNamespace(name="t", input={}, id="tc-1"),
+        }
+
+        async for _ in mw.on_acting(
+            agent,
+            input_kwargs,
+            fake_next_handler,
+        ):
+            pass
+
+        obs = client.observations[0]
+        output_updates = [u for u in obs.updates if "output" in u]
+        assert len(output_updates) == 1
+        assert output_updates[0]["output"] == {"content": ["result data"]}
+        # update 必须发生在 end 之前，否则真实 SDK 可能丢弃 output
+        assert obs.calls == ["update", "end"]
+
+    async def test_records_output_when_consumer_stops_at_tool_response(
+        self,
+        monkeypatch,
+    ):
+        """Regression: output survives a consumer that stops early.
+
+        ``ToolCoordinatorMiddleware._drain`` returns as soon as it receives
+        the final ``ToolResponse``, so the middleware generator is never
+        resumed after its ``yield``. The output must therefore be written
+        before the yield (or in the ``finally`` on close), not after the
+        ``async for`` loop — otherwise the observation is exported with
+        input but no output.
+        """
+        from agentscope.message import TextBlock
+        from agentscope.tool import ToolResponse
+
+        from qwenpaw.agents.middlewares import LangfuseToolSpanMiddleware
+
+        client = FakeClient()
+        monkeypatch.setattr(lf, "is_langfuse_enabled", lambda: True)
+        monkeypatch.setattr(lf, "_langfuse_client", lambda: client)
+
+        lf.set_current_trace(
+            trace_id="trace-1",
+            parent_observation_id="root-obs",
+            name="agent.react_loop",
+            metadata={"session_id": "s1"},
+        )
+
+        tool_response = ToolResponse(
+            content=[TextBlock(type="text", text="result data")],
+            id="tc-1",
+        )
+
+        async def fake_next_handler():
+            yield tool_response
+
+        mw = LangfuseToolSpanMiddleware()
+        agent = SimpleNamespace()
+        input_kwargs = {
+            "tool_call": SimpleNamespace(name="t", input={}, id="tc-1"),
+        }
+
+        gen = mw.on_acting(agent, input_kwargs, fake_next_handler)
+        # 模拟 _drain：收到 ToolResponse 后立刻停止消费
+        async for event in gen:
+            if isinstance(event, ToolResponse):
+                break
+        # 模拟生成器随后被回收（GeneratorExit）
+        await gen.aclose()
+
+        obs = client.observations[0]
+        output_updates = [u for u in obs.updates if "output" in u]
+        assert len(output_updates) == 1
+        assert output_updates[0]["output"] == {"content": ["result data"]}
+        # update 必须发生在 end 之前，否则真实 SDK 可能丢弃 output
+        assert obs.calls == ["update", "end"]
 
 
 # ===========================================================================
