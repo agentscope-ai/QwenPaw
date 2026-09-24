@@ -255,10 +255,21 @@ Agent Configuration.
 
 On first initialization, the PawApp seeds empty DataBridge fields from the
 environment and can obtain a compatible model default from QwenPaw. After
-configuration is saved, the generated app `.env` is authoritative for its
-managed keys: inherited shell or QwenPaw environment values do not override
-saved values, and clearing a managed field removes its previous environment
-override. Unrelated environment keys remain unchanged.
+configuration is saved, `config.json` is authoritative for the generated
+runtime files and each managed child's environment. Inherited shell or
+QwenPaw values do not override saved settings, and clearing a managed field
+removes its previous environment override on the next start. Saving settings,
+reusing a host model, and starting either sidecar do not modify the QwenPaw
+process environment. Environment defaults are imported only on first setup;
+they cannot restore a credential cleared from saved settings.
+
+Managed children inherit OS basics plus the exact runtime variable names
+declared by each service in [`backend/main.py`](backend/main.py). Network
+proxy/certificate settings are declared for both; Context-specific storage,
+pipeline and embedding settings belong to Context, while Engine runtime and
+Docker settings belong to Engine. Other global variables are not passed
+through automatically. Additional integrations must declare the variables
+they need; the global QwenPaw environment store itself is unchanged.
 
 Edit saved values through **DataBridge Configuration**; manual edits to the
 generated app `.env` are replaced on the next save or managed service start.
@@ -304,10 +315,10 @@ Missing host configuration is reported through the PawApp SDK as a structured
 service-unavailable error. QwenPaw-Data turns `MODEL_NOT_CONFIGURED` into an
 actionable UI message instead of displaying a generic HTTP 500.
 
-The app also opts into the generic `qwenpaw_data_dependency_status` and
-`qwenpaw_data_dependency_action` tools. The agent can inspect the same control plane
-as the UI and request only pre-registered actions; the host remains responsible
-for tool governance and audit.
+The app also opts into App-private dependency status and lifecycle tools. They
+let the QwenPaw-Data agent inspect the same control plane as the UI and request
+only pre-registered actions; they are not exported to Main Chat. The Host
+remains responsible for capability governance and audit.
 
 ### Local infrastructure quick reference
 

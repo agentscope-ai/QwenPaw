@@ -733,12 +733,25 @@ class ProjectExecutionStore:
             self._assert_task_identity(record, project_id, task_id)
             return record
 
-    def list_tasks(self, project_id: str) -> list[TaskRecord]:
+    def list_tasks(
+        self,
+        project_id: str,
+        *,
+        _lifecycle_lock_held: bool = False,
+    ) -> list[TaskRecord]:
         """Return every durable Task head for one Project, newest first."""
 
         project_id = self._safe(project_id, "project_id")
         self._require_project(project_id)
-        with self._project_lock_read(project_id):
+        lock = (
+            self._project_lock(
+                project_id,
+                _lifecycle_lock_held=True,
+            )
+            if _lifecycle_lock_held
+            else self._project_lock_read(project_id)
+        )
+        with lock:
             root = self._runtime_root(project_id) / "tasks"
             if not root.exists():
                 return []

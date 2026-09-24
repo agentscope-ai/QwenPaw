@@ -330,7 +330,8 @@
     },
     "pages": {
       "general": "Chung",
-      "navigation": "Thanh bên"
+      "navigation": "Thanh bên",
+      "appAccess": "Quyền truy cập ứng dụng"
     },
     "descriptions": {
       "general": "Ngôn ngữ, giao diện và hành vi ứng dụng",
@@ -352,8 +353,19 @@
       "tokenUsage": "Thống kê và xu hướng sử dụng",
       "backups": "Xuất, khôi phục và di chuyển dữ liệu",
       "debug": "Nhật ký và chẩn đoán",
-      "extension": "Cài đặt do tiện ích mở rộng cung cấp"
+      "extension": "Cài đặt do tiện ích mở rộng cung cấp",
+      "appAccess": "Kiểm soát các thao tác ứng dụng mà tác tử có thể chạy"
     },
+    "appAccessDescription": "Chọn các thao tác ứng dụng đã đăng ký mà tác tử hiện tại có thể chạy.",
+    "appAccessGranted": "Đã bật thao tác ứng dụng",
+    "appAccessRevoked": "Đã tắt thao tác ứng dụng",
+    "appAccessSaveFailed": "Không thể lưu quyền truy cập",
+    "appAccessLoadFailed": "Không thể tải quyền truy cập ứng dụng",
+    "appAccessEmpty": "Không có thao tác ứng dụng đang hoạt động.",
+    "appAccessChanged": "Xem lại thao tác đã thay đổi",
+    "appAccessLimits": "Giới hạn đầu vào chính xác",
+    "appAccessLimitsHint": "Để trống tất cả các trường để cho phép mọi đầu vào hợp lệ.",
+    "appAccessAnyValue": "Giá trị bất kỳ",
     "appearanceAndLanguage": "Giao diện và ngôn ngữ",
     "desktopApplication": "Ứng dụng máy tính",
     "languageHint": "Thay đổi ngôn ngữ giao diện trên thiết bị này.",
@@ -2097,7 +2109,12 @@
     "cloneUrl": "URL Git Repository",
     "cloneUrlPlaceholder": "https://github.com/user/repo.git",
     "cloneName": "Tên dự án (tùy chọn)",
+    "openDirDesc": "Mở thư mục cục bộ hiện có — không sao chép tệp",
+    "openDirBtn": "Mở Thư Mục Này",
+    "openDirLoading": "Đang tải...",
     "openDirEmpty": "Không có thư mục con",
+    "openDirHome": "Trang chủ",
+    "openDirRefresh": "Làm mới",
     "openDirHiddenFolders": "Thư mục ẩn"
   },
   "files": {

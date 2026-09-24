@@ -1,0 +1,416 @@
+.body {
+  border: 1px solid var(--app-border);
+  border-radius: 10px;
+  padding: 12px;
+  margin: 8px 0;
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  color: var(--app-text);
+  font-size: 13px;
+
+  p {
+    margin: 0;
+    color: var(--app-text-secondary);
+  }
+  a {
+    color: var(--app-accent);
+  }
+}
+
+.header {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.statusPrompt {
+  align-items: center;
+  background: var(--app-surface);
+  border: 1px solid var(--app-border);
+  border-radius: 10px;
+  color: var(--app-text-secondary);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: space-between;
+  margin: 8px 0;
+  min-width: 0;
+  padding: 10px 12px;
+
+  > span {
+    flex: 1 1 220px;
+  }
+
+  > small {
+    color: var(--app-error);
+    flex-basis: 100%;
+  }
+}
+
+.status {
+  font-weight: 600;
+  &[data-status="running"],
+  &[data-status="pending"],
+  &[data-status="recovering"] {
+    color: var(--app-accent);
+  }
+  &[data-status="failed"],
+  &[data-status="interrupted"] {
+    color: var(--app-error);
+  }
+}
+
+.experience {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.steps {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(auto-fit, minmax(90px, 1fr));
+  list-style: none;
+  margin: 0;
+  padding: 0;
+
+  li {
+    align-items: center;
+    color: var(--app-text-secondary);
+    display: flex;
+    font-size: 12px;
+    gap: 6px;
+    min-width: 0;
+    position: relative;
+
+    &::before {
+      background: var(--app-border);
+      content: "";
+      height: 2px;
+      left: 0;
+      position: absolute;
+      right: 0;
+      top: -5px;
+    }
+
+    &[data-status="complete"]::before {
+      background: #62a58c;
+    }
+
+    &[data-status="running"]::before,
+    &[data-status="waiting"]::before {
+      background: var(--app-accent);
+    }
+
+    &[data-status="failed"]::before {
+      background: var(--app-error);
+    }
+
+    &[aria-current="step"] {
+      color: var(--app-text);
+      font-weight: 600;
+    }
+  }
+}
+
+.stepMarker {
+  align-items: center;
+  background: var(--app-surface);
+  border: 1px solid var(--app-border);
+  border-radius: 50%;
+  display: inline-flex;
+  flex: 0 0 20px;
+  font-size: 10px;
+  height: 20px;
+  justify-content: center;
+}
+
+.contextItems {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+
+  div {
+    align-items: center;
+    background: var(--app-surface);
+    border: 1px solid var(--app-border);
+    border-radius: 999px;
+    display: flex;
+    gap: 4px;
+    max-width: 100%;
+    padding: 4px 8px;
+  }
+
+  dt,
+  dd {
+    margin: 0;
+    overflow-wrap: anywhere;
+  }
+
+  dt {
+    color: var(--app-text-secondary);
+  }
+}
+
+.actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.refresh {
+  border: 0;
+  background: transparent;
+  color: var(--app-accent);
+  cursor: pointer;
+  font: inherit;
+  text-decoration: underline;
+}
+
+.openApp {
+  align-items: center;
+  background: var(--app-accent);
+  border: 1px solid var(--app-accent);
+  border-radius: 8px;
+  color: var(--app-text-inverse, #fff);
+  cursor: pointer;
+  display: inline-flex;
+  font: inherit;
+  font-weight: 600;
+  gap: 6px;
+  line-height: 1.2;
+  padding: 7px 11px;
+  transition:
+    background 120ms ease,
+    border-color 120ms ease,
+    transform 120ms ease;
+
+  &:hover:not(:disabled) {
+    background: var(--app-accent-hover, var(--app-accent));
+    border-color: var(--app-accent-hover, var(--app-accent));
+  }
+
+  &:active:not(:disabled) {
+    transform: translateY(1px);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--app-accent);
+    outline-offset: 2px;
+  }
+
+  &:disabled {
+    cursor: wait;
+    opacity: 0.6;
+  }
+}
+
+.secondaryAction {
+  background: var(--app-surface);
+  border: 1px solid var(--app-border);
+  border-radius: 8px;
+  color: var(--app-text);
+  cursor: pointer;
+  font: inherit;
+  padding: 7px 11px;
+
+  &:hover:not(:disabled) {
+    border-color: var(--app-accent);
+    color: var(--app-accent);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--app-accent);
+    outline-offset: 2px;
+  }
+
+  &:disabled {
+    cursor: wait;
+    opacity: 0.6;
+  }
+}
+
+.inputRequest {
+  display: grid;
+  gap: 10px;
+
+  fieldset {
+    border: 1px solid var(--app-border);
+    border-radius: 8px;
+    display: grid;
+    gap: 8px;
+    margin: 0;
+    min-width: 0;
+    padding: 10px;
+  }
+
+  legend {
+    font-weight: 600;
+    padding: 0 4px;
+  }
+
+  > button {
+    border: 0;
+    border-radius: 6px;
+    background: var(--app-accent);
+    color: #fff;
+    cursor: pointer;
+    font: inherit;
+    justify-self: start;
+    padding: 6px 12px;
+
+    &:disabled {
+      cursor: wait;
+      opacity: 0.6;
+    }
+  }
+}
+
+.answerOptions {
+  display: grid;
+  gap: 6px;
+
+  label {
+    align-items: flex-start;
+    cursor: pointer;
+    display: flex;
+    gap: 8px;
+  }
+
+  span {
+    display: grid;
+    gap: 2px;
+  }
+
+  small {
+    color: var(--app-text-secondary);
+  }
+}
+
+.customAnswer {
+  display: grid;
+  gap: 4px;
+
+  input {
+    border: 1px solid var(--app-border);
+    border-radius: 6px;
+    color: var(--app-text);
+    font: inherit;
+    padding: 6px 8px;
+  }
+}
+
+.resultLabel {
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+.result {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 320px;
+  overflow: auto;
+  margin: 0;
+  font: inherit;
+}
+.artifacts {
+  display: grid;
+  gap: 6px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+
+  li {
+    display: grid;
+    gap: 8px;
+    min-width: 0;
+    border: 1px solid var(--app-border);
+    border-radius: 8px;
+    padding: 8px;
+  }
+
+  a {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  span {
+    color: var(--app-text-secondary);
+    font-size: 11px;
+  }
+}
+.artifactHeader,
+.artifactActions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+.artifactHeader strong {
+  overflow-wrap: anywhere;
+}
+.primaryBadge {
+  background: color-mix(in srgb, var(--app-accent) 12%, transparent);
+  border-radius: 999px;
+  color: var(--app-accent);
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 600;
+  margin-left: 6px;
+  padding: 2px 6px;
+  vertical-align: 1px;
+}
+.artifactActions {
+  justify-content: flex-start;
+
+  button {
+    border: 0;
+    background: transparent;
+    color: var(--app-accent);
+    cursor: pointer;
+    font: inherit;
+    padding: 0;
+    text-decoration: underline;
+  }
+}
+.reportPreview {
+  width: 100%;
+  min-height: 280px;
+  border: 1px solid var(--app-border);
+  border-radius: 6px;
+  background: #fff;
+}
+.textPreview {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 320px;
+  overflow: auto;
+  margin: 0;
+  font: inherit;
+}
+.identifier {
+  overflow-wrap: anywhere;
+  color: var(--app-text-secondary);
+  font-size: 11px;
+}
+
+.details {
+  color: var(--app-text-secondary);
+  font-size: 11px;
+
+  summary {
+    cursor: pointer;
+    width: fit-content;
+  }
+
+  .identifier {
+    display: block;
+    margin-top: 4px;
+  }
+}

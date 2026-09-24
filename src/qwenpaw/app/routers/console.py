@@ -495,6 +495,9 @@ async def post_console_chat(
         # ContextVarsSetupHook (from the chat meta persisted above);
         # the router no longer pre-resolves or injects them.
 
+        from ...pawapp.tasks.agent_tools import bind_task_tools
+
+        await bind_task_tools(request, workspace, chat, native_payload)
         queue, is_new_run = await tracker.attach_or_start(
             chat.id,
             native_payload,

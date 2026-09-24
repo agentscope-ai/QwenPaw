@@ -130,6 +130,21 @@ class _CountingProvider:
         return {"content": _PNG, "media_type": "image/png"}
 
 
+class _BlockingProvider:
+    model_name = "qwen-image-2.0-pro"
+
+    def __init__(self) -> None:
+        self.calls = 0
+        self.started = asyncio.Event()
+        self.release = asyncio.Event()
+
+    async def generate(self, **_kwargs):
+        self.calls += 1
+        self.started.set()
+        await self.release.wait()
+        return {"content": _PNG, "media_type": "image/png"}
+
+
 def _services(tmp_path, monkeypatch) -> CreatorFileServices:
     return r2v_project_services(
         tmp_path,
@@ -257,6 +272,57 @@ def test_transient_failure_reopens_a_retry_slot(tmp_path, monkeypatch):
     # The identical retry must run again instead of hitting the wall.
     result = _execute(services, _CountingProvider())
     assert result.replayed is False and result.artifact_version_id
+
+
+def test_dispatch_returns_after_durable_admission_and_replays_once(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    async def scenario() -> None:
+        services = _services(tmp_path, monkeypatch)
+        provider = _BlockingProvider()
+        worker = FileImageExecutionService(services, provider=provider)
+        arguments = {}
+
+        first = await worker.dispatch(
+            project_id=PROJECT_ID,
+            command="GENERATE_STORYBOARD_IMAGE",
+            target_ref=f"element:{ELEMENT_ID}",
+            arguments=arguments,
+            idempotency_key="detached-storyboard-key",
+        )
+        await provider.started.wait()
+        second = await worker.dispatch(
+            project_id=PROJECT_ID,
+            command="GENERATE_STORYBOARD_IMAGE",
+            target_ref=f"element:{ELEMENT_ID}",
+            arguments=arguments,
+            idempotency_key="detached-storyboard-key",
+        )
+
+        assert first.task_id == second.task_id
+        assert first.replayed is False
+        assert second.replayed is True
+        assert provider.calls == 1
+        assert (
+            worker.executions.get_task(
+                PROJECT_ID,
+                first.task_id,
+            ).status.value
+            == "RUNNING"
+        )
+
+        provider.release.set()
+        await worker.drain_dispatch_jobs()
+        assert (
+            worker.executions.get_task(
+                PROJECT_ID,
+                first.task_id,
+            ).status.value
+            == "SUCCEEDED"
+        )
+
+    asyncio.run(scenario())
 
 
 def test_unclaimed_running_task_recovers_into_a_retry_slot(

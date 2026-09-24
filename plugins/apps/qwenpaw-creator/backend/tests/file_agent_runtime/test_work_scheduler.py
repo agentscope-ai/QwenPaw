@@ -424,6 +424,42 @@ def test_dispatched_idempotency_key_is_a_safe_runtime_segment(
     )
 
 
+def test_ledger_fingerprint_reopens_only_for_the_nodes_model_family():
+    """Switching the node's provider model must mint a new ledger identity."""
+    image_node = SimpleNamespace(
+        node_id="visual:char:a:var:0",
+        kind="visual",
+        dispatch_fingerprint="a1b2c3d4e5f60718",
+    )
+    video_node = SimpleNamespace(
+        node_id="video:shot:0",
+        kind="video",
+        dispatch_fingerprint="b2c3d4e5f60718a1",
+    )
+
+    def fingerprint_for(node, image_model: str, video_model: str) -> str:
+        with pytest.MonkeyPatch.context() as patch:
+            patch.setattr(
+                work_scheduler,
+                "get_image_model_name",
+                lambda: image_model,
+            )
+            patch.setattr(
+                work_scheduler,
+                "get_video_model_name",
+                lambda: video_model,
+            )
+            return WorkGraphScheduler._ledger_fingerprint(node)
+
+    image_baseline = fingerprint_for(image_node, "image-a", "video-a")
+    assert image_baseline != fingerprint_for(image_node, "image-b", "video-a")
+    assert image_baseline == fingerprint_for(image_node, "image-a", "video-b")
+
+    video_baseline = fingerprint_for(video_node, "image-a", "video-a")
+    assert video_baseline == fingerprint_for(video_node, "image-b", "video-a")
+    assert video_baseline != fingerprint_for(video_node, "image-a", "video-b")
+
+
 def test_quarantined_stale_result_reopens_dispatch(tmp_path, monkeypatch):
     """Field run 2026-08-07: the first commit of a four-wide storyboard
     wave staled the other three; their tasks went QUARANTINED (invisible
@@ -792,17 +828,19 @@ def test_deterministic_failure_unlocks_when_inputs_change(
 
 
 @pytest.mark.parametrize(
-    "model_getter",
-    ["get_image_model_name", "get_video_model_name"],
+    ("model_getter", "expected_calls"),
+    [
+        ("get_image_model_name", 2),
+        ("get_video_model_name", 1),
+    ],
 )
 def test_deterministic_failure_unlocks_when_media_model_changes(
     tmp_path,
     monkeypatch,
     model_getter,
+    expected_calls,
 ):
-    """Switching the configured media model is an input change too: a
-    reference-budget rejection under a small-budget model must not keep
-    the node locked after the operator configures a roomier model."""
+    """Only a model change used by this node reopens its failed ledger."""
     from domain.errors import ValidationError
 
     services = _services(tmp_path, monkeypatch, ready_variants=1)
@@ -834,8 +872,8 @@ def test_deterministic_failure_unlocks_when_media_model_changes(
         await scheduler.tick(PROJECT_ID)
         await _drain()
         assert len(calls) == 1
-        # New model → new ledger fingerprint → dispatch reopens without
-        # anyone touching the ledger or the in-memory dispatch record.
+        # A related image-model change reopens this visual node; an unrelated
+        # video-model change leaves its ledger identity locked.
         monkeypatch.setattr(
             work_scheduler,
             model_getter,
@@ -843,7 +881,7 @@ def test_deterministic_failure_unlocks_when_media_model_changes(
         )
         await scheduler.tick(PROJECT_ID)
         await _drain()
-        assert len(calls) == 2
+        assert len(calls) == expected_calls
         await scheduler.shutdown()
 
     asyncio.run(scenario())

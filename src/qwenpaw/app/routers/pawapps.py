@@ -41,6 +41,8 @@ def _get_apps_dir() -> Path:
 def _build_app_info(
     manifest: Dict[str, Any],
     fallback_id: str = "",
+    *,
+    status: str = "installed",
 ) -> Dict[str, Any]:
     """Build a normalised app-info dict from a manifest."""
     meta = manifest.get("meta", {}) or {}
@@ -60,7 +62,7 @@ def _build_app_info(
             "launch_scope",
             "page",
         ),
-        "status": "installed",
+        "status": status,
         "settings": meta.get("settings", []),
     }
 
@@ -87,7 +89,7 @@ def _get_pawapps_from_registry(
         meta = manifest.get("meta", {})
         if not meta.get("pawapp"):
             continue
-        apps.append(_build_app_info(manifest, plugin_id))
+        apps.append(_build_app_info(manifest, plugin_id, status="active"))
 
     return apps
 
@@ -125,10 +127,17 @@ def _scan_installed_apps_fallback() -> List[Dict[str, Any]]:
 
     apps = []
     for item in apps_dir.iterdir():
-        if not item.is_dir():
+        if not item.is_dir() or item.is_symlink():
             continue
         manifest = _load_plugin_json(item)
         if not manifest:
+            continue
+        try:
+            from ...plugins.architecture import PluginManifest
+
+            PluginManifest.from_dict(manifest)
+        except ValueError as exc:
+            logger.warning("Invalid PawApp manifest in %s: %s", item, exc)
             continue
         meta = manifest.get("meta", {}) or {}
         if not meta.get("pawapp"):
@@ -136,6 +145,15 @@ def _scan_installed_apps_fallback() -> List[Dict[str, Any]]:
         apps.append(_build_app_info(manifest, item.name))
 
     return apps
+
+
+async def _installed_apps(request: Request) -> List[Dict[str, Any]]:
+    """Merge static package metadata with active runtime registrations."""
+    static = await asyncio.to_thread(_scan_installed_apps_fallback)
+    merged = {app["id"]: app for app in static}
+    for app in _get_pawapps_from_registry(request):
+        merged[app["id"]] = app
+    return list(merged.values())
 
 
 # ─── API Endpoints ────────────────────────────────────────────────────
@@ -148,20 +166,14 @@ async def list_pawapps(request: Request) -> Dict[str, Any]:
     Prefers PluginRegistry data; falls back to directory scan when
     the registry is not yet populated (e.g. during early startup).
     """
-    apps = _get_pawapps_from_registry(request)
-    if not apps:
-        # Run blocking directory scan in thread pool
-        apps = await asyncio.to_thread(_scan_installed_apps_fallback)
+    apps = await _installed_apps(request)
     return {"apps": apps, "total": len(apps)}
 
 
 @router.get("/{app_id}")
 async def get_pawapp(app_id: str, request: Request) -> Dict[str, Any]:
     """Get details of a specific PawApp."""
-    apps = _get_pawapps_from_registry(request)
-    if not apps:
-        # Run blocking directory scan in thread pool
-        apps = await asyncio.to_thread(_scan_installed_apps_fallback)
+    apps = await _installed_apps(request)
     for app in apps:
         if app["id"] == app_id:
             registry = getattr(request.app.state, "plugin_registry", None)
@@ -214,6 +226,11 @@ async def uninstall_pawapp(app_id: str, request: Request) -> Dict[str, Any]:
         try:
             # Run blocking directory deletion in thread pool
             await asyncio.to_thread(shutil.rmtree, app_dir)
+            if loader is not None:
+                await asyncio.to_thread(
+                    loader.clear_plugin_activation,
+                    app_id,
+                )
         except Exception as exc:  # noqa: BLE001
             logger.error("Failed to remove PawApp '%s': %s", app_id, exc)
             raise HTTPException(
@@ -228,10 +245,7 @@ async def uninstall_pawapp(app_id: str, request: Request) -> Dict[str, Any]:
 @router.get("/{app_id}/settings")
 async def get_pawapp_settings(app_id: str, request: Request) -> Dict[str, Any]:
     """Get settings schema for a PawApp."""
-    apps = _get_pawapps_from_registry(request)
-    if not apps:
-        # Run blocking directory scan in thread pool
-        apps = await asyncio.to_thread(_scan_installed_apps_fallback)
+    apps = await _installed_apps(request)
     for app in apps:
         if app["id"] == app_id:
             return {"app_id": app_id, "settings": app.get("settings", [])}

@@ -101,7 +101,7 @@ def pin(monkeypatch):
     monkeypatch.setattr(dm, "get_media_review_mode", lambda: "required")
     monkeypatch.setattr(
         dm,
-        "_execution_provider_model",
+        "execution_provider_model",
         lambda *_args, **_kw: ("probe-provider", "probe-model"),
     )
 
@@ -658,6 +658,88 @@ def test_post_approval_prompt_sync_gate_surfaces_diagnostic_fields(
     asyncio.run(scenario())
 
 
+def test_equivalent_approved_execution_rekeys_changed_ledger(
+    tmp_path,
+    monkeypatch,
+):
+    pin(monkeypatch)
+    image_model = {"name": "image-v1-preview"}
+    monkeypatch.setattr(
+        sm,
+        "get_image_model_name",
+        lambda: image_model["name"],
+    )
+
+    async def scenario():
+        services = create(tmp_path)
+        turns = 0
+
+        async def model(_messages, _tools):
+            nonlocal turns
+            turns += 1
+            if turns == 1:
+                return AgentModelTurn(
+                    tool_calls=(
+                        AgentToolCall(
+                            call_id="probe-ledger-change",
+                            name="request_workgraph_execution",
+                            arguments={
+                                "projectId": "probe-project",
+                                "targetRefs": ["asset:hero"],
+                                "kinds": ["visual"],
+                            },
+                        ),
+                    ),
+                )
+            return AgentModelTurn(content="Complete.")
+
+        runtime = FileCreatorAgentRuntime(
+            services,
+            model_client=CallbackAgentChatClient(model),
+            poll_interval_seconds=0.01,
+        )
+        ledger_values = []
+        real_ledger_fingerprint = runtime.work_scheduler._ledger_fingerprint
+
+        def ledger_fingerprint(node):
+            value = real_ledger_fingerprint(node)
+            ledger_values.append((image_model["name"], value))
+            return value
+
+        monkeypatch.setattr(
+            runtime.work_scheduler,
+            "_ledger_fingerprint",
+            ledger_fingerprint,
+        )
+        calls = []
+        dispatched_fingerprints = []
+        fake_dispatch(runtime, calls, dispatched_fingerprints)
+        try:
+            await runtime.start()
+            runtime.notify("probe-project")
+            await wait_for(
+                lambda: len(
+                    runtime.executions.list_execution_authorizations(
+                        "probe-project",
+                    ),
+                )
+                == 1,
+            )
+            authorization = runtime.executions.list_execution_authorizations(
+                "probe-project",
+            )[0]
+            image_model["name"] = "image-v1"
+            approve(runtime, authorization)
+            await wait_for(lambda: len(calls) == 1)
+            await runtime.wait_until_idle("probe-project")
+            assert ledger_values[0][1] != ledger_values[-1][1]
+            assert dispatched_fingerprints == [ledger_values[-1][1]]
+        finally:
+            await runtime.stop()
+
+    asyncio.run(scenario())
+
+
 def approve(runtime, record):
     runtime.executions.decide_execution_authorization(
         "probe-project",
@@ -673,13 +755,23 @@ def approve(runtime, record):
     )
 
 
-def fake_dispatch(runtime, calls, *, release=None, started=None):
+def fake_dispatch(
+    runtime,
+    calls,
+    fingerprints=None,
+    *,
+    release=None,
+    started=None,
+):
     async def dispatch(project_id, node, fingerprint, **kwargs):
         snapshot = runtime.services.projects.read(project_id)
         assert kwargs["expected_object_versions"] == (
             f"project:{snapshot.etag}:work-graph",
         )
+        assert kwargs["related_run_id"].startswith("agent-run-")
         calls.append(node.node_id)
+        if fingerprints is not None:
+            fingerprints.append(fingerprint)
         slot = runtime.work_scheduler._dispatch_slot(fingerprint)
         key = f"dag-{node.node_id}-{slot}"
         task = runtime.executions.create_task(

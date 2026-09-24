@@ -46,6 +46,7 @@ from services.file_agent_runtime.notifications import RuntimeEventKind
 from services.file_agent_runtime.work_graph import (
     dispatch_key_predates_digest_ledger,
     dispatch_ledger_fingerprint,
+    dispatch_model_scope,
     dispatch_slot,
     WorkGraph,
     WorkNode,
@@ -343,11 +344,11 @@ class WorkGraphScheduler:
 
     @staticmethod
     def _ledger_fingerprint(node: WorkNode) -> str:
-        """Ledger identity of one dispatch: node inputs + media models.
+        """Ledger identity of one dispatch: node inputs + its media model.
 
         The graph fingerprint covers the node's own inputs (prompt,
-        references); the configured media models are equally part of what
-        a dispatch means. Without them, switching to a model with a
+        references); the configured model used by that node is equally part
+        of what a dispatch means. Without it, switching to a model with a
         larger reference budget after IMAGE_REFERENCE_BUDGET_EXCEEDED
         left the node deterministically locked forever (same inputs,
         same fingerprint, no unlock path).
@@ -367,7 +368,10 @@ class WorkGraphScheduler:
         # interpolating them.
         fingerprint = dispatch_ledger_fingerprint(
             base,
-            (get_image_model_name(), get_video_model_name()),
+            dispatch_model_scope(
+                node.kind,
+                (get_image_model_name(), get_video_model_name()),
+            ),
         )
         if getattr(node, "regeneration_of", None):
             # Replacing the same obsolete selection replays across ticks and
@@ -1631,6 +1635,7 @@ class WorkGraphScheduler:
         fingerprint: str | None = None,
         *,
         expected_object_versions: Sequence[str] = (),
+        related_run_id: str | None = None,
     ) -> Any:
         """Execute one node through the shared media executors."""
 
@@ -1678,6 +1683,11 @@ class WorkGraphScheduler:
                 if expected_object_versions
                 else {}
             ),
+            **(
+                {"related_run_id": related_run_id}
+                if related_run_id is not None
+                else {}
+            ),
         )
 
 
@@ -1690,6 +1700,7 @@ async def _default_image_dispatch(
     arguments: dict[str, Any],
     idempotency_key: str,
     expected_object_versions: Sequence[str] = (),
+    related_run_id: str | None = None,
 ) -> Any:
     # Imported lazily: media executors pull heavy provider dependencies.
     # pylint: disable=import-outside-toplevel
@@ -1705,6 +1716,7 @@ async def _default_image_dispatch(
         arguments=arguments,
         idempotency_key=idempotency_key,
         expected_object_versions=expected_object_versions,
+        related_run_id=related_run_id,
     )
 
 
@@ -1744,6 +1756,7 @@ async def _default_r2v_dispatch(
     arguments: dict[str, Any],
     idempotency_key: str,
     expected_object_versions: Sequence[str] = (),
+    related_run_id: str | None = None,
 ) -> Any:
     # pylint: disable=import-outside-toplevel
     from services.media_files.r2v_execution import (
@@ -1759,6 +1772,7 @@ async def _default_r2v_dispatch(
         arguments=arguments,
         idempotency_key=idempotency_key,
         expected_object_versions=expected_object_versions,
+        related_run_id=related_run_id,
     )
 
 
@@ -1771,6 +1785,7 @@ async def _default_s2v_dispatch(
     arguments: dict[str, Any],
     idempotency_key: str,
     expected_object_versions: Sequence[str] = (),
+    related_run_id: str | None = None,
 ) -> Any:
     # pylint: disable=import-outside-toplevel
     from services.media_files.r2v_execution import (
@@ -1792,6 +1807,7 @@ async def _default_s2v_dispatch(
         arguments=arguments,
         idempotency_key=idempotency_key,
         expected_object_versions=expected_object_versions,
+        related_run_id=related_run_id,
     )
 
 
@@ -1803,6 +1819,7 @@ async def _default_compose_dispatch(
     target_ref: str,
     arguments: dict[str, Any],
     idempotency_key: str,
+    related_run_id: str | None = None,
 ) -> Any:
     """Master render for an unattended project (same path as the UI button).
 
@@ -1919,6 +1936,7 @@ async def _default_compose_dispatch(
         target_ref=target_ref,
         arguments=arguments,
         idempotency_key=idempotency_key,
+        related_run_id=related_run_id,
     )
 
 

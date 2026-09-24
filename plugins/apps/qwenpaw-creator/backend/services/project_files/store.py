@@ -28,6 +28,7 @@ from services.runtime_files.locking import CrossProcessFileLock
 from services.storage_root import require_creator_data_root
 from utils.logger import setup_logger
 
+from .final_film import resolve_canonical_final_film
 from .models import Project
 from .archive import write_project_archive
 from .serialization import (
@@ -180,27 +181,6 @@ def _cover_reference(project: Project) -> tuple[str, str] | None:
     if video_sources:
         return _oldest(video_sources).version_id, "source_frame"
     return None
-
-
-def _final_video_reference(project: Project) -> str | None:
-    """Pick the newest rendered final cut of *project*, if any."""
-
-    files = project.assets.files_by_id
-    candidates = [
-        version
-        for version in project.assets.artifact_versions_by_id.values()
-        if version.kind == "final_video"
-        and version.file_id is not None
-        and (indexed := files.get(version.file_id)) is not None
-        and indexed.media_type.startswith("video/")
-    ]
-    if not candidates:
-        return None
-    newest = max(
-        candidates,
-        key=lambda version: (version.created_at, version.version_id),
-    )
-    return newest.version_id
 
 
 class ProjectStore:
@@ -445,6 +425,7 @@ class ProjectStore:
                 logger.warning("Skipping corrupt Project %s: %s", safe_id, exc)
                 continue
             cover = _cover_reference(snapshot.project)
+            final_film = resolve_canonical_final_film(snapshot.project)
             summaries.append(
                 ProjectSummary(
                     project_id=safe_id,
@@ -460,8 +441,8 @@ class ProjectStore:
                     etag=snapshot.etag,
                     cover_version_id=cover[0] if cover else None,
                     cover_version_source=cover[1] if cover else None,
-                    final_video_version_id=_final_video_reference(
-                        snapshot.project,
+                    final_video_version_id=(
+                        final_film.version.version_id if final_film else None
                     ),
                 ),
             )

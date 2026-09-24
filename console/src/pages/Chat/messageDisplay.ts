@@ -1,8 +1,10 @@
 import {
+  AgentScopeRuntimeContentType,
   AgentScopeRuntimeMessageType,
   AgentScopeRuntimeRunStatus,
   type IAgentScopeRuntimeMessage,
 } from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/AgentScopeRuntime/types";
+import { parsePawAppTaskResult } from "../../api/modules/pawappTasks";
 import type { AssistantMessageDisplayPreference } from "../../utils/chatDisplayPreference";
 
 export type ResponseMessageDisplayMode = "all" | "text-only" | "result-only";
@@ -22,10 +24,19 @@ export function getResponseMessageDisplayMode(
   return "result-only";
 }
 
+function isPawAppTaskMessage(message: IAgentScopeRuntimeMessage): boolean {
+  return message.content.some(
+    (content) =>
+      content.type === AgentScopeRuntimeContentType.DATA &&
+      parsePawAppTaskResult(content.data?.output) !== null,
+  );
+}
+
 function isAlwaysVisible(message: IAgentScopeRuntimeMessage): boolean {
   return (
     message.type === AgentScopeRuntimeMessageType.MCP_APPROVAL_REQUEST ||
-    message.type === AgentScopeRuntimeMessageType.ERROR
+    message.type === AgentScopeRuntimeMessageType.ERROR ||
+    isPawAppTaskMessage(message)
   );
 }
 

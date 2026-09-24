@@ -26,6 +26,35 @@
   "qwenpaw_version": {
     "min": "2.1.0"
   },
+  "pawapp": {
+    "schema_version": 1,
+    "configuration": {
+      "version": 1,
+      "setup_entries": [
+        {
+          "id": "creator-llm-model",
+          "entry_ref": "creator.model-settings",
+          "focus": "llm",
+          "presentations": ["app_entry"],
+          "context_schema_version": "pawapp:setup-context@1"
+        },
+        {
+          "id": "creator-image-model",
+          "entry_ref": "creator.model-settings",
+          "focus": "image-generation",
+          "presentations": ["app_entry"],
+          "context_schema_version": "pawapp:setup-context@1"
+        },
+        {
+          "id": "creator-video-model",
+          "entry_ref": "creator.model-settings",
+          "focus": "video-generation",
+          "presentations": ["app_entry"],
+          "context_schema_version": "pawapp:setup-context@1"
+        }
+      ]
+    }
+  },
   "pack_requires": [
     "backend/skills/edu-math-tutorial/SKILL.md",
     "backend/skills/professional-media-prompts/SKILL.md",

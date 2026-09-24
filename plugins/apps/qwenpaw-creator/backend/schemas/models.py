@@ -25,6 +25,7 @@ class ModelConfigItem(_ConfigBase):
     base_url: str = ""
     protocol: str = "OpenAI 兼容"
     custom_protocol: str = ""
+    host_provider_id: str = ""
 
 
 class LlmConfig(ModelConfigItem):
@@ -296,6 +297,35 @@ class ModelConnectionTestRequest(StrictModel):
     provider: Literal["whisper", "fun-asr"] | None = None
     voice: str = ""
     require_api_key: bool = True
+    config_section: (
+        Literal[
+            "llm",
+            "vlm",
+            "grounding",
+            "asr",
+            "tts",
+            "s2v",
+            "embedding",
+            "image",
+            "video",
+        ]
+        | None
+    ) = None
+    credential_section: (
+        Literal[
+            "llm",
+            "vlm",
+            "grounding",
+            "asr",
+            "tts",
+            "s2v",
+            "embedding",
+            "image",
+            "video",
+        ]
+        | None
+    ) = None
+    host_provider_id: str = ""
 
 
 class ConnectionTestResponse(StrictModel):

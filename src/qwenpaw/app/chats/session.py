@@ -17,12 +17,15 @@ from qwenpaw.exceptions import ConfigurationException
 from ...exceptions import AgentStateError
 from ...utils.io_utils import (
     get_path_lock,
+    run_async_to_completion,
     run_sync_io,
+    write_json_atomic,
     write_json_atomic_async,
 )
 from ...utils.json_utils import safe_json_loads as _safe_json_loads
 
 logger = logging.getLogger(__name__)
+_PAWAPP_RECEIPTS = "pawapp_continuation_receipts"
 
 # Characters forbidden in Windows filenames
 _UNSAFE_FILENAME_RE = re.compile(r'[\\/:*?"<>|]')
@@ -294,6 +297,17 @@ class SafeJSONSession:
             channel,
         )
         async with get_path_lock(session_save_path):
+            # Keep destination receipts outside agent state so compaction,
+            # ordinary turns and model state serialization cannot erase them.
+            try:
+                previous = await run_sync_io(
+                    _read_session_json,
+                    session_save_path,
+                )
+            except FileNotFoundError:
+                previous = {}
+            if _PAWAPP_RECEIPTS in previous:
+                state_dicts[_PAWAPP_RECEIPTS] = previous[_PAWAPP_RECEIPTS]
             await write_json_atomic_async(
                 session_save_path,
                 state_dicts,
@@ -304,6 +318,127 @@ class SafeJSONSession:
             "Saved session state to %s successfully.",
             session_save_path,
         )
+
+    async def commit_task_continuation(
+        self,
+        queue,
+        claim,
+        *,
+        superseded=False,
+    ):
+        """Append a prepared turn and its receipt under the worker fence."""
+        path = await run_sync_io(
+            self._get_save_path,
+            claim.origin.return_session_ref,
+            claim.scope.principal_id,
+            "console",
+        )
+
+        def append(prepared):
+            from agentscope.state import AgentState
+            from ...pawapp.tasks.contracts import TaskStoreError
+
+            try:
+                persisted = _read_session_json(path)
+            except FileNotFoundError:
+                persisted = {}
+            receipts = persisted.setdefault(_PAWAPP_RECEIPTS, {})
+            if not isinstance(receipts, dict):
+                raise TaskStoreError("continuation_receipt_invalid")
+            if claim.run_id in receipts:
+                return
+            agent = persisted.setdefault("agent", {})
+            if "state" not in agent and agent.get("memory"):
+                raise TaskStoreError("continuation_legacy_session")
+            state = agent.setdefault(
+                "state",
+                AgentState().model_dump(mode="json"),
+            )
+            # Validate before touching the existing context. A malformed
+            # session must never be replaced by an apparently empty history.
+            AgentState.model_validate(state)
+            if not superseded:
+                state.setdefault("context", []).extend(prepared["messages"])
+            AgentState.model_validate(state)
+            receipts[claim.run_id] = {
+                "task_id": claim.task_id,
+                "event_sequence": claim.event_sequence,
+            }
+            write_json_atomic(path, persisted, indent=None)
+
+        async with get_path_lock(path):
+            # A cancelled coroutine cannot stop the transaction's I/O thread.
+            # Keep the session lock until that thread has actually completed.
+            await run_async_to_completion(queue.commit(claim, append))
+
+    async def has_task_continuation_receipt(self, claim) -> bool:
+        """Return whether a continuation already committed to its session."""
+        path = await run_sync_io(
+            self._get_save_path,
+            claim.origin.return_session_ref,
+            claim.scope.principal_id,
+            "console",
+        )
+        async with get_path_lock(path):
+            try:
+                persisted = await run_sync_io(_read_session_json, path)
+            except FileNotFoundError:
+                return False
+            receipts = persisted.get(_PAWAPP_RECEIPTS, {})
+            return isinstance(receipts, dict) and claim.run_id in receipts
+
+    async def commit_task_continuation_state(
+        self,
+        queue,
+        claim,
+        *,
+        session_id: str,
+        user_id: str = "",
+        channel: str = "",
+        **state_modules_mapping,
+    ) -> None:
+        """Atomically save a full agent turn and acknowledge its outbox."""
+        if (
+            session_id != claim.origin.return_session_ref
+            or user_id != claim.scope.principal_id
+            or channel != "console"
+        ):
+            from ...pawapp.tasks.contracts import TaskStoreError
+
+            raise TaskStoreError("continuation_destination_mismatch")
+        path = await run_sync_io(
+            self._get_save_path,
+            session_id,
+            user_id,
+            channel,
+        )
+        state_dicts = {
+            name: state_module.state_dict()
+            for name, state_module in state_modules_mapping.items()
+        }
+
+        def save(_prepared):
+            try:
+                previous = _read_session_json(path)
+            except FileNotFoundError:
+                previous = {}
+            receipts = previous.get(_PAWAPP_RECEIPTS, {})
+            if not isinstance(receipts, dict):
+                from ...pawapp.tasks.contracts import TaskStoreError
+
+                raise TaskStoreError("continuation_receipt_invalid")
+            if claim.run_id in receipts:
+                return
+            receipts = dict(receipts)
+            receipts[claim.run_id] = {
+                "task_id": claim.task_id,
+                "event_sequence": claim.event_sequence,
+            }
+            state_dicts[_PAWAPP_RECEIPTS] = receipts
+            write_json_atomic(path, state_dicts, indent=None)
+
+        async with get_path_lock(path):
+            await run_async_to_completion(queue.commit(claim, save))
 
     async def load_session_state(
         self,

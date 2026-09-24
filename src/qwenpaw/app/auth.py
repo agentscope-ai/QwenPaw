@@ -15,6 +15,7 @@ Uses only Python stdlib (hashlib, hmac, secrets) to avoid adding new
 dependencies.  The password is stored as a salted SHA-256 hash in
 ``auth.json`` under ``SECRET_DIR``.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -81,6 +82,9 @@ _PUBLIC_PREFIXES: tuple[str, ...] = (
     "/logo.png",
     "/qwenpaw-symbol.svg",
     "/api/frontend_plugin/",
+    # This bridge has its own task-bound HMAC bearer token. Host login JWTs
+    # are intentionally not passed to managed App runtimes.
+    "/api/pawapp-capabilities/",
 )
 
 

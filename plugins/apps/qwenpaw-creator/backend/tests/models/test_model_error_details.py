@@ -11,8 +11,10 @@ credentials redacted), upstream status and a remediation hint.
 from __future__ import annotations
 
 import asyncio
+from types import SimpleNamespace
 
 import pytest
+from starlette.requests import Request
 
 from models import text_model, vlm_model
 from utils.exceptions import ModelError, redact_url, upstream_status_hint
@@ -176,7 +178,15 @@ def test_probe_reports_exactly_which_fields_are_missing(
         require_api_key=True,
     )
 
-    response = asyncio.run(model_routes.test_model_connection(request))
+    http_request = Request(
+        {
+            "type": "http",
+            "app": SimpleNamespace(state=SimpleNamespace()),
+        },
+    )
+    response = asyncio.run(
+        model_routes.test_model_connection(http_request, request),
+    )
 
     assert not response.ok
     assert "Base URL" in response.error

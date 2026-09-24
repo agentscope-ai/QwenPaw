@@ -66,7 +66,6 @@ from models.config import (
     get_live_operation_max_take_seconds,
     get_live_operation_max_width,
     get_live_operation_timeout_seconds,
-    get_video_backend,
     get_video_model_name,
 )
 from models.media_transport import (
@@ -144,6 +143,7 @@ from services.external_skills import (
     render_external_skills_context,
     view_skill as view_external_skill,
 )
+from services.execution_authorization import execution_provider_model
 from services.observability import report_error, trace_event, traced_async
 from services.source_analysis import SourceAgentToolContext
 from services.specialist_tools import (
@@ -591,7 +591,10 @@ def _specialist_waiting_review_summary(
             "审阅通过后由主 Agent 修复必要字段，Runtime 会根据 Element 状态"
             "自动继续调度，无需重新委派。"
         )
-    return f"{target} 的产物已生成，后续步骤尚未开始。请先完成审阅；" "审阅通过后，主线需重新委派同一目标以继续后续步骤。"
+    return (
+        f"{target} 的产物已生成，后续步骤尚未开始。请先完成审阅；"
+        "审阅通过后，主线需重新委派同一目标以继续后续步骤。"
+    )
 
 
 def _timelines_have_plan(project: Any, target_refs: list[str]) -> bool:
@@ -1435,6 +1438,7 @@ class _ProjectTask:
     task: asyncio.Task[None]
     superseded: bool = False
     interrupting: bool = False
+    externally_settled: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -1448,8 +1452,7 @@ class _LoopResult:
 class _RunFence(Protocol):
     """Liveness gate asserted at model/tool/commit boundaries."""
 
-    def assert_alive(self) -> None:
-        ...
+    def assert_alive(self) -> None: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -1637,17 +1640,15 @@ class FileCreatorAgentRuntime:
         """Bound one provider turn; max_model_turns cannot stop a hung turn."""
 
         try:
-            return await asyncio.wait_for(
-                client.complete(
+            async with asyncio.timeout(self.model_turn_timeout_seconds):
+                return await client.complete(
                     messages=messages,
                     tools=tools,
                     on_text_delta=on_text_delta,
                     on_thinking_delta=on_thinking_delta,
                     on_tool_call_delta=on_tool_call_delta,
                     on_rate_limit_retry=on_rate_limit_retry,
-                ),
-                timeout=self.model_turn_timeout_seconds,
-            )
+                )
         except TimeoutError as exc:
             raise AgentModelError(
                 f"{label} model turn exceeded "
@@ -2058,6 +2059,44 @@ class FileCreatorAgentRuntime:
         loop = self._loop
         if loop is not None and not loop.is_closed():
             loop.call_soon_threadsafe(self._wake.set)
+
+    async def cancel_correlated(
+        self,
+        project_id: str,
+        *,
+        agent_run_ids: Sequence[str],
+        specialist_run_ids: Sequence[str],
+    ) -> bool:
+        """Revoke only process-local work already settled by its owner."""
+
+        agent_ids = frozenset(agent_run_ids)
+        specialist_ids = frozenset(specialist_run_ids)
+        cancelled = False
+        handle = self._active.get(project_id)
+        if (
+            handle is not None
+            and handle.run_id in agent_ids
+            and not handle.task.done()
+        ):
+            handle.externally_settled = True
+            await asyncio.to_thread(
+                self._revoke_epoch,
+                project_id,
+                handle.run_id,
+                handle.epoch,
+            )
+            handle.task.cancel()
+            cancelled = True
+        for specialist in list(
+            self._specialist_tasks.get(project_id, {}).values(),
+        ):
+            if specialist.specialist_run_id not in specialist_ids:
+                continue
+            specialist.cancel("pawapp_task_cancelled")
+            cancelled = True
+        if cancelled:
+            self.notify(project_id)
+        return cancelled
 
     # pylint: disable=too-many-return-statements
     async def interrupt(
@@ -2961,22 +3000,34 @@ class FileCreatorAgentRuntime:
                 )
             self._blocked_heads.pop(project_id, None)
         except asyncio.CancelledError:
-            await self._cancel_run_if_project_exists(
-                project_id,
-                session.session_id,
-                goal.goal_id,
-                run_id,
-                message,
-            )
+            handle = self._active.get(project_id)
+            if not (
+                handle is not None
+                and handle.run_id == run_id
+                and handle.externally_settled
+            ):
+                await self._cancel_run_if_project_exists(
+                    project_id,
+                    session.session_id,
+                    goal.goal_id,
+                    run_id,
+                    message,
+                )
             raise
         except StaleAgentRun:
-            await self._cancel_run_if_project_exists(
-                project_id,
-                session.session_id,
-                goal.goal_id,
-                run_id,
-                message,
-            )
+            handle = self._active.get(project_id)
+            if not (
+                handle is not None
+                and handle.run_id == run_id
+                and handle.externally_settled
+            ):
+                await self._cancel_run_if_project_exists(
+                    project_id,
+                    session.session_id,
+                    goal.goal_id,
+                    run_id,
+                    message,
+                )
             return
         except AgentModelConfigurationError as exc:
             logger.error(
@@ -3875,8 +3926,11 @@ class FileCreatorAgentRuntime:
                     )
                     if pending:
                         self._assert_epoch(project_id, run_id, epoch)
-                        summary = _agent_waiting_review_summary(
-                            "这项制作请求正在等待相关内容的审阅，请先完成审阅。",
+                        summary = (
+                            "当前制作尚未开始。"
+                            + _agent_waiting_review_summary(
+                                "这项制作请求正在等待相关内容的审阅，请先完成审阅。",
+                            )
                         )
                         assistant_message_id = f"message-{uuid4().hex}"
                         delta_index = 0
@@ -4067,7 +4121,7 @@ class FileCreatorAgentRuntime:
             provider, model = (
                 ("local", "deterministic")
                 if is_compose
-                else _execution_provider_model(plan.spec, plan.parameters)
+                else execution_provider_model(plan.spec, plan.parameters)
             )
             dispatch_fingerprint = self.work_scheduler._ledger_fingerprint(
                 node,
@@ -4126,14 +4180,25 @@ class FileCreatorAgentRuntime:
                     project_id,
                     check_media_budget=not is_compose,
                 )
-                # An already admitted slot must never enter the image
-                # executor's paid transient-retry slot search a second time.
+                current_node = current_graph.by_id.get(node.node_id)
+                current_dispatch_fingerprint = (
+                    self.work_scheduler._ledger_fingerprint(current_node)
+                    if current_node is not None
+                    else dispatch_fingerprint
+                )
+                current_key = (
+                    f"dag-{node.node_id}-"
+                    f"{self.work_scheduler._dispatch_slot(current_dispatch_fingerprint)}"
+                )
+                replay_keys = {key, current_key}
+                # An already admitted slot must never enter the paid executor twice.
                 existing = next(
                     (
                         task
                         for task in tasks
-                        if key
-                        in (task.idempotency_key, task.caused_by_request_id)
+                        if replay_keys.intersection(
+                            (task.idempotency_key, task.caused_by_request_id),
+                        )
                     ),
                     None,
                 )
@@ -4154,7 +4219,6 @@ class FileCreatorAgentRuntime:
                         "taskId": existing.task_id,
                         "replayed": True,
                     }
-                current_node = current_graph.by_id.get(node.node_id)
                 if current_node is None or node.node_id in current_blocked:
                     blocked_item = {
                         **identity,
@@ -4175,24 +4239,21 @@ class FileCreatorAgentRuntime:
                         ] = current_node.prompt_sync_required
                     return blocked_item
                 current_plan = requested_work_node(fresh, current_node)
-                if (
-                    current_plan.fingerprint != plan.fingerprint
-                    or (
-                        not is_compose
-                        and _execution_provider_model(
-                            plan.spec,
-                            current_plan.parameters,
-                        )
-                        != (provider, model)
+                if current_plan.fingerprint != plan.fingerprint or (
+                    not is_compose
+                    and execution_provider_model(
+                        plan.spec,
+                        current_plan.parameters,
                     )
-                    or self.work_scheduler._ledger_fingerprint(current_node)
-                    != dispatch_fingerprint
+                    != (provider, model)
                 ):
                     return {
                         **identity,
                         "status": "BLOCKED",
                         "reason": "APPROVED_INPUTS_CHANGED",
                     }
+                dispatch_fingerprint = current_dispatch_fingerprint
+                key = current_key
                 fence.assert_alive()
                 if is_compose:
                     from services.media_files.local_execution import (
@@ -4211,6 +4272,7 @@ class FileCreatorAgentRuntime:
                         expected_object_versions=(
                             f"project:{fresh.etag}:work-graph",
                         ),
+                        related_run_id=run_id,
                     )
                 else:
                     execution = self.work_scheduler.dispatch_node(
@@ -4220,6 +4282,7 @@ class FileCreatorAgentRuntime:
                         expected_object_versions=(
                             f"project:{fresh.etag}:work-graph",
                         ),
+                        related_run_id=run_id,
                     )
                 result = await self.work_scheduler.await_admitted_execution(
                     project_id,
@@ -4294,9 +4357,7 @@ class FileCreatorAgentRuntime:
             "status": (
                 "COMPLETED"
                 if completed == len(items) and items
-                else "PARTIAL"
-                if completed
-                else "BLOCKED"
+                else "PARTIAL" if completed else "BLOCKED"
             ),
             "items": items,
             "summary": summarize_workgraph_results(items),
@@ -5787,7 +5848,8 @@ class FileCreatorAgentRuntime:
                 )
             elif execution_mode == "delegated":
                 user_text += (
-                    "委派模式：不要中途询问方向或确认，自主完成 edit_plan " "与剪辑，决策写进 edit_plan 即可。"
+                    "委派模式：不要中途询问方向或确认，自主完成 edit_plan "
+                    "与剪辑，决策写进 edit_plan 即可。"
                 )
             elif execution_mode == "fine_tuning":
                 user_text += (
@@ -6461,7 +6523,8 @@ class FileCreatorAgentRuntime:
                             {
                                 "type": "text",
                                 "text": (
-                                    "视频帧图注入失败，请基于工具返回的" f"摘要继续或缩小窗口重试：{exc}"
+                                    "视频帧图注入失败，请基于工具返回的"
+                                    f"摘要继续或缩小窗口重试：{exc}"
                                 ),
                             },
                         ]
@@ -6509,7 +6572,10 @@ class FileCreatorAgentRuntime:
                         page_content = [
                             {
                                 "type": "text",
-                                "text": ("文档页图注入失败，请基于工具返回的" f"文本摘要继续：{exc}"),
+                                "text": (
+                                    "文档页图注入失败，请基于工具返回的"
+                                    f"文本摘要继续：{exc}"
+                                ),
                             },
                         ]
                     if page_parts:
@@ -6802,7 +6868,7 @@ class FileCreatorAgentRuntime:
                 project_id,
                 authorization_id,
             )
-            active_provider, active_model = _execution_provider_model(
+            active_provider, active_model = execution_provider_model(
                 spec,
                 (
                     arguments.get("arguments")
@@ -7425,7 +7491,7 @@ class FileCreatorAgentRuntime:
             return existing.authorization_id
         target_ref = str(arguments.get("targetRef") or "project:unknown")
         tool_arguments = dict(arguments.get("arguments") or {})
-        provider, model = _execution_provider_model(spec, tool_arguments)
+        provider, model = execution_provider_model(spec, tool_arguments)
         if existing is not None:
             # A pending approval for the same call already exists (created by
             # an interrupted predecessor run): park on it instead of opening
@@ -8055,7 +8121,9 @@ class FileCreatorAgentRuntime:
                 )
             else:
                 opening = (
-                    "上一回合因瞬态故障中止（如模型空响应或传输抖动）" if after_failure else "主线回合已结束"
+                    "上一回合因瞬态故障中止（如模型空响应或传输抖动）"
+                    if after_failure
+                    else "主线回合已结束"
                 )
                 text = (
                     f"【系统自动消息 · Prompt 合同修复】{opening}，但调度器"
@@ -8941,7 +9009,10 @@ def _artifact_selection_note(
     label = str(selection.get("label") or selection.get("field") or slot_id)
     slot = project.assets.artifact_slots_by_id.get(slot_id)
     if slot is None:
-        return f"[选区提示] 「{label}」引用的 artifact 槽位 {slot_id} 已不存在，" "请让用户重新选择。"
+        return (
+            f"[选区提示] 「{label}」引用的 artifact 槽位 {slot_id} 已不存在，"
+            "请让用户重新选择。"
+        )
     if slot.selected_version_id != version_id:
         return (
             f"[选区提示] 「{label}」选区所在版本已过期："
@@ -9819,56 +9890,6 @@ def _specialist_tool_invocation_id(
         arguments,
         invocation_id=call_id if name == "ai_edit" else None,
     )
-
-
-def _execution_provider_model(
-    spec: SpecialistToolSpec,
-    tool_arguments: Mapping[str, Any] | None = None,
-) -> tuple[str, str]:
-    """Snapshot the model an approval actually authorizes.
-
-    The identity must be the *effective* model, not just the configured
-    one: image translate runs on ``translate_model`` and the video modes run
-    on names derived from the configured base, so pricing and the
-    post-approval identity check would otherwise cover a different model
-    than the one submitted.
-    """
-
-    arguments = tool_arguments or {}
-    mode = str(arguments.get("mode") or "").strip().casefold()
-    if spec.provider_kind == "image":
-        from models.image import get_image_backend
-
-        if mode == "translate":
-            from models.config import get_image_translate_model_name
-
-            return "dashscope", get_image_translate_model_name()
-        return get_image_backend().casefold(), get_image_model_name()
-    if spec.provider_kind == "video":
-        from models.video_capabilities import (
-            effective_video_model_name,
-            video_backend_key,
-        )
-
-        backend = get_video_backend()
-        configured = get_video_model_name()
-        # Same rule as the submit path, so the approval can never name a
-        # different model than the billed request (HappyHorse derives even
-        # for the default r2v).
-        return backend, effective_video_model_name(
-            configured,
-            mode,
-            video_backend_key(configured, backend),
-        )
-    if spec.provider_kind == "tts":
-        from models.config import get_tts_model_name
-
-        return "dashscope", get_tts_model_name()
-    if spec.provider_kind == "s2v":
-        from models.config import get_s2v_model_name
-
-        return "dashscope", get_s2v_model_name()
-    return str(spec.provider_kind or "creator-tool"), "configured"
 
 
 _AUTHORIZATION_OPERATION_LABELS = {

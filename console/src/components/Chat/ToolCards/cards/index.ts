@@ -39,6 +39,7 @@ export { default as DelegateExternalAgentCard } from "./DelegateExternalAgentCar
 export { default as ShellCard } from "./ShellCard";
 export { default as RunToolBatchCard } from "./RunToolBatchCard";
 export { default as GenericToolCard } from "./GenericToolCard";
+export { default as PawAppArtifactCollectionCard } from "./PawAppArtifactCollectionCard";
 
 // ── Re-import for registry ────────────────────────────────────────────
 import ReadFileCard from "./ReadFileCard";
@@ -66,6 +67,8 @@ import CheckAgentTaskCard from "./CheckAgentTaskCard";
 import DelegateExternalAgentCard from "./DelegateExternalAgentCard";
 import ShellCard from "./ShellCard";
 import RunToolBatchCard from "./RunToolBatchCard";
+import PawAppTaskCard from "./PawAppTaskCard";
+import PawAppArtifactCollectionCard from "./PawAppArtifactCollectionCard";
 
 // ── Common props type ─────────────────────────────────────────────────
 
@@ -79,6 +82,10 @@ export type BuiltinCardComponent = React.FC<BuiltinCardProps>;
 // ── Tool-name → component registry ───────────────────────────────────
 
 export const BUILTIN_CARD_REGISTRY: Record<string, BuiltinCardComponent> = {
+  delegate: PawAppTaskCard,
+  get_app_task: PawAppTaskCard,
+  open_app: PawAppTaskCard,
+  list_app_artifacts: PawAppArtifactCollectionCard,
   // File I/O
   read_file: ReadFileCard,
   write_file: WriteFileCard,

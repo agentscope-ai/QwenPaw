@@ -17,6 +17,14 @@
   var API_PREFIX = "/api/qwenpaw-data/";
   var TOKEN_KEY = "qwenpaw_auth_token";
 
+  function workspaceId() {
+    try {
+      return window.parent.QwenPaw.host.getSelectedAgentId() || "default";
+    } catch (error) {
+      return "default";
+    }
+  }
+
   function hostToken() {
     try {
       return window.localStorage.getItem(TOKEN_KEY) || "";
@@ -48,14 +56,15 @@
             ? input.url
             : "";
       var token = hostToken();
-      if (token && needsHostAuth(url)) {
+      if (needsHostAuth(url)) {
         var headers = new Headers(
           (init && init.headers) ||
             (input && typeof input.url === "string" ? input.headers : undefined),
         );
-        if (!headers.has("Authorization")) {
+        if (token && !headers.has("Authorization")) {
           headers.set("Authorization", "Bearer " + token);
         }
+        if (!headers.has("X-Agent-Id")) headers.set("X-Agent-Id", workspaceId());
         init = Object.assign({}, init, { headers: headers });
       }
       return originalFetch.call(this, input, init);
@@ -72,6 +81,7 @@
     xhrProto.open = function (method, url) {
       this.__pawNeedsHostAuth = needsHostAuth(url);
       this.__pawHasAuthHeader = false;
+      this.__pawHasAgentHeader = false;
       return originalOpen.apply(this, arguments);
     };
 
@@ -79,11 +89,17 @@
       if (String(name).toLowerCase() === "authorization") {
         this.__pawHasAuthHeader = true;
       }
+      if (String(name).toLowerCase() === "x-agent-id") {
+        this.__pawHasAgentHeader = true;
+      }
       return originalSetHeader.call(this, name, value);
     };
 
     xhrProto.send = function () {
       var token = hostToken();
+      if (this.__pawNeedsHostAuth && !this.__pawHasAgentHeader) {
+        originalSetHeader.call(this, "X-Agent-Id", workspaceId());
+      }
       if (token && this.__pawNeedsHostAuth && !this.__pawHasAuthHeader) {
         originalSetHeader.call(this, "Authorization", "Bearer " + token);
       }

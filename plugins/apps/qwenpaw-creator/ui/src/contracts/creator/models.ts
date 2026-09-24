@@ -5,6 +5,7 @@ export interface ModelConfigItem {
   base_url: string;
   protocol: string;
   custom_protocol: string;
+  host_provider_id?: string;
 }
 
 export interface OssConfig {
@@ -108,6 +109,27 @@ export interface ModelConnectionTestRequest {
   provider?: "whisper" | "fun-asr";
   voice?: string;
   require_api_key?: boolean;
+  config_section?:
+    | "llm"
+    | "vlm"
+    | "grounding"
+    | "asr"
+    | "tts"
+    | "s2v"
+    | "embedding"
+    | "image"
+    | "video";
+  credential_section?:
+    | "llm"
+    | "vlm"
+    | "grounding"
+    | "asr"
+    | "tts"
+    | "s2v"
+    | "embedding"
+    | "image"
+    | "video";
+  host_provider_id?: string;
 }
 
 export interface ConnectionTestResponse {

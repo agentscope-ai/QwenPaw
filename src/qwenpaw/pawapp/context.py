@@ -81,10 +81,35 @@ class AppStorage:
 
 
 class ToolProxy:
-    """Proxy for invoking registered tools."""
+    """Discover and invoke capabilities inside one immutable App scope."""
 
-    def __init__(self, tool_coordinator: Any):
+    def __init__(
+        self,
+        tool_coordinator: Any = None,
+        *,
+        broker: Any = None,
+        scope: Any = None,
+    ):
+        # ``tool_coordinator`` remains as a compatibility fallback for callers
+        # that construct ToolProxy directly. PawAppContext uses the broker.
         self._coordinator = tool_coordinator
+        self._broker = broker
+        self._scope = scope
+
+    async def list(self) -> List[Dict[str, Any]]:
+        """List tools granted to this App and enabled in its workspace."""
+        if self._broker is None:
+            raise RuntimeError("PawApp capability broker not available")
+        return [
+            item.model_dump(mode="json")
+            for item in await self._broker.catalog(self._scope)
+            if item.kind == "tool"
+        ]
+
+    async def describe(self, name: str) -> Dict[str, Any]:
+        """Describe one scoped tool by capability ID or unambiguous name."""
+        descriptor = await self._resolve(name)
+        return descriptor.model_dump(mode="json")
 
     async def invoke(
         self,
@@ -92,9 +117,68 @@ class ToolProxy:
         params: Optional[Dict[str, Any]] = None,
     ) -> Any:
         """Invoke a registered tool by name."""
+        if self._broker is not None:
+            descriptor = await self._resolve(name)
+            return await self._broker.invoke(
+                self._scope,
+                descriptor.capability_id,
+                params or {},
+            )
         if self._coordinator is None:
             raise RuntimeError("ToolCoordinator not available")
         return await self._coordinator.execute(name, params or {})
+
+    async def _resolve(self, name: str) -> Any:
+        entries = [
+            item
+            for item in await self._broker.catalog(self._scope)
+            if item.kind == "tool"
+            and name in {item.capability_id, item.name, item.wire_name}
+        ]
+        if len(entries) != 1:
+            from .capabilities import CapabilityError
+
+            raise CapabilityError(
+                "capability_ambiguous" if entries else "capability_not_found",
+            )
+        return entries[0]
+
+
+class SkillProxy:
+    """Discover and load Host-public or App-private Skills."""
+
+    def __init__(self, *, broker: Any = None, scope: Any = None):
+        self._broker = broker
+        self._scope = scope
+
+    async def list(self) -> List[Dict[str, Any]]:
+        if self._broker is None:
+            raise RuntimeError("PawApp capability broker not available")
+        return [
+            item.model_dump(mode="json")
+            for item in await self._broker.catalog(self._scope)
+            if item.kind == "skill"
+        ]
+
+    async def load(self, name: str) -> Dict[str, Any]:
+        if self._broker is None:
+            raise RuntimeError("PawApp capability broker not available")
+        entries = [
+            item
+            for item in await self._broker.catalog(self._scope)
+            if item.kind == "skill"
+            and name in {item.capability_id, item.name, item.wire_name}
+        ]
+        if len(entries) != 1:
+            from .capabilities import CapabilityError
+
+            raise CapabilityError(
+                "capability_ambiguous" if entries else "capability_not_found",
+            )
+        return await self._broker.load_skill(
+            self._scope,
+            entries[0].capability_id,
+        )
 
 
 class UIBridge:
@@ -202,6 +286,7 @@ class PawAppContext:
     _plugin_registry: Any = field(default=None, repr=False)
     _session: Any = field(default=None, repr=False)
     _sse_channel: Any = field(default=None, repr=False)
+    _capability_broker: Any = field(default=None, repr=False)
 
     # ─── Chat ───────────────────────────────────────────────────────
 
@@ -630,8 +715,22 @@ class PawAppContext:
             session=self._session,
             namespace=f"pawapp:{self.app_id}",
         )
+        from .capabilities import CapabilityScope
+
+        capability_scope = CapabilityScope(
+            principal_id=self.user_id,
+            workspace_id=self.agent_id,
+            app_id=self.app_id,
+            session_id=f"pawapp:{self.app_id}",
+        )
         self._tools = ToolProxy(
             tool_coordinator=coordinator,
+            broker=self._capability_broker,
+            scope=capability_scope,
+        )
+        self._skills = SkillProxy(
+            broker=self._capability_broker,
+            scope=capability_scope,
         )
         self._ui = UIBridge(
             sse_channel=self._sse_channel,
@@ -652,6 +751,11 @@ class PawAppContext:
     def tools(self) -> ToolProxy:
         """Invoke registered tools."""
         return self._tools
+
+    @property
+    def skills(self) -> SkillProxy:
+        """Discover and load Skills granted to this PawApp."""
+        return self._skills
 
     @property
     def ui(self) -> UIBridge:

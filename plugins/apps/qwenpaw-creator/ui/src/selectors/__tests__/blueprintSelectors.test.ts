@@ -17,6 +17,16 @@ function singleTimeline(project: ProjectDocument): ProjectDocument {
   return project;
 }
 
+function canonicalFilmProject(): ProjectDocument {
+  const project = singleTimeline(cloneProject());
+  const slot = project.assets.artifact_slots_by_id[
+    "timeline:timeline:main:render"
+  ];
+  slot.kind = "final_video";
+  project.assets.artifact_versions_by_id["final-v1"].kind = "final_video";
+  return project;
+}
+
 /** Append a frozen history snapshot cloned from timeline:main. */
 function withSnapshot(project: ProjectDocument): ProjectDocument {
   const raw = structuredClone(project.timelines.items["timeline:main"]);
@@ -37,30 +47,84 @@ describe("selectLiveTimelineIds", () => {
 });
 
 describe("selectFinalFilmVersionId", () => {
-  it("multi-episode projects have no whole film — a single episode's final render must not masquerade as one", () => {
-    // Both live timelines exist; timeline:main even has a fresh selected
-    // render — still not the whole project.
-    expect(selectFinalFilmVersionId(cloneProject())).toBeNull();
+  it("returns the selected final video from one live timeline", () => {
+    expect(selectFinalFilmVersionId(canonicalFilmProject())).toBe("final-v1");
   });
 
-  it("single live timeline returns its selected fresh render", () => {
-    const project = singleTimeline(cloneProject());
-    expect(selectFinalFilmVersionId(project)).toBe("final-v1");
+  it("returns no film when there are no live timelines", () => {
+    const project = canonicalFilmProject();
+    project.timelines.order = [];
+    expect(selectFinalFilmVersionId(project)).toBeNull();
   });
 
-  it("a history snapshot does not turn a single-timeline project into a multi-episode one", () => {
-    const project = withSnapshot(singleTimeline(cloneProject()));
-    expect(selectFinalFilmVersionId(project)).toBe("final-v1");
+  it("returns no film when there are multiple live timelines", () => {
+    const project = canonicalFilmProject();
+    project.timelines.order.push("timeline:ep2");
+    expect(selectFinalFilmVersionId(project)).toBeNull();
   });
 
-  it("a stale selected version is never offered as the film", () => {
-    const project = singleTimeline(cloneProject());
+  it("ignores history snapshots when counting live timelines", () => {
+    expect(
+      selectFinalFilmVersionId(withSnapshot(canonicalFilmProject())),
+    ).toBe("final-v1");
+  });
+
+  it("rejects a missing selected version", () => {
+    const project = canonicalFilmProject();
+    project.assets.artifact_slots_by_id[
+      "timeline:timeline:main:render"
+    ].selected_version_id = null;
+    expect(selectFinalFilmVersionId(project)).toBeNull();
+  });
+
+  it("rejects a selected version absent from the artifact index", () => {
+    const project = canonicalFilmProject();
+    project.assets.artifact_slots_by_id[
+      "timeline:timeline:main:render"
+    ].selected_version_id = "missing-version";
+    expect(selectFinalFilmVersionId(project)).toBeNull();
+  });
+
+  it("rejects a selected version whose file is absent", () => {
+    const project = canonicalFilmProject();
+    delete project.assets.files_by_id["file:final"];
+    expect(selectFinalFilmVersionId(project)).toBeNull();
+  });
+
+  it("rejects a stale selected version", () => {
+    const project = canonicalFilmProject();
     project.assets.artifact_versions_by_id["final-v1"].stale = true;
     expect(selectFinalFilmVersionId(project)).toBeNull();
   });
 
-  it("a newer unselected version never shadows the user's active choice", () => {
-    const project = singleTimeline(cloneProject());
+  it("rejects a selected artifact that is not a final video", () => {
+    const project = canonicalFilmProject();
+    project.assets.artifact_versions_by_id["final-v1"].kind = "element_video";
+    expect(selectFinalFilmVersionId(project)).toBeNull();
+  });
+
+  it("rejects a selected artifact owned by another timeline", () => {
+    const project = canonicalFilmProject();
+    project.assets.artifact_versions_by_id["final-v1"].owner_ref =
+      "timeline:other";
+    expect(selectFinalFilmVersionId(project)).toBeNull();
+  });
+
+  it("rejects a selected artifact from another slot", () => {
+    const project = canonicalFilmProject();
+    project.assets.artifact_versions_by_id["final-v1"].slot_id =
+      "timeline:other:render";
+    expect(selectFinalFilmVersionId(project)).toBeNull();
+  });
+
+  it("rejects a selected artifact backed by a non-video file", () => {
+    const project = canonicalFilmProject();
+    project.assets.files_by_id["file:final"].media_type = "image/png";
+    expect(selectFinalFilmVersionId(project)).toBeNull();
+  });
+
+  it("keeps the selected version when a newer version is unselected", () => {
+    const project = canonicalFilmProject();
     const slot =
       project.assets.artifact_slots_by_id["timeline:timeline:main:render"];
     project.assets.artifact_versions_by_id["final-v2"] = {
@@ -69,7 +133,6 @@ describe("selectFinalFilmVersionId", () => {
       created_at: "2026-07-21T00:00:00Z",
     };
     slot.version_ids = ["final-v1", "final-v2"];
-    // The user keeps final-v1 selected; the newer final-v2 must not win.
     expect(selectFinalFilmVersionId(project)).toBe("final-v1");
   });
 });

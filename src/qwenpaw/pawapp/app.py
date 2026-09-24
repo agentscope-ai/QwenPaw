@@ -354,19 +354,41 @@ class PawApp:  # pylint: disable=too-many-public-methods
 
         # Buffered registrations (applied when .register(api) is called)
         self._tools: List[dict] = []
+        self._local_tools: List[dict] = []
         self._commands: List[dict] = []
         self._middlewares: List[dict] = []
         self._hooks: List[dict] = []
         self._routers: List[APIRouter] = []
         self._lifecycle: dict = {}
         self._skill_providers: List[dict] = []
+        self._local_skill_dirs: List[Path] = []
         self._prompt_sections: List[dict] = []
         self._workspace_hooks: List[dict] = []
         self._runtime_hooks: List[Any] = []
+        self._task_actions: List[Any] = []
+        self._setup_checks: List[Any] = []
+        self._setup_entries: List[Any] = []
         self._services: List[ManagedService] = []
         self._agent_profiles: List[ManagedAgentProfile] = []
         self.dependencies = DependencyRegistry(lambda: self.app_id)
         self._dependency_agent_tools_enabled = False
+
+    def task_action(self, registration: Any) -> PawApp:
+        """Declare an action; the Host owns grants and adapter lifecycle."""
+        if registration.action.app_id != self.app_id:
+            raise ValueError("task action must belong to this PawApp")
+        self._task_actions.append(registration)
+        return self
+
+    def setup_check(self, registration: Any) -> PawApp:
+        """Declare a read-only configuration readiness checker."""
+        self._setup_checks.append(registration)
+        return self
+
+    def setup_entry(self, registration: Any) -> PawApp:
+        """Declare an App-owned setup presentation handler."""
+        self._setup_entries.append(registration)
+        return self
 
     def enable_standard_capabilities(self) -> PawApp:
         """Opt into namespaced chat, storage, toast, and notify routes.
@@ -458,6 +480,30 @@ class PawApp:  # pylint: disable=too-many-public-methods
                     "enabled": enabled,
                     "tool_type": tool_type,
                     "target_param": target_param,
+                },
+            )
+            return func
+
+        return decorator
+
+    def local_tool(
+        self,
+        name: str,
+        *,
+        description: str = "",
+        input_schema: Optional[dict] = None,
+        is_read_only: bool = False,
+    ):
+        """Register a tool visible only inside this PawApp's runtime."""
+
+        def decorator(func: Callable) -> Callable:
+            self._local_tools.append(
+                {
+                    "name": name,
+                    "func": func,
+                    "description": description,
+                    "input_schema": input_schema,
+                    "is_read_only": is_read_only,
                 },
             )
             return func
@@ -557,6 +603,10 @@ class PawApp:  # pylint: disable=too-many-public-methods
             },
         )
 
+    def local_skills(self, skills_dir: Path | str) -> None:
+        """Register private skills without copying them to Host workspaces."""
+        self._local_skill_dirs.append(Path(skills_dir).resolve())
+
     def prompt_section(
         self,
         name: str,
@@ -644,6 +694,8 @@ class PawApp:  # pylint: disable=too-many-public-methods
         shutdown_timeout: float = 10.0,
         cwd: Path | str | None = None,
         env: Optional[Mapping[str, str]] = None,
+        inherit_env: Sequence[str] = (),
+        env_factory: Optional[Callable[[], Mapping[str, str]]] = None,
         external_url_env: str | None = None,
         mode_env: str | None = None,
         on_before_start: Optional[Callable[[], Awaitable[None]]] = None,
@@ -653,7 +705,14 @@ class PawApp:  # pylint: disable=too-many-public-methods
         expose_dependency: bool = True,
         runtime_remediation: str | None = None,
     ) -> ManagedService:
-        """Declare a process managed with the PawApp lifecycle."""
+        """Declare a process managed with the PawApp lifecycle.
+
+        Child processes inherit OS basics and ``inherit_env`` only. Static
+        ``env`` overrides support {host}/{port}; ``env_factory`` returns
+        literal overrides after the preparation hook on each managed start.
+        """
+        if isinstance(inherit_env, (str, bytes)):
+            raise ValueError("inherit_env must be a sequence of exact names")
         service = ManagedService(
             ManagedServiceSpec(
                 name=name,
@@ -664,6 +723,8 @@ class PawApp:  # pylint: disable=too-many-public-methods
                 shutdown_timeout=shutdown_timeout,
                 cwd=Path(cwd) if cwd else None,
                 env=dict(env or {}),
+                inherit_env=tuple(inherit_env),
+                env_factory=env_factory,
                 external_url_env=external_url_env,
                 mode_env=mode_env,
                 on_before_start=on_before_start,
@@ -752,19 +813,141 @@ class PawApp:  # pylint: disable=too-many-public-methods
         return self.dependencies.unregister(dependency_id)
 
     def enable_dependency_agent_tools(self) -> PawApp:
-        """Opt into app-scoped status and lifecycle tools for the agent."""
+        """Opt into App-private status and lifecycle tools for its agent."""
+        if self._dependency_agent_tools_enabled:
+            return self
         self._dependency_agent_tools_enabled = True
+
+        async def dependency_status(
+            dependency_id: str = "",
+            force: bool = False,
+        ) -> Any:
+            if dependency_id:
+                return await self.dependencies.get(
+                    dependency_id,
+                    force=force,
+                )
+            return await self.dependencies.snapshot(force=force)
+
+        async def dependency_action(
+            dependency_id: str,
+            action: str,
+        ) -> Any:
+            return await self.dependencies.action(dependency_id, action)
+
+        self.local_tool(
+            f"{self.app_id}_dependency_status",
+            description=(
+                f"Inspect structured dependency and capability health "
+                f"for {self.name}."
+            ),
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "dependency_id": {"type": "string", "default": ""},
+                    "force": {"type": "boolean", "default": False},
+                },
+                "additionalProperties": False,
+            },
+            is_read_only=True,
+        )(dependency_status)
+        self.local_tool(
+            f"{self.app_id}_dependency_action",
+            description=(
+                "Run a pre-registered dependency action such as "
+                "check, start, stop, or restart. Arbitrary commands "
+                "are not accepted."
+            ),
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "dependency_id": {"type": "string"},
+                    "action": {"type": "string"},
+                },
+                "required": ["dependency_id", "action"],
+                "additionalProperties": False,
+            },
+        )(dependency_action)
         return self
 
     # ─── Plugin registration (called by PluginLoader) ───────────────
 
-    def register(self, api: Any) -> None:  # pylint: disable=R0912
+    def register(self, api: Any) -> None:  # pylint: disable=R0912,R0915
         """Called by PluginLoader when the plugin is loaded.
 
         ``api`` is a ``PluginApi`` instance. We apply all buffered
         registrations now.
         """
         self._plugin_api = api
+
+        from qwenpaw.plugins.architecture import PluginManifest
+
+        raw_manifest = getattr(api, "manifest", {})
+        manifest_payload = {
+            "id": self.app_id or "pawapp",
+            "version": "0",
+            **(raw_manifest if isinstance(raw_manifest, dict) else {}),
+        }
+        manifest = PluginManifest.from_dict(manifest_payload)
+        runtime = manifest.pawapp.runtime if manifest.pawapp else None
+        configuration = (
+            manifest.pawapp.configuration if manifest.pawapp else None
+        )
+        declared_local_tools = set(runtime.local_tools if runtime else ())
+        registered_local_tools = {item["name"] for item in self._local_tools}
+        if (
+            runtime is not None
+            and declared_local_tools != registered_local_tools
+        ):
+            raise ValueError(
+                "PawApp manifest local_tools do not match registrations",
+            )
+        declared_local_skills = set(runtime.local_skills if runtime else ())
+        registered_local_skills = {
+            directory.name for directory in self._local_skill_dirs
+        }
+        if (
+            runtime is not None
+            and declared_local_skills != registered_local_skills
+        ):
+            raise ValueError(
+                "PawApp manifest local_skills do not match registrations",
+            )
+
+        declared_setup_entries = {
+            item.id: item.model_dump(mode="json")
+            for item in (configuration.setup_entries if configuration else ())
+        }
+        registered_setup_entries = {
+            item.descriptor.id: item.descriptor.model_dump(
+                mode="json",
+                exclude={"schema_version"},
+            )
+            for item in self._setup_entries
+        }
+        if declared_setup_entries != registered_setup_entries:
+            raise ValueError(
+                "PawApp manifest setup_entries do not match registrations",
+            )
+
+        api.register_pawapp_capability_imports(
+            host_tools=list(runtime.host_tools if runtime else ()),
+            host_skills={
+                skill.id: tuple(skill.tool_refs)
+                for skill in (runtime.host_skills if runtime else ())
+            },
+        )
+        for tool_info in self._local_tools:
+            api.register_pawapp_local_tool(**tool_info)
+        for directory in self._local_skill_dirs:
+            api.register_pawapp_local_skills(directory)
+
+        for registration in self._setup_entries:
+            api.register_pawapp_setup_entry(registration)
+        for registration in self._setup_checks:
+            api.register_pawapp_setup_check(registration)
+        for registration in self._task_actions:
+            api.register_task_action(registration)
 
         # Create app_id injector dependency
         app_id_injector = Depends(_make_app_id_injector(self.app_id))
@@ -817,51 +1000,6 @@ class PawApp:  # pylint: disable=too-many-public-methods
             api.register_middleware(
                 middleware_info["factory"],
                 priority=middleware_info["priority"],
-            )
-
-        if self._dependency_agent_tools_enabled and len(self.dependencies):
-
-            async def dependency_status(
-                dependency_id: str = "",
-                force: bool = False,
-            ) -> Any:
-                if dependency_id:
-                    return await self.dependencies.get(
-                        dependency_id,
-                        force=force,
-                    )
-                return await self.dependencies.snapshot(force=force)
-
-            async def dependency_action(
-                dependency_id: str,
-                action: str,
-            ) -> Any:
-                return await self.dependencies.action(dependency_id, action)
-
-            api.register_tool(
-                tool_name=f"{self.app_id}_dependency_status",
-                tool_func=dependency_status,
-                description=(
-                    f"Inspect structured dependency and capability health "
-                    f"for {self.name}."
-                ),
-                icon="🩺",
-                enabled=True,
-                tool_type="network",
-                target_param="dependency_id",
-            )
-            api.register_tool(
-                tool_name=f"{self.app_id}_dependency_action",
-                tool_func=dependency_action,
-                description=(
-                    "Run a pre-registered dependency action such as "
-                    "check, start, stop, or restart. Arbitrary commands "
-                    "are not accepted."
-                ),
-                icon="⚙️",
-                enabled=True,
-                tool_type="internal",
-                target_param="dependency_id",
             )
 
         for provider in self._skill_providers:

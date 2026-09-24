@@ -18,6 +18,7 @@ from .model_client import (
 )
 from .models import AgentRunStatus, CreatorAgentRunRecord
 from .registry import (
+    cancel_correlated_creator_agent_runtime,
     get_creator_agent_runtime,
     interrupt_creator_agent_runtime,
     notify_creator_agent_runtime,
@@ -47,6 +48,7 @@ __all__ = [
     "FileAgentRuntimeError",
     "FileCreatorAgentRuntime",
     "StaleAgentRun",
+    "cancel_correlated_creator_agent_runtime",
     "get_creator_agent_runtime",
     "interrupt_creator_agent_runtime",
     "notify_creator_agent_runtime",

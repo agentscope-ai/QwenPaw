@@ -40,6 +40,37 @@
     "min": "2.1.1b1",
     "max": "2.2.0"
   },
+  "pawapp": {
+    "schema_version": 1,
+    "runtime": {
+      "host_tools": [
+        "get_current_time"
+      ],
+      "host_skills": [
+        {
+          "id": "guidance",
+          "tool_refs": []
+        }
+      ],
+      "local_tools": [
+        "qwenpaw_data_search_context",
+        "qwenpaw_data_list_domains",
+        "qwenpaw_data_explore_entity",
+        "qwenpaw_data_execute_sql",
+        "qwenpaw-data_dependency_status",
+        "qwenpaw-data_dependency_action"
+      ],
+      "local_skills": [
+        "atomic",
+        "domains",
+        "meta",
+        "planning",
+        "routing",
+        "runtime",
+        "workflows"
+      ]
+    }
+  },
   "meta": {
     "pawapp": {
       "icon": "\ud83d\udcca",
