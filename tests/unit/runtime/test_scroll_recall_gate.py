@@ -129,7 +129,7 @@ def test_no_sandbox_omits_repl_from_registered_tools(monkeypatch):
     )
     builder = AgentBuilder.__new__(AgentBuilder)
     extra: list = []
-    builder._append_scroll_recall_tools(
+    notice = builder._append_scroll_recall_tools(
         extra,
         _scroll("RECALL_HISTORY", "REPL"),
         _agent_config(allow_unsandboxed=False),
@@ -140,6 +140,9 @@ def test_no_sandbox_omits_repl_from_registered_tools(monkeypatch):
     # Only the structured tool is registered; the REPL is absent, so the
     # model never sees recall_history_python and never hits its approval loop.
     assert extra == ["RECALL_HISTORY"]
+    assert "no usable sandbox backend" in notice
+    assert "recall_history_python" in notice
+    assert "recall_history tool remains available" in notice
 
 
 def test_with_sandbox_registers_both_tools(monkeypatch):
@@ -150,7 +153,7 @@ def test_with_sandbox_registers_both_tools(monkeypatch):
     )
     builder = AgentBuilder.__new__(AgentBuilder)
     extra: list = []
-    builder._append_scroll_recall_tools(
+    notice = builder._append_scroll_recall_tools(
         extra,
         _scroll("RECALL_HISTORY", "REPL"),
         _agent_config(allow_unsandboxed=False),
@@ -159,3 +162,44 @@ def test_with_sandbox_registers_both_tools(monkeypatch):
         _governor(sandbox_available=True),
     )
     assert extra == ["RECALL_HISTORY", "REPL"]
+    assert notice == ""
+
+
+def test_disabled_sandbox_explains_recall_degradation(monkeypatch):
+    monkeypatch.delenv("QWENPAW_ALLOW_UNSANDBOXED_RECALL", raising=False)
+    monkeypatch.setattr(
+        AgentBuilder,
+        "_wrap_tool",
+        staticmethod(_identity_wrap),
+    )
+    tools = []
+    notice = AgentBuilder.__new__(AgentBuilder)._append_scroll_recall_tools(
+        tools,
+        _scroll("RECALL_HISTORY", "REPL"),
+        _agent_config(allow_unsandboxed=False),
+        "ag1",
+        {},
+        SimpleNamespace(sandbox_available=True, sandbox_usable=False),
+    )
+    assert tools == ["RECALL_HISTORY"]
+    assert "disabled in security settings" in notice
+
+
+def test_explicit_unsandboxed_recall_has_no_degradation_notice(monkeypatch):
+    monkeypatch.setenv("QWENPAW_ALLOW_UNSANDBOXED_RECALL", "1")
+    monkeypatch.setattr(
+        AgentBuilder,
+        "_wrap_tool",
+        staticmethod(_identity_wrap),
+    )
+    tools = []
+    notice = AgentBuilder.__new__(AgentBuilder)._append_scroll_recall_tools(
+        tools,
+        _scroll("RECALL_HISTORY", "REPL"),
+        _agent_config(allow_unsandboxed=True),
+        "ag1",
+        {},
+        _governor(False),
+    )
+    assert tools == ["RECALL_HISTORY", "REPL"]
+    assert notice == ""
