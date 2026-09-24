@@ -212,9 +212,23 @@ const metadataTimeToSeconds = (ts: unknown): number => {
   return Number.isNaN(ms) ? 0 : Math.floor(ms / 1000);
 };
 
+const parseMessageTime = (
+  msg: Record<string, unknown>,
+  field: "timestamp" | "finished_at",
+): number => {
+  const envelope =
+    msg.metadata && typeof msg.metadata === "object"
+      ? (msg.metadata as Record<string, unknown>)
+      : {};
+  return (
+    metadataTimeToSeconds(envelope[field]) ||
+    metadataTimeToSeconds(runtimeMetadata(msg)[field])
+  );
+};
+
 /** Parse metadata.timestamp string (e.g. "2026-05-27 10:44:53.362") to unix seconds. */
 const parseTimestamp = (msg: Record<string, unknown>): number =>
-  metadataTimeToSeconds(runtimeMetadata(msg as Message).timestamp);
+  parseMessageTime(msg, "timestamp");
 
 /**
  * Parse metadata.finished_at string to unix seconds (0 when absent).
@@ -223,7 +237,7 @@ const parseTimestamp = (msg: Record<string, unknown>): number =>
  * earlier for turns with long tool calls.
  */
 const parseFinishedAt = (msg: Record<string, unknown>): number =>
-  metadataTimeToSeconds(runtimeMetadata(msg as Message).finished_at);
+  parseMessageTime(msg, "finished_at");
 
 /** Extract plain text from a message's content array. */
 const extractTextFromContent = (content: unknown): string => {
