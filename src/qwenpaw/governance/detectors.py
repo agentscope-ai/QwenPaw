@@ -5,10 +5,12 @@ Extracted from the three tool-guard Guardians as pure functions:
 - detect_sensitive_paths: FilePathToolGuardian logic
 - detect_dangerous_patterns: RuleBasedToolGuardian logic
 - detect_shell_evasion: ShellEvasionGuardian logic
+- shared safety classification: catastrophic and system-power commands
 
 These functions are stateless and receive all configuration via parameters
 rather than reading global config — configuration lives in policy.yaml.
 """
+
 from __future__ import annotations
 
 import logging
@@ -64,6 +66,7 @@ def run_deep_scan(
     detection_rules: list[Any],
     shell_evasion_checks: dict[str, bool],
     raw_params: dict[str, Any] | None = None,
+    cwd: str | Path | None = None,
 ) -> list[GuardFinding]:
     """Run all deep security detectors for one tool call.
 
@@ -77,6 +80,7 @@ def run_deep_scan(
         detection_rules: List of DetectionRuleConfig from policy.yaml
         shell_evasion_checks: Per-check enablement map from policy.yaml
         raw_params: Full tool call parameters dict (for param-value scanning)
+        cwd: Effective shell working directory for relative destructive targets
 
     Returns:
         Accumulated list of GuardFinding objects.
@@ -92,6 +96,38 @@ def run_deep_scan(
             raw_params = dict(raw_params)
             raw_params["command"] = normalize_posix_line_continuations(
                 raw_params["command"],
+            )
+
+    # Shared safety classification must also run on the governance path:
+    # PolicyGuardedTool does not traverse ToolGuardEngine's guardians.
+    if tool_type == "shell" and target:
+        from ..security.tool_guard.safety_checks import (
+            classify_destructive_command,
+        )
+
+        kind = classify_destructive_command(target, cwd=cwd)
+        if kind is not None:
+            rule_id = (
+                "SAFETY_CHECKS_DESTRUCTIVE_COMMAND"
+                if kind == "catastrophic"
+                else "SAFETY_CHECKS_SYSTEM_POWER"
+            )
+            findings.append(
+                GuardFinding(
+                    id=f"GUARD-{uuid.uuid4().hex}",
+                    rule_id=rule_id,
+                    category="resource_abuse",
+                    severity="CRITICAL",
+                    title=f"Shared safety check: {kind}",
+                    description=(
+                        "Shared safety_checks.classify_destructive_command "
+                        f"matched shell command ({kind})."
+                    ),
+                    tool_name=tool_name,
+                    param_name="command",
+                    matched_value=target[:200],
+                    detector="shared_safety_detector",
+                ),
             )
 
     # Detector 1: Sensitive path detection
