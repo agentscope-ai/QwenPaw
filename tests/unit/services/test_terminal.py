@@ -195,7 +195,8 @@ async def test_close_releases_write_blocked_by_pty_backpressure(
         assert closed_in_time
         assert writer_done.wait(1)
     finally:
-        manager.shutdown()
+        if not session.closed:
+            manager.shutdown()
 
 
 @pytest.mark.skipif(os.name == "nt", reason="Unix shell syntax")

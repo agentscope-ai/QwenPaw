@@ -4,9 +4,14 @@
 import codecs
 import fcntl
 import os
+import select
 import struct
 import subprocess
 import termios
+import threading
+
+
+IO_POLL_INTERVAL = 0.1
 
 
 class PosixPty:
@@ -18,6 +23,8 @@ class PosixPty:
         self.fd = master
         self.exitstatus = None
         self.decoder = codecs.getincrementaldecoder("utf-8")("replace")
+        self.closing = threading.Event()
+        os.set_blocking(master, False)
 
     @classmethod
     def spawn(cls, command, cwd, env, dimensions):
@@ -62,17 +69,45 @@ class PosixPty:
 
     def read(self, size):
         """Decode output incrementally, tolerating arbitrary program bytes."""
-        data = os.read(self.fd, size)
-        if not data:
-            raise EOFError()
-        return self.decoder.decode(data)
+        while not self.closing.is_set():
+            readable, _, _ = select.select(
+                [self.fd],
+                [],
+                [],
+                IO_POLL_INTERVAL,
+            )
+            if not readable:
+                continue
+            try:
+                data = os.read(self.fd, size)
+            except BlockingIOError:
+                continue
+            if not data:
+                break
+            return self.decoder.decode(data)
+        raise EOFError()
 
     def write(self, text):
-        """Handle short OS writes without dropping pasted input."""
+        """Handle partial writes while allowing teardown to cancel waits."""
         data = text.encode("utf-8")
         while data:
-            count = os.write(self.fd, data)
+            if self.closing.is_set():
+                raise OSError("Terminal is closing")
+            try:
+                count = os.write(self.fd, data)
+            except BlockingIOError:
+                select.select(
+                    [],
+                    [self.fd],
+                    [],
+                    IO_POLL_INTERVAL,
+                )
+                continue
             data = data[count:]
+
+    def cancel_write(self):
+        """Wake bounded write retries before the descriptor is closed."""
+        self.closing.set()
 
     def setwinsize(self, rows, cols):
         """Notify the foreground process group of terminal size changes."""
@@ -91,6 +126,7 @@ class PosixPty:
         """Release the master descriptor after the manager stops the tree."""
         if self.fd < 0:
             return
+        self.closing.set()
         if force and self.isalive():
             try:
                 self.process.kill()

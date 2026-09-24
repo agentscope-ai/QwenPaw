@@ -185,6 +185,9 @@ class TerminalSession:
             if self.closed:
                 return
             self.closed = True
+            cancel_write = getattr(self.process, "cancel_write", None)
+            if cancel_write:
+                cancel_write()
             try:
                 children = (
                     self.root.children(recursive=True)
@@ -205,9 +208,8 @@ class TerminalSession:
                     self.root.kill()
             except psutil.Error:
                 pass
-            # Killing the process tree releases a writer blocked by PTY
-            # backpressure. Only close the descriptor after that writer has
-            # left its critical section, avoiding descriptor reuse races.
+            # A cancelable writer leaves its critical section before the
+            # descriptor is closed, avoiding descriptor reuse races.
             with self.io_lock:
                 try:
                     self.process.close(force=True)
