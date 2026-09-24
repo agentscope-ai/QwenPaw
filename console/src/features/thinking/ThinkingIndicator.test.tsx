@@ -37,13 +37,12 @@ it("expresses exact budgets as accessible depth without exposing raw numbers", (
 });
 
 it.each(["off", "inherit"] as const)(
-  "hides %s without removing the reserved slot",
+  "shows the resolved %s state without a fabricated water level",
   (level) => {
-    const { container } = render(
-      <ThinkingIndicator control={control} value={{ level }} />,
-    );
-    expect(screen.queryByRole("img")).not.toBeInTheDocument();
-    expect(container.firstElementChild).toBeEmptyDOMElement();
+    render(<ThinkingIndicator control={control} value={{ level }} />);
+    expect(
+      screen.getByRole("img", { name: `thinkingControl.${level}` }),
+    ).toBeInTheDocument();
   },
 );
 

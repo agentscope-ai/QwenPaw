@@ -40,7 +40,7 @@ def test_packaged_catalog_snapshot() -> None:
     catalog = model_catalog.load_model_catalog()
 
     assert len(catalog) == 31
-    assert sum(len(models) for models in catalog.values()) == 196
+    assert sum(len(models) for models in catalog.values()) == 197
     assert catalog["dashscope"][0].id == "qwen3.8-max"
     assert catalog["dashscope"][0].supports_image is True
     assert catalog["dashscope"][0].thinking_enabled is True

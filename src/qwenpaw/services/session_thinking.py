@@ -3,6 +3,16 @@
 
 from ..config.config import ModelSlotConfig, load_agent_config
 from ..providers.provider_manager import ProviderManager
+from ..providers.provider import Provider
+from ..providers.dashscope_provider import DashScopeProvider
+from ..providers.gemini_provider import resolve_thinking_config
+from ..providers.openai_response_provider import (
+    _supports_none_reasoning_effort,
+)
+from ..providers.adapters.anthropic import (
+    resolve_parameters,
+    resolve_request_parameters,
+)
 from ..providers.hub_managed import (
     PROVIDER_ID,
     hub_mode,
@@ -15,6 +25,148 @@ from ..providers.thinking import (
     resolve_thinking,
 )
 from ..utils.io_utils import run_sync_io
+
+
+def _validate_thinking_parameters(params: dict) -> None:
+    """Reject malformed display inputs without coercing user settings."""
+    for key in (
+        f"extra_body",
+        f"thinking",
+        f"reasoning",
+        f"thinking_config",
+        f"output_config",
+    ):
+        value = params.get(key)
+        if value is not None:
+            if not isinstance(value, dict):
+                raise ValueError(f"{key} must be an object")
+            _validate_thinking_parameters(value)
+    for keys, expected in (
+        ((f"thinking_budget", f"budget_tokens"), int),
+        ((f"reasoning_effort", f"effort", f"thinking_level"), str),
+        (
+            (
+                f"enable_thinking",
+                f"thinking_enable",
+                f"enabled",
+                f"disable_thinking",
+            ),
+            bool,
+        ),
+    ):
+        for key in keys:
+            value = params.get(key)
+            if value is not None and type(value) is not expected:
+                raise ValueError(f"Invalid type for {key}")
+
+
+def _model_thinking_parameters(provider, model, info):
+    """Read configured values using the serving adapter's precedence."""
+    configured = next(
+        (item for item in Provider.all_models(provider) if item.id == model),
+        info,
+    )
+    params = provider._deep_merge(  # pylint: disable=protected-access
+        provider.generate_kwargs,
+        configured.generate_kwargs,
+    )
+    _validate_thinking_parameters(params)
+    if isinstance(provider, DashScopeProvider):
+        params = provider.resolve_thinking_kwargs(model, params)
+    elif provider.thinking_wire_protocol == f"gemini":
+        params = resolve_thinking_config(params)
+    elif params.get(f"disable_thinking"):
+        if provider.model_protocol(model) == f"responses":
+            if not _supports_none_reasoning_effort(model):
+                return {}
+        return {f"enable_thinking": False}
+    return params
+
+
+def _model_default_thinking(provider: Provider, model: str):
+    """Keep invalid generation settings from breaking the display endpoint."""
+    try:
+        return _resolve_model_default_thinking(provider, model)
+    except (TypeError, ValueError):
+        return ThinkingPreference()
+
+
+def _resolve_model_default_thinking(provider: Provider, model: str):
+    """Read declared defaults without changing inherited request settings."""
+    info = provider.resolve_model_info(model)
+    control = provider.thinking_control(model)
+    params = _model_thinking_parameters(provider, model, info)
+    native_anthropic = provider.model_protocol(model) == f"anthropic"
+    if native_anthropic:
+        parameters, extra = resolve_parameters(params, info.max_output_length)
+        params = resolve_request_parameters(parameters, extra)
+        thinking = (params.get(f"extra_body") or {}).get(
+            f"thinking",
+            params.get(f"thinking"),
+        )
+        if thinking is None:
+            return ThinkingPreference(level=f"off")
+    else:
+        thinking = None
+    params = {**params, **(params.get(f"extra_body") or {})}
+    thinking = thinking or params.get(f"thinking") or {}
+    reasoning = params.get(f"reasoning") or {}
+    config = params.get(f"thinking_config") or {}
+    enabled = params.get(
+        f"enable_thinking",
+        params.get(f"thinking_enable"),
+    )
+    effort = params.get(
+        f"reasoning_effort",
+        reasoning.get(
+            f"effort",
+            (params.get(f"output_config") or {}).get(
+                f"effort",
+                config.get(f"thinking_level"),
+            ),
+        ),
+    )
+    budget = params.get(
+        f"thinking_budget",
+        thinking.get(
+            f"budget_tokens",
+            config.get(f"thinking_budget"),
+        ),
+    )
+    if budget is None and effort is None and not native_anthropic:
+        if enabled is None:
+            enabled = info.thinking_enabled
+        effort = info.reasoning_effort
+    if (
+        enabled is False
+        or thinking.get(f"type") == f"disabled"
+        or reasoning.get(f"enabled") is False
+        or effort in {f"none", f"off"}
+        or budget == 0
+    ):
+        return ThinkingPreference(level=f"off")
+    if budget is None and effort in {
+        f"minimal",
+        f"low",
+        f"medium",
+        f"high",
+        f"xhigh",
+        f"max",
+    }:
+        if control.kind == f"effort" and effort in control.efforts:
+            return ThinkingPreference(level=effort)
+        return ThinkingPreference()
+    if control.kind == f"budget":
+        if budget is None and not native_anthropic:
+            budget = control.budget_default
+        if (
+            budget is not None
+            and control.budget_min is not None
+            and control.budget_max is not None
+            and control.budget_min <= budget <= control.budget_max
+        ):
+            return ThinkingPreference(level=f"budget", budget_tokens=budget)
+    return ThinkingPreference()
 
 
 def session_model(meta: dict | None) -> ModelSlotConfig | None:
@@ -73,23 +225,23 @@ async def thinking_view(
 
     def model_view():
         if config.backend != f"qwenpaw":
-            return None, None, ThinkingControl(), None, None
+            return None, None, ThinkingControl(), None, None, None
         manager = ProviderManager.get_instance()
         slot = config.active_model or manager.get_active_model()
         if hub_mode() and slot and slot.provider_id == PROVIDER_ID:
             slot, catalog = managed_slot(slot, explicit=True)
             if slot is None:
-                return None, None, ThinkingControl(), None, None
+                return None, None, ThinkingControl(), None, None, None
             provider = managed_provider(catalog)
         else:
             if not slot:
-                return None, None, ThinkingControl(), None, None
+                return None, None, ThinkingControl(), None, None, None
             provider = manager.get_provider(slot.provider_id)
             if provider is None or not provider.enabled:
-                return None, None, ThinkingControl(), None, None
+                return None, None, ThinkingControl(), None, None, None
         info = provider.get_model_info(slot.model)
         if info is None:
-            return None, None, ThinkingControl(), None, None
+            return None, None, ThinkingControl(), None, None, None
         name = info.name
         return (
             slot.provider_id,
@@ -97,11 +249,21 @@ async def thinking_view(
             provider.thinking_control(slot.model),
             provider.get_context_size(slot.model),
             name,
+            (
+                _model_default_thinking(provider, slot.model)
+                if inherited.level == f"inherit"
+                else None
+            ),
         )
 
-    provider_id, model, control, context_size, model_name = await run_sync_io(
-        model_view,
-    )
+    (
+        provider_id,
+        model,
+        control,
+        context_size,
+        model_name,
+        model_default,
+    ) = await run_sync_io(model_view)
     model_key = f"{provider_id}:{model}" if model else f""
     if override is None and meta is not None:
         override = session_preference(meta, model_key)
@@ -109,6 +271,8 @@ async def thinking_view(
         override if override and override.level != f"inherit" else inherited
     )
     effective, reason = resolve_thinking(requested, control)
+    if effective.level == f"inherit" and model_default is not None:
+        effective = model_default
     return {
         f"model_source": model_source,
         f"model": model,

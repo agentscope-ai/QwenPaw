@@ -697,10 +697,62 @@
 }
 
 .emptyTip {
-  padding: 20px 16px;
-  text-align: center;
-  font-size: 14px;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
+  padding: 12px;
+  text-align: left;
+
+  strong {
+    color: var(--app-text);
+    font-weight: 600;
+  }
+
+  p {
+    margin: 0;
+    line-height: 1.6;
+    color: var(--app-text-secondary);
+  }
+
+  font-size: 13px;
   color: var(--ms-text-faint);
+}
+
+.emptyHeading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--app-text-secondary);
+}
+.emptyAction {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 40px;
+  margin-top: 4px;
+  padding: 8px 12px;
+  border: 1px solid var(--app-border);
+  border-radius: 10px;
+  background: var(--app-fill);
+  color: var(--app-text);
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+  &:hover {
+    background: var(--app-fill-strong);
+  }
+  &:active {
+    background: var(--app-fill-hover);
+  }
+  &:focus-visible {
+    outline: 2px solid var(--app-accent);
+    outline-offset: 2px;
+  }
+  > svg:last-child {
+    margin-left: auto;
+  }
 }
 
 .spinWrapper {
@@ -1575,7 +1627,6 @@
   }
 }
 .pickerViewport .embedded {
-  height: 100%;
   max-height: none;
   flex: 1;
 }
@@ -1597,6 +1648,7 @@
   }
   :global(.ant-drawer-body),
   :global(.qwenpaw-drawer-body) {
+    max-height: min(560px, calc(100dvh - 72px));
     display: flex;
     flex-direction: column;
     padding: 0 12px max(12px, env(safe-area-inset-bottom));
@@ -1669,5 +1721,32 @@
   }
   &:focus-visible {
     outline: 2px solid var(--app-primary);
+  }
+}
+
+.initialModelPicker {
+  padding: 8px;
+}
+.initialProvider {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 0 4px 8px;
+  color: var(--app-text);
+  font-size: 13px;
+  select {
+    flex: 1;
+    min-width: 0;
+    border: 0;
+    border-radius: 6px;
+    padding: 6px;
+    background: var(--app-fill);
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+    &:focus-visible {
+      outline: 2px solid var(--app-accent);
+    }
   }
 }

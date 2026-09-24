@@ -35,6 +35,7 @@ from ..utils.logging import sanitize_log_value
 from .adapters.anthropic import (
     AnthropicModel as _AnthropicChatModelCompat,
     strip_api_key_header,
+    resolve_parameters,
 )
 from .capping_formatter import _CappingAnthropicFormatter
 from .capping_formatter import MAX_INLINE_MEDIA_BYTES
@@ -309,24 +310,15 @@ class AnthropicProvider(Provider):
 
     def get_chat_model_instance(self, model_id: str) -> ChatModelBase:
         from agentscope.credential import AnthropicCredential
-        from agentscope.model import AnthropicChatModel
 
         effective_generate_kwargs = self.get_effective_generate_kwargs(
             model_id,
         )
         output_cap = self.resolve_model_info(model_id).max_output_length
-        default_output = min(16_384, output_cap) if output_cap else 16_384
-        max_tokens = effective_generate_kwargs.pop(f"max_tokens", None)
-        max_tokens = default_output if max_tokens is None else max_tokens
-        if output_cap and max_tokens > output_cap:
-            raise ValueError(
-                f"Output limit exceeds model capacity {output_cap}",
-            )
-
-        params_kwargs: Dict[str, Any] = {"max_tokens": max_tokens}
-        for key in ("thinking_enable", "thinking_budget"):
-            if key in effective_generate_kwargs:
-                params_kwargs[key] = effective_generate_kwargs.pop(key)
+        parameters, effective_generate_kwargs = resolve_parameters(
+            effective_generate_kwargs,
+            output_cap,
+        )
 
         credential = AnthropicCredential(
             api_key=self.api_key or "",
@@ -357,7 +349,7 @@ class AnthropicProvider(Provider):
             extra_generate_kwargs=effective_generate_kwargs,
             credential=credential,
             model=model_id,
-            parameters=AnthropicChatModel.Parameters(**params_kwargs),
+            parameters=parameters,
             stream=True,
             default_headers=merged_headers or None,
             auth_mode=getattr(self, "auth_mode", None),

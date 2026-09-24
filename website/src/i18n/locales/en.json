@@ -248,7 +248,8 @@
       "blog": "Blog",
       "changelog": "Changelog",
       "termsOfService": "Terms of Service",
-      "privacyPolicy": "Privacy Policy"
+      "privacyPolicy": "Privacy Policy",
+      "usagePolicy": "Usage Policy"
     },
     "social": {
       "x": "X",
@@ -516,6 +517,7 @@
   "downloads": {
     "title": "Downloads",
     "subtitle": "Get QwenPaw installers, tools, and resources",
+    "openSourceNotice": "Downloads are builds of the <repo>QwenPaw open-source project</repo>, licensed under Apache License 2.0.",
     "loading": "Loading...",
     "emptyTitle": "No downloads available yet",
     "emptyDesc": "Desktop builds are in progress. Please check back later.",

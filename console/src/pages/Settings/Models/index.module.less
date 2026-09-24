@@ -313,22 +313,31 @@
 }
 
 .settingsPage .availableGrid {
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 240px), 1fr));
   gap: 10px;
 }
 
 .settingsPage .availableItem {
-  min-height: 64px;
-  padding: 16px;
+  min-height: 68px;
+  padding: 14px 16px;
+  width: 100%;
+  min-width: 0;
+  text-align: left;
+  font: inherit;
   border-color: var(--model-hairline);
-  border-radius: 16px;
+  border-radius: 14px;
   background: var(--models-surface);
 }
 
 .settingsPage .availableItem:hover {
-  border-color: var(--app-accent-border);
-  background: var(--models-accent-soft);
-  box-shadow: none;
+  border-color: var(--models-border-strong);
+  background: var(--models-surface-muted);
+  box-shadow: 0 2px 6px rgb(0 0 0 / 4%);
+}
+
+.settingsPage .availableItem:focus-visible {
+  outline: 2px solid var(--models-accent);
+  outline-offset: 3px;
 }
 
 .settingsPage .availableItemName {
@@ -336,11 +345,41 @@
 }
 
 .settingsPage .emptyConfigured {
-  padding: 40px 24px;
-  border-color: var(--models-border-strong);
+  flex-direction: row;
+  justify-content: flex-start;
+  gap: 16px;
+  padding: 20px;
+  margin-bottom: 0;
+  border: 1px solid var(--model-hairline);
+  border-radius: 16px;
+  background: var(--models-surface-muted);
+  text-align: left;
+}
+
+.settingsPage .emptyConfigured h3 {
+  margin: 0 0 4px;
+  color: var(--models-text);
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.5;
 }
 
 .settingsPage .emptyConfigured p {
+  margin: 0;
+  color: var(--models-text-muted);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.emptyConfiguredIcon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 44px;
+  height: 44px;
+  border: 1px solid var(--model-hairline);
+  border-radius: 12px;
+  background: var(--models-surface);
   color: var(--models-text-muted);
 }
 
@@ -601,6 +640,10 @@
 }
 
 .availableItemAction {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
   font-size: 11px;
   color: var(--models-accent-strong);
   font-weight: 500;

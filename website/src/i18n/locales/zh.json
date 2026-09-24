@@ -248,7 +248,8 @@
       "blog": "博客",
       "changelog": "更新日志",
       "termsOfService": "服务条款",
-      "privacyPolicy": "隐私政策"
+      "privacyPolicy": "隐私政策",
+      "usagePolicy": "用户协议"
     },
     "social": {
       "x": "X",
@@ -516,6 +517,7 @@
   "downloads": {
     "title": "下载资源",
     "subtitle": "获取 QwenPaw 的各种安装包和工具",
+    "openSourceNotice": "下载内容来自<repo>QwenPaw开源项目</repo>的构建产物，采用 Apache License 2.0 协议。",
     "loading": "加载中...",
     "emptyTitle": "暂无可下载内容",
     "emptyDesc": "桌面应用正在构建中，请稍后再来查看。",

@@ -23,7 +23,7 @@ export function ModelPickerPopover({
   const [layout, setLayout] = useState({
     height: 480,
     above: false,
-    mobile: false,
+    mobile: window.innerWidth <= 600,
   });
   useLayoutEffect(() => {
     if (!open) return;
@@ -53,8 +53,8 @@ export function ModelPickerPopover({
     <div
       className={styles.pickerViewport}
       style={{
-        width: picker ? 400 : 320,
-        height: picker ? layout.height : undefined,
+        width: 360,
+        maxHeight: picker ? Math.max(160, layout.height) : undefined,
       }}
     >
       {content}
@@ -63,6 +63,7 @@ export function ModelPickerPopover({
   return (
     <>
       <Popover
+        arrow={false}
         open={open && !layout.mobile}
         onOpenChange={onOpenChange}
         trigger="click"
@@ -80,7 +81,7 @@ export function ModelPickerPopover({
         open={open && layout.mobile}
         onClose={() => onOpenChange(false)}
         placement="bottom"
-        height={picker ? "min(560px, calc(100dvh - 12px))" : "auto"}
+        height="auto"
         title={null}
         closeIcon={<X size={18} aria-label={t("common.close")} />}
         className={styles.pickerSheet}

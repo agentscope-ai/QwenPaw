@@ -1759,7 +1759,7 @@
     "available": "Tersedia",
     "noEnabled": "Tidak ada alat yang diaktifkan",
     "goEnableBtn": "Aktifkan sekarang",
-    "configureAction": "Konfigurasi →",
+    "configureAction": "Konfigurasi",
     "enableAction": "Aktifkan →"
   },
   "modelConfig": {
@@ -3005,6 +3005,7 @@
     "optionalSelfHosted": "Opsional untuk layanan yang di-host sendiri",
     "leaveBlankKeep": "Biarkan kosong untuk tetap menggunakan kunci saat ini",
     "enterApiKey": "Masukkan API key ({{prefix}}...)",
+    "enterApiKeyRequired": "Masukkan kunci API",
     "enterApiKeyOptional": "Masukkan API key (opsional)",
     "openAIEndpoint": "Endpoint OpenAI, mis. https://api.openai.com/v1",
     "openAICompatibleEndpoint": "Endpoint kompatibel OpenAI, mis. https://api.example.com",

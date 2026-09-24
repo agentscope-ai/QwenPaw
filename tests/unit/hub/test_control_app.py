@@ -4,14 +4,17 @@
 from collections.abc import AsyncIterator, Iterator, Mapping
 import asyncio
 from dataclasses import replace
+from datetime import datetime, timedelta, timezone
 import gzip
 import json
 from pathlib import Path
 import sqlite3
 import threading
 import time
+from types import SimpleNamespace
 from urllib.parse import urlsplit
 from unittest.mock import patch
+import uuid
 
 import httpx
 import pytest
@@ -33,9 +36,11 @@ from qwenpaw.hub.config import (
 )
 from qwenpaw.hub.control_app import create_hub_app, run_hub_app
 from qwenpaw.hub.credentials import TenantCredentialVault
+from qwenpaw.hub.invitations import InvitationError, InvitationService
 from qwenpaw.hub.model_service.api_models import ConnectionBody
 from qwenpaw.hub.model_service.gateway import ModelGateway
 from qwenpaw.hub.model_service.listener import ModelListener
+from qwenpaw.hub.model_service.storage import GovernanceStore
 from qwenpaw.hub.provisioner import (
     RuntimeModelNetwork,
     RuntimeProvisioner,
@@ -1670,6 +1675,127 @@ def test_rejected_registration_is_audited(tmp_path: Path) -> None:
         )
         assert denied["actor_username"] == "owner"
         assert denied["detail"]["reason"]
+
+
+def test_invitation_failures_map_to_distinct_statuses(
+    tmp_path: Path,
+) -> None:
+    """Each invitation rejection reason keeps its own HTTP semantics."""
+    config = HubConfig(
+        control_plane=ControlPlaneConfig(
+            security=AccessSecurityConfig(
+                registration_rate_limit=RateLimitConfig(
+                    max_attempts=100,
+                    window_seconds=3600,
+                    block_seconds=3600,
+                ),
+            ),
+        ),
+    )
+    with _client(tmp_path, hub_config=config) as client:
+        admin_token = _register(client, "owner")
+        database = tmp_path / "control.db"
+        with sqlite3.connect(database) as connection:
+            connection.execute(
+                "UPDATE hub_settings SET value_json = ? WHERE key = ?",
+                ('"invite"', "registration_mode"),
+            )
+        invitations = InvitationService(
+            GovernanceStore(database),
+            client.app.state.auth_service,
+        )
+
+        def issue(**overrides) -> dict:
+            values = {
+                "valid_days": 7,
+                "request_id": uuid.uuid4().hex,
+                "model_ids": [],
+                "count": 1,
+                "note": "support batch",
+                "token_limit": None,
+                "inherit_budget": True,
+            }
+            values.update(overrides)
+            return invitations.create(
+                "owner",
+                SimpleNamespace(**values),
+            )
+
+        def attempt(username: str, code: str):
+            return client.post(
+                "/api/auth/register",
+                json={
+                    "username": username,
+                    "password": "safe-password",
+                    "invite_code": code,
+                },
+            )
+
+        missing = attempt("u-missing", "forged-code")
+        assert missing.status_code == 404
+        assert missing.json()["detail"] == ("Invitation code not found")
+
+        revoked_batch = issue()
+        invitations.revoke(revoked_batch["id"])
+        revoked = attempt(
+            "u-revoked",
+            revoked_batch["codes"][0]["code"],
+        )
+        assert revoked.status_code == 410
+        assert revoked.json()["detail"] == "Invitation revoked"
+
+        used_code = issue()["codes"][0]["code"]
+        assert attempt("u-first", used_code).status_code == 200
+        replay = attempt("u-replay", used_code)
+        assert replay.status_code == 409
+        assert replay.json()["detail"] == "Invitation already used"
+
+        expired_batch = issue()
+        past = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+        with sqlite3.connect(database) as connection:
+            connection.execute(
+                "UPDATE hub_invites SET expires_at = ? WHERE id = ?",
+                (past, expired_batch["codes"][0]["id"]),
+            )
+        expired = attempt(
+            "u-expired",
+            expired_batch["codes"][0]["code"],
+        )
+        assert expired.status_code == 410
+        assert expired.json()["detail"] == "Invitation expired"
+
+        # The endpoint short-circuits non-invite modes, so the
+        # registration_closed branch is only reachable through a
+        # mode flip racing the request; force it deterministically.
+        race_batch = issue()
+        with patch.object(
+            InvitationService,
+            "redeem",
+            side_effect=InvitationError("registration_closed"),
+        ):
+            race = attempt(
+                "u-race",
+                race_batch["codes"][0]["code"],
+            )
+        assert race.status_code == 403
+        assert race.json()["detail"] == ("Invitation registration disabled")
+
+        audit = client.get(
+            "/api/hub/admin/audit?action=auth.register",
+            headers=_headers(admin_token),
+        )
+        reasons = [
+            event["detail"]["reason"]
+            for event in audit.json()["items"]
+            if event["outcome"] == "failure"
+        ]
+        assert set(reasons) == {
+            "invitation.not_found",
+            "invitation.revoked",
+            "invitation.already_used",
+            "invitation.expired",
+            "invitation.registration_closed",
+        }
 
 
 def test_failed_runtime_creation_is_audited(tmp_path: Path) -> None:

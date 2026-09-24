@@ -90,7 +90,7 @@
     },
     "dashscope": {
       "path": "providers/dashscope.json",
-      "sha256": "5893ff154100eea51238e179fc18720ce2f1f11b6193b9de001c2052c9bdf0b0",
+      "sha256": "b42ad3674c38df83c77c5e8ae9fa0560c44743471c189e0ef8786636ba1144b8",
       "api_urls": [
         "https://dashscope.aliyuncs.com/compatible-mode/v1"
       ],
@@ -242,7 +242,6 @@
               "kind": "budget",
               "budget_min": 1,
               "budget_max": 32768,
-              "budget_default": 4000,
               "supports_off": true,
               "wire": "compat_budget"
             },
@@ -282,7 +281,6 @@
               "kind": "budget",
               "budget_min": 1,
               "budget_max": 32768,
-              "budget_default": 4000,
               "supports_off": true,
               "wire": "compat_budget"
             },
@@ -322,7 +320,6 @@
               "kind": "budget",
               "budget_min": 1,
               "budget_max": 32768,
-              "budget_default": 4000,
               "supports_off": true,
               "wire": "compat_budget"
             },
@@ -2136,7 +2133,7 @@
     },
     "kilo": {
       "path": "providers/kilo.json",
-      "sha256": "a941c4033c19545315dbd388810a60d318014dd1b7b3230eb67b2f67ae488445",
+      "sha256": "19177b566d5992723ff3cd3389715c6cdca09dda53fc8efee082fa2ebf33d6f1",
       "api_urls": [
         "https://api.kilo.ai/api/gateway"
       ],
@@ -2149,6 +2146,7 @@
         "template_owner": false,
         "default_model_ids": [
           "kilo-auto/free",
+          "openrouter/free",
           "nvidia/nemotron-3-ultra-550b-a55b:free",
           "nvidia/nemotron-3-super-120b-a12b:free",
           "poolside/laguna-s-2.1:free",
@@ -2372,6 +2370,33 @@
               "web_search": "0",
               "internal_reasoning": "0",
               "input_cache_read": "0.000000000000"
+            },
+            "capability_provenance": {
+              "billing": {
+                "source": "documentation",
+                "reference": "https://api.kilo.ai/api/gateway/models",
+                "updated_at": "2026-09-20",
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
+          },
+          {
+            "id": "openrouter/free",
+            "name": "openrouter/free",
+            "max_input_length": 200000,
+            "max_output_length": 32768,
+            "max_output_length_source": "catalog",
+            "supports_tool_calling": true,
+            "supports_image": true,
+            "supports_audio": false,
+            "supports_video": false,
+            "released_at": "2026-02-01",
+            "billing": "free",
+            "is_free": true,
+            "billing_source": "catalog",
+            "pricing": {
+              "prompt": "0",
+              "completion": "0"
             },
             "capability_provenance": {
               "billing": {
@@ -3389,7 +3414,7 @@
     },
     "anthropic": {
       "path": "providers/anthropic.json",
-      "sha256": "60d63b3d2662de4c1b39a27741d7c1a096bcde5e31bc1f713b28bdf46912dab2",
+      "sha256": "630339f5b869ac5d9a2febce3f5cb03b037ff1a7612e127b9f9f16c2cbe52c6f",
       "api_urls": [
         "https://api.anthropic.com"
       ],
@@ -3422,7 +3447,7 @@
     },
     "gemini": {
       "path": "providers/gemini.json",
-      "sha256": "dec600cb1f8902aae25651f87cfd5065a4f301ac95fcb03db4af4647c85af6eb",
+      "sha256": "2b2f1e05dc1fd0c6761c2335796e5d41afabdd87a34c7acb7b0a6b4e8526a720",
       "api_urls": [
         "https://generativelanguage.googleapis.com",
         "https://generativelanguage.googleapis.com/v1beta"
@@ -3525,7 +3550,8 @@
               "billing": {
                 "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
               }
-            }
+            },
+            "reasoning_effort": "high"
           },
           {
             "id": "gemini-3-flash-preview",
@@ -3566,7 +3592,8 @@
               "billing": {
                 "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
               }
-            }
+            },
+            "reasoning_effort": "high"
           },
           {
             "id": "gemini-3.1-flash-lite-preview",
@@ -3607,7 +3634,8 @@
               "billing": {
                 "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
               }
-            }
+            },
+            "reasoning_effort": "minimal"
           },
           {
             "id": "gemini-2.5-pro",
@@ -3634,7 +3662,6 @@
               "kind": "budget",
               "budget_min": 128,
               "budget_max": 32768,
-              "budget_default": 8192,
               "supports_off": false,
               "wire": "gemini_budget"
             },
@@ -3673,7 +3700,6 @@
               "kind": "budget",
               "budget_min": 1,
               "budget_max": 24576,
-              "budget_default": 8192,
               "supports_off": true,
               "wire": "gemini_budget"
             },
@@ -3712,7 +3738,6 @@
               "kind": "budget",
               "budget_min": 512,
               "budget_max": 24576,
-              "budget_default": 8192,
               "supports_off": true,
               "wire": "gemini_budget"
             },
@@ -3724,7 +3749,8 @@
               "billing": {
                 "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
               }
-            }
+            },
+            "thinking_enabled": false
           },
           {
             "id": "gemini-2.0-flash",
