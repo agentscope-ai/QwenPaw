@@ -147,7 +147,9 @@ async def test_metadata_is_added_to_existing_stream_outputs():
                     state="success",
                 ),
             ],
-            [2, 1, 1, 2],
+            # TOOL_RESULT_TEXT_DELTA emits nothing per chunk; the accumulated
+            # text is delivered with TOOL_RESULT_END.
+            [2, 0, 1, 2],
         ),
         (
             [
