@@ -7,12 +7,15 @@ import json
 import shutil
 import sys
 from dataclasses import replace
+from datetime import datetime, timezone
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
 
 import pytest
 
 from qwenpaw.app.chats.manager import ChatManager
+from qwenpaw.app.agent_context import scoped_session_id
+from qwenpaw.modes.mission import MissionMode
 from qwenpaw.app.chats.repo import JsonChatRepository
 from qwenpaw.app.chats.session import SafeJSONSession
 from qwenpaw.app.crons.manager import CronManager
@@ -22,17 +25,24 @@ from qwenpaw.drivers.adapters.mcp_legacy_config import (
 )
 from qwenpaw.harnesses.events import HarnessHistoryItem, HarnessHistoryKind
 from qwenpaw.portability.importer import ProviderImportService
-from qwenpaw.portability.import_jobs import PortabilityImportJobManager
+from qwenpaw.portability.import_jobs import (
+    ImportProviderSnapshot,
+    PortabilityImportJobManager,
+)
 from qwenpaw.portability.import_support import (
     _create_memory_project as create_memory_project,
     _prepare_memory_payloads,
 )
-from qwenpaw.portability.adaptation_loop import AdaptationResult
+from qwenpaw.portability.adaptation_loop import (
+    AdaptationResult,
+    get_active_adaptation_context,
+)
 from qwenpaw.portability.compatibility import (
     CompatibilityStore,
     load_manifest,
 )
 from qwenpaw.portability.models import (
+    ImportAssetResult,
     ImportAssetState,
     ImportSelection,
     ProviderInventory,
@@ -82,6 +92,19 @@ def _bind_inventory(monkeypatch, inventory: ProviderInventory) -> None:
     )
 
 
+def _prepare_compatibility(path, inventory, migration_id):
+    store = CompatibilityStore(path)
+    manifest = store.prepare(
+        migration_id=migration_id,
+        source=inventory.provider_id,
+        skills=inventory.skills,
+        mcp_servers=inventory.mcp_servers,
+        plugins=inventory.plugins,
+        scheduled_tasks=inventory.scheduled_tasks,
+    )
+    return store, manifest
+
+
 def _mock_adaptation(
     monkeypatch,
     workspace,
@@ -90,16 +113,6 @@ def _mock_adaptation(
     zone: str = "repair",
     status: str = "completed",  # pylint: disable=unused-argument
 ) -> None:
-    keys = {
-        **{f"skills:{item.source_id}": zone for item in inventory.skills},
-        **{f"mcp:{item.source_id}": zone for item in inventory.mcp_servers},
-        **{f"plugins:{item.source_id}": zone for item in inventory.plugins},
-        **{
-            f"scheduled_tasks:{item.source_id}": zone
-            for item in inventory.scheduled_tasks
-        },
-    }
-
     async def result(
         _workspace,
         _inventory,
@@ -113,19 +126,15 @@ def _mock_adaptation(
             / migration_id
             / "test-adaptation-manifest.json"
         )
-        store = CompatibilityStore(manifest_path)
-        store.prepare(
-            migration_id=migration_id,
-            source=inventory.provider_id,
-            skills=inventory.skills,
-            mcp_servers=inventory.mcp_servers,
-            plugins=inventory.plugins,
-            scheduled_tasks=inventory.scheduled_tasks,
+        store, manifest = _prepare_compatibility(
+            manifest_path,
+            inventory,
+            migration_id,
         )
         if zone == "migrate":
-            for key in keys:
+            for asset in manifest.assets:
                 store.finalize(
-                    key,
+                    asset.asset_key,
                     passed=True,
                     summary="test fixture",
                     reason="test fixture",
@@ -185,6 +194,300 @@ def _source_skills(tmp_path: Path, *names: str) -> list[SourceSkill]:
         )
         skills.append(SourceSkill(source_id=name, name=name, directory=root))
     return skills
+
+
+async def _apply_with_results(workspace, inventory, **kwargs):
+    provider = ImportProviderSnapshot(
+        source=inventory.provider_id,
+        assets=[
+            ImportAssetResult(
+                asset_type=kind,
+                source_id=item.source_id,
+                name=item.source_id,
+            )
+            for kind, items in (
+                ("skill", inventory.skills),
+                ("plugin", inventory.plugins),
+                ("memory", inventory.memory_projects),
+                ("mcp", inventory.mcp_servers),
+                ("cron", inventory.scheduled_tasks),
+            )
+            for item in items
+        ],
+    )
+
+    async def progress(message):
+        PortabilityImportJobManager._project_progress(provider, message)
+
+    await ProviderImportService(workspace)._apply(
+        inventory,
+        started_at=datetime.now(timezone.utc),
+        progress=progress,
+        **kwargs,
+    )
+    return provider.assets
+
+
+@pytest.mark.asyncio
+async def test_failed_skill_details_isolated_and_retryable(
+    tmp_path,
+    monkeypatch,
+):
+    workspace = _workspace(tmp_path)
+    workspace.plugins = SimpleNamespace(
+        modes=[MissionMode()],
+        tool_registry=SimpleNamespace(names=lambda: []),
+    )
+    processed = []
+
+    async def stream_query(request):
+        with scoped_session_id(request.session_id):
+            context = get_active_adaptation_context()
+            processed.append(context.active_asset_key)
+            await context.finalize_asset(
+                context.active_asset_key,
+                "Native checks passed",
+            )
+        yield SimpleNamespace(type="message")
+
+    workspace.stream_query = stream_query
+    inventory = ProviderInventory(
+        provider_id="codex",
+        provider_name="Codex",
+        detected=True,
+        skills=_source_skills(tmp_path, "alpha", "beta", "gamma", "broken"),
+    )
+    outside = tmp_path / "outside.md"
+    outside.write_text("not part of the skill", encoding="utf-8")
+    link = inventory.skills[-1].directory / "poison" / "evil.md"
+    link.parent.mkdir()
+    try:
+        link.symlink_to(outside)
+    except OSError:
+        pytest.skip("symbolic links are unavailable on this platform")
+    monkeypatch.setattr(
+        "qwenpaw.portability.import_planning.create_migration_provider",
+        lambda *_args, **_kwargs: _Provider(inventory.model_copy(deep=True)),
+    )
+    manager = PortabilityImportJobManager()
+    job = await manager.create(workspace, ["codex"])
+    live = await manager._live(workspace, job.job_id)
+    await live.task
+    await manager.start(
+        workspace,
+        job.job_id,
+        {
+            "codex": ImportSelection(
+                sessions=False,
+                skills=[s.source_id for s in inventory.skills],
+            ),
+        },
+    )
+    await live.task
+    snapshot = await manager.snapshot(workspace, job.job_id)
+    assets = snapshot.providers[0].assets
+    assert [a.state.value for a in assets] == ["succeeded"] * 3 + ["failed"]
+    assert "poison/evil.md" in assets[-1].message
+    assert "重试" in assets[-1].message
+    assert assets[-1].blocked_reason == ""
+    assert "skills:broken" not in processed
+    assert not (workspace.workspace_dir / "skills/broken").exists()
+    summaries = list(
+        workspace.workspace_dir.glob(
+            ".qwenpaw/imports/*/adaptation/summary.md",
+        ),
+    )
+    assert "poison/evil.md" in summaries[0].read_text(encoding="utf-8")
+    good_files = [
+        workspace.workspace_dir / "skills" / s.name / "SKILL.md"
+        for s in inventory.skills[:3]
+    ]
+    originals = {p: (p.read_bytes(), p.stat().st_mtime_ns) for p in good_files}
+    selection = {"codex": ImportSelection(sessions=False, skills=["broken"])}
+    for fixed in (False, True):
+        if fixed:
+            link.unlink()
+        job = await manager.retry(workspace, job.job_id, selection)
+        live = await manager._live(workspace, job.job_id)
+        await live.task
+        asset = live.snapshot.providers[0].assets[-1]
+        assert asset.state.value == ("succeeded" if fixed else "failed")
+        assert bool(asset.message) is not fixed
+        assert {
+            p: (p.read_bytes(), p.stat().st_mtime_ns) for p in good_files
+        } == originals
+    assert (workspace.workspace_dir / "skills/broken/SKILL.md").is_file()
+    await manager.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_unavailable_loader_does_not_claim_repair_plugin_passed(
+    tmp_path,
+    monkeypatch,
+):
+    from qwenpaw.portability.codex_plugin_adapter import ADAPTER
+
+    workspace = _workspace(tmp_path)
+    inventory = ProviderInventory(
+        provider_id="codex",
+        provider_name="Codex",
+        detected=True,
+        plugins=[
+            SourcePlugin(
+                source_id="plugin",
+                name="plugin",
+                marketplace="",
+                install_source="unused",
+                metadata={"adapter": ADAPTER},
+            ),
+        ],
+    )
+    _mock_adaptation(monkeypatch, workspace, inventory, zone="repair")
+    monkeypatch.setattr(
+        "qwenpaw.plugins.registry.PluginRegistry.get_plugin_http_app",
+        lambda self: None,
+    )
+    (asset,) = await _apply_with_results(workspace, inventory)
+    assert asset.state is ImportAssetState.FAILED
+    assert "加载器" in asset.message
+    assert "已通过" not in asset.message
+
+
+@pytest.mark.asyncio
+async def test_repeated_native_failure_keeps_agent_explanation(
+    tmp_path,
+    monkeypatch,
+):
+    from qwenpaw.portability.compatibility_testing import CompatibilityTester
+
+    workspace = _workspace(tmp_path)
+    skills = _source_skills(tmp_path, "broken")
+    (skills[0].directory / "SKILL.md").write_text(
+        "---\nname: broken\n---\nInstructions.\n",
+        encoding="utf-8",
+    )
+    inventory = ProviderInventory(
+        provider_id="codex",
+        provider_name="Codex",
+        detected=True,
+        skills=skills,
+    )
+    diagnosis = "缺少 description，请在 SKILL.md 的头部补充描述后重试。"
+
+    async def adaptation(_workspace, selected, migration_id, _progress):
+        store, manifest = _prepare_compatibility(
+            tmp_path / f"{migration_id}.json",
+            selected,
+            migration_id,
+        )
+        result = CompatibilityTester(workspace, selected).test(
+            manifest.assets[0],
+        )
+        manifest = store.finalize(
+            "skills:broken",
+            passed=result.passed,
+            reason=diagnosis,
+            summary=result.summary,
+            evidence=result.evidence,
+        )
+        return AdaptationResult(manifest, tmp_path / "summary.md")
+
+    monkeypatch.setattr(
+        "qwenpaw.portability.importer.run_adaptation_loop",
+        adaptation,
+    )
+    (asset,) = await _apply_with_results(workspace, inventory)
+    assert asset.state is ImportAssetState.FAILED
+    assert diagnosis in asset.message
+
+
+@pytest.mark.asyncio
+async def test_import_failures_explain_each_asset_and_keep_relevant_analysis(
+    tmp_path,
+    monkeypatch,
+):
+    workspace = _workspace(tmp_path)
+    inventory = ProviderInventory(
+        provider_id="codex",
+        provider_name="Codex",
+        detected=True,
+        skills=_source_skills(tmp_path, "skill"),
+        plugins=[
+            SourcePlugin(
+                source_id="plugin",
+                name="plugin",
+                marketplace="",
+                install_source="unused",
+            ),
+        ],
+        memory_projects=[
+            SourceMemoryProject(source_id="memory", project_key="project"),
+        ],
+        mcp_servers=[
+            SourceMCPServer(
+                source_id="mcp",
+                name="server",
+                transport="unsupported",
+            ),
+        ],
+        scheduled_tasks=[SourceScheduledTask(source_id="cron", name="task")],
+    )
+    diagnosis = "插件依赖来源专有接口，请替换该接口后重试。"
+
+    async def adaptation(_workspace, selected, migration_id, _progress):
+        store, manifest = _prepare_compatibility(
+            tmp_path / f"{migration_id}.json",
+            selected,
+            migration_id,
+        )
+        for asset in manifest.assets:
+            store.finalize(
+                asset.asset_key,
+                passed=asset.asset_type.value != "plugins",
+                reason=(
+                    diagnosis
+                    if asset.asset_type.value == "plugins"
+                    else "兼容检查通过"
+                ),
+                summary="Native validation",
+            )
+        return AdaptationResult(
+            load_manifest(store.path),
+            tmp_path / "summary.md",
+        )
+
+    def deny_write(*_args, **_kwargs):
+        raise PermissionError("api_key=sk-test-secret-1234567890")
+
+    monkeypatch.setattr(
+        "qwenpaw.portability.importer.run_adaptation_loop",
+        adaptation,
+    )
+    monkeypatch.setattr(
+        "qwenpaw.portability.importer.SkillService.import_from_zip",
+        deny_write,
+    )
+    monkeypatch.setattr(
+        "qwenpaw.portability.importer._create_memory_project",
+        deny_write,
+    )
+    results = await _apply_with_results(
+        workspace,
+        inventory,
+        memory_payloads={"memory": {}},
+    )
+    assets = {a.asset_type: a for a in results}
+    assert all(
+        a.state is ImportAssetState.FAILED and a.message
+        for a in assets.values()
+    )
+    assert diagnosis in assets["plugin"].message
+    assert "权限" in assets["skill"].message
+    assert "兼容检查通过" not in assets["skill"].message
+    assert "权限" in assets["memory"].message
+    assert "transport" in assets["mcp"].message
+    assert "Cron" in assets["cron"].message
+    assert "sk-test-secret" not in " ".join(a.message for a in assets.values())
 
 
 @pytest.mark.asyncio

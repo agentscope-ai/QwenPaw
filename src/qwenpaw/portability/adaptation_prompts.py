@@ -41,6 +41,10 @@ capabilities.
 6. If finalization fails, read every item in its summary and evidence. Fix the
    underlying issue in all affected files, review the complete asset again,
    and finalize again until it passes or the worker budget is exhausted.
+   If it cannot be repaired, finalize with a reason explaining the unresolved
+   issue and what the user should change before retrying. This explanation is
+   shown to the user; do not include credentials or describe a failed check
+   as successful.
 
 ## Important Notes
 
