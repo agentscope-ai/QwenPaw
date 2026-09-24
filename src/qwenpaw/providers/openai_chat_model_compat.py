@@ -466,6 +466,85 @@ def _sanitize_nullable_schemas(schema: Any) -> Any:
     )
 
 
+def _enum_value_type(value: Any) -> str | None:
+    """Return the JSON Schema type of a single ``enum`` value."""
+    if value is None:
+        return "null"
+    if isinstance(value, bool):
+        return "boolean"
+    if isinstance(value, int):
+        return "integer"
+    if isinstance(value, float):
+        return "number"
+    if isinstance(value, str):
+        return "string"
+    return None
+
+
+def _enum_schema_type(values: Any) -> str | list[str] | None:
+    """Derive the ``type`` Moonshot requires alongside ``enum``.
+
+    Returns ``None`` when the values span types MFJS cannot express in one
+    declaration, so the node is left for the provider to judge.
+    """
+    if not isinstance(values, list) or not values:
+        return None
+
+    value_types: list[str] = []
+    for value in values:
+        value_type = _enum_value_type(value)
+        if value_type is None:
+            return None
+        if value_type not in value_types:
+            value_types.append(value_type)
+
+    if len(value_types) == 1:
+        return value_types[0]
+
+    # MFJS's "number" already covers integers, so a mixed int/float enum is
+    # one number enum rather than a two-entry type array.
+    if "number" in value_types and "integer" in value_types:
+        value_types = [item for item in value_types if item != "integer"]
+        if len(value_types) == 1:
+            return value_types[0]
+
+    # MFJS allows a two-entry type array only for null plus one scalar.
+    non_null_types = [item for item in value_types if item != "null"]
+    if len(non_null_types) == 1 and "null" in value_types:
+        if non_null_types[0] in ("string", "integer", "number", "boolean"):
+            return [non_null_types[0], "null"]
+    return None
+
+
+def _ensure_enum_type_schemas(schema: Any) -> Any:
+    """Give ``enum`` nodes the explicit ``type`` strict providers require.
+
+    Moonshot's flavored JSON Schema validator rejects a property such as::
+
+        {"anyOf": [{"type": "string"}, {"type": "integer"}],
+         "enum": ["1min", "5min"]}
+
+    with ``type is not defined`` (see #7959).  The union is not the problem;
+    ``enum`` is only accepted on a node that also declares ``type``, so MCP
+    servers that emit this shape to tolerate LLM mis-serialization fail
+    before the model is called.  The enum values already fix the accepted
+    set, so declaring their type leaves what the tool accepts unchanged.
+    Nodes that already declare ``type`` are left untouched.
+    """
+    if isinstance(schema, list):
+        return [_ensure_enum_type_schemas(item) for item in schema]
+    if not isinstance(schema, dict):
+        return schema
+
+    node = dict(schema)
+    if "type" not in node and "enum" in node:
+        enum_type = _enum_schema_type(node["enum"])
+        if enum_type is not None:
+            node["type"] = enum_type
+
+    return _walk_schema(node, _ensure_enum_type_schemas)
+
+
 def _collect_defs(schema: dict[str, Any]) -> dict[str, Any]:
     """Collect all named type definitions from a JSON Schema root.
 
@@ -647,9 +726,11 @@ def _sanitize_nullable_tool_schemas(
 
 def _apply_openai_compat_schema_passes(params: dict[str, Any]) -> Any:
     return _expand_pattern_fields(
-        _sanitize_nullable_schemas(
-            _sanitize_boolean_schemas(
-                _expand_schema_refs(params),
+        _ensure_enum_type_schemas(
+            _sanitize_nullable_schemas(
+                _sanitize_boolean_schemas(
+                    _expand_schema_refs(params),
+                ),
             ),
         ),
     )
@@ -660,7 +741,7 @@ def _sanitize_tool_schemas(
 ) -> list[dict[str, Any]]:
     """Sanitize tool function schemas to be compatible with strict providers.
 
-    Applies four passes over each tool's ``parameters`` schema:
+    Applies five passes over each tool's ``parameters`` schema:
 
     1. **$ref / $defs expansion** — inlines all local ``$ref`` references so
        that models which do not support ``$defs`` (e.g. GLM-5.x) receive a
@@ -670,7 +751,10 @@ def _sanitize_tool_schemas(
     3. **Nullable schema sanitization** — removes JSON Schema ``null`` type
        branches that OpenAI-compatible relays to Gemini-style providers reject
        in function declarations.
-    4. **Pattern shorthand expansion** — converts ECMA-262 regex shorthands
+    4. **Enum type completion** — declares the ``type`` that Moonshot's
+       flavored JSON Schema validator requires on any node carrying ``enum``
+       (#7959).
+    5. **Pattern shorthand expansion** — converts ECMA-262 regex shorthands
        (``\\d``, ``\\w``, ``\\s``, etc.) in ``pattern`` fields to character
        classes (``[0-9]``, ``[a-zA-Z0-9_]``, etc.).  llama.cpp's GBNF grammar
        parser does not support these escape sequences (#6201).
