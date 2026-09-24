@@ -18,7 +18,9 @@ import pytest
 from agentscope.message import ToolResultState
 from agentscope.tool import FunctionTool
 
-from qwenpaw.agents.context.scroll.history import HistoryStore
+from qwenpaw.storage.backends.sqlite.legacy_history import (
+    SQLiteHistoryStore as HistoryStore,
+)
 from qwenpaw.agents.context.scroll.memoryspace import MemorySpace
 from qwenpaw.agents.context.scroll.recall_tool import (
     RECALL_PAGE_METADATA_KEY,

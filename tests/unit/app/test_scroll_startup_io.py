@@ -12,7 +12,9 @@ from pathlib import Path
 import pytest
 
 from qwenpaw.agents.context.scroll import sync as scroll_sync
-from qwenpaw.agents.context.scroll.history import HistoryStore
+from qwenpaw.storage.backends.sqlite.legacy_history import (
+    SQLiteHistoryStore as HistoryStore,
+)
 
 
 @pytest.mark.asyncio

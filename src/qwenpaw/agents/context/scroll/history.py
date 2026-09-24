@@ -1,514 +1,30 @@
 # -*- coding: utf-8 -*-
-"""Durable, file-backed conversation history shared across sessions."""
+"""Synchronous history contract used by the existing scroll runtime.
+
+The async storage contract lives in storage.contracts.history. This contract
+keeps the old runtime's call semantics explicit until its async commit
+boundaries are integrated; it must not be used to block on remote storage.
+"""
 
 from __future__ import annotations
 
-import json
-import logging
-import os
-import re
-import sqlite3
-import sys
-import threading
+from abc import ABC, abstractmethod
 from collections.abc import Sequence
-from datetime import datetime, timezone
-from pathlib import Path
 from typing import Any
 
 from ..types import LogEntry
 
-logger = logging.getLogger(__name__)
-
-_BUSY_TIMEOUT_MS = 5000
-_UNSET = object()
-
-# The recall tool's own turns — the model's ``ms.*`` Python source and its
-# printed stdout/stderr — are written through to history like any turn, but
-# they are the agent *reading* memory, not memory content. Keyword-indexing
-# them lets a later ``ms.search`` match the agent's own past queries (and their
-# tracebacks), drowning the real content: a self-pollution feedback loop. So
-# these rows stay durable + recallable by ``seq``, but are kept OUT of the FTS
-# index (and out of ``search`` — see ``MemorySpace``). Must match the recall
-# tool names in ``repl.py`` and ``recall_tool.py``.
-_RECALL_TOOL_NAMES = (
-    "recall_history_python",
-    "recall_history",
-)
-
-# Columns of conversation_history, in INSERT order (minus the
-# autoincrement seq).
-_INSERT_COLUMNS = (
-    "session_id",
-    "agent_id",
-    "kind",
-    "role",
-    "name",
-    "content",
-    "tool_call_id",
-    "tool_input",
-    "tool_state",
-    "headline",
-    "blocks",
-    "metadata",
-    "created_at",
-    "dedup_key",
-)
+UNCHANGED = object()
 
 
-class HistoryStore:
-    """Owns the *read-write* connection to the ``conversation_history`` file.
+class HistoryStore(ABC):
+    """Existing scroll operations, without SQLite connections or paths."""
 
-    Every event the agent appends is write-through-persisted here with full
-    structure (blocks, tool args, state) so a later session can retrieve it.
-    The model reaches the same file *read-only* through its ``MemorySpace``
-    (ATTACHed ``hist`` schema), so this writer and those readers coexist under
-    WAL. The file is never dropped; ``close()`` only closes this connection.
-    """
+    degraded: bool
+    write_failures: int
+    write_errors: tuple[type[Exception], ...] = (OSError,)
 
-    # FTS5 is a property of the SQLite build, not of one DB — warn at most once
-    # per process when it's missing, so a long-lived server doesn't log-spam.
-    _fts_unavailable_warned = False
-
-    # ``quick_check`` scans the whole database. Agents are built per request,
-    # so running it in every constructor makes request cost grow with the
-    # entire history file. Keep independent connections, but coordinate the
-    # probe process-wide: the first opener checks, concurrent openers wait,
-    # and later openers skip it while the same file remains at this path.
-    _integrity_probe_condition = threading.Condition()
-    _integrity_probe_inflight: set[tuple[int, Path]] = set()
-    _integrity_probe_checked: dict[tuple[int, Path], tuple[int, int]] = {}
-
-    def __init__(self, db_path: str | Path) -> None:
-        self._path = Path(db_path).expanduser()
-        self._path.parent.mkdir(parents=True, exist_ok=True)
-        # Serializes the single connection across threads: ``compress`` writes
-        # from a worker thread (``asyncio.to_thread``, to spare the event loop)
-        # while ``on_save`` writes on the loop thread. Both share this
-        # connection, so every access takes ``self._lock``.
-        self._lock = threading.Lock()
-        self.quarantined_to: Path | None = None
-        # Durability health: flipped True the first time a write-through fails
-        # (disk/SQLite error). The durability promise no longer holds while
-        # degraded; callers/monitoring can read this.
-        self.degraded = False
-        self.write_failures = 0
-        # Flipped True by ``close()`` so callers can tell an intentional
-        # teardown race from a real disk outage (see ``closed``).
-        self._closed = False
-        self._checked_identity: tuple[int, int] | None = None
-        probe_key, cached_identity = self._claim_integrity_probe(
-            self._path,
-        )
-        try:
-            try:
-                self._open_and_init(
-                    cached_identity=cached_identity,
-                )
-            except sqlite3.DatabaseError as exc:
-                if not (
-                    self._is_corruption(exc)
-                    or getattr(exc, "sqlite_errorcode", None)
-                    == sqlite3.SQLITE_NOTADB
-                    or str(exc).startswith("quick_check failed:")
-                ):
-                    raise
-                # A corrupt / unreadable DB (truncated file, stale WAL trio,
-                # bad page) would crash every task at startup. Quarantine the
-                # bad file and recreate fresh, degrading "broken memory" to
-                # "lost history". The probe claim stays held across recovery
-                # so a concurrent opener cannot race the quarantine.
-                # Cache hits own the same claim as first opens. Invalidate
-                # the old result before recovery and always check the new DB.
-                with self._integrity_probe_condition:
-                    self._integrity_probe_checked.pop(probe_key, None)
-                self._quarantine(exc)
-                self._open_and_init()
-        except BaseException:
-            # Release SQLite resources before waking another constructor.
-            try:
-                self._conn.close()
-            except (AttributeError, sqlite3.Error):
-                pass
-            self._finish_integrity_probe(probe_key, succeeded=False)
-            raise
-        self._finish_integrity_probe(
-            probe_key,
-            succeeded=True,
-            checked_identity=self._checked_identity,
-        )
-
-    @staticmethod
-    def _file_identity(path: Path) -> tuple[int, int] | None:
-        """Return the stable identity of the current file at ``path``."""
-        try:
-            stat = path.stat()
-        except OSError:
-            return None
-        return stat.st_dev, stat.st_ino
-
-    @classmethod
-    def _claim_integrity_probe(
-        cls,
-        path: Path,
-    ) -> tuple[tuple[int, Path], tuple[int, int] | None]:
-        """Serialize construction/recovery and decide whether to probe.
-
-        The path is the coordination key so a corrupt first open can
-        quarantine and recreate the file without another constructor racing
-        that recovery. The cached file identity makes replacing the DB at the
-        same path trigger a new probe.
-        """
-        key = os.getpid(), path.resolve(strict=False)
-        condition = cls._integrity_probe_condition
-        with condition:
-            while key in cls._integrity_probe_inflight:
-                condition.wait()
-
-            # Even a cache hit can encounter corruption during schema init.
-            # Hold ownership until construction (including recovery) finishes.
-            cls._integrity_probe_inflight.add(key)
-            identity = cls._file_identity(key[1])
-            if (
-                identity is not None
-                and cls._integrity_probe_checked.get(key) == identity
-            ):
-                return key, identity
-
-            return key, None
-
-    @classmethod
-    def _finish_integrity_probe(
-        cls,
-        key: tuple[int, Path],
-        *,
-        succeeded: bool,
-        checked_identity: tuple[int, int] | None = None,
-    ) -> None:
-        """Publish a probe result and wake constructors waiting on it."""
-        condition = cls._integrity_probe_condition
-        with condition:
-            if not succeeded:
-                cls._integrity_probe_checked.pop(key, None)
-            elif checked_identity is not None:
-                # Never associate a result with a replacement we did not scan.
-                if cls._file_identity(key[1]) == checked_identity:
-                    cls._integrity_probe_checked[key] = checked_identity
-                else:
-                    cls._integrity_probe_checked.pop(key, None)
-            cls._integrity_probe_inflight.discard(key)
-            condition.notify_all()
-
-    def _run_integrity_check(self) -> None:
-        """Raise when SQLite reports corruption in the history database."""
-        results = [r[0] for r in self._conn.execute("PRAGMA quick_check")]
-        if results != ["ok"]:
-            # Some SQLite builds also report FTS damage here. Repair that
-            # derived index before considering whole-database quarantine.
-            if self._is_fts_only_corruption(results):
-                self._repair_fts()
-                results = [
-                    r[0] for r in self._conn.execute("PRAGMA quick_check")
-                ]
-            if self._is_fts_only_corruption(results):
-                raise RuntimeError(
-                    "History FTS corruption remains after repair; "
-                    f"history preserved: {self._path}: {results}",
-                )
-            if results != ["ok"]:
-                raise sqlite3.DatabaseError(f"quick_check failed: {results}")
-
-    def _open_and_init(
-        self,
-        *,
-        cached_identity: tuple[int, int] | None = None,
-    ) -> None:
-        # check_same_thread=False: used from both loop and worker threads;
-        # ``self._lock`` provides the serialization SQLite would get from
-        # same-thread affinity.
-        self._checked_identity = None
-        identity_before_open = self._file_identity(self._path)
-        self._conn = sqlite3.connect(
-            str(self._path),
-            check_same_thread=False,
-        )
-        identity_after_open = self._file_identity(self._path)
-        self._conn.row_factory = sqlite3.Row
-        self._conn.execute("PRAGMA journal_mode=WAL")
-        self._conn.execute(f"PRAGMA busy_timeout={_BUSY_TIMEOUT_MS}")
-        # A cache hit is valid only if the file still matches across open.
-        # Replacement after the claim must not bypass the integrity check.
-        can_skip_check = (
-            cached_identity is not None
-            and identity_before_open == cached_identity
-            and identity_after_open == cached_identity
-        )
-        if not can_skip_check:
-            self._run_integrity_check()
-            # A missing file may have just been created by sqlite3.connect.
-            # Otherwise require the same identity across connection opening.
-            if identity_before_open in (None, identity_after_open):
-                self._checked_identity = identity_after_open
-        self._init_schema()
-        if self._fts:
-            try:
-                # FTS integrity-check is an INSERT and needs a writer lock.
-                # This optional probe must not stall request construction
-                # behind an ordinary writer; subsequent opens try it again.
-                try:
-                    self._conn.execute("PRAGMA busy_timeout=0")
-                    with self._conn:
-                        self._check_fts()
-                finally:
-                    self._conn.execute(
-                        f"PRAGMA busy_timeout={_BUSY_TIMEOUT_MS}",
-                    )
-            except sqlite3.DatabaseError as exc:
-                code = getattr(exc, "sqlite_errorcode", None)
-                if code is not None and (code & 0xFF) in (
-                    sqlite3.SQLITE_BUSY,
-                    sqlite3.SQLITE_LOCKED,
-                ):
-                    logger.debug(
-                        "Deferring history FTS check until a later open: %s",
-                        self._path,
-                    )
-                elif self._is_corruption(exc):
-                    self._repair_fts()
-                else:
-                    raise
-
-    @staticmethod
-    def _is_fts_only_corruption(results: Sequence[str]) -> bool:
-        # SQLite versions describe FTS damage differently. Match the error
-        # category and exact index name, not a single diagnostic spelling.
-        # Mixed results or corruption in another table must not be treated
-        # as repairable damage to this derived index alone.
-        pattern = (
-            r"(?:malformed inverted index for FTS5 table "
-            r"(?:main\.)?conversation_history_fts|"
-            r"fts5: corruption\b.* from table "
-            r'"(?:main\.)?conversation_history_fts")'
-        )
-        return bool(results) and all(
-            re.fullmatch(pattern, result) is not None for result in results
-        )
-
-    @staticmethod
-    def _is_corruption(exc: sqlite3.DatabaseError) -> bool:
-        # Extended codes such as SQLITE_CORRUPT_VTAB share this primary code.
-        code = getattr(exc, "sqlite_errorcode", None)
-        return code is not None and (code & 0xFF) == sqlite3.SQLITE_CORRUPT
-
-    def _check_fts(self) -> None:
-        # Do not use rank=1: recall-tool rows are deliberately absent from
-        # this external-content index, so full content equality is invalid.
-        self._conn.execute(
-            "INSERT INTO conversation_history_fts"
-            "(conversation_history_fts) VALUES('integrity-check')",
-        )
-
-    def _rebuild_fts(self) -> None:
-        self._conn.execute(
-            "INSERT INTO conversation_history_fts"
-            "(conversation_history_fts) VALUES('rebuild')",
-        )
-        # Rebuild includes every source row. Remove the deliberately excluded
-        # rows now, while we know they are indexed, in the same transaction.
-        for row in self._conn.execute(
-            "SELECT seq, content FROM conversation_history "
-            "WHERE name IN (?, ?)",
-            _RECALL_TOOL_NAMES,
-        ).fetchall():
-            self._conn.execute(
-                "INSERT INTO conversation_history_fts"
-                "(conversation_history_fts, rowid, content) "
-                "VALUES('delete', ?, ?)",
-                (row["seq"], row["content"] or ""),
-            )
-
-    def _repair_fts(self) -> None:
-        logger.warning("Rebuilding damaged history FTS index: %s", self._path)
-        try:
-            with self._conn:
-                self._rebuild_fts()
-                self._check_fts()
-        except sqlite3.DatabaseError as exc:
-            # Keep the source history even if repair fails. In particular,
-            # do not let the constructor quarantine it as a corrupt database.
-            raise RuntimeError(
-                f"History FTS repair failed; history preserved: {self._path}",
-            ) from exc
-        logger.info("History FTS index repaired: %s", self._path)
-
-    def _delete_fts_row(self, row: sqlite3.Row) -> None:
-        # Older rebuilds may have indexed recall rows. The docsize table
-        # records actual membership (SELECT on the virtual table instead
-        # reads external content, including rows that were never indexed).
-        if (
-            row["name"] in _RECALL_TOOL_NAMES
-            and not self._conn.execute(
-                "SELECT 1 FROM conversation_history_fts_docsize WHERE id = ?",
-                (row["seq"],),
-            ).fetchone()
-        ):
-            return
-        self._conn.execute(
-            "INSERT INTO conversation_history_fts"
-            "(conversation_history_fts, rowid, content) "
-            "VALUES('delete', ?, ?)",
-            (row["seq"], row["content"] or ""),
-        )
-
-    def _quarantine(self, exc: Exception) -> None:
-        """Move the unreadable DB + its -wal/-shm aside with a timestamp."""
-        try:
-            self._conn.close()
-        except (AttributeError, sqlite3.Error):
-            pass
-        ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
-        for suffix in ("", "-wal", "-shm"):
-            src = Path(str(self._path) + suffix)
-            if not src.exists():
-                continue
-            dest = Path(f"{self._path}.corrupt-{ts}{suffix}")
-            try:
-                src.rename(dest)
-                if suffix == "":
-                    self.quarantined_to = dest
-            except OSError:
-                try:
-                    src.unlink()  # last resort so a fresh DB can be created
-                except OSError:
-                    pass
-        print(
-            f"[HistoryStore] {self._path} was unreadable ({exc}); quarantined "
-            f"to {self.quarantined_to} and recreated a fresh store.",
-            file=sys.stderr,
-        )
-
-    @property
-    def path(self) -> Path:
-        return self._path
-
-    def _init_schema(self) -> None:
-        with self._conn:
-            self._conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS conversation_history (
-                    seq          INTEGER PRIMARY KEY AUTOINCREMENT,
-                    session_id   TEXT NOT NULL,
-                    agent_id     TEXT,
-                    kind         TEXT NOT NULL,
-                    role         TEXT,
-                    name         TEXT,
-                    content      TEXT,
-                    tool_call_id TEXT,
-                    tool_input   TEXT,
-                    tool_state   TEXT,
-                    headline     TEXT,
-                    blocks       TEXT,
-                    metadata     TEXT,
-                    created_at   TEXT,
-                    dedup_key    TEXT
-                )
-                """,
-            )
-            self._conn.execute(
-                "CREATE INDEX IF NOT EXISTS ch_session "
-                "ON conversation_history(session_id)",
-            )
-            self._conn.execute(
-                "CREATE INDEX IF NOT EXISTS ch_agent "
-                "ON conversation_history(agent_id)",
-            )
-            self._conn.execute(
-                "CREATE INDEX IF NOT EXISTS ch_kind "
-                "ON conversation_history(kind)",
-            )
-            self._conn.execute(
-                "CREATE INDEX IF NOT EXISTS ch_created_at "
-                "ON conversation_history(created_at)",
-            )
-            # Idempotency net: a second append of the same logical event, such
-            # as a resume re-persisting its restored window, collides here and
-            # is dropped by ON CONFLICT rather than duplicating a row. NULL
-            # dedup_key never conflicts, so un-keyed rows are simply never
-            # deduped.
-            self._conn.execute(
-                "CREATE UNIQUE INDEX IF NOT EXISTS ux_dedup "
-                "ON conversation_history(session_id, dedup_key)",
-            )
-            self._init_fts()
-
-    def _init_fts(self) -> None:
-        """Create the FTS5 full-text index over ``content``, if available.
-
-        External-content FTS5 indexes without duplicating the text; it is kept
-        in sync by ``append``/``update_entry``. On a pre-existing DB it is
-        back-filled once via 'rebuild'. Porter stemming on top of unicode61
-        casefolding so "tanks" matches "tank".
-
-        Attempting the ``CREATE VIRTUAL TABLE`` is itself the availability
-        probe: SQLite builds without the FTS5 module (some minimal
-        container/distro builds) raise ``no such module: fts5`` here. We catch
-        that, leave ``self._fts`` False so the write path skips FTS upkeep, and
-        log one warning — search then degrades to a LIKE scan (see
-        ``MemorySpace.search``). The store itself stays fully functional.
-        """
-        try:
-            existed = self._conn.execute(
-                "SELECT 1 FROM sqlite_master WHERE type='table' "
-                "AND name='conversation_history_fts'",
-            ).fetchone()
-            self._conn.execute(
-                "CREATE VIRTUAL TABLE IF NOT EXISTS conversation_history_fts "
-                "USING fts5(content, content='conversation_history', "
-                "content_rowid='seq', tokenize='porter unicode61')",
-            )
-            if not existed:
-                self._rebuild_fts()
-            self._fts = True
-        except sqlite3.OperationalError as exc:
-            if "no such module: fts5" not in str(exc).lower():
-                raise
-            self._fts = False
-            if not HistoryStore._fts_unavailable_warned:
-                HistoryStore._fts_unavailable_warned = True
-                logger.warning(
-                    "SQLite has no FTS5 module (%s); scroll history keyword "
-                    "search degrades to a slower LIKE scan. The history store "
-                    "is otherwise fully functional. Use a SQLite build with "
-                    "FTS5 to restore ranked full-text recall.",
-                    exc,
-                )
-
-    # --- write path ----------------------------------------------------
-
-    @staticmethod
-    def _insert_row(
-        session_id: str,
-        agent_id: str | None,
-        entry: LogEntry,
-        dedup_key: str | None,
-    ) -> tuple:
-        """Build the SQLite row shared by single and batched appends."""
-        return (
-            session_id,
-            agent_id,
-            entry.kind,
-            entry.role,
-            entry.name,
-            entry.content,
-            entry.tool_call_id,
-            _to_json(entry.tool_input),
-            entry.tool_state,
-            entry.headline,
-            _to_json(entry.blocks),
-            _to_json(entry.metadata or None),
-            entry.created_at or datetime.now(timezone.utc).isoformat(),
-            dedup_key,
-        )
-
+    @abstractmethod
     def append(
         self,
         *,
@@ -517,43 +33,9 @@ class HistoryStore:
         agent_id: str | None = None,
         dedup_key: str | None = None,
     ) -> int:
-        """Write-through one event. Returns the assigned ``seq`` (watermark).
+        """Persist an event; retries with the same key return its seq."""
 
-        ``dedup_key`` is the row's stable identity within the session (the
-        source ``msg.id`` for a turn, the ``tool_call_id`` for a result). A
-        second append carrying the same ``(session_id, dedup_key)`` is a no-op
-        and returns the *existing* seq, so a resume that re-persists its
-        restored window can re-link bookkeeping without duplicating rows. A
-        ``None`` key is never deduped.
-        """
-        row = self._insert_row(session_id, agent_id, entry, dedup_key)
-        placeholders = ", ".join("?" for _ in _INSERT_COLUMNS)
-        with self._lock, self._conn:
-            cur = self._conn.execute(
-                f"INSERT INTO conversation_history "
-                f"({', '.join(_INSERT_COLUMNS)}) VALUES ({placeholders}) "
-                f"ON CONFLICT(session_id, dedup_key) DO NOTHING",
-                row,
-            )
-            if cur.rowcount == 0:
-                # Conflict: this event is already durable. Return its seq so
-                # the caller re-links to the existing row; no new row, no FTS
-                # write.
-                existing = self._conn.execute(
-                    "SELECT seq FROM conversation_history "
-                    "WHERE session_id = ? AND dedup_key = ?",
-                    (session_id, dedup_key),
-                ).fetchone()
-                return int(existing["seq"]) if existing else 0
-            seq = int(cur.lastrowid or 0)
-            if self._fts and entry.name not in _RECALL_TOOL_NAMES:
-                self._conn.execute(
-                    "INSERT INTO conversation_history_fts(rowid, content) "
-                    "VALUES (?, ?)",
-                    (seq, entry.content or ""),
-                )
-            return seq
-
+    @abstractmethod
     def append_many(
         self,
         *,
@@ -561,44 +43,9 @@ class HistoryStore:
         entries: Sequence[tuple[LogEntry, str | None]],
         agent_id: str | None = None,
     ) -> int:
-        """Append a group of events in one transaction.
+        """Persist a batch atomically and return the inserted count."""
 
-        Returns the number of newly inserted rows. Duplicate keys remain
-        no-ops and only newly inserted rows are added to FTS, matching
-        :meth:`append`. This is intended for backfills where committing every
-        individual row would turn SQLite fsync latency into startup latency.
-        """
-        if not entries:
-            return 0
-
-        placeholders = ", ".join("?" for _ in _INSERT_COLUMNS)
-        sql = (
-            f"INSERT INTO conversation_history "
-            f"({', '.join(_INSERT_COLUMNS)}) VALUES ({placeholders}) "
-            f"ON CONFLICT(session_id, dedup_key) DO NOTHING"
-        )
-        inserted = 0
-        with self._lock, self._conn:
-            for entry, dedup_key in entries:
-                row = self._insert_row(
-                    session_id,
-                    agent_id,
-                    entry,
-                    dedup_key,
-                )
-                cur = self._conn.execute(sql, row)
-                if cur.rowcount == 0:
-                    continue
-                inserted += 1
-                seq = int(cur.lastrowid or 0)
-                if self._fts and entry.name not in _RECALL_TOOL_NAMES:
-                    self._conn.execute(
-                        "INSERT INTO conversation_history_fts(rowid, content) "
-                        "VALUES (?, ?)",
-                        (seq, entry.content or ""),
-                    )
-        return inserted
-
+    @abstractmethod
     def update_entry(
         self,
         seq: int,
@@ -610,91 +57,19 @@ class HistoryStore:
         name: str | None = None,
         tool_state: str | None = None,
         tool_input: Any = None,
-        metadata: Any = _UNSET,
+        metadata: Any = UNCHANGED,
     ) -> None:
-        """Refresh an already-appended row in place (keeping FTS in sync).
+        """Refresh event fields without changing its sequence."""
 
-        Used when one logical turn is *extended* after first write: AgentScope
-        accumulates a whole reply into a single assistant Msg, so the durable
-        row must end up with every cell's blocks and any later-emitted
-        headline. The scalar ``tool_call_id``/``name``/``tool_state``/
-        ``tool_input`` and message ``metadata`` are refreshed too, so a turn
-        that grows a *later* tool call doesn't leave them frozen at their
-        first-write values. ``seq`` is unchanged. Omitting ``metadata`` keeps
-        the stored value unchanged for backwards-compatible direct callers.
-        """
-        with self._lock, self._conn:
-            old_row = self._conn.execute(
-                "SELECT seq, content, name FROM conversation_history "
-                "WHERE seq = ?",
-                (seq,),
-            ).fetchone()
-            if old_row is None:
-                return
-            if self._fts:
-                self._delete_fts_row(old_row)
-            # Keep every column name below as a hard-coded literal. Only
-            # values are parameterized; never add caller-controlled names.
-            assignments = [
-                "content = ?",
-                "headline = ?",
-                "blocks = ?",
-                "tool_call_id = ?",
-                "name = ?",
-                "tool_state = ?",
-                "tool_input = ?",
-            ]
-            values: list[Any] = [
-                content,
-                headline,
-                _to_json(blocks),
-                tool_call_id,
-                name,
-                tool_state,
-                _to_json(tool_input),
-            ]
-            if metadata is not _UNSET:
-                assignments.append("metadata = ?")
-                # The history schema canonically represents empty metadata
-                # as SQL NULL, matching the initial insert path.
-                values.append(_to_json(metadata or None))
-            values.append(seq)
-            self._conn.execute(
-                "UPDATE conversation_history SET "
-                + ", ".join(assignments)
-                + " WHERE seq = ?",
-                values,
-            )
-            if self._fts and name not in _RECALL_TOOL_NAMES:
-                self._conn.execute(
-                    "INSERT INTO conversation_history_fts(rowid, content) "
-                    "VALUES (?, ?)",
-                    (seq, content or ""),
-                )
-
-    # --- read path -----------------------------------------------------
-
+    @abstractmethod
     def count(self, session_id: str) -> int:
-        with self._lock:
-            cur = self._conn.execute(
-                "SELECT COUNT(*) AS n FROM conversation_history "
-                "WHERE session_id = ?",
-                (session_id,),
-            )
-            return int(cur.fetchone()["n"])
+        """Count events belonging to the selected session."""
 
+    @abstractmethod
     def claim_session(self, session_id: str, agent_id: str | None) -> int:
-        """Assign legacy unowned rows in a canonical session to an agent."""
-        if not session_id or not agent_id:
-            return 0
-        with self._lock, self._conn:
-            cur = self._conn.execute(
-                "UPDATE conversation_history SET agent_id = ? "
-                "WHERE session_id = ? AND agent_id IS NULL",
-                (agent_id, session_id),
-            )
-            return int(cur.rowcount)
+        """Assign only unowned rows to the canonical agent."""
 
+    @abstractmethod
     def reconcile_session_rows(
         self,
         source_ids: set[str],
@@ -703,194 +78,26 @@ class HistoryStore:
         *,
         agent_id: str | None = None,
     ) -> tuple[int, int, int]:
-        """Move rows proven to come from one file into its canonical session.
+        """Reconcile proven import rows, preserving surviving seqs."""
 
-        ``source_ids`` alone is not sufficient provenance because synthetic
-        IDs can collide across channel directories. Restricting the operation
-        to dedup keys recomputed from the source file prevents unrelated rows
-        from being swept into ``target_id``.
-
-        Returns ``(moved, deduplicated, claimed)``. Non-conflicting rows retain
-        their original ``seq``; source duplicates are removed in favor of the
-        existing canonical row so the unique dedup contract remains valid.
-        """
-        sources = sorted(
-            source_id
-            for source_id in source_ids
-            if source_id and source_id != target_id
-        )
-        keys = sorted(str(key) for key in dedup_keys if key)
-        if not sources or not target_id or not keys:
-            return (0, 0, self.claim_session(target_id, agent_id))
-
-        moved = 0
-        deduplicated = 0
-        claimed = 0
-        with self._lock, self._conn:
-            for source_id in sources:
-                for start in range(0, len(keys), 400):
-                    chunk = keys[slice(start, start + 400)]
-                    placeholders = ", ".join("?" for _ in chunk)
-                    ownership = ""
-                    params: list[Any] = [source_id, *chunk]
-                    if agent_id:
-                        ownership = " AND (agent_id = ? OR agent_id IS NULL)"
-                        params.append(agent_id)
-                    rows = self._conn.execute(
-                        "SELECT seq, dedup_key, content, name "
-                        "FROM conversation_history "
-                        "WHERE session_id = ? AND dedup_key IN ("
-                        + placeholders
-                        + ")"
-                        + ownership,
-                        params,
-                    ).fetchall()
-                    if not rows:
-                        continue
-
-                    row_keys = [str(row["dedup_key"]) for row in rows]
-                    target_placeholders = ", ".join("?" for _ in row_keys)
-                    existing = self._conn.execute(
-                        "SELECT dedup_key FROM conversation_history "
-                        "WHERE session_id = ? AND dedup_key IN ("
-                        + target_placeholders
-                        + ")",
-                        [target_id, *row_keys],
-                    ).fetchall()
-                    existing_keys = {str(row["dedup_key"]) for row in existing}
-                    duplicates = [
-                        row
-                        for row in rows
-                        if str(row["dedup_key"]) in existing_keys
-                    ]
-                    movable = [
-                        row
-                        for row in rows
-                        if str(row["dedup_key"]) not in existing_keys
-                    ]
-
-                    if self._fts:
-                        for row in duplicates:
-                            self._delete_fts_row(row)
-                    if duplicates:
-                        self._conn.executemany(
-                            "DELETE FROM conversation_history WHERE seq = ?",
-                            [(row["seq"],) for row in duplicates],
-                        )
-                        deduplicated += len(duplicates)
-
-                    if movable:
-                        seqs = [int(row["seq"]) for row in movable]
-                        seq_placeholders = ", ".join("?" for _ in seqs)
-                        cur = self._conn.execute(
-                            "UPDATE conversation_history "
-                            "SET session_id = ?, "
-                            "agent_id = COALESCE(agent_id, ?) "
-                            "WHERE seq IN (" + seq_placeholders + ")",
-                            [target_id, agent_id, *seqs],
-                        )
-                        moved += int(cur.rowcount)
-
-            if agent_id:
-                cur = self._conn.execute(
-                    "UPDATE conversation_history SET agent_id = ? "
-                    "WHERE session_id = ? AND agent_id IS NULL",
-                    (agent_id, target_id),
-                )
-                claimed = int(cur.rowcount)
-        return (moved, deduplicated, claimed)
-
+    @abstractmethod
     def existing_seqs(self, seqs: set[int]) -> set[int]:
-        """Return the subset of globally addressed history rows that exist."""
-        if not seqs:
-            return set()
-        ordered = sorted(int(seq) for seq in seqs)
-        placeholders = ", ".join("?" for _ in ordered)
-        with self._lock:
-            rows = self._conn.execute(
-                "SELECT seq FROM conversation_history WHERE seq IN ("
-                + placeholders
-                + ")",
-                ordered,
-            ).fetchall()
-        return {int(row["seq"]) for row in rows}
+        """Return only the requested sequences present in this store."""
 
+    @abstractmethod
     def contents_by_seqs(self, seqs: set[int]) -> dict[int, str | None]:
-        """Return exact persisted content for globally addressed rows.
+        """Read exact event content without including adjacent rows."""
 
-        Summary evidence uses this after live tool results have been folded.
-        Querying exact primary keys, instead of a broad ``lo..hi`` range,
-        prevents interleaved rows from another agent or session entering the
-        evidence. Chunking also keeps the query below SQLite parameter limits
-        for unusually tool-heavy histories.
-        """
-        if not seqs:
-            return {}
-        ordered = sorted(int(seq) for seq in seqs)
-        found: dict[int, str | None] = {}
-        with self._lock:
-            for start in range(0, len(ordered), 500):
-                chunk = ordered[start : start + 500]
-                placeholders = ", ".join("?" for _ in chunk)
-                rows = self._conn.execute(
-                    "SELECT seq, content FROM conversation_history "
-                    f"WHERE seq IN ({placeholders})",
-                    chunk,
-                ).fetchall()
-                found.update(
-                    {int(row["seq"]): row["content"] for row in rows},
-                )
-        return found
-
-    @staticmethod
-    def _purge_where(
-        before: str,
-        kinds: tuple[str, ...] | None,
-    ) -> tuple[str, list]:
-        """Build the shared ``WHERE`` for purge/estimate so they can't drift.
-
-        Always bounds by ``created_at < before`` (NULL ``created_at`` is never
-        matched, so unstamped rows are retained). When ``kinds`` is given, also
-        restricts to those row kinds (e.g. ``("tool_result",)`` to drop only
-        tool output and keep the conversation). Values are bound, never
-        interpolated.
-        """
-        clause = "created_at IS NOT NULL AND created_at < ?"
-        params: list = [before]
-        if kinds:
-            placeholders = ", ".join("?" for _ in kinds)
-            clause += f" AND kind IN ({placeholders})"
-            params.extend(kinds)
-        return clause, params
-
+    @abstractmethod
     def estimate_purge(
         self,
         *,
         before: str,
         kinds: tuple[str, ...] | None = None,
     ) -> dict:
-        """How much ``purge(before=...)`` would remove — WITHOUT removing it.
+        """Estimate retention deletion without modifying history."""
 
-        Returns ``{"rows": n, "content_bytes": b}`` where ``content_bytes`` is
-        the summed length of the ``content`` column for the matched rows (the
-        bulk of the on-disk weight; the FTS index roughly mirrors it, so true
-        reclaim is larger). ``kinds`` narrows to specific row kinds (e.g.
-        ``("tool_result",)`` to size only tool output). A dry-run estimate to
-        show before an operator commits a purge, so they never delete blindly.
-        """
-        where, params = self._purge_where(before, kinds)
-        with self._lock, self._conn:
-            row = self._conn.execute(
-                "SELECT COUNT(*) AS rows, "
-                "COALESCE(SUM(LENGTH(content)), 0) AS content_bytes "
-                "FROM conversation_history WHERE " + where,
-                params,
-            ).fetchone()
-        return {
-            "rows": int(row["rows"]),
-            "content_bytes": int(row["content_bytes"]),
-        }
-
+    @abstractmethod
     def purge(
         self,
         *,
@@ -898,105 +105,17 @@ class HistoryStore:
         dry_run: bool = False,
         kinds: tuple[str, ...] | None = None,
     ) -> int:
-        """Delete history rows with ``created_at < before`` (ISO-8601).
+        """Delete matching retained history without reusing sequences."""
 
-        Returns the number of rows that match (and, unless ``dry_run``, were
-        removed). With ``dry_run=True`` nothing is deleted — the count is
-        computed and returned so a caller can preview the blast radius (pair
-        with :meth:`estimate_purge` for the byte estimate). ``kinds`` narrows
-        the delete to specific row kinds — e.g. ``("tool_result",)`` drops only
-        tool output (the bulk of the bloat) while keeping the conversation
-        turns. The FTS index is kept in sync (each purged row is removed from
-        it first). Rows with a NULL/empty ``created_at`` are never matched, so
-        they are retained. This is the retention/clear path — driven on
-        startup and teardown by ``history_retention_days`` (default 30; set 0
-        to keep history forever, which calls nothing here).
-
-        Note: this DELETEs but does not ``VACUUM``, so freed pages are reused
-        but the file does not shrink on disk until a separate vacuum.
-        """
-        where, params = self._purge_where(before, kinds)
-        with self._lock:
-            for attempt in range(2):
-                try:
-                    with self._conn:
-                        doomed = self._conn.execute(
-                            "SELECT seq, content, name "
-                            "FROM conversation_history WHERE " + where,
-                            params,
-                        ).fetchall()
-                        if dry_run or not doomed:
-                            return len(doomed)
-                        if self._fts:
-                            for row in doomed:
-                                self._delete_fts_row(row)
-                        self._conn.execute(
-                            "DELETE FROM conversation_history WHERE " + where,
-                            params,
-                        )
-                    return len(doomed)
-                except sqlite3.DatabaseError as exc:
-                    # The transaction has rolled back before rebuilding. Never
-                    # rebuild for operational errors or retry more than once.
-                    if (
-                        attempt
-                        or dry_run
-                        or not self._fts
-                        or not self._is_corruption(exc)
-                    ):
-                        raise
-                    self._repair_fts()
-        raise AssertionError("unreachable")
-
-    def vacuum(self) -> None:
-        """Rebuild the database file to reclaim space freed by ``purge``.
-
-        ``purge`` only DELETEs rows, so freed pages are reused but the file
-        does not shrink on disk. VACUUM rewrites it compactly. It is O(db size)
-        and briefly needs extra scratch space, so it is an explicit, separate
-        step rather than run inline on the retention purge path.
-        """
-        # VACUUM cannot run inside an open transaction; sqlite3 in its default
-        # isolation mode opens one implicitly on writes, so commit first.
-        with self._lock:
-            self._conn.commit()
-            self._conn.execute("VACUUM")
-
+    @abstractmethod
     def note_write_failure(self, exc: BaseException) -> None:
-        """Record a write-through failure — durability is now degraded.
-
-        Logs prominently on the first failure (then counts the rest, to avoid
-        log spam). Read ``degraded`` to gate any "fully durable" guarantees.
-        """
-        self.write_failures += 1
-        if not self.degraded:
-            self.degraded = True
-            logger.error(
-                "history write-through FAILED; durability degraded "
-                "(further failures counted silently): %s",
-                exc,
-            )
+        """Record degraded durability so callers cannot evict history."""
 
     @property
+    @abstractmethod
     def closed(self) -> bool:
-        """True once :meth:`close` has run — the connection is gone."""
-        return self._closed
+        """Whether this handle has been retired."""
 
+    @abstractmethod
     def close(self) -> None:
-        self._closed = True
-        with self._lock:
-            try:
-                self._conn.close()
-            except sqlite3.Error:
-                pass
-
-    def __repr__(self) -> str:
-        return f"<HistoryStore path={self._path}>"
-
-
-def _to_json(value) -> str | None:
-    if value is None:
-        return None
-    if isinstance(value, str):
-        return value
-    return json.dumps(value, default=str)
+        """Retire the handle and release its owned resources."""

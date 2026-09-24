@@ -18,7 +18,9 @@ from types import SimpleNamespace
 import pytest
 from agentscope.message import Msg, TextBlock, ToolCallBlock, ToolResultBlock
 
-from qwenpaw.agents.context.scroll.history import HistoryStore
+from qwenpaw.storage.backends.sqlite.legacy_history import (
+    SQLiteHistoryStore as HistoryStore,
+)
 from qwenpaw.agents.context.scroll import sync as sync_mod
 from qwenpaw.agents.context.scroll.sync import (
     MANIFEST_NAME,
