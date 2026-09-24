@@ -158,6 +158,23 @@ async def test_falls_back_on_transient_error_before_output() -> None:
     ]
 
 
+async def test_forced_fallback_handles_runtime_auth_failure() -> None:
+    """A dedicated memory model may fall back on any pre-output failure."""
+    memory_model = FakeModel("memory", HttpError(401))
+    main_model = FakeModel("main", lambda: _stream(_response("ok")))
+    model = FallbackChatModel(
+        [memory_model, main_model],
+        fallback_on_any_error=True,
+    )
+
+    response = await model(messages=[], tools=[])
+    chunks = [chunk async for chunk in response]
+
+    assert chunks[0].content[0]["text"] == "ok"
+    assert memory_model.calls == 1
+    assert main_model.calls == 1
+
+
 async def test_stream_idle_timeout_falls_back_after_retries() -> None:
     _limiters.clear()
     state = {"closed": 0}

@@ -1,5 +1,12 @@
 import { useEffect, useState } from "react";
-import { Form, Card, Switch, InputNumber, Input } from "@agentscope-ai/design";
+import {
+  Form,
+  Card,
+  Switch,
+  InputNumber,
+  Input,
+  Select,
+} from "@agentscope-ai/design";
 import {
   AlertTriangle,
   ChevronRight,
@@ -9,8 +16,9 @@ import {
   ListTodo,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { agentsApi } from "@/api";
+import { agentsApi, api } from "@/api";
 import type { ReMeLightMemoryConfig } from "@/api/types/agent";
+import type { ModelSlotConfig, ProviderInfo } from "@/api/types/provider";
 import { useAppMessage } from "@/hooks/useAppMessage";
 import { useAgentStore } from "@/stores/agentStore";
 import styles from "../index.module.less";
@@ -18,6 +26,16 @@ import { useMemoryMaintenance } from "../memoryMaintenanceContext";
 import { ReMeStatusModal } from "./ReMeStatusModal";
 
 const AUTO_FIN_MAX_WINDOW_HOURS = 168;
+const MAIN_MODEL_VALUE = "__agent_main_model__";
+
+function encodeModelSlot(slot: ModelSlotConfig): string {
+  return JSON.stringify([slot.provider_id, slot.model]);
+}
+
+function decodeModelSlot(value: string): ModelSlotConfig {
+  const [provider_id, model] = JSON.parse(value) as [string, string];
+  return { provider_id, model };
+}
 
 export function isValidDreamCronShape(value?: string) {
   if (!value?.trim()) {
@@ -69,6 +87,8 @@ export function ReMeLightMemoryCard() {
     null,
   );
   const [dailyPaperExpanded, setDailyPaperExpanded] = useState(false);
+  const [providers, setProviders] = useState<ProviderInfo[]>([]);
+  const [providersLoading, setProvidersLoading] = useState(true);
   const [autoFinExpanded, setAutoFinExpanded] = useState(() =>
     Boolean(
       form.getFieldValue(["reme_light_memory_config", "auto_fin_cron_enabled"]),
@@ -241,6 +261,64 @@ export function ReMeLightMemoryCard() {
   const autoFinCronEnabled = remeConfig?.auto_fin_cron_enabled ?? false;
   const autoSearchEnabled =
     remeConfig?.auto_memory_search_config?.enabled ?? false;
+  const memoryModel = remeConfig?.memory_model ?? null;
+  const memoryModelValue = memoryModel
+    ? encodeModelSlot(memoryModel)
+    : MAIN_MODEL_VALUE;
+
+  useEffect(() => {
+    let active = true;
+    setProvidersLoading(true);
+    api
+      .listProviders()
+      .then((items) => {
+        if (active) setProviders(items);
+      })
+      .catch(() => {
+        if (active) setProviders([]);
+      })
+      .finally(() => {
+        if (active) setProvidersLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const memoryModelOptions = [
+    {
+      value: MAIN_MODEL_VALUE,
+      label: t("agentConfig.memoryModelUseMain"),
+    },
+    ...providers.flatMap((provider) => {
+      const seen = new Set<string>();
+      return [...(provider.models ?? []), ...(provider.extra_models ?? [])]
+        .filter((model) => {
+          if (seen.has(model.id)) return false;
+          seen.add(model.id);
+          return true;
+        })
+        .map((model) => ({
+          value: encodeModelSlot({
+            provider_id: provider.id,
+            model: model.id,
+          }),
+          label: `${provider.name} / ${model.name || model.id}`,
+        }));
+    }),
+  ];
+  if (
+    memoryModel &&
+    !memoryModelOptions.some((option) => option.value === memoryModelValue)
+  ) {
+    memoryModelOptions.push({
+      value: memoryModelValue,
+      label: t("agentConfig.memoryModelUnavailable", {
+        provider: memoryModel.provider_id,
+        model: memoryModel.model,
+      }),
+    });
+  }
 
   useEffect(() => {
     if (autoFinCronEnabled) {
@@ -355,6 +433,37 @@ export function ReMeLightMemoryCard() {
             <ChevronRight size={16} aria-hidden="true" />
           </button>
         </div>
+      </section>
+
+      <section className={styles.memoryConfigPanel}>
+        <div className={styles.memorySectionHeader}>
+          <div
+            className={`${styles.memorySectionIcon} ${styles.memorySectionIconPrimary}`}
+          >
+            LLM
+          </div>
+          <div>
+            <h3>{t("agentConfig.memoryModelTitle")}</h3>
+            <p>{t("agentConfig.memoryModelDescription")}</p>
+          </div>
+        </div>
+        <Form.Item
+          label={t("agentConfig.memoryModelLabel")}
+          name={["reme_light_memory_config", "memory_model"]}
+          getValueProps={(slot?: ModelSlotConfig | null) => ({
+            value: slot ? encodeModelSlot(slot) : MAIN_MODEL_VALUE,
+          })}
+          getValueFromEvent={(value: string) =>
+            value === MAIN_MODEL_VALUE ? null : decodeModelSlot(value)
+          }
+        >
+          <Select
+            aria-label={t("agentConfig.memoryModelLabel")}
+            loading={providersLoading}
+            options={memoryModelOptions}
+            style={{ width: "100%" }}
+          />
+        </Form.Item>
       </section>
 
       <div className={styles.memoryConfigGrid}>

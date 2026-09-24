@@ -1937,41 +1937,16 @@ def _strip_top_level_message_name(
 
 def _resolve_model_slot_override(model_slot_override: Any):
     """Parse an optional per-request model override into a model slot."""
-    from ..config.config import ModelSlotConfig
+    from ..config.config import normalize_model_slot_config
 
-    slot = None
-    if isinstance(model_slot_override, ModelSlotConfig):
-        slot = model_slot_override
-    if isinstance(model_slot_override, dict):
-        try:
-            slot = ModelSlotConfig.model_validate(model_slot_override)
-        except Exception:
-            logger.warning(
-                "Ignoring invalid model_slot_override dict: %r",
-                model_slot_override,
-            )
-    if isinstance(model_slot_override, str):
-        # Use partition so version-tagged model names can contain ':'.
-        provider_id, sep, model_name = model_slot_override.partition(":")
-        if sep and provider_id.strip() and model_name.strip():
-            slot = ModelSlotConfig(
-                provider_id=provider_id.strip(),
-                model=model_name.strip(),
-            )
-        else:
-            logger.warning(
-                "Ignoring invalid model_slot_override string: %r",
-                model_slot_override,
-            )
-    if model_slot_override is not None and not isinstance(
-        model_slot_override,
-        (ModelSlotConfig, dict, str),
-    ):
+    try:
+        return normalize_model_slot_config(model_slot_override)
+    except (TypeError, ValueError):
         logger.warning(
-            "Unsupported model_slot_override type: %s",
-            type(model_slot_override).__name__,
+            "Ignoring invalid model_slot_override: %r",
+            model_slot_override,
         )
-    return slot
+        return None
 
 
 def _bind_provider_id_to_model(

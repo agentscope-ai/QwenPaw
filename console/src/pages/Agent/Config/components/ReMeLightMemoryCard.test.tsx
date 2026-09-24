@@ -6,7 +6,7 @@ import {
   waitFor,
   within,
 } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import React, { useEffect, useState, type ReactNode } from "react";
 
 import { agentsApi, api } from "@/api";
@@ -227,6 +227,44 @@ function MemoryForm({
   );
 }
 
+function MemoryModelForm({
+  initialModel = null,
+}: {
+  initialModel?: { provider_id: string; model: string } | null;
+}) {
+  const [form] = Form.useForm();
+  return (
+    <StaticMemoryProvider>
+      <Form
+        form={form}
+        initialValues={{
+          reme_light_memory_config: {
+            auto_memory_interval: 0,
+            dream_cron_enabled: false,
+            auto_memory_search_config: { enabled: false, max_results: 5 },
+            embedding_model_config: {},
+            memory_model: initialModel,
+          },
+        }}
+      >
+        <ReMeLightMemoryCard />
+        <Form.Item noStyle shouldUpdate>
+          {() => (
+            <output data-testid="memory-model-value">
+              {JSON.stringify(
+                form.getFieldValue([
+                  "reme_light_memory_config",
+                  "memory_model",
+                ]) ?? null,
+              )}
+            </output>
+          )}
+        </Form.Item>
+      </Form>
+    </StaticMemoryProvider>
+  );
+}
+
 function EmbeddingForm() {
   const [form] = Form.useForm();
   return (
@@ -433,10 +471,89 @@ function MemoryAndEmbeddingForm() {
   );
 }
 
+beforeEach(() => {
+  vi.spyOn(api, "listProviders").mockResolvedValue([]);
+});
+
 afterEach(() => {
   vi.restoreAllMocks();
   useAgentStore.setState({ selectedAgent: "default" });
   useEmbeddingVerificationStore.setState({ verificationByAgent: {} });
+});
+
+describe("memory writing model selector", () => {
+  const providers = [
+    {
+      id: "ollama",
+      name: "Ollama",
+      models: [{ id: "qwen2.5:7b", name: "Qwen 2.5 7B" }],
+      extra_models: [],
+    },
+    {
+      id: "dashscope",
+      name: "DashScope",
+      models: [{ id: "qwen-flash", name: "Qwen Flash" }],
+      extra_models: [],
+    },
+  ] as unknown as Awaited<ReturnType<typeof api.listProviders>>;
+
+  it("defaults to the agent main model", async () => {
+    renderWithProviders(<MemoryModelForm />);
+
+    expect(
+      await screen.findByText("agentConfig.memoryModelUseMain"),
+    ).toBeInTheDocument();
+    expect(screen.getByTestId("memory-model-value")).toHaveTextContent("null");
+  });
+
+  it("stores an explicit provider/model object and clears it to null", async () => {
+    vi.mocked(api.listProviders).mockResolvedValue(providers);
+    renderWithProviders(<MemoryModelForm />);
+    const selector = await screen.findByRole("combobox", {
+      name: "agentConfig.memoryModelLabel",
+    });
+
+    fireEvent.mouseDown(selector);
+    fireEvent.click(await screen.findByText("Ollama / Qwen 2.5 7B"));
+    expect(screen.getByTestId("memory-model-value")).toHaveTextContent(
+      '{"provider_id":"ollama","model":"qwen2.5:7b"}',
+    );
+
+    fireEvent.mouseDown(selector);
+    fireEvent.click(await screen.findByText("agentConfig.memoryModelUseMain"));
+    expect(screen.getByTestId("memory-model-value")).toHaveTextContent("null");
+  });
+
+  it("round-trips an existing selection", async () => {
+    vi.mocked(api.listProviders).mockResolvedValue(providers);
+    renderWithProviders(
+      <MemoryModelForm
+        initialModel={{ provider_id: "dashscope", model: "qwen-flash" }}
+      />,
+    );
+
+    expect(
+      await screen.findByText("DashScope / Qwen Flash"),
+    ).toBeInTheDocument();
+    expect(screen.getByTestId("memory-model-value")).toHaveTextContent(
+      '{"provider_id":"dashscope","model":"qwen-flash"}',
+    );
+  });
+
+  it("preserves and displays a stale selection", async () => {
+    renderWithProviders(
+      <MemoryModelForm
+        initialModel={{ provider_id: "removed", model: "old-model" }}
+      />,
+    );
+
+    expect(
+      await screen.findByText("agentConfig.memoryModelUnavailable"),
+    ).toBeInTheDocument();
+    expect(screen.getByTestId("memory-model-value")).toHaveTextContent(
+      '{"provider_id":"removed","model":"old-model"}',
+    );
+  });
 });
 
 describe("ReMe runtime status", () => {
