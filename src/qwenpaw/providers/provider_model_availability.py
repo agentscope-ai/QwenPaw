@@ -8,6 +8,10 @@ from typing import Literal
 from pydantic import BaseModel
 
 from .provider import Provider
+from .error_sanitizer import (
+    CONNECTION_MESSAGE_SCAN_LIMIT,
+    is_challenge_page,
+)
 
 
 class ProviderModelCheckResult(BaseModel):
@@ -16,6 +20,7 @@ class ProviderModelCheckResult(BaseModel):
     success: bool
     status: Literal[
         "available",
+        "blocked",
         "permission_denied",
         "model_not_found",
         "incompatible_api",
@@ -56,6 +61,7 @@ def classify_model_check(
     *,
     http_status: int | None = None,
     error_kind: str | None = None,
+    raw_message: str | None = None,
     verification: Literal[
         "live",
         "provider_only",
@@ -65,10 +71,22 @@ def classify_model_check(
 ) -> ProviderModelCheckResult:
     """Convert provider check output into stable availability states."""
     checked_at = datetime.now(timezone.utc).isoformat()
-    message = Provider.sanitize_connection_message((message or "").strip())
+    # Classify on the uncleaned text: cleanup replaces a challenge page
+    # with a fixed line and summarizes an HTML page from its opening,
+    # which would drop both a "status=NNN" prefix and any marker
+    # further into the body, and downgrade a non-retryable denial into
+    # a retryable error. A caller that already cleaned ``message``
+    # passes the original text as ``raw_message``.
+    text = (raw_message or message or "").strip()
     if http_status is None:
-        http_status = extract_http_status(message)
-    normalized = message.lower()
+        http_status = extract_http_status(text)
+    normalized = text[:CONNECTION_MESSAGE_SCAN_LIMIT].lower()
+    # Only now that everything above has read the text, cap what is
+    # reported: the message is persisted with the provider config as
+    # ``availability_message`` and returned to the Console.
+    message = Provider.truncate_connection_message(
+        Provider.sanitize_connection_message(message),
+    )
 
     if success:
         return ProviderModelCheckResult(
@@ -117,7 +135,16 @@ def classify_model_check(
         "\u4e0d\u652f\u6301chat",
     )
 
-    if error_kind in {
+    if is_challenge_page(text):
+        # A challenge answers 403, so it has to be recognized before the
+        # permission checks below, which would otherwise blame the
+        # credentials and show a "No permission" badge for a bot block.
+        # Retrying does not help, so the state is not retryable. Some
+        # providers derive "permission_denied" from the 403 themselves,
+        # so the page check has to win over that kind as well.
+        status = "blocked"
+        retryable = False
+    elif error_kind in {
         "permission_denied",
         "model_not_found",
         "incompatible_api",

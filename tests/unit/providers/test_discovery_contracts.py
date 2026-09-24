@@ -7,6 +7,7 @@ import httpx
 import pytest
 from openai import AsyncOpenAI
 
+from qwenpaw.providers.error_sanitizer import MAX_CONNECTION_MESSAGE_LENGTH
 from qwenpaw.providers.openai_provider import OpenAIProvider
 from qwenpaw.providers.provider_catalog import BUILTIN_PROVIDERS
 from qwenpaw.providers.provider_manager import ProviderManager
@@ -126,3 +127,40 @@ async def test_catalog_only_services_preserve_cards_and_explain_limit(
     assert result.error
     assert result.used_static_fallback
     assert result.models
+
+
+async def test_challenge_page_is_reported_as_blocked(
+    isolated_secret_dir,
+    monkeypatch,
+):
+    """A gateway interstitial must not read as a credential problem."""
+    manager = ProviderManager()
+    provider = manager.materialize_discovery_provider("openai")
+    provider.api_key = f"test-key"
+    body = (
+        "<!DOCTYPE html><html><head><title>Just a moment...</title>"
+        "</head><body>Verifying you are human.</body></html>"
+    )
+    client = AsyncOpenAI(
+        api_key=f"test-key",
+        base_url=provider.base_url,
+        max_retries=0,
+        http_client=httpx.AsyncClient(
+            transport=httpx.MockTransport(
+                lambda _request: httpx.Response(403, text=body),
+            ),
+        ),
+    )
+    monkeypatch.setattr(provider, f"_client", lambda **kwargs: client)
+
+    result = await manager.discover_provider_models(
+        "openai",
+        provider_override=provider,
+    )
+
+    assert result.success is False
+    assert result.error_kind == f"blocked"
+    assert result.used_static_fallback is True
+    assert result.models
+    assert "<html" not in result.error
+    assert len(result.error) <= MAX_CONNECTION_MESSAGE_LENGTH

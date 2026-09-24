@@ -232,28 +232,40 @@ class OpenAIProvider(Provider):
             deduped.append(model)
         return deduped
 
-    async def check_connection(self, timeout: float = 5) -> tuple[bool, str]:
-        """Check if OpenAI provider is reachable with current configuration."""
+    async def _probe_connection(
+        self,
+        timeout: float,
+    ) -> tuple[bool, str, str]:
+        """Probe the provider, returning (ok, uncleaned, cleaned) text.
+
+        The model check classifies the uncleaned text and reports the
+        cleaned one, so both are derived from a single render here.
+        """
         client = await run_sync_io(self._client, timeout=timeout)
         try:
             await client.models.list(timeout=timeout)
-            return True, ""
+            return True, "", ""
         except APIError as exc:
-            detail = self.connection_error_message(exc)
+            raw, detail = await self.connection_error_texts_async(exc)
             status = getattr(exc, "status_code", "unknown")
-            return (
-                False,
+            message = (
                 f"API error when connecting to `{self.base_url}` "
-                f"(status={status}): {detail}",
+                f"(status={status}): "
             )
+            return False, f"{message}{raw}", f"{message}{detail}"
         except Exception as exc:
-            return (
-                False,
+            raw, detail = await self.connection_error_texts_async(exc)
+            message = (
                 f"Unknown exception when connecting to `{self.base_url}`: "
-                f"{self.connection_error_message(exc)}",
             )
+            return False, f"{message}{raw}", f"{message}{detail}"
         finally:
             await self._close_client(client)
+
+    async def check_connection(self, timeout: float = 5) -> tuple[bool, str]:
+        """Check if OpenAI provider is reachable with current configuration."""
+        ok, _raw, detail = await self._probe_connection(timeout)
+        return ok, detail
 
     async def fetch_models(self, timeout: float = 5) -> List[ModelInfo]:
         """Fetch available models."""
@@ -314,9 +326,11 @@ class OpenAIProvider(Provider):
                 await res.close()
             return ModelConnectionResult(success=True)
         except APIError as exc:
-            detail = self.connection_error_message(exc)
+            # One render: the uncleaned text decides the category, the
+            # cleaned one is what gets reported.
+            raw_detail, detail = await self.connection_error_texts_async(exc)
             if any(
-                marker in detail.lower()
+                marker in raw_detail.lower()
                 for marker in _API_TYPE_MISMATCH_MARKERS
             ):
                 return ModelConnectionResult(
@@ -333,15 +347,18 @@ class OpenAIProvider(Provider):
                     f"API error when connecting to model '{model_id}' "
                     f"(status={status}): {detail}"
                 ),
+                raw_message=raw_detail,
                 http_status=status if isinstance(status, int) else None,
             )
         except Exception as exc:
+            raw_detail, detail = await self.connection_error_texts_async(exc)
             return ModelConnectionResult(
                 success=False,
                 message=(
                     f"Unknown exception when connecting to model "
-                    f"'{model_id}': {self.connection_error_message(exc)}"
+                    f"'{model_id}': {detail}"
                 ),
+                raw_message=raw_detail,
             )
         finally:
             await self._close_client(client)
@@ -384,11 +401,12 @@ class OpenAIProvider(Provider):
                 message=message,
                 verification="provider_only",
             )
-        ok, msg = await self.check_connection(timeout=timeout)
+        ok, raw_msg, msg = await self._probe_connection(timeout)
         if not ok:
             return ModelConnectionResult(
                 success=False,
                 message=msg,
+                raw_message=raw_msg,
                 verification="provider_only",
             )
         return ModelConnectionResult(
