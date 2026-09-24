@@ -354,6 +354,9 @@
       "debug": "Nhật ký và chẩn đoán",
       "extension": "Cài đặt do tiện ích mở rộng cung cấp"
     },
+    "browserTitle": "Tiêu đề tab trình duyệt",
+    "browserTitleHint": "Được lưu trong trình duyệt này cho địa chỉ Console này. Để trống để dùng tiêu đề mặc định.",
+    "browserTitleSaveFailed": "Không thể lưu tiêu đề tab trình duyệt.",
     "appearanceAndLanguage": "Giao diện và ngôn ngữ",
     "desktopApplication": "Ứng dụng máy tính",
     "languageHint": "Thay đổi ngôn ngữ giao diện trên thiết bị này.",

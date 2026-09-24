@@ -374,6 +374,9 @@
       "debug": "日志与问题诊断",
       "extension": "插件提供的设置"
     },
+    "browserTitle": "浏览器标签页标题",
+    "browserTitleHint": "保存在当前浏览器中，仅适用于此 Console 地址。留空恢复默认标题。",
+    "browserTitleSaveFailed": "无法保存浏览器标签页标题。",
     "appearanceAndLanguage": "外观与语言",
     "desktopApplication": "桌面应用",
     "languageHint": "更改当前设备上的界面语言。",
