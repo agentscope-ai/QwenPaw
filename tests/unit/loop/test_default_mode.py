@@ -129,6 +129,9 @@ async def test_next_turn_reactivates_exhausted_iteration_gate():
     await mode.on_turn_start(ctx)
     iteration = _find_gate(mode, IterationGate)
 
+    # max_iters=1: first check BYPASS (finalization slot), second TERMINATE.
+    await iteration.check({})
+    assert iteration._state() is not None
     await iteration.check({})
     assert iteration._state() is None
 
