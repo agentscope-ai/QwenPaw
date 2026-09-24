@@ -1,0 +1,17 @@
+{
+  "id": "record-and-replay",
+  "name": "Record & Replay",
+  "version": "0.1.0",
+  "publish": true,
+  "type": "general",
+  "description": "Record desktop actions, review evidence and create reusable Skills (macOS 14+; events-only)",
+  "description_i18n": {
+    "zh-CN": "录制桌面操作、审核证据并生成可复用 Skill（macOS 14+，当前仅事件）",
+    "en-US": "Record desktop actions, review evidence and create reusable Skills (macOS 14+; events-only)"
+  },
+  "author": "QwenPaw Team",
+  "entry": { "backend": "plugin.py", "frontend": "dist/index.js" },
+  "dependencies": [],
+  "pack_exclude": ["frontend"],
+  "qwenpaw_version": { "min": "2.2.2b1", "max": "2.3.0" }
+}

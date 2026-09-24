@@ -76,7 +76,10 @@
       }
     },
     "macOS": {
-      "minimumSystemVersion": "14.0"
+      "minimumSystemVersion": "14.0",
+      "frameworks": [
+        "target/native/libqwenpaw_record_replay.dylib"
+      ]
     }
   },
   "plugins": {

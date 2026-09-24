@@ -12,5 +12,68 @@ fn main() {
         let _ = std::fs::create_dir_all("binaries/qwenpaw-backend");
     }
 
+    build_macos_native_shim();
+
     tauri_build::build()
+}
+
+fn build_macos_native_shim() {
+    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("macos") {
+        return;
+    }
+
+    // Keep this default aligned with bundle.macOS.minimumSystemVersion.
+    const DEFAULT_DEPLOYMENT_TARGET: &str = "14.0";
+    let source = std::path::Path::new("native/record_replay/desktop_runtime.swift");
+    let output_dir = std::path::Path::new("target/native");
+    let output = output_dir.join("libqwenpaw_record_replay.dylib");
+    let module_cache = output_dir.join("module-cache");
+    println!("cargo:rerun-if-changed={}", source.display());
+    println!("cargo:rerun-if-env-changed=MACOSX_DEPLOYMENT_TARGET");
+    std::fs::create_dir_all(output_dir).expect("failed to create native shim output directory");
+    std::fs::create_dir_all(&module_cache).expect("failed to create Swift module cache directory");
+
+    let optimization = if std::env::var("PROFILE").as_deref() == Ok("release") {
+        "-O"
+    } else {
+        "-Onone"
+    };
+    let swift_arch = match std::env::var("CARGO_CFG_TARGET_ARCH").as_deref() {
+        Ok("aarch64") => "arm64",
+        Ok("x86_64") => "x86_64",
+        Ok(arch) => panic!("unsupported macOS NativeShim architecture: {arch}"),
+        Err(_) => panic!("Cargo did not provide CARGO_CFG_TARGET_ARCH"),
+    };
+    let deployment_target = std::env::var("MACOSX_DEPLOYMENT_TARGET")
+        .unwrap_or_else(|_| DEFAULT_DEPLOYMENT_TARGET.to_owned());
+    let swift_target = format!("{swift_arch}-apple-macosx{deployment_target}");
+    let completed = std::process::Command::new("/usr/bin/swiftc")
+        .args([
+            "-parse-as-library",
+            "-emit-library",
+            optimization,
+            "-target",
+            &swift_target,
+            "-module-cache-path",
+            module_cache
+                .to_str()
+                .expect("Swift module cache path is not UTF-8"),
+            source.to_str().expect("native shim path is not UTF-8"),
+            "-o",
+            output
+                .to_str()
+                .expect("native shim output path is not UTF-8"),
+            "-Xlinker",
+            "-install_name",
+            "-Xlinker",
+            "@rpath/libqwenpaw_record_replay.dylib",
+        ])
+        .output()
+        .expect("failed to start swiftc for the Record & Replay native shim");
+    if !completed.status.success() {
+        panic!(
+            "failed to build Record & Replay native shim:\n{}",
+            String::from_utf8_lossy(&completed.stderr)
+        );
+    }
 }

@@ -43,7 +43,9 @@ pub(super) use input::{
     click, desktop_locked, drag, input_sequence, invoke_element, last_input_age_ms, press_key,
     scroll, type_text,
 };
-pub(super) use permissions::ensure_for as ensure_permissions;
+pub(super) use permissions::{
+    ensure as ensure_permissions, granted as permission_granted, request as request_permission,
+};
 pub(super) use window::{
     active_window, app_id_from_bundle_path, close_window, is_forbidden, list_apps, list_windows,
     resolve_window,

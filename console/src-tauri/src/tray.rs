@@ -14,6 +14,8 @@ use crate::backend;
 
 const SHOW_MENU_ID: &str = "show";
 const QUIT_MENU_ID: &str = "quit";
+#[cfg(target_os = "macos")]
+const APP_QUIT_MENU_ID: &str = "qwenpaw.application.quit";
 
 /// How long Rust waits for the frontend to acknowledge a close request before
 /// falling back to minimize-to-tray. The frontend acks immediately (before it
@@ -45,8 +47,13 @@ pub(crate) struct TrayState {
 
 /// Creates the tray icon and its cross-platform menu actions.
 pub(crate) fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
+    #[cfg(target_os = "macos")]
+    install_app_quit(app)?;
+
     let show = MenuItem::with_id(app, SHOW_MENU_ID, "Show Window", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, QUIT_MENU_ID, "Quit", true, None::<&str>)?;
+    // Recording activity and emergency stop belong to the shared Helper's
+    // native indicator, which remains responsive without this host/WebView.
     let menu = Menu::with_items(app, &[&show, &quit])?;
 
     {
@@ -99,6 +106,92 @@ pub(crate) fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Erro
     Ok(())
 }
 
+/// macOS predefined Quit invokes `NSApplication.terminate:` directly. Tao
+/// reports only the final Exit in that path, not a preventable ExitRequested.
+/// Replace just that native item (including Cmd+Q) with a normal menu event,
+/// retaining Tauri's About/Services/Edit/Window menus. Explicit Quit shares the
+/// tray's bounded Host shutdown and does not depend on a ready WebView; the
+/// window close button retains its separate preference/prompt behavior.
+#[cfg(target_os = "macos")]
+fn install_app_quit(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
+    use tauri::menu::PredefinedMenuItem;
+
+    let menu = app.menu().ok_or("macOS application menu is missing")?;
+    let menus = menu.items()?;
+    let app_menu = menus
+        .first()
+        .and_then(|item| item.as_submenu())
+        .ok_or("macOS application submenu is missing")?;
+    // Use the native template's own localized title, not an English label or
+    // a hard-coded position within the application submenu.
+    let native_title = PredefinedMenuItem::quit(app, None)?.text()?;
+    let titles = app_menu
+        .items()?
+        .iter()
+        .map(|item| {
+            item.as_predefined_menuitem()
+                .map(|item| item.text())
+                .transpose()
+        })
+        .collect::<tauri::Result<Vec<_>>>()?;
+    let position = native_quit_position(&titles, &native_title)?;
+    let quit = MenuItem::with_id(
+        app,
+        APP_QUIT_MENU_ID,
+        native_title,
+        true,
+        Some("CmdOrCtrl+Q"),
+    )?;
+    app_menu.remove_at(position)?;
+    app_menu.insert(&quit, position)?;
+    app.on_menu_event(|app, event| {
+        if event.id().as_ref() == APP_QUIT_MENU_ID {
+            log::info!("[desktop] application menu requested quit");
+            exit_app(app);
+        }
+    });
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+fn native_quit_position(
+    titles: &[Option<String>],
+    native_title: &str,
+) -> Result<usize, &'static str> {
+    let mut positions = titles
+        .iter()
+        .enumerate()
+        .filter_map(|(index, title)| (title.as_deref() == Some(native_title)).then_some(index));
+    let position = positions
+        .next()
+        .ok_or("macOS native Quit item is missing")?;
+    if positions.next().is_some() {
+        return Err("macOS application menu has multiple native Quit items");
+    }
+    Ok(position)
+}
+
+#[cfg(all(test, target_os = "macos"))]
+mod tests {
+    use super::native_quit_position;
+
+    #[test]
+    fn native_quit_uses_localized_template_not_fixed_index() {
+        let titles = [None, Some("隐藏".into()), None, Some("退出测试应用".into())];
+        assert_eq!(native_quit_position(&titles, "退出测试应用"), Ok(3));
+    }
+
+    #[test]
+    fn missing_native_quit_is_not_silently_accepted() {
+        assert!(native_quit_position(&[None, Some("About".into())], "Quit").is_err());
+    }
+
+    #[test]
+    fn ambiguous_native_quit_is_not_silently_accepted() {
+        assert!(native_quit_position(&[Some("Quit".into()), Some("Quit".into())], "Quit").is_err());
+    }
+}
+
 /// Asks the frontend to handle a window close request. The frontend honors the
 /// remembered choice or shows the close prompt, then calls back into the
 /// `minimize_to_tray` / `quit_app` commands.
@@ -128,6 +221,7 @@ pub(crate) fn request_close(app: &tauri::AppHandle) {
         }
         // Nobody responded: fall back to the safe, recoverable choice instead of
         // quitting, so running tasks are not lost.
+        log::warn!("[desktop] close request {seq} was not acknowledged; minimizing to tray");
         hide_main_window(&app);
     });
 }
@@ -139,6 +233,7 @@ pub(crate) fn ack_close(app: tauri::AppHandle) {
     let state = app.state::<TrayState>();
     let seq = state.close_seq.load(Ordering::SeqCst);
     state.close_ack.store(seq, Ordering::SeqCst);
+    log::info!("[desktop] close request {seq} acknowledged by frontend");
 }
 
 #[tauri::command]
