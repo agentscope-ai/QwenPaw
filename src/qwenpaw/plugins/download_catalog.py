@@ -98,6 +98,7 @@ def _pick_en(value: Any) -> str:
 def _installed_plugin_ids() -> dict[str, str]:
     """Return ``{plugin_id: installed_version}`` from disk manifests."""
     from ..config.utils import get_plugins_dir
+    from .loader import _is_disabled_plugin_dir
 
     plugins_dir = get_plugins_dir()
     if not plugins_dir.is_dir():
@@ -106,6 +107,11 @@ def _installed_plugin_ids() -> dict[str, str]:
     installed: dict[str, str] = {}
     for item in plugins_dir.iterdir():
         if not item.is_dir():
+            continue
+        # A disabled copy (``foo.disabled``) is not installed: discovery and
+        # dependency install both skip it, and its manifest id would
+        # otherwise shadow or clobber the live entry below.
+        if _is_disabled_plugin_dir(item):
             continue
         manifest_path = item / "plugin.json"
         if not manifest_path.is_file():
