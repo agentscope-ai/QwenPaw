@@ -64,7 +64,8 @@
     "subTitle": "Có thể do lỗi mạng hoặc ứng dụng vừa được cập nhật.",
     "genericTitle": "Đã xảy ra lỗi",
     "genericSubTitle": "Có lỗi không mong muốn khi hiển thị trang này.",
-    "reload": "Tải lại"
+    "reload": "Tải lại",
+    "retry": "Thử lại"
   },
   "portabilityImport": {
     "qwenpawOnly": "Chỉ các tác tử sử dụng backend QwenPaw mới có thể nhập dữ liệu. Hãy chọn tác tử QwenPaw để tiếp tục.",

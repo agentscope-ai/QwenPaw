@@ -64,7 +64,8 @@
     "subTitle": "Ini mungkin disebabkan oleh masalah jaringan atau pembaruan aplikasi.",
     "genericTitle": "Terjadi kesalahan",
     "genericSubTitle": "Terjadi kesalahan tak terduga saat merender halaman ini.",
-    "reload": "Muat ulang"
+    "reload": "Muat ulang",
+    "retry": "Coba lagi"
   },
   "portabilityImport": {
     "qwenpawOnly": "Impor hanya tersedia untuk agen yang menggunakan backend QwenPaw. Pilih agen QwenPaw untuk melanjutkan.",

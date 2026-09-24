@@ -64,7 +64,8 @@
     "subTitle": "This may be caused by a network issue or an application update.",
     "genericTitle": "Algo deu errado",
     "genericSubTitle": "An unexpected error occurred while rendering this page.",
-    "reload": "Recarregar"
+    "reload": "Recarregar",
+    "retry": "Tentar novamente"
   },
   "portabilityImport": {
     "qwenpawOnly": "A importação está disponível apenas para agentes que usam o backend QwenPaw. Selecione um agente QwenPaw para continuar.",
