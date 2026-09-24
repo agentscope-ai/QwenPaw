@@ -72,7 +72,7 @@ dependencies = [
     # Pure-Python wrapper around a prebuilt Rust binary; PyPI distributes
     # wheels for all three OSes.
     "ast-grep-cli>=0.20",
-    "html2text>=2024.2.26",
+    "markdownify>=1.2.2,<2",
     "mcp>=1.28,<2.0",
     "imap-tools>=1.13,<2.0",
 ]

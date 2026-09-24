@@ -6,7 +6,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import sys
 import threading
 import types
 from dataclasses import dataclass, field
@@ -16,10 +15,6 @@ from typing import Any, AsyncGenerator
 import pytest
 from agentscope.message import Msg, TextBlock, ToolResultBlock, ToolResultState
 from agentscope.tool import ToolChunk, ToolResponse
-
-html2text_stub = types.ModuleType("html2text")
-html2text_stub.HTML2Text = type("HTML2Text", (), {})
-sys.modules.setdefault("html2text", html2text_stub)
 
 from qwenpaw.agents.middlewares import (  # noqa: E402
     ToolResultPruningMiddleware,
