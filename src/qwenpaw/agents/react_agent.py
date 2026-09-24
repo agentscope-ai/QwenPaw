@@ -692,7 +692,8 @@ class QwenPawAgent(CodingModeMixin, Agent):
         if any(marker in error_str for marker in overflow_markers):
             return True
 
-        gemini_overflow_marker_groups = (
+        overflow_marker_groups = (
+            ("tokens", "exceeds the available context size"),
             (
                 "input token count",
                 "exceeds the maximum number of tokens allowed",
@@ -704,7 +705,7 @@ class QwenPawAgent(CodingModeMixin, Agent):
         )
         return any(
             all(marker in error_str for marker in marker_group)
-            for marker_group in gemini_overflow_marker_groups
+            for marker_group in overflow_marker_groups
         )
 
     async def _call_model(

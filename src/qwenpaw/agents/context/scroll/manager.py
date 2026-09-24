@@ -390,6 +390,28 @@ class ScrollContextManager:
             return False
 
         await self.compress(agent, forced_config)
+        # A provider rejection is authoritative even when local visual-token
+        # estimates are below the hard limit. Reuse result folding, without
+        # broadening ordinary active-turn text compaction.
+        candidates = [
+            item
+            for item in self._tool_result_fold_candidates(
+                agent,
+                seen_active_only=True,
+            )
+            if self._tool_result_has_inline_media(item[2])
+        ]
+        if candidates and await self._persist_guarded_async(agent):
+            for _, _, block, text in candidates:
+                self._replace_tool_result_with_pointer(block, text)
+            self.last_compress["active_folded"] = self.last_compress.get(
+                "active_folded",
+                0,
+            ) + len(candidates)
+            self.last_compress["folded"] = self.last_compress.get(
+                "folded",
+                0,
+            ) + len(candidates)
         return bool(
             self.last_compress.get("evicted")
             or self.last_compress.get("folded"),
@@ -479,7 +501,7 @@ class ScrollContextManager:
             mark("persist")
             kwargs = await as_internals.prepare_model_input(agent)
             mark("prepare_input")
-            tokens = await agent.model.count_tokens(**kwargs)
+            tokens = await self._count_model_input_tokens(agent, kwargs)
             mark("count_tokens")
             if tokens > effective_hard_limit:
                 log_timings("persist_failed_unfit")
@@ -497,7 +519,7 @@ class ScrollContextManager:
         kwargs = await as_internals.prepare_model_input(agent)
         mark("prepare_input")
         trigger = cfg.trigger_ratio * agent.model.context_size
-        tokens = await agent.model.count_tokens(**kwargs)
+        tokens = await self._count_model_input_tokens(agent, kwargs)
         mark("count_tokens")
         if not self.should_compress(tokens, trigger):
             self._overflow_warned = False
@@ -512,8 +534,8 @@ class ScrollContextManager:
         #    intermediate target. This pays at most one prefix-cache reset per
         #    pressure episode and leaves a stable, compact prompt for later
         #    turns. The complete active turn and five newest tool results stay
-        #    verbatim; outputs at or below 200 characters are not worth
-        #    replacing with recovery pointers.
+        #    verbatim; text-only outputs at or below 200 characters are not
+        #    worth replacing with recovery pointers.
         base_cfg = getattr(agent, "context_config", cfg)
         base_trigger_ratio = float(
             getattr(base_cfg, "trigger_ratio", cfg.trigger_ratio),
@@ -1445,10 +1467,25 @@ class ScrollContextManager:
         self._continuation_summary = updated
         self._summary_update_failed = False
 
+    @staticmethod
+    async def _count_model_input_tokens(agent: Any, kwargs: dict) -> int:
+        """Count the formatter's omission view without altering model input."""
+        get_formatter = getattr(agent, "_get_active_formatter", None)
+        formatter = get_formatter() if callable(get_formatter) else None
+        project = getattr(
+            formatter,
+            "_prepare_messages_for_token_counting",
+            None,
+        )
+        if callable(project):
+            kwargs = {**kwargs, "messages": project(kwargs["messages"])}
+        return await agent.model.count_tokens(**kwargs)
+
     async def _live_tokens(self, agent: Any) -> int:
         """Token count of the live context as the model would receive it."""
-        return await agent.model.count_tokens(
-            **(await as_internals.prepare_model_input(agent)),
+        return await self._count_model_input_tokens(
+            agent,
+            await as_internals.prepare_model_input(agent),
         )
 
     @staticmethod
@@ -1499,6 +1536,35 @@ class ScrollContextManager:
         return total
 
     @staticmethod
+    def _tool_result_has_inline_media(block: Any) -> bool:
+        """Recognize inline media independently of the caption length."""
+        output = (
+            block.get("output")
+            if isinstance(block, dict)
+            else getattr(block, "output", None)
+        )
+        if not isinstance(output, list):
+            return False
+        for item in output:
+            if ScrollContextManager._block_type(item) != "data":
+                continue
+            source = (
+                item.get("source")
+                if isinstance(item, dict)
+                else getattr(item, "source", None)
+            )
+            if isinstance(source, dict):
+                if source.get("type") == "base64" and source.get("data"):
+                    return True
+            elif getattr(source, "type", None) == "base64" and getattr(
+                source,
+                "data",
+                None,
+            ):
+                return True
+        return False
+
+    @staticmethod
     def _replace_tool_result_with_pointer(block: Any, text: str) -> None:
         output = [TextBlock(type="text", text=text)]
         if isinstance(block, dict):
@@ -1518,9 +1584,9 @@ class ScrollContextManager:
         Normally only completed-turn results are returned. For hard-limit
         recovery, ``seen_active_only`` selects only results in the active turn
         that a successful model request already consumed. The five newest
-        results are always protected. A result is eligible only when it has
-        more than 200 visible text characters and its pointer is actually
-        smaller than its output.
+        results are always protected. Text-only results need more than 200
+        characters and a smaller pointer. Inline media bypasses that text
+        gate, but requires a persisted, acknowledged tool result.
         """
         results = self._live_tool_results(agent)
         active_messages = {id(msg) for msg in self._active_turn_tail(agent)}
@@ -1536,7 +1602,11 @@ class ScrollContextManager:
                 continue
             if self._is_folded_stub(block):
                 continue
-            if self._tool_result_text_chars(block) <= _PRE_TRIM_MIN_CHARS:
+            has_media = self._tool_result_has_inline_media(block)
+            if (
+                not has_media
+                and self._tool_result_text_chars(block) <= _PRE_TRIM_MIN_CHARS
+            ):
                 continue
             existing_output = (
                 block.get("output")
@@ -1554,6 +1624,11 @@ class ScrollContextManager:
                 else getattr(block, "id", None)
             )
             tool_call_id = str(tool_call_id or "")
+            if has_media and (
+                tool_call_id not in self._seen_tool_result_ids
+                or tool_call_id not in self._persisted_tcids
+            ):
+                continue
             if seen_active_only:
                 if (
                     not is_active
@@ -1563,7 +1638,7 @@ class ScrollContextManager:
                     continue
             elif is_active:
                 continue
-            if name == "recall_history":
+            if name == "recall_history" and not has_media:
                 text = self._recall_page_stub(
                     block,
                     recall_inputs.get(str(tool_call_id)),
@@ -1574,7 +1649,13 @@ class ScrollContextManager:
             savings = len(str(existing_output).encode("utf-8")) - len(
                 str(replacement).encode("utf-8"),
             )
-            if savings <= 0:
+            if has_media:
+                # Encoded bytes are only an ordering heuristic; a tiny image
+                # can still cost more model tokens than its recovery pointer.
+                # Clamp to a positive ranking value to keep media eligible;
+                # this does not claim a minimum saving of one byte or token.
+                savings = max(1, savings)
+            elif savings <= 0:
                 continue
             candidates.append(
                 (-savings, ordinal, block, text),
