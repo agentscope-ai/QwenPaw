@@ -131,6 +131,9 @@ class ScrollContextManager:
             int,
         ] = {}  # tool_call_id -> its result row's seq (fold stubs point here)
         self._synthetic_ids: set[str] = set()  # placeholder msgs we inserted
+        # Requests from interrupted replies remain live across follow-ups
+        # until a reply completes. Only instructions are pinned, not tools.
+        self._interrupted_user_ids: set[str] = set()
         self._seq_by_id: dict[
             str,
             tuple[int, int],
@@ -582,6 +585,16 @@ class ScrollContextManager:
                 tail,
                 active_ids,
             )
+
+        if self._interrupted_user_ids:
+            # The latest user turn alone is insufficient after an interrupt:
+            # its follow-up may amend the original request rather than replace
+            # it. Keep both in chronological order while archiving old tools.
+            retained_ids = {m.id for m in tail} | self._interrupted_user_ids
+            middle = [m for m in middle if m.id not in retained_ids]
+            tail = [
+                m for m in real(agent.state.context) if m.id in retained_ids
+            ]
 
         # 3c) Sanitize: AgentScope's pairing-safe split only guarantees
         #    intra-message block-level pairing. Standalone tool_result
@@ -1820,6 +1833,16 @@ class ScrollContextManager:
         tag = metadata.get(QWENPAW_MESSAGE_TAG_KEY)
         return tag in SYNTHETIC_USER_MESSAGE_TAGS
 
+    def mark_interrupted_turn(self, agent: Any) -> None:
+        """Remember the real request before cancellation is checkpointed."""
+        active = self._active_turn_tail(agent)
+        if active:
+            self._interrupted_user_ids.add(active[0].id)
+
+    def complete_turn(self) -> None:
+        """Release interrupted requests after a successful resumed reply."""
+        self._interrupted_user_ids.clear()
+
     def _active_turn_tail(self, agent: Any) -> list[Msg]:
         """Return the current user turn and its in-progress assistant tail.
 
@@ -1883,9 +1906,9 @@ class ScrollContextManager:
         AgentScope's token split optimizes for a recent-tail token budget, so
         it can place a user request at the end of ``middle`` while keeping the
         corresponding assistant reply at the front of ``tail``. That is a poor
-        scroll boundary: user rows do not carry headlines, so the eviction
-        index must call the model to label a user-only span, and the live
-        window keeps an answer whose question was just archived. Pull the
+        scroll boundary: user rows do not carry headlines, so a user-only
+        span has no descriptive index milestone, and the live window keeps
+        an answer whose question was just archived. Pull the
         leading non-user reply block(s) into ``middle`` unless they belong to
         the active turn, preserving completed turns as the unit of
         eviction. ``reserve`` is a soft target; semantic boundaries win.
@@ -2011,6 +2034,7 @@ class ScrollContextManager:
                     live_tool_ids.add(str(tcid))
 
         self._persisted_ids.intersection_update(live_msg_ids)
+        self._interrupted_user_ids.intersection_update(live_msg_ids)
         self._persisted_tcids.intersection_update(live_tool_ids)
         self._seen_tool_result_ids.intersection_update(live_tool_ids)
         self._seen_thinking_block_ids.intersection_update(live_thinking_ids)
@@ -2093,6 +2117,7 @@ class ScrollContextManager:
         durable instead of re-appending it.
         """
         return {
+            "interrupted_user_ids": sorted(self._interrupted_user_ids),
             "persisted_ids": sorted(self._persisted_ids),
             "persisted_tcids": sorted(self._persisted_tcids),
             "seen_tool_result_ids": sorted(self._seen_tool_result_ids),
@@ -2127,6 +2152,7 @@ class ScrollContextManager:
         freshly-constructed empty default."""
         if not isinstance(data, dict):
             return
+        self._interrupted_user_ids = set(data.get("interrupted_user_ids", ()))
         self._persisted_ids = set(data.get("persisted_ids", ()))
         self._persisted_tcids = set(data.get("persisted_tcids", ()))
         self._seen_tool_result_ids = set(
