@@ -19,9 +19,13 @@
     - "\\brm\\b"
     - "\\bdel\\b"
     - "\\bRemove-Item\\b"
+    - "\\brmdir\\b"
+    - "\\brd\\b"
+    - "\\berase\\b"
+    - "\\bri\\b"
   exclude_patterns:
     - "^\\s*#"
-  description: "Shell command contains 'rm' which may cause data loss"
+  description: "Shell command contains file or directory removal command which may cause data loss"
   remediation: "Confirm with the user before removing files or directories"
 
 # ── find -delete: bypasses rm detection ───────────────────────────────
