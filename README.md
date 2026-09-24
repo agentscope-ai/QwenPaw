@@ -60,6 +60,8 @@ Your personal AI assistant — deploy locally or in the cloud, extend with Skill
 
 ## News
 
+- [2026-09-22] **v2.2.2** | Import Codex/Qoder conversations and settings with PawPort, share models with your team through Hub, and choose a model and adjust its thinking effort for each conversation. [v2.2.2 Release Notes →](https://qwenpaw.agentscope.io/release-notes#v2.2.2)
+
 - [2026-09-10] **v2.2.1** | Creator 1.2 blueprint workbench, per-Agent model routing, and unified environment management. [v2.2.1 Release Notes →](https://qwenpaw.agentscope.io/release-notes#v2.2.1)
 
 - [2026-09-03] **v2.2.0** | Self-hosted multi-user QwenPaw Hub, QwenPaw Mail, native QwenPaw Data, unified model routing, Creator 1.1, a unified marketplace, and major Console, Skills, channel, and reliability improvements. [v2.2.0 Release Notes →](https://qwenpaw.agentscope.io/release-notes#v2.2.0)
@@ -67,19 +69,6 @@ Your personal AI assistant — deploy locally or in the cloud, extend with Skill
 - [2026-08-13] **v2.1.0** | QwenPaw OS Shell, unified Files workspace, QwenPaw Creator, Codex/Qoder Agent integration, Browser-use, Computer-use, workspace checkpoints, and long-running conversation continuity. [v2.1.0 Release Notes →](https://qwenpaw.agentscope.io/release-notes#v2.1.0)
 
 - [2026-07-24] **v2.0.1** | PawApp mini-app platform, user-editable Agent Modes, Oh-My-Paw plugins, [ReMe](https://github.com/agentscope-ai/ReMe) memory enhancements, desktop UX improvements, and more. [v2.0.1 Release Notes →](https://qwenpaw.agentscope.io/release-notes#v2.0.1)
-
-- [2026-07-10] **v2.0.0 — QwenPaw 2.0 Official Release** 🎉 | An AgentScope 2.0 based ground-up rewrite delivering the Agent OS architecture, Loop Engineering, Scroll Context, [ReMe](https://github.com/agentscope-ai/ReMe) v0.4 Self-evolving Personal Knowledge Base, and a bundled Terminal UI.
-
-  | Highlight | What's new |
-  |-----------|------------|
-  | **Agent OS — Workspace** | Three pillars per agent: **Resources** (transparent on disk), **Governance** (allow/deny/ask/sandbox), **Sandbox** (macOS / Linux / Windows). |
-  | **Agent OS — Drivers** | Protocol-neutral MCP / A2A / ACP connector layer with encrypted credentials and per-call policy gate. |
-  | **Loop Engineering** | Advanced agent loop templates (Coding Mode, Mission Mode, more to come) with composable approval gates. |
-  | **Scroll Context** | Every turn persisted; evicted turns indexed with on-demand recall — nothing summarized away. |
-  | **[ReMe](https://github.com/agentscope-ai/ReMe) v0.4 Self-evolving Personal Knowledge Base** | Continuously turns conversations and resources into readable, editable, searchable, and linked Markdown memory. |
-  | **Terminal UI (TUI)** | Full-screen terminal chat — same agent, memory, and sessions as Console and channels. |
-
-  Built on Agent OS, we will be launching out-of-box QwenPaw applications — such as **QwenPaw Creator** and **QwenPaw Insight** — stay tuned. [v2.0.0 Release Notes →](https://qwenpaw.agentscope.io/release-notes#v2.0.0)
 
 [All release notes →](https://qwenpaw.agentscope.io/release-notes)
 
