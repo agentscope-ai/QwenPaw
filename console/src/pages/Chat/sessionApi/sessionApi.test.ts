@@ -348,6 +348,24 @@ describe("parseTimestamp / parseFinishedAt", () => {
     );
   });
 
+  it("uses persisted envelope times when runtime metadata is nested", () => {
+    const created = "2026-09-24T16:34:47+08:00";
+    const finished = "2026-09-24T16:38:35+08:00";
+    const m = msg({
+      metadata: {
+        timestamp: created,
+        finished_at: finished,
+        metadata: { timeline_group_id: "voice-turn" },
+      },
+    });
+    expect(T.parseTimestamp(m as never)).toBe(
+      Math.floor(new Date(created).getTime() / 1000),
+    );
+    expect(T.parseFinishedAt(m as never)).toBe(
+      Math.floor(new Date(finished).getTime() / 1000),
+    );
+  });
+
   it("returns 0 for missing metadata", () => {
     expect(T.parseTimestamp(msg() as never)).toBe(0);
     expect(T.parseFinishedAt(msg() as never)).toBe(0);
