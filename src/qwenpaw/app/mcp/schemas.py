@@ -8,6 +8,12 @@ from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
+from ...mcp_timeout import (
+    DEFAULT_MCP_TOOL_CALL_TIMEOUT_SECONDS,
+    MCPToolCallTimeout,
+    mcp_tool_call_timeout_field,
+)
+
 
 class MCPClientOAuthStatus(BaseModel):
     """Summarised OAuth status returned in client info."""
@@ -66,6 +72,9 @@ class MCPClientInfo(BaseModel):
         description="HTTP MCP connect/write/pool timeout in seconds; "
         "raises the read (sse_read_timeout) budget to at least this value. "
         "None keeps the client default (30s / 300s).",
+    )
+    tool_call_timeout: MCPToolCallTimeout = mcp_tool_call_timeout_field(
+        DEFAULT_MCP_TOOL_CALL_TIMEOUT_SECONDS,
     )
     tools: Optional[List[str]] = Field(
         default=None,
@@ -126,6 +135,9 @@ class MCPClientCreateRequest(BaseModel):
         "raises the read (sse_read_timeout) budget to at least this value. "
         "None keeps the client default (30s / 300s).",
     )
+    tool_call_timeout: MCPToolCallTimeout = mcp_tool_call_timeout_field(
+        DEFAULT_MCP_TOOL_CALL_TIMEOUT_SECONDS,
+    )
     tools: Optional[List[str]] = Field(
         default=None,
         description="Tool whitelist. Only listed tools will be loaded. "
@@ -178,6 +190,9 @@ class MCPClientUpdateRequest(BaseModel):
         "None keeps the client default (30s / 300s). "
         "Once set, an update cannot clear it back to None (client default).",
     )
+    tool_call_timeout: Optional[
+        MCPToolCallTimeout
+    ] = mcp_tool_call_timeout_field(None)
     tools: Optional[List[str]] = Field(
         None,
         description="Tool whitelist (omit to leave unchanged). "

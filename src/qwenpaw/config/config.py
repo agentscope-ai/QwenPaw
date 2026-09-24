@@ -35,6 +35,11 @@ from qwenpaw.exceptions import (
     AgentConfigConflictError,
     ConfigurationException,
 )
+from qwenpaw.mcp_timeout import (
+    DEFAULT_MCP_TOOL_CALL_TIMEOUT_SECONDS,
+    MCPToolCallTimeout,
+    mcp_tool_call_timeout_field,
+)
 
 from .timezone import detect_system_timezone
 from ..constant import (
@@ -2560,6 +2565,9 @@ class MCPClientConfig(BaseModel):
         "raises the read (sse_read_timeout) budget to at least this value. "
         "None keeps the client default (30s / 300s).",
     )
+    tool_call_timeout: MCPToolCallTimeout = mcp_tool_call_timeout_field(
+        DEFAULT_MCP_TOOL_CALL_TIMEOUT_SECONDS,
+    )
     tools: Optional[List[str]] = Field(
         default=None,
         description="Tool whitelist. Only listed tools will be loaded. "
@@ -2585,9 +2593,6 @@ class MCPClientConfig(BaseModel):
         if "type" in payload and "transport" not in payload:
             payload["transport"] = payload["type"]
 
-        if "timeout" in payload and "http_timeout" not in payload:
-            payload["http_timeout"] = payload["timeout"]
-
         if (
             "transport" not in payload
             and (payload.get("url") or payload.get("baseUrl"))
@@ -2610,6 +2615,15 @@ class MCPClientConfig(BaseModel):
                 normalized,
                 normalized,
             )
+
+        if payload.get("tool_call_timeout") is None:
+            if (
+                payload.get("transport", "stdio") == "stdio"
+                and payload.get("timeout") is not None
+            ):
+                payload["tool_call_timeout"] = payload["timeout"]
+            else:
+                payload.pop("tool_call_timeout", None)
 
         return payload
 
