@@ -230,12 +230,13 @@ vi.mock("./sessionApi", () => ({
     refreshSession: vi.fn(async (id: string) => ({ id, messages: [] })),
     getRealIdForSession: vi.fn(() => null),
     getBackendSessionId: vi.fn(() => "backend-session-1"),
-    setLastUserMessage: vi.fn(),
-    discardLastUserMessage: vi.fn(),
+    loadOlderHistory: vi.fn(async () => ({
+      messages: [],
+      noMore: true,
+    })),
     setVisibleSession: vi.fn(),
     getSession: vi.fn(async (id: string) => ({ id, messages: [] })),
     lastActiveChatId: "last-chat-1",
-    patchLastUserMessage: vi.fn(),
     getSessionIdentity: vi.fn(() => ({
       sessionId: "test-session",
       userId: "test-user",

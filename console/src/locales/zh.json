@@ -3520,6 +3520,7 @@
     "newTask": "新建任务",
     "newChat": "新对话",
     "chatHistoryTooltip": "聊天历史",
+    "historyLoadFailed": "无法加载更早的消息",
     "messageDisplay": {
       "stepsRunning": "正在执行中… · {{count}} 个步骤",
       "stepsCanceled": "已取消 · {{count}} 个步骤",

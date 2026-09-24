@@ -37,9 +37,25 @@ export interface Message {
   [key: string]: unknown;
 }
 
+export interface TranscriptPosition {
+  turn_id: string;
+  turn_seq: number;
+  ordinal: number;
+}
+
 export interface ChatHistory {
   messages: Message[];
   status?: ChatStatus; // Conversation status: idle or running
+  history?: ChatHistoryMetadata | null;
+}
+
+export interface ChatHistoryMetadata {
+  has_more: boolean;
+  next_before?: string | null;
+}
+
+export interface ChatMessagePage extends ChatHistoryMetadata {
+  messages: Message[];
 }
 
 export interface ChatUpdateRequest {

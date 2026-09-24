@@ -5,14 +5,20 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import sqlite3
 from pathlib import Path
-from typing import Literal, Optional
+from typing import Annotated, Literal, Optional
 from uuid import uuid4
-from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Body,
+    Depends,
+    HTTPException,
+    Query,
+    Request,
+)
 from pydantic import BaseModel, ConfigDict, Field
-
-from agentscope.message import Msg
-from agentscope.state import AgentState
 
 from .session import SafeJSONSession
 from .manager import ChatManager, MAX_BATCH_SIZE
@@ -25,14 +31,18 @@ from .models import (
     ChatSpec,
     ChatUpdate,
     ChatHistory,
+    ChatHistoryMetadata,
+    ChatMessagePage,
 )
-from .utils import agentscope_msg_to_message, parse_legacy_memory_state
+from .transcript import TranscriptCursor, TranscriptPage
+from .utils import session_state_to_messages
 from ...services.project_directory import (
     agent_project_dirs_from_config,
     resolve_effective_project_dirs,
     session_project_dirs_raw_from_meta,
 )
 from ...providers.thinking import ThinkingPreference
+from ...schemas import Message
 from ...services.session_thinking import (
     session_model,
     thinking_view,
@@ -44,6 +54,141 @@ logger = logging.getLogger(__name__)
 
 
 router = APIRouter(prefix="/chats", tags=["chats"])
+
+
+def _encode_transcript_cursor(value: TranscriptCursor | None) -> str | None:
+    if value is None:
+        return None
+    return f"{value.turn_seq}:{value.ordinal}"
+
+
+def _decode_transcript_cursor(value: str | None) -> TranscriptCursor | None:
+    if value is None:
+        return None
+    try:
+        turn_seq, ordinal = (int(part) for part in value.split(":"))
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid history cursor",
+        ) from exc
+    if turn_seq < 1 or ordinal < 0:
+        raise HTTPException(status_code=400, detail="Invalid history cursor")
+    return TranscriptCursor(turn_seq=turn_seq, ordinal=ordinal)
+
+
+def _history_metadata(page: TranscriptPage) -> ChatHistoryMetadata:
+    return ChatHistoryMetadata(
+        has_more=page.has_more,
+        next_before=_encode_transcript_cursor(page.next_before),
+    )
+
+
+async def _read_transcript_page(
+    workspace,
+    chat: ChatSpec,
+    *,
+    before: TranscriptCursor | None = None,
+    limit: int = 20,
+    max_bytes: int = 2 * 1024 * 1024,
+) -> TranscriptPage | None:
+    """Read one transcript page without blocking the event loop."""
+    store = getattr(workspace, "transcript_store", None)
+    if store is None:
+        return None
+    try:
+        return await asyncio.to_thread(
+            store.get_page,
+            session_id=chat.session_id,
+            user_id=chat.user_id,
+            channel=chat.channel,
+            before=before,
+            limit=limit,
+            max_bytes=max_bytes,
+        )
+    except (OSError, sqlite3.Error, ValueError, TypeError):
+        logger.warning(
+            "Failed to read transcript for session %s",
+            chat.session_id,
+            exc_info=True,
+        )
+        return None
+
+
+def _migrate_legacy_messages(
+    workspace,
+    chat: ChatSpec,
+    messages: list[Message],
+) -> None:
+    """Best-effort import of legacy display history after a response."""
+    store = getattr(workspace, "transcript_store", None)
+    if store is None or not messages:
+        return
+    try:
+        store.import_legacy_messages(
+            session_id=chat.session_id,
+            user_id=chat.user_id,
+            channel=chat.channel,
+            messages=messages,
+        )
+    except Exception:
+        logger.warning(
+            "Failed to migrate legacy transcript for session %s",
+            chat.session_id,
+            exc_info=True,
+        )
+
+
+async def _delete_chat_data(workspace, chats: list[ChatSpec]) -> None:
+    """Delete transcript, snapshot, and checkpoint data for chats."""
+    store = getattr(workspace, "transcript_store", None)
+    session = getattr(workspace, "session", None)
+    try:
+        if store is not None:
+            for chat in chats:
+                await asyncio.to_thread(
+                    store.delete_session,
+                    chat.session_id,
+                )
+        if session is not None:
+            for chat in chats:
+                await session.delete_session_state(
+                    chat.session_id,
+                    chat.user_id,
+                    chat.channel,
+                )
+        await CHECKPOINT_RUNTIME.delete_session_checkpoints(
+            workspace,
+            [(chat.session_id, chat.user_id, chat.channel) for chat in chats],
+        )
+    except Exception as exc:
+        logger.error("Failed to delete chat persistence", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to delete chat persistence",
+        ) from exc
+
+
+def _unshared_chat_data_targets(
+    targets: list[ChatSpec],
+    catalog: list[ChatSpec],
+) -> list[ChatSpec]:
+    """Return sessions whose every chat mapping is being deleted."""
+    target_ids = {chat.id for chat in targets}
+    retained_sessions = {
+        (chat.session_id, chat.user_id, chat.channel)
+        for chat in catalog
+        if chat.id not in target_ids
+    }
+    result: list[ChatSpec] = []
+    seen: set[tuple[str, str, str]] = set()
+    for chat in targets:
+        identity = (chat.session_id, chat.user_id, chat.channel)
+        if identity in retained_sessions or identity in seen:
+            continue
+        seen.add(identity)
+        result.append(chat)
+    return result
 
 
 def _is_app_owned_chat(chat: ChatSpec) -> bool:
@@ -450,16 +595,19 @@ async def batch_delete_chats(
         True if deleted, False if failed
 
     """
-    chats = {chat.id: chat for chat in await mgr.list_chats(archived=None)}
+    catalog = await mgr.list_chats(archived=None)
+    chats = {chat.id: chat for chat in catalog}
+    targets = [
+        chat
+        for chat_id in chat_ids
+        if (chat := chats.get(chat_id)) is not None
+    ]
+    data_targets = _unshared_chat_data_targets(targets, catalog)
     deleted = await mgr.delete_chats(chat_ids=chat_ids)
-    if deleted:
-        await CHECKPOINT_RUNTIME.delete_session_checkpoints(
+    if deleted and data_targets:
+        await _delete_chat_data(
             workspace,
-            [
-                (chat.session_id, chat.user_id, chat.channel)
-                for chat_id in chat_ids
-                if (chat := chats.get(chat_id)) is not None
-            ],
+            data_targets,
         )
     return {"deleted": deleted}
 
@@ -813,9 +961,47 @@ async def get_chat_status(
     return ChatStatusResponse(status=status)
 
 
+@router.get("/{chat_id}/messages", response_model=ChatMessagePage)
+async def get_chat_messages(
+    chat_id: str,
+    before: Optional[str] = Query(None),
+    limit: int = Query(20, ge=1, le=100),
+    max_bytes: Annotated[
+        int,
+        Query(ge=1024, le=4 * 1024 * 1024),
+    ] = 2
+    * 1024
+    * 1024,
+    mgr: ChatManager = Depends(get_chat_manager),
+    workspace=Depends(get_workspace),
+) -> ChatMessagePage:
+    """Return one turn-bounded page of durable chat messages."""
+    chat = await mgr.get_chat(chat_id)
+    if chat is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Chat not found: {chat_id}",
+        )
+    page = await _read_transcript_page(
+        workspace,
+        chat,
+        before=_decode_transcript_cursor(before),
+        limit=limit,
+        max_bytes=max_bytes,
+    )
+    if page is None:
+        return ChatMessagePage()
+    metadata = _history_metadata(page)
+    return ChatMessagePage(
+        messages=page.messages,
+        **metadata.model_dump(),
+    )
+
+
 @router.get("/{chat_id}", response_model=ChatHistory)
 async def get_chat(
     chat_id: str,
+    background_tasks: BackgroundTasks,
     include_app_owned: bool = Query(
         True,
         description=(
@@ -853,6 +1039,19 @@ async def get_chat(
             detail=f"Chat not found: {chat_id}",
         )
 
+    status = await workspace.task_tracker.get_status(chat_id)
+
+    transcript_page = await _read_transcript_page(
+        workspace,
+        chat_spec,
+    )
+    if transcript_page is not None:
+        return ChatHistory(
+            messages=transcript_page.messages,
+            status=status,
+            history=_history_metadata(transcript_page),
+        )
+
     state = await session.get_session_state_dict(
         chat_spec.session_id,
         chat_spec.user_id,
@@ -880,32 +1079,26 @@ async def get_chat(
                 chat_spec.session_id,
                 exc_info=True,
             )
-    status = await workspace.task_tracker.get_status(chat_id)
+
     if not state:
-        return ChatHistory(messages=[], status=status)
+        return ChatHistory(
+            messages=[],
+            status=status,
+            history=ChatHistoryMetadata(),
+        )
 
-    agent_raw = state.get("agent", {})
-    memories: list[Msg] = []
-
-    state_raw = agent_raw.get("state")
-    if isinstance(state_raw, dict):
-        try:
-            agent_state = AgentState.model_validate(state_raw)
-            memories = list(agent_state.context)
-        except Exception:
-            logger.debug(
-                "Failed to parse agent.state, falling back to legacy",
-                exc_info=True,
-            )
-
-    # Legacy fallback: 1.x ``agent.memory`` format.
-    if not memories:
-        memory_raw = agent_raw.get("memory", {})
-        if memory_raw:
-            memories, _summary = parse_legacy_memory_state(memory_raw)
-
-    messages = agentscope_msg_to_message(memories)
-    return ChatHistory(messages=messages, status=status)
+    messages = await asyncio.to_thread(session_state_to_messages, state)
+    background_tasks.add_task(
+        _migrate_legacy_messages,
+        workspace,
+        chat_spec,
+        messages,
+    )
+    return ChatHistory(
+        messages=messages,
+        status=status,
+        history=ChatHistoryMetadata(),
+    )
 
 
 @router.put("/{chat_id}", response_model=ChatSpec)
@@ -947,9 +1140,6 @@ async def delete_chat(
 ):
     """Delete a chat by UUID.
 
-    Note: This only deletes the chat spec (UUID mapping).
-    JSONSession state is NOT deleted.
-
     Args:
         chat_id: Chat UUID
         mgr: Chat manager dependency
@@ -961,15 +1151,19 @@ async def delete_chat(
         HTTPException: If chat not found (404)
     """
     chat = await mgr.get_chat(chat_id)
+    if chat is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Chat not found: {chat_id}",
+        )
+    catalog = await mgr.list_chats(archived=None)
+    data_targets = _unshared_chat_data_targets([chat], catalog)
     deleted = await mgr.delete_chats(chat_ids=[chat_id])
     if not deleted:
         raise HTTPException(
             status_code=404,
             detail=f"Chat not found: {chat_id}",
         )
-    if chat is not None:
-        await CHECKPOINT_RUNTIME.delete_session_checkpoints(
-            workspace,
-            [(chat.session_id, chat.user_id, chat.channel)],
-        )
+    if data_targets:
+        await _delete_chat_data(workspace, data_targets)
     return {"deleted": True}

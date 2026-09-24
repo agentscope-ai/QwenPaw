@@ -761,6 +761,76 @@ class TestConsoleStreaming:
         assert len(events) == 1
         assert "data:" in events[0]
 
+    async def test_stream_one_emits_usage_before_completed_response(
+        self,
+        stream_channel,
+    ):
+        """Usage remains a distinct trailing transport event."""
+        from qwenpaw.schemas import (
+            AgentResponse,
+            ContentType,
+            Message,
+            Role,
+            RunStatus,
+            TextContent,
+        )
+
+        usage = {"total_tokens": 42}
+        context_usage = {"estimated_tokens": 21}
+
+        class Workspace:
+            chat_manager = None
+            finalized = False
+
+            async def finalize_turn_usage(self, request):
+                del request
+                self.finalized = True
+                return usage, context_usage
+
+        completed = AgentResponse(
+            object="response",
+            status=RunStatus.Completed,
+            type="response.completed",
+            output=[
+                Message(
+                    role=Role.ASSISTANT,
+                    status=RunStatus.Completed,
+                    content=[
+                        TextContent(type=ContentType.TEXT, text="Done"),
+                    ],
+                ),
+            ],
+        )
+
+        async def mock_process(request):
+            del request
+            yield completed
+
+        workspace = Workspace()
+        stream_channel._workspace = workspace
+        stream_channel._process = mock_process
+        payload = {
+            "sender_id": "user123",
+            "content_parts": [
+                TextContent(type=ContentType.TEXT, text="Hello"),
+            ],
+            "meta": {},
+        }
+
+        stream = stream_channel.stream_one(payload)
+        usage_event = json.loads(
+            (await anext(stream)).removeprefix("data: ").strip(),
+        )
+        completed_event = json.loads(
+            (await anext(stream)).removeprefix("data: ").strip(),
+        )
+
+        assert workspace.finalized is True
+        assert completed_event["type"] == "response.completed"
+        assert usage_event["type"] == "turn_usage"
+        assert usage_event["usage"] == usage
+        assert usage_event["context_usage"] == context_usage
+
     @pytest.mark.parametrize("suffix", ("<", "<!", "<!--"))
     async def test_stream_one_flushes_pending_prefix_before_completion(
         self,

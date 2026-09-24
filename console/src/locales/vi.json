@@ -1098,6 +1098,7 @@
     },
     "modelSelectTooltip": "Chọn mô hình",
     "chatHistoryTooltip": "Lịch sử trò chuyện",
+    "historyLoadFailed": "Không thể tải các tin nhắn trước đó",
     "messageDisplay": {
       "stepsRunning": "Đang chạy… · {{count}} bước",
       "stepsCanceled": "Đã hủy · {{count}} bước",

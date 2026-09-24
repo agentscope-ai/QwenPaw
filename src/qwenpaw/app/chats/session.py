@@ -471,3 +471,23 @@ class SafeJSONSession:
                 f"because it does not exist"
             ),
         )
+
+    async def delete_session_state(
+        self,
+        session_id: str,
+        user_id: str = "",
+        channel: str = "",
+    ) -> bool:
+        """Delete one persisted session snapshot if it exists."""
+        session_save_path = await run_sync_io(
+            self._get_save_path,
+            session_id,
+            user_id,
+            channel,
+        )
+        async with get_path_lock(session_save_path):
+            try:
+                await run_sync_io(Path(session_save_path).unlink)
+            except FileNotFoundError:
+                return False
+        return True

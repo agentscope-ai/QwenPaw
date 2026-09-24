@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """Chat models with UUID management."""
+
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -251,6 +252,20 @@ class ChatHistory(BaseModel):
         default="idle",
         description="Conversation status: idle or running",
     )
+    history: Optional["ChatHistoryMetadata"] = None
+
+
+class ChatHistoryMetadata(BaseModel):
+    """Cursor metadata for a transcript page."""
+
+    has_more: bool = False
+    next_before: Optional[str] = None
+
+
+class ChatMessagePage(ChatHistoryMetadata):
+    """One turn-bounded page of durable chat messages."""
+
+    messages: list[Message] = Field(default_factory=list)
 
 
 class BatchFailure(BaseModel):

@@ -133,10 +133,7 @@ const backgroundWorkerJS = ts.transpileModule(
 ).outputText;
 
 function backgroundWorkerFixture() {
-  const sessionApi = {
-    setLastUserMessage: vi.fn(),
-    discardLastUserMessage: vi.fn(),
-  };
+  const sessionApi = {};
   const dependencies = {
     useMessageQueueStore,
     withBackgroundSendLock,
@@ -260,7 +257,6 @@ describe("background queue transport handoff", () => {
       ).toEqual(["sending", "pending"]);
       headers.resolve(response);
       await vi.waitFor(() => expect(cancel).toHaveBeenCalledTimes(1));
-      expect(fixture.sessionApi.discardLastUserMessage).not.toHaveBeenCalled();
       expect(
         useMessageQueueStore
           .getState()
@@ -296,7 +292,6 @@ describe("background queue transport handoff", () => {
     ]);
     expect(useMessageQueueStore.getState().getQueue(key)).toHaveLength(1);
     expect(useMessageQueueStore.getState().getRunState(key)).not.toBe("error");
-    expect(fixture.sessionApi.discardLastUserMessage).not.toHaveBeenCalled();
     // Only the original POST exists: cancellation did not issue a backend
     // stop request or dispatch the next queued item.
     expect(fetchFixture).toHaveBeenCalledTimes(1);
@@ -318,7 +313,6 @@ describe("background queue transport handoff", () => {
         .map((item) => item.status),
     ).toEqual(["failed", "pending"]);
     expect(useMessageQueueStore.getState().getRunState(key)).toBe("error");
-    expect(fixture.sessionApi.discardLastUserMessage).toHaveBeenCalledTimes(1);
     await expectReleased();
   });
 });

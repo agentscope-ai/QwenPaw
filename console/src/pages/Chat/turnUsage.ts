@@ -337,9 +337,8 @@ function snapshotFromSsePayload(raw: string): TurnUsageSnapshot | null {
 /**
  * Observe usage during streaming and patch the final response card on close.
  *
- * Trailing `turn_usage` SSE arrives after Completed response. The chat SDK
- * may drop it via isStillActive (session id drift after realId URL resolve),
- * so we capture it here and patch after the SDK has finished reading.
+ * Capture `turn_usage` directly from the response body because the chat SDK
+ * treats it as a transport-only event and does not expose it as a message.
  */
 export function wrapChatResponseUsageStream(
   response: Response,
