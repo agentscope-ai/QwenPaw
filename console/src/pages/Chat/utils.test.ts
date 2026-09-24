@@ -261,6 +261,22 @@ describe("clearSubmittedSenderInput", () => {
     expect(textarea.value).toBe("next message");
     document.body.innerHTML = "";
   });
+
+  it("clears the current textarea after the original one was replaced", () => {
+    document.body.innerHTML = `
+      <div class="sender"><textarea>send me</textarea></div>
+    `;
+    const original = document.querySelector("textarea") as HTMLTextAreaElement;
+    original.remove();
+    document.querySelector(".sender")!.innerHTML =
+      "<textarea>send me</textarea>";
+
+    expect(clearSubmittedSenderInput("send me")).toBe(true);
+    expect(
+      (document.querySelector("textarea") as HTMLTextAreaElement).value,
+    ).toBe("");
+    document.body.innerHTML = "";
+  });
 });
 
 // ---------------------------------------------------------------------------

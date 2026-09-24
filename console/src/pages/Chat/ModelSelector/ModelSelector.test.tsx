@@ -143,6 +143,7 @@ const mockProvider = {
     },
   ],
   extra_models: [],
+  realtime_models: [],
 };
 
 const mockActiveModels = {

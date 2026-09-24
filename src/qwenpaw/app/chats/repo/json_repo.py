@@ -144,3 +144,81 @@ def migrate_legacy_weixin_chats_file(chats_path: Path | str) -> None:
             path,
             exc,
         )
+
+
+def migrate_legacy_realtime_voice_sources_file(
+    chats_path: Path | str,
+) -> None:
+    """Move legacy Voice Chat identity from ``source`` into metadata.
+
+    Early development builds persisted ``source=realtime_voice``.  That value
+    makes the whole registry unreadable after downgrading to a build whose
+    closed ``SessionSource`` enum predates Voice Chat.  Only records carrying
+    the matching capability metadata are rewritten, with a backup and atomic
+    replacement before Chat models are loaded.
+    """
+    path = (
+        Path(chats_path).expanduser()
+        if isinstance(chats_path, str)
+        else chats_path
+    )
+    if not path.is_file():
+        return
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return
+    if not isinstance(data, dict):
+        return
+
+    chats = data.get("chats")
+    if not isinstance(chats, list):
+        return
+
+    mutated = False
+    for chat in chats:
+        if (
+            not isinstance(chat, dict)
+            or chat.get("source") != "realtime_voice"
+        ):
+            continue
+        meta = chat.get("meta")
+        if not isinstance(meta, dict) or not isinstance(
+            meta.get("realtime_voice"),
+            dict,
+        ):
+            continue
+        chat["source"] = "chat"
+        mutated = True
+
+    if not mutated:
+        return
+
+    try:
+        backup_path = path.with_suffix(
+            path.suffix + f".{uuid.uuid4().hex[:8]}.voice-source-migrate.bak",
+        )
+        shutil.copy2(path, backup_path)
+        tmp_path = path.with_suffix(path.suffix + ".tmp")
+        tmp_path.write_text(
+            json.dumps(
+                data,
+                ensure_ascii=False,
+                indent=2,
+                sort_keys=True,
+            ),
+            encoding="utf-8",
+            newline="\n",
+        )
+        os.replace(tmp_path, path)
+        logger.warning(
+            "Migrated legacy Voice Chat source entries in %s (backup: %s)",
+            path,
+            backup_path,
+        )
+    except OSError as exc:
+        logger.error(
+            "Failed to migrate legacy Voice Chat source entries in %s: %s",
+            path,
+            exc,
+        )

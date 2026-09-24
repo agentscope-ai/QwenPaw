@@ -280,6 +280,113 @@ def make_manager(store: HistoryStore, **kw) -> ScrollContextManager:
     return ScrollContextManager(history=store, **kw)
 
 
+def test_separate_same_id_messages_survive_growth_and_checkpoint(store):
+    from agentscope.state import AgentState
+
+    state = AgentState()
+    state.reply_id = "one-sdk-reply"
+    mgr = make_manager(store)
+    agent = SimpleNamespace(state=state)
+    for index in (1, 2):
+        state.context.append(user(f"request {index}"))
+        state.append_context("a", [TextBlock(text=f"ANSWER_{index}")])
+        mgr.on_save(agent, [])
+    first, second = state.context[1], state.context[3]
+    assert first.id == second.id == "one-sdk-reply"
+    rows = store._conn.execute(
+        "SELECT content FROM conversation_history WHERE kind='model_turn' "
+        "ORDER BY seq",
+    ).fetchall()
+    assert [row["content"] for row in rows] == ["ANSWER_1", "ANSWER_2"]
+
+    state.append_context("a", [TextBlock(text="MORE")])
+    mgr.on_save(agent, [])
+    snapshot = mgr.to_dict()
+    restored = make_manager(store)
+    restored.load_state(snapshot)
+    agent.state = AgentState.model_validate(state.model_dump(mode="json"))
+    restored.on_save(agent, [])
+    rows = store._conn.execute(
+        "SELECT content FROM conversation_history WHERE kind='model_turn' "
+        "ORDER BY seq",
+    ).fetchall()
+    assert len(rows) == 2
+    assert rows[0]["content"] == "ANSWER_1"
+    assert "ANSWER_2" in rows[1]["content"] and "MORE" in rows[1]["content"]
+
+
+def test_same_id_later_occurrence_after_first_eviction_keeps_durable_answer(
+    store,
+):
+    first, later = assistant("FIRST"), assistant("LATER")
+    later.id = first.id
+    mgr = make_manager(store)
+    mgr.on_save(FakeAgent([first]), [])
+    # No live owner and no checkpoint: recover the original owner from storage.
+    next_manager = make_manager(store)
+    next_manager.on_save(FakeAgent([later]), [])
+    next_manager.on_save(FakeAgent([later]), [])
+    rows = store._conn.execute(
+        "SELECT content FROM conversation_history WHERE kind='model_turn' "
+        "ORDER BY seq",
+    ).fetchall()
+    assert [row["content"] for row in rows] == ["FIRST", "LATER"]
+
+
+def test_legacy_anchor_ignores_transient_memory_blocks(store):
+    from qwenpaw.agents.context.scroll.serialize import msg_to_entries
+
+    msg = assistant("answer")
+    store.append(
+        session_id="s1", entry=msg_to_entries(msg)[0], dedup_key=msg.id
+    )
+    memory = HintBlock(hint="live-only memory")
+    msg.content.insert(0, memory)
+    msg.metadata[AUTO_MEMORY_SEARCH_BLOCK_IDS_KEY] = [memory.id]
+    make_manager(store).on_save(FakeAgent([msg]), [])
+    assert store.count("s1") == 1
+
+
+def test_same_id_split_fragments_restore_the_matching_occurrence(store):
+    from copy import deepcopy
+
+    first = assistant_with_tool("call-1", "FIRST")
+    second = assistant_with_tool("call-2", "SECOND")
+    second.id = first.id
+    agent = FakeAgent([user("first"), first, user("second"), second])
+    mgr = make_manager(store)
+    mgr.on_save(agent, [])
+    fragments = [deepcopy(msg) for msg in (first, second)]
+    for fragment in fragments:
+        fragment.content = fragment.content[-1:]
+    restored = mgr._restore_full_tail_messages(agent, fragments)
+    assert restored[0] is first
+    assert restored[1] is second
+    assert mgr._evicted_span([first]) != mgr._evicted_span([second])
+
+
+@pytest.mark.asyncio
+async def test_compression_keeps_only_the_active_same_id_occurrence(store):
+    first, second = assistant("FIRST", "first task"), assistant(
+        "SECOND", "second task"
+    )
+    second.id = first.id
+    prompt1, prompt2 = user("one"), user("two")
+    agent = FakeAgent([prompt1, first, prompt2, second], tokens=[900, 150])
+    mgr = make_manager(store)
+    agent._split_return = ([prompt1, first], [prompt2, second])
+    await mgr.compress(agent)
+    assert first not in agent.state.context
+    assert second in agent.state.context
+    assert prompt2 in agent.state.context
+    assert "FIRST" in str(
+        store._conn.execute(
+            "SELECT content FROM conversation_history WHERE kind='model_turn' "
+            "ORDER BY seq",
+        ).fetchall()[0]["content"]
+    )
+
+
 def auto_memory_search_msg(*, query: str, max_results: int, text: str) -> Msg:
     return AutoMemoryMsgBuilder(
         working_dir="",
@@ -388,6 +495,33 @@ def test_tool_result_persisted_under_tool_call_id(store: HistoryStore):
     assert rows[0]["content"] == "big output"
     assert json.loads(rows[0]["metadata"])["qwenpaw_truncation"]["0"] == {
         "file_path": "/tmp/artifact.txt",
+    }
+
+
+def test_tool_result_reply_cycle_owner_metadata_is_durable(
+    store: HistoryStore,
+):
+    """Tool-result blocks already provide a durable owner metadata path."""
+    mgr = make_manager(store)
+    msg = assistant_with_tool("call-owned", "late result")
+    msg.content[2].metadata.update(
+        {
+            "run_id": "run-1",
+            "timeline_group_id": "input-a",
+            "timeline_revision": 1,
+        },
+    )
+
+    mgr._persist_new(FakeAgent([msg]))
+
+    row = store._conn.execute(
+        "SELECT metadata FROM conversation_history "
+        "WHERE kind='tool_result' AND tool_call_id='call-owned'",
+    ).fetchone()
+    assert json.loads(row["metadata"]) == {
+        "run_id": "run-1",
+        "timeline_group_id": "input-a",
+        "timeline_revision": 1,
     }
 
 
@@ -2389,6 +2523,41 @@ def test_serialize_persists_runtime_tag():
     }
     (plain,) = msg_to_entries(user("hello"))
     assert not plain.metadata
+
+
+def test_serialize_persists_reply_cycle_message_metadata():
+    """Reply-cycle identity survives the durable Scroll archive."""
+    from qwenpaw.agents.context.scroll.serialize import msg_to_entries
+
+    msg = assistant("answer")
+    msg.metadata.update(
+        {
+            "run_id": "run-1",
+            "timeline_group_id": "input-c",
+            "timeline_revision": 2,
+            "responds_to_input_ids": ["input-b", "input-c"],
+        },
+    )
+
+    (entry,) = msg_to_entries(msg)
+
+    assert entry.metadata == msg.metadata
+
+
+def test_agentscope_msg_round_trips_reply_cycle_message_metadata():
+    """AgentScope's Msg schema is not the metadata-loss boundary."""
+    metadata = {
+        "run_id": "run-1",
+        "timeline_group_id": "input-c",
+        "timeline_revision": 2,
+        "responds_to_input_ids": ["input-b", "input-c"],
+    }
+    original = assistant("answer")
+    original.metadata.update(metadata)
+
+    restored = Msg.model_validate(original.model_dump(mode="json"))
+
+    assert restored.metadata == metadata
 
 
 def test_serialize_persists_tool_call_extras():

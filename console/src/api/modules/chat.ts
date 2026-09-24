@@ -49,7 +49,7 @@ export const chatApi = {
     if (!filename) return "";
     if (filename.startsWith("http://") || filename.startsWith("https://"))
       return filename;
-    let cleaned = filename.replace(/^\/+/, "");
+    const cleaned = filename.replace(/^\/+/, "");
     const path = `${FILES_PREVIEW}/${cleaned}`;
     const url = getApiUrl(path);
 
@@ -92,9 +92,30 @@ export const chatApi = {
       body: JSON.stringify(chat),
     }),
 
-  getChat: (
+  getChatSpec: (
     chatId: string,
     options?: { signal?: AbortSignal; include_app_owned?: boolean },
+  ) => {
+    const searchParams = new URLSearchParams();
+    if (options?.include_app_owned !== undefined)
+      searchParams.append(
+        "include_app_owned",
+        String(options.include_app_owned),
+      );
+    const query = searchParams.toString();
+    return request<ChatSpec>(
+      `/chats/${encodeURIComponent(chatId)}/spec${query ? `?${query}` : ""}`,
+      { signal: options?.signal },
+    );
+  },
+
+  getChat: (
+    chatId: string,
+    options?: {
+      signal?: AbortSignal;
+      include_app_owned?: boolean;
+      fresh?: boolean;
+    },
   ) => {
     const searchParams = new URLSearchParams();
     if (options?.include_app_owned !== undefined)
@@ -107,6 +128,7 @@ export const chatApi = {
       `/chats/${encodeURIComponent(chatId)}${query ? `?${query}` : ""}`,
       {
         signal: options?.signal,
+        ...(options?.fresh ? { cache: "no-store" as RequestCache } : {}),
       },
     );
   },

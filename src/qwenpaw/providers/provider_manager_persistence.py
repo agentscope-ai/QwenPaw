@@ -23,6 +23,7 @@ from ..utils.io_utils import (
     run_async_to_completion,
     run_sync_io,
 )
+from . import provider_persistence
 from .anthropic_provider import AnthropicProvider
 from .dashscope_provider import DashScopeProvider
 from .gemini_provider import GeminiProvider
@@ -32,21 +33,26 @@ from .openai_response_provider import OpenAIResponseProvider
 from .openrouter_provider import OpenRouterProvider
 from .model_sync import invalidate_api_metadata
 from .provider import ModelInfo, Provider, ProviderInfo
-from .provider_manager_host import ProviderManagerHost
 from .provider_discovery import (
     DISCOVERY_MODEL_FIELDS as _DISCOVERY_MODEL_FIELDS,
 )
+from .provider_discovery_policy import apply_custom_discovery_policy
+from .provider_manager_host import ProviderManagerHost
 from .provider_model_state import (
     migrate_provider_snapshot,
     restore_model_state,
     serialize_model_state,
 )
-from .provider_discovery_policy import apply_custom_discovery_policy
-from . import provider_persistence
 from .provider_update_fields import (
     AVAILABILITY_MODEL_FIELDS as _AVAILABILITY_MODEL_FIELDS,
+)
+from .provider_update_fields import (
     CAPABILITY_MODEL_FIELDS as _CAPABILITY_MODEL_FIELDS,
+)
+from .provider_update_fields import (
     CONNECTION_CONFIG_FIELDS as _CONNECTION_CONFIG_FIELDS,
+)
+from .provider_update_fields import (
     PluginUpdateKind,
 )
 
@@ -106,9 +112,7 @@ class ProviderManagerPersistenceMixin(
 
         Sensitive fields (``api_key``) are encrypted before writing.
         """
-        storage_kind: ProviderStorageKind = (
-            "builtin" if is_builtin else "custom"
-        )
+        storage_kind: ProviderStorageKind = "builtin" if is_builtin else "custom"
         provider_path = self._provider_path_for_kind(
             storage_kind,
             provider.id,
@@ -180,8 +184,7 @@ class ProviderManagerPersistenceMixin(
             return latest
         if update_kind == "discovery":
             latest.discovered_models = [
-                model.model_copy(deep=True)
-                for model in result.discovered_models
+                model.model_copy(deep=True) for model in result.discovered_models
             ]
             latest.models_last_synced_at = result.models_last_synced_at
             latest.models_last_sync_error = result.models_last_sync_error
@@ -233,18 +236,12 @@ class ProviderManagerPersistenceMixin(
                 item for item in latest.removed_model_ids if item != model_id
             ]
             added = next(
-                (
-                    model
-                    for model in result.extra_models
-                    if model.id == model_id
-                ),
+                (model for model in result.extra_models if model.id == model_id),
                 None,
             )
             if added is not None:
                 latest.extra_models = [
-                    model
-                    for model in latest.extra_models
-                    if model.id != model_id
+                    model for model in latest.extra_models if model.id != model_id
                 ]
                 latest.extra_models.append(added.model_copy(deep=True))
         elif update_kind == "configured_delete":
@@ -255,9 +252,7 @@ class ProviderManagerPersistenceMixin(
                 model for model in latest.extra_models if model.id != model_id
             ]
             latest.discovered_models = [
-                model
-                for model in latest.discovered_models
-                if model.id != model_id
+                model for model in latest.discovered_models if model.id != model_id
             ]
         elif update_kind == "configured_update":
             model_fields = set(fields or set())
@@ -475,8 +470,7 @@ class ProviderManagerPersistenceMixin(
             return latest
         if update_kind == "discovery":
             latest.discovered_models = [
-                model.model_copy(deep=True)
-                for model in result.discovered_models
+                model.model_copy(deep=True) for model in result.discovered_models
             ]
             latest.models_last_synced_at = result.models_last_synced_at
             latest.models_last_sync_error = result.models_last_sync_error
@@ -776,9 +770,7 @@ class ProviderManagerPersistenceMixin(
         Encrypted fields are transparently decrypted.  If a legacy
         plaintext ``api_key`` is detected it is re-encrypted in place.
         """
-        storage_kind: ProviderStorageKind = (
-            "builtin" if is_builtin else "custom"
-        )
+        storage_kind: ProviderStorageKind = "builtin" if is_builtin else "custom"
         if provider_path is None:
             provider_path = self._provider_path_for_kind(
                 storage_kind,
@@ -820,8 +812,7 @@ class ProviderManagerPersistenceMixin(
                     )
                 except Exception as enc_err:
                     logger.debug(
-                        "Deferred plaintext->encrypted migration"
-                        " for provider '%s': %s",
+                        "Deferred plaintext->encrypted migration for provider '%s': %s",
                         provider_id,
                         enc_err,
                     )
@@ -975,18 +966,65 @@ class ProviderManagerPersistenceMixin(
         except Exception:
             return None
 
+    def _save_voice_model_slot(
+        self,
+        filename: str,
+        active_model: ModelSlotConfig,
+    ) -> None:
+        """Atomically persist a global voice-related model slot."""
+        target = self.root_path / filename
+        fd, temp_name = tempfile.mkstemp(
+            prefix=f".{target.stem}.",
+            suffix=".tmp",
+            dir=self.root_path,
+            text=True,
+        )
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                json.dump(
+                    active_model.model_dump(),
+                    handle,
+                    ensure_ascii=False,
+                    indent=2,
+                )
+                handle.flush()
+                os.fsync(handle.fileno())
+            provider_persistence.replace_with_retry(temp_name, str(target))
+            try:
+                os.chmod(target, 0o600)
+            except OSError:
+                pass
+        finally:
+            if os.path.exists(temp_name):
+                try:
+                    os.remove(temp_name)
+                except OSError:
+                    pass
+
+    def save_active_realtime_model(self, active_model: ModelSlotConfig) -> None:
+        self._save_voice_model_slot("active_realtime_model.json", active_model)
+
+    def _load_voice_model_slot(self, filename: str) -> ModelSlotConfig | None:
+        path = self.root_path / filename
+        if not path.exists():
+            return None
+        try:
+            with open(path, "r", encoding="utf-8") as handle:
+                return ModelSlotConfig.model_validate(json.load(handle))
+        except (OSError, ValueError, TypeError):
+            return None
+
+    def load_active_realtime_model(self) -> ModelSlotConfig | None:
+        return self._load_voice_model_slot("active_realtime_model.json")
+
     def _migrate_copaw_config(self) -> None:
         """Migrate copaw-local provider config to qwenpaw-local."""
         # 1. Migrate active model configuration (only provider_id)
-        if (
-            self.active_model
-            and self.active_model.provider_id == "copaw-local"
-        ):
+        if self.active_model and self.active_model.provider_id == "copaw-local":
             self.active_model.provider_id = "qwenpaw-local"
             self.save_active_model(self.active_model)
             logger.info(
-                "Migrated active model provider from "
-                "'copaw-local' to 'qwenpaw-local'",
+                "Migrated active model provider from 'copaw-local' to 'qwenpaw-local'",
             )
 
         # 2. Migrate stored provider config file
@@ -1164,7 +1202,9 @@ class ProviderManagerPersistenceMixin(
         active_model = self.load_active_model()
         if active_model:
             self.active_model = active_model
-
+        active_realtime_model = self.load_active_realtime_model()
+        if active_realtime_model:
+            self.active_realtime_model = active_realtime_model
         # Migrate copaw-local to qwenpaw-local for backwards compatibility
         self._migrate_copaw_config()
 
@@ -1183,6 +1223,10 @@ class ProviderManagerPersistenceMixin(
             builtin.auth_mode = provider.auth_mode
         if provider.custom_headers:
             builtin.custom_headers = provider.custom_headers
+        if provider.realtime_models:
+            builtin.realtime_models = [
+                model.model_copy(deep=True) for model in provider.realtime_models
+            ]
         if hasattr(builtin, "max_inline_media_bytes"):
             builtin.max_inline_media_bytes = provider.max_inline_media_bytes
 
@@ -1204,9 +1248,7 @@ class ProviderManagerPersistenceMixin(
 
         # Catalog model metadata is authoritative. Persisted model state can
         # contain an older is_free value from before the catalog was updated.
-        catalog_free_flags = {
-            model.id: model.is_free for model in builtin.models
-        }
+        catalog_free_flags = {model.id: model.is_free for model in builtin.models}
 
         stored_model_config = {
             model.id: serialize_model_state(model) for model in provider.models

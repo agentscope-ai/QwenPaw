@@ -5,7 +5,10 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from ..app.chats.background_results import BackgroundWork, CallResultRoute
 
 
 class CancelReason(StrEnum):
@@ -46,6 +49,9 @@ class ToolCallContext:
     extra: dict[str, Any] = field(default_factory=dict)
     governance_metadata: dict[str, Any] = field(default_factory=dict)
     root_agent_id: str = ""
+    # Runtime capabilities are not public API metadata or persisted JSON.
+    result_route: CallResultRoute | None = field(default=None, repr=False)
+    background_work: BackgroundWork | None = field(default=None, repr=False)
 
     @property
     def is_cancelled(self) -> bool:

@@ -107,9 +107,19 @@ function seedSessionList(id: string, sessionId = id): void {
   ];
 }
 
-async function mockGetChat(history: ChatHistory) {
+async function mockGetChat(
+  history: Pick<ChatHistory, "messages" | "status">,
+) {
   const apiImport = await import("../../../api");
-  return vi.spyOn(apiImport.api, "getChat").mockResolvedValue(history);
+  return vi.spyOn(apiImport.api, "getChat").mockResolvedValue({
+    id: "history-fixture",
+    session_id: "history-fixture",
+    user_id: "u",
+    channel: "c",
+    created_at: null,
+    updated_at: null,
+    ...history,
+  });
 }
 
 /** Collect texts of user-role cards from a converted session. */
@@ -232,7 +242,7 @@ describe("patchLastUserMessage — pending cache lifecycle", () => {
     await mockGetChat({
       messages: [],
       status: "running",
-    } as ChatHistory);
+    });
 
     const session = await sessionApi.getSession("chat-legacy");
     expect(userCardTexts(session)).toContain("legacy in flight");
@@ -274,7 +284,7 @@ describe("patchLastUserMessage — pending cache lifecycle", () => {
       channel: "c",
       name: "B",
     });
-    await mockGetChat({ messages: [], status: "idle" } as ChatHistory);
+    await mockGetChat({ messages: [], status: "idle" });
 
     const session = await sessionApi.getSession("chat-b");
     expect(userCardTexts(session)).toEqual([]);

@@ -399,6 +399,167 @@ describe("convertMessages — streaming segments stay separate (PR #5487)", () =
   });
 });
 
+describe("convertMessages — tool lifecycle correlation", () => {
+  const call = {
+    role: "assistant",
+    type: "plugin_call",
+    content: [
+      {
+        type: "data",
+        data: {
+          call_id: "call-voice-1",
+          name: "desktop_screenshot",
+          arguments: "{}",
+        },
+      },
+    ],
+    metadata: { timestamp: "2026-08-26T10:00:01.000Z" },
+  } as Message;
+
+  const result = {
+    role: "system",
+    type: "plugin_call_output",
+    content: [
+      {
+        type: "data",
+        data: {
+          call_id: "call-voice-1",
+          output: "screenshot saved",
+        },
+      },
+    ],
+    metadata: { timestamp: "2026-08-26T10:00:04.000Z" },
+  } as Message;
+
+  it("pairs a tool result across an interleaved user message", () => {
+    const converted = convertMessages([
+      {
+        id: "backend-random-voice-id",
+        role: "user",
+        content: "take a screenshot",
+        metadata: {
+          metadata: { qwenpaw_client_message_id: "voice-user-1" },
+        },
+      },
+      call,
+      {
+        role: "user",
+        content: "and inspect the disk",
+        metadata: {
+          metadata: { qwenpaw_client_message_id: "voice-user-2" },
+        },
+      },
+      result,
+      { role: "assistant", content: "done", metadata: {} },
+    ]);
+
+    expect(converted).toHaveLength(4);
+    expect(converted[0].id).toBe("voice-user-1");
+    const toolOutput = (converted[1].cards?.[0]?.data as any).output;
+    expect(toolOutput).toHaveLength(2);
+    expect(toolOutput[0].content[0].data.call_id).toBe("call-voice-1");
+    expect(toolOutput[1].content[0].data.call_id).toBe("call-voice-1");
+    expect(converted[2].id).toBe("voice-user-2");
+    const finalOutput = (converted[3].cards?.[0]?.data as any).output;
+    expect(finalOutput).toHaveLength(1);
+    expect(extractTextFromContent(finalOutput[0].content)).toBe("done");
+  });
+
+  it("keeps the tool response card id stable when its result arrives", () => {
+    const pending = convertMessages([
+      { role: "user", content: "take a screenshot", metadata: {} },
+      call,
+    ]);
+    const completed = convertMessages([
+      { role: "user", content: "take a screenshot", metadata: {} },
+      call,
+      { role: "user", content: "still there?", metadata: {} },
+      result,
+    ]);
+
+    expect(completed[1].id).toBe(pending[1].id);
+  });
+});
+
+describe("convertMessages — semantic reply ownership", () => {
+  const message = (
+    role: string,
+    text: string,
+    groupId: string,
+    respondsTo: string[] = [],
+    id?: string,
+  ): Message => ({
+    ...(id ? { id } : {}),
+    role,
+    type: "message",
+    content: [{ type: "text", text }],
+    metadata: {
+      original_id: id,
+      metadata: {
+        timeline_group_id: groupId,
+        responds_to_input_ids: respondsTo,
+      },
+    },
+  });
+
+  it("places interleaved output beside its owning input", () => {
+    const converted = convertMessages([
+      message("user", "task A", "input-a", [], "input-a"),
+      message("assistant", "A started", "input-a", ["input-a"], "run-output"),
+      message("user", "task B", "input-b", [], "input-b"),
+      message("user", "task C", "input-c", [], "input-c"),
+      message("assistant", "A done", "input-a", ["input-a"], "run-output"),
+      message("assistant", "B done", "input-b", ["input-b"], "run-output"),
+      message("assistant", "C done", "input-c", ["input-c"], "run-output"),
+    ]);
+
+    expect(converted.map((item) => item.role)).toEqual([
+      "user",
+      "assistant",
+      "user",
+      "assistant",
+      "user",
+      "assistant",
+    ]);
+    const responseText = converted
+      .filter((item) => item.role === "assistant")
+      .map((item) =>
+        ((item.cards?.[0]?.data as any).output as Message[])
+          .map((output) => extractTextFromContent(output.content))
+          .join("|"),
+      );
+    expect(responseText).toEqual(["A started|A done", "B done", "C done"]);
+    expect(new Set(converted.map((item) => item.id)).size).toBe(
+      converted.length,
+    );
+  });
+
+  it("places a multi-input reply after the last referenced input", () => {
+    const converted = convertMessages([
+      message("user", "first detail", "input-a", [], "input-a"),
+      message("user", "second detail", "input-b", [], "input-b"),
+      message(
+        "assistant",
+        "combined answer",
+        "combined-reply",
+        ["input-a", "input-b"],
+        "run-output",
+      ),
+    ]);
+
+    expect(converted.map((item) => item.role)).toEqual([
+      "user",
+      "user",
+      "assistant",
+    ]);
+    expect(
+      extractTextFromContent(
+        ((converted[2].cards?.[0]?.data as any).output as Message[])[0].content,
+      ),
+    ).toBe("combined answer");
+  });
+});
+
 // ---------------------------------------------------------------------------
 // 3. Output card structure correctness on large inputs
 // ---------------------------------------------------------------------------
@@ -549,6 +710,33 @@ describe("buildUserCard / buildResponseCard helpers", () => {
     expect(data.sequence_number).toBe(13);
   });
 
+  it("keeps timeline ids stable when the same history is converted again", () => {
+    const messages = [
+      {
+        role: "user",
+        content: "voice request",
+        metadata: {
+          metadata: { qwenpaw_client_message_id: "voice-user-1" },
+        },
+      },
+      {
+        role: "assistant",
+        content: "agent result",
+        metadata: { timestamp: "2026-08-25T10:00:00.000Z" },
+      },
+    ] as any[];
+
+    const first = convertMessages(messages);
+    const second = convertMessages(messages);
+
+    expect(second.map((message) => message.id)).toEqual(
+      first.map((message) => message.id),
+    );
+    expect(
+      second.map((message) => (message.cards?.[0].data as any).id),
+    ).toEqual(first.map((message) => (message.cards?.[0].data as any).id));
+  });
+
   it("parseTimestamp handles malformed timestamps without throwing", () => {
     expect(parseTimestamp({ metadata: {} } as any)).toBe(0);
     expect(
@@ -650,6 +838,29 @@ describe("SessionApi.getSession — large payload integration (#5479)", () => {
     vi.restoreAllMocks();
   });
 
+  it("retains realtime voice metadata through session hydration", async () => {
+    const apiImport = await import("../../../api");
+    const getChat = vi.spyOn(apiImport.api, "getChat").mockResolvedValue({
+      id: "voice-1",
+      name: "Voice Chat",
+      session_id: "console:voice-1",
+      user_id: "default",
+      channel: "console",
+      created_at: null,
+      updated_at: null,
+      source: "chat",
+      meta: { realtime_voice: { version: 3 } },
+      messages: [],
+      status: "idle",
+    });
+
+    const session = await sessionApiDefaultExport.getSession("voice-1");
+    expect((session as { meta?: Record<string, unknown> }).meta).toEqual({
+      realtime_voice: { version: 3 },
+    });
+    expect(getChat).toHaveBeenCalledTimes(1);
+  });
+
   it("returns a fully-converted session for a 600KB backend payload without throwing", async () => {
     const { messages, size } = buildLargeMessages(600 * 1024);
     expect(size).toBeGreaterThan(500 * 1024);
@@ -703,13 +914,19 @@ describe("SessionApi.getSession — large payload integration (#5479)", () => {
   });
 
   it("loads a UUID-looking runtime session_id through its unique Chat UUID", async () => {
-    const apiImport = await import("../../../api");
-    const getChat = vi.spyOn(apiImport.api, "getChat").mockResolvedValue({
-      messages: [],
-      status: "idle",
-    } as ChatHistory);
     const chatId = "33b8b00e-012e-448d-ba12-5563952c45ba";
     const runtimeId = "9a8f4757-69c8-4179-b8a4-f02471bba385";
+    const apiImport = await import("../../../api");
+    const getChat = vi.spyOn(apiImport.api, "getChat").mockResolvedValue({
+      id: chatId,
+      session_id: runtimeId,
+      user_id: "u",
+      channel: "console",
+      created_at: null,
+      updated_at: null,
+      messages: [],
+      status: "idle",
+    });
     (sessionApiDefaultExport as any).sessionList = [
       {
         id: chatId,

@@ -13,24 +13,34 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from agentscope.message import Msg
 from agentscope.state import AgentState
+from qwenpaw.schemas import Message
 
-from .session import SafeJSONSession
-from .manager import ChatManager, MAX_BATCH_SIZE
+from ...checkpoints.runtime import RUNTIME as CHECKPOINT_RUNTIME
+from ...services.project_directory import (
+    agent_project_dirs_from_config,
+    resolve_effective_project_dirs,
+    session_project_dirs_raw_from_meta,
+)
+from .manager import MAX_BATCH_SIZE, ChatManager
 from .models import (
     BatchArchiveResult,
     ChatGroup,
     ChatGroupCreate,
     ChatGroupOrderUpdate,
     ChatGroupUpdate,
+    ChatHistory,
     ChatSpec,
     ChatUpdate,
-    ChatHistory,
 )
-from .utils import agentscope_msg_to_message, parse_legacy_memory_state
-from ...services.project_directory import (
-    agent_project_dirs_from_config,
-    resolve_effective_project_dirs,
-    session_project_dirs_raw_from_meta,
+from .session import SafeJSONSession
+from .timeline import (
+    merge_timeline_messages,
+    order_timeline_messages,
+    pending_timeline_messages,
+)
+from .utils import (
+    agentscope_msg_to_message,
+    parse_legacy_memory_state,
 )
 from ...providers.thinking import ThinkingPreference
 from ...services.session_thinking import (
@@ -38,7 +48,6 @@ from ...services.session_thinking import (
     thinking_view,
 )
 from ...config.config import ModelSlotConfig
-from ...checkpoints.runtime import RUNTIME as CHECKPOINT_RUNTIME
 
 logger = logging.getLogger(__name__)
 
@@ -46,10 +55,56 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/chats", tags=["chats"])
 
 
+async def _close_background_results(workspace, chat_ids: list[str]) -> None:
+    tracker = workspace.task_tracker
+    owners = getattr(tracker, "background_results", {})
+    for chat_id in chat_ids:
+        tracker.release_input_context(chat_id)
+        results = owners.get(chat_id)
+        if results is not None:
+            await results.close()
+            owners.pop(chat_id, None)
+        await tracker.request_stop(chat_id)
+        getattr(tracker, "reply_views", {}).pop(chat_id, None)
+        view = getattr(tracker, "conversation_views", {}).pop(chat_id, None)
+        if view is not None:
+            await view.close()
+
+
 def _is_app_owned_chat(chat: ChatSpec) -> bool:
     """Return whether a chat belongs to a PawApp-owned dialogue surface."""
     owner = chat.meta.get("pawapp") if isinstance(chat.meta, dict) else None
     return isinstance(owner, dict) and bool(owner.get("app_id"))
+
+
+def _chat_history(
+    chat: ChatSpec,
+    *,
+    messages: list[Message],
+    status: str,
+) -> ChatHistory:
+    """Combine the authoritative Chat spec with its current history state."""
+    return ChatHistory(
+        **chat.model_dump(exclude={"archived", "status"}),
+        messages=messages,
+        status=status,
+    )
+
+
+async def _get_visible_chat(
+    chat_id: str,
+    *,
+    include_app_owned: bool,
+    mgr: ChatManager,
+) -> ChatSpec:
+    """Return an accessible Chat spec or raise the public not-found error."""
+    chat = await mgr.get_chat(chat_id)
+    if not chat or (not include_app_owned and _is_app_owned_chat(chat)):
+        raise HTTPException(
+            status_code=404,
+            detail=f"Chat not found: {chat_id}",
+        )
+    return chat
 
 
 async def get_workspace(request: Request):
@@ -451,6 +506,7 @@ async def batch_delete_chats(
 
     """
     chats = {chat.id: chat for chat in await mgr.list_chats(archived=None)}
+    await _close_background_results(workspace, chat_ids)
     deleted = await mgr.delete_chats(chat_ids=chat_ids)
     if deleted:
         await CHECKPOINT_RUNTIME.delete_session_checkpoints(
@@ -813,6 +869,26 @@ async def get_chat_status(
     return ChatStatusResponse(status=status)
 
 
+@router.get("/{chat_id}/spec", response_model=ChatSpec)
+async def get_chat_spec(
+    chat_id: str,
+    include_app_owned: bool = Query(
+        True,
+        description=(
+            "Allow reading PawApp-owned Chat metadata. The main Chat surface "
+            "opts out so app dialogues stay inside their owning app."
+        ),
+    ),
+    mgr: ChatManager = Depends(get_chat_manager),
+):
+    """Get lightweight Chat metadata without loading conversation history."""
+    return await _get_visible_chat(
+        chat_id,
+        include_app_owned=include_app_owned,
+        mgr=mgr,
+    )
+
+
 @router.get("/{chat_id}", response_model=ChatHistory)
 async def get_chat(
     chat_id: str,
@@ -836,22 +912,16 @@ async def get_chat(
         session: SafeJSONSession dependency
 
     Returns:
-        ChatHistory with messages and status (idle/running)
+        ChatHistory with the Chat spec, messages, and current status
 
     Raises:
         HTTPException: If chat not found (404)
     """
-    chat_spec = await mgr.get_chat(chat_id)
-    if not chat_spec:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Chat not found: {chat_id}",
-        )
-    if not include_app_owned and _is_app_owned_chat(chat_spec):
-        raise HTTPException(
-            status_code=404,
-            detail=f"Chat not found: {chat_id}",
-        )
+    chat_spec = await _get_visible_chat(
+        chat_id,
+        include_app_owned=include_app_owned,
+        mgr=mgr,
+    )
 
     state = await session.get_session_state_dict(
         chat_spec.session_id,
@@ -882,7 +952,7 @@ async def get_chat(
             )
     status = await workspace.task_tracker.get_status(chat_id)
     if not state:
-        return ChatHistory(messages=[], status=status)
+        return _chat_history(chat_spec, messages=[], status=status)
 
     agent_raw = state.get("agent", {})
     memories: list[Msg] = []
@@ -904,8 +974,12 @@ async def get_chat(
         if memory_raw:
             memories, _summary = parse_legacy_memory_state(memory_raw)
 
-    messages = agentscope_msg_to_message(memories)
-    return ChatHistory(messages=messages, status=status)
+    memories = merge_timeline_messages(
+        memories,
+        pending_timeline_messages(state),
+    )
+    messages = order_timeline_messages(agentscope_msg_to_message(memories))
+    return _chat_history(chat_spec, messages=messages, status=status)
 
 
 @router.put("/{chat_id}", response_model=ChatSpec)
@@ -961,6 +1035,7 @@ async def delete_chat(
         HTTPException: If chat not found (404)
     """
     chat = await mgr.get_chat(chat_id)
+    await _close_background_results(workspace, [chat_id])
     deleted = await mgr.delete_chats(chat_ids=[chat_id])
     if not deleted:
         raise HTTPException(

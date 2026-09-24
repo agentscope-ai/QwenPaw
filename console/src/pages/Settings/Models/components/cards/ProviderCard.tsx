@@ -9,6 +9,7 @@ interface ProviderCardProps {
   onSaved: () => void;
   onOpenConfig: (provider: ProviderInfo) => void;
   onOpenModels: (provider: ProviderInfo) => void;
+  onOpenRealtimeVoice: (provider: ProviderInfo) => void;
 }
 
 export const ProviderCard = React.memo(function ProviderCard({
@@ -16,6 +17,7 @@ export const ProviderCard = React.memo(function ProviderCard({
   onSaved,
   onOpenConfig,
   onOpenModels,
+  onOpenRealtimeVoice,
 }: ProviderCardProps) {
   if (provider.id === "qwenpaw-local") {
     return (
@@ -29,6 +31,7 @@ export const ProviderCard = React.memo(function ProviderCard({
       onSaved={onSaved}
       onOpenConfig={onOpenConfig}
       onOpenModels={onOpenModels}
+      onOpenRealtimeVoice={onOpenRealtimeVoice}
     />
   );
 });

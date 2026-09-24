@@ -11,7 +11,6 @@ from __future__ import annotations
 import asyncio
 import logging
 
-from ..base import LifecycleHook
 from ..cron.cron_hook import restore_cron_context
 from ...agents.acp.meta import ACP_EPHEMERAL_META_KEY
 from ...runtime._state_utils import StateProxy
@@ -22,7 +21,8 @@ from ...runtime.console_turn_state import (
 )
 from ...runtime.hooks import HookContext, HookResult
 from ...runtime.phases import Phase
-from .signals import SESSION_SAVE_SUCCEEDED_KEY
+from ..base import LifecycleHook
+from .signals import SESSION_SAVE_SUCCEEDED_KEY, record_session_save
 
 logger = logging.getLogger(__name__)
 
@@ -107,25 +107,44 @@ class SessionSaveHook(LifecycleHook):
         if session is None:
             return HookResult()
         try:
-            request = ctx.request
-            user_id = getattr(request, "user_id", "") or ctx.session_id
-            channel = getattr(request, "channel", "") or ""
-
             restore_cron_context(ctx)
             proxy = StateProxy()
             proxy.data = ctx.agent.state_dict()
-            stamp_console_turn(proxy.data, request, "completed")
+            stamp_console_turn(proxy.data, ctx.request, "completed")
             proxy.data["mode_state"] = ctx.mode_state
-            await session.save_session_state(
-                session_id=ctx.session_id,
-                user_id=user_id,
-                channel=channel,
-                agent=proxy,
-            )
-            ctx.extras[SESSION_SAVE_SUCCEEDED_KEY] = True
+            await save_snapshot(ctx, proxy)
         except Exception:
             logger.debug("session_save: failed", exc_info=True)
         return HookResult()
 
 
-__all__ = ["SessionLoadHook", "SessionSaveHook"]
+async def save_snapshot(ctx: HookContext, proxy: StateProxy) -> None:
+    """Join storage I/O before propagating repeated cancellation."""
+    record_session_save(ctx, False)
+    request = ctx.request
+    write = asyncio.create_task(
+        ctx.workspace.session.save_session_state(
+            session_id=ctx.session_id,
+            user_id=getattr(request, "user_id", "") or ctx.session_id,
+            channel=getattr(request, "channel", "") or "",
+            agent=proxy,
+        )
+    )
+    cancelled = False
+    try:
+        while not write.done():
+            try:
+                await asyncio.shield(write)
+            except asyncio.CancelledError:
+                cancelled = True
+        write.result()
+    except Exception as error:
+        if cancelled:
+            raise asyncio.CancelledError from error
+        raise
+    record_session_save(ctx, True)
+    if cancelled:
+        raise asyncio.CancelledError
+
+
+__all__ = ["SessionLoadHook", "SessionSaveHook", "save_snapshot"]

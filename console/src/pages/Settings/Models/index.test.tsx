@@ -81,6 +81,10 @@ vi.mock("./components", () => {
         : null,
     ModelsSection: () =>
       React.createElement("div", { "data-testid": "models-section" }),
+    RealtimeVoiceModelsSection: () =>
+      React.createElement("div", {
+        "data-testid": "realtime-voice-models-section",
+      }),
     ProviderConfigModal: ({ provider }: Record<string, unknown>) =>
       React.createElement(
         "div",
