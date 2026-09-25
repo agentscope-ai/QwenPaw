@@ -4140,6 +4140,8 @@ export default function ChatPage() {
         api: sdkSessionApi,
         onCurrentSessionChange: (id?: string) =>
           sessionApi.activateCreatedSession(id),
+        onLoadMore: (sessionId: string) =>
+          sessionApi.loadOlderMessages(sessionId),
       },
       api: {
         ...defaultConfig.api,

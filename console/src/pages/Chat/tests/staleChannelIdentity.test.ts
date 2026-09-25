@@ -3,9 +3,10 @@
  * an explicit session reference, never from mutable window globals.
  */
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
-import type { ChatSpec, ChatHistory, Message } from "../../../api";
+import type { ChatSpec, ChatMessagesPage, Message } from "../../../api";
 import api from "../../../api";
 import sessionApi from "../sessionApi";
+import { toMessagesPage } from "./convertMessagesHelper";
 
 const T0 = "2026-07-20T10:00:00.000000+00:00";
 
@@ -26,20 +27,20 @@ function makeChatSpec(id: string, channel: string, userId: string): ChatSpec {
   } as unknown as ChatSpec;
 }
 
-function makeHistory(): ChatHistory {
+function makeHistory(): ChatMessagesPage {
   const messages: Message[] = [
     {
       role: "assistant",
       content: [{ type: "text", text: "hello" }],
     } as unknown as Message,
   ];
-  return { messages, status: "idle" } as unknown as ChatHistory;
+  return toMessagesPage({ messages, status: "idle" });
 }
 
 /** Loads the given chat into sessionApi. */
 async function openChat(spec: ChatSpec): Promise<void> {
   vi.spyOn(api, "listChats").mockResolvedValue([spec]);
-  vi.spyOn(api, "getChat").mockResolvedValue(makeHistory());
+  vi.spyOn(api, "getMessages").mockResolvedValue(makeHistory());
   await sessionApi.getSessionList();
   await sessionApi.getSession(spec.id);
 }

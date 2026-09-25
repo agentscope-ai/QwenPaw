@@ -28,6 +28,7 @@ import useChatController from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/co
 import { useChatAnywhereSessionLoader } from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/Context/ChatAnywhereSessionsContext";
 import type { IAgentScopeRuntimeWebUIOptions } from "@agentscope-ai/chat";
 import api, { type ChatSpec } from "../../api";
+import { toMessagesPage } from "./tests/convertMessagesHelper";
 import { useAgentStore } from "../../stores/agentStore";
 import { useMessageQueueStore } from "../../stores/messageQueueStore";
 import { useCreateNewSession } from "./hooks/useCreateNewSession";
@@ -86,9 +87,9 @@ function createFixture() {
       return chat;
     });
   vi.spyOn(api, "listChats").mockImplementation(async () => [...records]);
-  const history = vi.spyOn(api, "getChat").mockImplementation(async (id) => {
+  const history = vi.spyOn(api, "getMessages").mockImplementation(async (id) => {
     trace.push(`GET-idle:${id}`);
-    return { status: "idle", messages: [] };
+    return toMessagesPage({ status: "idle", messages: [] });
   });
   const transport = vi.fn(async (data: TransportData) => {
     trace.push(`SSE:${data.session_id}`);
@@ -527,7 +528,9 @@ describe("installed SDK session lifecycle with CoPaw's blank-new hook", () => {
     await act(async () => {
       await host.current().newChat();
     });
-    fixture.history.mockResolvedValue({ status: "running", messages: [] });
+    fixture.history.mockResolvedValue(
+      toMessagesPage({ status: "running", messages: [] }),
+    );
     // Real host refresh invalidates the old idle cache before restoring A.
     await act(async () => {
       await sessionApi.refreshSession(A);
