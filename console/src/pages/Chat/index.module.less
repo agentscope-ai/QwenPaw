@@ -553,7 +553,7 @@
 /* Fix #6852: Preserve source newlines for the vendor Raw fallback and for
  * leaf text blocks produced by XMarkdown. Applying pre-wrap to the Markdown
  * root also renders inter-block whitespace and caused the #5596 regression.
- * Keep code blocks and tables bounded with their own horizontal scroll.
+ * Keep code blocks and tables bounded within the chat bubble.
  */
 .chatMessagesArea :global {
   [class*="bubble-start"] [class*="markdown"]:not(.x-markdown),
@@ -572,19 +572,50 @@
   }
 
   [class*="bubble-start"] .x-markdown pre,
-  [class*="bubble-start"] .x-markdown table,
-  [class*="bubble-assistant"] .x-markdown pre,
-  [class*="bubble-assistant"] .x-markdown table {
+  [class*="bubble-assistant"] .x-markdown pre {
     max-width: 100%;
     overflow-x: auto;
+    white-space: pre;
   }
 
-  [class*="bubble-start"] .x-markdown pre,
-  [class*="bubble-assistant"] .x-markdown pre {
-    white-space: pre;
+  /* Fix #7924: Wrap long cells, but keep a reachable horizontal scrollbar
+   * for tables with more columns than can fit in a narrow chat bubble. */
+  [class*="bubble-start"]
+    .x-markdown:not(.x-md-disable-all):not(.x-md-disable-table)
+    table,
+  [class*="bubble-assistant"]
+    .x-markdown:not(.x-md-disable-all):not(.x-md-disable-table)
+    table {
+    display: block;
+    width: 100%;
+    max-width: 100%;
+    max-height: min(60vh, 32rem);
+    overflow: auto;
+  }
+
+  [class*="bubble-start"] .x-markdown table th,
+  [class*="bubble-start"] .x-markdown table td,
+  [class*="bubble-assistant"] .x-markdown table th,
+  [class*="bubble-assistant"] .x-markdown table td {
+    min-width: 3rem;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    word-break: normal;
   }
 }
 /* End #6852 */
+
+@media (max-width: 600px) {
+  .chatMessagesArea :global {
+    /* Give headers and links room to read before wrapping on phones. */
+    [class*="bubble-start"] .x-markdown table th,
+    [class*="bubble-start"] .x-markdown table td,
+    [class*="bubble-assistant"] .x-markdown table th,
+    [class*="bubble-assistant"] .x-markdown table td {
+      padding: 0.45em 0.35em;
+    }
+  }
+}
 
 /* Fix #6583: Keep enough attachment cards visible to verify a multi-file
  * selection, while bounding very large drops to three scrollable rows. */
