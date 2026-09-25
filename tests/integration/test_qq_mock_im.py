@@ -246,6 +246,51 @@ def test_qq_c2c_message_roundtrip_reaches_mock_send(
 
 @pytest.mark.integration
 @pytest.mark.p1
+def test_qq_replayed_c2c_message_is_processed_once(
+    app_server,
+    qq_channel_up,  # pylint: disable=redefined-outer-name
+    mock_llm,  # pylint: disable=redefined-outer-name
+):
+    """A gateway replay of the same message ID produces one reply."""
+    srv, mock_url = mock_llm
+    srv.force_tool_call = False
+    unregister_mock_provider(app_server, MOCK_LLM_PROVIDER_ID)
+    provider_id = register_mock_provider(app_server, mock_url)
+    msg_id = "integ-qq-replayed-c2c"
+    try:
+        before = len(qq_channel_up.api_calls)
+        for _ in range(2):
+            qq_channel_up.push_c2c_message(
+                openid="integ-qq-user-replay",
+                text="hello from replayed qq event",
+                msg_id=msg_id,
+            )
+
+        deadline = time.time() + 90.0
+        replies = []
+        while time.time() < deadline:
+            replies = [
+                call
+                for call in qq_channel_up.api_calls[before:]
+                if (call.get("body") or {}).get("msg_id") == msg_id
+            ]
+            if replies and any(
+                f"qq duplicate message dropped: id={msg_id}" in line
+                for line in app_server.logs
+            ):
+                break
+            time.sleep(0.2)
+        assert len(replies) == 1, app_server.logs_tail()[-3000:]
+        assert any(
+            f"qq duplicate message dropped: id={msg_id}" in line
+            for line in app_server.logs
+        )
+    finally:
+        unregister_mock_provider(app_server, provider_id)
+
+
+@pytest.mark.integration
+@pytest.mark.p1
 def test_qq_outbound_send_carries_msg_id_reply_context(
     app_server,
     qq_channel_up,  # pylint: disable=redefined-outer-name

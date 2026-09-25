@@ -2187,6 +2187,59 @@ class TestDownloadQQFile:
 class TestHandleMsgEvent:
     """Tests for _handle_msg_event method."""
 
+    def test_replayed_message_is_dropped_before_ack_and_enqueue(
+        self, qq_channel,
+    ):
+        enqueued = []
+        qq_channel._enqueue = enqueued.append
+        qq_channel._schedule_ack = MagicMock()
+        event = {
+            "author": {"user_openid": "sender_1"},
+            "content": "hello",
+            "id": "replayed_001",
+        }
+
+        qq_channel._handle_msg_event("C2C_MESSAGE_CREATE", event)
+        qq_channel._handle_msg_event("C2C_MESSAGE_CREATE", event)
+
+        assert len(enqueued) == 1
+        qq_channel._schedule_ack.assert_called_once()
+
+    def test_distinct_and_idless_messages_are_not_dropped(self, qq_channel):
+        enqueued = []
+        qq_channel._enqueue = enqueued.append
+        event = {
+            "author": {"user_openid": "sender_1"},
+            "content": "hello",
+        }
+
+        for msg_id in ("msg_1", "msg_2", "", ""):
+            qq_channel._handle_msg_event(
+                "C2C_MESSAGE_CREATE", {**event, "id": msg_id},
+            )
+
+        assert len(enqueued) == 4
+
+    def test_old_message_id_is_evicted_from_bounded_cache(self, qq_channel):
+        from qwenpaw.app.channels.qq.channel import _SEEN_MESSAGE_IDS_LIMIT
+
+        enqueued = []
+        qq_channel._enqueue = enqueued.append
+        event = {
+            "author": {"user_openid": "sender_1"},
+            "content": "hello",
+        }
+        for index in range(_SEEN_MESSAGE_IDS_LIMIT + 1):
+            qq_channel._handle_msg_event(
+                "C2C_MESSAGE_CREATE", {**event, "id": f"msg_{index}"},
+            )
+        qq_channel._handle_msg_event(
+            "C2C_MESSAGE_CREATE", {**event, "id": "msg_0"},
+        )
+
+        assert len(enqueued) == _SEEN_MESSAGE_IDS_LIMIT + 2
+        assert len(qq_channel._seen_msg_ids) == _SEEN_MESSAGE_IDS_LIMIT
+
     def test_c2c_message_enqueues(self, qq_channel):
         """C2C message should be enqueued."""
         enqueued = []
