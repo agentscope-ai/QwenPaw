@@ -2943,7 +2943,7 @@
       "subagentShort": "サブエージェント"
     },
     "fileReference": {
-      "codeSnippet": "コードスニペット · {{count}} 行"
+      "codeSnippet_other": "コードスニペット · {{count}} 行"
     },
     "modelSelectTooltip": "モデルを選択",
     "chatHistoryTooltip": "チャット履歴",

@@ -2958,7 +2958,10 @@
       "subagentShort": "Субагент"
     },
     "fileReference": {
-      "codeSnippet": "Фрагмент кода · {{count}} строк"
+      "codeSnippet_one": "Фрагмент кода · {{count}} строка",
+      "codeSnippet_few": "Фрагмент кода · {{count}} строки",
+      "codeSnippet_many": "Фрагмент кода · {{count}} строк",
+      "codeSnippet_other": "Фрагмент кода · {{count, number}} строки"
     },
     "modelSelectTooltip": "Выбор модели",
     "chatHistoryTooltip": "История чатов",

@@ -1094,7 +1094,7 @@
       "subagentShort": "Tác tử con"
     },
     "fileReference": {
-      "codeSnippet": "Đoạn mã · {{count}} dòng"
+      "codeSnippet_other": "Đoạn mã · {{count}} dòng"
     },
     "modelSelectTooltip": "Chọn mô hình",
     "chatHistoryTooltip": "Lịch sử trò chuyện",
