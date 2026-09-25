@@ -1255,6 +1255,9 @@ const timestampStyle: React.CSSProperties = {
   whiteSpace: "nowrap",
 };
 
+const SHOW_TOOL_CALLS_STORAGE_KEY = "qwenpaw_show_tool_calls";
+const HiddenToolCallRenderer: React.FC<any> = () => null;
+
 /**
  * Temporary local session ids (created before the first message is sent) are
  * not real backend sessions and must never be used for URL restore, session
@@ -1994,6 +1997,24 @@ export default function ChatPage() {
     Map<string, ApprovalMessageData>
   >(new Map());
   const isMobile = useIsMobile();
+  const [showToolCalls, setShowToolCalls] = useState(() => {
+    try {
+      return localStorage.getItem(SHOW_TOOL_CALLS_STORAGE_KEY) !== "false";
+    } catch {
+      return true;
+    }
+  });
+  const toggleToolCalls = useCallback(() => {
+    setShowToolCalls((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem(SHOW_TOOL_CALLS_STORAGE_KEY, String(next));
+      } catch {
+        // storage unavailable
+      }
+      return next;
+    });
+  }, []);
   const [chatSkills, setChatSkills] = useState<SkillSpec[]>([]);
   const consoleSkills = useMemo(
     () => chatSkills.filter(isSkillAvailableInConsole),
@@ -3889,6 +3910,16 @@ export default function ChatPage() {
       ...toolRenderConfig,
       ...pluginToolRenderers,
     };
+    const finalToolRenderers: Record<string, React.FC<any>> = showToolCalls
+      ? withGenericFallback(mergedToolRenderers)
+      : new Proxy(
+          {},
+          {
+            get() {
+              return HiddenToolCallRenderer;
+            },
+          },
+        );
 
     const pluginCards: Record<string, React.FC<any>> = {};
     for (const e of extLists[ChatList.cards]) {
@@ -3955,6 +3986,8 @@ export default function ChatPage() {
             <ChatActionGroup
               onToggleWorkspace={toggleFilesWorkspace}
               workspaceOpen={filesWorkspaceOpen}
+              showToolCalls={showToolCalls}
+              onToggleToolCalls={toggleToolCalls}
             />
             {pluginRightHeader}
           </>
@@ -4335,7 +4368,7 @@ export default function ChatPage() {
           );
         },
       },
-      customToolRenderConfig: withGenericFallback(mergedToolRenderers),
+      customToolRenderConfig: finalToolRenderers,
       request: requestOptions,
       cards: {
         // CoPaw still owns assistant Markdown/media/artifact rendering. User
@@ -4453,6 +4486,8 @@ export default function ChatPage() {
     sessionScope,
     filesWorkspaceOpen,
     toggleFilesWorkspace,
+    showToolCalls,
+    toggleToolCalls,
     isOwner,
     bgTaskCount,
     bgBackendSessionId,

@@ -2968,6 +2968,8 @@
       "stepsFailed": "Ошибка · шагов: {{count}}",
       "stepsCompleted": "Выполнено шагов: {{count}}"
     },
+    "hideToolCallsTooltip": "Скрыть вызовы инструментов",
+    "showToolCallsTooltip": "Показать вызовы инструментов",
     "statusIdle": "Ожидание",
     "statusInProgress": "Выполняется",
     "disclaimer": "Работает для вас, растёт вместе с вами",

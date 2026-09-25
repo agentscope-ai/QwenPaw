@@ -2953,6 +2953,8 @@
       "stepsFailed": "実行失敗 · {{count}} ステップ",
       "stepsCompleted": "{{count}} ステップ完了"
     },
+    "hideToolCallsTooltip": "ツール呼び出しを非表示",
+    "showToolCallsTooltip": "ツール呼び出しを表示",
     "statusIdle": "待機",
     "statusInProgress": "処理中",
     "disclaimer": "あなたのために働き、あなたと共に成長します",

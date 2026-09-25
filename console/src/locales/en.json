@@ -3669,6 +3669,8 @@
       "stepsFailed": "Failed · {{count}} steps",
       "stepsCompleted": "Completed {{count}} steps"
     },
+    "hideToolCallsTooltip": "Hide tool calls",
+    "showToolCallsTooltip": "Show tool calls",
     "statusIdle": "Idle",
     "statusInProgress": "In progress",
     "statusUnseenResult": "New result",

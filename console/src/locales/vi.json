@@ -1104,6 +1104,8 @@
       "stepsFailed": "Thất bại · {{count}} bước",
       "stepsCompleted": "Đã hoàn thành {{count}} bước"
     },
+    "hideToolCallsTooltip": "Ẩn lệnh gọi công cụ",
+    "showToolCallsTooltip": "Hiện lệnh gọi công cụ",
     "statusIdle": "Rảnh",
     "statusInProgress": "Đang xử lý",
     "disclaimer": "Làm việc cho bạn, lớn lên cùng bạn",

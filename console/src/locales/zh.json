@@ -3526,6 +3526,8 @@
       "stepsFailed": "执行失败 · {{count}} 个步骤",
       "stepsCompleted": "已完成 {{count}} 个步骤"
     },
+    "hideToolCallsTooltip": "隐藏工具调用",
+    "showToolCallsTooltip": "显示工具调用",
     "statusIdle": "空闲",
     "statusInProgress": "进行中",
     "statusUnseenResult": "有新结果",
