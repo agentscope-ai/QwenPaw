@@ -87,6 +87,10 @@ $QWENPAW_SECRET_DIR/                       # 默认 ~/.qwenpaw.secret
 | `QWENPAW_REMOTE_IMAGE_DOWNLOAD_MAX_MB` | `50`           | `view_image` 远程图片下载上限（MiB）。接受任意正整数；非法值、`0` 或负数回退到默认值                             |
 | `QWENPAW_MAX_IMAGE_PIXELS`             | 未设置         | 请求时等比例缩放内联图片所使用的最大像素数（`宽 × 高`）。未设置、空值或 `0` 表示关闭；非法值或负数会返回配置错误 |
 | `QWENPAW_CONSOLE_STATIC_DIR`           | _（自动检测）_ | 控制台前端静态文件路径                                                                                           |
+| `QWENPAW_EXTRA_CA_FILE`                | 未设置         | 在内置 certifi 根证书之外额外信任的 CA 文件，以 `os.pathsep` 分隔；会合并到 `$QWENPAW_WORKING_DIR/extra-ca/cacert-with-extra-ca.pem` |
+| `QWENPAW_EXTRA_CA_DIR`                 | 未设置         | 该目录下的 `*.pem`/`*.crt`/`*.cer` 文件会被额外信任（合并方式同上）                                              |
+
+**企业/私有证书颁发机构（CA）：** 当设置了 `QWENPAW_EXTRA_CA_FILE` 或 `QWENPAW_EXTRA_CA_DIR` 时，后端会把这些证书与内置的 certifi 根证书合并为 `$QWENPAW_WORKING_DIR/extra-ca/cacert-with-extra-ca.pem`（输入变化时自动重建），并将该路径导出为 `SSL_CERT_FILE`、`REQUESTS_CA_BUNDLE` 和 `CURL_CA_BUNDLE`，使 MCP 驱动、插件和子进程信任同一套证书。安装后的桌面应用包内文件不会被修改，因此更新和代码签名不受影响；如果外部已经设置了 `SSL_CERT_FILE`，则以外部设置为准。
 
 启用图片缩放后，如果需要缩放的图片无法处理，请求会返回明确错误，不会回退为发送原图。
 

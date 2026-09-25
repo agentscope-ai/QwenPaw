@@ -219,9 +219,128 @@ def _ensure_utf8_stdio() -> None:
             pass
 
 
+EXTRA_CA_FILE_ENV = "QWENPAW_EXTRA_CA_FILE"
+EXTRA_CA_DIR_ENV = "QWENPAW_EXTRA_CA_DIR"
+EXTRA_CA_BUNDLE_NAME = "cacert-with-extra-ca.pem"
+_EXTRA_CA_SUFFIXES = (".pem", ".crt", ".cer")
+
+
+def _extra_ca_paths() -> list[str]:
+    """Return the customer-supplied CA files that exist on disk.
+
+    ``QWENPAW_EXTRA_CA_FILE`` holds an ``os.pathsep``-separated list of
+    files, ``QWENPAW_EXTRA_CA_DIR`` a directory whose ``.pem``/``.crt``/
+    ``.cer`` entries all become trusted roots.
+    """
+    configured = os.environ.get(EXTRA_CA_FILE_ENV) or ""
+    candidates = [item for item in configured.split(os.pathsep) if item]
+    directory = (os.environ.get(EXTRA_CA_DIR_ENV) or "").strip()
+    if directory and os.path.isdir(directory):
+        candidates.extend(
+            os.path.join(directory, name)
+            for name in sorted(os.listdir(directory))
+            if name.lower().endswith(_EXTRA_CA_SUFFIXES)
+        )
+
+    paths: list[str] = []
+    seen: set[str] = set()
+    for candidate in candidates:
+        resolved = os.path.realpath(candidate)
+        if resolved in seen or not os.path.isfile(resolved):
+            continue
+        seen.add(resolved)
+        paths.append(resolved)
+    return paths
+
+
+def _extra_ca_bundle_path() -> str:
+    """Absolute path of the generated bundle (outside the sealed app)."""
+    from qwenpaw.constant import WORKING_DIR
+
+    return str(WORKING_DIR / "extra-ca" / EXTRA_CA_BUNDLE_NAME)
+
+
+def _merged_ca_bundle(
+    cert_file: str,
+    extra_files: Sequence[str],
+) -> bytes | None:
+    """Concatenate certifi's roots with *extra_files*, skipping repeats."""
+    chunks: list[bytes] = []
+    seen: set[bytes] = set()
+    for index, path in enumerate((cert_file, *extra_files)):
+        try:
+            with open(path, "rb") as handle:
+                data = handle.read().strip()
+        except OSError:
+            if index == 0:
+                logger.warning(
+                    "cannot read the certifi bundle %s",
+                    path,
+                    exc_info=True,
+                )
+                return None
+            logger.warning(
+                "skipping unreadable extra CA file %s",
+                path,
+                exc_info=True,
+            )
+            continue
+        if not data or data in seen:
+            continue
+        seen.add(data)
+        chunks.append(data)
+    if not chunks:
+        return None
+    return b"\n".join(chunks) + b"\n"
+
+
+def _write_ca_bundle(bundle_path: str, payload: bytes) -> bool:
+    """Write *payload* to *bundle_path* unless it is already up to date."""
+    try:
+        with open(bundle_path, "rb") as handle:
+            if handle.read() == payload:
+                return True
+    except FileNotFoundError:
+        pass
+    except OSError:
+        logger.debug("cannot read %s", bundle_path, exc_info=True)
+
+    temp_path = f"{bundle_path}.tmp{os.getpid()}"
+    try:
+        os.makedirs(os.path.dirname(bundle_path), exist_ok=True)
+        with open(temp_path, "wb") as handle:
+            handle.write(payload)
+        os.chmod(temp_path, 0o644)
+        os.replace(temp_path, bundle_path)
+    except OSError:
+        logger.warning(
+            "cannot write the merged CA bundle %s",
+            bundle_path,
+            exc_info=True,
+        )
+        return False
+    logger.info("wrote the trusted CA bundle to %s", bundle_path)
+    return True
+
+
 def _install_certifi_env() -> None:
-    if os.environ.get("SSL_CERT_FILE"):
+    """Export a trust store that also holds the customer's own CAs.
+
+    The bundle is generated inside the working directory, never inside the
+    sealed desktop app: the signature stays valid and application updates
+    cannot drop the extra roots. A bundle configured from the outside keeps
+    precedence, so existing deployments are unaffected.
+    """
+    extra_files = _extra_ca_paths()
+    bundle_path = _extra_ca_bundle_path() if extra_files else ""
+    current = os.environ.get("SSL_CERT_FILE")
+    if current and os.path.abspath(current) != os.path.abspath(bundle_path):
+        logger.debug(
+            "SSL_CERT_FILE is already set to %s; leaving it untouched",
+            current,
+        )
         return
+
     try:
         import certifi
     except Exception:
@@ -238,9 +357,19 @@ def _install_certifi_env() -> None:
             cert_file,
         )
         return
-    os.environ.setdefault("SSL_CERT_FILE", cert_file)
-    os.environ.setdefault("REQUESTS_CA_BUNDLE", cert_file)
-    os.environ.setdefault("CURL_CA_BUNDLE", cert_file)
+
+    if not extra_files:
+        os.environ.setdefault("SSL_CERT_FILE", cert_file)
+        os.environ.setdefault("REQUESTS_CA_BUNDLE", cert_file)
+        os.environ.setdefault("CURL_CA_BUNDLE", cert_file)
+        return
+
+    payload = _merged_ca_bundle(cert_file, extra_files)
+    if payload is None or not _write_ca_bundle(bundle_path, payload):
+        return
+    os.environ["SSL_CERT_FILE"] = bundle_path
+    os.environ.setdefault("REQUESTS_CA_BUNDLE", bundle_path)
+    os.environ.setdefault("CURL_CA_BUNDLE", bundle_path)
 
 
 def _install_desktop_runtime() -> None:
