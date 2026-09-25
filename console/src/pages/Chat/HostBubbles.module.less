@@ -1,3 +1,8 @@
+/* Fix #2120: let mixed RTL/LTR runs follow the Unicode plaintext algorithm. */
+.bidiContent {
+  unicode-bidi: plaintext;
+}
+
 .collapsedSteps {
   // Stay inside the bubble's paint boundary: content-visibility on the SDK
   // bubble clips a negatively offset header, including its left border.
