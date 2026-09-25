@@ -242,7 +242,7 @@ def test_jobs_file_loads_legacy_named_dow_range_with_step():
     )
 
     jobs_file = JobsFile.model_validate(
-        {"version": 2, "jobs": [legacy, other]}
+        {"version": 2, "jobs": [legacy, other]},
     )
 
     assert len(jobs_file.jobs) == 2
