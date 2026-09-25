@@ -22,6 +22,7 @@ model via the ``formatter=`` constructor kwarg.
 
 from __future__ import annotations
 
+from collections import defaultdict, deque
 from typing import Any, ClassVar
 
 # The capping formatters below override agentscope's ``_format_*_source``
@@ -45,6 +46,7 @@ from agentscope.message import Base64Source, URLSource
 from pydantic import Field
 
 from ..utils.media_paths import local_media_path
+from ..utils.tool_call_extra import tool_call_extras_for_provider
 from .adapters.cache_policy import mark_stable_prefix
 
 # Maximum size (in bytes) of a local media file we are willing to inline as
@@ -203,7 +205,20 @@ class _CappingGeminiFormatter(GeminiChatFormatter, CappingFormatterMixin):
     :meth:`_format_media_source`, and its text-part shape is ``{"text": ...}``
     (not the ``{"type": "text", ...}`` used by OpenAI/Anthropic/DashScope),
     so :meth:`_placeholder` is overridden accordingly.
+
+    It also re-emits persisted Gemini ``thought_signature`` values on
+    ``function_call`` parts (see :meth:`_relay_thought_signatures`).
     """
+
+    thought_signature_provider_id: str | None = Field(
+        default=None,
+        description=(
+            "Provider id whose persisted tool-call extras carry Gemini "
+            "thought signatures. When set, matching ``function_call`` "
+            "parts are re-emitted with their ``thought_signature`` so "
+            "thinking models (Gemini 3.x) accept multi-turn tool use."
+        ),
+    )
 
     def _placeholder(self, kind: str, size: int) -> dict[str, Any]:
         return {"text": self._placeholder_text(kind, size)}
@@ -227,6 +242,58 @@ class _CappingGeminiFormatter(GeminiChatFormatter, CappingFormatterMixin):
         if unprepared is not None:
             return unprepared
         return super()._format_media_source(source)
+
+    async def format(self, msgs: list[Msg]) -> list[dict[str, Any]]:
+        """Format and relay persisted Gemini thought signatures."""
+        messages = await super().format(msgs)
+        self._relay_thought_signatures(msgs, messages)
+        return messages
+
+    def _relay_thought_signatures(
+        self,
+        msgs: list[Msg],
+        messages: list[dict[str, Any]],
+    ) -> None:
+        """Re-emit ``thought_signature`` on persisted ``functionCall`` parts.
+
+        Gemini thinking models (3.x, and 2.5 with thinking enabled) return
+        a ``thoughtSignature`` with each ``functionCall`` part and require
+        it to be echoed back on the same part in later requests; without
+        it the API rejects the turn with a 400 ("Function call is missing
+        a thought_signature in functionCall parts").  QwenPaw persists the
+        signatures in ``Msg.metadata`` (see
+        :mod:`qwenpaw.utils.tool_call_extra`); this restores them onto the
+        formatted wire parts.  Occurrences are matched in order, so a tool
+        call id that recurs across turns gets its signatures replayed
+        sequentially.
+        """
+        provider_id = self.thought_signature_provider_id
+        if not provider_id:
+            return
+        queued: dict[str, deque[str]] = defaultdict(deque)
+        for msg in msgs:
+            if getattr(msg, "role", None) != "assistant":
+                continue
+            persisted = tool_call_extras_for_provider(msg, provider_id)
+            for tool_id, record in persisted.items():
+                if not isinstance(record, dict):
+                    continue
+                sig = record.get("thought_signature")
+                if isinstance(sig, str) and sig:
+                    queued[tool_id].append(sig)
+        if not queued:
+            return
+        for message in messages:
+            for part in message.get("parts") or []:
+                if not isinstance(part, dict):
+                    continue
+                fc = part.get("function_call")
+                if not isinstance(fc, dict):
+                    continue
+                remaining = queued.get(fc.get("id"))
+                if not remaining:
+                    continue
+                part.setdefault("thought_signature", remaining.popleft())
 
 
 class _CappingDashScopeFormatter(
