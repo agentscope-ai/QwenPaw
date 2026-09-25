@@ -1,5 +1,6 @@
+import InlineHelp from "@/components/InlineHelp";
 import { useAutoSave } from "@/hooks/useAutoSave";
-import { Alert, Spin } from "antd";
+import { Spin } from "antd";
 import { useTranslation } from "react-i18next";
 import { PageHeader } from "@/components/PageHeader";
 import { useVoiceTranscription } from "./useVoiceTranscription";
@@ -43,20 +44,19 @@ function VoiceTranscriptionPage() {
   return (
     <div className={styles.voiceTranscriptionPage}>
       <PageHeader
+        extra={
+          <InlineHelp>
+            {t(
+              isLocalWhisper
+                ? "voiceTranscription.transcriptionInfoDescLocal"
+                : "voiceTranscription.transcriptionInfoDesc",
+            )}
+          </InlineHelp>
+        }
         items={[
           { title: t("nav.settings") },
           { title: t("voiceTranscription.title") },
         ]}
-      />
-      <Alert
-        type="info"
-        showIcon
-        message={t("voiceTranscription.transcriptionInfoTitle")}
-        description={
-          isLocalWhisper
-            ? t("voiceTranscription.transcriptionInfoDescLocal")
-            : t("voiceTranscription.transcriptionInfoDesc")
-        }
       />
       <div className={styles.content}>
         <AudioModeCard

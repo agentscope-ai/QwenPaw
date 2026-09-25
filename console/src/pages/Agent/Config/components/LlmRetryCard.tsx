@@ -1,4 +1,6 @@
-import { Card, Form, InputNumber, Switch } from "@agentscope-ai/design";
+import { NumberStepper as InputNumber } from "@/components/interaction/NumberStepper";
+import { SettingsField } from "@/components/interaction/SettingsField";
+import { Card, Form, Switch } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
 import styles from "../index.module.less";
 
@@ -12,17 +14,17 @@ export function LlmRetryCard({ llmRetryEnabled = true }: LlmRetryCardProps) {
 
   return (
     <Card className={styles.formCard} title={t("agentConfig.llmRetryTitle")}>
-      <Form.Item
+      <SettingsField
         name="llm_retry_enabled"
         label={t("agentConfig.llmRetryEnabled")}
         valuePropName="checked"
         tooltip={t("agentConfig.llmRetryEnabledTooltip")}
       >
         <Switch />
-      </Form.Item>
+      </SettingsField>
 
       <div className={styles.llmRetryRow}>
-        <Form.Item
+        <SettingsField
           label={t("agentConfig.llmMaxRetries")}
           name="llm_max_retries"
           rules={[
@@ -46,9 +48,9 @@ export function LlmRetryCard({ llmRetryEnabled = true }: LlmRetryCardProps) {
             disabled={!llmRetryEnabled}
             placeholder={t("agentConfig.llmMaxRetriesPlaceholder")}
           />
-        </Form.Item>
+        </SettingsField>
 
-        <Form.Item
+        <SettingsField
           label={t("agentConfig.llmBackoffBase")}
           name="llm_backoff_base"
           rules={[
@@ -71,9 +73,9 @@ export function LlmRetryCard({ llmRetryEnabled = true }: LlmRetryCardProps) {
             disabled={!llmRetryEnabled}
             placeholder={t("agentConfig.llmBackoffBasePlaceholder")}
           />
-        </Form.Item>
+        </SettingsField>
 
-        <Form.Item
+        <SettingsField
           label={t("agentConfig.llmBackoffCap")}
           name="llm_backoff_cap"
           dependencies={["llm_backoff_base"]}
@@ -110,7 +112,7 @@ export function LlmRetryCard({ llmRetryEnabled = true }: LlmRetryCardProps) {
             disabled={!llmRetryEnabled}
             placeholder={t("agentConfig.llmBackoffCapPlaceholder")}
           />
-        </Form.Item>
+        </SettingsField>
       </div>
     </Card>
   );

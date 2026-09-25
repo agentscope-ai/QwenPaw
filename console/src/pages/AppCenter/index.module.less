@@ -7,7 +7,7 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  background: var(--app-surface);
+  background: transparent;
 }
 
 .pageBody {
@@ -250,18 +250,6 @@
       padding: 14px;
     }
   }
-
-  &:hover .cardHoverActions,
-  &:focus-within .cardHoverActions {
-    opacity: 1;
-    pointer-events: auto;
-    transform: translateY(0);
-  }
-
-  &:hover .cardFooter,
-  &:focus-within .cardFooter {
-    opacity: 0;
-  }
 }
 
 .appCardClickable {
@@ -412,11 +400,8 @@
 }
 
 .cardActions {
-  position: absolute;
-  right: 16px;
-  bottom: 16px;
-  left: 16px;
-  z-index: 2;
+  position: relative;
+  margin-top: auto;
   display: flex;
   gap: 8px;
 
@@ -424,7 +409,10 @@
   :global(.qwenpaw-btn) {
     flex: 1;
     min-width: 0;
-    border-radius: 6px;
+    border-radius: 10px;
+    &:last-child:not(:first-child) {
+      flex: 0 0 36px;
+    }
   }
 
   @media (max-width: 639px) {
@@ -436,27 +424,6 @@
     :global(.qwenpaw-btn) {
       min-height: 36px;
     }
-  }
-}
-
-.cardHoverActions {
-  opacity: 0;
-  pointer-events: none;
-  transform: translateY(4px);
-  transition:
-    opacity 0.16s ease,
-    transform 0.16s ease;
-}
-
-@media (max-width: 639px), (hover: none) {
-  .cardHoverActions {
-    opacity: 1;
-    pointer-events: auto;
-    transform: translateY(0);
-  }
-
-  .appCard .cardFooter {
-    opacity: 0;
   }
 }
 

@@ -1031,3 +1031,46 @@
     padding-inline: 0;
   }
 }
+
+.mcpSection {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+.sectionHeader > div:last-child {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.mcpGrid {
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr));
+  gap: 16px;
+  padding: 0;
+}
+.mcpSections {
+  overflow: visible;
+  padding: 8px 16px 24px;
+}
+@media (max-width: 600px) {
+  .mcpSections {
+    padding-inline: 0;
+  }
+}
+
+.collectionToolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 0 16px 24px;
+  > :first-child {
+    flex: 1;
+    min-width: 180px;
+  }
+}
+@media (max-width: 600px) {
+  .collectionToolbar {
+    margin-inline: 0;
+  }
+}

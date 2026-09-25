@@ -1,5 +1,6 @@
+import { AgentGallery } from "./components/AgentGallery";
 import { useState, useRef, useCallback } from "react";
-import { Card, Button, Form } from "antd";
+import { Button, Form } from "antd";
 import { useAppMessage } from "../../../hooks/useAppMessage";
 import { Plus as PlusOutlined } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -8,7 +9,7 @@ import { invalidateSkillCache, skillApi } from "../../../api/modules/skill";
 import type { AgentSummary, CopyAgentRequest } from "../../../api/types/agents";
 import { useAgentStore } from "../../../stores/agentStore";
 import { useAgents } from "./useAgents";
-import { AgentTable, AgentModal, CopyAgentModal } from "./components";
+import { AgentModal, CopyAgentModal } from "./components";
 import { MAIL_DOMAIN_WHITELIST } from "./components/mailDomains";
 import { PageHeader } from "@/components/PageHeader";
 import { reorderAgents } from "./reorder";
@@ -335,8 +336,8 @@ export default function AgentsPage() {
         }
       />
 
-      <Card className={styles.tableCard}>
-        <AgentTable
+      <div className={styles.galleryContainer}>
+        <AgentGallery
           agents={agents}
           loading={loading || reordering}
           reordering={reordering}
@@ -347,7 +348,7 @@ export default function AgentsPage() {
           onPin={handlePin}
           onReorder={handleReorder}
         />
-      </Card>
+      </div>
 
       <AgentModal
         open={modalVisible}

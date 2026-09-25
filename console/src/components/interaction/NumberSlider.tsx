@@ -11,6 +11,8 @@ export function NumberSlider({
   max = 1000,
   step = 1,
   label,
+  marks,
+  disabled = false,
 }: {
   value?: number;
   onChange?: (value: number) => void;
@@ -18,11 +20,15 @@ export function NumberSlider({
   max?: number;
   step?: number;
   label?: string;
+  marks?: Record<number, string>;
+  disabled?: boolean;
 }) {
   const [editing, setEditing] = useState(false);
   return (
-    <div className={styles.control}>
+    <div className={`${styles.control} ${marks ? styles.withMarks : ""}`}>
       <Slider
+        disabled={disabled}
+        marks={marks}
         ariaLabelForHandle={label}
         tooltip={{ open: false }}
         style={{ flex: 1, minWidth: 70 }}
@@ -34,6 +40,7 @@ export function NumberSlider({
       />
       {editing ? (
         <InputNumber
+          disabled={disabled}
           autoFocus
           onBlur={() => setEditing(false)}
           onPressEnter={() => setEditing(false)}
@@ -48,6 +55,7 @@ export function NumberSlider({
         />
       ) : (
         <button
+          disabled={disabled}
           type="button"
           className={styles.value}
           aria-label={label}

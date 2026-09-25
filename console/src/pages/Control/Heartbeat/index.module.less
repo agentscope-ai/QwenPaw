@@ -180,30 +180,16 @@
   overflow: hidden;
 }
 .pulseHeader {
-  margin-bottom: 24px;
+  margin-bottom: 16px;
   display: flex;
   align-items: center;
-  gap: 12px;
+  justify-content: space-between;
+  gap: 16px;
   h2 {
-    margin: 0 0 3px;
+    margin: 0;
     font-size: 16px;
+    font-weight: 600;
   }
-  span {
-    color: var(--app-text-secondary);
-    font-size: 12px;
-  }
-  > :last-child {
-    margin-left: auto;
-  }
-}
-.pulseIcon {
-  display: grid;
-  place-items: center;
-  width: 44px;
-  height: 44px;
-  border-radius: 16px;
-  color: var(--app-accent) !important;
-  background: var(--app-accent-soft);
 }
 .intervalPreview {
   padding: 32px 0 24px;
@@ -265,9 +251,8 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 24px 0 16px;
-  margin-top: 24px;
-  border-top: 1px solid var(--app-border-subtle);
+  padding: 0;
+  margin: 0;
   h2 {
     margin: 0;
   }
@@ -421,5 +406,67 @@
   .fileName {
     width: 100%;
     margin-top: 4px;
+  }
+}
+
+.pulseCard[data-disabled="true"] {
+  --reflection-highlight: transparent;
+  --reflection-edge: transparent;
+  background: var(--app-surface-subtle);
+}
+.presets button:disabled {
+  color: var(--app-text-tertiary);
+  border-color: var(--app-border-subtle);
+  background: var(--app-fill-faint);
+  cursor: not-allowed;
+}
+
+/* Related controls share one surface and one title inset. */
+.delivery > h2 {
+  margin-bottom: 12px;
+}
+.settingRow {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  h2 {
+    margin: 0;
+  }
+}
+.divider {
+  height: 1px;
+  background: var(--app-border-subtle);
+  margin-block: 20px;
+}
+.timeoutRow {
+  display: grid;
+  grid-template-columns: minmax(160px, 1fr) minmax(220px, 1fr);
+  align-items: center;
+  gap: 24px;
+}
+.timeoutRow h2 {
+  margin: 0;
+}
+.timeoutRow :global(.ant-form-item),
+.timeoutRow :global(.qwenpaw-form-item) {
+  margin: 0;
+  min-width: 0;
+}
+.delivery .activeHoursRow {
+  margin-top: 16px;
+  padding: 0;
+  background: transparent;
+}
+@media (max-width: 600px) {
+  .timeoutRow {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 12px;
+  }
+  .settingRow :global(.ant-segmented),
+  .settingRow :global(.qwenpaw-segmented) {
+    max-width: 100%;
   }
 }

@@ -416,6 +416,8 @@ function ACPPage() {
                 className={`${styles.filterTab} ${
                   filter === key ? styles.filterTabActive : ""
                 }`}
+                type="button"
+                aria-pressed={filter === key}
                 onClick={() => setFilter(key)}
               >
                 {label}
@@ -450,6 +452,20 @@ function ACPPage() {
                   config={config}
                   isBuiltin={isBuiltinACPAgent(key)}
                   onClick={() => handleCardClick(key)}
+                  onToggle={async () => {
+                    try {
+                      await api.updateACPAgentConfig(key, {
+                        ...config,
+                        enabled: !config.enabled,
+                      });
+                      setAgents((current) => ({
+                        ...current,
+                        [key]: { ...current[key], enabled: !config.enabled },
+                      }));
+                    } catch {
+                      message.error(t("acp.configFailed"));
+                    }
+                  }}
                 />
               </Cascade>
             ))}

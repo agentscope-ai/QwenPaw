@@ -1,5 +1,7 @@
+import { NumberStepper as InputNumber } from "@/components/interaction/NumberStepper";
+import { SettingsField } from "@/components/interaction/SettingsField";
 import { useEffect, useState } from "react";
-import { Form, Card, Switch, InputNumber, Input } from "@agentscope-ai/design";
+import { Form, Card, Switch, Input } from "@agentscope-ai/design";
 import {
   AlertTriangle,
   ChevronRight,
@@ -360,11 +362,6 @@ export function ReMeLightMemoryCard() {
       <div className={styles.memoryConfigGrid}>
         <section className={styles.memoryConfigPanel}>
           <div className={styles.memorySectionHeader}>
-            <div
-              className={`${styles.memorySectionIcon} ${styles.memorySectionIconPrimary}`}
-            >
-              01
-            </div>
             <div>
               <h3>{t("agentConfig.memoryJournalTitle")}</h3>
               <p>{t("agentConfig.memoryJournalDescription")}</p>
@@ -383,7 +380,7 @@ export function ReMeLightMemoryCard() {
             <Switch checked={autoMemoryEnabled} onChange={toggleAutoMemory} />
           </div>
 
-          <Form.Item
+          <SettingsField
             label={t("agentConfig.memoryAutoRecordFrequency")}
             name={["reme_light_memory_config", "auto_memory_interval"]}
             rules={[
@@ -406,14 +403,14 @@ export function ReMeLightMemoryCard() {
               disabled={!autoMemoryEnabled}
               placeholder={t("agentConfig.autoMemoryIntervalPlaceholder")}
             />
-          </Form.Item>
+          </SettingsField>
 
           <div className={styles.memoryToggleRow}>
             <div>
               <strong>{t("agentConfig.memoryNotifyTitle")}</strong>
               <span>{t("agentConfig.memoryNotifyDescription")}</span>
             </div>
-            <Form.Item
+            <SettingsField
               name={[
                 "reme_light_memory_config",
                 "auto_memory_inbox_push_enabled",
@@ -423,7 +420,7 @@ export function ReMeLightMemoryCard() {
               noStyle
             >
               <Switch />
-            </Form.Item>
+            </SettingsField>
           </div>
 
           <div className={styles.memoryCapabilityDivider} />
@@ -467,7 +464,7 @@ export function ReMeLightMemoryCard() {
                   <ExternalLink size={14} aria-hidden="true" />
                 </a>
                 <code>daily-paper</code>
-                <Form.Item
+                <SettingsField
                   name={[
                     "reme_light_memory_config",
                     "daily_paper_cron_enabled",
@@ -480,13 +477,13 @@ export function ReMeLightMemoryCard() {
                       if (enabled) setDailyPaperExpanded(true);
                     }}
                   />
-                </Form.Item>
+                </SettingsField>
               </div>
             </div>
 
             {dailyPaperExpanded && (
               <div className={styles.memorySourceContent}>
-                <Form.Item
+                <SettingsField
                   label={t("agentConfig.dailyPaperCron")}
                   name={["reme_light_memory_config", "daily_paper_cron"]}
                   tooltip={t("agentConfig.dailyPaperCronTooltip")}
@@ -521,9 +518,9 @@ export function ReMeLightMemoryCard() {
                     disabled={!dailyPaperCronEnabled}
                     placeholder={t("agentConfig.dailyPaperCronPlaceholder")}
                   />
-                </Form.Item>
+                </SettingsField>
 
-                <Form.Item
+                <SettingsField
                   label={t("agentConfig.dailyPaperTopics")}
                   name={["reme_light_memory_config", "daily_paper_topics"]}
                   tooltip={t("agentConfig.dailyPaperTopicsTooltip")}
@@ -532,7 +529,7 @@ export function ReMeLightMemoryCard() {
                     disabled={!dailyPaperCronEnabled}
                     placeholder={t("agentConfig.dailyPaperTopicsPlaceholder")}
                   />
-                </Form.Item>
+                </SettingsField>
 
                 <div className={styles.memoryToggleRow}>
                   <div>
@@ -541,7 +538,7 @@ export function ReMeLightMemoryCard() {
                       {t("agentConfig.dailyPaperUseHfMirrorDescription")}
                     </span>
                   </div>
-                  <Form.Item
+                  <SettingsField
                     name={[
                       "reme_light_memory_config",
                       "daily_paper_use_hf_mirror",
@@ -550,7 +547,7 @@ export function ReMeLightMemoryCard() {
                     noStyle
                   >
                     <Switch disabled={!dailyPaperCronEnabled} />
-                  </Form.Item>
+                  </SettingsField>
                 </div>
 
                 <div className={styles.memoryToggleRow}>
@@ -558,7 +555,7 @@ export function ReMeLightMemoryCard() {
                     <strong>{t("agentConfig.memoryNotifyTitle")}</strong>
                     <span>{t("agentConfig.dailyPaperNotifyDescription")}</span>
                   </div>
-                  <Form.Item
+                  <SettingsField
                     name={[
                       "reme_light_memory_config",
                       "daily_paper_inbox_push_enabled",
@@ -568,7 +565,7 @@ export function ReMeLightMemoryCard() {
                     noStyle
                   >
                     <Switch />
-                  </Form.Item>
+                  </SettingsField>
                 </div>
               </div>
             )}
@@ -605,7 +602,7 @@ export function ReMeLightMemoryCard() {
                   <ExternalLink size={14} aria-hidden="true" />
                 </a>
                 <code>auto-fin</code>
-                <Form.Item
+                <SettingsField
                   name={["reme_light_memory_config", "auto_fin_cron_enabled"]}
                   valuePropName="checked"
                   noStyle
@@ -615,13 +612,13 @@ export function ReMeLightMemoryCard() {
                       if (enabled) setAutoFinExpanded(true);
                     }}
                   />
-                </Form.Item>
+                </SettingsField>
               </div>
             </div>
 
             {autoFinExpanded && (
               <div className={styles.memorySourceContent}>
-                <Form.Item
+                <SettingsField
                   label={t("agentConfig.autoFinCron")}
                   name={["reme_light_memory_config", "auto_fin_cron"]}
                   tooltip={t("agentConfig.autoFinCronTooltip")}
@@ -654,9 +651,9 @@ export function ReMeLightMemoryCard() {
                     disabled={!autoFinCronEnabled}
                     placeholder={t("agentConfig.autoFinCronPlaceholder")}
                   />
-                </Form.Item>
+                </SettingsField>
 
-                <Form.Item
+                <SettingsField
                   label={t("agentConfig.autoFinTopics")}
                   name={["reme_light_memory_config", "auto_fin_topics"]}
                   tooltip={t("agentConfig.autoFinTopicsTooltip")}
@@ -665,9 +662,9 @@ export function ReMeLightMemoryCard() {
                     disabled={!autoFinCronEnabled}
                     placeholder={t("agentConfig.autoFinTopicsPlaceholder")}
                   />
-                </Form.Item>
+                </SettingsField>
 
-                <Form.Item
+                <SettingsField
                   label={t("agentConfig.autoFinWindowHours")}
                   name={["reme_light_memory_config", "auto_fin_window_hours"]}
                   tooltip={t("agentConfig.autoFinWindowHoursTooltip")}
@@ -704,14 +701,14 @@ export function ReMeLightMemoryCard() {
                     disabled={!autoFinCronEnabled}
                     placeholder={t("agentConfig.autoFinWindowHoursPlaceholder")}
                   />
-                </Form.Item>
+                </SettingsField>
 
                 <div className={styles.memoryToggleRow}>
                   <div>
                     <strong>{t("agentConfig.memoryNotifyTitle")}</strong>
                     <span>{t("agentConfig.autoFinNotifyDescription")}</span>
                   </div>
-                  <Form.Item
+                  <SettingsField
                     name={[
                       "reme_light_memory_config",
                       "auto_fin_inbox_push_enabled",
@@ -721,7 +718,7 @@ export function ReMeLightMemoryCard() {
                     noStyle
                   >
                     <Switch />
-                  </Form.Item>
+                  </SettingsField>
                 </div>
 
                 <p className={styles.memorySourceDisclaimer}>
@@ -735,11 +732,6 @@ export function ReMeLightMemoryCard() {
         <div className={styles.memoryConfigStack}>
           <section className={styles.memoryConfigPanel}>
             <div className={styles.memorySectionHeader}>
-              <div
-                className={`${styles.memorySectionIcon} ${styles.memorySectionIconSecondary}`}
-              >
-                02
-              </div>
               <div>
                 <h3>{t("agentConfig.memoryOrganizeSectionTitle")}</h3>
                 <p>{t("agentConfig.memoryOrganizeSectionDescription")}</p>
@@ -757,15 +749,15 @@ export function ReMeLightMemoryCard() {
                   {t("agentConfig.memoryScheduledOrganizeDescription")}
                 </span>
               </div>
-              <Form.Item
+              <SettingsField
                 name={["reme_light_memory_config", "dream_cron_enabled"]}
                 valuePropName="checked"
                 noStyle
               >
                 <Switch />
-              </Form.Item>
+              </SettingsField>
             </div>
-            <Form.Item
+            <SettingsField
               label={t("agentConfig.dreamCron")}
               name={["reme_light_memory_config", "dream_cron"]}
               tooltip={t("agentConfig.dreamCronTooltip")}
@@ -795,13 +787,13 @@ export function ReMeLightMemoryCard() {
                 disabled={!dreamCronEnabled}
                 placeholder={t("agentConfig.dreamCronPlaceholder")}
               />
-            </Form.Item>
+            </SettingsField>
             <div className={styles.memoryToggleRow}>
               <div>
                 <strong>{t("agentConfig.memoryNotifyTitle")}</strong>
                 <span>{t("agentConfig.autoDreamNotifyDescription")}</span>
               </div>
-              <Form.Item
+              <SettingsField
                 name={[
                   "reme_light_memory_config",
                   "auto_dream_inbox_push_enabled",
@@ -811,17 +803,12 @@ export function ReMeLightMemoryCard() {
                 noStyle
               >
                 <Switch />
-              </Form.Item>
+              </SettingsField>
             </div>
           </section>
 
           <section className={styles.memoryRecallPanel}>
             <div className={styles.memorySectionHeader}>
-              <div
-                className={`${styles.memorySectionIcon} ${styles.memorySectionIconTertiary}`}
-              >
-                03
-              </div>
               <div>
                 <h3>{t("agentConfig.memorySearchSectionTitle")}</h3>
                 <p>{t("agentConfig.memorySearchSectionDescription")}</p>
@@ -836,21 +823,21 @@ export function ReMeLightMemoryCard() {
                 <strong>{t("agentConfig.memorySearchToolTitle")}</strong>
                 <span>{t("agentConfig.memorySearchToolDescription")}</span>
               </div>
-              <Form.Item
+              <SettingsField
                 name={["reme_light_memory_config", "memory_search_enabled"]}
                 initialValue
                 valuePropName="checked"
                 noStyle
               >
                 <Switch />
-              </Form.Item>
+              </SettingsField>
             </div>
             <div className={styles.memoryToggleRow}>
               <div>
                 <strong>{t("agentConfig.memoryAutoRecallTitle")}</strong>
                 <span>{t("agentConfig.memoryAutoRecallDescription")}</span>
               </div>
-              <Form.Item
+              <SettingsField
                 name={[
                   "reme_light_memory_config",
                   "auto_memory_search_config",
@@ -861,7 +848,7 @@ export function ReMeLightMemoryCard() {
                 noStyle
               >
                 <Switch />
-              </Form.Item>
+              </SettingsField>
             </div>
             <div className={styles.memorySettingRow}>
               <div>
@@ -871,7 +858,7 @@ export function ReMeLightMemoryCard() {
                 </strong>
                 <span>{t("agentConfig.autoMaxResultsTooltip")}</span>
               </div>
-              <Form.Item
+              <SettingsField
                 className={styles.memoryInlineField}
                 name={[
                   "reme_light_memory_config",
@@ -896,17 +883,12 @@ export function ReMeLightMemoryCard() {
                   step={1}
                   disabled={!autoSearchEnabled}
                 />
-              </Form.Item>
+              </SettingsField>
             </div>
           </section>
 
           <section className={styles.memoryRecallPanel}>
             <div className={styles.memorySectionHeader}>
-              <div
-                className={`${styles.memorySectionIcon} ${styles.memorySectionIconQuaternary}`}
-              >
-                04
-              </div>
               <div>
                 <h3>{t("agentConfig.rerankerConfigCollapseLabel")}</h3>
                 <p>{t("agentConfig.rerankerEnableHint")}</p>
@@ -938,7 +920,7 @@ export function ReMeLightMemoryCard() {
               <code>reranker-search</code>
             </div>
 
-            <Form.Item
+            <SettingsField
               label={t("agentConfig.rerankerEnabled")}
               name={["reme_light_memory_config", "reranker_config", "enabled"]}
               initialValue={false}
@@ -961,13 +943,13 @@ export function ReMeLightMemoryCard() {
                   }
                 }}
               />
-            </Form.Item>
+            </SettingsField>
 
             <div
               id="reranker-details"
               style={{ display: rerankerExpanded ? undefined : "none" }}
             >
-              <Form.Item
+              <SettingsField
                 label={t("agentConfig.rerankerBaseUrl")}
                 name={[
                   "reme_light_memory_config",
@@ -987,9 +969,9 @@ export function ReMeLightMemoryCard() {
                   placeholder={t("agentConfig.rerankerBaseUrlPlaceholder")}
                   disabled={!rerankerEnabled}
                 />
-              </Form.Item>
+              </SettingsField>
 
-              <Form.Item
+              <SettingsField
                 label={t("agentConfig.rerankerModelName")}
                 name={[
                   "reme_light_memory_config",
@@ -1009,9 +991,9 @@ export function ReMeLightMemoryCard() {
                   placeholder={t("agentConfig.rerankerModelNamePlaceholder")}
                   disabled={!rerankerEnabled}
                 />
-              </Form.Item>
+              </SettingsField>
 
-              <Form.Item
+              <SettingsField
                 label={t("agentConfig.rerankerApiKey")}
                 name={[
                   "reme_light_memory_config",
@@ -1024,9 +1006,9 @@ export function ReMeLightMemoryCard() {
                   placeholder={t("agentConfig.rerankerApiKeyPlaceholder")}
                   disabled={!rerankerEnabled}
                 />
-              </Form.Item>
+              </SettingsField>
 
-              <Form.Item
+              <SettingsField
                 label={t("agentConfig.rerankerCandidateMultiplier")}
                 name={[
                   "reme_light_memory_config",
@@ -1079,9 +1061,9 @@ export function ReMeLightMemoryCard() {
                   precision={0}
                   disabled={!rerankerEnabled}
                 />
-              </Form.Item>
+              </SettingsField>
 
-              <Form.Item
+              <SettingsField
                 label={t("agentConfig.rerankerTimeout")}
                 name={[
                   "reme_light_memory_config",
@@ -1108,7 +1090,7 @@ export function ReMeLightMemoryCard() {
                   step={1}
                   disabled={!rerankerEnabled}
                 />
-              </Form.Item>
+              </SettingsField>
             </div>
           </section>
         </div>

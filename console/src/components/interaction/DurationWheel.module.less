@@ -39,7 +39,7 @@
     color: var(--app-text-primary);
   }
   :global([data-rwp-highlight-wrapper][data-rwp-focused]) {
-    background: rgba(255, 128, 0, 0.055);
+    background: var(--app-accent-faint);
     border-radius: 14px;
   }
 }
@@ -47,4 +47,18 @@
   .wheel :global([data-rwp-option]) {
     transition: none;
   }
+}
+
+.disabledValue {
+  display: grid;
+  place-items: center;
+  flex: 1;
+  min-width: 0;
+  height: 162px;
+  font-size: 60px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -3px;
+  color: var(--app-text-tertiary);
+  cursor: default;
 }

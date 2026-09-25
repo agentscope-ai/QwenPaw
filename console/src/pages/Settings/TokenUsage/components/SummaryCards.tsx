@@ -1,7 +1,9 @@
 import { Cascade } from "@/components/interaction/Cascade";
 import { Card } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
-import { formatCompact } from "../../../../utils/formatNumber";
+import NumberFlow from "@number-flow/react";
+import { useReducedMotion } from "motion/react";
+import type { ReactNode } from "react";
 import { cacheHitRate, formatPercent } from "../../../../utils/cacheUsage";
 import styles from "../index.module.less";
 
@@ -20,7 +22,16 @@ export function SummaryCards({
   totalCacheReadTokens,
   totalCacheEligibleInputTokens,
 }: SummaryCardsProps) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const reducedMotion = useReducedMotion();
+  const number = (value: number) => (
+    <NumberFlow
+      value={value}
+      locales={i18n.language}
+      format={{ notation: "compact", maximumFractionDigits: 1 }}
+      animated={!reducedMotion}
+    />
+  );
   const hitRate = cacheHitRate(
     totalCacheReadTokens,
     totalCacheEligibleInputTokens,
@@ -29,19 +40,19 @@ export function SummaryCards({
   return (
     <UsageSummaryCards
       items={[
-        { label: t("tokenUsage.totalCalls"), value: formatCompact(totalCalls) },
+        { label: t("tokenUsage.totalCalls"), value: number(totalCalls) },
         {
           label: t("tokenUsage.promptTokens"),
-          value: formatCompact(totalPromptTokens),
+          value: number(totalPromptTokens),
         },
         {
           label: t("tokenUsage.cacheRead"),
-          value: formatCompact(totalCacheReadTokens),
+          value: number(totalCacheReadTokens),
         },
         { label: t("tokenUsage.cacheHitRate"), value: formatPercent(hitRate) },
         {
           label: t("tokenUsage.completionTokens"),
-          value: formatCompact(totalCompletionTokens),
+          value: number(totalCompletionTokens),
         },
       ]}
     />
@@ -51,7 +62,7 @@ export function SummaryCards({
 export function UsageSummaryCards({
   items,
 }: {
-  items: { label: string; value: string }[];
+  items: { label: string; value: ReactNode }[];
 }) {
   return (
     <div className={styles.summaryCards}>

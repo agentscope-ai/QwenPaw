@@ -87,15 +87,16 @@ describe("AppCard", () => {
     expect(onUninstall).not.toHaveBeenCalled();
   });
 
-  it("triggers uninstall from the card action without opening the app", () => {
+  it("triggers uninstall from the menu without opening the app", async () => {
     const onClick = vi.fn();
     const onUninstall = vi.fn();
     render(
       <AppCard app={makeApp()} onClick={onClick} onUninstall={onUninstall} />,
     );
 
+    fireEvent.click(screen.getByRole("button", { name: "common.more" }));
     fireEvent.click(
-      screen.getByRole("button", { name: "appCenter.uninstall" }),
+      await screen.findByRole("menuitem", { name: "appCenter.uninstall" }),
     );
 
     expect(onUninstall).toHaveBeenCalledWith(

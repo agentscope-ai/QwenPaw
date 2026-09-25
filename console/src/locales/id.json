@@ -34,7 +34,11 @@
     "clear": "Bersihkan",
     "paste": "Tempel",
     "yes": "Ya",
-    "no": "Tidak"
+    "no": "Tidak",
+    "configure": "Konfigurasi",
+    "all": "Semua",
+    "decrease": "Kurangi",
+    "increase": "Tambah"
   },
   "harnesses": {
     "connected": "Terhubung",
@@ -69,7 +73,7 @@
   "portabilityImport": {
     "qwenpawOnly": "Impor hanya tersedia untuk agen yang menggunakan backend QwenPaw. Pilih agen QwenPaw untuk melanjutkan.",
     "title": "Impor",
-    "description": "Pindahkan percakapan dan pengaturan alat dari aplikasi AI lain ke QwenPaw.",
+    "description": "Impor data dari aplikasi lain ke QwenPaw. Pilih sumber, lalu pratinjau dan pilih kontennya. Data hanya ditulis ke QwenPaw setelah Anda memulai impor.",
     "steps": {
       "sources": "Aplikasi",
       "inventory": "Pilih konten",
@@ -2820,7 +2824,10 @@
       "authEndpoint": "Authorization Endpoint (timpa)",
       "tokenEndpoint": "Token Endpoint (timpa)",
       "endpointHint": "Kosongkan untuk deteksi otomatis dari server MCP."
-    }
+    },
+    "local": "Lokal",
+    "remote": "Jarak jauh",
+    "invalidJson": "Masukkan JSON yang valid dengan setidaknya satu server MCP."
   },
   "preview": {
     "error": {

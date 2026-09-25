@@ -1,11 +1,7 @@
-import {
-  Card,
-  Form,
-  Input,
-  InputNumber,
-  Select,
-  Switch,
-} from "@agentscope-ai/design";
+import { NumberStepper as InputNumber } from "@/components/interaction/NumberStepper";
+import { SettingsField } from "@/components/interaction/SettingsField";
+import InlineHelp from "@/components/InlineHelp";
+import { Card, Form, Input, Select, Switch } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
 import { BadgeCheck, ChevronRight, Cpu, Database, Power } from "lucide-react";
 
@@ -223,7 +219,9 @@ export function EmbeddingModelCard() {
         <div className={styles.memoryOverviewHeader}>
           <div>
             <h3>{t("agentConfig.embeddingOverviewTitle")}</h3>
-            <p>{t("agentConfig.embeddingStatusDescription")}</p>
+            <InlineHelp>
+              {t("agentConfig.embeddingStatusDescription")}
+            </InlineHelp>
           </div>
         </div>
 
@@ -405,11 +403,13 @@ export function EmbeddingModelCard() {
             </div>
             <div>
               <h3>{t("agentConfig.embeddingServiceTitle")}</h3>
-              <p>{t("agentConfig.embeddingServiceDescription")}</p>
+              <InlineHelp>
+                {t("agentConfig.embeddingServiceDescription")}
+              </InlineHelp>
             </div>
           </div>
 
-          <Form.Item
+          <SettingsField
             label={t("agentConfig.embeddingBackend")}
             name={[
               "reme_light_memory_config",
@@ -424,10 +424,10 @@ export function EmbeddingModelCard() {
               placeholder={t("agentConfig.embeddingBackendPlaceholder")}
               style={{ width: "100%" }}
             />
-          </Form.Item>
+          </SettingsField>
 
           {showBaseUrl && (
-            <Form.Item
+            <SettingsField
               label={
                 baseUrlIsHost
                   ? t("agentConfig.embeddingHost")
@@ -452,10 +452,10 @@ export function EmbeddingModelCard() {
                     : t("agentConfig.embeddingBaseUrlPlaceholder")
                 }
               />
-            </Form.Item>
+            </SettingsField>
           )}
 
-          <Form.Item
+          <SettingsField
             label={t("agentConfig.embeddingModelName")}
             name={[
               "reme_light_memory_config",
@@ -468,10 +468,10 @@ export function EmbeddingModelCard() {
               disabled={reindexing}
               placeholder={t("agentConfig.embeddingModelNamePlaceholder")}
             />
-          </Form.Item>
+          </SettingsField>
 
           {showApiKey && (
-            <Form.Item
+            <SettingsField
               label={t("agentConfig.embeddingApiKey")}
               name={[
                 "reme_light_memory_config",
@@ -484,11 +484,11 @@ export function EmbeddingModelCard() {
                 disabled={reindexing}
                 placeholder={t("agentConfig.embeddingApiKeyPlaceholder")}
               />
-            </Form.Item>
+            </SettingsField>
           )}
 
           {normalizedBackend === "openai" && (
-            <Form.Item
+            <SettingsField
               label={t("agentConfig.embeddingUseDimensions")}
               name={[
                 "reme_light_memory_config",
@@ -499,10 +499,10 @@ export function EmbeddingModelCard() {
               tooltip={t("agentConfig.embeddingUseDimensionsTooltip")}
             >
               <Switch disabled={reindexing || !embeddingEnabled} />
-            </Form.Item>
+            </SettingsField>
           )}
 
-          <Form.Item
+          <SettingsField
             label={t("agentConfig.embeddingDimensions")}
             name={[
               "reme_light_memory_config",
@@ -528,7 +528,7 @@ export function EmbeddingModelCard() {
               step={256}
               disabled={reindexing || !embeddingEnabled}
             />
-          </Form.Item>
+          </SettingsField>
         </section>
 
         <section className={styles.memoryConfigPanel}>
@@ -540,11 +540,13 @@ export function EmbeddingModelCard() {
             </div>
             <div>
               <h3>{t("agentConfig.embeddingIndexTitle")}</h3>
-              <p>{t("agentConfig.embeddingIndexDescription")}</p>
+              <InlineHelp>
+                {t("agentConfig.embeddingIndexDescription")}
+              </InlineHelp>
             </div>
           </div>
 
-          <Form.Item
+          <SettingsField
             label={t("agentConfig.embeddingEnableCache")}
             name={[
               "reme_light_memory_config",
@@ -555,9 +557,9 @@ export function EmbeddingModelCard() {
             tooltip={t("agentConfig.embeddingEnableCacheTooltip")}
           >
             <Switch disabled={reindexing || !embeddingEnabled} />
-          </Form.Item>
+          </SettingsField>
 
-          <Form.Item
+          <SettingsField
             label={t("agentConfig.embeddingMaxCacheSize")}
             name={[
               "reme_light_memory_config",
@@ -580,9 +582,9 @@ export function EmbeddingModelCard() {
                 reindexing || !embeddingEnabled || !embeddingCacheEnabled
               }
             />
-          </Form.Item>
+          </SettingsField>
 
-          <Form.Item
+          <SettingsField
             label={t("agentConfig.embeddingMaxInputLength")}
             name={[
               "reme_light_memory_config",
@@ -603,9 +605,9 @@ export function EmbeddingModelCard() {
               step={1024}
               disabled={reindexing || !embeddingEnabled}
             />
-          </Form.Item>
+          </SettingsField>
 
-          <Form.Item
+          <SettingsField
             label={t("agentConfig.embeddingMaxBatchSize")}
             name={[
               "reme_light_memory_config",
@@ -626,9 +628,9 @@ export function EmbeddingModelCard() {
               step={1}
               disabled={reindexing || !embeddingEnabled}
             />
-          </Form.Item>
+          </SettingsField>
 
-          <Form.Item
+          <SettingsField
             label={t("agentConfig.embeddingHealthCheckTimeout")}
             name={[
               "reme_light_memory_config",
@@ -659,7 +661,7 @@ export function EmbeddingModelCard() {
               addonAfter="s"
               disabled={reindexing || !embeddingEnabled}
             />
-          </Form.Item>
+          </SettingsField>
         </section>
       </div>
     </Card>

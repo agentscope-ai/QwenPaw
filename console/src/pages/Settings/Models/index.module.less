@@ -73,6 +73,7 @@
 }
 
 .settingsPage .providersPageHeader {
+  background: transparent;
   padding: 0;
 }
 
@@ -977,6 +978,10 @@
 }
 
 .groupSegBtn {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  font-family: inherit;
   flex: 1;
   padding: 7px 6px;
   text-align: center;
@@ -2861,4 +2866,27 @@
 
 .settingsPage .sectionHeaderRow {
   box-sizing: border-box;
+}
+
+.groupSegBtn:focus-visible {
+  outline: 2px solid var(--app-focus-ring);
+  outline-offset: -2px;
+}
+.groupCardName {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.4;
+}
+.groupCardMono {
+  overflow-wrap: anywhere;
+}
+@media (pointer: coarse) {
+  .providerClose,
+  .providerSettings {
+    min-width: 44px;
+    min-height: 44px;
+  }
+  .groupCardHeader {
+    padding-right: 88px;
+  }
 }

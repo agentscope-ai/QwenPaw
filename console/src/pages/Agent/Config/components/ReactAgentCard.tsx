@@ -1,3 +1,4 @@
+import { SettingsField } from "@/components/interaction/SettingsField";
 import { NumberSlider } from "@/components/interaction/NumberSlider";
 import { Collapse } from "antd";
 import {
@@ -83,7 +84,7 @@ function ProjectDirectorySetting() {
 
   return (
     <>
-      <Form.Item
+      <SettingsField
         label={t("agentConfig.projectDirectoryTitle")}
         tooltip={t("agentConfig.projectDirectoryDescription")}
         className={styles.reactAgentWideField}
@@ -110,7 +111,7 @@ function ProjectDirectorySetting() {
             </Button>
           )}
         </div>
-      </Form.Item>
+      </SettingsField>
       <ProjectSelectModal
         agentId={selectedAgent}
         open={modalOpen}
@@ -157,7 +158,7 @@ function EnhancedCodeCapabilitySetting() {
   };
 
   return (
-    <Form.Item
+    <SettingsField
       label={t("agentConfig.enhancedCodeCapability")}
       tooltip={t("agentConfig.enhancedCodeCapabilityTooltip")}
       className={styles.reactAgentWideField}
@@ -175,7 +176,7 @@ function EnhancedCodeCapabilitySetting() {
           />
         )}
       </div>
-    </Form.Item>
+    </SettingsField>
   );
 }
 
@@ -210,7 +211,7 @@ export function ReactAgentCard({
   return (
     <Card className={styles.formCard} title={t("agentConfig.reactAgentTitle")}>
       <div className={styles.reactAgentRow}>
-        <Form.Item
+        <SettingsField
           label={t("agentConfig.language")}
           tooltip={t("agentConfig.languageTooltip")}
           className={styles.reactAgentField}
@@ -223,9 +224,9 @@ export function ReactAgentCard({
             disabled={savingLang}
             style={{ width: "100%" }}
           />
-        </Form.Item>
+        </SettingsField>
 
-        <Form.Item
+        <SettingsField
           label={t("agentConfig.timezone")}
           tooltip={t("agentConfig.timezoneTooltip")}
           className={styles.reactAgentField}
@@ -245,7 +246,7 @@ export function ReactAgentCard({
             disabled={savingTimezone}
             style={{ width: "100%" }}
           />
-        </Form.Item>
+        </SettingsField>
       </div>
 
       <div className={styles.reactAgentSettings}>
@@ -253,14 +254,14 @@ export function ReactAgentCard({
         <EnhancedCodeCapabilitySetting />
       </div>
 
-      <Form.Item
+      <SettingsField
         label={t("agentConfig.autoGenerateSessionTitle")}
         name={["auto_title_config", "enabled"]}
         valuePropName="checked"
         tooltip={t("agentConfig.autoGenerateSessionTitleTooltip")}
       >
         <Switch />
-      </Form.Item>
+      </SettingsField>
 
       <Collapse
         ghost
@@ -273,7 +274,7 @@ export function ReactAgentCard({
               <>
                 <div className={styles.reactAgentRow}>
                   {" "}
-                  <Form.Item
+                  <SettingsField
                     label={t("agentConfig.shellCommandTimeout")}
                     name="shell_command_timeout"
                     rules={[
@@ -296,8 +297,8 @@ export function ReactAgentCard({
                       step={1}
                       label={t("agentConfig.shellCommandTimeout")}
                     />
-                  </Form.Item>
-                  <Form.Item
+                  </SettingsField>
+                  <SettingsField
                     label={t("agentConfig.shellCommandExecutable")}
                     name="shell_command_executable"
                     tooltip={t("agentConfig.shellCommandExecutableTooltip")}
@@ -310,10 +311,10 @@ export function ReactAgentCard({
                       )}
                       allowClear
                     />
-                  </Form.Item>
+                  </SettingsField>
                 </div>{" "}
                 <div className={styles.reactAgentRow}>
-                  <Form.Item
+                  <SettingsField
                     label={t("agentConfig.memoryManagerBackend")}
                     name="memory_manager_backend"
                     tooltip={t("agentConfig.memoryManagerBackendTooltip")}
@@ -323,7 +324,7 @@ export function ReactAgentCard({
                       options={memoryBackendOptions}
                       style={{ width: "100%" }}
                     />
-                  </Form.Item>
+                  </SettingsField>
                 </div>
                 <Alert
                   type="warning"

@@ -520,9 +520,9 @@
 
 .memoryConfigGrid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 18px;
-  align-items: stretch;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0;
+  align-items: start;
   margin-bottom: 18px;
 }
 
@@ -1679,4 +1679,198 @@
   border: 1px solid var(--app-border-subtle);
   border-radius: 18px;
   background: var(--app-surface);
+}
+
+.mainTabs {
+  min-width: 0;
+  :global(.qwenpaw-tabs-nav),
+  :global(.ant-tabs-nav) {
+    padding: 4px 12px;
+    border: 1px solid var(--app-border-subtle);
+    border-radius: 12px;
+    background: var(--app-surface);
+  }
+  :global(.qwenpaw-tabs-tab),
+  :global(.ant-tabs-tab) {
+    min-height: 44px;
+  }
+  :global(.qwenpaw-card),
+  :global(.ant-card) {
+    box-shadow: none;
+  }
+  :global(.qwenpaw-card-body),
+  :global(.ant-card-body) {
+    padding: 24px;
+  }
+  :global(.qwenpaw-form-item-label > label),
+  :global(.ant-form-item-label > label) {
+    height: auto;
+    white-space: normal;
+    line-height: 1.5;
+  }
+}
+.tabContent {
+  max-width: none;
+}
+@media (max-width: 600px) {
+  .mainTabs :global(.qwenpaw-card-body),
+  .mainTabs :global(.ant-card-body) {
+    padding: 16px;
+  }
+}
+
+.levelOptions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.levelOption {
+  margin: 0;
+  padding: 20px;
+  border: 1px solid var(--app-border-subtle);
+  border-radius: 16px;
+  align-items: center;
+  :global(.ant-radio) {
+    align-self: center;
+  }
+  > span:last-child {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    min-width: 0;
+  }
+  &:has(input:checked) {
+    background: var(--app-accent-faint);
+    border-color: var(--app-accent-border);
+  }
+  &:focus-within {
+    outline: 2px solid var(--app-focus-ring);
+    outline-offset: 2px;
+  }
+}
+.levelOptionIcon {
+  display: inline-flex;
+  color: var(--app-text-secondary);
+  padding-top: 2px;
+}
+.levelOptionCopy {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  strong {
+    font-size: 15px;
+  }
+  > span {
+    font-size: 13px;
+    color: var(--app-text-secondary);
+  }
+}
+@media (max-width: 700px) {
+  .levelOptions {
+    grid-template-columns: 1fr;
+  }
+}
+
+.numericGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 24px;
+  > div {
+    margin-bottom: 0;
+  }
+}
+@media (max-width: 700px) {
+  .numericGrid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* Memory settings follow the same left edge instead of nested tiles. */
+.memoryConfigStack {
+  gap: 0;
+}
+.memoryConfigPanel,
+.memoryRecallPanel {
+  padding: 24px 0;
+  border: 0;
+  border-top: 1px solid var(--app-border-subtle);
+  border-radius: 0;
+  background: transparent;
+}
+.memorySectionHeader {
+  align-items: center;
+}
+.memoryToggleRow,
+.memorySettingRow {
+  padding: 12px 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+.memoryInlineField {
+  flex: 0 0 144px;
+  width: 144px;
+}
+.memoryToggleRow > :global(.ant-switch),
+.memoryToggleRow > :global(.qwenpaw-switch) {
+  flex-shrink: 0;
+}
+.memorySourceHeader {
+  align-items: center;
+}
+
+.contextSections {
+  background: transparent !important;
+  border: 0 !important;
+  :global(.ant-collapse-header),
+  :global(.qwenpaw-collapse-header) {
+    padding: 16px 0 !important;
+    background: transparent !important;
+  }
+  :global(.ant-collapse-content-box),
+  :global(.qwenpaw-collapse-content-box) {
+    padding: 0 0 16px !important;
+  }
+}
+.memoryConfigPanel {
+  :global(.ant-form-item-row),
+  :global(.qwenpaw-form-item-row) {
+    flex-flow: row nowrap;
+    align-items: center;
+    gap: 24px;
+  }
+  :global(.ant-form-item-label),
+  :global(.qwenpaw-form-item-label) {
+    flex: 1 1 auto !important;
+    width: auto !important;
+    min-width: 0;
+    padding: 0;
+    text-align: start;
+    white-space: normal;
+  }
+  :global(.ant-form-item-control),
+  :global(.qwenpaw-form-item-control) {
+    flex: 0 1 280px !important;
+    width: auto !important;
+    min-width: 144px;
+  }
+}
+.memorySourceCard {
+  border: 0;
+  border-top: 1px solid var(--app-border-subtle);
+  border-radius: 0;
+}
+.memorySourceHeader {
+  padding-inline: 0;
+}
+@media (max-width: 600px) {
+  .memoryConfigPanel :global(.ant-form-item-row),
+  .memoryConfigPanel :global(.qwenpaw-form-item-row) {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .memoryConfigPanel :global(.ant-form-item-control),
+  .memoryConfigPanel :global(.qwenpaw-form-item-control) {
+    flex-basis: 100% !important;
+  }
 }

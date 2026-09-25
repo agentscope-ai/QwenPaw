@@ -270,7 +270,13 @@ export function FileGuardSection({
                 <LockOutlined size="1em" style={{ marginRight: 6 }} />
                 {t("security.denyPathsProtection")}
               </h3>
-              <p style={{ margin: 0, fontSize: 13, color: "#666" }}>
+              <p
+                style={{
+                  margin: 0,
+                  fontSize: 13,
+                  color: "var(--app-text-secondary)",
+                }}
+              >
                 {t("security.denyPathsSandboxEnhancement")}
               </p>
             </div>

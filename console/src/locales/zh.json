@@ -38,7 +38,11 @@
     "no": "否",
     "advancedSettings": "高级",
     "done": "完成",
-    "autoSaveFailed": "未能保存改动"
+    "autoSaveFailed": "未能保存改动",
+    "configure": "配置",
+    "all": "全部",
+    "decrease": "减少",
+    "increase": "增加"
   },
   "desktop": {
     "closeWindow": {
@@ -124,7 +128,7 @@
   "portabilityImport": {
     "qwenpawOnly": "导入仅适用于使用 QwenPaw 原生后端的智能体。请选择 QwenPaw 智能体后继续。",
     "title": "导入",
-    "description": "将其他 AI 应用中的聊天记录、工具和设置迁移到 QwenPaw，并自动完成兼容性修复。",
+    "description": "将其他应用的数据导入 QwenPaw。选择来源应用后，可预览并选择要导入的内容；只有确认开始导入后才会写入 QwenPaw。",
     "steps": {
       "sources": "选择应用",
       "inventory": "选择内容",
@@ -1441,7 +1445,10 @@
       "authEndpoint": "Authorization Endpoint（手动覆盖）",
       "tokenEndpoint": "Token Endpoint（手动覆盖）",
       "endpointHint": "留空将自动从 MCP 服务器发现端点，填写后将跳过自动发现"
-    }
+    },
+    "local": "本地",
+    "remote": "远程",
+    "invalidJson": "请输入有效的 JSON，且至少包含一个 MCP 服务。"
   },
   "heartbeat": {
     "customInterval": "自定义间隔",

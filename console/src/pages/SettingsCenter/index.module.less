@@ -810,3 +810,82 @@
   border-radius: 8px;
   scroll-margin-block: 24px;
 }
+
+/* Navigation keeps its controls anchored while only the grouped list scrolls. */
+.sidebar {
+  padding: 16px 12px 12px;
+  background: var(--app-surface-subtle);
+  gap: 0;
+}
+.backButton {
+  margin: 0 4px 16px;
+  min-height: 44px;
+}
+.searchInput {
+  width: calc(100% - 8px);
+  margin-inline: 4px;
+  min-height: 40px;
+}
+.navigation {
+  flex: 1;
+  min-height: 0;
+  padding: 4px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--app-border) transparent;
+  overscroll-behavior: contain;
+}
+.navGroup {
+  margin-bottom: 24px;
+  h2 {
+    margin: 0 12px 8px;
+    font-size: 12px;
+    letter-spacing: 0;
+    text-transform: none;
+  }
+}
+.settingsAgentSelector {
+  margin: 0 0 8px;
+}
+.settingsAgentSelect :global(.ant-select-selector) {
+  border-radius: 10px !important;
+}
+.navItem {
+  position: relative;
+  isolation: isolate;
+  height: auto;
+  min-height: 44px;
+  padding: 10px 12px;
+  gap: 12px;
+  color: var(--app-text-secondary);
+  > svg {
+    position: relative;
+  }
+  .navItemLabel {
+    position: relative;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    line-height: 1.4;
+  }
+}
+.navItemActive {
+  background: transparent;
+  box-shadow: none;
+  color: var(--app-accent-text);
+  font-weight: 500;
+  &:hover {
+    background: transparent;
+  }
+}
+.navSelection {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: 10px;
+  background: var(--app-accent-soft);
+  border: 1px solid var(--app-accent-border);
+}
+@media (max-width: 768px) {
+  .mobileNavigation {
+    background: var(--app-surface-subtle);
+  }
+}

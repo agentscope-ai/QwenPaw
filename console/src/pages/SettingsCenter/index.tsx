@@ -7,6 +7,7 @@ import {
   type ReactNode,
 } from "react";
 import { Button, Input, Select, Spin } from "antd";
+import { LayoutGroup, motion, useReducedMotion } from "motion/react";
 import {
   Archive,
   Blocks,
@@ -292,6 +293,7 @@ function pageKeyFromPath(pathname: string) {
 }
 
 export default function SettingsCenter() {
+  const reducedMotion = useReducedMotion();
   const { t } = useTranslation();
   const { isDark } = useTheme();
   const location = useLocation();
@@ -518,6 +520,7 @@ export default function SettingsCenter() {
             allowClear
             value={query}
             prefix={<Search size={15} />}
+            aria-label={t("settingsCenter.searchPlaceholder")}
             placeholder={t(
               "settingsCenter.searchPlaceholder",
               "Search settings",
@@ -527,67 +530,88 @@ export default function SettingsCenter() {
               setSearchTarget(null);
             }}
           />
-          <nav className={styles.navigation}>
-            {visibleGroups.map((group) => (
-              <section key={group.key} className={styles.navGroup}>
-                <h2>{t(group.labelKey, group.fallback)}</h2>
-                {group.key === "agent-configuration" && (
-                  <SettingsAgentSelector />
-                )}
-                {group.pages.map((page) => {
-                  const Icon = page.Icon;
-                  return (
-                    <div key={page.key}>
-                      <button
-                        type="button"
-                        aria-current={
-                          activePage?.key === page.key ? "page" : undefined
-                        }
-                        data-press
-                        className={`${styles.navItem} ${
-                          activePage?.key === page.key
-                            ? styles.navItemActive
-                            : ""
-                        }`}
-                        onClick={() => {
-                          setSearchTarget(null);
-                          openPage(page);
-                        }}
-                      >
-                        {page.icon ?? (Icon ? <Icon size={16} /> : null)}
-                        <span className={styles.navItemLabel}>
-                          {pageLabel(page)}
-                        </span>
-                      </button>
-                      {(matchingItems.get(page.key) ?? []).map((key) => (
+          <nav className={styles.navigation} aria-label={t("nav.settings")}>
+            <LayoutGroup id="settings-navigation">
+              {visibleGroups.map((group) => (
+                <section key={group.key} className={styles.navGroup}>
+                  <h2>{t(group.labelKey, group.fallback)}</h2>
+                  {group.key === "agent-configuration" && (
+                    <SettingsAgentSelector />
+                  )}
+                  {group.pages.map((page) => {
+                    const Icon = page.Icon;
+                    return (
+                      <div key={page.key}>
                         <button
-                          key={key}
                           type="button"
-                          className={styles.searchResult}
+                          aria-current={
+                            activePage?.key === page.key ? "page" : undefined
+                          }
+                          data-press
+                          className={`${styles.navItem} ${
+                            activePage?.key === page.key
+                              ? styles.navItemActive
+                              : ""
+                          }`}
                           onClick={() => {
-                            setSearchTarget({
-                              page: page.key,
-                              label: t(key),
-                              tab: SETTINGS_SEARCH_TABS[key]
-                                ? t(SETTINGS_SEARCH_TABS[key])
-                                : undefined,
-                            });
+                            setSearchTarget(null);
                             openPage(page);
                           }}
                         >
-                          <span>{t(key)}</span>
+                          {activePage?.key === page.key && (
+                            <motion.span
+                              className={styles.navSelection}
+                              layoutId="selection"
+                              aria-hidden
+                              transition={
+                                reducedMotion
+                                  ? { duration: 0 }
+                                  : {
+                                      type: "spring",
+                                      stiffness: 420,
+                                      damping: 40,
+                                    }
+                              }
+                            />
+                          )}
+                          {page.icon ??
+                            (Icon ? (
+                              <Icon size={18} strokeWidth={1.75} />
+                            ) : null)}
+                          <span className={styles.navItemLabel}>
+                            {pageLabel(page)}
+                          </span>
                         </button>
-                      ))}
-                    </div>
-                  );
-                })}
-              </section>
-            ))}
-            {visibleGroups.length === 0 && (
-              <div className={styles.noResults}>
-                {t("settingsCenter.noResults", "No matching settings")}
-              </div>
-            )}
+                        {(matchingItems.get(page.key) ?? []).map((key) => (
+                          <button
+                            key={key}
+                            type="button"
+                            className={styles.searchResult}
+                            onClick={() => {
+                              setSearchTarget({
+                                page: page.key,
+                                label: t(key),
+                                tab: SETTINGS_SEARCH_TABS[key]
+                                  ? t(SETTINGS_SEARCH_TABS[key])
+                                  : undefined,
+                              });
+                              openPage(page);
+                            }}
+                          >
+                            <span>{t(key)}</span>
+                          </button>
+                        ))}
+                      </div>
+                    );
+                  })}
+                </section>
+              ))}
+              {visibleGroups.length === 0 && (
+                <div className={styles.noResults}>
+                  {t("settingsCenter.noResults", "No matching settings")}
+                </div>
+              )}
+            </LayoutGroup>
           </nav>
         </aside>
 

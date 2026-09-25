@@ -32,7 +32,11 @@
     "actions": "操作",
     "total": "合計 {{count}} 件",
     "clear": "クリア",
-    "paste": "貼り付け"
+    "paste": "貼り付け",
+    "configure": "設定",
+    "all": "すべて",
+    "decrease": "減らす",
+    "increase": "増やす"
   },
   "harnesses": {
     "connected": "接続済み",
@@ -67,7 +71,7 @@
   "portabilityImport": {
     "qwenpawOnly": "インポートは QwenPaw バックエンドを使用するエージェントでのみ利用できます。QwenPaw エージェントを選択して続行してください。",
     "title": "インポート",
-    "description": "他の AI アプリの会話とツール設定を QwenPaw に移行します。",
+    "description": "他のアプリのデータを QwenPaw に取り込みます。取り込み元を選び、内容を確認して選択します。取り込みを開始するまで QwenPaw には書き込まれません。",
     "steps": {
       "sources": "アプリ",
       "inventory": "内容を選択",
@@ -1055,7 +1059,10 @@
       "authEndpoint": "Authorization Endpoint（上書き）",
       "tokenEndpoint": "Token Endpoint（上書き）",
       "endpointHint": "空白のままにするとMCPサーバーから自動検出されます。"
-    }
+    },
+    "local": "ローカル",
+    "remote": "リモート",
+    "invalidJson": "MCP サーバーを少なくとも 1 つ含む有効な JSON を入力してください。"
   },
   "heartbeat": {
     "title": "ハートビート",

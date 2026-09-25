@@ -52,7 +52,9 @@ export const LocalProviderCard = React.memo(function LocalProviderCard({
           </div>
         </div>
         <div className={styles.groupCardField}>
-          <span className={styles.groupCardFieldLabel}>Models</span>
+          <span className={styles.groupCardFieldLabel}>
+            {t("models.models")}
+          </span>
           <span className={styles.groupCardFieldValue}>
             {totalCount > 0
               ? t("models.modelsCount", { count: totalCount })

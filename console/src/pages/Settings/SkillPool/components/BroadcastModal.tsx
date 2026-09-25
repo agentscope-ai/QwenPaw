@@ -1,5 +1,6 @@
+import { SharedModal as Modal } from "@/components/interaction/SharedModal";
 import { useEffect, useMemo, useState } from "react";
-import { Button, Modal, Select, Tooltip } from "@agentscope-ai/design";
+import { Button, Select, Tooltip } from "@agentscope-ai/design";
 import { Check as CheckOutlined } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type {

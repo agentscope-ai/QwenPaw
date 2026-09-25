@@ -332,3 +332,25 @@
     margin-inline: 0;
   }
 }
+
+.dragHandleButton {
+  min-width: 32px;
+  min-height: 44px;
+  display: inline-grid;
+  place-items: center;
+}
+.dragHandleButton:focus-visible {
+  outline: 2px solid var(--app-focus-ring);
+  outline-offset: -2px;
+  border-radius: 8px;
+}
+.tableCard {
+  box-shadow: none;
+}
+
+.galleryContainer {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 4px;
+}

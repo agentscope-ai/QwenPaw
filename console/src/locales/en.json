@@ -38,7 +38,11 @@
     "no": "No",
     "advancedSettings": "Advanced",
     "done": "Done",
-    "autoSaveFailed": "Could not save changes"
+    "autoSaveFailed": "Could not save changes",
+    "configure": "Configure",
+    "all": "All",
+    "decrease": "Decrease",
+    "increase": "Increase"
   },
   "desktop": {
     "closeWindow": {
@@ -124,7 +128,7 @@
   "portabilityImport": {
     "qwenpawOnly": "Import is only available for agents using the QwenPaw backend. Select a QwenPaw agent to continue.",
     "title": "Import",
-    "description": "Bring conversations and tool settings from other AI applications into QwenPaw.",
+    "description": "Import data from other AI applications into QwenPaw. Choose a source, then preview and select its content. QwenPaw is updated only when you start the import.",
     "steps": {
       "sources": "Applications",
       "inventory": "Choose content",
@@ -1601,7 +1605,10 @@
       "authEndpoint": "Authorization Endpoint (override)",
       "tokenEndpoint": "Token Endpoint (override)",
       "endpointHint": "Leave empty to auto-discover from the MCP server. Fill in to skip discovery."
-    }
+    },
+    "local": "Local",
+    "remote": "Remote",
+    "invalidJson": "Enter valid JSON containing at least one MCP server."
   },
   "heartbeat": {
     "customInterval": "Custom interval",

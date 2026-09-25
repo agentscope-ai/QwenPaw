@@ -1,3 +1,4 @@
+import InlineHelp from "@/components/InlineHelp";
 import { useTranslation } from "react-i18next";
 import {
   Alert,
@@ -45,30 +46,31 @@ export default function DebugPage() {
       />
 
       <div className={styles.content}>
-        <Alert
-          type="info"
-          showIcon
-          className={styles.tipAlert}
-          message={t(
-            "debug.desc",
-            "View backend daemon log file to help diagnose issues. Logs refresh automatically while this page is open.",
-          )}
-        />
         <Card
-          title={t("debug.backend.title", "Backend logs")}
+          title={
+            <span className={styles.titleWithHelp}>
+              {t("debug.backend.title", "Backend logs")}
+              <InlineHelp>{t("debug.desc")}</InlineHelp>
+            </span>
+          }
           extra={
             <Space size="middle" className={styles.cardExtra}>
               <Text type="secondary">
                 {t("debug.backend.newestFirst", "Newest first")}
               </Text>
               <Switch
+                aria-label={t("debug.backend.newestFirst")}
                 checked={backendNewestFirst}
                 onChange={setBackendNewestFirst}
               />
               <Text type="secondary">
                 {t("debug.backend.autoRefresh", "Auto refresh")}
               </Text>
-              <Switch checked={autoRefresh} onChange={setAutoRefresh} />
+              <Switch
+                aria-label={t("debug.backend.autoRefresh")}
+                checked={autoRefresh}
+                onChange={setAutoRefresh}
+              />
             </Space>
           }
         >
@@ -76,6 +78,7 @@ export default function DebugPage() {
             <div className={styles.toolbar}>
               <div className={styles.toolbarLeft}>
                 <Select
+                  aria-label={t("debug.level.all")}
                   className={styles.levelSelect}
                   value={backendLevel}
                   onChange={(v) => setBackendLevel(v)}

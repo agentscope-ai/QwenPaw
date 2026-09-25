@@ -103,7 +103,9 @@ export const RemoteProviderCard = React.memo(function RemoteProviderCard({
         {!isManaged && (
           <>
             <div className={styles.groupCardField}>
-              <span className={styles.groupCardFieldLabel}>Endpoint</span>
+              <span className={styles.groupCardFieldLabel}>
+                {t("models.baseURL")}
+              </span>
               <div className={styles.groupCardMono}>
                 {provider.base_url || "—"}
               </div>

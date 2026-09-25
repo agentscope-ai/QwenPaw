@@ -2,8 +2,8 @@ import { InteractiveCard } from "@/components/interaction/InteractiveCard";
 /**
  * AppCard.tsx — Individual app card for the App Center grid.
  */
-import { Button, Card, Typography } from "antd";
-import { AppWindow, Play, Trash2 } from "lucide-react";
+import { Button, Card, Dropdown, Typography } from "antd";
+import { AppWindow, Play, Trash2, MoreHorizontal } from "lucide-react";
 import type { FC, KeyboardEvent } from "react";
 import { useEffect, useState } from "react";
 import { buildAuthHeaders } from "../../api/authHeaders";
@@ -172,18 +172,30 @@ export const AppCard: FC<AppCardProps> = ({ app, onClick, onUninstall }) => {
             </div>
           </div>
         </div>
-        <div className={`${styles.cardActions} ${styles.cardHoverActions}`}>
+        <div className={styles.cardActions}>
           <Button icon={<Play size={14} />} onClick={() => onClick(app)}>
             {t("appCenter.openApp", "打开应用")}
           </Button>
           {onUninstall && (
-            <Button
-              danger
-              icon={<Trash2 size={14} />}
-              onClick={() => onUninstall(app)}
+            <Dropdown
+              menu={{
+                items: [
+                  {
+                    key: "uninstall",
+                    label: t("appCenter.uninstall", "卸载"),
+                    danger: true,
+                    icon: <Trash2 size={14} />,
+                    onClick: () => onUninstall(app),
+                  },
+                ],
+              }}
+              trigger={["click"]}
             >
-              {t("appCenter.uninstall", "卸载")}
-            </Button>
+              <Button
+                aria-label={t("common.more")}
+                icon={<MoreHorizontal size={16} />}
+              />
+            </Dropdown>
           )}
         </div>
       </Card>

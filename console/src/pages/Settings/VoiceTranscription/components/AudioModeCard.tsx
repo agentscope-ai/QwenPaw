@@ -1,3 +1,4 @@
+import InlineHelp from "@/components/InlineHelp";
 import { PreferenceChoice } from "@/components/interaction/PreferenceChoice";
 import { AudioLines, Mic } from "lucide-react";
 import { Card, Alert } from "antd";
@@ -22,10 +23,8 @@ export function AudioModeCard({
     <Card className={styles.card}>
       <h3 className={styles.cardTitle}>
         {t("voiceTranscription.audioModeLabel")}
+        <InlineHelp>{t("voiceTranscription.audioModeDescription")}</InlineHelp>
       </h3>
-      <p className={styles.cardDescription}>
-        {t("voiceTranscription.audioModeDescription")}
-      </p>
       <div className={styles.choiceGrid}>
         <PreferenceChoice
           label={t("voiceTranscription.modeAuto")}

@@ -1,0 +1,52 @@
+.stepper {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  max-width: 100%;
+  padding: 6px;
+  border-radius: 16px;
+  border: 1px solid var(--app-border-subtle);
+  background: var(--app-fill-faint);
+  &:focus-within {
+    border-color: var(--app-accent);
+  }
+  > button {
+    display: grid;
+    place-items: center;
+    flex: 0 0 36px;
+    height: 36px;
+    border: 0;
+    border-radius: 11px;
+    background: var(--app-surface);
+    color: var(--app-text);
+    cursor: pointer;
+    &:disabled {
+      opacity: 0.3;
+      cursor: not-allowed;
+    }
+    &:focus-visible {
+      outline: 2px solid var(--app-focus-ring);
+    }
+  }
+  :global(.ant-input-number),
+  :global(.qwenpaw-input-number) {
+    flex: 1;
+    width: 100% !important;
+    width: 100%;
+    min-width: 0;
+    font-size: 22px;
+    font-weight: 550;
+    font-variant-numeric: tabular-nums;
+  }
+  :global(.ant-input-number-input),
+  :global(.qwenpaw-input-number-input) {
+    font-size: 22px !important;
+    font-weight: 550;
+    text-align: center;
+    padding: 0;
+  }
+  &[data-disabled] {
+    opacity: 0.5;
+  }
+}

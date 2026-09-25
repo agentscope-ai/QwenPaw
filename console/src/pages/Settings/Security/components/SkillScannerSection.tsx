@@ -1,3 +1,4 @@
+import InlineHelp from "@/components/InlineHelp";
 import { useState, useCallback } from "react";
 import {
   Card,
@@ -220,13 +221,14 @@ export function SkillScannerSection() {
       title: t("security.skillScanner.scanAlerts.actions"),
       key: "actions",
       width: 200,
-      render: (_: unknown, record: BlockedSkillRecord, index: number) => (
+      render: (_: unknown, record: BlockedSkillRecord) => (
         <Space size="small">
           <Tooltip title={t("security.skillScanner.scanAlerts.viewFindings")}>
             <Button
               type="text"
               size="middle"
               style={darkBtnStyle}
+              aria-label={t("security.skillScanner.scanAlerts.viewFindings")}
               onClick={() =>
                 setFindingsModal({
                   open: true,
@@ -243,7 +245,10 @@ export function SkillScannerSection() {
               type="text"
               size="middle"
               style={darkBtnStyle}
-              onClick={() => handleAllowSkill(record, index)}
+              aria-label={t("security.skillScanner.scanAlerts.allowSkill")}
+              onClick={() =>
+                handleAllowSkill(record, blockedHistory.indexOf(record))
+              }
             >
               <ShieldCheck size={14} />
             </Button>
@@ -253,7 +258,8 @@ export function SkillScannerSection() {
               type="text"
               size="middle"
               danger
-              onClick={() => removeBlockedEntry(index)}
+              aria-label={t("security.skillScanner.scanAlerts.remove")}
+              onClick={() => removeBlockedEntry(blockedHistory.indexOf(record))}
             >
               <Trash2 size={14} />
             </Button>
@@ -322,12 +328,12 @@ export function SkillScannerSection() {
       <Card className={styles.formCard}>
         <div className={styles.skillScannerConfig}>
           <div className={styles.skillScannerConfigItem}>
-            <Tooltip title={t("security.skillScanner.modeTooltip")}>
-              <span className={styles.skillScannerLabel}>
-                {t("security.skillScanner.mode")}
-              </span>
-            </Tooltip>
+            <span className={styles.skillScannerLabel}>
+              {t("security.skillScanner.mode")}
+              <InlineHelp>{t("security.skillScanner.modeTooltip")}</InlineHelp>
+            </span>
             <Select
+              aria-label={t("security.skillScanner.mode")}
               value={config.mode}
               onChange={handleModeChange}
               disabled={saving}
@@ -344,12 +350,14 @@ export function SkillScannerSection() {
           </div>
 
           <div className={styles.skillScannerConfigItem}>
-            <Tooltip title={t("security.skillScanner.timeoutTooltip")}>
-              <span className={styles.skillScannerLabel}>
-                {t("security.skillScanner.timeout")}
-              </span>
-            </Tooltip>
+            <span className={styles.skillScannerLabel}>
+              {t("security.skillScanner.timeout")}
+              <InlineHelp>
+                {t("security.skillScanner.timeoutTooltip")}
+              </InlineHelp>
+            </span>
             <InputNumber
+              aria-label={t("security.skillScanner.timeout")}
               min={5}
               max={300}
               value={pendingTimeout ?? config.timeout}
@@ -403,7 +411,12 @@ export function SkillScannerSection() {
                       dataSource={blockedHistory}
                       columns={blockedColumns}
                       rowKey={(_, idx) => String(idx)}
-                      pagination={false}
+                      pagination={{
+                        pageSize: 10,
+                        hideOnSinglePage: true,
+                        showSizeChanger: false,
+                      }}
+                      scroll={{ x: 640 }}
                       size="small"
                     />
                   )}
@@ -439,7 +452,12 @@ export function SkillScannerSection() {
                       dataSource={whitelist}
                       columns={whitelistColumns}
                       rowKey="skill_name"
-                      pagination={false}
+                      pagination={{
+                        pageSize: 10,
+                        hideOnSinglePage: true,
+                        showSizeChanger: false,
+                      }}
+                      scroll={{ x: 640 }}
                       size="small"
                     />
                   )}

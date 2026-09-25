@@ -1,6 +1,7 @@
+import { Tabs } from "antd";
 import { useAutoSave } from "@/hooks/useAutoSave";
 import { useState, useMemo, useEffect, useCallback } from "react";
-import { Button, Form, Tabs } from "@agentscope-ai/design";
+import { Button, Form } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
 import { useSearchParams } from "react-router-dom";
 import { useAgentConfig } from "./useAgentConfig.tsx";

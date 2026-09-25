@@ -1,3 +1,5 @@
+import { NumberStepper as InputNumber } from "@/components/interaction/NumberStepper";
+import { SettingsField } from "@/components/interaction/SettingsField";
 import {
   Form,
   Card,
@@ -5,7 +7,6 @@ import {
   Input,
   Collapse,
   Select,
-  InputNumber,
 } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
 import { SliderWithValue } from "./SliderWithValue";
@@ -81,41 +82,17 @@ export function LightContextCard({ maxInputLength }: LightContextCardProps) {
       className={styles.formCard}
       title={t("agentConfig.lightContextTitle")}
     >
-      <Form.Item
-        label={t("agentConfig.dialogPath")}
-        name={["light_context_config", "dialog_path"]}
-        tooltip={t("agentConfig.dialogPathTooltip")}
-      >
-        <Input placeholder={t("agentConfig.dialogPathPlaceholder")} />
-      </Form.Item>
-
-      <Form.Item
-        label={t("agentConfig.tokenCountEstimateDivisor")}
-        name={["light_context_config", "token_count_estimate_divisor"]}
-        rules={[
-          {
-            required: true,
-            message: t("agentConfig.tokenCountEstimateDivisorRequired"),
-          },
-        ]}
-        tooltip={t("agentConfig.tokenCountEstimateDivisorTooltip")}
-      >
-        <SliderWithValue
-          min={2}
-          max={5}
-          step={0.25}
-          marks={{ 2: "2", 3: "3", 4: "4", 5: "5" }}
-        />
-      </Form.Item>
-
       <Collapse
+        className={styles.contextSections}
+        ghost
+        defaultActiveKey={["contextCompact"]}
         items={[
           {
             key: "contextCompact",
             label: t("agentConfig.contextCompactCollapseLabel"),
             children: (
               <>
-                <Form.Item
+                <SettingsField
                   label={t("agentConfig.contextCompactEnabled")}
                   name={[
                     "light_context_config",
@@ -126,9 +103,9 @@ export function LightContextCard({ maxInputLength }: LightContextCardProps) {
                   tooltip={t("agentConfig.contextCompactEnabledTooltip")}
                 >
                   <Switch />
-                </Form.Item>
+                </SettingsField>
 
-                <Form.Item
+                <SettingsField
                   label={t("agentConfig.contextCompactRatio")}
                   name={[
                     "light_context_config",
@@ -149,9 +126,9 @@ export function LightContextCard({ maxInputLength }: LightContextCardProps) {
                     step={0.01}
                     marks={{ 0.1: "0.1", 0.5: "0.5", 0.9: "0.9" }}
                   />
-                </Form.Item>
+                </SettingsField>
 
-                <Form.Item
+                <SettingsField
                   label={t("agentConfig.contextCompactThreshold")}
                   tooltip={t("agentConfig.contextCompactThresholdTooltip")}
                 >
@@ -166,9 +143,9 @@ export function LightContextCard({ maxInputLength }: LightContextCardProps) {
                       "agentConfig.contextCompactThresholdPlaceholder",
                     )}
                   />
-                </Form.Item>
+                </SettingsField>
 
-                <Form.Item
+                <SettingsField
                   label={t("agentConfig.contextCompactReserveRatio")}
                   name={[
                     "light_context_config",
@@ -191,9 +168,9 @@ export function LightContextCard({ maxInputLength }: LightContextCardProps) {
                     step={0.01}
                     marks={{ 0.01: "0.01", 0.15: "0.15", 0.3: "0.3" }}
                   />
-                </Form.Item>
+                </SettingsField>
 
-                <Form.Item
+                <SettingsField
                   label={t("agentConfig.contextCompactReserveThreshold")}
                   tooltip={t(
                     "agentConfig.contextCompactReserveThresholdTooltip",
@@ -210,10 +187,10 @@ export function LightContextCard({ maxInputLength }: LightContextCardProps) {
                       "agentConfig.contextCompactReserveThresholdPlaceholder",
                     )}
                   />
-                </Form.Item>
+                </SettingsField>
 
                 {isScrollStrategy && (
-                  <Form.Item
+                  <SettingsField
                     label={t("agentConfig.historyRetentionDays")}
                     name={[
                       "light_context_config",
@@ -241,7 +218,7 @@ export function LightContextCard({ maxInputLength }: LightContextCardProps) {
                       precision={0}
                       style={{ width: "100%" }}
                     />
-                  </Form.Item>
+                  </SettingsField>
                 )}
               </>
             ),
@@ -251,7 +228,7 @@ export function LightContextCard({ maxInputLength }: LightContextCardProps) {
             label: t("agentConfig.toolResultPruningCollapseLabel"),
             children: (
               <>
-                <Form.Item
+                <SettingsField
                   label={t("agentConfig.toolResultCompactEnabled")}
                   name={[
                     "light_context_config",
@@ -262,11 +239,11 @@ export function LightContextCard({ maxInputLength }: LightContextCardProps) {
                   tooltip={t("agentConfig.toolResultCompactEnabledTooltip")}
                 >
                   <Switch />
-                </Form.Item>
+                </SettingsField>
 
                 {showTieredToolResultSettings && (
                   <>
-                    <Form.Item
+                    <SettingsField
                       label={t("agentConfig.toolResultCompactRecentN")}
                       name={[
                         "light_context_config",
@@ -289,9 +266,9 @@ export function LightContextCard({ maxInputLength }: LightContextCardProps) {
                         step={1}
                         marks={{ 1: "1", 5: "5", 10: "10" }}
                       />
-                    </Form.Item>
+                    </SettingsField>
 
-                    <Form.Item
+                    <SettingsField
                       label={t("agentConfig.toolResultCompactOldThreshold")}
                       name={[
                         "light_context_config",
@@ -315,11 +292,11 @@ export function LightContextCard({ maxInputLength }: LightContextCardProps) {
                           "agentConfig.toolResultCompactOldThresholdPlaceholder",
                         )}
                       />
-                    </Form.Item>
+                    </SettingsField>
                   </>
                 )}
 
-                <Form.Item
+                <SettingsField
                   label={t("agentConfig.toolResultCompactRecentThreshold")}
                   name={[
                     "light_context_config",
@@ -343,9 +320,9 @@ export function LightContextCard({ maxInputLength }: LightContextCardProps) {
                       "agentConfig.toolResultCompactRecentThresholdPlaceholder",
                     )}
                   />
-                </Form.Item>
+                </SettingsField>
 
-                <Form.Item
+                <SettingsField
                   label={t("agentConfig.toolResultCompactRetentionDays")}
                   name={[
                     "light_context_config",
@@ -370,11 +347,11 @@ export function LightContextCard({ maxInputLength }: LightContextCardProps) {
                     step={1}
                     marks={{ 1: "1", 30: "30", 365: "365" }}
                   />
-                </Form.Item>
+                </SettingsField>
 
                 {showTieredToolResultSettings && (
                   <>
-                    <Form.Item
+                    <SettingsField
                       label={t("agentConfig.exemptFileExtensions")}
                       name={[
                         "light_context_config",
@@ -391,9 +368,9 @@ export function LightContextCard({ maxInputLength }: LightContextCardProps) {
                         tokenSeparators={[",", " "]}
                         style={{ width: "100%" }}
                       />
-                    </Form.Item>
+                    </SettingsField>
 
-                    <Form.Item
+                    <SettingsField
                       label={t("agentConfig.exemptToolNames")}
                       name={[
                         "light_context_config",
@@ -410,7 +387,7 @@ export function LightContextCard({ maxInputLength }: LightContextCardProps) {
                         tokenSeparators={[",", " "]}
                         style={{ width: "100%" }}
                       />
-                    </Form.Item>
+                    </SettingsField>
                   </>
                 )}
               </>
@@ -420,6 +397,52 @@ export function LightContextCard({ maxInputLength }: LightContextCardProps) {
             key: "visualCompact",
             label: t("agentConfig.visualCompactCollapseLabel"),
             children: <VisualCompactSettings />,
+          },
+        ]}
+      />
+      <Collapse
+        className={styles.contextSections}
+        ghost
+        items={[
+          {
+            key: "estimation",
+            label: t("agentConfig.tokenCountEstimateDivisor"),
+            forceRender: true,
+            children: (
+              <>
+                <SettingsField
+                  label={t("agentConfig.dialogPath")}
+                  name={["light_context_config", "dialog_path"]}
+                  tooltip={t("agentConfig.dialogPathTooltip")}
+                >
+                  <Input placeholder={t("agentConfig.dialogPathPlaceholder")} />
+                </SettingsField>
+
+                <SettingsField
+                  label={t("agentConfig.tokenCountEstimateDivisor")}
+                  name={[
+                    "light_context_config",
+                    "token_count_estimate_divisor",
+                  ]}
+                  rules={[
+                    {
+                      required: true,
+                      message: t(
+                        "agentConfig.tokenCountEstimateDivisorRequired",
+                      ),
+                    },
+                  ]}
+                  tooltip={t("agentConfig.tokenCountEstimateDivisorTooltip")}
+                >
+                  <SliderWithValue
+                    min={2}
+                    max={5}
+                    step={0.25}
+                    marks={{ 2: "2", 3: "3", 4: "4", 5: "5" }}
+                  />
+                </SettingsField>
+              </>
+            ),
           },
         ]}
       />

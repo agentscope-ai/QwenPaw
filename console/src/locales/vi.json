@@ -34,7 +34,11 @@
     "clear": "Xóa trắng",
     "paste": "Dán",
     "yes": "Có",
-    "no": "Không"
+    "no": "Không",
+    "configure": "Cấu hình",
+    "all": "Tất cả",
+    "decrease": "Giảm",
+    "increase": "Tăng"
   },
   "harnesses": {
     "connected": "Đã kết nối",
@@ -69,7 +73,7 @@
   "portabilityImport": {
     "qwenpawOnly": "Chỉ các tác tử sử dụng backend QwenPaw mới có thể nhập dữ liệu. Hãy chọn tác tử QwenPaw để tiếp tục.",
     "title": "Nhập dữ liệu",
-    "description": "Chuyển cuộc trò chuyện và thiết lập công cụ từ ứng dụng AI khác vào QwenPaw.",
+    "description": "Nhập dữ liệu từ ứng dụng khác vào QwenPaw. Chọn nguồn, xem trước và chọn nội dung. Dữ liệu chỉ được ghi vào QwenPaw khi bạn bắt đầu nhập.",
     "steps": {
       "sources": "Ứng dụng",
       "inventory": "Chọn nội dung",
@@ -2054,7 +2058,10 @@
     "noTools": "Không có công cụ nào từ máy chủ MCP này",
     "toolsLoadError": "Tải danh sách công cụ từ máy chủ MCP thất bại",
     "toolsConnecting": "Máy chủ MCP đang kết nối, vui lòng thử lại sau",
-    "toolSchema": "Mô tả & Tham số"
+    "toolSchema": "Mô tả & Tham số",
+    "local": "Cục bộ",
+    "remote": "Từ xa",
+    "invalidJson": "Nhập JSON hợp lệ có chứa ít nhất một máy chủ MCP."
   },
   "market": {
     "searchPlaceholder": "Tìm kiếm kỹ năng trên các nền tảng",

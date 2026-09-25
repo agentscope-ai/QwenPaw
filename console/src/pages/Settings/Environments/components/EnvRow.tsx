@@ -4,7 +4,7 @@ import {
   Eye as EyeOutlined,
   EyeOff as EyeInvisibleOutlined,
 } from "lucide-react";
-import { useState } from "react";
+import { useId, useState } from "react";
 import { useTranslation } from "react-i18next";
 import styles from "../index.module.less";
 
@@ -36,11 +36,13 @@ export function EnvRow({
   onRemove,
 }: EnvRowProps) {
   const { t } = useTranslation();
+  const fieldId = useId();
   const [isPasswordVisible, setIsPasswordVisible] = useState(false);
 
   return (
     <div className={`${styles.envRow} ${checked ? styles.envRowSelected : ""}`}>
       <Checkbox
+        aria-label={`${t("environments.variable")}: ${row.key || idx + 1}`}
         checked={checked}
         onChange={() => onToggle(idx)}
         className={styles.rowCheckbox}
@@ -52,10 +54,15 @@ export function EnvRow({
             error ? styles.inputGroupError : ""
           }`}
         >
-          <span className={styles.inputLabel}>Key</span>
+          <label htmlFor={`${fieldId}-key`} className={styles.inputLabel}>
+            {t("environments.key")}
+          </label>
           <Input
+            id={`${fieldId}-key`}
+            aria-invalid={!!error}
+            aria-describedby={error ? `${fieldId}-error` : undefined}
             value={row.key}
-            placeholder="Variable Name"
+            placeholder={t("environments.variableNamePlaceholder")}
             disabled={!row.isNew}
             onChange={(e) => onChange(idx, "key", e.target.value)}
             className={styles.inputField}
@@ -64,10 +71,13 @@ export function EnvRow({
         </div>
 
         <div className={styles.inputGroup}>
-          <span className={styles.inputLabel}>Value</span>
+          <label htmlFor={`${fieldId}-value`} className={styles.inputLabel}>
+            {t("environments.value")}
+          </label>
           <Input
+            id={`${fieldId}-value`}
             value={row.value}
-            placeholder="Value"
+            placeholder={t("environments.valuePlaceholder")}
             type={isPasswordVisible ? "text" : "password"}
             onChange={(e) => onChange(idx, "value", e.target.value)}
             className={styles.inputField}
@@ -110,7 +120,11 @@ export function EnvRow({
         </button>
       </div>
 
-      {error && <div className={styles.rowError}>{error}</div>}
+      {error && (
+        <div id={`${fieldId}-error`} role="alert" className={styles.rowError}>
+          {error}
+        </div>
+      )}
     </div>
   );
 }

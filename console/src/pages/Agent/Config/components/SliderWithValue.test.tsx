@@ -14,33 +14,6 @@ vi.mock("@number-flow/react", () => ({
   }) => <span>{new Intl.NumberFormat("en", format).format(value)}</span>,
 }));
 
-// Mock the Slider component from @agentscope-ai/design
-vi.mock("@agentscope-ai/design", async () => {
-  const actual = await vi.importActual("@agentscope-ai/design");
-  return {
-    ...actual,
-    Slider: ({
-      value,
-      onChange,
-      ...props
-    }: {
-      value?: number;
-      onChange?: (value: number) => void;
-      min?: number;
-      max?: number;
-      step?: number;
-    }) => (
-      <input
-        type="range"
-        data-testid="slider"
-        value={value ?? 0}
-        onChange={(e) => onChange?.(Number(e.target.value))}
-        {...props}
-      />
-    ),
-  };
-});
-
 describe("SliderWithValue", () => {
   it("renders without crashing", () => {
     const { container } = renderWithProviders(
@@ -75,8 +48,8 @@ describe("SliderWithValue", () => {
       />,
     );
 
-    const slider = screen.getByTestId("slider");
-    fireEvent.change(slider, { target: { value: "0.8" } });
-    expect(handleChange).toHaveBeenCalledWith(0.8);
+    const slider = screen.getByRole("slider");
+    fireEvent.keyDown(slider, { key: "ArrowRight", keyCode: 39 });
+    expect(handleChange).toHaveBeenCalledWith(0.51);
   });
 });

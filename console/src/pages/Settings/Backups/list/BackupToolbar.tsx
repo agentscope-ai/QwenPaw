@@ -20,6 +20,7 @@ export default function BackupToolbar({ searchQuery, onSearchChange }: Props) {
       <Input
         className={styles.searchInput}
         prefix={<SearchOutlined size="1em" />}
+        aria-label={t("backup.searchPlaceholder")}
         placeholder={t("backup.searchPlaceholder")}
         value={searchQuery}
         onChange={(e) => onSearchChange(e.target.value)}

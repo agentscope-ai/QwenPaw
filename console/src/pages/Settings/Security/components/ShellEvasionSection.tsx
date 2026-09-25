@@ -56,6 +56,7 @@ export function ShellEvasionSection({
                 )}
               </div>
               <Switch
+                aria-label={displayName}
                 size="small"
                 checked={isEnabled}
                 onChange={(val) => onToggle(checkKey, val)}

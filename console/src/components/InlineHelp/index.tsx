@@ -4,7 +4,14 @@ import { CircleHelp } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import styles from "./index.module.less";
 
-export default function InlineHelp({ children }: { children: ReactNode }) {
+export default function InlineHelp({
+  children,
+  inline = false,
+}: {
+  children: ReactNode;
+  inline?: boolean;
+}) {
+  const Trigger = inline ? "span" : "button";
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   return (
@@ -14,21 +21,28 @@ export default function InlineHelp({ children }: { children: ReactNode }) {
       onOpenChange={setOpen}
       trigger={["hover", "focus"]}
     >
-      <button
-        type="button"
+      <Trigger
+        type={inline ? undefined : "button"}
+        role={inline ? "button" : undefined}
+        tabIndex={inline ? 0 : undefined}
         onClick={(event) => {
           event.preventDefault();
           event.stopPropagation();
           setOpen(true);
         }}
         onKeyDown={(event) => {
+          if (inline && (event.key === "Enter" || event.key === " ")) {
+            event.preventDefault();
+            event.stopPropagation();
+            setOpen(true);
+          }
           if (event.key === "Escape") setOpen(false);
         }}
         className={styles.help}
         aria-label={t("common.help")}
       >
         <CircleHelp size={15} strokeWidth={1.7} aria-hidden />
-      </button>
+      </Trigger>
     </Tooltip>
   );
 }

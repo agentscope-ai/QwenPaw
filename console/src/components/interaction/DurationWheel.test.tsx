@@ -47,6 +47,26 @@ describe("DurationWheel external selections", () => {
     ).toBe(settled);
   });
 
+  it("cancels an in-flight wheel and retains the value when disabled", () => {
+    vi.useFakeTimers({
+      toFake: ["requestAnimationFrame", "cancelAnimationFrame", "performance"],
+    });
+    const onChange = vi.fn();
+    const view = render(<DurationWheel value={300} onChange={onChange} />);
+    view.rerender(<DurationWheel value={720} onChange={onChange} />);
+    act(() => vi.advanceTimersByTime(100));
+    view.rerender(<DurationWheel value={720} disabled onChange={onChange} />);
+    expect(view.queryAllByRole("spinbutton")).toHaveLength(0);
+    expect(view.getByText("12")).toBeInTheDocument();
+    act(() => vi.advanceTimersByTime(1000));
+    expect(onChange).not.toHaveBeenCalled();
+    view.rerender(<DurationWheel value={720} onChange={onChange} />);
+    expect(view.getAllByRole("spinbutton")[0]).toHaveAttribute(
+      "aria-valuenow",
+      "12",
+    );
+  });
+
   it("updates directly when reduced motion is requested", () => {
     preferences.reduced = true;
     const view = render(<DurationWheel value={300} />);

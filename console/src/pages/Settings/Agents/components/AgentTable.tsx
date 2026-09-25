@@ -41,7 +41,7 @@ const THIRD_PARTY_AGENT_NAMES: Record<string, string> = {
   qoder: "Qoder",
 };
 
-interface AgentTableProps {
+export interface AgentTableProps {
   agents: AgentSummary[];
   loading: boolean;
   reordering: boolean;

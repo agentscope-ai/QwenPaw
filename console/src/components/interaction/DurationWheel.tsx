@@ -17,7 +17,9 @@ const minutes = Array.from({ length: 60 }, (_, value) => ({
 export function DurationWheel({
   value = 360,
   onChange,
+  disabled = false,
 }: {
+  disabled?: boolean;
   value?: number;
   onChange?: (value: number) => void;
 }) {
@@ -45,38 +47,50 @@ export function DurationWheel({
           .querySelectorAll("ul")
           .forEach((list) => list.setAttribute("aria-hidden", "true"));
       });
-  }, [hour, minute, t]);
+  }, [hour, minute, t, disabled]);
   return (
-    <div ref={root} className={styles.duration}>
+    <div ref={root} className={styles.duration} aria-disabled={disabled}>
       <div className={styles.columns}>
         <div role="group" aria-label={t("heartbeat.unitHours")}>
-          <WheelPickerWrapper className={styles.wheel}>
-            <WheelPicker
-              options={hours}
-              value={hour}
-              onValueChange={(next) => onChange?.(next * 60 + minute)}
-              reducedMotion={!!reducedMotion}
-              animateValueChanges={!reducedMotion}
-              infinite
-              visibleCount={8}
-              optionItemHeight={72}
-            />
-          </WheelPickerWrapper>
+          {disabled ? (
+            <span className={styles.disabledValue}>
+              {String(hour).padStart(2, "0")}
+            </span>
+          ) : (
+            <WheelPickerWrapper className={styles.wheel}>
+              <WheelPicker
+                options={hours}
+                value={hour}
+                onValueChange={(next) => onChange?.(next * 60 + minute)}
+                reducedMotion={!!reducedMotion}
+                animateValueChanges={!reducedMotion}
+                infinite
+                visibleCount={8}
+                optionItemHeight={72}
+              />
+            </WheelPickerWrapper>
+          )}
           <span className={styles.unit}>{t("heartbeat.unitHours")}</span>
         </div>
         <div role="group" aria-label={t("heartbeat.unitMinutes")}>
-          <WheelPickerWrapper className={styles.wheel}>
-            <WheelPicker
-              options={minutes}
-              value={minute}
-              onValueChange={(next) => onChange?.(hour * 60 + next)}
-              reducedMotion={!!reducedMotion}
-              animateValueChanges={!reducedMotion}
-              infinite
-              visibleCount={8}
-              optionItemHeight={72}
-            />
-          </WheelPickerWrapper>
+          {disabled ? (
+            <span className={styles.disabledValue}>
+              {String(minute).padStart(2, "0")}
+            </span>
+          ) : (
+            <WheelPickerWrapper className={styles.wheel}>
+              <WheelPicker
+                options={minutes}
+                value={minute}
+                onValueChange={(next) => onChange?.(hour * 60 + next)}
+                reducedMotion={!!reducedMotion}
+                animateValueChanges={!reducedMotion}
+                infinite
+                visibleCount={8}
+                optionItemHeight={72}
+              />
+            </WheelPickerWrapper>
+          )}
           <span className={styles.unit}>{t("heartbeat.unitMinutes")}</span>
         </div>
       </div>

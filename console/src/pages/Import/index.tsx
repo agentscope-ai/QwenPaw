@@ -1,3 +1,4 @@
+import InlineHelp from "@/components/InlineHelp";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
@@ -16,7 +17,7 @@ import {
   Tag,
   Tooltip,
 } from "antd";
-import { CheckCircle2, CircleAlert, Download, PackageOpen } from "lucide-react";
+import { CheckCircle2, CircleAlert, PackageOpen } from "lucide-react";
 import { PageHeader } from "@/components/PageHeader";
 import { useAgentStore } from "@/stores/agentStore";
 import { supportsPortabilityImport } from "@/utils/agentBackend";
@@ -432,15 +433,9 @@ function ImportWorkflow() {
       <PageHeader
         parent={t("nav.marketplace")}
         current={t("portabilityImport.title")}
+        extra={<InlineHelp>{t("portabilityImport.description")}</InlineHelp>}
       />
       <main className={styles.content}>
-        <div className={styles.intro}>
-          <Download size={28} />
-          <div>
-            <h2>{t("portabilityImport.title")}</h2>
-            <p>{t("portabilityImport.description")}</p>
-          </div>
-        </div>
         {job && (
           <Alert
             type={job.agent_id === selectedAgent ? "info" : "warning"}
@@ -477,8 +472,12 @@ function ImportWorkflow() {
         {!job && (
           <section className={styles.section}>
             <div className={styles.sectionHeading}>
-              <h3>{t("portabilityImport.chooseSources")}</h3>
-              <p>{t("portabilityImport.chooseSourcesHint")}</p>
+              <h3>
+                {t("portabilityImport.chooseSources")}{" "}
+                <InlineHelp>
+                  {t("portabilityImport.chooseSourcesHint")}
+                </InlineHelp>
+              </h3>
             </div>
             {loading && !sources.length ? (
               <div className={styles.center}>

@@ -169,3 +169,20 @@
     flex-wrap: wrap;
   }
 }
+
+.sectionHeading h3 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.sourceCard {
+  box-shadow: none;
+}
+.sourceCard:has(input:checked) {
+  border-color: var(--app-accent-border);
+  background: var(--app-accent-faint);
+}
+.actions {
+  flex-wrap: wrap;
+  align-items: center;
+}

@@ -1112,3 +1112,39 @@
     position: static;
   }
 }
+
+.skillNameButton {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+  &:focus-visible {
+    outline: 2px solid var(--app-focus-ring);
+    outline-offset: 3px;
+  }
+}
+.skillCard {
+  min-height: 0;
+  box-shadow: none;
+}
+.cardTopRow {
+  justify-content: flex-end;
+}
+.cardFooter {
+  position: static;
+  opacity: 1;
+  transform: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 16px;
+}
+.titleRow {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}

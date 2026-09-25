@@ -630,3 +630,51 @@
 .tabContent {
   margin-inline: 0;
 }
+
+.mainTabs {
+  min-width: 0;
+  :global(.qwenpaw-tabs-nav),
+  :global(.ant-tabs-nav) {
+    padding: 4px 12px;
+    border: 1px solid var(--app-border-subtle);
+    border-radius: 12px;
+    background: var(--app-surface);
+  }
+  :global(.qwenpaw-tabs-tab),
+  :global(.ant-tabs-tab) {
+    min-height: 44px;
+  }
+  :global(.qwenpaw-card),
+  :global(.ant-card) {
+    box-shadow: none;
+  }
+  :global(.qwenpaw-card-body),
+  :global(.ant-card-body) {
+    padding: 24px;
+  }
+  :global(.qwenpaw-form-item-label > label),
+  :global(.ant-form-item-label > label) {
+    height: auto;
+    white-space: normal;
+    line-height: 1.5;
+  }
+}
+.tabContent {
+  max-width: none;
+}
+@media (max-width: 600px) {
+  .mainTabs :global(.qwenpaw-card-body),
+  .mainTabs :global(.ant-card-body) {
+    padding: 16px;
+  }
+}
+
+.skillScannerLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.skillScannerConfig {
+  flex-wrap: wrap;
+  gap: 24px;
+}

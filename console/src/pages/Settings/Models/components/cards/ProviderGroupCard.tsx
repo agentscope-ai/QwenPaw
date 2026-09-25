@@ -80,7 +80,9 @@ export const ProviderGroupCard = React.memo(function ProviderGroupCard({
           const label =
             VARIANT_LABELS[provider.provider_variant || ""] || provider.name;
           return (
-            <div
+            <button
+              type="button"
+              aria-pressed={idx === activeIdx}
               key={provider.id}
               className={[
                 styles.groupSegBtn,
@@ -95,7 +97,7 @@ export const ProviderGroupCard = React.memo(function ProviderGroupCard({
                 ].join(" ")}
               />
               {label}
-            </div>
+            </button>
           );
         })}
       </div>
@@ -103,7 +105,9 @@ export const ProviderGroupCard = React.memo(function ProviderGroupCard({
       {/* Content */}
       <div className={styles.groupCardContent}>
         <div className={styles.groupCardField}>
-          <span className={styles.groupCardFieldLabel}>Endpoint</span>
+          <span className={styles.groupCardFieldLabel}>
+            {t("models.baseURL")}
+          </span>
           <div className={styles.groupCardMono}>
             {activeProvider.base_url || "—"}
           </div>

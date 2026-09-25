@@ -193,3 +193,33 @@
     align-items: flex-start;
   }
 }
+
+.titleWithHelp {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.cardExtra {
+  flex-wrap: wrap;
+  row-gap: 8px;
+}
+.toolbarLeft,
+.toolbarRight {
+  flex-wrap: wrap;
+}
+@media (max-width: 700px) {
+  .content :global(.ant-card-head-wrapper) {
+    flex-wrap: wrap;
+    gap: 12px;
+    padding-block: 16px;
+  }
+  .content :global(.ant-card-extra) {
+    margin-left: 0;
+  }
+  .toolbar {
+    align-items: stretch;
+  }
+  .toolbarRight {
+    width: 100%;
+  }
+}

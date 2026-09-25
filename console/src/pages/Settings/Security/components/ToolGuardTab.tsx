@@ -1,3 +1,4 @@
+import { SettingsField } from "@/components/interaction/SettingsField";
 import {
   Form,
   Switch,
@@ -76,23 +77,24 @@ export function ToolGuardTab({
               denied_tools: config?.denied_tools ?? [],
             }}
           >
-            <Form.Item
+            <SettingsField
               label={t("security.enabled")}
               name="enabled"
               valuePropName="checked"
               tooltip={t("security.enabledTooltip")}
             >
               <Switch onChange={(val) => setEnabled(val)} />
-            </Form.Item>
-            <Form.Item
+            </SettingsField>
+            <SettingsField
               label={t("security.sandboxEnabled")}
+              valuePropName="checked"
               tooltip={t("security.sandboxEnabledTooltip")}
             >
               <Switch
                 checked={sandboxEnabled}
                 onChange={(val) => setSandboxEnabled(val)}
               />
-            </Form.Item>
+            </SettingsField>
             {sandboxEnabled && sandboxReason === null && (
               <Alert
                 type="warning"
@@ -112,7 +114,7 @@ export function ToolGuardTab({
               />
             )}
             <div className={styles.toolGuardRow}>
-              <Form.Item
+              <SettingsField
                 label={t("security.guardedTools")}
                 name="guarded_tools"
                 tooltip={t("security.guardedToolsTooltip")}
@@ -126,9 +128,9 @@ export function ToolGuardTab({
                   allowClear
                   style={{ width: "100%" }}
                 />
-              </Form.Item>
+              </SettingsField>
 
-              <Form.Item
+              <SettingsField
                 label={t("security.deniedTools")}
                 name="denied_tools"
                 tooltip={t("security.deniedToolsTooltip")}
@@ -142,7 +144,7 @@ export function ToolGuardTab({
                   allowClear
                   style={{ width: "100%" }}
                 />
-              </Form.Item>
+              </SettingsField>
             </div>
           </Form>
         </Card>
@@ -162,7 +164,7 @@ export function ToolGuardTab({
           </Button>
         </div>
 
-        <Card className={styles.tableCard}>
+        <div>
           <RuleTable
             rules={mergedRules}
             enabled={enabled}
@@ -172,7 +174,7 @@ export function ToolGuardTab({
             onEditRule={onEditRule}
             onDeleteRule={onDeleteRule}
           />
-        </Card>
+        </div>
       </div>
 
       <div className={styles.sectionContainer}>

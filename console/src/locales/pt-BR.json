@@ -34,7 +34,11 @@
     "clear": "Limpar",
     "paste": "Colar",
     "yes": "Sim",
-    "no": "Nao"
+    "no": "Nao",
+    "configure": "Configurar",
+    "all": "Todos",
+    "decrease": "Diminuir",
+    "increase": "Aumentar"
   },
   "harnesses": {
     "connected": "Conectado",
@@ -69,7 +73,7 @@
   "portabilityImport": {
     "qwenpawOnly": "A importação está disponível apenas para agentes que usam o backend QwenPaw. Selecione um agente QwenPaw para continuar.",
     "title": "Importar",
-    "description": "Traga conversas e configurações de ferramentas de outros aplicativos de IA para o QwenPaw.",
+    "description": "Importe dados de outros aplicativos para o QwenPaw. Escolha a origem, visualize e selecione o conteúdo. Os dados só serão gravados no QwenPaw quando você iniciar a importação.",
     "steps": {
       "sources": "Aplicativos",
       "inventory": "Escolher conteúdo",
@@ -1278,7 +1282,10 @@
       "authEndpoint": "Authorization Endpoint (substituir)",
       "tokenEndpoint": "Token Endpoint (substituir)",
       "endpointHint": "Deixe em branco para descoberta automática do servidor MCP."
-    }
+    },
+    "local": "Local",
+    "remote": "Remoto",
+    "invalidJson": "Insira um JSON válido com pelo menos um servidor MCP."
   },
   "heartbeat": {
     "title": "Batimento",

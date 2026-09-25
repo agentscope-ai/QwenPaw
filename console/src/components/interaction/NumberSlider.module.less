@@ -101,3 +101,23 @@
     min-height: 44px;
   }
 }
+
+.withMarks {
+  padding-bottom: 22px;
+}
+.control :global(.ant-slider-mark),
+.control :global(.qwenpaw-slider-mark) {
+  top: 44px;
+  font-size: 11px;
+}
+.value {
+  display: inline-flex;
+  justify-content: center;
+  align-items: center;
+  max-width: 45%;
+  overflow: hidden;
+}
+.value:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}

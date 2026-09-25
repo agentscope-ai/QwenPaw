@@ -1,3 +1,4 @@
+import InlineHelp from "@/components/InlineHelp";
 import { PreferenceChoice } from "@/components/interaction/PreferenceChoice";
 import { MicOff, Cloud, Monitor } from "lucide-react";
 import { Card, Alert } from "antd";
@@ -24,10 +25,10 @@ export function ProviderTypeCard({
     <Card className={styles.card}>
       <h3 className={styles.cardTitle}>
         {t("voiceTranscription.providerTypeLabel")}
+        <InlineHelp>
+          {t("voiceTranscription.providerTypeDescription")}
+        </InlineHelp>
       </h3>
-      <p className={styles.cardDescription}>
-        {t("voiceTranscription.providerTypeDescription")}
-      </p>
       <div className={styles.choiceGrid}>
         <PreferenceChoice
           label={t("voiceTranscription.providerTypeDisabled")}

@@ -1,12 +1,10 @@
 import { NumberSlider } from "@/components/interaction/NumberSlider";
 import { useAutoSave } from "@/hooks/useAutoSave";
-import { Activity, Moon, Inbox, MessagesSquare } from "lucide-react";
 import { InteractiveCard } from "@/components/interaction/InteractiveCard";
-import { PreferenceChoice } from "@/components/interaction/PreferenceChoice";
 import { useEffect, useState } from "react";
 import { Form, Switch } from "@agentscope-ai/design";
 import { useAppMessage } from "../../../hooks/useAppMessage";
-import { TimePicker, Collapse, Spin } from "antd";
+import { TimePicker, Segmented, Spin } from "antd";
 import dayjs from "dayjs";
 import customParseFormat from "dayjs/plugin/customParseFormat";
 import { useTranslation } from "react-i18next";
@@ -156,21 +154,19 @@ function HeartbeatPage() {
         onFinish={() => void flush()}
         className={styles.schedule}
       >
-        <InteractiveCard tilt={2} className={styles.pulseCard}>
+        <InteractiveCard
+          tilt={enabled ? 2 : 0}
+          className={styles.pulseCard}
+          data-disabled={!enabled}
+        >
           <div className={styles.pulseHeader}>
-            <span className={styles.pulseIcon}>
-              <Activity size={22} />
-            </span>
-            <div>
-              <h2>{t("heartbeat.title")}</h2>
-              <span>{t(enabled ? "common.enabled" : "common.disabled")}</span>
-            </div>
+            <h2 id="heartbeat-interval-label">{t("heartbeat.every")}</h2>
             <Form.Item name="enabled" valuePropName="checked" noStyle>
               <Switch aria-label={t("heartbeat.enabled")} />
             </Form.Item>
           </div>
           <Form.Item
-            label={t("heartbeat.every")}
+            aria-labelledby="heartbeat-interval-label"
             name="intervalMinutes"
             rules={[
               {
@@ -182,7 +178,7 @@ function HeartbeatPage() {
               },
             ]}
           >
-            <DurationWheel />
+            <DurationWheel disabled={!enabled} />
           </Form.Item>
           <div className={styles.presets}>
             {[1, 3, 6, 12].map((value) => (
@@ -190,6 +186,7 @@ function HeartbeatPage() {
                 key={value}
                 type="button"
                 data-press
+                disabled={!enabled}
                 aria-pressed={intervalMinutes === value * 60}
                 onClick={() => {
                   form.setFieldsValue({ intervalMinutes: value * 60 });
@@ -206,32 +203,25 @@ function HeartbeatPage() {
           agentId={selectedAgent || "default"}
         />
         <section className={styles.delivery}>
-          <h2>{t("heartbeat.target")}</h2>
           <Form.Item name="target" hidden>
             <input />
           </Form.Item>
-          <div className={styles.targetChoices}>
-            {TARGET_OPTIONS.map((option, index) => (
-              <PreferenceChoice
-                key={option.value}
-                selected={target === option.value}
-                label={t(option.labelKey)}
-                icon={
-                  index === 0 ? (
-                    <Moon size={20} />
-                  ) : index === 1 ? (
-                    <MessagesSquare size={20} />
-                  ) : (
-                    <Inbox size={20} />
-                  )
-                }
-                onSelect={() => {
-                  form.setFieldValue("target", option.value);
-                  schedule();
-                }}
-              />
-            ))}
+          <div className={styles.settingRow}>
+            <h2>{t("heartbeat.target")}</h2>
+            <Segmented
+              aria-label={t("heartbeat.target")}
+              value={target}
+              options={TARGET_OPTIONS.map((option) => ({
+                value: option.value,
+                label: t(option.labelKey),
+              }))}
+              onChange={(value) => {
+                form.setFieldValue("target", value);
+                schedule();
+              }}
+            />
           </div>
+          <div className={styles.divider} />
           <div className={styles.hoursHeader}>
             <h2>{t("heartbeat.activeHours")}</h2>
             <Form.Item name="useActiveHours" valuePropName="checked" noStyle>
@@ -263,48 +253,28 @@ function HeartbeatPage() {
               ) : null
             }
           </Form.Item>
-
-          <Collapse
-            ghost
-            items={[
-              {
-                key: "timeout",
-                label: t("heartbeat.timeoutSeconds"),
-                forceRender: true,
-                children: (
-                  <>
-                    {" "}
-                    <Form.Item
-                      name="timeoutSeconds"
-                      label={t("heartbeat.timeoutSeconds")}
-                      rules={[
-                        {
-                          required: true,
-                          message: t("heartbeat.timeoutRequired"),
-                        },
-                        {
-                          type: "number",
-                          min: 1,
-                          message: t("heartbeat.timeoutMin"),
-                        },
-                        {
-                          type: "number",
-                          max: HEARTBEAT_MAX_TIMEOUT_SECONDS,
-                          message: t("heartbeat.timeoutMax"),
-                        },
-                      ]}
-                    >
-                      <NumberSlider
-                        min={1}
-                        max={HEARTBEAT_MAX_TIMEOUT_SECONDS}
-                        label={t("heartbeat.timeoutSeconds")}
-                      />
-                    </Form.Item>
-                  </>
-                ),
-              },
-            ]}
-          />
+          <div className={styles.divider} />
+          <div className={styles.timeoutRow}>
+            <h2>{t("heartbeat.timeoutSeconds")}</h2>
+            <Form.Item
+              name="timeoutSeconds"
+              rules={[
+                { required: true, message: t("heartbeat.timeoutRequired") },
+                { type: "number", min: 1, message: t("heartbeat.timeoutMin") },
+                {
+                  type: "number",
+                  max: HEARTBEAT_MAX_TIMEOUT_SECONDS,
+                  message: t("heartbeat.timeoutMax"),
+                },
+              ]}
+            >
+              <NumberSlider
+                min={1}
+                max={HEARTBEAT_MAX_TIMEOUT_SECONDS}
+                label={t("heartbeat.timeoutSeconds")}
+              />
+            </Form.Item>
+          </div>
         </section>
       </Form>
     </div>

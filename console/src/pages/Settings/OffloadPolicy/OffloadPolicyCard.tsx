@@ -1,8 +1,9 @@
+import InlineHelp from "@/components/InlineHelp";
 import { PreferenceChoice } from "@/components/interaction/PreferenceChoice";
 import styles from "./index.module.less";
 import { useEffect, useState } from "react";
-import { Card, Space, Tooltip, Button, Spin, message } from "antd";
-import { Clock, Layers, CircleHelp } from "lucide-react";
+import { Card, Space, Spin, message } from "antd";
+import { Clock, Layers } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { toolCallsApi } from "../../../api/modules/toolCalls";
 
@@ -67,14 +68,7 @@ export function OffloadPolicyCard() {
         <Space>
           <Clock size={18} />
           {t("agentConfig.offloadPolicy.title", "Tool Background Execution")}
-          <Tooltip title={t("agentConfig.offloadPolicy.alertMessage")}>
-            <Button
-              type="text"
-              size="small"
-              aria-label={t("common.help", "Help")}
-              icon={<CircleHelp size={16} />}
-            />
-          </Tooltip>
+          <InlineHelp>{t("agentConfig.offloadPolicy.alertMessage")}</InlineHelp>
         </Space>
       }
     >
@@ -87,16 +81,8 @@ export function OffloadPolicyCard() {
           {options.map((option) => (
             <PreferenceChoice
               key={option.value}
-              label={
-                <span>
-                  {option.label}{" "}
-                  <Tooltip title={option.description}>
-                    <span tabIndex={0} aria-label={option.description}>
-                      <CircleHelp size={14} />
-                    </span>
-                  </Tooltip>
-                </span>
-              }
+              label={option.label}
+              description={option.description}
               icon={
                 option.value === "offload" ? (
                   <Layers size={20} />

@@ -1,5 +1,6 @@
+import { useTranslation } from "react-i18next";
 import React, { createContext, useContext } from "react";
-import { Menu as MenuOutlined } from "lucide-react";
+import { GripVertical } from "lucide-react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import styles from "../index.module.less";
@@ -67,6 +68,7 @@ export function SortableAgentRow({
 }
 
 export function DragHandle({ disabled = false }: { disabled?: boolean }) {
+  const { t } = useTranslation();
   const context = useContext(SortableHandleContext);
   if (!context) {
     return null;
@@ -85,10 +87,11 @@ export function DragHandle({ disabled = false }: { disabled?: boolean }) {
       className={styles.dragHandleButton}
       onClick={(event) => event.stopPropagation()}
       tabIndex={disabled ? -1 : 0}
+      aria-label={t("agent.dragHandleTooltip")}
       aria-disabled={disabled}
       {...dragBindings}
     >
-      <MenuOutlined size="1em" />
+      <GripVertical size={16} />
     </button>
   );
 }

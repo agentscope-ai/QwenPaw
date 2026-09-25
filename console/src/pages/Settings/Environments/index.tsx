@@ -1,9 +1,8 @@
 import { DeleteAction } from "@/components/interaction/DeleteAction";
 import { useMemo, useState } from "react";
 import { Button, Input, Modal } from "@agentscope-ai/design";
-import { Tooltip } from "antd";
+import InlineHelp from "@/components/InlineHelp";
 import {
-  CircleHelp,
   Eye,
   EyeOff,
   LockKeyhole,
@@ -176,15 +175,7 @@ function EnvironmentsPage() {
           <div className={styles.identity}>
             <div className={styles.variableName}>
               <code>{item.key}</code>
-              <Tooltip title={describeSpec(item)}>
-                <button
-                  type="button"
-                  className={`${styles.iconButton} ${styles.helpButton}`}
-                  aria-label={describeSpec(item)}
-                >
-                  <CircleHelp size={15} />
-                </button>
-              </Tooltip>
+              <InlineHelp>{describeSpec(item)}</InlineHelp>
             </div>
           </div>
           <ValueText value={value} />
