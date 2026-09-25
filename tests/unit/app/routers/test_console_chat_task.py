@@ -87,12 +87,25 @@ def _install_hook(fork: _Fork, tmp_path: Path, body: str) -> None:
 
 
 class _ChatManager:
+    def __init__(self) -> None:
+        self.created_chats: list[dict[str, Any]] = []
+        self.meta_updates: list[tuple[str, dict[str, Any]]] = []
+
     async def get_or_create_chat(
         self,
         *args: Any,
         **kwargs: Any,
     ) -> SimpleNamespace:
+        self.created_chats.append(kwargs)
         return SimpleNamespace(id="test-chat", meta={})
+
+    async def update_meta(
+        self,
+        chat_id: str,
+        meta: dict[str, Any],
+    ) -> SimpleNamespace:
+        self.meta_updates.append((chat_id, dict(meta)))
+        return SimpleNamespace(id=chat_id, meta=dict(meta))
 
     async def mark_chat_finished(self, chat_id: str, finish_time: Any) -> None:
         """Match the production completion callback used by TaskTracker."""
@@ -431,3 +444,150 @@ async def test_forked_task_stays_running_until_worktree_is_finalized(
     finally:
         (fork.worktree / ".hook-release").touch(exist_ok=True)
         await asyncio.gather(background_task, return_exceptions=True)
+
+
+# ---------------------------------------------------------------------------
+# spawn tool/skill whitelists persisted into chat meta
+# ---------------------------------------------------------------------------
+
+
+async def _submit_spawn_task(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    *,
+    request_context: dict[str, Any],
+) -> tuple[_Workspace, asyncio.Task]:
+    workspace = _Workspace(tmp_path)
+
+    async def _get_workspace(_request):
+        return workspace
+
+    monkeypatch.setattr(console, "get_agent_for_request", _get_workspace)
+    monkeypatch.setattr(
+        "qwenpaw.config.config.load_agent_config",
+        lambda _agent_id: SimpleNamespace(project_dir=None),
+    )
+    payload: dict[str, Any] = {
+        "channel": "console",
+        "user_id": "test-user",
+        "session_id": "sub-abc12345",
+        "input": [
+            {
+                "role": "user",
+                "type": "message",
+                "content": [{"type": "text", "text": "run"}],
+            },
+        ],
+        "request_context": request_context,
+    }
+    submitted = await console.post_console_chat_task(payload, None)
+    task_id = submitted["task_id"]
+    background_task = console._bg_tasks[task_id].asyncio_task
+    assert background_task is not None
+    return workspace, background_task
+
+
+@pytest.mark.asyncio
+async def test_spawn_task_persists_tool_and_skill_whitelists(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Tool/skill whitelists are recorded in meta when the spawn set them."""
+    workspace, background_task = await _submit_spawn_task(
+        monkeypatch,
+        tmp_path,
+        request_context={
+            "_spawn_subagent": True,
+            "root_session_id": "session:parent",
+            "parent_session_id": "session:parent",
+            "subagent_allowed_tools": ["read_file", "execute_shell_command"],
+            "subagent_skills": ["docx"],
+        },
+    )
+    try:
+        await asyncio.wait_for(background_task, timeout=10)
+    finally:
+        await asyncio.gather(background_task, return_exceptions=True)
+
+    chat_manager = workspace.chat_manager
+    assert chat_manager.meta_updates == [
+        (
+            "test-chat",
+            {
+                "subagent_allowed_tools": [
+                    "read_file",
+                    "execute_shell_command",
+                ],
+                "subagent_skills": ["docx"],
+            },
+        ),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_plain_task_leaves_chat_meta_untouched(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Non-spawn requests must not write whitelist metadata."""
+    workspace, background_task = await _submit_spawn_task(
+        monkeypatch,
+        tmp_path,
+        request_context={"approval_level": "normal"},
+    )
+    try:
+        await asyncio.wait_for(background_task, timeout=10)
+    finally:
+        await asyncio.gather(background_task, return_exceptions=True)
+
+    chat_manager = workspace.chat_manager
+    assert chat_manager.meta_updates == []
+
+
+@pytest.mark.asyncio
+async def test_spawn_task_without_whitelists_skips_meta(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A spawn that restricted nothing does not write meta."""
+    workspace, background_task = await _submit_spawn_task(
+        monkeypatch,
+        tmp_path,
+        request_context={
+            "_spawn_subagent": True,
+            "root_session_id": "session:parent",
+            "parent_session_id": "session:parent",
+        },
+    )
+    try:
+        await asyncio.wait_for(background_task, timeout=10)
+    finally:
+        await asyncio.gather(background_task, return_exceptions=True)
+
+    chat_manager = workspace.chat_manager
+    assert chat_manager.meta_updates == []
+
+
+@pytest.mark.asyncio
+async def test_spawn_task_skips_empty_tool_whitelists(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Empty whitelist values are not persisted into meta."""
+    workspace, background_task = await _submit_spawn_task(
+        monkeypatch,
+        tmp_path,
+        request_context={
+            "_spawn_subagent": True,
+            "root_session_id": "session:parent",
+            "subagent_allowed_tools": [],
+            "subagent_skills": None,
+        },
+    )
+    try:
+        await asyncio.wait_for(background_task, timeout=10)
+    finally:
+        await asyncio.gather(background_task, return_exceptions=True)
+
+    chat_manager = workspace.chat_manager
+    assert chat_manager.meta_updates == []
