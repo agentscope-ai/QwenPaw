@@ -9,6 +9,8 @@ import queue as thread_queue
 import threading
 from typing import AsyncIterator
 
+import httpx
+
 from .stt_engine import AliyunSTTStream, STTStreamEngine
 
 logger = logging.getLogger(__name__)
@@ -16,6 +18,8 @@ logger = logging.getLogger(__name__)
 # Enough for short scheduling jitter without allowing a whole response to sit
 # in memory when the audio output blocks.
 _TTS_QUEUE_MAX_CHUNKS = 64
+_MINIMAX_TTS_ENDPOINT = "https://api.minimax.io/v1/t2a_v2"
+_MINIMAX_TTS_MODEL = "speech-2.8-hd"
 
 
 def _resolve_dashscope_key(api_key: str = "") -> str:
@@ -49,6 +53,9 @@ async def synthesize_tts(
     text: str,
     voice: str,
     api_key: str = "",
+    *,
+    model: str = "",
+    endpoint: str = "",
 ) -> bytes:
     """Synthesize *text* and return WAV bytes."""
     if provider == "aliyun":
@@ -56,6 +63,14 @@ async def synthesize_tts(
             text,
             voice,
             _resolve_dashscope_key(api_key),
+        )
+    if provider == "minimax":
+        return await _synthesize_minimax(
+            text,
+            voice,
+            api_key,
+            model=model,
+            endpoint=endpoint,
         )
     raise ValueError(
         f"Unsupported TTS provider: {provider}",
@@ -82,6 +97,39 @@ async def _synthesize_aliyun(
     return b""
 
 
+async def _synthesize_minimax(
+    text: str,
+    voice: str,
+    api_key: str,
+    *,
+    model: str = "",
+    endpoint: str = "",
+    sample_rate: int = 8000,
+) -> bytes:
+    async with httpx.AsyncClient() as client:
+        response = await client.post(
+            endpoint or _MINIMAX_TTS_ENDPOINT,
+            headers={"Authorization": f"Bearer {api_key}"},
+            json={
+                "model": model or _MINIMAX_TTS_MODEL,
+                "text": text,
+                "stream": False,
+                "output_format": "hex",
+                "voice_setting": {"voice_id": voice},
+                "audio_setting": {
+                    "format": "pcm",
+                    "sample_rate": sample_rate,
+                },
+            },
+        )
+        response.raise_for_status()
+        payload = response.json()
+        status_code = payload.get("base_resp", {}).get("status_code", 0)
+        if status_code != 0:
+            raise RuntimeError(f"MiniMax TTS failed with status {status_code}")
+        return bytes.fromhex(payload["data"]["audio"])
+
+
 # ----------------------------------------------------------
 # Streaming TTS (tts_v2, unidirectional streaming)
 # ----------------------------------------------------------
@@ -94,6 +142,8 @@ async def synthesize_tts_stream(
     api_key: str = "",
     *,
     sample_rate: int = 8000,
+    model: str = "",
+    endpoint: str = "",
 ) -> AsyncIterator[bytes]:
     """Yield raw PCM chunks as they arrive from TTS."""
     if provider == "aliyun":
@@ -104,6 +154,15 @@ async def synthesize_tts_stream(
             sample_rate=sample_rate,
         ):
             yield chunk
+    elif provider == "minimax":
+        yield await _synthesize_minimax(
+            text,
+            voice,
+            api_key,
+            model=model,
+            endpoint=endpoint,
+            sample_rate=sample_rate,
+        )
     else:
         raise ValueError(
             f"Unsupported TTS provider: {provider}",
