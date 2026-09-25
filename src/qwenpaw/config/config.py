@@ -3117,6 +3117,7 @@ class BrowserConfig(BaseModel):
     context: Literal["auto", "profile", "incognito"] = "auto"
     user_data_dir: Optional[str] = None
     args: List[str] = Field(default_factory=list)
+    ignore_default_args: List[str] = Field(default_factory=list)
     viewport: Optional[Tuple[int, int]] = None
     proxy: Optional[str] = None
     use_system_default: bool = True
