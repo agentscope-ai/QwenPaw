@@ -17,7 +17,8 @@ Precedence:
 2. context metadata auto-detected from the provider API;
 3. a positive non-default ``max_input_length`` from provider/catalog data;
 4. this pattern catalog (skipped for local-serving providers such as Ollama,
-   the family's cloud window says nothing about a local ``num_ctx``);
+   and for user-created providers, whose model alias is chosen locally and so
+   says nothing about a cloud window);
 5. :data:`DEFAULT_CONTEXT_WINDOW` (128k).
 
 Values are deliberately CONSERVATIVE: a too-small window merely compacts

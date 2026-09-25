@@ -176,6 +176,7 @@ class _CatalogProvider:
     id = f"test-catalog"
     base_url = f""
     is_local = False
+    is_custom = False
     resolve_model_info = Provider.resolve_model_info
 
     get_context_size = Provider.get_context_size
@@ -243,6 +244,94 @@ def test_unrelated_model_config_update_keeps_catalog_window():
     assert model.max_input_length_configured is False
     p._info = model
     assert p.get_context_size(model.id) == 200_000
+
+
+# -- custom endpoints must not inherit cloud catalog windows -----------------
+#
+# The static catalog only records cloud windows and matches on a model-alias
+# substring, with no provider or endpoint gating. For a user-created provider
+# the alias is chosen locally -- an llama.cpp alias like "qwen3.8-27b" matches
+# the cloud "qwen3.8" entry -- so the inferred window can be far larger than
+# what the server accepts, and compaction then never fires.
+
+
+def test_custom_provider_ignores_cloud_catalog():
+    p = _CatalogProvider()
+    p.is_custom = True
+    p.base_url = "http://127.0.0.1:8080/v1"
+    p._info = ModelInfo(id="qwen3.8-27b", name="x")
+
+    assert p.get_context_size("qwen3.8-27b") == DEFAULT_CONTEXT_WINDOW
+
+
+def test_custom_provider_on_lan_ignores_cloud_catalog():
+    """A self-hosted server reached over the LAN is the same situation."""
+    p = _CatalogProvider()
+    p.is_custom = True
+    p.base_url = "http://192.168.1.50:1234/v1"
+    p._info = ModelInfo(id="qwen3.8-27b", name="x")
+
+    assert p.get_context_size("qwen3.8-27b") == DEFAULT_CONTEXT_WINDOW
+
+
+def test_custom_provider_honors_explicit_user_config():
+    p = _CatalogProvider()
+    p.is_custom = True
+    p.base_url = "http://192.168.1.50:1234/v1"
+    p._info = ModelInfo(
+        id="qwen3.8-27b",
+        name="x",
+        max_input_length=32_768,
+        max_input_length_configured=True,
+    )
+
+    assert p.get_context_size("qwen3.8-27b") == 32_768
+
+
+def test_builtin_local_provider_keeps_ignoring_catalog():
+    """is_local already opts out; this must not regress."""
+    p = _CatalogProvider()
+    p.is_local = True
+    p._info = ModelInfo(id="qwen3.8-27b", name="x")
+
+    assert p.get_context_size("qwen3.8-27b") == DEFAULT_CONTEXT_WINDOW
+
+
+def test_builtin_cloud_provider_keeps_cloud_catalog():
+    """A shipped cloud provider is untouched: it is not user-created."""
+    p = _CatalogProvider()
+    p.base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    p._info = ModelInfo(id="qwen3.8-27b", name="x")
+
+    assert p.get_context_size("qwen3.8-27b") == 1_000_000
+
+
+def test_remote_custom_gateway_falls_back_to_default():
+    """A user-created endpoint gets no pattern-table inference.
+
+    A custom provider can still pick up curated catalog limits by pointing at a
+    template (see ``test_model_metadata.py``); this covers the case where it
+    does not, so only the loose alias-substring table would have supplied a
+    value. An explicit ``max_input_length`` still takes precedence for anyone
+    who knows their real window.
+    """
+    p = _CatalogProvider()
+    p.is_custom = True
+    p.base_url = "https://gateway.example.com/v1"
+    p._info = ModelInfo(id="qwen3.8-27b", name="x")
+
+    assert p.get_context_size("qwen3.8-27b") == DEFAULT_CONTEXT_WINDOW
+
+
+def test_custom_provider_unknown_alias_still_defaults():
+    p = _CatalogProvider()
+    p.is_custom = True
+    p.base_url = "http://192.168.1.50:1234/v1"
+    p._info = ModelInfo(id="totally-unknown-model", name="x")
+
+    assert (
+        p.get_context_size("totally-unknown-model") == DEFAULT_CONTEXT_WINDOW
+    )
 
 
 def test_context_size_default_when_unknown_everywhere():
