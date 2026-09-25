@@ -546,9 +546,14 @@ describe("ProviderConfigModal", () => {
       expect(screen.getByDisplayValue("X-One")).toBeInTheDocument();
 
       await user.click(screen.getByText("models.addHeader"));
-      const emptyInputs = screen.getAllByDisplayValue("");
-      await user.type(emptyInputs[emptyInputs.length - 2], "X-Two");
-      await user.type(emptyInputs[emptyInputs.length - 1], "2");
+      const keyInputs = screen.getAllByPlaceholderText(
+        "models.customHeaderKey",
+      );
+      const valueInputs = screen.getAllByPlaceholderText(
+        "models.customHeaderValue",
+      );
+      await user.type(keyInputs[keyInputs.length - 1], "X-Two");
+      await user.type(valueInputs[valueInputs.length - 1], "2");
       expect(screen.getByDisplayValue("X-Two")).toBeInTheDocument();
 
       const deleteIcons = document.querySelectorAll(

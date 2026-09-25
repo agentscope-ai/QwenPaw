@@ -450,5 +450,8 @@ class OpenAIResponseProvider(OpenAIProvider):
                         False,
                     ),
                 ),
+                max_image_bytes=self.max_image_bytes,
+                max_video_bytes=self.max_video_bytes,
+                max_audio_bytes=self.max_audio_bytes,
             ),
         )

@@ -30,8 +30,7 @@ from qwenpaw.providers.provider import (
 )
 from ..utils.io_utils import run_sync_io
 from ..utils.logging import sanitize_log_value
-from .capping_formatter import _CappingGeminiFormatter
-from .capping_formatter import MAX_INLINE_MEDIA_BYTES
+from .capping_formatter import GEMINI_MEDIA_BYTES, _CappingGeminiFormatter
 
 logger = logging.getLogger(__name__)
 
@@ -192,7 +191,7 @@ class GeminiProvider(Provider):
     thinking_wire_protocol = f"gemini"
 
     max_inline_media_bytes: int = Field(
-        default=MAX_INLINE_MEDIA_BYTES,
+        default=GEMINI_MEDIA_BYTES,
         ge=0,
         description=(
             "Maximum size (in bytes) of a local media file inlined as "
@@ -202,6 +201,9 @@ class GeminiProvider(Provider):
             "conversation history. 0 disables capping."
         ),
     )
+    max_image_bytes: int | None = Field(default=GEMINI_MEDIA_BYTES, ge=0)
+    max_video_bytes: int | None = Field(default=GEMINI_MEDIA_BYTES, ge=0)
+    max_audio_bytes: int | None = Field(default=GEMINI_MEDIA_BYTES, ge=0)
 
     def _build_default_headers(self) -> dict:
         return dict(self.custom_headers) if self.custom_headers else {}
@@ -417,6 +419,9 @@ class GeminiProvider(Provider):
             context_size=self._get_context_size(model_id),
             formatter=_CappingGeminiFormatter(
                 max_bytes=self.max_inline_media_bytes,
+                max_image_bytes=self.max_image_bytes,
+                max_video_bytes=self.max_video_bytes,
+                max_audio_bytes=self.max_audio_bytes,
                 relay_reasoning_content=self._get_relay_reasoning(model_id),
             ),
         )

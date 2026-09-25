@@ -19,8 +19,12 @@ from qwenpaw.providers.provider import (
 from .model_billing import classify_pricing, normalize_pricing
 from .model_info import release_date
 from ..utils.io_utils import run_sync_io
-from .capping_formatter import _CappingOpenAIFormatter
-from .capping_formatter import MAX_INLINE_MEDIA_BYTES
+from .capping_formatter import (
+    OPENROUTER_AUDIO_BYTES,
+    OPENROUTER_IMAGE_BYTES,
+    OPENROUTER_VIDEO_BYTES,
+    _CappingOpenAIFormatter,
+)
 from .multimodal_prober import ProbeResult
 
 
@@ -28,7 +32,7 @@ class OpenRouterProvider(Provider):
     """OpenRouter provider with required HTTP-Referer and X-Title headers."""
 
     max_inline_media_bytes: int = Field(
-        default=MAX_INLINE_MEDIA_BYTES,
+        default=OPENROUTER_VIDEO_BYTES,
         ge=0,
         description=(
             "Maximum size (in bytes) of a local media file inlined as "
@@ -38,6 +42,9 @@ class OpenRouterProvider(Provider):
             "conversation history. 0 disables capping."
         ),
     )
+    max_image_bytes: int | None = Field(default=OPENROUTER_IMAGE_BYTES, ge=0)
+    max_video_bytes: int | None = Field(default=OPENROUTER_VIDEO_BYTES, ge=0)
+    max_audio_bytes: int | None = Field(default=OPENROUTER_AUDIO_BYTES, ge=0)
 
     _OPENROUTER_CATEGORIES = "personal-agent,cli-agent"
 
@@ -489,6 +496,9 @@ class OpenRouterProvider(Provider):
                         False,
                     ),
                 ),
+                max_image_bytes=self.max_image_bytes,
+                max_video_bytes=self.max_video_bytes,
+                max_audio_bytes=self.max_audio_bytes,
                 relay_reasoning_content=self._get_relay_reasoning(model_id),
             ),
         )

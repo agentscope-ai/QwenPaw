@@ -576,6 +576,10 @@ class ProviderManagerPersistenceMixin(
                     "generate_kwargs",
                     "custom_headers",
                     "auth_mode",
+                    "max_inline_media_bytes",
+                    "max_image_bytes",
+                    "max_video_bytes",
+                    "max_audio_bytes",
                     "hidden_model_ids",
                     "removed_model_ids",
                 ):
@@ -1183,8 +1187,14 @@ class ProviderManagerPersistenceMixin(
             builtin.auth_mode = provider.auth_mode
         if provider.custom_headers:
             builtin.custom_headers = provider.custom_headers
-        if hasattr(builtin, "max_inline_media_bytes"):
-            builtin.max_inline_media_bytes = provider.max_inline_media_bytes
+        for cap_field in (
+            "max_inline_media_bytes",
+            "max_image_bytes",
+            "max_video_bytes",
+            "max_audio_bytes",
+        ):
+            if hasattr(builtin, cap_field) and hasattr(provider, cap_field):
+                setattr(builtin, cap_field, getattr(provider, cap_field))
 
         builtin_model_ids = {model.id for model in builtin.models}
         builtin.extra_models = [
