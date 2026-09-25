@@ -19,6 +19,7 @@ import os
 import re
 import threading
 import time
+from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
@@ -79,6 +80,7 @@ RATE_LIMIT_DELAY = 60
 QUICK_DISCONNECT_THRESHOLD = 5
 MAX_QUICK_DISCONNECT_COUNT = 3
 _RECOVERABLE_WS_WINERRORS = frozenset({10053, 10054, 10060})
+_SEEN_MESSAGE_IDS_LIMIT = 256
 
 DEFAULT_API_BASE = "https://api.sgroup.qq.com"
 TOKEN_URL = "https://bots.qq.com/app/getAppAccessToken"
@@ -711,6 +713,9 @@ class QQChannel(BaseChannel):
         self._account_id = "default"
         self._token_cache: Optional[Dict[str, Any]] = None
         self._token_lock = threading.Lock()
+        self._seen_msg_ids: deque[str] = deque()
+        self._seen_msg_ids_set: set[str] = set()
+        self._seen_msg_ids_lock = threading.Lock()
 
         self._http: Optional[aiohttp.ClientSession] = None
 
@@ -1576,6 +1581,16 @@ class QQChannel(BaseChannel):
             return
 
         msg_id = d.get("id", "")
+        if msg_id:
+            with self._seen_msg_ids_lock:
+                if msg_id in self._seen_msg_ids_set:
+                    logger.info("qq duplicate message dropped: id=%s", msg_id)
+                    return
+                if len(self._seen_msg_ids) >= _SEEN_MESSAGE_IDS_LIMIT:
+                    oldest = self._seen_msg_ids.popleft()
+                    self._seen_msg_ids_set.remove(oldest)
+                self._seen_msg_ids.append(msg_id)
+                self._seen_msg_ids_set.add(msg_id)
         att = d.get("attachments") or []
         is_group = spec.message_type in ("group", "guild")
         meta: Dict[str, Any] = {
