@@ -6,12 +6,6 @@
   display: flex;
   flex-direction: column;
   width: 100%;
-
-  :global {
-    .qwenpaw-tabs-nav {
-      padding: 0 16px !important;
-    }
-  }
 }
 
 /* ---- Page Header (breadcrumb style) ---- */
@@ -364,34 +358,6 @@
 
 /* ─── Mobile Adaptation ──────────────────────────────────────────────────── */
 @media (max-width: 768px) {
-  .mainTabs {
-    :global {
-      .qwenpaw-tabs-nav {
-        overflow-x: auto;
-        scrollbar-width: none;
-
-        &::-webkit-scrollbar {
-          display: none;
-        }
-      }
-
-      .qwenpaw-tabs-nav-wrap {
-        overflow-x: auto !important;
-        white-space: nowrap;
-      }
-
-      .qwenpaw-tabs-nav-list {
-        display: inline-flex;
-        white-space: nowrap;
-      }
-
-      .qwenpaw-tabs-tab {
-        flex-shrink: 0;
-        white-space: nowrap;
-      }
-    }
-  }
-
   .content {
     padding: 0 12px;
   }
@@ -457,13 +423,6 @@
   max-width: 1080px;
   margin-inline: auto;
 }
-.mainTabs :global(.qwenpaw-tabs-nav) {
-  position: sticky;
-  top: 0;
-  z-index: 3;
-  background: var(--app-surface);
-  border-radius: 14px;
-}
 .tabDescription {
   font-size: 13px;
   max-width: 72ch;
@@ -482,18 +441,6 @@
 }
 
 .mainTabs {
-  min-width: 0;
-  :global(.qwenpaw-tabs-nav),
-  :global(.ant-tabs-nav) {
-    padding: 4px 12px;
-    border: 1px solid var(--app-border-subtle);
-    border-radius: 12px;
-    background: var(--app-surface);
-  }
-  :global(.qwenpaw-tabs-tab),
-  :global(.ant-tabs-tab) {
-    min-height: 44px;
-  }
   :global(.qwenpaw-card),
   :global(.ant-card) {
     box-shadow: none;
