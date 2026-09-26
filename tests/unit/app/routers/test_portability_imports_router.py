@@ -1,8 +1,9 @@
 # -*- coding: utf-8 -*-
 from types import SimpleNamespace
 
+import httpx
 import pytest
-from fastapi import HTTPException
+from fastapi import FastAPI, HTTPException
 
 from qwenpaw.app.routers import agent_scoped
 from qwenpaw.app.routers import portability_imports as routes
@@ -221,14 +222,16 @@ async def test_current_job_is_agent_scoped(api):
 
 @pytest.mark.asyncio
 async def test_router_is_agent_scoped_and_localhost_only():
-    scoped = agent_scoped.create_agent_scoped_router()
-    mounted = [item.original_router for item in scoped.routes]
-    assert routes.portability_import_router in mounted
-    assert routes.portability_import_router.prefix == "/portability/imports"
+    app = FastAPI()
+    app.include_router(agent_scoped.create_agent_scoped_router())
+    transport = httpx.ASGITransport(app=app, client=("203.0.113.9", 1234))
+    async with httpx.AsyncClient(
+        transport=transport,
+        base_url="http://test",
+    ) as client:
+        response = await client.get("/agents/paw/portability/imports/sources")
+    assert response.status_code == 403
 
-    with pytest.raises(HTTPException) as error:
-        await routes.list_import_sources(_request("203.0.113.9"))
-    assert error.value.status_code == 403
     with pytest.raises(HTTPException) as error:
         await routes.list_import_sources(
             _request(headers={"x-forwarded-for": "203.0.113.9"}),

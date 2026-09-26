@@ -13,6 +13,7 @@ Probed on this platform: two fds in one process *do* contend on ``flock``
 import errno
 import os
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -141,11 +142,13 @@ class TestContextManager:
             os.close(fd)
 
     def test_closes_its_descriptor(self, lock_path):
-        before = len(os.listdir("/proc/self/fd"))
-        with lock_mod.plugin_install_lock(lock_path):
-            pass
-        after = len(os.listdir("/proc/self/fd"))
-        assert after <= before
+        with patch.object(lock_mod.os, "close", wraps=os.close) as close:
+            with lock_mod.plugin_install_lock(lock_path) as acquired:
+                assert acquired is True
+        close.assert_called_once()
+        with pytest.raises(OSError) as error:
+            os.fstat(close.call_args.args[0])
+        assert error.value.errno == errno.EBADF
 
 
 class TestTimeoutFallsOpen:
