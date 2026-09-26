@@ -1855,6 +1855,7 @@
 }
 .searchContainer {
   max-width: none;
+  min-width: 0;
 }
 .searchInput {
   min-height: 40px;
@@ -1862,6 +1863,14 @@
 }
 .tagSelect {
   min-width: 180px;
+  height: 40px;
+
+  :global(.ant-select-selector),
+  :global(.qwenpaw-select-selector) {
+    min-height: 40px;
+    height: 40px !important;
+    border-radius: 10px;
+  }
 }
 .viewToggle {
   padding: 3px;

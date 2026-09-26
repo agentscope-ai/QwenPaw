@@ -1,21 +1,19 @@
 import { Search } from "lucide-react";
-import { Button, Input, Select, Tooltip } from "@agentscope-ai/design";
+import { Button, Tooltip } from "@agentscope-ai/design";
 import { Badge } from "antd";
 import {
-  LayoutGrid as AppstoreOutlined,
   X as CloseOutlined,
   Trash2 as DeleteOutlined,
   RefreshCw as ReloadOutlined,
   Send as SendOutlined,
   RefreshCw as SyncOutlined,
-  List as UnorderedListOutlined,
 } from "lucide-react";
 import { LayoutGroup, motion, useReducedMotion } from "motion/react";
 import { useId, useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import { ImportHubModal } from "../../Agent/Skills/components/ImportHubModal";
-import { SkillFilterDropdown } from "../../Agent/Skills/components/SkillFilterDropdown";
+import { SkillsToolbar } from "../../Agent/Skills/components/SkillsToolbar";
 import { AddSkillDropdown } from "../../Agent/Skills/components/AddSkillDropdown";
 import {
   BroadcastModal,
@@ -181,65 +179,17 @@ function SkillPoolPage() {
         <div className={styles.content}>
           {/* Toolbar */}
           {!pool.loading && pool.skills.length > 0 && (
-            <div className={styles.toolbar}>
-              <div className={styles.searchContainer}>
-                <Input
-                  className={styles.searchInput}
-                  placeholder={t("skills.searchPlaceholder")}
-                  value={pool.searchQuery}
-                  onChange={(e) => pool.setSearchQuery(e.target.value)}
-                  allowClear
-                />
-                <Select
-                  mode="multiple"
-                  className={styles.tagSelect}
-                  placeholder={t("skills.filterByTag")}
-                  value={pool.searchTags}
-                  onChange={pool.setSearchTags}
-                  open={pool.filterOpen}
-                  onOpenChange={pool.setFilterOpen}
-                  allowClear
-                  maxTagCount="responsive"
-                  notFoundContent={<></>}
-                  popupRender={() =>
-                    pool.allTags.length > 0 ? (
-                      <SkillFilterDropdown
-                        allTags={pool.allTags}
-                        searchTags={pool.searchTags}
-                        setSearchTags={pool.setSearchTags}
-                        styles={styles}
-                      />
-                    ) : (
-                      <div className={styles.tagSelectEmpty}>
-                        {t("skills.noTags")}
-                      </div>
-                    )
-                  }
-                />
-              </div>
-              <div className={styles.toolbarRight}>
-                <div className={styles.viewToggle}>
-                  <button
-                    className={`${styles.viewToggleBtn} ${
-                      pool.viewMode === "list" ? styles.viewToggleBtnActive : ""
-                    }`}
-                    onClick={() => pool.setViewMode("list")}
-                    title={t("skills.listView")}
-                  >
-                    <UnorderedListOutlined size="1em" />
-                  </button>
-                  <button
-                    className={`${styles.viewToggleBtn} ${
-                      pool.viewMode === "card" ? styles.viewToggleBtnActive : ""
-                    }`}
-                    onClick={() => pool.setViewMode("card")}
-                    title={t("skills.gridView")}
-                  >
-                    <AppstoreOutlined size="1em" />
-                  </button>
-                </div>
-              </div>
-            </div>
+            <SkillsToolbar
+              searchQuery={pool.searchQuery}
+              onSearchChange={pool.setSearchQuery}
+              searchTags={pool.searchTags}
+              onTagsChange={pool.setSearchTags}
+              allTags={pool.allTags}
+              filterOpen={pool.filterOpen}
+              onFilterOpenChange={pool.setFilterOpen}
+              viewMode={pool.viewMode}
+              onViewModeChange={pool.setViewMode}
+            />
           )}
 
           {pool.loading ? (
