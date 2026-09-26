@@ -14,6 +14,7 @@ from ...config import load_config
 from ...config.config import AgentProfileConfig, update_agent_config_async
 from ...config.utils import mutate_config
 from ...drivers.credentials.types import CredentialRecord
+from ...governance.tool_registry import DEFAULT_REGISTRY
 from ...security.secret_store import (
     mask_secret_value,
     restore_masked_secret_value,
@@ -65,6 +66,9 @@ class ToolInfo(BaseModel):
 
     name: str = Field(..., description="Tool function name")
     enabled: bool = Field(..., description="Whether the tool is enabled")
+    source_plugin_id: Optional[str] = None
+    source_plugin_name: Optional[str] = None
+    category: Optional[str] = None
     description: str = Field(default="", description="Tool description")
     async_execution: bool = Field(
         default=False,
@@ -160,8 +164,19 @@ def _build_tool_info(tool_config: Any, tool_name: str) -> ToolInfo:
     )
 
     registry = PluginRegistry()
-    plugin_id = registry.get_plugin_id_for_tool(tool_name)
+    owner = DEFAULT_REGISTRY.get_owner(tool_name)
+    plugin_id = (
+        owner
+        if owner and owner != f"builtin"
+        else registry.get_plugin_id_for_tool(tool_name)
+    )
+    tool_info.source_plugin_id = plugin_id
     manifest = registry.get_plugin_manifest(plugin_id) if plugin_id else None
+
+    if plugin_id:
+        tool_info.source_plugin_name = (
+            manifest.get(f"name", plugin_id) if manifest else plugin_id
+        )
 
     if manifest and "meta" in manifest:
         meta = manifest["meta"]
@@ -171,6 +186,9 @@ def _build_tool_info(tool_config: Any, tool_name: str) -> ToolInfo:
 
         for t in meta.get("tools", []):
             if isinstance(t, dict) and t.get("name") == tool_name:
+                category = t.get(f"category")
+                if isinstance(category, str):
+                    tool_info.category = category
                 requires_config = t.get("requires_config", False)
                 config_fields_data = t.get("config_fields", [])
                 break

@@ -1,70 +1,15 @@
+@import (reference) "../../../styles/settingsTabs.less";
+
 .securityPage {
   height: 100%;
   padding: 0;
   display: flex;
   flex-direction: column;
   width: 100%;
-
-  :global {
-    .qwenpaw-tabs-nav {
-      padding: 0 16px !important;
-    }
-  }
 }
 
 /* ---- Page Header (breadcrumb style) ---- */
 
-.pageHeader {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  position: relative;
-  padding: 20px;
-  flex-shrink: 0;
-  border-bottom: 1px solid var(--app-border);
-}
-
-.breadcrumbHeader {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 16px;
-  flex: 1;
-}
-
-.breadcrumbParent {
-  color: var(--app-text-tertiary);
-  font-weight: 400;
-}
-
-.breadcrumbSeparator {
-  color: var(--app-text-quaternary);
-  margin: 0 4px;
-}
-
-.breadcrumbCurrent {
-  color: var(--app-text);
-  font-weight: 600;
-  font-size: 20px;
-}
-
-/* ---- Header Section (deprecated: no TSX consumer left) ---- */
-.header {
-  margin-bottom: 20px;
-}
-
-.title {
-  font-size: 22px;
-  font-weight: 700;
-  margin: 0 0 6px 0;
-  color: var(--app-text);
-}
-
-.description {
-  font-size: 14px;
-  color: var(--app-text-tertiary);
-  margin: 0;
-}
 /* ---- Content Container ---- */
 .content {
   flex: 1;
@@ -76,36 +21,9 @@
 
 /* ---- Main Tabs (Tool Guard / Skill Scanner) ---- */
 .mainTabs {
-  :global(.qwenpaw-tabs-nav) {
-    margin-bottom: 20px;
-
-    &::before {
-      border-bottom: 1px solid var(--app-border-subtle);
-    }
-  }
-
-  :global(.qwenpaw-tabs-tab) {
-    padding: 10px 4px;
-    font-size: 14px;
-    font-weight: 500;
-    color: var(--app-text-secondary) !important;
-
-    &:hover {
-      color: var(--app-accent) !important;
-    }
-  }
-
-  :global(.qwenpaw-tabs-tab-active .qwenpaw-tabs-tab-btn) {
-    color: var(--app-accent) !important;
-    font-weight: 600;
-  }
-
-  :global(.qwenpaw-tabs-ink-bar) {
-    background: var(--app-accent) !important;
-    height: 3px;
-    border-radius: 2px 2px 0 0;
-  }
+  .settings-tabs();
 }
+
 .tabLabel {
   display: inline-flex;
   align-items: center;
@@ -220,7 +138,13 @@
   border-radius: 12px;
   border: 1px solid var(--app-border);
   box-shadow: var(--app-shadow-sm);
-  transition: all 0.2s ease-in-out;
+  transition:
+    background-color 0.2s ease-in-out,
+    color 0.2s ease-in-out,
+    border-color 0.2s ease-in-out,
+    box-shadow 0.2s ease-in-out,
+    opacity 0.2s ease-in-out,
+    transform 0.2s ease-in-out;
 
   &:hover {
     box-shadow: var(--app-shadow-md);
@@ -266,44 +190,8 @@
 }
 
 /* ---- Rule Table ---- */
-.ruleTable {
-  :global(.ant-table-thead > tr > th),
-  :global(.qwenpaw-table-thead > tr > th),
-  :global(.ant-table-tbody > tr > td),
-  :global(.qwenpaw-table-tbody > tr > td) {
-    padding-left: 16px !important;
-    padding-right: 16px !important;
-  }
-}
 
 /* ---- Rule Collapse (category grouping) ---- */
-.ruleCollapse {
-  background: transparent;
-  border: none;
-
-  :global(.qwenpaw-collapse-item) {
-    margin-bottom: 12px;
-    border: 1px solid var(--app-border);
-    border-radius: 8px !important;
-    overflow: hidden;
-  }
-
-  :global(.qwenpaw-collapse-header) {
-    font-weight: 600;
-    font-size: 14px;
-    padding: 12px 16px !important;
-    background: var(--app-surface-sunken);
-  }
-
-  :global(.qwenpaw-collapse-content-box) {
-    padding: 0 !important;
-  }
-}
-.collapseCategoryLabel {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-}
 
 /* ---- Shell Evasion Checks ---- */
 .shellEvasionSection {
@@ -324,7 +212,13 @@
   border: 1px solid var(--app-border);
   border-radius: 8px;
   background: var(--app-surface-sunken);
-  transition: all 0.2s;
+  transition:
+    background-color 0.2s,
+    color 0.2s,
+    border-color 0.2s,
+    box-shadow 0.2s,
+    opacity 0.2s,
+    transform 0.2s;
 
   &:hover {
     border-color: var(--app-border-hover);
@@ -341,17 +235,18 @@
 }
 
 .shellEvasionItemName {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   font-weight: 500;
   font-size: 13px;
   color: var(--app-text);
 }
 
-.shellEvasionItemDesc {
-  font-size: 12px;
-  color: var(--app-text-tertiary);
-  line-height: 1.4;
-}
 .sectionTitle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   font-size: 16px;
   font-weight: 600;
   margin: 0;
@@ -363,7 +258,13 @@
   border-radius: 12px;
   border: 1px solid var(--app-border);
   box-shadow: var(--app-shadow-sm);
-  transition: all 0.2s ease-in-out;
+  transition:
+    background-color 0.2s ease-in-out,
+    color 0.2s ease-in-out,
+    border-color 0.2s ease-in-out,
+    box-shadow 0.2s ease-in-out,
+    opacity 0.2s ease-in-out,
+    transform 0.2s ease-in-out;
 
   &:hover {
     box-shadow: var(--app-shadow-md);
@@ -434,15 +335,6 @@
   font-size: 12px;
 }
 
-.footerButtons {
-  display: flex;
-  justify-content: flex-end;
-  align-items: center;
-  padding: 16px 24px;
-  border-top: 1px solid var(--app-border-subtle);
-  background: var(--app-surface);
-  flex-shrink: 0;
-}
 /* ---- Loading & Error States ---- */
 .centerState {
   display: flex;
@@ -465,41 +357,8 @@
 
 /* ---- Host row (shield icon centering) ---- */
 
-.hostRow {
-  display: inline-flex;
-  align-items: center;
-}
-
 /* ─── Mobile Adaptation ──────────────────────────────────────────────────── */
 @media (max-width: 768px) {
-  .mainTabs {
-    :global {
-      .qwenpaw-tabs-nav {
-        overflow-x: auto;
-        scrollbar-width: none;
-
-        &::-webkit-scrollbar {
-          display: none;
-        }
-      }
-
-      .qwenpaw-tabs-nav-wrap {
-        overflow-x: auto !important;
-        white-space: nowrap;
-      }
-
-      .qwenpaw-tabs-nav-list {
-        display: inline-flex;
-        white-space: nowrap;
-      }
-
-      .qwenpaw-tabs-tab {
-        flex-shrink: 0;
-        white-space: nowrap;
-      }
-    }
-  }
-
   .content {
     padding: 0 12px;
   }
@@ -536,12 +395,6 @@
     }
   }
 
-  .ruleCollapse {
-    :global(.qwenpaw-collapse-header) {
-      padding: 10px 12px !important;
-    }
-  }
-
   .shellEvasionGrid {
     grid-template-columns: 1fr;
   }
@@ -560,8 +413,66 @@
     padding-top: 12px;
     margin-top: 12px;
   }
+}
 
-  .footerButtons {
-    padding: 12px 16px;
+/* Page-specific settings refinement. */
+
+.content {
+  padding: 0 16px 24px;
+}
+.tabContent {
+  max-width: 1080px;
+  margin-inline: auto;
+}
+.tabDescription {
+  font-size: 13px;
+  max-width: 72ch;
+  line-height: 1.65;
+  margin-bottom: 16px;
+}
+
+@media (max-width: 600px) {
+  .content {
+    padding-inline: 0;
   }
+}
+
+.tabContent {
+  margin-inline: 0;
+}
+
+.mainTabs {
+  :global(.qwenpaw-card),
+  :global(.ant-card) {
+    box-shadow: none;
+  }
+  :global(.qwenpaw-card-body),
+  :global(.ant-card-body) {
+    padding: 24px;
+  }
+  :global(.qwenpaw-form-item-label > label),
+  :global(.ant-form-item-label > label) {
+    height: auto;
+    white-space: normal;
+    line-height: 1.5;
+  }
+}
+.tabContent {
+  max-width: none;
+}
+@media (max-width: 600px) {
+  .mainTabs :global(.qwenpaw-card-body),
+  .mainTabs :global(.ant-card-body) {
+    padding: 16px;
+  }
+}
+
+.skillScannerLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.skillScannerConfig {
+  flex-wrap: wrap;
+  gap: 24px;
 }

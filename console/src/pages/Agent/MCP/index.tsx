@@ -1,7 +1,10 @@
+import { Cascade } from "@/components/interaction/Cascade";
+import { SharedModal as Modal } from "@/components/interaction/SharedModal";
 import { useState, useCallback } from "react";
-import { Button, Empty, Modal, Input, Select } from "@agentscope-ai/design";
-import { Tabs } from "antd";
-import { LockKeyhole, Plus, Server } from "lucide-react";
+import { Button, Empty, Input, Select } from "@agentscope-ai/design";
+import { Tabs, Alert, Segmented } from "antd";
+import InlineHelp from "@/components/InlineHelp";
+import { LockKeyhole, Plus, Server, Search } from "lucide-react";
 import type { MCPClientInfo } from "../../../api/types";
 import { MCPClientCard } from "./components";
 import { useMCP } from "./useMCP";
@@ -85,8 +88,18 @@ function MCPPage() {
     updatePolicy,
     refreshClients,
   } = useMCP();
+  const [query, setQuery] = useState("");
+  const [filter, setFilter] = useState("all");
+  const visibleClients = clients.filter(
+    (client) =>
+      (filter === "all" || client.enabled === (filter === "enabled")) &&
+      `${client.name} ${client.description ?? ""} ${client.key}`
+        .toLocaleLowerCase()
+        .includes(query.toLocaleLowerCase().trim()),
+  );
   const [createModalOpen, setCreateModalOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState<"json" | "form">("json");
+  const [activeTab, setActiveTab] = useState<"json" | "form">("form");
+  const [createError, setCreateError] = useState<string | null>(null);
 
   // JSON-import state
   const [newClientJson, setNewClientJson] = useState(`{
@@ -124,7 +137,8 @@ function MCPPage() {
   }
 }`);
     setForm({ ...defaultForm });
-    setActiveTab("json");
+    setActiveTab("form");
+    setCreateError(null);
   }, []);
 
   const handleToggleEnabled = async (
@@ -142,6 +156,7 @@ function MCPPage() {
 
   // ---------- JSON import ----------
   const handleCreateFromJson = async () => {
+    setCreateError(null);
     try {
       const parsed = JSON.parse(newClientJson) as Record<string, unknown>;
       const clientsToCreate: Array<{
@@ -184,6 +199,10 @@ function MCPPage() {
         });
       }
 
+      if (clientsToCreate.length === 0) {
+        setCreateError(t("mcp.invalidJson"));
+        return;
+      }
       let allSuccess = true;
       for (const { key, data } of clientsToCreate) {
         const success = await createClient(key, data);
@@ -195,20 +214,21 @@ function MCPPage() {
         resetModal();
       }
     } catch {
-      alert("Invalid JSON format");
+      setCreateError(t("mcp.invalidJson"));
     }
   };
 
   // ---------- Form create ----------
   const handleCreateFromForm = async () => {
+    setCreateError(null);
     const key = form.key.trim();
     const name = form.name.trim();
     if (!key) {
-      alert(t("mcp.form.keyRequired"));
+      setCreateError(t("mcp.form.keyRequired"));
       return;
     }
     if (!name) {
-      alert(t("mcp.form.nameRequired"));
+      setCreateError(t("mcp.form.nameRequired"));
       return;
     }
 
@@ -216,11 +236,11 @@ function MCPPage() {
       form.transport === "streamable_http" || form.transport === "sse";
 
     if (isHttp && !form.url.trim()) {
-      alert(t("mcp.form.urlRequired"));
+      setCreateError(t("mcp.form.urlRequired"));
       return;
     }
     if (form.transport === "stdio" && !form.command.trim()) {
-      alert(t("mcp.form.commandRequired"));
+      setCreateError(t("mcp.form.commandRequired"));
       return;
     }
 
@@ -279,6 +299,25 @@ function MCPPage() {
         }
       />
 
+      <div className={styles.collectionToolbar}>
+        <Input
+          aria-label={t("common.search")}
+          placeholder={t("common.search")}
+          prefix={<Search size={16} />}
+          value={query}
+          allowClear
+          onChange={(event) => setQuery(event.target.value)}
+        />
+        <Segmented
+          value={filter}
+          onChange={(value) => setFilter(String(value))}
+          options={[
+            { value: "all", label: t("common.all") },
+            { value: "enabled", label: t("common.enabled") },
+            { value: "disabled", label: t("common.disabled") },
+          ]}
+        />
+      </div>
       {loading ? (
         <div className={styles.loading}>
           <p>{t("common.loading")}</p>
@@ -296,23 +335,24 @@ function MCPPage() {
               </div>
               <div>
                 <h2>{t("mcp.qwenpawManaged")}</h2>
-                <p>{t("mcp.qwenpawManagedHint")}</p>
+                <InlineHelp>{t("mcp.qwenpawManagedHint")}</InlineHelp>
               </div>
             </div>
-            {clients.length === 0 ? (
+            {visibleClients.length === 0 ? (
               <div className={styles.sectionEmpty}>{t("mcp.emptyState")}</div>
             ) : (
               <div className={styles.mcpGrid}>
-                {clients.map((client) => (
-                  <MCPClientCard
-                    key={client.key}
-                    client={client}
-                    onToggle={handleToggleEnabled}
-                    onDelete={handleDelete}
-                    onUpdate={updateClient}
-                    onUpdatePolicy={updatePolicy}
-                    onRefresh={refreshClients}
-                  />
+                {visibleClients.map((client, index) => (
+                  <Cascade key={client.key} index={index}>
+                    <MCPClientCard
+                      client={client}
+                      onToggle={handleToggleEnabled}
+                      onDelete={handleDelete}
+                      onUpdate={updateClient}
+                      onUpdatePolicy={updatePolicy}
+                      onRefresh={refreshClients}
+                    />
+                  </Cascade>
                 ))}
               </div>
             )}
@@ -330,7 +370,7 @@ function MCPPage() {
                       provider: providerServers[0].provider_id,
                     })}
                   </h2>
-                  <p>{t("mcp.providerManagedHint")}</p>
+                  <InlineHelp>{t("mcp.providerManagedHint")}</InlineHelp>
                 </div>
               </div>
               <div className={styles.providerGrid}>
@@ -367,6 +407,7 @@ function MCPPage() {
       )}
 
       <Modal
+        centered
         title={t("mcp.create")}
         open={createModalOpen}
         onCancel={() => {
@@ -398,6 +439,14 @@ function MCPPage() {
         }
         width={800}
       >
+        {createError && (
+          <Alert
+            type="error"
+            showIcon
+            message={createError}
+            style={{ marginBottom: 16 }}
+          />
+        )}
         <Tabs
           activeKey={activeTab}
           onChange={(k) => setActiveTab(k as "json" | "form")}

@@ -1,0 +1,68 @@
+.glow {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  opacity: 0;
+  &[data-active="true"] {
+    opacity: 1;
+  }
+}
+.edge {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  border-radius: inherit;
+  padding: 1px;
+  mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  mask-composite: exclude;
+  > span {
+    position: absolute;
+    inset: -100%;
+    background: conic-gradient(
+      from 0deg,
+      transparent 45%,
+      var(--app-accent-border),
+      var(--app-accent),
+      transparent 80%
+    );
+    animation: orbit 4s linear infinite paused;
+  }
+}
+.ambient {
+  position: absolute;
+  inset: auto 20% -3px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--app-accent);
+  filter: blur(12px);
+  opacity: 0.12;
+  animation: breathe 2s ease-in-out infinite alternate paused;
+}
+[data-animate="true"] {
+  .edge > span,
+  .ambient {
+    animation-play-state: running;
+  }
+}
+@keyframes orbit {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes breathe {
+  to {
+    opacity: 0.28;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .edge > span,
+  .ambient {
+    animation: none;
+  }
+  .ambient {
+    display: none;
+  }
+}

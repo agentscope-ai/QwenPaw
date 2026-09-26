@@ -84,6 +84,7 @@ describe("SDK session hydration boundary", () => {
     const a = createSdkSessionAdapter(api),
       b = createSdkSessionAdapter(source());
     await expect(a.api.getSession("a")).rejects.toThrow("offline");
+    expect(a.hasFailed("a")).toBe(true);
     expect(a.isReady("a")).toBe(false);
     await a.api.getSession("a");
     expect(a.isReady("a")).toBe(true);

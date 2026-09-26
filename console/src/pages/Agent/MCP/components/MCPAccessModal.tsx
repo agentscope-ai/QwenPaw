@@ -1,5 +1,7 @@
+import { SharedModal as Modal } from "@/components/interaction/SharedModal";
+import { useAutoSave } from "@/hooks/useAutoSave";
 import React, { useEffect, useMemo, useState } from "react";
-import { Button, Empty, Modal } from "@agentscope-ai/design";
+import { Empty } from "@agentscope-ai/design";
 import { Spin } from "antd";
 import { useTranslation } from "react-i18next";
 import api from "../../../../api";
@@ -56,7 +58,7 @@ export const MCPAccessModal: React.FC<MCPAccessModalProps> = ({
     ...MCP_CHANNEL_SOURCE_VALUES,
   ]);
   const [loading, setLoading] = useState(false);
-  const [saving, setSaving] = useState(false);
+  const [, setSaving] = useState(false);
   const [toolsError, setToolsError] = useState("");
   const [initialPolicySignature, setInitialPolicySignature] = useState("");
 
@@ -106,9 +108,13 @@ export const MCPAccessModal: React.FC<MCPAccessModalProps> = ({
           if (!cancelled) {
             setTools(currentTools);
           }
-        } catch (err: any) {
+        } catch (err: unknown) {
           if (!cancelled) {
-            setToolsError(err?.message || t("mcp.toolsLoadError"));
+            setToolsError(
+              err instanceof Error && err.message
+                ? err.message
+                : t("mcp.toolsLoadError"),
+            );
           }
         }
       } catch {
@@ -188,11 +194,11 @@ export const MCPAccessModal: React.FC<MCPAccessModalProps> = ({
   };
 
   const handleSave = async () => {
-    if (!policy) return;
+    if (!policy) return false;
     const validationError = validateMCPAccessPolicy(policy);
     if (validationError) {
       message.error(t(`mcp.access.validation.${validationError.reason}`));
-      return;
+      return false;
     }
     const validationWarning = findMCPAccessPolicyWarning(
       policy,
@@ -206,24 +212,20 @@ export const MCPAccessModal: React.FC<MCPAccessModalProps> = ({
       const ok = await onSave(policy);
       if (ok) {
         setInitialPolicySignature(policySignature(policy));
-        onClose();
       }
+      return ok;
     } finally {
       setSaving(false);
     }
   };
 
+  const { schedule, flush } = useAutoSave(handleSave);
+  useEffect(() => {
+    if (open && !loading && isDirty) schedule();
+  }, [open, loading, isDirty, policy, schedule]);
   const handleClose = () => {
-    if (!isDirty || saving) {
-      onClose();
-      return;
-    }
-    Modal.confirm({
-      title: t("mcp.access.discardTitle"),
-      content: t("mcp.access.discardContent"),
-      okText: t("common.confirm"),
-      cancelText: t("common.cancel"),
-      onOk: onClose,
+    void flush().then((saved) => {
+      if (saved) onClose();
     });
   };
 
@@ -233,21 +235,7 @@ export const MCPAccessModal: React.FC<MCPAccessModalProps> = ({
       open={open}
       onCancel={handleClose}
       width="min(1040px, calc(100vw - 32px))"
-      footer={
-        <div style={{ textAlign: "right" }}>
-          <Button onClick={handleClose} style={{ marginRight: 8 }}>
-            {t("common.cancel")}
-          </Button>
-          <Button
-            type="primary"
-            onClick={handleSave}
-            loading={saving}
-            disabled={!policy || loading}
-          >
-            {t("common.save")}
-          </Button>
-        </div>
-      }
+      footer={null}
     >
       {loading && !policy ? (
         <div className={styles.toolsLoading}>

@@ -80,7 +80,9 @@ describe("Sidebar navigation — A#84552933 应用导航入口", () => {
     ).toMatchObject({
       location: "primary.agentScoped",
       route: "core.import",
-      icon: expect.any(Function),
+      icon: expect.objectContaining({
+        $$typeof: Symbol.for("react.forward_ref"),
+      }),
     });
   });
 

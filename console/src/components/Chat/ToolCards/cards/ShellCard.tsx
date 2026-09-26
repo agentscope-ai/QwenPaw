@@ -5,7 +5,7 @@
 
 import React from "react";
 import { useTranslation } from "react-i18next";
-import { CodeOutlined } from "@ant-design/icons";
+import { Code as CodeOutlined } from "lucide-react";
 import type { ToolCallContent } from "../shared/types";
 import { ToolCardShell } from "../shared";
 import { DefaultBlock } from "../shared";
@@ -29,7 +29,7 @@ const ShellCard: React.FC<ShellCardProps> = ({ content, isStreaming }) => {
       <ToolCardShell
         content={content}
         isStreaming={isStreaming}
-        icon={<CodeOutlined />}
+        icon={<CodeOutlined size="1em" />}
         title={title}
       />
     );
@@ -39,7 +39,7 @@ const ShellCard: React.FC<ShellCardProps> = ({ content, isStreaming }) => {
 
   return (
     <ToolCardShell
-      icon={<CodeOutlined />}
+      icon={<CodeOutlined size="1em" />}
       title={title}
       content={content}
       isStreaming={isStreaming}

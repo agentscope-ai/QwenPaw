@@ -1,6 +1,10 @@
 import type { Dispatch, SetStateAction } from "react";
 import { Input, Select } from "@agentscope-ai/design";
-import { UnorderedListOutlined, AppstoreOutlined } from "@ant-design/icons";
+import {
+  Search,
+  List as UnorderedListOutlined,
+  LayoutGrid as AppstoreOutlined,
+} from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { SkillFilterDropdown } from "./SkillFilterDropdown";
 import styles from "../index.module.less";
@@ -35,11 +39,15 @@ export function SkillsToolbar({
       <div className={styles.searchContainer}>
         <Input
           className={styles.searchInput}
+          aria-label={t("skills.searchPlaceholder")}
+          prefix={<Search size={16} aria-hidden />}
+          allowClear
           placeholder={t("skills.searchPlaceholder")}
           value={searchQuery}
           onChange={(e) => onSearchChange(e.target.value)}
         />
         <Select
+          aria-label={t("skills.filterByTag")}
           mode="multiple"
           className={styles.tagSelect}
           placeholder={t("skills.filterByTag")}
@@ -71,18 +79,26 @@ export function SkillsToolbar({
               viewMode === "list" ? styles.viewToggleBtnActive : ""
             }`}
             onClick={() => onViewModeChange("list")}
+            type="button"
+            data-press
+            aria-label={t("skills.listView")}
+            aria-pressed={viewMode === "list"}
             title={t("skills.listView")}
           >
-            <UnorderedListOutlined />
+            <UnorderedListOutlined size="1em" />
           </button>
           <button
             className={`${styles.viewToggleBtn} ${
               viewMode === "card" ? styles.viewToggleBtnActive : ""
             }`}
             onClick={() => onViewModeChange("card")}
+            type="button"
+            data-press
+            aria-label={t("skills.gridView")}
+            aria-pressed={viewMode === "card"}
             title={t("skills.gridView")}
           >
-            <AppstoreOutlined />
+            <AppstoreOutlined size="1em" />
           </button>
         </div>
       </div>

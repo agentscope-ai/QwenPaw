@@ -91,7 +91,7 @@
 }
 
 .everyUnit {
-  min-width: 100px;
+  min-width: 70px;
 }
 
 .timeoutNumber {
@@ -114,4 +114,359 @@
 .activeHoursRow :global(.ant-form-item) {
   flex: 1;
   margin-bottom: 0;
+}
+
+/* Page-specific settings refinement. */
+
+.heartbeatContent {
+  max-width: 760px;
+  margin: 16px auto 32px;
+  width: 100%;
+  padding: 0 16px;
+}
+.card {
+  border-radius: 24px;
+}
+.card :global(.qwenpaw-form-item),
+.card :global(.ant-form-item) {
+  margin-bottom: 24px;
+}
+.everyRow {
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.everyNumber,
+.timeoutNumber {
+  width: 144px;
+}
+.formActions {
+  justify-content: flex-end;
+  margin-bottom: 0;
+}
+.activeHoursRow {
+  padding: 16px;
+  border-radius: 16px;
+  background: var(--app-fill-faint);
+}
+@media (max-width: 480px) {
+  .heartbeatContent {
+    padding: 0;
+  }
+  .activeHoursRow {
+    flex-direction: column;
+  }
+  .activeHoursRow > * {
+    width: 100%;
+  }
+}
+
+.heartbeatContent {
+  margin-inline: 0;
+}
+.schedule {
+  display: grid;
+  grid-template-columns: minmax(280px, 0.85fr) minmax(360px, 1.3fr);
+  gap: 16px;
+  margin: 8px 16px;
+  max-width: 1120px;
+  align-items: stretch;
+}
+.pulseCard {
+  position: relative;
+  border: 1px solid var(--app-border-subtle);
+  border-radius: 28px;
+  padding: 24px;
+  background: var(--app-surface);
+  overflow: hidden;
+}
+.pulseHeader {
+  margin-bottom: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  h2 {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 600;
+  }
+}
+.intervalPreview {
+  padding: 32px 0 24px;
+  > span {
+    color: var(--app-text-tertiary);
+    font-size: 12px;
+  }
+  > div {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+  }
+  :global(number-flow-react) {
+    font-size: 72px;
+    font-weight: 600;
+    letter-spacing: -0.06em;
+  }
+}
+.presets {
+  display: flex;
+  gap: 8px;
+  button {
+    flex: 1;
+    padding: 10px 4px;
+    border: 1px solid var(--app-border-subtle);
+    border-radius: 14px;
+    color: var(--app-text-secondary);
+    background: var(--app-fill-subtle);
+    cursor: pointer;
+    &[aria-pressed="true"] {
+      color: var(--app-accent-text);
+      border-color: var(--app-accent);
+      background: var(--app-accent-soft);
+    }
+  }
+}
+.delivery {
+  grid-column: 1 / -1;
+  padding: 24px;
+  border: 1px solid var(--app-border-subtle);
+  border-radius: 28px;
+  background: var(--app-surface);
+  h2 {
+    font-size: 14px;
+    font-weight: 600;
+    margin: 0 0 16px;
+  }
+}
+.targetChoices {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  button {
+    padding: 16px;
+    min-height: 96px;
+  }
+}
+.hoursHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0;
+  margin: 0;
+  h2 {
+    margin: 0;
+  }
+}
+.scheduleActions {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 16px;
+  border-top: 1px solid var(--app-border-subtle);
+}
+@media (max-width: 1000px) {
+  .schedule {
+    grid-template-columns: 1fr;
+  }
+}
+@media (max-width: 600px) {
+  .schedule {
+    margin: 0;
+  }
+  .targetChoices {
+    grid-template-columns: 1fr;
+    button {
+      min-height: 0;
+    }
+  }
+}
+.sliderControl {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex: 1;
+  min-width: 0;
+  :global(.ant-slider),
+  :global(.qwenpaw-slider) {
+    flex: 1;
+    min-width: 70px;
+  }
+  :global(.qwenpaw-input-number) {
+    width: 76px;
+  }
+}
+
+.instructions {
+  margin: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  max-width: 1120px;
+  box-sizing: border-box;
+  padding: 24px;
+  border: 1px solid var(--app-border);
+  border-radius: 28px;
+  background: var(--app-surface);
+  header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 16px;
+  }
+  h2 {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 600;
+  }
+  button {
+    display: inline-flex;
+    border: 0;
+    background: none;
+    color: var(--app-text-tertiary);
+    cursor: pointer;
+  }
+  textarea {
+    flex: 1;
+    min-height: 240px;
+    resize: none;
+    font-family: ui-monospace, monospace;
+    font-size: 13px;
+    line-height: 1.7;
+  }
+}
+
+@media (max-width: 600px) {
+  .instructions {
+    margin-inline: 0;
+    padding: 18px;
+  }
+}
+
+.loading {
+  padding: 64px 24px;
+  text-align: center;
+}
+.heartbeatPage .pulseCard {
+  --reflection-highlight: var(--app-accent-faint);
+  --reflection-silver: transparent;
+  --reflection-edge: var(--app-accent-border);
+  --reflection-shadow: transparent;
+}
+.schedule {
+  max-width: none;
+  grid-template-columns: minmax(280px, 0.85fr) minmax(320px, 1.3fr);
+  gap: 24px;
+}
+.pulseCard,
+.instructions,
+.delivery {
+  border-radius: 20px;
+}
+.instructions header {
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.fileName {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--app-text-tertiary);
+}
+.instructions textarea {
+  font-family: inherit;
+  font-size: 14px;
+  padding: 16px;
+  border-radius: 12px;
+}
+.delivery h2 {
+  font-size: 16px;
+}
+.presets {
+  flex-wrap: wrap;
+}
+.presets button {
+  min-height: 44px;
+}
+.targetChoices button {
+  min-height: 80px;
+}
+@media (max-width: 1000px) {
+  .schedule {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+@media (max-width: 600px) {
+  .pulseCard,
+  .instructions,
+  .delivery {
+    padding: 20px;
+  }
+  .schedule {
+    gap: 16px;
+  }
+  .fileName {
+    width: 100%;
+    margin-top: 4px;
+  }
+}
+
+.pulseCard[data-disabled="true"] {
+  --reflection-highlight: transparent;
+  --reflection-edge: transparent;
+  background: var(--app-surface-subtle);
+}
+.presets button:disabled {
+  color: var(--app-text-tertiary);
+  border-color: var(--app-border-subtle);
+  background: var(--app-fill-faint);
+  cursor: not-allowed;
+}
+
+/* Related controls share one surface and one title inset. */
+.delivery > h2 {
+  margin-bottom: 12px;
+}
+.settingRow {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  h2 {
+    margin: 0;
+  }
+}
+.divider {
+  height: 1px;
+  background: var(--app-border-subtle);
+  margin-block: 20px;
+}
+.timeoutRow {
+  display: grid;
+  grid-template-columns: minmax(160px, 1fr) minmax(220px, 1fr);
+  align-items: center;
+  gap: 24px;
+}
+.timeoutRow h2 {
+  margin: 0;
+}
+.timeoutRow :global(.ant-form-item),
+.timeoutRow :global(.qwenpaw-form-item) {
+  margin: 0;
+  min-width: 0;
+}
+.delivery .activeHoursRow {
+  margin-top: 16px;
+  padding: 0;
+  background: transparent;
+}
+@media (max-width: 600px) {
+  .timeoutRow {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 12px;
+  }
+  .settingRow :global(.ant-segmented),
+  .settingRow :global(.qwenpaw-segmented) {
+    max-width: 100%;
+  }
 }

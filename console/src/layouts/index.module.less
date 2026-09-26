@@ -29,7 +29,8 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  background: var(--app-shell-bg);
+  background: var(--app-glass);
+  backdrop-filter: blur(16px);
   border-bottom-color: var(--app-border-subtle);
   color: var(--app-text);
 
@@ -192,7 +193,7 @@
 
       /* Ensure icon container allows badge overflow */
       .qwenpaw-menu-item-icon,
-      .qwenpaw-menu-item .anticon {
+      .qwenpaw-menu-item :is(.anticon, .lucide) {
         overflow: visible !important;
       }
 
@@ -632,9 +633,26 @@
 }
 
 .collapseToggle {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  cursor: pointer;
   color: rgba(0, 0, 0, 0.45);
   border-radius: 8px;
-  transition: all 0.2s;
+  transition:
+    background-color 0.2s,
+    color 0.2s,
+    border-color 0.2s,
+    box-shadow 0.2s,
+    opacity 0.2s,
+    transform 0.2s;
 
   &:hover {
     background: rgba(0, 0, 0, 0.06) !important;
@@ -943,7 +961,13 @@
   background: transparent;
   cursor: pointer;
   color: rgba(0, 0, 0, 0.55);
-  transition: all 0.15s;
+  transition:
+    background-color 0.15s,
+    color 0.15s,
+    border-color 0.15s,
+    box-shadow 0.15s,
+    opacity 0.15s,
+    transform 0.15s;
 
   &:hover {
     background: rgba(0, 0, 0, 0.06);
@@ -1177,14 +1201,14 @@
         background: rgba(255, 255, 255, 0.08) !important;
       }
 
-      .anticon,
+      :is(.anticon, .lucide),
       svg {
         color: inherit !important;
       }
     }
 
     /* Fallback: any icon or text directly inside header */
-    :global(.anticon) {
+    :global(:is(.anticon, .lucide)) {
       color: rgba(255, 255, 255, 0.75);
     }
   }
@@ -1404,5 +1428,128 @@
   }
   .navigationItem {
     height: 32px;
+  }
+}
+
+// One continuous workspace surface, including its utility toolbar.
+.mainContentLayout.mainContentLayout {
+  margin: 8px 8px 8px 0;
+  height: calc(100% - 16px);
+  background: var(--app-surface);
+  border: 1px solid var(--app-border-subtle);
+  border-radius: 22px;
+  > :global(.page-container) {
+    padding: 0;
+  }
+  :global(.page-content) {
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+  }
+  .header {
+    height: 40px;
+    min-height: 40px;
+    padding: 0 16px;
+    background: transparent;
+    backdrop-filter: none;
+    border: 0;
+  }
+}
+@media (max-width: 768px) {
+  .mainContentLayout.mainContentLayout {
+    margin: 0;
+    height: 100%;
+    border-radius: 0;
+    border: 0;
+  }
+}
+.mainContentLayout.mainContentLayout .headerWithBrand {
+  height: 56px;
+  min-height: 56px;
+}
+
+.headerActions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.header .utilityGroup {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 12px;
+  background: var(--app-fill-subtle);
+
+  > span {
+    display: flex;
+  }
+  button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px !important;
+    min-width: 30px !important;
+    height: 30px !important;
+    padding: 0 !important;
+    border-radius: 9px;
+    color: var(--app-text-secondary);
+    font-size: 17px !important;
+    svg {
+      width: 17px !important;
+      height: 17px !important;
+      stroke-width: 1.75;
+    }
+  }
+  .headerDivider {
+    height: 14px;
+    margin: 0 5px;
+  }
+}
+@media (max-width: 768px) {
+  .header .utilityGroup {
+    display: none;
+  }
+}
+
+.mainLayout {
+  position: relative;
+  isolation: isolate;
+}
+.ambientLight {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+  background: radial-gradient(
+      ellipse at 0% 18%,
+      color-mix(in srgb, var(--app-accent) 12%, transparent),
+      transparent 36%
+    ),
+    radial-gradient(
+      ellipse at 100% 100%,
+      color-mix(in srgb, var(--app-accent) 7%, transparent),
+      transparent 42%
+    );
+}
+:global(.dark-mode) .ambientLight {
+  background: radial-gradient(
+      ellipse at 0% 18%,
+      rgb(255 127 22 / 13%),
+      transparent 38%
+    ),
+    radial-gradient(ellipse at 100% 100%, rgb(255 157 77 / 7%), transparent 42%);
+}
+.mainContentLayout .headerPluginOnly {
+  height: auto !important;
+  min-height: 0 !important;
+  &:has(.headerPluginLeft:empty):has(.headerActions:empty) {
+    display: none;
+  }
+}
+@media (prefers-contrast: more) {
+  .ambientLight {
+    display: none;
   }
 }

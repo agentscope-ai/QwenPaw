@@ -1,3 +1,5 @@
+import { ChatSessionActivation } from "./components/ChatSessionActivation";
+import SdkRef from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/Ref";
 /**
  * Installed-SDK protocol integration, NOT browser/backend/model E2E.
  *
@@ -26,7 +28,10 @@ import { useChatAnywhereMessages } from "@agentscope-ai/chat/lib/AgentScopeRunti
 import ComposedProvider from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/ChatAnywhere/ComposedProvider";
 import useChatController from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/Chat/hooks/useChatController";
 import { useChatAnywhereSessionLoader } from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/Context/ChatAnywhereSessionsContext";
-import type { IAgentScopeRuntimeWebUIOptions } from "@agentscope-ai/chat";
+import type {
+  IAgentScopeRuntimeWebUIRef,
+  IAgentScopeRuntimeWebUIOptions,
+} from "@agentscope-ai/chat";
 import api, { type ChatSpec } from "../../api";
 import { useAgentStore } from "../../stores/agentStore";
 import { useMessageQueueStore } from "../../stores/messageQueueStore";
@@ -73,7 +78,7 @@ function createFixture() {
     close: () => void;
     emit: (event: Record<string, unknown>) => void;
   }> = [];
-  const stop = vi.fn(async (_id: string) => {});
+  const stop = vi.fn<(id: string) => Promise<void>>(async () => {});
   const create = vi
     .spyOn(api, "createChat")
     .mockImplementation(async (draft) => {
@@ -93,7 +98,7 @@ function createFixture() {
   const transport = vi.fn(async (data: TransportData) => {
     trace.push(`SSE:${data.session_id}`);
     let close = () => {};
-    let emit = (_event: Record<string, unknown>) => {};
+    let emit: (event: Record<string, unknown>) => void = () => {};
     let closed = false;
     const body = new ReadableStream<Uint8Array>({
       start(controller) {
@@ -154,6 +159,9 @@ function mountHost(
   observeIdle = false,
 ) {
   let probe!: Probe;
+  const sdkRef = {
+    current: null as IAgentScopeRuntimeWebUIRef | null,
+  };
   const loaded: Array<{ id: string; generating: boolean }> = [];
   // These are forwarding methods, not replacements for SDK/CoPaw behavior.
   const sessionMethods = {
@@ -281,7 +289,9 @@ function mountHost(
     );
     return (
       <ComposedProvider options={options} cards={{}}>
+        <ChatSessionActivation sessionId={currentSessionId} sdkRef={sdkRef} />
         <ProbeView />
+        <SdkRef ref={sdkRef} />
       </ComposedProvider>
     );
   }
@@ -366,6 +376,90 @@ async function startA(host: ReturnType<typeof mountHost>) {
 }
 
 describe("installed SDK session lifecycle with CoPaw's blank-new hook", () => {
+  it("lets the original SDK clear the target while the host waits for readiness", async () => {
+    const host = mountHost(fixture);
+    await waitFor(() =>
+      expect(host.loaded).toContainEqual({ id: A, generating: false }),
+    );
+    act(() =>
+      host
+        .current()
+        .messages.setSessionMessages(A, [{ id: "visible-a", role: "user" }]),
+    );
+    const gate = deferred();
+    gates.push(gate);
+    fixture.history.mockImplementation(async () => {
+      await gate.promise;
+      return { status: "idle", messages: [] };
+    });
+    await act(async () => {
+      host.current().navigate(`/chat/${B}`);
+    });
+    await waitFor(() =>
+      expect(fixture.history).toHaveBeenCalledWith(B, expect.any(Object)),
+    );
+    expect(
+      host
+        .current()
+        .messages.getSessionMessages(A)
+        .map((message) => message.id),
+    ).toEqual(["visible-a"]);
+    expect(host.adapter.isReady(B)).toBe(false);
+    await act(async () => {
+      gate.resolve();
+    });
+    await waitFor(() =>
+      expect(host.current().messages.getMessages()).toEqual([]),
+    );
+    expect(host.adapter.isReady(B)).toBe(true);
+  });
+
+  it("restores A during a pending B load, ignores late B, and can revisit B", async () => {
+    const gate = deferred();
+    gates.push(gate);
+    fixture.records.push(record(B));
+    fixture.history.mockImplementation(async (id) => {
+      if (id === B) await gate.promise;
+      return {
+        status: "idle",
+        messages: [
+          {
+            id: `message-${id}`,
+            role: "user",
+            type: "message",
+            content: `history-${id}`,
+            metadata: null,
+          },
+        ],
+      };
+    });
+    const host = mountHost(fixture);
+    const visibleMessages = () =>
+      JSON.stringify(host.current().messages.getMessages());
+    await waitFor(() => expect(visibleMessages()).toContain(`history-${A}`));
+    await act(async () => {
+      host.current().navigate(`/chat/${B}`);
+    });
+    await waitFor(() =>
+      expect(fixture.history).toHaveBeenCalledWith(B, expect.any(Object)),
+    );
+    await act(async () => {
+      host.current().navigate(`/chat/${A}`);
+    });
+    expect(visibleMessages()).toContain(`history-${A}`);
+    await act(async () => {
+      gate.resolve();
+    });
+    expect(host.current().sessions.currentSessionId).toBe(A);
+    expect(visibleMessages()).toContain(`history-${A}`);
+    expect(visibleMessages()).not.toContain(`history-${B}`);
+    await act(async () => {
+      host.current().navigate(`/chat/${B}`);
+    });
+    await waitFor(() => expect(visibleMessages()).toContain(`history-${B}`));
+    expect(visibleMessages()).not.toContain(`history-${A}`);
+  });
+
   it("A SSE + pending host queue → repeated blank new allocates no session and clears real context", async () => {
     const host = mountHost(fixture);
     await startA(host);

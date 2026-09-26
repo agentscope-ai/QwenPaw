@@ -275,13 +275,16 @@ export const workspaceApi = {
       })),
     ),
 
-  loadFile: (fileName: string) =>
-    request<MdFileContent>(`/workspace/files/${encodeURIComponent(fileName)}`),
+  loadFile: (fileName: string, agentId?: string) =>
+    request<MdFileContent>(`/workspace/files/${encodeURIComponent(fileName)}`, {
+      ...(agentId ? { headers: { "X-Agent-Id": agentId } } : {}),
+    }),
 
-  saveFile: (fileName: string, content: string) =>
+  saveFile: (fileName: string, content: string, agentId?: string) =>
     request<Record<string, unknown>>(
       `/workspace/files/${encodeURIComponent(fileName)}`,
       {
+        ...(agentId ? { headers: { "X-Agent-Id": agentId } } : {}),
         method: "PUT",
         body: JSON.stringify({ content }),
       },

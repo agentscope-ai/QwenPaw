@@ -35,10 +35,10 @@ describe("parseCron", () => {
     });
   });
 
-  it('"*/15 * * * *" parses as custom with rawCron preserved', () => {
+  it('"*/15 * * * *" parses as a visual interval', () => {
     expect(parseCron("*/15 * * * *")).toEqual({
-      type: "custom",
-      rawCron: "*/15 * * * *",
+      type: "minutes",
+      intervalMinutes: 15,
     });
   });
 
@@ -65,4 +65,20 @@ describe("serializeCron", () => {
       "*/15 * * * *",
     );
   });
+});
+
+describe("visual schedule round trips", () => {
+  it.each(["* * * * *", "*/5 * * * *", "0 9 1 * *", "30 18 31 * *"])(
+    "preserves %s",
+    (cron) => {
+      expect(serializeCron(parseCron(cron))).toBe(cron);
+    },
+  );
+  it.each(["*/25 * * * *", "0 9 L * *", "0 9 1,15 * *", "0 9 * 2 *"])(
+    "keeps unsupported %s in advanced mode",
+    (cron) => {
+      expect(parseCron(cron)).toEqual({ type: "custom", rawCron: cron });
+      expect(serializeCron(parseCron(cron))).toBe(cron);
+    },
+  );
 });

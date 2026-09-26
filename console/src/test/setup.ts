@@ -1,6 +1,16 @@
 import "@testing-library/jest-dom";
 import { vi } from "vitest";
 
+// jsdom has no scrolling engine; native scroll completion is dispatched by tests.
+Object.defineProperty(HTMLElement.prototype, "scrollTo", {
+  configurable: true,
+  writable: true,
+  value: function (options: ScrollToOptions) {
+    this.scrollTop = options.top ?? this.scrollTop;
+    this.scrollLeft = options.left ?? this.scrollLeft;
+  },
+});
+
 // localStorage mock
 const localStorageMock = (() => {
   let store: Record<string, string> = {};

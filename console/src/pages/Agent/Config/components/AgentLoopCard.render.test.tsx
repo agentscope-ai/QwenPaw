@@ -1,3 +1,4 @@
+import { ConfigAutoSaveContext } from "../configAutoSaveContext";
 import { useEffect } from "react";
 import { fireEvent, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
@@ -6,7 +7,8 @@ import { Form } from "@agentscope-ai/design";
 import type { FormInstance } from "antd";
 import type { CustomLoopModeConfig } from "@/api/types";
 import { renderWithProviders } from "@/test/common_setup";
-import { AgentLoopCard, buildCustomLoopMode } from "./AgentLoopCard";
+import { AgentLoopCard } from "./AgentLoopCard";
+import { buildCustomLoopMode } from "./agentLoopHelpers";
 
 vi.mock("@agentscope-ai/design", async () =>
   vi.importActual<typeof import("antd")>("antd"),
@@ -21,7 +23,9 @@ vi.mock("react-i18next", () => ({
 function LoopForm({
   modes = [],
   onForm,
+  onEdit = () => {},
 }: {
+  onEdit?: () => void;
   modes?: CustomLoopModeConfig[];
   onForm?: (form: FormInstance) => void;
 }) {
@@ -32,7 +36,9 @@ function LoopForm({
 
   return (
     <Form form={form} initialValues={{ loop: { custom_modes: modes } }}>
-      <AgentLoopCard />
+      <ConfigAutoSaveContext.Provider value={onEdit}>
+        <AgentLoopCard />
+      </ConfigAutoSaveContext.Provider>
     </Form>
   );
 }
@@ -40,7 +46,10 @@ function LoopForm({
 describe("AgentLoopCard custom mode rendering", () => {
   it("shows a newly created template and its preset gates immediately", async () => {
     let form: FormInstance | undefined;
-    renderWithProviders(<LoopForm onForm={(next) => (form = next)} />);
+    const onEdit = vi.fn();
+    renderWithProviders(
+      <LoopForm onEdit={onEdit} onForm={(next) => (form = next)} />,
+    );
 
     fireEvent.click(screen.getByLabelText("Create custom loop mode"));
     fireEvent.click(screen.getByRole("button", { name: "OK" }));
@@ -48,6 +57,7 @@ describe("AgentLoopCard custom mode rendering", () => {
     expect(
       await screen.findByRole("tab", { name: "New Loop Mode" }),
     ).toHaveAttribute("aria-selected", "true");
+    expect(onEdit).toHaveBeenCalled();
     const editor = within(screen.getByRole("tabpanel"));
     expect(editor.getByText("Iteration limit")).toBeInTheDocument();
     expect(editor.getByText("Token budget")).toBeInTheDocument();
@@ -61,11 +71,20 @@ describe("AgentLoopCard custom mode rendering", () => {
     expect(form?.getFieldValue(["loop", "custom_modes", 0, "enabled"])).toBe(
       true,
     );
+    onEdit.mockClear();
+    fireEvent.click(screen.getByRole("button", { name: "Duplicate" }));
+    expect(onEdit).toHaveBeenCalledOnce();
+    onEdit.mockClear();
+    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+    expect(onEdit).toHaveBeenCalledOnce();
   }, 15_000);
 
   it("opens Gate choices from the plus button and enables a blank mode", async () => {
     let form: FormInstance | undefined;
-    renderWithProviders(<LoopForm onForm={(next) => (form = next)} />);
+    const onEdit = vi.fn();
+    renderWithProviders(
+      <LoopForm onEdit={onEdit} onForm={(next) => (form = next)} />,
+    );
 
     fireEvent.click(screen.getByLabelText("Create custom loop mode"));
     fireEvent.mouseDown(screen.getByRole("combobox"));
@@ -86,6 +105,12 @@ describe("AgentLoopCard custom mode rendering", () => {
     expect(form?.getFieldValue(["loop", "custom_modes", 0, "enabled"])).toBe(
       true,
     );
+    onEdit.mockClear();
+    fireEvent.click(screen.getByRole("button", { name: "Duplicate" }));
+    expect(onEdit).toHaveBeenCalledOnce();
+    onEdit.mockClear();
+    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+    expect(onEdit).toHaveBeenCalledOnce();
   }, 15_000);
 
   it("renders Mission defaults as three separate gates", async () => {

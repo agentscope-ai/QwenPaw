@@ -11,6 +11,10 @@ vi.mock("../../../api", () => ({
   },
 }));
 
+vi.mock("../../../hooks/useAppMessage", () => ({
+  useAppMessage: () => ({ message: { destroy: vi.fn(), error: vi.fn() } }),
+}));
+
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({ t: (key: string) => key }),
 }));
@@ -184,12 +188,9 @@ describe("WebSearchConfigModal", () => {
     // Switching provider triggers a credential re-fetch; the OK button stays
     // disabled until loadingConfig clears. Wait before typing as the fetched
     // credential is allowed to refill the field while loading.
-    const okButton = screen.getByText("common.save").closest("button")!;
-    await waitFor(() => {
-      expect(okButton).not.toBeDisabled();
-    });
+    await waitFor(() => expect(passwordInput()).not.toBeDisabled());
     fireEvent.change(passwordInput()!, { target: { value: "as_sk_new" } });
-    fireEvent.click(okButton);
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
 
     await waitFor(() => {
       expect(onSave).toHaveBeenCalledWith({
@@ -223,11 +224,7 @@ describe("WebSearchConfigModal keyless-provider guard", () => {
 
     // Back to tavily: the key must not be submitted into its slot.
     await switchProvider("tavily");
-    const okButton = screen.getByText("common.save").closest("button")!;
-    await waitFor(() => {
-      expect(okButton).not.toBeDisabled();
-    });
-    fireEvent.click(okButton);
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
 
     await waitFor(() => {
       expect(onSave).toHaveBeenCalledWith({ provider: "tavily" });

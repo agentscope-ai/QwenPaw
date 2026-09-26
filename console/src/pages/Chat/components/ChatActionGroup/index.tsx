@@ -1,7 +1,7 @@
 import React from "react";
 
 import { IconButton } from "@agentscope-ai/design";
-import { SparkNewChatLine } from "@agentscope-ai/icons";
+import { SquarePen as SparkNewChatLine } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Flex, Tooltip } from "antd";
 import { Files } from "lucide-react";
@@ -27,7 +27,7 @@ const ChatActionGroup: React.FC<ChatActionGroupProps> = ({
         <IconButton
           bordered={false}
           aria-label={t("chat.newTask")}
-          icon={<SparkNewChatLine size={18} />}
+          icon={<SparkNewChatLine size={17} />}
           style={{ width: 32, height: 32, padding: 0 }}
           onClick={createNewSession}
         />
@@ -48,9 +48,9 @@ const ChatActionGroup: React.FC<ChatActionGroupProps> = ({
             aria-pressed={workspaceOpen}
             icon={
               <Files
-                size={16}
+                size={17}
                 strokeWidth={2}
-                style={{ width: 16, height: 16 }}
+                style={{ width: 17, height: 17 }}
               />
             }
             style={{

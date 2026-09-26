@@ -1,5 +1,7 @@
+import { useAutoSave } from "@/hooks/useAutoSave";
+import { SettingsDrawer as Drawer } from "@/components/interaction/SettingsDrawer";
 import {
-  Drawer,
+  Collapse,
   Form,
   Input,
   Switch,
@@ -7,7 +9,7 @@ import {
   Select,
   InputNumber,
 } from "@agentscope-ai/design";
-import { LinkOutlined } from "@ant-design/icons";
+import { ChevronRight, Link as LinkOutlined } from "lucide-react";
 import type { FormInstance } from "antd";
 import { useTranslation } from "react-i18next";
 import {
@@ -16,10 +18,11 @@ import {
   type ACPToolParseMode,
 } from "../../../../api/types";
 import { getWebsiteLang } from "../../../../layouts/constants";
-import styles from "../../../Control/Channels/index.module.less";
+import styles from "./ACPDrawer.module.less";
 import { openExternalLink } from "../../../../utils/openExternalLink";
 
 interface ACPDrawerProps {
+  surfaceId?: string;
   open: boolean;
   activeKey: string | null;
   isCreateMode?: boolean;
@@ -29,7 +32,9 @@ interface ACPDrawerProps {
   canEditKey?: boolean;
   canDelete?: boolean;
   onClose: () => void;
-  onSubmit: (values: Record<string, unknown>) => void;
+  onSubmit: (
+    values: Record<string, unknown>,
+  ) => boolean | void | Promise<boolean | void>;
   onDelete?: () => void;
 }
 
@@ -51,29 +56,6 @@ function getACPDocsUrl(lang: string): string {
   return `https://qwenpaw.agentscope.io/docs/acp-integration?lang=${websiteLang}#${hash}`;
 }
 
-export function parseArgsText(value: unknown): string[] {
-  return String(value || "")
-    .split("\n")
-    .map((item) => item.trim())
-    .filter(Boolean);
-}
-
-export function parseEnvText(value: unknown): Record<string, string> {
-  return String(value || "")
-    .split("\n")
-    .map((item) => item.trim())
-    .filter(Boolean)
-    .reduce<Record<string, string>>((acc, line) => {
-      const index = line.indexOf("=");
-      if (index >= 0) {
-        const key = line.slice(0, index).trim();
-        const envValue = line.slice(index + 1).trim();
-        if (key) acc[key] = envValue;
-      }
-      return acc;
-    }, {});
-}
-
 function findInvalidEnvLine(value: unknown): string | null {
   const lines = String(value || "")
     .split("\n")
@@ -89,18 +71,9 @@ function findInvalidEnvLine(value: unknown): string | null {
   return null;
 }
 
-export function stringifyArgs(args: string[] = []): string {
-  return args.join("\n");
-}
-
-export function stringifyEnv(env: Record<string, string> = {}): string {
-  return Object.entries(env)
-    .map(([key, value]) => `${key}=${value}`)
-    .join("\n");
-}
-
 export function ACPDrawer({
   open,
+  surfaceId,
   activeKey,
   isCreateMode = false,
   form,
@@ -113,9 +86,20 @@ export function ACPDrawer({
   onDelete,
 }: ACPDrawerProps) {
   const { t, i18n } = useTranslation();
+  const { schedule, flush } = useAutoSave(async () => {
+    if (isCreateMode) return;
+    const values = form.getFieldsValue(true);
+    try {
+      await form.validateFields();
+    } catch {
+      return false;
+    }
+    return await onSubmit(values);
+  });
 
   return (
     <Drawer
+      surfaceId={surfaceId}
       title={
         isCreateMode
           ? t("acp.createTitle")
@@ -124,39 +108,52 @@ export function ACPDrawer({
           : t("acp.editTitle")
       }
       open={open}
-      onClose={onClose}
-      width={520}
+      onClose={() => {
+        void flush().then((saved) => {
+          if (saved) onClose();
+        });
+      }}
+      width={640}
       footer={
-        <div style={{ display: "flex", justifyContent: "space-between" }}>
-          <div>
-            {canDelete ? (
-              <Button danger onClick={onDelete}>
-                {t("common.delete")}
-              </Button>
-            ) : null}
+        canDelete || isCreateMode ? (
+          <div style={{ display: "flex", justifyContent: "space-between" }}>
+            <div>
+              {canDelete ? (
+                <Button danger onClick={onDelete}>
+                  {t("common.delete")}
+                </Button>
+              ) : null}
+            </div>
+            {isCreateMode && (
+              <div
+                style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}
+              >
+                <Button onClick={onClose}>{t("common.cancel")}</Button>
+                <Button
+                  type="primary"
+                  loading={saving}
+                  onClick={() => form.submit()}
+                >
+                  {t("common.create")}
+                </Button>
+              </div>
+            )}
           </div>
-          <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
-            <Button onClick={onClose}>{t("common.cancel")}</Button>
-            <Button
-              type="primary"
-              loading={saving}
-              onClick={() => form.submit()}
-            >
-              {t("common.save")}
-            </Button>
-          </div>
-        </div>
+        ) : undefined
       }
       destroyOnHidden
     >
       <Form
         form={form}
         layout="vertical"
+        className={styles.form}
         initialValues={initialValues}
+        onValuesChange={isCreateMode ? undefined : schedule}
         onFinish={onSubmit}
       >
         <Form.Item
           name="agentKey"
+          hidden={!canEditKey}
           label={t("acp.agentKey")}
           rules={[
             { required: true, message: t("acp.agentKeyRequired") },
@@ -169,13 +166,12 @@ export function ACPDrawer({
           <Input placeholder="my_custom_runner" disabled={!canEditKey} />
         </Form.Item>
 
-        <Form.Item
-          name="enabled"
-          label={t("acp.enabled")}
-          valuePropName="checked"
-        >
-          <Switch />
-        </Form.Item>
+        <div className={styles.switchRow}>
+          <span>{t("acp.enabled")}</span>
+          <Form.Item name="enabled" valuePropName="checked" noStyle>
+            <Switch aria-label={t("acp.enabled")} />
+          </Form.Item>
+        </div>
 
         <Form.Item
           name="command"
@@ -190,82 +186,113 @@ export function ACPDrawer({
           label={t("acp.args")}
           tooltip={t("acp.argsHelp")}
         >
-          <Input.TextArea autoSize={{ minRows: 4, maxRows: 8 }} />
-        </Form.Item>
-
-        <Form.Item
-          name="envText"
-          label={t("acp.env")}
-          tooltip={t("acp.envHelp")}
-          rules={[
-            {
-              validator: async (_, value) => {
-                const invalidLine = findInvalidEnvLine(value);
-                if (invalidLine) {
-                  throw new Error(
-                    t("acp.envInvalidLine", { line: invalidLine }),
-                  );
-                }
-              },
-            },
-          ]}
-        >
-          <Input.TextArea autoSize={{ minRows: 4, maxRows: 8 }} />
+          <Input.TextArea autoSize={{ minRows: 2, maxRows: 6 }} />
         </Form.Item>
 
         <div className={styles.formTopActions}>
           <Button
             type="text"
             size="small"
-            icon={<LinkOutlined />}
+            icon={<LinkOutlined size="1em" />}
             onClick={() => openExternalLink(getACPDocsUrl(i18n.language))}
             title={t("acp.docsHelp")}
-            className={styles.dingtalkDocBtn}
+            className={styles.docs}
             style={{ color: "var(--app-accent)" }}
           >
             {t("acp.docs")}
           </Button>
         </div>
 
-        <Form.Item
-          name="trusted"
-          label={t("acp.trusted")}
-          valuePropName="checked"
-        >
-          <Switch />
-        </Form.Item>
+        <div className={styles.switchRow}>
+          <span>{t("acp.trusted")}</span>
+          <Form.Item name="trusted" valuePropName="checked" noStyle>
+            <Switch aria-label={t("acp.trusted")} />
+          </Form.Item>
+        </div>
+        <p className={styles.trustHint}>{t("acp.trustedHelp")}</p>
 
-        <Form.Item
-          name="tool_parse_mode"
-          label={t("acp.toolParseMode")}
-          rules={[{ required: true, message: t("acp.toolParseModeRequired") }]}
-        >
-          <Select options={TOOL_PARSE_MODE_OPTIONS} />
-        </Form.Item>
+        <Collapse
+          ghost
+          className={styles.advanced}
+          expandIcon={({ isActive }) => (
+            <ChevronRight
+              size={16}
+              style={{ transform: isActive ? "rotate(90deg)" : undefined }}
+            />
+          )}
+          items={[
+            {
+              key: "advanced",
+              label: t("common.advancedSettings"),
+              forceRender: true,
+              children: (
+                <>
+                  <Form.Item
+                    name="envText"
+                    label={t("acp.env")}
+                    tooltip={t("acp.envHelp")}
+                    rules={[
+                      {
+                        validator: async (_, value) => {
+                          const invalidLine = findInvalidEnvLine(value);
+                          if (invalidLine) {
+                            throw new Error(
+                              t("acp.envInvalidLine", { line: invalidLine }),
+                            );
+                          }
+                        },
+                      },
+                    ]}
+                  >
+                    <Input.TextArea autoSize={{ minRows: 2, maxRows: 6 }} />
+                  </Form.Item>
 
-        <Form.Item
-          name="stdio_buffer_limit_bytes"
-          label={t("acp.stdioBufferLimit")}
-          tooltip={t("acp.stdioBufferLimitHelp")}
-          rules={[
-            {
-              required: true,
-              message: t("acp.stdioBufferLimitRequired"),
-            },
-            {
-              type: "number",
-              min: 1,
-              message: t("acp.stdioBufferLimitMin"),
+                  <Form.Item
+                    name="tool_parse_mode"
+                    label={t("acp.toolParseMode")}
+                    rules={[
+                      {
+                        required: true,
+                        message: t("acp.toolParseModeRequired"),
+                      },
+                    ]}
+                  >
+                    <Select
+                      options={TOOL_PARSE_MODE_OPTIONS.map((option) => ({
+                        ...option,
+                        label: t(`acp.toolParseModes.${option.value}`),
+                      }))}
+                    />
+                  </Form.Item>
+
+                  <Form.Item
+                    name="stdio_buffer_limit_bytes"
+                    label={t("acp.stdioBufferLimit")}
+                    tooltip={t("acp.stdioBufferLimitHelp")}
+                    rules={[
+                      {
+                        required: true,
+                        message: t("acp.stdioBufferLimitRequired"),
+                      },
+                      {
+                        type: "number",
+                        min: 1,
+                        message: t("acp.stdioBufferLimitMin"),
+                      },
+                    ]}
+                  >
+                    <InputNumber
+                      style={{ width: "100%" }}
+                      min={1}
+                      step={1024}
+                      placeholder={String(ACP_DEFAULT_STDIO_BUFFER_LIMIT_BYTES)}
+                    />
+                  </Form.Item>
+                </>
+              ),
             },
           ]}
-        >
-          <InputNumber
-            style={{ width: "100%" }}
-            min={1}
-            step={1024}
-            placeholder={String(ACP_DEFAULT_STDIO_BUFFER_LIMIT_BYTES)}
-          />
-        </Form.Item>
+        />
       </Form>
     </Drawer>
   );

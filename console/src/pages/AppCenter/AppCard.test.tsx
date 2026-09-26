@@ -27,10 +27,11 @@ function makeApp(overrides: Partial<AppCardData> = {}): AppCardData {
 }
 
 describe("AppCard", () => {
-  it("renders the plugin.json emoji icon when no image icon is available", () => {
+  it("uses a Lucide fallback when no image icon is available", () => {
     render(<AppCard app={makeApp()} onClick={vi.fn()} />);
 
-    expect(screen.getByText("🎮")).toBeInTheDocument();
+    expect(screen.queryByText("🎮")).not.toBeInTheDocument();
+    expect(document.querySelector("svg.lucide-app-window")).toBeInTheDocument();
     expect(screen.getByText("Demo App")).toBeInTheDocument();
   });
 
@@ -86,15 +87,16 @@ describe("AppCard", () => {
     expect(onUninstall).not.toHaveBeenCalled();
   });
 
-  it("triggers uninstall from the card action without opening the app", () => {
+  it("triggers uninstall from the menu without opening the app", async () => {
     const onClick = vi.fn();
     const onUninstall = vi.fn();
     render(
       <AppCard app={makeApp()} onClick={onClick} onUninstall={onUninstall} />,
     );
 
+    fireEvent.click(screen.getByRole("button", { name: "appCenter.moreActions" }));
     fireEvent.click(
-      screen.getByRole("button", { name: "appCenter.uninstall" }),
+      await screen.findByRole("menuitem", { name: "appCenter.uninstall" }),
     );
 
     expect(onUninstall).toHaveBeenCalledWith(

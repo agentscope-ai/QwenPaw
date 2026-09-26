@@ -1,13 +1,17 @@
 import {
   Suspense,
   useMemo,
+  useRef,
   useState,
   type ComponentType,
   type ReactNode,
 } from "react";
-import { Button, Input, Spin } from "antd";
+import { Button, Input, Select, Spin } from "antd";
+import { LayoutGroup, motion, useReducedMotion } from "motion/react";
 import {
   Archive,
+  Blocks,
+  CalendarDays,
   ArrowLeft,
   Bot,
   Bug,
@@ -17,7 +21,6 @@ import {
   Globe,
   HeartPulse,
   Mic,
-  PanelLeft,
   Plug,
   Radio,
   ScanLine,
@@ -39,9 +42,14 @@ import { findMenuItem, flattenMenu } from "@/layouts/registry/adapter";
 import { useAgentStore } from "@/stores/agentStore";
 import { supportsPortabilityImport } from "@/utils/agentBackend";
 import GeneralSettings from "./GeneralSettings";
-import NavigationSettings from "./NavigationSettings";
 import SettingsAgentSelector from "./SettingsAgentSelector";
 import styles from "./index.module.less";
+import {
+  matchesSettingsSearch,
+  searchSettingsItems,
+  SETTINGS_SEARCH_TABS,
+} from "./settingsSearch";
+import { useSettingsSearchTarget } from "./useSettingsSearchTarget";
 
 interface SettingsPageDefinition {
   key: string;
@@ -80,15 +88,6 @@ const SETTINGS_GROUPS: SettingsGroupDefinition[] = [
         Component: GeneralSettings,
         Icon: Wrench,
       },
-      {
-        key: "navigation",
-        labelKey: "settingsCenter.pages.navigation",
-        fallback: "Sidebar",
-        descriptionKey: "settingsCenter.descriptions.navigation",
-        descriptionFallback: "Choose which shortcuts appear in the sidebar",
-        Component: NavigationSettings,
-        Icon: PanelLeft,
-      },
     ],
   },
   {
@@ -96,6 +95,15 @@ const SETTINGS_GROUPS: SettingsGroupDefinition[] = [
     labelKey: "settingsCenter.groups.agentConfiguration",
     fallback: "Agent configuration",
     pages: [
+      {
+        key: "cron-jobs",
+        labelKey: "nav.cronJobs",
+        fallback: "Scheduled tasks",
+        descriptionKey: "nav.cronJobs",
+        descriptionFallback: "Scheduled tasks",
+        routeId: "core.cron-jobs",
+        Icon: CalendarDays,
+      },
       {
         key: "channels",
         labelKey: "nav.channels",
@@ -176,6 +184,15 @@ const SETTINGS_GROUPS: SettingsGroupDefinition[] = [
     labelKey: "settingsCenter.groups.global",
     fallback: "Global settings",
     pages: [
+      {
+        key: "marketplace",
+        labelKey: "nav.marketplace",
+        fallback: "Extensions",
+        descriptionKey: "nav.marketplace",
+        descriptionFallback: "Extensions",
+        routeId: "core.marketplace",
+        Icon: Blocks,
+      },
       {
         key: "agents",
         labelKey: "nav.agents",
@@ -276,6 +293,7 @@ function pageKeyFromPath(pathname: string) {
 }
 
 export default function SettingsCenter() {
+  const reducedMotion = useReducedMotion();
   const { t } = useTranslation();
   const { isDark } = useTheme();
   const location = useLocation();
@@ -359,6 +377,17 @@ export default function SettingsCenter() {
       : page.fallback;
   };
 
+  const contentRef = useRef<HTMLElement>(null);
+  const [searchTarget, setSearchTarget] = useState<{
+    page: string;
+    label: string;
+    tab?: string;
+  } | null>(null);
+  useSettingsSearchTarget(contentRef, searchTarget, activePage?.key);
+  const matchingItems = new Map(
+    allPages.map((page) => [page.key, searchSettingsItems(page.key, query, t)]),
+  );
+
   const normalizedQuery = query.trim().toLocaleLowerCase();
   const filterNavigation = normalizedQuery !== "" || !canImport;
   const visibleGroups = filterNavigation
@@ -369,12 +398,14 @@ export default function SettingsCenter() {
             (page) =>
               (page.routeId !== "core.import" || canImport) &&
               (!normalizedQuery ||
-                `${searchablePageLabel(page)} ${t(
-                  page.descriptionKey,
-                  page.descriptionFallback,
-                )}`
-                  .toLocaleLowerCase()
-                  .includes(normalizedQuery)),
+                matchesSettingsSearch(
+                  normalizedQuery,
+                  `${searchablePageLabel(page)} ${t(
+                    page.descriptionKey,
+                    page.descriptionFallback,
+                  )} ${page.fallback}`,
+                ) ||
+                (matchingItems.get(page.key)?.length ?? 0) > 0),
           ),
         }))
         .filter((group) => group.pages.length > 0)
@@ -427,6 +458,54 @@ export default function SettingsCenter() {
       data-theme={isDark ? "dark" : "light"}
     >
       <div className={styles.body}>
+        <div className={styles.mobileNavigation}>
+          <Button
+            type="text"
+            icon={<ArrowLeft size={18} />}
+            aria-label={t("settingsCenter.backToApp", "Back to app")}
+            onClick={() => navigate(returnTo)}
+          />
+          <Select
+            aria-label={t("nav.settings")}
+            value={activePage?.key}
+            showSearch
+            filterOption={false}
+            onSearch={setQuery}
+            onChange={(value) => {
+              const [pageKey, itemKey] = value.split("::");
+              const page = allPages.find((item) => item.key === pageKey);
+              if (page) {
+                setSearchTarget(
+                  itemKey
+                    ? {
+                        page: pageKey,
+                        label: t(itemKey),
+                        tab: SETTINGS_SEARCH_TABS[itemKey]
+                          ? t(SETTINGS_SEARCH_TABS[itemKey])
+                          : undefined,
+                      }
+                    : null,
+                );
+                openPage(page);
+              }
+              setQuery("");
+            }}
+            options={visibleGroups.map((group) => ({
+              label: t(group.labelKey, group.fallback),
+              options: group.pages.flatMap((page) => [
+                { value: page.key, label: pageLabel(page) },
+                ...(matchingItems.get(page.key) ?? []).map((key) => ({
+                  value: `${page.key}::${key}`,
+                  label: `${searchablePageLabel(page)} · ${t(key)}`,
+                })),
+              ]),
+            }))}
+          />
+          {activePage?.routeId &&
+            SETTINGS_GROUPS[1].pages.some(
+              (page) => page.key === activePage.key,
+            ) && <SettingsAgentSelector />}
+        </div>
         <aside className={styles.sidebar}>
           <Button
             type="text"
@@ -441,48 +520,109 @@ export default function SettingsCenter() {
             allowClear
             value={query}
             prefix={<Search size={15} />}
+            aria-label={t("settingsCenter.searchPlaceholder")}
             placeholder={t(
               "settingsCenter.searchPlaceholder",
               "Search settings",
             )}
-            onChange={(event) => setQuery(event.target.value)}
+            onChange={(event) => {
+              setQuery(event.target.value);
+              setSearchTarget(null);
+            }}
           />
-          <nav className={styles.navigation}>
-            {visibleGroups.map((group) => (
-              <section key={group.key} className={styles.navGroup}>
-                <h2>{t(group.labelKey, group.fallback)}</h2>
-                {group.key === "agent-configuration" && (
-                  <SettingsAgentSelector />
-                )}
-                {group.pages.map((page) => {
-                  const Icon = page.Icon;
-                  return (
-                    <button
-                      key={page.key}
-                      type="button"
-                      className={`${styles.navItem} ${
-                        activePage?.key === page.key ? styles.navItemActive : ""
-                      }`}
-                      onClick={() => openPage(page)}
-                    >
-                      {page.icon ?? (Icon ? <Icon size={16} /> : null)}
-                      <span className={styles.navItemLabel}>
-                        {pageLabel(page)}
-                      </span>
-                    </button>
-                  );
-                })}
-              </section>
-            ))}
-            {visibleGroups.length === 0 && (
-              <div className={styles.noResults}>
-                {t("settingsCenter.noResults", "No matching settings")}
-              </div>
-            )}
+          <nav className={styles.navigation} aria-label={t("nav.settings")}>
+            <LayoutGroup id="settings-navigation">
+              {visibleGroups.map((group) => (
+                <section key={group.key} className={styles.navGroup}>
+                  <h2>{t(group.labelKey, group.fallback)}</h2>
+                  {group.key === "agent-configuration" && (
+                    <SettingsAgentSelector />
+                  )}
+                  {group.pages.map((page) => {
+                    const Icon = page.Icon;
+                    return (
+                      <div key={page.key}>
+                        <button
+                          type="button"
+                          aria-current={
+                            activePage?.key === page.key ? "page" : undefined
+                          }
+                          data-press
+                          className={`${styles.navItem} ${
+                            activePage?.key === page.key
+                              ? styles.navItemActive
+                              : ""
+                          }`}
+                          onClick={() => {
+                            setSearchTarget(null);
+                            openPage(page);
+                          }}
+                        >
+                          {activePage?.key === page.key && (
+                            <motion.span
+                              className={styles.navSelection}
+                              layoutId="selection"
+                              aria-hidden
+                              transition={
+                                reducedMotion
+                                  ? { duration: 0 }
+                                  : {
+                                      type: "spring",
+                                      stiffness: 420,
+                                      damping: 40,
+                                    }
+                              }
+                            />
+                          )}
+                          {page.icon ??
+                            (Icon ? (
+                              <Icon size={18} strokeWidth={1.75} />
+                            ) : null)}
+                          <span className={styles.navItemLabel}>
+                            {pageLabel(page)}
+                          </span>
+                        </button>
+                        {(matchingItems.get(page.key) ?? []).map((key) => (
+                          <button
+                            key={key}
+                            type="button"
+                            className={styles.searchResult}
+                            onClick={() => {
+                              setSearchTarget({
+                                page: page.key,
+                                label: t(key),
+                                tab: SETTINGS_SEARCH_TABS[key]
+                                  ? t(SETTINGS_SEARCH_TABS[key])
+                                  : undefined,
+                              });
+                              openPage(page);
+                            }}
+                          >
+                            <span>{t(key)}</span>
+                          </button>
+                        ))}
+                      </div>
+                    );
+                  })}
+                </section>
+              ))}
+              {visibleGroups.length === 0 && (
+                <div className={styles.noResults}>
+                  {t("settingsCenter.noResults", "No matching settings")}
+                </div>
+              )}
+            </LayoutGroup>
           </nav>
         </aside>
 
-        <main className={styles.content}>
+        <main
+          ref={contentRef}
+          className={styles.content}
+          data-core-settings={
+            activePage?.key !== "models" &&
+            !activePage?.key.startsWith("extension-")
+          }
+        >
           {ActiveComponent ? (
             <ChunkErrorBoundary resetKey={activePage?.key ?? "settings"}>
               <Suspense

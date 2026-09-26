@@ -26,9 +26,10 @@ vi.mock("../../../../../api", () => ({ default: api }));
 vi.mock("../../../../../hooks/useAppMessage", () => ({
   useAppMessage: () => ({ message }),
 }));
-vi.mock("react-i18next", () => ({
-  useTranslation: () => ({ t: (key: string) => key, i18n: { language: "en" } }),
-}));
+vi.mock("react-i18next", () => {
+  const t = (key: string) => key;
+  return { useTranslation: () => ({ t, i18n: { language: "en" } }) };
+});
 vi.mock("./ModelCapabilityTags", () => ({
   CapabilityTags: () => null,
   BillingTag: () => null,

@@ -431,7 +431,10 @@ describe("AppCenterPage", () => {
     await screen.findByText("alpha-app");
 
     fireEvent.click(
-      screen.getByRole("button", { name: /appCenter.uninstall/ }),
+      screen.getByRole("button", { name: "appCenter.moreActions" }),
+    );
+    fireEvent.click(
+      await screen.findByRole("menuitem", { name: /appCenter.uninstall/ }),
     );
 
     await waitFor(() =>

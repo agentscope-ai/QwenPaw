@@ -1,8 +1,11 @@
+import { NumberStepper as InputNumber } from "@/components/interaction/NumberStepper";
+import { SettingsField } from "@/components/interaction/SettingsField";
+import InlineHelp from "@/components/InlineHelp";
 import {
   Card,
+  Collapse,
   Form,
   Input,
-  InputNumber,
   Select,
   Switch,
 } from "@agentscope-ai/design";
@@ -221,9 +224,11 @@ export function EmbeddingModelCard() {
     <Card className={styles.formCard}>
       <section className={styles.memoryOverview}>
         <div className={styles.memoryOverviewHeader}>
-          <div>
+          <div className={styles.embeddingTitle}>
             <h3>{t("agentConfig.embeddingOverviewTitle")}</h3>
-            <p>{t("agentConfig.embeddingStatusDescription")}</p>
+            <InlineHelp>
+              {t("agentConfig.embeddingStatusDescription")}
+            </InlineHelp>
           </div>
         </div>
 
@@ -396,20 +401,19 @@ export function EmbeddingModelCard() {
       </section>
 
       <div className={styles.memoryConfigGrid}>
-        <section className={styles.memoryConfigPanel}>
+        <section
+          className={`${styles.memoryConfigPanel} ${styles.embeddingConnection}`}
+        >
           <div className={styles.memorySectionHeader}>
-            <div
-              className={`${styles.memorySectionIcon} ${styles.memorySectionIconPrimary}`}
-            >
-              01
-            </div>
-            <div>
+            <div className={styles.embeddingTitle}>
               <h3>{t("agentConfig.embeddingServiceTitle")}</h3>
-              <p>{t("agentConfig.embeddingServiceDescription")}</p>
+              <InlineHelp>
+                {t("agentConfig.embeddingServiceDescription")}
+              </InlineHelp>
             </div>
           </div>
 
-          <Form.Item
+          <SettingsField
             label={t("agentConfig.embeddingBackend")}
             name={[
               "reme_light_memory_config",
@@ -424,10 +428,10 @@ export function EmbeddingModelCard() {
               placeholder={t("agentConfig.embeddingBackendPlaceholder")}
               style={{ width: "100%" }}
             />
-          </Form.Item>
+          </SettingsField>
 
           {showBaseUrl && (
-            <Form.Item
+            <SettingsField
               label={
                 baseUrlIsHost
                   ? t("agentConfig.embeddingHost")
@@ -452,10 +456,10 @@ export function EmbeddingModelCard() {
                     : t("agentConfig.embeddingBaseUrlPlaceholder")
                 }
               />
-            </Form.Item>
+            </SettingsField>
           )}
 
-          <Form.Item
+          <SettingsField
             label={t("agentConfig.embeddingModelName")}
             name={[
               "reme_light_memory_config",
@@ -468,10 +472,10 @@ export function EmbeddingModelCard() {
               disabled={reindexing}
               placeholder={t("agentConfig.embeddingModelNamePlaceholder")}
             />
-          </Form.Item>
+          </SettingsField>
 
           {showApiKey && (
-            <Form.Item
+            <SettingsField
               label={t("agentConfig.embeddingApiKey")}
               name={[
                 "reme_light_memory_config",
@@ -484,11 +488,11 @@ export function EmbeddingModelCard() {
                 disabled={reindexing}
                 placeholder={t("agentConfig.embeddingApiKeyPlaceholder")}
               />
-            </Form.Item>
+            </SettingsField>
           )}
 
           {normalizedBackend === "openai" && (
-            <Form.Item
+            <SettingsField
               label={t("agentConfig.embeddingUseDimensions")}
               name={[
                 "reme_light_memory_config",
@@ -499,10 +503,10 @@ export function EmbeddingModelCard() {
               tooltip={t("agentConfig.embeddingUseDimensionsTooltip")}
             >
               <Switch disabled={reindexing || !embeddingEnabled} />
-            </Form.Item>
+            </SettingsField>
           )}
 
-          <Form.Item
+          <SettingsField
             label={t("agentConfig.embeddingDimensions")}
             name={[
               "reme_light_memory_config",
@@ -523,144 +527,166 @@ export function EmbeddingModelCard() {
             tooltip={t("agentConfig.embeddingDimensionsTooltip")}
           >
             <InputNumber
-              style={{ width: "100%" }}
+              style={{ width: "100%", maxWidth: 240 }}
               min={1}
               step={256}
               disabled={reindexing || !embeddingEnabled}
             />
-          </Form.Item>
+          </SettingsField>
         </section>
 
-        <section className={styles.memoryConfigPanel}>
-          <div className={styles.memorySectionHeader}>
-            <div
-              className={`${styles.memorySectionIcon} ${styles.memorySectionIconSecondary}`}
-            >
-              02
-            </div>
-            <div>
-              <h3>{t("agentConfig.embeddingIndexTitle")}</h3>
-              <p>{t("agentConfig.embeddingIndexDescription")}</p>
-            </div>
-          </div>
-
-          <Form.Item
-            label={t("agentConfig.embeddingEnableCache")}
-            name={[
-              "reme_light_memory_config",
-              "embedding_model_config",
-              "enable_cache",
-            ]}
-            valuePropName="checked"
-            tooltip={t("agentConfig.embeddingEnableCacheTooltip")}
-          >
-            <Switch disabled={reindexing || !embeddingEnabled} />
-          </Form.Item>
-
-          <Form.Item
-            label={t("agentConfig.embeddingMaxCacheSize")}
-            name={[
-              "reme_light_memory_config",
-              "embedding_model_config",
-              "max_cache_size",
-            ]}
-            rules={[
-              {
-                required: true,
-                message: t("agentConfig.embeddingMaxCacheSizeRequired"),
-              },
-            ]}
-            tooltip={t("agentConfig.embeddingMaxCacheSizeTooltip")}
-          >
-            <InputNumber
-              style={{ width: "100%" }}
-              min={1}
-              step={100}
-              disabled={
-                reindexing || !embeddingEnabled || !embeddingCacheEnabled
-              }
+        <Collapse
+          ghost
+          expandIcon={({ isActive }) => (
+            <ChevronRight
+              size={16}
+              style={{ transform: isActive ? "rotate(90deg)" : undefined }}
             />
-          </Form.Item>
+          )}
+          className={styles.embeddingTuning}
+          items={[
+            {
+              key: "index",
+              forceRender: true,
+              label: (
+                <div className={styles.embeddingTuningSummary}>
+                  <strong>{t("agentConfig.embeddingIndexTitle")}</strong>
+                  <span>{t("agentConfig.embeddingIndexDescription")}</span>
+                </div>
+              ),
+              children: (
+                <div className={styles.embeddingTuningFields}>
+                  <SettingsField
+                    label={t("agentConfig.embeddingEnableCache")}
+                    name={[
+                      "reme_light_memory_config",
+                      "embedding_model_config",
+                      "enable_cache",
+                    ]}
+                    valuePropName="checked"
+                    tooltip={t("agentConfig.embeddingEnableCacheTooltip")}
+                  >
+                    <Switch disabled={reindexing || !embeddingEnabled} />
+                  </SettingsField>
 
-          <Form.Item
-            label={t("agentConfig.embeddingMaxInputLength")}
-            name={[
-              "reme_light_memory_config",
-              "embedding_model_config",
-              "max_input_length",
-            ]}
-            rules={[
-              {
-                required: true,
-                message: t("agentConfig.embeddingMaxInputLengthRequired"),
-              },
-            ]}
-            tooltip={t("agentConfig.embeddingMaxInputLengthTooltip")}
-          >
-            <InputNumber
-              style={{ width: "100%" }}
-              min={1}
-              step={1024}
-              disabled={reindexing || !embeddingEnabled}
-            />
-          </Form.Item>
+                  <SettingsField
+                    label={t("agentConfig.embeddingMaxCacheSize")}
+                    name={[
+                      "reme_light_memory_config",
+                      "embedding_model_config",
+                      "max_cache_size",
+                    ]}
+                    rules={[
+                      {
+                        required: true,
+                        message: t("agentConfig.embeddingMaxCacheSizeRequired"),
+                      },
+                    ]}
+                    tooltip={t("agentConfig.embeddingMaxCacheSizeTooltip")}
+                  >
+                    <InputNumber
+                      style={{ width: "100%", maxWidth: 240 }}
+                      min={1}
+                      step={100}
+                      disabled={
+                        reindexing ||
+                        !embeddingEnabled ||
+                        !embeddingCacheEnabled
+                      }
+                    />
+                  </SettingsField>
 
-          <Form.Item
-            label={t("agentConfig.embeddingMaxBatchSize")}
-            name={[
-              "reme_light_memory_config",
-              "embedding_model_config",
-              "max_batch_size",
-            ]}
-            rules={[
-              {
-                required: true,
-                message: t("agentConfig.embeddingMaxBatchSizeRequired"),
-              },
-            ]}
-            tooltip={t("agentConfig.embeddingMaxBatchSizeTooltip")}
-          >
-            <InputNumber
-              style={{ width: "100%" }}
-              min={1}
-              step={1}
-              disabled={reindexing || !embeddingEnabled}
-            />
-          </Form.Item>
-
-          <Form.Item
-            label={t("agentConfig.embeddingHealthCheckTimeout")}
-            name={[
-              "reme_light_memory_config",
-              "embedding_model_config",
-              "health_check_timeout",
-            ]}
-            rules={[
-              {
-                required: true,
-                message: t("agentConfig.embeddingHealthCheckTimeoutRequired"),
-              },
-              {
-                validator: (_, value) =>
-                  value == null || isValidHealthCheckTimeout(value)
-                    ? Promise.resolve()
-                    : Promise.reject(
-                        new Error(
-                          t("agentConfig.embeddingHealthCheckTimeoutRange"),
+                  <SettingsField
+                    label={t("agentConfig.embeddingMaxInputLength")}
+                    name={[
+                      "reme_light_memory_config",
+                      "embedding_model_config",
+                      "max_input_length",
+                    ]}
+                    rules={[
+                      {
+                        required: true,
+                        message: t(
+                          "agentConfig.embeddingMaxInputLengthRequired",
                         ),
-                      ),
-              },
-            ]}
-            tooltip={t("agentConfig.embeddingHealthCheckTimeoutTooltip")}
-          >
-            <InputNumber
-              style={{ width: "100%" }}
-              step={0.001}
-              addonAfter="s"
-              disabled={reindexing || !embeddingEnabled}
-            />
-          </Form.Item>
-        </section>
+                      },
+                    ]}
+                    tooltip={t("agentConfig.embeddingMaxInputLengthTooltip")}
+                  >
+                    <InputNumber
+                      style={{ width: "100%", maxWidth: 240 }}
+                      min={1}
+                      step={1024}
+                      disabled={reindexing || !embeddingEnabled}
+                    />
+                  </SettingsField>
+
+                  <SettingsField
+                    label={t("agentConfig.embeddingMaxBatchSize")}
+                    name={[
+                      "reme_light_memory_config",
+                      "embedding_model_config",
+                      "max_batch_size",
+                    ]}
+                    rules={[
+                      {
+                        required: true,
+                        message: t("agentConfig.embeddingMaxBatchSizeRequired"),
+                      },
+                    ]}
+                    tooltip={t("agentConfig.embeddingMaxBatchSizeTooltip")}
+                  >
+                    <InputNumber
+                      style={{ width: "100%", maxWidth: 240 }}
+                      min={1}
+                      step={1}
+                      disabled={reindexing || !embeddingEnabled}
+                    />
+                  </SettingsField>
+
+                  <SettingsField
+                    label={t("agentConfig.embeddingHealthCheckTimeout")}
+                    name={[
+                      "reme_light_memory_config",
+                      "embedding_model_config",
+                      "health_check_timeout",
+                    ]}
+                    rules={[
+                      {
+                        required: true,
+                        message: t(
+                          "agentConfig.embeddingHealthCheckTimeoutRequired",
+                        ),
+                      },
+                      {
+                        validator: (_, value) =>
+                          value == null || isValidHealthCheckTimeout(value)
+                            ? Promise.resolve()
+                            : Promise.reject(
+                                new Error(
+                                  t(
+                                    "agentConfig.embeddingHealthCheckTimeoutRange",
+                                  ),
+                                ),
+                              ),
+                      },
+                    ]}
+                    tooltip={t(
+                      "agentConfig.embeddingHealthCheckTimeoutTooltip",
+                    )}
+                  >
+                    <InputNumber
+                      style={{ width: "100%", maxWidth: 240 }}
+                      step={0.001}
+                      addonAfter="s"
+                      disabled={reindexing || !embeddingEnabled}
+                    />
+                  </SettingsField>
+                </div>
+              ),
+            },
+          ]}
+        />
       </div>
     </Card>
   );

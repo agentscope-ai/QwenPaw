@@ -34,7 +34,11 @@
     "clear": "Limpar",
     "paste": "Colar",
     "yes": "Sim",
-    "no": "Nao"
+    "no": "Nao",
+    "configure": "Configurar",
+    "all": "Todos",
+    "decrease": "Diminuir",
+    "increase": "Aumentar"
   },
   "harnesses": {
     "connected": "Conectado",
@@ -69,7 +73,7 @@
   "portabilityImport": {
     "qwenpawOnly": "A importação está disponível apenas para agentes que usam o backend QwenPaw. Selecione um agente QwenPaw para continuar.",
     "title": "Importar",
-    "description": "Traga conversas e configurações de ferramentas de outros aplicativos de IA para o QwenPaw.",
+    "description": "Importe dados de outros aplicativos para o QwenPaw. Escolha a origem, visualize e selecione o conteúdo. Os dados só serão gravados no QwenPaw quando você iniciar a importação.",
     "steps": {
       "sources": "Aplicativos",
       "inventory": "Escolher conteúdo",
@@ -299,7 +303,9 @@
       "notFound": "Backend log file was not found yet.",
       "placeholder": "Backend log output will appear here.",
       "loadFailed": "Falha ao load Backend Logs",
-      "searchPlaceholder": "Pesquisar logs do backend..."
+      "searchPlaceholder": "Pesquisar logs do backend...",
+      "newLogsAvailable": "Novos logs · Ver os mais recentes",
+      "returnLatest": "Voltar aos logs mais recentes"
     },
     "actions": {
       "refreshBackend": "Atualizar logs do backend",
@@ -308,18 +314,18 @@
     }
   },
   "acp": {
-    "title": "ACP",
+    "title": "Integrações ACP",
     "loading": "Carregando configuracao ACP...",
-    "builtin": "Integrado",
-    "custom": "Personalizado",
-    "create": "Adicionar Personalizado Agente",
-    "createTitle": "Criar ACP Agente",
-    "createSuccess": "Agente ACP criado",
+    "builtin": "Predefinições",
+    "custom": "Personalizadas",
+    "create": "Adicionar integração ACP",
+    "createTitle": "Nova integração ACP",
+    "createSuccess": "Integração ACP adicionada",
     "editTitle": "Editar ACP Configuracao",
-    "agentKey": "Chave do Agente",
-    "agentKeyRequired": "Digite a chave do agente",
-    "agentKeyInvalid": "A chave pode conter apenas letras, numeros, sublinhados e hifens",
-    "agentKeyExists": "Esta chave de agente ja existe",
+    "agentKey": "ID da integração",
+    "agentKeyRequired": "Insira um ID de integração",
+    "agentKeyInvalid": "O ID só pode conter letras, números, sublinhados e hífens",
+    "agentKeyExists": "Este ID de integração já existe",
     "enabled": "Ativado",
     "command": "Command",
     "commandRequired": "Digite um comando",
@@ -341,10 +347,10 @@
     "configSaved": "Configuracao ACP salva",
     "configFailed": "Falha ao salvar configuracao ACP",
     "deleteTitle": "Excluir {{name}}",
-    "deleteConfirm": "Excluir este agente ACP? Esta acao nao pode ser desfeita.",
-    "deleteSuccess": "Agente ACP excluido",
-    "deleteFailed": "Falha ao excluir agente ACP",
-    "nodeSettings": "Configuracoes do Node",
+    "deleteConfirm": "Excluir esta integração ACP? Esta ação não pode ser desfeita.",
+    "deleteSuccess": "Integração ACP excluída",
+    "deleteFailed": "Falha ao excluir a integração ACP",
+    "nodeSettings": "Ambiente de execução",
     "nodePath": "Caminho do Node",
     "chooseOtherNode": "Escolher outro Node...",
     "selectNodePath": "Selecionar caminho do Node",
@@ -363,6 +369,18 @@
       "npxMissing": "npx nao encontrado",
       "versionCheckFailed": "Falha na verificacao de versao",
       "unavailable": "Indisponivel"
+    },
+    "intro": "Conecte ferramentas via ACP para o agente atual usar.",
+    "protocolHelp": "Gerencie integrações de ferramentas ACP aqui. Os backends de terceiros no gerenciamento de agentes usam seus próprios protocolos integrados e são configurados separadamente.",
+    "currentAgent": "Agente atual",
+    "callableTools": "Ferramentas disponíveis",
+    "enabledIntegrations": "Integrações ativadas",
+    "search": "Buscar integrações ACP",
+    "trustedHelp": "Aprova automaticamente as solicitações de permissão desta conexão. Bloqueios rígidos de segurança continuam ativos. Desative para aprovar as solicitações individualmente.",
+    "toolParseModes": {
+      "call_title": "Títulos das chamadas",
+      "update_detail": "Detalhes do progresso",
+      "call_detail": "Detalhes das chamadas"
     }
   },
   "voiceTranscription": {
@@ -433,7 +451,7 @@
     "securityNotice": "This backup may contain sensitive credentials. Agent workspaces include channel credentials (bot tokens, app secrets, etc.), and model provider secrets include API keys. Do not share backup files with others.",
     "searchPlaceholder": "Search backups by name or ID...",
     "total": "Total {{count}}",
-    "agentsPlaceholder": "Select agent workspaces (leave empty for all)",
+    "agentsPlaceholder": "Escolha os espaços de trabalho dos agentes para o backup",
     "selectAll": "Selecionar Todos",
     "deselectAll": "Deselect Todos",
     "createSuccess": "Backup Criado successfully",
@@ -1024,7 +1042,9 @@
     "noTags": "Nao Tags available",
     "enabledSkills": "Skills Ativadas",
     "disabledSkills": "Skills Desativadas",
-    "active": "ativas"
+    "active": "ativas",
+    "settingsDetails": "Escopo e configurações avançadas",
+    "name": "Nome da habilidade"
   },
   "skillPool": {
     "description": "Shared local skill pool for built-in skills and workspace uploads. External hub imports such as ClawHub or LobeHub are separate.",
@@ -1276,7 +1296,10 @@
       "authEndpoint": "Authorization Endpoint (substituir)",
       "tokenEndpoint": "Token Endpoint (substituir)",
       "endpointHint": "Deixe em branco para descoberta automática do servidor MCP."
-    }
+    },
+    "local": "Local",
+    "remote": "Remoto",
+    "invalidJson": "Insira um JSON válido com pelo menos um servidor MCP."
   },
   "heartbeat": {
     "title": "Batimento",
@@ -1303,7 +1326,11 @@
     "targetInbox": "Enviar para o Inbox",
     "runNow": "Executar agora",
     "runNowSuccess": "Heartbeat disparado. Verifique o Inbox ou o canal de destino em instantes.",
-    "runNowFailed": "Falha ao disparar execução do heartbeat"
+    "runNowFailed": "Falha ao disparar execução do heartbeat",
+    "instructionsTitle": "Instruções do heartbeat",
+    "instructionsLoadFailed": "Não foi possível carregar as instruções. Tente novamente.",
+    "customInterval": "Intervalo personalizado",
+    "intervalRange": "Escolha entre 1 minuto e 23 horas e 59 minutos"
   },
   "cronJobs": {
     "executionModel": "Modelo de execução",
@@ -1324,7 +1351,7 @@
     "enabled": "Estado",
     "scheduleType": "Tipo de agendamento",
     "scheduleCron": "Agendamento (Cron)",
-    "scheduleCronLabel": "Agendamento (Cron)",
+    "scheduleCronLabel": "Horário de execução",
     "scheduleTimezone": "Fuso horário",
     "cronType": "Frequência",
     "cronTypeHourly": "A cada hora",
@@ -1381,7 +1408,7 @@
     "idTooltip": "Gerado pelo sistema, não editável: UUID único atribuído na criação da tarefa.",
     "nameTooltip": "Um nome amigável para identificar este job.",
     "cronTooltip": "Define quando a tarefa deve ser executada",
-    "cronExample": "Exemplos comuns: '0 9 * * *' = 9h diariamente | '*/30 * * * *' = a cada 30 min | '0 */2 * * *' = a cada 2 horas | '0 0 * * 0' = meia-noite de domingo",
+    "cronExample": "Exemplos comuns: '0 9 * * *' = 9h diariamente | '*/30 * * * *' = a cada 30 min | '0 */2 * * *' = a cada 2 horas | '0 0 * * sun' = meia-noite de domingo",
     "cronHelper": "Novo em expressões Cron?",
     "cronHelperLink": "Usar gerador online",
     "timezoneTooltip": "Fuso horário do agendamento cron. Padrão: UTC",
@@ -1523,7 +1550,35 @@
         "description": "Antes de cada reunião semanal, gerar um resumo de trabalho com base na memory da última semana.",
         "frequency": "Primeira execução: 2026-01-02 08:30 | A cada 7 dias | Até 2026-03-01"
       }
-    }
+    },
+    "calendarScope": "Somente tarefas com data definida",
+    "viewMode": "Visualização",
+    "emptyList": "Nenhuma tarefa nesta visualização",
+    "previousMonth": "Mês anterior",
+    "nextMonth": "Próximo mês",
+    "cronExpression": "Expressão Cron",
+    "cronFormatHint": "Formato: minuto hora dia mês dia da semana",
+    "importReviewBadge": "Importação precisa de revisão",
+    "importReviewApprove": "Aprovar revisão",
+    "importReviewTitle": "Revisar tarefa importada",
+    "importReviewContent": "Você verificou as instruções, o diretório e as permissões de “{{name}}” e confirmou que ela pode ser executada com segurança no QwenPaw? Após a aprovação, continuará desativada e deverá ser ativada separadamente.",
+    "importReviewConfirm": "Aprovar revisão",
+    "importReviewSuccess": "Revisão aprovada. A tarefa continua desativada; ative-a quando estiver pronta.",
+    "importReviewFailed": "Não foi possível aprovar a revisão",
+    "importReviewBlocked": "Tarefas importadas precisam ser revisadas antes de serem ativadas ou executadas.",
+    "importReviewProjectDirLabel": "Diretório local do projeto",
+    "importReviewProjectDirTooltip": "Associe o diretório original a um projeto existente neste dispositivo. Este formulário não altera os metadados de migração nem os requisitos de revisão.",
+    "importReviewProjectDirExtra": "Diretórios remotos ou não verificáveis precisam ser associados antes da revisão. Nos demais casos, é opcional.",
+    "importReviewProjectDirPlaceholder": "Exemplo: /Users/me/Documents/my-project",
+    "importReviewProjectDirRequired": "Edite a tarefa e indique um diretório local válido antes de aprová-la.",
+    "frequency": "Frequência",
+    "cronTypeMinutes": "Minutos",
+    "cronTypeMonthly": "Mensalmente",
+    "intervalMinutes": "Intervalo",
+    "everyMinutes": "A cada {{count}} min",
+    "monthDay": "Dia do mês",
+    "shortMonthHint": "Meses sem essa data serão ignorados.",
+    "selectAtLeastOneDay": "Selecione pelo menos um dia."
   },
   "channels": {
     "title": "Canais",
@@ -1754,7 +1809,69 @@
     "availableSection": "Disponíveis",
     "enableAction": "Ativar",
     "noEnabledChannels": "Nenhum canal ativado",
-    "goEnableChannels": "Ativar canais"
+    "goEnableChannels": "Ativar canais",
+    "configureAction": "Configurar",
+    "advancedSettings": "Configurações avançadas",
+    "deliverySettings": "Opções de envio",
+    "manualCredentials": "Credenciais manuais",
+    "presentationSettings": "Exibição de mensagens",
+    "fieldHomeserverURL": "URL do servidor principal",
+    "fieldAuthMethod": "Método de autenticação",
+    "fieldAccessToken": "Token de acesso",
+    "fieldPassword": "Senha",
+    "fieldEnableEndtoEndEncryption": "Criptografia de ponta a ponta",
+    "fieldDeviceName": "Nome do dispositivo",
+    "fieldDBPath": "Caminho do banco de dados",
+    "fieldPollIntervalsec": "Intervalo de consulta (s)",
+    "fieldHTTPProxy": "Proxy HTTP",
+    "fieldHTTPProxyAuth": "Autenticação do proxy HTTP",
+    "fieldClientID": "ID do cliente",
+    "fieldClientSecret": "Segredo do cliente",
+    "fieldMessageType": "Tipo de mensagem",
+    "fieldCronMessageType": "Tipo de mensagem agendada",
+    "fieldCardTemplateID": "ID do modelo de cartão",
+    "fieldCardTemplateKey": "Variável do modelo de cartão",
+    "fieldRobotCode": "Código do bot",
+    "fieldAppID": "ID do aplicativo",
+    "fieldAppSecret": "Segredo do aplicativo",
+    "fieldEncryptKey": "Chave de criptografia",
+    "fieldVerificationToken": "Token de verificação",
+    "fieldAPIBaseURL": "URL base da API",
+    "fieldShowTyping": "Mostrar digitação",
+    "fieldMQTTHost": "Servidor MQTT",
+    "fieldMQTTPort": "Porta MQTT",
+    "fieldCleanSession": "Limpar sessão",
+    "fieldQoS": "Qualidade de serviço (QoS)",
+    "fieldMQTTUsername": "Usuário MQTT",
+    "fieldMQTTPassword": "Senha MQTT",
+    "fieldSubscribeTopic": "Tópico de assinatura",
+    "fieldPublishTopic": "Tópico de publicação",
+    "fieldTLSEnabled": "Ativar TLS",
+    "fieldTLSCACerts": "Certificados TLS CA",
+    "fieldTLSCertfile": "Arquivo de certificado TLS",
+    "fieldTLSKeyfile": "Arquivo de chave TLS",
+    "fieldMattermostURL": "URL do Mattermost",
+    "fieldThreadFollowWithoutMention": "Responder na conversa sem menção",
+    "fieldBotID": "ID do bot",
+    "fieldSecret": "Segredo",
+    "fieldAccessKeyAK": "Chave de acesso (AK)",
+    "fieldSecretKeySK": "Chave secreta (SK)",
+    "fieldAgentID": "ID do agente",
+    "fieldAPIDomain": "Domínio da API",
+    "fieldWebSocketHost": "Servidor WebSocket",
+    "fieldWebSocketPort": "Porta WebSocket",
+    "matrixUserHelp": "Aceita MXID completo (ex.: @bot:matrix.org) ou nome local (bot).",
+    "matrixEncryptionHelp": "Após ativar, verifique o dispositivo no Matrix (ex.: Element) e instale: pip install matrix-nio[e2e].",
+    "matrixDeviceHelp": "Nome fixo do dispositivo Matrix. Padrão: qwenpaw-worker.",
+    "messageTypeHelp": "markdown: mensagens comuns; card: cartão interativo de IA.",
+    "scheduledMessageTypeHelp": "Tipo de mensagem agendada, independente do formato do chat.",
+    "cardVariableHelp": "Deve corresponder exatamente à variável do modelo.",
+    "robotCodeHelp": "Recomendado configurar explicitamente para grupos.",
+    "apiDomainHelp": "Domínio REST API para autenticação por token. Padrão: bot.yuanbao.tencent.com.",
+    "requiredField": "Informe {{field}}",
+    "portRange": "A porta deve estar entre 1 e 65535",
+    "developmentMode": "Desenvolvimento (pyVoIP)",
+    "productionMode": "Produção (LiveKit)"
   },
   "sessions": {
     "title": "Sessoes",
@@ -1874,7 +1991,9 @@
       "user": "QwenPaw",
       "system": "Sistema",
       "default": "Padrão"
-    }
+    },
+    "qwenpawSettings": "Configurações de ambiente do QwenPaw",
+    "emptyValue": "String vazia"
   },
   "modelSelector": {
     "selectModel": "Selecionar Modelo",
@@ -2466,7 +2585,8 @@
     "alreadyBound": "Já vinculado",
     "tooMany": "No máximo {{max}} diretórios podem ser vinculados.",
     "countTitle": "Número de diretórios vinculados",
-    "syncAsAgentDefault": "Usar esta configuração de espaço de trabalho em novas tarefas"
+    "syncAsAgentDefault": "Usar esta configuração de espaço de trabalho em novas tarefas",
+    "openDirectory": "Abrir {{name}}"
   },
   "agentConfig": {
     "title": "Configuracao",
@@ -2990,11 +3110,15 @@
     "contextStrategy": "Context Strategy",
     "contextStrategyTooltip": "How the agent manages long context. Scroll (recommended) persists evicted turns to a durable history store and recalls them on demand; Native uses in-place compression. Restart QwenPaw for changes to take effect.",
     "contextStrategyScroll": "Scroll",
-    "contextStrategyNative": "Native"
+    "contextStrategyNative": "Native",
+    "offloadPolicy": {
+      "title": "Política de execução de ferramentas em segundo plano"
+    },
+    "memoryAutoRecordTitle": "Ativar memória de conversas"
   },
   "tools": {
-    "title": "Integrado Ferramentas",
-    "description": "Manage built-in tools and their enabled status. Disabled tools will not be available to the agent.",
+    "title": "Ferramentas",
+    "description": "Gerencie as ferramentas integradas e seu estado. Ferramentas desativadas não ficam disponíveis para o agente.",
     "emptyState": "Nao Ferramentas configured",
     "loadError": "Falhou to load Ferramentas",
     "enableSuccess": "Tool Ativado successfully",
@@ -3004,9 +3128,9 @@
     "disableAll": "Desativar Todos",
     "enableAllSuccess": "Todos Ferramentas Ativado",
     "disableAllSuccess": "Todos Ferramentas Desativado",
-    "allEnabled": "All tools are already enabled",
-    "allDisabled": "All tools are already disabled",
-    "asyncExecution": "Async Execution",
+    "allEnabled": "Todas as ferramentas já estão ativadas",
+    "allDisabled": "Todas as ferramentas já estão desativadas",
+    "asyncExecution": "Execução assíncrona",
     "asyncExecutionEnabled": "Async execution Ativado",
     "asyncExecutionDisabled": "Async execution Desativado",
     "browserUnifiedMode": "Navegador unificado (Beta)",
@@ -3030,7 +3154,157 @@
     "noEnabled": "Nenhuma ferramenta ativada",
     "goEnableBtn": "Ativar agora",
     "configureAction": "Configurar →",
-    "enableAction": "Ativar →"
+    "enableAction": "Ativar →",
+    "catalog": {
+      "execute_shell_command": {
+        "name": "Executar comandos",
+        "description": "Execute comandos e scripts no terminal."
+      },
+      "read_file": {
+        "name": "Ler arquivos",
+        "description": "Leia arquivos de texto ou linhas específicas."
+      },
+      "write_file": {
+        "name": "Gravar arquivos",
+        "description": "Crie arquivos ou grave novo conteúdo."
+      },
+      "edit_file": {
+        "name": "Editar arquivos",
+        "description": "Localize e substitua conteúdo específico nos arquivos."
+      },
+      "append_file": {
+        "name": "Acrescentar aos arquivos",
+        "description": "Adicione texto sem substituir o conteúdo existente."
+      },
+      "grep_search": {
+        "name": "Pesquisar nos arquivos",
+        "description": "Encontre texto por palavra-chave ou padrão."
+      },
+      "glob_search": {
+        "name": "Localizar arquivos",
+        "description": "Encontre arquivos pelo nome ou padrão do caminho."
+      },
+      "ast_search": {
+        "name": "Pesquisar a estrutura do código",
+        "description": "Encontre padrões de código com análise de sintaxe."
+      },
+      "desktop_screenshot": {
+        "name": "Capturar a área de trabalho",
+        "description": "Faça uma captura de tela para o agente analisar."
+      },
+      "view_image": {
+        "name": "Visualizar imagens",
+        "description": "Carregue imagens para o modelo interpretar."
+      },
+      "view_video": {
+        "name": "Visualizar vídeos",
+        "description": "Carregue vídeos para o modelo analisar."
+      },
+      "enhance_and_generate_image": {
+        "name": "Aprimorar e gerar imagens",
+        "description": "Refine o prompt de imagem e gere o resultado."
+      },
+      "web_search": {
+        "name": "Pesquisar na web",
+        "description": "Encontre informações atuais e fontes online."
+      },
+      "web_fetch": {
+        "name": "Ler páginas da web",
+        "description": "Obtenha o conteúdo de páginas para leitura e análise."
+      },
+      "browser": {
+        "name": "Usar o navegador",
+        "description": "Navegue por páginas e interaja com o conteúdo da web."
+      },
+      "list_agents": {
+        "name": "Listar agentes",
+        "description": "Encontre agentes disponíveis para colaborar."
+      },
+      "chat_with_agent": {
+        "name": "Conversar com um agente",
+        "description": "Envie uma mensagem a outro agente e receba uma resposta."
+      },
+      "submit_to_agent": {
+        "name": "Delegar uma tarefa",
+        "description": "Envie uma tarefa em segundo plano a outro agente."
+      },
+      "check_agent_task": {
+        "name": "Verificar o progresso da tarefa",
+        "description": "Consulte o estado e o resultado de uma tarefa delegada."
+      },
+      "spawn_subagent": {
+        "name": "Iniciar um subagente",
+        "description": "Inicie um agente temporário para uma tarefa separada."
+      },
+      "delegate_external_agent": {
+        "name": "Delegar a um agente externo",
+        "description": "Encaminhe o trabalho a um agente externo configurado."
+      },
+      "send_file_to_user": {
+        "name": "Enviar arquivos",
+        "description": "Envie um arquivo ao usuário na conversa atual."
+      },
+      "get_current_time": {
+        "name": "Obter a hora atual",
+        "description": "Consulte a data e a hora atuais."
+      },
+      "set_user_timezone": {
+        "name": "Definir o fuso horário",
+        "description": "Defina o fuso do usuário para tarefas relacionadas a horários."
+      },
+      "get_token_usage": {
+        "name": "Verificar o uso de tokens",
+        "description": "Consulte o uso de tokens nas chamadas ao modelo."
+      },
+      "materialize_skill": {
+        "name": "Gravar uma habilidade",
+        "description": "Grave a definição de uma habilidade no espaço de trabalho."
+      },
+      "run_tool_batch": {
+        "name": "Executar ferramentas em lote",
+        "description": "Execute chamadas de ferramentas definidas em um arquivo JSON."
+      },
+      "activate_f1_exploration_mode": {
+        "name": "Explorar aprovações de e-mail",
+        "description": "Inicie a exploração guiada das aprovações de e-mail."
+      },
+      "migration_compat_inspect": {
+        "name": "Inspecionar dados de migração",
+        "description": "Inspecione os dados preparados e os recursos atuais do QwenPaw."
+      },
+      "migration_compat_read_file": {
+        "name": "Ler arquivos de migração",
+        "description": "Leia um arquivo de dados preparado em páginas."
+      },
+      "migration_compat_write_file": {
+        "name": "Gravar arquivos de migração",
+        "description": "Crie ou sobrescreva arquivos de texto nos dados em reparo."
+      },
+      "migration_compat_update": {
+        "name": "Atualizar configurações de migração",
+        "description": "Atualize os campos permitidos de MCP ou tarefas agendadas."
+      },
+      "migration_compat_finalize": {
+        "name": "Validar e concluir a migração",
+        "description": "Execute os testes finais e aplique os dados corrigidos se passarem."
+      }
+    },
+    "search": "Pesquisar ferramentas",
+    "noSearchResults": "Nenhuma ferramenta encontrada",
+    "filterAll": "Todas as ferramentas",
+    "filterEnabled": "Ativadas",
+    "filterDisabled": "Desativadas",
+    "enabledCount": "{{enabled}} de {{total}} ativadas",
+    "enableAllConfirm": "Ativar todas as {{count}} ferramentas?",
+    "groups": {
+      "files": "Arquivos e código",
+      "web": "Web e navegador",
+      "media": "Imagens e vídeos",
+      "agents": "Colaboração entre agentes",
+      "runtime": "Execução e automação",
+      "migration": "Migração de aplicativos",
+      "other": "Sem categoria"
+    }
   },
   "modelConfig": {
     "promptTitle": "LLM Model Required — Select in Chat After Configuration",
@@ -3184,9 +3458,23 @@
       "global": "Configurações globais",
       "plugins": "Recursos de plugins"
     },
-    "alwaysVisible": "Sempre visível"
+    "alwaysVisible": "Sempre visível",
+    "sidebarEditHelp": "Arraste a alça para reordenar. No teclado, pressione Espaço para selecionar, as setas para mover e Espaço para soltar. Use + ou − para adicionar ou remover itens. As alterações são salvas automaticamente.",
+    "fixedEntry": "Sempre visível",
+    "addEntry": "Adicionar {{name}}",
+    "allAdded": "Todos adicionados",
+    "availableEntries": "Itens disponíveis",
+    "dragHint": "Arraste para reordenar ou voltar à lista.",
+    "dropHere": "Arraste atalhos para cá",
+    "mirrorHint": "Mantenha suas ferramentas por perto.",
+    "moveEntry": "Mover {{name}}",
+    "preview": "Prévia",
+    "previewCaption": "Alterações salvas automaticamente",
+    "removeEntry": "Remover {{name}}",
+    "sidebarPreview": "Itens visíveis"
   },
   "chat": {
+    "historyLoadFailed": "Não foi possível carregar a conversa. Abra-a novamente.",
     "newTask": "Nova tarefa",
     "newChat": "Novo chat",
     "groups": {
@@ -3357,7 +3645,7 @@
     "security": "Seguranca",
     "title": "Seguranca",
     "description": "Manage security features for tools and skills.",
-    "toolGuardTitle": "Tool Guard",
+    "toolGuardTitle": "Proteção de ferramentas",
     "toolGuardDescription": "Configure security scanning for tool calls. Dangerous operations will require your explicit approval before execution.",
     "enabled": "Ativar Tool Guard",
     "enabledTooltip": "When enabled, tool calls are scanned for dangerous patterns before execution",
@@ -3483,7 +3771,7 @@
       }
     },
     "fileGuard": {
-      "title": "File Guard",
+      "title": "Proteção de arquivos",
       "description": "Protect sensitive files and directories from being accessed by agent tools. Paths added here will be blocked across all tool calls.",
       "enableLabel": "Ativar File Guard",
       "path": "Caminho",
@@ -3501,7 +3789,7 @@
       "allowPreviewOutsideWorkspaceDesc": "Permite visualizar arquivos fora do diretório do workspace no console. A proteção de arquivos sensíveis continua ativa."
     },
     "allowNoAuthHosts": {
-      "title": "Allow Nao Auth Hosts",
+      "title": "Hosts sem autenticação",
       "warningTitle": "Seguranca Aviso",
       "warningDescription": "IP addresses in this list can access API endpoints without authentication. By default, localhost (127.0.0.1 and ::1) are allowed for CLI access. Only add trusted IP addresses. WARNING: Adding untrusted IPs poses a serious security risk.",
       "ipAddress": "IP Address",
@@ -3518,7 +3806,7 @@
       "loadFailed": "Failed to load allow no auth hosts settings"
     },
     "skillScanner": {
-      "title": "Skill Scanner",
+      "title": "Verificador de habilidades",
       "description": "Automatically scan skills for security threats before enabling or installing. Unsafe skills can be blocked or whitelisted.",
       "mode": "Scanner Modo",
       "modeTooltip": "Controls how the scanner handles unsafe skills: block, warn only, or disabled",
@@ -3567,7 +3855,8 @@
         "goToWhitelist": "Go to Whitelist",
         "moreFindings": "{{count}} more issues not shown (see Security → Skill Scanner for the full list)."
       }
-    }
+    },
+    "sandboxEnabled": "Proteção de sandbox"
   },
   "hub": {
     "brand": {
@@ -4703,6 +4992,80 @@
         "name": "Missão",
         "description": "Execute uma tarefa estruturada e persistente em várias etapas."
       }
+    }
+  },
+  "runtimeDesign": {
+    "title": "Estúdio de execução",
+    "subtitle": "Faça seu agente trabalhar do seu jeito.",
+    "workspace": "Ambiente",
+    "workspaceHint": "Idioma, fuso horário e espaço de trabalho",
+    "execution": "Execução",
+    "executionHint": "Ciclos de tarefas e aprovação de ferramentas",
+    "recovery": "Recuperação",
+    "recoveryHint": "Ritmo de tentativas e concorrência",
+    "context": "Capacidade do contexto",
+    "contextHint": "Compressão, retenção e resultados",
+    "memory": "Memória",
+    "memoryHint": "Registrar, organizar e recuperar",
+    "deviceTimezone": "Usar fuso do dispositivo",
+    "localTime": "Hora local",
+    "mapHint": "Clique no mapa para definir um fuso UTC fixo. Para regiões com horário de verão, escolha o fuso regional na lista acima.",
+    "zoomIn": "Ampliar",
+    "zoomOut": "Reduzir",
+    "retryPreview": "Prévia do tempo de espera",
+    "retryHint": "Espera básica antes de cada tentativa; o servidor e os limites podem aumentá-la.",
+    "retryAttempt": "Tentativa {{count}}",
+    "totalWait": "Espera total",
+    "budgetTitle": "Orçamento de contexto",
+    "budgetHint": "Capacidade configurada do modelo, não uso em tempo real.",
+    "trigger": "Gatilho de compressão",
+    "retained": "Contexto retido",
+    "advanced": "Configurações avançadas",
+    "seconds": "segundos",
+    "allSettings": "Todas as configurações",
+    "cities": {
+      "America_Los_Angeles": "Los Angeles",
+      "America_New_York": "Nova York",
+      "America_Sao_Paulo": "São Paulo",
+      "Europe_London": "Londres",
+      "Europe_Moscow": "Moscou",
+      "Africa_Cairo": "Cairo",
+      "Africa_Johannesburg": "Joanesburgo",
+      "Asia_Dubai": "Dubai",
+      "Asia_Kolkata": "Calcutá",
+      "Asia_Shanghai": "Xangai",
+      "Asia_Tokyo": "Tóquio",
+      "Asia_Singapore": "Singapura",
+      "Australia_Sydney": "Sydney",
+      "Pacific_Auckland": "Auckland"
+    },
+    "beijingTime": "Horário de Pequim",
+    "mapPlaces": {
+      "-12": "Ilha Baker",
+      "-11": "Pago Pago",
+      "-10": "Honolulu",
+      "-9": "Anchorage",
+      "-8": "Los Angeles",
+      "-7": "Denver",
+      "-6": "Cidade do México",
+      "-5": "Nova York",
+      "-4": "San Juan",
+      "-3": "Buenos Aires",
+      "-2": "Geórgia do Sul",
+      "-1": "Praia",
+      "0": "Londres",
+      "1": "Paris",
+      "2": "Cairo",
+      "3": "Moscou",
+      "4": "Dubai",
+      "5": "Karachi",
+      "6": "Daca",
+      "7": "Bangkok",
+      "8": "Pequim",
+      "9": "Tóquio",
+      "10": "Sydney",
+      "11": "Nouméa",
+      "12": "Suva"
     }
   }
 }

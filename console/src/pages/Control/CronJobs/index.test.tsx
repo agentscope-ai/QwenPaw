@@ -1,3 +1,18 @@
+import type { ComponentProps } from "react";
+import type {
+  createColumns,
+  JobDrawer,
+  TemplatePickerModal,
+} from "./components";
+// These regression cases deliberately pass incomplete data to captured handlers.
+type CapturedCallbacks<T> = {
+  [K in keyof T]: T[K] extends (...args: never[]) => unknown
+    ? (...args: unknown[]) => unknown
+    : T[K];
+};
+type Handlers = CapturedCallbacks<Parameters<typeof createColumns>[0]>;
+type DrawerProps = CapturedCallbacks<ComponentProps<typeof JobDrawer>>;
+type TemplateProps = ComponentProps<typeof TemplatePickerModal>;
 // @vitest-environment jsdom
 /**
  * CronJobsPage render tests — regression family: cron scheduling
@@ -25,13 +40,21 @@ const mockForm = vi.hoisted(() => ({
   setFieldsValue: vi.fn(),
 }));
 const mockConfirm = vi.hoisted(() => vi.fn());
-const capturedColumns = vi.hoisted<{ handlers: any }>(() => ({
+const capturedColumns = vi.hoisted<{ handlers: Handlers | null }>(() => ({
   handlers: null,
 }));
-const capturedDrawer = vi.hoisted<{ props: any }>(() => ({ props: null }));
-const capturedTemplate = vi.hoisted<{ props: any }>(() => ({ props: null }));
-const drawerSubmitValues = vi.hoisted<{ value: any }>(() => ({ value: {} }));
-const templateValues = vi.hoisted<{ value: any }>(() => ({ value: {} }));
+const capturedDrawer = vi.hoisted<{ props: DrawerProps | null }>(() => ({
+  props: null,
+}));
+const capturedTemplate = vi.hoisted<{ props: TemplateProps | null }>(() => ({
+  props: null,
+}));
+const drawerSubmitValues = vi.hoisted<{ value: Record<string, unknown> }>(
+  () => ({ value: {} }),
+);
+const templateValues = vi.hoisted<{ value: Record<string, unknown> }>(() => ({
+  value: {},
+}));
 
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
@@ -46,15 +69,15 @@ vi.mock("../../../api", () => ({
 }));
 
 vi.mock("./components", () => ({
-  createColumns: (handlers: Record<string, unknown>) => {
+  createColumns: (handlers: Handlers) => {
     capturedColumns.handlers = handlers;
     return [];
   },
-  JobDrawer: (props: Record<string, unknown>) => {
+  JobDrawer: (props: DrawerProps) => {
     capturedDrawer.props = props;
     return props.open ? <div data-testid="job-drawer" /> : null;
   },
-  TemplatePickerModal: (props: Record<string, unknown>) => {
+  TemplatePickerModal: (props: TemplateProps) => {
     capturedTemplate.props = props;
     return props.open ? <div data-testid="template-modal" /> : null;
   },
@@ -352,7 +375,7 @@ describe("CronJobsPage", () => {
     // Drive the real handler captured from createColumns
     await waitFor(() => expect(capturedColumns.handlers).toBeTruthy());
     await act(async () => {
-      await capturedColumns.handlers.onViewHistory(recurringJob);
+      await capturedColumns.handlers!.onViewHistory(recurringJob);
     });
 
     expect(mockApi.getCronJobHistory).toHaveBeenCalledWith("job-1");
@@ -377,7 +400,7 @@ describe("CronJobsPage", () => {
     await waitFor(() => expect(capturedColumns.handlers).toBeTruthy());
 
     await act(async () => {
-      await capturedColumns.handlers.onViewHistory(recurringJob);
+      await capturedColumns.handlers!.onViewHistory(recurringJob);
     });
 
     expect(screen.getByText("cronJobs.historyEmpty")).toBeTruthy();
@@ -404,7 +427,7 @@ describe("CronJobsPage", () => {
     await waitFor(() => expect(capturedColumns.handlers).toBeTruthy());
 
     await act(async () => {
-      await capturedColumns.handlers.onViewHistory(recurringJob);
+      await capturedColumns.handlers!.onViewHistory(recurringJob);
     });
 
     expect(screen.getByText("cronJobs.historyStatusRunning")).toBeTruthy();
@@ -422,7 +445,7 @@ describe("CronJobsPage column handlers", () => {
     mockHookReturn(overrides);
     renderWithProviders(<CronJobsPage />);
     await waitFor(() => expect(capturedColumns.handlers).toBeTruthy());
-    return capturedColumns.handlers;
+    return capturedColumns.handlers!;
   }
 
   it("handleDelete confirms and deletes on accept", async () => {
@@ -465,7 +488,7 @@ describe("CronJobsPage column handlers", () => {
       handlers.onEdit(recurringJob);
     });
 
-    expect(capturedDrawer.props.open).toBe(true);
+    expect(capturedDrawer.props!.open).toBe(true);
     const values =
       mockForm.setFieldsValue.mock.calls[
         mockForm.setFieldsValue.mock.calls.length - 1
@@ -509,8 +532,8 @@ describe("CronJobsPage column handlers", () => {
       mockForm.setFieldsValue.mock.calls[
         mockForm.setFieldsValue.mock.calls.length - 1
       ]?.[0];
-    expect(values.cronType).toBe("custom");
-    expect(values.cronCustom).toBe("*/15 * * * *");
+    expect(values.cronType).toBe("minutes");
+    expect(values.cronInterval).toBe(15);
   });
 
   it("handleEdit prefills one-time jobs including repeat settings", async () => {
@@ -558,7 +581,7 @@ describe("CronJobsPage drawer submit", () => {
     mockHookReturn(overrides);
     renderWithProviders(<CronJobsPage />);
     await waitFor(() => expect(capturedDrawer.props).toBeTruthy());
-    return capturedDrawer.props;
+    return capturedDrawer.props!;
   }
 
   it("builds a daily cron schedule and creates the job, closing the drawer on success", async () => {
@@ -606,12 +629,12 @@ describe("CronJobsPage drawer submit", () => {
     // Enter edit mode so submit takes the update path
     await waitFor(() => expect(capturedColumns.handlers).toBeTruthy());
     act(() => {
-      capturedColumns.handlers.onEdit(recurringJob);
+      capturedColumns.handlers!.onEdit(recurringJob);
     });
 
     // Re-read after re-render: onSubmit now closes over editingJob=job
     await act(async () => {
-      await capturedDrawer.props.onSubmit({
+      await capturedDrawer.props!.onSubmit({
         name: "Edited",
         task_type: "text",
         scheduleType: "once",
@@ -636,7 +659,7 @@ describe("CronJobsPage drawer submit", () => {
     expect(submitted.schedule.repeat_until).toBeUndefined();
   });
 
-  it("builds an until-bounded repeat and keeps a missing run_at undefined", async () => {
+  it("builds an until-bounded repeat and leaves a missing run_at empty", async () => {
     const createJob = vi.fn().mockResolvedValue(false);
     await renderPage({ createJob });
     // Open the drawer so the "stays open on failure" assertion is meaningful
@@ -647,7 +670,7 @@ describe("CronJobsPage drawer submit", () => {
     await waitFor(() => expect(screen.getByTestId("job-drawer")).toBeTruthy());
 
     await act(async () => {
-      await capturedDrawer.props.onSubmit({
+      await capturedDrawer.props!.onSubmit({
         name: "NoRunAt",
         task_type: "text",
         scheduleType: "once",
@@ -660,11 +683,42 @@ describe("CronJobsPage drawer submit", () => {
     });
 
     const submitted = createJob.mock.calls[0][0];
-    expect(submitted.schedule.run_at).toBeUndefined();
+    expect(submitted.schedule.run_at).toBe("");
     expect(submitted.schedule.repeat_until).toBe("2026-10-01T00:00:00");
     // failed submit keeps the drawer open
-    await waitFor(() => expect(capturedDrawer.props.open).toBe(true));
+    await waitFor(() => expect(capturedDrawer.props!.open).toBe(true));
   });
+
+  it.each([
+    { cronType: "minutes", cronInterval: 15, expected: "*/15 * * * *" },
+    { cronType: "monthly", cronMonthDay: 31, expected: "30 9 31 * *" },
+  ])(
+    "serializes visual $cronType schedules without leaking form fields",
+    async ({ expected, ...fields }) => {
+      const createJob = vi.fn().mockResolvedValue(false);
+      const drawer = await renderPage({ createJob });
+      await act(async () => {
+        await drawer.onSubmit({
+          name: "Visual",
+          task_type: "text",
+          scheduleType: "cron",
+          schedule: { timezone: "Asia/Shanghai" },
+          cronTime: dayjs().hour(9).minute(30),
+          ...fields,
+        });
+      });
+      const submitted = createJob.mock.calls[0][0];
+      expect(submitted.schedule.cron).toBe(expected);
+      expect(submitted.schedule.timezone).toBe("Asia/Shanghai");
+      for (const key of [
+        "cronType",
+        "cronInterval",
+        "cronMonthDay",
+        "cronTime",
+      ])
+        expect(submitted).not.toHaveProperty(key);
+    },
+  );
 
   it("builds weekly and custom cron schedules", async () => {
     const createJob = vi.fn().mockResolvedValue(false);
@@ -773,7 +827,7 @@ describe("CronJobsPage drawer submit", () => {
         schedule: {},
       });
     });
-    expect(createJob.mock.calls[2][0].request).toEqual({});
+    expect(createJob.mock.calls[2][0].request).toEqual({ input: [] });
     consoleSpy.mockRestore();
   });
 });
@@ -805,7 +859,7 @@ describe("CronJobsPage template flow", () => {
         mockForm.setFieldsValue.mock.calls.length - 1
       ]?.[0];
     expect(values.schedule.timezone).toBe("Asia/Shanghai");
-    expect(capturedDrawer.props.editingJob).toBeNull();
+    expect(capturedDrawer.props!.editingJob).toBeNull();
   });
 
   it("applyTemplate closes the picker, resets the form and opens the drawer", async () => {
@@ -823,7 +877,7 @@ describe("CronJobsPage template flow", () => {
     );
 
     act(() => {
-      capturedTemplate.props.onUseTemplate({ name: "From Template" });
+      capturedTemplate.props!.onUseTemplate({ name: "From Template" });
     });
 
     expect(mockForm.resetFields).toHaveBeenCalled();
@@ -833,8 +887,8 @@ describe("CronJobsPage template flow", () => {
       ]?.[0];
     expect(values.name).toBe("From Template");
     expect(values.schedule.timezone).toBe("UTC");
-    await waitFor(() => expect(capturedDrawer.props.open).toBe(true));
-    expect(capturedDrawer.props.editingJob).toBeNull();
+    await waitFor(() => expect(capturedDrawer.props!.open).toBe(true));
+    expect(capturedDrawer.props!.editingJob).toBeNull();
   });
 
   it("drawer close resets editing state", async () => {
@@ -843,15 +897,15 @@ describe("CronJobsPage template flow", () => {
     await waitFor(() => expect(capturedColumns.handlers).toBeTruthy());
 
     act(() => {
-      capturedColumns.handlers.onEdit(recurringJob);
+      capturedColumns.handlers!.onEdit(recurringJob);
     });
-    expect(capturedDrawer.props.editingJob).toBe(recurringJob);
+    expect(capturedDrawer.props!.editingJob).toBe(recurringJob);
 
     act(() => {
-      capturedDrawer.props.onClose();
+      capturedDrawer.props!.onClose();
     });
-    await waitFor(() => expect(capturedDrawer.props.open).toBe(false));
-    expect(capturedDrawer.props.editingJob).toBeNull();
+    await waitFor(() => expect(capturedDrawer.props!.open).toBe(false));
+    expect(capturedDrawer.props!.editingJob).toBeNull();
   });
 });
 
@@ -909,7 +963,7 @@ describe("CronJobsPage mobile schedule formatting", () => {
         "cronJobs.cronTypeWeekly cronJobs.cronDayMon,cronJobs.cronDayWed",
       ),
     ).toBeTruthy();
-    expect(screen.getByText("*/15 * * * *")).toBeTruthy();
+    expect(screen.getByText('cronJobs.everyMinutes:{"count":15}')).toBeTruthy();
     expect(screen.getByText(onceAt.format("YYYY-MM-DD HH:mm"))).toBeTruthy();
     expect(screen.getByText("-")).toBeTruthy();
   });
@@ -942,16 +996,16 @@ describe("CronJobsPage schedule filter", () => {
       expect(screen.getByTestId("cron-table").textContent).toBe("rows:2"),
     );
 
-    fireEvent.change(screen.getByTestId("schedule-filter"), {
-      target: { value: "once" },
-    });
+    fireEvent.click(
+      screen.getByRole("radio", { name: "cronJobs.scheduleTypeOnce" }),
+    );
     await waitFor(() =>
       expect(screen.getByTestId("cron-table").textContent).toBe("rows:1"),
     );
 
-    fireEvent.change(screen.getByTestId("schedule-filter"), {
-      target: { value: "all" },
-    });
+    fireEvent.click(
+      screen.getByRole("radio", { name: "cronJobs.scheduleFilterAll" }),
+    );
     await waitFor(() =>
       expect(screen.getByTestId("cron-table").textContent).toBe("rows:2"),
     );
@@ -967,9 +1021,9 @@ describe("CronJobsPage bootstrap edge cases", () => {
 
     await waitFor(() => expect(capturedDrawer.props).toBeTruthy());
     await waitFor(() =>
-      expect(capturedDrawer.props.targetChannels).toEqual(["console"]),
+      expect(capturedDrawer.props!.targetChannels).toEqual(["console"]),
     );
-    expect(capturedDrawer.props.targetItems).toEqual([]);
+    expect(capturedDrawer.props!.targetItems).toEqual([]);
     expect(consoleSpy).toHaveBeenCalled();
     consoleSpy.mockRestore();
   });

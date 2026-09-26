@@ -323,3 +323,63 @@ async def test_update_tool_config_validation_error_stays_500(
 
     assert exc_info.value.status_code == 500
     assert isinstance(validation_error, ValueError)
+
+
+@pytest.mark.parametrize(f"category", [None, f"media", f"unknown", 123])
+def test_plugin_tool_metadata(monkeypatch, category) -> None:
+    """Only explicit per-tool categories are exposed; text stays original."""
+    tool = SimpleNamespace(
+        name=f"generate_image_qwen",
+        enabled=True,
+        description=f"Plugin original description",
+        async_execution=False,
+        icon=f"",
+        config={},
+    )
+    manifest = {
+        f"name": f"Image plugin",
+        f"meta": {
+            f"category": f"web",
+            f"tools": [{f"name": tool.name, f"category": category}],
+        },
+    }
+    registry = SimpleNamespace(
+        get_plugin_id_for_tool=lambda name: f"image-plugin",
+        get_plugin_manifest=lambda plugin_id: manifest,
+    )
+    monkeypatch.setattr(registry_module, f"PluginRegistry", lambda: registry)
+    monkeypatch.setattr(
+        tools_router_module,
+        f"DEFAULT_REGISTRY",
+        SimpleNamespace(get_owner=lambda name: None),
+    )
+    result = tools_router_module._build_tool_info(tool, tool.name)
+    assert result.source_plugin_id == f"image-plugin"
+    assert result.source_plugin_name == f"Image plugin"
+    assert result.description == tool.description
+    assert result.category == (category if isinstance(category, str) else None)
+
+
+def test_dynamic_plugin_tool_source(monkeypatch) -> None:
+    """Runtime ownership identifies tools absent from manifest declarations."""
+    tool = SimpleNamespace(
+        name=f"dynamic_tool",
+        enabled=True,
+        description=f"Original",
+        async_execution=False,
+        icon=f"",
+        config={},
+    )
+    registry = SimpleNamespace(
+        get_plugin_id_for_tool=lambda name: None,
+        get_plugin_manifest=lambda plugin_id: None,
+    )
+    monkeypatch.setattr(registry_module, f"PluginRegistry", lambda: registry)
+    monkeypatch.setattr(
+        tools_router_module,
+        f"DEFAULT_REGISTRY",
+        SimpleNamespace(get_owner=lambda name: f"dynamic-plugin"),
+    )
+    result = tools_router_module._build_tool_info(tool, tool.name)
+    assert result.source_plugin_id == f"dynamic-plugin"
+    assert result.category is None

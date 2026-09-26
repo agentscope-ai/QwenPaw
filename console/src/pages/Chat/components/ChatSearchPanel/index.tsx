@@ -2,7 +2,10 @@ import React, { useState, useCallback, useRef, useEffect } from "react";
 import { Drawer, Input, List, Typography, Empty, Spin } from "antd";
 import type { InputRef } from "antd";
 import { IconButton } from "@agentscope-ai/design";
-import { SparkOperateRightLine, SparkSearchLine } from "@agentscope-ai/icons";
+import {
+  ChevronRight as SparkOperateRightLine,
+  Search as SparkSearchLine,
+} from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import { chatApi } from "../../../../api/modules/chat";
@@ -275,7 +278,7 @@ const ChatSearchPanel: React.FC<ChatSearchPanelProps> = ({ open, onClose }) => {
         <div className={styles.headerRight}>
           <IconButton
             bordered={false}
-            icon={<SparkOperateRightLine />}
+            icon={<SparkOperateRightLine size="1em" />}
             onClick={onClose}
           />
         </div>
@@ -286,7 +289,9 @@ const ChatSearchPanel: React.FC<ChatSearchPanelProps> = ({ open, onClose }) => {
         <Input
           ref={inputRef}
           placeholder={t("chat.search.placeholder")}
-          prefix={<SparkSearchLine style={{ color: "rgba(0,0,0,0.25)" }} />}
+          prefix={
+            <SparkSearchLine size="1em" style={{ color: "rgba(0,0,0,0.25)" }} />
+          }
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
           allowClear

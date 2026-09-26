@@ -3,12 +3,13 @@ import { render } from "@testing-library/react";
 import { SkillVisual, getFileIcon } from "./index";
 
 describe("SkillVisual", () => {
-  it("renders emoji when provided", () => {
+  it("uses a Lucide glyph even when metadata contains an emoji", () => {
     const { container } = render(<SkillVisual name="my-skill" emoji="🤖" />);
-    expect(container.textContent).toBe("🤖");
+    expect(container.textContent).not.toContain("🤖");
+    expect(container.querySelector("svg.lucide")).toBeInTheDocument();
   });
 
-  it("applies emojiClassName to emoji wrapper", () => {
+  it("retains the existing visual wrapper class", () => {
     const { container } = render(
       <SkillVisual name="skill" emoji="⚡" emojiClassName="emoji-cls" />,
     );
@@ -17,7 +18,7 @@ describe("SkillVisual", () => {
 
   it("renders file icon when no emoji provided", () => {
     const { container } = render(<SkillVisual name="report.pdf" />);
-    expect(container.querySelector("[role='img']")).toBeInTheDocument();
+    expect(container.querySelector("svg.lucide")).toBeInTheDocument();
   });
 });
 
@@ -39,11 +40,11 @@ describe("getFileIcon", () => {
 
   it.each(cases)("getFileIcon('%s') renders correct icon", (input) => {
     const { container } = render(<>{getFileIcon(input)}</>);
-    expect(container.querySelector("[role='img']")).toBeInTheDocument();
+    expect(container.querySelector("svg.lucide")).toBeInTheDocument();
   });
 
   it("handles extra whitespace and mixed case in skill key", () => {
     const { container } = render(<>{getFileIcon("  CRON  ")}</>);
-    expect(container.querySelector("[role='img']")).toBeInTheDocument();
+    expect(container.querySelector("svg.lucide")).toBeInTheDocument();
   });
 });

@@ -1,6 +1,6 @@
 import { ProviderCredentialField } from "./ProviderCredentialField";
 import { ProviderCardStatus } from "./ProviderCardStatus";
-import { ModelCardSurface } from "./ModelCardSurface";
+import { InteractiveCard } from "@/components/interaction/InteractiveCard";
 import { ChevronRight } from "lucide-react";
 import { ProviderCloseButton } from "./ProviderCloseButton";
 import React, { useState } from "react";
@@ -74,7 +74,10 @@ export const RemoteProviderCard = React.memo(function RemoteProviderCard({
   ) : null;
 
   return (
-    <ModelCardSurface className={styles.groupCardGlass}>
+    <InteractiveCard
+      layoutId={`provider:${provider.id}`}
+      className={styles.groupCardGlass}
+    >
       {!isManaged && (
         <ProviderCloseButton
           ids={[provider.id]}
@@ -100,7 +103,9 @@ export const RemoteProviderCard = React.memo(function RemoteProviderCard({
         {!isManaged && (
           <>
             <div className={styles.groupCardField}>
-              <span className={styles.groupCardFieldLabel}>Endpoint</span>
+              <span className={styles.groupCardFieldLabel}>
+                {t("models.baseURL")}
+              </span>
               <div className={styles.groupCardMono}>
                 {provider.base_url || "—"}
               </div>
@@ -163,6 +168,6 @@ export const RemoteProviderCard = React.memo(function RemoteProviderCard({
         }}
         onCancel={() => setOauthModalOpen(false)}
       />
-    </ModelCardSurface>
+    </InteractiveCard>
   );
 });

@@ -89,7 +89,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const saveUserTheme = useCallback(async (theme: ThemeConfig) => {
     const saved = await themeApi.update(theme);
     setUserTheme(saved);
-    setPreviewTheme(saved);
+    setPreviewTheme((current) => (current === theme ? saved : current));
     return saved;
   }, []);
 

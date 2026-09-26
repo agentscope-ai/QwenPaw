@@ -1,8 +1,8 @@
+import { DeleteAction } from "@/components/interaction/DeleteAction";
 import { useMemo, useState } from "react";
 import { Button, Input, Modal } from "@agentscope-ai/design";
-import { Tooltip } from "antd";
+import InlineHelp from "@/components/InlineHelp";
 import {
-  CircleHelp,
   Eye,
   EyeOff,
   LockKeyhole,
@@ -10,7 +10,6 @@ import {
   Plus,
   RotateCcw,
   Search,
-  Trash2,
   Zap,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -21,6 +20,8 @@ import { PageHeader } from "@/components/PageHeader";
 import { useAppMessage } from "../../../hooks/useAppMessage";
 import { useEnvVars } from "./useEnvVars";
 import styles from "./index.module.less";
+import { SettingsDrawer } from "@/components/interaction/SettingsDrawer";
+import { useAutoSave } from "@/hooks/useAutoSave";
 
 type EditorState = {
   key: string;
@@ -48,8 +49,14 @@ function ValueText({
   const [visible, setVisible] = useState(false);
   return (
     <div className={styles.valueText}>
-      <code>{secret && !visible ? "••••••••" : value || "—"}</code>
-      {secret && (
+      <code>
+        {value === ""
+          ? t("environments.emptyValue")
+          : secret && !visible
+          ? "••••••••"
+          : value}
+      </code>
+      {secret && value !== "" && (
         <button
           type="button"
           className={styles.iconButton}
@@ -72,6 +79,13 @@ function EnvironmentsPage() {
   const [query, setQuery] = useState("");
   const [editor, setEditor] = useState<EditorState>(null);
   const [saving, setSaving] = useState(false);
+  const [revealed, setRevealed] = useState(false);
+  const [editorOpen, setEditorOpen] = useState(false);
+  const openEditor = (next: EditorState) => {
+    setRevealed(false);
+    setEditor(next);
+    setEditorOpen(true);
+  };
 
   const configured = useMemo(
     () => new Map(envVars.map((item) => [item.key, item.value])),
@@ -100,12 +114,12 @@ function EnvironmentsPage() {
       (!normalizedQuery || item.key.toLowerCase().includes(normalizedQuery)),
   );
 
-  const saveEditor = async () => {
-    if (!editor) return;
+  const saveEditor = async (close = true) => {
+    if (!editor) return false;
     const key = editor.key.trim();
     if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) {
       message.error(t("environments.invalidKeyFormat"));
-      return;
+      return false;
     }
     const keyIdentity = key.toUpperCase();
     const duplicate =
@@ -114,56 +128,64 @@ function EnvironmentsPage() {
         catalog.some((item) => item.key.toUpperCase() === keyIdentity));
     if (duplicate) {
       message.error(t("environments.duplicateKey", { name: key }));
-      return;
+      return false;
     }
     setSaving(true);
     try {
       await api.patchEnvs({ [key]: editor.value });
-      message.success(t("environments.applied"));
-      setEditor(null);
-      await fetchAll();
+      if (close) {
+        message.success(t("environments.applied"));
+        setEditorOpen(false);
+        await fetchAll();
+      }
+      return true;
     } catch (saveError) {
       message.error(
         saveError instanceof Error
           ? saveError.message
           : t("environments.saveFailed"),
       );
+      return false;
     } finally {
       setSaving(false);
     }
   };
+  const { schedule, flush } = useAutoSave(() => saveEditor(false));
+  const closeEditor = async () => {
+    if (!(await flush())) return;
+    setEditorOpen(false);
+    if (!editor?.isNew) await fetchAll();
+  };
 
-  const removeVariable = (key: string, reset = false) => {
+  const executeRemove = async (key: string, reset = false) => {
+    try {
+      if (reset) {
+        await api.resetEnv(key);
+      } else {
+        await api.deleteEnv(key);
+      }
+      message.success(
+        reset
+          ? t("environments.resetSuccess")
+          : t("environments.deleteSuccess", { name: key }),
+      );
+      await fetchAll();
+    } catch (removeError) {
+      message.error(
+        removeError instanceof Error
+          ? removeError.message
+          : t("environments.deleteFailed"),
+      );
+      throw removeError;
+    }
+  };
+  const removeVariable = (key: string) => {
     Modal.confirm({
-      title: reset
-        ? t("environments.resetVariable")
-        : t("environments.deleteVariable"),
+      title: t("environments.resetVariable"),
       content: t("environments.deleteConfirm", { name: key }),
-      okText: reset ? t("common.reset") : t("common.delete"),
-      okButtonProps: { danger: !reset },
+      okText: t("common.reset"),
       cancelText: t("common.cancel"),
-      onOk: async () => {
-        try {
-          if (reset) {
-            await api.resetEnv(key);
-          } else {
-            await api.deleteEnv(key);
-          }
-          message.success(
-            reset
-              ? t("environments.resetSuccess")
-              : t("environments.deleteSuccess", { name: key }),
-          );
-          await fetchAll();
-        } catch (removeError) {
-          message.error(
-            removeError instanceof Error
-              ? removeError.message
-              : t("environments.deleteFailed"),
-          );
-          throw removeError;
-        }
-      },
+      onOk: () => executeRemove(key, true),
     });
   };
 
@@ -178,15 +200,7 @@ function EnvironmentsPage() {
           <div className={styles.identity}>
             <div className={styles.variableName}>
               <code>{item.key}</code>
-              <Tooltip title={describeSpec(item)}>
-                <button
-                  type="button"
-                  className={`${styles.iconButton} ${styles.helpButton}`}
-                  aria-label={describeSpec(item)}
-                >
-                  <CircleHelp size={15} />
-                </button>
-              </Tooltip>
+              <InlineHelp>{describeSpec(item)}</InlineHelp>
             </div>
           </div>
           <ValueText value={value} />
@@ -198,7 +212,7 @@ function EnvironmentsPage() {
                   type="button"
                   className={styles.iconButton}
                   onClick={() =>
-                    setEditor({ key: item.key, value, isNew: false })
+                    openEditor({ key: item.key, value, isNew: false })
                   }
                   aria-label={t("common.edit")}
                 >
@@ -208,7 +222,7 @@ function EnvironmentsPage() {
                   <button
                     type="button"
                     className={styles.iconButton}
-                    onClick={() => removeVariable(item.key, true)}
+                    onClick={() => removeVariable(item.key)}
                     aria-label={t("common.reset")}
                   >
                     <RotateCcw size={16} />
@@ -231,19 +245,17 @@ function EnvironmentsPage() {
         parent={t("environments.parent")}
         current={t("environments.environments")}
         className={styles.pageHeader}
-      />
-      <main className={styles.content}>
-        <section className={styles.hero}>
-          <h1>{t("environments.title")}</h1>
+        extra={
           <Button
             type="primary"
             icon={<Plus size={16} />}
-            onClick={() => setEditor({ key: "", value: "", isNew: true })}
+            onClick={() => openEditor({ key: "", value: "", isNew: true })}
           >
             {t("environments.addVariable")}
           </Button>
-        </section>
-
+        }
+      />
+      <main className={styles.content}>
         <section className={styles.panel}>
           <div className={styles.filters}>
             <div className={styles.searchBox}>
@@ -293,7 +305,7 @@ function EnvironmentsPage() {
                           type="button"
                           className={styles.iconButton}
                           onClick={() =>
-                            setEditor({
+                            openEditor({
                               key: item.key,
                               value: item.value,
                               isNew: false,
@@ -303,14 +315,12 @@ function EnvironmentsPage() {
                         >
                           <Pencil size={16} />
                         </button>
-                        <button
-                          type="button"
-                          className={`${styles.iconButton} ${styles.danger}`}
-                          onClick={() => removeVariable(item.key)}
-                          aria-label={t("common.delete")}
-                        >
-                          <Trash2 size={16} />
-                        </button>
+                        <DeleteAction
+                          label={t("environments.deleteConfirm", {
+                            name: item.key,
+                          })}
+                          onConfirm={() => executeRemove(item.key)}
+                        />
                       </div>
                     </div>
                   ))
@@ -349,23 +359,39 @@ function EnvironmentsPage() {
         </section>
       </main>
 
-      <Modal
-        open={editor !== null}
+      <SettingsDrawer
+        tall={false}
+        width={560}
+        open={editorOpen}
         title={
           editor?.isNew
             ? t("environments.addVariable")
             : t("environments.editVariable")
         }
-        okText={t("environments.applyNow")}
-        cancelText={t("common.cancel")}
-        confirmLoading={saving}
-        onOk={saveEditor}
-        onCancel={() => setEditor(null)}
+        onClose={() => void closeEditor()}
+        footer={
+          editor?.isNew ? (
+            <div className={styles.editorActions}>
+              <Button onClick={() => void closeEditor()}>
+                {t("common.cancel")}
+              </Button>
+              <Button
+                type="primary"
+                loading={saving}
+                onClick={() => void saveEditor()}
+              >
+                {t("common.create")}
+              </Button>
+            </div>
+          ) : undefined
+        }
       >
         <div className={styles.editor}>
           <label>
             <span>{t("environments.key")}</span>
             <Input
+              autoComplete="off"
+              name="environment-variable-name"
               value={editor?.key ?? ""}
               disabled={!editor?.isNew}
               onChange={(event) =>
@@ -381,12 +407,36 @@ function EnvironmentsPage() {
             <span>{t("environments.value")}</span>
             <Input
               value={editor?.value ?? ""}
-              onChange={(event) =>
+              type={
+                !revealed && (!editor || !catalogKeys.has(editor.key))
+                  ? "password"
+                  : "text"
+              }
+              autoComplete="new-password"
+              name="environment-variable-value"
+              suffix={
+                editor && !catalogKeys.has(editor.key) ? (
+                  <button
+                    type="button"
+                    className={styles.revealButton}
+                    aria-label={t(
+                      revealed
+                        ? "environments.hideValue"
+                        : "environments.showValue",
+                    )}
+                    onClick={() => setRevealed((value) => !value)}
+                  >
+                    {revealed ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
+                ) : undefined
+              }
+              onChange={(event) => {
                 setEditor(
                   (current) =>
                     current && { ...current, value: event.target.value },
-                )
-              }
+                );
+                if (editor && !editor.isNew) schedule();
+              }}
               placeholder={t("environments.valuePlaceholder")}
             />
           </label>
@@ -394,7 +444,7 @@ function EnvironmentsPage() {
             <Zap size={14} /> {t("environments.applyHint")}
           </p>
         </div>
-      </Modal>
+      </SettingsDrawer>
     </div>
   );
 }

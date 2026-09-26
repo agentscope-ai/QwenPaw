@@ -2160,3 +2160,59 @@ def test_legacy_pawapp_grant_is_static_only(tmp_path):
             ).status_code
             == 401
         )
+
+
+def test_hub_avatar_identity_is_scoped_to_authenticated_user(hub_client):
+    """Avatar storage belongs to the Hub account, not its runtime."""
+    owner_token = _register(hub_client, "avatar-owner")
+    _, member_token = _create_user(hub_client, "avatar-member")
+    endpoint = "/api/profile/avatars"
+    data = (
+        Path(__file__).resolve().parents[3]
+        / "console/public/qwenpaw-avatar.gif"
+    ).read_bytes()
+    assert hub_client.get(endpoint).status_code == 401
+    uploaded = hub_client.post(
+        endpoint,
+        content=data,
+        headers=_headers(owner_token),
+    )
+    assert uploaded.status_code == 200
+    identifier = uploaded.json()["selected"]
+    assert (
+        hub_client.get(
+            f"{endpoint}/{identifier}",
+            headers=_headers(owner_token),
+        ).content
+        == data
+    )
+    assert (
+        hub_client.get(
+            f"{endpoint}/{identifier}",
+            headers=_headers(member_token),
+        ).status_code
+        == 404
+    )
+    assert (
+        hub_client.put(
+            f"{endpoint}/selection",
+            json={"image_id": identifier},
+            headers=_headers(member_token),
+        ).status_code
+        == 404
+    )
+    assert (
+        hub_client.get(
+            endpoint,
+            headers=_headers(member_token),
+        ).json()["history"]
+        == []
+    )
+    assert (
+        hub_client.put(
+            f"{endpoint}/selection",
+            json={"image_id": None},
+            headers=_headers(owner_token),
+        ).json()["selected"]
+        is None
+    )

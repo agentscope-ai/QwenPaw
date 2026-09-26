@@ -62,7 +62,9 @@ describe("DefaultBlock copy", () => {
     fireEvent.click(screen.getByRole("button"));
 
     await waitFor(() => {
-      expect(screen.getByLabelText("check")).toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: /copied/i }),
+      ).toBeInTheDocument();
     });
   });
 });

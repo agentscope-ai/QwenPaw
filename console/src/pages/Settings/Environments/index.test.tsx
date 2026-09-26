@@ -16,6 +16,7 @@ const mockMessage = vi.hoisted(() => ({
   success: vi.fn(),
   error: vi.fn(),
   warning: vi.fn(),
+  destroy: vi.fn(),
 }));
 const mockConfirm = vi.hoisted(() => vi.fn());
 vi.mock("../../../api", () => ({ default: mockApi }));
@@ -123,7 +124,7 @@ describe("EnvironmentsPage", () => {
       screen.getByPlaceholderText("environments.valuePlaceholder"),
       { target: { value: "new-value" } },
     );
-    fireEvent.click(screen.getByText("confirm-modal"));
+    fireEvent.click(screen.getByText("common.create"));
 
     await waitFor(() =>
       expect(mockApi.patchEnvs).toHaveBeenCalledWith({
@@ -132,6 +133,58 @@ describe("EnvironmentsPage", () => {
     );
     expect(mockMessage.success).toHaveBeenCalled();
     expect(mockApi.listEnvCatalog).toHaveBeenCalledTimes(2);
+  });
+
+  it("masks custom values in the editor and saves edits on navigation", async () => {
+    mockApi.listEnvs.mockResolvedValue([
+      { key: "MY_TOKEN", value: "private-value" },
+    ]);
+    mockApi.listEnvCatalog.mockResolvedValue([]);
+    const view = renderWithProviders(<EnvironmentsPage />);
+    await screen.findByText("MY_TOKEN");
+    fireEvent.click(screen.getByLabelText("common.edit"));
+    const input = screen.getByPlaceholderText("environments.valuePlaceholder");
+    expect(input).toHaveAttribute("type", "password");
+    expect(input).toHaveAttribute("autocomplete", "new-password");
+    fireEvent.change(input, { target: { value: "updated-value" } });
+    view.unmount();
+    await waitFor(() =>
+      expect(mockApi.patchEnvs).toHaveBeenCalledWith({
+        MY_TOKEN: "updated-value",
+      }),
+    );
+  });
+
+  it("keeps the editor draft open when flushing fails", async () => {
+    mockApi.listEnvs.mockResolvedValue([{ key: "MY_TOKEN", value: "old" }]);
+    mockApi.listEnvCatalog.mockResolvedValue([]);
+    mockApi.patchEnvs.mockRejectedValue(new Error("offline"));
+    renderWithProviders(<EnvironmentsPage />);
+    await screen.findByText("MY_TOKEN");
+    fireEvent.click(screen.getByLabelText("common.edit"));
+    fireEvent.change(
+      screen.getByPlaceholderText("environments.valuePlaceholder"),
+      { target: { value: "draft" } },
+    );
+    fireEvent.click(screen.getByRole("button", { name: "common.close" }));
+    await waitFor(() =>
+      expect(mockMessage.error).toHaveBeenCalledWith("offline"),
+    );
+    expect(screen.getByRole("dialog")).toBeVisible();
+    expect(
+      screen.getByPlaceholderText("environments.valuePlaceholder"),
+    ).toHaveValue("draft");
+  });
+
+  it("distinguishes a configured empty string from a hidden value", async () => {
+    mockApi.listEnvs.mockResolvedValue([{ key: "EMPTY_VALUE", value: "" }]);
+    mockApi.listEnvCatalog.mockResolvedValue([]);
+    renderWithProviders(<EnvironmentsPage />);
+    await screen.findByText("EMPTY_VALUE");
+    expect(screen.getByText("environments.emptyValue")).toBeVisible();
+    expect(
+      screen.queryByLabelText("environments.showValue"),
+    ).not.toBeInTheDocument();
   });
 
   it("renders startup values as locked", async () => {

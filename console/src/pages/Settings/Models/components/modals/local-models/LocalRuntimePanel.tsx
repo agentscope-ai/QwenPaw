@@ -1,6 +1,6 @@
 import { memo } from "react";
 import { Button, Modal, Tooltip } from "@agentscope-ai/design";
-import { CloseOutlined, DownloadOutlined } from "@ant-design/icons";
+import { X as CloseOutlined, Download as DownloadOutlined } from "lucide-react";
 import { Progress } from "antd";
 import { useTranslation } from "react-i18next";
 import type {
@@ -180,7 +180,7 @@ export const LocalRuntimePanel = memo(function LocalRuntimePanel({
           {!isDownloading && !installed ? (
             <Button
               type="primary"
-              icon={<DownloadOutlined />}
+              icon={<DownloadOutlined size="1em" />}
               onClick={onStart}
               disabled={!installable}
             >
@@ -206,7 +206,7 @@ export const LocalRuntimePanel = memo(function LocalRuntimePanel({
                 <Button
                   danger
                   size="small"
-                  icon={<CloseOutlined />}
+                  icon={<CloseOutlined size="1em" />}
                   loading={isCanceling}
                   disabled={isCanceling}
                   onClick={onCancel}

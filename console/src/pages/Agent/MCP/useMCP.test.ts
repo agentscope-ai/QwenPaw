@@ -152,7 +152,8 @@ describe("useMCP", () => {
     expect(ret).toBe(false);
   });
 
-  it("updateClient success: calls updateMCPClient, message.success('mcp.updateSuccess'), returns true", async () => {
+  it("updates the card silently without reloading the collection", async () => {
+    apiMocks.listMCPClients.mockResolvedValue([makeClient()]);
     apiMocks.updateMCPClient.mockResolvedValue(undefined);
     const { result } = renderHook(() => useMCP());
     await waitFor(() => {
@@ -167,11 +168,14 @@ describe("useMCP", () => {
     expect(apiMocks.updateMCPClient).toHaveBeenCalledWith("client-1", {
       name: "Renamed",
     });
-    expect(messageMock.success).toHaveBeenCalledWith("mcp.updateSuccess");
+    expect(messageMock.success).not.toHaveBeenCalled();
+    expect(apiMocks.listMCPClients).toHaveBeenCalledTimes(1);
+    expect(result.current.clients[0].name).toBe("Renamed");
     expect(ret).toBe(true);
   });
 
-  it("toggleEnabled on enabled client: message.success('mcp.disableSuccess')", async () => {
+  it("toggles the card without remounting the collection", async () => {
+    apiMocks.listMCPClients.mockResolvedValue([makeClient({ enabled: true })]);
     apiMocks.toggleMCPClient.mockResolvedValue(undefined);
     const { result } = renderHook(() => useMCP());
     await waitFor(() => {
@@ -183,7 +187,9 @@ describe("useMCP", () => {
     });
 
     expect(apiMocks.toggleMCPClient).toHaveBeenCalledWith("client-1");
-    expect(messageMock.success).toHaveBeenCalledWith("mcp.disableSuccess");
+    expect(messageMock.success).not.toHaveBeenCalled();
+    expect(apiMocks.listMCPClients).toHaveBeenCalledTimes(1);
+    expect(result.current.clients[0].enabled).toBe(false);
   });
 
   it("deleteClient success: message.success('mcp.deleteSuccess')", async () => {

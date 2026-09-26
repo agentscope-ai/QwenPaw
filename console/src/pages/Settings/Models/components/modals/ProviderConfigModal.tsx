@@ -1,21 +1,22 @@
+import { SharedModal } from "@/components/interaction/SharedModal";
 import { Switch } from "antd";
 import { useState, useEffect, useMemo, useRef } from "react";
 import type { KeyboardEvent, ReactNode, UIEvent } from "react";
 import {
+  Modal,
   Form,
   Input,
-  Modal,
   Button,
   Select,
   Radio,
 } from "@agentscope-ai/design";
 import { useAppMessage } from "../../../../../hooks/useAppMessage";
 import {
-  ApiOutlined,
-  CloseOutlined,
-  DownOutlined,
-  RightOutlined,
-} from "@ant-design/icons";
+  Plug as ApiOutlined,
+  X as CloseOutlined,
+  ChevronDown as DownOutlined,
+  ChevronRight as RightOutlined,
+} from "lucide-react";
 import type {
   ActiveModelsInfo,
   BaseUrlOption,
@@ -370,7 +371,7 @@ export function ProviderConfigModal({
 
   const validApiKeyPrefixes = useMemo(
     () => getValidApiKeyPrefixes(provider),
-    [provider.api_key_prefix, provider.api_key_prefixes],
+    [provider],
   );
 
   const apiKeyPlaceholder = useMemo(() => {
@@ -634,7 +635,8 @@ export function ProviderConfigModal({
   };
 
   return (
-    <Modal
+    <SharedModal
+      surfaceId={`provider:${provider.id}`}
       width={800}
       className={styles.modelManageModal}
       title={t("models.configureProvider", { name: provider.name })}
@@ -651,7 +653,7 @@ export function ProviderConfigModal({
             {provider.support_connection_check && (
               <Button
                 size="small"
-                icon={<ApiOutlined />}
+                icon={<ApiOutlined size="1em" />}
                 onClick={handleTest}
                 loading={testing}
               >
@@ -768,7 +770,11 @@ export function ProviderConfigModal({
             onClick={() => setAdvancedOpen((prev) => !prev)}
           >
             <span className={styles.advancedConfigToggleLabel}>
-              {advancedOpen ? <DownOutlined /> : <RightOutlined />}
+              {advancedOpen ? (
+                <DownOutlined size="1em" />
+              ) : (
+                <RightOutlined size="1em" />
+              )}
               {t("models.advancedConfig")}
             </span>
           </button>
@@ -826,6 +832,7 @@ export function ProviderConfigModal({
                       }}
                     />
                     <CloseOutlined
+                      size="1em"
                       className={styles.customHeaderDelete}
                       onClick={() => {
                         setCustomHeaders(
@@ -882,6 +889,6 @@ export function ProviderConfigModal({
           </Form.Item>
         </div>
       </Form>
-    </Modal>
+    </SharedModal>
   );
 }

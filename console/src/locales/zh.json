@@ -36,7 +36,13 @@
     "paste": "粘贴",
     "yes": "是",
     "no": "否",
-    "advancedSettings": "高级"
+    "advancedSettings": "高级",
+    "done": "完成",
+    "autoSaveFailed": "未能保存改动",
+    "configure": "配置",
+    "all": "全部",
+    "decrease": "减少",
+    "increase": "增加"
   },
   "desktop": {
     "closeWindow": {
@@ -122,7 +128,7 @@
   "portabilityImport": {
     "qwenpawOnly": "导入仅适用于使用 QwenPaw 原生后端的智能体。请选择 QwenPaw 智能体后继续。",
     "title": "导入",
-    "description": "将其他 AI 应用中的聊天记录、工具和设置迁移到 QwenPaw，并自动完成兼容性修复。",
+    "description": "将其他应用的数据导入 QwenPaw。选择来源应用后，可预览并选择要导入的内容；只有确认开始导入后才会写入 QwenPaw。",
     "steps": {
       "sources": "选择应用",
       "inventory": "选择内容",
@@ -291,6 +297,29 @@
     "windows": "个窗口"
   },
   "sidebar": {
+    "avatarLoadFailed": "头像加载失败，请重试",
+    "toolsCompact": "展开精简菜单栏",
+    "toolsDetailed": "展开详细菜单栏",
+    "changeAvatar": "头像管理",
+    "uploadAvatar": "选择图片",
+    "avatarHistory": "历史头像 · 最近 12 个",
+    "defaultAvatar": "恢复默认头像",
+    "historyAvatar": "历史头像 {{number}}",
+    "avatarInvalid": "请选择 PNG、JPG、WebP（最大 10 MB）或 GIF（最大 2 MB）",
+    "avatarSaveFailed": "头像保存失败，请检查连接后重试",
+    "localWorkspace": "本地工作空间",
+    "localMode": "此设备",
+    "consoleAccount": "Console 账户",
+    "weeklyUsage": "近 7 天用量",
+    "noUsage": "还没有用量记录",
+    "closeMobile": "关闭导航",
+    "tools": "Agent 与快捷导航",
+    "pinTools": "固定工具区",
+    "unpinTools": "取消固定工具区",
+    "foldTools": "折叠菜单栏",
+    "expandTools": "展开菜单栏",
+    "dragHandle": "拖动侧栏悬浮；按回车切换停靠",
+    "dock": "侧栏归位",
     "newVersion": "发现新版本 v{{version}}，点击前往升级",
     "updateModal": {
       "title": "发现新版本 v{{version}}",
@@ -336,7 +365,10 @@
     "collapse": "收起侧边栏",
     "expand": "展开侧边栏",
     "more": "更多",
-    "toggleAgentNavigation": "展开或收起智能体导航"
+    "toggleAgentNavigation": "展开或收起智能体导航",
+    "usageModel": "选择模型",
+    "allModels": "全部模型",
+    "usageDetails": "详细用量"
   },
   "settingsCenter": {
     "backToApp": "返回应用",
@@ -417,7 +449,20 @@
       "global": "全局设置",
       "plugins": "插件功能"
     },
-    "alwaysVisible": "始终展示"
+    "alwaysVisible": "始终展示",
+    "moveEntry": "移动 {{name}}",
+    "removeEntry": "移除 {{name}}",
+    "addEntry": "添加 {{name}}",
+    "dragHint": "拖动排序，或移入入口库。",
+    "mirrorHint": "让常用工具触手可及。",
+    "sidebarPreview": "已显示入口",
+    "preview": "预览",
+    "dropHere": "将快捷入口拖到这里",
+    "previewCaption": "修改会自动保存",
+    "availableEntries": "可用入口",
+    "allAdded": "已全部添加",
+    "sidebarEditHelp": "拖动手柄调整顺序；键盘按空格选中、方向键移动，再按空格放下。使用加减按钮添加或移除入口，修改会自动保存。",
+    "fixedEntry": "始终显示"
   },
   "debug": {
     "title": "调试",
@@ -434,7 +479,9 @@
       "notFound": "暂未找到后端日志文件。",
       "placeholder": "后端日志会显示在这里。",
       "loadFailed": "加载后端日志失败",
-      "searchPlaceholder": "搜索后端日志..."
+      "searchPlaceholder": "搜索后端日志...",
+      "newLogsAvailable": "有新日志 · 回到最新",
+      "returnLatest": "回到最新日志"
     },
     "actions": {
       "refreshBackend": "刷新后端日志",
@@ -942,18 +989,18 @@
     "mailPushWakeOptionSummary": "总结邮件要点存入收件箱"
   },
   "acp": {
-    "title": "ACP",
+    "title": "ACP 协议接入",
     "loading": "加载 ACP 配置中...",
-    "builtin": "内置",
+    "builtin": "预设",
     "custom": "自定义",
-    "create": "新增 Custom Agent",
-    "createTitle": "新增 ACP Agent",
-    "createSuccess": "ACP Agent 已创建",
+    "create": "添加 ACP 接入",
+    "createTitle": "新增 ACP 接入",
+    "createSuccess": "ACP 接入已添加",
     "editTitle": "编辑 ACP 配置",
-    "agentKey": "Agent Key",
-    "agentKeyRequired": "请输入 Agent Key",
-    "agentKeyInvalid": "Agent Key 只能包含字母、数字、下划线和连字符",
-    "agentKeyExists": "该 Agent Key 已存在",
+    "agentKey": "接入标识",
+    "agentKeyRequired": "请输入接入标识",
+    "agentKeyInvalid": "接入标识只能包含字母、数字、下划线和连字符",
+    "agentKeyExists": "该接入标识已存在",
     "enabled": "启用",
     "command": "命令",
     "commandRequired": "请输入命令",
@@ -975,10 +1022,10 @@
     "configSaved": "ACP 配置已保存",
     "configFailed": "ACP 配置保存失败",
     "deleteTitle": "删除 {{name}}",
-    "deleteConfirm": "确定删除该 ACP Agent 吗？此操作不可撤销。",
-    "deleteSuccess": "ACP Agent 已删除",
-    "deleteFailed": "ACP Agent 删除失败",
-    "nodeSettings": "Node 设置",
+    "deleteConfirm": "删除这个 ACP 接入？此操作无法撤销。",
+    "deleteSuccess": "ACP 接入已删除",
+    "deleteFailed": "删除 ACP 接入失败",
+    "nodeSettings": "运行环境",
     "nodePath": "Node 路径",
     "chooseOtherNode": "选择其他 Node...",
     "selectNodePath": "选择 Node 路径",
@@ -997,9 +1044,22 @@
       "npxMissing": "未找到 npx",
       "versionCheckFailed": "版本检查失败",
       "unavailable": "不可用"
+    },
+    "intro": "通过 ACP 协议接入工具，供当前智能体调用。",
+    "protocolHelp": "这里管理 ACP 工具接入。智能体管理中的三方后端使用各自的内置协议，两者独立配置。",
+    "currentAgent": "当前智能体",
+    "callableTools": "可调用工具",
+    "enabledIntegrations": "已启用接入",
+    "search": "搜索 ACP 接入",
+    "trustedHelp": "自动批准此接入的权限请求；安全硬拦截仍然生效。关闭后按请求进行审批。",
+    "toolParseModes": {
+      "call_title": "调用标题",
+      "update_detail": "进度详情",
+      "call_detail": "调用详情"
     }
   },
   "skills": {
+    "settingsDetails": "适用范围与高级设置",
     "title": "技能",
     "description": "管理智能体技能和能力。",
     "preload": "预加载",
@@ -1143,7 +1203,9 @@
     "noTags": "暂无标签",
     "enabledSkills": "已激活的技能",
     "disabledSkills": "未激活的技能",
-    "active": "个激活"
+    "active": "个激活",
+    "renameSingleOnly": "仅选中一个技能时可重命名。",
+    "name": "技能名称"
   },
   "skillPool": {
     "description": "共享本地技能池，包含内置技能和工作区上传。ClawHub 或 LobeHub 等外部导入为独立功能。",
@@ -1397,9 +1459,13 @@
       "authEndpoint": "Authorization Endpoint（手动覆盖）",
       "tokenEndpoint": "Token Endpoint（手动覆盖）",
       "endpointHint": "留空将自动从 MCP 服务器发现端点，填写后将跳过自动发现"
-    }
+    },
+    "local": "本地",
+    "remote": "远程",
+    "invalidJson": "请输入有效的 JSON，且至少包含一个 MCP 服务。"
   },
   "heartbeat": {
+    "customInterval": "自定义间隔",
     "title": "心跳",
     "description": "按固定间隔用 HEARTBEAT.md 内容执行自检。默认静默运行不影响当前对话，也可选择将回复发到上次对话频道。",
     "enabled": "开启心跳",
@@ -1413,9 +1479,9 @@
     "unitMinutes": "分钟",
     "unitHours": "小时",
     "target": "回复目标",
-    "targetMain": "静默运行（默认，不发送到频道）",
-    "targetLast": "发到上次对话频道",
-    "targetInbox": "发送到收件箱",
+    "targetMain": "静默运行",
+    "targetLast": "上次对话",
+    "targetInbox": "收件箱",
     "activeHours": "活跃时段（可选）",
     "activeStart": "开始时间",
     "activeEnd": "结束时间",
@@ -1424,7 +1490,10 @@
     "saveFailed": "保存心跳配置失败",
     "runNow": "立即执行一次",
     "runNowSuccess": "已触发心跳执行，请稍后查看收件箱或目标渠道",
-    "runNowFailed": "触发心跳执行失败"
+    "runNowFailed": "触发心跳执行失败",
+    "intervalRange": "请选择至少 1 分钟的间隔",
+    "instructionsTitle": "心跳指令",
+    "instructionsLoadFailed": "指令加载失败，请重试。"
   },
   "cronJobs": {
     "executionModel": "执行模型",
@@ -1459,7 +1528,7 @@
     "scheduleTypeRecurring": "循环任务",
     "scheduleTypeOnce": "日程任务",
     "scheduleCron": "执行时间（Cron）",
-    "scheduleCronLabel": "执行时间（Cron）",
+    "scheduleCronLabel": "执行时间",
     "onceRunAt": "执行时间",
     "repeatEnabled": "重复执行",
     "repeatEnabledTooltip": "从该开始时间按固定天数重复执行",
@@ -1559,7 +1628,7 @@
     "idTooltip": "任务的唯一标识符（UUID）由系统在创建时自动分配，不可修改。",
     "nameTooltip": "任务的友好名称，便于识别。",
     "cronTooltip": "定义任务执行时间",
-    "cronExample": "常用示例：'0 9 * * *' = 每天9点 | '*/30 * * * *' = 每30分钟 | '0 */2 * * *' = 每2小时 | '0 0 * * 0' = 每周日0点",
+    "cronExample": "常用示例：'0 9 * * *' = 每天9点 | '*/30 * * * *' = 每30分钟 | '0 */2 * * *' = 每2小时 | '0 0 * * sun' = 每周日0点",
     "cronHelper": "不熟悉 Cron 表达式？",
     "cronHelperLink": "使用在线工具生成",
     "timezoneTooltip": "Cron 计划使用的时区。默认：UTC",
@@ -1657,9 +1726,28 @@
         "description": "每次周会前基于最近一周 memory 生成工作总结。",
         "frequency": "首次执行：2026年1月2日 08:30｜每7天一次｜截止到2026年3月1日"
       }
-    }
+    },
+    "calendarScope": "仅显示指定日期的任务",
+    "viewMode": "视图",
+    "emptyList": "当前视图暂无任务",
+    "previousMonth": "上个月",
+    "nextMonth": "下个月",
+    "cronExpression": "Cron 表达式",
+    "cronFormatHint": "格式：分钟 小时 日 月 星期",
+    "frequency": "执行频率",
+    "cronTypeMinutes": "分钟间隔",
+    "cronTypeMonthly": "每月",
+    "intervalMinutes": "重复间隔",
+    "everyMinutes": "每 {{count}} 分钟",
+    "monthDay": "每月日期",
+    "shortMonthHint": "没有该日期的月份会跳过。",
+    "selectAtLeastOneDay": "请选择至少一天。"
   },
   "channels": {
+    "manualCredentials": "手动填写凭据",
+    "deliverySettings": "发送方式",
+    "presentationSettings": "消息呈现",
+    "advancedSettings": "高级设置",
     "title": "频道",
     "description": "管理和配置消息频道",
     "loading": "正在加载频道...",
@@ -1907,7 +1995,66 @@
     "availableSection": "未激活",
     "enableAction": "启用",
     "noEnabledChannels": "暂无已激活频道",
-    "goEnableChannels": "去启用频道"
+    "goEnableChannels": "去启用频道",
+    "configureAction": "配置",
+    "username": "用户名",
+    "fieldHomeserverURL": "主服务器地址",
+    "fieldAuthMethod": "认证方式",
+    "fieldAccessToken": "访问令牌",
+    "fieldPassword": "密码",
+    "fieldEnableEndtoEndEncryption": "端到端加密",
+    "fieldDeviceName": "设备名称",
+    "fieldDBPath": "数据库路径",
+    "fieldPollIntervalsec": "轮询间隔（秒）",
+    "fieldHTTPProxy": "HTTP 代理",
+    "fieldHTTPProxyAuth": "HTTP 代理认证",
+    "fieldClientID": "客户端 ID",
+    "fieldClientSecret": "客户端密钥",
+    "fieldMessageType": "消息类型",
+    "fieldCronMessageType": "定时任务消息类型",
+    "fieldCardTemplateID": "卡片模板 ID",
+    "fieldCardTemplateKey": "卡片模板变量名",
+    "fieldRobotCode": "机器人编码",
+    "fieldAppID": "应用 ID",
+    "fieldAppSecret": "应用密钥",
+    "fieldEncryptKey": "加密密钥",
+    "fieldVerificationToken": "验证令牌",
+    "fieldAPIBaseURL": "API 基础地址",
+    "fieldShowTyping": "显示输入状态",
+    "fieldMQTTHost": "MQTT 主机",
+    "fieldMQTTPort": "MQTT 端口",
+    "fieldCleanSession": "清理会话",
+    "fieldQoS": "服务质量（QoS）",
+    "fieldMQTTUsername": "MQTT 用户名",
+    "fieldMQTTPassword": "MQTT 密码",
+    "fieldSubscribeTopic": "订阅主题",
+    "fieldPublishTopic": "发布主题",
+    "fieldTLSEnabled": "启用 TLS",
+    "fieldTLSCACerts": "TLS CA 证书",
+    "fieldTLSCertfile": "TLS 证书文件",
+    "fieldTLSKeyfile": "TLS 密钥文件",
+    "fieldMattermostURL": "Mattermost 地址",
+    "fieldThreadFollowWithoutMention": "无需提及即可跟进话题",
+    "fieldBotID": "机器人 ID",
+    "fieldSecret": "密钥",
+    "fieldAccessKeyAK": "访问密钥（AK）",
+    "fieldSecretKeySK": "私有密钥（SK）",
+    "fieldAgentID": "智能体 ID",
+    "fieldAPIDomain": "API 域名",
+    "fieldWebSocketHost": "WebSocket 主机",
+    "fieldWebSocketPort": "WebSocket 端口",
+    "matrixUserHelp": "可填写完整 MXID（如 @bot:matrix.org）或本地名称（如 bot）。",
+    "matrixEncryptionHelp": "启用后需在 Matrix 客户端（如 Element）验证设备，并安装 matrix-nio[e2e]：pip install matrix-nio[e2e]。",
+    "matrixDeviceHelp": "Matrix 客户端的固定设备名称，留空时使用 qwenpaw-worker。",
+    "messageTypeHelp": "markdown：普通消息；card：AI 交互卡片。",
+    "scheduledMessageTypeHelp": "定时任务发送的消息类型，与聊天消息类型独立。",
+    "cardVariableHelp": "必须与模板变量名完全一致。",
+    "robotCodeHelp": "群聊建议显式填写机器人编码。",
+    "apiDomainHelp": "签名令牌认证的 REST API 域名，默认 bot.yuanbao.tencent.com。",
+    "requiredField": "请填写{{field}}",
+    "portRange": "端口须在 1 至 65535 之间",
+    "developmentMode": "开发（pyVoIP）",
+    "productionMode": "生产（LiveKit）"
   },
   "sessions": {
     "title": "会话",
@@ -2030,9 +2177,12 @@
       "user": "QwenPaw",
       "system": "系统",
       "default": "默认"
-    }
+    },
+    "emptyValue": "空字符串"
   },
   "tokenUsage": {
+    "year": "年份",
+    "futureDate": "尚未到来",
     "title": "Token 消耗",
     "totalTokens": "总 Token",
     "totalCalls": "LLM 调用",
@@ -2060,7 +2210,17 @@
     "allSelected": "全部",
     "itemsSelected": "已选 {{count}} 项",
     "selectModels": "选择模型",
-    "selectTokenTypes": "选择 Token 类型"
+    "selectTokenTypes": "选择 Token 类型",
+    "activity": "活跃度",
+    "activityHint": "选择日期查看用量",
+    "modelRanking": "模型排行",
+    "less": "少",
+    "more": "多",
+    "trends": "趋势",
+    "lastDays": "近 {{count}} 天",
+    "activeDays": "活跃天数",
+    "dailyAverage": "日均用量",
+    "peakDay": "用量高峰"
   },
   "agentStats": {
     "title": "智能体统计",
@@ -2764,9 +2924,11 @@
     "alreadyBound": "已绑定",
     "tooMany": "最多可绑定 {{max}} 个目录。",
     "countTitle": "已绑定的目录数量",
-    "syncAsAgentDefault": "以后新任务默认使用此工作区配置"
+    "syncAsAgentDefault": "以后新任务默认使用此工作区配置",
+    "openDirectory": "进入 {{name}}"
   },
   "agentConfig": {
+    "advancedRuntime": "高级运行设置",
     "title": "运行配置",
     "projectDirectoryTitle": "默认智能体工作区",
     "projectDirectoryDescription": "文件和命令默认使用的智能体工作区。",
@@ -2840,7 +3002,7 @@
       "builtInNote": "流程已锁定 · 参数可编辑",
       "templateSectionTitle": "Loop 模板",
       "templateSectionDescription": "选择内置模板，或添加自己的模板。",
-      "defaultTab": "默认",
+      "defaultTab": "标准",
       "goalTab": "目标",
       "missionTab": "任务",
       "defaultDescription": "未启用显式模式时使用的标准受控 ReAct Loop。",
@@ -3447,14 +3609,16 @@
     "contextStrategyNative": "Native"
   },
   "tools": {
-    "title": "内置工具",
+    "search": "搜索工具",
+    "noSearchResults": "没有匹配的工具",
+    "title": "工具",
     "description": "管理内置工具及其启用状态。禁用的工具将不会提供给智能体使用。",
     "emptyState": "暂无工具配置",
     "loadError": "加载工具失败",
     "enableSuccess": "工具启用成功",
     "disableSuccess": "工具禁用成功",
     "toggleError": "切换工具状态失败",
-    "enableAllConfirm": "启用全部 {{count}} 个模型？",
+    "enableAllConfirm": "启用全部 {{count}} 个工具？",
     "enableAll": "全部启用",
     "disableAll": "全部禁用",
     "enableAllSuccess": "全部工具已启用",
@@ -3485,7 +3649,154 @@
     "noEnabled": "暂无已启用的工具",
     "goEnableBtn": "去启用",
     "configureAction": "配置 →",
-    "enableAction": "启用 →"
+    "enableAction": "启用 →",
+    "catalog": {
+      "execute_shell_command": {
+        "name": "执行命令",
+        "description": "运行终端命令，完成系统操作与脚本任务。"
+      },
+      "read_file": {
+        "name": "读取文件",
+        "description": "读取文本文件，查看内容或指定行。"
+      },
+      "write_file": {
+        "name": "写入文件",
+        "description": "创建文件，或写入新的文件内容。"
+      },
+      "edit_file": {
+        "name": "编辑文件",
+        "description": "查找并替换文件中的指定内容。"
+      },
+      "append_file": {
+        "name": "追加内容",
+        "description": "在文件末尾添加文本，保留已有内容。"
+      },
+      "grep_search": {
+        "name": "搜索文件内容",
+        "description": "按关键词或模式查找文件中的文本。"
+      },
+      "glob_search": {
+        "name": "查找文件",
+        "description": "按文件名或路径模式定位文件。"
+      },
+      "ast_search": {
+        "name": "搜索代码结构",
+        "description": "按语法结构查找代码中的匹配片段。"
+      },
+      "desktop_screenshot": {
+        "name": "桌面截图",
+        "description": "截取当前桌面，供智能体查看和分析。"
+      },
+      "view_image": {
+        "name": "查看图片",
+        "description": "读取图片，让模型理解画面内容。"
+      },
+      "view_video": {
+        "name": "查看视频",
+        "description": "读取视频，让模型分析视频内容。"
+      },
+      "enhance_and_generate_image": {
+        "name": "增强并生成图片",
+        "description": "完善图片描述，再生成所需画面。"
+      },
+      "web_search": {
+        "name": "搜索网页",
+        "description": "搜索互联网，获取最新信息与来源。"
+      },
+      "web_fetch": {
+        "name": "读取网页",
+        "description": "提取指定网页的内容，供阅读和分析。"
+      },
+      "browser": {
+        "name": "浏览器操作",
+        "description": "浏览网页，并与页面上的内容和控件交互。"
+      },
+      "list_agents": {
+        "name": "查看智能体",
+        "description": "列出可用智能体，了解可协作的对象。"
+      },
+      "chat_with_agent": {
+        "name": "与智能体对话",
+        "description": "向另一个智能体发送消息并获取回复。"
+      },
+      "submit_to_agent": {
+        "name": "委派后台任务",
+        "description": "将任务交给其他智能体在后台执行。"
+      },
+      "check_agent_task": {
+        "name": "查看任务进度",
+        "description": "查询已委派任务的运行状态与结果。"
+      },
+      "spawn_subagent": {
+        "name": "创建子任务",
+        "description": "启动临时子智能体，处理独立的工作。"
+      },
+      "delegate_external_agent": {
+        "name": "委派外部智能体",
+        "description": "将工作交给已配置的外部智能体。"
+      },
+      "send_file_to_user": {
+        "name": "发送文件",
+        "description": "将文件发送给当前对话中的用户。"
+      },
+      "get_current_time": {
+        "name": "获取当前时间",
+        "description": "查询当前日期和时间。"
+      },
+      "set_user_timezone": {
+        "name": "设置时区",
+        "description": "设置用户时区，用于时间相关任务。"
+      },
+      "get_token_usage": {
+        "name": "查看 Token 用量",
+        "description": "查询模型调用的 Token 消耗。"
+      },
+      "materialize_skill": {
+        "name": "部署技能",
+        "description": "将技能定义写入当前工作区。"
+      },
+      "run_tool_batch": {
+        "name": "批量执行工具",
+        "description": "按 JSON 文件中的定义执行一组工具调用。"
+      },
+      "activate_f1_exploration_mode": {
+        "name": "邮件审批探索",
+        "description": "进入逐步处理邮件审批的探索模式。"
+      },
+      "migration_compat_inspect": {
+        "name": "检查迁移资源",
+        "description": "检查暂存资源与当前 QwenPaw 支持的能力。"
+      },
+      "migration_compat_read_file": {
+        "name": "读取迁移文件",
+        "description": "分页读取暂存资源中的文件内容。"
+      },
+      "migration_compat_write_file": {
+        "name": "写入迁移文件",
+        "description": "创建或覆盖待修复资源中的文本文件。"
+      },
+      "migration_compat_update": {
+        "name": "更新迁移配置",
+        "description": "修改允许更新的 MCP 或定时任务字段。"
+      },
+      "migration_compat_finalize": {
+        "name": "验证并完成迁移",
+        "description": "运行最终测试，通过后启用修复完成的资源。"
+      }
+    },
+    "groups": {
+      "files": "文件与代码",
+      "web": "网页与浏览器",
+      "media": "图像与视频",
+      "agents": "智能体协作",
+      "runtime": "运行与自动化",
+      "migration": "应用迁移",
+      "other": "未分类"
+    },
+    "filterAll": "全部工具",
+    "filterEnabled": "已启用",
+    "filterDisabled": "未启用",
+    "enabledCount": "已启用 {{enabled}} / {{total}}"
   },
   "modelConfig": {
     "promptTitle": "需要配置 LLM 模型，配置模型后在 Chat 页面选择",
@@ -3513,6 +3824,9 @@
     "system": "跟随系统"
   },
   "chat": {
+    "historyLoadFailed": "会话加载失败，请重新打开此会话。",
+    "switchSession": "切换会话",
+    "lastActive": "上次活跃 · {{time}}",
     "fileReference": {
       "codeSnippet": "代码片段 · {{count}} 行"
     },
@@ -3654,6 +3968,7 @@
       "otherTabOwner": "当前标签页仅入队，发送由其他标签页完成"
     },
     "group": {
+      "noGroups": "暂无分组",
       "pinned": "置顶",
       "today": "今天",
       "week": "7天内",
@@ -4714,7 +5029,7 @@
     "securityNotice": "此备份可能包含敏感凭证信息。智能体工作区包含渠道凭证（如 bot token、app secret 等），模型供应商密钥包含 API Key。请勿将备份文件分享给他人。",
     "searchPlaceholder": "按名称或 ID 搜索备份...",
     "total": "共 {{count}} 条",
-    "agentsPlaceholder": "请选择智能体工作区（留空表示全部）",
+    "agentsPlaceholder": "选择要备份的智能体工作区",
     "selectAll": "全选",
     "deselectAll": "取消全选",
     "createSuccess": "备份创建成功",
@@ -5303,6 +5618,80 @@
       "session": "当前会话指定",
       "agent": "跟随 Agent 模型",
       "global": "跟随默认 LLM"
+    }
+  },
+  "runtimeDesign": {
+    "title": "运行工作台",
+    "subtitle": "让智能体按你的方式工作。",
+    "workspace": "工作环境",
+    "workspaceHint": "语言、时区与工作区",
+    "execution": "执行方式",
+    "executionHint": "任务循环与工具审批",
+    "recovery": "失败与等待",
+    "recoveryHint": "重试节奏与并发容量",
+    "context": "上下文容量",
+    "contextHint": "压缩、保留与工具结果",
+    "memory": "记忆与检索",
+    "memoryHint": "记录、整理与召回",
+    "deviceTimezone": "使用设备时区",
+    "localTime": "当地时间",
+    "mapHint": "点击地图直接选择固定 UTC 时区。使用夏令时的地区，可在上方选择对应的标准时区。",
+    "zoomIn": "放大地图",
+    "zoomOut": "缩小地图",
+    "retryPreview": "等待时间预览",
+    "retryHint": "每次重试的基础等待；实际等待还可能受服务端与限流影响。",
+    "retryAttempt": "第 {{count}} 次重试",
+    "totalWait": "总等待",
+    "budgetTitle": "上下文预算",
+    "budgetHint": "当前模型的配置容量；并非实时使用量。",
+    "trigger": "触发压缩",
+    "retained": "保留上下文",
+    "advanced": "高级参数",
+    "seconds": "秒",
+    "allSettings": "全部配置",
+    "cities": {
+      "America_Los_Angeles": "洛杉矶",
+      "America_New_York": "纽约",
+      "America_Sao_Paulo": "圣保罗",
+      "Europe_London": "伦敦",
+      "Europe_Moscow": "莫斯科",
+      "Africa_Cairo": "开罗",
+      "Africa_Johannesburg": "约翰内斯堡",
+      "Asia_Dubai": "迪拜",
+      "Asia_Kolkata": "加尔各答",
+      "Asia_Shanghai": "上海",
+      "Asia_Tokyo": "东京",
+      "Asia_Singapore": "新加坡",
+      "Australia_Sydney": "悉尼",
+      "Pacific_Auckland": "奥克兰"
+    },
+    "beijingTime": "北京时间",
+    "mapPlaces": {
+      "-12": "贝克岛",
+      "-11": "帕果帕果",
+      "-10": "檀香山",
+      "-9": "安克雷奇",
+      "-8": "洛杉矶",
+      "-7": "丹佛",
+      "-6": "墨西哥城",
+      "-5": "纽约",
+      "-4": "圣胡安",
+      "-3": "布宜诺斯艾利斯",
+      "-2": "南乔治亚岛",
+      "-1": "普拉亚",
+      "0": "伦敦",
+      "1": "巴黎",
+      "2": "开罗",
+      "3": "莫斯科",
+      "4": "迪拜",
+      "5": "卡拉奇",
+      "6": "达卡",
+      "7": "曼谷",
+      "8": "北京",
+      "9": "东京",
+      "10": "悉尼",
+      "11": "努美阿",
+      "12": "苏瓦"
     }
   }
 }

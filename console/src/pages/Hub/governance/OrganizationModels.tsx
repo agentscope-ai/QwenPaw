@@ -1,3 +1,7 @@
+import { motion, useReducedMotion } from "motion/react";
+import { DefaultModelPicker } from "./DefaultModelPicker";
+import { SharedModal } from "@/components/interaction/SharedModal";
+import { InteractiveCard } from "@/components/interaction/InteractiveCard";
 import InlineHelp from "../../../components/InlineHelp";
 import modelStyles from "./OrganizationModels.module.less";
 import { useTranslation } from "react-i18next";
@@ -8,8 +12,6 @@ import {
   Tooltip,
   Button,
   Form,
-  Modal,
-  Select,
   Switch,
   Tabs,
   Skeleton,
@@ -58,6 +60,8 @@ export default function OrganizationModels({
   }>();
   const [independentScope, setIndependentScope] = useState("");
   const [busy, setBusy] = useState(false);
+  const [editorOpen, setEditorOpen] = useState(false);
+  const reducedMotion = useReducedMotion();
   const [updatingItem, setUpdatingItem] = useState<string>();
   const [tab, setTab] = useState(initialModel === "usage" ? "usage" : "models");
   const [error, setError] = useState("");
@@ -132,6 +136,7 @@ export default function OrganizationModels({
               concurrency: 0,
             },
       );
+    setEditorOpen(true);
     setEditing({ type, id: value?.id, revision: value?.revision });
   };
   const connectionById = new Map(
@@ -188,7 +193,11 @@ export default function OrganizationModels({
     }
   });
   return (
-    <div className={`${styles.panel} ${modelStyles.surface}`}>
+    <motion.div
+      className={`${styles.panel} ${modelStyles.surface}`}
+      animate={{ scale: !reducedMotion && editorOpen ? 0.995 : 1 }}
+      transition={{ type: "spring", stiffness: 360, damping: 38 }}
+    >
       <div className={styles.heading}>
         <div>
           <h1 className={styles.modelTitle}>
@@ -299,12 +308,7 @@ export default function OrganizationModels({
                             name="default_model_id"
                             label={t("hub.governance.models.defaultModel")}
                           >
-                            <Select
-                              showSearch
-                              optionFilterProp="label"
-                              placeholder={t(
-                                "hub.governance.models.chooseDefault",
-                              )}
+                            <DefaultModelPicker
                               options={availableModels
                                 .filter((m) => m.all_members)
                                 .map((m) => ({
@@ -374,7 +378,8 @@ export default function OrganizationModels({
                     {connections.length ? (
                       <div className={styles.grid}>
                         {connections.map((c) => (
-                          <article
+                          <InteractiveCard
+                            layoutId={`hub-connection:${c.id}`}
                             className={`${styles.card} ${modelStyles.providerCard}`}
                             key={c.id}
                           >
@@ -439,7 +444,7 @@ export default function OrganizationModels({
                                 {t("hub.governance.models.addModel")}
                               </Button>
                             </div>
-                          </article>
+                          </InteractiveCard>
                         ))}
                       </div>
                     ) : (
@@ -462,12 +467,20 @@ export default function OrganizationModels({
           />
         </>
       )}
-      <Modal
+      <SharedModal
+        surfaceId={
+          editing?.type === "connection" && editing.id
+            ? `hub-connection:${editing.id}`
+            : undefined
+        }
         className={modelStyles.modal}
-        open={!!editing}
+        open={editorOpen}
         centered
         destroyOnHidden
-        afterClose={() => form.resetFields()}
+        afterClose={() => {
+          form.resetFields();
+          setEditing(undefined);
+        }}
         okText={t("common.save")}
         title={
           editing?.type === "connection"
@@ -476,7 +489,7 @@ export default function OrganizationModels({
         }
         closeIcon={<X size={18} />}
         width={640}
-        onCancel={() => setEditing(undefined)}
+        onCancel={() => setEditorOpen(false)}
         onOk={() => form.submit()}
         confirmLoading={busy}
       >
@@ -520,7 +533,7 @@ export default function OrganizationModels({
                 editing.id ? "PUT" : "POST",
                 body,
               );
-              setEditing(undefined);
+              setEditorOpen(false);
               form.resetFields();
               await load();
             } catch (e) {
@@ -546,7 +559,7 @@ export default function OrganizationModels({
             />
           )}
         </Form>
-      </Modal>
-    </div>
+      </SharedModal>
+    </motion.div>
   );
 }

@@ -1,0 +1,123 @@
+.control {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  width: 100%;
+  min-width: 0;
+
+  :global(.ant-slider),
+  :global(.qwenpaw-slider) {
+    margin: 0 12px;
+    padding-block: 19px;
+    height: 44px;
+    box-sizing: border-box;
+  }
+  :global(.ant-slider-rail),
+  :global(.qwenpaw-slider-rail),
+  :global(.ant-slider-track),
+  :global(.qwenpaw-slider-track) {
+    height: 6px;
+    border-radius: 3px;
+  }
+  :global(.ant-slider-rail),
+  :global(.qwenpaw-slider-rail) {
+    background: var(--app-fill-strong) !important;
+  }
+  :global(.ant-slider-track),
+  :global(.qwenpaw-slider-track) {
+    background: var(--app-accent) !important;
+  }
+  :global(.ant-slider-step),
+  :global(.qwenpaw-slider-step) {
+    top: 19px;
+    height: 6px;
+  }
+  :global(.ant-slider-handle),
+  :global(.qwenpaw-slider-handle) {
+    top: 22px;
+    width: 24px;
+    height: 24px;
+  }
+  :global(.ant-slider.ant-slider-horizontal:not(.ant-slider-reverse))
+    :global(.ant-slider-handle[style]),
+  :global(
+      .qwenpaw-slider.qwenpaw-slider-horizontal:not(.qwenpaw-slider-reverse)
+    )
+    :global(.qwenpaw-slider-handle[style]) {
+    transform: translate(-50%, -50%) !important;
+  }
+  :global(.ant-slider-handle::after),
+  :global(.qwenpaw-slider-handle::after) {
+    width: 24px !important;
+    height: 24px !important;
+    outline: none !important;
+    inset-inline-start: 50% !important;
+    inset-block-start: 50% !important;
+    transform: translate(-50%, -50%);
+    background: var(--app-surface-raised) !important;
+    box-shadow:
+      0 0 0 1px var(--app-border),
+      var(--app-shadow-sm);
+  }
+  :global(.ant-slider-handle:hover::after),
+  :global(.qwenpaw-slider-handle:hover::after),
+  :global(.ant-slider-handle:active::after),
+  :global(.qwenpaw-slider-handle:active::after) {
+    width: 24px;
+    height: 24px;
+    box-shadow:
+      0 0 0 3px var(--app-accent-soft),
+      var(--app-shadow-sm);
+  }
+  :global(.ant-slider-handle:focus-visible::after),
+  :global(.qwenpaw-slider-handle:focus-visible::after) {
+    box-shadow: 0 0 0 2px var(--app-focus-ring);
+  }
+}
+
+.value {
+  flex-shrink: 0;
+  min-width: 68px;
+  min-height: 40px;
+  padding: 8px;
+  border: 1px solid var(--app-border-subtle);
+  border-radius: 10px;
+  background: var(--app-fill-faint);
+  color: var(--app-text-secondary);
+  font: inherit;
+  font-size: 0.875rem;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  cursor: text;
+  &:hover:not(:disabled) {
+    background: var(--app-fill);
+    color: var(--app-text);
+  }
+  &:focus-visible {
+    outline: 2px solid var(--app-focus-ring);
+    outline-offset: 2px;
+  }
+  @media (pointer: coarse) {
+    min-height: 44px;
+  }
+}
+
+.withMarks {
+  padding-bottom: 22px;
+}
+.control :global(.ant-slider-mark),
+.control :global(.qwenpaw-slider-mark) {
+  top: 44px;
+  font-size: 11px;
+}
+.value {
+  display: inline-flex;
+  justify-content: center;
+  align-items: center;
+  max-width: 45%;
+  overflow: hidden;
+}
+.value:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}

@@ -181,7 +181,13 @@
   background: var(--app-surface-raised);
   border: 1px solid var(--app-border);
   box-sizing: border-box;
-  transition: all 0.2s ease-in-out;
+  transition:
+    background-color 0.2s ease-in-out,
+    color 0.2s ease-in-out,
+    border-color 0.2s ease-in-out,
+    box-shadow 0.2s ease-in-out,
+    opacity 0.2s ease-in-out,
+    transform 0.2s ease-in-out;
 
   :global(.qwenpaw-card-body) {
     padding: 0 !important;
@@ -294,7 +300,13 @@
   background: transparent;
   border: 1px solid var(--app-border-strong);
   cursor: pointer;
-  transition: all 0.18s ease;
+  transition:
+    background-color 0.18s ease,
+    color 0.18s ease,
+    border-color 0.18s ease,
+    box-shadow 0.18s ease,
+    opacity 0.18s ease,
+    transform 0.18s ease;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -316,7 +328,13 @@
   background: transparent;
   border: 1px solid var(--app-border-strong);
   cursor: pointer;
-  transition: all 0.18s ease;
+  transition:
+    background-color 0.18s ease,
+    color 0.18s ease,
+    border-color 0.18s ease,
+    box-shadow 0.18s ease,
+    opacity 0.18s ease,
+    transform 0.18s ease;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -441,11 +459,17 @@
   padding: 6px 10px;
   border-radius: 7px;
   font-size: 12px;
-  color: var(--app-info-text);
+  color: var(--app-accent);
   background: transparent;
   border: 1px solid var(--app-border-strong);
   cursor: pointer;
-  transition: all 0.18s ease;
+  transition:
+    background-color 0.18s ease,
+    color 0.18s ease,
+    border-color 0.18s ease,
+    box-shadow 0.18s ease,
+    opacity 0.18s ease,
+    transform 0.18s ease;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -965,5 +989,88 @@
   .toolsButton {
     flex: 1 1 calc(50% - 4px);
     min-width: 0;
+  }
+}
+
+/* Page-specific settings refinement. */
+
+.mcpSections {
+  padding: 8px 16px 24px;
+  gap: 28px;
+}
+.mcpSection {
+  padding: 0;
+  background: transparent;
+  border: 0;
+}
+.mcpGrid,
+.providerGrid {
+  gap: 16px;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr));
+}
+.providerCard {
+  padding: 20px;
+  border-radius: 20px;
+  background: var(--app-surface);
+}
+.sectionHeader p {
+  max-width: 65ch;
+  line-height: 1.6;
+}
+.sectionEmpty {
+  border-style: solid;
+  background: var(--app-fill-faint);
+  padding: 28px;
+}
+.jsonTextArea {
+  font-family: ui-monospace, monospace;
+  font-size: 12px;
+}
+@media (max-width: 600px) {
+  .mcpSections {
+    padding-inline: 0;
+  }
+}
+
+.mcpSection {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+.sectionHeader > div:last-child {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.mcpGrid {
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr));
+  gap: 16px;
+  padding: 0;
+}
+.mcpSections {
+  overflow: visible;
+  padding: 8px 16px 24px;
+}
+@media (max-width: 600px) {
+  .mcpSections {
+    padding-inline: 0;
+  }
+}
+
+.collectionToolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 0 16px 24px;
+  > :first-child {
+    flex: 1;
+    min-width: 180px;
+  }
+}
+@media (max-width: 600px) {
+  .collectionToolbar {
+    margin-inline: 0;
   }
 }

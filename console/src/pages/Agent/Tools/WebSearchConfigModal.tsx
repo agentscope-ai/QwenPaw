@@ -1,6 +1,9 @@
+import { SharedModal as Modal } from "@/components/interaction/SharedModal";
+import { useAutoSave } from "@/hooks/useAutoSave";
 import { useEffect, useState } from "react";
+import { X, ChevronDown } from "lucide-react";
 import { Spin, Typography } from "antd";
-import { Modal, Form, Input, Select } from "@agentscope-ai/design";
+import { Form, Input, Select } from "@agentscope-ai/design";
 import api from "../../../api";
 import { useTranslation } from "react-i18next";
 import type { ToolInfo } from "../../../api/modules/tools";
@@ -20,20 +23,21 @@ export function WebSearchConfigModal({
   visible,
   onClose,
   onSave,
+  surfaceId,
 }: {
   tool: ToolInfo;
+  surfaceId?: string;
   visible: boolean;
   onClose: () => void;
   onSave: (values: Record<string, unknown>) => Promise<void>;
 }) {
   const [form] = Form.useForm();
-  const [saving, setSaving] = useState(false);
   const [loadingConfig, setLoadingConfig] = useState(false);
   const { t } = useTranslation();
   const providerValue = Form.useWatch("provider", form);
 
   useEffect(() => {
-    if (!visible || !tool) return;
+    if (!visible) return;
     form.resetFields();
     setLoadingConfig(true);
     let cancelled = false;
@@ -57,7 +61,7 @@ export function WebSearchConfigModal({
   // credential slot so an existing key is shown instead of a blank field
   // (which would otherwise be treated as "clear the key" on save).
   useEffect(() => {
-    if (!visible || !tool) return;
+    if (!visible) return;
     if (!providerValue || providerValue === "tavily") {
       // Keyless provider: drop any leftover key from the form store so it
       // cannot be submitted into the wrong provider's credential slot.
@@ -83,41 +87,46 @@ export function WebSearchConfigModal({
     };
   }, [visible, tool.name, providerValue, form]);
 
-  const handleSave = async () => {
+  const { schedule, flush } = useAutoSave(async () => {
+    if (loadingConfig) return false;
+    const values = form.getFieldsValue(true);
     try {
-      const values = await form.validateFields();
-      if (values.provider === "tavily") {
-        delete values.api_key;
-      }
-      setSaving(true);
-      await onSave(values);
-      onClose();
-    } catch (error) {
-      console.error("Failed to save config:", error);
-    } finally {
-      setSaving(false);
+      await form.validateFields();
+    } catch {
+      return false;
     }
-  };
+    if (values.provider === "tavily") delete values.api_key;
+    await onSave(values);
+  });
+
+  useEffect(() => {
+    if (!loadingConfig && form.isFieldsTouched()) schedule();
+  }, [loadingConfig, form, schedule]);
 
   return (
     <Modal
-      title={`${t("tools.configure")} - ${tool.name}`}
+      closeIcon={<X size={18} aria-hidden />}
+      surfaceId={surfaceId}
+      title={`${t("tools.configure")} · ${t(
+        `tools.catalog.${tool.name}.name`,
+        tool.name,
+      )}`}
       open={visible}
-      onCancel={onClose}
-      onOk={handleSave}
-      confirmLoading={saving || loadingConfig}
-      okButtonProps={{ disabled: loadingConfig }}
-      okText={t("common.save")}
-      cancelText={t("common.cancel")}
+      onCancel={() => {
+        void flush().then((saved) => {
+          if (saved) onClose();
+        });
+      }}
+      footer={null}
     >
       <Spin spinning={loadingConfig}>
-        <Form form={form} layout="vertical">
+        <Form form={form} layout="vertical" onValuesChange={schedule}>
           <Form.Item
             name="provider"
             label={t("tools.webSearchProviderLabel")}
             initialValue="tavily"
           >
-            <Select>
+            <Select suffixIcon={<ChevronDown size={16} aria-hidden />}>
               <Select.Option value="tavily">tavily</Select.Option>
               <Select.Option value="anysearch">anysearch</Select.Option>
             </Select>

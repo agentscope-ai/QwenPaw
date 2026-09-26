@@ -1,5 +1,5 @@
 import { PawAppAccessGate } from "../../../plugins/PawAppAccessGate";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Card, Empty, Spin, Button, Tag, Typography, Space } from "antd";
 import { AppWindow, ExternalLink, RefreshCw } from "lucide-react";
@@ -15,25 +15,23 @@ export default function PawAppsPage() {
   const [loading, setLoading] = useState(true);
   const [selectedApp, setSelectedApp] = useState<PawAppInfo | null>(null);
 
-  const fetchApps = async () => {
+  const fetchApps = useCallback(async () => {
     setLoading(true);
     try {
       const data = await pawappApi.list();
       setApps(data.apps);
       // Auto-select first app if none selected
-      if (!selectedApp && data.apps.length > 0) {
-        setSelectedApp(data.apps[0]);
-      }
+      setSelectedApp((current) => current ?? data.apps[0] ?? null);
     } catch (err) {
       console.error("Failed to fetch PawApps:", err);
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     fetchApps();
-  }, []);
+  }, [fetchApps]);
 
   const getIframeSrc = (app: PawAppInfo): string | null => {
     if (!app.home_page) return null;

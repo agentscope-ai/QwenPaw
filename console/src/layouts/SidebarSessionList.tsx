@@ -5,7 +5,7 @@ import React, {
   useRef,
   useState,
 } from "react";
-import { Dropdown, Input, Modal, Spin, Tooltip } from "antd";
+import { Input, Modal, Spin, Tooltip } from "antd";
 import type { InputRef } from "antd";
 import { VariableSizeList, type ListChildComponentProps } from "react-window";
 import { useTranslation } from "react-i18next";
@@ -13,14 +13,11 @@ import { useLocation } from "react-router-dom";
 import {
   CalendarDays,
   ChevronDown,
-  Ellipsis,
   FolderPlus,
   FolderTree,
-  Layers,
   List,
-  Search,
 } from "lucide-react";
-import { SparkNewChatLine } from "@agentscope-ai/icons";
+import { SquarePen as SparkNewChatLine } from "lucide-react";
 import { getChannelLabel } from "../utils/channel";
 import {
   getBackendId,
@@ -264,6 +261,8 @@ const VirtualRow = React.memo(function VirtualRow({
 });
 
 export interface SidebarSessionListProps {
+  defaultSearchOpen?: boolean;
+  hideNewTask?: boolean;
   /** Called when user clicks "New Chat". Provided by parent (Sidebar) which has navigate(). */
   onNewChat?: () => void;
   /** Called when user clicks a session. Provided by parent for direct navigation. */
@@ -271,6 +270,8 @@ export interface SidebarSessionListProps {
 }
 
 export default function SidebarSessionList({
+  defaultSearchOpen = false,
+  hideNewTask = false,
   onNewChat,
   onSessionClick: onSessionClickProp,
 }: SidebarSessionListProps = {}) {
@@ -281,7 +282,6 @@ export default function SidebarSessionList({
   const currentSessionId = getSessionIdFromPath(location.pathname) ?? undefined;
 
   const [searchQuery, setSearchQuery] = useState("");
-  const [searchOpen, setSearchOpen] = useState(false);
   const [historyCollapsed, setHistoryCollapsed] = useState(false);
   const [isSessionDragging, setIsSessionDragging] = useState(false);
   /** Sectioning mode — persisted and synced across mounted lists. */
@@ -492,16 +492,8 @@ export default function SidebarSessionList({
     }
   }, [onNewChat]);
 
-  const handleOpenSearch = useCallback(() => {
-    setHistoryCollapsed(false);
-    setCreatingGroup(false);
-    setSearchOpen(true);
-    window.setTimeout(() => searchInputRef.current?.focus(), 0);
-  }, []);
-
   const handleOpenCreateGroup = useCallback(() => {
     setHistoryCollapsed(false);
-    setSearchOpen(false);
     setSearchQuery("");
     setCreatingGroup(true);
     window.setTimeout(() => groupInputRef.current?.focus(), 0);
@@ -839,7 +831,11 @@ export default function SidebarSessionList({
   }, [flatRows, isSessionDragging, searchQuery, visibleStartIndex]);
 
   return (
-    <div className={styles.sessionList}>
+    <div
+      className={`${styles.sessionList} ${
+        defaultSearchOpen ? styles.primarySidebar : ""
+      }`}
+    >
       {/* Sticky history header and compact actions. */}
       <div className={styles.sessionListHeader}>
         <div className={styles.historyHeaderRow}>
@@ -862,91 +858,87 @@ export default function SidebarSessionList({
             </span>
           </button>
           <div className={styles.historyActions}>
-            <Tooltip title={t("chat.newTask", "New task")}>
+            {!hideNewTask && (
+              <Tooltip title={t("chat.newTask", "New task")}>
+                <button
+                  type="button"
+                  className={styles.historyAction}
+                  aria-label={t("chat.newTask", "New task")}
+                  onClick={handleNewChat}
+                >
+                  <SparkNewChatLine size={18} />
+                </button>
+              </Tooltip>
+            )}
+            {groupMode === "source" && (
               <button
                 type="button"
                 className={styles.historyAction}
-                aria-label={t("chat.newTask", "New task")}
-                onClick={handleNewChat}
+                data-press
+                aria-label={t("chat.groups.create", "New group")}
+                title={t("chat.groups.create", "New group")}
+                onClick={handleOpenCreateGroup}
               >
-                <SparkNewChatLine size={18} />
+                <FolderPlus size={16} />
               </button>
-            </Tooltip>
-            <Dropdown
-              trigger={["click"]}
-              placement="bottomRight"
-              menu={{
-                selectable: true,
-                selectedKeys: [`group-mode-${groupMode}`],
-                items: [
-                  {
-                    key: "search",
-                    icon: <Search size={15} />,
-                    label: t(
-                      "chat.sessionPanel.searchConversations",
-                      "Search conversations",
-                    ),
-                    onClick: handleOpenSearch,
-                  },
-                  ...(groupMode === "source"
-                    ? [
-                        {
-                          key: "create-group",
-                          icon: <FolderPlus size={15} />,
-                          label: t("chat.groups.create", "New group"),
-                          onClick: handleOpenCreateGroup,
-                        },
-                      ]
-                    : []),
-                  { type: "divider" as const },
-                  {
-                    key: "group-mode",
-                    icon: <Layers size={15} />,
-                    label: t("chat.sessionPanel.groupBy", "Group by"),
-                    children: [
-                      {
-                        key: "group-mode-date",
-                        icon: <CalendarDays size={15} />,
-                        label: t("chat.sessionPanel.groupByTime", "By time"),
-                        onClick: () => handleGroupModeChange("date"),
-                      },
-                      {
-                        key: "group-mode-source",
-                        icon: <FolderTree size={15} />,
-                        label: t(
-                          "chat.sessionPanel.groupBySource",
-                          "By source",
-                        ),
-                        onClick: () => handleGroupModeChange("source"),
-                      },
-                      {
-                        key: "group-mode-none",
-                        icon: <List size={15} />,
-                        label: t(
-                          "chat.sessionPanel.groupByNone",
-                          "No grouping",
-                        ),
-                        onClick: () => handleGroupModeChange("none"),
-                      },
-                    ],
-                  },
-                ],
-              }}
+            )}
+            <button
+              type="button"
+              className={styles.historyAction}
+              data-press
+              data-group-mode={groupMode}
+              aria-label={t(
+                `chat.sessionPanel.${
+                  groupMode === "date"
+                    ? "groupByTime"
+                    : groupMode === "source"
+                    ? "groupBySource"
+                    : "groupByNone"
+                }`,
+                groupMode === "date"
+                  ? "By time"
+                  : groupMode === "source"
+                  ? "By source"
+                  : "No grouping",
+              )}
+              title={t(
+                `chat.sessionPanel.${
+                  groupMode === "date"
+                    ? "groupByTime"
+                    : groupMode === "source"
+                    ? "groupBySource"
+                    : "groupByNone"
+                }`,
+                groupMode === "date"
+                  ? "By time"
+                  : groupMode === "source"
+                  ? "By source"
+                  : "No grouping",
+              )}
+              onClick={() =>
+                handleGroupModeChange(
+                  groupMode === "date"
+                    ? "source"
+                    : groupMode === "source"
+                    ? "none"
+                    : "date",
+                )
+              }
             >
-              <button
-                type="button"
-                className={styles.historyAction}
-                aria-label={t("sidebar.more", "More")}
-              >
-                <Ellipsis size={16} />
-              </button>
-            </Dropdown>
+              {groupMode === "date" ? (
+                <CalendarDays size={16} />
+              ) : groupMode === "source" ? (
+                <FolderTree size={16} />
+              ) : (
+                <List size={16} />
+              )}
+            </button>
           </div>
         </div>
 
-        {!historyCollapsed && (searchOpen || creatingGroup) && (
+        {!historyCollapsed && (
           <div className={styles.searchContainer}>
-            {searchOpen && (
+            {!creatingGroup && (
               <Input
                 ref={searchInputRef}
                 size="small"

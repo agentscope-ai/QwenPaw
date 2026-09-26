@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useCallback, useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { useAppMessage } from "../../../hooks/useAppMessage";
 import api from "../../../api";
@@ -150,7 +150,7 @@ export function useCronJobs() {
     return fallback;
   };
 
-  const fetchJobs = async () => {
+  const fetchJobs = useCallback(async () => {
     setLoading(true);
     try {
       const data = await api.listCronJobs();
@@ -163,7 +163,7 @@ export function useCronJobs() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [message]);
 
   useEffect(() => {
     let mounted = true;
@@ -179,7 +179,7 @@ export function useCronJobs() {
     return () => {
       mounted = false;
     };
-  }, [selectedAgent]);
+  }, [selectedAgent, fetchJobs]);
 
   const createJob = async (values: CronJob) => {
     try {
@@ -194,7 +194,11 @@ export function useCronJobs() {
     }
   };
 
-  const updateJob = async (jobId: string, values: CronJob) => {
+  const updateJob = async (
+    jobId: string,
+    values: CronJob,
+    automatic = false,
+  ) => {
     const original = jobs.find((j) => j.id === jobId);
     const updatePayload =
       original && requiresCronImportReview(original)
@@ -204,17 +208,24 @@ export function useCronJobs() {
     setJobs((prev) => prev.map((j) => (j.id === jobId ? optimisticUpdate : j)));
 
     try {
-      const updated = await api.replaceCronJob(jobId, updatePayload);
+      const updated = automatic
+        ? await api.replaceCronJob(
+            jobId,
+            updatePayload,
+            selectedAgent || "default",
+          )
+        : await api.replaceCronJob(jobId, updatePayload);
       setJobs((prev) =>
         prev.map((j) => (j.id === jobId ? (updated as CronJob) : j)),
       );
-      message.success("Updated successfully");
+      if (!automatic) message.success("Updated successfully");
       return true;
     } catch (error) {
       console.error("Failed to update cron job", error);
       if (original) {
         setJobs((prev) => prev.map((j) => (j.id === jobId ? original : j)));
       }
+      if (automatic) throw error;
       message.error(getDisplayErrorMessage(error, "Failed to save"));
       return false;
     }

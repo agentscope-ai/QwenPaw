@@ -16,6 +16,7 @@ const hoisted = vi.hoisted(() => {
   const messageMock = {
     success: vi.fn(),
     error: vi.fn(),
+    destroy: vi.fn(),
   };
   const apiMocks = {
     getAgentRunningConfig: vi.fn(),
@@ -68,7 +69,7 @@ vi.mock("../../../api", () => ({
 vi.mock("../../../stores/agentStore", () => {
   const useAgentStore = Object.assign(
     () => ({ selectedAgent: hoisted.agentState.selectedAgent }),
-    { getState: () => hoisted.agentState },
+    { getState: () => hoisted.agentState, subscribe: () => () => {} },
   );
   return { useAgentStore };
 });
@@ -346,7 +347,8 @@ describe("useAgentConfig", () => {
       makeConfig({ max_iters: 100 }),
     );
     const loaded = makeConfig({ max_iters: 100 });
-    const { max_iters: _staleMaxIters, ...formWithoutMaxIters } = loaded;
+    const formWithoutMaxIters: Partial<Config> = { ...loaded };
+    delete formWithoutMaxIters.max_iters;
     mockGetFieldsValue.mockReturnValue({
       ...formWithoutMaxIters,
       loop: {
@@ -439,7 +441,7 @@ describe("useAgentConfig", () => {
     expect(messageMock.error).toHaveBeenCalledWith("save failed");
   });
 
-  it("handleTimezoneChange calls updateUserTimezone and message.success", async () => {
+  it("timezone selection updates immediately and saves after inactivity", async () => {
     apiMocks.updateUserTimezone.mockResolvedValue({
       timezone: "Asia/Shanghai",
     });
@@ -452,10 +454,35 @@ describe("useAgentConfig", () => {
       await result.current.handleTimezoneChange("Asia/Shanghai");
     });
 
-    expect(apiMocks.updateUserTimezone).toHaveBeenCalledWith("Asia/Shanghai");
     expect(result.current.timezone).toBe("Asia/Shanghai");
-    expect(messageMock.success).toHaveBeenCalledWith(
-      "agentConfig.timezoneSaveSuccess",
+    expect(apiMocks.updateUserTimezone).not.toHaveBeenCalled();
+    await waitFor(
+      () => {
+        expect(apiMocks.updateUserTimezone).toHaveBeenCalledWith(
+          "Asia/Shanghai",
+        );
+      },
+      { timeout: 2000 },
+    );
+  });
+
+  it("coalesces rapid timezone picks and flushes the last choice on leaving", async () => {
+    apiMocks.updateUserTimezone.mockResolvedValue({ timezone: "Asia/Tokyo" });
+    const { result, unmount } = renderConfigHook();
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    act(() => {
+      result.current.handleTimezoneChange("Asia/Shanghai");
+    });
+    act(() => {
+      result.current.handleTimezoneChange("Asia/Tokyo");
+    });
+    expect(result.current.timezone).toBe("Asia/Tokyo");
+    expect(apiMocks.updateUserTimezone).not.toHaveBeenCalled();
+    unmount();
+    await waitFor(() =>
+      expect(apiMocks.updateUserTimezone).toHaveBeenCalledExactlyOnceWith(
+        "Asia/Tokyo",
+      ),
     );
   });
 
@@ -553,26 +580,36 @@ describe("useAgentConfig", () => {
     const saved = apiMocks.updateAgentRunningConfig.mock.calls[0][0] as Config;
 
     // The rendered field should be updated
-    expect((saved.light_context_config as any).strategy).toBe("native");
+    expect(saved.light_context_config!.strategy).toBe("native");
 
     // The collapsed (unrendered) nested fields must be preserved from original
+    expect(saved.light_context_config!.context_compact_config.enabled).toBe(
+      true,
+    );
     expect(
-      (saved.light_context_config as any).context_compact_config.enabled,
-    ).toBe(true);
-    expect(
-      (saved.light_context_config as any).context_compact_config
+      saved.light_context_config!.context_compact_config
         .compact_threshold_ratio,
     ).toBe(0.8);
     expect(
-      (saved.light_context_config as any).scroll_config.history_retention_days,
+      saved.light_context_config!.scroll_config.history_retention_days,
     ).toBe(14);
 
     // reme_light_memory_config: rendered field updated, collapsed fields preserved
-    expect((saved.reme_light_memory_config as any).needs_reindex).toBe(true);
-    expect((saved.reme_light_memory_config as any).embedding_model).toBe(
-      "text-embedding-v3",
-    );
-    expect((saved.reme_light_memory_config as any).search_top_k).toBe(5);
+    expect(saved.reme_light_memory_config!.needs_reindex).toBe(true);
+    expect(
+      (
+        saved.reme_light_memory_config as Config["reme_light_memory_config"] & {
+          embedding_model: string;
+        }
+      ).embedding_model,
+    ).toBe("text-embedding-v3");
+    expect(
+      (
+        saved.reme_light_memory_config as Config["reme_light_memory_config"] & {
+          search_top_k: number;
+        }
+      ).search_top_k,
+    ).toBe(5);
 
     // Plugin config: entirely collapsed — original values fully preserved.
     expect(saved.memory_backend_configs?.adbpg.auto_search_enabled).toBe(true);

@@ -1,6 +1,8 @@
+import { InteractiveCard } from "@/components/interaction/InteractiveCard";
 import { Card } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
-import React, { useState } from "react";
+import React from "react";
+import { ArrowUpRight } from "lucide-react";
 import { ChannelIcon } from "./ChannelIcon";
 import { getChannelLabel, type ChannelKey } from "./constants";
 import styles from "../index.module.less";
@@ -19,7 +21,6 @@ export const ChannelCard = React.memo(function ChannelCard({
   iconUrl,
 }: ChannelCardProps) {
   const { t } = useTranslation();
-  const [isHover, setIsHover] = useState(false);
   const enabled = Boolean(config.enabled);
   const isBuiltin = Boolean(config.isBuiltin);
   const label = getChannelLabel(channelKey, t);
@@ -31,56 +32,65 @@ export const ChannelCard = React.memo(function ChannelCard({
     <ChannelIcon channelKey={channelKey} size={32} iconUrl={iconUrl} />
   );
 
-  const getCardClassNames = () => {
-    if (isHover) return `${styles.channelCard} ${styles.hover}`;
-    if (enabled) return `${styles.channelCard} ${styles.enabled}`;
-    return `${styles.channelCard} ${styles.normal}`;
-  };
-
   return (
-    <Card
-      hoverable
-      onClick={onClick}
-      onMouseEnter={() => setIsHover(true)}
-      onMouseLeave={() => setIsHover(false)}
-      className={getCardClassNames()}
-      bodyStyle={{ padding: 24 }}
-    >
-      {/* Top section: Icon and Status */}
-      <div className={styles.cardTopSection}>
-        <div className={styles.channelIcon}>{getChannelIcon()}</div>
-        <div className={styles.statusIndicator}>
-          <div
-            className={`${styles.statusDot} ${
-              enabled ? styles.enabled : styles.disabled
-            }`}
-          />
-          <span
-            className={`${styles.statusText} ${
-              enabled ? styles.enabled : styles.disabled
-            }`}
-          >
-            {enabled ? t("common.enabled") : t("common.disabled")}
+    <InteractiveCard tilt={2} className={styles.channelSurface}>
+      <Card
+        onClick={onClick}
+        role="button"
+        tabIndex={0}
+        aria-label={label}
+        onKeyDown={(event) => {
+          if (
+            event.target === event.currentTarget &&
+            ["Enter", " "].includes(event.key)
+          ) {
+            event.preventDefault();
+            onClick();
+          }
+        }}
+        className={styles.channelCard}
+        bodyStyle={{ padding: 24 }}
+      >
+        {/* Top section: Icon and Status */}
+        <div className={styles.cardTopSection}>
+          <div className={styles.channelIcon}>{getChannelIcon()}</div>
+          <div className={styles.statusIndicator}>
+            <div
+              className={`${styles.statusDot} ${
+                enabled ? styles.enabled : styles.disabled
+              }`}
+            />
+            <span
+              className={`${styles.statusText} ${
+                enabled ? styles.enabled : styles.disabled
+              }`}
+            >
+              {enabled ? t("common.enabled") : t("common.disabled")}
+            </span>
+          </div>
+        </div>
+
+        {/* Middle section: Name and Tag */}
+        <div className={styles.cardMiddleSection}>
+          <div className={styles.cardTitle}>{label}</div>
+          {isBuiltin ? (
+            <span className={styles.builtinTag}>{t("channels.builtin")}</span>
+          ) : (
+            <span className={styles.customTag}>{t("channels.custom")}</span>
+          )}
+        </div>
+
+        {/* Bottom section: Bot Prefix */}
+        <div className={styles.cardBottomSection}>
+          <div className={styles.cardDescription}>
+            {t("channels.botPrefix")}: {botPrefix || t("channels.notSet")}
+          </div>
+          <span className={styles.configureAction}>
+            {t("channels.configureAction")}{" "}
+            <ArrowUpRight size={16} aria-hidden />
           </span>
         </div>
-      </div>
-
-      {/* Middle section: Name and Tag */}
-      <div className={styles.cardMiddleSection}>
-        <div className={styles.cardTitle}>{label}</div>
-        {isBuiltin ? (
-          <span className={styles.builtinTag}>{t("channels.builtin")}</span>
-        ) : (
-          <span className={styles.customTag}>{t("channels.custom")}</span>
-        )}
-      </div>
-
-      {/* Bottom section: Bot Prefix */}
-      <div className={styles.cardBottomSection}>
-        <div className={styles.cardDescription}>
-          {t("channels.botPrefix")}: {botPrefix || t("channels.notSet")}
-        </div>
-      </div>
-    </Card>
+      </Card>
+    </InteractiveCard>
   );
 });

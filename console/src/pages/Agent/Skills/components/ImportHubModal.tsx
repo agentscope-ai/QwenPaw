@@ -3,11 +3,11 @@ import { Button, Modal } from "@agentscope-ai/design";
 import { Spin } from "antd";
 import { useTranslation } from "react-i18next";
 import {
-  LinkOutlined,
-  CloseOutlined,
-  CheckCircleOutlined,
-  CloseCircleOutlined,
-} from "@ant-design/icons";
+  Link as LinkOutlined,
+  X as CloseOutlined,
+  CircleCheck as CheckCircleOutlined,
+  CircleX as CloseCircleOutlined,
+} from "lucide-react";
 import { skillMarkets, type SkillMarket } from "./index";
 import styles from "./ImportHubModal.module.less";
 
@@ -132,7 +132,7 @@ export function ImportHubModal({
 
       <div className={styles.urlInputSection}>
         <div className={`${styles.inputWrapper} ${inputStateClass}`}>
-          <LinkOutlined className={styles.urlInputIcon} />
+          <LinkOutlined size="1em" className={styles.urlInputIcon} />
           <input
             className={styles.urlInput}
             value={importUrl}
@@ -150,7 +150,7 @@ export function ImportHubModal({
               type="button"
               aria-label={t("common.clear")}
             >
-              <CloseOutlined />
+              <CloseOutlined size="1em" />
             </button>
           )}
         </div>
@@ -158,12 +158,12 @@ export function ImportHubModal({
         <div className={styles.validationStatus}>
           {validation.ok ? (
             <span className={styles.valid}>
-              <CheckCircleOutlined />
+              <CheckCircleOutlined size="1em" />
               {t("skills.urlValid", { source: validation.source })}
             </span>
           ) : validation.messageKey ? (
             <span className={styles.invalid}>
-              <CloseCircleOutlined />
+              <CloseCircleOutlined size="1em" />
               {t(validation.messageKey)}
             </span>
           ) : importing ? (

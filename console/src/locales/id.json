@@ -34,7 +34,11 @@
     "clear": "Bersihkan",
     "paste": "Tempel",
     "yes": "Ya",
-    "no": "Tidak"
+    "no": "Tidak",
+    "configure": "Konfigurasi",
+    "all": "Semua",
+    "decrease": "Kurangi",
+    "increase": "Tambah"
   },
   "harnesses": {
     "connected": "Terhubung",
@@ -69,7 +73,7 @@
   "portabilityImport": {
     "qwenpawOnly": "Impor hanya tersedia untuk agen yang menggunakan backend QwenPaw. Pilih agen QwenPaw untuk melanjutkan.",
     "title": "Impor",
-    "description": "Pindahkan percakapan dan pengaturan alat dari aplikasi AI lain ke QwenPaw.",
+    "description": "Impor data dari aplikasi lain ke QwenPaw. Pilih sumber, lalu pratinjau dan pilih kontennya. Data hanya ditulis ke QwenPaw setelah Anda memulai impor.",
     "steps": {
       "sources": "Aplikasi",
       "inventory": "Pilih konten",
@@ -426,7 +430,20 @@
       "global": "Pengaturan global",
       "plugins": "Fitur plugin"
     },
-    "alwaysVisible": "Selalu ditampilkan"
+    "alwaysVisible": "Selalu ditampilkan",
+    "sidebarEditHelp": "Seret pegangan untuk mengurutkan. Dengan keyboard, tekan Spasi untuk memilih, tombol panah untuk memindahkan, lalu Spasi untuk meletakkan. Gunakan + atau − untuk menambah atau menghapus entri. Perubahan disimpan otomatis.",
+    "fixedEntry": "Selalu terlihat",
+    "addEntry": "Tambahkan {{name}}",
+    "allAdded": "Semua telah ditambahkan",
+    "availableEntries": "Entri tersedia",
+    "dragHint": "Seret untuk mengurutkan atau mengembalikan ke daftar.",
+    "dropHere": "Seret pintasan ke sini",
+    "mirrorHint": "Dekatkan alat yang sering digunakan.",
+    "moveEntry": "Pindahkan {{name}}",
+    "preview": "Pratinjau",
+    "previewCaption": "Perubahan disimpan otomatis",
+    "removeEntry": "Hapus {{name}}",
+    "sidebarPreview": "Entri terlihat"
   },
   "hub": {
     "brand": {
@@ -1071,6 +1088,7 @@
     "acceptInvitation": "Bergabung melalui undangan"
   },
   "chat": {
+    "historyLoadFailed": "Percakapan tidak dapat dimuat. Silakan buka kembali.",
     "newTask": "Tugas baru",
     "newChat": "Chat baru",
     "groups": {
@@ -1562,7 +1580,88 @@
     "gridView": "Tampilan grid",
     "enabledSkills": "Skill Aktif",
     "disabledSkills": "Skill Nonaktif",
-    "active": "aktif"
+    "active": "aktif",
+    "batchDeleteFailed": "Gagal menghapus sekaligus",
+    "batchDeletePartial": "{{deleted}} dihapus, {{failed}} gagal",
+    "batchDeleteSuccess": "{{count}} keterampilan dihapus",
+    "batchDeleteTitle": "Hapus {{count}} keterampilan?",
+    "batchDisableFailed": "Gagal menonaktifkan sekaligus",
+    "batchDisablePartial": "{{disabled}} dinonaktifkan, {{failed}} gagal",
+    "batchDisableSuccess": "{{count}} keterampilan dinonaktifkan",
+    "batchEnableFailed": "Gagal mengaktifkan sekaligus",
+    "batchEnablePartial": "{{enabled}} diaktifkan, {{failed}} gagal",
+    "batchEnableSuccess": "{{count}} keterampilan diaktifkan",
+    "batchOperation": "Operasi massal",
+    "builtinUpgradeContent": "Versi baru keterampilan bawaan \"{{name}}\" tersedia di kumpulan. Timpa versi saat ini?",
+    "builtinUpgradeTitle": "Perbarui keterampilan bawaan",
+    "cancelImport": "Batalkan impor",
+    "clearSelection": "Hapus pilihan",
+    "clickToFill": "Klik untuk mengisi URL",
+    "config": "Konfigurasi",
+    "configInvalidJson": "Format JSON tidak valid",
+    "configPlaceholder": "{\"KEY\": \"value\"}",
+    "configSaved": "Konfigurasi disimpan",
+    "contentPlaceholder": "---\nname: nama_keterampilan\ndescription: Deskripsi singkat keterampilan\n---\n\nTulis petunjuk keterampilan dalam Markdown.",
+    "createdSuccessfully": "Berhasil dibuat",
+    "disabledSuccessfully": "Berhasil dinonaktifkan",
+    "downloadSkillPool": "Unduh kumpulan keterampilan",
+    "downloadedToWorkspace": "Diunduh ke ruang kerja saat ini",
+    "editNotSupported": "Gagal mengedit keterampilan",
+    "editNote": "Edit isi, saluran, dan konfigurasi keterampilan di sini.",
+    "emptyStateBadge": "Ruang kerja baru dimulai kosong",
+    "emptyStateCreate": "Buat keterampilan pertama",
+    "emptyStateDownload": "Unduh dari kumpulan",
+    "emptyStateText": "Ruang kerja baru belum memiliki keterampilan. Unduh dari kumpulan lokal atau buat keterampilan untuk agen ini.",
+    "emptyStateTitle": "Agen ini belum memiliki keterampilan",
+    "enabledSuccessfully": "Berhasil diaktifkan",
+    "exitBatch": "Selesai memilih",
+    "fileSizeExceeded": "Ukuran melebihi batas {{limit}}MB. File saat ini: {{size}}MB",
+    "filterByTag": "Filter berdasarkan tag",
+    "frontmatterDescriptionRequired": "Kolom wajib description belum ada",
+    "frontmatterNameRequired": "Kolom wajib name belum ada",
+    "frontmatterRequired": "Metadata keterampilan harus diapit oleh ---",
+    "importCancelled": "Impor keterampilan dibatalkan",
+    "importFailed": "Impor gagal",
+    "importTimeout": "Impor kehabisan waktu. Coba lagi atau periksa jaringan.",
+    "importedSkill": "Keterampilan diimpor: {{name}}",
+    "invalidSkillUrlSource": "Pastikan URL berasal dari pasar keterampilan yang didukung",
+    "languageSwitchContent": "Keterampilan berikut memiliki versi bahasa berbeda di kumpulan dan akan ditimpa:",
+    "languageSwitchTitle": "Ganti bahasa keterampilan",
+    "loadFailed": "Gagal memuat keterampilan",
+    "nameConflict": "Nama sudah digunakan. Nama pengganti yang disarankan telah diisi.",
+    "noContentToOptimize": "Tidak ada isi untuk dioptimalkan",
+    "noSearchResults": "Tidak ada keterampilan yang cocok",
+    "noTags": "Tidak ada tag",
+    "operationFailed": "Operasi gagal",
+    "optimizeFailed": "Gagal mengoptimalkan keterampilan",
+    "optimizeSuccess": "Keterampilan berhasil dioptimalkan",
+    "overwriteExistingList": "Keterampilan berikut sudah ada dan akan ditimpa:",
+    "poolSync": "Status sinkronisasi",
+    "provideUrl": "Masukkan URL keterampilan dari hub",
+    "refreshFailed": "Gagal menyegarkan keterampilan",
+    "refreshHint": "Muat ulang keterampilan dari disk",
+    "renameOptional": "Ganti nama (opsional)",
+    "renamePlaceholder": "Nama yang disarankan muncul jika terjadi konflik",
+    "renameSingleOnly": "Penggantian nama hanya tersedia jika satu keterampilan dipilih.",
+    "saveFailed": "Gagal menyimpan",
+    "selectAll": "Pilih semua",
+    "selectPoolItem": "Pilih item kumpulan keterampilan",
+    "selectWorkspaceSkill": "Pilih keterampilan ruang kerja saat ini",
+    "settingsDetails": "Cakupan dan pengaturan lanjutan",
+    "skillNamePlaceholder": "contoh: weather_query",
+    "supportedSkillUrlSources": "Pasar keterampilan yang didukung:",
+    "uploadFailed": "Gagal mengunggah keterampilan",
+    "uploadNoChange": "Tidak ada keterampilan baru yang diimpor. Mungkin sudah ada.",
+    "uploadSkillPool": "Unggah kumpulan keterampilan",
+    "uploadSuccess": "Keterampilan berhasil diunggah",
+    "uploadToPool": "Sinkronkan ke kumpulan",
+    "uploadToPoolHint": "Unggah keterampilan terpilih ke kumpulan lokal bersama",
+    "uploadedToPool": "Diunggah ke kumpulan keterampilan",
+    "urlExamples": "Contoh URL:",
+    "urlValid": "URL valid dari {{source}}",
+    "validUrl": "Masukkan URL valid berawalan http:// atau https://",
+    "zipOnly": "Hanya file .zip yang didukung",
+    "name": "Nama keterampilan"
   },
   "skillPool": {
     "description": "Kumpulan skill lokal bersama untuk skill bawaan dan unggahan workspace.",
@@ -1720,10 +1819,196 @@
     "slackBotTokenTooltip": "Slack Bot User OAuth Token, dimulai dengan xoxb-",
     "slackAppToken": "App Token",
     "slackAppTokenTooltip": "Slack App-Level Token untuk Socket Mode, dimulai dengan xapp-",
-    "slackProxyTooltip": "URL proxy HTTP untuk menghubungkan ke Slack API"
+    "slackProxyTooltip": "URL proxy HTTP untuk menghubungkan ke Slack API",
+    "configureAction": "Konfigurasi",
+    "acceptBotMessages": "Terima pesan bot",
+    "acceptBotMessagesTooltip": "Terima pesan dari bot lain saat diaktifkan",
+    "ackMessage": "Pesan tanda terima",
+    "ackMessagePlaceholder": "Sedang diproses…",
+    "ackMessageTooltip": "Kirim balasan langsung sebelum agen memproses pesan. Kosongkan untuk menonaktifkan.",
+    "advancedSettings": "Pengaturan lanjutan",
+    "allowFrom": "Pengguna yang diizinkan",
+    "allowFromPlaceholder": "Masukkan ID pengguna lalu tekan Enter",
+    "allowFromTooltip": "Daftar ID yang diizinkan. Aktifkan daftar izin lalu kirim pesan pribadi ke bot untuk melihat ID Anda dalam pesan penolakan.",
+    "atSenderOnReply": "Sebut pengirim saat membalas",
+    "atSenderOnReplyTooltip": "Sebut pengirim dalam balasan pertama di grup. Dalam mode kartu, hanya anggota internal perusahaan yang dapat disebut.",
+    "autoCollapseThinking": "Lipat penalaran",
+    "autoCollapseThinkingTooltip": "Lipat panel penalaran setelah selesai. Panel masih dapat dibuka manual.",
+    "botPrefixPlaceholder": "@bot",
+    "builtin": "Bawaan",
+    "custom": "Kustom",
+    "dbPathPlaceholder": "~/Library/Messages/chat.db",
+    "deliverySettings": "Opsi pengiriman",
+    "denyMessage": "Pesan akses ditolak",
+    "denyMessageTooltip": "Pesan khusus yang ditampilkan saat akses ditolak",
+    "dingtalkAuthSuccess": "Bot DingTalk dibuat. Client ID dan Client Secret telah diisi.",
+    "dingtalkEndpoint": "Endpoint API",
+    "dingtalkEndpointTooltip": "Endpoint API untuk penerapan DingTalk privat. Kosongkan untuk memakai bawaan resmi.",
+    "dingtalkGetQrcode": "Dapatkan kode QR DingTalk",
+    "dingtalkQrcodeExpired": "Kode QR kedaluwarsa. Dapatkan kode baru.",
+    "dingtalkQrcodeFailed": "Gagal mendapatkan kode QR DingTalk. Coba lagi.",
+    "dingtalkScanAuth": "Pindai untuk membuat bot",
+    "dingtalkScanHint": "Pindai dengan DingTalk. Client ID dan Client Secret akan diisi setelah otorisasi.",
+    "dingtalkSetupGuide": "Pindai dengan DingTalk untuk membuat aplikasi bot dan mengisi Client ID / Client Secret otomatis.",
+    "discordBotToken": "Token bot Discord",
+    "dmPolicy": "Kebijakan pesan pribadi",
+    "dmPolicyTooltip": "Terbuka: semua orang; daftar izin: hanya pengguna yang disetujui.",
+    "feishuAuthSuccess": "Bot Feishu dibuat. App ID dan App Secret telah diisi.",
+    "feishuChina": "Feishu (Tiongkok)",
+    "feishuGetQrcode": "Dapatkan kode QR Feishu",
+    "feishuInternational": "Lark (Internasional)",
+    "feishuQrcodeExpired": "Kode QR kedaluwarsa. Dapatkan kode baru.",
+    "feishuQrcodeFailed": "Gagal mendapatkan kode QR Feishu. Coba lagi.",
+    "feishuRegion": "Wilayah",
+    "feishuRegionTooltip": "Pilih Feishu untuk Tiongkok atau Lark untuk wilayah lain",
+    "feishuScanGuide": "Pindai dengan Feishu untuk membuat aplikasi bot dan mengisi App ID / App Secret otomatis.",
+    "feishuScanHint": "Pindai dengan Feishu. App ID dan App Secret akan diisi setelah otorisasi.",
+    "feishuScanLogin": "Pindai untuk membuat bot",
+    "filterAll": "Semua",
+    "groupPolicy": "Kebijakan grup",
+    "groupPolicyTooltip": "Terbuka: semua orang; daftar izin: hanya pengguna yang disetujui.",
+    "httpProxyAuthPlaceholder": "user:password",
+    "httpProxyPlaceholder": "http://127.0.0.1:18118",
+    "livekitApiKey": "Kunci API LiveKit",
+    "livekitApiSecret": "Rahasia API LiveKit",
+    "livekitRoomName": "Nama ruang LiveKit",
+    "livekitRoomNameTooltip": "Nama ruang untuk menerima panggilan SIP. Harus sama dengan nama ruang dalam Aturan Pengiriman SIP.",
+    "livekitSipTrunkId": "ID Trunk SIP LiveKit",
+    "livekitUrl": "URL LiveKit",
+    "loginWeCom": "Dapatkan kode QR WeCom",
+    "manualCredentials": "Kredensial manual",
+    "noTextDebounce": "Tunggu teks sebelum memproses media",
+    "noTextDebounceTooltip": "Tahan gambar, video, dan file sampai pesan teks tiba, lalu gabungkan. Nonaktifkan untuk memproses segera. Pesan suara selalu diproses segera.",
+    "phoneNumber": "Nomor telepon",
+    "phoneNumberSid": "SID nomor telepon",
+    "phoneNumberSidHelp": "Lihat Phone Numbers → Active Numbers di Konsol Twilio.",
+    "pleaseInputDbPath": "Masukkan jalur basis data",
+    "pleaseInputPollInterval": "Masukkan interval pemeriksaan",
+    "policyAllowlist": "Daftar izin",
+    "policyOpen": "Terbuka",
+    "presentationSettings": "Tampilan pesan",
+    "qqAuthSuccess": "Otorisasi bot QQ berhasil. APP ID dan Client Secret telah diisi.",
+    "qqGetQrcode": "Dapatkan kode QR QQ",
+    "qqQrcodeExpired": "Kode QR kedaluwarsa. Dapatkan kode baru.",
+    "qqQrcodeFailed": "Gagal mendapatkan kode QR QQ. Coba lagi.",
+    "qqScanAuth": "Pindai untuk otorisasi bot",
+    "qqScanHint": "Pindai dengan QQ. APP ID dan Client Secret akan diisi setelah otorisasi.",
+    "qqSetupGuide": "Pindai dengan QQ untuk mengotorisasi bot dan mengisi APP ID serta Client Secret otomatis.",
+    "requireMention": "Wajib menyebut @bot",
+    "requireMentionTooltip": "Hanya balas pesan grup yang secara eksplisit menyebut bot",
+    "sipDashscopeApiKey": "Kunci API DashScope",
+    "sipDashscopeApiKeyTooltip": "Kunci STT/TTS Aliyun DashScope. Jika kosong, gunakan variabel lingkungan DASHSCOPE_API_KEY.",
+    "sipMode": "Mode SIP",
+    "sipModeTooltip": "Pengembangan: pyVoIP Python untuk pengujian lokal. Produksi: LiveKit SIP Server untuk konkurensi tinggi.",
+    "sipPassword": "Kata sandi SIP",
+    "sipPort": "Port SIP",
+    "sipServer": "Server SIP",
+    "sipServerPlaceholder": "Kosongkan untuk memakai registrar bawaan",
+    "sipServerPlaceholderLivekit": "Tidak diperlukan untuk mode LiveKit",
+    "sipSetupGuide": "Siapkan registrar SIP (mis. Asterisk atau FreeSWITCH), lalu isi kredensial. Mode pengembangan memakai pyVoIP lokal; produksi memakai LiveKit SIP Server.",
+    "sipTransport": "Transportasi",
+    "sipUsername": "Nama pengguna SIP",
+    "streamingEnabled": "Keluaran streaming",
+    "streamingEnabledDingtalkHint": "Hanya berlaku untuk pesan jenis kartu",
+    "streamingEnabledFeishuHint": "Aktifkan izin cardkit:card:write di platform pengembang Feishu",
+    "sttProvider": "Penyedia pengenalan suara",
+    "ttsProvider": "Penyedia sintesis suara",
+    "ttsVoice": "Suara TTS",
+    "twilioAccountSid": "SID akun Twilio",
+    "twilioAuthToken": "Token autentikasi Twilio",
+    "voiceSetupGuide": "Buat akun Twilio dan beli nomor telepon. Isi Account SID dan Auth Token dari dasbor. Phone Number SID ada di Phone Numbers → Active Numbers.",
+    "voiceSetupLink": "Buka Konsol Twilio",
+    "wechatBotToken": "Token bot",
+    "wechatBotTokenFile": "Jalur file token",
+    "wechatBotTokenFileTooltip": "Jalur penyimpanan token. Bawaan: ~/.qwenpaw/wechat_bot_token",
+    "wechatBotTokenPlaceholder": "Diisi setelah login QR, atau tempel manual",
+    "wechatBotTokenTooltip": "Token Bearer setelah login QR. Kosongkan untuk memulai login QR saat dijalankan.",
+    "wechatContextTokenLimit": "WeChat iLink membatasi setiap context_token hingga 10 balasan. Nonaktifkan keluaran penalaran dan alat, atau aktifkan penggabungan pesan agar pengiriman tidak gagal.",
+    "wechatGetQrcode": "Dapatkan kode QR login",
+    "wechatLoginSuccess": "Login WeChat berhasil, token telah diisi",
+    "wechatMediaDir": "Direktori media",
+    "wechatMessageMerge": "Gabungkan pesan",
+    "wechatMessageMergeDelayMs": "Jeda penggabungan (ms)",
+    "wechatMessageMergeDelayMsTooltip": "Jendela penggabungan pesan. Nilai 0 menggabungkan semua balasan di akhir. Nilai positif (mis. 1000) menahan pesan selama durasi tersebut sebelum dikirim.",
+    "wechatMessageMergeDelayMsValidation": "Masukkan bilangan bulat nonnegatif",
+    "wechatMessageMergeTooltip": "Gabungkan balasan untuk menghindari batas 10 pesan WeChat per context_token. Jeda 0 mengirim satu balasan di akhir; jeda positif menggabungkan pesan dalam rentang waktu tersebut.",
+    "wechatQrcodeExpired": "Kode QR kedaluwarsa. Dapatkan kode baru.",
+    "wechatQrcodeFailed": "Gagal mengambil kode QR. Coba lagi.",
+    "wechatScanHint": "Pindai kode QR dengan WeChat untuk masuk",
+    "wechatScanLogin": "Pindai untuk masuk",
+    "wechatSetupGuide": "Bot akun pribadi WeChat memakai protokol iLink. Saat pertama dijalankan tanpa token, pindai URL QR yang ditampilkan. Token disimpan secara lokal.",
+    "wecomAuthFailed": "Otorisasi gagal: {{msg}}",
+    "wecomAuthHint": "Pindai dengan WeCom untuk otorisasi. Bot ID dan Secret akan diisi otomatis.",
+    "wecomAuthSuccess": "Bot WeCom diotorisasi. Bot ID dan Secret telah diisi.",
+    "wecomCancelled": "Otorisasi dibatalkan",
+    "wecomQrcodeFailed": "Gagal mendapatkan kode QR WeCom. Coba lagi.",
+    "wecomScanAuth": "Pindai untuk otorisasi",
+    "wecomSetupGuide": "Saat membuat bot lewat QR, pilih \"Lewati otorisasi\" untuk kemampuan bot. Memilih \"Konfirmasi otorisasi\" dapat membatasi interaksi hanya untuk pembuat bot.",
+    "welcomeGreeting": "Salam sambutan",
+    "welcomeText": "Pesan sambutan",
+    "welcomeTextPlaceholder": "Halo! Saya QwenPaw. Ada yang bisa saya bantu?",
+    "welcomeTextTooltip": "Kirim otomatis saat pengguna pertama kali membuka percakapan pribadi dengan bot pada hari itu",
+    "xiaoyiSetupGuide": "Buat agen di platform pengembang Huawei untuk mendapatkan AK/SK dan ID Agen. AK/SK tersedia di halaman pengelolaan kredensial.",
+    "fieldHomeserverURL": "URL server utama",
+    "fieldAuthMethod": "Metode autentikasi",
+    "fieldAccessToken": "Token akses",
+    "fieldPassword": "Kata sandi",
+    "fieldEnableEndtoEndEncryption": "Enkripsi ujung ke ujung",
+    "fieldDeviceName": "Nama perangkat",
+    "fieldDBPath": "Jalur basis data",
+    "fieldPollIntervalsec": "Interval pemeriksaan (dtk)",
+    "fieldHTTPProxy": "Proksi HTTP",
+    "fieldHTTPProxyAuth": "Autentikasi proksi HTTP",
+    "fieldClientID": "ID klien",
+    "fieldClientSecret": "Rahasia klien",
+    "fieldMessageType": "Jenis pesan",
+    "fieldCronMessageType": "Jenis pesan terjadwal",
+    "fieldCardTemplateID": "ID templat kartu",
+    "fieldCardTemplateKey": "Variabel templat kartu",
+    "fieldRobotCode": "Kode bot",
+    "fieldAppID": "ID aplikasi",
+    "fieldAppSecret": "Rahasia aplikasi",
+    "fieldEncryptKey": "Kunci enkripsi",
+    "fieldVerificationToken": "Token verifikasi",
+    "fieldAPIBaseURL": "URL dasar API",
+    "fieldShowTyping": "Tampilkan status mengetik",
+    "fieldMQTTHost": "Host MQTT",
+    "fieldMQTTPort": "Port MQTT",
+    "fieldCleanSession": "Bersihkan sesi",
+    "fieldQoS": "Kualitas layanan (QoS)",
+    "fieldMQTTUsername": "Nama pengguna MQTT",
+    "fieldMQTTPassword": "Kata sandi MQTT",
+    "fieldSubscribeTopic": "Topik langganan",
+    "fieldPublishTopic": "Topik publikasi",
+    "fieldTLSEnabled": "Aktifkan TLS",
+    "fieldTLSCACerts": "Sertifikat TLS CA",
+    "fieldTLSCertfile": "File sertifikat TLS",
+    "fieldTLSKeyfile": "File kunci TLS",
+    "fieldMattermostURL": "URL Mattermost",
+    "fieldThreadFollowWithoutMention": "Ikuti utas tanpa sebutan",
+    "fieldBotID": "ID bot",
+    "fieldSecret": "Rahasia",
+    "fieldAccessKeyAK": "Kunci akses (AK)",
+    "fieldSecretKeySK": "Kunci rahasia (SK)",
+    "fieldAgentID": "ID agen",
+    "fieldAPIDomain": "Domain API",
+    "fieldWebSocketHost": "Host WebSocket",
+    "fieldWebSocketPort": "Port WebSocket",
+    "matrixUserHelp": "Gunakan MXID lengkap (mis. @bot:matrix.org) atau nama lokal (bot).",
+    "matrixEncryptionHelp": "Setelah aktif, verifikasi perangkat di Matrix (mis. Element) dan instal: pip install matrix-nio[e2e].",
+    "matrixDeviceHelp": "Nama perangkat Matrix tetap. Bawaan: qwenpaw-worker.",
+    "messageTypeHelp": "markdown: pesan biasa; card: kartu AI interaktif.",
+    "scheduledMessageTypeHelp": "Jenis pesan tugas terjadwal, terpisah dari format obrolan.",
+    "cardVariableHelp": "Harus sama persis dengan variabel templat.",
+    "robotCodeHelp": "Sebaiknya isi secara eksplisit untuk obrolan grup.",
+    "apiDomainHelp": "Domain REST API untuk autentikasi token. Bawaan: bot.yuanbao.tencent.com.",
+    "requiredField": "Masukkan {{field}}",
+    "portRange": "Port harus antara 1 dan 65535",
+    "developmentMode": "Pengembangan (pyVoIP)",
+    "productionMode": "Produksi (LiveKit)"
   },
   "tools": {
-    "title": "Tool Bawaan",
+    "title": "Alat",
     "description": "Kelola tool bawaan dan status aktifnya. Tool yang dinonaktifkan tidak tersedia untuk agen.",
     "emptyState": "Tidak ada tool yang dikonfigurasi",
     "loadError": "Gagal memuat tool",
@@ -1760,7 +2045,157 @@
     "noEnabled": "Tidak ada alat yang diaktifkan",
     "goEnableBtn": "Aktifkan sekarang",
     "configureAction": "Konfigurasi",
-    "enableAction": "Aktifkan →"
+    "enableAction": "Aktifkan →",
+    "catalog": {
+      "execute_shell_command": {
+        "name": "Jalankan perintah",
+        "description": "Jalankan perintah dan skrip terminal."
+      },
+      "read_file": {
+        "name": "Baca berkas",
+        "description": "Baca berkas teks atau baris tertentu."
+      },
+      "write_file": {
+        "name": "Tulis berkas",
+        "description": "Buat berkas atau tulis konten baru."
+      },
+      "edit_file": {
+        "name": "Edit berkas",
+        "description": "Cari dan ganti konten tertentu dalam berkas."
+      },
+      "append_file": {
+        "name": "Tambahkan ke berkas",
+        "description": "Tambahkan teks tanpa mengganti konten yang sudah ada."
+      },
+      "grep_search": {
+        "name": "Cari isi berkas",
+        "description": "Cari teks berdasarkan kata kunci atau pola."
+      },
+      "glob_search": {
+        "name": "Temukan berkas",
+        "description": "Temukan berkas berdasarkan nama atau pola jalur."
+      },
+      "ast_search": {
+        "name": "Cari struktur kode",
+        "description": "Cari pola kode dengan memahami sintaks."
+      },
+      "desktop_screenshot": {
+        "name": "Ambil tangkapan layar",
+        "description": "Ambil tangkapan layar desktop untuk diperiksa agen."
+      },
+      "view_image": {
+        "name": "Lihat gambar",
+        "description": "Muat gambar agar dapat dipahami model."
+      },
+      "view_video": {
+        "name": "Lihat video",
+        "description": "Muat video untuk dianalisis model."
+      },
+      "enhance_and_generate_image": {
+        "name": "Sempurnakan dan buat gambar",
+        "description": "Perbaiki prompt gambar lalu hasilkan gambarnya."
+      },
+      "web_search": {
+        "name": "Cari di web",
+        "description": "Temukan informasi terkini dan sumber di internet."
+      },
+      "web_fetch": {
+        "name": "Baca halaman web",
+        "description": "Ambil konten halaman untuk dibaca dan dianalisis."
+      },
+      "browser": {
+        "name": "Gunakan browser",
+        "description": "Jelajahi halaman dan berinteraksi dengan konten web."
+      },
+      "list_agents": {
+        "name": "Daftar agen",
+        "description": "Temukan agen yang tersedia untuk berkolaborasi."
+      },
+      "chat_with_agent": {
+        "name": "Mengobrol dengan agen",
+        "description": "Kirim pesan ke agen lain dan terima balasannya."
+      },
+      "submit_to_agent": {
+        "name": "Delegasikan tugas",
+        "description": "Kirim tugas latar belakang ke agen lain."
+      },
+      "check_agent_task": {
+        "name": "Periksa kemajuan tugas",
+        "description": "Periksa status dan hasil tugas yang didelegasikan."
+      },
+      "spawn_subagent": {
+        "name": "Jalankan subagen",
+        "description": "Mulai agen sementara untuk tugas terpisah."
+      },
+      "delegate_external_agent": {
+        "name": "Delegasikan ke agen eksternal",
+        "description": "Serahkan pekerjaan ke agen eksternal yang telah dikonfigurasi."
+      },
+      "send_file_to_user": {
+        "name": "Kirim berkas",
+        "description": "Kirim berkas ke pengguna dalam percakapan saat ini."
+      },
+      "get_current_time": {
+        "name": "Dapatkan waktu saat ini",
+        "description": "Baca tanggal dan waktu saat ini."
+      },
+      "set_user_timezone": {
+        "name": "Atur zona waktu",
+        "description": "Atur zona waktu pengguna untuk tugas berbasis waktu."
+      },
+      "get_token_usage": {
+        "name": "Periksa penggunaan token",
+        "description": "Periksa penggunaan token pada panggilan model."
+      },
+      "materialize_skill": {
+        "name": "Simpan keterampilan",
+        "description": "Tulis definisi keterampilan ke ruang kerja."
+      },
+      "run_tool_batch": {
+        "name": "Jalankan alat secara berkelompok",
+        "description": "Jalankan panggilan alat yang ditentukan dalam berkas JSON."
+      },
+      "activate_f1_exploration_mode": {
+        "name": "Jelajahi persetujuan email",
+        "description": "Masuk ke mode eksplorasi terpandu untuk persetujuan email."
+      },
+      "migration_compat_inspect": {
+        "name": "Periksa aset migrasi",
+        "description": "Periksa aset yang disiapkan dan kemampuan QwenPaw saat ini."
+      },
+      "migration_compat_read_file": {
+        "name": "Baca berkas migrasi",
+        "description": "Baca berkas aset yang disiapkan per halaman."
+      },
+      "migration_compat_write_file": {
+        "name": "Tulis berkas migrasi",
+        "description": "Buat atau timpa berkas teks dalam aset yang sedang diperbaiki."
+      },
+      "migration_compat_update": {
+        "name": "Perbarui pengaturan migrasi",
+        "description": "Perbarui kolom MCP atau tugas terjadwal yang diizinkan."
+      },
+      "migration_compat_finalize": {
+        "name": "Validasi dan selesaikan migrasi",
+        "description": "Jalankan pengujian akhir dan terapkan aset yang diperbaiki jika berhasil."
+      }
+    },
+    "search": "Cari alat",
+    "noSearchResults": "Tidak ada alat yang cocok",
+    "filterAll": "Semua alat",
+    "filterEnabled": "Aktif",
+    "filterDisabled": "Nonaktif",
+    "enabledCount": "{{enabled}} dari {{total}} aktif",
+    "enableAllConfirm": "Aktifkan semua {{count}} alat?",
+    "groups": {
+      "files": "Berkas dan kode",
+      "web": "Web dan browser",
+      "media": "Gambar dan video",
+      "agents": "Kolaborasi agen",
+      "runtime": "Eksekusi dan otomatisasi",
+      "migration": "Migrasi aplikasi",
+      "other": "Belum dikategorikan"
+    }
   },
   "modelConfig": {
     "promptTitle": "Model LLM Diperlukan - Pilih di Chat Setelah Konfigurasi",
@@ -1777,7 +2212,7 @@
     "security": "Keamanan",
     "title": "Keamanan",
     "description": "Kelola fitur keamanan untuk tool dan skill.",
-    "toolGuardTitle": "Tool Guard",
+    "toolGuardTitle": "Perlindungan alat",
     "toolGuardDescription": "Konfigurasi pemindaian keamanan untuk panggilan tool. Operasi berbahaya akan memerlukan persetujuan eksplisit sebelum dieksekusi.",
     "enabled": "Aktifkan Tool Guard",
     "guardedTools": "Tool yang Diawasi",
@@ -1799,6 +2234,16 @@
       "edit": "Edit",
       "delete": "Hapus",
       "add": "Tambah Aturan"
+    },
+    "sandboxEnabled": "Perlindungan sandbox",
+    "allowNoAuthHosts": {
+      "title": "Host tanpa autentikasi"
+    },
+    "skillScanner": {
+      "title": "Pemindai keamanan keterampilan"
+    },
+    "fileGuard": {
+      "title": "Perlindungan berkas"
     }
   },
   "checkpoints": {
@@ -1950,7 +2395,207 @@
       "textRequired": "Konten pesan wajib diisi saat jenis tugas adalah text.",
       "requestRequired": "Konten request wajib diisi saat jenis tugas adalah agent.",
       "invalidCronExpression": "Ekspresi cron tidak valid. Gunakan format cron 5 kolom."
-    }
+    },
+    "calendarScope": "Hanya tugas dengan tanggal tertentu",
+    "viewMode": "Tampilan",
+    "emptyList": "Tidak ada tugas dalam tampilan ini",
+    "previousMonth": "Bulan sebelumnya",
+    "nextMonth": "Bulan berikutnya",
+    "cronExpression": "Ekspresi Cron",
+    "cronFormatHint": "Format: menit jam hari bulan hari dalam minggu",
+    "importReviewBadge": "Impor perlu ditinjau",
+    "importReviewApprove": "Setujui tinjauan",
+    "importReviewTitle": "Tinjau tugas impor",
+    "importReviewContent": "Apakah Anda telah memeriksa instruksi, direktori kerja, dan izin “{{name}}” serta memastikan tugas dapat berjalan aman di QwenPaw? Setelah disetujui, tugas tetap nonaktif dan harus diaktifkan secara terpisah.",
+    "importReviewConfirm": "Setujui tinjauan",
+    "importReviewSuccess": "Tinjauan disetujui. Tugas tetap nonaktif; aktifkan saat siap.",
+    "importReviewFailed": "Tinjauan tidak dapat disetujui",
+    "importReviewBlocked": "Tugas impor harus ditinjau sebelum diaktifkan atau dijalankan.",
+    "importReviewProjectDirLabel": "Pemetaan direktori proyek lokal",
+    "importReviewProjectDirTooltip": "Petakan direktori kerja asal ke proyek yang ada di perangkat ini. Formulir ini tidak dapat mengubah metadata migrasi atau persyaratan tinjauan.",
+    "importReviewProjectDirExtra": "Direktori jarak jauh atau yang tidak dapat diverifikasi harus dipetakan sebelum ditinjau. Untuk tugas lain, pemetaan bersifat opsional.",
+    "importReviewProjectDirPlaceholder": "Contoh: /Users/me/Documents/my-project",
+    "importReviewProjectDirRequired": "Edit tugas dan tentukan direktori proyek lokal yang valid sebelum menyetujuinya.",
+    "executionModel": "Model eksekusi",
+    "executionModelDefault": "Default",
+    "executionModelTooltip": "Default menggunakan model bawaan agen saat tugas dijalankan. Model yang dipilih hanya berlaku untuk tugas ini.",
+    "executionModelsLoadFailed": "Gagal memuat model. Pilihan tersimpan tidak berubah.",
+    "scheduleFilterAll": "Semua jadwal",
+    "scheduleTypeRecurring": "Berulang",
+    "scheduleTypeOnce": "Terjadwal",
+    "scheduleCronLabel": "Waktu eksekusi",
+    "onceRunAt": "Waktu eksekusi",
+    "repeatEnabled": "Ulangi",
+    "repeatEnabledTooltip": "Ulangi jadwal mulai dari waktu ini.",
+    "repeatFrequency": "Frekuensi pengulangan",
+    "repeatEveryDays": "Ulangi setiap (hari)",
+    "repeatEveryPrefix": "Setiap",
+    "repeatEverySuffix": "hari",
+    "repeatEndType": "Akhiri pengulangan",
+    "repeatEndNever": "Tidak pernah",
+    "repeatEndUntil": "Pada tanggal",
+    "repeatEndCount": "Jumlah terbatas",
+    "repeatUntil": "Tanggal akhir",
+    "repeatCount": "Jumlah eksekusi",
+    "cronCustomExpression": "Ekspresi Cron",
+    "disable": "Nonaktifkan",
+    "edit": "Edit",
+    "delete": "Hapus",
+    "perPage": "/ halaman",
+    "pleaseInputId": "Masukkan ID tugas",
+    "pleaseInputName": "Masukkan nama tugas",
+    "pleaseInputCron": "Masukkan ekspresi Cron",
+    "pleaseSelectScheduleType": "Pilih jenis jadwal",
+    "pleaseInputRunAt": "Pilih waktu eksekusi",
+    "pleaseInputRepeatEveryDays": "Masukkan interval pengulangan (hari)",
+    "pleaseSelectRepeatEndType": "Pilih kondisi akhir",
+    "pleaseInputRepeatUntil": "Pilih tanggal akhir",
+    "pleaseInputRepeatCount": "Masukkan jumlah eksekusi",
+    "pleaseSelectTaskType": "Pilih jenis tugas",
+    "pleaseInputRequest": "Masukkan isi permintaan",
+    "pleaseInputMessageContent": "Masukkan isi pesan",
+    "pleaseInputChannel": "Masukkan kanal tujuan",
+    "pleaseInputUserId": "Masukkan ID pengguna tujuan",
+    "pleaseInputSessionId": "Masukkan ID sesi tujuan",
+    "jobIdPlaceholder": "Contoh: daily-report-job",
+    "jobNamePlaceholder": "Contoh: Laporan pagi harian",
+    "taskDescriptionPlaceholder": "Untuk tugas teks, masukkan pesan yang akan dikirim…",
+    "invalidJsonFormat": "Format JSON tidak valid",
+    "jsonFormatRequired": "Format JSON diperlukan",
+    "taskType": "Jenis tugas",
+    "text": "Isi pesan",
+    "requestInput": "Isi permintaan",
+    "requestSessionId": "ID sesi permintaan",
+    "requestUserId": "ID pengguna permintaan",
+    "dispatchChannel": "Kanal tujuan",
+    "dispatchTargetUserId": "ID pengguna tujuan",
+    "dispatchTargetSessionId": "ID sesi tujuan",
+    "dispatchMode": "Mode pengiriman",
+    "runtimeShareSession": "Bagikan sesi",
+    "runtimeMaxConcurrency": "Eksekusi bersamaan maksimum",
+    "runtimeTimeoutSeconds": "Batas waktu (detik)",
+    "runtimeMisfireGraceSeconds": "Toleransi keterlambatan (detik)",
+    "runtimeToolSafety": "Persetujuan alat",
+    "idTooltip": "UUID unik dibuat otomatis saat tugas dibuat dan tidak dapat diubah.",
+    "nameTooltip": "Nama yang mudah dikenali untuk tugas ini.",
+    "cronTooltip": "Tentukan kapan tugas dijalankan.",
+    "cronExample": "Contoh: '0 9 * * *' = setiap hari pukul 09.00; '*/30 * * * *' = setiap 30 menit; '0 */2 * * *' = setiap 2 jam; '0 0 * * sun' = Minggu tengah malam.",
+    "cronHelper": "Baru menggunakan ekspresi Cron?",
+    "cronHelperLink": "Gunakan generator online",
+    "timezoneTooltip": "Zona waktu jadwal Cron. Default: UTC.",
+    "taskTypeTooltip": "Pilih text untuk pesan sederhana atau agent untuk alur kerja agen.",
+    "textTooltip": "Isi pesan yang dikirim. Wajib untuk tugas berjenis text.",
+    "jsonMode": "Mode JSON",
+    "textMode": "Mode teks",
+    "requestTextExample": "Isi pesan Anda",
+    "requestTextPlaceholder": "Jelaskan tugas yang perlu dikerjakan agen.",
+    "requestInputTooltip": "Jelaskan tugas untuk agen atau beralih ke JSON untuk mengedit pesan lengkap.",
+    "requestSessionIdTooltip": "ID sesi konteks permintaan. Gunakan default jika tidak yakin.",
+    "requestUserIdTooltip": "ID pengguna yang memulai permintaan. Gunakan system untuk tugas otomatis.",
+    "dispatchChannelTooltip": "Kanal penerima respons, misalnya console, discord, atau imessage.",
+    "dispatchTargetUserIdTooltip": "ID pengguna penerima respons pada kanal tujuan.",
+    "dispatchTargetSessionIdTooltip": "ID sesi penerima respons pada kanal tujuan.",
+    "dispatchModeTooltip": "Pilih stream untuk respons langsung atau final untuk hasil lengkap saja.",
+    "shareSessionTooltip": "Jika aktif, sesi dibagikan dengan pengguna tujuan. Jika nonaktif, setiap eksekusi memakai konteks dan ID terpisah, cocok untuk tugas tanpa memori. Default: aktif.",
+    "maxConcurrencyTooltip": "Jumlah maksimum eksekusi tugas ini secara bersamaan. Default: 1.",
+    "timeoutSecondsTooltip": "Waktu eksekusi maksimum dalam detik. Tugas dihentikan jika melewati batas.",
+    "misfireGraceSecondsTooltip": "Toleransi untuk eksekusi terlambat. Tugas tidak dijalankan jika terlambat melebihi batas ini.",
+    "toolSafetyTooltip": "Jika aktif, panggilan alat berisiko memerlukan persetujuan pengguna dan dapat menahan tugas otomatis. Jika nonaktif, persetujuan tidak diminta, tetapi aturan File Guard tetap berlaku. Default: nonaktif.",
+    "executeNowTitle": "Jalankan tugas sekarang",
+    "executeNowContent": "Jalankan “{{name}}” sekarang?",
+    "executeNowConfirm": "Jalankan sekarang",
+    "listView": "Tampilan daftar",
+    "calendarView": "Tampilan kalender",
+    "calendarEmptyHint": "Belum ada tugas dengan tanggal tertentu. Buat tugas untuk menampilkannya di kalender.",
+    "calendarMoreItems": "+{{count}} lainnya",
+    "calendarDayListTitle": "Tugas pada {{date}}",
+    "executionHistory": "Riwayat",
+    "historyTitle": "Riwayat - {{name}}",
+    "historyEmpty": "Belum ada riwayat eksekusi.",
+    "historyStatusSuccess": "Berhasil",
+    "historyStatusFailed": "Gagal",
+    "historyStatusRunning": "Berjalan",
+    "historyStatusCancelled": "Dibatalkan",
+    "historyTriggerScheduled": "Dipicu oleh jadwal",
+    "historyTriggerManual": "Dipicu manual",
+    "historyExpand": "Perluas",
+    "historyCollapse": "Ciutkan",
+    "createFromTemplate": "Buat dari templat",
+    "templateModalTitle": "Templat tugas",
+    "templateModalDescription": "Pilih templat lalu sesuaikan jadwal dan isinya.",
+    "templateTagCalendar": "Kalender",
+    "templateTagCalendarRecommended": "Disarankan untuk kalender",
+    "templateTagPersonal": "Pribadi",
+    "templateTagReminder": "Pengingat",
+    "templateTagTeam": "Tim",
+    "useTemplate": "Gunakan templat",
+    "templates": {
+      "dailyTechNewsBrief": {
+        "title": "Ringkasan berita teknologi harian",
+        "description": "Ringkas berita teknologi populer setiap hari kerja pukul 09.30.",
+        "frequency": "Hari kerja 09.30 (30 9 * * 1-5)"
+      },
+      "dailyEveningReflection": {
+        "title": "Refleksi malam harian",
+        "description": "Ingatkan untuk meninjau pekerjaan hari ini setiap hari kerja pukul 20.00.",
+        "frequency": "Hari kerja 20.00 (0 20 * * 1-5)"
+      },
+      "weekendRelaxationReminder": {
+        "title": "Pengingat bersantai akhir pekan",
+        "description": "Kirim rekomendasi film populer pada pagi akhir pekan.",
+        "frequency": "Akhir pekan 10.00 (0 10 * * 6,0)"
+      },
+      "pomodoroBreakReminder": {
+        "title": "Pengingat jeda Pomodoro",
+        "description": "Ingatkan untuk minum atau mengistirahatkan mata setiap 25 menit selama jam kerja.",
+        "frequency": "Hari kerja 09.00–17.59, setiap 25 menit (*/25 9-17 * * 1-5)"
+      },
+      "petCareReminder": {
+        "title": "Pengingat obat cacing dan vaksin hewan",
+        "description": "Ingatkan perawatan obat cacing atau vaksin pada malam tanggal 15 setiap bulan.",
+        "frequency": "Tanggal 15 setiap bulan, 20.00 (0 20 15 * *)"
+      },
+      "onceTextBirthdayReminder": {
+        "title": "Pengingat ulang tahun",
+        "description": "Ingatkan ulang tahun xx pada 1 Januari.",
+        "frequency": "Waktu eksekusi: 2026-01-01 09.00"
+      },
+      "onceAgentBusinessTripPrep": {
+        "title": "Persiapan perjalanan bisnis",
+        "description": "Periksa cuaca tujuan dan berikan saran persiapan perjalanan.",
+        "frequency": "Waktu eksekusi: 2026-01-01 20.00"
+      },
+      "repeatCountTextMedicineReminder": {
+        "title": "Pengingat obat (14 kali)",
+        "description": "Ingatkan minum obat tepat waktu sebanyak 14 kali.",
+        "frequency": "Mulai: 2026-01-01 09.00; setiap 1 hari; 14 kali"
+      },
+      "repeatCountAgentDietPlan": {
+        "title": "Rencana makan 14 hari",
+        "description": "Buat dan kirim saran makanan harian selama 14 hari.",
+        "frequency": "Mulai: 2026-01-01 08.00; setiap 1 hari; 14 kali"
+      },
+      "repeatUntilTextWeeklyMeeting": {
+        "title": "Pengingat rapat mingguan (2 bulan)",
+        "description": "Kirim pengingat rapat mingguan hingga batas waktu yang ditetapkan.",
+        "frequency": "Mulai: 2026-01-02 08.45; setiap 7 hari; hingga 2026-03-01"
+      },
+      "repeatUntilAgentWeeklySummary": {
+        "title": "Ringkasan sebelum rapat mingguan",
+        "description": "Ringkas memori minggu lalu sebelum setiap rapat mingguan.",
+        "frequency": "Mulai: 2026-01-02 08.30; setiap 7 hari; hingga 2026-03-01"
+      }
+    },
+    "saveResultToInbox": "Simpan hasil ke Kotak Masuk",
+    "saveResultToInboxTooltip": "Jika aktif, hasil eksekusi dan pengiriman yang berhasil disimpan di Kotak Masuk. Kegagalan pengiriman selalu disimpan di Kotak Masuk sebagai cadangan.",
+    "frequency": "Frekuensi",
+    "cronTypeMinutes": "Menit",
+    "cronTypeMonthly": "Bulanan",
+    "intervalMinutes": "Interval pengulangan",
+    "everyMinutes": "Setiap {{count}} menit",
+    "monthDay": "Tanggal setiap bulan",
+    "shortMonthHint": "Bulan tanpa tanggal ini akan dilewati.",
+    "selectAtLeastOneDay": "Pilih setidaknya satu hari."
   },
   "heartbeat": {
     "title": "Heartbeat",
@@ -1973,7 +2618,15 @@
     "activeEnd": "Waktu selesai",
     "loadFailed": "Gagal memuat konfigurasi heartbeat",
     "saveSuccess": "Berhasil disimpan; heartbeat dimuat ulang",
-    "saveFailed": "Gagal menyimpan konfigurasi heartbeat"
+    "saveFailed": "Gagal menyimpan konfigurasi heartbeat",
+    "instructionsTitle": "Instruksi heartbeat",
+    "instructionsLoadFailed": "Instruksi gagal dimuat. Coba lagi.",
+    "customInterval": "Interval khusus",
+    "intervalRange": "Pilih antara 1 menit dan 23 jam 59 menit",
+    "runNow": "Jalankan sekarang",
+    "runNowFailed": "Gagal menjalankan heartbeat",
+    "runNowSuccess": "Heartbeat dipicu. Periksa kotak masuk atau saluran tujuan.",
+    "targetInbox": "Kirim ke kotak masuk"
   },
   "backup": {
     "title": "Cadangan",
@@ -2036,7 +2689,8 @@
     "trustLegacyTitle": "Percayai cadangan lama?",
     "unknownBackupName": "Arsip cadangan",
     "trustForeignDesc": "Cadangan ini tidak ditandatangani oleh instance ini. Lanjutkan hanya jika Anda memercayai sumbernya; pengaturan keamanan lokal dan MCP akan dipertahankan secara default saat dipulihkan.",
-    "trustLegacyDesc": "Cadangan lama ini tidak memiliki tanda tangan lokal. Lanjutkan hanya jika Anda memercayai asalnya; instance ini akan menandatanganinya sebelum dipulihkan."
+    "trustLegacyDesc": "Cadangan lama ini tidak memiliki tanda tangan lokal. Lanjutkan hanya jika Anda memercayai asalnya; instance ini akan menandatanganinya sebelum dipulihkan.",
+    "agentsPlaceholder": "Pilih ruang kerja agen yang akan dicadangkan"
   },
   "mcp": {
     "title": "Klien MCP",
@@ -2172,7 +2826,10 @@
       "authEndpoint": "Authorization Endpoint (timpa)",
       "tokenEndpoint": "Token Endpoint (timpa)",
       "endpointHint": "Kosongkan untuk deteksi otomatis dari server MCP."
-    }
+    },
+    "local": "Lokal",
+    "remote": "Jarak jauh",
+    "invalidJson": "Masukkan JSON yang valid dengan setidaknya satu server MCP."
   },
   "preview": {
     "error": {
@@ -2272,7 +2929,9 @@
       "notFound": "File log backend belum ditemukan.",
       "placeholder": "Output log backend akan muncul di sini.",
       "loadFailed": "Gagal memuat log backend",
-      "searchPlaceholder": "Cari log backend..."
+      "searchPlaceholder": "Cari log backend...",
+      "newLogsAvailable": "Log baru · Ke yang terbaru",
+      "returnLatest": "Kembali ke log terbaru"
     },
     "actions": {
       "refreshBackend": "Segarkan log backend",
@@ -2492,18 +3151,18 @@
     "required": " (wajib)"
   },
   "acp": {
-    "title": "ACP",
+    "title": "Integrasi ACP",
     "loading": "Memuat konfigurasi ACP...",
-    "builtin": "Bawaan",
+    "builtin": "Prasetel",
     "custom": "Kustom",
-    "create": "Tambah Agen Kustom",
-    "createTitle": "Buat Agen ACP",
-    "createSuccess": "Agen ACP berhasil dibuat",
+    "create": "Tambah integrasi ACP",
+    "createTitle": "Integrasi ACP baru",
+    "createSuccess": "Integrasi ACP ditambahkan",
     "editTitle": "Edit Konfigurasi ACP",
-    "agentKey": "Kunci Agen",
-    "agentKeyRequired": "Harap masukkan kunci agen",
-    "agentKeyInvalid": "Kunci agen hanya boleh berisi huruf, angka, garis bawah, dan tanda hubung",
-    "agentKeyExists": "Kunci agen ini sudah ada",
+    "agentKey": "ID integrasi",
+    "agentKeyRequired": "Masukkan ID integrasi",
+    "agentKeyInvalid": "ID hanya boleh berisi huruf, angka, garis bawah, dan tanda hubung",
+    "agentKeyExists": "ID integrasi ini sudah ada",
     "enabled": "Aktif",
     "command": "Perintah",
     "commandRequired": "Harap masukkan perintah",
@@ -2525,10 +3184,10 @@
     "configSaved": "Konfigurasi ACP tersimpan",
     "configFailed": "Gagal menyimpan konfigurasi ACP",
     "deleteTitle": "Hapus {{name}}",
-    "deleteConfirm": "Hapus agen ACP ini? Tindakan ini tidak dapat dibatalkan.",
-    "deleteSuccess": "Agen ACP berhasil dihapus",
-    "deleteFailed": "Gagal menghapus agen ACP",
-    "nodeSettings": "Pengaturan Node",
+    "deleteConfirm": "Hapus integrasi ACP ini? Tindakan ini tidak dapat dibatalkan.",
+    "deleteSuccess": "Integrasi ACP dihapus",
+    "deleteFailed": "Gagal menghapus integrasi ACP",
+    "nodeSettings": "Lingkungan runtime",
     "nodePath": "Path Node",
     "chooseOtherNode": "Pilih Node lain...",
     "selectNodePath": "Pilih path Node",
@@ -2547,6 +3206,18 @@
       "npxMissing": "npx tidak ditemukan",
       "versionCheckFailed": "Pemeriksaan versi gagal",
       "unavailable": "Tidak tersedia"
+    },
+    "intro": "Hubungkan alat melalui ACP agar dapat dipanggil agen saat ini.",
+    "protocolHelp": "Kelola integrasi alat ACP di sini. Backend pihak ketiga di pengelolaan agen memakai protokol bawaannya sendiri dan dikonfigurasi terpisah.",
+    "currentAgent": "Agen saat ini",
+    "callableTools": "Alat yang dapat dipanggil",
+    "enabledIntegrations": "Integrasi aktif",
+    "search": "Cari integrasi ACP",
+    "trustedHelp": "Setujui permintaan izin dari koneksi ini secara otomatis. Pemblokiran keamanan wajib tetap berlaku. Nonaktifkan untuk menyetujui setiap permintaan.",
+    "toolParseModes": {
+      "call_title": "Judul panggilan",
+      "update_detail": "Detail progres",
+      "call_detail": "Detail panggilan"
     }
   },
   "sessions": {
@@ -2667,7 +3338,9 @@
       "user": "QwenPaw",
       "system": "Sistem",
       "default": "Bawaan"
-    }
+    },
+    "qwenpawSettings": "Pengaturan lingkungan QwenPaw",
+    "emptyValue": "String kosong"
   },
   "tokenUsage": {
     "title": "Penggunaan Token",
@@ -3449,7 +4122,8 @@
     "alreadyBound": "Sudah terikat",
     "tooMany": "Maksimal {{max}} direktori dapat diikat.",
     "countTitle": "Jumlah direktori yang diikat",
-    "syncAsAgentDefault": "Gunakan pengaturan ruang kerja ini untuk tugas baru"
+    "syncAsAgentDefault": "Gunakan pengaturan ruang kerja ini untuk tugas baru",
+    "openDirectory": "Buka {{name}}"
   },
   "agentConfig": {
     "title": "Konfigurasi",
@@ -3525,7 +4199,7 @@
       "builtInNote": "Pipeline terkunci · Nilai dapat diedit",
       "templateSectionTitle": "Templat Loop",
       "templateSectionDescription": "Pilih templat bawaan atau tambahkan milik Anda.",
-      "defaultTab": "Default",
+      "defaultTab": "Standar",
       "goalTab": "Tujuan",
       "missionTab": "Misi",
       "defaultDescription": "Loop ReAct terjaga standar di luar mode eksplisit.",
@@ -3979,7 +4653,11 @@
     "contextStrategy": "Strategi Konteks",
     "contextStrategyTooltip": "Cara agen mengelola konteks panjang. Scroll (disarankan) menyimpan giliran yang dievakuasi ke penyimpanan riwayat permanen dan memanggilnya kembali sesuai kebutuhan; Native menggunakan kompresi di tempat. Mulai ulang QwenPaw agar perubahan diterapkan.",
     "contextStrategyScroll": "Scroll",
-    "contextStrategyNative": "Native"
+    "contextStrategyNative": "Native",
+    "offloadPolicy": {
+      "title": "Kebijakan eksekusi alat di latar belakang"
+    },
+    "memoryAutoRecordTitle": "Aktifkan memori percakapan"
   },
   "loop": {
     "gotoSettings": "Pengaturan Loop Agen",
@@ -4008,6 +4686,80 @@
         "name": "Misi",
         "description": "Jalankan tugas multi-langkah yang terstruktur dan berkelanjutan."
       }
+    }
+  },
+  "runtimeDesign": {
+    "title": "Studio runtime",
+    "subtitle": "Atur agen agar bekerja sesuai cara Anda.",
+    "workspace": "Ruang kerja",
+    "workspaceHint": "Bahasa, zona waktu, dan ruang kerja",
+    "execution": "Eksekusi",
+    "executionHint": "Siklus tugas dan persetujuan alat",
+    "recovery": "Pemulihan",
+    "recoveryHint": "Jeda percobaan dan konkurensi",
+    "context": "Kapasitas konteks",
+    "contextHint": "Kompresi, retensi, dan hasil alat",
+    "memory": "Memori",
+    "memoryHint": "Catat, atur, dan cari",
+    "deviceTimezone": "Gunakan zona waktu perangkat",
+    "localTime": "Waktu lokal",
+    "mapHint": "Klik peta untuk memilih zona waktu UTC tetap. Untuk wilayah dengan waktu musim panas, pilih zona waktu wilayah di atas.",
+    "zoomIn": "Perbesar",
+    "zoomOut": "Perkecil",
+    "retryPreview": "Pratinjau waktu tunggu",
+    "retryHint": "Jeda dasar sebelum percobaan; respons server dan batas laju dapat menambah waktu.",
+    "retryAttempt": "Percobaan {{count}}",
+    "totalWait": "Total waktu tunggu",
+    "budgetTitle": "Anggaran konteks",
+    "budgetHint": "Kapasitas model yang dikonfigurasi, bukan penggunaan langsung.",
+    "trigger": "Pemicu kompresi",
+    "retained": "Konteks tersimpan",
+    "advanced": "Pengaturan lanjutan",
+    "seconds": "detik",
+    "allSettings": "Semua pengaturan",
+    "cities": {
+      "America_Los_Angeles": "Los Angeles",
+      "America_New_York": "New York",
+      "America_Sao_Paulo": "São Paulo",
+      "Europe_London": "London",
+      "Europe_Moscow": "Moskwa",
+      "Africa_Cairo": "Kairo",
+      "Africa_Johannesburg": "Johannesburg",
+      "Asia_Dubai": "Dubai",
+      "Asia_Kolkata": "Kolkata",
+      "Asia_Shanghai": "Shanghai",
+      "Asia_Tokyo": "Tokyo",
+      "Asia_Singapore": "Singapura",
+      "Australia_Sydney": "Sydney",
+      "Pacific_Auckland": "Auckland"
+    },
+    "beijingTime": "Waktu Beijing",
+    "mapPlaces": {
+      "-12": "Pulau Baker",
+      "-11": "Pago Pago",
+      "-10": "Honolulu",
+      "-9": "Anchorage",
+      "-8": "Los Angeles",
+      "-7": "Denver",
+      "-6": "Kota Meksiko",
+      "-5": "New York",
+      "-4": "San Juan",
+      "-3": "Buenos Aires",
+      "-2": "Georgia Selatan",
+      "-1": "Praia",
+      "0": "London",
+      "1": "Paris",
+      "2": "Kairo",
+      "3": "Moskwa",
+      "4": "Dubai",
+      "5": "Karachi",
+      "6": "Dhaka",
+      "7": "Bangkok",
+      "8": "Beijing",
+      "9": "Tokyo",
+      "10": "Sydney",
+      "11": "Nouméa",
+      "12": "Suva"
     }
   }
 }

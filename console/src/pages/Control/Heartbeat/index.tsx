@@ -1,22 +1,20 @@
+import { NumberSlider } from "@/components/interaction/NumberSlider";
+import { useAutoSave } from "@/hooks/useAutoSave";
+import { InteractiveCard } from "@/components/interaction/InteractiveCard";
 import { useEffect, useState } from "react";
-import {
-  Button,
-  Card,
-  Form,
-  InputNumber,
-  Select,
-  Switch,
-} from "@agentscope-ai/design";
+import { Form, Switch } from "@agentscope-ai/design";
 import { useAppMessage } from "../../../hooks/useAppMessage";
-import { TimePicker } from "antd";
+import { TimePicker, Segmented, Spin } from "antd";
 import dayjs from "dayjs";
 import customParseFormat from "dayjs/plugin/customParseFormat";
 import { useTranslation } from "react-i18next";
 import api from "../../../api";
 import { useAgentStore } from "../../../stores/agentStore";
 import type { HeartbeatConfig } from "../../../api/types/heartbeat";
-import { parseEvery, serializeEvery, type EveryUnit } from "./parseEvery";
+import { parseEvery, serializeEvery } from "./parseEvery";
+import { DurationWheel } from "@/components/interaction/DurationWheel";
 import { PageHeader } from "@/components/PageHeader";
+import { HeartbeatInstructions } from "./HeartbeatInstructions";
 import styles from "./index.module.less";
 
 dayjs.extend(customParseFormat);
@@ -52,8 +50,7 @@ function TimePickerHHmm({
 /** Form values: API shape plus flattened fields for interval and time. */
 type HeartbeatFormValues = Omit<HeartbeatConfig, "every"> & {
   every?: string;
-  everyNumber?: number;
-  everyUnit?: EveryUnit;
+  intervalMinutes?: number;
   useActiveHours?: boolean;
   activeHoursStart?: string;
   activeHoursEnd?: string;
@@ -65,18 +62,15 @@ const TARGET_OPTIONS = [
   { value: "inbox", labelKey: "heartbeat.targetInbox" },
 ];
 
-const EVERY_UNIT_OPTIONS: { value: EveryUnit; labelKey: string }[] = [
-  { value: "m", labelKey: "heartbeat.unitMinutes" },
-  { value: "h", labelKey: "heartbeat.unitHours" },
-];
-
 function HeartbeatPage() {
   const { t } = useTranslation();
   const { selectedAgent } = useAgentStore();
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
   const [form] = Form.useForm<HeartbeatFormValues>();
   const { message } = useAppMessage();
+  const intervalMinutes = Form.useWatch("intervalMinutes", form) ?? 360;
+  const enabled = Form.useWatch("enabled", form) ?? false;
+  const target = Form.useWatch("target", form) ?? "main";
 
   const fetchConfig = async () => {
     setLoading(true);
@@ -85,8 +79,7 @@ function HeartbeatPage() {
       const everyParts = parseEvery(data.every ?? "6h");
       form.setFieldsValue({
         enabled: data.enabled ?? false,
-        everyNumber: everyParts.number,
-        everyUnit: everyParts.unit,
+        intervalMinutes: everyParts.number * (everyParts.unit === "h" ? 60 : 1),
         target: data.target ?? "main",
         timeoutSeconds: data.timeoutSeconds ?? 300,
         useActiveHours: !!data.activeHours,
@@ -107,13 +100,11 @@ function HeartbeatPage() {
   }, [selectedAgent]);
 
   const onFinish = async (values: HeartbeatFormValues) => {
-    const every =
-      values.everyNumber != null && values.everyUnit
-        ? serializeEvery({
-            number: values.everyNumber,
-            unit: values.everyUnit,
-          })
-        : "6h";
+    const totalMinutes = values.intervalMinutes ?? 360;
+    const every = serializeEvery({
+      number: totalMinutes % 60 === 0 ? totalMinutes / 60 : totalMinutes,
+      unit: totalMinutes % 60 === 0 ? "h" : "m",
+    });
     const body: HeartbeatConfig = {
       enabled: values.enabled ?? false,
       every,
@@ -129,104 +120,149 @@ function HeartbeatPage() {
             }
           : undefined,
     };
-    setSaving(true);
-    try {
-      await api.updateHeartbeatConfig(body);
-      message.success(t("heartbeat.saveSuccess"));
-    } catch (e) {
-      console.error("Failed to save heartbeat config:", e);
-      message.error(t("heartbeat.saveFailed"));
-    } finally {
-      setSaving(false);
-    }
+    await api.updateHeartbeatConfig(body, selectedAgent || "default");
   };
+  const { schedule, flush } = useAutoSave(async () => {
+    const values = form.getFieldsValue(true);
+    try {
+      await form.validateFields();
+    } catch {
+      return false;
+    }
+    await onFinish(values);
+  });
 
   if (loading) {
     return (
       <div className={styles.heartbeatPage}>
-        <PageHeader
-          items={[{ title: t("nav.control") }, { title: t("heartbeat.title") }]}
-        />
-        <span className={styles.description}>{t("common.loading")}</span>
+        <PageHeader items={[{ title: t("heartbeat.title") }]} />
+        <div className={styles.loading}>
+          <Spin aria-label={t("common.loading")} />
+        </div>
       </div>
     );
   }
 
   return (
     <div className={styles.heartbeatPage}>
-      <PageHeader
-        items={[{ title: t("nav.control") }, { title: t("heartbeat.title") }]}
-      />
-      <div className={styles.heartbeatContent}>
-        <Card className={styles.card}>
-          <Form
-            form={form}
-            layout="vertical"
-            onFinish={onFinish}
-            initialValues={{
-              enabled: false,
-              everyNumber: 6,
-              everyUnit: "h",
-              target: "main",
-              timeoutSeconds: 300,
-              useActiveHours: false,
-              activeHoursStart: "08:00",
-              activeHoursEnd: "22:00",
-            }}
+      <PageHeader items={[{ title: t("heartbeat.title") }]} />
+      <Form
+        form={form}
+        layout="vertical"
+        requiredMark={false}
+        onValuesChange={schedule}
+        onFinish={() => void flush()}
+        className={styles.schedule}
+      >
+        <InteractiveCard
+          tilt={enabled ? 2 : 0}
+          className={styles.pulseCard}
+          data-disabled={!enabled}
+        >
+          <div className={styles.pulseHeader}>
+            <h2 id="heartbeat-interval-label">{t("heartbeat.every")}</h2>
+            <Form.Item name="enabled" valuePropName="checked" noStyle>
+              <Switch aria-label={t("heartbeat.enabled")} />
+            </Form.Item>
+          </div>
+          <Form.Item
+            aria-labelledby="heartbeat-interval-label"
+            name="intervalMinutes"
+            rules={[
+              {
+                required: true,
+                type: "number",
+                min: 1,
+                message: t("heartbeat.intervalRange"),
+              },
+            ]}
           >
-            <Form.Item
-              name="enabled"
-              label={t("heartbeat.enabled")}
-              valuePropName="checked"
-            >
-              <Switch />
+            <DurationWheel
+              disabled={!enabled}
+              maxHours={Math.max(23, Math.floor(intervalMinutes / 60))}
+            />
+          </Form.Item>
+          <div className={styles.presets}>
+            {[1, 3, 6, 12].map((value) => (
+              <button
+                key={value}
+                type="button"
+                data-press
+                disabled={!enabled}
+                aria-pressed={intervalMinutes === value * 60}
+                onClick={() => {
+                  form.setFieldsValue({ intervalMinutes: value * 60 });
+                  schedule();
+                }}
+              >
+                {value} {t("heartbeat.unitHours")}
+              </button>
+            ))}
+          </div>
+        </InteractiveCard>
+        <HeartbeatInstructions
+          key={selectedAgent || "default"}
+          agentId={selectedAgent || "default"}
+        />
+        <section className={styles.delivery}>
+          <Form.Item name="target" hidden>
+            <input />
+          </Form.Item>
+          <div className={styles.settingRow}>
+            <h2>{t("heartbeat.target")}</h2>
+            <Segmented
+              aria-label={t("heartbeat.target")}
+              value={target}
+              options={TARGET_OPTIONS.map((option) => ({
+                value: option.value,
+                label: t(option.labelKey),
+              }))}
+              onChange={(value) => {
+                form.setFieldValue("target", value);
+                schedule();
+              }}
+            />
+          </div>
+          <div className={styles.divider} />
+          <div className={styles.hoursHeader}>
+            <h2>{t("heartbeat.activeHours")}</h2>
+            <Form.Item name="useActiveHours" valuePropName="checked" noStyle>
+              <Switch aria-label={t("heartbeat.activeHours")} />
             </Form.Item>
-
-            <Form.Item
-              label={t("heartbeat.every")}
-              required
-              className={styles.everyField}
-            >
-              <div className={styles.everyRow}>
-                <Form.Item
-                  name="everyNumber"
-                  rules={[
-                    { required: true, message: t("heartbeat.everyRequired") },
-                    {
-                      type: "number",
-                      min: 1,
-                      message: t("heartbeat.everyMin"),
-                    },
-                  ]}
-                  noStyle
-                >
-                  <InputNumber min={1} className={styles.everyNumber} />
-                </Form.Item>
-                <Form.Item name="everyUnit" noStyle>
-                  <Select
-                    options={EVERY_UNIT_OPTIONS.map((opt) => ({
-                      value: opt.value,
-                      label: t(opt.labelKey),
-                    }))}
-                    className={styles.everyUnit}
-                  />
-                </Form.Item>
-              </div>
-            </Form.Item>
-
+          </div>
+          <Form.Item
+            noStyle
+            shouldUpdate={(prev, cur) =>
+              prev.useActiveHours !== cur.useActiveHours
+            }
+          >
+            {({ getFieldValue }) =>
+              getFieldValue("useActiveHours") ? (
+                <div className={styles.activeHoursRow}>
+                  <Form.Item
+                    name="activeHoursStart"
+                    label={t("heartbeat.activeStart")}
+                  >
+                    <TimePickerHHmm />
+                  </Form.Item>
+                  <Form.Item
+                    name="activeHoursEnd"
+                    label={t("heartbeat.activeEnd")}
+                  >
+                    <TimePickerHHmm />
+                  </Form.Item>
+                </div>
+              ) : null
+            }
+          </Form.Item>
+          <div className={styles.divider} />
+          <div className={styles.timeoutRow}>
+            <h2>{t("heartbeat.timeoutSeconds")}</h2>
             <Form.Item
               name="timeoutSeconds"
-              label={t("heartbeat.timeoutSeconds")}
               rules={[
-                {
-                  required: true,
-                  message: t("heartbeat.timeoutRequired"),
-                },
-                {
-                  type: "number",
-                  min: 1,
-                  message: t("heartbeat.timeoutMin"),
-                },
+                { required: true, message: t("heartbeat.timeoutRequired") },
+                { type: "number", min: 1, message: t("heartbeat.timeoutMin") },
                 {
                   type: "number",
                   max: HEARTBEAT_MAX_TIMEOUT_SECONDS,
@@ -234,68 +270,15 @@ function HeartbeatPage() {
                 },
               ]}
             >
-              <InputNumber
+              <NumberSlider
                 min={1}
                 max={HEARTBEAT_MAX_TIMEOUT_SECONDS}
-                className={styles.timeoutNumber}
+                label={t("heartbeat.timeoutSeconds")}
               />
             </Form.Item>
-
-            <Form.Item
-              name="target"
-              label={t("heartbeat.target")}
-              rules={[{ required: true }]}
-            >
-              <Select
-                options={TARGET_OPTIONS.map((opt) => ({
-                  value: opt.value,
-                  label: t(opt.labelKey),
-                }))}
-              />
-            </Form.Item>
-
-            <Form.Item
-              name="useActiveHours"
-              label={t("heartbeat.activeHours")}
-              valuePropName="checked"
-            >
-              <Switch />
-            </Form.Item>
-
-            <Form.Item
-              noStyle
-              shouldUpdate={(prev, cur) =>
-                prev.useActiveHours !== cur.useActiveHours
-              }
-            >
-              {({ getFieldValue }) =>
-                getFieldValue("useActiveHours") ? (
-                  <div className={styles.activeHoursRow}>
-                    <Form.Item
-                      name="activeHoursStart"
-                      label={t("heartbeat.activeStart")}
-                    >
-                      <TimePickerHHmm />
-                    </Form.Item>
-                    <Form.Item
-                      name="activeHoursEnd"
-                      label={t("heartbeat.activeEnd")}
-                    >
-                      <TimePickerHHmm />
-                    </Form.Item>
-                  </div>
-                ) : null
-              }
-            </Form.Item>
-
-            <Form.Item className={styles.formActions}>
-              <Button type="primary" htmlType="submit" loading={saving}>
-                {t("common.save")}
-              </Button>
-            </Form.Item>
-          </Form>
-        </Card>
-      </div>
+          </div>
+        </section>
+      </Form>
     </div>
   );
 }

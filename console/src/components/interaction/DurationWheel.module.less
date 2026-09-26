@@ -1,0 +1,73 @@
+.duration {
+  margin: 0 -4px 8px;
+}
+.columns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  > div {
+    position: relative;
+    display: flex;
+    align-items: center;
+    min-width: 0;
+  }
+}
+.unit {
+  font-size: 12px;
+  color: var(--app-text-secondary);
+  white-space: nowrap;
+  margin: 24px 6px 0 0;
+}
+.wheel {
+  height: 162px;
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scroll-snap-type: y mandatory;
+  scrollbar-width: none;
+  cursor: grab;
+  &[data-dragging] {
+    scroll-snap-type: none;
+    cursor: grabbing;
+  }
+  font-variant-numeric: tabular-nums;
+  mask-image: linear-gradient(transparent, #000 34%, #000 66%, transparent);
+  &::-webkit-scrollbar {
+    display: none;
+  }
+  > div {
+    padding-block: 45px;
+  }
+  &:focus-visible {
+    outline: 2px solid var(--app-focus-ring);
+    outline-offset: -2px;
+    border-radius: 14px;
+  }
+}
+.option {
+  height: 72px;
+  display: grid;
+  place-items: center;
+  scroll-snap-align: center;
+  font-size: 60px;
+  font-weight: 600;
+  letter-spacing: -3px;
+  color: var(--app-text);
+  cursor: inherit;
+  user-select: none;
+}
+
+.disabledValue {
+  display: grid;
+  place-items: center;
+  flex: 1;
+  min-width: 0;
+  height: 162px;
+  font-size: 60px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -3px;
+  color: var(--app-text-tertiary);
+  cursor: default;
+}

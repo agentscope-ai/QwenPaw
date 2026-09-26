@@ -1,6 +1,6 @@
 import React from "react";
 import { useTranslation } from "react-i18next";
-import { EditOutlined } from "@ant-design/icons";
+import { Pencil as EditOutlined } from "lucide-react";
 import type { ToolCallContent } from "../shared/types";
 import {
   ToolCardShell,
@@ -29,7 +29,7 @@ const EditFileCard: React.FC<EditFileCardProps> = ({
       <ToolCardShell
         content={content}
         isStreaming={isStreaming}
-        icon={<EditOutlined />}
+        icon={<EditOutlined size="1em" />}
         title={title}
       />
     );
@@ -58,7 +58,7 @@ const EditFileCard: React.FC<EditFileCardProps> = ({
     <ToolCardShell
       content={content}
       isStreaming={isStreaming}
-      icon={<EditOutlined />}
+      icon={<EditOutlined size="1em" />}
       title={title}
       badges={badges}
       summaryAction={<FilePreviewLink content={content} />}

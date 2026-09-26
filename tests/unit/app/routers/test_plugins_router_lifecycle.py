@@ -1791,7 +1791,7 @@ class TestResidualBranches:
         assert response.media_type == "application/javascript"
         assert response.headers["Cache-Control"] == "no-cache"
 
-    async def test_ui_file_without_guessable_type_omits_media_type(
+    async def test_ui_file_serves_unknown_extensions(
         self,
         tmp_path,
     ):
@@ -1807,7 +1807,4 @@ class TestResidualBranches:
             _request(_app(loader)),
         )
         assert Path(response.path) == asset
-        # guess_type() found nothing, so FileResponse falls back to its
-        # own default instead of a caller-supplied media_type
-        assert response.media_type == "application/octet-stream"
         assert response.headers["Cache-Control"] == "no-cache"

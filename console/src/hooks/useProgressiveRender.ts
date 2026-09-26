@@ -14,14 +14,14 @@ const BATCH_SIZE = 20;
  * correctly (re-)attached whenever the sentinel DOM element changes
  * (e.g. when switching between card / list view modes).
  */
-export function useProgressiveRender<T>(items: T[]) {
+export function useProgressiveRender<T>(items: T[], resetKey: unknown = items) {
   const [visibleCount, setVisibleCount] = useState(INITIAL_COUNT);
   const [sentinel, setSentinel] = useState<HTMLDivElement | null>(null);
 
-  // Reset visible count when the source list changes (filter / sort / new data)
+  // A stable reset key lets callers retain mounted items across status updates.
   useEffect(() => {
     setVisibleCount(INITIAL_COUNT);
-  }, [items]);
+  }, [resetKey]);
 
   const loadMore = useCallback(() => {
     setVisibleCount((prev) => Math.min(prev + BATCH_SIZE, items.length));

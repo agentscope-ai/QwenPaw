@@ -1,6 +1,6 @@
+import { SharedModal as Modal } from "@/components/interaction/SharedModal";
 import { useEffect, useState, useMemo } from "react";
 import {
-  Modal,
   Form,
   Input,
   Button,
@@ -12,7 +12,7 @@ import {
   Empty,
   Spin,
 } from "antd";
-import { CheckOutlined } from "@ant-design/icons";
+import { Check as CheckOutlined } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { AgentSummary } from "@/api/types/agents";
 import { getAgentDisplayName } from "@/utils/agentDisplayName";
@@ -192,6 +192,7 @@ export function AgentModal({
 
   return (
     <Modal
+      centered
       title={
         editingAgent
           ? t("agent.editTitle", {
@@ -506,7 +507,7 @@ export function AgentModal({
                 >
                   {selected && (
                     <span className={styles.pickerCheck}>
-                      <CheckOutlined />
+                      <CheckOutlined size="1em" />
                     </span>
                   )}
                   <div className={styles.pickerCardTitle}>{skill.name}</div>

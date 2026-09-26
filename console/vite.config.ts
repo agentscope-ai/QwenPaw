@@ -141,6 +141,15 @@ export default defineConfig(({ command, mode }) => {
       rollupOptions: {
         output: {
           manualChunks(id) {
+            // Charts and the UI's Markdown renderer share D3 and preload helpers.
+            // Keep those in the UI chunk so lazy trends cannot create a cycle.
+            if (
+              id.includes("node_modules/d3-") ||
+              id.includes("node_modules/d3/") ||
+              id.includes("vite/preload-helper")
+            ) {
+              return "ui-vendor";
+            }
             // React core
             if (
               id.includes("node_modules/react/") ||

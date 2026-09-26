@@ -34,9 +34,10 @@ vi.mock("../../../api", () => ({
   default: { getAgentStats: mocks.getAgentStats },
 }));
 
-vi.mock("../../../hooks/useAppMessage", () => ({
-  useAppMessage: () => ({ message: { error: mocks.messageError } }),
-}));
+vi.mock("../../../hooks/useAppMessage", () => {
+  const message = { error: mocks.messageError };
+  return { useAppMessage: () => ({ message }) };
+});
 
 vi.mock("../../../contexts/ThemeContext", () => ({
   useTheme: () => ({ isDark: false }),
@@ -46,21 +47,20 @@ vi.mock("../../../stores/agentStore", () => ({
   useAgentStore: () => mocks.storeState,
 }));
 
-vi.mock("react-i18next", () => ({
-  useTranslation: () => ({
-    t: (key: string) =>
-      ({
-        "nav.settings": "Settings",
-        "agentStats.title": "Agent Statistics",
-        "agentStats.totalSessions": "Total Sessions",
-        "agentStats.totalMessages": "Total Messages",
-        "agentStats.promptTokens": "Prompt Tokens",
-        "agentStats.completionTokens": "Completion Tokens",
-        "agentStats.currentAgentLlmCalls": "Recorded Turns",
-        "agentStats.toolCalls": "Tool Calls",
-      })[key] ?? key,
-  }),
-}));
+vi.mock("react-i18next", () => {
+  const t = (key: string) =>
+    ({
+      "nav.settings": "Settings",
+      "agentStats.title": "Agent Statistics",
+      "agentStats.totalSessions": "Total Sessions",
+      "agentStats.totalMessages": "Total Messages",
+      "agentStats.promptTokens": "Prompt Tokens",
+      "agentStats.completionTokens": "Completion Tokens",
+      "agentStats.currentAgentLlmCalls": "Recorded Turns",
+      "agentStats.toolCalls": "Tool Calls",
+    })[key] ?? key;
+  return { useTranslation: () => ({ t }) };
+});
 
 vi.mock("@/components/PageHeader", () => ({
   PageHeader: () => null,
