@@ -1582,7 +1582,7 @@ export function AgentLoopCard() {
       label: (
         <span className={loopStyles.builtInTab}>
           <Lock size={12} />
-          {t("agentConfig.loopMode.defaultTab", "Default")}
+          {t("agentConfig.loopMode.defaultTab", "Standard")}
         </span>
       ),
       children: <DefaultModeTab />,

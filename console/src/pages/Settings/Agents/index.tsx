@@ -32,7 +32,8 @@ export default function AgentsPage() {
   const [copyModalVisible, setCopyModalVisible] = useState(false);
   const [copyingAgent, setCopyingAgent] = useState<AgentSummary | null>(null);
   const [copying, setCopying] = useState(false);
-  const [reordering, setReordering] = useState(false);
+  const orderQueue = useRef<string[] | null>(null);
+  const orderSaving = useRef(false);
   const [form] = Form.useForm();
   const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
   const installedSkillsRef = useRef<string[]>([]);
@@ -297,24 +298,39 @@ export default function AgentsPage() {
   };
 
   const handleReorder = async (activeId: string, overId: string) => {
-    const nextAgents = reorderAgents(agents, activeId, overId);
-    if (nextAgents === agents) {
-      return;
-    }
-
-    const previousAgents = agents;
-    setAgents(nextAgents);
-    setReordering(true);
-
+    const current = useAgentStore.getState().agents;
+    const next = reorderAgents(current, activeId, overId);
+    if (next === current) return;
+    setAgents(next);
+    orderQueue.current = next.map((item) => item.id);
+    if (orderSaving.current) return;
+    orderSaving.current = true;
+    let confirmed = current.map((item) => item.id);
     try {
-      await agentsApi.reorderAgents(nextAgents.map((agent) => agent.id));
-      message.success(t("agent.reorderSuccess"));
-    } catch (error) {
-      console.error("Failed to reorder agents:", error);
-      setAgents(previousAgents);
-      message.error(t("agent.reorderFailed"));
+      while (orderQueue.current) {
+        const order = orderQueue.current;
+        orderQueue.current = null;
+        try {
+          await agentsApi.reorderAgents(order);
+          confirmed = order;
+        } catch (error) {
+          console.error("Failed to reorder agents:", error);
+          if (!orderQueue.current) {
+            const latest = useAgentStore.getState().agents;
+            const rank = new Map(confirmed.map((id, index) => [id, index]));
+            setAgents(
+              [...latest].sort(
+                (a, b) =>
+                  (rank.get(a.id) ?? confirmed.length) -
+                  (rank.get(b.id) ?? confirmed.length),
+              ),
+            );
+            message.error(t("agent.reorderFailed"));
+          }
+        }
+      }
     } finally {
-      setReordering(false);
+      orderSaving.current = false;
     }
   };
 
@@ -339,8 +355,8 @@ export default function AgentsPage() {
       <div className={styles.galleryContainer}>
         <AgentGallery
           agents={agents}
-          loading={loading || reordering}
-          reordering={reordering}
+          loading={loading}
+          reordering={false}
           onEdit={handleEdit}
           onCopy={handleOpenCopy}
           onDelete={handleDelete}

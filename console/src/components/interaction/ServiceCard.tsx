@@ -15,7 +15,9 @@ export function ServiceCard({
   onConfigure,
   onToggle,
   actions,
+  surfaceId,
 }: {
+  surfaceId?: string;
   name: string;
   description?: ReactNode;
   metadata?: ReactNode;
@@ -38,6 +40,8 @@ export function ServiceCard({
     >
       <InteractiveCard
         tilt={0}
+        layoutId={reducedMotion ? undefined : surfaceId}
+        style={{ borderRadius: 20 }}
         className={styles.card}
         onClick={(event) => {
           if (

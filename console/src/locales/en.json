@@ -479,7 +479,9 @@
       "notFound": "Backend log file was not found yet.",
       "placeholder": "Backend log output will appear here.",
       "loadFailed": "Failed to load backend logs",
-      "searchPlaceholder": "Search backend logs..."
+      "searchPlaceholder": "Search backend logs...",
+      "newLogsAvailable": "New logs · Return to latest",
+      "returnLatest": "Return to latest logs"
     },
     "actions": {
       "refreshBackend": "Refresh backend logs",
@@ -626,18 +628,18 @@
     "required": " (required)"
   },
   "acp": {
-    "title": "ACP",
+    "title": "ACP integrations",
     "loading": "Loading ACP configuration...",
-    "builtin": "Built-in",
+    "builtin": "Presets",
     "custom": "Custom",
-    "create": "Add Custom Agent",
-    "createTitle": "Create ACP Agent",
-    "createSuccess": "ACP agent created",
+    "create": "Add ACP integration",
+    "createTitle": "New ACP integration",
+    "createSuccess": "ACP integration added",
     "editTitle": "Edit ACP Configuration",
-    "agentKey": "Agent Key",
-    "agentKeyRequired": "Please enter an agent key",
-    "agentKeyInvalid": "Agent key can only contain letters, numbers, underscores, and hyphens",
-    "agentKeyExists": "This agent key already exists",
+    "agentKey": "Integration ID",
+    "agentKeyRequired": "Enter an integration ID",
+    "agentKeyInvalid": "Integration ID can only contain letters, numbers, underscores, and hyphens",
+    "agentKeyExists": "This integration ID already exists",
     "enabled": "Enabled",
     "command": "Command",
     "commandRequired": "Please enter a command",
@@ -659,10 +661,10 @@
     "configSaved": "ACP configuration saved",
     "configFailed": "Failed to save ACP configuration",
     "deleteTitle": "Delete {{name}}",
-    "deleteConfirm": "Delete this ACP agent? This action cannot be undone.",
-    "deleteSuccess": "ACP agent deleted",
-    "deleteFailed": "Failed to delete ACP agent",
-    "nodeSettings": "Node Settings",
+    "deleteConfirm": "Delete this ACP integration? This cannot be undone.",
+    "deleteSuccess": "ACP integration deleted",
+    "deleteFailed": "Failed to delete ACP integration",
+    "nodeSettings": "Runtime environment",
     "nodePath": "Node path",
     "chooseOtherNode": "Choose another Node...",
     "selectNodePath": "Select Node path",
@@ -681,6 +683,18 @@
       "npxMissing": "npx was not found",
       "versionCheckFailed": "Version check failed",
       "unavailable": "Unavailable"
+    },
+    "intro": "Connect tools through ACP for the current agent to call.",
+    "protocolHelp": "Manage ACP tool integrations here. Third-party backends in Agent Management use their own built-in protocols and are configured separately.",
+    "currentAgent": "Current agent",
+    "callableTools": "Callable tools",
+    "enabledIntegrations": "Enabled integrations",
+    "search": "Search ACP integrations",
+    "trustedHelp": "Automatically approve permission requests from this integration. Hard security blocks still apply. Turn off to handle requests through approval.",
+    "toolParseModes": {
+      "call_title": "Call titles",
+      "update_detail": "Progress details",
+      "call_detail": "Call details"
     }
   },
   "voiceTranscription": {
@@ -751,7 +765,7 @@
     "securityNotice": "This backup may contain sensitive credentials. Agent workspaces include channel credentials (bot tokens, app secrets, etc.), and model provider secrets include API keys. Do not share backup files with others.",
     "searchPlaceholder": "Search backups by name or ID...",
     "total": "Total {{count}}",
-    "agentsPlaceholder": "Select agent workspaces (leave empty for all)",
+    "agentsPlaceholder": "Choose agent workspaces to back up",
     "selectAll": "Select All",
     "deselectAll": "Deselect All",
     "createSuccess": "Backup created successfully",
@@ -2303,7 +2317,8 @@
       "user": "QwenPaw",
       "system": "System",
       "default": "Default"
-    }
+    },
+    "emptyValue": "Empty string"
   },
   "modelSelector": {
     "chooseProvider": "Choose provider",
@@ -3049,7 +3064,8 @@
     "alreadyBound": "Already bound",
     "tooMany": "At most {{max}} directories can be bound.",
     "countTitle": "Number of bound directories",
-    "syncAsAgentDefault": "Use this workspace setup for future tasks"
+    "syncAsAgentDefault": "Use this workspace setup for future tasks",
+    "openDirectory": "Open {{name}}"
   },
   "agentConfig": {
     "advancedRuntime": "Advanced runtime",
@@ -3126,7 +3142,7 @@
       "builtInNote": "Pipeline locked · Values editable",
       "templateSectionTitle": "Loop templates",
       "templateSectionDescription": "Choose a built-in template or add your own.",
-      "defaultTab": "Default",
+      "defaultTab": "Standard",
       "goalTab": "Goal",
       "missionTab": "Mission",
       "defaultDescription": "The standard guarded ReAct loop used outside an explicit mode.",
@@ -3948,6 +3964,7 @@
     "system": "System"
   },
   "chat": {
+    "historyLoadFailed": "Could not load this conversation. Please reopen it.",
     "switchSession": "Switch conversation",
     "lastActive": "Last active · {{time}}",
     "fileReference": {
@@ -5581,6 +5598,80 @@
       "session": "Conversation model",
       "agent": "Agent default",
       "global": "Default LLM"
+    }
+  },
+  "runtimeDesign": {
+    "title": "Runtime studio",
+    "subtitle": "Make your agent work your way.",
+    "workspace": "Workspace",
+    "workspaceHint": "Language, time zone and workspace",
+    "execution": "Execution",
+    "executionHint": "Task loops and tool approvals",
+    "recovery": "Recovery",
+    "recoveryHint": "Retry rhythm and concurrency",
+    "context": "Context budget",
+    "contextHint": "Compression, retention and tool results",
+    "memory": "Memory",
+    "memoryHint": "Capture, organize and retrieve",
+    "deviceTimezone": "Use device time zone",
+    "localTime": "Local time",
+    "mapHint": "Click the map to set a fixed UTC time zone. For regions with daylight saving, choose the regional time zone above.",
+    "zoomIn": "Zoom in",
+    "zoomOut": "Zoom out",
+    "retryPreview": "Waiting time preview",
+    "retryHint": "Base wait before each retry; server responses and rate limits may add time.",
+    "retryAttempt": "Retry {{count}}",
+    "totalWait": "Total wait",
+    "budgetTitle": "Context budget",
+    "budgetHint": "Configured model capacity, not live usage.",
+    "trigger": "Compression trigger",
+    "retained": "Retained context",
+    "advanced": "Advanced settings",
+    "seconds": "seconds",
+    "allSettings": "All settings",
+    "cities": {
+      "America_Los_Angeles": "Los Angeles",
+      "America_New_York": "New York",
+      "America_Sao_Paulo": "São Paulo",
+      "Europe_London": "London",
+      "Europe_Moscow": "Moscow",
+      "Africa_Cairo": "Cairo",
+      "Africa_Johannesburg": "Johannesburg",
+      "Asia_Dubai": "Dubai",
+      "Asia_Kolkata": "Kolkata",
+      "Asia_Shanghai": "Shanghai",
+      "Asia_Tokyo": "Tokyo",
+      "Asia_Singapore": "Singapore",
+      "Australia_Sydney": "Sydney",
+      "Pacific_Auckland": "Auckland"
+    },
+    "beijingTime": "Beijing Time",
+    "mapPlaces": {
+      "-12": "Baker Island",
+      "-11": "Pago Pago",
+      "-10": "Honolulu",
+      "-9": "Anchorage",
+      "-8": "Los Angeles",
+      "-7": "Denver",
+      "-6": "Mexico City",
+      "-5": "New York",
+      "-4": "San Juan",
+      "-3": "Buenos Aires",
+      "-2": "South Georgia",
+      "-1": "Praia",
+      "0": "London",
+      "1": "Paris",
+      "2": "Cairo",
+      "3": "Moscow",
+      "4": "Dubai",
+      "5": "Karachi",
+      "6": "Dhaka",
+      "7": "Bangkok",
+      "8": "Beijing",
+      "9": "Tokyo",
+      "10": "Sydney",
+      "11": "Nouméa",
+      "12": "Suva"
     }
   }
 }

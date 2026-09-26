@@ -330,6 +330,7 @@ function ModelsPage() {
         <>
           {/* ---- LLM Section (top) ---- */}
           <PageHeader
+            className={styles.pageHeader}
             parent={t("nav.settings")}
             current={t("models.llmTitle")}
           />

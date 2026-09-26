@@ -89,8 +89,8 @@
   font-weight: 500;
   font-variant-numeric: tabular-nums;
   cursor: text;
-  &:hover {
-    background: var(--app-fill-hover);
+  &:hover:not(:disabled) {
+    background: var(--app-fill);
     color: var(--app-text);
   }
   &:focus-visible {

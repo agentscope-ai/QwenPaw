@@ -1,4 +1,4 @@
-import { Tabs } from "antd";
+import { RuntimeWorkbench } from "./components/RuntimeWorkbench";
 import { useAutoSave } from "@/hooks/useAutoSave";
 import { useState, useMemo, useEffect, useCallback } from "react";
 import { Button, Form } from "@agentscope-ai/design";
@@ -30,10 +30,15 @@ import { handleRerankerFieldsChange } from "./rerankerVisibility";
 
 function AgentConfigPage() {
   const { t } = useTranslation();
-  const [searchParams] = useSearchParams();
-  const [activeTab, setActiveTab] = useState(
-    searchParams.get("tab") || "reactAgent",
-  );
+  const [searchParams, setSearchParams] = useSearchParams();
+  const setSection = (key: string | null) => {
+    setSearchParams((previous) => {
+      const next = new URLSearchParams(previous);
+      if (key) next.set("tab", key);
+      else next.delete("tab");
+      return next;
+    });
+  };
   const [needsReindex, setNeedsReindex] = useState(false);
   const [localReindexing, setLocalReindexing] = useState(false);
   const [persistedEmbeddingFingerprint, setPersistedEmbeddingFingerprint] =
@@ -69,11 +74,14 @@ function AgentConfigPage() {
     handleSave(true),
   );
 
-  const llmRetryEnabled = Form.useWatch("llm_retry_enabled", form) ?? true;
+  const llmRetryEnabled =
+    Form.useWatch("llm_retry_enabled", { form, preserve: true }) ?? true;
   const contextBackend =
-    Form.useWatch("context_manager_backend", form) || "light";
+    Form.useWatch("context_manager_backend", { form, preserve: true }) ||
+    "light";
   const memoryBackend =
-    Form.useWatch("memory_manager_backend", form) || "remelight";
+    Form.useWatch("memory_manager_backend", { form, preserve: true }) ||
+    "remelight";
   const memoryBackends = useMemoryBackends();
   const { selectedAgent } = useAgentStore();
   const { runtimeStatus, diagnosticsStatus, checkMemoryStatus } =
@@ -304,13 +312,6 @@ function AgentConfigPage() {
     setApprovalLevel,
   ]);
 
-  useEffect(() => {
-    const tabKeys = dynamicTabs.map((t) => t.key);
-    if (!tabKeys.includes(activeTab)) {
-      setActiveTab(tabKeys[0] ?? "reactAgent");
-    }
-  }, [dynamicTabs, activeTab]);
-
   if (loading) {
     return (
       <div className={styles.configPage}>
@@ -347,7 +348,10 @@ function AgentConfigPage() {
             setReindexing: setLocalReindexing,
             persistedEmbeddingFingerprint,
             setPersistedEmbeddingFingerprint,
-            openMemorySettings: () => setActiveTab("remeLightMemory"),
+            openMemorySettings: () =>
+              document
+                .querySelector('[data-runtime-key="remeLightMemory"]')
+                ?.scrollIntoView({ block: "start", behavior: "smooth" }),
             runtimeStatus,
             diagnosticsStatus,
             checkMemoryStatus,
@@ -366,15 +370,11 @@ function AgentConfigPage() {
               setRerankerExpanded,
             )}
           >
-            <Tabs
-              className={styles.mainTabs}
-              activeKey={activeTab}
-              onChange={(value) => {
-                void flushSave();
-                setActiveTab(value);
-              }}
+            <RuntimeWorkbench
               items={dynamicTabs}
-              destroyInactiveTabPane={false}
+              initialKey={searchParams.get("tab")}
+              onSectionChange={setSection}
+              onNavigate={flushSave}
             />
           </Form>
         </MemoryMaintenanceContext.Provider>

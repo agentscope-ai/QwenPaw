@@ -1,0 +1,114 @@
+.settingRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 4px 0 20px;
+  &:last-child {
+    padding-bottom: 0;
+  }
+  > div {
+    min-width: 0;
+  }
+}
+.hint {
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--app-text-secondary);
+  margin-top: 4px;
+}
+.paths {
+  background: var(--app-surface);
+  border: 1px solid var(--app-border);
+  border-radius: 20px;
+  overflow: hidden;
+}
+.pathHeader {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 20px;
+  h3 {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 14px;
+    font-weight: 600;
+    margin: 0;
+    flex: 1;
+  }
+  h3 > * {
+    font-size: 12px;
+    color: var(--app-text-secondary);
+    font-weight: 400;
+  }
+}
+.addArea {
+  overflow: hidden;
+}
+.addInput {
+  display: flex;
+  width: 100%;
+  padding: 0 20px 16px;
+}
+.pathList {
+  list-style: none;
+  margin: 0;
+  padding: 0 20px;
+}
+.pathRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border-top: 1px solid var(--app-border-subtle);
+  min-height: 52px;
+  padding: 10px 0;
+  > svg {
+    flex-shrink: 0;
+    color: var(--app-text-secondary);
+  }
+  code {
+    flex: 1;
+    min-width: 0;
+    overflow-wrap: anywhere;
+    font-size: 12px;
+    line-height: 1.6;
+  }
+  > button {
+    flex-shrink: 0;
+  }
+}
+.confirmPath {
+  display: block;
+  max-width: 320px;
+  overflow-wrap: anywhere;
+}
+.empty {
+  margin: 0;
+  padding: 24px 20px 32px;
+  text-align: center;
+  color: var(--app-text-secondary);
+  font-size: 13px;
+}
+@media (max-width: 600px) {
+  .settingRow {
+    gap: 16px;
+  }
+  .pathHeader {
+    padding: 14px 16px;
+    flex-wrap: wrap;
+  }
+  .pathList {
+    padding-inline: 16px;
+  }
+  .addInput {
+    padding-inline: 16px;
+  }
+}
+
+.inputError {
+  margin: -8px 20px 16px;
+  color: var(--app-error);
+  font-size: 12px;
+  line-height: 1.5;
+}

@@ -192,7 +192,7 @@ export const AppCard: FC<AppCardProps> = ({ app, onClick, onUninstall }) => {
               trigger={["click"]}
             >
               <Button
-                aria-label={t("common.more")}
+                aria-label={t("appCenter.moreActions")}
                 icon={<MoreHorizontal size={16} />}
               />
             </Dropdown>

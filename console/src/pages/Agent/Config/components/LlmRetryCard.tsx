@@ -1,3 +1,4 @@
+import { RetryTimeline } from "./RuntimeVisuals";
 import { NumberStepper as InputNumber } from "@/components/interaction/NumberStepper";
 import { SettingsField } from "@/components/interaction/SettingsField";
 import { Card, Form, Switch } from "@agentscope-ai/design";
@@ -23,6 +24,7 @@ export function LlmRetryCard({ llmRetryEnabled = true }: LlmRetryCardProps) {
         <Switch />
       </SettingsField>
 
+      <RetryTimeline enabled={llmRetryEnabled} />
       <div className={styles.llmRetryRow}>
         <SettingsField
           label={t("agentConfig.llmMaxRetries")}
@@ -42,7 +44,7 @@ export function LlmRetryCard({ llmRetryEnabled = true }: LlmRetryCardProps) {
           className={styles.llmRetryField}
         >
           <InputNumber
-            style={{ width: "100%" }}
+            style={{ width: "100%", maxWidth: 240 }}
             min={1}
             step={1}
             disabled={!llmRetryEnabled}
@@ -68,7 +70,7 @@ export function LlmRetryCard({ llmRetryEnabled = true }: LlmRetryCardProps) {
           className={styles.llmRetryField}
         >
           <InputNumber
-            style={{ width: "100%" }}
+            style={{ width: "100%", maxWidth: 240 }}
             step={0.1}
             disabled={!llmRetryEnabled}
             placeholder={t("agentConfig.llmBackoffBasePlaceholder")}
@@ -107,7 +109,7 @@ export function LlmRetryCard({ llmRetryEnabled = true }: LlmRetryCardProps) {
           className={styles.llmRetryField}
         >
           <InputNumber
-            style={{ width: "100%" }}
+            style={{ width: "100%", maxWidth: 240 }}
             step={0.5}
             disabled={!llmRetryEnabled}
             placeholder={t("agentConfig.llmBackoffCapPlaceholder")}

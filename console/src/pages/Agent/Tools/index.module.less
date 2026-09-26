@@ -111,8 +111,11 @@
 }
 
 .description {
-  margin: 12px 0 16px;
-  min-height: 3em;
+  margin: 8px 0 0;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
   color: var(--app-text-secondary);
   font-size: 0.8125rem;
   line-height: 1.5;
@@ -124,27 +127,8 @@
   align-items: center;
   flex-wrap: wrap;
   gap: 8px;
-  margin-top: auto;
+  margin-top: 12px;
   min-height: 40px;
-}
-
-.state {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 0.75rem;
-  color: var(--app-text-secondary);
-
-  > span {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: var(--app-text-tertiary);
-  }
-
-  &[data-enabled="true"] > span {
-    background: var(--app-success);
-  }
 }
 
 .rowActions {

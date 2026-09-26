@@ -204,10 +204,7 @@ describe("RestoreBackupModal", () => {
     renderModal();
     await waitFor(() => expect(apiMocks.getBackup).toHaveBeenCalled());
     await waitFor(() => {
-      const fullWrapper = document
-        .querySelector('input[value="full"]')!
-        .closest(".ant-radio-wrapper");
-      expect(fullWrapper).toHaveClass("ant-radio-wrapper-checked");
+      expect(document.querySelector('input[value="full"]')).toBeChecked();
     });
     expect(screen.getByText("backup.restoreFullWarning")).toBeInTheDocument();
   });
@@ -225,10 +222,7 @@ describe("RestoreBackupModal", () => {
     );
     await waitFor(() => expect(apiMocks.getBackup).toHaveBeenCalled());
     await waitFor(() => {
-      const customWrapper = document
-        .querySelector('input[value="custom"]')!
-        .closest(".ant-radio-wrapper");
-      expect(customWrapper).toHaveClass("ant-radio-wrapper-checked");
+      expect(document.querySelector('input[value="custom"]')).toBeChecked();
     });
     expect(document.querySelector('input[value="full"]')).toBeDisabled();
     expect(

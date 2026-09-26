@@ -223,3 +223,32 @@
     width: 100%;
   }
 }
+
+.logFrame {
+  position: relative;
+}
+.followNotice {
+  position: absolute;
+  z-index: 2;
+  top: 10px;
+  right: 16px;
+  max-width: calc(100% - 32px);
+  button {
+    border: 1px solid var(--app-border);
+    border-radius: 999px;
+    padding: 8px 14px;
+    background: var(--app-surface-raised);
+    box-shadow: var(--app-shadow-sm);
+    color: var(--app-accent-text);
+    font: inherit;
+    font-size: 12px;
+    cursor: pointer;
+    &:active {
+      transform: scale(0.96);
+    }
+    &:focus-visible {
+      outline: 2px solid var(--app-focus-ring);
+      outline-offset: 2px;
+    }
+  }
+}

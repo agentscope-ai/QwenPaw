@@ -366,6 +366,81 @@ async function startA(host: ReturnType<typeof mountHost>) {
 }
 
 describe("installed SDK session lifecycle with CoPaw's blank-new hook", () => {
+  it("keeps the presented history while switching and commits an empty target only after load", async () => {
+    const host = mountHost(fixture);
+    await waitFor(() =>
+      expect(host.loaded).toContainEqual({ id: A, generating: false }),
+    );
+    act(() =>
+      host
+        .current()
+        .messages.setSessionMessages(A, [{ id: "visible-a", role: "user" }]),
+    );
+    const gate = deferred();
+    gates.push(gate);
+    fixture.history.mockImplementation(async () => {
+      await gate.promise;
+      return { status: "idle", messages: [] };
+    });
+    await act(async () => {
+      host.current().navigate(`/chat/${B}`);
+    });
+    await waitFor(() =>
+      expect(fixture.history).toHaveBeenCalledWith(B, expect.any(Object)),
+    );
+    expect(
+      host
+        .current()
+        .messages.getMessages()
+        .map((message) => message.id),
+    ).toEqual(["visible-a"]);
+    expect(host.adapter.isReady(B)).toBe(false);
+    await act(async () => {
+      gate.resolve();
+    });
+    await waitFor(() =>
+      expect(host.current().messages.getMessages()).toEqual([]),
+    );
+    expect(host.adapter.isReady(B)).toBe(true);
+  });
+
+  it("ignores a late target after a rapid switch back", async () => {
+    const host = mountHost(fixture);
+    await waitFor(() =>
+      expect(host.loaded).toContainEqual({ id: A, generating: false }),
+    );
+    act(() =>
+      host
+        .current()
+        .messages.setSessionMessages(A, [{ id: "visible-a", role: "user" }]),
+    );
+    const gate = deferred();
+    gates.push(gate);
+    fixture.history.mockImplementation(async (id) => {
+      if (id === B) await gate.promise;
+      return { status: "idle", messages: [] };
+    });
+    await act(async () => {
+      host.current().navigate(`/chat/${B}`);
+    });
+    await waitFor(() =>
+      expect(fixture.history).toHaveBeenCalledWith(B, expect.any(Object)),
+    );
+    await act(async () => {
+      host.current().navigate(`/chat/${A}`);
+    });
+    await act(async () => {
+      gate.resolve();
+    });
+    expect(host.current().sessions.currentSessionId).toBe(A);
+    expect(
+      host
+        .current()
+        .messages.getMessages()
+        .map((message) => message.id),
+    ).toEqual(["visible-a"]);
+  });
+
   it("A SSE + pending host queue → repeated blank new allocates no session and clears real context", async () => {
     const host = mountHost(fixture);
     await startA(host);

@@ -1,5 +1,5 @@
 import InlineHelp from "@/components/InlineHelp";
-import { PreferenceChoice } from "@/components/interaction/PreferenceChoice";
+import { PolicySelector } from "@/components/interaction/PolicySelector";
 import { MicOff, Cloud, Monitor } from "lucide-react";
 import { Card, Alert } from "antd";
 import { useTranslation } from "react-i18next";
@@ -29,29 +29,31 @@ export function ProviderTypeCard({
           {t("voiceTranscription.providerTypeDescription")}
         </InlineHelp>
       </h3>
-      <div className={styles.choiceGrid}>
-        <PreferenceChoice
-          label={t("voiceTranscription.providerTypeDisabled")}
-          description={t("voiceTranscription.providerTypeDisabledDesc")}
-          icon={<MicOff size={20} />}
-          selected={providerType === "disabled"}
-          onSelect={() => onProviderTypeChange("disabled")}
-        />
-        <PreferenceChoice
-          label={t("voiceTranscription.providerTypeWhisperApi")}
-          description={t("voiceTranscription.providerTypeWhisperApiDesc")}
-          icon={<Cloud size={20} />}
-          selected={providerType === "whisper_api"}
-          onSelect={() => onProviderTypeChange("whisper_api")}
-        />
-        <PreferenceChoice
-          label={t("voiceTranscription.providerTypeLocalWhisper")}
-          description={t("voiceTranscription.providerTypeLocalWhisperDesc")}
-          icon={<Monitor size={20} />}
-          selected={providerType === "local_whisper"}
-          onSelect={() => onProviderTypeChange("local_whisper")}
-        />
-      </div>
+      <PolicySelector
+        label={t("voiceTranscription.providerTypeLabel")}
+        value={providerType}
+        onChange={onProviderTypeChange}
+        options={[
+          {
+            value: "disabled",
+            label: t("voiceTranscription.providerTypeDisabled"),
+            description: t("voiceTranscription.providerTypeDisabledDesc"),
+            icon: <MicOff size={18} />,
+          },
+          {
+            value: "whisper_api",
+            label: t("voiceTranscription.providerTypeWhisperApi"),
+            description: t("voiceTranscription.providerTypeWhisperApiDesc"),
+            icon: <Cloud size={18} />,
+          },
+          {
+            value: "local_whisper",
+            label: t("voiceTranscription.providerTypeLocalWhisper"),
+            description: t("voiceTranscription.providerTypeLocalWhisperDesc"),
+            icon: <Monitor size={18} />,
+          },
+        ]}
+      />
 
       {isLocalWhisper && localWhisperStatus && (
         <div style={{ marginTop: 12 }}>

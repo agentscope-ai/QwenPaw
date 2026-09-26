@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { SnapTrend } from "./SnapTrend";
 
@@ -61,6 +61,16 @@ describe("SnapTrend", () => {
     expect(chart.emit.mock.calls.length).toBe(emissions);
     expect(screen.getByText("120")).toBeInTheDocument();
   });
+  it("returns to a scrubbed date after native chart hover changes selection", () => {
+    render(<SnapTrend config={{ data, colorField: "model" }} label="Date" />);
+    fireEvent.change(screen.getByRole("slider"), { target: { value: "0" } });
+    const listener = chart.on.mock.calls[chart.on.mock.calls.length - 1][1];
+    act(() => listener({ data: { title: "2026-09-22" } }));
+    expect(screen.getByText("360")).toBeInTheDocument();
+    fireEvent.change(screen.getByRole("slider"), { target: { value: "0" } });
+    expect(screen.getByText("120")).toBeInTheDocument();
+  });
+
   it("resolves selection against refreshed data without inventing a missing date", () => {
     const { rerender } = render(
       <SnapTrend config={{ data, colorField: "model" }} label="Date" />,

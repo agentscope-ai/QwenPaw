@@ -1,5 +1,6 @@
 import ReactMarkdown from "react-markdown";
-import { useState } from "react";
+import { useMemoizedFn } from "ahooks";
+import { memo, useState, useMemo } from "react";
 import { Button, Empty, Popconfirm, Spin } from "antd";
 import {
   GripVertical,
@@ -20,21 +21,36 @@ import {
 } from "@dnd-kit/core";
 import {
   SortableContext,
-  rectSortingStrategy,
+  verticalListSortingStrategy,
   sortableKeyboardCoordinates,
   useSortable,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { motion, LayoutGroup, useReducedMotion } from "motion/react";
+
 import { useTranslation } from "react-i18next";
 import { SharedModal } from "@/components/interaction/SharedModal";
 import { AgentStatusIndicator } from "@/components/AgentStatusIndicator";
 import { getAgentDisplayName } from "@/utils/agentDisplayName";
 import type { AgentSummary } from "@/api/types/agents";
-import type { AgentTableProps } from "./AgentTable";
 import styles from "./AgentGallery.module.less";
 
-function AgentTile({
+interface AgentGalleryProps {
+  agents: AgentSummary[];
+  loading: boolean;
+  reordering: boolean;
+  onEdit: (agent: AgentSummary) => void;
+  onCopy: (agent: AgentSummary) => void;
+  onDelete: (agentId: string) => void;
+  onToggle: (agentId: string, currentEnabled: boolean) => void;
+  onPin: (agentId: string, currentPinned: boolean) => void;
+  onReorder: (activeId: string, overId: string) => void;
+}
+
+const autoScrollOptions = { interval: 16 };
+const pointerSensorOptions = { activationConstraint: { distance: 6 } };
+const keyboardSensorOptions = { coordinateGetter: sortableKeyboardCoordinates };
+
+const AgentTile = memo(function AgentTile({
   agent,
   disabled,
   onOpen,
@@ -45,14 +61,13 @@ function AgentTile({
 }: {
   agent: AgentSummary;
   disabled: boolean;
-  onOpen: () => void;
-  onPin: AgentTableProps["onPin"];
-  onEdit: AgentTableProps["onEdit"];
-  onCopy: AgentTableProps["onCopy"];
-  onToggle: AgentTableProps["onToggle"];
+  onOpen: (agentId: string) => void;
+  onPin: AgentGalleryProps["onPin"];
+  onEdit: AgentGalleryProps["onEdit"];
+  onCopy: AgentGalleryProps["onCopy"];
+  onToggle: AgentGalleryProps["onToggle"];
 }) {
   const { t } = useTranslation();
-  const reduced = useReducedMotion();
   const locked =
     disabled ||
     agent.id === "default" ||
@@ -61,17 +76,9 @@ function AgentTile({
     id: agent.id,
     disabled: disabled || agent.id === "default",
   });
-  return (
-    <div
-      ref={sortable.setNodeRef}
-      style={{
-        transform: CSS.Transform.toString(sortable.transform),
-        transition: sortable.transition,
-        zIndex: sortable.isDragging ? 2 : undefined,
-      }}
-    >
-      <motion.article
-        layoutId={reduced ? undefined : `agent-detail:${agent.id}`}
+  const content = useMemo(
+    () => (
+      <article
         className={styles.card}
         style={{ borderRadius: 12 }}
         data-dragging={sortable.isDragging || undefined}
@@ -109,7 +116,11 @@ function AgentTile({
             <GripVertical size={18} />
           </button>
         </div>
-        <button type="button" className={styles.open} onClick={onOpen}>
+        <button
+          type="button"
+          className={styles.open}
+          onClick={() => onOpen(agent.id)}
+        >
           <strong>{getAgentDisplayName(agent, t)}</strong>
           <span>
             {agent.backend === "qwenpaw"
@@ -159,16 +170,42 @@ function AgentTile({
             />
           </Popconfirm>
         </div>
-      </motion.article>
+      </article>
+    ),
+    [
+      agent,
+      disabled,
+      locked,
+      onCopy,
+      onEdit,
+      onOpen,
+      onPin,
+      onToggle,
+      sortable.attributes,
+      sortable.listeners,
+      sortable.isDragging,
+      t,
+    ],
+  );
+  return (
+    <div
+      ref={sortable.setNodeRef}
+      style={{
+        transform: CSS.Transform.toString(sortable.transform),
+        transition: sortable.transition,
+        zIndex: sortable.isDragging ? 2 : undefined,
+        willChange: sortable.isDragging ? "transform" : undefined,
+      }}
+    >
+      {content}
     </div>
   );
-}
+});
 
-export function AgentGallery(props: AgentTableProps) {
+export function AgentGallery(props: AgentGalleryProps) {
   const {
     agents,
     loading,
-    reordering,
     onEdit,
     onCopy,
     onDelete,
@@ -176,14 +213,17 @@ export function AgentGallery(props: AgentTableProps) {
     onPin,
     onReorder,
   } = props;
+  // Keep row content memoized when the parent updates the local order.
+  const editAgent = useMemoizedFn(onEdit);
+  const copyAgent = useMemoizedFn(onCopy);
+  const pinAgent = useMemoizedFn(onPin);
+  const toggleAgent = useMemoizedFn(onToggle);
   const { t } = useTranslation();
   const [selected, setSelected] = useState<string | null>(null);
   const agent = agents.find((item) => item.id === selected);
   const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
-    useSensor(KeyboardSensor, {
-      coordinateGetter: sortableKeyboardCoordinates,
-    }),
+    useSensor(PointerSensor, pointerSensorOptions),
+    useSensor(KeyboardSensor, keyboardSensorOptions),
   );
   const locked =
     !agent ||
@@ -191,10 +231,11 @@ export function AgentGallery(props: AgentTableProps) {
     agent.startup_status === "pending" ||
     agent.startup_status === "starting";
   return (
-    <LayoutGroup>
+    <>
       <Spin spinning={loading}>
         <DndContext
           sensors={sensors}
+          autoScroll={autoScrollOptions}
           collisionDetection={closestCenter}
           onDragEnd={({ active, over }) => {
             if (over && active.id !== over.id)
@@ -203,19 +244,19 @@ export function AgentGallery(props: AgentTableProps) {
         >
           <SortableContext
             items={agents.map((item) => item.id)}
-            strategy={rectSortingStrategy}
+            strategy={verticalListSortingStrategy}
           >
             <div className={styles.grid}>
               {agents.map((item) => (
                 <AgentTile
                   key={item.id}
                   agent={item}
-                  disabled={loading || reordering}
-                  onOpen={() => setSelected(item.id)}
-                  onPin={onPin}
-                  onEdit={onEdit}
-                  onCopy={onCopy}
-                  onToggle={onToggle}
+                  disabled={loading}
+                  onOpen={setSelected}
+                  onPin={pinAgent}
+                  onEdit={editAgent}
+                  onCopy={copyAgent}
+                  onToggle={toggleAgent}
                 />
               ))}
             </div>
@@ -305,6 +346,6 @@ export function AgentGallery(props: AgentTableProps) {
           </>
         )}
       </SharedModal>
-    </LayoutGroup>
+    </>
   );
 }

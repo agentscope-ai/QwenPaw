@@ -667,7 +667,8 @@ export default function ProjectSelectModal({
       title={t("codingMode.selectProject")}
       onCancel={onClose}
       footer={null}
-      width={560}
+      width={920}
+      centered
       afterOpenChange={(isOpen) => isOpen && handleOpen()}
       className={styles.modal}
     >

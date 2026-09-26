@@ -1,15 +1,16 @@
+import { MCPConnectionEditor } from "./MCPConnectionEditor";
+import { readConnection, connectionError } from "./connectionValue";
 import { useAutoSave } from "@/hooks/useAutoSave";
 import { ServiceCard } from "@/components/interaction/ServiceCard";
 import { SharedModal as Modal } from "@/components/interaction/SharedModal";
-import { Button, Tooltip, Input } from "@agentscope-ai/design";
+import { Button, Tooltip } from "@agentscope-ai/design";
 import type { MCPAccessPolicy, MCPClientInfo } from "../../../../api/types";
 import { useTranslation } from "react-i18next";
-import React, { useState } from "react";
+import React, { useId, useState } from "react";
 import { Trash2, Wrench as ToolOutlined } from "lucide-react";
 import { ShieldCheck, ShieldAlert, ShieldX, KeyRound } from "lucide-react";
 import { MCPAccessModal } from "./MCPAccessModal";
 import { MCPOAuthSection } from "./MCPOAuthSection";
-import styles from "../index.module.less";
 
 interface MCPClientUpdate {
   name?: string;
@@ -43,11 +44,11 @@ export const MCPClientCard = React.memo(function MCPClientCard({
   onRefresh,
 }: MCPClientCardProps) {
   const { t } = useTranslation();
+  const surfaceId = useId();
   const [jsonModalOpen, setJsonModalOpen] = useState(false);
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const [accessModalOpen, setAccessModalOpen] = useState(false);
   const [editedJson, setEditedJson] = useState("");
-  const [isEditing, setIsEditing] = useState(false);
   const [oauthModalOpen, setOauthModalOpen] = useState(false);
   const [oauthClientId, setOauthClientId] = useState("");
   const [oauthScope, setOauthScope] = useState(
@@ -76,29 +77,21 @@ export const MCPClientCard = React.memo(function MCPClientCard({
   const handleCardClick = () => {
     const jsonStr = JSON.stringify(client, null, 2);
     setEditedJson(jsonStr);
-    setIsEditing(false);
     setJsonModalOpen(true);
   };
 
   const { schedule: scheduleJson, flush: flushJson } = useAutoSave(async () => {
-    let parsed;
-    try {
-      parsed = JSON.parse(editedJson);
-    } catch {
-      return false;
-    }
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
-      return false;
+    const parsed = readConnection(editedJson);
+    if (!parsed || connectionError(parsed)) return false;
     const updates = { ...parsed };
     delete updates.key;
     return onUpdate(client.key, updates);
   });
 
-  const clientJson = JSON.stringify(client, null, 2);
-
   return (
     <>
       <ServiceCard
+        surfaceId={surfaceId}
         name={client.name}
         description={client.description}
         enabled={client.enabled}
@@ -164,58 +157,44 @@ export const MCPClientCard = React.memo(function MCPClientCard({
       </Modal>
 
       <Modal
+        surfaceId={surfaceId}
+        styles={{
+          body: {
+            maxHeight: "min(68dvh, 640px)",
+            overflowY: "auto",
+            padding: "2px",
+          },
+        }}
         title={`${client.name} · ${t("common.configure")}`}
         open={jsonModalOpen}
         onCancel={() => {
-          void flushJson().then(() => setJsonModalOpen(false));
+          void flushJson().then((saved) => {
+            if (saved) setJsonModalOpen(false);
+          });
         }}
         footer={
           <div style={{ textAlign: "right" }}>
             <Button
               onClick={() => {
-                void flushJson().then(() => setJsonModalOpen(false));
+                void flushJson().then((saved) => {
+                  if (saved) setJsonModalOpen(false);
+                });
               }}
               style={{ marginRight: 8 }}
             >
               {t("common.close")}
             </Button>
-            {!isEditing && (
-              <Button type="primary" onClick={() => setIsEditing(true)}>
-                {t("common.edit")}
-              </Button>
-            )}
           </div>
         }
         width={700}
       >
-        <div className={styles.maskedFieldHint}>{t("mcp.maskedFieldHint")}</div>
-        {isEditing ? (
-          <Input.TextArea
-            value={editedJson}
-            onChange={(e) => {
-              setEditedJson(e.target.value);
-              scheduleJson();
-            }}
-            autoSize={{ minRows: 15, maxRows: 25 }}
-            style={{
-              fontFamily: "Monaco, Courier New, monospace",
-              fontSize: 13,
-            }}
-          />
-        ) : (
-          <pre
-            style={{
-              backgroundColor: "var(--app-surface-subtle)",
-              color: "var(--app-text)",
-              padding: 16,
-              borderRadius: 8,
-              maxHeight: 400,
-              overflow: "auto",
-            }}
-          >
-            {clientJson}
-          </pre>
-        )}
+        <MCPConnectionEditor
+          value={editedJson}
+          onChange={(next) => {
+            setEditedJson(next);
+            scheduleJson();
+          }}
+        />
       </Modal>
 
       <MCPAccessModal

@@ -16,7 +16,7 @@ import { useTranslation } from "react-i18next";
 import { codingModeApi } from "../../../../api/modules/codingMode";
 import { projectDirectoryApi } from "../../../../api/modules/projectDirectory";
 import ProjectSelectModal from "../../../../components/ProjectSelectModal";
-import { useTimezoneOptions } from "../../../../hooks/useTimezoneOptions";
+import TimezoneAtlas from "./TimezoneAtlas";
 import { useMemoryBackends } from "../../../../plugins/memoryBackends";
 import { useAgentStore } from "../../../../stores/agentStore";
 import {
@@ -185,7 +185,6 @@ export function ReactAgentCard({
   savingLang,
   onLanguageChange,
   timezone,
-  savingTimezone,
   onTimezoneChange,
 }: ReactAgentCardProps) {
   const memoryBackends = useMemoryBackends();
@@ -209,7 +208,7 @@ export function ReactAgentCard({
   const { t } = useTranslation();
 
   return (
-    <Card className={styles.formCard} title={t("agentConfig.reactAgentTitle")}>
+    <Card className={styles.formCard}>
       <div className={styles.reactAgentRow}>
         <SettingsField
           label={t("agentConfig.language")}
@@ -231,21 +230,7 @@ export function ReactAgentCard({
           tooltip={t("agentConfig.timezoneTooltip")}
           className={styles.reactAgentField}
         >
-          <Select
-            showSearch
-            value={timezone}
-            placeholder={t("agentConfig.selectTimezone")}
-            filterOption={(input, option) =>
-              (option?.label?.toString() || "")
-                .toLowerCase()
-                .includes(input.toLowerCase())
-            }
-            options={useTimezoneOptions()}
-            onChange={onTimezoneChange}
-            loading={savingTimezone}
-            disabled={savingTimezone}
-            style={{ width: "100%" }}
-          />
+          <TimezoneAtlas value={timezone} onChange={onTimezoneChange} />
         </SettingsField>
       </div>
 

@@ -229,7 +229,6 @@
   &:hover {
     border-color: var(--app-border-strong);
     box-shadow: var(--app-shadow-sm);
-    transform: translateY(-2px);
   }
 
   // The app configures antd with prefixCls="qwenpaw"; keep the ant-* alias
@@ -411,15 +410,11 @@
     min-width: 0;
     border-radius: 10px;
     &:last-child:not(:first-child) {
-      flex: 0 0 36px;
+      flex: 0 0 auto;
     }
   }
 
   @media (max-width: 639px) {
-    right: 14px;
-    bottom: 14px;
-    left: 14px;
-
     :global(.ant-btn),
     :global(.qwenpaw-btn) {
       min-height: 36px;
@@ -701,4 +696,41 @@
   // Smooth scrolling
   scroll-behavior: smooth;
   -webkit-overflow-scrolling: touch;
+}
+
+.previewTrigger {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--app-text);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.4;
+  text-align: start;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+  &:hover {
+    color: var(--app-accent-text);
+  }
+  &:focus-visible {
+    outline: 2px solid var(--app-focus-ring);
+    outline-offset: 4px;
+    border-radius: 4px;
+  }
+}
+.previewBody {
+  color: var(--app-text-secondary);
+  line-height: 1.75;
+  overflow-wrap: anywhere;
+  p {
+    margin: 20px 0 8px;
+    white-space: pre-wrap;
+  }
+}
+.previewActions {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
 }

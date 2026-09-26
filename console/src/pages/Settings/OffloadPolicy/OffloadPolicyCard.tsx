@@ -1,8 +1,9 @@
 import InlineHelp from "@/components/InlineHelp";
-import { PreferenceChoice } from "@/components/interaction/PreferenceChoice";
+import { PolicySelector } from "@/components/interaction/PolicySelector";
 import styles from "./index.module.less";
-import { useEffect, useState } from "react";
-import { Card, Space, Spin, message } from "antd";
+import { useEffect, useState, useRef } from "react";
+import { useAutoSave } from "@/hooks/useAutoSave";
+import { Card, Space, Spin } from "antd";
 import { Clock, Layers } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { toolCallsApi } from "../../../api/modules/toolCalls";
@@ -13,7 +14,10 @@ export function OffloadPolicyCard() {
   const { t } = useTranslation();
   const [policy, setPolicy] = useState<OffloadPolicy>("keep_foreground");
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
+  const draft = useRef(policy);
+  const { schedule } = useAutoSave(async () => {
+    await toolCallsApi.setOffloadPolicy(draft.current);
+  });
 
   useEffect(() => {
     toolCallsApi
@@ -25,18 +29,11 @@ export function OffloadPolicyCard() {
       .finally(() => setLoading(false));
   }, []);
 
-  const handleChange = async (value: OffloadPolicy) => {
-    setSaving(true);
-    try {
-      await toolCallsApi.setOffloadPolicy(value);
-      setPolicy(value);
-    } catch {
-      message.error(
-        t("agentConfig.offloadPolicy.saveFailed", "Failed to save policy"),
-      );
-    } finally {
-      setSaving(false);
-    }
+  const handleChange = (value: OffloadPolicy) => {
+    if (value === policy) return;
+    draft.current = value;
+    setPolicy(value);
+    schedule();
   };
 
   const options = [
@@ -77,27 +74,21 @@ export function OffloadPolicyCard() {
           <Spin />
         </div>
       ) : (
-        <div className={styles.choices}>
-          {options.map((option) => (
-            <PreferenceChoice
-              key={option.value}
-              label={option.label}
-              description={option.description}
-              icon={
-                option.value === "offload" ? (
-                  <Layers size={20} />
-                ) : (
-                  <Clock size={20} />
-                )
-              }
-              selected={policy === option.value}
-              disabled={saving}
-              onSelect={() => {
-                if (option.value !== policy) void handleChange(option.value);
-              }}
-            />
-          ))}
-        </div>
+        <PolicySelector
+          value={policy}
+          onChange={handleChange}
+          disabled={loading}
+          label={t("agentConfig.offloadPolicy.title")}
+          options={options.map((option) => ({
+            ...option,
+            icon:
+              option.value === "offload" ? (
+                <Layers size={18} />
+              ) : (
+                <Clock size={18} />
+              ),
+          }))}
+        />
       )}
     </Card>
   );

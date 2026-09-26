@@ -186,3 +186,53 @@
   flex-wrap: wrap;
   align-items: center;
 }
+
+.route {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 20px;
+  padding: 16px 0;
+  border-block: 1px solid var(--app-border-subtle);
+  > svg {
+    color: var(--app-text-tertiary);
+  }
+}
+.routeSources {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.routeSource {
+  padding: 6px 12px;
+  border: 1px solid var(--app-border-subtle);
+  border-radius: 8px;
+  background: var(--app-surface);
+  color: var(--app-text);
+  font-size: 13px;
+}
+.routeTarget {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  strong {
+    font-size: 14px;
+    font-weight: 600;
+  }
+  span {
+    font-size: 12px;
+    color: var(--app-text-secondary);
+  }
+}
+.routeEmpty {
+  font-size: 13px;
+  color: var(--app-text-secondary);
+}
+@media (max-width: 600px) {
+  .route {
+    gap: 12px;
+  }
+}

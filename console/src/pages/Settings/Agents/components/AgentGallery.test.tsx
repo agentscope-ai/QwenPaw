@@ -51,4 +51,67 @@ describe("AgentGallery", () => {
       expect.objectContaining({ id: "default" }),
     );
   });
+  it("keeps pin actions and backend identities in the active gallery", () => {
+    const onPin = vi.fn();
+    renderWithProviders(
+      <AgentGallery
+        agents={[
+          { id: "native", name: "Native", backend: "qwenpaw", pinned: false },
+          { id: "external", name: "External", backend: "codex", pinned: true },
+        ].map(
+          (agent) =>
+            ({
+              ...agent,
+              description: "",
+              workspace_dir: "",
+              enabled: true,
+            }) as AgentSummary,
+        )}
+        loading={false}
+        reordering={false}
+        onEdit={vi.fn()}
+        onCopy={vi.fn()}
+        onDelete={vi.fn()}
+        onToggle={vi.fn()}
+        onPin={onPin}
+        onReorder={vi.fn()}
+      />,
+    );
+    expect(screen.getByText("QwenPaw")).toBeVisible();
+    expect(screen.getAllByText("codex").length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByRole("button", { name: "agent.pinAgent" }));
+    expect(onPin).toHaveBeenLastCalledWith("native", false);
+    fireEvent.click(screen.getByRole("button", { name: "agent.unpinAgent" }));
+    expect(onPin).toHaveBeenLastCalledWith("external", true);
+  });
+
+  it("uses the latest action callback after a parent rerender", () => {
+    const firstCopy = vi.fn();
+    const nextCopy = vi.fn();
+    const agent = {
+      id: "sample",
+      name: "Sample",
+      description: "",
+      workspace_dir: "/sample",
+      enabled: true,
+      backend: "qwenpaw",
+    } as AgentSummary;
+    const props = {
+      agents: [agent],
+      loading: false,
+      reordering: false,
+      onEdit: vi.fn(),
+      onDelete: vi.fn(),
+      onToggle: vi.fn(),
+      onPin: vi.fn(),
+      onReorder: vi.fn(),
+    };
+    const view = renderWithProviders(
+      <AgentGallery {...props} onCopy={firstCopy} />,
+    );
+    view.rerender(<AgentGallery {...props} onCopy={nextCopy} />);
+    fireEvent.click(screen.getByRole("button", { name: "common.copy" }));
+    expect(firstCopy).not.toHaveBeenCalled();
+    expect(nextCopy).toHaveBeenCalledWith(agent);
+  });
 });

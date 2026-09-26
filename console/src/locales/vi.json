@@ -1104,6 +1104,7 @@
     "runtimeRestartFailed": "Không thể khởi động lại môi trường"
   },
   "chat": {
+    "historyLoadFailed": "Không thể tải cuộc trò chuyện. Vui lòng mở lại.",
     "newTask": "Tác vụ mới",
     "newChat": "Cuộc trò chuyện mới",
     "groups": {
@@ -1246,7 +1247,9 @@
       "notFound": "Chưa tìm thấy file nhật ký.",
       "placeholder": "Nội dung nhật ký sẽ hiển thị ở đây.",
       "loadFailed": "Không thể tải nhật ký",
-      "searchPlaceholder": "Tìm trong nhật ký..."
+      "searchPlaceholder": "Tìm trong nhật ký...",
+      "newLogsAvailable": "Có nhật ký mới · Đến mới nhất",
+      "returnLatest": "Trở lại nhật ký mới nhất"
     },
     "actions": {
       "refreshBackend": "Làm mới nhật ký",
@@ -1367,18 +1370,18 @@
     "required": " (bắt buộc)"
   },
   "acp": {
-    "title": "ACP",
+    "title": "Kết nối ACP",
     "loading": "Đang tải cấu hình ACP...",
-    "builtin": "Tích hợp sẵn",
+    "builtin": "Cấu hình sẵn",
     "custom": "Tùy chỉnh",
-    "create": "Thêm agent tùy chỉnh",
-    "createTitle": "Tạo agent ACP",
-    "createSuccess": "Tạo agent ACP thành công",
+    "create": "Thêm kết nối ACP",
+    "createTitle": "Kết nối ACP mới",
+    "createSuccess": "Đã thêm kết nối ACP",
     "editTitle": "Chỉnh sửa cấu hình ACP",
-    "agentKey": "Khóa agent",
-    "agentKeyRequired": "Vui lòng nhập khóa agent",
-    "agentKeyInvalid": "Khóa agent chỉ được chứa chữ cái, số, gạch dưới và gạch ngang",
-    "agentKeyExists": "Khóa agent này đã tồn tại",
+    "agentKey": "ID kết nối",
+    "agentKeyRequired": "Nhập ID kết nối",
+    "agentKeyInvalid": "ID chỉ được chứa chữ cái, chữ số, dấu gạch dưới và dấu gạch nối",
+    "agentKeyExists": "ID kết nối này đã tồn tại",
     "enabled": "Đã bật",
     "command": "Lệnh",
     "commandRequired": "Vui lòng nhập lệnh",
@@ -1387,7 +1390,7 @@
     "env": "Biến môi trường",
     "envHelp": "Dùng định dạng KEY=VALUE, mỗi dòng một biến",
     "envInvalid": "Định dạng không hợp lệ, dùng KEY=VALUE",
-    "nodeSettings": "Cài đặt Node",
+    "nodeSettings": "Môi trường chạy",
     "nodePath": "Đường dẫn Node",
     "chooseOtherNode": "Chọn Node khác...",
     "selectNodePath": "Chọn đường dẫn Node",
@@ -1407,7 +1410,22 @@
       "versionCheckFailed": "Kiểm tra phiên bản thất bại",
       "unavailable": "Không khả dụng"
     },
-    "trusted": "Đáng tin cậy"
+    "trusted": "Đáng tin cậy",
+    "intro": "Kết nối công cụ qua ACP để tác nhân hiện tại sử dụng.",
+    "protocolHelp": "Quản lý kết nối công cụ ACP tại đây. Backend bên thứ ba trong quản lý tác nhân dùng giao thức tích hợp riêng và được cấu hình độc lập.",
+    "currentAgent": "Tác nhân hiện tại",
+    "callableTools": "Công cụ có thể gọi",
+    "enabledIntegrations": "Kết nối đã bật",
+    "search": "Tìm kết nối ACP",
+    "deleteConfirm": "Xóa kết nối ACP này? Không thể hoàn tác thao tác này.",
+    "deleteSuccess": "Đã xóa kết nối ACP",
+    "deleteFailed": "Không thể xóa kết nối ACP",
+    "trustedHelp": "Tự động phê duyệt yêu cầu quyền từ kết nối này. Các chặn bảo mật bắt buộc vẫn có hiệu lực. Tắt để phê duyệt từng yêu cầu.",
+    "toolParseModes": {
+      "call_title": "Tiêu đề lệnh gọi",
+      "update_detail": "Chi tiết tiến trình",
+      "call_detail": "Chi tiết lệnh gọi"
+    }
   },
   "voiceTranscription": {
     "title": "Phiên âm giọng nói",
@@ -1836,7 +1854,8 @@
       "system": "Hệ thống",
       "default": "Mặc định"
     },
-    "qwenpawSettings": "Cài đặt môi trường QwenPaw"
+    "qwenpawSettings": "Cài đặt môi trường QwenPaw",
+    "emptyValue": "Chuỗi rỗng"
   },
   "tools": {
     "title": "Công cụ",
@@ -2398,7 +2417,8 @@
     "alreadyBound": "Đã liên kết",
     "tooMany": "Chỉ có thể liên kết tối đa {{max}} thư mục.",
     "countTitle": "Số thư mục đã buộc",
-    "syncAsAgentDefault": "Dùng cấu hình không gian làm việc này cho các tác vụ mới"
+    "syncAsAgentDefault": "Dùng cấu hình không gian làm việc này cho các tác vụ mới",
+    "openDirectory": "Mở {{name}}"
   },
   "agentConfig": {
     "title": "Cấu hình",
@@ -2485,7 +2505,7 @@
       "builtInNote": "Pipeline đã khóa · Có thể sửa giá trị",
       "templateSectionTitle": "Mẫu Loop",
       "templateSectionDescription": "Chọn mẫu tích hợp hoặc thêm mẫu của riêng bạn.",
-      "defaultTab": "Mặc định",
+      "defaultTab": "Tiêu chuẩn",
       "goalTab": "Mục tiêu",
       "missionTab": "Nhiệm vụ",
       "defaultDescription": "Loop ReAct được bảo vệ tiêu chuẩn ngoài chế độ cụ thể.",
@@ -3664,7 +3684,8 @@
     "progressSaving": "Đang lưu file sao lưu...",
     "progressDone": "Sao lưu hoàn tất",
     "localModelsNotice": "File sao lưu không bao gồm file mô hình cục bộ. Khi di chuyển sang thiết bị khác, bạn cần tải lại các mô hình đó.",
-    "scopeSecrets": "Thông tin xác thực và khóa bí mật"
+    "scopeSecrets": "Thông tin xác thực và khóa bí mật",
+    "agentsPlaceholder": "Chọn không gian làm việc của tác nhân để sao lưu"
   },
   "skills": {
     "allChannels": "Tất cả kênh",
@@ -3973,6 +3994,80 @@
         "name": "Nhiệm vụ",
         "description": "Chạy tác vụ nhiều bước có cấu trúc và liên tục."
       }
+    }
+  },
+  "runtimeDesign": {
+    "title": "Không gian vận hành",
+    "subtitle": "Để tác nhân làm việc theo cách của bạn.",
+    "workspace": "Môi trường",
+    "workspaceHint": "Ngôn ngữ, múi giờ và không gian làm việc",
+    "execution": "Thực thi",
+    "executionHint": "Vòng lặp và phê duyệt công cụ",
+    "recovery": "Khôi phục",
+    "recoveryHint": "Nhịp thử lại và số lượt đồng thời",
+    "context": "Dung lượng ngữ cảnh",
+    "contextHint": "Nén, lưu giữ và kết quả công cụ",
+    "memory": "Bộ nhớ",
+    "memoryHint": "Ghi lại, sắp xếp và tìm kiếm",
+    "deviceTimezone": "Dùng múi giờ thiết bị",
+    "localTime": "Giờ địa phương",
+    "mapHint": "Nhấp vào bản đồ để đặt múi giờ UTC cố định. Với khu vực có giờ mùa hè, hãy chọn múi giờ khu vực ở danh sách phía trên.",
+    "zoomIn": "Phóng to",
+    "zoomOut": "Thu nhỏ",
+    "retryPreview": "Xem trước thời gian chờ",
+    "retryHint": "Thời gian chờ cơ bản; phản hồi máy chủ và giới hạn tốc độ có thể kéo dài thời gian.",
+    "retryAttempt": "Lần thử lại {{count}}",
+    "totalWait": "Tổng thời gian chờ",
+    "budgetTitle": "Ngân sách ngữ cảnh",
+    "budgetHint": "Dung lượng cấu hình của mô hình, không phải mức dùng trực tiếp.",
+    "trigger": "Ngưỡng nén",
+    "retained": "Ngữ cảnh giữ lại",
+    "advanced": "Cài đặt nâng cao",
+    "seconds": "giây",
+    "allSettings": "Tất cả cài đặt",
+    "cities": {
+      "America_Los_Angeles": "Los Angeles",
+      "America_New_York": "New York",
+      "America_Sao_Paulo": "São Paulo",
+      "Europe_London": "Luân Đôn",
+      "Europe_Moscow": "Moskva",
+      "Africa_Cairo": "Cairo",
+      "Africa_Johannesburg": "Johannesburg",
+      "Asia_Dubai": "Dubai",
+      "Asia_Kolkata": "Kolkata",
+      "Asia_Shanghai": "Thượng Hải",
+      "Asia_Tokyo": "Tokyo",
+      "Asia_Singapore": "Singapore",
+      "Australia_Sydney": "Sydney",
+      "Pacific_Auckland": "Auckland"
+    },
+    "beijingTime": "Giờ Bắc Kinh",
+    "mapPlaces": {
+      "-12": "Đảo Baker",
+      "-11": "Pago Pago",
+      "-10": "Honolulu",
+      "-9": "Anchorage",
+      "-8": "Los Angeles",
+      "-7": "Denver",
+      "-6": "Thành phố Mexico",
+      "-5": "New York",
+      "-4": "San Juan",
+      "-3": "Buenos Aires",
+      "-2": "Nam Georgia",
+      "-1": "Praia",
+      "0": "Luân Đôn",
+      "1": "Paris",
+      "2": "Cairo",
+      "3": "Moskva",
+      "4": "Dubai",
+      "5": "Karachi",
+      "6": "Dhaka",
+      "7": "Bangkok",
+      "8": "Bắc Kinh",
+      "9": "Tokyo",
+      "10": "Sydney",
+      "11": "Nouméa",
+      "12": "Suva"
     }
   }
 }

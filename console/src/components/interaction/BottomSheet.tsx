@@ -9,6 +9,7 @@ export default function BottomSheet({
   onOpenChange,
   title,
   children,
+  footer,
   tall = false,
   initialSnap = 0.9,
   onCloseFocus,
@@ -17,6 +18,7 @@ export default function BottomSheet({
   onOpenChange: (open: boolean) => void;
   title: ReactNode;
   children: ReactNode;
+  footer?: ReactNode;
   tall?: boolean;
   initialSnap?: number;
   onCloseFocus?: () => void;
@@ -56,14 +58,15 @@ export default function BottomSheet({
             </Drawer.Close>
           </header>
           <div
-            className={styles.content}
+            className={styles.viewport}
             style={
               tall && typeof snap === "number"
                 ? { maxHeight: `calc(${snap * 100}dvh - 68px)` }
                 : undefined
             }
           >
-            {children}
+            <div className={styles.content}>{children}</div>
+            {footer && <div className={styles.footer}>{footer}</div>}
           </div>
         </Drawer.Content>
       </Drawer.Portal>

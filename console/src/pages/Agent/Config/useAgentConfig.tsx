@@ -3,6 +3,7 @@ import { Form, Modal } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
 import api from "../../../api";
 import type { AgentsRunningConfig } from "../../../api/types";
+import { useAutoSave } from "../../../hooks/useAutoSave";
 import { useAppMessage } from "../../../hooks/useAppMessage";
 import { useAgentStore } from "../../../stores/agentStore";
 import { CONTEXT_MANAGER_BACKEND_MAPPINGS } from "../../../constants/backendMappings";
@@ -252,25 +253,23 @@ export function useAgentConfig(
     [language, t],
   );
 
+  const timezoneDraft = useRef(timezone);
+  const { schedule: scheduleTimezoneSave } = useAutoSave(async () => {
+    setSavingTimezone(true);
+    try {
+      await api.updateUserTimezone(timezoneDraft.current);
+    } finally {
+      setSavingTimezone(false);
+    }
+  });
   const handleTimezoneChange = useCallback(
-    async (value: string) => {
+    (value: string) => {
       if (value === timezone) return;
-      setSavingTimezone(true);
-      try {
-        await api.updateUserTimezone(value);
-        setTimezone(value);
-        message.success(t("agentConfig.timezoneSaveSuccess"));
-      } catch (err) {
-        const errMsg =
-          err instanceof Error
-            ? err.message
-            : t("agentConfig.timezoneSaveFailed");
-        message.error(errMsg);
-      } finally {
-        setSavingTimezone(false);
-      }
+      timezoneDraft.current = value;
+      setTimezone(value);
+      scheduleTimezoneSave();
     },
-    [timezone, t],
+    [timezone, scheduleTimezoneSave],
   );
 
   return {

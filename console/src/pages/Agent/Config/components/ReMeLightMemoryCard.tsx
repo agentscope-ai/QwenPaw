@@ -1,3 +1,4 @@
+import { SchedulePicker } from "@/components/interaction/SchedulePicker";
 import { NumberStepper as InputNumber } from "@/components/interaction/NumberStepper";
 import { SettingsField } from "@/components/interaction/SettingsField";
 import { useEffect, useState } from "react";
@@ -364,20 +365,9 @@ export function ReMeLightMemoryCard() {
           <div className={styles.memorySectionHeader}>
             <div>
               <h3>{t("agentConfig.memoryJournalTitle")}</h3>
-              <p>{t("agentConfig.memoryJournalDescription")}</p>
+              <p>{t("agentConfig.memoryAutoRecordDescription")}</p>
             </div>
-          </div>
-
-          <div className={styles.memoryCapabilityHeader}>
-            <h4>{t("agentConfig.memoryConversationJournalTitle")}</h4>
-            <code>auto-memory</code>
-          </div>
-          <div className={styles.memoryToggleRow}>
-            <div>
-              <strong>{t("agentConfig.memoryAutoRecordTitle")}</strong>
-              <span>{t("agentConfig.memoryAutoRecordDescription")}</span>
-            </div>
-            <Switch checked={autoMemoryEnabled} onChange={toggleAutoMemory} />
+            <Switch aria-label={t("agentConfig.memoryAutoRecordTitle")} checked={autoMemoryEnabled} onChange={toggleAutoMemory} />
           </div>
 
           <SettingsField
@@ -514,10 +504,7 @@ export function ReMeLightMemoryCard() {
                       : []
                   }
                 >
-                  <Input
-                    disabled={!dailyPaperCronEnabled}
-                    placeholder={t("agentConfig.dailyPaperCronPlaceholder")}
-                  />
+                  <SchedulePicker disabled={!dailyPaperCronEnabled} />
                 </SettingsField>
 
                 <SettingsField
@@ -647,10 +634,7 @@ export function ReMeLightMemoryCard() {
                       : []
                   }
                 >
-                  <Input
-                    disabled={!autoFinCronEnabled}
-                    placeholder={t("agentConfig.autoFinCronPlaceholder")}
-                  />
+                  <SchedulePicker disabled={!autoFinCronEnabled} />
                 </SettingsField>
 
                 <SettingsField
@@ -734,27 +718,10 @@ export function ReMeLightMemoryCard() {
             <div className={styles.memorySectionHeader}>
               <div>
                 <h3>{t("agentConfig.memoryOrganizeSectionTitle")}</h3>
-                <p>{t("agentConfig.memoryOrganizeSectionDescription")}</p>
+                <p>{t("agentConfig.memoryScheduledOrganizeDescription")}</p>
               </div>
-            </div>
-
-            <div className={styles.memoryCapabilityHeader}>
-              <h4>{t("agentConfig.memoryOrganizeTitle")}</h4>
-              <code>auto-dream</code>
-            </div>
-            <div className={styles.memoryToggleRow}>
-              <div>
-                <strong>{t("agentConfig.memoryScheduledOrganizeTitle")}</strong>
-                <span>
-                  {t("agentConfig.memoryScheduledOrganizeDescription")}
-                </span>
-              </div>
-              <SettingsField
-                name={["reme_light_memory_config", "dream_cron_enabled"]}
-                valuePropName="checked"
-                noStyle
-              >
-                <Switch />
+              <SettingsField name={["reme_light_memory_config", "dream_cron_enabled"]} valuePropName="checked" noStyle>
+                <Switch aria-label={t("agentConfig.memoryScheduledOrganizeTitle")} />
               </SettingsField>
             </div>
             <SettingsField
@@ -783,10 +750,7 @@ export function ReMeLightMemoryCard() {
                   : []
               }
             >
-              <Input
-                disabled={!dreamCronEnabled}
-                placeholder={t("agentConfig.dreamCronPlaceholder")}
-              />
+              <SchedulePicker disabled={!dreamCronEnabled} />
             </SettingsField>
             <div className={styles.memoryToggleRow}>
               <div>
@@ -813,10 +777,6 @@ export function ReMeLightMemoryCard() {
                 <h3>{t("agentConfig.memorySearchSectionTitle")}</h3>
                 <p>{t("agentConfig.memorySearchSectionDescription")}</p>
               </div>
-            </div>
-            <div className={styles.memoryCapabilityHeader}>
-              <h4>{t("agentConfig.memoryRecallTitle")}</h4>
-              <code>memory-search</code>
             </div>
             <div className={styles.memoryToggleRow}>
               <div>

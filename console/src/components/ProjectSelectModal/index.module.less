@@ -341,3 +341,20 @@
   direction: rtl;
   text-align: left;
 }
+
+.modal {
+  :global(.ant-modal-content) {
+    max-height: calc(100dvh - 48px);
+    display: flex;
+    flex-direction: column;
+  }
+  :global(.ant-modal-body) {
+    min-height: 0;
+    overflow-y: auto;
+  }
+}
+@media (max-width: 600px) {
+  .modal :global(.ant-modal-body) {
+    padding: 8px 0;
+  }
+}

@@ -1,0 +1,34 @@
+@import (reference) "../../../../styles/settingsTabs.less";
+
+.workbench {
+  .settings-tabs();
+  padding: 0 16px 32px;
+}
+.modules {
+  display: grid;
+  gap: 24px;
+}
+.module {
+  min-width: 0;
+  scroll-margin-top: 24px;
+  > div {
+    padding: 0 !important;
+  }
+  :global(.qwenpaw-card),
+  :global(.ant-card) {
+    background: var(--app-surface);
+  }
+  > :global(.qwenpaw-card),
+  > :global(.ant-card),
+  > div > :global(.qwenpaw-card),
+  > div > :global(.ant-card) {
+    border: 1px solid var(--app-border-subtle);
+    border-radius: 24px;
+    box-shadow: none;
+  }
+}
+@media (max-width: 600px) {
+  .workbench {
+    padding-inline: 0;
+  }
+}

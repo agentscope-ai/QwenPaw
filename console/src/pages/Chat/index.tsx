@@ -1,3 +1,7 @@
+import {
+  ChatSessionTransition,
+  ReadyChatWelcome,
+} from "./components/ChatSessionTransition";
 import { ChatWelcome } from "./components/ChatWelcome";
 import { loadSessionModel } from "../../features/session-settings/sessionModel";
 import {
@@ -3981,7 +3985,15 @@ export default function ChatPage() {
           : {}),
         ...(extPrompts !== undefined ? { prompts: extPrompts } : {}),
         // SDK uses `render` if present and ignores the other fields.
-        render: wrappedWelcomeRender ?? ((props) => <ChatWelcome {...props} />),
+        render: (props: WelcomeRenderProps) => (
+          <ReadyChatWelcome adapter={sdkSessionAdapter} sessionId={chatId}>
+            {wrappedWelcomeRender ? (
+              wrappedWelcomeRender(props)
+            ) : (
+              <ChatWelcome {...props} />
+            )}
+          </ReadyChatWelcome>
+        ),
       },
       sender: {
         ...i18nConfig?.sender,
@@ -4516,11 +4528,16 @@ export default function ChatPage() {
             }
           >
             {!isAgentTransition && (
-              <AgentScopeRuntimeWebUI
-                ref={chatRef}
-                key={refreshKey}
-                options={options}
-              />
+              <ChatSessionTransition
+                adapter={sdkSessionAdapter}
+                sessionId={chatId}
+              >
+                <AgentScopeRuntimeWebUI
+                  ref={chatRef}
+                  key={refreshKey}
+                  options={options}
+                />
+              </ChatSessionTransition>
             )}
           </RichFileReferenceInputProvider>
         </div>

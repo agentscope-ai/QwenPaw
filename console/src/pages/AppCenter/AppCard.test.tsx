@@ -94,7 +94,7 @@ describe("AppCard", () => {
       <AppCard app={makeApp()} onClick={onClick} onUninstall={onUninstall} />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "common.more" }));
+    fireEvent.click(screen.getByRole("button", { name: "appCenter.moreActions" }));
     fireEvent.click(
       await screen.findByRole("menuitem", { name: "appCenter.uninstall" }),
     );

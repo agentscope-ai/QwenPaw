@@ -479,7 +479,9 @@
       "notFound": "暂未找到后端日志文件。",
       "placeholder": "后端日志会显示在这里。",
       "loadFailed": "加载后端日志失败",
-      "searchPlaceholder": "搜索后端日志..."
+      "searchPlaceholder": "搜索后端日志...",
+      "newLogsAvailable": "有新日志 · 回到最新",
+      "returnLatest": "回到最新日志"
     },
     "actions": {
       "refreshBackend": "刷新后端日志",
@@ -987,18 +989,18 @@
     "mailPushWakeOptionSummary": "总结邮件要点存入收件箱"
   },
   "acp": {
-    "title": "ACP",
+    "title": "ACP 协议接入",
     "loading": "加载 ACP 配置中...",
-    "builtin": "内置",
+    "builtin": "预设",
     "custom": "自定义",
-    "create": "新增 Custom Agent",
-    "createTitle": "新增 ACP Agent",
-    "createSuccess": "ACP Agent 已创建",
+    "create": "添加 ACP 接入",
+    "createTitle": "新增 ACP 接入",
+    "createSuccess": "ACP 接入已添加",
     "editTitle": "编辑 ACP 配置",
-    "agentKey": "Agent Key",
-    "agentKeyRequired": "请输入 Agent Key",
-    "agentKeyInvalid": "Agent Key 只能包含字母、数字、下划线和连字符",
-    "agentKeyExists": "该 Agent Key 已存在",
+    "agentKey": "接入标识",
+    "agentKeyRequired": "请输入接入标识",
+    "agentKeyInvalid": "接入标识只能包含字母、数字、下划线和连字符",
+    "agentKeyExists": "该接入标识已存在",
     "enabled": "启用",
     "command": "命令",
     "commandRequired": "请输入命令",
@@ -1020,10 +1022,10 @@
     "configSaved": "ACP 配置已保存",
     "configFailed": "ACP 配置保存失败",
     "deleteTitle": "删除 {{name}}",
-    "deleteConfirm": "确定删除该 ACP Agent 吗？此操作不可撤销。",
-    "deleteSuccess": "ACP Agent 已删除",
-    "deleteFailed": "ACP Agent 删除失败",
-    "nodeSettings": "Node 设置",
+    "deleteConfirm": "删除这个 ACP 接入？此操作无法撤销。",
+    "deleteSuccess": "ACP 接入已删除",
+    "deleteFailed": "删除 ACP 接入失败",
+    "nodeSettings": "运行环境",
     "nodePath": "Node 路径",
     "chooseOtherNode": "选择其他 Node...",
     "selectNodePath": "选择 Node 路径",
@@ -1042,6 +1044,18 @@
       "npxMissing": "未找到 npx",
       "versionCheckFailed": "版本检查失败",
       "unavailable": "不可用"
+    },
+    "intro": "通过 ACP 协议接入工具，供当前智能体调用。",
+    "protocolHelp": "这里管理 ACP 工具接入。智能体管理中的三方后端使用各自的内置协议，两者独立配置。",
+    "currentAgent": "当前智能体",
+    "callableTools": "可调用工具",
+    "enabledIntegrations": "已启用接入",
+    "search": "搜索 ACP 接入",
+    "trustedHelp": "自动批准此接入的权限请求；安全硬拦截仍然生效。关闭后按请求进行审批。",
+    "toolParseModes": {
+      "call_title": "调用标题",
+      "update_detail": "进度详情",
+      "call_detail": "调用详情"
     }
   },
   "skills": {
@@ -2163,7 +2177,8 @@
       "user": "QwenPaw",
       "system": "系统",
       "default": "默认"
-    }
+    },
+    "emptyValue": "空字符串"
   },
   "tokenUsage": {
     "year": "年份",
@@ -2909,7 +2924,8 @@
     "alreadyBound": "已绑定",
     "tooMany": "最多可绑定 {{max}} 个目录。",
     "countTitle": "已绑定的目录数量",
-    "syncAsAgentDefault": "以后新任务默认使用此工作区配置"
+    "syncAsAgentDefault": "以后新任务默认使用此工作区配置",
+    "openDirectory": "进入 {{name}}"
   },
   "agentConfig": {
     "advancedRuntime": "高级运行设置",
@@ -2986,7 +3002,7 @@
       "builtInNote": "流程已锁定 · 参数可编辑",
       "templateSectionTitle": "Loop 模板",
       "templateSectionDescription": "选择内置模板，或添加自己的模板。",
-      "defaultTab": "默认",
+      "defaultTab": "标准",
       "goalTab": "目标",
       "missionTab": "任务",
       "defaultDescription": "未启用显式模式时使用的标准受控 ReAct Loop。",
@@ -3808,6 +3824,7 @@
     "system": "跟随系统"
   },
   "chat": {
+    "historyLoadFailed": "会话加载失败，请重新打开此会话。",
     "switchSession": "切换会话",
     "lastActive": "上次活跃 · {{time}}",
     "fileReference": {
@@ -5012,7 +5029,7 @@
     "securityNotice": "此备份可能包含敏感凭证信息。智能体工作区包含渠道凭证（如 bot token、app secret 等），模型供应商密钥包含 API Key。请勿将备份文件分享给他人。",
     "searchPlaceholder": "按名称或 ID 搜索备份...",
     "total": "共 {{count}} 条",
-    "agentsPlaceholder": "请选择智能体工作区（留空表示全部）",
+    "agentsPlaceholder": "选择要备份的智能体工作区",
     "selectAll": "全选",
     "deselectAll": "取消全选",
     "createSuccess": "备份创建成功",
@@ -5601,6 +5618,80 @@
       "session": "当前会话指定",
       "agent": "跟随 Agent 模型",
       "global": "跟随默认 LLM"
+    }
+  },
+  "runtimeDesign": {
+    "title": "运行工作台",
+    "subtitle": "让智能体按你的方式工作。",
+    "workspace": "工作环境",
+    "workspaceHint": "语言、时区与工作区",
+    "execution": "执行方式",
+    "executionHint": "任务循环与工具审批",
+    "recovery": "失败与等待",
+    "recoveryHint": "重试节奏与并发容量",
+    "context": "上下文容量",
+    "contextHint": "压缩、保留与工具结果",
+    "memory": "记忆与检索",
+    "memoryHint": "记录、整理与召回",
+    "deviceTimezone": "使用设备时区",
+    "localTime": "当地时间",
+    "mapHint": "点击地图直接选择固定 UTC 时区。使用夏令时的地区，可在上方选择对应的标准时区。",
+    "zoomIn": "放大地图",
+    "zoomOut": "缩小地图",
+    "retryPreview": "等待时间预览",
+    "retryHint": "每次重试的基础等待；实际等待还可能受服务端与限流影响。",
+    "retryAttempt": "第 {{count}} 次重试",
+    "totalWait": "总等待",
+    "budgetTitle": "上下文预算",
+    "budgetHint": "当前模型的配置容量；并非实时使用量。",
+    "trigger": "触发压缩",
+    "retained": "保留上下文",
+    "advanced": "高级参数",
+    "seconds": "秒",
+    "allSettings": "全部配置",
+    "cities": {
+      "America_Los_Angeles": "洛杉矶",
+      "America_New_York": "纽约",
+      "America_Sao_Paulo": "圣保罗",
+      "Europe_London": "伦敦",
+      "Europe_Moscow": "莫斯科",
+      "Africa_Cairo": "开罗",
+      "Africa_Johannesburg": "约翰内斯堡",
+      "Asia_Dubai": "迪拜",
+      "Asia_Kolkata": "加尔各答",
+      "Asia_Shanghai": "上海",
+      "Asia_Tokyo": "东京",
+      "Asia_Singapore": "新加坡",
+      "Australia_Sydney": "悉尼",
+      "Pacific_Auckland": "奥克兰"
+    },
+    "beijingTime": "北京时间",
+    "mapPlaces": {
+      "-12": "贝克岛",
+      "-11": "帕果帕果",
+      "-10": "檀香山",
+      "-9": "安克雷奇",
+      "-8": "洛杉矶",
+      "-7": "丹佛",
+      "-6": "墨西哥城",
+      "-5": "纽约",
+      "-4": "圣胡安",
+      "-3": "布宜诺斯艾利斯",
+      "-2": "南乔治亚岛",
+      "-1": "普拉亚",
+      "0": "伦敦",
+      "1": "巴黎",
+      "2": "开罗",
+      "3": "莫斯科",
+      "4": "迪拜",
+      "5": "卡拉奇",
+      "6": "达卡",
+      "7": "曼谷",
+      "8": "北京",
+      "9": "东京",
+      "10": "悉尼",
+      "11": "努美阿",
+      "12": "苏瓦"
     }
   }
 }

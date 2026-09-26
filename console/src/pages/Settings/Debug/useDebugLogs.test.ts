@@ -556,6 +556,10 @@ describe("useDebugLogs", () => {
     });
 
     expect(writeText).toHaveBeenCalledWith("keep me");
+    await act(async () => {
+      await result.current.handleCopyBackend("reading snapshot");
+    });
+    expect(writeText).toHaveBeenLastCalledWith("reading snapshot");
     expect(messageApi.success).toHaveBeenCalled();
     expect(messageApi.error).not.toHaveBeenCalled();
   });

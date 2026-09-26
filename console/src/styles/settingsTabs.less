@@ -1,0 +1,31 @@
+.settings-tabs() {
+  :global(.qwenpaw-tabs-nav) {
+    margin-bottom: 20px;
+
+    &::before {
+      border-bottom: 1px solid var(--app-border-subtle);
+    }
+  }
+
+  :global(.qwenpaw-tabs-tab) {
+    padding: 10px 4px;
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--app-text-secondary) !important;
+
+    &:hover {
+      color: var(--app-accent) !important;
+    }
+  }
+
+  :global(.qwenpaw-tabs-tab-active .qwenpaw-tabs-tab-btn) {
+    color: var(--app-accent) !important;
+    font-weight: 600;
+  }
+
+  :global(.qwenpaw-tabs-ink-bar) {
+    background: var(--app-accent) !important;
+    height: 3px;
+    border-radius: 2px 2px 0 0;
+  }
+}

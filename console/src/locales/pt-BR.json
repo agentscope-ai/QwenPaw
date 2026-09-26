@@ -303,7 +303,9 @@
       "notFound": "Backend log file was not found yet.",
       "placeholder": "Backend log output will appear here.",
       "loadFailed": "Falha ao load Backend Logs",
-      "searchPlaceholder": "Pesquisar logs do backend..."
+      "searchPlaceholder": "Pesquisar logs do backend...",
+      "newLogsAvailable": "Novos logs · Ver os mais recentes",
+      "returnLatest": "Voltar aos logs mais recentes"
     },
     "actions": {
       "refreshBackend": "Atualizar logs do backend",
@@ -312,18 +314,18 @@
     }
   },
   "acp": {
-    "title": "ACP",
+    "title": "Integrações ACP",
     "loading": "Carregando configuracao ACP...",
-    "builtin": "Integrado",
-    "custom": "Personalizado",
-    "create": "Adicionar Personalizado Agente",
-    "createTitle": "Criar ACP Agente",
-    "createSuccess": "Agente ACP criado",
+    "builtin": "Predefinições",
+    "custom": "Personalizadas",
+    "create": "Adicionar integração ACP",
+    "createTitle": "Nova integração ACP",
+    "createSuccess": "Integração ACP adicionada",
     "editTitle": "Editar ACP Configuracao",
-    "agentKey": "Chave do Agente",
-    "agentKeyRequired": "Digite a chave do agente",
-    "agentKeyInvalid": "A chave pode conter apenas letras, numeros, sublinhados e hifens",
-    "agentKeyExists": "Esta chave de agente ja existe",
+    "agentKey": "ID da integração",
+    "agentKeyRequired": "Insira um ID de integração",
+    "agentKeyInvalid": "O ID só pode conter letras, números, sublinhados e hífens",
+    "agentKeyExists": "Este ID de integração já existe",
     "enabled": "Ativado",
     "command": "Command",
     "commandRequired": "Digite um comando",
@@ -345,10 +347,10 @@
     "configSaved": "Configuracao ACP salva",
     "configFailed": "Falha ao salvar configuracao ACP",
     "deleteTitle": "Excluir {{name}}",
-    "deleteConfirm": "Excluir este agente ACP? Esta acao nao pode ser desfeita.",
-    "deleteSuccess": "Agente ACP excluido",
-    "deleteFailed": "Falha ao excluir agente ACP",
-    "nodeSettings": "Configuracoes do Node",
+    "deleteConfirm": "Excluir esta integração ACP? Esta ação não pode ser desfeita.",
+    "deleteSuccess": "Integração ACP excluída",
+    "deleteFailed": "Falha ao excluir a integração ACP",
+    "nodeSettings": "Ambiente de execução",
     "nodePath": "Caminho do Node",
     "chooseOtherNode": "Escolher outro Node...",
     "selectNodePath": "Selecionar caminho do Node",
@@ -367,6 +369,18 @@
       "npxMissing": "npx nao encontrado",
       "versionCheckFailed": "Falha na verificacao de versao",
       "unavailable": "Indisponivel"
+    },
+    "intro": "Conecte ferramentas via ACP para o agente atual usar.",
+    "protocolHelp": "Gerencie integrações de ferramentas ACP aqui. Os backends de terceiros no gerenciamento de agentes usam seus próprios protocolos integrados e são configurados separadamente.",
+    "currentAgent": "Agente atual",
+    "callableTools": "Ferramentas disponíveis",
+    "enabledIntegrations": "Integrações ativadas",
+    "search": "Buscar integrações ACP",
+    "trustedHelp": "Aprova automaticamente as solicitações de permissão desta conexão. Bloqueios rígidos de segurança continuam ativos. Desative para aprovar as solicitações individualmente.",
+    "toolParseModes": {
+      "call_title": "Títulos das chamadas",
+      "update_detail": "Detalhes do progresso",
+      "call_detail": "Detalhes das chamadas"
     }
   },
   "voiceTranscription": {
@@ -437,7 +451,7 @@
     "securityNotice": "This backup may contain sensitive credentials. Agent workspaces include channel credentials (bot tokens, app secrets, etc.), and model provider secrets include API keys. Do not share backup files with others.",
     "searchPlaceholder": "Search backups by name or ID...",
     "total": "Total {{count}}",
-    "agentsPlaceholder": "Select agent workspaces (leave empty for all)",
+    "agentsPlaceholder": "Escolha os espaços de trabalho dos agentes para o backup",
     "selectAll": "Selecionar Todos",
     "deselectAll": "Deselect Todos",
     "createSuccess": "Backup Criado successfully",
@@ -1978,7 +1992,8 @@
       "system": "Sistema",
       "default": "Padrão"
     },
-    "qwenpawSettings": "Configurações de ambiente do QwenPaw"
+    "qwenpawSettings": "Configurações de ambiente do QwenPaw",
+    "emptyValue": "String vazia"
   },
   "modelSelector": {
     "selectModel": "Selecionar Modelo",
@@ -2570,7 +2585,8 @@
     "alreadyBound": "Já vinculado",
     "tooMany": "No máximo {{max}} diretórios podem ser vinculados.",
     "countTitle": "Número de diretórios vinculados",
-    "syncAsAgentDefault": "Usar esta configuração de espaço de trabalho em novas tarefas"
+    "syncAsAgentDefault": "Usar esta configuração de espaço de trabalho em novas tarefas",
+    "openDirectory": "Abrir {{name}}"
   },
   "agentConfig": {
     "title": "Configuracao",
@@ -3458,6 +3474,7 @@
     "sidebarPreview": "Itens visíveis"
   },
   "chat": {
+    "historyLoadFailed": "Não foi possível carregar a conversa. Abra-a novamente.",
     "newTask": "Nova tarefa",
     "newChat": "Novo chat",
     "groups": {
@@ -4975,6 +4992,80 @@
         "name": "Missão",
         "description": "Execute uma tarefa estruturada e persistente em várias etapas."
       }
+    }
+  },
+  "runtimeDesign": {
+    "title": "Estúdio de execução",
+    "subtitle": "Faça seu agente trabalhar do seu jeito.",
+    "workspace": "Ambiente",
+    "workspaceHint": "Idioma, fuso horário e espaço de trabalho",
+    "execution": "Execução",
+    "executionHint": "Ciclos de tarefas e aprovação de ferramentas",
+    "recovery": "Recuperação",
+    "recoveryHint": "Ritmo de tentativas e concorrência",
+    "context": "Capacidade do contexto",
+    "contextHint": "Compressão, retenção e resultados",
+    "memory": "Memória",
+    "memoryHint": "Registrar, organizar e recuperar",
+    "deviceTimezone": "Usar fuso do dispositivo",
+    "localTime": "Hora local",
+    "mapHint": "Clique no mapa para definir um fuso UTC fixo. Para regiões com horário de verão, escolha o fuso regional na lista acima.",
+    "zoomIn": "Ampliar",
+    "zoomOut": "Reduzir",
+    "retryPreview": "Prévia do tempo de espera",
+    "retryHint": "Espera básica antes de cada tentativa; o servidor e os limites podem aumentá-la.",
+    "retryAttempt": "Tentativa {{count}}",
+    "totalWait": "Espera total",
+    "budgetTitle": "Orçamento de contexto",
+    "budgetHint": "Capacidade configurada do modelo, não uso em tempo real.",
+    "trigger": "Gatilho de compressão",
+    "retained": "Contexto retido",
+    "advanced": "Configurações avançadas",
+    "seconds": "segundos",
+    "allSettings": "Todas as configurações",
+    "cities": {
+      "America_Los_Angeles": "Los Angeles",
+      "America_New_York": "Nova York",
+      "America_Sao_Paulo": "São Paulo",
+      "Europe_London": "Londres",
+      "Europe_Moscow": "Moscou",
+      "Africa_Cairo": "Cairo",
+      "Africa_Johannesburg": "Joanesburgo",
+      "Asia_Dubai": "Dubai",
+      "Asia_Kolkata": "Calcutá",
+      "Asia_Shanghai": "Xangai",
+      "Asia_Tokyo": "Tóquio",
+      "Asia_Singapore": "Singapura",
+      "Australia_Sydney": "Sydney",
+      "Pacific_Auckland": "Auckland"
+    },
+    "beijingTime": "Horário de Pequim",
+    "mapPlaces": {
+      "-12": "Ilha Baker",
+      "-11": "Pago Pago",
+      "-10": "Honolulu",
+      "-9": "Anchorage",
+      "-8": "Los Angeles",
+      "-7": "Denver",
+      "-6": "Cidade do México",
+      "-5": "Nova York",
+      "-4": "San Juan",
+      "-3": "Buenos Aires",
+      "-2": "Geórgia do Sul",
+      "-1": "Praia",
+      "0": "Londres",
+      "1": "Paris",
+      "2": "Cairo",
+      "3": "Moscou",
+      "4": "Dubai",
+      "5": "Karachi",
+      "6": "Daca",
+      "7": "Bangkok",
+      "8": "Pequim",
+      "9": "Tóquio",
+      "10": "Sydney",
+      "11": "Nouméa",
+      "12": "Suva"
     }
   }
 }

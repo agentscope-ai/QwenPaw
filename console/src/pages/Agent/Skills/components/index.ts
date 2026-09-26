@@ -15,7 +15,7 @@ export {
 export { useConflictRenameModal } from "./useConflictRenameModal";
 export { ImportHubModal } from "./ImportHubModal";
 export { PoolTransferModal } from "./PoolTransferModal";
-export { SkillFilterDropdown, TAG_PREFIX } from "./SkillFilterDropdown";
+export { SkillFilterDropdown } from "./SkillFilterDropdown";
 export { HeaderActions } from "./HeaderActions";
 export { AddSkillDropdown } from "./AddSkillDropdown";
 export { SkillsToolbar } from "./SkillsToolbar";

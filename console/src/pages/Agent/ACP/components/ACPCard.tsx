@@ -4,6 +4,7 @@ import { ServiceCard } from "@/components/interaction/ServiceCard";
 import type { ACPAgentConfig } from "../../../../api/types";
 
 interface ACPCardProps {
+  surfaceId?: string;
   agentKey: string;
   config: ACPAgentConfig;
   isBuiltin: boolean;
@@ -13,6 +14,7 @@ interface ACPCardProps {
 
 export const ACPCard = React.memo(function ACPCard({
   agentKey,
+  surfaceId,
   config,
   isBuiltin,
   onClick,
@@ -21,6 +23,7 @@ export const ACPCard = React.memo(function ACPCard({
   const { t } = useTranslation();
   return (
     <ServiceCard
+      surfaceId={surfaceId}
       name={agentKey}
       enabled={config.enabled}
       onConfigure={onClick}

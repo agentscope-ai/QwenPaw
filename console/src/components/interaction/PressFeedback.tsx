@@ -70,6 +70,7 @@ export function PressFeedback() {
       if (["Enter", " "].includes(event.key)) release();
     };
     const reset = () => {
+      if (pressed) pressed.style.scale = "1";
       pressed = null;
       animations.forEach((animation, element) => {
         animation.stop();
@@ -83,6 +84,7 @@ export function PressFeedback() {
     document.addEventListener("pointercancel", release, true);
     document.addEventListener("keydown", down, true);
     document.addEventListener("keyup", keyup, true);
+    document.addEventListener("focusout", release, true);
     window.addEventListener("blur", release);
     preference.addEventListener("change", reset);
     return () => {
@@ -93,6 +95,7 @@ export function PressFeedback() {
       document.removeEventListener("pointercancel", release, true);
       document.removeEventListener("keydown", down, true);
       document.removeEventListener("keyup", keyup, true);
+      document.removeEventListener("focusout", release, true);
       window.removeEventListener("blur", release);
       preference.removeEventListener("change", reset);
     };

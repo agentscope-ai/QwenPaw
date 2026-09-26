@@ -9,7 +9,6 @@
 /* ---- Provider visual refresh -------------------------------------------- */
 .settingsPage {
   .model-surface-tokens();
-  --models-bg: var(--model-canvas);
   --models-surface: var(--app-surface);
   --models-surface-muted: var(--model-inset);
   --models-border: var(--app-border);
@@ -22,11 +21,9 @@
   --models-accent-soft: var(--app-accent-soft);
   --models-positive: var(--app-success-text);
   --models-positive-soft: var(--app-success-bg);
-  background: var(--models-bg);
+  background: transparent;
   color: var(--models-text);
-  border-radius: 28px;
   overflow: hidden;
-  border: 1px solid var(--models-border);
 }
 
 .settingsPage
@@ -41,13 +38,14 @@
 }
 
 .settingsPage .content {
-  background: var(--models-bg);
+  background: transparent;
 }
 
 .settingsPage .pageHeader {
-  padding: 18px 24px;
-  border-bottom-color: var(--models-border);
-  background: var(--models-bg);
+  padding: 0 24px 20px;
+  border: 0;
+  backdrop-filter: none;
+  background: transparent;
 }
 
 .settingsPage .breadcrumbParent {
@@ -69,7 +67,7 @@
 .settingsPage .sectionHeaderRow {
   align-items: center;
   padding: 18px 24px 14px;
-  background: var(--models-bg);
+  background: transparent;
 }
 
 .settingsPage .providersPageHeader {

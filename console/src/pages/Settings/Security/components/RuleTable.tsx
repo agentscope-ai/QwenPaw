@@ -62,6 +62,8 @@ export function RuleTable({
             key={key}
             layoutId={reduced ? undefined : `rule-category:${key}`}
             className={styles.category}
+            data-inactive={!enabled || undefined}
+            style={{ borderRadius: 18 }}
             onClick={() => {
               setQuery("");
               setCategory(key);
@@ -74,7 +76,9 @@ export function RuleTable({
             </span>
             <span className={styles.count}>
               <NumberFlow
-                value={items.filter((rule) => !rule.disabled).length}
+                value={
+                  enabled ? items.filter((rule) => !rule.disabled).length : 0
+                }
                 respectMotionPreference
               />{" "}
               <small>/ {items.length}</small>
@@ -83,7 +87,9 @@ export function RuleTable({
               <motion.span
                 animate={{
                   width: `${
-                    (items.filter((rule) => !rule.disabled).length /
+                    ((enabled
+                      ? items.filter((rule) => !rule.disabled).length
+                      : 0) /
                       items.length) *
                     100
                   }%`,
@@ -91,7 +97,9 @@ export function RuleTable({
                 transition={{ duration: reduced ? 0 : 0.25 }}
               />
             </span>
-            <span className={styles.caption}>{t("common.enabled")}</span>
+            <span className={styles.caption}>
+              {t(enabled ? "common.enabled" : "common.disabled")}
+            </span>
           </motion.button>
         ))}
       </div>

@@ -407,6 +407,9 @@ export default function ToolsPage() {
                       const Icon = tool.source_plugin_id
                         ? Wrench
                         : TOOL_PRESENTATION[tool.name]?.Icon ?? Wrench;
+                      const canConfigure =
+                        tool.requires_config ||
+                        WEBSEARCH_TOOL_NAMES.has(tool.name);
                       const hasActions =
                         tool.enabled &&
                         (BROWSER_TOOL_NAMES.has(tool.name) ||
@@ -432,6 +435,34 @@ export default function ToolsPage() {
                               <h3 className={styles.toolName}>
                                 {toolLabel(tool)}
                               </h3>
+                              <Popover
+                                trigger={["hover", "focus", "click"]}
+                                content={
+                                  <div className={styles.helpContent}>
+                                    <code>{tool.name}</code>
+                                    <p>
+                                      {tool.name === "browser"
+                                        ? browserTrackLabel(tool, t)
+                                        : toolDescription(tool)}
+                                    </p>
+                                  </div>
+                                }
+                              >
+                                <button
+                                  type="button"
+                                  data-press
+                                  className={styles.helpButton}
+                                  aria-label={`${toolLabel(tool)} · ${t(
+                                    "common.help",
+                                  )}`}
+                                >
+                                  <CircleHelp
+                                    size={16}
+                                    strokeWidth={1.75}
+                                    aria-hidden
+                                  />
+                                </button>
+                              </Popover>
                               <span className={styles.switchTarget}>
                                 <Switch
                                   aria-label={`${t(
@@ -464,98 +495,60 @@ export default function ToolsPage() {
                                   })}
                                 </span>
                               )}
-                            <div className={styles.cardFooter}>
-                              <span
-                                className={styles.state}
-                                data-enabled={tool.enabled}
-                              >
-                                <span aria-hidden />
-                                {t(
-                                  tool.enabled
-                                    ? "tools.filterEnabled"
-                                    : "tools.filterDisabled",
-                                )}
-                              </span>
-                              {tool.source_plugin_id && (
-                                <span className={styles.pluginSource}>
-                                  {tool.source_plugin_name ||
-                                    tool.source_plugin_id}
-                                </span>
-                              )}
-                              {tool.requires_config &&
-                                !isToolConfigured(tool) && (
-                                  <span className={styles.notConfigured}>
-                                    <TriangleAlert size={14} aria-hidden />
-                                    {t("tools.requiresConfig")}
+                            {(canConfigure || tool.source_plugin_id) && (
+                              <div className={styles.cardFooter}>
+                                {tool.source_plugin_id && (
+                                  <span className={styles.pluginSource}>
+                                    {tool.source_plugin_name ||
+                                      tool.source_plugin_id}
                                   </span>
                                 )}
-                              <div className={styles.rowActions}>
-                                {(tool.requires_config ||
-                                  WEBSEARCH_TOOL_NAMES.has(tool.name)) && (
-                                  <motion.div
-                                    layoutId={
-                                      reducedMotion
-                                        ? undefined
-                                        : `${instanceId}-${tool.name}-config`
-                                    }
-                                    style={{
-                                      borderRadius: 20,
-                                      background: "var(--app-surface)",
-                                    }}
-                                    transition={{
-                                      type: "spring",
-                                      stiffness: 360,
-                                      damping: 38,
-                                    }}
-                                  >
-                                    <Button
-                                      data-press
-                                      className={styles.toggleButton}
-                                      aria-label={`${t(
-                                        "tools.configure",
-                                      )} ${toolLabel(tool)}`}
-                                      onClick={() => handleConfigure(tool)}
-                                      icon={
-                                        <SettingOutlined
-                                          size={16}
-                                          aria-hidden
-                                        />
+                                {tool.requires_config &&
+                                  !isToolConfigured(tool) && (
+                                    <span className={styles.notConfigured}>
+                                      <TriangleAlert size={14} aria-hidden />
+                                      {t("tools.requiresConfig")}
+                                    </span>
+                                  )}
+                                <div className={styles.rowActions}>
+                                  {canConfigure && (
+                                    <motion.div
+                                      layoutId={
+                                        reducedMotion
+                                          ? undefined
+                                          : `${instanceId}-${tool.name}-config`
                                       }
+                                      style={{
+                                        borderRadius: 20,
+                                        background: "var(--app-surface)",
+                                      }}
+                                      transition={{
+                                        type: "spring",
+                                        stiffness: 360,
+                                        damping: 38,
+                                      }}
                                     >
-                                      {t("tools.configure")}
-                                    </Button>
-                                  </motion.div>
-                                )}
-                                <Popover
-                                  trigger="click"
-                                  content={
-                                    <div className={styles.helpContent}>
-                                      <code>{tool.name}</code>
-                                      <p>
-                                        {tool.name === "browser"
-                                          ? browserTrackLabel(tool, t)
-                                          : toolDescription(tool)}
-                                      </p>
-                                    </div>
-                                  }
-                                >
-                                  <button
-                                    type="button"
-                                    data-press
-                                    className={styles.helpButton}
-                                    aria-label={`${toolLabel(tool)} · ${t(
-                                      "common.help",
-                                    )}`}
-                                  >
-                                    <CircleHelp
-                                      size={16}
-                                      strokeWidth={1.75}
-                                      aria-hidden
-                                    />
-                                  </button>
-                                </Popover>
+                                      <Button
+                                        data-press
+                                        className={styles.toggleButton}
+                                        aria-label={`${t(
+                                          "tools.configure",
+                                        )} ${toolLabel(tool)}`}
+                                        onClick={() => handleConfigure(tool)}
+                                        icon={
+                                          <SettingOutlined
+                                            size={16}
+                                            aria-hidden
+                                          />
+                                        }
+                                      >
+                                        {t("tools.configure")}
+                                      </Button>
+                                    </motion.div>
+                                  )}
+                                </div>
                               </div>
-                            </div>
+                            )}
                             {hasActions && (
                               <div className={styles.extraActions}>
                                 {BROWSER_TOOL_NAMES.has(tool.name) ? (

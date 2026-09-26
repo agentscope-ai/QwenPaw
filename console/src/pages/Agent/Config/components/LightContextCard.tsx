@@ -1,3 +1,4 @@
+import { ContextBudgetOverview } from "./RuntimeVisuals";
 import { NumberStepper as InputNumber } from "@/components/interaction/NumberStepper";
 import { SettingsField } from "@/components/interaction/SettingsField";
 import {
@@ -78,151 +79,103 @@ export function LightContextCard({ maxInputLength }: LightContextCardProps) {
   );
 
   return (
-    <Card
-      className={styles.formCard}
-      title={t("agentConfig.lightContextTitle")}
-    >
+    <Card className={styles.formCard}>
+      <SettingsField
+        label={t("agentConfig.contextCompactEnabled")}
+        name={["light_context_config", "context_compact_config", "enabled"]}
+        valuePropName="checked"
+        tooltip={t("agentConfig.contextCompactEnabledTooltip")}
+      >
+        <Switch />
+      </SettingsField>
+
+      <ContextBudgetOverview
+        capacity={maxInputLength}
+        trigger={compactThreshold}
+        retained={reserveThreshold}
+      />
+      <SettingsField
+        label={t("agentConfig.contextCompactRatio")}
+        name={[
+          "light_context_config",
+          "context_compact_config",
+          "compact_threshold_ratio",
+        ]}
+        rules={[
+          {
+            required: true,
+            message: t("agentConfig.contextCompactRatioRequired"),
+          },
+        ]}
+        tooltip={t("agentConfig.contextCompactRatioTooltip")}
+      >
+        <SliderWithValue
+          min={0.1}
+          max={0.9}
+          step={0.01}
+          marks={{ 0.1: "0.1", 0.5: "0.5", 0.9: "0.9" }}
+        />
+      </SettingsField>
+
+      <SettingsField
+        label={t("agentConfig.contextCompactReserveRatio")}
+        name={[
+          "light_context_config",
+          "context_compact_config",
+          "reserve_threshold_ratio",
+        ]}
+        rules={[
+          {
+            required: true,
+            message: t("agentConfig.contextCompactReserveRatioRequired"),
+          },
+        ]}
+        tooltip={t("agentConfig.contextCompactReserveRatioTooltip")}
+      >
+        <SliderWithValue
+          min={0.01}
+          max={0.3}
+          step={0.01}
+          marks={{ 0.01: "0.01", 0.15: "0.15", 0.3: "0.3" }}
+        />
+      </SettingsField>
+
+      {isScrollStrategy && (
+        <SettingsField
+          label={t("agentConfig.historyRetentionDays")}
+          name={[
+            "light_context_config",
+            "scroll_config",
+            "history_retention_days",
+          ]}
+          rules={[
+            {
+              required: true,
+              message: t("agentConfig.historyRetentionDaysRequired"),
+            },
+          ]}
+          tooltip={t("agentConfig.historyRetentionDaysTooltip")}
+          extra={
+            historyRetentionWarning ? (
+              <span style={{ color: "var(--app-warning-text)" }}>
+                {historyRetentionWarning}
+              </span>
+            ) : undefined
+          }
+        >
+          <InputNumber
+            min={0}
+            step={1}
+            precision={0}
+            style={{ width: "100%" }}
+          />
+        </SettingsField>
+      )}
+
       <Collapse
         className={styles.contextSections}
         ghost
-        defaultActiveKey={["contextCompact"]}
         items={[
-          {
-            key: "contextCompact",
-            label: t("agentConfig.contextCompactCollapseLabel"),
-            children: (
-              <>
-                <SettingsField
-                  label={t("agentConfig.contextCompactEnabled")}
-                  name={[
-                    "light_context_config",
-                    "context_compact_config",
-                    "enabled",
-                  ]}
-                  valuePropName="checked"
-                  tooltip={t("agentConfig.contextCompactEnabledTooltip")}
-                >
-                  <Switch />
-                </SettingsField>
-
-                <SettingsField
-                  label={t("agentConfig.contextCompactRatio")}
-                  name={[
-                    "light_context_config",
-                    "context_compact_config",
-                    "compact_threshold_ratio",
-                  ]}
-                  rules={[
-                    {
-                      required: true,
-                      message: t("agentConfig.contextCompactRatioRequired"),
-                    },
-                  ]}
-                  tooltip={t("agentConfig.contextCompactRatioTooltip")}
-                >
-                  <SliderWithValue
-                    min={0.1}
-                    max={0.9}
-                    step={0.01}
-                    marks={{ 0.1: "0.1", 0.5: "0.5", 0.9: "0.9" }}
-                  />
-                </SettingsField>
-
-                <SettingsField
-                  label={t("agentConfig.contextCompactThreshold")}
-                  tooltip={t("agentConfig.contextCompactThresholdTooltip")}
-                >
-                  <Input
-                    disabled
-                    value={
-                      compactThreshold > 0
-                        ? compactThreshold.toLocaleString()
-                        : ""
-                    }
-                    placeholder={t(
-                      "agentConfig.contextCompactThresholdPlaceholder",
-                    )}
-                  />
-                </SettingsField>
-
-                <SettingsField
-                  label={t("agentConfig.contextCompactReserveRatio")}
-                  name={[
-                    "light_context_config",
-                    "context_compact_config",
-                    "reserve_threshold_ratio",
-                  ]}
-                  rules={[
-                    {
-                      required: true,
-                      message: t(
-                        "agentConfig.contextCompactReserveRatioRequired",
-                      ),
-                    },
-                  ]}
-                  tooltip={t("agentConfig.contextCompactReserveRatioTooltip")}
-                >
-                  <SliderWithValue
-                    min={0.01}
-                    max={0.3}
-                    step={0.01}
-                    marks={{ 0.01: "0.01", 0.15: "0.15", 0.3: "0.3" }}
-                  />
-                </SettingsField>
-
-                <SettingsField
-                  label={t("agentConfig.contextCompactReserveThreshold")}
-                  tooltip={t(
-                    "agentConfig.contextCompactReserveThresholdTooltip",
-                  )}
-                >
-                  <Input
-                    disabled
-                    value={
-                      reserveThreshold > 0
-                        ? reserveThreshold.toLocaleString()
-                        : ""
-                    }
-                    placeholder={t(
-                      "agentConfig.contextCompactReserveThresholdPlaceholder",
-                    )}
-                  />
-                </SettingsField>
-
-                {isScrollStrategy && (
-                  <SettingsField
-                    label={t("agentConfig.historyRetentionDays")}
-                    name={[
-                      "light_context_config",
-                      "scroll_config",
-                      "history_retention_days",
-                    ]}
-                    rules={[
-                      {
-                        required: true,
-                        message: t("agentConfig.historyRetentionDaysRequired"),
-                      },
-                    ]}
-                    tooltip={t("agentConfig.historyRetentionDaysTooltip")}
-                    extra={
-                      historyRetentionWarning ? (
-                        <span style={{ color: "var(--app-warning-text)" }}>
-                          {historyRetentionWarning}
-                        </span>
-                      ) : undefined
-                    }
-                  >
-                    <InputNumber
-                      min={0}
-                      step={1}
-                      precision={0}
-                      style={{ width: "100%" }}
-                    />
-                  </SettingsField>
-                )}
-              </>
-            ),
-          },
           {
             key: "toolResultPruning",
             label: t("agentConfig.toolResultPruningCollapseLabel"),

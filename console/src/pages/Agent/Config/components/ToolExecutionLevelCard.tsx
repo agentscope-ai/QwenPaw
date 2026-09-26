@@ -1,5 +1,7 @@
-import { Card, Radio, Alert, Space } from "antd";
+import { Card, Space } from "antd";
 import { Shield, ShieldCheck, ShieldQuestion, ShieldOff } from "lucide-react";
+import InlineHelp from "@/components/InlineHelp";
+import { PolicySelector } from "@/components/interaction/PolicySelector";
 import { useTranslation } from "react-i18next";
 import styles from "../index.module.less";
 
@@ -52,6 +54,8 @@ export function ToolExecutionLevelCard({
     },
   ];
 
+  const selected = levelOptions.find((option) => option.value === level);
+
   return (
     <Card
       className={styles.formCard}
@@ -59,39 +63,26 @@ export function ToolExecutionLevelCard({
         <Space>
           <Shield size={18} />
           {t("agentConfig.toolExecutionLevel.title")}
+          <InlineHelp>
+            <Space direction="vertical" size={8}>
+              <span>{t("agentConfig.toolExecutionLevel.alertMessage")}</span>
+              <span>
+                <strong>{selected?.label}：</strong>
+                {selected?.description}
+              </span>
+            </Space>
+          </InlineHelp>
         </Space>
       }
     >
-      <Alert
-        type="info"
-        message={t("agentConfig.toolExecutionLevel.alertMessage")}
-        style={{ marginBottom: 24 }}
-        showIcon
-        icon={<Shield size={16} />}
-      />
-
-      <Radio.Group
+      <PolicySelector
         value={level}
-        onChange={(e) => onChange(e.target.value as ToolExecutionLevel)}
+        onChange={onChange}
         disabled={disabled}
-        style={{ width: "100%" }}
-      >
-        <div className={styles.levelOptions}>
-          {levelOptions.map((option) => (
-            <Radio
-              key={option.value}
-              value={option.value}
-              className={styles.levelOption}
-            >
-              <span className={styles.levelOptionIcon}>{option.icon}</span>
-              <span className={styles.levelOptionCopy}>
-                <strong>{option.label}</strong>
-                <span>{option.description}</span>
-              </span>
-            </Radio>
-          ))}
-        </div>
-      </Radio.Group>
+        label={t("agentConfig.toolExecutionLevel.title")}
+        options={levelOptions}
+        showDescription={false}
+      />
     </Card>
   );
 }

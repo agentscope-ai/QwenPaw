@@ -229,7 +229,7 @@
 .editor label {
   display: grid;
   gap: 7px;
-  color: var(--env-text-muted);
+  color: var(--app-text-secondary);
   font-size: 12px;
   font-weight: 600;
 }
@@ -240,8 +240,8 @@
   margin: 0;
   padding: 10px 12px;
   border-radius: 9px;
-  color: var(--env-accent);
-  background: var(--env-accent-soft);
+  color: var(--app-accent-text);
+  background: var(--app-accent-soft);
   font-size: 12px;
 }
 /* Surface tokens already switch values with the active theme. */
@@ -340,5 +340,25 @@
 @media (max-width: 600px) {
   .content {
     padding-inline: 0;
+  }
+}
+
+.editorActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.revealButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  padding: 6px;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--app-text-secondary);
+  cursor: pointer;
+  &:focus-visible {
+    outline: 2px solid var(--app-focus-ring);
   }
 }

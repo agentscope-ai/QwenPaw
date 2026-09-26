@@ -1,3 +1,4 @@
+import { useState } from "react";
 import InlineHelp from "@/components/InlineHelp";
 import { useTranslation } from "react-i18next";
 import {
@@ -21,6 +22,7 @@ const { Text } = Typography;
 
 export default function DebugPage() {
   const { t } = useTranslation();
+  const [displayedLines, setDisplayedLines] = useState<string[]>([]);
   const {
     backendLogs,
     initialLoading,
@@ -133,7 +135,11 @@ export default function DebugPage() {
                 >
                   {t("debug.actions.refreshBackend", "Refresh backend logs")}
                 </Button>
-                <Button onClick={() => void handleCopyBackend()}>
+                <Button
+                  onClick={() =>
+                    void handleCopyBackend(displayedLines.join("\n"))
+                  }
+                >
                   {t("debug.actions.copyBackend", "Copy backend logs")}
                 </Button>
               </div>
@@ -162,6 +168,9 @@ export default function DebugPage() {
             ) : null}
 
             <LogViewer
+              key={`${backendNewestFirst}:${backendLevel}:${backendQuery}`}
+              newestFirst={backendNewestFirst}
+              onDisplayedLines={setDisplayedLines}
               lines={filteredBackendLines}
               query={backendQuery}
               loading={initialLoading}

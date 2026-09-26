@@ -35,7 +35,7 @@ export function LlmRateLimiterCard() {
           tooltip={t("agentConfig.llmMaxConcurrentTooltip")}
         >
           <InputNumber
-            style={{ width: "100%" }}
+            style={{ width: "100%", maxWidth: 240 }}
             min={1}
             step={1}
             placeholder={t("agentConfig.llmMaxConcurrentPlaceholder")}
@@ -59,7 +59,7 @@ export function LlmRateLimiterCard() {
           tooltip={t("agentConfig.llmMaxQpmTooltip")}
         >
           <InputNumber
-            style={{ width: "100%" }}
+            style={{ width: "100%", maxWidth: 240 }}
             min={0}
             step={10}
             placeholder={t("agentConfig.llmMaxQpmPlaceholder")}
@@ -83,7 +83,7 @@ export function LlmRateLimiterCard() {
           tooltip={t("agentConfig.llmRateLimitPauseTooltip")}
         >
           <InputNumber
-            style={{ width: "100%" }}
+            style={{ width: "100%", maxWidth: 240 }}
             step={0.5}
             placeholder={t("agentConfig.llmRateLimitPausePlaceholder")}
           />
@@ -106,7 +106,7 @@ export function LlmRateLimiterCard() {
           tooltip={t("agentConfig.llmRateLimitJitterTooltip")}
         >
           <InputNumber
-            style={{ width: "100%" }}
+            style={{ width: "100%", maxWidth: 240 }}
             step={0.5}
             placeholder={t("agentConfig.llmRateLimitJitterPlaceholder")}
           />
@@ -147,7 +147,7 @@ export function LlmRateLimiterCard() {
           tooltip={t("agentConfig.llmAcquireTimeoutTooltip")}
         >
           <InputNumber
-            style={{ width: "100%" }}
+            style={{ width: "100%", maxWidth: 240 }}
             step={10}
             placeholder={t("agentConfig.llmAcquireTimeoutPlaceholder")}
           />

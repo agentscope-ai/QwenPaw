@@ -12,7 +12,13 @@ export function SettingsDrawer({
   open,
   width,
   destroyOnHidden,
-}: Omit<DrawerProps, "onClose"> & { onClose: () => void }) {
+  surfaceId,
+  tall = true,
+}: Omit<DrawerProps, "onClose"> & {
+  onClose: () => void;
+  surfaceId?: string;
+  tall?: boolean;
+}) {
   const screens = Grid.useBreakpoint();
   const content = (
     <ConfigProvider
@@ -31,17 +37,16 @@ export function SettingsDrawer({
           if (!next) onClose();
         }}
         title={<div className={styles.editor}>{title}</div>}
-        tall
+        tall={tall}
+        footer={footer && <div className={styles.editor}>{footer}</div>}
       >
-        <div className={styles.editor}>
-          {content}
-          {footer && <div className={styles.footer}>{footer}</div>}
-        </div>
+        <div className={styles.editor}>{content}</div>
       </BottomSheet>
     );
   }
   return (
     <SharedModal
+      surfaceId={surfaceId}
       centered
       width={
         typeof width === "number" ? Math.max(480, Math.min(width, 960)) : 760

@@ -13,6 +13,20 @@ export function useSettingsSearchTarget(
     let frame = 0;
     const locate = () => {
       if (highlighted) return;
+      const section = Array.from(
+        root.querySelectorAll<HTMLButtonElement>(
+          "button[data-settings-labels]",
+        ),
+      ).find((button) => {
+        const labels = button.dataset.settingsLabels?.split("\u001f") ?? [];
+        return (
+          labels.includes(target.label) || labels.includes(target.tab ?? "")
+        );
+      });
+      if (section && section.getAttribute("aria-expanded") !== "true") {
+        section.click();
+        return;
+      }
       const tab = Array.from(
         root.querySelectorAll<HTMLElement>('[role="tab"]'),
       ).find(
@@ -23,17 +37,33 @@ export function useSettingsSearchTarget(
         tab.click();
         return;
       }
+      const hiddenField = Array.from(
+        root.querySelectorAll<HTMLElement>("label,strong,h3,span"),
+      ).find((element) => element.textContent?.trim() === target.label);
+      const disclosure = hiddenField?.closest<HTMLElement>(
+        ".ant-collapse-item,.qwenpaw-collapse-item",
+      );
+      const disclosureToggle = disclosure?.querySelector<HTMLElement>(
+        ':scope > [role="button"][aria-expanded="false"]',
+      );
+      if (disclosureToggle) {
+        disclosureToggle.click();
+        return;
+      }
       const match = Array.from(
         root.querySelectorAll<HTMLElement>("h2,h3,h4,strong,label,button,span"),
       ).find(
         (element) =>
           element.textContent?.trim() === target.label &&
-          element.getClientRects().length > 0,
+          element.getClientRects().length > 0 &&
+          !element.closest('[aria-hidden="true"],[inert]'),
       );
-      if (!match) return;
+      const destination = match ?? section;
+      if (!destination) return;
       highlighted =
-        match.closest<HTMLElement>("[data-setting-block],.ant-form-item") ??
-        match;
+        destination.closest<HTMLElement>(
+          "[data-setting-block],.ant-form-item",
+        ) ?? destination;
       highlighted.setAttribute("data-search-highlight", "true");
       frame = requestAnimationFrame(() => {
         highlighted?.scrollIntoView({ block: "center", behavior: "instant" });

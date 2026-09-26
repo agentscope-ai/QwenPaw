@@ -16,6 +16,7 @@ const hoisted = vi.hoisted(() => {
   const messageMock = {
     success: vi.fn(),
     error: vi.fn(),
+    destroy: vi.fn(),
   };
   const apiMocks = {
     getAgentRunningConfig: vi.fn(),
@@ -68,7 +69,7 @@ vi.mock("../../../api", () => ({
 vi.mock("../../../stores/agentStore", () => {
   const useAgentStore = Object.assign(
     () => ({ selectedAgent: hoisted.agentState.selectedAgent }),
-    { getState: () => hoisted.agentState },
+    { getState: () => hoisted.agentState, subscribe: () => () => {} },
   );
   return { useAgentStore };
 });
@@ -439,7 +440,7 @@ describe("useAgentConfig", () => {
     expect(messageMock.error).toHaveBeenCalledWith("save failed");
   });
 
-  it("handleTimezoneChange calls updateUserTimezone and message.success", async () => {
+  it("timezone selection updates immediately and saves after inactivity", async () => {
     apiMocks.updateUserTimezone.mockResolvedValue({
       timezone: "Asia/Shanghai",
     });
@@ -452,10 +453,35 @@ describe("useAgentConfig", () => {
       await result.current.handleTimezoneChange("Asia/Shanghai");
     });
 
-    expect(apiMocks.updateUserTimezone).toHaveBeenCalledWith("Asia/Shanghai");
     expect(result.current.timezone).toBe("Asia/Shanghai");
-    expect(messageMock.success).toHaveBeenCalledWith(
-      "agentConfig.timezoneSaveSuccess",
+    expect(apiMocks.updateUserTimezone).not.toHaveBeenCalled();
+    await waitFor(
+      () => {
+        expect(apiMocks.updateUserTimezone).toHaveBeenCalledWith(
+          "Asia/Shanghai",
+        );
+      },
+      { timeout: 2000 },
+    );
+  });
+
+  it("coalesces rapid timezone picks and flushes the last choice on leaving", async () => {
+    apiMocks.updateUserTimezone.mockResolvedValue({ timezone: "Asia/Tokyo" });
+    const { result, unmount } = renderConfigHook();
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    act(() => {
+      result.current.handleTimezoneChange("Asia/Shanghai");
+    });
+    act(() => {
+      result.current.handleTimezoneChange("Asia/Tokyo");
+    });
+    expect(result.current.timezone).toBe("Asia/Tokyo");
+    expect(apiMocks.updateUserTimezone).not.toHaveBeenCalled();
+    unmount();
+    await waitFor(() =>
+      expect(apiMocks.updateUserTimezone).toHaveBeenCalledExactlyOnceWith(
+        "Asia/Tokyo",
+      ),
     );
   });
 

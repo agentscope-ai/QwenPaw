@@ -74,7 +74,10 @@ export function SnapTrend({
             "tooltip:show",
             (event: { data?: { data?: { x?: string }; title?: string } }) => {
               const next = event.data?.data?.x ?? event.data?.title;
-              if (next && latestDates.current.includes(next)) setSelected(next);
+              if (next && latestDates.current.includes(next)) {
+                lastSelected.current = next;
+                setSelected(next);
+              }
             },
           );
         }}

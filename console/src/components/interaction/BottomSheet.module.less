@@ -49,6 +49,18 @@
     }
   }
 }
+.viewport {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+.footer {
+  flex-shrink: 0;
+  padding: 14px 16px max(20px, env(safe-area-inset-bottom));
+  border-top: 1px solid var(--app-border-subtle);
+  background: var(--app-surface);
+}
 .content {
   min-height: 0;
   overflow-y: auto;

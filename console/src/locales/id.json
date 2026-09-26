@@ -1088,6 +1088,7 @@
     "acceptInvitation": "Bergabung melalui undangan"
   },
   "chat": {
+    "historyLoadFailed": "Percakapan tidak dapat dimuat. Silakan buka kembali.",
     "newTask": "Tugas baru",
     "newChat": "Chat baru",
     "groups": {
@@ -2688,7 +2689,8 @@
     "trustLegacyTitle": "Percayai cadangan lama?",
     "unknownBackupName": "Arsip cadangan",
     "trustForeignDesc": "Cadangan ini tidak ditandatangani oleh instance ini. Lanjutkan hanya jika Anda memercayai sumbernya; pengaturan keamanan lokal dan MCP akan dipertahankan secara default saat dipulihkan.",
-    "trustLegacyDesc": "Cadangan lama ini tidak memiliki tanda tangan lokal. Lanjutkan hanya jika Anda memercayai asalnya; instance ini akan menandatanganinya sebelum dipulihkan."
+    "trustLegacyDesc": "Cadangan lama ini tidak memiliki tanda tangan lokal. Lanjutkan hanya jika Anda memercayai asalnya; instance ini akan menandatanganinya sebelum dipulihkan.",
+    "agentsPlaceholder": "Pilih ruang kerja agen yang akan dicadangkan"
   },
   "mcp": {
     "title": "Klien MCP",
@@ -2927,7 +2929,9 @@
       "notFound": "File log backend belum ditemukan.",
       "placeholder": "Output log backend akan muncul di sini.",
       "loadFailed": "Gagal memuat log backend",
-      "searchPlaceholder": "Cari log backend..."
+      "searchPlaceholder": "Cari log backend...",
+      "newLogsAvailable": "Log baru · Ke yang terbaru",
+      "returnLatest": "Kembali ke log terbaru"
     },
     "actions": {
       "refreshBackend": "Segarkan log backend",
@@ -3147,18 +3151,18 @@
     "required": " (wajib)"
   },
   "acp": {
-    "title": "ACP",
+    "title": "Integrasi ACP",
     "loading": "Memuat konfigurasi ACP...",
-    "builtin": "Bawaan",
+    "builtin": "Prasetel",
     "custom": "Kustom",
-    "create": "Tambah Agen Kustom",
-    "createTitle": "Buat Agen ACP",
-    "createSuccess": "Agen ACP berhasil dibuat",
+    "create": "Tambah integrasi ACP",
+    "createTitle": "Integrasi ACP baru",
+    "createSuccess": "Integrasi ACP ditambahkan",
     "editTitle": "Edit Konfigurasi ACP",
-    "agentKey": "Kunci Agen",
-    "agentKeyRequired": "Harap masukkan kunci agen",
-    "agentKeyInvalid": "Kunci agen hanya boleh berisi huruf, angka, garis bawah, dan tanda hubung",
-    "agentKeyExists": "Kunci agen ini sudah ada",
+    "agentKey": "ID integrasi",
+    "agentKeyRequired": "Masukkan ID integrasi",
+    "agentKeyInvalid": "ID hanya boleh berisi huruf, angka, garis bawah, dan tanda hubung",
+    "agentKeyExists": "ID integrasi ini sudah ada",
     "enabled": "Aktif",
     "command": "Perintah",
     "commandRequired": "Harap masukkan perintah",
@@ -3180,10 +3184,10 @@
     "configSaved": "Konfigurasi ACP tersimpan",
     "configFailed": "Gagal menyimpan konfigurasi ACP",
     "deleteTitle": "Hapus {{name}}",
-    "deleteConfirm": "Hapus agen ACP ini? Tindakan ini tidak dapat dibatalkan.",
-    "deleteSuccess": "Agen ACP berhasil dihapus",
-    "deleteFailed": "Gagal menghapus agen ACP",
-    "nodeSettings": "Pengaturan Node",
+    "deleteConfirm": "Hapus integrasi ACP ini? Tindakan ini tidak dapat dibatalkan.",
+    "deleteSuccess": "Integrasi ACP dihapus",
+    "deleteFailed": "Gagal menghapus integrasi ACP",
+    "nodeSettings": "Lingkungan runtime",
     "nodePath": "Path Node",
     "chooseOtherNode": "Pilih Node lain...",
     "selectNodePath": "Pilih path Node",
@@ -3202,6 +3206,18 @@
       "npxMissing": "npx tidak ditemukan",
       "versionCheckFailed": "Pemeriksaan versi gagal",
       "unavailable": "Tidak tersedia"
+    },
+    "intro": "Hubungkan alat melalui ACP agar dapat dipanggil agen saat ini.",
+    "protocolHelp": "Kelola integrasi alat ACP di sini. Backend pihak ketiga di pengelolaan agen memakai protokol bawaannya sendiri dan dikonfigurasi terpisah.",
+    "currentAgent": "Agen saat ini",
+    "callableTools": "Alat yang dapat dipanggil",
+    "enabledIntegrations": "Integrasi aktif",
+    "search": "Cari integrasi ACP",
+    "trustedHelp": "Setujui permintaan izin dari koneksi ini secara otomatis. Pemblokiran keamanan wajib tetap berlaku. Nonaktifkan untuk menyetujui setiap permintaan.",
+    "toolParseModes": {
+      "call_title": "Judul panggilan",
+      "update_detail": "Detail progres",
+      "call_detail": "Detail panggilan"
     }
   },
   "sessions": {
@@ -3323,7 +3339,8 @@
       "system": "Sistem",
       "default": "Bawaan"
     },
-    "qwenpawSettings": "Pengaturan lingkungan QwenPaw"
+    "qwenpawSettings": "Pengaturan lingkungan QwenPaw",
+    "emptyValue": "String kosong"
   },
   "tokenUsage": {
     "title": "Penggunaan Token",
@@ -4105,7 +4122,8 @@
     "alreadyBound": "Sudah terikat",
     "tooMany": "Maksimal {{max}} direktori dapat diikat.",
     "countTitle": "Jumlah direktori yang diikat",
-    "syncAsAgentDefault": "Gunakan pengaturan ruang kerja ini untuk tugas baru"
+    "syncAsAgentDefault": "Gunakan pengaturan ruang kerja ini untuk tugas baru",
+    "openDirectory": "Buka {{name}}"
   },
   "agentConfig": {
     "title": "Konfigurasi",
@@ -4181,7 +4199,7 @@
       "builtInNote": "Pipeline terkunci · Nilai dapat diedit",
       "templateSectionTitle": "Templat Loop",
       "templateSectionDescription": "Pilih templat bawaan atau tambahkan milik Anda.",
-      "defaultTab": "Default",
+      "defaultTab": "Standar",
       "goalTab": "Tujuan",
       "missionTab": "Misi",
       "defaultDescription": "Loop ReAct terjaga standar di luar mode eksplisit.",
@@ -4668,6 +4686,80 @@
         "name": "Misi",
         "description": "Jalankan tugas multi-langkah yang terstruktur dan berkelanjutan."
       }
+    }
+  },
+  "runtimeDesign": {
+    "title": "Studio runtime",
+    "subtitle": "Atur agen agar bekerja sesuai cara Anda.",
+    "workspace": "Ruang kerja",
+    "workspaceHint": "Bahasa, zona waktu, dan ruang kerja",
+    "execution": "Eksekusi",
+    "executionHint": "Siklus tugas dan persetujuan alat",
+    "recovery": "Pemulihan",
+    "recoveryHint": "Jeda percobaan dan konkurensi",
+    "context": "Kapasitas konteks",
+    "contextHint": "Kompresi, retensi, dan hasil alat",
+    "memory": "Memori",
+    "memoryHint": "Catat, atur, dan cari",
+    "deviceTimezone": "Gunakan zona waktu perangkat",
+    "localTime": "Waktu lokal",
+    "mapHint": "Klik peta untuk memilih zona waktu UTC tetap. Untuk wilayah dengan waktu musim panas, pilih zona waktu wilayah di atas.",
+    "zoomIn": "Perbesar",
+    "zoomOut": "Perkecil",
+    "retryPreview": "Pratinjau waktu tunggu",
+    "retryHint": "Jeda dasar sebelum percobaan; respons server dan batas laju dapat menambah waktu.",
+    "retryAttempt": "Percobaan {{count}}",
+    "totalWait": "Total waktu tunggu",
+    "budgetTitle": "Anggaran konteks",
+    "budgetHint": "Kapasitas model yang dikonfigurasi, bukan penggunaan langsung.",
+    "trigger": "Pemicu kompresi",
+    "retained": "Konteks tersimpan",
+    "advanced": "Pengaturan lanjutan",
+    "seconds": "detik",
+    "allSettings": "Semua pengaturan",
+    "cities": {
+      "America_Los_Angeles": "Los Angeles",
+      "America_New_York": "New York",
+      "America_Sao_Paulo": "São Paulo",
+      "Europe_London": "London",
+      "Europe_Moscow": "Moskwa",
+      "Africa_Cairo": "Kairo",
+      "Africa_Johannesburg": "Johannesburg",
+      "Asia_Dubai": "Dubai",
+      "Asia_Kolkata": "Kolkata",
+      "Asia_Shanghai": "Shanghai",
+      "Asia_Tokyo": "Tokyo",
+      "Asia_Singapore": "Singapura",
+      "Australia_Sydney": "Sydney",
+      "Pacific_Auckland": "Auckland"
+    },
+    "beijingTime": "Waktu Beijing",
+    "mapPlaces": {
+      "-12": "Pulau Baker",
+      "-11": "Pago Pago",
+      "-10": "Honolulu",
+      "-9": "Anchorage",
+      "-8": "Los Angeles",
+      "-7": "Denver",
+      "-6": "Kota Meksiko",
+      "-5": "New York",
+      "-4": "San Juan",
+      "-3": "Buenos Aires",
+      "-2": "Georgia Selatan",
+      "-1": "Praia",
+      "0": "London",
+      "1": "Paris",
+      "2": "Kairo",
+      "3": "Moskwa",
+      "4": "Dubai",
+      "5": "Karachi",
+      "6": "Dhaka",
+      "7": "Bangkok",
+      "8": "Beijing",
+      "9": "Tokyo",
+      "10": "Sydney",
+      "11": "Nouméa",
+      "12": "Suva"
     }
   }
 }

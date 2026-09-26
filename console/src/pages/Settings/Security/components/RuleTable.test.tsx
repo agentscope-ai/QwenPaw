@@ -56,4 +56,28 @@ describe("RuleTable categories", () => {
     });
     expect(dialog.getByText("rule-a")).toBeInTheDocument();
   });
+  it("does not present configured rules as active while the master protection is off", async () => {
+    render(
+      <RuleTable
+        rules={[rule]}
+        enabled={false}
+        onToggleRule={vi.fn()}
+        onToggleAutoDeny={vi.fn()}
+        onPreviewRule={vi.fn()}
+        onEditRule={vi.fn()}
+        onDeleteRule={vi.fn()}
+      />,
+    );
+    const category = screen.getByRole("button", { name: /files/ });
+    expect(within(category).getByText("0")).toBeInTheDocument();
+    expect(within(category).getByText("common.disabled")).toBeInTheDocument();
+    fireEvent.click(category);
+    const dialog = within(await screen.findByRole("dialog"));
+    expect(
+      dialog.getByRole("switch", { name: "security.enabled: rule-a" }),
+    ).toBeDisabled();
+    expect(
+      dialog.getByRole("switch", { name: "security.enabled: rule-a" }),
+    ).toBeChecked();
+  });
 });

@@ -1,5 +1,5 @@
 import InlineHelp from "@/components/InlineHelp";
-import { PreferenceChoice } from "@/components/interaction/PreferenceChoice";
+import { PolicySelector } from "@/components/interaction/PolicySelector";
 import { AudioLines, Mic } from "lucide-react";
 import { Card, Alert } from "antd";
 import { useTranslation } from "react-i18next";
@@ -25,22 +25,25 @@ export function AudioModeCard({
         {t("voiceTranscription.audioModeLabel")}
         <InlineHelp>{t("voiceTranscription.audioModeDescription")}</InlineHelp>
       </h3>
-      <div className={styles.choiceGrid}>
-        <PreferenceChoice
-          label={t("voiceTranscription.modeAuto")}
-          description={t("voiceTranscription.modeAutoDesc")}
-          icon={<AudioLines size={20} />}
-          selected={audioMode === "auto"}
-          onSelect={() => onAudioModeChange("auto")}
-        />
-        <PreferenceChoice
-          label={t("voiceTranscription.modeNative")}
-          description={t("voiceTranscription.modeNativeDesc")}
-          icon={<Mic size={20} />}
-          selected={audioMode === "native"}
-          onSelect={() => onAudioModeChange("native")}
-        />
-      </div>
+      <PolicySelector
+        label={t("voiceTranscription.audioModeLabel")}
+        value={audioMode}
+        onChange={onAudioModeChange}
+        options={[
+          {
+            value: "auto",
+            label: t("voiceTranscription.modeAuto"),
+            description: t("voiceTranscription.modeAutoDesc"),
+            icon: <AudioLines size={18} />,
+          },
+          {
+            value: "native",
+            label: t("voiceTranscription.modeNative"),
+            description: t("voiceTranscription.modeNativeDesc"),
+            icon: <Mic size={18} />,
+          },
+        ]}
+      />
 
       {audioMode === "native" && localWhisperStatus && (
         <div style={{ marginTop: 12 }}>
