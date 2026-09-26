@@ -1491,7 +1491,7 @@
     "runNow": "立即执行一次",
     "runNowSuccess": "已触发心跳执行，请稍后查看收件箱或目标渠道",
     "runNowFailed": "触发心跳执行失败",
-    "intervalRange": "请选择 1 分钟至 23 小时 59 分钟",
+    "intervalRange": "请选择至少 1 分钟的间隔",
     "instructionsTitle": "心跳指令",
     "instructionsLoadFailed": "指令加载失败，请重试。"
   },

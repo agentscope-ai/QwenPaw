@@ -18,7 +18,9 @@ export function DurationWheel({
   value = 360,
   onChange,
   disabled = false,
+  maxHours = 23,
 }: {
+  maxHours?: number;
   disabled?: boolean;
   value?: number;
   onChange?: (value: number) => void;
@@ -26,7 +28,14 @@ export function DurationWheel({
   const { t } = useTranslation();
   const reducedMotion = useReducedMotion();
   const root = useRef<HTMLDivElement>(null);
-  const hour = Math.min(23, Math.floor(value / 60));
+  const hour = Math.min(maxHours, Math.floor(value / 60));
+  const hourOptions =
+    maxHours > 23
+      ? Array.from({ length: maxHours + 1 }, (_, value) => ({
+          value,
+          label: String(value).padStart(2, "0"),
+        }))
+      : hours;
   const minute = value % 60;
   useEffect(() => {
     root.current
@@ -38,7 +47,10 @@ export function DurationWheel({
           t(index === 0 ? "heartbeat.unitHours" : "heartbeat.unitMinutes"),
         );
         picker.setAttribute("aria-valuemin", "0");
-        picker.setAttribute("aria-valuemax", index === 0 ? "23" : "59");
+        picker.setAttribute(
+          "aria-valuemax",
+          index === 0 ? String(maxHours) : "59",
+        );
         picker.setAttribute(
           "aria-valuenow",
           String(index === 0 ? hour : minute),
@@ -47,7 +59,7 @@ export function DurationWheel({
           .querySelectorAll("ul")
           .forEach((list) => list.setAttribute("aria-hidden", "true"));
       });
-  }, [hour, minute, t, disabled]);
+  }, [hour, minute, t, disabled, maxHours]);
   return (
     <div ref={root} className={styles.duration} aria-disabled={disabled}>
       <div className={styles.columns}>
@@ -59,7 +71,7 @@ export function DurationWheel({
           ) : (
             <WheelPickerWrapper className={styles.wheel}>
               <WheelPicker
-                options={hours}
+                options={hourOptions}
                 value={hour}
                 onValueChange={(next) => onChange?.(next * 60 + minute)}
                 reducedMotion={!!reducedMotion}

@@ -1,3 +1,4 @@
+import { useConfigAutoSave } from "../configAutoSaveContext";
 import { isValidDreamCronShape } from "./dreamCron";
 import { SchedulePicker } from "@/components/interaction/SchedulePicker";
 import { NumberStepper as InputNumber } from "@/components/interaction/NumberStepper";
@@ -27,6 +28,7 @@ export function ReMeLightMemoryCard() {
   const { t } = useTranslation();
   const { message, modal } = useAppMessage();
   const form = Form.useFormInstance();
+  const scheduleSave = useConfigAutoSave();
   const { selectedAgent } = useAgentStore();
   const {
     reindexing,
@@ -226,6 +228,7 @@ export function ReMeLightMemoryCard() {
       ["reme_light_memory_config", "auto_memory_interval"],
       enabled ? Math.max(autoMemoryInterval, 1) : 0,
     );
+    scheduleSave();
   };
 
   return (

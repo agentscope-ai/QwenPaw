@@ -1,3 +1,4 @@
+import { useAgentStore } from "@/stores/agentStore";
 import { useAutoSave } from "@/hooks/useAutoSave";
 import { SharedModal as Modal } from "@/components/interaction/SharedModal";
 import { CircleHelp, TriangleAlert, Search, Wrench, X } from "lucide-react";
@@ -245,6 +246,7 @@ function ToolConfigModal({
 export default function ToolsPage() {
   const { t } = useTranslation();
   const instanceId = useId();
+  const { selectedAgent } = useAgentStore();
   const reducedMotion = useReducedMotion();
   const entered = useRef(false);
   const {
@@ -278,16 +280,25 @@ export default function ToolsPage() {
       .toLowerCase()
       .includes(query.trim().toLowerCase());
   const [configModalVisible, setConfigModalVisible] = useState(false);
+  const [configAgentId, setConfigAgentId] = useState("default");
   const [currentTool, setCurrentTool] = useState<ToolInfo | null>(null);
 
+  useEffect(() => {
+    if (configAgentId !== (selectedAgent || "default")) {
+      setConfigModalVisible(false);
+      setCurrentTool(null);
+    }
+  }, [selectedAgent, configAgentId]);
+
   const handleConfigure = (tool: ToolInfo) => {
+    setConfigAgentId(useAgentStore.getState().selectedAgent || "default");
     setCurrentTool(tool);
     setConfigModalVisible(true);
   };
 
   const handleSaveConfig = async (values: Record<string, unknown>) => {
     if (!currentTool) return;
-    await saveToolConfig(currentTool.name, values);
+    await saveToolConfig(currentTool.name, values, configAgentId);
     await loadTools();
   };
 
@@ -596,7 +607,7 @@ export default function ToolsPage() {
       {/* Config modal — key forces remount when switching tools */}
       {currentTool && WEBSEARCH_TOOL_NAMES.has(currentTool.name) ? (
         <WebSearchConfigModal
-          key={currentTool.name}
+          key={`${configAgentId}:${currentTool.name}`}
           surfaceId={`${instanceId}-${currentTool.name}-config`}
           tool={currentTool}
           visible={configModalVisible}
@@ -606,7 +617,7 @@ export default function ToolsPage() {
       ) : (
         currentTool && (
           <ToolConfigModal
-            key={currentTool.name}
+            key={`${configAgentId}:${currentTool.name}`}
             surfaceId={`${instanceId}-${currentTool.name}-config`}
             tool={currentTool}
             visible={configModalVisible}

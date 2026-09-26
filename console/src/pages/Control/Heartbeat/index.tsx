@@ -173,12 +173,14 @@ function HeartbeatPage() {
                 required: true,
                 type: "number",
                 min: 1,
-                max: 1439,
                 message: t("heartbeat.intervalRange"),
               },
             ]}
           >
-            <DurationWheel disabled={!enabled} />
+            <DurationWheel
+              disabled={!enabled}
+              maxHours={Math.max(23, Math.floor(intervalMinutes / 60))}
+            />
           </Form.Item>
           <div className={styles.presets}>
             {[1, 3, 6, 12].map((value) => (

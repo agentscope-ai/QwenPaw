@@ -1651,7 +1651,7 @@
     "runNow": "Run Now",
     "runNowSuccess": "Heartbeat triggered. Check Inbox or target channel shortly.",
     "runNowFailed": "Failed to trigger heartbeat run",
-    "intervalRange": "Choose between 1 minute and 23 hours 59 minutes",
+    "intervalRange": "Choose an interval of at least 1 minute",
     "instructionsTitle": "Heartbeat instructions",
     "instructionsLoadFailed": "Instructions could not be loaded. Retry to continue."
   },

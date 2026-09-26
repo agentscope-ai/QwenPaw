@@ -1,3 +1,4 @@
+import { ConfigAutoSaveContext } from "./configAutoSaveContext";
 import { RuntimeWorkbench } from "./components/RuntimeWorkbench";
 import { useAutoSave } from "@/hooks/useAutoSave";
 import { useState, useMemo, useEffect, useCallback } from "react";
@@ -360,23 +361,25 @@ function AgentConfigPage() {
             configLoadRevision,
           }}
         >
-          <Form
-            form={form}
-            layout="vertical"
-            className={styles.form}
-            onValuesChange={scheduleSave}
-            onFieldsChange={handleRerankerFieldsChange(
-              form,
-              setRerankerExpanded,
-            )}
-          >
-            <RuntimeWorkbench
-              items={dynamicTabs}
-              initialKey={searchParams.get("tab")}
-              onSectionChange={setSection}
-              onNavigate={flushSave}
-            />
-          </Form>
+          <ConfigAutoSaveContext.Provider value={scheduleSave}>
+            <Form
+              form={form}
+              layout="vertical"
+              className={styles.form}
+              onValuesChange={scheduleSave}
+              onFieldsChange={handleRerankerFieldsChange(
+                form,
+                setRerankerExpanded,
+              )}
+            >
+              <RuntimeWorkbench
+                items={dynamicTabs}
+                initialKey={searchParams.get("tab")}
+                onSectionChange={setSection}
+                onNavigate={flushSave}
+              />
+            </Form>
+          </ConfigAutoSaveContext.Provider>
         </MemoryMaintenanceContext.Provider>
       </div>
     </div>

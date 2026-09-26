@@ -39,6 +39,35 @@ describe("Heartbeat schedule", () => {
     });
     api.updateHeartbeatConfig.mockResolvedValue({});
   });
+  it.each(["24h", "48h"])(
+    "preserves %s when disabling an existing heartbeat",
+    async (every) => {
+      api.getHeartbeatConfig.mockResolvedValue({
+        enabled: true,
+        every,
+        target: "main",
+        timeoutSeconds: 300,
+      });
+      render(<HeartbeatPage />);
+      const enabled = await screen.findByRole("switch", {
+        name: "heartbeat.enabled",
+      });
+      await waitFor(() =>
+        expect(
+          screen.getByRole("spinbutton", { name: "heartbeat.unitHours" }),
+        ).toHaveAttribute("aria-valuenow", String(Number.parseInt(every))),
+      );
+      fireEvent.click(enabled);
+      await waitFor(
+        () =>
+          expect(api.updateHeartbeatConfig).toHaveBeenCalledWith(
+            expect.objectContaining({ enabled: false, every }),
+            "default",
+          ),
+        { timeout: 2500 },
+      );
+    },
+  );
   it("saves a preset and delivery choice while preserving advanced settings", async () => {
     render(<HeartbeatPage />);
     fireEvent.click(

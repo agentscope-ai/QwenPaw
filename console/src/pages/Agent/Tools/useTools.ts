@@ -167,16 +167,20 @@ export function useTools() {
   }, [tools, message, t, loadTools]);
 
   const saveToolConfig = useCallback(
-    async (toolName: string, config: Record<string, unknown>) => {
+    async (
+      toolName: string,
+      config: Record<string, unknown>,
+      agentId = selectedAgent || "default",
+    ) => {
       try {
-        await api.updateToolConfig(toolName, config);
+        await api.updateToolConfig(toolName, config, agentId);
       } catch (error) {
         console.error("Failed to save tool config:", error);
         message.error(t("tools.configSaveError"));
         throw error;
       }
     },
-    [message, t],
+    [message, t, selectedAgent],
   );
 
   return {

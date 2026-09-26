@@ -1,3 +1,4 @@
+import { useConfigAutoSave } from "../configAutoSaveContext";
 import {
   GATE_DEFINITIONS,
   gateDefinition,
@@ -1123,6 +1124,7 @@ function CustomModeEditor({
 }) {
   const { t } = useTranslation();
   const form = Form.useFormInstance();
+  const scheduleSave = useConfigAutoSave();
   const gates =
     (Form.useWatch(["loop", "custom_modes", modeIndex, "gates"], {
       form,
@@ -1136,6 +1138,7 @@ function CustomModeEditor({
       ["loop", "custom_modes", modeIndex, "enabled"],
       next.some((gate) => gate.enabled),
     );
+    scheduleSave();
   };
   const usedTypes = new Set(gates.map((gate) => gate.type));
   const claimedGroups = new Set(
@@ -1320,6 +1323,7 @@ function CustomModeEditor({
 export function AgentLoopCard() {
   const { t } = useTranslation();
   const form = Form.useFormInstance();
+  const scheduleSave = useConfigAutoSave();
   const customModes =
     (Form.useWatch(["loop", "custom_modes"], {
       form,
@@ -1334,8 +1338,10 @@ export function AgentLoopCard() {
   const [template, setTemplate] = useState("safe");
   const duplicateNewName = hasDuplicateLoopModeName(customModes, newName);
 
-  const setModes = (modes: CustomLoopModeConfig[]) =>
+  const setModes = (modes: CustomLoopModeConfig[]) => {
     form.setFieldValue(["loop", "custom_modes"], modes);
+    scheduleSave();
+  };
   const createMode = () => {
     const mode = buildCustomLoopMode(
       customModes,

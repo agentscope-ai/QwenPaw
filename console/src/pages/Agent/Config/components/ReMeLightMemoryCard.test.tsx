@@ -1,3 +1,4 @@
+import { ConfigAutoSaveContext } from "../configAutoSaveContext";
 import { Form } from "@agentscope-ai/design";
 import {
   act,
@@ -706,6 +707,19 @@ describe("ReMe runtime status", () => {
 });
 
 describe("long-term memory defaults", () => {
+  it("schedules autosave when auto memory is toggled programmatically", () => {
+    const onEdit = vi.fn();
+    renderWithProviders(
+      <ConfigAutoSaveContext.Provider value={onEdit}>
+        <MemoryForm />
+      </ConfigAutoSaveContext.Provider>,
+    );
+    fireEvent.click(
+      screen.getByRole("switch", { name: "agentConfig.memoryAutoRecordTitle" }),
+    );
+    expect(onEdit).toHaveBeenCalledOnce();
+  });
+
   it("renders defaults, sections, and collapsed Daily Paper settings", () => {
     renderWithProviders(<MemoryForm />);
 

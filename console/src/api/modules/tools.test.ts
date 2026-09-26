@@ -102,3 +102,19 @@ describe("toolsApi", () => {
     await expect(toolsApi.listTools()).rejects.toThrow("500");
   });
 });
+
+describe("tool config agent ownership", () => {
+  it("sends the captured agent explicitly instead of using the current identity", async () => {
+    vi.mocked(request).mockResolvedValue({ status: "ok" });
+    await toolsApi.updateToolConfig(
+      "custom/tool",
+      { value: "draft" },
+      "agent-a",
+    );
+    expect(request).toHaveBeenCalledWith("/tools/custom%2Ftool/config", {
+      method: "POST",
+      body: JSON.stringify({ config: { value: "draft" } }),
+      headers: { "X-Agent-Id": "agent-a" },
+    });
+  });
+});
