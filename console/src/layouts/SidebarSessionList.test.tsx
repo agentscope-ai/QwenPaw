@@ -686,7 +686,8 @@ describe("SidebarSessionList", () => {
     });
   });
 
-  it("renders date sections by default", async () => {
+  it("renders date sections in date mode", async () => {
+    localStorage.setItem("qwenpaw_session_group_mode", "date");
     const older = {
       ...sessionA,
       id: "sess-old",
@@ -728,6 +729,7 @@ describe("SidebarSessionList", () => {
   });
 
   it("cycles grouping directly without opening a menu and persists it", async () => {
+    localStorage.setItem("qwenpaw_session_group_mode", "date");
     mockData([sessionA, sessionB]);
     renderWithProviders(<SidebarSessionList />);
     await waitFor(() => {
@@ -794,6 +796,7 @@ describe("SidebarSessionList", () => {
     });
 
     it("allocates 36px date headers in date mode", async () => {
+      localStorage.setItem("qwenpaw_session_group_mode", "date");
       mockData([sessionA]);
       renderWithProviders(<SidebarSessionList />);
       await waitFor(() => {
@@ -843,13 +846,14 @@ describe("SidebarSessionList", () => {
   });
 
   it("offers group creation only in source mode", async () => {
+    localStorage.setItem("qwenpaw_session_group_mode", "date");
     mockData([sessionA]);
     const first = renderWithProviders(<SidebarSessionList />);
     await waitFor(() => {
       expect(screen.getByTestId("session-item-sess-a")).toBeTruthy();
     });
 
-    // date mode (default): no New group entry
+    // date mode: no New group entry
     expect(screen.queryByRole("button", { name: "New group" })).toBeNull();
     first.unmount();
 
@@ -865,6 +869,7 @@ describe("SidebarSessionList", () => {
   });
 
   it("renders three date tiers and skips empty ones", async () => {
+    localStorage.setItem("qwenpaw_session_group_mode", "date");
     const weekSession = {
       ...sessionA,
       id: "sess-week",
@@ -892,6 +897,7 @@ describe("SidebarSessionList", () => {
   });
 
   it("floats pinned conversations to the top of their date tier", async () => {
+    localStorage.setItem("qwenpaw_session_group_mode", "date");
     const pinnedOld = {
       ...sessionA,
       id: "sess-pinned-old",
@@ -920,6 +926,7 @@ describe("SidebarSessionList", () => {
   });
 
   it("folds and unfolds date sections like group sections", async () => {
+    localStorage.setItem("qwenpaw_session_group_mode", "date");
     const older = {
       ...sessionA,
       id: "sess-old",

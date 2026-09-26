@@ -19,6 +19,12 @@ import pytest
 
 from qwenpaw.plugins import install_lock as lock_mod
 
+_WINDOWS = os.name == "nt"
+_POSIX_FLOCK = pytest.mark.skipif(
+    _WINDOWS,
+    reason="POSIX-only: fcntl.flock does not exist on Windows",
+)
+
 
 @pytest.fixture()
 def lock_path(tmp_path):
@@ -28,17 +34,44 @@ def lock_path(tmp_path):
 def _hold(path):
     """Take the OS lock on *path* from a second fd, as a peer would."""
     fd = os.open(str(path), os.O_RDWR | os.O_CREAT, 0o644)
-    import fcntl
+    if os.name == "nt":
+        import msvcrt
 
-    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        os.lseek(fd, 0, os.SEEK_SET)
+        msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
+    else:
+        import fcntl
+
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
     return fd
 
 
 def _release(fd):
+    if os.name == "nt":
+        import msvcrt
+
+        os.lseek(fd, 0, os.SEEK_SET)
+        msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
+    else:
+        import fcntl
+
+        fcntl.flock(fd, fcntl.LOCK_UN)
+    os.close(fd)
+
+
+def _flock_module():
+    """The module whose lock primitive ``lock_mod`` uses on this OS."""
+    if os.name == "nt":
+        import msvcrt
+
+        return msvcrt
     import fcntl
 
-    fcntl.flock(fd, fcntl.LOCK_UN)
-    os.close(fd)
+    return fcntl
+
+
+def _lock_primitive_name() -> str:
+    return "locking" if os.name == "nt" else "flock"
 
 
 class TestAcquireRelease:
@@ -66,12 +99,10 @@ class TestAcquireRelease:
         path = tmp_path / "l.lock"
         fd = os.open(str(path), os.O_RDWR | os.O_CREAT, 0o644)
 
-        import fcntl
-
-        def boom(_fd, _flags):
+        def boom(*_args):
             raise OSError(errno.EBADF, "bad fd")
 
-        monkeypatch.setattr(fcntl, "flock", boom)
+        monkeypatch.setattr(_flock_module(), _lock_primitive_name(), boom)
         try:
             with pytest.raises(OSError) as excinfo:
                 lock_mod._acquire_os_lock(fd)
@@ -92,12 +123,10 @@ class TestAcquireRelease:
         path = tmp_path / "l.lock"
         fd = os.open(str(path), os.O_RDWR | os.O_CREAT, 0o644)
 
-        import fcntl
-
-        def boom(_fd, _flags):
+        def boom(*_args):
             raise OSError(errno.EBADF, "bad fd")
 
-        monkeypatch.setattr(fcntl, "flock", boom)
+        monkeypatch.setattr(_flock_module(), _lock_primitive_name(), boom)
         try:
             lock_mod._release_os_lock(fd)  # must not raise
         finally:

@@ -12,8 +12,8 @@ describe("sessionGroupModePreference", () => {
     vi.restoreAllMocks();
   });
 
-  it("defaults to date grouping", () => {
-    expect(getSessionGroupModePreference()).toBe("date");
+  it("defaults to source grouping", () => {
+    expect(getSessionGroupModePreference()).toBe("source");
   });
 
   it("persists each mode", () => {
@@ -30,7 +30,7 @@ describe("sessionGroupModePreference", () => {
 
   it("ignores unknown stored values", () => {
     localStorage.setItem("qwenpaw_session_group_mode", "nested");
-    expect(getSessionGroupModePreference()).toBe("date");
+    expect(getSessionGroupModePreference()).toBe("source");
   });
 
   it("notifies mounted lists when the preference changes", () => {

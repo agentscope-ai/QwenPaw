@@ -28,6 +28,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from dataclasses import dataclass
+from time import monotonic
 from typing import Any, AsyncGenerator, AsyncIterator
 
 from agentscope.model import ChatModelBase
@@ -58,6 +59,7 @@ from .stream_progress import has_meaningful_stream_content
 logger = logging.getLogger(__name__)
 
 _STREAM_CLEANUP_TIMEOUT = 1.0
+_STREAM_CLEANUP_QUARANTINE_TIMEOUT = 60.0
 _STREAM_FIRST_CONTENT_TIMEOUT_ENV = "QWENPAW_LLM_STREAM_FIRST_CONTENT_TIMEOUT"
 _STREAM_IDLE_TIMEOUT_ENV = "QWENPAW_LLM_STREAM_IDLE_TIMEOUT"
 _pending_stream_cleanup_tasks: set[asyncio.Future[Any]] = set()
@@ -65,6 +67,7 @@ _pending_provider_cleanup_tasks_by_model: dict[
     str,
     set[asyncio.Future[Any]],
 ] = {}
+_pending_provider_cleanup_deadlines_by_model: dict[str, float] = {}
 
 
 def _track_stream_cleanup(
@@ -452,21 +455,63 @@ class RetryChatModel(ChatModelBase):
             model_key,
             set(),
         )
+        if model_key not in _pending_provider_cleanup_deadlines_by_model:
+            _pending_provider_cleanup_deadlines_by_model[model_key] = (
+                monotonic() + _STREAM_CLEANUP_QUARANTINE_TIMEOUT
+            )
         model_tasks.add(task)
 
         def _clear_quarantine(completed: asyncio.Future[Any]) -> None:
             self._pending_provider_cleanup_tasks.discard(completed)
             model_tasks.discard(completed)
             if not model_tasks:
-                _pending_provider_cleanup_tasks_by_model.pop(model_key, None)
+                if (
+                    _pending_provider_cleanup_tasks_by_model.get(model_key)
+                    is model_tasks
+                ):
+                    _pending_provider_cleanup_tasks_by_model.pop(
+                        model_key,
+                        None,
+                    )
+                    _pending_provider_cleanup_deadlines_by_model.pop(
+                        model_key,
+                        None,
+                    )
 
         task.add_done_callback(_clear_quarantine)
         _track_stream_cleanup(task, description)
 
     def _ensure_provider_available(self) -> None:
-        """Reject upstream calls while old cleanup is still active."""
-        if _pending_provider_cleanup_tasks_by_model.get(self.model_key):
-            raise StreamCleanupPendingError(self.model_key)
+        """Reject calls briefly while deferred cleanup can finish."""
+        model_tasks = _pending_provider_cleanup_tasks_by_model.get(
+            self.model_key,
+        )
+        if not model_tasks:
+            return
+
+        deadline = _pending_provider_cleanup_deadlines_by_model.get(
+            self.model_key,
+        )
+        if deadline is None:
+            _pending_provider_cleanup_deadlines_by_model[self.model_key] = (
+                monotonic() + _STREAM_CLEANUP_QUARANTINE_TIMEOUT
+            )
+            deadline = _pending_provider_cleanup_deadlines_by_model[
+                self.model_key
+            ]
+        if monotonic() >= deadline:
+            _pending_provider_cleanup_tasks_by_model.pop(self.model_key, None)
+            _pending_provider_cleanup_deadlines_by_model.pop(
+                self.model_key,
+                None,
+            )
+            logger.warning(
+                f"Deferred stream cleanup for {self.model_key} exceeded "
+                f"{_STREAM_CLEANUP_QUARANTINE_TIMEOUT:g}s; allowing recovery",
+            )
+            return
+
+        raise StreamCleanupPendingError(self.model_key)
 
     @staticmethod
     async def _handle_rate_limit_exc(

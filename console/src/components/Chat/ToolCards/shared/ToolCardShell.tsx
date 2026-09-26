@@ -104,7 +104,12 @@ const ToolCardShell: React.FC<ToolCardShellProps> = ({
     }
   }, [initiallyExpanded]);
 
-  const isExecuting = content.status === "calling" && !inputProgress;
+  // Before executionStarted the backend has no coordinator entry yet,
+  // so lifecycle queries and offload controls must stay off.
+  const isExecuting =
+    content.status === "calling" &&
+    !inputProgress &&
+    !!content.executionStarted;
   const showGear = isExecuting && !!sessionId;
 
   const control = useToolCallControl(

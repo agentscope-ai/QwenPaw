@@ -10,18 +10,27 @@ vi.mock("./ToolCallSessionContext", () => ({
   useToolCallSessionId: () => "",
 }));
 
+const hookState = vi.hoisted(() => ({ lastIsCalling: false }));
+
 vi.mock("../../../../hooks/useToolCallControl", () => ({
-  useToolCallControl: () => ({
-    bannerVisible: false,
-    offloadRemaining: 12,
-    killRemaining: 30,
-    defaultPolicy: "keep_foreground",
-    maxInternalTimeoutSecs: null,
-    elapsed: 0,
-    toggleBanner: vi.fn(),
-    closeBanner: vi.fn(),
-    updateRemaining: vi.fn(),
-  }),
+  useToolCallControl: (
+    _sessionId: string,
+    _toolCallId: string | undefined,
+    isCalling: boolean,
+  ) => {
+    hookState.lastIsCalling = isCalling;
+    return {
+      bannerVisible: false,
+      offloadRemaining: 12,
+      killRemaining: 30,
+      defaultPolicy: "keep_foreground",
+      maxInternalTimeoutSecs: null,
+      elapsed: 0,
+      toggleBanner: vi.fn(),
+      closeBanner: vi.fn(),
+      updateRemaining: vi.fn(),
+    };
+  },
 }));
 
 vi.mock("./ToolCallControlPopover", () => ({
@@ -252,5 +261,35 @@ describe("ToolCardShell lazy body", () => {
     const previewBlock = previewTitle.parentElement?.parentElement;
     expect(previewBlock).toHaveTextContent("path");
     expect(previewBlock).toHaveTextContent("notes.txt");
+  });
+});
+
+describe("ToolCardShell execution gating", () => {
+  it("does not treat a pending call as executing", () => {
+    // Arguments completed but not dispatched yet — lifecycle queries
+    // would only collect 404s.
+    render(
+      <ToolCardShell
+        content={runningContent}
+        icon={<span />}
+        title="Shell"
+        isStreaming
+      />,
+    );
+
+    expect(hookState.lastIsCalling).toBe(false);
+  });
+
+  it("treats a dispatched call as executing", () => {
+    render(
+      <ToolCardShell
+        content={{ ...runningContent, executionStarted: true }}
+        icon={<span />}
+        title="Shell"
+        isStreaming
+      />,
+    );
+
+    expect(hookState.lastIsCalling).toBe(true);
   });
 });
