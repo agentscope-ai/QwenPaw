@@ -20,8 +20,7 @@
     "preview:test": "vite preview --mode test",
     "test": "vitest",
     "test:run": "node --max-old-space-size=4096 ./node_modules/vitest/vitest.mjs run",
-    "test:coverage": "node --max-old-space-size=4096 ./node_modules/vitest/vitest.mjs run --coverage",
-    "postinstall": "patch-package"
+    "test:coverage": "node --max-old-space-size=4096 ./node_modules/vitest/vitest.mjs run --coverage"
   },
   "dependencies": {
     "@agentscope-ai/chat": "1.2.0-beta.1789540479556",
@@ -34,7 +33,6 @@
     "@dnd-kit/utilities": "^3.2.2",
     "@lexical/react": "0.48.0",
     "@monaco-editor/react": "^4.7.0",
-    "@ncdai/react-wheel-picker": "^1.2.3",
     "@number-flow/react": "^0.6.2",
     "@tauri-apps/api": "^2.10.1",
     "@tauri-apps/plugin-dialog": "^2.7.1",
@@ -100,7 +98,6 @@
     "globals": "^16.0.0",
     "jsdom": "^29.0.2",
     "less": "^4.5.1",
-    "patch-package": "^8.0.1",
     "prettier": "3.0.0",
     "typescript": "~5.8.3",
     "typescript-eslint": "^8.30.1",

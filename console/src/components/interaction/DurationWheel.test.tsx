@@ -1,7 +1,7 @@
-// @vitest-environment jsdom
-import { act, render, fireEvent } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { act, fireEvent, render } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DurationWheel } from "./DurationWheel";
+
 const preferences = vi.hoisted(() => ({ reduced: false }));
 vi.mock("motion/react", () => ({
   useReducedMotion: () => preferences.reduced,
@@ -9,123 +9,85 @@ vi.mock("motion/react", () => ({
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({ t: (key: string) => key }),
 }));
+
+beforeEach(() => {
+  vi.spyOn(HTMLElement.prototype, "scrollTo");
+});
 afterEach(() => {
-  vi.useRealTimers();
+  vi.restoreAllMocks();
   preferences.reduced = false;
 });
 
-describe("DurationWheel external selections", () => {
-  it("rolls through intermediate positions and can retarget before settling", () => {
-    vi.useFakeTimers({
-      toFake: ["requestAnimationFrame", "cancelAnimationFrame", "performance"],
-    });
+function settle(element: HTMLElement, row: number) {
+  fireEvent.wheel(element, { deltaY: 72 });
+  element.scrollTop = row * 72;
+  fireEvent.scroll(element);
+  act(() => element.dispatchEvent(new Event("scrollend")));
+}
+
+describe("DurationWheel", () => {
+  it("initializes without saving and animates external selections without emitting edits", () => {
     const onChange = vi.fn();
     const view = render(<DurationWheel value={300} onChange={onChange} />);
-    const position = () =>
-      view.container.querySelector<HTMLElement>("[data-rwp-highlight-list]")!
-        .style.transform;
-    const initial = position();
-    onChange.mockClear();
+    const hour = view.getAllByRole("spinbutton")[0];
+    expect(hour.scrollTop).toBe(29 * 72);
     view.rerender(<DurationWheel value={720} onChange={onChange} />);
-    expect(position()).toBe(initial);
-    act(() => vi.advanceTimersByTime(160));
-    const intermediate = position();
-    expect(intermediate).not.toBe(initial);
+    expect(hour.scrollTo).toHaveBeenCalledWith({
+      top: 36 * 72,
+      behavior: "smooth",
+    });
+    act(() => hour.dispatchEvent(new Event("scrollend")));
+    expect(onChange).not.toHaveBeenCalled();
     view.rerender(<DurationWheel value={180} onChange={onChange} />);
-    expect(position()).toBe(intermediate);
-    act(() => vi.advanceTimersByTime(1000));
-    const settled = position();
-    expect(settled).not.toBe(intermediate);
-    // Animating presentation must not emit intermediate configuration values.
-    expect(onChange).not.toHaveBeenCalled();
-    view.unmount();
-    const reference = render(<DurationWheel value={180} />);
-    expect(
-      reference.container.querySelector<HTMLElement>(
-        "[data-rwp-highlight-list]",
-      )!.style.transform,
-    ).toBe(settled);
+    expect(hour).toHaveAttribute("aria-valuenow", "3");
   });
 
-  it("cancels an in-flight wheel and retains the value when disabled", () => {
-    vi.useFakeTimers({
-      toFake: ["requestAnimationFrame", "cancelAnimationFrame", "performance"],
-    });
+  it("commits only the settled selection and wraps minutes without changing hours", () => {
+    const onChange = vi.fn();
+    const view = render(<DurationWheel value={359} onChange={onChange} />);
+    const minute = view.getAllByRole("spinbutton")[1];
+    fireEvent.wheel(minute, { deltaY: 72 });
+    minute.scrollTop = 120 * 72;
+    fireEvent.scroll(minute);
+    expect(onChange).not.toHaveBeenCalled();
+    act(() => minute.dispatchEvent(new Event("scrollend")));
+    expect(onChange).toHaveBeenCalledExactlyOnceWith(300);
+    expect(minute.scrollTop).toBe(60 * 72);
+    act(() => minute.dispatchEvent(new Event("scrollend")));
+    expect(onChange).toHaveBeenCalledTimes(1);
+  });
+
+  it("allows user scrolling to interrupt an external selection", () => {
     const onChange = vi.fn();
     const view = render(<DurationWheel value={300} onChange={onChange} />);
     view.rerender(<DurationWheel value={720} onChange={onChange} />);
-    act(() => vi.advanceTimersByTime(100));
-    view.rerender(<DurationWheel value={720} disabled onChange={onChange} />);
-    expect(view.queryAllByRole("spinbutton")).toHaveLength(0);
-    expect(view.getByText("12")).toBeInTheDocument();
-    act(() => vi.advanceTimersByTime(1000));
-    expect(onChange).not.toHaveBeenCalled();
-    view.rerender(<DurationWheel value={720} onChange={onChange} />);
-    expect(view.getAllByRole("spinbutton")[0]).toHaveAttribute(
-      "aria-valuenow",
-      "12",
-    );
+    settle(view.getAllByRole("spinbutton")[0], 31);
+    expect(onChange).toHaveBeenCalledExactlyOnceWith(420);
   });
 
-  it("updates directly when reduced motion is requested", () => {
+  it("supports keyboard wrap, long intervals, and disabled values", () => {
+    const onChange = vi.fn();
+    const view = render(<DurationWheel value={0} onChange={onChange} />);
+    fireEvent.keyDown(view.getAllByRole("spinbutton")[0], { key: "ArrowUp" });
+    expect(onChange).toHaveBeenLastCalledWith(1380);
+    view.rerender(
+      <DurationWheel value={2880} maxHours={48} onChange={onChange} />,
+    );
+    const hour = view.getAllByRole("spinbutton")[0];
+    expect(hour).toHaveAttribute("aria-valuenow", "48");
+    fireEvent.keyDown(hour, { key: "ArrowDown" });
+    expect(onChange).toHaveBeenLastCalledWith(0);
+    view.rerender(<DurationWheel value={2880} maxHours={48} disabled />);
+    expect(view.queryAllByRole("spinbutton")).toHaveLength(0);
+    expect(view.getByText("48")).toBeVisible();
+  });
+
+  it("uses instant external scrolling with reduced motion", () => {
     preferences.reduced = true;
     const view = render(<DurationWheel value={300} />);
-    const initial = view.container.querySelector<HTMLElement>(
-      "[data-rwp-highlight-list]",
-    )!.style.transform;
     view.rerender(<DurationWheel value={720} />);
     expect(
-      view.container.querySelector<HTMLElement>("[data-rwp-highlight-list]")!
-        .style.transform,
-    ).not.toBe(initial);
-  });
-});
-
-describe("DurationWheel release momentum", () => {
-  function setupGesture() {
-    vi.useFakeTimers({
-      toFake: [
-        "requestAnimationFrame",
-        "cancelAnimationFrame",
-        "performance",
-        "Date",
-      ],
-    });
-    const onChange = vi.fn();
-    const view = render(<DurationWheel value={300} onChange={onChange} />);
-    const picker = view.container.querySelector<HTMLElement>("[data-rwp]")!;
-    const position = () =>
-      picker.querySelector<HTMLElement>("[data-rwp-highlight-list]")!.style
-        .transform;
-    onChange.mockClear();
-    fireEvent.mouseDown(picker, { clientY: 150 });
-    act(() => vi.advanceTimersByTime(20));
-    fireEvent.mouseMove(document, { clientY: 78 });
-    return { picker, position, onChange };
-  }
-
-  it("coasts after a quick flick, and pressing catches it immediately", () => {
-    const { picker, position, onChange } = setupGesture();
-    const held = position();
-    act(() => vi.advanceTimersByTime(20));
-    expect(position()).toBe(held);
-    expect(onChange).not.toHaveBeenCalled();
-    fireEvent.mouseUp(document, { clientY: 78 });
-    act(() => vi.advanceTimersByTime(100));
-    expect(position()).not.toBe(held);
-    fireEvent.mouseDown(picker, { clientY: 150 });
-    const caught = position();
-    act(() => vi.advanceTimersByTime(300));
-    expect(position()).toBe(caught);
-  });
-
-  it("does not reuse stale velocity after dragging and holding still", () => {
-    const { position, onChange } = setupGesture();
-    const held = position();
-    act(() => vi.advanceTimersByTime(200));
-    fireEvent.mouseUp(document, { clientY: 78 });
-    act(() => vi.advanceTimersByTime(800));
-    expect(position()).toBe(held);
-    expect(onChange).toHaveBeenCalledWith(360);
+      view.getAllByRole("spinbutton")[0].scrollTo,
+    ).toHaveBeenLastCalledWith({ top: 36 * 72, behavior: "instant" });
   });
 });

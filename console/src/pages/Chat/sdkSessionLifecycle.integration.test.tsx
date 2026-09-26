@@ -1,3 +1,4 @@
+import { useActivateSessionMessages } from "./hooks/useActivateSessionMessages";
 /**
  * Installed-SDK protocol integration, NOT browser/backend/model E2E.
  *
@@ -26,7 +27,10 @@ import { useChatAnywhereMessages } from "@agentscope-ai/chat/lib/AgentScopeRunti
 import ComposedProvider from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/ChatAnywhere/ComposedProvider";
 import useChatController from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/Chat/hooks/useChatController";
 import { useChatAnywhereSessionLoader } from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/Context/ChatAnywhereSessionsContext";
-import type { IAgentScopeRuntimeWebUIOptions } from "@agentscope-ai/chat";
+import type {
+  IAgentScopeRuntimeWebUIRef,
+  IAgentScopeRuntimeWebUIOptions,
+} from "@agentscope-ai/chat";
 import api, { type ChatSpec } from "../../api";
 import { useAgentStore } from "../../stores/agentStore";
 import { useMessageQueueStore } from "../../stores/messageQueueStore";
@@ -73,7 +77,7 @@ function createFixture() {
     close: () => void;
     emit: (event: Record<string, unknown>) => void;
   }> = [];
-  const stop = vi.fn(async (_id: string) => {});
+  const stop = vi.fn<(id: string) => Promise<void>>(async () => {});
   const create = vi
     .spyOn(api, "createChat")
     .mockImplementation(async (draft) => {
@@ -93,7 +97,7 @@ function createFixture() {
   const transport = vi.fn(async (data: TransportData) => {
     trace.push(`SSE:${data.session_id}`);
     let close = () => {};
-    let emit = (_event: Record<string, unknown>) => {};
+    let emit: (event: Record<string, unknown>) => void = () => {};
     let closed = false;
     const body = new ReadableStream<Uint8Array>({
       start(controller) {
@@ -154,6 +158,9 @@ function mountHost(
   observeIdle = false,
 ) {
   let probe!: Probe;
+  const sdkRef = {
+    current: null as Pick<IAgentScopeRuntimeWebUIRef, "messages"> | null,
+  };
   const loaded: Array<{ id: string; generating: boolean }> = [];
   // These are forwarding methods, not replacements for SDK/CoPaw behavior.
   const sessionMethods = {
@@ -221,6 +228,8 @@ function mountHost(
     const sessions = useChatAnywhereSessionsState();
     const input = useInputSnapshot();
     const messages = useChatAnywhereMessages();
+    sdkRef.current = { messages };
+    useActivateSessionMessages(sessions.currentSessionId, sdkRef);
     const navigate = useNavigate();
     const { pathname: path } = useLocation();
     useLayoutEffect(() => {
@@ -366,7 +375,7 @@ async function startA(host: ReturnType<typeof mountHost>) {
 }
 
 describe("installed SDK session lifecycle with CoPaw's blank-new hook", () => {
-  it("keeps the presented history while switching and commits an empty target only after load", async () => {
+  it("lets the original SDK clear the target while the host waits for readiness", async () => {
     const host = mountHost(fixture);
     await waitFor(() =>
       expect(host.loaded).toContainEqual({ id: A, generating: false }),
@@ -391,7 +400,7 @@ describe("installed SDK session lifecycle with CoPaw's blank-new hook", () => {
     expect(
       host
         .current()
-        .messages.getMessages()
+        .messages.getSessionMessages(A)
         .map((message) => message.id),
     ).toEqual(["visible-a"]);
     expect(host.adapter.isReady(B)).toBe(false);

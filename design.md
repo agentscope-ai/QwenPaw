@@ -379,8 +379,10 @@ The current dependency set in [`console/package.json`](console/package.json) alr
 | Drawer and sheet foundation                 | `vaul`                               |
 | Animated numeric values                     | `@number-flow/react`                 |
 | Dragging and sortable interactions          | `@dnd-kit/core`, `@dnd-kit/sortable` |
-| Wheel selection                             | `@ncdai/react-wheel-picker`          |
+| Wheel selection                             | Native CSS scroll snap and `scrollTo` |
 | Interface icons                             | `lucide-react`                       |
+
+Duration wheels use native scrolling for momentum and snapping, commit on `scrollend`, and use instant external positioning under reduced motion. Keep dependency distributions unmodified; application-specific transitions belong in the host UI.
 
 Reuse the project's wrappers before adding a dependency. Apply QwenPaw tokens and behavior to package primitives rather than copying a showcase's entire appearance. Rare UI is a reference for interaction craft; adopting its code is a separate implementation decision that requires checking suitability and license terms.
 

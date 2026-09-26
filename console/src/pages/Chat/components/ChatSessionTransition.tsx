@@ -35,8 +35,9 @@ export function ChatSessionTransition(props: Props) {
       <motion.div
         ref={surface}
         className={styles.surface}
+        style={{ visibility: ready ? "visible" : "hidden" }}
         initial={false}
-        animate={{ opacity: failed ? 0 : ready ? 1 : 0.55 }}
+        animate={{ opacity: ready ? 1 : 0 }}
         transition={{ duration: reduced ? 0 : 0.18, ease: "easeOut" }}
       >
         {props.children}

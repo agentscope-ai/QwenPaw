@@ -19,34 +19,38 @@
   margin: 24px 6px 0 0;
 }
 .wheel {
-  font-variant-numeric: tabular-nums;
+  height: 162px;
   flex: 1;
   min-width: 0;
-  :global([data-rwp-option]) {
-    color: var(--app-text-tertiary);
-    font-size: 36px;
-    opacity: 0.08;
-    transition: opacity 0.18s;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scroll-snap-type: y mandatory;
+  scrollbar-width: none;
+  font-variant-numeric: tabular-nums;
+  mask-image: linear-gradient(transparent, #000 34%, #000 66%, transparent);
+  &::-webkit-scrollbar {
+    display: none;
   }
-  &:hover :global([data-rwp-option]),
-  &:focus-within :global([data-rwp-option]) {
-    opacity: 0.4;
+  > div {
+    padding-block: 45px;
   }
-  :global([data-rwp-highlight-item]) {
-    font-size: 60px;
-    font-weight: 600;
-    letter-spacing: -3px;
-    color: var(--app-text);
-  }
-  :global([data-rwp-highlight-wrapper][data-rwp-focused]) {
-    background: var(--app-accent-faint);
+  &:focus-visible {
+    outline: 2px solid var(--app-focus-ring);
+    outline-offset: -2px;
     border-radius: 14px;
   }
 }
-@media (prefers-reduced-motion: reduce) {
-  .wheel :global([data-rwp-option]) {
-    transition: none;
-  }
+.option {
+  height: 72px;
+  display: grid;
+  place-items: center;
+  scroll-snap-align: center;
+  font-size: 60px;
+  font-weight: 600;
+  letter-spacing: -3px;
+  color: var(--app-text);
+  cursor: pointer;
+  user-select: none;
 }
 
 .disabledValue {

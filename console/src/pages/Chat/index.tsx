@@ -1,3 +1,4 @@
+import { useActivateSessionMessages } from "./hooks/useActivateSessionMessages";
 import {
   ChatSessionTransition,
   ReadyChatWelcome,
@@ -1447,6 +1448,7 @@ export default function ChatPage() {
   const extLists = useChatListSnapshot();
   const [refreshKey, setRefreshKey] = useState(0);
   const chatRef = useRef<IAgentScopeRuntimeWebUIRef>(null);
+  useActivateSessionMessages(chatId, chatRef);
   const runtimeLoadingBridgeRef = useRef<RuntimeLoadingBridgeApi | null>(null);
   const headlineStreamFilterRef = useRef<HeadlineStreamFilterState>(
     createHeadlineFilterState(),
