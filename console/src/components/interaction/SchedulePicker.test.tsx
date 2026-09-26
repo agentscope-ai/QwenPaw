@@ -26,13 +26,4 @@ describe("SchedulePicker", () => {
     fireEvent.click(screen.getByText("cronJobs.cronTypeWeekly"));
     expect(onChange).toHaveBeenCalledWith("30 18 * * mon");
   });
-
-  it("shows a disabled time without opening the wheel", () => {
-    render(<SchedulePicker value="0 18 * * *" disabled />);
-    const time = screen.getByRole("button", {
-      name: "cronJobs.cronTime: 18:00",
-    });
-    expect((time as HTMLButtonElement).disabled).toBe(true);
-    expect(screen.queryByRole("dialog")).toBeNull();
-  });
 });

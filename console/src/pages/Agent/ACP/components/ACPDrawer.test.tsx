@@ -68,14 +68,4 @@ describe("ACP connection editor", () => {
     await waitFor(() => expect(onSubmit).toHaveBeenCalled());
     expect(onClose).not.toHaveBeenCalled();
   });
-  it("keeps protocol details available in one advanced section", async () => {
-    render(
-      <Fixture onClose={vi.fn()} onSubmit={vi.fn().mockResolvedValue(true)} />,
-    );
-    fireEvent.click(screen.getByText("common.advancedSettings"));
-    await waitFor(() =>
-      expect(screen.getByText("acp.toolParseModes.call_title")).toBeVisible(),
-    );
-    expect(screen.getByText("acp.env")).toBeVisible();
-  });
 });

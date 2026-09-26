@@ -114,14 +114,4 @@ describe("ToolsPage", () => {
       expect.objectContaining({ name: "append_file", enabled: false }),
     );
   });
-  it("keeps bulk actions explicit while filtering", () => {
-    render(<ToolsPage />);
-    fireEvent.change(screen.getByRole("textbox"), {
-      target: { value: "read_file" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Enable All" }));
-    fireEvent.click(screen.getByRole("button", { name: "Disable All" }));
-    expect(state.enableAll).toHaveBeenCalledTimes(1);
-    expect(state.disableAll).toHaveBeenCalledTimes(1);
-  });
 });

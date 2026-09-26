@@ -26,7 +26,7 @@ const navigationKeys = [
   "removeEntry",
   "sidebarPreview",
 ] as const;
-describe("cron and sidebar localization", () => {
+describe("settings localization", () => {
   for (const [language, resource] of Object.entries({
     zh,
     ja,
@@ -35,12 +35,13 @@ describe("cron and sidebar localization", () => {
     id,
     vi,
   })) {
-    it(`${language} covers all cron strings and sidebar editing with matching placeholders`, () => {
+    it(`${language} covers settings strings and preserves interpolation placeholders`, () => {
       const source = {
         ...flatten(en.cronJobs, "cronJobs."),
         ...flatten(en.channels, "channels."),
         ...flatten(en.heartbeat, "heartbeat."),
         ...flatten(en.skills, "skills."),
+        ...flatten(en.tools, "tools."),
         ...Object.fromEntries(
           navigationKeys.map((key) => [key, en.settingsCenter[key]]),
         ),
@@ -50,6 +51,7 @@ describe("cron and sidebar localization", () => {
         ...flatten(resource.channels, "channels."),
         ...flatten(resource.heartbeat, "heartbeat."),
         ...flatten(resource.skills, "skills."),
+        ...flatten(resource.tools, "tools."),
         ...Object.fromEntries(
           navigationKeys.map((key) => [key, resource.settingsCenter[key]]),
         ),

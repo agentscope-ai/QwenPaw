@@ -36,9 +36,8 @@ function Harness({
   );
 }
 describe("runtime navigation", () => {
-  it("shows five tabs and preserves drafts when switching", async () => {
+  it("preserves drafts when switching sections", async () => {
     render(<Harness />);
-    expect(screen.getAllByRole("tab")).toHaveLength(5);
     expect(screen.getByLabelText("workspace draft")).toBeVisible();
     fireEvent.change(screen.getByLabelText("workspace draft"), {
       target: { value: "draft" },

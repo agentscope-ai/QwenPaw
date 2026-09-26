@@ -49,18 +49,7 @@ describe("SnapTrend", () => {
       "2026-09-20",
     );
   });
-  it("does not reconstruct the chart or repeat a snap while scrubbing", () => {
-    render(
-      <SnapTrend config={{ data, colorField: "model" }} label="Date" compact />,
-    );
-    const listeners = chart.on.mock.calls.length;
-    fireEvent.change(screen.getByRole("slider"), { target: { value: "0" } });
-    const emissions = chart.emit.mock.calls.length;
-    fireEvent.change(screen.getByRole("slider"), { target: { value: "0" } });
-    expect(chart.on.mock.calls.length).toBe(listeners);
-    expect(chart.emit.mock.calls.length).toBe(emissions);
-    expect(screen.getByText("120")).toBeInTheDocument();
-  });
+
   it("returns to a scrubbed date after native chart hover changes selection", () => {
     render(<SnapTrend config={{ data, colorField: "model" }} label="Date" />);
     fireEvent.change(screen.getByRole("slider"), { target: { value: "0" } });

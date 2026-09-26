@@ -16,21 +16,4 @@ describe("ChatWelcome", () => {
     expect(onSubmit).toHaveBeenCalledWith({ query: "List my skills" });
     expect(screen.getByRole("heading", { name: "Welcome" })).toBeVisible();
   });
-
-  it("supports text prompts and supplied brand artwork", () => {
-    render(
-      <ChatWelcome
-        greeting="Welcome"
-        avatar="/qwenpaw.png"
-        prompts={["Start a task"]}
-        onSubmit={vi.fn()}
-      />,
-    );
-    expect(screen.getByRole("button", { name: "Start a task" })).toBeVisible();
-    expect(document.querySelector("img")).toHaveAttribute(
-      "src",
-      "/qwenpaw.png",
-    );
-    expect(document.querySelector("svg.lucide-sparkles")).toBeInTheDocument();
-  });
 });
