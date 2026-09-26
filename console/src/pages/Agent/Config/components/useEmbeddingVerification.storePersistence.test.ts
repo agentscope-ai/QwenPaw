@@ -20,13 +20,16 @@ describe("useEmbeddingVerification - GH#7226", () => {
     useEmbeddingVerificationStore.setState({ verificationByAgent: {} });
     vi.mocked(useAgentStore).mockReturnValue({
       selectedAgent: "test-agent",
-    } as any);
+    });
   });
 
   it("should persist verification result in zustand store", () => {
     const { result } = renderHook(() =>
       useEmbeddingVerification(
-        { backend: "openai", model_name: "text-embedding-3-small" } as any,
+        {
+          backend: "openai",
+          model_name: "text-embedding-3-small",
+        } as Parameters<typeof useEmbeddingVerification>[0],
         true,
       ),
     );
@@ -44,7 +47,10 @@ describe("useEmbeddingVerification - GH#7226", () => {
   it("should retrieve verification result after re-render (simulating page navigation)", () => {
     const { result: result1, unmount } = renderHook(() =>
       useEmbeddingVerification(
-        { backend: "openai", model_name: "text-embedding-3-small" } as any,
+        {
+          backend: "openai",
+          model_name: "text-embedding-3-small",
+        } as Parameters<typeof useEmbeddingVerification>[0],
         true,
       ),
     );
@@ -60,7 +66,10 @@ describe("useEmbeddingVerification - GH#7226", () => {
     // Come back: a brand new hook instance has to read the result back.
     const { result: result2 } = renderHook(() =>
       useEmbeddingVerification(
-        { backend: "openai", model_name: "text-embedding-3-small" } as any,
+        {
+          backend: "openai",
+          model_name: "text-embedding-3-small",
+        } as Parameters<typeof useEmbeddingVerification>[0],
         true,
       ),
     );
@@ -72,7 +81,10 @@ describe("useEmbeddingVerification - GH#7226", () => {
   it("should invalidate verification when config fingerprint changes", () => {
     const { result } = renderHook(() =>
       useEmbeddingVerification(
-        { backend: "openai", model_name: "text-embedding-3-small" } as any,
+        {
+          backend: "openai",
+          model_name: "text-embedding-3-small",
+        } as Parameters<typeof useEmbeddingVerification>[0],
         true,
       ),
     );
@@ -84,7 +96,9 @@ describe("useEmbeddingVerification - GH#7226", () => {
     // Re-render with different config
     const { result: result2 } = renderHook(() =>
       useEmbeddingVerification(
-        { backend: "dashscope", model_name: "text-embedding-v2" } as any,
+        { backend: "dashscope", model_name: "text-embedding-v2" } as Parameters<
+          typeof useEmbeddingVerification
+        >[0],
         true,
       ),
     );
@@ -96,7 +110,10 @@ describe("useEmbeddingVerification - GH#7226", () => {
     const { result, rerender } = renderHook(
       ({ enabled }) =>
         useEmbeddingVerification(
-          { backend: "openai", model_name: "text-embedding-3-small" } as any,
+          {
+            backend: "openai",
+            model_name: "text-embedding-3-small",
+          } as Parameters<typeof useEmbeddingVerification>[0],
           enabled,
         ),
       { initialProps: { enabled: true } },

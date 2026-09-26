@@ -24,7 +24,7 @@ export function useTools() {
     } finally {
       setLoading(false);
     }
-  }, [t]);
+  }, [message, t]);
 
   useEffect(() => {
     loadTools();
@@ -59,7 +59,7 @@ export function useTools() {
         message.error(t("tools.toggleError"));
       }
     },
-    [t],
+    [message, t],
   );
 
   const toggleAsyncExecution = useCallback(
@@ -99,7 +99,7 @@ export function useTools() {
         message.error(t("tools.toggleError"));
       }
     },
-    [t],
+    [message, t],
   );
 
   const enableAll = useCallback(async () => {
@@ -132,7 +132,7 @@ export function useTools() {
     } finally {
       setBatchLoading(false);
     }
-  }, [tools, t, loadTools]);
+  }, [tools, message, t, loadTools]);
 
   const disableAll = useCallback(async () => {
     const enabledTools = tools.filter((tool) => tool.enabled);
@@ -164,7 +164,7 @@ export function useTools() {
     } finally {
       setBatchLoading(false);
     }
-  }, [tools, t, loadTools]);
+  }, [tools, message, t, loadTools]);
 
   const saveToolConfig = useCallback(
     async (toolName: string, config: Record<string, unknown>) => {
@@ -176,7 +176,7 @@ export function useTools() {
         throw error;
       }
     },
-    [t],
+    [message, t],
   );
 
   return {

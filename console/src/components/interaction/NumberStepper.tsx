@@ -34,7 +34,7 @@ export function NumberStepper({
         aria-label={t("common.decrease")}
         disabled={disabled || (value != null && min != null && value <= min)}
         onClick={() => adjust(-1)}
-        whileTap={reduced ? undefined : { scale: 0.92 }}
+        whileTap={reduced ? undefined : { scale: 0.96 }}
       >
         <Minus size={16} />
       </motion.button>
@@ -54,7 +54,7 @@ export function NumberStepper({
         aria-label={t("common.increase")}
         disabled={disabled || (value != null && max != null && value >= max)}
         onClick={() => adjust(1)}
-        whileTap={reduced ? undefined : { scale: 0.92 }}
+        whileTap={reduced ? undefined : { scale: 0.96 }}
       >
         <Plus size={16} />
       </motion.button>

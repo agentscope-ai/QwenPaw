@@ -3645,7 +3645,7 @@
     "security": "Seguranca",
     "title": "Seguranca",
     "description": "Manage security features for tools and skills.",
-    "toolGuardTitle": "Tool Guard",
+    "toolGuardTitle": "Proteção de ferramentas",
     "toolGuardDescription": "Configure security scanning for tool calls. Dangerous operations will require your explicit approval before execution.",
     "enabled": "Ativar Tool Guard",
     "enabledTooltip": "When enabled, tool calls are scanned for dangerous patterns before execution",
@@ -3771,7 +3771,7 @@
       }
     },
     "fileGuard": {
-      "title": "File Guard",
+      "title": "Proteção de arquivos",
       "description": "Protect sensitive files and directories from being accessed by agent tools. Paths added here will be blocked across all tool calls.",
       "enableLabel": "Ativar File Guard",
       "path": "Caminho",
@@ -3789,7 +3789,7 @@
       "allowPreviewOutsideWorkspaceDesc": "Permite visualizar arquivos fora do diretório do workspace no console. A proteção de arquivos sensíveis continua ativa."
     },
     "allowNoAuthHosts": {
-      "title": "Allow Nao Auth Hosts",
+      "title": "Hosts sem autenticação",
       "warningTitle": "Seguranca Aviso",
       "warningDescription": "IP addresses in this list can access API endpoints without authentication. By default, localhost (127.0.0.1 and ::1) are allowed for CLI access. Only add trusted IP addresses. WARNING: Adding untrusted IPs poses a serious security risk.",
       "ipAddress": "IP Address",
@@ -3806,7 +3806,7 @@
       "loadFailed": "Failed to load allow no auth hosts settings"
     },
     "skillScanner": {
-      "title": "Skill Scanner",
+      "title": "Verificador de habilidades",
       "description": "Automatically scan skills for security threats before enabling or installing. Unsafe skills can be blocked or whitelisted.",
       "mode": "Scanner Modo",
       "modeTooltip": "Controls how the scanner handles unsafe skills: block, warn only, or disabled",

@@ -1,3 +1,4 @@
+import InlineHelp from "@/components/InlineHelp";
 import { Button, Tabs } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
 import { useSecurityPage } from "./useSecurityPage";
@@ -95,6 +96,23 @@ function SecurityPage() {
         <Tabs
           className={styles.mainTabs}
           activeKey={activeTab}
+          tabBarExtraContent={
+            activeTab !== "allowNoAuthHosts" ? (
+              <InlineHelp
+                subject={t(
+                  activeTab === "toolGuard"
+                    ? "security.toolGuardTitle"
+                    : `security.${activeTab}.title`,
+                )}
+              >
+                {t(
+                  activeTab === "toolGuard"
+                    ? "security.toolGuardDescription"
+                    : `security.${activeTab}.description`,
+                )}
+              </InlineHelp>
+            ) : undefined
+          }
           onChange={(value) => {
             void (activeTab === "toolGuard"
               ? flushSave()
@@ -144,9 +162,6 @@ function SecurityPage() {
               children: (
                 <div className={styles.tabContent}>
                   <div className={styles.sectionFileGuardContainer}>
-                    <p className={styles.tabDescription}>
-                      {t("security.fileGuard.description")}
-                    </p>
                     <FileGuardSection
                       onSave={onFileGuardHandlersReady}
                       denyPathsActive={denyPathsActive}
@@ -171,9 +186,6 @@ function SecurityPage() {
               children: (
                 <div className={styles.tabContent}>
                   <div className={styles.sectionSkillScannerContainer}>
-                    <p className={styles.tabDescription}>
-                      {t("security.skillScanner.description")}
-                    </p>
                     <SkillScannerSection />
                   </div>
                 </div>

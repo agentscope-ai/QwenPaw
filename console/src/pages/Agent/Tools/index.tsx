@@ -117,7 +117,7 @@ function ToolConfigModal({
   // Fetch latest config from backend whenever the modal opens.
   // Cleanup cancels stale in-flight requests on rapid tool switches.
   useEffect(() => {
-    if (!visible || !tool) return;
+    if (!visible) return;
     form.resetFields();
     setLoadingConfig(true);
     let cancelled = false;

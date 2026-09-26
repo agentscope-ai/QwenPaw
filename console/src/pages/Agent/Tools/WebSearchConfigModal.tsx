@@ -37,7 +37,7 @@ export function WebSearchConfigModal({
   const providerValue = Form.useWatch("provider", form);
 
   useEffect(() => {
-    if (!visible || !tool) return;
+    if (!visible) return;
     form.resetFields();
     setLoadingConfig(true);
     let cancelled = false;
@@ -61,7 +61,7 @@ export function WebSearchConfigModal({
   // credential slot so an existing key is shown instead of a blank field
   // (which would otherwise be treated as "clear the key" on save).
   useEffect(() => {
-    if (!visible || !tool) return;
+    if (!visible) return;
     if (!providerValue || providerValue === "tavily") {
       // Keyless provider: drop any leftover key from the form store so it
       // cannot be submitted into the wrong provider's credential slot.

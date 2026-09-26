@@ -229,9 +229,7 @@ describe("SessionProjectDirectory", () => {
     const user = userEvent.setup();
     renderWithProviders(<SessionProjectDirectory scope={scope} />);
     await openPanel(user);
-    await user.click(
-      await screen.findByRole("button", { name: "/" }),
-    );
+    await user.click(await screen.findByRole("button", { name: "/" }));
     expect(mockBrowseDirs).toHaveBeenLastCalledWith("/", false);
     expect(mockSetSessionDirectory).not.toHaveBeenCalled();
     expect(screen.getByRole("button", { name: /agentscope/ })).toHaveAttribute(
@@ -623,7 +621,9 @@ describe("SessionProjectDirectory new-task Agent default", () => {
     expect(
       screen.queryByText("projectDirectory.primaryHint"),
     ).not.toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "common.help" }));
+    await userEvent.click(
+      screen.getByRole("button", { name: "projectDirectory.primaryHint" }),
+    );
     expect(await screen.findByRole("tooltip")).toHaveTextContent(
       "projectDirectory.primaryHint",
     );

@@ -302,11 +302,15 @@ export function useSkillsPage() {
         : [];
       if (conflicts.length === 0) break;
       const newRenames = await showConflictRenameModal(
-        conflicts.map((c: { skill_name: string; suggested_name: string }) => ({
-          key: c.skill_name,
-          label: c.skill_name,
-          suggested_name: c.suggested_name,
-        })),
+        conflicts
+          .filter((c): c is { skill_name: string; suggested_name: string } =>
+            Boolean(c.skill_name && c.suggested_name),
+          )
+          .map((c) => ({
+            key: c.skill_name,
+            label: c.skill_name,
+            suggested_name: c.suggested_name,
+          })),
       );
       if (!newRenames) break;
       renameMap = { ...renameMap, ...newRenames };

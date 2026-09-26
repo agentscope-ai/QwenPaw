@@ -2,17 +2,6 @@ import { Puzzle } from "lucide-react";
 import { useState } from "react";
 import styles from "./SkillIcon.module.less";
 
-export const SOURCE_LABELS: Record<string, string> = {
-  qwenpaw: "QwenPaw",
-  clawhub: "ClawHub",
-  modelscope: "ModelScope",
-  aliyun: "Aliyun",
-};
-
-export function sourceLabel(source: string): string {
-  return SOURCE_LABELS[source] ?? source;
-}
-
 const PROVIDER_FALLBACK: Record<string, { letter: string; color: string }> = {
   qwenpaw: { letter: "Q", color: "#10b981" },
   clawhub: { letter: "C", color: "#f59e0b" },

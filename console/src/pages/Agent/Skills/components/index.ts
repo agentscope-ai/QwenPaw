@@ -1,11 +1,11 @@
 export { SkillCard } from "./SkillCard";
 export {
   SkillDrawer,
-  parseFrontmatter,
   MAX_TAGS,
   MAX_TAG_LENGTH,
   type SkillDrawerFormValues,
 } from "./SkillDrawer";
+export { parseFrontmatter } from "./skillFrontmatter";
 export { getFileIcon } from "@/components/SkillVisual";
 export {
   getSkillDisplaySource,

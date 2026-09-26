@@ -114,7 +114,7 @@ export function SkillScannerSection() {
       else message.error(t("security.skillScanner.saveFailed"));
       setSaving(false);
     },
-    [updateConfig, t],
+    [updateConfig, message, t],
   );
 
   const [pendingTimeout, setPendingTimeout] = useState<number | null>(null);
@@ -131,7 +131,7 @@ export function SkillScannerSection() {
     else message.error(t("security.skillScanner.saveFailed"));
     setPendingTimeout(null);
     setSaving(false);
-  }, [pendingTimeout, updateConfig, t]);
+  }, [pendingTimeout, updateConfig, message, t]);
 
   const handleAllowSkill = useCallback(
     async (record: BlockedSkillRecord, index: number) => {
@@ -143,7 +143,7 @@ export function SkillScannerSection() {
         message.error(t("security.skillScanner.whitelist.addFailed"));
       }
     },
-    [addToWhitelist, removeBlockedEntry, t],
+    [addToWhitelist, message, removeBlockedEntry, t],
   );
 
   const handleRemoveWhitelist = useCallback(
@@ -168,7 +168,7 @@ export function SkillScannerSection() {
         },
       });
     },
-    [removeFromWhitelist, t],
+    [message, removeFromWhitelist, t],
   );
 
   const handleClearHistory = useCallback(() => {

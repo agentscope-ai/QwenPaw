@@ -29,13 +29,13 @@ import { useAgentStore } from "../../../stores/agentStore";
 import { isDesktopTauriRuntime } from "../../../utils/openExternalLink";
 import { parseErrorDetail } from "../../../utils/error";
 import { ACPCard } from "./components/ACPCard";
+import { ACPDrawer } from "./components/ACPDrawer";
 import {
-  ACPDrawer,
   parseArgsText,
   parseEnvText,
   stringifyArgs,
   stringifyEnv,
-} from "./components/ACPDrawer";
+} from "./components/acpFormValues";
 import styles from "../../Control/Channels/index.module.less";
 import stylesACP from "./index.module.less";
 

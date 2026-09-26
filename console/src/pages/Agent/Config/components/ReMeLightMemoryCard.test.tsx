@@ -13,10 +13,8 @@ import { agentsApi, api } from "@/api";
 import { useAgentStore } from "@/stores/agentStore";
 import { useEmbeddingVerificationStore } from "@/stores/embeddingVerificationStore";
 import { renderWithProviders } from "@/test/common_setup";
-import {
-  isValidDreamCronShape,
-  ReMeLightMemoryCard,
-} from "./ReMeLightMemoryCard";
+import { ReMeLightMemoryCard } from "./ReMeLightMemoryCard";
+import { isValidDreamCronShape } from "./dreamCron";
 import { EmbeddingModelCard } from "./EmbeddingModelCard";
 import { MemoryMaintenanceContext } from "../memoryMaintenanceContext";
 import { handleRerankerFieldsChange } from "../rerankerVisibility";
@@ -785,7 +783,9 @@ describe("long-term memory defaults", () => {
     expect(
       screen.getByText("agentConfig.autoFinWindowHours"),
     ).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "cronJobs.cronTime: 18:00" })).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: "cronJobs.cronTime: 18:00" }),
+    ).toBeDisabled();
     expect(screen.getByDisplayValue("黄金,机器人,半导体")).toBeDisabled();
     expect(screen.getByDisplayValue("24")).toBeDisabled();
     expect(

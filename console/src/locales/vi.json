@@ -3043,7 +3043,7 @@
     "security": "Bảo mật",
     "title": "Bảo mật",
     "description": "Quản lý các tính năng bảo mật cho công cụ và kỹ năng.",
-    "toolGuardTitle": "Tool Guard",
+    "toolGuardTitle": "Bảo vệ công cụ",
     "toolGuardDescription": "Cấu hình quét bảo mật cho lời gọi công cụ. Các thao tác nguy hiểm sẽ yêu cầu phê duyệt trước khi thực thi.",
     "enabled": "Bật Tool Guard",
     "enabledTooltip": "Khi bật, lời gọi công cụ sẽ được quét các mẫu nguy hiểm trước khi thực thi",
@@ -3057,7 +3057,7 @@
     "saveFailed": "Lưu cài đặt thất bại",
     "loadFailed": "Tải cài đặt thất bại",
     "fileGuard": {
-      "title": "File Guard",
+      "title": "Bảo vệ tệp",
       "description": "Bảo vệ các file và thư mục nhạy cảm khỏi bị truy cập bởi công cụ agent.",
       "enableLabel": "Bật File Guard",
       "path": "Đường dẫn",
@@ -3085,7 +3085,7 @@
       "loadFailed": "Tải cài đặt thất bại"
     },
     "skillScanner": {
-      "title": "Skill Scanner",
+      "title": "Trình quét kỹ năng",
       "description": "Tự động quét kỹ năng để phát hiện mối đe dọa bảo mật trước khi bật hoặc cài đặt.",
       "mode": "Chế độ quét",
       "modeTooltip": "Kiểm soát cách xử lý kỹ năng không an toàn: chặn, chỉ cảnh báo, hoặc tắt",

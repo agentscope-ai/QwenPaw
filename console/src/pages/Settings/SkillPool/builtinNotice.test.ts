@@ -1,3 +1,4 @@
+import type { TFunction } from "i18next";
 import { describe, it, expect, vi } from "vitest";
 import type { BuiltinUpdateNotice } from "@/api/types";
 import { getBuiltinNoticeLines } from "./builtinNotice";
@@ -23,14 +24,17 @@ function notice(overrides: Partial<BuiltinUpdateNotice>): BuiltinUpdateNotice {
 describe("getBuiltinNoticeLines", () => {
   it("returns [] when notice is null", () => {
     t.mockClear();
-    expect(getBuiltinNoticeLines(null, t as any)).toEqual([]);
+    expect(getBuiltinNoticeLines(null, t as unknown as TFunction)).toEqual([]);
     expect(t).not.toHaveBeenCalled();
   });
 
   it("returns [] when has_updates is not true", () => {
     t.mockClear();
     expect(
-      getBuiltinNoticeLines(notice({ has_updates: false }), t as any),
+      getBuiltinNoticeLines(
+        notice({ has_updates: false }),
+        t as unknown as TFunction,
+      ),
     ).toEqual([]);
     expect(t).not.toHaveBeenCalled();
   });
@@ -38,7 +42,7 @@ describe("getBuiltinNoticeLines", () => {
   it("emits one line for the added category only", () => {
     t.mockClear();
     const n = notice({ added: [{ name: "skillA" }, { name: "skillB" }] });
-    const lines = getBuiltinNoticeLines(n, t as any);
+    const lines = getBuiltinNoticeLines(n, t as unknown as TFunction);
     expect(lines).toEqual(["skillPool.builtinNoticeLineAdded:skillA, skillB"]);
     expect(t).toHaveBeenCalledWith("skillPool.builtinNoticeLineAdded", {
       names: "skillA, skillB",
@@ -51,7 +55,7 @@ describe("getBuiltinNoticeLines", () => {
       added: [{ name: "skillA" }],
       removed: [{ name: "skillZ" }],
     });
-    const lines = getBuiltinNoticeLines(n, t as any);
+    const lines = getBuiltinNoticeLines(n, t as unknown as TFunction);
     expect(lines).toEqual([
       "skillPool.builtinNoticeLineAdded:skillA",
       "skillPool.builtinNoticeLineRemoved:skillZ",
@@ -66,7 +70,7 @@ describe("getBuiltinNoticeLines", () => {
       updated: [],
       removed: [],
     });
-    expect(getBuiltinNoticeLines(n, t as any)).toEqual([]);
+    expect(getBuiltinNoticeLines(n, t as unknown as TFunction)).toEqual([]);
     expect(t).not.toHaveBeenCalled();
   });
 
@@ -76,7 +80,7 @@ describe("getBuiltinNoticeLines", () => {
       added: [{ name: "  " }, { name: "" }],
       updated: [{ name: "real" }],
     });
-    const lines = getBuiltinNoticeLines(n, t as any);
+    const lines = getBuiltinNoticeLines(n, t as unknown as TFunction);
     expect(lines).toEqual(["skillPool.builtinNoticeLineUpdated:real"]);
   });
 });

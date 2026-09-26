@@ -1,3 +1,4 @@
+import { isValidDreamCronShape } from "./dreamCron";
 import { SchedulePicker } from "@/components/interaction/SchedulePicker";
 import { NumberStepper as InputNumber } from "@/components/interaction/NumberStepper";
 import { SettingsField } from "@/components/interaction/SettingsField";
@@ -21,37 +22,6 @@ import { useMemoryMaintenance } from "../memoryMaintenanceContext";
 import { ReMeStatusModal } from "./ReMeStatusModal";
 
 const AUTO_FIN_MAX_WINDOW_HOURS = 168;
-
-export function isValidDreamCronShape(value?: string) {
-  if (!value?.trim()) {
-    return false;
-  }
-  const fields = value.trim().split(/\s+/);
-  if (
-    fields.length !== 5 ||
-    !fields.every((field) => /^[a-z0-9*/,-]+$/i.test(field))
-  ) {
-    return false;
-  }
-
-  // Catch numeric values outside the ranges accepted by APScheduler before
-  // submitting the form. The backend remains authoritative for the complete
-  // cron grammar (named months/weekdays, ranges, lists, and steps).
-  const numericRanges = [
-    [0, 59],
-    [0, 23],
-    [1, 31],
-    [1, 12],
-    [0, 6],
-  ] as const;
-  return fields.every((field, index) => {
-    const [minimum, maximum] = numericRanges[index];
-    return [...field.matchAll(/\d+/g)].every(({ 0: token }) => {
-      const number = Number(token);
-      return number >= minimum && number <= maximum;
-    });
-  });
-}
 
 export function ReMeLightMemoryCard() {
   const { t } = useTranslation();
@@ -367,7 +337,11 @@ export function ReMeLightMemoryCard() {
               <h3>{t("agentConfig.memoryJournalTitle")}</h3>
               <p>{t("agentConfig.memoryAutoRecordDescription")}</p>
             </div>
-            <Switch aria-label={t("agentConfig.memoryAutoRecordTitle")} checked={autoMemoryEnabled} onChange={toggleAutoMemory} />
+            <Switch
+              aria-label={t("agentConfig.memoryAutoRecordTitle")}
+              checked={autoMemoryEnabled}
+              onChange={toggleAutoMemory}
+            />
           </div>
 
           <SettingsField
@@ -720,8 +694,14 @@ export function ReMeLightMemoryCard() {
                 <h3>{t("agentConfig.memoryOrganizeSectionTitle")}</h3>
                 <p>{t("agentConfig.memoryScheduledOrganizeDescription")}</p>
               </div>
-              <SettingsField name={["reme_light_memory_config", "dream_cron_enabled"]} valuePropName="checked" noStyle>
-                <Switch aria-label={t("agentConfig.memoryScheduledOrganizeTitle")} />
+              <SettingsField
+                name={["reme_light_memory_config", "dream_cron_enabled"]}
+                valuePropName="checked"
+                noStyle
+              >
+                <Switch
+                  aria-label={t("agentConfig.memoryScheduledOrganizeTitle")}
+                />
               </SettingsField>
             </div>
             <SettingsField

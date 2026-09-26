@@ -239,12 +239,14 @@ export function useSecurityPage() {
       // validation failed
     }
   }, [
+    editForm,
     editingRule,
+    scheduleSave,
+    updateCustomRule,
     builtinRules,
     customRules,
-    updateCustomRule,
     addCustomRule,
-    editForm,
+    message,
     t,
   ]);
 

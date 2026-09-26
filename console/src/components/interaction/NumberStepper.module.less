@@ -33,7 +33,6 @@
   :global(.qwenpaw-input-number) {
     flex: 1;
     width: 100% !important;
-    width: 100%;
     min-width: 0;
     font-size: 22px;
     font-weight: 550;
@@ -48,5 +47,12 @@
   }
   &[data-disabled] {
     opacity: 0.5;
+  }
+}
+
+@media (pointer: coarse) {
+  .stepper > button {
+    flex-basis: 44px;
+    height: 44px;
   }
 }

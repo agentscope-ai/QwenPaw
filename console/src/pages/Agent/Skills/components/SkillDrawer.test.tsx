@@ -194,12 +194,8 @@ vi.mock("./SkillChannelSelect", () => ({
   SkillChannelSelect: () => <div data-testid="channel-select" />,
 }));
 
-import {
-  MAX_TAGS,
-  MAX_TAG_LENGTH,
-  SkillDrawer,
-  parseFrontmatter,
-} from "./SkillDrawer";
+import { MAX_TAGS, MAX_TAG_LENGTH, SkillDrawer } from "./SkillDrawer";
+import { parseFrontmatter } from "./skillFrontmatter";
 
 // `utils/skill` is deliberately NOT mocked: normalizeSkillChannels and
 // deriveInstalledFromLabel run for real, so the assertions below pin their

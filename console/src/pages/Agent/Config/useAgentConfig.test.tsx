@@ -347,7 +347,8 @@ describe("useAgentConfig", () => {
       makeConfig({ max_iters: 100 }),
     );
     const loaded = makeConfig({ max_iters: 100 });
-    const { max_iters: _staleMaxIters, ...formWithoutMaxIters } = loaded;
+    const formWithoutMaxIters: Partial<Config> = { ...loaded };
+    delete formWithoutMaxIters.max_iters;
     mockGetFieldsValue.mockReturnValue({
       ...formWithoutMaxIters,
       loop: {
@@ -579,26 +580,36 @@ describe("useAgentConfig", () => {
     const saved = apiMocks.updateAgentRunningConfig.mock.calls[0][0] as Config;
 
     // The rendered field should be updated
-    expect((saved.light_context_config as any).strategy).toBe("native");
+    expect(saved.light_context_config!.strategy).toBe("native");
 
     // The collapsed (unrendered) nested fields must be preserved from original
+    expect(saved.light_context_config!.context_compact_config.enabled).toBe(
+      true,
+    );
     expect(
-      (saved.light_context_config as any).context_compact_config.enabled,
-    ).toBe(true);
-    expect(
-      (saved.light_context_config as any).context_compact_config
+      saved.light_context_config!.context_compact_config
         .compact_threshold_ratio,
     ).toBe(0.8);
     expect(
-      (saved.light_context_config as any).scroll_config.history_retention_days,
+      saved.light_context_config!.scroll_config.history_retention_days,
     ).toBe(14);
 
     // reme_light_memory_config: rendered field updated, collapsed fields preserved
-    expect((saved.reme_light_memory_config as any).needs_reindex).toBe(true);
-    expect((saved.reme_light_memory_config as any).embedding_model).toBe(
-      "text-embedding-v3",
-    );
-    expect((saved.reme_light_memory_config as any).search_top_k).toBe(5);
+    expect(saved.reme_light_memory_config!.needs_reindex).toBe(true);
+    expect(
+      (
+        saved.reme_light_memory_config as Config["reme_light_memory_config"] & {
+          embedding_model: string;
+        }
+      ).embedding_model,
+    ).toBe("text-embedding-v3");
+    expect(
+      (
+        saved.reme_light_memory_config as Config["reme_light_memory_config"] & {
+          search_top_k: number;
+        }
+      ).search_top_k,
+    ).toBe(5);
 
     // Plugin config: entirely collapsed — original values fully preserved.
     expect(saved.memory_backend_configs?.adbpg.auto_search_enabled).toBe(true);

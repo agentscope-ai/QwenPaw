@@ -24,7 +24,12 @@ export function SettingsField({
             style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
           >
             {label}
-            <InlineHelp inline>{tooltip}</InlineHelp>
+            <InlineHelp
+              inline
+              subject={typeof label === "string" ? label : undefined}
+            >
+              {tooltip}
+            </InlineHelp>
           </span>
         ) : (
           label

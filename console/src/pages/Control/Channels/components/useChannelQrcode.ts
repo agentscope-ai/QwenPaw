@@ -152,7 +152,6 @@ export function useChannelQrcode(
     onSuccess,
     onError,
     reset,
-    stopPoll,
   ]);
 
   // Cleanup on unmount

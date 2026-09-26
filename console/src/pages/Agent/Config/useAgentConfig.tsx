@@ -209,7 +209,7 @@ export function useAgentConfig(
         setSaving(false);
       }
     },
-    [form, t, selectedAgent, approvalLevel, onConfigLoaded],
+    [form, approvalLevel, selectedAgent, onConfigLoaded, message, t],
   );
 
   const handleLanguageChange = useCallback(
@@ -250,7 +250,7 @@ export function useAgentConfig(
         },
       });
     },
-    [language, t],
+    [language, message, t],
   );
 
   const timezoneDraft = useRef(timezone);

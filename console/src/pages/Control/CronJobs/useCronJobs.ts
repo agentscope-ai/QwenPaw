@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useCallback, useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { useAppMessage } from "../../../hooks/useAppMessage";
 import api from "../../../api";
@@ -150,7 +150,7 @@ export function useCronJobs() {
     return fallback;
   };
 
-  const fetchJobs = async () => {
+  const fetchJobs = useCallback(async () => {
     setLoading(true);
     try {
       const data = await api.listCronJobs();
@@ -163,7 +163,7 @@ export function useCronJobs() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [message]);
 
   useEffect(() => {
     let mounted = true;
@@ -179,7 +179,7 @@ export function useCronJobs() {
     return () => {
       mounted = false;
     };
-  }, [selectedAgent]);
+  }, [selectedAgent, fetchJobs]);
 
   const createJob = async (values: CronJob) => {
     try {

@@ -1,3 +1,4 @@
+import InlineHelp from "@/components/InlineHelp";
 import { SettingsField } from "@/components/interaction/SettingsField";
 import {
   Form,
@@ -61,10 +62,6 @@ export function ToolGuardTab({
   return (
     <div className={styles.tabContent}>
       <div className={styles.sectionConfigureContainer}>
-        <p className={styles.tabDescription}>
-          {t("security.toolGuardDescription")}
-        </p>
-
         <Card className={styles.formCard}>
           <Form
             onValuesChange={onValuesChange}
@@ -181,12 +178,12 @@ export function ToolGuardTab({
         <div className={styles.sectionHeader}>
           <h2 className={styles.sectionTitle}>
             {t("security.shellEvasion.title")}
+            <InlineHelp subject={t("security.shellEvasion.title")}>
+              {t("security.shellEvasion.description")}
+            </InlineHelp>
           </h2>
         </div>
         <div className={styles.sectionConfigureContainer}>
-          <p className={styles.tabDescription}>
-            {t("security.shellEvasion.description")}
-          </p>
           <ShellEvasionSection
             checks={shellEvasionChecks}
             onToggle={toggleShellEvasionCheck}

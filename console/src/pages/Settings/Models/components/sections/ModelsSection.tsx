@@ -62,13 +62,13 @@ export const ModelsSection = React.memo(function ModelsSection({
     [providers],
   );
 
+  const slotProvider = currentSlot?.provider_id;
+  const slotModel = currentSlot?.model;
   useEffect(() => {
-    if (currentSlot) {
-      setSelectedProviderId(currentSlot.provider_id || undefined);
-      setSelectedModel(currentSlot.model || undefined);
-    }
+    setSelectedProviderId(slotProvider || undefined);
+    setSelectedModel(slotModel || undefined);
     setDirty(false);
-  }, [currentSlot?.provider_id, currentSlot?.model]);
+  }, [slotProvider, slotModel]);
 
   const chosenProvider = providers.find((p) => p.id === selectedProviderId);
   const modelOptions = [

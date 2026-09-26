@@ -371,7 +371,7 @@ export function ProviderConfigModal({
 
   const validApiKeyPrefixes = useMemo(
     () => getValidApiKeyPrefixes(provider),
-    [provider.api_key_prefix, provider.api_key_prefixes],
+    [provider],
   );
 
   const apiKeyPlaceholder = useMemo(() => {

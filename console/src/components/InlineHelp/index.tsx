@@ -7,9 +7,11 @@ import styles from "./index.module.less";
 export default function InlineHelp({
   children,
   inline = false,
+  subject,
 }: {
   children: ReactNode;
   inline?: boolean;
+  subject?: string;
 }) {
   const Trigger = inline ? "span" : "button";
   const { t } = useTranslation();
@@ -36,10 +38,20 @@ export default function InlineHelp({
             event.stopPropagation();
             setOpen(true);
           }
-          if (event.key === "Escape") setOpen(false);
+          if (event.key === "Escape" && open) {
+            event.preventDefault();
+            event.stopPropagation();
+            setOpen(false);
+          }
         }}
         className={styles.help}
-        aria-label={t("common.help")}
+        aria-label={
+          subject
+            ? `${subject} · ${t("common.help")}`
+            : typeof children === "string"
+            ? children
+            : t("common.help")
+        }
       >
         <CircleHelp size={15} strokeWidth={1.7} aria-hidden />
       </Trigger>

@@ -109,7 +109,7 @@ export function RemoteModelManageModal({
       active = false;
       clearTimeout(timer);
     };
-  }, [open, provider, deferredFilters, tab, offset, revision]);
+  }, [open, provider, deferredFilters, tab, offset, revision, message, t]);
   useEffect(() => {
     const timers = hoverTimers.current;
     return () => timers.forEach(clearTimeout);

@@ -6,7 +6,8 @@ import { Form } from "@agentscope-ai/design";
 import type { FormInstance } from "antd";
 import type { CustomLoopModeConfig } from "@/api/types";
 import { renderWithProviders } from "@/test/common_setup";
-import { AgentLoopCard, buildCustomLoopMode } from "./AgentLoopCard";
+import { AgentLoopCard } from "./AgentLoopCard";
+import { buildCustomLoopMode } from "./agentLoopHelpers";
 
 vi.mock("@agentscope-ai/design", async () =>
   vi.importActual<typeof import("antd")>("antd"),

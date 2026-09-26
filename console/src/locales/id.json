@@ -2212,7 +2212,7 @@
     "security": "Keamanan",
     "title": "Keamanan",
     "description": "Kelola fitur keamanan untuk tool dan skill.",
-    "toolGuardTitle": "Tool Guard",
+    "toolGuardTitle": "Perlindungan alat",
     "toolGuardDescription": "Konfigurasi pemindaian keamanan untuk panggilan tool. Operasi berbahaya akan memerlukan persetujuan eksplisit sebelum dieksekusi.",
     "enabled": "Aktifkan Tool Guard",
     "guardedTools": "Tool yang Diawasi",
