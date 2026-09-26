@@ -1,5 +1,5 @@
 import { useReducedMotion } from "motion/react";
-import { useLayoutEffect, useRef } from "react";
+import { useLayoutEffect, useRef, type PointerEvent } from "react";
 import { useTranslation } from "react-i18next";
 import styles from "./DurationWheel.module.less";
 
@@ -21,6 +21,14 @@ function DurationColumn({
   const root = useRef<HTMLDivElement>(null);
   const initialized = useRef(false);
   const externalScroll = useRef(false);
+  const drag = useRef<{
+    id: number;
+    y: number;
+    top: number;
+    moved: boolean;
+    clicked?: number;
+  } | null>(null);
+  const suppressClick = useRef(false);
   const wrap = (index: number) => ((index % count) + count) % count;
 
   useLayoutEffect(() => {
@@ -42,6 +50,7 @@ function DurationColumn({
   useLayoutEffect(() => {
     const wheel = root.current!;
     const settle = () => {
+      if (drag.current) return;
       const next = wrap(Math.round(wheel.scrollTop / ROW_HEIGHT));
       const userEdit = !externalScroll.current;
       externalScroll.current = true;
@@ -53,6 +62,42 @@ function DurationColumn({
     return () => wheel.removeEventListener("scrollend", settle);
   });
 
+  const finishDrag = (
+    event: PointerEvent<HTMLDivElement>,
+    cancelled = false,
+  ) => {
+    const active = drag.current;
+    if (!active || active.id !== event.pointerId) return;
+    const wheel = event.currentTarget;
+    drag.current = null;
+    suppressClick.current = true;
+    delete wheel.dataset.dragging;
+    if (wheel.hasPointerCapture(event.pointerId))
+      wheel.releasePointerCapture(event.pointerId);
+    if (cancelled) {
+      externalScroll.current = true;
+      wheel.scrollTo({
+        top: (count + value) * ROW_HEIGHT,
+        behavior: "instant",
+      });
+      return;
+    }
+    if (!active.moved) {
+      if (active.clicked !== undefined && active.clicked !== value)
+        onChange(active.clicked);
+      return;
+    }
+    const target = Math.round(wheel.scrollTop / ROW_HEIGHT) * ROW_HEIGHT;
+    externalScroll.current = false;
+    if (Math.abs(wheel.scrollTop - target) < 1) {
+      const next = wrap(Math.round(target / ROW_HEIGHT));
+      externalScroll.current = true;
+      if (next !== value) onChange(next);
+    } else {
+      wheel.scrollTo({ top: target, behavior: reduced ? "instant" : "smooth" });
+    }
+  };
+
   return (
     <div
       ref={root}
@@ -63,12 +108,53 @@ function DurationColumn({
       aria-valuemin={0}
       aria-valuemax={count - 1}
       aria-valuenow={value}
-      onPointerDown={() => {
+      onPointerDown={(event) => {
+        suppressClick.current = false;
+        if (event.pointerType === "mouse" && event.button === 0) {
+          const wheel = event.currentTarget;
+          const clicked = (event.target as HTMLElement).closest<HTMLElement>(
+            "[data-value]",
+          )?.dataset.value;
+          drag.current = {
+            id: event.pointerId,
+            y: event.clientY,
+            top: wheel.scrollTop,
+            moved: false,
+            clicked: clicked === undefined ? undefined : Number(clicked),
+          };
+          wheel.dataset.dragging = "true";
+          wheel.setPointerCapture(event.pointerId);
+          wheel.focus({ preventScroll: true });
+          event.preventDefault();
+        }
         root.current!.scrollTo({
           top: root.current!.scrollTop,
           behavior: "instant",
         });
         externalScroll.current = false;
+      }}
+      onPointerMove={(event) => {
+        const active = drag.current;
+        if (!active || active.id !== event.pointerId) return;
+        const delta = active.y - event.clientY;
+        if (!active.moved && Math.abs(delta) < 3) return;
+        active.moved = true;
+        const cycle = count * ROW_HEIGHT;
+        const top = active.top + delta;
+        const centered = cycle + (((top % cycle) + cycle) % cycle);
+        event.currentTarget.scrollTop = centered;
+        active.top = centered;
+        active.y = event.clientY;
+      }}
+      onPointerUp={(event) => finishDrag(event)}
+      onPointerCancel={(event) => finishDrag(event, true)}
+      onLostPointerCapture={(event) => finishDrag(event, true)}
+      onClickCapture={(event) => {
+        if (suppressClick.current) {
+          event.preventDefault();
+          event.stopPropagation();
+          suppressClick.current = false;
+        }
       }}
       onWheel={() => {
         externalScroll.current = false;
@@ -91,6 +177,7 @@ function DurationColumn({
         {Array.from({ length: count * 3 }, (_, index) => (
           <div
             key={index}
+            data-value={wrap(index)}
             className={styles.option}
             onClick={() => onChange(wrap(index))}
           >

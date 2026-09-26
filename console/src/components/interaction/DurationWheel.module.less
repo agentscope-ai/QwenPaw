@@ -26,6 +26,11 @@
   overscroll-behavior: contain;
   scroll-snap-type: y mandatory;
   scrollbar-width: none;
+  cursor: grab;
+  &[data-dragging] {
+    scroll-snap-type: none;
+    cursor: grabbing;
+  }
   font-variant-numeric: tabular-nums;
   mask-image: linear-gradient(transparent, #000 34%, #000 66%, transparent);
   &::-webkit-scrollbar {
@@ -49,7 +54,7 @@
   font-weight: 600;
   letter-spacing: -3px;
   color: var(--app-text);
-  cursor: pointer;
+  cursor: inherit;
   user-select: none;
 }
 
