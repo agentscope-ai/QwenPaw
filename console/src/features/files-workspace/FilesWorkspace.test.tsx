@@ -22,6 +22,8 @@ const lifecycle = vi.hoisted(() => ({
   } | null,
   getFileMetadata: vi.fn(),
   loadFileText: vi.fn(),
+  loadFile: vi.fn(),
+  saveFile: vi.fn(),
   loadMemoryFile: vi.fn(),
   saveFileContent: vi.fn(),
   setTabContent: vi.fn(),
@@ -83,6 +85,8 @@ vi.mock("../../api/modules/workspace", () => ({
   workspaceApi: {
     getFileMetadata: lifecycle.getFileMetadata,
     loadFileText: lifecycle.loadFileText,
+    loadFile: lifecycle.loadFile,
+    saveFile: lifecycle.saveFile,
     loadMemoryFile: lifecycle.loadMemoryFile,
     saveFileContent: lifecycle.saveFileContent,
   },
@@ -154,6 +158,35 @@ describe("FilesWorkspace directory changes", () => {
     });
     lifecycle.loadFileText.mockResolvedValue({ content: "", etag: "v1" });
     lifecycle.loadMemoryFile.mockResolvedValue({ content: "" });
+  });
+
+  it("loads and saves profile files using the workspace agent", async () => {
+    lifecycle.tabs = [
+      {
+        path: "profile::HEARTBEAT.md",
+        displayPath: "HEARTBEAT.md",
+        content: "before",
+        dirty: false,
+        source: "profile",
+      },
+    ];
+    lifecycle.activeTabPath = "profile::HEARTBEAT.md";
+    lifecycle.loadFile.mockResolvedValue({ content: "before" });
+    render(<FilesWorkspace scope={{ kind: "agent", agentId: "agent-a" }} />);
+    await waitFor(() =>
+      expect(lifecycle.loadFile).toHaveBeenCalledWith(
+        "HEARTBEAT.md",
+        "agent-a",
+      ),
+    );
+    await act(async () => {
+      await lifecycle.editorProps?.onSaveFile("profile::HEARTBEAT.md", "after");
+    });
+    expect(lifecycle.saveFile).toHaveBeenCalledWith(
+      "HEARTBEAT.md",
+      "after",
+      "agent-a",
+    );
   });
 
   it("rebuilds the Session navigator and editor watch host", () => {

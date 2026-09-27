@@ -38,7 +38,7 @@ export function ChatWelcome({
                 data-press
                 onClick={() => onSubmit({ query: prompt.value })}
               >
-                <Sparkles size={17} aria-hidden="true" />
+                {prompt.icon ?? <Sparkles size={17} aria-hidden="true" />}
                 <span>{prompt.label || prompt.value}</span>
                 <ArrowUpRight size={16} aria-hidden="true" />
               </button>

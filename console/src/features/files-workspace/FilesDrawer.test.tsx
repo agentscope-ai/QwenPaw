@@ -3,6 +3,7 @@ import { fireEvent, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import FilesDrawer from "./FilesDrawer";
+import { workspaceApi } from "../../api/modules/workspace";
 import type { FileTarget } from "./types";
 
 const clipboardMocks = vi.hoisted(() => ({
@@ -37,9 +38,7 @@ vi.mock("../../api/modules/workspace", () => ({
       content: "hello",
       etag: "etag",
     }),
-    getFileDownloadUrl: vi.fn(
-      (path: string, _root: string) => `/api/files/download/${path}`,
-    ),
+    getFileDownloadUrl: vi.fn((path: string) => `/api/files/download/${path}`),
     loadFile: vi.fn().mockResolvedValue({
       content: "profile content",
     }),
@@ -351,6 +350,13 @@ describe("FilesDrawer", () => {
           sessionId: "session-1",
         }}
       />,
+    );
+
+    await waitFor(() =>
+      expect(workspaceApi.loadFile).toHaveBeenCalledWith(
+        "config.yaml",
+        "default",
+      ),
     );
 
     // Profile source should not have a download button

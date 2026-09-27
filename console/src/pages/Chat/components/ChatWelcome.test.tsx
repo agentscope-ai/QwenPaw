@@ -8,11 +8,18 @@ describe("ChatWelcome", () => {
     render(
       <ChatWelcome
         greeting="Welcome"
-        prompts={[{ label: "Explore skills", value: "List my skills" }]}
+        prompts={[
+          {
+            label: "Explore skills",
+            value: "List my skills",
+            icon: <svg data-testid="custom-icon" aria-hidden="true" />,
+          },
+        ]}
         onSubmit={onSubmit}
       />,
     );
     fireEvent.click(screen.getByRole("button", { name: "Explore skills" }));
+    expect(screen.getByTestId("custom-icon")).toBeVisible();
     expect(onSubmit).toHaveBeenCalledWith({ query: "List my skills" });
     expect(screen.getByRole("heading", { name: "Welcome" })).toBeVisible();
   });
