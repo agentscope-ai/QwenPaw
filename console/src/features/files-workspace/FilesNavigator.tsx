@@ -66,6 +66,7 @@ import styles from "./FilesWorkspace.module.less";
 
 interface DirectoryNodeProps {
   entry: DirectoryEntry;
+  refreshRevision: number;
   chatId?: string;
   projectDirOverride?: string;
   selectedPath: string;
@@ -153,6 +154,7 @@ function ProfileFileRow({
 
 function DirectoryNode({
   entry,
+  refreshRevision,
   chatId,
   projectDirOverride,
   selectedPath,
@@ -166,9 +168,12 @@ function DirectoryNode({
   const [children, setChildren] = useState<DirectoryEntry[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(false);
+  const requestId = useRef(0);
+  const previousRefreshRevision = useRef(refreshRevision);
 
   const load = useCallback(
     async (nextCursor?: string) => {
+      const currentRequest = ++requestId.current;
       setLoading(true);
       try {
         const page = await workspaceApi.listDirectory(
@@ -179,17 +184,33 @@ function DirectoryNode({
           root,
           projectDirOverride,
         );
+        if (currentRequest !== requestId.current) return;
         setChildren((current) =>
           nextCursor ? [...current, ...page.entries] : page.entries,
         );
         setCursor(page.next_cursor);
         setHasMore(page.has_more);
       } finally {
-        setLoading(false);
+        if (currentRequest === requestId.current) setLoading(false);
       }
     },
     [chatId, entry.path, projectDirOverride, root],
   );
+
+  useEffect(() => {
+    if (previousRefreshRevision.current === refreshRevision) return;
+    previousRefreshRevision.current = refreshRevision;
+    setCursor(null);
+    setHasMore(false);
+    if (expanded) {
+      void load();
+    } else {
+      // A collapsed node may still have children cached from an earlier visit.
+      requestId.current += 1;
+      setChildren([]);
+      setLoading(false);
+    }
+  }, [expanded, load, refreshRevision]);
 
   const toggle = () => {
     setExpanded((current) => !current);
@@ -216,6 +237,7 @@ function DirectoryNode({
             <DirectoryNode
               key={child.path}
               entry={child}
+              refreshRevision={refreshRevision}
               chatId={chatId}
               projectDirOverride={projectDirOverride}
               depth={depth + 1}
@@ -394,6 +416,7 @@ export default function FilesNavigator({
   const [loading, setLoading] = useState(true);
   const [cursor, setCursor] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(false);
+  const [refreshRevision, setRefreshRevision] = useState(0);
   const [uploading, setUploading] = useState(false);
   const [pendingUploads, setPendingUploads] = useState<File[] | null>(null);
   const [conflictingNames, setConflictingNames] = useState<string[]>([]);
@@ -734,6 +757,7 @@ export default function FilesNavigator({
       return;
     }
     await loadRoot();
+    setRefreshRevision((current) => current + 1);
   };
 
   const runUpload = async (
@@ -990,6 +1014,7 @@ export default function FilesNavigator({
                     <DirectoryNode
                       key={entry.path}
                       entry={entry}
+                      refreshRevision={refreshRevision}
                       chatId={chatId}
                       projectDirOverride={projectDirOverride}
                       depth={0}

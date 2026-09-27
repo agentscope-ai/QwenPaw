@@ -1,4 +1,10 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import FilesNavigator from "./FilesNavigator";
 
@@ -25,6 +31,7 @@ vi.mock("react-i18next", () => ({
         "files.addSystemPromptDescription": "Choose a file",
         "files.searchSystemPromptFiles": "Search files",
         "files.noSystemPromptCandidates": "No files",
+        "common.refresh": "Refresh",
       };
       if (key === "files.promptToggle") return `Toggle ${values?.name}`;
       return labels[key] ?? key;
@@ -119,6 +126,99 @@ describe("FilesNavigator system prompt interactions", () => {
 
     fireEvent.click(screen.getByRole("tab", { name: "Workspace" }));
     expect(screen.getByRole("button", { name: "Upload" })).toBeInTheDocument();
+  });
+
+  it("refreshes expanded nested folders without collapsing them", async () => {
+    let includeNewFile = false;
+    mocks.listFiles.mockResolvedValue([]);
+    mocks.getSystemPromptFiles.mockResolvedValue([]);
+    mocks.listDirectory.mockImplementation(async (path: string) => ({
+      entries:
+        path === ""
+          ? [{ name: "parent", path: "parent", kind: "directory" }]
+          : path === "parent"
+          ? [{ name: "nested", path: "parent/nested", kind: "directory" }]
+          : [
+              {
+                name: "before.txt",
+                path: "parent/nested/before.txt",
+                kind: "file",
+              },
+              ...(includeNewFile
+                ? [
+                    {
+                      name: "after.txt",
+                      path: "parent/nested/after.txt",
+                      kind: "file",
+                    },
+                  ]
+                : []),
+            ],
+      next_cursor: null,
+      has_more: false,
+    }));
+
+    renderNavigator();
+    fireEvent.click(await screen.findByRole("button", { name: "parent" }));
+    fireEvent.click(await screen.findByRole("button", { name: "nested" }));
+    expect(await screen.findByText("before.txt")).toBeInTheDocument();
+
+    includeNewFile = true;
+    fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
+
+    expect(await screen.findByText("after.txt")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "parent" })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+    expect(screen.getByRole("button", { name: "nested" })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+  });
+
+  it("ignores a stale folder response after refresh", async () => {
+    let resolveInitial: ((page: unknown) => void) | undefined;
+    let folderRequests = 0;
+    mocks.listFiles.mockResolvedValue([]);
+    mocks.getSystemPromptFiles.mockResolvedValue([]);
+    mocks.listDirectory.mockImplementation((path: string) => {
+      if (path === "") {
+        return Promise.resolve({
+          entries: [{ name: "folder", path: "folder", kind: "directory" }],
+          next_cursor: null,
+          has_more: false,
+        });
+      }
+      folderRequests += 1;
+      if (folderRequests === 1) {
+        return new Promise((resolve) => {
+          resolveInitial = resolve;
+        });
+      }
+      return Promise.resolve({
+        entries: [{ name: "new.txt", path: "folder/new.txt", kind: "file" }],
+        next_cursor: null,
+        has_more: false,
+      });
+    });
+
+    renderNavigator();
+    fireEvent.click(await screen.findByRole("button", { name: "folder" }));
+    await waitFor(() => expect(folderRequests).toBe(1));
+
+    fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
+    expect(await screen.findByText("new.txt")).toBeInTheDocument();
+
+    await act(async () => {
+      resolveInitial?.({
+        entries: [{ name: "old.txt", path: "folder/old.txt", kind: "file" }],
+        next_cursor: null,
+        has_more: false,
+      });
+    });
+    expect(screen.getByText("new.txt")).toBeInTheDocument();
+    expect(screen.queryByText("old.txt")).not.toBeInTheDocument();
   });
 
   it("can add a custom prompt again after disabling it", async () => {
