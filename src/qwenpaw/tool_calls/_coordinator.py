@@ -747,6 +747,7 @@ class ToolCoordinator:
                         return
 
         except asyncio.CancelledError:
+            timed_out = entry.ctx.cancel_reason == CancelReason.TIMEOUT
             entry.final_response = ToolResponse(
                 content=[
                     TextBlock(
@@ -755,9 +756,16 @@ class ToolCoordinator:
                     ),
                 ],
                 id=entry.ctx.tool_call_id,
-                state=ToolResultState.INTERRUPTED,
+                # A timeout is a tool-level result that the model can
+                # recover from. Keep user-initiated cancellation interrupted
+                # so it still stops the parent turn as requested.
+                state=(
+                    ToolResultState.SUCCESS
+                    if timed_out
+                    else ToolResultState.INTERRUPTED
+                ),
             )
-            entry.end_state = "interrupted"
+            entry.end_state = "success" if timed_out else "interrupted"
         except Exception as exc:
             logger.exception(
                 "Tool handler failed for %s/%s",
@@ -812,6 +820,7 @@ class ToolCoordinator:
                     return
 
             if entry.ctx.is_cancelled:
+                timed_out = entry.ctx.cancel_reason == CancelReason.TIMEOUT
                 entry.final_response = ToolResponse(
                     content=[
                         TextBlock(
@@ -820,8 +829,13 @@ class ToolCoordinator:
                         ),
                     ],
                     id=entry.ctx.tool_call_id,
-                    state=ToolResultState.INTERRUPTED,
+                    state=(
+                        ToolResultState.SUCCESS
+                        if timed_out
+                        else ToolResultState.INTERRUPTED
+                    ),
                 )
+                entry.end_state = "success" if timed_out else "interrupted"
                 await entry.stream.close()
                 return
 
