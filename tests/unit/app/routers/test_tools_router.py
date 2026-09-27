@@ -353,6 +353,7 @@ def test_plugin_tool_metadata(monkeypatch, category) -> None:
         f"DEFAULT_REGISTRY",
         SimpleNamespace(get_owner=lambda name: None),
     )
+    # pylint: disable-next=protected-access
     result = tools_router_module._build_tool_info(tool, tool.name)
     assert result.source_plugin_id == f"image-plugin"
     assert result.source_plugin_name == f"Image plugin"
@@ -380,6 +381,7 @@ def test_dynamic_plugin_tool_source(monkeypatch) -> None:
         f"DEFAULT_REGISTRY",
         SimpleNamespace(get_owner=lambda name: f"dynamic-plugin"),
     )
+    # pylint: disable-next=protected-access
     result = tools_router_module._build_tool_info(tool, tool.name)
     assert result.source_plugin_id == f"dynamic-plugin"
     assert result.category is None

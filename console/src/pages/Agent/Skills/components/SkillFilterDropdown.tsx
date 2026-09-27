@@ -1,7 +1,6 @@
 import { useTranslation } from "react-i18next";
 import { SKILL_TAG_FILTER_PREFIX } from "@/constants/skill";
 
-
 interface SkillFilterDropdownProps {
   allTags: string[];
   searchTags: string[];

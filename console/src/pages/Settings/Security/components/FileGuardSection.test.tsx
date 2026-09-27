@@ -7,7 +7,12 @@ const mock = vi.hoisted(() => ({
   get: vi.fn(),
   update: vi.fn(),
   t: (key: string) => key,
-  message: { success: vi.fn(), error: vi.fn(), warning: vi.fn(), destroy: vi.fn() },
+  message: {
+    success: vi.fn(),
+    error: vi.fn(),
+    warning: vi.fn(),
+    destroy: vi.fn(),
+  },
 }));
 vi.mock("@number-flow/react", () => ({
   default: ({ value }: { value: number }) => <span>{value}</span>,

@@ -717,10 +717,12 @@ html.dark-mode .ant-tooltip-arrow::before {
 }
 
 /* Help remains readable inside scrolling editors and on narrow screens. */
-.qwenpaw-tooltip, .ant-tooltip {
+.qwenpaw-tooltip,
+.ant-tooltip {
   max-width: min(320px, calc(100vw - 32px));
 }
-.qwenpaw-tooltip-inner, .ant-tooltip-inner {
+.qwenpaw-tooltip-inner,
+.ant-tooltip-inner {
   box-sizing: border-box;
   height: auto;
   max-height: min(360px, 60dvh);
