@@ -651,7 +651,10 @@ def test_fixup_file_name_handles_cross_platform_paths(
     as_object,
     hint_key,
 ) -> None:
-    block = {"type": "file", "source": {"type": "url", "url": path}}
+    block: dict[str, Any] = {
+        "type": "file",
+        "source": {"type": "url", "url": path},
+    }
     if hint_key:
         block[hint_key] = "report.pdf"
     if as_object:
