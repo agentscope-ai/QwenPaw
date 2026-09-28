@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # One-click build: console -> conda-pack -> QwenPaw.app. Run from repo root.
-# Requires: conda, node/npm (for console). Optional: icon.icns in assets/.
+# Requires: conda, node/npm (for console). Generates macOS icon from icon.svg.
 
 set -e
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -41,6 +41,14 @@ fi
 
 echo "== Building conda-packed env =="
 python "${PACK_DIR}/build_common.py" --output "$ARCHIVE" --format tar.gz
+
+echo "== Generating macOS app icon =="
+MACOS_ICON_DIR="${DIST}/generated-icons/macos"
+if [[ "${MACOS_ICON_DIR}" != /* ]]; then
+  MACOS_ICON_DIR="${REPO_ROOT}/${MACOS_ICON_DIR}"
+fi
+bash "${PACK_DIR}/generate_macos_icon.sh" "${MACOS_ICON_DIR}"
+MACOS_ICON_ICNS="${MACOS_ICON_DIR}/icon.icns"
 
 echo "== Building .app bundle =="
 rm -rf "$APP_DIR"
@@ -131,14 +139,6 @@ exec "$ENV_DIR/bin/python" -u -m qwenpaw desktop --log-level "$LOG_LEVEL"
 LAUNCHER
 chmod +x "${APP_DIR}/Contents/MacOS/${APP_NAME}"
 
-# Icon: use pre-generated icon.icns
-if [[ -f "${PACK_DIR}/assets/icon.icns" ]]; then
-  echo "== Using pre-generated icon.icns =="
-else
-  echo "Warning: icon.icns not found at ${PACK_DIR}/assets/icon.icns"
-  echo "Generate it first: bash scripts/pack/generate_icons.sh"
-fi
-
 # Info.plist (include icon key if icon.icns exists)
 # Prioritize version from __version__.py to ensure accuracy
 VERSION="${CURRENT_VERSION}"
@@ -152,8 +152,8 @@ else
   echo "Version determined from __version__.py: ${VERSION}"
 fi
 ICON_PLIST=""
-if [[ -f "${PACK_DIR}/assets/icon.icns" ]]; then
-  cp "${PACK_DIR}/assets/icon.icns" "${APP_DIR}/Contents/Resources/"
+if [[ -f "${MACOS_ICON_ICNS}" ]]; then
+  cp "${MACOS_ICON_ICNS}" "${APP_DIR}/Contents/Resources/icon.icns"
   ICON_PLIST="<key>CFBundleIconFile</key><string>icon.icns</string>
   "
 fi
