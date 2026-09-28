@@ -152,6 +152,9 @@ import {
 } from "./headlineFilter";
 import FilesDrawer from "../../features/files-workspace/FilesDrawer";
 import SessionProjectDirectory from "../../features/project-directory/SessionProjectDirectory";
+import TerminalDock from "../../features/terminal/TerminalDock";
+import { useTerminalEnabled } from "../../features/terminal/useTerminalEnabled";
+import { migrateTerminalGroup } from "../../features/terminal/terminalIdentity";
 import {
   sessionFilesScopeKey,
   type FilesWorkspaceScope,
@@ -175,6 +178,10 @@ import {
   useFilesSurfaceStore,
   useSessionFilesDrawer,
 } from "../../stores/filesSurfaceStore";
+import {
+  useSessionTerminalOpen,
+  useTerminalSurfaceStore,
+} from "../../stores/terminalSurfaceStore";
 import { useCodingTabsStore } from "../../stores/codingTabsStore";
 import { RichFileReferenceInputProvider } from "./RichFileReferenceInput";
 import type { ParsedFileReference } from "./fileReferenceFormatting";
@@ -1318,6 +1325,11 @@ export default function ChatPage() {
     [selectedAgent],
   );
   const sdkSessionApi = sdkSessionAdapter.api;
+  const {
+    enabled: terminalEnabled,
+    reason: terminalDisabledReason,
+    confirmed: terminalCapabilityConfirmed,
+  } = useTerminalEnabled(selectedAgent);
   const backendChatId = resolveBackendChatId(chatId);
   useEffect(() => {
     sessionApi.setVisibleSession(
@@ -1346,6 +1358,26 @@ export default function ChatPage() {
     selectedAgent,
     queueSessionId,
   );
+  const terminalOpen = useSessionTerminalOpen(currentSessionFilesScopeKey);
+  const setTerminalOpen = useCallback(
+    (open: boolean) =>
+      useTerminalSurfaceStore
+        .getState()
+        .setSessionOpen(currentSessionFilesScopeKey, open),
+    [currentSessionFilesScopeKey],
+  );
+  const toggleTerminal = useCallback(
+    () =>
+      useTerminalSurfaceStore
+        .getState()
+        .toggleSession(currentSessionFilesScopeKey),
+    [currentSessionFilesScopeKey],
+  );
+  useEffect(() => {
+    if (terminalCapabilityConfirmed && !terminalEnabled) {
+      setTerminalOpen(false);
+    }
+  }, [terminalCapabilityConfirmed, terminalEnabled, setTerminalOpen]);
   const filesDrawerState = useSessionFilesDrawer(currentSessionFilesScopeKey);
   const dispatchFilesDrawer = useCallback(
     (event: FilesDrawerEvent) => {
@@ -2857,6 +2889,7 @@ export default function ChatPage() {
     ) => {
       if (fromId === toId) return;
       migratePendingSessionSettings(agentId, fromId, toId);
+      migrateTerminalGroup(agentId, fromId, toId);
       migrateChatSessionPreferences(
         getQueueKey(agentId, fromId),
         toId,
@@ -2866,6 +2899,9 @@ export default function ChatPage() {
       const toScopeKey = sessionFilesScopeKey(agentId, toId);
       useCodingTabsStore.getState().migrateScope(fromScopeKey, toScopeKey);
       useFilesSurfaceStore.getState().migrateSession(fromScopeKey, toScopeKey);
+      useTerminalSurfaceStore
+        .getState()
+        .migrateSession(fromScopeKey, toScopeKey);
       try {
         useMessageQueueStore
           .getState()
@@ -2925,6 +2961,7 @@ export default function ChatPage() {
       );
       useCodingTabsStore.getState().removeScope(removedScopeKey);
       useFilesSurfaceStore.getState().removeSession(removedScopeKey);
+      useTerminalSurfaceStore.getState().removeSession(removedScopeKey);
     };
 
     sessionApi.onSessionSelected = (
@@ -3024,6 +3061,7 @@ export default function ChatPage() {
       if (!isChatActiveRef.current) return;
       const agentId = selectedAgentRef.current;
       migratePendingSessionSettings(agentId, "new", sessionId);
+      migrateTerminalGroup(agentId, "new", sessionId);
       migrateChatSessionPreferences(
         getQueueKey(agentId),
         sessionId,
@@ -3033,6 +3071,9 @@ export default function ChatPage() {
       const toScopeKey = sessionFilesScopeKey(agentId, sessionId);
       useCodingTabsStore.getState().migrateScope(fromScopeKey, toScopeKey);
       useFilesSurfaceStore.getState().migrateSession(fromScopeKey, toScopeKey);
+      useTerminalSurfaceStore
+        .getState()
+        .migrateSession(fromScopeKey, toScopeKey);
       try {
         useMessageQueueStore
           .getState()
@@ -3970,6 +4011,10 @@ export default function ChatPage() {
             <ChatHeaderTitle />
             <span className={styles.headerSpacer} />
             <ChatActionGroup
+              onToggleTerminal={toggleTerminal}
+              terminalEnabled={terminalEnabled}
+              terminalDisabledReason={terminalDisabledReason}
+              terminalOpen={terminalOpen}
               onToggleWorkspace={toggleFilesWorkspace}
               workspaceOpen={filesWorkspaceOpen}
             />
@@ -4491,6 +4536,10 @@ export default function ChatPage() {
     sessionScope,
     filesWorkspaceOpen,
     toggleFilesWorkspace,
+    terminalOpen,
+    terminalEnabled,
+    terminalDisabledReason,
+    toggleTerminal,
     isOwner,
     bgTaskCount,
     bgBackendSessionId,
@@ -4510,241 +4559,259 @@ export default function ChatPage() {
       : styles.filesWorkspaceOpen;
 
   return (
-    <div
-      className={`${styles.chatPageRoot} ${filesDrawerClass}`}
-      onClickCapture={handleInternalFileLink}
+    <TerminalDock
+      scope={sessionScope}
+      isDark={isDark}
+      open={terminalEnabled && terminalOpen}
+      setOpen={setTerminalOpen}
     >
-      {/* Main chat area */}
-      <div className={styles.chatMainArea}>
-        <div
-          ref={chatMessagesAreaRef}
-          className={
-            isWideMode
-              ? `${styles.chatMessagesArea} ${styles.wideMode}`
-              : styles.chatMessagesArea
-          }
-        >
-          <RichFileReferenceInputProvider
-            onOpenReference={(reference, trigger) =>
-              void openInlineFileReference(reference, trigger)
+      <div
+        className={`${styles.chatPageRoot} ${filesDrawerClass}`}
+        onClickCapture={handleInternalFileLink}
+      >
+        {/* Main chat area */}
+        <div className={styles.chatMainArea}>
+          <div
+            ref={chatMessagesAreaRef}
+            className={
+              isWideMode
+                ? `${styles.chatMessagesArea} ${styles.wideMode}`
+                : styles.chatMessagesArea
             }
           >
-            {!isAgentTransition && (
-              <ChatSessionTransition
-                adapter={sdkSessionAdapter}
-                sessionId={chatId}
-              >
-                <AgentScopeRuntimeWebUI
-                  ref={chatRef}
-                  key={refreshKey}
-                  options={options}
-                />
-              </ChatSessionTransition>
-            )}
-          </RichFileReferenceInputProvider>
-        </div>
-
-        {/* Rate-limit guidance banner */}
-        {usesQwenPawBackend && rateLimitAlternatives.length > 0 && (
-          <div className={styles.rateLimitBanner}>
-            <span className={styles.rateLimitText}>
-              {t("chat.rateLimitMessage")}
-            </span>
-            <div className={styles.rateLimitActions}>
-              {rateLimitAlternatives.slice(0, 3).map((alt) => (
-                <Button
-                  key={`${alt.provider_id}/${alt.model_id}`}
-                  size="small"
-                  type="default"
-                  onClick={async () => {
-                    try {
-                      await providerApi.setActiveLlm({
-                        provider_id: alt.provider_id,
-                        model: alt.model_id,
-                        scope: "agent",
-                        agent_id: selectedAgent,
-                      });
-                      window.dispatchEvent(new CustomEvent("model-switched"));
-                      message.success(
-                        t("chat.rateLimitSwitched", { model: alt.model_name }),
-                      );
-                      setRateLimitAlternatives([]);
-                    } catch {
-                      message.error(t("modelSelector.switchFailed"));
-                    }
-                  }}
-                >
-                  {alt.model_name}
-                </Button>
-              ))}
-              <Button
-                size="small"
-                type="link"
-                onClick={() => setRateLimitAlternatives([])}
-              >
-                {t("common.close")}
-              </Button>
-            </div>
-          </div>
-        )}
-
-        {/* Render approval cards as overlays */}
-        {Array.from(
-          chatId && !isAgentTransition ? approvalRequests.values() : [],
-        ).map((request) => {
-          const renderer = approvalRenderers.get(request.sourceType);
-          const CustomApprovalCard = renderer?.item.render;
-          const defaultApprovalCard = (
-            <ApprovalCard
-              requestId={request.requestId}
-              agentId={request.agentId}
-              toolName={request.toolName}
-              toolSource={request.toolSource}
-              severity={request.severity}
-              findingsCount={request.findingsCount}
-              findingsSummary={request.findingsSummary}
-              toolParams={request.toolParams}
-              reasoning={request.reasoning}
-              createdAt={request.createdAt}
-              timeoutSeconds={request.timeoutSeconds}
-              sessionId={request.sessionId}
-              rootSessionId={request.rootSessionId}
-              isGeneralized={request.isGeneralized}
-              exactTarget={request.exactTarget}
-              similarTarget={request.similarTarget}
-              onApprove={(reqId, scope) => handleApprove(reqId, scope)}
-              onDeny={handleDeny}
-              onCancel={() => {
-                const routeChatId = chatIdRef.current;
-                const routeIdentity =
-                  sessionApi.getSessionIdentity(routeChatId);
-                const rootSessionId =
-                  request.rootSessionId || request.sessionId;
-                const resolvedChatId = resolveBackendChatId(routeChatId);
-
-                if (
-                  !isAgentTransitionRef.current &&
-                  rootSessionId &&
-                  routeIdentity.sessionId === rootSessionId &&
-                  resolvedChatId
-                ) {
-                  console.log("[Chat] Calling stopChat with:", resolvedChatId);
-                  chatApi
-                    .stopChat(resolvedChatId)
-                    .then(() => {
-                      console.log("[Chat] stopChat succeeded");
-                      setApprovals((prev) =>
-                        prev.filter(
-                          (item) => item.root_session_id !== rootSessionId,
-                        ),
-                      );
-                    })
-                    .catch((err) => {
-                      console.error("[Chat] stopChat failed:", err);
-                    });
-                } else {
-                  console.warn("[Chat] Ignoring stale approval cancel target");
-                }
-              }}
-            />
-          );
-
-          return (
-            <div
-              key={request.requestId}
-              data-approval-id={request.requestId}
-              style={{
-                position: "fixed",
-                bottom: 80,
-                right: 24,
-                zIndex: 1000,
-                maxWidth: 480,
-                width: "calc(100vw - 48px)",
-              }}
+            <RichFileReferenceInputProvider
+              onOpenReference={(reference, trigger) =>
+                void openInlineFileReference(reference, trigger)
+              }
             >
-              {CustomApprovalCard ? (
-                <PluginSlotBoundary
-                  slot={`approval:${request.sourceType}`}
-                  pluginId={renderer.pluginId}
-                  fallback={defaultApprovalCard}
+              {!isAgentTransition && (
+                <ChatSessionTransition
+                  adapter={sdkSessionAdapter}
+                  sessionId={chatId}
                 >
-                  <CustomApprovalCard
-                    approval={request}
-                    onResolved={() => dismissApproval(request.requestId)}
+                  <AgentScopeRuntimeWebUI
+                    ref={chatRef}
+                    key={refreshKey}
+                    options={options}
                   />
-                </PluginSlotBoundary>
-              ) : (
-                defaultApprovalCard
+                </ChatSessionTransition>
               )}
-            </div>
-          );
-        })}
+            </RichFileReferenceInputProvider>
+          </div>
 
-        <Modal
-          open={usesQwenPawBackend && showModelPrompt}
-          closable={false}
-          footer={null}
-          width={480}
-          styles={{
-            content: isDark
-              ? {
-                  background: "var(--app-surface)",
-                  boxShadow: "0 8px 32px rgba(0,0,0,0.5)",
-                }
-              : undefined,
-          }}
-        >
-          <Result
-            icon={
-              <ExclamationCircleOutlined
-                size="1em"
-                style={{ color: "#faad14" }}
+          {/* Rate-limit guidance banner */}
+          {usesQwenPawBackend && rateLimitAlternatives.length > 0 && (
+            <div className={styles.rateLimitBanner}>
+              <span className={styles.rateLimitText}>
+                {t("chat.rateLimitMessage")}
+              </span>
+              <div className={styles.rateLimitActions}>
+                {rateLimitAlternatives.slice(0, 3).map((alt) => (
+                  <Button
+                    key={`${alt.provider_id}/${alt.model_id}`}
+                    size="small"
+                    type="default"
+                    onClick={async () => {
+                      try {
+                        await providerApi.setActiveLlm({
+                          provider_id: alt.provider_id,
+                          model: alt.model_id,
+                          scope: "agent",
+                          agent_id: selectedAgent,
+                        });
+                        window.dispatchEvent(new CustomEvent("model-switched"));
+                        message.success(
+                          t("chat.rateLimitSwitched", {
+                            model: alt.model_name,
+                          }),
+                        );
+                        setRateLimitAlternatives([]);
+                      } catch {
+                        message.error(t("modelSelector.switchFailed"));
+                      }
+                    }}
+                  >
+                    {alt.model_name}
+                  </Button>
+                ))}
+                <Button
+                  size="small"
+                  type="link"
+                  onClick={() => setRateLimitAlternatives([])}
+                >
+                  {t("common.close")}
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {/* Render approval cards as overlays */}
+          {Array.from(
+            chatId && !isAgentTransition ? approvalRequests.values() : [],
+          ).map((request) => {
+            const renderer = approvalRenderers.get(request.sourceType);
+            const CustomApprovalCard = renderer?.item.render;
+            const defaultApprovalCard = (
+              <ApprovalCard
+                requestId={request.requestId}
+                agentId={request.agentId}
+                toolName={request.toolName}
+                toolSource={request.toolSource}
+                severity={request.severity}
+                findingsCount={request.findingsCount}
+                findingsSummary={request.findingsSummary}
+                toolParams={request.toolParams}
+                reasoning={request.reasoning}
+                createdAt={request.createdAt}
+                timeoutSeconds={request.timeoutSeconds}
+                sessionId={request.sessionId}
+                rootSessionId={request.rootSessionId}
+                isGeneralized={request.isGeneralized}
+                exactTarget={request.exactTarget}
+                similarTarget={request.similarTarget}
+                onApprove={(reqId, scope) => handleApprove(reqId, scope)}
+                onDeny={handleDeny}
+                onCancel={() => {
+                  const routeChatId = chatIdRef.current;
+                  const routeIdentity =
+                    sessionApi.getSessionIdentity(routeChatId);
+                  const rootSessionId =
+                    request.rootSessionId || request.sessionId;
+                  const resolvedChatId = resolveBackendChatId(routeChatId);
+
+                  if (
+                    !isAgentTransitionRef.current &&
+                    rootSessionId &&
+                    routeIdentity.sessionId === rootSessionId &&
+                    resolvedChatId
+                  ) {
+                    console.log(
+                      "[Chat] Calling stopChat with:",
+                      resolvedChatId,
+                    );
+                    chatApi
+                      .stopChat(resolvedChatId)
+                      .then(() => {
+                        console.log("[Chat] stopChat succeeded");
+                        setApprovals((prev) =>
+                          prev.filter(
+                            (item) => item.root_session_id !== rootSessionId,
+                          ),
+                        );
+                      })
+                      .catch((err) => {
+                        console.error("[Chat] stopChat failed:", err);
+                      });
+                  } else {
+                    console.warn(
+                      "[Chat] Ignoring stale approval cancel target",
+                    );
+                  }
+                }}
               />
-            }
-            title={
-              <span
-                style={{ color: isDark ? "rgba(255,255,255,0.88)" : undefined }}
-              >
-                {t("modelConfig.promptTitle")}
-              </span>
-            }
-            subTitle={
-              <span
-                style={{ color: isDark ? "rgba(255,255,255,0.55)" : undefined }}
-              >
-                {t("modelConfig.promptMessage")}
-              </span>
-            }
-            extra={[
-              <Button key="skip" onClick={() => setShowModelPrompt(false)}>
-                {t("modelConfig.skipButton")}
-              </Button>,
-              <Button
-                key="configure"
-                type="primary"
-                icon={<SettingOutlined size="1em" />}
-                onClick={() => {
-                  setShowModelPrompt(false);
-                  navigate("/models");
+            );
+
+            return (
+              <div
+                key={request.requestId}
+                data-approval-id={request.requestId}
+                style={{
+                  position: "fixed",
+                  bottom: 80,
+                  right: 24,
+                  zIndex: 1000,
+                  maxWidth: 480,
+                  width: "calc(100vw - 48px)",
                 }}
               >
-                {t("modelConfig.configureButton")}
-              </Button>,
-            ]}
-          />
-        </Modal>
+                {CustomApprovalCard ? (
+                  <PluginSlotBoundary
+                    slot={`approval:${request.sourceType}`}
+                    pluginId={renderer.pluginId}
+                    fallback={defaultApprovalCard}
+                  >
+                    <CustomApprovalCard
+                      approval={request}
+                      onResolved={() => dismissApproval(request.requestId)}
+                    />
+                  </PluginSlotBoundary>
+                ) : (
+                  defaultApprovalCard
+                )}
+              </div>
+            );
+          })}
+
+          <Modal
+            open={usesQwenPawBackend && showModelPrompt}
+            closable={false}
+            footer={null}
+            width={480}
+            styles={{
+              content: isDark
+                ? {
+                    background: "var(--app-surface)",
+                    boxShadow: "0 8px 32px rgba(0,0,0,0.5)",
+                  }
+                : undefined,
+            }}
+          >
+            <Result
+              icon={
+                <ExclamationCircleOutlined
+                  size="1em"
+                  style={{ color: "#faad14" }}
+                />
+              }
+              title={
+                <span
+                  style={{
+                    color: isDark ? "rgba(255,255,255,0.88)" : undefined,
+                  }}
+                >
+                  {t("modelConfig.promptTitle")}
+                </span>
+              }
+              subTitle={
+                <span
+                  style={{
+                    color: isDark ? "rgba(255,255,255,0.55)" : undefined,
+                  }}
+                >
+                  {t("modelConfig.promptMessage")}
+                </span>
+              }
+              extra={[
+                <Button key="skip" onClick={() => setShowModelPrompt(false)}>
+                  {t("modelConfig.skipButton")}
+                </Button>,
+                <Button
+                  key="configure"
+                  type="primary"
+                  icon={<SettingOutlined size="1em" />}
+                  onClick={() => {
+                    setShowModelPrompt(false);
+                    navigate("/models");
+                  }}
+                >
+                  {t("modelConfig.configureButton")}
+                </Button>,
+              ]}
+            />
+          </Modal>
+        </div>
+        {/* End of main chat area */}
+        <AnimatePresence initial={false} mode="popLayout">
+          {filesDrawerState.kind !== "closed" ? (
+            <FilesDrawer
+              key="session-files-drawer"
+              state={filesDrawerState}
+              dispatch={dispatchFilesDrawer}
+              scope={sessionScope}
+            />
+          ) : null}
+        </AnimatePresence>
       </div>
-      {/* End of main chat area */}
-      <AnimatePresence initial={false} mode="popLayout">
-        {filesDrawerState.kind !== "closed" ? (
-          <FilesDrawer
-            key="session-files-drawer"
-            state={filesDrawerState}
-            dispatch={dispatchFilesDrawer}
-            scope={sessionScope}
-          />
-        ) : null}
-      </AnimatePresence>
-    </div>
+    </TerminalDock>
   );
 }

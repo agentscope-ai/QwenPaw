@@ -202,6 +202,7 @@ def test_local_runtime_filters_untrusted_control_environment(
             "QWENPAW_WORKING_DIR": "/other-tenant",
             "QWENPAW_RUNTIME_API_URL": "http://other-tenant:9002",
             "QWENPAW_RUNTIME_INTERNAL_TOKEN": "boundary-token",
+            "QWENPAW_AUTH_ENABLED": "false",
             "OPENAI_API_KEY": "tenant-key",
         },
     )
@@ -209,6 +210,7 @@ def test_local_runtime_filters_untrusted_control_environment(
     assert environment.get("PYTHONPATH") != "/"
     assert environment["QWENPAW_WORKING_DIR"] == str(record.working_dir)
     assert environment["QWENPAW_RUNTIME_INTERNAL_TOKEN"] == "boundary-token"
+    assert environment["QWENPAW_AUTH_ENABLED"] == "true"
     assert environment["QWENPAW_RUNTIME_API_URL"] == (
         f"http://{record.host}:{record.port}"
     )
