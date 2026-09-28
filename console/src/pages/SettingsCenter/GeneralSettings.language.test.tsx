@@ -12,6 +12,10 @@ vi.mock("@/api/modules/language", () => ({
   settingsApi: { updateLanguage: mocks.updateLanguage },
 }));
 
+vi.mock("@/hooks/useIsMobile", () => ({
+  useIsMobile: () => true,
+}));
+
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
     i18n: {
@@ -29,6 +33,14 @@ describe("GeneralSettings language persistence", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     localStorage.removeItem("language");
+  });
+
+  it("uses vertical segmented controls on mobile widths", () => {
+    const { container } = renderWithProviders(<GeneralSettings />);
+
+    expect(container.querySelectorAll(".ant-segmented-vertical")).toHaveLength(
+      3,
+    );
   });
 
   it("surfaces a rejected remote write to the user", async () => {

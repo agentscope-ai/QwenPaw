@@ -1,5 +1,9 @@
+@import (reference) "../../../styles/scaledTypography.less";
+
 .mcpPage {
+  .scaled-control-typography();
   display: flex;
+  font-size: var(--app-font-body);
   flex-direction: column;
   height: 100%;
 }
@@ -31,31 +35,36 @@
   h2 {
     margin: 0;
     color: var(--app-text);
-    font-size: 15px;
+    font-size: var(--app-font-subtitle);
     font-weight: 600;
-    line-height: 22px;
+    line-height: 1.4;
     text-transform: capitalize;
   }
 
   p {
     margin: 3px 0 0;
     color: var(--app-text-secondary);
-    font-size: 12px;
-    line-height: 18px;
+    font-size: var(--app-font-caption);
+    line-height: 1.5;
   }
 }
 
 .sectionIcon {
   display: inline-flex;
-  width: 34px;
-  height: 34px;
-  flex: 0 0 34px;
+  width: var(--app-icon-box);
+  height: var(--app-icon-box);
+  flex: 0 0 var(--app-icon-box);
   align-items: center;
   justify-content: center;
   color: var(--app-accent);
   border: 1px solid color-mix(in srgb, var(--app-accent) 28%, transparent);
   border-radius: 10px;
   background: var(--app-accent-faint);
+
+  > svg {
+    width: var(--app-icon-md);
+    height: var(--app-icon-md);
+  }
 }
 
 .sectionEmpty {
@@ -90,7 +99,7 @@
     min-width: 0;
     overflow: hidden;
     color: var(--app-text);
-    font-size: 14px;
+    font-size: var(--app-font-body);
     text-overflow: ellipsis;
     white-space: nowrap;
   }
@@ -101,8 +110,8 @@
   flex: 0 0 auto;
   padding: 2px 8px;
   border-radius: 999px;
-  font-size: 11px;
-  line-height: 18px;
+  font-size: var(--app-font-caption);
+  line-height: 1.5;
 }
 
 .providerEnabled {
@@ -126,8 +135,8 @@
     color: var(--app-text-secondary);
     border: 1px solid var(--app-border);
     border-radius: 6px;
-    font-size: 11px;
-    line-height: 16px;
+    font-size: var(--app-font-caption);
+    line-height: 1.35;
   }
 }
 
@@ -152,7 +161,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 16px;
+  font-size: var(--app-font-subtitle);
   flex: 1;
 }
 
@@ -169,7 +178,7 @@
 .breadcrumbCurrent {
   color: var(--app-text);
   font-weight: 600;
-  font-size: 20px;
+  font-size: var(--app-font-title);
 }
 
 .mcpCard {
@@ -222,10 +231,10 @@
 
 .mcpTitle {
   margin: 0;
-  font-size: 14px;
+  font-size: var(--app-font-body);
   font-weight: 500;
   color: var(--app-text);
-  line-height: 24px;
+  line-height: 1.5;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -233,7 +242,7 @@
 }
 
 .typeBadge {
-  font-size: 10px;
+  font-size: var(--app-font-caption);
   padding: 2px 6px;
   border-radius: 3px;
   font-weight: 500;
@@ -255,7 +264,7 @@
 .mcpDescription {
   margin: 6px 0 16px 0;
   color: var(--app-text-secondary);
-  font-size: 13px;
+  font-size: var(--app-font-secondary);
   line-height: 1.6;
   min-height: 40px;
   overflow: hidden;
@@ -295,7 +304,7 @@
   min-width: 0;
   padding: 6px 10px;
   border-radius: 7px;
-  font-size: 12px;
+  font-size: var(--app-font-caption);
   color: var(--app-text-secondary);
   background: transparent;
   border: 1px solid var(--app-border-strong);
@@ -323,7 +332,7 @@
   min-width: 0;
   padding: 6px 10px;
   border-radius: 7px;
-  font-size: 12px;
+  font-size: var(--app-font-caption);
   color: var(--app-error-text);
   background: transparent;
   border: 1px solid var(--app-border-strong);
@@ -350,7 +359,7 @@
   display: flex;
   align-items: center;
   gap: 4px;
-  font-size: 11px;
+  font-size: var(--app-font-caption);
   flex-shrink: 0;
 }
 
@@ -364,9 +373,9 @@
 
 .statusText {
   font-family: Lato;
-  font-size: 12px;
+  font-size: var(--app-font-caption);
   font-weight: normal;
-  line-height: 19px;
+  line-height: 1.6;
   letter-spacing: normal;
   color: var(--app-text-tertiary);
 }
@@ -378,7 +387,7 @@
     Monaco,
     Courier New,
     monospace;
-  font-size: 13px;
+  font-size: var(--app-font-secondary);
   padding: 16px;
   border: 1px solid var(--app-border-strong);
   border-radius: 4px;
@@ -414,20 +423,30 @@
   text-align: right;
 }
 
+.formLabel {
+  color: var(--app-text-secondary);
+  font-size: var(--app-font-caption);
+  font-weight: 500;
+}
+
+.formRequired {
+  color: var(--app-error-text);
+}
+
 .importHint {
   margin-bottom: 12px;
 }
 
 .importHintTitle {
   margin: 0;
-  font-size: 13px;
+  font-size: var(--app-font-secondary);
   color: var(--app-text-secondary);
 }
 
 .importHintList {
   margin: 8px 0;
   padding: 0 0 0 20px;
-  font-size: 12px;
+  font-size: var(--app-font-caption);
   color: var(--app-text-tertiary);
 
   code {
@@ -441,7 +460,7 @@
     Monaco,
     Courier New,
     monospace;
-  font-size: 13px;
+  font-size: var(--app-font-secondary);
 }
 
 .maskedFieldHint {
@@ -449,7 +468,7 @@
   padding: 6px 12px;
   background-color: var(--app-warning-bg);
   border-radius: 6px;
-  font-size: 12px;
+  font-size: var(--app-font-caption);
   color: var(--app-warning-text);
 }
 
@@ -458,7 +477,7 @@
   min-width: 0;
   padding: 6px 10px;
   border-radius: 7px;
-  font-size: 12px;
+  font-size: var(--app-font-caption);
   color: var(--app-accent);
   background: transparent;
   border: 1px solid var(--app-border-strong);
@@ -516,7 +535,7 @@
   text-align: center;
   padding: 24px;
   color: var(--app-error-text);
-  font-size: 13px;
+  font-size: var(--app-font-secondary);
 }
 
 .toolsList {
@@ -557,9 +576,9 @@
 
 .accessSectionTitle {
   color: var(--app-text);
-  font-size: 14px;
+  font-size: var(--app-font-body);
   font-weight: 600;
-  line-height: 22px;
+  line-height: 1.4;
 }
 
 .accessDefaultRow {
@@ -594,7 +613,8 @@
 
 .accessClientAddButton {
   min-width: 112px;
-  height: 36px;
+  height: auto;
+  min-height: max(36px, calc(36px * var(--app-font-scale)));
   justify-content: center;
   justify-self: end;
 }
@@ -603,7 +623,7 @@
   display: inline-flex;
   align-items: center;
   min-width: 56px;
-  font-size: 13px;
+  font-size: var(--app-font-secondary);
   font-weight: 500;
   color: var(--app-text-secondary);
 }
@@ -655,15 +675,15 @@
   }
 
   :global(.ant-segmented-item-label) {
-    min-height: 28px;
+    min-height: max(28px, calc(28px * var(--app-font-scale)));
     padding: 0 16px;
-    line-height: 28px;
+    line-height: 1.5;
   }
 
   :global(.qwenpaw-segmented-item-label) {
-    min-height: 28px;
+    min-height: max(28px, calc(28px * var(--app-font-scale)));
     padding: 0 16px;
-    line-height: 28px;
+    line-height: 1.5;
   }
 
   :global(.ant-segmented-item-selected) {
@@ -722,14 +742,15 @@
   justify-content: flex-start;
   flex-wrap: wrap;
   gap: 10px;
-  min-height: 36px;
+  min-height: max(36px, calc(36px * var(--app-font-scale)));
   min-width: 0;
   padding: 1px 0;
 }
 
 .accessToolAddButton {
   min-width: 112px;
-  height: 36px;
+  height: auto;
+  min-height: max(36px, calc(36px * var(--app-font-scale)));
   justify-content: center;
   justify-self: end;
 }
@@ -764,7 +785,7 @@
 
 .accessRuleFieldLabel {
   color: var(--app-text-secondary);
-  font-size: 11px;
+  font-size: var(--app-font-caption);
   line-height: 1.2;
 }
 
@@ -787,13 +808,13 @@
 
 .accessRuleWarning {
   color: var(--app-warning-text);
-  font-size: 11px;
+  font-size: var(--app-font-caption);
   line-height: 1.35;
 }
 
 .accessRuleDeleteButton {
-  width: 32px;
-  height: 32px;
+  width: var(--app-icon-button);
+  height: var(--app-icon-button);
   align-self: end;
 }
 
@@ -803,7 +824,7 @@
   border-radius: 6px;
   background: var(--app-fill-faint);
   color: var(--app-text-tertiary);
-  font-size: 12px;
+  font-size: var(--app-font-caption);
 }
 
 @media (max-width: 920px) {
@@ -905,14 +926,14 @@
 
 .toolDescription {
   margin: 6px 0 0;
-  font-size: 13px;
+  font-size: var(--app-font-secondary);
   color: var(--app-text-secondary);
   line-height: 1.5;
 }
 
 .toolSchema {
   margin-top: 10px;
-  font-size: 12px;
+  font-size: var(--app-font-caption);
 
   summary {
     cursor: pointer;
@@ -931,7 +952,7 @@
   border-radius: 6px;
   background: var(--app-fill-faint);
   color: var(--app-text-secondary);
-  font-size: 12px;
+  font-size: var(--app-font-caption);
   line-height: 1.55;
 }
 
@@ -940,7 +961,7 @@
   padding: 10px;
   background: var(--app-surface-subtle);
   border-radius: 6px;
-  font-size: 11px;
+  font-size: var(--app-font-caption);
   line-height: 1.5;
   max-height: 200px;
   overflow: auto;
@@ -1024,7 +1045,7 @@
 }
 .jsonTextArea {
   font-family: ui-monospace, monospace;
-  font-size: 12px;
+  font-size: var(--app-font-caption);
 }
 @media (max-width: 600px) {
   .mcpSections {

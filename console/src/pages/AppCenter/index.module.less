@@ -2,7 +2,10 @@
 // installed-apps view and the app market. Embedded PawApp runtime styles
 // (capsule button, embed frame) are intentionally left untouched.
 
+@import (reference) "../../styles/scaledTypography.less";
+
 .page {
+  .scaled-control-typography();
   height: 100%;
   display: flex;
   flex-direction: column;
@@ -31,7 +34,7 @@
 
 .subtitle {
   margin: 0 0 16px;
-  font-size: 13px;
+  font-size: var(--app-font-secondary);
   line-height: 1.6;
   color: var(--app-text-secondary);
 }
@@ -73,8 +76,8 @@
   padding: 0 6px;
   border-radius: 999px;
   background: var(--app-fill);
-  font-size: 11px;
-  line-height: 18px;
+  font-size: calc(11px * var(--app-font-scale));
+  line-height: calc(18px * var(--app-font-scale));
   font-weight: 500;
   color: var(--app-text-secondary);
   font-variant-numeric: tabular-nums;
@@ -116,8 +119,8 @@
   background: var(--app-surface);
   color: var(--app-text-secondary);
   font: inherit;
-  font-size: 13px;
-  line-height: 20px;
+  font-size: var(--app-font-secondary);
+  line-height: calc(20px * var(--app-font-scale));
   cursor: pointer;
   transition:
     color 0.16s ease,
@@ -321,7 +324,7 @@
 .cardTitle {
   flex: 0 1 auto;
   min-width: 0;
-  font-size: 14px;
+  font-size: var(--app-font-body);
   line-height: 1.4;
   font-weight: 600;
   overflow-wrap: anywhere;
@@ -333,8 +336,8 @@
   border-radius: 4px;
   background: var(--app-fill);
   color: var(--app-text-secondary);
-  font-size: 10px;
-  line-height: 16px;
+  font-size: calc(10px * var(--app-font-scale));
+  line-height: calc(16px * var(--app-font-scale));
   font-weight: 400;
   font-variant-numeric: tabular-nums;
 }
@@ -342,7 +345,7 @@
 .cardDesc {
   min-height: 39px;
   margin: 0 !important;
-  font-size: 13px;
+  font-size: var(--app-font-secondary);
   line-height: 1.5;
   color: var(--app-text-secondary);
   overflow-wrap: anywhere;
@@ -353,7 +356,7 @@
   align-items: center;
   gap: 6px;
   flex-wrap: wrap;
-  font-size: 12px;
+  font-size: var(--app-font-caption);
   color: var(--app-text-secondary);
   font-variant-numeric: tabular-nums;
 }
@@ -384,8 +387,8 @@
   flex-shrink: 0;
   padding: 1px 8px;
   border-radius: 999px;
-  font-size: 11px;
-  line-height: 18px;
+  font-size: calc(11px * var(--app-font-scale));
+  line-height: calc(18px * var(--app-font-scale));
   font-weight: 500;
   color: var(--app-accent);
   background: var(--app-fill-subtle);
@@ -433,7 +436,7 @@
 
 .noMoreText {
   color: var(--app-text-secondary);
-  font-size: 13px;
+  font-size: var(--app-font-secondary);
 }
 
 .sentinel {
@@ -443,7 +446,7 @@
   width: 100%;
   min-height: 32px;
   color: var(--app-text-secondary);
-  font-size: 13px;
+  font-size: var(--app-font-secondary);
 }
 
 .stateBlock {

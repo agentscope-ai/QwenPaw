@@ -11,7 +11,7 @@ interface TokenFieldProps {
 }
 
 const labelStyle = {
-  fontSize: 13,
+  fontSize: "var(--app-font-secondary)",
   color: "var(--app-text)",
   marginBottom: 4,
 };

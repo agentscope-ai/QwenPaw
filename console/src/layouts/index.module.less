@@ -382,10 +382,20 @@
 }
 
 .brandCollapseToggle {
-  width: 28px !important;
-  min-width: 28px !important;
-  height: 28px !important;
+  width: max(28px, calc(28px * var(--app-font-scale))) !important;
+  min-width: max(28px, calc(28px * var(--app-font-scale))) !important;
+  height: max(28px, calc(28px * var(--app-font-scale))) !important;
   padding: 0 !important;
+
+  > svg {
+    width: var(--app-icon-lg);
+    height: var(--app-icon-lg);
+  }
+
+  [data-spark-icon] {
+    font-size: var(--app-icon-lg) !important;
+  }
+
   border-radius: 7px !important;
   color: rgba(26, 23, 22, 0.52) !important;
 
@@ -805,18 +815,25 @@
   align-items: center;
   gap: 10px;
   width: 100%;
-  height: 36px;
+  height: auto;
+  min-height: max(36px, calc(36px * var(--app-font-scale)));
   margin-top: 4px;
   padding: 0 12px;
   border: 0;
   border-top: 1px solid rgba(26, 23, 22, 0.07);
   border-radius: 0 0 8px 8px;
   color: rgba(0, 0, 0, 0.62);
-  font-size: 13px;
+  font-size: var(--app-font-secondary);
   font-weight: 500;
+  line-height: 1.35;
   text-align: left;
   background: transparent;
   cursor: pointer;
+
+  > svg {
+    width: var(--app-icon-md);
+    height: var(--app-icon-md);
+  }
 
   &:hover {
     color: rgba(0, 0, 0, 0.82);
@@ -845,8 +862,8 @@
   position: absolute;
   top: -1px;
   right: -3px;
-  width: 6px;
-  height: 6px;
+  width: calc(6px * var(--app-font-scale));
+  height: calc(6px * var(--app-font-scale));
   border-radius: 50%;
 }
 
@@ -855,15 +872,27 @@
   align-items: center;
   gap: 8px;
   width: 100%;
-  height: 36px;
+  height: auto;
+  min-height: max(36px, calc(36px * var(--app-font-scale)));
   padding: 0 12px;
   margin: 4px 0 2px;
   border: none;
   border-radius: 8px;
   background: var(--app-accent-soft);
   color: var(--app-accent-text);
-  font-size: 14px;
+  font-size: var(--app-font-body);
+
+  > svg {
+    width: var(--app-icon-lg);
+    height: var(--app-icon-lg);
+  }
+
+  > [data-spark-icon] {
+    font-size: var(--app-icon-lg) !important;
+  }
+
   font-weight: 500;
+  line-height: 1.35;
   cursor: pointer;
   transition: background 0.2s;
 
@@ -884,13 +913,27 @@
   align-items: center;
   gap: 10px;
   width: 100%;
-  height: 36px;
+  height: auto;
+  min-height: max(36px, calc(36px * var(--app-font-scale)));
   padding: 0 12px;
   border: none;
   border-radius: 8px;
   background: transparent;
   color: rgba(0, 0, 0, 0.75);
-  font-size: 14px;
+  font-size: var(--app-font-body);
+
+  > svg,
+  .inboxIcon > svg {
+    width: var(--app-icon-md);
+    height: var(--app-icon-md);
+  }
+
+  > [data-spark-icon],
+  .inboxIcon > [data-spark-icon] {
+    font-size: var(--app-icon-md) !important;
+  }
+
+  line-height: 1.35;
   cursor: pointer;
   transition:
     background 0.15s,
@@ -950,8 +993,10 @@
 }
 
 .collapsedNavItem {
-  width: 40px;
-  height: 40px;
+  width: max(40px, var(--app-icon-button));
+  height: max(40px, var(--app-icon-button));
+  min-width: var(--app-icon-button);
+  min-height: var(--app-icon-button);
   flex-shrink: 0;
   display: flex;
   align-items: center;
@@ -968,6 +1013,15 @@
     box-shadow 0.15s,
     opacity 0.15s,
     transform 0.15s;
+
+  > svg {
+    width: var(--app-icon-lg);
+    height: var(--app-icon-lg);
+  }
+
+  > [data-spark-icon] {
+    font-size: var(--app-icon-lg) !important;
+  }
 
   &:hover {
     background: rgba(0, 0, 0, 0.06);

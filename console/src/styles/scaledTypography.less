@@ -1,0 +1,22 @@
+// Spark supplies fixed typography for these controls outside Ant's font token.
+// Apply at page/modal boundaries, including portals, instead of globally.
+.scaled-control-typography() {
+  :global(.qwenpaw-modal-content .qwenpaw-modal-title),
+  :global(.qwenpaw-drawer-title) {
+    font-size: var(--app-font-subtitle);
+    line-height: 1.75;
+  }
+
+  :global(.qwenpaw-form-item .qwenpaw-form-item-label > label) {
+    font-size: var(--app-font-secondary);
+    line-height: calc(20px * var(--app-font-scale));
+    height: auto;
+  }
+
+  :global(.qwenpaw-btn-sm),
+  :global(.qwenpaw-alert-message),
+  :global(.qwenpaw-alert-description) {
+    font-size: var(--app-font-caption);
+    line-height: calc(20px * var(--app-font-scale));
+  }
+}

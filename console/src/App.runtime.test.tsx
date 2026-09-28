@@ -95,4 +95,15 @@ describe("getAppThemeToken", () => {
   it("passes a configured radius through to antd", () => {
     expect(getAppThemeToken({ radius: "12px" }, false).borderRadius).toBe(12);
   });
+
+  it("grows control heights with larger fonts without shrinking defaults", () => {
+    const small = getAppThemeToken({}, false, 12);
+    const large = getAppThemeToken({}, false, 20);
+
+    expect(small.controlHeight).toBe(32);
+    expect(small.controlHeightSM).toBe(24);
+    expect(large.controlHeight).toBe(46);
+    expect(large.controlHeightSM).toBe(34);
+    expect(large.controlHeightLG).toBe(57);
+  });
 });

@@ -92,7 +92,8 @@
 }
 
 .searchInput {
-  height: 38px;
+  height: auto;
+  min-height: max(38px, calc(38px * var(--app-font-scale)));
   border-radius: 11px;
 }
 
@@ -108,7 +109,7 @@
   h2 {
     margin: 0 10px 6px;
     color: var(--app-text-tertiary);
-    font-size: 11px;
+    font-size: calc(11px * var(--app-font-scale));
     font-weight: 600;
     letter-spacing: 0.05em;
     text-transform: uppercase;
@@ -187,7 +188,7 @@
   .navItemLabel {
     overflow: hidden;
     min-width: 0;
-    font-size: 14px;
+    font-size: var(--app-font-body);
     text-overflow: ellipsis;
     white-space: nowrap;
   }
@@ -209,7 +210,7 @@
 .noResults {
   padding: 24px 10px;
   color: var(--app-text-tertiary);
-  font-size: 13px;
+  font-size: var(--app-font-secondary);
   text-align: center;
 }
 
@@ -236,7 +237,7 @@
 
   h2 {
     margin: 0;
-    font-size: 26px;
+    font-size: calc(26px * var(--app-font-scale));
     font-weight: 650;
     line-height: 36px;
   }
@@ -262,7 +263,7 @@
 .sectionTitle {
   margin: 0 2px 10px;
   color: var(--app-text-secondary);
-  font-size: 14px;
+  font-size: var(--app-font-body);
   font-weight: 600;
   line-height: 22px;
 }
@@ -320,7 +321,7 @@
   gap: 8px;
   min-width: 0;
   color: var(--app-text-secondary);
-  font-size: 12px;
+  font-size: var(--app-font-caption);
 
   > span {
     display: flex;
@@ -344,7 +345,8 @@
 
   :global(.ant-input),
   :global(.qwenpaw-input) {
-    height: 36px;
+    height: auto;
+    min-height: max(36px, calc(36px * var(--app-font-scale)));
     padding-inline: 12px;
     border-radius: 8px;
     background: var(--app-surface-subtle);
@@ -369,12 +371,14 @@
 
   :global(.ant-select),
   :global(.qwenpaw-select) {
-    height: 36px;
+    height: auto;
+    min-height: max(36px, calc(36px * var(--app-font-scale)));
   }
 
   :global(.ant-select-selector),
   :global(.qwenpaw-select-selector) {
-    height: 36px !important;
+    height: auto !important;
+    min-height: max(36px, calc(36px * var(--app-font-scale)));
     padding: 0 12px !important;
     border-radius: 8px !important;
     background: var(--app-surface-subtle) !important;
@@ -384,7 +388,7 @@
 
   :global(.ant-select-selection-item),
   :global(.qwenpaw-select-selection-item) {
-    line-height: 34px !important;
+    line-height: max(34px, calc(34px * var(--app-font-scale))) !important;
   }
 
   :global(.ant-color-picker-trigger),
@@ -458,12 +462,17 @@
 .settingIcon {
   display: grid;
   flex: none;
-  width: 34px;
-  height: 34px;
+  width: var(--app-icon-box);
+  height: var(--app-icon-box);
   border-radius: 9px;
   color: var(--app-accent-text);
   background: var(--app-accent-soft);
   place-items: center;
+
+  > svg {
+    width: var(--app-icon-lg);
+    height: var(--app-icon-lg);
+  }
 }
 
 .settingCopy {
@@ -473,19 +482,37 @@
   min-width: 180px;
 
   strong {
-    font-size: 14px;
+    font-size: var(--app-font-body);
     font-weight: 600;
   }
 
   small {
     margin-top: 2px;
     color: var(--app-text-secondary);
-    font-size: 12px;
+    font-size: var(--app-font-caption);
   }
 }
 
 .settingControl {
   min-width: 190px;
+}
+
+.fontSizeControl {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+}
+
+.fontSizeInput {
+  flex: none;
+  width: 88px;
+}
+
+.fontSizeUnit {
+  flex: none;
+  color: var(--app-text-tertiary);
+  font-size: var(--app-font-caption);
 }
 
 .segmentedControl,
@@ -555,8 +582,10 @@
 
   .settingControl,
   .segmentedControl,
-  .messageDisplayControl {
+  .messageDisplayControl,
+  .fontSizeControl {
     width: calc(100% - 48px);
+    min-width: 0;
     margin-left: 48px;
   }
 }
@@ -587,8 +616,10 @@
 
   .settingControl,
   .segmentedControl,
-  .messageDisplayControl {
+  .messageDisplayControl,
+  .fontSizeControl {
     width: calc(100% - 48px);
+    min-width: 0;
     margin-left: 48px;
   }
 

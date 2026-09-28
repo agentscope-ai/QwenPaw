@@ -1,5 +1,6 @@
 .wrap {
   height: 100%;
+  font-size: var(--app-font-body);
   display: flex;
   flex-direction: column;
   container-type: inline-size;
@@ -14,7 +15,8 @@
   align-items: stretch;
   flex-shrink: 0;
   min-width: 0;
-  height: 42px;
+  height: auto;
+  min-height: max(42px, calc(42px * var(--app-font-scale)));
   background: var(--app-surface-subtle);
   border-bottom: 1px solid var(--app-border);
 }
@@ -49,7 +51,7 @@
   max-width: 176px;
   flex: 0 1 176px;
   padding: 0 9px 0 12px;
-  font-size: 11px;
+  font-size: var(--app-font-caption);
   font-family: "SFMono-Regular", Consolas, monospace;
   color: var(--app-text-secondary);
   white-space: nowrap;
@@ -111,8 +113,8 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 18px;
-  height: 18px;
+  width: max(18px, var(--app-icon-sm));
+  height: max(18px, var(--app-icon-sm));
   border: none;
   background: transparent;
   cursor: pointer;
@@ -165,7 +167,8 @@
 
 .tabControlBtn,
 .openFilesBtn {
-  height: 28px;
+  height: auto;
+  min-height: max(28px, calc(28px * var(--app-font-scale)));
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -191,7 +194,7 @@
 }
 
 .tabControlBtn {
-  width: 26px;
+  width: max(26px, var(--app-icon-button));
   padding: 0;
 }
 
@@ -201,7 +204,7 @@
   padding: 0 7px;
   border: 1px solid var(--app-border);
   background: var(--app-surface);
-  font-size: 11px;
+  font-size: var(--app-font-caption);
 }
 
 .openFilesBtnActive {
@@ -215,8 +218,9 @@
 }
 
 .tabCount {
-  min-width: 18px;
-  height: 18px;
+  min-width: max(18px, calc(18px * var(--app-font-scale)));
+  height: auto;
+  min-height: max(18px, calc(18px * var(--app-font-scale)));
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -224,7 +228,7 @@
   border-radius: 5px;
   color: var(--app-text-secondary);
   background: var(--app-fill-subtle);
-  font-size: 10px;
+  font-size: var(--app-font-caption);
   font-weight: 600;
 }
 
@@ -273,13 +277,13 @@
 
   strong {
     color: var(--app-text);
-    font-size: 13px;
+    font-size: var(--app-font-secondary);
     font-weight: 600;
   }
 
   span {
     color: var(--app-text-tertiary);
-    font-size: 10px;
+    font-size: var(--app-font-caption);
   }
 }
 
@@ -290,22 +294,26 @@
   > svg {
     position: absolute;
     z-index: 1;
-    top: 10px;
+    top: 50%;
     left: 10px;
+    width: var(--app-icon-xs);
+    height: var(--app-icon-xs);
+    transform: translateY(-50%);
     color: var(--app-text-tertiary);
     pointer-events: none;
   }
 
   input {
     width: 100%;
-    height: 34px;
+    height: auto;
+    min-height: max(34px, calc(34px * var(--app-font-scale)));
     padding: 0 10px 0 32px;
     border: 1px solid var(--app-border);
     border-radius: 8px;
     outline: none;
     color: var(--app-text);
     background: var(--app-surface-subtle);
-    font-size: 12px;
+    font-size: var(--app-font-caption);
 
     &::placeholder {
       color: var(--app-text-tertiary);
@@ -328,7 +336,7 @@
 .openFileItem {
   display: flex;
   align-items: center;
-  min-height: 48px;
+  min-height: max(48px, calc(48px * var(--app-font-scale)));
   border-radius: 8px;
   color: var(--app-text-secondary);
 
@@ -379,20 +387,20 @@
   align-items: center;
   gap: 6px;
   font-family: "SFMono-Regular", Consolas, monospace;
-  font-size: 11px;
+  font-size: var(--app-font-caption);
 }
 
 .openFilePath {
   overflow: hidden;
   color: var(--app-text-tertiary);
-  font-size: 10px;
+  font-size: var(--app-font-caption);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .openFileClose {
-  width: 26px;
-  height: 26px;
+  width: max(26px, var(--app-icon-button));
+  height: max(26px, var(--app-icon-button));
   flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
@@ -417,7 +425,7 @@
 .openFilesEmpty {
   padding: 30px 12px;
   color: var(--app-text-tertiary);
-  font-size: 12px;
+  font-size: var(--app-font-caption);
   text-align: center;
 }
 
@@ -435,7 +443,7 @@
     border-radius: 6px;
     color: var(--app-text-secondary);
     background: transparent;
-    font-size: 11px;
+    font-size: var(--app-font-caption);
     cursor: pointer;
 
     &:hover:not(:disabled) {
@@ -458,11 +466,11 @@
   padding: 4px 10px;
   border-bottom: 1px solid var(--app-border-subtle);
   flex-shrink: 0;
-  min-height: 30px;
+  min-height: max(30px, calc(30px * var(--app-font-scale)));
 }
 
 .fileName {
-  font-size: 11px;
+  font-size: var(--app-font-caption);
   color: var(--app-text-tertiary);
   font-family: "SFMono-Regular", Consolas, monospace;
   flex: 1;
@@ -496,7 +504,8 @@
   background: var(--app-surface-subtle);
 
   button {
-    height: 24px;
+    height: auto;
+    min-height: max(24px, calc(24px * var(--app-font-scale)));
     padding: 0 8px;
     display: inline-flex;
     align-items: center;
@@ -505,7 +514,7 @@
     border: 0;
     border-radius: 4px;
     background: transparent;
-    font-size: 11px;
+    font-size: var(--app-font-caption);
     cursor: pointer;
   }
 }
@@ -529,7 +538,7 @@
   display: flex;
   align-items: center;
   gap: 4px;
-  font-size: 11px;
+  font-size: var(--app-font-caption);
   color: var(--app-info-text);
   font-weight: 500;
 
@@ -545,8 +554,9 @@
   align-items: center;
   gap: 4px;
   padding: 2px 10px !important;
-  height: 22px !important;
-  font-size: 12px !important;
+  height: auto !important;
+  min-height: max(22px, calc(22px * var(--app-font-scale)));
+  font-size: var(--app-font-caption) !important;
   background: var(--app-success-bg) !important;
   color: var(--app-success-text) !important;
   border-radius: 4px;
@@ -568,8 +578,9 @@
   align-items: center;
   gap: 4px;
   padding: 2px 10px !important;
-  height: 22px !important;
-  font-size: 12px !important;
+  height: auto !important;
+  min-height: max(22px, calc(22px * var(--app-font-scale)));
+  font-size: var(--app-font-caption) !important;
   background: var(--app-error-bg) !important;
   color: var(--app-error-text) !important;
   border-radius: 4px;
@@ -635,10 +646,11 @@
     position: absolute;
     top: 2px;
     right: 2px;
-    min-width: 14px;
-    height: 14px;
+    min-width: max(14px, calc(14px * var(--app-font-scale)));
+    height: auto;
+    min-height: max(14px, calc(14px * var(--app-font-scale)));
     padding: 0 3px;
-    font-size: 8px;
+    font-size: var(--app-font-caption);
   }
 
   .openFilesPanel {
@@ -659,8 +671,8 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 22px;
-  height: 22px;
+  width: var(--app-icon-button);
+  height: var(--app-icon-button);
   border: none;
   background: transparent;
   cursor: pointer;
@@ -701,10 +713,9 @@
   overflow: auto;
   color: var(--app-text);
   background: var(--app-surface);
-  font:
-    13px/1.72 "SFMono-Regular",
-    Consolas,
-    monospace;
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: var(--app-font-secondary);
+  line-height: 1.72;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
@@ -728,7 +739,8 @@
 .hunkWidget {
   position: absolute;
   right: 24px;
-  height: 22px;
+  height: auto;
+  min-height: max(22px, calc(22px * var(--app-font-scale)));
   display: flex;
   align-items: center;
   justify-content: flex-end;
@@ -743,9 +755,10 @@
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  height: 18px;
+  height: auto;
+  min-height: max(18px, calc(18px * var(--app-font-scale)));
   padding: 0 8px;
-  font-size: 11px;
+  font-size: var(--app-font-caption);
   line-height: 1;
   border: 1px solid;
   border-radius: 3px;
@@ -789,8 +802,31 @@
   color: var(--app-text-quaternary);
 }
 
+.tab > svg,
+.closeBtn > svg,
+.tabControlBtn > svg,
+.openFilesBtn > svg,
+.openFileClose > svg,
+.openFilesFooter button > svg,
+.diffLabel > svg,
+.keepBtn > svg,
+.undoBtn > svg,
+.modeSwitch button > svg,
+.iconBtn > svg,
+.hunkBtn > svg {
+  width: var(--app-icon-xs);
+  height: var(--app-icon-xs);
+  flex-shrink: 0;
+}
+
+.openFileMain > svg {
+  width: var(--app-icon-sm);
+  height: var(--app-icon-sm);
+  flex-shrink: 0;
+}
+
 .emptyText {
-  font-size: 13px;
+  font-size: var(--app-font-secondary);
   color: var(--app-text-tertiary);
   margin: 0;
 }
