@@ -90,6 +90,7 @@ class ScrollContextManager:
         *,
         history: HistoryStore,
         session_id: str,
+        archive_session_id: str | None = None,
         agent_id: str | None = None,
         offloader: Any = None,
         compact_tool_result_max_bytes: int | None = None,
@@ -98,6 +99,7 @@ class ScrollContextManager:
     ) -> None:
         self._history = history
         self._session_id = session_id
+        self._archive_session_id = archive_session_id or session_id
         self._agent_id = agent_id
         # Kept for constructor compatibility with older integrations. Scroll
         # no longer folds live tool results at a fixed byte threshold; it
@@ -368,7 +370,10 @@ class ScrollContextManager:
         if self._offloader is None or not middle:
             return
         try:
-            await self._offloader.offload_context(self._session_id, middle)
+            await self._offloader.offload_context(
+                self._archive_session_id,
+                middle,
+            )
         except Exception:  # noqa: BLE001 - archive is best-effort
             logger.warning("scroll dialog offload failed", exc_info=True)
 

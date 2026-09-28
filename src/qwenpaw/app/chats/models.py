@@ -244,6 +244,13 @@ class ChatGroupOrderUpdate(BaseModel):
     group_ids: list[str] = Field(min_length=2)
 
 
+class ChatContextState(BaseModel):
+    """Current model-context projection, separate from message history."""
+
+    generation: int = Field(default=0, ge=0)
+    usage: Optional[dict[str, Any]] = None
+
+
 class ChatHistory(BaseModel):
     """Complete chat view with spec and state."""
 
@@ -253,6 +260,7 @@ class ChatHistory(BaseModel):
         description="Conversation status: idle or running",
     )
     history: Optional["ChatHistoryMetadata"] = None
+    context_state: Optional[ChatContextState] = None
 
 
 class ChatHistoryMetadata(BaseModel):

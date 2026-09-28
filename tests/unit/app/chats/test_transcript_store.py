@@ -97,6 +97,53 @@ def test_existing_empty_database_initializes_missing_schema(tmp_path):
     store.close()
 
 
+def test_runtime_snapshot_reset_advances_context_generation(tmp_path):
+    store = TranscriptStore(tmp_path / "session.db")
+    generation, inserted = store.write_runtime_state(
+        session_id="session-1",
+        user_id="user-1",
+        channel="console",
+        state={"agent": {"state": {"context": ["old"]}}},
+    )
+    assert (generation, inserted) == (0, True)
+    store.set_current_usage(
+        session_id="session-1",
+        usage={"total_tokens": 12},
+        context_usage={
+            "estimated_tokens": 8,
+            "max_input_length": 100,
+            "context_usage_ratio": 8,
+        },
+    )
+
+    generation, _ = store.write_runtime_state(
+        session_id="session-1",
+        user_id="user-1",
+        channel="console",
+        state={"agent": {"state": {"context": []}}},
+        reset_context=True,
+    )
+    snapshot = store.read_runtime_state(
+        session_id="session-1",
+        user_id="user-1",
+        channel="console",
+    )
+
+    assert generation == 1
+    assert snapshot is not None
+    assert snapshot.context_generation == 1
+    assert snapshot.state["agent"]["state"]["context"] == []
+    assert snapshot.current_usage == {
+        "usage": None,
+        "context_usage": {
+            "estimated_tokens": 0,
+            "max_input_length": 100,
+            "context_usage_ratio": 0,
+        },
+    }
+    store.close()
+
+
 @pytest.mark.parametrize(
     ("turn_status", "wire_status"),
     [("failed", "failed"), ("cancelled", "canceled")],

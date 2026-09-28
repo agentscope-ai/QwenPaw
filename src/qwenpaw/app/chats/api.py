@@ -20,7 +20,7 @@ from fastapi import (
 )
 from pydantic import BaseModel, ConfigDict, Field
 
-from .session import SafeJSONSession
+from .session import DatabaseSession
 from .manager import ChatManager, MAX_BATCH_SIZE
 from .models import (
     BatchArchiveResult,
@@ -31,6 +31,7 @@ from .models import (
     ChatSpec,
     ChatUpdate,
     ChatHistory,
+    ChatContextState,
     ChatHistoryMetadata,
     ChatMessagePage,
 )
@@ -109,6 +110,30 @@ async def _read_transcript_page(
     except (OSError, sqlite3.Error, ValueError, TypeError):
         logger.warning(
             "Failed to read transcript for session %s",
+            chat.session_id,
+            exc_info=True,
+        )
+        return None
+
+
+async def _read_context_state(
+    session: DatabaseSession,
+    chat: ChatSpec,
+) -> ChatContextState | None:
+    """Read current context state independently from historical messages."""
+    getter = getattr(session, "get_current_usage", None)
+    if getter is None:
+        return None
+    try:
+        generation, usage = await getter(
+            session_id=chat.session_id,
+            user_id=chat.user_id,
+            channel=chat.channel,
+        )
+        return ChatContextState(generation=generation, usage=usage)
+    except Exception:
+        logger.warning(
+            "Failed to read context state for session %s",
             chat.session_id,
             exc_info=True,
         )
@@ -224,14 +249,14 @@ async def get_chat_manager(
 
 async def get_session(
     request: Request,
-) -> SafeJSONSession:
+) -> DatabaseSession:
     """Get the session for the active agent.
 
     Args:
         request: FastAPI request object
 
     Returns:
-        SafeJSONSession instance for the specified agent
+        DatabaseSession instance for the specified agent
 
     Raises:
         HTTPException: If session is not initialized
@@ -1010,7 +1035,7 @@ async def get_chat(
         ),
     ),
     mgr: ChatManager = Depends(get_chat_manager),
-    session: SafeJSONSession = Depends(get_session),
+    session: DatabaseSession = Depends(get_session),
     workspace=Depends(get_workspace),
 ):
     """Get detailed information about a specific chat by UUID.
@@ -1019,7 +1044,7 @@ async def get_chat(
         request: FastAPI request (for agent context)
         chat_id: Chat UUID
         mgr: Chat manager dependency
-        session: SafeJSONSession dependency
+        session: DatabaseSession dependency
 
     Returns:
         ChatHistory with messages and status (idle/running)
@@ -1040,6 +1065,7 @@ async def get_chat(
         )
 
     status = await workspace.task_tracker.get_status(chat_id)
+    context_state = await _read_context_state(session, chat_spec)
 
     transcript_page = await _read_transcript_page(
         workspace,
@@ -1050,6 +1076,7 @@ async def get_chat(
             messages=transcript_page.messages,
             status=status,
             history=_history_metadata(transcript_page),
+            context_state=context_state,
         )
 
     state = await session.get_session_state_dict(
@@ -1085,6 +1112,7 @@ async def get_chat(
             messages=[],
             status=status,
             history=ChatHistoryMetadata(),
+            context_state=context_state,
         )
 
     messages = await asyncio.to_thread(session_state_to_messages, state)
@@ -1098,6 +1126,7 @@ async def get_chat(
         messages=messages,
         status=status,
         history=ChatHistoryMetadata(),
+        context_state=context_state,
     )
 
 

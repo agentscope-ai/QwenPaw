@@ -7,6 +7,7 @@ import type {
 import api, {
   type ChatSpec,
   type ChatHistory,
+  type ChatContextState,
   type ChatHistoryMetadata,
   type ChatStatus,
   type Message,
@@ -17,6 +18,7 @@ import { useAgentStore } from "../../../stores/agentStore";
 import {
   extractTurnUsageFromOutputMessages,
   extractLatestSnapshotFromCards,
+  type TurnUsageSnapshot,
 } from "../turnUsage";
 import { useTurnUsageStore } from "../turnUsageStore";
 import { useMessageQueueStore } from "../../../stores/messageQueueStore";
@@ -37,9 +39,13 @@ const CARD_RESPONSE = "AgentScopeRuntimeResponseCard";
 
 function hydrateTurnUsageFromMessages(
   messages: IAgentScopeRuntimeWebUIMessage[],
+  contextState?: ChatContextState | null,
 ): void {
   useTurnUsageStore.getState().invalidateTurn();
-  const snap = extractLatestSnapshotFromCards(messages);
+  const snap =
+    contextState === undefined
+      ? extractLatestSnapshotFromCards(messages)
+      : ((contextState?.usage ?? null) as TurnUsageSnapshot | null);
   useTurnUsageStore.getState().setSnapshot(snap);
 }
 
@@ -115,6 +121,8 @@ interface ExtendedSession extends IAgentScopeRuntimeWebUISession {
   rootSessionId?: string | null;
   /** Cursor state for loading older durable transcript pages. */
   historyPage?: ChatHistoryMetadata;
+  /** Current model-context state, independent from historical messages. */
+  contextState?: ChatContextState | null;
 }
 
 export interface SessionIdentity {
@@ -425,7 +433,7 @@ const mergeResponseMessages = (
   });
   const cards = (
     newer.cards as Array<{
-      code?: string;
+      code: string;
       data?: ResponseCardData;
     }>
   ).map((card) =>
@@ -450,7 +458,11 @@ const mergeResponseMessages = (
   );
   const olderHistory = (older as { history?: boolean }).history;
   const newerHistory = (newer as { history?: boolean }).history;
-  return { ...newer, cards, history: olderHistory || newerHistory };
+  return {
+    ...newer,
+    cards,
+    history: olderHistory || newerHistory,
+  } as IAgentScopeRuntimeWebUIMessage & { history?: boolean };
 };
 
 export const mergeHistoryMessages = (
@@ -984,7 +996,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
       return;
     // A history response must not invalidate or overwrite a live stream.
     if (useTurnUsageStore.getState().activeTurn) return;
-    hydrateTurnUsageFromMessages(session.messages ?? []);
+    hydrateTurnUsageFromMessages(session.messages ?? [], session.contextState);
   }
 
   /**
@@ -1514,6 +1526,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
         listEntry?.realId ?? (backendId !== displayId ? backendId : undefined),
       generating,
       historyPage,
+      contextState: chatHistory.context_state,
     };
 
     // Cache non-generating sessions only within the epoch that fetched them,

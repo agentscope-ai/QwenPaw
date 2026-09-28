@@ -767,6 +767,47 @@ describe("visible session usage ownership", () => {
     vi.restoreAllMocks();
     sessionApi.resetForTests();
   });
+  it("prefers current context state over historical turn usage", async () => {
+    const { useTurnUsageStore } = await import("../turnUsageStore");
+    vi.spyOn(api, "getChat").mockResolvedValue({
+      messages: [
+        {
+          role: "assistant",
+          content: [{ type: "text", text: "old turn" }],
+          metadata: {
+            qwenpaw_turn_usage: {
+              context_usage: {
+                estimated_tokens: 500,
+                max_input_length: 100000,
+                context_usage_ratio: 0.5,
+              },
+            },
+          },
+        },
+      ],
+      status: "idle",
+      context_state: {
+        generation: 1,
+        usage: {
+          usage: null,
+          context_usage: {
+            estimated_tokens: 0,
+            max_input_length: 100000,
+            context_usage_ratio: 0,
+          },
+        },
+      },
+    } as ChatHistory);
+
+    sessionApi.setVisibleSession("cleared");
+    await sessionApi.getSession("cleared");
+
+    expect(useTurnUsageStore.getState().snapshot?.context_usage).toEqual({
+      estimated_tokens: 0,
+      max_input_length: 100000,
+      context_usage_ratio: 0,
+    });
+  });
   it("does not project a late history response over the selected session", async () => {
     const { useTurnUsageStore } = await import("../turnUsageStore");
     const history = (tokens: number): ChatHistory =>

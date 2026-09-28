@@ -26,10 +26,7 @@ from typing import (
 from ...config.timezone import normalize_tz
 from ...config.utils import load_config
 from ...constant import WORKING_DIR
-from ...token_usage.turn_usage import (
-    persist_turn_usage,
-    resolve_turn_usage,
-)
+from ...token_usage.turn_usage import resolve_turn_usage
 from ...utils.io_utils import run_async_to_completion
 
 from .service_manager import ServiceDescriptor, ServiceManager
@@ -44,7 +41,7 @@ from .service_factories import (
 )
 from .local_workspace import QwenPawLocalWorkspace
 from ..task_tracker import TaskTracker
-from ..chats.session import SafeJSONSession
+from ..chats.session import DatabaseSession
 from ..chats.transcript_catalog import TranscriptCatalog
 from ..chats.transcript_recorder import (
     TRANSCRIPT_TURN_ID_CONTEXT_KEY,
@@ -203,7 +200,7 @@ class Workspace:  # pylint: disable=too-many-public-methods
 
     # Service access via properties (delegates to ServiceManager)
     @property
-    def session(self) -> Optional[SafeJSONSession]:
+    def session(self) -> Optional[DatabaseSession]:
         """Get session instance from ServiceManager."""
         return self._service_manager.services.get("session")
 
@@ -495,7 +492,9 @@ class Workspace:  # pylint: disable=too-many-public-methods
                 )
                 if not has_transcript:
                     state = await self.session.get_session_state_dict(
-                        **identity,
+                        identity["session_id"],
+                        identity["user_id"],
+                        identity["channel"],
                     )
                     legacy_messages = await asyncio.to_thread(
                         session_state_to_messages,
@@ -548,7 +547,7 @@ class Workspace:  # pylint: disable=too-many-public-methods
         session_id = str(getattr(request, "session_id", "") or "")
         user_id = str(getattr(request, "user_id", "") or "")
         channel = str(getattr(request, "channel", "") or "console")
-        turn, context_usage, agent_state = await resolve_turn_usage(
+        turn, context_usage, _agent_state = await resolve_turn_usage(
             session_id=session_id,
             agent_id=self.agent_id,
             session=self.session,
@@ -566,18 +565,14 @@ class Workspace:  # pylint: disable=too-many-public-methods
         session = self.session
         if session is not None:
             try:
-                await persist_turn_usage(
-                    session=session,
+                await session.set_current_usage(
                     session_id=session_id,
-                    user_id=user_id,
-                    channel=channel,
-                    turn=turn,
-                    ctx=context_usage,
-                    agent_state=agent_state,
+                    usage=turn,
+                    context_usage=context_usage,
                 )
             except Exception:
                 logger.warning(
-                    "Agent state turn usage persist skipped for session %s",
+                    "Current context usage persist skipped for session %s",
                     sanitize_log_value(session_id),
                     exc_info=True,
                 )
@@ -665,15 +660,31 @@ class Workspace:  # pylint: disable=too-many-public-methods
             ),
         )
 
-        # Priority 10: Session (replaces old Runner init)
+        # Runtime snapshots and display transcripts share one per-session DB.
+        sm.register(
+            ServiceDescriptor(
+                name="transcript_store",
+                service_class=TranscriptCatalog,
+                init_args=lambda ws: {
+                    "workspace_dir": ws.workspace_dir,
+                },
+                stop_method="close",
+                reusable=True,
+                priority=10,
+                concurrent_init=False,
+            ),
+        )
+
         sm.register(
             ServiceDescriptor(
                 name="session",
-                service_class=SafeJSONSession,
+                service_class=DatabaseSession,
                 init_args=lambda ws: {
-                    "save_dir": str(ws.workspace_dir / "sessions"),
+                    "catalog": ws.transcript_store,
+                    "legacy_save_dir": str(ws.workspace_dir / "sessions"),
                 },
-                priority=10,
+                dependencies=["transcript_store"],
+                priority=15,
                 concurrent_init=False,
             ),
         )
@@ -721,21 +732,6 @@ class Workspace:  # pylint: disable=too-many-public-methods
                 reusable=True,
                 priority=20,
                 concurrent_init=True,
-            ),
-        )
-
-        sm.register(
-            ServiceDescriptor(
-                name="transcript_store",
-                service_class=TranscriptCatalog,
-                init_args=lambda ws: {
-                    "workspace_dir": ws.workspace_dir,
-                },
-                stop_method="close",
-                reusable=True,
-                priority=20,
-                concurrent_init=True,
-                optional=True,
             ),
         )
 

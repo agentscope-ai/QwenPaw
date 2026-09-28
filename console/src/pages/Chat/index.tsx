@@ -696,6 +696,36 @@ function payloadCompletesResponse(payload: unknown): boolean {
   return record.object === "response" && record.status === "completed";
 }
 
+function payloadResetsContext(payload: Record<string, unknown>): boolean {
+  const output = Array.isArray(payload.output) ? payload.output : [];
+  return output.some((item) => {
+    if (!item || typeof item !== "object") return false;
+    const metadata = (item as Record<string, unknown>).metadata;
+    return (
+      metadata !== null &&
+      typeof metadata === "object" &&
+      (metadata as Record<string, unknown>).context_reset === true
+    );
+  });
+}
+
+function resetCurrentContextUsage(): void {
+  const store = useTurnUsageStore.getState();
+  const maxInputLength =
+    store.snapshot?.context_usage?.max_input_length ??
+    store.activeMaxInputLength ??
+    131072;
+  store.invalidateTurn();
+  store.setSnapshot({
+    usage: null,
+    context_usage: {
+      estimated_tokens: 0,
+      max_input_length: maxInputLength,
+      context_usage_ratio: 0,
+    },
+  });
+}
+
 function renderSuggestionLabel(command: string, description?: string) {
   return (
     <div
@@ -2769,16 +2799,7 @@ export default function ChatPage() {
   }, [queueSessionId, selectedAgent, captureRequestContext]);
 
   const handleNewCommand = useCallback(() => {
-    const current = useTurnUsageStore.getState().snapshot;
-    const maxInputLength = current?.context_usage?.max_input_length ?? 131072;
-    useTurnUsageStore.getState().setSnapshot({
-      usage: null,
-      context_usage: {
-        estimated_tokens: 0,
-        max_input_length: maxInputLength,
-        context_usage_ratio: 0,
-      },
-    });
+    resetCurrentContextUsage();
     chatRef.current?.input.submit({ query: "/new" });
   }, []);
 
@@ -4227,6 +4248,10 @@ export default function ChatPage() {
           }
           markLoopModeRunning();
           sanitizeHeadlinePayload(payload, headlineStreamFilterRef.current);
+
+          if (payloadResetsContext(payload)) {
+            resetCurrentContextUsage();
+          }
 
           for (const event of parseModelFallbackEvents(payload)) {
             const key = modelFallbackEventKey(event);

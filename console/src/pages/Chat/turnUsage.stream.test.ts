@@ -181,6 +181,28 @@ describe("wrapChatResponseUsageStream", () => {
     expect(useTurnUsageStore.getState().snapshot).toEqual(snapshot);
   });
 
+  it("keeps a zero context snapshot after a context reset", async () => {
+    const turn = useTurnUsageStore.getState().beginTurn("a", "s");
+    const { ref } = makeRef([assistantCard({})]);
+    const contextUsage = {
+      estimated_tokens: 0,
+      max_input_length: 1000,
+      context_usage_ratio: 0,
+    };
+    const body = `data: ${JSON.stringify({
+      type: "turn_usage",
+      usage: null,
+      context_usage: contextUsage,
+    })}\n\n`;
+
+    await wrapChatResponseUsageStream(sseResponse(body), ref, turn).text();
+
+    expect(useTurnUsageStore.getState().snapshot).toEqual({
+      usage: null,
+      context_usage: contextUsage,
+    });
+  });
+
   it("keeps the last turn_usage payload when several arrive", async () => {
     const turn = useTurnUsageStore.getState().beginTurn("a", "s");
     const { ref } = makeRef([assistantCard({})]);

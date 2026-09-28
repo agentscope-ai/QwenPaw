@@ -48,6 +48,15 @@ class TranscriptPage:
     has_more: bool
 
 
+@dataclass(frozen=True)
+class RuntimeSnapshot:
+    """Persisted agent runtime state for one conversation context."""
+
+    state: dict[str, Any]
+    context_generation: int
+    current_usage: dict[str, Any] | None
+
+
 class TranscriptStore:
     """Workspace-owned SQLite store for user-visible chat transcripts."""
 
@@ -81,10 +90,10 @@ class TranscriptStore:
 
     def _schema_exists(self) -> bool:
         row = self._conn.execute(
-            "SELECT 1 FROM sqlite_master WHERE type = 'table' "
-            "AND name = 'transcript_sessions'",
+            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' "
+            "AND name IN ('transcript_sessions', 'session_runtime')",
         ).fetchone()
-        return row is not None
+        return row is not None and int(row[0]) == 2
 
     @contextmanager
     def _read_connection(self) -> Iterator[sqlite3.Connection]:
@@ -152,6 +161,17 @@ class TranscriptStore:
                     session_id, client_message_id, created_at DESC
                 );
 
+            CREATE TABLE IF NOT EXISTS session_runtime (
+                session_id          TEXT PRIMARY KEY,
+                context_generation  INTEGER NOT NULL DEFAULT 0,
+                state_json          TEXT NOT NULL,
+                current_usage_json  TEXT,
+                updated_at          TEXT NOT NULL,
+                FOREIGN KEY(session_id)
+                    REFERENCES transcript_sessions(session_id)
+                    ON DELETE CASCADE
+            );
+
             """,
         )
 
@@ -215,6 +235,185 @@ class TranscriptStore:
             )
             return True
 
+    def read_runtime_state(
+        self,
+        *,
+        session_id: str,
+        user_id: str,
+        channel: str,
+    ) -> RuntimeSnapshot | None:
+        """Read the current runtime snapshot without mutating the store."""
+        with self._read_connection() as connection:
+            session = self._session_row(session_id, connection)
+            if session is None:
+                return None
+            self._assert_identity(
+                session,
+                user_id=user_id,
+                channel=channel,
+            )
+            row = connection.execute(
+                "SELECT state_json, context_generation, current_usage_json "
+                "FROM session_runtime WHERE session_id = ?",
+                (session_id,),
+            ).fetchone()
+            if row is None:
+                return None
+            return RuntimeSnapshot(
+                state=json.loads(row["state_json"]),
+                context_generation=int(row["context_generation"]),
+                current_usage=(
+                    json.loads(row["current_usage_json"])
+                    if row["current_usage_json"]
+                    else None
+                ),
+            )
+
+    def write_runtime_state(
+        self,
+        *,
+        session_id: str,
+        user_id: str,
+        channel: str,
+        state: dict[str, Any],
+        current_usage: dict[str, Any] | None = None,
+        reset_context: bool = False,
+        only_if_missing: bool = False,
+    ) -> tuple[int, bool]:
+        """Persist one runtime snapshot and optionally start a new context."""
+        state_json = json.dumps(
+            state,
+            ensure_ascii=False,
+            separators=(",", ":"),
+        )
+        timestamp = _utc_now()
+        with self._transaction():
+            self._conn.execute(
+                "INSERT INTO transcript_sessions("
+                "session_id, user_id, channel) "
+                "VALUES (?, ?, ?) ON CONFLICT(session_id) DO NOTHING",
+                (session_id, user_id, channel),
+            )
+            session = self._session_row(session_id)
+            if session is None:
+                raise RuntimeError("failed to create transcript session")
+            self._assert_identity(
+                session,
+                user_id=user_id,
+                channel=channel,
+            )
+            existing = self._conn.execute(
+                "SELECT context_generation, current_usage_json "
+                "FROM session_runtime WHERE session_id = ?",
+                (session_id,),
+            ).fetchone()
+            if existing is not None and only_if_missing:
+                return int(existing["context_generation"]), False
+
+            generation = int(existing["context_generation"]) if existing else 0
+            usage_json = existing["current_usage_json"] if existing else None
+            if current_usage is not None:
+                usage_json = json.dumps(
+                    current_usage,
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                )
+            if reset_context:
+                generation += 1
+                previous = json.loads(usage_json) if usage_json else {}
+                previous_context = previous.get("context_usage") or {}
+                usage_json = json.dumps(
+                    {
+                        "usage": None,
+                        "context_usage": {
+                            "estimated_tokens": 0,
+                            "max_input_length": int(
+                                previous_context.get("max_input_length", 0)
+                                or 0,
+                            ),
+                            "context_usage_ratio": 0,
+                        },
+                    },
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                )
+            self._conn.execute(
+                "INSERT INTO session_runtime("
+                "session_id, context_generation, state_json, "
+                "current_usage_json, updated_at) VALUES (?, ?, ?, ?, ?) "
+                "ON CONFLICT(session_id) DO UPDATE SET "
+                "context_generation = excluded.context_generation, "
+                "state_json = excluded.state_json, "
+                "current_usage_json = excluded.current_usage_json, "
+                "updated_at = excluded.updated_at",
+                (
+                    session_id,
+                    generation,
+                    state_json,
+                    usage_json,
+                    timestamp,
+                ),
+            )
+            return generation, True
+
+    def update_runtime_state(
+        self,
+        *,
+        session_id: str,
+        path: list[str],
+        value: Any,
+    ) -> None:
+        """Update one nested value in an existing runtime snapshot."""
+        with self._transaction():
+            row = self._conn.execute(
+                "SELECT state_json FROM session_runtime "
+                "WHERE session_id = ?",
+                (session_id,),
+            ).fetchone()
+            if row is None:
+                raise KeyError(session_id)
+            state = json.loads(row["state_json"])
+            current = state
+            for key in path[:-1]:
+                child = current.get(key)
+                if not isinstance(child, dict):
+                    child = {}
+                    current[key] = child
+                current = child
+            current[path[-1]] = value
+            state_json = json.dumps(
+                state,
+                ensure_ascii=False,
+                separators=(",", ":"),
+            )
+            self._conn.execute(
+                "UPDATE session_runtime SET state_json = ?, updated_at = ? "
+                "WHERE session_id = ?",
+                (state_json, _utc_now(), session_id),
+            )
+
+    def set_current_usage(
+        self,
+        *,
+        session_id: str,
+        usage: dict[str, Any] | None,
+        context_usage: dict[str, Any] | None,
+    ) -> None:
+        """Persist the current context projection independently of history."""
+        payload = json.dumps(
+            {"usage": usage, "context_usage": context_usage},
+            ensure_ascii=False,
+            separators=(",", ":"),
+        )
+        with self._transaction():
+            cursor = self._conn.execute(
+                "UPDATE session_runtime SET current_usage_json = ?, "
+                "updated_at = ? WHERE session_id = ?",
+                (payload, _utc_now(), session_id),
+            )
+            if cursor.rowcount != 1:
+                raise KeyError(session_id)
+
     def recover_running_turns(self) -> int:
         """Cancel turns left running by a previous process."""
         with self._lock:
@@ -259,13 +458,25 @@ class TranscriptStore:
                     user_id=user_id,
                     channel=channel,
                 )
-                return False
-            self._conn.execute(
-                "INSERT INTO transcript_sessions("
-                "session_id, user_id, channel, next_turn_seq) "
-                "VALUES (?, ?, ?, ?)",
-                (session_id, user_id, channel, len(turns) + 1),
-            )
+                existing_turn = self._conn.execute(
+                    "SELECT 1 FROM transcript_turns WHERE session_id = ? "
+                    "LIMIT 1",
+                    (session_id,),
+                ).fetchone()
+                if existing_turn is not None:
+                    return False
+                self._conn.execute(
+                    "UPDATE transcript_sessions SET next_turn_seq = ? "
+                    "WHERE session_id = ?",
+                    (len(turns) + 1, session_id),
+                )
+            else:
+                self._conn.execute(
+                    "INSERT INTO transcript_sessions("
+                    "session_id, user_id, channel, next_turn_seq) "
+                    "VALUES (?, ?, ?, ?)",
+                    (session_id, user_id, channel, len(turns) + 1),
+                )
             for turn_seq, turn_messages in enumerate(turns, start=1):
                 first_metadata = turn_messages[0].metadata or {}
                 last_metadata = turn_messages[-1].metadata or {}
@@ -729,4 +940,9 @@ class TranscriptStore:
             self._conn.close()
 
 
-__all__ = ["TranscriptCursor", "TranscriptPage", "TranscriptStore"]
+__all__ = [
+    "RuntimeSnapshot",
+    "TranscriptCursor",
+    "TranscriptPage",
+    "TranscriptStore",
+]

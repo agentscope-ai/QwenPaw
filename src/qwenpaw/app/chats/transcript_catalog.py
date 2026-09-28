@@ -12,7 +12,12 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterator
 
-from .transcript import TranscriptCursor, TranscriptPage, TranscriptStore
+from .transcript import (
+    RuntimeSnapshot,
+    TranscriptCursor,
+    TranscriptPage,
+    TranscriptStore,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -242,6 +247,84 @@ class TranscriptCatalog:
             if handle is None:
                 raise RuntimeError("failed to create transcript session")
             return handle.store.import_legacy_messages(**kwargs)
+
+    def read_runtime_state(
+        self,
+        *,
+        session_id: str,
+        user_id: str,
+        channel: str,
+    ) -> RuntimeSnapshot | None:
+        """Read one session's authoritative runtime snapshot."""
+        with self._lease(
+            session_id=session_id,
+            user_id=user_id,
+            channel=channel,
+            create=False,
+        ) as handle:
+            if handle is None:
+                return None
+            return handle.store.read_runtime_state(
+                session_id=session_id,
+                user_id=user_id,
+                channel=channel,
+            )
+
+    def write_runtime_state(self, **kwargs: Any) -> tuple[int, bool]:
+        """Persist one session's runtime snapshot."""
+        with self._lease(
+            session_id=kwargs["session_id"],
+            user_id=kwargs["user_id"],
+            channel=kwargs["channel"],
+            create=True,
+        ) as handle:
+            if handle is None:
+                raise RuntimeError("failed to create runtime session")
+            return handle.store.write_runtime_state(**kwargs)
+
+    def update_runtime_state(
+        self,
+        *,
+        session_id: str,
+        user_id: str,
+        channel: str,
+        path: list[str],
+        value: Any,
+        create_if_missing: bool,
+    ) -> None:
+        """Update one nested runtime value under the session lock."""
+        with self._lease(
+            session_id=session_id,
+            user_id=user_id,
+            channel=channel,
+            create=create_if_missing,
+        ) as handle:
+            if handle is None:
+                raise KeyError(session_id)
+            try:
+                handle.store.update_runtime_state(
+                    session_id=session_id,
+                    path=path,
+                    value=value,
+                )
+            except KeyError:
+                if not create_if_missing:
+                    raise
+                handle.store.write_runtime_state(
+                    session_id=session_id,
+                    user_id=user_id,
+                    channel=channel,
+                    state={},
+                )
+                handle.store.update_runtime_state(
+                    session_id=session_id,
+                    path=path,
+                    value=value,
+                )
+
+    def set_current_usage(self, **kwargs: Any) -> None:
+        """Update the current context projection for one session."""
+        self._write_existing("set_current_usage", **kwargs)
 
     def _write_existing(self, method_name: str, **kwargs: Any) -> Any:
         session_id = str(kwargs["session_id"])

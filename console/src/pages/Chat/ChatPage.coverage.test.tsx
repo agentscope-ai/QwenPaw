@@ -910,7 +910,7 @@ describe("ChatPage coverage", () => {
             {
               type: "message",
               role: "assistant",
-              metadata: { clear_history: true },
+              metadata: { context_reset: true },
               content: [{ type: "text", text: "cleared" }],
             },
           ],

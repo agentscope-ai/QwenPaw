@@ -18,7 +18,7 @@ from qwenpaw.schemas import AgentRequest
 async def test_workspace_persists_and_caches_turn_usage() -> None:
     store = Mock(spec=TranscriptStore)
     store.attach_turn_usage.return_value = True
-    session = SimpleNamespace()
+    session = SimpleNamespace(set_current_usage=AsyncMock())
     workspace = object.__new__(Workspace)
     workspace.agent_id = "agent-1"
     workspace._service_manager = (  # pylint: disable=protected-access
@@ -40,14 +40,9 @@ async def test_workspace_persists_and_caches_turn_usage() -> None:
     resolve = AsyncMock(
         return_value=(usage, context_usage, SimpleNamespace()),
     )
-    persist = AsyncMock()
-
     with patch(
         "qwenpaw.app.workspace.workspace.resolve_turn_usage",
         resolve,
-    ), patch(
-        "qwenpaw.app.workspace.workspace.persist_turn_usage",
-        persist,
     ):
         first = await workspace.finalize_turn_usage(request)
         second = await workspace.finalize_turn_usage(request)
@@ -55,7 +50,11 @@ async def test_workspace_persists_and_caches_turn_usage() -> None:
     assert first == (usage, context_usage)
     assert second == first
     resolve.assert_awaited_once()
-    persist.assert_awaited_once()
+    session.set_current_usage.assert_awaited_once_with(
+        session_id="session-1",
+        usage=usage,
+        context_usage=context_usage,
+    )
     store.attach_turn_usage.assert_called_once_with(
         session_id="session-1",
         turn_id="turn-1",

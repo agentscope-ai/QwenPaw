@@ -34,6 +34,7 @@ export interface ChatSpec {
 export interface Message {
   role: string;
   content: unknown;
+  metadata?: unknown;
   [key: string]: unknown;
 }
 
@@ -47,6 +48,15 @@ export interface ChatHistory {
   messages: Message[];
   status?: ChatStatus; // Conversation status: idle or running
   history?: ChatHistoryMetadata | null;
+  context_state?: ChatContextState | null;
+}
+
+export interface ChatContextState {
+  generation: number;
+  usage?: {
+    usage?: Record<string, unknown> | null;
+    context_usage?: Record<string, unknown> | null;
+  } | null;
 }
 
 export interface ChatHistoryMetadata {
