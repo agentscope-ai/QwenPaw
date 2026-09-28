@@ -689,39 +689,6 @@ interface CommandSuggestion {
   description: string;
 }
 
-function messageRequestsHistoryClear(message: unknown): boolean {
-  if (!message || typeof message !== "object") return false;
-  const metadata = (message as Record<string, unknown>).metadata;
-  if (!metadata || typeof metadata !== "object") return false;
-
-  const meta = metadata as Record<string, unknown>;
-  if (meta.clear_history === true) return true;
-
-  const nested = meta.metadata;
-  return (
-    !!nested &&
-    typeof nested === "object" &&
-    (nested as Record<string, unknown>).clear_history === true
-  );
-}
-
-function payloadRequestsHistoryClear(payload: unknown): boolean {
-  if (!payload || typeof payload !== "object") return false;
-
-  const record = payload as Record<string, unknown>;
-  const candidates: unknown[] = [];
-
-  if (record.object === "message") {
-    candidates.push(record);
-  }
-
-  if (record.object === "response" && Array.isArray(record.output)) {
-    candidates.push(...record.output);
-  }
-
-  return candidates.some(messageRequestsHistoryClear);
-}
-
 function payloadCompletesResponse(payload: unknown): boolean {
   if (!payload || typeof payload !== "object") return false;
 
@@ -2338,7 +2305,6 @@ export default function ChatPage() {
     return () => window.removeEventListener("model-switched", handler);
   }, [fetchMultimodalCaps]);
 
-  const pendingClearHistoryRef = useRef(false);
   const whisperSpeechRef = useRef<WhisperSpeechButtonRef>(null);
   const [whisperEnabled, setWhisperEnabled] = useState(false);
   const [whisperChecked, setWhisperChecked] = useState(false);
@@ -2780,15 +2746,6 @@ export default function ChatPage() {
     lastSessionIdRef.current = chatId;
     sessionApi.trackNavigatedSession(chatId, setLastChatId, selectedAgent);
   }, [chatId, selectedAgent, setLastChatId]);
-
-  const scheduleHistoryClear = useCallback(() => {
-    queueMicrotask(() => {
-      if (!pendingClearHistoryRef.current) return;
-      pendingClearHistoryRef.current = false;
-      chatRef.current?.messages.removeAllMessages();
-      useTurnUsageStore.getState().setSnapshot(null);
-    });
-  }, []);
 
   const handleCompactCommand = useCallback(() => {
     const execution = chatRef.current?.execution;
@@ -4350,13 +4307,6 @@ export default function ChatPage() {
             return null;
           }
 
-          if (payloadRequestsHistoryClear(payload)) {
-            pendingClearHistoryRef.current = true;
-            if (payloadCompletesResponse(payload)) {
-              scheduleHistoryClear();
-            }
-          }
-
           return payload as unknown as ReturnType<
             NonNullable<
               NonNullable<
@@ -4528,7 +4478,6 @@ export default function ChatPage() {
     toolRenderConfig,
     extScalar,
     extLists,
-    scheduleHistoryClear,
     consoleSkills,
     loopAvailableModes,
     selectedAgent,

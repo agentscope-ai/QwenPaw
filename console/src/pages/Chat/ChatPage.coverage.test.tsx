@@ -37,6 +37,7 @@ const {
   mockRequiresQwenPawModel,
   mockHoldOwnershipLock,
   mockRuntimeMount,
+  mockRemoveAllMessages,
   mockFetchActiveLoopMode,
   mockSessionProjectDirectory,
   mockHydrateBackgroundTasksForSession,
@@ -56,6 +57,7 @@ const {
   mockRequiresQwenPawModel: vi.fn(() => true),
   mockHoldOwnershipLock: vi.fn(),
   mockRuntimeMount: vi.fn(),
+  mockRemoveAllMessages: vi.fn(),
   mockFetchActiveLoopMode: vi.fn(() => Promise.resolve(null)),
   mockSessionProjectDirectory: vi.fn(),
   mockHydrateBackgroundTasksForSession: vi.fn(() => Promise.resolve()),
@@ -106,7 +108,7 @@ vi.mock("@agentscope-ai/chat", () => ({
     useImperativeHandle(ref, () => ({
       input: { submit: mockRuntimeSubmit },
       messages: {
-        removeAllMessages: vi.fn(),
+        removeAllMessages: mockRemoveAllMessages,
         getSessionMessages: vi.fn(() => []),
         getMessages: vi.fn(() => []),
         setSessionMessages: vi.fn(),
@@ -556,6 +558,7 @@ describe("ChatPage coverage", () => {
     mockGetChatStatus.mockResolvedValue({ status: "idle" });
     mockRuntimeSubmit.mockReset();
     mockRuntimeMount.mockReset();
+    mockRemoveAllMessages.mockReset();
     mockSelectedAgent.mockReturnValue("default");
     mockFetchActiveLoopMode.mockClear();
     mockSessionProjectDirectory.mockClear();
@@ -891,7 +894,7 @@ describe("ChatPage coverage", () => {
     }
   });
 
-  it("handles history clear message detection", async () => {
+  it("keeps visible messages when the backend clears context", async () => {
     renderWithProviders(<ChatPage />, {
       initialEntries: ["/chat/test-session"],
     });
@@ -899,14 +902,22 @@ describe("ChatPage coverage", () => {
     await act(async () => {});
 
     if (capturedOptions?.api?.responseParser) {
-      // Exercise the payloadRequestsHistoryClear / messageRequestsHistoryClear paths
-      const parsed = capturedOptions.api.responseParser(
+      capturedOptions.api.responseParser(
         JSON.stringify({
-          object: "message",
-          metadata: { clear_history: true },
+          object: "response",
+          status: "completed",
+          output: [
+            {
+              type: "message",
+              role: "assistant",
+              metadata: { clear_history: true },
+              content: [{ type: "text", text: "cleared" }],
+            },
+          ],
         }),
       );
-      expect(parsed).toBeTruthy();
+      await act(async () => {});
+      expect(mockRemoveAllMessages).not.toHaveBeenCalled();
     }
   });
 
@@ -1798,54 +1809,6 @@ describe("ChatPage coverage", () => {
     if (capturedOptions?.api?.onFileCardClick) {
       capturedOptions.api.onFileCardClick({ name: "test.txt", size: 100 });
       expect(true).toBe(true);
-    }
-  });
-
-  // ── responseParser: payloadRequestsHistoryClear via response.output ────
-  it("responseParser detects history clear in response output array", async () => {
-    renderWithProviders(<ChatPage />, {
-      initialEntries: ["/chat/test-session"],
-    });
-    await screen.findByTestId("chat-ui");
-    await act(async () => {});
-
-    if (capturedOptions?.api?.responseParser) {
-      const parsed = capturedOptions.api.responseParser(
-        JSON.stringify({
-          object: "response",
-          status: "completed",
-          output: [
-            {
-              type: "message",
-              role: "assistant",
-              metadata: { clear_history: true },
-              content: [{ type: "text", text: "cleared" }],
-            },
-          ],
-        }),
-      );
-      expect(parsed).toBeTruthy();
-    }
-  });
-
-  // ── responseParser: nested metadata clear_history ──────────────────────
-  it("responseParser detects nested metadata clear_history", async () => {
-    renderWithProviders(<ChatPage />, {
-      initialEntries: ["/chat/test-session"],
-    });
-    await screen.findByTestId("chat-ui");
-    await act(async () => {});
-
-    if (capturedOptions?.api?.responseParser) {
-      const parsed = capturedOptions.api.responseParser(
-        JSON.stringify({
-          object: "message",
-          metadata: {
-            metadata: { clear_history: true },
-          },
-        }),
-      );
-      expect(parsed).toBeTruthy();
     }
   });
 

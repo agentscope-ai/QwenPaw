@@ -953,24 +953,6 @@ describe("ChatPage coverage", () => {
     }
   });
 
-  it("handles history clear message detection", async () => {
-    renderWithProviders(<ChatPage />, {
-      initialEntries: ["/chat/test-session"],
-    });
-    await screen.findByTestId("chat-ui");
-
-    if (capturedOptions?.api?.responseParser) {
-      // Exercise the payloadRequestsHistoryClear / messageRequestsHistoryClear paths
-      const parsed = capturedOptions.api.responseParser(
-        JSON.stringify({
-          object: "message",
-          metadata: { clear_history: true },
-        }),
-      );
-      expect(parsed).toBeTruthy();
-    }
-  });
-
   it("handles payload completion detection", async () => {
     renderWithProviders(<ChatPage />, {
       initialEntries: ["/chat/test-session"],
@@ -1782,52 +1764,6 @@ describe("ChatPage coverage", () => {
     if (capturedOptions?.api?.onFileCardClick) {
       capturedOptions.api.onFileCardClick({ name: "test.txt", size: 100 });
       expect(true).toBe(true);
-    }
-  });
-
-  // ── responseParser: payloadRequestsHistoryClear via response.output ────
-  it("responseParser detects history clear in response output array", async () => {
-    renderWithProviders(<ChatPage />, {
-      initialEntries: ["/chat/test-session"],
-    });
-    await screen.findByTestId("chat-ui");
-
-    if (capturedOptions?.api?.responseParser) {
-      const parsed = capturedOptions.api.responseParser(
-        JSON.stringify({
-          object: "response",
-          status: "completed",
-          output: [
-            {
-              type: "message",
-              role: "assistant",
-              metadata: { clear_history: true },
-              content: [{ type: "text", text: "cleared" }],
-            },
-          ],
-        }),
-      );
-      expect(parsed).toBeTruthy();
-    }
-  });
-
-  // ── responseParser: nested metadata clear_history ──────────────────────
-  it("responseParser detects nested metadata clear_history", async () => {
-    renderWithProviders(<ChatPage />, {
-      initialEntries: ["/chat/test-session"],
-    });
-    await screen.findByTestId("chat-ui");
-
-    if (capturedOptions?.api?.responseParser) {
-      const parsed = capturedOptions.api.responseParser(
-        JSON.stringify({
-          object: "message",
-          metadata: {
-            metadata: { clear_history: true },
-          },
-        }),
-      );
-      expect(parsed).toBeTruthy();
     }
   });
 
