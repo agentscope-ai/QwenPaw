@@ -8,6 +8,7 @@ export function SharedModal({
   surfaceId,
   open,
   className,
+  styles: modalStyles,
   ...props
 }: ModalProps & {
   surfaceId?: string;
@@ -24,6 +25,15 @@ export function SharedModal({
       className={`${styles.modal} ${className ?? ""}`}
       open={!!open || visible}
       transitionName=""
+      maskTransitionName={open ? undefined : ""}
+      styles={{
+        ...modalStyles,
+        mask: {
+          ...modalStyles?.mask,
+          opacity: open ? 1 : 0,
+          transition: reduced ? "none" : "opacity 120ms ease-out",
+        },
+      }}
       modalRender={(node) => (
         <AnimatePresence
           onExitComplete={() => {
