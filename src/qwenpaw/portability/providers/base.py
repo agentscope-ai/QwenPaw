@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import logging
+import json
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any, Protocol
@@ -75,9 +76,19 @@ async def report_result(
     kind: str,
     *values: Any,
 ) -> None:
+    fields = list(map(str, values))
+    # Preserve legacy events, but frame asset details and unusual source IDs
+    # as JSON so a filename cannot become another asset's fields.
+    if kind == "asset" and (
+        len(fields) > 4
+        or any("\t" in field or "\n" in field for field in fields)
+    ):
+        message = "\x1easset_json\t" + json.dumps(fields)
+    else:
+        message = f"\x1e{kind}\t" + "\t".join(fields)
     await report_progress(
         progress,
-        f"\x1e{kind}\t" + "\t".join(map(str, values)),
+        message,
     )
 
 

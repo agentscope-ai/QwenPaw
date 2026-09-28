@@ -154,3 +154,101 @@
     gap: 4px;
   }
 }
+
+/* Page-specific settings refinement. */
+
+.content {
+  padding-top: 8px;
+}
+.toolbar {
+  padding: 12px;
+  background: var(--app-fill-faint);
+  border-radius: 14px;
+}
+.toolbarLeft {
+  flex: 1;
+  min-width: 0;
+}
+.searchInput {
+  width: min(320px, 100%);
+}
+.logViewer {
+  min-height: 240px;
+  max-height: min(60vh, 720px);
+  border-radius: 16px;
+  padding: 18px;
+  line-height: 1.75;
+}
+.logPath {
+  margin-top: 12px;
+}
+.logPathValue {
+  border-radius: 8px;
+}
+@media (max-width: 600px) {
+  .content {
+    padding-inline: 0;
+  }
+  .cardExtra {
+    align-items: flex-start;
+  }
+}
+
+.titleWithHelp {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.cardExtra {
+  flex-wrap: wrap;
+  row-gap: 8px;
+}
+.toolbarLeft,
+.toolbarRight {
+  flex-wrap: wrap;
+}
+@media (max-width: 700px) {
+  .content :global(.ant-card-head-wrapper) {
+    flex-wrap: wrap;
+    gap: 12px;
+    padding-block: 16px;
+  }
+  .content :global(.ant-card-extra) {
+    margin-left: 0;
+  }
+  .toolbar {
+    align-items: stretch;
+  }
+  .toolbarRight {
+    width: 100%;
+  }
+}
+
+.logFrame {
+  position: relative;
+}
+.followNotice {
+  position: absolute;
+  z-index: 2;
+  top: 10px;
+  right: 16px;
+  max-width: calc(100% - 32px);
+  button {
+    border: 1px solid var(--app-border);
+    border-radius: 999px;
+    padding: 8px 14px;
+    background: var(--app-surface-raised);
+    box-shadow: var(--app-shadow-sm);
+    color: var(--app-accent-text);
+    font: inherit;
+    font-size: 12px;
+    cursor: pointer;
+    &:active {
+      transform: scale(0.96);
+    }
+    &:focus-visible {
+      outline: 2px solid var(--app-focus-ring);
+      outline-offset: 2px;
+    }
+  }
+}

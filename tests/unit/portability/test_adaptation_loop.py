@@ -403,6 +403,40 @@ async def test_mission_repairs_then_retests_skill(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "diagnosis",
+    [
+        "Skill 缺少描述，请补全 SKILL.md 中的 description 后重试。",
+        "我认为这个 Skill 已符合要求，可以直接使用。",
+    ],
+)
+async def test_failed_native_check_keeps_agent_diagnosis_and_retry_rounds(
+    tmp_path: Path,
+    diagnosis: str,
+) -> None:
+    async def action(context):
+        result = await context.finalize_asset("skills:demo", diagnosis)
+        assert not result["passed"]
+
+    workspace = _Workspace(tmp_path, action)
+    inventory = ProviderInventory(
+        provider_id="codex",
+        provider_name="Codex",
+        detected=True,
+        skills=[_skill(tmp_path, "---\nname: demo\n---\nInstructions.\n")],
+    )
+    result = await run_adaptation_loop(workspace, inventory, "failed-analysis")
+    asset = result.manifest.get_asset("skills:demo")
+    assert asset.zone is AssetZone.REPAIR
+    assert asset.last_test is not None and not asset.last_test.passed
+    assert diagnosis in asset.reason
+    assert "原生检查未通过" in asset.reason
+    assert "description" in asset.reason
+    assert diagnosis in result.summary_path.read_text(encoding="utf-8")
+    assert len(workspace.requests) > 1
+
+
+@pytest.mark.asyncio
 async def test_missing_mission_mode_fails_safe_into_repair(
     tmp_path: Path,
 ) -> None:

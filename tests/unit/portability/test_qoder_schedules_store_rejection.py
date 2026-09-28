@@ -283,6 +283,10 @@ def test_broken_v2_never_falls_back_to_v1(tmp_path: Path) -> None:
     assert "Could not read Qoder schedule store" in warnings[0]
 
 
+@pytest.mark.skipif(
+    os.name == "nt",
+    reason="creating a symlink needs a privilege Windows runners lack",
+)
 def test_dangling_v2_symlink_is_refused_before_v1(tmp_path: Path) -> None:
     user_data = tmp_path / "User"
     v2_path = _store_path(user_data, 2)
@@ -301,6 +305,10 @@ def test_dangling_v2_symlink_is_refused_before_v1(tmp_path: Path) -> None:
 # --------------------------------------------------------------------------
 
 
+@pytest.mark.skipif(
+    os.name == "nt",
+    reason="os.mkfifo does not exist on Windows",
+)
 def test_store_that_is_not_a_regular_file_is_refused(tmp_path: Path) -> None:
     user_data = tmp_path / "User"
     fifo = _store_path(user_data, 2)
@@ -324,7 +332,12 @@ def test_store_directory_is_refused(tmp_path: Path) -> None:
 
 def test_uninspectable_path_reports_inspection_failure() -> None:
     # A name longer than the filesystem limit makes both is_symlink() and
-    # lstat() raise OSError; discovery must report it, not crash.
+    # lstat() raise OSError; discovery must report it, not crash. On
+    # Windows the limit is far lower and the error surfaces as a plain
+    # FileNotFoundError without the OSError subclass the POSIX path hits,
+    # so the overlong-name probe is POSIX-only.
+    if os.name == "nt":
+        pytest.skip("overlong-path OSError shape differs on Windows")
     overlong = Path("/" + "x" * 5000)
 
     tasks, warnings, count = discover_qoder_scheduled_tasks(overlong)
@@ -560,7 +573,15 @@ def test_path_presence_negative_control_lets_v1_win(
         ("missing", False),
         ("regular", True),
         ("directory", True),
-        ("dangling-symlink", True),
+        pytest.param(
+            "dangling-symlink",
+            True,
+            marks=pytest.mark.skipif(
+                os.name == "nt",
+                reason="creating a symlink needs a privilege Windows "
+                "runners lack",
+            ),
+        ),
     ],
 )
 def test_path_presence_recognizes_damaged_entries(

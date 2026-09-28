@@ -1,5 +1,8 @@
+import { ConfigAutoSaveContext } from "./configAutoSaveContext";
+import { RuntimeWorkbench } from "./components/RuntimeWorkbench";
+import { useAutoSave } from "@/hooks/useAutoSave";
 import { useState, useMemo, useEffect, useCallback } from "react";
-import { Button, Form, Tabs } from "@agentscope-ai/design";
+import { Button, Form } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
 import { useSearchParams } from "react-router-dom";
 import { useAgentConfig } from "./useAgentConfig.tsx";
@@ -28,10 +31,15 @@ import { handleRerankerFieldsChange } from "./rerankerVisibility";
 
 function AgentConfigPage() {
   const { t } = useTranslation();
-  const [searchParams] = useSearchParams();
-  const [activeTab, setActiveTab] = useState(
-    searchParams.get("tab") || "reactAgent",
-  );
+  const [searchParams, setSearchParams] = useSearchParams();
+  const setSection = (key: string | null) => {
+    setSearchParams((previous) => {
+      const next = new URLSearchParams(previous);
+      if (key) next.set("tab", key);
+      else next.delete("tab");
+      return next;
+    });
+  };
   const [needsReindex, setNeedsReindex] = useState(false);
   const [localReindexing, setLocalReindexing] = useState(false);
   const [persistedEmbeddingFingerprint, setPersistedEmbeddingFingerprint] =
@@ -48,9 +56,9 @@ function AgentConfigPage() {
   const {
     form,
     loading,
-    saving,
     error,
     language,
+    saving,
     savingLang,
     timezone,
     savingTimezone,
@@ -63,11 +71,18 @@ function AgentConfigPage() {
     handleTimezoneChange,
   } = useAgentConfig(syncReindexRequirement);
 
-  const llmRetryEnabled = Form.useWatch("llm_retry_enabled", form) ?? true;
+  const { schedule: scheduleSave, flush: flushSave } = useAutoSave(() =>
+    handleSave(true),
+  );
+
+  const llmRetryEnabled =
+    Form.useWatch("llm_retry_enabled", { form, preserve: true }) ?? true;
   const contextBackend =
-    Form.useWatch("context_manager_backend", form) || "light";
+    Form.useWatch("context_manager_backend", { form, preserve: true }) ||
+    "light";
   const memoryBackend =
-    Form.useWatch("memory_manager_backend", form) || "remelight";
+    Form.useWatch("memory_manager_backend", { form, preserve: true }) ||
+    "remelight";
   const memoryBackends = useMemoryBackends();
   const { selectedAgent } = useAgentStore();
   const { runtimeStatus, diagnosticsStatus, checkMemoryStatus } =
@@ -268,7 +283,10 @@ function AgentConfigPage() {
         <div className={styles.tabContent}>
           <ToolExecutionLevelCard
             value={approvalLevel}
-            onChange={setApprovalLevel}
+            onChange={(value) => {
+              setApprovalLevel(value);
+              scheduleSave();
+            }}
             disabled={saving}
           />
         </div>
@@ -280,6 +298,8 @@ function AgentConfigPage() {
     t,
     language,
     savingLang,
+    saving,
+    scheduleSave,
     timezone,
     savingTimezone,
     handleLanguageChange,
@@ -291,15 +311,7 @@ function AgentConfigPage() {
     memoryBackends,
     approvalLevel,
     setApprovalLevel,
-    saving,
   ]);
-
-  useEffect(() => {
-    const tabKeys = dynamicTabs.map((t) => t.key);
-    if (!tabKeys.includes(activeTab)) {
-      setActiveTab(tabKeys[0] ?? "reactAgent");
-    }
-  }, [dynamicTabs, activeTab]);
 
   if (loading) {
     return (
@@ -337,7 +349,10 @@ function AgentConfigPage() {
             setReindexing: setLocalReindexing,
             persistedEmbeddingFingerprint,
             setPersistedEmbeddingFingerprint,
-            openMemorySettings: () => setActiveTab("remeLightMemory"),
+            openMemorySettings: () =>
+              document
+                .querySelector('[data-runtime-key="remeLightMemory"]')
+                ?.scrollIntoView({ block: "start", behavior: "smooth" }),
             runtimeStatus,
             diagnosticsStatus,
             checkMemoryStatus,
@@ -346,37 +361,26 @@ function AgentConfigPage() {
             configLoadRevision,
           }}
         >
-          <Form
-            form={form}
-            layout="vertical"
-            className={styles.form}
-            onFieldsChange={handleRerankerFieldsChange(
-              form,
-              setRerankerExpanded,
-            )}
-          >
-            <Tabs
-              className={styles.mainTabs}
-              activeKey={activeTab}
-              onChange={setActiveTab}
-              items={dynamicTabs}
-              destroyInactiveTabPane={false}
-            />
-          </Form>
+          <ConfigAutoSaveContext.Provider value={scheduleSave}>
+            <Form
+              form={form}
+              layout="vertical"
+              className={styles.form}
+              onValuesChange={scheduleSave}
+              onFieldsChange={handleRerankerFieldsChange(
+                form,
+                setRerankerExpanded,
+              )}
+            >
+              <RuntimeWorkbench
+                items={dynamicTabs}
+                initialKey={searchParams.get("tab")}
+                onSectionChange={setSection}
+                onNavigate={flushSave}
+              />
+            </Form>
+          </ConfigAutoSaveContext.Provider>
         </MemoryMaintenanceContext.Provider>
-      </div>
-
-      <div className={styles.footerActions}>
-        <Button
-          onClick={fetchConfig}
-          disabled={saving}
-          style={{ marginRight: 8 }}
-        >
-          {t("common.reset")}
-        </Button>
-        <Button type="primary" onClick={handleSave} loading={saving}>
-          {t("common.save")}
-        </Button>
       </div>
     </div>
   );

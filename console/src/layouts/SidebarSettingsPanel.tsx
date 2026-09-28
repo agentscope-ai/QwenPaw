@@ -1,6 +1,8 @@
 import { Popover, message } from "antd";
 import {
   BookOpen,
+  Github,
+  CirclePlay,
   BrainCircuit,
   Check,
   ChevronRight,
@@ -50,8 +52,15 @@ import {
   type ToolDisplayPreference,
 } from "../utils/chatDisplayPreference";
 import { openExternalLink } from "../utils/openExternalLink";
-import { getDocsUrl, getFaqUrl, getReleaseNotesUrl } from "./constants";
+import {
+  GITHUB_URL,
+  getFeatureDemosUrl,
+  getDocsUrl,
+  getFaqUrl,
+  getReleaseNotesUrl,
+} from "./constants";
 import styles from "./sidebarSettingsPanel.module.less";
+import LocalAvatarPicker from "./LocalAvatarPicker";
 
 type ContentWidth = "standard" | "wide";
 
@@ -409,6 +418,7 @@ export default function SidebarSettingsPanel({
 
   return (
     <div className={styles.panel}>
+      <LocalAvatarPicker />
       <FlyoutItem
         icon={<Palette size={16} />}
         label={t("sidebar.quickMenu.appearance", "Appearance")}
@@ -453,6 +463,22 @@ export default function SidebarSettingsPanel({
       >
         <CircleHelp size={16} />
         <span>{t("header.faq", "FAQ")}</span>
+      </button>
+      <button
+        type="button"
+        className={styles.menuItem}
+        onClick={() => openLink(getFeatureDemosUrl(i18n.language))}
+      >
+        <CirclePlay size={16} />
+        <span>{t("header.featureDemos")}</span>
+      </button>
+      <button
+        type="button"
+        className={styles.menuItem}
+        onClick={() => openLink(GITHUB_URL)}
+      >
+        <Github size={16} />
+        <span>{t("header.github")}</span>
       </button>
       <div className={styles.divider} />
 

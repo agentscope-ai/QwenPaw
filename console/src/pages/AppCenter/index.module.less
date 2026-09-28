@@ -7,7 +7,7 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  background: var(--app-surface);
+  background: transparent;
 }
 
 .pageBody {
@@ -229,7 +229,6 @@
   &:hover {
     border-color: var(--app-border-strong);
     box-shadow: var(--app-shadow-sm);
-    transform: translateY(-2px);
   }
 
   // The app configures antd with prefixCls="qwenpaw"; keep the ant-* alias
@@ -249,18 +248,6 @@
       min-height: 184px;
       padding: 14px;
     }
-  }
-
-  &:hover .cardHoverActions,
-  &:focus-within .cardHoverActions {
-    opacity: 1;
-    pointer-events: auto;
-    transform: translateY(0);
-  }
-
-  &:hover .cardFooter,
-  &:focus-within .cardFooter {
-    opacity: 0;
   }
 }
 
@@ -412,11 +399,8 @@
 }
 
 .cardActions {
-  position: absolute;
-  right: 16px;
-  bottom: 16px;
-  left: 16px;
-  z-index: 2;
+  position: relative;
+  margin-top: auto;
   display: flex;
   gap: 8px;
 
@@ -424,39 +408,17 @@
   :global(.qwenpaw-btn) {
     flex: 1;
     min-width: 0;
-    border-radius: 6px;
+    border-radius: 10px;
+    &:last-child:not(:first-child) {
+      flex: 0 0 auto;
+    }
   }
 
   @media (max-width: 639px) {
-    right: 14px;
-    bottom: 14px;
-    left: 14px;
-
     :global(.ant-btn),
     :global(.qwenpaw-btn) {
       min-height: 36px;
     }
-  }
-}
-
-.cardHoverActions {
-  opacity: 0;
-  pointer-events: none;
-  transform: translateY(4px);
-  transition:
-    opacity 0.16s ease,
-    transform 0.16s ease;
-}
-
-@media (max-width: 639px), (hover: none) {
-  .cardHoverActions {
-    opacity: 1;
-    pointer-events: auto;
-    transform: translateY(0);
-  }
-
-  .appCard .cardFooter {
-    opacity: 0;
   }
 }
 
@@ -592,7 +554,13 @@
     0 4px 12px rgba(0, 0, 0, 0.15),
     0 2px 4px rgba(0, 0, 0, 0.1),
     inset 0 1px 0 rgba(255, 255, 255, 0.08);
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  transition:
+    background-color 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+    color 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+    border-color 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+    box-shadow 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+    opacity 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+    transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   animation: pulse 2s ease-in-out 3;
 
   &:hover {
@@ -624,7 +592,13 @@
   background: transparent;
   color: #fff;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition:
+    background-color 0.2s ease,
+    color 0.2s ease,
+    border-color 0.2s ease,
+    box-shadow 0.2s ease,
+    opacity 0.2s ease,
+    transform 0.2s ease;
 
   &:hover {
     background: rgba(255, 255, 255, 0.1);
@@ -722,4 +696,41 @@
   // Smooth scrolling
   scroll-behavior: smooth;
   -webkit-overflow-scrolling: touch;
+}
+
+.previewTrigger {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--app-text);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.4;
+  text-align: start;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+  &:hover {
+    color: var(--app-accent-text);
+  }
+  &:focus-visible {
+    outline: 2px solid var(--app-focus-ring);
+    outline-offset: 4px;
+    border-radius: 4px;
+  }
+}
+.previewBody {
+  color: var(--app-text-secondary);
+  line-height: 1.75;
+  overflow-wrap: anywhere;
+  p {
+    margin: 20px 0 8px;
+    white-space: pre-wrap;
+  }
+}
+.previewActions {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
 }

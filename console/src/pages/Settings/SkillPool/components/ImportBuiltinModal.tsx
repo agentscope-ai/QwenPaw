@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Button, Modal, Tooltip } from "@agentscope-ai/design";
-import { CheckOutlined } from "@ant-design/icons";
+import { Check as CheckOutlined } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type {
   BuiltinImportSpec,
@@ -186,7 +186,7 @@ export function ImportBuiltinModal({
               >
                 {isSelected && (
                   <span className={skillStyles.pickerCheck}>
-                    <CheckOutlined />
+                    <CheckOutlined size="1em" />
                   </span>
                 )}
                 <Tooltip title={item.name}>

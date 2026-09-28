@@ -1,3 +1,7 @@
+import type RestoreAgentTable from "./RestoreAgentTable";
+import type BackupTrustDialog from "../trust/BackupTrustDialog";
+type TableProps = React.ComponentProps<typeof RestoreAgentTable>;
+type TrustProps = React.ComponentProps<typeof BackupTrustDialog>;
 /**
  * RestoreBackupModal — final step of the backup restore flow. Covers detail
  * loading (success/failure gating of the OK button), the trust banner
@@ -43,11 +47,11 @@ vi.mock("react-i18next", () => ({
   }),
 }));
 
-const tableProps = vi.hoisted(() => ({ current: null as any }));
-const trustProps = vi.hoisted(() => ({ current: null as any }));
+const tableProps = vi.hoisted(() => ({ current: null as TableProps | null }));
+const trustProps = vi.hoisted(() => ({ current: null as TrustProps | null }));
 
 vi.mock("./RestoreAgentTable", () => ({
-  default: (props: any) => {
+  default: (props: TableProps) => {
     tableProps.current = props;
     return React.createElement(
       "div",
@@ -68,7 +72,7 @@ vi.mock("./RestoreAgentTable", () => ({
 }));
 
 vi.mock("../trust/BackupTrustDialog", () => ({
-  default: (props: any) => {
+  default: (props: TrustProps) => {
     trustProps.current = props;
     if (!props.open) return null;
     return React.createElement(
@@ -204,10 +208,7 @@ describe("RestoreBackupModal", () => {
     renderModal();
     await waitFor(() => expect(apiMocks.getBackup).toHaveBeenCalled());
     await waitFor(() => {
-      const fullWrapper = document
-        .querySelector('input[value="full"]')!
-        .closest(".ant-radio-wrapper");
-      expect(fullWrapper).toHaveClass("ant-radio-wrapper-checked");
+      expect(document.querySelector('input[value="full"]')).toBeChecked();
     });
     expect(screen.getByText("backup.restoreFullWarning")).toBeInTheDocument();
   });
@@ -225,10 +226,7 @@ describe("RestoreBackupModal", () => {
     );
     await waitFor(() => expect(apiMocks.getBackup).toHaveBeenCalled());
     await waitFor(() => {
-      const customWrapper = document
-        .querySelector('input[value="custom"]')!
-        .closest(".ant-radio-wrapper");
-      expect(customWrapper).toHaveClass("ant-radio-wrapper-checked");
+      expect(document.querySelector('input[value="custom"]')).toBeChecked();
     });
     expect(document.querySelector('input[value="full"]')).toBeDisabled();
     expect(

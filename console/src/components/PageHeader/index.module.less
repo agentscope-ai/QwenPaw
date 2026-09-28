@@ -3,8 +3,11 @@
   justify-content: space-between;
   align-items: center;
   position: relative;
-  padding: 20px;
-  border-bottom: 1px solid var(--app-border);
+  padding: 20px 24px;
+  border-bottom: 1px solid var(--app-border-subtle);
+  gap: 16px;
+  background: var(--app-glass);
+  backdrop-filter: blur(16px);
   flex-shrink: 0;
 
   @media (max-width: 768px) {
@@ -53,7 +56,9 @@
 .breadcrumbCurrent {
   color: var(--app-text);
   font-weight: 600;
-  font-size: 20px;
+  font-size: 22px;
+  letter-spacing: -0.025em;
+  line-height: 1.3;
 }
 
 .center {

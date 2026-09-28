@@ -101,7 +101,12 @@ class TestCheckSkillDependencies:
         found = binary_dir / "qwenpaw_probe_tool"
         found.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
         found.chmod(0o755)
-        req = SkillRequirements(require_bins=["qwenpaw_probe_tool"])
+        if os.name == "nt":
+            # shutil.which only matches PATHEXT extensions on Windows.
+            renamed = found.with_name(found.name + ".bat")
+            found.rename(renamed)
+            found = renamed
+        req = SkillRequirements(require_bins=[found.name])
 
         result = reg.check_skill_dependencies(
             req,

@@ -20,6 +20,7 @@ from ..chats.api import router as runner_router
 from .console import router as console_router
 from .fork import router as fork_router
 from .token_usage import router as token_usage_router
+from .avatars import router as avatars_router
 from .agent_stats import router as agent_stats_router
 from .auth import router as auth_router
 from .messages import router as messages_router
@@ -36,6 +37,7 @@ from .provider_oauth import router as provider_oauth_router
 from .pawapps import router as pawapps_router
 from .harnesses import router as harnesses_router
 from .checkpoints import router as checkpoints_router
+from .terminal import router as terminal_router
 
 router = APIRouter()
 
@@ -57,6 +59,7 @@ router.include_router(tools_router)
 router.include_router(workspace_router)
 router.include_router(envs_router)
 router.include_router(token_usage_router)
+router.include_router(avatars_router)
 router.include_router(agent_stats_router)
 router.include_router(auth_router)
 router.include_router(files_router)
@@ -72,6 +75,7 @@ router.include_router(provider_oauth_router)
 router.include_router(pawapps_router)
 router.include_router(harnesses_router)
 router.include_router(checkpoints_router)
+router.include_router(terminal_router)
 
 
 def create_agent_scoped_router() -> APIRouter:

@@ -15,7 +15,7 @@ import {
 import type { ModelInfo } from "../../../../../api/types";
 import { useTranslation } from "react-i18next";
 
-export const tagColors = () => ({
+const tagColors = () => ({
   multimodal: {
     backgroundColor: "var(--app-info-bg)",
     color: "var(--app-info-text)",

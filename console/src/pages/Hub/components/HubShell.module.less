@@ -65,9 +65,10 @@
   display: flex;
   flex-direction: column;
   width: 224px;
-  padding: 30px 16px 20px;
+  padding: 24px 16px 20px;
   border-right: 1px solid var(--hub-border);
-  background: var(--hub-surface);
+  background: var(--app-glass);
+  backdrop-filter: blur(20px);
 }
 .brand {
   display: flex;
@@ -263,7 +264,12 @@
   min-height: 100dvh;
 }
 .topbar {
-  min-height: 70px;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: var(--app-glass);
+  backdrop-filter: blur(20px);
+  min-height: 64px;
   display: flex;
   align-items: center;
   gap: 12px;
@@ -297,7 +303,7 @@
 .content {
   max-width: 1536px;
   margin: 0 auto;
-  padding: 36px 36px 60px;
+  padding: 28px 32px 48px;
 }
 .menu {
   display: grid;

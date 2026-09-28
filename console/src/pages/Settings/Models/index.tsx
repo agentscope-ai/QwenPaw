@@ -1,3 +1,4 @@
+import { Cascade } from "@/components/interaction/Cascade";
 import { motion, useReducedMotion } from "motion/react";
 import { ModelChoice } from "../../Chat/ModelSelector/ModelChoice";
 import { providerApi } from "@/api/modules/provider";
@@ -55,6 +56,8 @@ function ModelsPage() {
         )
       : undefined;
   const [addProviderOpen, setAddProviderOpen] = useState(false);
+  const [configOpen, setConfigOpen] = useState(false);
+  const [modelsOpen, setModelsOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   // Prevent browsers from autofilling the search input with saved credentials
   // (e.g. the username from the login page). Browsers skip read-only inputs
@@ -86,8 +89,10 @@ function ModelsPage() {
       if (target) {
         if (manageModels || target.id === "hub-managed") {
           setModelsModalProvider(target);
+          setModelsOpen(true);
         } else {
           setConfigModalProvider(target);
+          setConfigOpen(true);
         }
         setSearchParams({}, { replace: true });
       }
@@ -124,10 +129,12 @@ function ModelsPage() {
 
   const handleOpenConfig = useCallback((provider: ProviderInfo) => {
     setConfigModalProvider(provider);
+    setConfigOpen(true);
   }, []);
 
   const handleOpenModels = useCallback((provider: ProviderInfo) => {
     setModelsModalProvider(provider);
+    setModelsOpen(true);
   }, []);
 
   // P1: Defer search filtering to avoid blocking input responsiveness
@@ -295,19 +302,26 @@ function ModelsPage() {
   );
 
   const renderProviderCards = (list: ProviderInfo[]) =>
-    list.map((provider) => (
-      <ProviderCard
-        key={provider.id}
-        provider={provider}
-        activeModels={activeModels}
-        onSaved={refreshProvidersSilently}
-        onOpenConfig={handleOpenConfig}
-        onOpenModels={handleOpenModels}
-      />
+    list.map((provider, index) => (
+      <Cascade key={provider.id} index={index} animate={!searchQuery}>
+        <ProviderCard
+          provider={provider}
+          activeModels={activeModels}
+          onSaved={refreshProvidersSilently}
+          onOpenConfig={handleOpenConfig}
+          onOpenModels={handleOpenModels}
+        />
+      </Cascade>
     ));
 
   return (
-    <div className={styles.settingsPage}>
+    <motion.div
+      className={styles.settingsPage}
+      animate={{
+        scale: !reducedMotion && (configOpen || modelsOpen) ? 0.995 : 1,
+      }}
+      transition={{ type: "spring", stiffness: 360, damping: 38 }}
+    >
       {loading ? (
         <LoadingState message={t("models.loading")} />
       ) : error ? (
@@ -316,6 +330,7 @@ function ModelsPage() {
         <>
           {/* ---- LLM Section (top) ---- */}
           <PageHeader
+            className={styles.pageHeader}
             parent={t("nav.settings")}
             current={t("models.llmTitle")}
           />
@@ -625,16 +640,16 @@ function ModelsPage() {
               <ProviderConfigModal
                 provider={configModalProvider}
                 activeModels={activeModels}
-                open={!!configModalProvider}
-                onClose={() => setConfigModalProvider(null)}
+                open={configOpen}
+                onClose={() => setConfigOpen(false)}
                 onSaved={refreshProvidersSilently}
               />
             )}
             {modelsModalProvider && (
               <ModelManageModal
                 provider={modelsModalProvider}
-                open={!!modelsModalProvider}
-                onClose={() => setModelsModalProvider(null)}
+                open={modelsOpen}
+                onClose={() => setModelsOpen(false)}
                 onSaved={refreshProvidersSilently}
                 onProviderUpdated={(p) => setModelsModalProvider(p)}
               />
@@ -671,7 +686,7 @@ function ModelsPage() {
           </div>
         </>
       )}
-    </div>
+    </motion.div>
   );
 }
 

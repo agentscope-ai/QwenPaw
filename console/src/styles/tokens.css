@@ -20,7 +20,11 @@
  */
 
 :root {
-  --app-radius: 8px;
+  --app-radius: 10px;
+  --app-radius-card: 16px;
+  --app-radius-panel: 24px;
+  --app-glass: color-mix(in srgb, var(--app-surface) 88%, transparent);
+  --app-shadow-panel: 0 2px 6px rgb(0 0 0 / 3%), 0 24px 64px rgb(0 0 0 / 12%);
   /* Surfaces */
   --app-bg: #f9f8f4;
   --app-surface: #ffffff;
@@ -67,17 +71,15 @@
   --app-accent-ring: color-mix(in srgb, var(--app-accent) 20%, transparent);
   --app-focus-ring: var(--app-accent-text);
 
-  /* Navigation selection stays neutral in the light shell. */
-  --app-nav-selected-bg: rgba(43, 18, 0, 0.08);
-  --app-nav-selected-bg-hover: rgba(43, 18, 0, 0.1);
-  --app-nav-selected-text: var(--app-text);
+  /* Navigation and selection share the current brand accent. */
+  --app-nav-selected-bg: var(--app-accent-soft);
+  --app-nav-selected-bg-hover: var(--app-accent-soft-hover);
+  --app-nav-selected-text: var(--app-accent-text);
 
-  /* Selected row / active item. Still antd blue: kept as-is so the token
-   * extraction stays visually neutral. Switching selection to the brand
-   * orange is a design decision and only needs an edit here. */
-  --app-selected-bg: #e6f4ff;
-  --app-selected-bg-hover: #d6eaff;
-  --app-selected-border: #1677ff;
+  /* Selection follows the active theme in both color schemes. */
+  --app-selected-bg: var(--app-accent-soft);
+  --app-selected-bg-hover: var(--app-accent-soft-hover);
+  --app-selected-border: var(--app-accent-border);
 
   /* Informational callouts (also antd blue) */
   --app-info-bg: rgba(22, 119, 255, 0.06);
@@ -121,6 +123,8 @@
 }
 
 html.dark-mode {
+  --app-accent: #ff9d4d;
+  --app-shadow-panel: 0 2px 6px rgb(0 0 0 / 12%), 0 24px 64px rgb(0 0 0 / 36%);
   /* Surfaces */
   --app-bg: #141414;
   --app-surface: #1f1f1f;
@@ -165,9 +169,9 @@ html.dark-mode {
   --app-nav-selected-text: var(--app-accent-text);
 
   /* Selection */
-  --app-selected-bg: rgba(22, 119, 255, 0.12);
-  --app-selected-bg-hover: rgba(22, 119, 255, 0.18);
-  --app-selected-border: #4096ff;
+  --app-selected-bg: var(--app-accent-soft);
+  --app-selected-bg-hover: var(--app-accent-soft-hover);
+  --app-selected-border: var(--app-accent-border);
 
   /* Informational callouts */
   --app-info-bg: rgba(22, 119, 255, 0.12);

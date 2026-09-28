@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import { Button, Switch, Input } from "@agentscope-ai/design";
-import { CopyOutlined } from "@ant-design/icons";
+import { Copy as CopyOutlined } from "lucide-react";
 import { XMarkdown } from "@ant-design/x-markdown";
 import { useTranslation } from "react-i18next";
 import type { CSSProperties } from "react";
@@ -166,7 +166,7 @@ export function MarkdownCopy({
               />
             </div>
             <Button
-              icon={<CopyOutlined />}
+              icon={<CopyOutlined size="1em" />}
               {...defaultCopyButtonProps}
               onClick={copyToClipboard}
               loading={isCopying}

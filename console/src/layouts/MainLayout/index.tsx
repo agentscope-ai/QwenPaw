@@ -3,6 +3,7 @@ import { Layout, Spin } from "antd";
 import { Routes, Route, useLocation } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import Sidebar from "../Sidebar";
+import AmbientLight from "../AmbientLight";
 import Header from "../Header";
 import ConsolePollService from "../../components/ConsolePollService";
 import { AgentStatusPollingController } from "../../components/AgentStatusPollingController";
@@ -46,6 +47,7 @@ export default function MainLayout({ hubMode = false }: { hubMode?: boolean }) {
   return (
     <HubModeContext.Provider value={hubMode}>
       <Layout className={styles.mainLayout}>
+        <AmbientLight />
         {!settingsCenterActive && (
           <Sidebar selectedKey={selectedKey} hubMode={hubMode} />
         )}

@@ -1,14 +1,14 @@
 import {
-  CalendarFilled,
-  CodeFilled,
-  FileExcelFilled,
-  FileImageFilled,
-  FilePdfFilled,
-  FilePptFilled,
-  FileTextFilled,
-  FileWordFilled,
-  FileZipFilled,
-} from "@ant-design/icons";
+  Calendar as CalendarFilled,
+  FileCode as CodeFilled,
+  Sheet as FileExcelFilled,
+  FileImage as FileImageFilled,
+  FileText as FilePdfFilled,
+  Presentation as FilePptFilled,
+  FileText as FileTextFilled,
+  FileText as FileWordFilled,
+  FileArchive as FileZipFilled,
+} from "lucide-react";
 
 const normalizeSkillIconKey = (value: string) =>
   value
@@ -28,20 +28,41 @@ export const getFileIcon = (filePath: string) => {
   ]);
 
   if (textSkillIcons.has(skillKey)) {
-    return <FileTextFilled style={{ color: "#1890ff" }} />;
+    return (
+      <FileTextFilled size="1em" style={{ color: "var(--app-accent-text)" }} />
+    );
   }
 
   switch (skillKey) {
     case "docx":
-      return <FileWordFilled style={{ color: "#2B8DFF" }} />;
+      return (
+        <FileWordFilled
+          size="1em"
+          style={{ color: "var(--app-accent-text)" }}
+        />
+      );
     case "xlsx":
-      return <FileExcelFilled style={{ color: "#44C161" }} />;
+      return (
+        <FileExcelFilled
+          size="1em"
+          style={{ color: "var(--app-accent-text)" }}
+        />
+      );
     case "pptx":
-      return <FilePptFilled style={{ color: "#FF5B3B" }} />;
+      return (
+        <FilePptFilled size="1em" style={{ color: "var(--app-accent-text)" }} />
+      );
     case "pdf":
-      return <FilePdfFilled style={{ color: "#F04B57" }} />;
+      return (
+        <FilePdfFilled size="1em" style={{ color: "var(--app-accent-text)" }} />
+      );
     case "cron":
-      return <CalendarFilled style={{ color: "#13c2c2" }} />;
+      return (
+        <CalendarFilled
+          size="1em"
+          style={{ color: "var(--app-accent-text)" }}
+        />
+      );
     default:
       break;
   }
@@ -52,31 +73,57 @@ export const getFileIcon = (filePath: string) => {
     case "txt":
     case "md":
     case "markdown":
-      return <FileTextFilled style={{ color: "#1890ff" }} />;
+      return (
+        <FileTextFilled
+          size="1em"
+          style={{ color: "var(--app-accent-text)" }}
+        />
+      );
     case "zip":
     case "rar":
     case "7z":
     case "tar":
     case "gz":
-      return <FileZipFilled style={{ color: "#fa8c16" }} />;
+      return (
+        <FileZipFilled size="1em" style={{ color: "var(--app-accent-text)" }} />
+      );
     case "pdf":
-      return <FilePdfFilled style={{ color: "#F04B57" }} />;
+      return (
+        <FilePdfFilled size="1em" style={{ color: "var(--app-accent-text)" }} />
+      );
     case "doc":
     case "docx":
-      return <FileWordFilled style={{ color: "#2B8DFF" }} />;
+      return (
+        <FileWordFilled
+          size="1em"
+          style={{ color: "var(--app-accent-text)" }}
+        />
+      );
     case "xls":
     case "xlsx":
-      return <FileExcelFilled style={{ color: "#44C161" }} />;
+      return (
+        <FileExcelFilled
+          size="1em"
+          style={{ color: "var(--app-accent-text)" }}
+        />
+      );
     case "ppt":
     case "pptx":
-      return <FilePptFilled style={{ color: "#FF5B3B" }} />;
+      return (
+        <FilePptFilled size="1em" style={{ color: "var(--app-accent-text)" }} />
+      );
     case "jpg":
     case "jpeg":
     case "png":
     case "gif":
     case "svg":
     case "webp":
-      return <FileImageFilled style={{ color: "#eb2f96" }} />;
+      return (
+        <FileImageFilled
+          size="1em"
+          style={{ color: "var(--app-accent-text)" }}
+        />
+      );
     case "py":
     case "js":
     case "ts":
@@ -89,9 +136,16 @@ export const getFileIcon = (filePath: string) => {
     case "rs":
     case "rb":
     case "php":
-      return <CodeFilled style={{ color: "#52c41a" }} />;
+      return (
+        <CodeFilled size="1em" style={{ color: "var(--app-accent-text)" }} />
+      );
     default:
-      return <FileTextFilled style={{ color: "#1890ff" }} />;
+      return (
+        <FileTextFilled
+          size="1em"
+          style={{ color: "var(--app-accent-text)" }}
+        />
+      );
   }
 };
 
@@ -102,12 +156,11 @@ interface SkillVisualProps {
   emojiClassName?: string;
 }
 
-/**
- * Renders either an emoji (wrapped in a span) or a file-type icon for a skill.
- */
-export function SkillVisual({ name, emoji, emojiClassName }: SkillVisualProps) {
-  if (emoji) {
-    return <span className={emojiClassName}>{emoji}</span>;
-  }
-  return <>{getFileIcon(name)}</>;
+/** Product skill tiles use Lucide glyphs; skill metadata remains unchanged. */
+export function SkillVisual({ name, emojiClassName }: SkillVisualProps) {
+  return (
+    <span className={emojiClassName} aria-hidden="true">
+      {getFileIcon(name)}
+    </span>
+  );
 }

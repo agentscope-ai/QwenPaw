@@ -9,7 +9,7 @@ import os
 import secrets
 import stat
 import tempfile
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -29,6 +29,7 @@ from .compatibility import (
     CompatibilityManifest,
     CompatibilityStore,
     counts,
+    failure_message,
     load_manifest,
     mcp_inline_secret_risks,
     redact_sensitive_text,
@@ -73,6 +74,7 @@ _PUBLIC_TYPES = {
 class AdaptationResult:
     manifest: CompatibilityManifest
     summary_path: Path
+    staging_errors: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -685,13 +687,14 @@ async def _repair_asset(
     workspace: Any,
     context: ActiveAdaptationContext,
     key: str,
-    warnings: list[str],
+    errors: dict[str, str],
 ) -> None:
     asset = await run_sync_io(
         context._asset,  # pylint: disable=protected-access
         key,
     )
     label = context._label(asset)  # pylint: disable=protected-access
+    errors.pop(key, None)
     try:
         await report_result(
             context.progress,
@@ -711,14 +714,15 @@ async def _repair_asset(
             label=f"Mission 正在修复 {label}",
         )
     except Exception as exc:  # pylint: disable=broad-except
-        warnings.append(f"{label}修复失败：{type(exc).__name__}: {exc}")
+        errors[key] = failure_message(f"{label}兼容性修复未完成", exc)
 
 
 async def _repair_with_mission(
     workspace: Any,
     context: ActiveAdaptationContext,
     root: Path,
-    warnings: list[str],
+    errors: dict[str, str],
+    staging_errors: dict[str, str],
 ) -> str:
     mode = _mission_mode(workspace)
     max_attempts = mode.max_retries_per_story + 1
@@ -739,6 +743,7 @@ async def _repair_with_mission(
                 item.asset_key
                 for item in manifest.by_zone(AssetZone.REPAIR)
                 if not item.budget_exhausted
+                and item.asset_key not in staging_errors
             ]
             if not pending:
                 break
@@ -750,7 +755,7 @@ async def _repair_with_mission(
             )
             await _bounded_parallel(
                 pending,
-                lambda key: _repair_asset(workspace, context, key, warnings),
+                lambda key: _repair_asset(workspace, context, key, errors),
             )
             manifest = await run_sync_io(load_manifest, context.store.path)
             await run_sync_io(sync_mission, loop_dir, manifest)
@@ -762,10 +767,7 @@ async def _repair_with_mission(
         await run_sync_io(sync_mission, loop_dir, manifest, stopped=True)
         await mode.check_internal_mission(session_id)
         remaining = len(manifest.by_zone(AssetZone.REPAIR))
-        return (
-            f"兼容性修复 Mission 已达到每项最多 {max_attempts} 次尝试，"
-            f"仍有 {remaining} 项未通过原生检查。"
-        )
+        return f"兼容性修复 Mission 已结束，仍有 {remaining} 项需要处理；" "请根据各资产的失败说明修复后重试。"
     finally:
         mode.finish_internal_mission(session_id)
 
@@ -787,7 +789,12 @@ async def run_adaptation_loop(
     manifest_path = root / "manifest.json"
     summary_path = root / "summary.md"
     staging_root = root / "staging"
-    warnings = await run_sync_io(stage_local_assets, inventory, staging_root)
+    staging_errors = await run_sync_io(
+        stage_local_assets,
+        inventory,
+        staging_root,
+    )
+    errors = dict(staging_errors)
     store = CompatibilityStore(manifest_path)
     components = await run_sync_io(component_map, inventory)
     manifest = await run_sync_io(
@@ -802,7 +809,8 @@ async def run_adaptation_loop(
     )
     await _report(
         progress,
-        f"工具和设置已安全暂存，共 {len(manifest.assets)} 项；"
+        f"工具和设置共 {len(manifest.assets)} 项，"
+        f"其中 {len(staging_errors)} 项暂存失败；"
         "正在启动 QwenPaw Mission 并行进行兼容性测试与修复…",
     )
     if not manifest.assets:
@@ -832,13 +840,11 @@ async def run_adaptation_loop(
             workspace,
             context,
             root,
-            warnings,
+            errors,
+            staging_errors,
         )
-        if stopped_reason:
-            warnings.append(stopped_reason)
     except Exception as exc:  # pylint: disable=broad-except
-        stopped_reason = f"无法完成 QwenPaw Mission：{type(exc).__name__}: {exc}"
-        warnings.append(stopped_reason)
+        stopped_reason = failure_message("无法完成 QwenPaw Mission", exc)
 
     complete, reason = await run_sync_io(store.complete)
     if not complete and not stopped_reason:
@@ -847,6 +853,7 @@ async def run_adaptation_loop(
         store.finish,
         stopped=not complete,
         reason="" if complete else stopped_reason,
+        errors=errors,
     )
     await run_sync_io(write_summary, summary_path, manifest)
     await _report(
@@ -858,4 +865,5 @@ async def run_adaptation_loop(
     return AdaptationResult(
         manifest=manifest,
         summary_path=summary_path,
+        staging_errors=staging_errors,
     )

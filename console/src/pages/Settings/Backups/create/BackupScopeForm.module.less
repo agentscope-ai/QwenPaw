@@ -3,43 +3,55 @@
   flex-direction: column;
   gap: 16px;
 }
-
-.section {
+.scope {
+  border: 1px solid var(--app-border-subtle);
+  border-radius: 16px;
+  overflow: hidden;
+}
+.scopeItem {
+  padding: 14px 16px;
+  & + & {
+    border-top: 1px solid var(--app-border-subtle);
+  }
+}
+.choiceRow {
   display: flex;
-  flex-direction: column;
-  gap: 8px;
+  align-items: center;
+  gap: 10px;
+  min-height: 28px;
+  > svg {
+    color: var(--app-text-secondary);
+    flex-shrink: 0;
+  }
+  :global(.ant-checkbox-wrapper),
+  :global(.qwenpaw-checkbox-wrapper) {
+    flex: 1;
+    min-width: 0;
+    font-size: 13px;
+  }
 }
-
-.sectionLabel {
-  font-weight: 500;
+.choiceLabel {
+  flex: 1;
+  font-size: 13px;
 }
-
-.radioGroup {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.radioDesc {
-  color: var(--app-text-tertiary);
+.count {
   font-size: 12px;
-  margin-top: 2px;
+  color: var(--app-text-secondary);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
 }
-
-.partialOptions {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
+.choiceRow .included {
+  color: var(--app-accent-text);
 }
-
 .agentSelect {
-  margin-left: 22px;
-  margin-top: 4px;
+  overflow: hidden;
+  > div {
+    padding-top: 12px;
+  }
 }
-
 .secretsHint {
-  color: var(--app-text-tertiary);
+  margin: 6px 0 0 27px;
   font-size: 12px;
-  margin-left: 22px;
-  margin-top: 4px;
+  line-height: 1.6;
+  color: var(--app-text-secondary);
 }

@@ -23,7 +23,7 @@
 
   em {
     color: var(--app-accent-text);
-    font-size: 9px;
+    font-size: 11px;
     font-style: normal;
     white-space: nowrap;
   }
@@ -90,8 +90,8 @@
 
   strong {
     color: var(--app-text);
-    font-size: 11px;
-    font-weight: 650;
+    font-size: 13px;
+    font-weight: 600;
     line-height: 1.25;
   }
 
@@ -99,20 +99,20 @@
     color: var(--app-text-secondary);
     flex: 1;
     font-family: "SFMono-Regular", Consolas, monospace;
-    font-size: 9px;
+    font-size: 11px;
     font-weight: 500;
     line-height: 1.3;
   }
 }
 
 .panel {
-  width: 460px;
+  width: 760px;
   max-width: calc(100vw - 56px);
-  max-height: min(394px, calc(100vh - 40px));
-  padding: 6px;
+  max-height: min(620px, calc(100dvh - 40px));
+  padding: 12px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 12px;
   overflow: hidden;
 }
 
@@ -127,12 +127,23 @@
   }
 }
 
-.desktopPopover {
+.desktopPopover.desktopPopover {
   z-index: 1100;
+  width: min(792px, calc(100vw - 24px));
 
   :global(.ant-popover-inner),
-  :global(.ant-popover-content) {
+  :global(.qwenpaw-popover-inner),
+  :global(.ant-popover-content),
+  :global(.qwenpaw-popover-content) {
+    width: 100%;
+    max-width: none;
+    box-sizing: border-box;
+  }
+
+  .panel {
+    width: 100%;
     max-width: 100%;
+    box-sizing: border-box;
   }
 }
 
@@ -258,7 +269,7 @@
   small {
     color: var(--app-text-secondary);
     font-family: "SFMono-Regular", Consolas, monospace;
-    font-size: 9px;
+    font-size: 11px;
   }
 }
 
@@ -283,10 +294,10 @@
 
 .splitBody {
   min-height: 0;
-  height: 236px;
+  height: 340px;
   display: grid;
-  flex: 1 1 236px;
-  grid-template-columns: minmax(170px, 0.82fr) minmax(230px, 1.18fr);
+  flex: 1 1 340px;
+  grid-template-columns: minmax(180px, 0.3fr) minmax(0, 0.7fr);
   overflow: hidden;
   border: 1px solid var(--app-border);
   border-radius: 12px;
@@ -317,8 +328,8 @@
 
   strong {
     color: var(--app-text-secondary);
-    font-size: 11px;
-    font-weight: 650;
+    font-size: 13px;
+    font-weight: 600;
   }
 }
 
@@ -346,7 +357,7 @@
     min-height: 44px;
     padding: 5px 7px;
     display: grid;
-    grid-template-columns: 30px minmax(0, 1fr) 18px;
+    grid-template-columns: 24px minmax(0, 1fr);
     align-items: center;
     gap: 9px;
     color: var(--app-text-secondary);
@@ -376,8 +387,8 @@
 }
 
 .recentIcon {
-  width: 30px;
-  height: 30px;
+  width: 24px;
+  height: 24px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -403,33 +414,19 @@
 
   strong {
     color: var(--app-text);
-    font-size: 11px;
-    font-weight: 650;
+    font-size: 13px;
+    font-weight: 600;
   }
 
   small {
     color: var(--app-text-secondary);
     font-family: "SFMono-Regular", Consolas, monospace;
-    font-size: 9px;
+    font-size: 11px;
   }
 }
 
 .recentCheck {
-  width: 17px;
-  height: 17px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  color: transparent;
-  border: 1px solid var(--app-border-strong);
-  border-radius: 50%;
-  background: var(--app-surface);
-
-  .recentSelected & {
-    color: var(--app-text-inverse);
-    border-color: var(--app-accent);
-    background: var(--app-accent);
-  }
+  display: none;
 }
 
 .browserPane {
@@ -454,16 +451,8 @@
 
   strong {
     color: var(--app-text-secondary);
-    font-size: 11px;
-    font-weight: 650;
-  }
-
-  code {
-    overflow: hidden;
-    color: var(--app-text-tertiary);
-    font-size: 9px;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    font-size: 13px;
+    font-weight: 600;
   }
 }
 
@@ -494,7 +483,7 @@
   > small {
     grid-column: 1 / -1;
     color: var(--app-error-text);
-    font-size: 9px;
+    font-size: 11px;
     line-height: 1.3;
   }
 }
@@ -507,54 +496,65 @@
   flex-direction: column;
   gap: 3px;
   overflow: auto;
-
-  > button:not(:global(.ant-btn)) {
-    width: 100%;
-    min-width: 0;
-    min-height: 34px;
-    padding: 0 9px;
-    display: grid;
-    grid-template-columns: 17px minmax(0, 1fr) 14px;
-    align-items: center;
-    gap: 8px;
-    color: var(--app-text-secondary);
-    text-align: left;
-    border: 1px solid transparent;
-    border-radius: 8px;
-    background: transparent;
-    cursor: pointer;
-    transition:
-      color 150ms ease,
-      border-color 150ms ease,
-      background 150ms ease;
-
-    span {
-      overflow: hidden;
-      color: var(--app-text);
-      font-size: 11px;
-      font-weight: 550;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-
-    > svg:last-child {
-      color: var(--app-text-tertiary);
-    }
-
-    &:hover {
-      border-color: var(--app-border);
-      background: var(--app-fill-faint);
-    }
+}
+.directoryRow {
+  display: flex;
+  flex-shrink: 0;
+  min-height: 44px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  overflow: hidden;
+  &:hover {
+    background: var(--app-fill-faint);
   }
 }
-
-.directories > button.directorySelected:not(:global(.ant-btn)) {
-  color: var(--app-accent-text);
+.directoryPick,
+.directoryEnter {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  border: 0;
+  color: var(--app-text-secondary);
+  background: none;
+  cursor: pointer;
+  font: inherit;
+  &:focus-visible {
+    outline: 2px solid var(--app-focus-ring);
+    outline-offset: -3px;
+    border-radius: 8px;
+  }
+}
+.directoryPick {
+  flex: 1;
+  padding: 10px 12px;
+  text-align: start;
+  > span {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--app-text);
+    font-size: 13px;
+  }
+  > svg {
+    flex-shrink: 0;
+  }
+}
+.directoryEnter {
+  width: 40px;
+  justify-content: center;
+  flex-shrink: 0;
+  &:hover {
+    color: var(--app-accent-text);
+    background: var(--app-accent-soft);
+  }
+}
+.directorySelected {
   border-color: var(--app-accent-border);
-  background: var(--app-accent-soft);
-
-  > svg:last-child {
-    color: var(--app-accent);
+  background: var(--app-accent-faint);
+  .directoryPick {
+    color: var(--app-accent-text);
   }
 }
 
@@ -577,8 +577,11 @@
 .actions {
   padding-top: 2px;
   display: flex;
-  justify-content: space-between;
+  justify-content: flex-end;
   gap: 8px;
+  > :first-child:not(:last-child) {
+    margin-right: auto;
+  }
 
   :global(.ant-btn) {
     border-radius: 9px;
@@ -587,16 +590,12 @@
   :global(.ant-btn-primary) {
     min-width: 74px;
     background: var(--app-accent);
-    box-shadow: 0 5px 14px var(--app-accent-ring);
+    box-shadow: none;
 
     &:hover {
       background: var(--app-accent-active) !important;
     }
   }
-}
-
-.actionsStart {
-  justify-content: flex-start;
 }
 
 .syncDefaultOption {
@@ -657,8 +656,8 @@
    The desktop panel uses the available viewport up to its comfortable size,
    leaving the browser enough room for five rows even with a full bound list. */
 .panelWithList {
-  height: min(580px, calc(100vh - 40px));
-  max-height: min(580px, calc(100vh - 40px));
+  height: min(640px, calc(100dvh - 40px));
+  max-height: min(640px, calc(100dvh - 40px));
 }
 
 .inlineEditor .panelWithList {
@@ -668,8 +667,8 @@
 
 .panelWithList .splitBody {
   height: auto;
-  min-height: 110px;
-  flex: 1 1 170px;
+  min-height: 200px;
+  flex: 1 1 340px;
 }
 
 .boundDirs {
@@ -685,7 +684,7 @@
 
 .boundList {
   min-height: 0;
-  max-height: 150px;
+  max-height: 104px;
   margin: 0;
   padding: 0;
   display: flex;
@@ -742,7 +741,7 @@
   small {
     color: var(--app-text-tertiary);
     font-family: "SFMono-Regular", Consolas, monospace;
-    font-size: 9px;
+    font-size: 11px;
   }
 }
 
@@ -803,11 +802,6 @@
 
 /* The queued directory sits at the end of the list, dashed so it reads as
    "not bound yet". */
-.pendingRow {
-  border-style: dashed !important;
-  border-color: var(--app-border-strong) !important;
-  background: var(--app-fill-faint);
-}
 
 /* Sits under the panel title: which directory the tools default to. */
 .boundHint {
@@ -862,6 +856,7 @@
     min-height: 0;
     flex: 1 1 auto;
     grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: 104px minmax(0, 1fr);
     overflow: hidden;
   }
 
@@ -912,7 +907,8 @@
     overscroll-behavior: contain;
   }
 
-  .directories > button:not(:global(.ant-btn)) {
+  .directoryPick,
+  .directoryEnter {
     min-height: 44px;
   }
 
@@ -938,6 +934,94 @@
       max-width: 65%;
       overflow: hidden;
       text-overflow: ellipsis;
+    }
+  }
+}
+
+.inlineEditor .splitBody {
+  flex: 0 0 340px;
+  min-height: 280px;
+}
+.inlineHeading .inlineHint {
+  flex: initial;
+  color: var(--app-text-secondary);
+  font-weight: 500;
+}
+.inlineHeading .headingCount {
+  margin-left: auto;
+}
+.browserHeading {
+  flex-wrap: wrap;
+}
+.browserHeading > div:first-child {
+  flex: 1 1 140px;
+}
+.pathInput :global(.ant-input-suffix) {
+  gap: 8px;
+  white-space: nowrap;
+  font-size: 11px;
+}
+.boundList li {
+  flex-shrink: 0;
+}
+@media (max-width: 600px) {
+  .inlineEditor .splitBody {
+    grid-template-columns: 1fr;
+    grid-template-rows: 110px minmax(0, 1fr);
+    height: 380px;
+    flex-basis: 380px;
+  }
+  .inlineEditor .recentPane {
+    max-height: 110px;
+    border-right: 0;
+    border-bottom: 1px solid var(--app-border);
+  }
+  .inlineEditor .recent {
+    flex-direction: row;
+  }
+  .inlineEditor .recent button {
+    flex: 0 0 160px;
+  }
+  .browserActions :global(.ant-btn) {
+    width: 36px;
+    height: 36px;
+  }
+}
+
+.directoryBreadcrumbs {
+  display: flex;
+  flex: 0 0 auto;
+  overflow-x: auto;
+  scrollbar-width: thin;
+  min-width: 0;
+  padding-block: 2px;
+  > span {
+    display: flex;
+    align-items: center;
+    flex-shrink: 0;
+    color: var(--app-text-tertiary);
+  }
+  button {
+    border: 0;
+    background: transparent;
+    color: var(--app-text-secondary);
+    font: inherit;
+    font-size: 12px;
+    padding: 5px 6px;
+    border-radius: 6px;
+    white-space: nowrap;
+    cursor: pointer;
+    &:hover {
+      background: var(--app-accent-faint);
+      color: var(--app-accent-text);
+    }
+    &:focus-visible {
+      outline: 2px solid var(--app-focus-ring);
+      outline-offset: -2px;
+    }
+    &[aria-current] {
+      color: var(--app-text);
+      font-weight: 500;
     }
   }
 }

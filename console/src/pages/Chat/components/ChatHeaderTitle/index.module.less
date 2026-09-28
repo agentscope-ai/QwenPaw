@@ -132,3 +132,109 @@
   color: var(--app-accent);
   flex-shrink: 0;
 }
+
+.titleBlock {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  padding: 8px 0;
+}
+.titleRow {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 3px;
+}
+.titleEdit,
+.switchButton,
+.renameForm button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 4px 6px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--app-text-secondary);
+  cursor: pointer;
+  &:hover {
+    background: var(--app-fill-subtle);
+  }
+  &:focus-visible {
+    outline: 2px solid var(--app-accent);
+  }
+  &:disabled {
+    cursor: default;
+  }
+}
+.titleEdit {
+  min-width: 0;
+  margin-left: -6px;
+}
+.editIcon {
+  opacity: 0;
+  flex-shrink: 0;
+}
+.titleEdit:hover .editIcon,
+.titleEdit:focus-visible .editIcon {
+  opacity: 1;
+}
+.activity {
+  display: flex;
+  gap: 5px;
+  align-items: center;
+  font-size: 11px;
+  line-height: 16px;
+  color: var(--app-text-tertiary);
+  white-space: nowrap;
+}
+.renameForm {
+  display: flex;
+  align-items: center;
+  width: min(360px, 50vw);
+  border: 1px solid var(--app-accent-border);
+  border-radius: 10px;
+  padding: 2px 4px;
+  background: var(--app-surface);
+  input {
+    min-width: 0;
+    flex: 1;
+    width: 100%;
+    border: 0;
+    outline: 0;
+    background: transparent;
+    color: var(--app-text);
+    font: inherit;
+    padding: 4px;
+  }
+  button[type="submit"] {
+    color: var(--app-accent-text);
+  }
+}
+@media (hover: none) {
+  .editIcon {
+    opacity: 0.6;
+  }
+}
+
+.menuItemContent {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  padding: 3px 0;
+}
+.menuItemMeta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--app-text-tertiary);
+  font-size: 11px;
+  line-height: 16px;
+  font-variant-numeric: tabular-nums;
+}
+.menuItemChannel {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

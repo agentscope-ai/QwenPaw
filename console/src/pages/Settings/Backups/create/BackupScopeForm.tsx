@@ -4,7 +4,11 @@
  * (agents, global config, skill pool, secrets). Extracted from CreateBackupModal
  * so it can be unit-tested and potentially reused independently.
  */
-import { Checkbox, Radio } from "antd";
+import { Checkbox } from "antd";
+import { Check, Folder, Settings2, Library, KeyRound } from "lucide-react";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+import NumberFlow from "@number-flow/react";
+import { PolicySelector } from "@/components/interaction/PolicySelector";
 import { useTranslation } from "react-i18next";
 import type { AgentSummary } from "@/api/types/agents";
 import AgentMultiSelect from "./AgentMultiSelect";
@@ -35,82 +39,133 @@ export default function BackupScopeForm({ value, onChange, agents }: Props) {
   const set = (partial: Partial<ScopeFormValue>) =>
     onChange({ ...value, ...partial });
 
+  const full = value.backupMode === "full";
+  const reduced = useReducedMotion();
+  const choices = [
+    {
+      key: "agents",
+      label: t("backup.scopeAgents"),
+      icon: Folder,
+      checked: value.selectedAgents.length > 0,
+      change: (checked: boolean) =>
+        set({ selectedAgents: checked ? agents.map((a) => a.id) : [] }),
+    },
+    {
+      key: "global",
+      label: t("backup.scopeGlobalConfig"),
+      icon: Settings2,
+      checked: value.globalConfig,
+      change: (checked: boolean) => set({ globalConfig: checked }),
+    },
+    {
+      key: "skills",
+      label: t("backup.scopeSkillPool"),
+      icon: Library,
+      checked: value.includeSkillPool,
+      change: (checked: boolean) => set({ includeSkillPool: checked }),
+    },
+    {
+      key: "secrets",
+      label: t("backup.scopeSecrets"),
+      icon: KeyRound,
+      checked: value.includeSecrets,
+      change: (checked: boolean) => set({ includeSecrets: checked }),
+    },
+  ];
   return (
     <div className={styles.form}>
-      <div className={styles.section}>
-        <div className={styles.sectionLabel}>{t("backup.backupMode")}</div>
-        <Radio.Group
-          value={value.backupMode}
-          onChange={(e) => set({ backupMode: e.target.value })}
-          className={styles.radioGroup}
-        >
-          <Radio value="full">
-            <strong>{t("backup.fullBackup")}</strong>
-            <div className={styles.radioDesc}>{t("backup.fullBackupDesc")}</div>
-          </Radio>
-          <Radio value="partial">
-            <strong>{t("backup.partialBackup")}</strong>
-            <div className={styles.radioDesc}>
-              {t("backup.partialBackupDesc")}
-            </div>
-          </Radio>
-        </Radio.Group>
-      </div>
-
-      {value.backupMode === "partial" && (
-        <div className={styles.partialOptions}>
-          <Checkbox
-            checked={value.selectedAgents.length > 0}
-            indeterminate={
-              value.selectedAgents.length > 0 &&
-              value.selectedAgents.length < agents.length
-            }
-            onChange={(e) => {
-              set({
-                selectedAgents: e.target.checked ? agents.map((a) => a.id) : [],
-              });
-            }}
+      <PolicySelector
+        label={t("backup.backupMode")}
+        value={value.backupMode}
+        onChange={(backupMode) => set({ backupMode })}
+        options={[
+          {
+            value: "full",
+            label: t("backup.fullBackup"),
+            description: t("backup.fullBackupDesc"),
+          },
+          {
+            value: "partial",
+            label: t("backup.partialBackup"),
+            description: t("backup.partialBackupDesc"),
+          },
+        ]}
+      />
+      <section className={styles.scope} aria-label={t("backup.scopeSummary")}>
+        {choices.map((choice) => (
+          <div
+            key={choice.key}
+            className={styles.scopeItem}
+            data-selected={full || choice.checked || undefined}
           >
-            {t("backup.scopeAgents")}
-          </Checkbox>
-
-          {value.selectedAgents.length > 0 && (
-            <div className={styles.agentSelect}>
-              <AgentMultiSelect
-                agents={agents}
-                value={value.selectedAgents}
-                onChange={(ids) => set({ selectedAgents: ids })}
-              />
+            <div className={styles.choiceRow}>
+              <choice.icon size={17} aria-hidden="true" />
+              {full ? (
+                <span className={styles.choiceLabel}>{choice.label}</span>
+              ) : (
+                <Checkbox
+                  checked={choice.checked}
+                  indeterminate={
+                    choice.key === "agents" &&
+                    value.selectedAgents.length > 0 &&
+                    value.selectedAgents.length < agents.length
+                  }
+                  onChange={(e) => choice.change(e.target.checked)}
+                >
+                  {choice.label}
+                </Checkbox>
+              )}
+              {choice.key === "agents" && (
+                <span className={styles.count}>
+                  <NumberFlow
+                    value={full ? agents.length : value.selectedAgents.length}
+                    respectMotionPreference
+                  />{" "}
+                  / {agents.length}
+                </span>
+              )}
+              {full && (
+                <Check
+                  size={16}
+                  className={styles.included}
+                  aria-hidden="true"
+                />
+              )}
             </div>
-          )}
-
-          <Checkbox
-            checked={value.globalConfig}
-            onChange={(e) => set({ globalConfig: e.target.checked })}
-          >
-            {t("backup.scopeGlobalConfig")}
-          </Checkbox>
-
-          <Checkbox
-            checked={value.includeSkillPool}
-            onChange={(e) => set({ includeSkillPool: e.target.checked })}
-          >
-            {t("backup.scopeSkillPool")}
-          </Checkbox>
-
-          <div>
-            <Checkbox
-              checked={value.includeSecrets}
-              onChange={(e) => set({ includeSecrets: e.target.checked })}
-            >
-              {t("backup.scopeSecrets")}
-            </Checkbox>
-            <div className={styles.secretsHint}>
-              {t("backup.scopeSecretsHint")}
-            </div>
+            {choice.key === "agents" && (
+              <AnimatePresence initial={false}>
+                {!full && (
+                  <motion.div
+                    key="agents"
+                    className={styles.agentSelect}
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: "auto", opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    transition={
+                      reduced
+                        ? { duration: 0 }
+                        : { type: "spring", stiffness: 360, damping: 38 }
+                    }
+                  >
+                    <div>
+                      <AgentMultiSelect
+                        agents={agents}
+                        value={value.selectedAgents}
+                        onChange={(selectedAgents) => set({ selectedAgents })}
+                      />
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            )}
+            {choice.key === "secrets" && (
+              <p className={styles.secretsHint}>
+                {t("backup.scopeSecretsHint")}
+              </p>
+            )}
           </div>
-        </div>
-      )}
+        ))}
+      </section>
     </div>
   );
 }

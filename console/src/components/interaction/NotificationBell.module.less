@@ -1,0 +1,35 @@
+.root {
+  display: inline-flex;
+  position: relative;
+  width: 22px;
+  height: 22px;
+  align-items: center;
+  justify-content: center;
+}
+.bell {
+  display: flex;
+  transform-origin: 50% 15%;
+}
+.badge {
+  position: absolute;
+  top: -8px;
+  left: 13px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 3px;
+  border-radius: 9px;
+  background: var(--app-accent);
+  color: #23180e;
+  font: 650 9px/1 system-ui;
+  box-shadow: 0 0 0 2px var(--app-surface);
+}
+.dot {
+  min-width: 6px;
+  height: 6px;
+  padding: 0;
+  top: -1px;
+  left: 17px;
+}

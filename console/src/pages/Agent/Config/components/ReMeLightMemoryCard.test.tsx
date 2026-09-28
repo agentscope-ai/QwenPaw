@@ -1,3 +1,4 @@
+import { ConfigAutoSaveContext } from "../configAutoSaveContext";
 import { Form } from "@agentscope-ai/design";
 import {
   act,
@@ -13,10 +14,8 @@ import { agentsApi, api } from "@/api";
 import { useAgentStore } from "@/stores/agentStore";
 import { useEmbeddingVerificationStore } from "@/stores/embeddingVerificationStore";
 import { renderWithProviders } from "@/test/common_setup";
-import {
-  isValidDreamCronShape,
-  ReMeLightMemoryCard,
-} from "./ReMeLightMemoryCard";
+import { ReMeLightMemoryCard } from "./ReMeLightMemoryCard";
+import { isValidDreamCronShape } from "./dreamCron";
 import { EmbeddingModelCard } from "./EmbeddingModelCard";
 import { MemoryMaintenanceContext } from "../memoryMaintenanceContext";
 import { handleRerankerFieldsChange } from "../rerankerVisibility";
@@ -708,6 +707,19 @@ describe("ReMe runtime status", () => {
 });
 
 describe("long-term memory defaults", () => {
+  it("schedules autosave when auto memory is toggled programmatically", () => {
+    const onEdit = vi.fn();
+    renderWithProviders(
+      <ConfigAutoSaveContext.Provider value={onEdit}>
+        <MemoryForm />
+      </ConfigAutoSaveContext.Provider>,
+    );
+    fireEvent.click(
+      screen.getByRole("switch", { name: "agentConfig.memoryAutoRecordTitle" }),
+    );
+    expect(onEdit).toHaveBeenCalledOnce();
+  });
+
   it("renders defaults, sections, and collapsed Daily Paper settings", () => {
     renderWithProviders(<MemoryForm />);
 
@@ -785,7 +797,9 @@ describe("long-term memory defaults", () => {
     expect(
       screen.getByText("agentConfig.autoFinWindowHours"),
     ).toBeInTheDocument();
-    expect(screen.getByDisplayValue("0 18 * * *")).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: "cronJobs.cronTime: 18:00" }),
+    ).toBeDisabled();
     expect(screen.getByDisplayValue("黄金,机器人,半导体")).toBeDisabled();
     expect(screen.getByDisplayValue("24")).toBeDisabled();
     expect(

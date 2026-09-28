@@ -164,6 +164,9 @@ function parseV1Props(
     rawInput: rawArgs,
     params,
     inputProgress,
+    // The backend emits the output message right before registering the
+    // call in the ToolCoordinator, so it marks real execution start.
+    executionStarted: !!resultItem,
     result: result ?? undefined,
     status,
     interrupted,

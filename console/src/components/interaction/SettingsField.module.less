@@ -1,0 +1,27 @@
+.toggle {
+  padding: 16px 0;
+  border-bottom: 1px solid var(--app-border-subtle);
+  :global(.ant-form-item-row),
+  :global(.qwenpaw-form-item-row) {
+    flex-direction: row;
+    flex-wrap: nowrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 24px;
+  }
+  :global(.ant-form-item-label),
+  :global(.qwenpaw-form-item-label) {
+    padding: 0;
+    text-align: start;
+    white-space: normal;
+    flex: 1 1 auto !important;
+    width: auto !important;
+    min-width: 0;
+  }
+  :global(.ant-form-item-control),
+  :global(.qwenpaw-form-item-control) {
+    flex: 0 0 auto !important;
+    min-width: 44px;
+    width: auto !important;
+  }
+}

@@ -17,11 +17,11 @@ interface ColumnHandlers {
 const toUTCTime = (ts: string | null | undefined): number => {
   if (!ts) return 0;
   const normalized =
-    /[Z+\-]\d{2}:?\d{2}$/.test(ts) || ts.endsWith("Z") ? ts : ts + "Z";
+    /[Z+-]\d{2}:?\d{2}$/.test(ts) || ts.endsWith("Z") ? ts : ts + "Z";
   return new Date(normalized).getTime();
 };
 
-export const createColumns = (
+export const useSessionColumns = (
   handlers: ColumnHandlers,
 ): ColumnsType<Session> => {
   const { t } = useTranslation();

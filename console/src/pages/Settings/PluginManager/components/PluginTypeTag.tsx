@@ -9,7 +9,7 @@ import {
   LayoutDashboard,
   AppWindow,
 } from "lucide-react";
-import { SparkWifiLine } from "@agentscope-ai/icons";
+import { Wifi as SparkWifiLine } from "lucide-react";
 import type { PluginType } from "@/api/modules/plugin";
 
 const PLUGIN_TYPE_CONFIG: Record<

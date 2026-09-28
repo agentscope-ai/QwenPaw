@@ -25,6 +25,9 @@ const Probe = ({
       {String(Boolean(content.interrupted))}
     </span>
     <span data-testid="result">{String(content.result ?? "")}</span>
+    <span data-testid="execStarted">
+      {String(Boolean(content.executionStarted))}
+    </span>
   </div>
 );
 
@@ -87,6 +90,22 @@ describe("v1Adapter tool status", () => {
     expect(screen.getByTestId("streaming")).toHaveTextContent("true");
     expect(screen.getByTestId("interrupted")).toHaveTextContent("false");
     expect(screen.getByTestId("result")).toHaveTextContent("");
+  });
+
+  it("does not report execution before the output message arrives", () => {
+    // plugin_call completed == arguments generated; the backend has not
+    // dispatched the call yet, so lifecycle queries must stay off.
+    renderCard(callOnlyProps, false);
+
+    expect(screen.getByTestId("execStarted")).toHaveTextContent("false");
+  });
+
+  it("reports execution started once the output slot exists", () => {
+    // TOOL_RESULT_START shape: output message merged, still in_progress.
+    renderCard(withOutputProps("", undefined, "in_progress"), false);
+
+    expect(screen.getByTestId("status")).toHaveTextContent("calling");
+    expect(screen.getByTestId("execStarted")).toHaveTextContent("true");
   });
 
   it("closes a pending call once its turn ended", () => {

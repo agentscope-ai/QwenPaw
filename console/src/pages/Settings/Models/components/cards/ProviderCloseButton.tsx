@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { X, Settings } from "lucide-react";
+import { Power, Settings } from "lucide-react";
 import { Tooltip } from "antd";
 import { useTranslation } from "react-i18next";
 import { providerApi } from "@/api/modules/provider";
@@ -32,11 +32,11 @@ export function ProviderCloseButton({
           </button>
         </Tooltip>
       )}
-      <Tooltip title={t("common.close")}>
+      <Tooltip title={t("common.disable")}>
         <button
           type="button"
           className={styles.providerClose}
-          aria-label={t("common.close")}
+          aria-label={t("common.disable")}
           disabled={busy}
           onClick={async () => {
             setBusy(true);
@@ -57,7 +57,7 @@ export function ProviderCloseButton({
             }
           }}
         >
-          <X size={16} strokeWidth={1.6} />
+          <Power size={16} strokeWidth={1.6} />
         </button>
       </Tooltip>
     </>

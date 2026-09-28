@@ -803,3 +803,27 @@ describe("skillApi.streamOptimizeSkill", () => {
     expect(chunks).toEqual([]);
   });
 });
+
+describe("skill editor persistence scope", () => {
+  it("pins content and metadata saves to the original agent", async () => {
+    vi.mocked(request).mockClear();
+    vi.mocked(request).mockResolvedValue({
+      success: true,
+      name: "demo",
+      mode: "edit",
+    });
+    await skillApi.saveSkill(
+      { name: "demo", content: "edited" },
+      "original-agent",
+    );
+    await skillApi.updateSkillChannels("demo", ["all"], "original-agent");
+    await skillApi.updateSkillPreload("demo", true, "original-agent");
+    await skillApi.updateSkillTags("demo", ["work"], "original-agent");
+    expect(request).toHaveBeenCalledTimes(4);
+    for (const [, options] of vi.mocked(request).mock.calls) {
+      expect(new Headers(options?.headers).get("X-Agent-Id")).toBe(
+        "original-agent",
+      );
+    }
+  });
+});

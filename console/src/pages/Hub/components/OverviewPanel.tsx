@@ -1,3 +1,6 @@
+import NumberFlow from "@number-flow/react";
+import { RunningGlow } from "@/components/interaction/RunningGlow";
+import { Cascade } from "@/components/interaction/Cascade";
 import { useTranslation } from "react-i18next";
 import { Button } from "antd";
 import {
@@ -60,11 +63,12 @@ export default function OverviewPanel({ overview, onNavigate }: Props) {
           </button>
         )}
       </header>
-      <div className={styles.commandCenter}>
+      <Cascade className={styles.commandCenter}>
         <section
           className={styles.fleet}
           aria-label={t("hub.navigation.runtimes")}
         >
+          <RunningGlow active={running > 0} />
           <div className={styles.fleetTop}>
             <span>
               <Boxes size={18} />
@@ -90,7 +94,14 @@ export default function OverviewPanel({ overview, onNavigate }: Props) {
                   "—"
                 ) : (
                   <>
-                    {percent}
+                    <NumberFlow
+                      value={Number(percent)}
+                      respectMotionPreference
+                      format={{
+                        minimumFractionDigits: 1,
+                        maximumFractionDigits: 1,
+                      }}
+                    />
                     <small>%</small>
                   </>
                 )}
@@ -124,7 +135,12 @@ export default function OverviewPanel({ overview, onNavigate }: Props) {
                   >
                     <i />
                     <span>{t(`hub.runtimeStates.${state}`)}</span>
-                    <strong>{overview.runtime_counts[state] || 0}</strong>
+                    <strong>
+                      <NumberFlow
+                        value={overview.runtime_counts[state] || 0}
+                        respectMotionPreference
+                      />
+                    </strong>
                     <ArrowUpRight size={14} />
                   </button>
                 ))}
@@ -143,7 +159,12 @@ export default function OverviewPanel({ overview, onNavigate }: Props) {
               <strong>{t("hub.overview.totalUsers")}</strong>
               <small>{t("hub.overview.managedLocally")}</small>
             </span>
-            <b>{overview.total_users}</b>
+            <b>
+              <NumberFlow
+                value={overview.total_users}
+                respectMotionPreference
+              />
+            </b>
             <ChevronRight size={16} />
           </button>
           <button type="button" onClick={() => onNavigate("models")}>
@@ -163,7 +184,7 @@ export default function OverviewPanel({ overview, onNavigate }: Props) {
             <ChevronRight size={16} />
           </button>
         </section>
-      </div>
+      </Cascade>
       <section
         className={styles.resources}
         aria-labelledby="hub-resources-title"

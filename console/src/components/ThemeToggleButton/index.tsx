@@ -1,18 +1,18 @@
 import { Dropdown, Button, type MenuProps } from "antd";
 import {
-  SparkComputerLine,
-  SparkMoonLine,
-  SparkSunLine,
-} from "@agentscope-ai/icons";
+  Monitor as SparkComputerLine,
+  Moon as SparkMoonLine,
+  Sun as SparkSunLine,
+} from "lucide-react";
 import { useTheme, type ThemeMode } from "../../contexts/ThemeContext";
 import { useTranslation } from "react-i18next";
 import type { ReactNode } from "react";
 import styles from "./index.module.less";
 
 const ICONS: Record<ThemeMode, ReactNode> = {
-  light: <SparkSunLine />,
-  dark: <SparkMoonLine />,
-  system: <SparkComputerLine />,
+  light: <SparkSunLine size="1em" />,
+  dark: <SparkMoonLine size="1em" />,
+  system: <SparkComputerLine size="1em" />,
 };
 
 export default function ThemeToggleButton() {
@@ -46,7 +46,13 @@ export default function ThemeToggleButton() {
       placement="bottomRight"
       overlayClassName={styles.themeDropdown}
     >
-      <Button className={styles.toggleBtn} type="text" icon={icon} />
+      <Button
+        aria-label={t("sidebar.settings.theme")}
+        title={t("sidebar.settings.theme")}
+        className={styles.toggleBtn}
+        type="text"
+        icon={icon}
+      />
     </Dropdown>
   );
 }

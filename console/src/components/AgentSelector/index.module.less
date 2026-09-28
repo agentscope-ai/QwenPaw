@@ -9,7 +9,13 @@
   border-radius: 8px;
   box-sizing: border-box;
   width: 100%;
-  transition: all 0.2s ease;
+  transition:
+    background-color 0.2s ease,
+    color 0.2s ease,
+    border-color 0.2s ease,
+    box-shadow 0.2s ease,
+    opacity 0.2s ease,
+    transform 0.2s ease;
   margin-bottom: 12px;
 }
 
@@ -29,7 +35,13 @@
   padding: 0;
   appearance: none;
   margin-bottom: 12px;
-  transition: all 0.2s ease;
+  transition:
+    background-color 0.2s ease,
+    color 0.2s ease,
+    border-color 0.2s ease,
+    box-shadow 0.2s ease,
+    opacity 0.2s ease,
+    transform 0.2s ease;
 
   &:hover {
     background: var(--app-fill-strong);
@@ -149,7 +161,13 @@
       font-size: 13px;
       font-weight: normal;
       border-radius: 8px !important;
-      transition: all 0.2s ease;
+      transition:
+        background-color 0.2s ease,
+        color 0.2s ease,
+        border-color 0.2s ease,
+        box-shadow 0.2s ease,
+        opacity 0.2s ease,
+        transform 0.2s ease;
       padding: 0 !important;
 
       &:hover {
@@ -232,8 +250,6 @@
   border-radius: 12px !important;
   overflow: hidden;
   min-width: 242px !important;
-  left: 15px !important;
-  top: 140px !important;
   border: 1px solid var(--app-border-subtle) !important;
   box-shadow: var(--app-shadow-md) !important;
   :global {
@@ -241,7 +257,13 @@
       padding: 0 !important;
       border-radius: 8px;
       margin: 3px 6px;
-      transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+      transition:
+        background-color 0.15s cubic-bezier(0.4, 0, 0.2, 1),
+        color 0.15s cubic-bezier(0.4, 0, 0.2, 1),
+        border-color 0.15s cubic-bezier(0.4, 0, 0.2, 1),
+        box-shadow 0.15s cubic-bezier(0.4, 0, 0.2, 1),
+        opacity 0.15s cubic-bezier(0.4, 0, 0.2, 1),
+        transform 0.15s cubic-bezier(0.4, 0, 0.2, 1);
 
       &:hover {
         background: var(--app-fill) !important;
@@ -267,7 +289,13 @@
       padding: 0 !important;
       border-radius: 8px;
       margin: 3px 6px;
-      transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+      transition:
+        background-color 0.15s cubic-bezier(0.4, 0, 0.2, 1),
+        color 0.15s cubic-bezier(0.4, 0, 0.2, 1),
+        border-color 0.15s cubic-bezier(0.4, 0, 0.2, 1),
+        box-shadow 0.15s cubic-bezier(0.4, 0, 0.2, 1),
+        opacity 0.15s cubic-bezier(0.4, 0, 0.2, 1),
+        transform 0.15s cubic-bezier(0.4, 0, 0.2, 1);
 
       &:hover {
         background: var(--app-fill) !important;
@@ -471,7 +499,13 @@
   border: 1px solid var(--app-accent-soft);
   border-radius: 8px;
   color: var(--app-accent);
-  transition: all 0.2s ease;
+  transition:
+    background-color 0.2s ease,
+    color 0.2s ease,
+    border-color 0.2s ease,
+    box-shadow 0.2s ease,
+    opacity 0.2s ease,
+    transform 0.2s ease;
 
   .agentOption:hover & {
     background: var(--app-accent-soft);
@@ -597,5 +631,43 @@
 
   .disabledAgentHeader svg {
     transition: none;
+  }
+}
+
+.compact.agentSelectorWrapper {
+  padding: 0;
+  margin: 0;
+  background: transparent;
+  border: 0;
+  border-radius: 10px;
+  .agentSelector {
+    width: 100%;
+  }
+  :global(.qwenpaw-select-selector),
+  :global(.ant-select-selector) {
+    padding: 0 5px !important;
+    border: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+  }
+  :global(.qwenpaw-select-selection-item),
+  :global(.ant-select-selection-item) {
+    padding-inline-end: 14px !important;
+  }
+  :global(.qwenpaw-select-arrow),
+  :global(.ant-select-arrow) {
+    inset-inline-end: 3px;
+  }
+  .selectedAgentLabel {
+    gap: 5px;
+    font-size: 12px;
+    min-width: 0;
+    > svg {
+      display: none;
+    }
+    > span:last-child {
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
   }
 }

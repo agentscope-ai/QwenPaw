@@ -9,7 +9,6 @@
 /* ---- Provider visual refresh -------------------------------------------- */
 .settingsPage {
   .model-surface-tokens();
-  --models-bg: var(--model-canvas);
   --models-surface: var(--app-surface);
   --models-surface-muted: var(--model-inset);
   --models-border: var(--app-border);
@@ -22,8 +21,9 @@
   --models-accent-soft: var(--app-accent-soft);
   --models-positive: var(--app-success-text);
   --models-positive-soft: var(--app-success-bg);
-  background: var(--models-bg);
+  background: transparent;
   color: var(--models-text);
+  overflow: hidden;
 }
 
 .settingsPage
@@ -38,13 +38,14 @@
 }
 
 .settingsPage .content {
-  background: var(--models-bg);
+  background: transparent;
 }
 
 .settingsPage .pageHeader {
-  padding: 18px 24px;
-  border-bottom-color: var(--models-border);
-  background: var(--models-bg);
+  padding: 0 24px 20px;
+  border: 0;
+  backdrop-filter: none;
+  background: transparent;
 }
 
 .settingsPage .breadcrumbParent {
@@ -66,10 +67,11 @@
 .settingsPage .sectionHeaderRow {
   align-items: center;
   padding: 18px 24px 14px;
-  background: var(--models-bg);
+  background: transparent;
 }
 
 .settingsPage .providersPageHeader {
+  background: transparent;
   padding: 0;
 }
 
@@ -974,6 +976,10 @@
 }
 
 .groupSegBtn {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  font-family: inherit;
   flex: 1;
   padding: 7px 6px;
   text-align: center;
@@ -1443,7 +1449,13 @@
   border-radius: 6px;
   border: 1px solid var(--app-border);
   box-shadow: var(--app-shadow-sm);
-  transition: all 0.2s ease-in-out;
+  transition:
+    background-color 0.2s ease-in-out,
+    color 0.2s ease-in-out,
+    border-color 0.2s ease-in-out,
+    box-shadow 0.2s ease-in-out,
+    opacity 0.2s ease-in-out,
+    transform 0.2s ease-in-out;
 
   &:hover {
     box-shadow: var(--app-shadow-md);
@@ -2852,4 +2864,27 @@
 
 .settingsPage .sectionHeaderRow {
   box-sizing: border-box;
+}
+
+.groupSegBtn:focus-visible {
+  outline: 2px solid var(--app-focus-ring);
+  outline-offset: -2px;
+}
+.groupCardName {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.4;
+}
+.groupCardMono {
+  overflow-wrap: anywhere;
+}
+@media (pointer: coarse) {
+  .providerClose,
+  .providerSettings {
+    min-width: 44px;
+    min-height: 44px;
+  }
+  .groupCardHeader {
+    padding-right: 88px;
+  }
 }

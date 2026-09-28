@@ -22,6 +22,82 @@ from qwenpaw.portability.models import (
     MigrationAssetPlan,
     MigrationPlan,
 )
+from qwenpaw.portability.providers.base import report_result
+
+
+@pytest.mark.asyncio
+async def test_asset_ids_with_tabs_do_not_corrupt_other_assets():
+    plain = ImportAssetResult(
+        asset_type="skill",
+        source_id="demo",
+        name="demo",
+    )
+    linked = ImportAssetResult(
+        asset_type="skill",
+        source_id="demo\textra",
+        name="linked",
+    )
+    provider = ImportProviderSnapshot(source="codex", assets=[plain, linked])
+
+    async def progress(message):
+        PortabilityImportJobManager._project_progress(provider, message)
+
+    await report_result(
+        progress,
+        "asset",
+        "skill",
+        "failed",
+        "-",
+        "demo\textra",
+        "请修复来源后重试",
+    )
+    assert plain.state is ImportAssetState.PENDING
+    assert linked.state is ImportAssetState.FAILED
+    assert "重试" in linked.message
+    for suffix in ("not-json", '"extra"'):
+        await progress(f"\x1easset\tskill\tfailed\t-\tdemo\t{suffix}")
+        assert plain.state is ImportAssetState.PENDING
+
+
+@pytest.mark.parametrize(
+    "asset_type",
+    ["skill", "plugin", "mcp", "memory", "cron"],
+)
+@pytest.mark.asyncio
+async def test_asset_failure_message_survives_progress_and_clears_on_success(
+    asset_type: str,
+) -> None:
+    asset = ImportAssetResult(
+        asset_type=asset_type,
+        source_id="one",
+        name="one",
+    )
+    provider = ImportProviderSnapshot(source="codex", assets=[asset])
+    project = PortabilityImportJobManager._project_progress
+    detail = "请修复\t配置后重试。\napi_key=sk-test-secret-1234567890"
+
+    async def progress(message):
+        project(provider, message)
+
+    await report_result(
+        progress,
+        "asset",
+        asset_type,
+        "failed",
+        "-",
+        "one",
+        detail,
+    )
+    assert asset.state is ImportAssetState.FAILED
+    assert "请修复\t配置后重试。" in asset.message
+    assert "sk-test-secret" not in asset.message
+    assert asset.blocked_reason == ""
+    original = asset.message
+    project(provider, f"\x1easset\t{asset_type}\tfailed\t-\tone")
+    assert asset.message == original
+    project(provider, f"\x1easset\t{asset_type}\tsucceeded\t0\tone")
+    assert asset.state is ImportAssetState.SUCCEEDED
+    assert asset.message == ""
 
 
 def _workspace(tmp_path: Path, agent_id: str = "agent-1"):
@@ -527,6 +603,10 @@ async def test_retry_creates_a_new_job_for_selected_failed_tools(
         },
     )
     await _wait_job(manager, workspace, original.job_id)
+
+    failed = (await manager.snapshot(workspace, original.job_id)).providers[1]
+    assert "qoder failed" in failed.assets[0].message
+    assert "重试" in failed.assets[0].message
 
     retry = await manager.retry(
         workspace,

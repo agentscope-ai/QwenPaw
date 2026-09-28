@@ -222,7 +222,8 @@
       "blog": "Blog",
       "changelog": "Changelog",
       "termsOfService": "Termos de Servico",
-      "privacyPolicy": "Politica de Privacidade"
+      "privacyPolicy": "Politica de Privacidade",
+      "usagePolicy": "Política de Uso"
     },
     "social": {
       "x": "X",
@@ -466,6 +467,7 @@
   "downloads": {
     "title": "Downloads",
     "subtitle": "Baixe instaladores, ferramentas e recursos do QwenPaw",
+    "openSourceNotice": "Os downloads são compilações do <repo>projeto QwenPaw de código aberto</repo>, licenciado sob a licença Apache 2.0.",
     "loading": "Carregando...",
     "emptyTitle": "Nenhum download disponivel ainda",
     "emptyDesc": "As compilacoes desktop estao em andamento. Volte mais tarde.",

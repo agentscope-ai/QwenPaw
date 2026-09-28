@@ -4,6 +4,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter } from "react-router-dom";
@@ -100,12 +101,29 @@ describe("ImportPage", () => {
     renderPage();
 
     expect(actions.detect).toHaveBeenCalled();
-    expect(screen.getByText("Codex")).toBeInTheDocument();
-    expect(screen.getByText("Qoder")).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: "Codex" })).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: "Qoder" })).toBeInTheDocument();
     fireEvent.click(
       screen.getByRole("button", { name: "portabilityImport.continue" }),
     );
     expect(actions.scan).toHaveBeenCalledWith(["codex", "qoder"]);
+  });
+
+  it("previews source changes and the destination without starting an import", async () => {
+    vi.mocked(useImportJob).mockReturnValue(state() as never);
+    renderPage();
+    const route = within(
+      screen.getByRole("region", { name: "portabilityImport.title" }),
+    );
+    await waitFor(() => expect(route.getByText("Codex")).toBeVisible());
+    expect(
+      route.getByText("portabilityImport.targetAgent:qwenpaw"),
+    ).toBeVisible();
+    fireEvent.click(screen.getByRole("checkbox", { name: "Codex" }));
+    await waitFor(() => expect(route.queryByText("Codex")).toBeNull());
+    expect(route.getByText("Qoder")).toBeVisible();
+    expect(actions.scan).not.toHaveBeenCalled();
+    expect(actions.start).not.toHaveBeenCalled();
   });
 
   it("shows default-selected conversations and grouped assets", () => {

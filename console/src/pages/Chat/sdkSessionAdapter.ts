@@ -11,6 +11,7 @@ export function createSdkSessionAdapter(
   ) => void,
 ) {
   const ready = new Set<string>();
+  const failed = new Set<string>();
   const pending = new Map<string, symbol>();
   const listeners = new Set<() => void>();
   let revision = 0;
@@ -44,6 +45,7 @@ export function createSdkSessionAdapter(
       const token = Symbol(id);
       pending.set(id, token);
       ready.delete(id);
+      failed.delete(id);
       publish();
       try {
         const session = await source.getSession(id);
@@ -57,7 +59,11 @@ export function createSdkSessionAdapter(
             onSessionLoaded?.(sessionId, session);
           }
         }
+        if (pending.get(id) === token && !session) failed.add(id);
         return session;
+      } catch (error) {
+        if (pending.get(id) === token) failed.add(id);
+        throw error;
       } finally {
         if (pending.get(id) === token) {
           pending.delete(id);
@@ -78,6 +84,7 @@ export function createSdkSessionAdapter(
     api,
     isReady: (id?: string | null) =>
       !id || id === "new" || (ready.has(id) && !pending.has(id)),
+    hasFailed: (id?: string | null) => !!id && failed.has(id),
     subscribe: (listener: () => void) => {
       listeners.add(listener);
       return () => {

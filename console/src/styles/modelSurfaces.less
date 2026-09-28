@@ -1,6 +1,6 @@
 // Shared by model settings, portalled selectors, and thinking controls.
 .model-surface-tokens() {
-  --model-canvas: #f5f5f7;
+  --model-canvas: var(--app-bg);
   --model-card: var(--app-surface);
   --model-inset: color-mix(in srgb, var(--app-surface) 96%, var(--app-text));
   --model-hairline: color-mix(in srgb, var(--app-text) 8%, transparent);
@@ -10,7 +10,6 @@
   -webkit-font-smoothing: antialiased;
 
   :global(.dark-mode) & {
-    --model-canvas: #18181a;
     --model-shadow: 0 2px 4px rgb(0 0 0 / 10%), 0 8px 24px rgb(0 0 0 / 16%);
     --model-overlay-shadow: 0 0 0 1px rgb(255 255 255 / 6%),
       0 16px 48px rgb(0 0 0 / 32%);

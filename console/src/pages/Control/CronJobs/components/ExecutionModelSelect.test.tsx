@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 // @vitest-environment jsdom
 import {
   fireEvent,
@@ -20,21 +21,29 @@ vi.mock("antd", () => ({
     onChange,
     disabled,
     "aria-label": label,
-  }: any) => (
+  }: {
+    value?: string;
+    options: { value: string; label: ReactNode }[];
+    onChange: (value: string) => void;
+    disabled?: boolean;
+    "aria-label"?: string;
+  }) => (
     <select
       aria-label={label}
       disabled={disabled}
       value={value}
       onChange={(event) => onChange(event.target.value)}
     >
-      {options.map((item: any) => (
+      {options.map((item) => (
         <option key={item.value} value={item.value}>
           {item.label}
         </option>
       ))}
     </select>
   ),
-  Alert: ({ message }: any) => <div role="alert">{message}</div>,
+  Alert: ({ message }: { message: ReactNode }) => (
+    <div role="alert">{message}</div>
+  ),
 }));
 afterEach(cleanup);
 beforeEach(() => {

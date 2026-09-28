@@ -12,7 +12,7 @@
 import React, { useCallback, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Markdown } from "@agentscope-ai/chat";
-import { CopyOutlined, CheckOutlined } from "@ant-design/icons";
+import { Copy as CopyOutlined, Check as CheckOutlined } from "lucide-react";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
 import { copyText } from "@/utils/clipboard";
@@ -230,8 +230,11 @@ const DefaultBlock: React.FC<DefaultBlockProps> = ({
           className={styles.defaultBlockCopy}
           onClick={handleCopy}
           title={copyTitle}
+          aria-label={
+            copied ? t("common.copied") : copyTitle || t("common.copy")
+          }
         >
-          {copied ? <CheckOutlined /> : <CopyOutlined />}
+          {copied ? <CheckOutlined size="1em" /> : <CopyOutlined size="1em" />}
         </button>
       </div>
       {renderContent()}

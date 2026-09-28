@@ -1,0 +1,61 @@
+.frame {
+  height: 100%;
+  display: flex;
+  min-width: 0;
+}
+
+.surface {
+  border-radius: var(--app-radius-card);
+  position: relative;
+  min-width: 0;
+  --reflection-highlight: rgb(255 255 255 / 40%);
+  --reflection-silver: rgb(90 105 125 / 16%);
+  --reflection-edge: rgb(255 255 255 / 85%);
+  --reflection-shadow: rgb(30 40 55 / 12%);
+
+  :global(.dark-mode) & {
+    --reflection-highlight: rgb(255 255 255 / 26%);
+    --reflection-silver: rgb(255 255 255 / 4%);
+    --reflection-edge: rgb(255 255 255 / 18%);
+    --reflection-shadow: rgb(0 0 0 / 20%);
+  }
+}
+
+.frame > .surface {
+  flex: 1;
+}
+
+.reflection {
+  display: block;
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  border-radius: inherit;
+  pointer-events: none;
+  background: radial-gradient(
+    ellipse at var(--reflection-x, 50%) var(--reflection-y, 50%),
+    var(--reflection-highlight) 0%,
+    var(--reflection-silver) 38%,
+    transparent 76%
+  );
+  box-shadow:
+    inset 0 0 0 1px var(--reflection-edge),
+    0 8px 24px -10px var(--reflection-shadow);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .surface {
+    transform: none !important;
+  }
+
+  .reflection {
+    display: none;
+  }
+}
+
+.surface > :global(.ant-card),
+.surface > :global(.qwenpaw-card) {
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+}

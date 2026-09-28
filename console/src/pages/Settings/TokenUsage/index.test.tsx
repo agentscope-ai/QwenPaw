@@ -13,6 +13,12 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import React from "react";
+import dayjs, { type Dayjs } from "dayjs";
+import { act } from "react";
+type TableProps = React.ComponentProps<
+  typeof import("./components").DataTables
+>;
+type DateChange = (dates: [Dayjs | null, Dayjs | null] | null) => void;
 
 const apiMocks = vi.hoisted(() => ({
   getTokenUsageDetails: vi.fn(),
@@ -69,11 +75,11 @@ vi.mock("@/components/PageHeader", () => ({
 }));
 
 const capturedProps = vi.hoisted(() => ({
-  summary: null as any,
-  tables: null as any,
-  modelTrend: null as any,
-  tokenType: null as any,
-  line: null as any,
+  summary: null as Record<string, unknown> | null,
+  tables: null as TableProps | null,
+  modelTrend: null as Record<string, unknown> | null,
+  tokenType: null as Record<string, unknown> | null,
+  line: null as Record<string, unknown> | null,
 }));
 
 vi.mock("./components", () => ({
@@ -99,50 +105,85 @@ vi.mock("./components", () => ({
     ),
   EmptyState: ({ message }: { message: string }) =>
     React.createElement("div", { "data-testid": "empty-state" }, message),
-  SummaryCards: (props: any) => {
+  SummaryCards: (props: Record<string, unknown>) => {
     capturedProps.summary = props;
     return React.createElement("div", { "data-testid": "summary-cards" });
   },
-  ModelTrendChart: (props: any) => {
+  ModelTrendChart: (props: Record<string, unknown>) => {
     capturedProps.modelTrend = props;
     return React.createElement("div", { "data-testid": "model-trend-chart" });
   },
-  TokenTypeChart: (props: any) => {
+  TokenTypeChart: (props: Record<string, unknown>) => {
     capturedProps.tokenType = props;
     return React.createElement("div", { "data-testid": "token-type-chart" });
   },
-  DataTables: (props: any) => {
+  DataTables: (props: TableProps) => {
     capturedProps.tables = props;
     return React.createElement("div", { "data-testid": "data-tables" });
   },
 }));
 
 vi.mock("@ant-design/plots", () => ({
-  Line: (props: any) => {
+  Line: (props: Record<string, unknown>) => {
     capturedProps.line = props;
     return React.createElement("div", { "data-testid": "llm-tool-line" });
   },
 }));
 
 vi.mock("@agentscope-ai/design", () => ({
-  Card: ({ children, title }: any) =>
-    React.createElement("div", null, title, children),
+  Card: ({
+    children,
+    title,
+  }: {
+    children?: React.ReactNode;
+    title?: React.ReactNode;
+  }) => React.createElement("div", null, title, children),
 }));
 
-const datePickerMock = vi.hoisted(() => ({ onChange: null as any }));
+const datePickerMock = vi.hoisted(() => ({
+  onChange: null as DateChange | null,
+  yearChange: null as ((value: Dayjs) => void) | null,
+}));
 
 vi.mock("antd", () => {
-  const Tooltip = ({ children }: any) =>
+  const Tooltip = ({ children }: { children?: React.ReactNode }) =>
     React.createElement("span", null, children);
-  const RangePicker = ({ onChange }: any) => {
+  const RangePicker = ({ onChange }: { onChange: DateChange }) => {
     datePickerMock.onChange = onChange;
     return React.createElement("input", {
       "data-testid": "range-picker",
       readOnly: true,
     });
   };
-  const DatePicker = { RangePicker };
-  return { DatePicker, Tooltip };
+  const DatePicker = Object.assign(
+    ({ onChange }: { onChange: (value: Dayjs) => void }) => {
+      datePickerMock.yearChange = onChange;
+      return <input aria-label="Year" readOnly />;
+    },
+    { RangePicker },
+  );
+  const Segmented = ({
+    value,
+    onChange,
+    options,
+  }: {
+    value: string;
+    onChange: (value: string) => void;
+    options: { value: string; label: string }[];
+  }) => (
+    <div>
+      {options.map((option) => (
+        <button
+          key={option.value}
+          aria-pressed={value === option.value}
+          onClick={() => onChange(option.value)}
+        >
+          {option.label}
+        </button>
+      ))}
+    </div>
+  );
+  return { DatePicker, Tooltip, Segmented };
 });
 
 import TokenUsagePage from "./index";
@@ -182,6 +223,49 @@ describe("TokenUsagePage", () => {
     setupDefaultMocks();
   });
 
+  it("loads a complete year when switching to activity and expands model ranking", async () => {
+    render(<TokenUsagePage />);
+    await screen.findByTestId("summary-cards");
+    await userEvent.click(screen.getByRole("button", { name: "Activity" }));
+    expect(screen.queryByTestId("model-trend-chart")).not.toBeInTheDocument();
+    expect(
+      await screen.findByRole("region", { name: "Activity" }),
+    ).toBeInTheDocument();
+    await userEvent.click(
+      screen.getByRole("button", { name: /Model ranking/ }),
+    );
+    expect(
+      screen.getByRole("button", { name: /Model ranking/ }),
+    ).toHaveAttribute("aria-expanded", "true");
+    expect(apiMocks.getTokenUsageDetails).toHaveBeenLastCalledWith({
+      start_date: dayjs().startOf("year").format("YYYY-MM-DD"),
+      end_date: dayjs().format("YYYY-MM-DD"),
+    });
+    await userEvent.click(screen.getByRole("button", { name: "Trends" }));
+    expect(await screen.findByTestId("model-trend-chart")).toBeInTheDocument();
+  });
+
+  it("selects an empty leap year and still renders every date", async () => {
+    render(<TokenUsagePage />);
+    await screen.findByTestId("summary-cards");
+    await userEvent.click(screen.getByRole("button", { name: "Activity" }));
+    await screen.findByRole("region", { name: "Activity" });
+    apiMocks.getTokenUsageDetails.mockResolvedValue([]);
+    act(() => datePickerMock.yearChange?.(dayjs("2024-01-01")));
+    await waitFor(() =>
+      expect(apiMocks.getTokenUsageDetails).toHaveBeenLastCalledWith({
+        start_date: "2024-01-01",
+        end_date: "2024-12-31",
+      }),
+    );
+    expect(
+      await screen.findByRole("button", { name: "2024-02-29 · 0 tokens" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getAllByRole("button", { name: /2024-\d{2}-\d{2} · 0 tokens/ }),
+    ).toHaveLength(366);
+  });
+
   it("shows the loading state before the details arrive", () => {
     apiMocks.getTokenUsageDetails.mockReturnValue(new Promise(() => {}));
     render(<TokenUsagePage />);
@@ -214,11 +298,11 @@ describe("TokenUsagePage", () => {
     await waitFor(() => expect(capturedProps.tables).toBeTruthy());
     // Model rows are keyed provider:model.
     expect(
-      capturedProps.tables.byModelData.map((r: any) => r.model).sort(),
+      capturedProps.tables!.byModelData.map((r) => r.model).sort(),
     ).toEqual(["anthropic:claude", "openai:gpt-4o"]);
     // The named agent resolves through the store; the null agent id is
     // labelled unattributed; rows sort by total tokens descending.
-    expect(capturedProps.tables.byAgentData).toEqual([
+    expect(capturedProps.tables!.byAgentData).toEqual([
       expect.objectContaining({ agent: "Agent A" }),
       expect.objectContaining({ agent: "tokenUsage.unattributed" }),
     ]);
@@ -230,7 +314,7 @@ describe("TokenUsagePage", () => {
     ]);
     render(<TokenUsagePage />);
     await waitFor(() => expect(capturedProps.tables).toBeTruthy());
-    expect(capturedProps.tables.byAgentData[0].agent).toBe("unknown-agent");
+    expect(capturedProps.tables!.byAgentData[0].agent).toBe("unknown-agent");
   });
 
   it("shows the error state with a retry that refetches", async () => {
@@ -308,7 +392,7 @@ describe("TokenUsagePage", () => {
     await waitFor(() =>
       expect(screen.getByTestId("llm-tool-line")).toBeInTheDocument(),
     );
-    expect(capturedProps.line.data).toEqual([
+    expect(capturedProps.line!.data).toEqual([
       {
         date: "2026-09-01",
         type: "tokenUsage.recordedTurnsAllAgents",
@@ -326,7 +410,7 @@ describe("TokenUsagePage", () => {
     const callsBefore = apiMocks.getTokenUsageDetails.mock.calls.length;
 
     const dayjs = (await import("dayjs")).default;
-    datePickerMock.onChange([dayjs().subtract(7, "day"), dayjs()]);
+    datePickerMock.onChange!([dayjs().subtract(7, "day"), dayjs()]);
 
     await waitFor(() =>
       expect(apiMocks.getTokenUsageDetails.mock.calls.length).toBe(
@@ -348,8 +432,8 @@ describe("TokenUsagePage", () => {
       expect(screen.getByTestId("llm-tool-line")).toBeInTheDocument(),
     );
     const callsBefore = apiMocks.getTokenUsageDetails.mock.calls.length;
-    datePickerMock.onChange(null);
-    datePickerMock.onChange([null, null]);
+    datePickerMock.onChange!(null);
+    datePickerMock.onChange!([null, null]);
     await new Promise((r) => setTimeout(r, 30));
     expect(apiMocks.getTokenUsageDetails.mock.calls.length).toBe(callsBefore);
   });

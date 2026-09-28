@@ -126,6 +126,20 @@ def _text(value: Any, limit: int = 4096) -> str:
     return redact_sensitive_text(value, limit=limit).replace("\x00", "")
 
 
+def failure_message(action: str, error: BaseException) -> str:
+    """Explain a failed operation without a traceback or credentials."""
+    if isinstance(error, PermissionError):
+        detail = "读写权限不足，请检查来源和目标目录权限后重试"
+    elif isinstance(error, FileNotFoundError):
+        detail = "所需文件或程序不存在，请恢复来源文件或安装所需程序后重试"
+    elif isinstance(error, TimeoutError):
+        detail = "操作超时，请检查模型、网络或相关服务后重试"
+    else:
+        detail = str(getattr(error, "detail", None) or error).strip()
+        detail = f"{detail or '未返回具体原因'}；请检查该资产的配置和依赖后重试"
+    return _text(f"{action}：{detail}", 1000)
+
+
 def _snapshot(asset_type: AssetType, value: Any) -> dict[str, Any]:
     if asset_type is AssetType.SKILL:
         return {"description": _text(getattr(value, "description", ""), 2000)}
@@ -313,6 +327,11 @@ class CompatibilityStore:
             if passed:
                 asset.zone = AssetZone.MIGRATE
                 asset.reason = _text(reason, 1000)
+            else:
+                native = _text("；".join([summary, *evidence[:3]]), 450)
+                asset.reason = (
+                    f"原生检查未通过：{native}\n" f"Agent 分析：{_text(reason, 500)}"
+                )
             asset.updated_at = _now()
 
         return self._mutate(apply)
@@ -367,12 +386,24 @@ class CompatibilityStore:
         *,
         stopped: bool = False,
         reason: str = "",
+        errors: dict[str, str] | None = None,
     ) -> CompatibilityManifest:
         def apply(manifest: CompatibilityManifest) -> None:
             manifest.state = (
                 RunState.STOPPED_LIMIT if stopped else RunState.COMPLETED
             )
             manifest.stop_reason = _text(reason, 1000)
+            for asset in manifest.by_zone(AssetZone.REPAIR):
+                asset.reason = _text(
+                    (errors or {}).get(asset.asset_key)
+                    or asset.reason
+                    or (
+                        f"{asset.last_test.summary}；请检查该资产的配置后重试。"
+                        if asset.last_test
+                        else reason
+                    ),
+                    1000,
+                )
 
         return self._mutate(apply)
 
@@ -383,7 +414,11 @@ def counts(manifest: CompatibilityManifest) -> dict[str, int]:
     return result
 
 
-def write_summary(path: Path, manifest: CompatibilityManifest) -> None:
+def write_summary(
+    path: Path,
+    manifest: CompatibilityManifest,
+    failures: dict[str, str] | None = None,
+) -> None:
     """Write the concise migration narrative requested by the workflow."""
     labels = {
         AssetZone.MIGRATE: "待迁移区",
@@ -422,6 +457,12 @@ def write_summary(path: Path, manifest: CompatibilityManifest) -> None:
     lines.extend(f"- {item.name}：{'；'.join(item.changes)}" for item in changed)
     if not changed:
         lines.append("- 无")
+    if failures:
+        lines.extend(["", "## 导入失败"])
+        lines.extend(
+            f"- {_text(key, 200)}：{_text(value, 1000)}"
+            for key, value in failures.items()
+        )
     path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
     os.chmod(path, 0o600)
 
@@ -435,6 +476,7 @@ __all__ = [
     "PluginComponent",
     "RunState",
     "counts",
+    "failure_message",
     "load_manifest",
     "mcp_inline_secret_risks",
     "redact_sensitive_text",
