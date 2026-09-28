@@ -4118,9 +4118,7 @@ export default function ChatPage() {
                   !isMobile && !compactSender
                     ? styles.senderProjectControl
                     : "",
-                  isMobile || compactSender
-                    ? styles.mobileComposerControl
-                    : "",
+                  isMobile || compactSender ? styles.mobileComposerControl : "",
                 ]
                   .filter(Boolean)
                   .join(" ")}
@@ -4135,9 +4133,7 @@ export default function ChatPage() {
                   !isMobile && !compactSender
                     ? styles.senderApprovalControl
                     : "",
-                  isMobile || compactSender
-                    ? styles.mobileComposerControl
-                    : "",
+                  isMobile || compactSender ? styles.mobileComposerControl : "",
                 ]
                   .filter(Boolean)
                   .join(" ")}

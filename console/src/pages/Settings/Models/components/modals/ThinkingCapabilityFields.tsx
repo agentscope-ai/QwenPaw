@@ -17,7 +17,9 @@ export function ThinkingCapabilityFields({
   const kind = value?.kind ?? "unknown";
   return (
     <details style={{ marginBlock: 12 }}>
-      <summary style={{ cursor: "pointer", fontSize: "var(--app-font-secondary)" }}>
+      <summary
+        style={{ cursor: "pointer", fontSize: "var(--app-font-secondary)" }}
+      >
         {t("thinkingControl.declaration")}
         <InlineHelp>{t("thinkingControl.declarationHint")}</InlineHelp>
       </summary>

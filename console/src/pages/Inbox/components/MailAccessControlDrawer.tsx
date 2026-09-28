@@ -708,7 +708,10 @@ export function MailAccessControlDrawer({
               value={newAddress}
               onChange={(e) => setNewAddress(e.target.value)}
             />
-            <Text type="secondary" style={{ fontSize: "var(--app-font-caption)" }}>
+            <Text
+              type="secondary"
+              style={{ fontSize: "var(--app-font-caption)" }}
+            >
               {t("inbox.domainWildcardHint")}
             </Text>
           </div>
