@@ -1358,9 +1358,9 @@ class TestXiaoYiChannelConnectionRegistry:
 
         # Add to registry first
         async with xiaoyi_module._active_connections_lock:
-            xiaoyi_module._active_connections[xiaoyi_channel.agent_id] = (
-                xiaoyi_channel
-            )
+            xiaoyi_module._active_connections[
+                xiaoyi_channel.agent_id
+            ] = xiaoyi_channel
 
         # Unregister
         await xiaoyi_channel._unregister_connection()

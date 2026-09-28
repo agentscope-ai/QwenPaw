@@ -515,7 +515,8 @@ def test_discover_project_memory_collects_and_skips(tmp_path: Path) -> None:
     proj = tmp_path / "projects" / "proj1"
     _md(proj / "memory" / "m.md")
     (proj / "t.jsonl").write_text(
-        json.dumps({"cwd": cwd}) + "\n", encoding="utf-8"
+        json.dumps({"cwd": cwd}) + "\n",
+        encoding="utf-8",
     )
     (tmp_path / "projects" / "empty").mkdir()  # no memory dir
     (tmp_path / "projects" / "plainfile").write_text("x", encoding="utf-8")
@@ -550,7 +551,8 @@ def test_qoder_project_cwds_encodes_key(tmp_path: Path) -> None:
     d = tmp_path / "projects" / "pa"
     d.mkdir(parents=True)
     (d / "x.jsonl").write_text(
-        json.dumps({"cwd": cwd}) + "\n", encoding="utf-8"
+        json.dumps({"cwd": cwd}) + "\n",
+        encoding="utf-8",
     )
     mapping = es._qoder_project_cwds(tmp_path)
     encoded = cwd.lstrip("/\\").replace("/", "-").replace("\\", "-")
@@ -688,7 +690,9 @@ def test_discover_qoder_memory_v2_layout(tmp_path: Path, monkeypatch) -> None:
     # covered separately by test_qoder_memory_cwd_home_key_returns_home.
     home_key = "home-project"
     monkeypatch.setattr(
-        es, "_qoder_project_cwds", lambda _: {home_key: str(home)}
+        es,
+        "_qoder_project_cwds",
+        lambda _: {home_key: str(home)},
     )
     acct = tmp_path / "memories" / "acct1"
     _md(acct / "global" / "g.md")
