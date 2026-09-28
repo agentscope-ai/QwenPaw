@@ -3,9 +3,31 @@
 
 from __future__ import annotations
 
+import pytest
 from agentscope.message import DataBlock, URLSource
 
 from qwenpaw._compat.message import _ensure_url_scheme, msg_from_dict
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        r"C:\Users\alice\real.png",
+        r"\\server\share\real.png",
+        "C:/Users/alice/real.png",
+        "/tmp/real.png",
+    ],
+)
+@pytest.mark.parametrize("hint_key", [None, "filename", "name"])
+def test_legacy_file_name_handles_cross_platform_paths(path, hint_key):
+    block = {"type": "file", "source": {"type": "url", "url": path}}
+    if hint_key:
+        block[hint_key] = "report.pdf"
+    msg = msg_from_dict(
+        {"name": "user", "role": "user", "content": [block]},
+    )
+    filename = "report.pdf" if hint_key else "real.png"
+    assert msg.content[0].text == f"File '{filename}' is available at: {path}"
 
 
 def test_ensure_url_scheme_unc_path():

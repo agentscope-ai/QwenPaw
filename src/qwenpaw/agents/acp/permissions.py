@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """ACP permission handling."""
+
 from __future__ import annotations
 
 import json
@@ -395,6 +396,8 @@ class ACPPermissionAdapter:
         return self._summary(tool_call)
 
     def _display_path(self, value: str) -> str:
+        if "\x00" in value:
+            return value
         try:
             path = Path(value).expanduser()
             cwd_path = Path(self.cwd)

@@ -701,7 +701,7 @@ def test_interval_cron_renders_in_the_target_zone() -> None:
             "",
             ("not_absolute", False, "workspace_path_not_absolute"),
         ),
-        ("/no/such/dir/r14", "", ("missing", False, "workspace_path_missing")),
+        ("MISSING", "", ("missing", False, "workspace_path_missing")),
     ],
     ids=["empty", "empty-remote", "remote", "relative", "missing"],
 )
@@ -709,7 +709,10 @@ def test_workspace_status_classification(
     cwd: str,
     authority: str,
     expected: tuple[str, bool | None, str],
+    tmp_path: Path,
 ) -> None:
+    if cwd == "MISSING":
+        cwd = str(tmp_path / "missing")
     result = qoder_schedules._workspace_status(
         cwd,
         target_remote_authority=authority,
@@ -779,8 +782,8 @@ def test_overlong_cwd_is_audited_and_never_kept(
     assert mapped.metadata["cwd_audit"]["original_chars"] == 61
 
 
-def test_missing_workspace_directory_is_reported() -> None:
-    task = _task(workspacePath="/no/such/dir/r14")
+def test_missing_workspace_directory_is_reported(tmp_path: Path) -> None:
+    task = _task(workspacePath=str(tmp_path / "missing"))
 
     mapped = _mapped(task)
 

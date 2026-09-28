@@ -14,6 +14,7 @@ import base64
 from collections import defaultdict, deque
 import hashlib
 import logging
+import ntpath
 import os
 import re
 from contextvars import ContextVar
@@ -1434,7 +1435,9 @@ def _fixup_media_list(items: list) -> None:
             )
             filename = (
                 fname_hint
-                or (readable_path.rsplit("/", 1)[-1] if readable_path else "")
+                # Accept both separators, including Windows session paths
+                # processed on a different host platform.
+                or (ntpath.basename(readable_path) if readable_path else "")
                 or "file"
             )
             items[i] = TextBlock(

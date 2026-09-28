@@ -438,7 +438,7 @@ def test_display_path_absolute_inside_cwd_is_relative(tmp_path: Path) -> None:
     adapter = ACPPermissionAdapter(cwd=str(tmp_path))
     inside = Path(adapter.cwd) / "sub" / "file.txt"
 
-    assert adapter._display_path(str(inside)) == "sub/file.txt"
+    assert adapter._display_path(str(inside)) == str(Path("sub") / "file.txt")
 
 
 def test_display_path_absolute_outside_cwd_stays_absolute(

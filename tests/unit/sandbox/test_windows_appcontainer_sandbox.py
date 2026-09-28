@@ -995,3 +995,33 @@ class TestWindowsSandboxRejectsAllowReadAll:
         )
         sandbox = WindowsAppContainerSandbox(config)
         assert sandbox.config is config
+
+
+@pytest.mark.parametrize("log_progress", [True, False])
+def test_shutdown_cleanup_preserves_cleanup_without_progress_logging(
+    tmp_path,
+    monkeypatch,
+    log_progress,
+):
+    from qwenpaw.sandbox import windows_appcontainer_sandbox as mod
+
+    containers = tmp_path / "containers"
+    containers.mkdir()
+    metadata = {
+        "container_name": "qwenpaw_test",
+        "owner_pid": os.getpid(),
+    }
+    meta_file = containers / "qwenpaw_test.json"
+    meta_file.write_text(json.dumps(metadata), encoding="utf-8")
+    monkeypatch.setattr(mod, "_state_dir", tmp_path)
+    cleanup = MagicMock()
+    monkeypatch.setattr(mod, "_cleanup_single_container", cleanup)
+    logger = MagicMock()
+    if not log_progress:
+        logger.info.side_effect = ValueError("I/O operation on closed file")
+    monkeypatch.setattr(mod, "logger", logger)
+
+    mod.shutdown_cleanup(log_progress=log_progress)
+
+    cleanup.assert_called_once_with(metadata, meta_file)
+    assert logger.info.call_count == int(log_progress)

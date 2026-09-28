@@ -1202,7 +1202,7 @@ def _cleanup_single_container(  # pylint: disable=R0912
             pass
 
 
-def shutdown_cleanup() -> None:
+def shutdown_cleanup(*, log_progress: bool = True) -> None:
     """Destroys AppContainer sandboxes owned by this process or orphaned.
 
     Iterates metadata files under ``~/.qwenpaw/containers/``, skips
@@ -1225,16 +1225,18 @@ def shutdown_cleanup() -> None:
 
         if owner_pid is not None and owner_pid != my_pid:
             if _is_pid_alive(owner_pid):
-                logger.debug(
-                    "Skipping container %s — owner pid %d still alive",
-                    meta.get("container_name", "?"),
-                    owner_pid,
-                )
+                if log_progress:
+                    logger.debug(
+                        "Skipping container %s — owner pid %d still alive",
+                        meta.get("container_name", "?"),
+                        owner_pid,
+                    )
                 continue
 
         container_name = meta.get("container_name", "")
         if container_name:
-            logger.info("Cleaning AppContainer: %s", container_name)
+            if log_progress:
+                logger.info("Cleaning AppContainer: %s", container_name)
             _cleanup_single_container(meta, meta_file)
 
     if containers_dir.exists() and not list(containers_dir.glob("*.json")):
@@ -1244,4 +1246,6 @@ def shutdown_cleanup() -> None:
             pass
 
 
-atexit.register(shutdown_cleanup)
+# Logging streams (including pytest capture) may already be closed at exit.
+# Keep cleanup active, but omit routine progress messages from this callback.
+atexit.register(shutdown_cleanup, log_progress=False)

@@ -25,10 +25,12 @@ All five are pure or in-place list/dict rewriters, so they are exercised
 directly with real files under ``tmp_path`` rather than with a patched
 filesystem, except where a test says otherwise.
 """
+
 # pylint: disable=protected-access,use-implicit-booleaness-not-comparison  # noqa: E501
 from __future__ import annotations
 
 import hashlib
+import os
 from types import SimpleNamespace
 from typing import Any
 
@@ -96,7 +98,7 @@ def test_media_source_key_normalises_local_file_url(tmp_path) -> None:
     assert mf._media_source_key(block) == real
 
     doubled = {"source": {"type": "url", "url": "file:///tmp//a/../b.png"}}
-    assert mf._media_source_key(doubled) == "/tmp/b.png"
+    assert mf._media_source_key(doubled) == os.path.normpath("/tmp/b.png")
 
 
 def test_media_source_key_keeps_remote_url_verbatim() -> None:
@@ -599,7 +601,7 @@ def test_fixup_keeps_data_block_whose_file_exists(tmp_path) -> None:
     items: list = [block]
     mf._fixup_media_list(items)
     assert items[0] is block
-    assert block.source.url == "file://" + real
+    assert block.source.url == "file://" + real.replace("\\", "/")
 
 
 @pytest.mark.parametrize(
@@ -633,6 +635,34 @@ def test_fixup_leaves_data_blocks_without_a_local_file_url(block) -> None:
 # ---------------------------------------------------------------------------
 # _fixup_media_list — file blocks
 # ---------------------------------------------------------------------------
+@pytest.mark.parametrize(
+    "path",
+    [
+        r"C:\Users\alice\real.png",
+        r"\\server\share\real.png",
+        "C:/Users/alice/real.png",
+        "/tmp/real.png",
+    ],
+)
+@pytest.mark.parametrize("as_object", [False, True])
+@pytest.mark.parametrize("hint_key", [None, "filename", "name"])
+def test_fixup_file_name_handles_cross_platform_paths(
+    path,
+    as_object,
+    hint_key,
+) -> None:
+    block = {"type": "file", "source": {"type": "url", "url": path}}
+    if hint_key:
+        block[hint_key] = "report.pdf"
+    if as_object:
+        block["source"] = SimpleNamespace(**block["source"])
+        block = SimpleNamespace(**block)
+    items = [block]
+    mf._fixup_media_list(items)
+    filename = "report.pdf" if hint_key else "real.png"
+    assert items[0].text == f"File '{filename}' is available at: {path}"
+
+
 def test_fixup_converts_dict_file_block_to_text_with_path(tmp_path) -> None:
     real = _existing(tmp_path)
     items: list = [

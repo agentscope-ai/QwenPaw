@@ -9,6 +9,7 @@ WebSocket operations
 Run:
     pytest tests/unit/channels/test_xiaoyi.py -v
 """
+
 # pylint: disable=redefined-outer-name,protected-access,unused-argument
 from __future__ import annotations
 
@@ -19,10 +20,18 @@ import pytest
 
 from qwenpaw.exceptions import ChannelError
 
-
 # =============================================================================
 # Fixtures
 # =============================================================================
+
+
+@pytest.fixture(autouse=True)
+def isolated_default_media_dir(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        "qwenpaw.app.channels.xiaoyi.channel.DEFAULT_MEDIA_DIR",
+        tmp_path / "media",
+    )
+    monkeypatch.delenv("XIAOYI_MEDIA_DIR", raising=False)
 
 
 @pytest.fixture
@@ -62,7 +71,6 @@ def xiaoyi_channel(mock_process, tmp_path):
 # =============================================================================
 
 
-@pytest.mark.asyncio
 class TestXiaoYiChannelInit:
     """
     P0: XiaoYiChannel initialization tests.
@@ -138,7 +146,6 @@ class TestXiaoYiChannelInit:
 # =============================================================================
 
 
-@pytest.mark.asyncio
 class TestXiaoYiChannelFactoryMethods:
     """
     P0: Factory method tests - from_env and from_config.
@@ -236,7 +243,6 @@ class TestXiaoYiChannelFactoryMethods:
 # =============================================================================
 
 
-@pytest.mark.asyncio
 class TestXiaoYiChannelValidation:
     """
     P0: Configuration validation tests.
@@ -293,7 +299,6 @@ class TestXiaoYiChannelValidation:
 # =============================================================================
 
 
-@pytest.mark.asyncio
 class TestXiaoYiChannelLifecycle:
     """
     P0/P1: Lifecycle tests for start/stop operations.
@@ -387,7 +392,6 @@ class TestXiaoYiChannelLifecycle:
 # =============================================================================
 
 
-@pytest.mark.asyncio
 class TestXiaoYiChannelWebSocketConnection:
     """
     P0: WebSocket connection tests (single connection + fallback).
@@ -469,7 +473,6 @@ class TestXiaoYiChannelWebSocketConnection:
 # =============================================================================
 
 
-@pytest.mark.asyncio
 class TestXiaoYiChannelMessageHandling:
     """
     P0/P1: Message handling tests.
@@ -594,7 +597,6 @@ class TestXiaoYiChannelMessageHandling:
 # =============================================================================
 
 
-@pytest.mark.asyncio
 class TestXiaoYiChannelA2ARequestHandling:
     """
     P1: A2A request handling tests.
@@ -700,7 +702,6 @@ class TestXiaoYiChannelA2ARequestHandling:
 # =============================================================================
 
 
-@pytest.mark.asyncio
 class TestXiaoYiChannelSend:
     """
     P0: Send message tests.
@@ -964,7 +965,6 @@ class TestXiaoYiChannelChunking:
 # =============================================================================
 
 
-@pytest.mark.asyncio
 class TestXiaoYiChannelMedia:
     """
     P1: Media sending tests.
@@ -1039,7 +1039,6 @@ class TestXiaoYiChannelMedia:
 # =============================================================================
 
 
-@pytest.mark.asyncio
 class TestXiaoYiChannelResponseHandling:
     """
     P1: Response handling tests.
@@ -1345,7 +1344,6 @@ class TestXiaoYiChannelSessionTaskMap:
 # =============================================================================
 
 
-@pytest.mark.asyncio
 class TestXiaoYiChannelConnectionRegistry:
     """
     P1: Connection registry tests.
@@ -1360,9 +1358,9 @@ class TestXiaoYiChannelConnectionRegistry:
 
         # Add to registry first
         async with xiaoyi_module._active_connections_lock:
-            xiaoyi_module._active_connections[
-                xiaoyi_channel.agent_id
-            ] = xiaoyi_channel
+            xiaoyi_module._active_connections[xiaoyi_channel.agent_id] = (
+                xiaoyi_channel
+            )
 
         # Unregister
         await xiaoyi_channel._unregister_connection()
