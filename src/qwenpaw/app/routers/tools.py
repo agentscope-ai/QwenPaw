@@ -167,7 +167,7 @@ def _build_tool_info(tool_config: Any, tool_name: str) -> ToolInfo:
     owner = DEFAULT_REGISTRY.get_owner(tool_name)
     plugin_id = (
         owner
-        if owner and owner != f"builtin"
+        if owner and owner != "builtin"
         else registry.get_plugin_id_for_tool(tool_name)
     )
     tool_info.source_plugin_id = plugin_id
@@ -175,7 +175,7 @@ def _build_tool_info(tool_config: Any, tool_name: str) -> ToolInfo:
 
     if plugin_id:
         tool_info.source_plugin_name = (
-            manifest.get(f"name", plugin_id) if manifest else plugin_id
+            manifest.get("name", plugin_id) if manifest else plugin_id
         )
 
     if manifest and "meta" in manifest:
@@ -186,7 +186,7 @@ def _build_tool_info(tool_config: Any, tool_name: str) -> ToolInfo:
 
         for t in meta.get("tools", []):
             if isinstance(t, dict) and t.get("name") == tool_name:
-                category = t.get(f"category")
+                category = t.get("category")
                 if isinstance(category, str):
                     tool_info.category = category
                 requires_config = t.get("requires_config", False)

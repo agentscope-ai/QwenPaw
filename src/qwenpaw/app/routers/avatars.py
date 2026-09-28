@@ -3,21 +3,13 @@
 
 from functools import lru_cache
 
-from fastapi import HTTPException, Request
-
 from ...constant import WORKING_DIR
 from ...user_assets.avatars import AvatarStore
 from ...user_assets.avatar_routes import avatar_router
-from ..auth import is_auth_enabled, verify_token
 
 
-def avatar_owner(request: Request) -> str:
-    """Protect workspace identity even after the username changes."""
-    if is_auth_enabled():
-        header = request.headers.get("Authorization", "")
-        token = header[7:] if header.startswith("Bearer ") else ""
-        if not token or verify_token(token) is None:
-            raise HTTPException(401, "Not authenticated")
+def avatar_owner() -> str:
+    """Return a stable workspace identity after AuthMiddleware admission."""
     return "console"
 
 
