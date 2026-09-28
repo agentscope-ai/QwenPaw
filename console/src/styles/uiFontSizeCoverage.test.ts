@@ -107,6 +107,16 @@ const mcpSource = readSource("src/pages/Agent/MCP/index.tsx");
 const tabbedEditorStyles = readSource(
   "src/pages/Coding/TabbedEditor.module.less",
 );
+const settingsDrawerStyles = readSource(
+  "src/components/interaction/SettingsDrawer.module.less",
+);
+const modelsModalSources = [
+  "ProviderConfigModal",
+  "LocalModelManageModal",
+  "CustomProviderModal",
+].map((name) =>
+  readSource(`src/pages/Settings/Models/components/modals/${name}.tsx`),
+);
 
 describe("console font-size coverage", () => {
   it("uses semantic typography tokens throughout file previews", () => {
@@ -176,7 +186,7 @@ describe("console font-size coverage", () => {
     const root = chatStyles.slice(0, chatStyles.indexOf(".filesPreviewOpen"));
     expect(root).toMatch(/-sender-content-bottom[\s\S]*flex-wrap:\s*nowrap/);
     expect(root).toMatch(/-sender-prefix[\s\S]*flex:\s*1 1 auto/);
-    expect(root).toContain("> div {\n        flex-wrap: nowrap;");
+    expect(root).toMatch(/> div \{\s*flex-wrap:\s*nowrap;/);
     expect(root).toMatch(/-sender-actions-list[\s\S]*flex-wrap:\s*nowrap/);
     expect(chatStyles).toContain(".senderProjectControl");
     expect(chatStyles).toContain(".senderApprovalControl");
@@ -194,6 +204,15 @@ describe("console font-size coverage", () => {
       "min-height: max(142px, calc(142px * var(--app-font-scale)))",
     );
     expect(appCenterStyles).toContain(".scaled-control-typography();");
+  });
+
+  it("scales portalled editor titles and tags Models modals for the mixin", () => {
+    expect(readRule(settingsDrawerStyles, ".editor")).toContain(
+      "font-size: calc(18px * var(--app-font-scale))",
+    );
+    for (const source of modelsModalSources) {
+      expect(source).toContain("className={styles.modelManageModal}");
+    }
   });
 
   it("scales channel page typography and cards", () => {

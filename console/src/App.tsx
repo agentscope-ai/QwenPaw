@@ -71,6 +71,7 @@ import { interceptBlankLinkClicks } from "./utils/interceptBlankLinkClicks";
 import { isSafeCssColor } from "./utils/chatThemeColor";
 import {
   applyUiFontSizeToRoot,
+  getUiFontScale,
   getUiFontSize,
   subscribeUiFontSize,
   UI_FONT_SIZE_DEFAULT,
@@ -116,6 +117,28 @@ export function getAppThemeToken(
     ...(userTheme.radius
       ? { borderRadius: Number.parseFloat(userTheme.radius) }
       : {}),
+  };
+}
+
+type AppComponentTokens = NonNullable<AntThemeConfig["components"]>;
+
+/**
+ * Spark pins the modal title size outside Ant's font token. Scale it here so
+ * portalled modals and confirm dialogs follow the console font size too; at
+ * the default size Spark's value passes through unchanged.
+ */
+export function getAppComponentTokens(
+  base: AppComponentTokens = {},
+  fontSize: number = UI_FONT_SIZE_DEFAULT,
+): AppComponentTokens {
+  const titleFontSize = base.Modal?.titleFontSize;
+  if (titleFontSize === undefined) return base;
+  return {
+    ...base,
+    Modal: {
+      ...base.Modal,
+      titleFontSize: titleFontSize * getUiFontScale(fontSize),
+    },
   };
 }
 
@@ -373,6 +396,7 @@ function AppInner({ backendInfo }: { backendInfo: BackendInfo }) {
     applyUiFontSizeToRoot(effectiveFontSize);
   }, [effectiveFontSize]);
   const selectedTheme = isDark ? bailianDarkTheme : bailianTheme;
+  const sparkTheme = (selectedTheme as { theme?: AntThemeConfig }).theme;
   const lang = i18n.resolvedLanguage || i18n.language || "en";
   const [antdLocale, setAntdLocale] = useState<Locale>(
     antdLocaleMap[lang] ?? enUS,
@@ -520,11 +544,15 @@ function AppInner({ backendInfo }: { backendInfo: BackendInfo }) {
         // Ant Design's context below it so unsent attachments survive.
         locale={enUS}
         theme={{
-          ...(selectedTheme as { theme?: AntThemeConfig }).theme,
+          ...sparkTheme,
           algorithm: isDark
             ? antdTheme.darkAlgorithm
             : antdTheme.defaultAlgorithm,
           token: getAppThemeToken(userTheme, isDark, effectiveFontSize),
+          components: getAppComponentTokens(
+            sparkTheme?.components,
+            effectiveFontSize,
+          ),
         }}
       >
         <AntdConfigProvider locale={antdLocale}>

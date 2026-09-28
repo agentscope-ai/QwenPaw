@@ -26,7 +26,12 @@ vi.mock("./tauri/BackendLoadingPage", () => ({
   ),
 }));
 
-import { getAppThemeToken, RuntimeAvailabilityGuard } from "./App";
+import {
+  getAppComponentTokens,
+  getAppThemeToken,
+  RuntimeAvailabilityGuard,
+} from "./App";
+import { getUiFontScale } from "./utils/uiFontSizePreference";
 
 afterEach(() => {
   cleanup();
@@ -105,5 +110,36 @@ describe("getAppThemeToken", () => {
     expect(large.controlHeight).toBe(46);
     expect(large.controlHeightSM).toBe(34);
     expect(large.controlHeightLG).toBe(57);
+  });
+});
+
+describe("getAppComponentTokens", () => {
+  // Mirrors the fixed modal typography Spark ships in its antd theme.
+  const spark = {
+    Modal: { headerBg: "#fff", titleFontSize: 16 },
+    Alert: { fontSize: 12 },
+  };
+
+  it("keeps Spark's component tokens at the default font size", () => {
+    const tokens = getAppComponentTokens(spark);
+
+    expect(tokens.Modal).toEqual(spark.Modal);
+    expect(tokens.Alert).toBe(spark.Alert);
+  });
+
+  it("scales the pinned modal title with the console font size", () => {
+    expect(getAppComponentTokens(spark, 20).Modal).toEqual({
+      headerBg: "#fff",
+      titleFontSize: 16 * getUiFontScale(20),
+    });
+    expect(getAppComponentTokens(spark, 12).Modal?.titleFontSize).toBe(
+      16 * getUiFontScale(12),
+    );
+  });
+
+  it("leaves themes without a pinned modal title untouched", () => {
+    const base = { Alert: { fontSize: 12 } };
+
+    expect(getAppComponentTokens(base, 20)).toBe(base);
   });
 });

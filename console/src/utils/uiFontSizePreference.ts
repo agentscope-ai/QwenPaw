@@ -51,13 +51,33 @@ export function setUiFontSize(size: number): void {
   }
 }
 
-/** Subscribe to changes; designed for React's useSyncExternalStore. */
+/**
+ * Subscribe to changes; designed for React's useSyncExternalStore. Also
+ * follows `storage` events so other tabs pick up a new size.
+ */
 export function subscribeUiFontSize(onStoreChange: () => void): () => void {
   if (typeof window === "undefined") return () => {};
+  const onStorage = (event: StorageEvent) => {
+    // A null key means another tab cleared the whole storage area.
+    if (event.key === null || event.key === UI_FONT_SIZE_STORAGE_KEY) {
+      onStoreChange();
+    }
+  };
   window.addEventListener(UI_FONT_SIZE_CHANGE_EVENT, onStoreChange);
+  window.addEventListener("storage", onStorage);
   return () => {
     window.removeEventListener(UI_FONT_SIZE_CHANGE_EVENT, onStoreChange);
+    window.removeEventListener("storage", onStorage);
   };
+}
+
+/**
+ * Scale factor relative to the default size, rounded to three decimals.
+ * Shared by `--app-font-scale` and theme tokens so both stay in step.
+ */
+export function getUiFontScale(size: number): number {
+  const scale = clampUiFontSize(size) / UI_FONT_SIZE_DEFAULT;
+  return Math.round(scale * 1000) / 1000;
 }
 
 /**
@@ -78,8 +98,5 @@ export function applyUiFontSizeToRoot(size: number): void {
   const percent = Math.round(scale * 100 * 1000) / 1000;
   const root = document.documentElement;
   root.style.fontSize = `${percent}%`;
-  root.style.setProperty(
-    "--app-font-scale",
-    String(Math.round(scale * 1000) / 1000),
-  );
+  root.style.setProperty("--app-font-scale", String(getUiFontScale(clamped)));
 }

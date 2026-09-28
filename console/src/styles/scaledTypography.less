@@ -1,12 +1,8 @@
 // Spark supplies fixed typography for these controls outside Ant's font token.
-// Apply at page/modal boundaries, including portals, instead of globally.
+// Rules only reach descendants of the class that applies this mixin, so give
+// portalled overlays their own class (see Models .modelManageModal). Modal
+// titles scale through the theme token in App.tsx instead.
 .scaled-control-typography() {
-  :global(.qwenpaw-modal-content .qwenpaw-modal-title),
-  :global(.qwenpaw-drawer-title) {
-    font-size: var(--app-font-subtitle);
-    line-height: 1.75;
-  }
-
   :global(.qwenpaw-form-item .qwenpaw-form-item-label > label) {
     font-size: var(--app-font-secondary);
     line-height: calc(20px * var(--app-font-scale));

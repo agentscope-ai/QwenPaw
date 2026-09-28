@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   applyUiFontSizeToRoot,
   clampUiFontSize,
+  getUiFontScale,
   getUiFontSize,
   setUiFontSize,
   subscribeUiFontSize,
@@ -83,6 +84,32 @@ describe("subscribeUiFontSize", () => {
     unsubscribe();
     setUiFontSize(16);
     expect(listener).toHaveBeenCalledTimes(1);
+  });
+
+  it("follows writes from other tabs for its own key only", () => {
+    const listener = vi.fn();
+    const unsubscribe = subscribeUiFontSize(listener);
+    window.dispatchEvent(new StorageEvent("storage", { key: "language" }));
+    expect(listener).not.toHaveBeenCalled();
+
+    window.dispatchEvent(new StorageEvent("storage", { key: STORAGE_KEY }));
+    // A null key means another tab cleared the whole storage area.
+    window.dispatchEvent(new StorageEvent("storage", { key: null }));
+    expect(listener).toHaveBeenCalledTimes(2);
+
+    unsubscribe();
+    window.dispatchEvent(new StorageEvent("storage", { key: STORAGE_KEY }));
+    expect(listener).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("getUiFontScale", () => {
+  it("matches the rounded scale written to --app-font-scale", () => {
+    expect(getUiFontScale(UI_FONT_SIZE_DEFAULT)).toBe(1);
+    expect(getUiFontScale(UI_FONT_SIZE_MAX)).toBe(
+      Number(expectedScale(UI_FONT_SIZE_MAX)),
+    );
+    expect(getUiFontScale(999)).toBe(getUiFontScale(UI_FONT_SIZE_MAX));
   });
 });
 
