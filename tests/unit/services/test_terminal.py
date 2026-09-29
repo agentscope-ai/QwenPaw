@@ -20,6 +20,32 @@ from qwenpaw.services import terminal
 if os.name != "nt":
     import fcntl
 
+    from qwenpaw.services.terminal_posix import PosixPty
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX descriptor polling")
+def test_posix_pty_supports_descriptor_above_select_limit():
+    local, peer = socket.socketpair()
+    descriptor = -1
+    try:
+        try:
+            descriptor = fcntl.fcntl(local.fileno(), fcntl.F_DUPFD, 1024)
+        except OSError:
+            pytest.skip("Process descriptor limit is below 1024")
+        process = MagicMock()
+        process.pid = 1
+        pty = PosixPty(process, descriptor)
+
+        peer.sendall(b"READY")
+        assert pty.read(5) == "READY"
+        pty.write("PING")
+        assert peer.recv(4) == b"PING"
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+        local.close()
+        peer.close()
+
 
 def test_windows_shell_falls_back_when_comspec_is_missing(monkeypatch):
     monkeypatch.setattr(terminal.os, "name", "nt")
