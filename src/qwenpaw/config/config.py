@@ -3117,6 +3117,18 @@ class BrowserConfig(BaseModel):
     context: Literal["auto", "profile", "incognito"] = "auto"
     user_data_dir: Optional[str] = None
     args: List[str] = Field(default_factory=list)
+    ignore_default_args: List[str] = Field(
+        default_factory=list,
+        description=(
+            "Playwright Chromium default arguments to drop from the launch "
+            "command line. 'args' can only append switches, so it cannot "
+            "cancel a boolean one Playwright injects itself — list it here "
+            "instead (e.g. '--disable-extensions' to let a persistent "
+            "profile load its installed extensions). Only applies to "
+            "backend='launch'; managed_cdp/connect_cdp attach to a browser "
+            "that is already running."
+        ),
+    )
     viewport: Optional[Tuple[int, int]] = None
     proxy: Optional[str] = None
     use_system_default: bool = True
