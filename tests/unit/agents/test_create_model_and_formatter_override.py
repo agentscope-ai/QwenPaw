@@ -630,6 +630,46 @@ def test_cooldown_policy_is_loaded_from_the_fallback_policy():
     )
 
 
+def test_cooldown_policy_reaches_the_fallback_chain(monkeypatch):
+    """The loaded policy must survive every hand-off into FallbackChatModel.
+
+    The other wiring tests here replace FallbackChatModel with a lambda, so
+    dropping the ``cooldown=`` argument, or the settings hand-off that feeds
+    it, leaves them green while the Console switch becomes a no-op.
+    """
+    # The autouse fixture installs a bare string as the formatter, which
+    # only works while FallbackChatModel is patched out; keep the fake
+    # model's own object formatter instead.
+    monkeypatch.setattr(
+        model_factory,
+        "_install_model_formatter",
+        lambda model, provider_id=None, *, model_info=None: None,
+    )
+    config = _patched_load_agent_config("agent-1")
+    config.fallback_models = [
+        ModelSlotConfig(provider_id="fallback-provider", model="fallback"),
+    ]
+    config.fallback_policy = SimpleNamespace(
+        enabled=True,
+        target_scope="any",
+        cooldown_enabled=False,
+        cooldown_base_seconds=5.0,
+        cooldown_max_seconds=30.0,
+    )
+
+    model, _formatter = model_factory.create_model_and_formatter(
+        agent_id="agent-1",
+        agent_config=config,
+    )
+
+    assert isinstance(model, fallback_chat_model.FallbackChatModel)
+    assert model._cooldown == CooldownPolicy(
+        enabled=False,
+        base_seconds=5.0,
+        max_seconds=30.0,
+    )
+
+
 def test_legacy_fallback_policy_keeps_cooldown_defaults():
     """An agent.json written before these fields existed still works."""
     config = _patched_load_agent_config("agent-1")
