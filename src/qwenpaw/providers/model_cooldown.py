@@ -39,9 +39,12 @@ _MAX_TRACKED = 256
 # Caps the exponent so a long-lived entry cannot build a huge integer.
 _MAX_EXPONENT = 32
 
-# Only availability errors cool a candidate down.  Request-level problems
-# (context overflow, content safety, a malformed request) and unclassified
-# errors leave the candidate usable -- the model itself did nothing wrong.
+# Only availability errors cool a candidate down: the fallback-eligible
+# kinds from ``ModelErrorKind`` plus ``authentication``, because a revoked
+# key makes a candidate just as unusable as a 5xx does.  Request-level
+# problems (context overflow, content safety, a malformed request) and
+# unclassified errors leave the candidate usable -- the model itself did
+# nothing wrong.
 _COOLDOWN_KINDS = frozenset(
     {
         "rate_limited",

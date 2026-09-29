@@ -2116,6 +2116,13 @@ def _load_agent_model_settings(
             settings.fallback_free_only = (
                 fallback_policy.target_scope == "free_only"
             )
+            # Read the cooldown fields defensively on purpose.  The whole
+            # block sits inside ``except Exception: pass``, so a rename
+            # that raises AttributeError here would not fail loudly -- it
+            # would silently drop every setting assigned after this point
+            # (retry config, rate limits, compact threshold).  Tolerating a
+            # config object without the fields keeps the blast radius to
+            # the cooldown defaults.
             settings.fallback_cooldown = CooldownPolicy(
                 enabled=getattr(
                     fallback_policy,

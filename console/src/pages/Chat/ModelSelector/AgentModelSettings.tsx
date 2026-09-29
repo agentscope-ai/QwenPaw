@@ -79,6 +79,10 @@ const EMPTY_KEY = "";
  * a cap, so a choice is a (start, cap) pair rather than a single number.
  * Offering pairs keeps the two related values from drifting apart in the
  * UI; a value set through the API instead shows up as "custom".
+ *
+ * Display only: the stored values belong to the backend
+ * (`FallbackPolicyConfig`), and these pairs merely decide which choice the
+ * picker shows for a given (start, cap).
  */
 const COOLDOWN_PRESETS = [
   { value: "short", baseSeconds: 30, maxSeconds: 600 },

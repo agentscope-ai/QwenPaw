@@ -416,6 +416,14 @@ class FallbackChatModel(ChatModelBase):
         # candidate (revoked key, deleted model, ...) must not mask the
         # healthy candidates behind it, so its own error never stops the
         # walk.
+        #
+        # Consequence while the primary is cooling down: it is not
+        # attempted, so no candidate carries the primary's gate and a
+        # request-level error (400, context overflow, content safety) from
+        # the candidate tried first lets the walk continue.  That is the
+        # same rule every secondary candidate already followed, and it is
+        # deliberate: gating on the first attempt instead would let one
+        # broken fallback hide the healthy models behind it.
         return plan[position] > 0 or is_fallback_eligible(exc)
 
     def _record_fallback(
