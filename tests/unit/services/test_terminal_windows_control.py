@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
-"""Console event routing contracts and a Windows-only native smoke test."""
+"""PTY interrupt contracts and a Windows-only native smoke test."""
 
-import ctypes
 import os
 import sys
 import time
@@ -31,9 +30,12 @@ def test_native_ping_interrupt_and_host_cleanup(tmp_path):
         assert marker in output, output
 
     try:
+        adapter.write("function prompt { 'QWENPAW_' + 'READY>' }; \r")
+        until("QWENPAW_READY>")
         adapter.write("ping -n 30 127.0.0.1\r")
         until("TTL=")
         adapter.write("\x03")
+        until("QWENPAW_READY>")
         adapter.write("echo ('QWENPAW_' + 'INTERRUPT_OK')\r")
         until("QWENPAW_INTERRUPT_OK")
         owned = adapter.owner.children(recursive=True)
@@ -42,81 +44,32 @@ def test_native_ping_interrupt_and_host_cleanup(tmp_path):
     assert all(not process.is_running() for process in owned)
 
 
-def test_control_c_uses_console_event_and_preserves_text_order(monkeypatch):
-    process = MagicMock(pid=123)
-    events = MagicMock()
-    process.write = events.write
-    monkeypatch.setattr(windows, "interrupt_console", events.interrupt)
-    windows.write_input(process, "before\x03after\x03")
-    assert events.mock_calls == [
-        call.write("before"),
-        call.interrupt(123),
-        call.write("after"),
-        call.interrupt(123),
-    ]
+@pytest.mark.parametrize(
+    ("data", "expected"),
+    [
+        ("hello", [call.write("hello")]),
+        ("\x03", [call.sendintr()]),
+        ("\x03\x03", [call.sendintr(), call.sendintr()]),
+        (
+            "before\x03after\x03",
+            [
+                call.write("before"),
+                call.sendintr(),
+                call.write("after"),
+                call.sendintr(),
+            ],
+        ),
+    ],
+)
+def test_control_c_uses_owned_pty_and_preserves_text_order(data, expected):
+    process = MagicMock()
+    windows.write_input(process, data)
+    assert process.mock_calls == expected
 
 
-def test_interrupt_attaches_only_to_owned_shell(monkeypatch):
-    kernel = MagicMock()
-    kernel.AttachConsole.return_value = True
-    kernel.SetConsoleCtrlHandler.return_value = True
-    kernel.GenerateConsoleCtrlEvent.return_value = True
-    monkeypatch.setattr(
-        ctypes,
-        "WinDLL",
-        lambda *_a, **_kw: kernel,
-        raising=False,
-    )
-    monkeypatch.setattr(windows.time, "sleep", lambda _: None)
-    windows.interrupt_console(123)
-    assert kernel.mock_calls == [
-        call.FreeConsole(),
-        call.AttachConsole(123),
-        call.SetConsoleCtrlHandler(None, True),
-        call.GenerateConsoleCtrlEvent(0, 0),
-        call.FreeConsole(),
-    ]
-
-
-def test_failed_attach_never_signals_another_console(monkeypatch):
-    kernel = MagicMock()
-    kernel.AttachConsole.return_value = False
-    monkeypatch.setattr(
-        ctypes,
-        "WinDLL",
-        lambda *_a, **_kw: kernel,
-        raising=False,
-    )
-    monkeypatch.setattr(ctypes, "get_last_error", lambda: 6, raising=False)
-    monkeypatch.setattr(
-        ctypes,
-        "WinError",
-        lambda _: OSError("attach failed"),
-        raising=False,
-    )
-    with pytest.raises(OSError, match="attach failed"):
-        windows.interrupt_console(123)
-    kernel.GenerateConsoleCtrlEvent.assert_not_called()
-
-
-def test_failed_event_detaches_console(monkeypatch):
-    kernel = MagicMock()
-    kernel.AttachConsole.return_value = True
-    kernel.SetConsoleCtrlHandler.return_value = True
-    kernel.GenerateConsoleCtrlEvent.return_value = False
-    monkeypatch.setattr(
-        ctypes,
-        "WinDLL",
-        lambda *_a, **_kw: kernel,
-        raising=False,
-    )
-    monkeypatch.setattr(ctypes, "get_last_error", lambda: 6, raising=False)
-    monkeypatch.setattr(
-        ctypes,
-        "WinError",
-        lambda _: OSError("signal failed"),
-        raising=False,
-    )
-    with pytest.raises(OSError, match="signal failed"):
-        windows.interrupt_console(123)
-    assert kernel.mock_calls[-1] == call.FreeConsole()
+def test_failed_interrupt_does_not_write_following_command():
+    process = MagicMock()
+    process.sendintr.side_effect = OSError("PTY closed")
+    with pytest.raises(OSError, match="PTY closed"):
+        windows.write_input(process, "\x03next command\r")
+    process.write.assert_not_called()

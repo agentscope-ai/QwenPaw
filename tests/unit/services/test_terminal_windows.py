@@ -47,8 +47,9 @@ def test_worker_protocol_and_eof(monkeypatch):
             assert control.recv() == (request_id, True, expected)
         process.write.assert_called_once_with("hello")
         process.setwinsize.assert_called_once_with(30, 100)
-        assert output.poll(3)
-        with pytest.raises(EOFError):
+        # Windows may report the closed pipe from poll(), before recv().
+        with pytest.raises((EOFError, BrokenPipeError)):
+            assert output.poll(3)
             output.recv()
     finally:
         control.close()

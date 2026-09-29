@@ -596,6 +596,22 @@ def test_timezone_loading_accepts_known_zones() -> None:
     assert zone.key == "Asia/Shanghai"
 
 
+def test_timezone_loading_rejects_whitespace_before_lookup(monkeypatch):
+    def unexpected_lookup(_value):
+        pytest.fail("Whitespace must not reach the timezone filesystem lookup")
+
+    monkeypatch.setattr(qoder_schedules, "ZoneInfo", unexpected_lookup)
+    assert qoder_schedules._load_timezone("   ") is None
+
+
+def test_timezone_loading_handles_unreadable_zone(monkeypatch):
+    def unreadable(_value):
+        raise PermissionError("timezone resource is unreadable")
+
+    monkeypatch.setattr(qoder_schedules, "ZoneInfo", unreadable)
+    assert qoder_schedules._load_timezone("Asia/Shanghai") is None
+
+
 @pytest.mark.parametrize(
     ("value", "expected"),
     [
