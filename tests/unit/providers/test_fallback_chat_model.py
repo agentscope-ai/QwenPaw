@@ -729,6 +729,71 @@ async def test_cooldown_is_shared_across_chain_instances() -> None:
     assert second_primary.calls == 0
 
 
+async def test_cooldown_keys_follow_the_wrapped_chain() -> None:
+    """Keys must come from the real wrapper chain, not from bare fakes.
+
+    Production candidates are ``RetryChatModel(TokenRecordingModelWrapper(
+    model))`` and the key is derived through ``model_key`` plus the
+    wrapper's ``_provider_id``.  Every other cooldown test builds bare
+    fakes, whose keys are literally ``":primary"``, so a regression in that
+    forwarding would collapse every candidate onto ``":<model>"`` -- or
+    drop the provider scope, so ``openai:gpt-4o`` and ``azure:gpt-4o`` cool
+    together -- and the rest of this file would still pass.
+    """
+    _limiters.clear()
+    primary = FakeModel("primary", HttpError(503))
+    fallback = FakeModel("fallback", lambda: _stream(_response("ok")))
+    retry_config = RetryConfig(enabled=False)
+    rate_limit_config = RateLimitConfig(
+        max_concurrent=1,
+        max_qpm=0,
+        pause_seconds=1.0,
+        jitter_range=0.0,
+        acquire_timeout=10.0,
+    )
+    model = FallbackChatModel(
+        [
+            RetryChatModel(
+                TokenRecordingModelWrapper(provider_id, inner),
+                retry_config=retry_config,
+                rate_limit_config=rate_limit_config,
+            )
+            for provider_id, inner in (
+                ("p-prov", primary),
+                ("f-prov", fallback),
+            )
+        ],
+    )
+    sink = install_fallback_notice_sink()
+
+    try:
+        response = await model(messages=[], tools=[])
+        _ = [chunk async for chunk in response]
+
+        assert model_cooldown.is_on_cooldown(f"p-prov:primary") is True
+        assert model_cooldown.is_on_cooldown(f"f-prov:fallback") is False
+        # The notice identity comes from the same derivation.
+        assert sink["events"] == [
+            {
+                "type": "model_fallback",
+                "from_provider_id": "p-prov",
+                "from_model_id": "primary",
+                "to_provider_id": "f-prov",
+                "to_model_id": "fallback",
+                "reason_kind": f"transient",
+            },
+        ]
+
+        response = await model(messages=[], tools=[])
+        chunks = [chunk async for chunk in response]
+
+        assert chunks[-1].content[0]["text"] == "ok"
+        assert primary.calls == 1
+        assert fallback.calls == 2
+    finally:
+        _limiters.clear()
+
+
 async def test_concurrent_requests_keep_fallback_state_isolated() -> None:
     primary = FakeModel(
         "primary",
