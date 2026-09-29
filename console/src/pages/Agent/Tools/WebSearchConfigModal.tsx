@@ -23,10 +23,8 @@ export function WebSearchConfigModal({
   visible,
   onClose,
   onSave,
-  surfaceId,
 }: {
   tool: ToolInfo;
-  surfaceId?: string;
   visible: boolean;
   onClose: () => void;
   onSave: (values: Record<string, unknown>) => Promise<void>;
@@ -106,7 +104,6 @@ export function WebSearchConfigModal({
   return (
     <Modal
       closeIcon={<X size={18} aria-hidden />}
-      surfaceId={surfaceId}
       title={`${t("tools.configure")} · ${t(
         `tools.catalog.${tool.name}.name`,
         tool.name,
