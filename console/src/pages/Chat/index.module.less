@@ -112,20 +112,14 @@
       font-size: var(--app-icon-default) !important;
     }
 
-    [class$="-bubble-footer-actions-item"]:has(svg) {
-      display: inline-flex;
-      min-width: var(--app-icon-button);
-      min-height: var(--app-icon-button);
-      align-items: center;
-      justify-content: center;
-
+    [class$="-bubble-footer-actions"] button:has(svg) {
       [data-spark-icon] {
-        font-size: var(--app-icon-md) !important;
+        font-size: var(--app-icon-sm) !important;
       }
 
       svg {
-        width: var(--app-icon-md);
-        height: var(--app-icon-md);
+        width: var(--app-icon-sm);
+        height: var(--app-icon-sm);
       }
     }
   }

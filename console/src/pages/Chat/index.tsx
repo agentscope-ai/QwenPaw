@@ -35,11 +35,9 @@ import { useAppMessage } from "../../hooks/useAppMessage";
 import { useIsMobile } from "../../hooks/useIsMobile";
 import {
   CircleAlert as ExclamationCircleOutlined,
-  Settings as SettingOutlined,
-} from "lucide-react";
-import {
+  Copy,
   Paperclip as SparkAttachmentLine,
-  Copy as SparkCopyLine,
+  Settings as SettingOutlined,
 } from "lucide-react";
 import { usePlugins } from "../../plugins/PluginContext";
 import { useTranslation } from "react-i18next";
@@ -4438,7 +4436,7 @@ export default function ChatPage() {
           {
             icon: (
               <span title={t("common.copy")}>
-                <SparkCopyLine size="1em" />
+                <Copy />
               </span>
             ),
             onClick: ({ data }: { data: CopyableResponse }) => {
@@ -4477,7 +4475,7 @@ export default function ChatPage() {
             },
           },
           {
-            icon: <SparkCopyLine size="1em" />,
+            icon: <Copy />,
             onClick: ({ data }: { data: { input?: unknown[] } }) => {
               const text = (data?.input || [])
                 .map(extractUserMessageText)
