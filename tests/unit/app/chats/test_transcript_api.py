@@ -19,7 +19,7 @@ from qwenpaw.app.chats.api import (
     get_chat_messages,
 )
 from qwenpaw.app.chats.models import ChatSpec
-from qwenpaw.app.chats.session import SafeJSONSession
+from qwenpaw.app.chats.session import DatabaseSession, SafeJSONSession
 from qwenpaw.app.chats.transcript import TranscriptStore
 from qwenpaw.app.chats.transcript_catalog import TranscriptCatalog
 from qwenpaw.schemas import Message, Role, RunStatus, TextContent
@@ -303,6 +303,56 @@ async def test_get_chat_falls_back_without_transcript() -> None:
     assert history.messages[0].content[0].text == "fallback"
     assert history.history is not None
     assert history.history.has_more is False
+
+
+@pytest.mark.asyncio
+async def test_get_chat_reads_harness_runtime_instead_of_empty_transcript(
+    tmp_path: Path,
+) -> None:
+    fallback = Msg(
+        name="assistant",
+        role="assistant",
+        content=[{"type": "text", "text": "harness reply"}],
+    )
+    state = AgentState(context=[fallback]).model_dump(mode="json")
+    store = TranscriptCatalog(tmp_path)
+    store.write_runtime_state(
+        session_id="session-1",
+        user_id="user-1",
+        channel="console",
+        state={"agent": {"state": state}},
+    )
+    session = DatabaseSession(
+        catalog=store,
+        legacy_save_dir=str(tmp_path / "sessions"),
+    )
+    workspace = _workspace(store)
+    workspace.config = SimpleNamespace(
+        backend="codex",
+        backend_settings={},
+    )
+    workspace.harness_runtime = SimpleNamespace(
+        hydrate_session=AsyncMock(),
+    )
+    tasks = BackgroundTasks()
+
+    history = await get_chat(
+        chat_id="chat-1",
+        background_tasks=tasks,
+        include_app_owned=True,
+        mgr=SimpleNamespace(get_chat=AsyncMock(return_value=_chat())),
+        session=session,
+        workspace=workspace,
+    )
+
+    assert [message.content[0].text for message in history.messages] == [
+        "harness reply",
+    ]
+    assert history.history is not None
+    assert history.history.has_more is False
+    assert not tasks.tasks
+    workspace.harness_runtime.hydrate_session.assert_not_awaited()
+    store.close()
 
 
 @pytest.mark.asyncio

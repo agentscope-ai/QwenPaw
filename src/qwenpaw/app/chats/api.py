@@ -1066,25 +1066,26 @@ async def get_chat(
 
     status = await workspace.task_tracker.get_status(chat_id)
     context_state = await _read_context_state(session, chat_spec)
+    backend = workspace.config.backend
 
-    transcript_page = await _read_transcript_page(
-        workspace,
-        chat_spec,
-    )
-    if transcript_page is not None:
-        return ChatHistory(
-            messages=transcript_page.messages,
-            status=status,
-            history=_history_metadata(transcript_page),
-            context_state=context_state,
+    if backend == "qwenpaw":
+        transcript_page = await _read_transcript_page(
+            workspace,
+            chat_spec,
         )
+        if transcript_page is not None:
+            return ChatHistory(
+                messages=transcript_page.messages,
+                status=status,
+                history=_history_metadata(transcript_page),
+                context_state=context_state,
+            )
 
     state = await session.get_session_state_dict(
         chat_spec.session_id,
         chat_spec.user_id,
         chat_spec.channel,
     )
-    backend = workspace.config.backend
     context = ((state.get("agent") or {}).get("state") or {}).get("context")
     if not context and backend != "qwenpaw":
         try:
@@ -1116,12 +1117,13 @@ async def get_chat(
         )
 
     messages = await asyncio.to_thread(session_state_to_messages, state)
-    background_tasks.add_task(
-        _migrate_legacy_messages,
-        workspace,
-        chat_spec,
-        messages,
-    )
+    if backend == "qwenpaw":
+        background_tasks.add_task(
+            _migrate_legacy_messages,
+            workspace,
+            chat_spec,
+            messages,
+        )
     return ChatHistory(
         messages=messages,
         status=status,
