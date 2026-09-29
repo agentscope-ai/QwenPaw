@@ -623,6 +623,7 @@ export function LocalModelManageModal({
 
   const handleCancelLlamacppDownload = useCallback(() => {
     Modal.confirm({
+      className: styles.modelConfirmModal,
       title: t("models.localCancelDownloadTitle"),
       content: t("models.localCancelDownloadConfirm", {
         repo: t("models.localLlamacppName"),
@@ -715,6 +716,7 @@ export function LocalModelManageModal({
   const handleCancelModelDownload = useCallback(
     (modelName: string) => {
       Modal.confirm({
+        className: styles.modelConfirmModal,
         title: t("models.localCancelDownloadTitle"),
         content: t("models.localCancelDownloadConfirm", { repo: modelName }),
         okText: t("models.localCancelDownloadAction"),
@@ -774,6 +776,7 @@ export function LocalModelManageModal({
         serverStatus.model_name !== model.id
       ) {
         Modal.confirm({
+          className: styles.modelConfirmModal,
           title: t("models.localServerSwitchTitle"),
           content: t("models.localServerSwitchConfirm", {
             current: getLocalModelDisplayName(serverStatus.model_name),
@@ -819,6 +822,7 @@ export function LocalModelManageModal({
   const handleDeleteModel = useCallback(
     (model: LocalModelInfo) => {
       Modal.confirm({
+        className: styles.modelConfirmModal,
         title: t("models.localDeleteModel"),
         content: t("models.localDeleteConfirm", { name: model.name }),
         okText: t("common.delete"),

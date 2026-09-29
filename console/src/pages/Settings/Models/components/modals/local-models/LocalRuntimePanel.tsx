@@ -78,6 +78,7 @@ export const LocalRuntimePanel = memo(function LocalRuntimePanel({
 
   const handleConfirmUpdate = () => {
     Modal.confirm({
+      className: styles.modelConfirmModal,
       title: t("models.localRuntimeUpdateConfirmTitle"),
       content: isRunning
         ? t("models.localRuntimeUpdateConfirmContentWithServer", {

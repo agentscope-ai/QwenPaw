@@ -92,6 +92,49 @@
   }
 }
 
+.control[data-tone="quiet"] {
+  --thinking-start: color-mix(in srgb, var(--app-accent) 20%, var(--app-fill));
+  --thinking-mid: color-mix(in srgb, var(--app-accent) 58%, var(--app-fill));
+  --thinking-end: color-mix(in srgb, var(--app-accent) 76%, var(--app-text));
+
+  :global(.ant-slider),
+  :global(.qwenpaw-slider) {
+    height: 32px;
+    margin-top: 6px;
+    padding-block: 9px;
+  }
+
+  :global(.ant-slider-rail),
+  :global(.qwenpaw-slider-rail),
+  :global(.ant-slider-track),
+  :global(.qwenpaw-slider-track) {
+    height: 10px;
+  }
+
+  :global(.ant-slider-step),
+  :global(.qwenpaw-slider-step) {
+    top: 9px;
+    height: 10px;
+  }
+
+  :global(.ant-slider-handle),
+  :global(.qwenpaw-slider-handle) {
+    top: 16px;
+    width: 18px;
+    height: 18px;
+  }
+
+  :global(.ant-slider-handle::after),
+  :global(.qwenpaw-slider-handle::after),
+  :global(.ant-slider-handle:hover::after),
+  :global(.qwenpaw-slider-handle:hover::after),
+  :global(.ant-slider-handle:focus::after),
+  :global(.qwenpaw-slider-handle:focus::after) {
+    width: 18px;
+    height: 18px;
+  }
+}
+
 .header {
   display: grid;
   grid-template-columns: 64px minmax(0, 1fr) 64px;

@@ -2888,3 +2888,191 @@
     padding-right: 88px;
   }
 }
+
+/* Keep provider interactions aligned with the quieter tool-card language. */
+.settingsPage .groupCardGlass,
+.settingsPage .providerCard {
+  --reflection-highlight: var(--app-accent-faint);
+  --reflection-silver: transparent;
+  --reflection-edge: var(--app-accent-border);
+  --reflection-shadow: var(--app-border-subtle);
+
+  border-color: var(--app-border);
+  border-radius: 16px;
+  background: var(--app-surface);
+  box-shadow: none;
+  transition:
+    border-color 160ms ease,
+    background-color 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.settingsPage .groupCardGlass:hover,
+.settingsPage .groupCardGlass:focus-within,
+.settingsPage .providerCard:hover,
+.settingsPage .providerCard:focus-within {
+  border-color: var(--app-accent-border);
+  background: color-mix(in srgb, var(--app-accent) 2%, var(--app-surface));
+  box-shadow: 0 10px 26px rgb(49 35 22 / 6%);
+}
+
+.settingsPage .availableItem {
+  border-color: var(--app-border);
+  border-radius: 14px;
+  background: var(--app-surface);
+  box-shadow: none;
+  transition:
+    border-color 150ms ease,
+    background-color 150ms ease,
+    box-shadow 150ms ease;
+}
+
+.settingsPage .availableItem:hover,
+.settingsPage .availableItem:focus-visible {
+  border-color: var(--app-accent-border);
+  background: color-mix(in srgb, var(--app-accent) 3%, var(--app-surface));
+  box-shadow: 0 6px 18px rgb(49 35 22 / 5%);
+}
+
+.settingsPage .selectedModelsLink {
+  border-color: var(--app-border-subtle);
+  background: var(--app-surface-subtle);
+  transition:
+    border-color 150ms ease,
+    background-color 150ms ease,
+    color 150ms ease;
+}
+
+.settingsPage .selectedModelsLink:hover,
+.settingsPage .selectedModelsLink:focus-visible {
+  border-color: var(--app-accent-border);
+  background: var(--app-accent-soft);
+  color: var(--app-text);
+}
+
+.settingsPage .variantItem:hover,
+.settingsPage .variantItem:focus-visible {
+  background: var(--app-accent-soft);
+  color: var(--app-text);
+  transform: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .settingsPage .groupCardGlass,
+  .settingsPage .providerCard,
+  .settingsPage .availableItem,
+  .settingsPage .selectedModelsLink {
+    transition: none;
+  }
+}
+
+/* Give every model workflow the same restrained surface language as Tools. */
+.modelManageModal,
+.modelConfirmModal {
+  :global(.ant-modal-content),
+  :global(.qwenpaw-modal-content) {
+    border: 1px solid var(--app-border);
+    border-radius: 20px;
+    background: var(--app-surface);
+    box-shadow: 0 22px 64px rgb(49 35 22 / 14%);
+    overflow: hidden;
+  }
+
+  :global(.ant-modal-header),
+  :global(.qwenpaw-modal-header) {
+    margin-bottom: 18px;
+    background: transparent;
+  }
+
+  :global(.ant-modal-title),
+  :global(.qwenpaw-modal-title) {
+    color: var(--app-text);
+    font-size: 18px;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+  }
+
+  :global(.ant-modal-footer),
+  :global(.qwenpaw-modal-footer) {
+    margin-top: 20px;
+    padding-top: 16px;
+    border-top: 1px solid var(--app-border-subtle);
+  }
+}
+
+.modelManageModal {
+  :global(.ant-modal-close),
+  :global(.qwenpaw-modal-close) {
+    color: var(--app-text-tertiary);
+    border-radius: 10px;
+    transition:
+      color 150ms ease,
+      background-color 150ms ease;
+  }
+
+  :global(.ant-modal-close:hover),
+  :global(.qwenpaw-modal-close:hover) {
+    color: var(--app-text);
+    background: var(--app-accent-soft);
+  }
+}
+
+.modelConfirmModal {
+  :global(.ant-modal-confirm-body),
+  :global(.qwenpaw-modal-confirm-body) {
+    color: var(--app-text-secondary);
+  }
+}
+
+.modelManageModal .modelList {
+  border: 1px solid var(--app-border-subtle);
+  border-radius: 14px;
+  overflow: hidden;
+  background: var(--app-surface);
+}
+
+.modelManageModal .modelListItem {
+  transition:
+    border-color 150ms ease,
+    background-color 150ms ease;
+}
+
+.modelManageModal .modelListItem:hover,
+.modelManageModal .modelListItem:focus-within {
+  background: color-mix(in srgb, var(--app-accent) 3%, var(--app-surface));
+}
+
+.modelManageModal .advancedConfigToggle {
+  padding: 12px 14px;
+  border: 1px solid var(--app-border-subtle);
+  border-radius: 12px;
+  transition:
+    border-color 150ms ease,
+    background-color 150ms ease;
+}
+
+.modelManageModal .advancedConfigToggle:hover,
+.modelManageModal .advancedConfigToggle:focus-visible {
+  border-color: var(--app-accent-border);
+  background: var(--app-accent-soft);
+}
+
+@media (max-width: 640px) {
+  .modelManageModal,
+  .modelConfirmModal {
+    :global(.ant-modal-content),
+    :global(.qwenpaw-modal-content) {
+      border-radius: 16px;
+    }
+  }
+
+  .modalFooter {
+    align-items: stretch;
+    flex-direction: column-reverse;
+  }
+
+  .modalFooterLeft,
+  .modalFooterRight {
+    flex-wrap: wrap;
+  }
+}

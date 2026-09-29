@@ -90,6 +90,7 @@ export function AgentModelDefaults({
               </div>
               <AgentModelSettings
                 expanded
+                surface="settings"
                 key={`${agent.id}:${agent.active_model?.provider_id}:${agent.active_model?.model}`}
                 agentId={agent.id}
                 providers={eligible}

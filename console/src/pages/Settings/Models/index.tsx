@@ -657,6 +657,7 @@ function ModelsPage() {
 
             <Modal
               open={!!variantSelectGroup}
+              className={styles.modelManageModal}
               title={t("models.selectVariant", {
                 name: variantSelectGroup?.name || "",
               })}

@@ -3,10 +3,11 @@
 .modal {
   .model-surface-tokens();
   :global(.qwenpaw-modal-content) {
-    border-radius: 24px;
+    border: 1px solid var(--app-border);
+    border-radius: 20px;
     overflow: hidden;
     background: var(--model-canvas);
-    box-shadow: var(--model-overlay-shadow);
+    box-shadow: 0 22px 64px rgb(49 35 22 / 14%);
     padding: 24px;
   }
   :global(.qwenpaw-modal-header) {
@@ -79,10 +80,25 @@
   padding: 1px 4px 1px 1px;
 }
 .entry {
+  --reflection-highlight: var(--app-accent-faint);
+  --reflection-silver: transparent;
+  --reflection-edge: var(--app-accent-border);
+  --reflection-shadow: var(--app-border-subtle);
+
   background: var(--model-card);
   border: 1px solid var(--model-hairline);
-  border-radius: 16px;
+  border-radius: 14px;
   overflow: hidden;
+  transition:
+    border-color 150ms ease,
+    background-color 150ms ease,
+    box-shadow 150ms ease;
+}
+.entry:hover,
+.entry:focus-within {
+  border-color: var(--app-accent-border);
+  background: color-mix(in srgb, var(--app-accent) 2%, var(--model-card));
+  box-shadow: 0 6px 18px rgb(49 35 22 / 5%);
 }
 .entryFrame + .entryFrame {
   margin-top: 8px;
@@ -262,6 +278,15 @@
   background: var(--model-card);
   font-size: 12px;
   cursor: pointer;
+  transition:
+    border-color 150ms ease,
+    background-color 150ms ease,
+    color 150ms ease;
+  &:hover {
+    color: var(--app-text);
+    border-color: var(--app-accent-border);
+    background: var(--app-accent-soft);
+  }
   &[aria-pressed="true"] {
     color: var(--app-accent-text);
     border-color: var(--app-accent-border);
@@ -337,6 +362,16 @@
   padding: 0 8px;
 }
 
+.detailModal {
+  :global(.qwenpaw-modal-body) {
+    height: min(520px, calc(100dvh - 160px));
+  }
+
+  .detailScroll {
+    max-height: calc(100dvh - 250px);
+  }
+}
+
 .searchTools {
   display: flex;
   align-items: center;
@@ -379,4 +414,26 @@
   display: flex;
   gap: 4px;
   margin-left: auto;
+}
+
+.subModal {
+  :global(.qwenpaw-modal-content),
+  :global(.ant-modal-content) {
+    border: 1px solid var(--app-border);
+    border-radius: 18px;
+    background: var(--app-surface);
+    box-shadow: 0 18px 48px rgb(49 35 22 / 13%);
+  }
+
+  :global(.qwenpaw-modal-header),
+  :global(.ant-modal-header) {
+    background: transparent;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .entry,
+  .filterChip {
+    transition: none;
+  }
 }

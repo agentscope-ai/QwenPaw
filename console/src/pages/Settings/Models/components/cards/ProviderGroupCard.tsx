@@ -56,6 +56,7 @@ export const ProviderGroupCard = React.memo(function ProviderGroupCard({
     <InteractiveCard
       layoutId={`provider:${activeProvider.id}`}
       className={styles.groupCardGlass}
+      tilt={2}
     >
       <ProviderCloseButton
         ids={group.providers.map((provider) => provider.id)}

@@ -288,9 +288,10 @@ export function RemoteModelManageModal({
       width={860}
       centered
       destroyOnHidden
-      className={styles.modal}
+      className={`${styles.modal} ${configId ? styles.detailModal : ""}`}
     >
       <Modal
+        className={styles.subModal}
         title={t("models.pool.enableAllConfirm", {
           count: (page?.selected_count ?? 0) + (page?.candidate_count ?? 0),
         })}
@@ -419,7 +420,7 @@ export function RemoteModelManageModal({
               const expanded = configId === model.id;
               return (
                 <InteractiveCard
-                  tilt={3}
+                  tilt={2}
                   frameClassName={styles.entryFrame}
                   key={model.id}
                   className={`${styles.entry} ${
@@ -612,6 +613,7 @@ export function RemoteModelManageModal({
         </div>
       )}
       <Modal
+        className={styles.subModal}
         title={t("models.addModel")}
         open={adding}
         onCancel={() => setAdding(false)}

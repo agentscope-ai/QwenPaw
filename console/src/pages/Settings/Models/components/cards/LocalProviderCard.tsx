@@ -24,6 +24,7 @@ export const LocalProviderCard = React.memo(function LocalProviderCard({
     <InteractiveCard
       layoutId={`provider:${provider.id}`}
       className={styles.groupCardGlass}
+      tilt={2}
     >
       {/* Header - same layout as GroupCard */}
       <div className={styles.groupCardHeader}>
