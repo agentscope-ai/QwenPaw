@@ -121,7 +121,9 @@ def test_bad_metadata_does_not_block_healthy_cleanup(
     assert not healthy.exists()
     assert bool(caplog.records) is not quiet
     if not quiet:
-        assert caplog.records[0].exc_info
+        # Handlers may render and clear exc_info before caplog sees it.
+        assert "Traceback (most recent call last):" in caplog.text
+        assert "a_bad.json" in caplog.text
 
 
 @pytest.mark.parametrize("quiet", [True, False])
@@ -144,7 +146,8 @@ def test_cleanup_failure_is_reported_and_next_container_runs(
     assert not healthy.exists()
     assert bool(caplog.records) is not quiet
     if not quiet:
-        assert caplog.records[0].exc_info
+        assert "Traceback (most recent call last):" in caplog.text
+        assert "RuntimeError: simulated Win32 error" in caplog.text
         assert "a_bad.json" in caplog.text
 
 
