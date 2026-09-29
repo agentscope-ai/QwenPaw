@@ -13,12 +13,13 @@ import {
   Settings2,
   RotateCcw,
 } from "lucide-react";
-import { Switch } from "antd";
+import { Switch, Select } from "antd";
 import { useTranslation } from "react-i18next";
 
 import { agentsApi } from "@/api/modules/agents";
 import type {
   AgentProfileConfig,
+  FallbackPolicyConfig,
   ModelInfo,
   ModelSlotConfig,
 } from "@/api/types";
@@ -71,6 +72,63 @@ interface ModelOption {
 
 const EMPTY_KEY = "";
 
+/**
+ * Cooldown duration choices.
+ *
+ * The backend doubles a candidate's cooldown per consecutive failure up to
+ * a cap, so a choice is a (start, cap) pair rather than a single number.
+ * Offering pairs keeps the two related values from drifting apart in the
+ * UI; a value set through the API instead shows up as "custom".
+ */
+const COOLDOWN_PRESETS = [
+  { value: "short", baseSeconds: 30, maxSeconds: 600 },
+  { value: "standard", baseSeconds: 60, maxSeconds: 3600 },
+  { value: "long", baseSeconds: 300, maxSeconds: 21600 },
+] as const;
+
+const CUSTOM_COOLDOWN = "custom";
+const DEFAULT_COOLDOWN_PRESET = "standard";
+const DEFAULT_COOLDOWN = { baseSeconds: 60, maxSeconds: 3600 };
+
+function cooldownPresetValue(
+  baseSeconds: number | undefined,
+  maxSeconds: number | undefined,
+): string {
+  const base = baseSeconds ?? DEFAULT_COOLDOWN.baseSeconds;
+  const max = maxSeconds ?? DEFAULT_COOLDOWN.maxSeconds;
+  const match = COOLDOWN_PRESETS.find(
+    (preset) => preset.baseSeconds === base && preset.maxSeconds === max,
+  );
+  return match ? match.value : CUSTOM_COOLDOWN;
+}
+
+function cooldownValues(
+  preset: string,
+  custom: { baseSeconds: number; maxSeconds: number } | null,
+): Pick<
+  FallbackPolicyConfig,
+  "cooldown_base_seconds" | "cooldown_max_seconds"
+> {
+  const match = COOLDOWN_PRESETS.find((item) => item.value === preset);
+  if (match) {
+    return {
+      cooldown_base_seconds: match.baseSeconds,
+      cooldown_max_seconds: match.maxSeconds,
+    };
+  }
+  return {
+    cooldown_base_seconds:
+      custom?.baseSeconds ?? DEFAULT_COOLDOWN.baseSeconds,
+    cooldown_max_seconds: custom?.maxSeconds ?? DEFAULT_COOLDOWN.maxSeconds,
+  };
+}
+
+function formatSeconds(seconds: number): string {
+  if (seconds % 3600 === 0) return `${seconds / 3600}h`;
+  if (seconds % 60 === 0) return `${seconds / 60}m`;
+  return `${seconds}s`;
+}
+
 function slotKey(providerId: string, modelId: string): string {
   return `${providerId}:${modelId}`;
 }
@@ -99,6 +157,14 @@ export function AgentModelSettings({
   const [config, setConfig] = useState<AgentProfileConfig | null>(null);
   const [fallbackEnabled, setFallbackEnabled] = useState(true);
   const [fallbackKeys, setFallbackKeys] = useState<string[]>([]);
+  const [cooldownEnabled, setCooldownEnabled] = useState(true);
+  const [cooldownPreset, setCooldownPreset] = useState<string>(
+    DEFAULT_COOLDOWN_PRESET,
+  );
+  const [customCooldown, setCustomCooldown] = useState<{
+    baseSeconds: number;
+    maxSeconds: number;
+  } | null>(null);
   const [subagentKey, setSubagentKey] = useState(EMPTY_KEY);
   const [thinking, setThinking] = useState<ThinkingPreference>({
     level: "inherit",
@@ -148,6 +214,29 @@ export function AgentModelSettings({
     }
     return slots;
   }, [config, options]);
+  const cooldownOptions = useMemo(() => {
+    const items = [
+      { value: "short", label: t("modelSelector.cooldownShort") },
+      { value: "standard", label: t("modelSelector.cooldownStandard") },
+      { value: "long", label: t("modelSelector.cooldownLong") },
+    ];
+    // Cooldowns set through the API match no preset; surface them so a
+    // later save writes the stored values back instead of overwriting them.
+    if (cooldownPreset === CUSTOM_COOLDOWN) {
+      items.push({
+        value: CUSTOM_COOLDOWN,
+        label: t("modelSelector.cooldownCustom", {
+          base: formatSeconds(
+            customCooldown?.baseSeconds ?? DEFAULT_COOLDOWN.baseSeconds,
+          ),
+          max: formatSeconds(
+            customCooldown?.maxSeconds ?? DEFAULT_COOLDOWN.maxSeconds,
+          ),
+        }),
+      });
+    }
+    return items;
+  }, [cooldownPreset, customCooldown, t]);
   const activeOption = optionByKey.get(
     slotKey(activeProviderId ?? "", activeModelId ?? ""),
   );
@@ -160,6 +249,23 @@ export function AgentModelSettings({
       (next.fallback_models ?? []).map((slot) =>
         slotKey(slot.provider_id, slot.model),
       ),
+    );
+    const policy = next.fallback_policy;
+    setCooldownEnabled(policy?.cooldown_enabled ?? true);
+    const preset = cooldownPresetValue(
+      policy?.cooldown_base_seconds,
+      policy?.cooldown_max_seconds,
+    );
+    setCooldownPreset(preset);
+    setCustomCooldown(
+      preset === CUSTOM_COOLDOWN
+        ? {
+            baseSeconds:
+              policy?.cooldown_base_seconds ?? DEFAULT_COOLDOWN.baseSeconds,
+            maxSeconds:
+              policy?.cooldown_max_seconds ?? DEFAULT_COOLDOWN.maxSeconds,
+          }
+        : null,
     );
     setSubagentKey(
       next.subagent_model
@@ -251,11 +357,15 @@ export function AgentModelSettings({
   function notifyDraft({
     fallbackEnabled: nextFallbackEnabled = fallbackEnabled,
     fallbackKeys: nextFallbackKeys = fallbackKeys,
+    cooldownEnabled: nextCooldownEnabled = cooldownEnabled,
+    cooldownPreset: nextCooldownPreset = cooldownPreset,
     subagentKey: nextSubagentKey = subagentKey,
     thinking: nextThinking = thinking,
   }: {
     fallbackEnabled?: boolean;
     fallbackKeys?: string[];
+    cooldownEnabled?: boolean;
+    cooldownPreset?: string;
     subagentKey?: string;
     thinking?: ThinkingPreference;
   } = {}): void {
@@ -267,8 +377,11 @@ export function AgentModelSettings({
     onDraftChange({
       fallback_models: fallbackModels,
       fallback_policy: {
+        ...config.fallback_policy,
         enabled: nextFallbackEnabled,
         target_scope: config.fallback_policy?.target_scope ?? "configured",
+        cooldown_enabled: nextCooldownEnabled,
+        ...cooldownValues(nextCooldownPreset, customCooldown),
       },
       subagent_model: slotByKey.get(nextSubagentKey) ?? null,
       thinking_level: nextThinking.level,
@@ -292,8 +405,11 @@ export function AgentModelSettings({
       const settings = {
         fallback_models: fallbackModels,
         fallback_policy: {
+          ...config.fallback_policy,
           enabled: fallbackEnabled,
           target_scope: config.fallback_policy?.target_scope ?? "configured",
+          cooldown_enabled: cooldownEnabled,
+          ...cooldownValues(cooldownPreset, customCooldown),
         },
         subagent_model: subagentSlot ?? null,
         ...(showThinking && thinkingSupported
@@ -461,6 +577,37 @@ export function AgentModelSettings({
                     </div>
                   ),
                 )}
+              {fallbackEnabled && (
+                <div className={styles.settingLine}>
+                  <span>{t("modelSelector.cooldownEnabled")}</span>
+                  <Switch
+                    aria-label={t("modelSelector.cooldownEnabled")}
+                    size="small"
+                    checked={cooldownEnabled}
+                    disabled={saving}
+                    onChange={(next) => {
+                      setCooldownEnabled(next);
+                      notifyDraft({ cooldownEnabled: next });
+                    }}
+                  />
+                </div>
+              )}
+              {fallbackEnabled && cooldownEnabled && (
+                <div className={styles.settingLine}>
+                  <span>{t("modelSelector.cooldownDuration")}</span>
+                  <Select
+                    aria-label={t("modelSelector.cooldownDuration")}
+                    size="small"
+                    value={cooldownPreset}
+                    disabled={saving}
+                    options={cooldownOptions}
+                    onChange={(next) => {
+                      setCooldownPreset(next);
+                      notifyDraft({ cooldownPreset: next });
+                    }}
+                  />
+                </div>
+              )}
               {agentId && (
                 <button
                   type="button"
