@@ -23,7 +23,7 @@ except ImportError:
 
 from qwenpaw.agents import model_factory
 from qwenpaw.config import config as config_module
-from qwenpaw.config.config import ModelSlotConfig
+from qwenpaw.config.config import FallbackPolicyConfig, ModelSlotConfig
 from qwenpaw.providers import fallback_chat_model
 from qwenpaw.providers import provider as provider_module
 from qwenpaw.providers.dashscope_provider import DashScopeProvider
@@ -641,6 +641,21 @@ def test_legacy_fallback_policy_keeps_cooldown_defaults():
     )
 
     assert settings.fallback_cooldown == CooldownPolicy()
+
+
+def test_cooldown_defaults_agree_across_schema_and_runtime():
+    """The persisted schema and the runtime dataclass must not drift.
+
+    ``FallbackPolicyConfig`` decides what a new or migrated ``agent.json``
+    stores; ``CooldownPolicy`` carries the defaults the loader falls back
+    to.  The same two numbers live in both, so pin them together.
+    """
+    policy = FallbackPolicyConfig()
+    cooldown = CooldownPolicy()
+
+    assert cooldown.enabled == policy.cooldown_enabled
+    assert cooldown.base_seconds == policy.cooldown_base_seconds
+    assert cooldown.max_seconds == policy.cooldown_max_seconds
 
 
 def test_each_fallback_model_gets_its_own_formatter(monkeypatch):
