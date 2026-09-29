@@ -228,6 +228,8 @@ async def test_snapshot_keeps_checkpoint_state_and_excludes_runtime_state(
     assert "MEMORY.md" in tree_paths
     assert "memory/daily.md" in tree_paths
     assert "mem_agent/index.json" not in tree_paths
+    assert "transcript_catalog.db" not in tree_paths
+    assert not any(path.startswith("transcripts/") for path in tree_paths)
     assert ".venv/cache.txt" not in tree_paths
     assert ".gitignore" not in tree_paths
 

@@ -87,6 +87,7 @@ QWENPAW_RUNTIME_STATE_FILES = frozenset(
         "PROFILE.md",
         "skill.json",
         "SOUL.md",
+        "transcript_catalog.db",
         "yuanbao_sessions.json",
     },
 )
@@ -118,6 +119,7 @@ QWENPAW_RUNTIME_STATE_DIRS = (
     "skills/",
     "tool_result/",
     "tool_results/",
+    "transcripts/",
 )
 
 QWENPAW_STATE_SUFFIXES = (
