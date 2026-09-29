@@ -8,6 +8,7 @@ skill discovery/copy/reconcile pipeline, the two pure helpers that decide
 whether the builtin QA workspace may be claimed, and the QA creation leg
 that writes the profile into config.
 """
+
 # pylint: disable=protected-access,too-many-arguments,too-many-locals
 # pylint: disable=redefined-outer-name,unused-argument
 # C1803 is disabled because `== []` is the assertion being made: `not saved`
@@ -546,6 +547,7 @@ class TestOtherAgentOwnsWorkspace:
 
     def test_tilde_is_expanded_on_both_sides(self, monkeypatch, tmp_path):
         monkeypatch.setenv("HOME", str(tmp_path))
+        monkeypatch.setenv("USERPROFILE", str(tmp_path))
         target = tmp_path / "ws"
         profiles = {"eve": _ref("eve", Path.home() / "ws")}
         assert _owner_of(profiles, target) == "eve"

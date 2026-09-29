@@ -515,6 +515,7 @@ class TestWin32DefaultBrowser:
         # win32-style relative suffix can be materialised for real.
         relative = "Google\\Chrome\\Application\\chrome.exe"
         exe = tmp_path / relative
+        exe.parent.mkdir(parents=True, exist_ok=True)
         exe.write_text("stub", encoding="utf-8")
         monkeypatch.setenv("ProgramFiles", str(tmp_path))
         monkeypatch.delenv("ProgramFiles(x86)", raising=False)
@@ -534,6 +535,7 @@ class TestWin32DefaultBrowser:
         fake_winreg["prog_id"] = "MSEdgeHTM.42"
         relative = "Microsoft\\Edge\\Application\\msedge.exe"
         exe = tmp_path / relative
+        exe.parent.mkdir(parents=True, exist_ok=True)
         exe.write_text("stub", encoding="utf-8")
         monkeypatch.setenv("ProgramFiles", str(tmp_path))
         monkeypatch.delenv("ProgramFiles(x86)", raising=False)
@@ -552,6 +554,7 @@ class TestWin32DefaultBrowser:
         plain.mkdir()
         x86.mkdir()
         exe = x86 / "Mozilla Firefox\\firefox.exe"
+        exe.parent.mkdir(parents=True, exist_ok=True)
         exe.write_text("stub", encoding="utf-8")
         monkeypatch.setenv("ProgramFiles", str(plain))
         monkeypatch.setenv("ProgramFiles(x86)", str(x86))
@@ -654,6 +657,7 @@ def _write_desktop(tmp_path, monkeypatch, name, body):
     return desktop
 
 
+@pytest.mark.skipif(os.name == "nt", reason="Desktop Exec uses POSIX paths")
 class TestLinuxDefaultBrowserRemaining:
     def test_nonzero_exit_code_is_treated_as_no_handler(self, monkeypatch):
         _run_xdg(monkeypatch, "chrome.desktop\n", returncode=1)
@@ -1147,8 +1151,8 @@ class TestLoadAndValidateRepairLadder:
             json.loads(json.dumps(payload)),
         )
 
-        assert config.agents.profiles["default"].workspace_dir == str(
-            wd / "workspaces" / "default",
+        assert Path(config.agents.profiles["default"].workspace_dir) == (
+            wd / "workspaces" / "default"
         )
 
 

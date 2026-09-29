@@ -35,7 +35,7 @@ import { useAppMessage } from "../../hooks/useAppMessage";
 import { useIsMobile } from "../../hooks/useIsMobile";
 import {
   CircleAlert as ExclamationCircleOutlined,
-  Copy as SparkCopyLine,
+  Copy,
   Paperclip as SparkAttachmentLine,
   RotateCw,
   Settings as SettingOutlined,
@@ -4441,7 +4441,7 @@ export default function ChatPage() {
           {
             icon: (
               <span title={t("common.copy")}>
-                <SparkCopyLine size="1em" />
+                <Copy />
               </span>
             ),
             onClick: ({ data }: { data: CopyableResponse }) => {
@@ -4480,7 +4480,7 @@ export default function ChatPage() {
             },
           },
           {
-            icon: <SparkCopyLine size="1em" />,
+            icon: <Copy />,
             onClick: ({ data }: { data: { input?: unknown[] } }) => {
               const text = (data?.input || [])
                 .map(extractUserMessageText)

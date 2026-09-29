@@ -606,6 +606,7 @@ export function ProviderConfigModal({
       : t("models.revokeConfirmSimple", { name: provider.name });
 
     Modal.confirm({
+      className: styles.modelConfirmModal,
       title: t("models.revokeAuthorization"),
       content: confirmContent,
       okText: t("models.revokeAuthorization"),

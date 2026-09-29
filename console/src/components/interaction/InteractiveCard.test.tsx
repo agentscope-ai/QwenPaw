@@ -1,9 +1,15 @@
 import { createPortal } from "react-dom";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { InteractiveCard } from "./InteractiveCard";
 
 const preferences = vi.hoisted(() => ({ reducedMotion: false }));
+const stylesSource = readFileSync(
+  join(process.cwd(), "src/components/interaction/InteractiveCard.module.less"),
+  "utf8",
+);
 vi.mock("motion/react", async (importOriginal) => ({
   ...(await importOriginal<typeof import("motion/react")>()),
   useReducedMotion: () => preferences.reducedMotion,
@@ -56,6 +62,22 @@ beforeEach(() => {
 });
 
 describe("InteractiveCard", () => {
+  it("uses the restrained tool and MCP highlight by default", () => {
+    expect(stylesSource).toContain(
+      "--reflection-highlight: var(--app-accent-faint);",
+    );
+    expect(stylesSource).toContain("--reflection-silver: transparent;");
+    expect(stylesSource).toContain(
+      "--reflection-edge: var(--app-accent-border);",
+    );
+    expect(stylesSource).toContain("--reflection-shadow: rgb(0 0 0 / 12%);");
+    expect(stylesSource).toContain("--reflection-shadow: rgb(0 0 0 / 20%);");
+    expect(stylesSource).not.toContain(
+      "--reflection-shadow: var(--app-border-subtle);",
+    );
+    expect(stylesSource).not.toContain("rgb(255 255 255 / 40%)");
+  });
+
   it.each(["pointerup", "pointercancel", "pointerleave", "lostpointercapture"])(
     "follows touch and settles after %s",
     async (endEvent) => {

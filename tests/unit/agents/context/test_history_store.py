@@ -671,6 +671,10 @@ def test_cache_hit_replacement_is_checked_before_constructor_returns(
     assert checks == expected_checks
 
 
+@pytest.mark.skipif(
+    os.name == "nt",
+    reason="Windows does not allow replacing an open SQLite database",
+)
 @pytest.mark.parametrize("replace_during", ["check", "schema"])
 def test_replacement_during_open_is_not_cached(
     tmp_path,

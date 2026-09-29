@@ -7,6 +7,7 @@ load/save helpers they depend on, and the ReMe approval argument
 truncation.  Spec collection itself is covered by
 ``test_builtin_commands_help_text.py``.
 """
+
 # pylint: disable=protected-access,redefined-outer-name,unused-argument
 # pylint: disable=use-implicit-booleaness-not-comparison
 from __future__ import annotations
@@ -841,9 +842,9 @@ class TestConversationAdapter:
         assert double.call_args.kwargs["agent_name"] == "QwenPaw"
         assert double.call_args.kwargs["offloader"] is None
 
-    async def test_native_strategy_builds_an_offloader(self):
+    async def test_native_strategy_builds_an_offloader(self, tmp_path):
         spec = bc._make_conversation_adapter("dump_history")
-        ctx, _ = _session_ctx(_state_payload(), workspace_dir="/tmp/wsdir")
+        ctx, _ = _session_ctx(_state_payload(), workspace_dir=str(tmp_path))
         patcher, double, _instance = _patch_command_handler()
         with (
             patcher,
@@ -858,8 +859,8 @@ class TestConversationAdapter:
             await spec.handler(ctx, "")
         assert double.call_args.kwargs["offloader"] is offloader.return_value
         assert offloader.call_args.kwargs == {
-            "dialog_path": "/tmp/wsdir/dialog.db",
-            "tool_results_dir": "/tmp/wsdir/tool_cache",
+            "dialog_path": str(tmp_path / "dialog.db"),
+            "tool_results_dir": str(tmp_path / "tool_cache"),
         }
 
     async def test_scroll_strategy_skips_the_offloader_by_default(self):

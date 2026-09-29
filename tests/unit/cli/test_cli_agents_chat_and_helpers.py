@@ -137,7 +137,16 @@ def test_handle_stream_mode_delegates_to_shared_streamer(
     )
     _stub_chat_request(monkeypatch)
 
-    result = CliRunner().invoke(cli, _chat_args("--mode", "stream"))
+    result = CliRunner().invoke(
+        cli,
+        [
+            "--host",
+            "127.0.0.1",
+            "--port",
+            "8088",
+            *_chat_args("--mode", "stream"),
+        ],
+    )
 
     assert result.exit_code == 0
     assert "chunk-1" in result.output
@@ -917,8 +926,9 @@ def test_fetch_agent_workspace_dir_returns_none_when_unset() -> None:
     response.raise_for_status.assert_called_once_with()
 
 
-def test_fetch_agent_workspace_dir_expands_user(monkeypatch) -> None:
-    monkeypatch.setenv("HOME", "/tmp/home-under-test")
+def test_fetch_agent_workspace_dir_expands_user(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
     client = Mock()
     response = Mock()
     response.status_code = 200
@@ -927,7 +937,7 @@ def test_fetch_agent_workspace_dir_expands_user(monkeypatch) -> None:
 
     resolved = mod._fetch_agent_workspace_dir(client, "a1")
 
-    assert resolved == Path("/tmp/home-under-test/agents/a1")
+    assert resolved == tmp_path / "agents" / "a1"
     client.get.assert_called_once_with("/agents/a1")
 
 

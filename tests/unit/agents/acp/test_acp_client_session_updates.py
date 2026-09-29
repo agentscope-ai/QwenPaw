@@ -18,6 +18,7 @@ payloads, returned values, or exception messages -- not against private
 state, except where the private attribute *is* the contract (the text
 accumulator).
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -1152,7 +1153,7 @@ class TestPermissionRoundTrip:
 
         # Same absolute path, new working directory: only the display form
         # changes, the guard still sees the real path.
-        assert after.target == "sub/f.txt"
+        assert after.target == str(target.relative_to(tmp_path))
         assert after.paths == [str(target)]
 
 

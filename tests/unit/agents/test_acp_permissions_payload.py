@@ -438,7 +438,7 @@ def test_display_path_absolute_inside_cwd_is_relative(tmp_path: Path) -> None:
     adapter = ACPPermissionAdapter(cwd=str(tmp_path))
     inside = Path(adapter.cwd) / "sub" / "file.txt"
 
-    assert adapter._display_path(str(inside)) == "sub/file.txt"
+    assert adapter._display_path(str(inside)) == str(Path("sub") / "file.txt")
 
 
 def test_display_path_absolute_outside_cwd_stays_absolute(
@@ -844,3 +844,18 @@ def test_hard_block_reads_command_from_json_content_block(
     }
 
     assert adapter.is_hard_blocked(tool_call) is True
+
+
+def test_display_path_nul_is_not_passed_to_platform_path_parser(
+    tmp_path,
+    monkeypatch,
+):
+    from qwenpaw.agents.acp import permissions
+
+    adapter = ACPPermissionAdapter(cwd=str(tmp_path))
+
+    def reject_parse(_value):
+        raise AssertionError("NUL paths must be preserved before parsing")
+
+    monkeypatch.setattr(permissions, "Path", reject_parse)
+    assert adapter._display_path("~\x00") == "~\x00"

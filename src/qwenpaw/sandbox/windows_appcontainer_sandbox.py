@@ -46,6 +46,8 @@ from .windows_unelevated_sandbox import (
     _string_to_sid,
 )
 
+from ._cleanup_logging import cleanup_errors, cleanup_logging
+
 logger = logging.getLogger(__name__)
 
 
@@ -1202,7 +1204,19 @@ def _cleanup_single_container(  # pylint: disable=R0912
             pass
 
 
-def shutdown_cleanup() -> None:
+def shutdown_cleanup(*, log_progress: bool = True) -> None:
+    """Clean containers, silencing the entire sandbox call chain at exit."""
+    with (
+        cleanup_logging(log_progress),
+        cleanup_errors(
+            logger,
+            "Unexpected sandbox shutdown failure",
+        ),
+    ):
+        _shutdown_cleanup(log_progress=log_progress)
+
+
+def _shutdown_cleanup(*, log_progress: bool) -> None:
     """Destroys AppContainer sandboxes owned by this process or orphaned.
 
     Iterates metadata files under ``~/.qwenpaw/containers/``, skips
@@ -1216,26 +1230,33 @@ def shutdown_cleanup() -> None:
     my_pid = os.getpid()
 
     for meta_file in containers_dir.glob("*.json"):
-        try:
+        with cleanup_errors(logger, "Failed to clean metadata %s", meta_file):
             meta = json.loads(meta_file.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError):
-            continue
+            if not isinstance(meta, dict):
+                raise ValueError("Sandbox metadata must be an object")
+            owner_pid = meta.get("owner_pid")
+            if owner_pid is not None and (
+                not isinstance(owner_pid, int)
+                or isinstance(owner_pid, bool)
+                or owner_pid <= 0
+            ):
+                raise ValueError("Invalid sandbox owner PID")
 
-        owner_pid = meta.get("owner_pid")
+            if owner_pid is not None and owner_pid != my_pid:
+                if _is_pid_alive(owner_pid):
+                    if log_progress:
+                        logger.debug(
+                            "Skipping container %s — owner pid %d still alive",
+                            meta.get("container_name", "?"),
+                            owner_pid,
+                        )
+                    continue
 
-        if owner_pid is not None and owner_pid != my_pid:
-            if _is_pid_alive(owner_pid):
-                logger.debug(
-                    "Skipping container %s — owner pid %d still alive",
-                    meta.get("container_name", "?"),
-                    owner_pid,
-                )
-                continue
-
-        container_name = meta.get("container_name", "")
-        if container_name:
-            logger.info("Cleaning AppContainer: %s", container_name)
-            _cleanup_single_container(meta, meta_file)
+            container_name = meta.get("container_name", "")
+            if container_name:
+                if log_progress:
+                    logger.info("Cleaning AppContainer: %s", container_name)
+                _cleanup_single_container(meta, meta_file)
 
     if containers_dir.exists() and not list(containers_dir.glob("*.json")):
         try:
@@ -1244,4 +1265,6 @@ def shutdown_cleanup() -> None:
             pass
 
 
-atexit.register(shutdown_cleanup)
+# Logging streams (including pytest capture) may already be closed at exit.
+# Keep cleanup active, but omit routine progress messages from this callback.
+atexit.register(shutdown_cleanup, log_progress=False)

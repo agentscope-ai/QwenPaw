@@ -399,11 +399,59 @@ describe("Sidebar", () => {
     expect(localStorage.getItem("qwenpaw_sidebar_tools_mode")).toBe("1");
     fireEvent.click(screen.getByRole("button", { name: "Detailed tools" }));
     expect(localStorage.getItem("qwenpaw_sidebar_tools_mode")).toBe("2");
-    fireEvent.click(screen.getByRole("button", { name: "Collapse tools" }));
+    fireEvent.click(screen.getByTestId("tool-header-toggle"));
     expect(localStorage.getItem("qwenpaw_sidebar_tools_mode")).toBe("0");
     expect(
       screen.queryByRole("button", { name: "Pin tools" }),
     ).not.toBeInTheDocument();
+  });
+
+  it("shows navigation labels as tooltips in compact tools mode", async () => {
+    localStorage.setItem("qwenpaw_sidebar_tools_mode", "1");
+    renderSidebar();
+
+    fireEvent.mouseEnter(screen.getByRole("button", { name: "Workspace" }));
+
+    expect(await screen.findByRole("tooltip")).toHaveTextContent("Workspace");
+  });
+
+  it("collapses tools when the open header blank area is clicked", async () => {
+    localStorage.setItem("qwenpaw_sidebar_tools_mode", "1");
+    renderSidebar();
+
+    fireEvent.click(screen.getByTestId("tool-header-toggle"));
+
+    expect(localStorage.getItem("qwenpaw_sidebar_tools_mode")).toBe("0");
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("button", { name: "Workspace" }),
+      ).not.toBeInTheDocument(),
+    );
+    expect(screen.getByRole("button", { name: "Compact tools" })).toBeVisible();
+  });
+
+  it("restores the previous detailed mode after a header collapse", async () => {
+    localStorage.setItem("qwenpaw_sidebar_tools_mode", "2");
+    renderSidebar();
+
+    fireEvent.click(screen.getByTestId("tool-header-toggle"));
+
+    expect(localStorage.getItem("qwenpaw_sidebar_tools_mode")).toBe("0");
+    expect(localStorage.getItem("qwenpaw_sidebar_tools_last_open_mode")).toBe(
+      "2",
+    );
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("button", { name: "Workspace" }),
+      ).not.toBeInTheDocument(),
+    );
+
+    fireEvent.click(screen.getByTestId("tool-header-toggle"));
+
+    expect(localStorage.getItem("qwenpaw_sidebar_tools_mode")).toBe("2");
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Workspace" })).toBeVisible(),
+    );
   });
 
   it("renders the unified desktop sidebar with agent and settings menus", async () => {

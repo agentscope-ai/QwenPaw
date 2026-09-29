@@ -39,6 +39,7 @@ export const RemoteProviderCard = React.memo(function RemoteProviderCard({
   const handleDeleteProvider = (e: React.MouseEvent) => {
     e.stopPropagation();
     Modal.confirm({
+      className: styles.modelConfirmModal,
       title: t("models.deleteProvider"),
       content: t("models.deleteProviderConfirm", { name: provider.name }),
       okText: t("common.delete"),
@@ -77,6 +78,7 @@ export const RemoteProviderCard = React.memo(function RemoteProviderCard({
     <InteractiveCard
       layoutId={`provider:${provider.id}`}
       className={styles.groupCardGlass}
+      tilt={2}
     >
       {!isManaged && (
         <ProviderCloseButton
@@ -160,6 +162,7 @@ export const RemoteProviderCard = React.memo(function RemoteProviderCard({
 
       <OAuthConfirmModal
         open={oauthModalOpen}
+        className={styles.modelManageModal}
         providerId={provider.id}
         providerName={provider.name}
         onSuccess={() => {

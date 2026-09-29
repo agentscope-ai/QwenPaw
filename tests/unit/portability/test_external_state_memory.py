@@ -13,9 +13,11 @@ hyphen-encoded Qoder project-key resolver, and the markdown collector.
 Every assertion checks observable output (returned source ids, cwds,
 file lists, state strings, integer counts) rather than internals.
 """
+
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 from pathlib import Path
 from unittest.mock import patch
@@ -98,7 +100,7 @@ def test_markdown_files_collects_md_recursively_and_sorts(
 
     out = es._markdown_files(root)
 
-    rels = [str(item.relative_path) for item in out]
+    rels = [item.relative_path.as_posix() for item in out]
     assert rels == ["A.MD", "b.md", "sub/d.md"]  # sorted by str(relative)
     assert all(item.source_path.is_absolute() for item in out)
 
@@ -393,13 +395,13 @@ def test_discover_codex_memory_no_extensions(tmp_path: Path) -> None:
 @pytest.mark.parametrize(
     ("value", "expected"),
     [
-        ("/abs/path", "/abs/path"),
+        ("{root}/abs/path", "{root}/abs/path"),
         # strip() is used only for the blank test, NOT to normalise: a
         # leading space makes Path() see a relative path -> rejected.
         ("  /abs/pad  ", ""),
         (" /abs", ""),
         # a trailing space is preserved verbatim (still absolute).
-        ("/abs ", "/abs "),
+        ("{root}/abs ", "{root}/abs "),
         ("relative/path", ""),
         ("", ""),
         ("   ", ""),
@@ -408,7 +410,10 @@ def test_discover_codex_memory_no_extensions(tmp_path: Path) -> None:
         ({"a": 1}, ""),
     ],
 )
-def test_absolute_cwd(value: object, expected: str) -> None:
+def test_absolute_cwd(value: object, expected: str, tmp_path: Path) -> None:
+    if isinstance(value, str) and "{root}" in value:
+        value = str(tmp_path / value.removeprefix("{root}/"))
+        expected = value
     assert es._absolute_cwd(value) == expected
 
 
@@ -419,9 +424,10 @@ def test_absolute_cwd_expands_user() -> None:
     )
 
 
-def test_cwd_in_value_finds_nested_key() -> None:
-    payload = {"meta": {"projectPath": "/abs/nested"}}
-    assert es._cwd_in_value(payload) == "/abs/nested"
+def test_cwd_in_value_finds_nested_key(tmp_path: Path) -> None:
+    cwd = str(tmp_path / "nested")
+    payload = {"meta": {"projectPath": cwd}}
+    assert es._cwd_in_value(payload) == cwd
 
 
 def test_cwd_in_value_no_match() -> None:
@@ -432,29 +438,33 @@ def test_cwd_in_value_no_match() -> None:
 # _project_cwd_from_transcripts
 # --------------------------------------------------------------------------
 def test_transcript_cwd_top_level(tmp_path: Path) -> None:
+    cwd = str(tmp_path / "one")
     (tmp_path / "a.jsonl").write_text(
-        '{"cwd": "/abs/one"}\n',
+        json.dumps({"cwd": cwd}) + "\n",
         encoding="utf-8",
     )
-    assert es._project_cwd_from_transcripts(tmp_path) == "/abs/one"
+    assert es._project_cwd_from_transcripts(tmp_path) == cwd
 
 
 def test_transcript_cwd_nested(tmp_path: Path) -> None:
+    cwd = str(tmp_path / "two")
     (tmp_path / "a.jsonl").write_text(
-        json.dumps({"meta": {"projectPath": "/abs/two"}}) + "\n",
+        json.dumps({"meta": {"projectPath": cwd}}) + "\n",
         encoding="utf-8",
     )
-    assert es._project_cwd_from_transcripts(tmp_path) == "/abs/two"
+    assert es._project_cwd_from_transcripts(tmp_path) == cwd
 
 
 def test_transcript_cwd_skips_bad_lines_and_relative(tmp_path: Path) -> None:
+    cwd = str(tmp_path / "three")
     (tmp_path / "a.jsonl").write_text(
         "not json\n"
         + '{"cwd": "relative/path"}\n'
-        + '{"cwd": "/abs/three"}\n',
+        + json.dumps({"cwd": cwd})
+        + "\n",
         encoding="utf-8",
     )
-    assert es._project_cwd_from_transcripts(tmp_path) == "/abs/three"
+    assert es._project_cwd_from_transcripts(tmp_path) == cwd
 
 
 def test_transcript_cwd_ignores_non_jsonl(tmp_path: Path) -> None:
@@ -468,16 +478,16 @@ def test_transcript_cwd_empty_when_only_blank(tmp_path: Path) -> None:
 
 
 def test_transcript_cwd_prefers_newest_by_mtime(tmp_path: Path) -> None:
-    import os
-
+    first = str(tmp_path / "first")
+    second = str(tmp_path / "second")
     a = tmp_path / "a.jsonl"
     b = tmp_path / "b.jsonl"
-    a.write_text('{"cwd": "/first"}\n', encoding="utf-8")
-    b.write_text('{"cwd": "/second"}\n', encoding="utf-8")
+    a.write_text(json.dumps({"cwd": first}) + "\n", encoding="utf-8")
+    b.write_text(json.dumps({"cwd": second}) + "\n", encoding="utf-8")
     os.utime(a, (2_000_000_000, 2_000_000_000))
     os.utime(b, (1_000_000_000, 1_000_000_000))
     # nlargest(20, key=mtime) -> newest first -> "/first"
-    assert es._project_cwd_from_transcripts(tmp_path) == "/first"
+    assert es._project_cwd_from_transcripts(tmp_path) == first
 
 
 def test_transcript_cwd_empty_dir(tmp_path: Path) -> None:
@@ -501,9 +511,13 @@ def test_discover_project_memory_no_dir(tmp_path: Path) -> None:
 
 
 def test_discover_project_memory_collects_and_skips(tmp_path: Path) -> None:
+    cwd = str(tmp_path / "workspace")
     proj = tmp_path / "projects" / "proj1"
     _md(proj / "memory" / "m.md")
-    (proj / "t.jsonl").write_text('{"cwd": "/cwd/one"}\n', encoding="utf-8")
+    (proj / "t.jsonl").write_text(
+        json.dumps({"cwd": cwd}) + "\n",
+        encoding="utf-8",
+    )
     (tmp_path / "projects" / "empty").mkdir()  # no memory dir
     (tmp_path / "projects" / "plainfile").write_text("x", encoding="utf-8")
     outside = tmp_path / "outside"
@@ -516,7 +530,7 @@ def test_discover_project_memory_collects_and_skips(tmp_path: Path) -> None:
     p = projects[0]
     assert p.source_id == "project-memory:proj1"
     assert p.project_key == "proj1"
-    assert p.cwd == "/cwd/one"
+    assert p.cwd == cwd
     assert p.metadata == {"layout": "project_memory"}
 
 
@@ -533,11 +547,20 @@ def test_qoder_project_cwds_no_dir(tmp_path: Path) -> None:
 
 
 def test_qoder_project_cwds_encodes_key(tmp_path: Path) -> None:
+    cwd = r"\\server\share\Some\Dir" if os.name == "nt" else "/Some/Dir"
     d = tmp_path / "projects" / "pa"
     d.mkdir(parents=True)
-    (d / "x.jsonl").write_text('{"cwd": "/tmp/Some/Dir"}\n', encoding="utf-8")
+    (d / "x.jsonl").write_text(
+        json.dumps({"cwd": cwd}) + "\n",
+        encoding="utf-8",
+    )
     mapping = es._qoder_project_cwds(tmp_path)
-    assert mapping == {"tmp-Some-Dir": "/tmp/Some/Dir"}
+    expected = (
+        {"server-share-Some-Dir": r"\\server\share\Some\Dir"}
+        if os.name == "nt"
+        else {"Some-Dir": "/Some/Dir"}
+    )
+    assert mapping == expected
 
 
 def test_qoder_project_cwds_relative_skipped(tmp_path: Path) -> None:
@@ -665,12 +688,19 @@ def test_discover_qoder_memory_falls_back_to_project_memory(
     assert projects[0].metadata["layout"] == "project_memory"
 
 
-def test_discover_qoder_memory_v2_layout(tmp_path: Path) -> None:
+def test_discover_qoder_memory_v2_layout(tmp_path: Path, monkeypatch) -> None:
     home = Path.home().resolve()
-    home_key = str(home).lstrip("/\\").replace("/", "-").replace("\\", "-")
+    # Layout discovery uses a valid directory key; home-key decoding is
+    # covered separately by test_qoder_memory_cwd_home_key_returns_home.
+    home_key = "home-project"
+    monkeypatch.setattr(
+        es,
+        "_qoder_project_cwds",
+        lambda _: {home_key: str(home)},
+    )
     acct = tmp_path / "memories" / "acct1"
     _md(acct / "global" / "g.md")
-    _md(acct / "projects" / home_key / "s.md")  # resolvable to HOME
+    _md(acct / "projects" / home_key / "s.md")  # resolved via the project map
     _md(acct / "projects" / "unknown-key" / "s.md")  # not resolvable
     (acct / "projects" / "no-md").mkdir()  # no markdown -> skipped
     (tmp_path / "memories" / "acct2").mkdir()  # empty account
@@ -714,8 +744,13 @@ def test_discover_qoder_memory_symlinked_projects_dir(tmp_path: Path) -> None:
 
 
 def test_discover_qoder_memory_cwd_from_transcript_map(tmp_path: Path) -> None:
-    real_cwd = tmp_path / "realproj"
-    real_cwd.mkdir()
+    # UNC paths exercise Windows absolute paths without putting a drive
+    # colon into the encoded directory name. No workspace access is needed.
+    real_cwd = (
+        Path(r"\\server\share\realproj")
+        if os.name == "nt"
+        else tmp_path / "realproj"
+    )
     tp = tmp_path / "projects" / "pa"
     tp.mkdir(parents=True)
     (tp / "x.jsonl").write_text(

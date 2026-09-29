@@ -11,6 +11,7 @@ plugin-manifest tool merge, and ``migrate_legacy_config_to_multi_agent`` --
 the function that turns a pre-multi-agent ``config.json`` plus a legacy
 ``~/.copaw`` tree into a workspace-owned ``agent.json``.
 """
+
 # Pytest fixtures intentionally provide setup-only arguments to tests.
 # pylint: disable=redefined-outer-name,unused-argument,protected-access
 # pylint: disable=too-many-arguments,too-many-locals,too-many-branches
@@ -727,13 +728,14 @@ def _config_with_profile(agent_id: str, workspace: str) -> cfg_mod.Config:
     return config
 
 
-def test_fallback_profile_is_derived_from_the_root_config() -> None:
-    config = _config_with_profile("helper", "/tmp/ws-helper")
+def test_fallback_profile_is_derived_from_the_root_config(tmp_path) -> None:
+    workspace = str(tmp_path / "ws-helper")
+    config = _config_with_profile("helper", workspace)
     profile = cfg_mod.build_fallback_agent_profile_config("helper", config)
     assert profile.id == "helper"
     assert profile.name == "Helper"
     assert profile.description == "helper agent"
-    assert profile.workspace_dir == "/tmp/ws-helper"
+    assert profile.workspace_dir == workspace
 
 
 def test_fallback_profile_rejects_an_unknown_agent_id() -> None:

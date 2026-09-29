@@ -37,6 +37,7 @@ const artifactStyles = readSource(
 );
 const layoutStyles = readSource("src/layouts/index.module.less");
 const chatStyles = readSource("src/pages/Chat/index.module.less");
+const chatSource = readSource("src/pages/Chat/index.tsx");
 const filesWorkspaceStyles = readSource(
   "src/features/files-workspace/FilesWorkspace.module.less",
 );
@@ -601,9 +602,16 @@ describe("console font-size coverage", () => {
     expect(workspaceButtonRule).toContain("var(--app-icon-md)");
     expect(workspaceButtonRule).toContain("font-size: var(--app-icon-md)");
 
-    expect(chatStyles).toContain('[class$="-bubble-footer-actions-item"]');
-    expect(chatStyles).toContain("min-width: var(--app-icon-button)");
-    expect(chatStyles).toContain("width: var(--app-icon-md)");
-    expect(chatStyles).toContain("[data-spark-icon]");
+    expect(chatStyles).toContain(
+      '[class$="-bubble-footer-actions"] button:has(svg)',
+    );
+    expect(chatStyles).toMatch(
+      /-bubble-footer-actions[\s\S]*?font-size: var\(--app-icon-sm\) !important;[\s\S]*?width: var\(--app-icon-sm\);[\s\S]*?height: var\(--app-icon-sm\);/,
+    );
+    expect(chatSource).toMatch(
+      /import \{[\s\S]*?Copy,[\s\S]*?\} from "lucide-react"/,
+    );
+    expect(chatSource).toContain("<Copy />");
+    expect(chatSource).not.toContain("SparkCopyLine");
   });
 });

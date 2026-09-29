@@ -227,6 +227,7 @@ export function ModelConfigEditor({
         {(model.thinking_control || thinkingParamStyle) && (
           <InteractiveCard as="section" tilt={0} className={styles.thinking}>
             <ThinkingControl
+              tone="quiet"
               control={
                 model.thinking_control ?? {
                   kind: thinkingParamStyle === "budget" ? "budget" : "effort",
@@ -284,22 +285,9 @@ export function ModelConfigEditor({
          that the API requires to be echoed back; relay_reasoning has no
          effect, so hide the toggle to avoid confusion. */}
           {chatModel !== "OpenAIResponseModel" && (
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                marginBottom: 8,
-                padding: "6px 0",
-              }}
-            >
+            <div className={styles.settingRow}>
               <div>
-                <span
-                  style={{
-                    fontSize: "var(--app-font-secondary)",
-                    color: "var(--app-text)",
-                  }}
-                >
+                <span className={styles.settingLabel}>
                   {t("models.relayReasoningLabel")}
                 </span>
                 <InlineHelp>{t("models.relayReasoningHint")}</InlineHelp>

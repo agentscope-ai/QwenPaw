@@ -591,6 +591,32 @@ describe("SettingsCenter", () => {
     expect(within(globalGroup!).getByText("Skill Pool")).toBeVisible();
   });
 
+  it("reuses sidebar registry icons for matching settings routes", () => {
+    const ChannelIcon = () => <svg data-testid="sidebar-channel-icon" />;
+    registry.routes = [
+      { id: "core.channels", path: "/channels", Component: () => null },
+    ];
+    registry.agentMenu = [
+      {
+        id: "core.channels",
+        location: "primary.agentScoped",
+        label: "Channels",
+        route: "core.channels",
+        icon: ChannelIcon,
+      },
+    ];
+
+    renderWithProviders(<SettingsCenter />, {
+      initialEntries: ["/settings/general"],
+    });
+
+    expect(
+      within(screen.getByRole("button", { name: "Channels" })).getByTestId(
+        "sidebar-channel-icon",
+      ),
+    ).toBeVisible();
+  });
+
   it("opens plugin settings at the original registered path", async () => {
     const PluginSettings = () => <div>Plugin configuration form</div>;
     registry.routes = [

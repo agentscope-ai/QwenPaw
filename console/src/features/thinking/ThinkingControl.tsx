@@ -16,6 +16,7 @@ export function ThinkingControl({
   onChooseModel,
   resetAction,
   effective,
+  tone = "default",
 }: {
   control: ThinkingControlSpec;
   value: ThinkingPreference;
@@ -26,6 +27,7 @@ export function ThinkingControl({
   onChooseModel?: () => void;
   resetAction?: ReactNode;
   effective?: ThinkingPreference;
+  tone?: "default" | "quiet";
 }) {
   const { t } = useTranslation();
   const displayed = value.level === "inherit" ? effective ?? value : value;
@@ -83,6 +85,7 @@ export function ThinkingControl({
   return (
     <section
       className={styles.control}
+      data-tone={tone}
       data-budget-off={isBudget && control.supports_off}
       data-unresolved={unresolved}
       style={
