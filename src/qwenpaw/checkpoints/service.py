@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import time
 import weakref
@@ -36,6 +37,7 @@ from .policy import (
     ref_session_key,
     sanitize_ref_component,
     session_key,
+    session_snapshot_path,
 )
 from .models import (
     CheckpointEntry,
@@ -357,6 +359,27 @@ class CheckpointService:
             user_id=user_id,
             session_id=session_id,
         )
+        conversation_path = session_snapshot_path(
+            channel=channel,
+            user_id=user_id,
+            session_id=session_id,
+        )
+        runtime = self._runtime_snapshot(
+            session_id=session_id,
+            user_id=user_id,
+            channel=channel,
+        )
+        conversation_blob = json.dumps(
+            {
+                "schema_version": 1,
+                "state": runtime.state,
+                "context_generation": runtime.context_generation,
+                "current_usage": runtime.current_usage,
+            },
+            ensure_ascii=False,
+            separators=(",", ":"),
+        )
+        virtual_files = {conversation_path: conversation_blob}
         parent_commit = self.session_head(key)
         now_ms = int(time.time() * 1000)
         if kind == "auto":
@@ -381,16 +404,18 @@ class CheckpointService:
                 ref = f"refs/pre-restore/{now_ms}-{key}"
             subject = f"pre-restore {key} {now_ms}"
 
-        tree = tree_override or self.repository.write_workspace_tree()
+        tree = (
+            self.repository.add_virtual_files_to_tree(
+                tree_override,
+                virtual_files,
+            )
+            if tree_override
+            else self.repository.write_workspace_tree(virtual_files)
+        )
         body = message.strip() if message else subject
         query = query_override
         if query is None:
-            query = latest_user_query(
-                self.repository.workspace_dir,
-                session_id=session_id,
-                user_id=user_id,
-                channel=channel,
-            )
+            query = latest_user_query(runtime.state)
         metadata = encode_metadata(
             query,
             channel=channel,
@@ -412,6 +437,76 @@ class CheckpointService:
             parent_commit=parent_commit,
             timestamp_ms=now_ms,
         )
+
+    def _runtime_snapshot(
+        self,
+        *,
+        session_id: str,
+        user_id: str,
+        channel: str,
+    ):
+        store, owned = self._transcript_store()
+        try:
+            snapshot = store.read_runtime_state(
+                session_id=session_id,
+                user_id=user_id,
+                channel=channel,
+            )
+        finally:
+            if owned:
+                store.close()
+        if snapshot is None:
+            raise CheckpointError(
+                "Conversation runtime state does not exist",
+            )
+        return snapshot
+
+    def restore_runtime_snapshot(
+        self,
+        blob: bytes,
+        *,
+        session_id: str,
+        user_id: str,
+        channel: str,
+    ) -> None:
+        """Restore one checkpoint runtime blob into the session database."""
+        try:
+            payload = json.loads(blob)
+            if payload.get("schema_version") != 1:
+                raise ValueError("unsupported runtime snapshot schema")
+            state = payload["state"]
+            generation = int(payload["context_generation"])
+            current_usage = payload.get("current_usage")
+        except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
+            raise CheckpointError(
+                "Checkpoint runtime snapshot is invalid",
+            ) from exc
+        if not isinstance(state, dict) or (
+            current_usage is not None and not isinstance(current_usage, dict)
+        ):
+            raise CheckpointError("Checkpoint runtime snapshot is invalid")
+        store, owned = self._transcript_store()
+        try:
+            store.replace_runtime_state(
+                session_id=session_id,
+                user_id=user_id,
+                channel=channel,
+                state=state,
+                context_generation=generation,
+                current_usage=current_usage,
+            )
+        finally:
+            if owned:
+                store.close()
+
+    def _transcript_store(self):
+        workspace = self.workspace
+        store = getattr(workspace, "transcript_store", None)
+        if store is not None:
+            return store, False
+        from ..app.chats.transcript_catalog import TranscriptCatalog
+
+        return TranscriptCatalog(self.workspace_dir), True
 
     # -- reset ------------------------------------------------------------
 

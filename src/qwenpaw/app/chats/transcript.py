@@ -88,6 +88,11 @@ class TranscriptStore:
             self._closed = True
             raise
 
+    @property
+    def path(self) -> Path:
+        """Return the database path owned by this store."""
+        return self._path
+
     def _schema_exists(self) -> bool:
         row = self._conn.execute(
             "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' "
@@ -356,6 +361,62 @@ class TranscriptStore:
             )
             return generation, True
 
+    def replace_runtime_state(
+        self,
+        *,
+        session_id: str,
+        user_id: str,
+        channel: str,
+        state: dict[str, Any],
+        context_generation: int,
+        current_usage: dict[str, Any] | None,
+    ) -> None:
+        """Replace a runtime snapshot while preserving its generation."""
+        with self._transaction():
+            self._conn.execute(
+                "INSERT INTO transcript_sessions("
+                "session_id, user_id, channel) VALUES (?, ?, ?) "
+                "ON CONFLICT(session_id) DO NOTHING",
+                (session_id, user_id, channel),
+            )
+            session = self._session_row(session_id)
+            if session is None:
+                raise RuntimeError("failed to create transcript session")
+            self._assert_identity(
+                session,
+                user_id=user_id,
+                channel=channel,
+            )
+            self._conn.execute(
+                "INSERT INTO session_runtime("
+                "session_id, context_generation, state_json, "
+                "current_usage_json, updated_at) VALUES (?, ?, ?, ?, ?) "
+                "ON CONFLICT(session_id) DO UPDATE SET "
+                "context_generation = excluded.context_generation, "
+                "state_json = excluded.state_json, "
+                "current_usage_json = excluded.current_usage_json, "
+                "updated_at = excluded.updated_at",
+                (
+                    session_id,
+                    context_generation,
+                    json.dumps(
+                        state,
+                        ensure_ascii=False,
+                        separators=(",", ":"),
+                    ),
+                    (
+                        json.dumps(
+                            current_usage,
+                            ensure_ascii=False,
+                            separators=(",", ":"),
+                        )
+                        if current_usage is not None
+                        else None
+                    ),
+                    _utc_now(),
+                ),
+            )
+
     def update_runtime_state(
         self,
         *,
@@ -413,6 +474,127 @@ class TranscriptStore:
             )
             if cursor.rowcount != 1:
                 raise KeyError(session_id)
+
+    def clone_completed_session_from(
+        self,
+        *,
+        source_path: Path,
+        source_session_id: str,
+        target_session_id: str,
+        target_user_id: str,
+        target_channel: str,
+    ) -> bool:
+        """Clone persisted chat history and agent context into this store."""
+        if self._session_row(target_session_id) is not None:
+            raise ValueError("target transcript session already exists")
+
+        self._conn.execute("ATTACH DATABASE ? AS parent", (str(source_path),))
+        try:
+            source = self._conn.execute(
+                "SELECT next_turn_seq FROM parent.transcript_sessions "
+                "WHERE session_id = ?",
+                (source_session_id,),
+            ).fetchone()
+            if source is None:
+                return False
+
+            runtime = self._conn.execute(
+                "SELECT context_generation, state_json, "
+                "current_usage_json, updated_at "
+                "FROM parent.session_runtime WHERE session_id = ?",
+                (source_session_id,),
+            ).fetchone()
+            with self._transaction():
+                self._conn.execute(
+                    "INSERT INTO transcript_sessions("
+                    "session_id, user_id, channel, next_turn_seq) "
+                    "VALUES (?, ?, ?, ?)",
+                    (
+                        target_session_id,
+                        target_user_id,
+                        target_channel,
+                        int(source["next_turn_seq"]),
+                    ),
+                )
+                self._conn.execute(
+                    "INSERT INTO transcript_turns("
+                    "session_id, turn_seq, turn_id, status, error_json, "
+                    "replaces_turn_id, created_at, finished_at) "
+                    "SELECT ?, turn_seq, turn_id, status, error_json, "
+                    "replaces_turn_id, created_at, finished_at "
+                    "FROM parent.transcript_turns "
+                    "WHERE session_id = ? AND status != 'running'",
+                    (target_session_id, source_session_id),
+                )
+                self._conn.execute(
+                    "INSERT INTO transcript_messages("
+                    "session_id, turn_id, message_id, ordinal, role, "
+                    "payload_json, client_message_id, superseded_at, "
+                    "created_at, finished_at) "
+                    "SELECT ?, m.turn_id, m.message_id, m.ordinal, m.role, "
+                    "m.payload_json, m.client_message_id, m.superseded_at, "
+                    "m.created_at, m.finished_at "
+                    "FROM parent.transcript_messages AS m "
+                    "JOIN parent.transcript_turns AS t "
+                    "ON t.session_id = m.session_id "
+                    "AND t.turn_id = m.turn_id "
+                    "WHERE m.session_id = ? AND t.status != 'running'",
+                    (target_session_id, source_session_id),
+                )
+                if runtime is not None:
+                    source_state = json.loads(runtime["state_json"])
+                    state = (
+                        {"agent": source_state["agent"]}
+                        if "agent" in source_state
+                        else {}
+                    )
+                    self._conn.execute(
+                        "INSERT INTO session_runtime("
+                        "session_id, context_generation, state_json, "
+                        "current_usage_json, updated_at) "
+                        "VALUES (?, ?, ?, ?, ?)",
+                        (
+                            target_session_id,
+                            int(runtime["context_generation"]),
+                            json.dumps(
+                                state,
+                                ensure_ascii=False,
+                                separators=(",", ":"),
+                            ),
+                            runtime["current_usage_json"],
+                            runtime["updated_at"],
+                        ),
+                    )
+            return True
+        finally:
+            self._conn.execute("DETACH DATABASE parent")
+
+    def message_payloads(
+        self,
+        *,
+        session_id: str,
+        start_date: str,
+        end_date: str,
+    ) -> list[dict[str, Any]]:
+        """Return visible persisted messages within an inclusive date range."""
+        with self._read_connection() as connection:
+            rows = connection.execute(
+                "SELECT payload_json, created_at "
+                "FROM transcript_messages WHERE session_id = ? "
+                "AND superseded_at IS NULL "
+                "AND substr(created_at, 1, 10) BETWEEN ? AND ? "
+                "ORDER BY created_at, ordinal",
+                (session_id, start_date, end_date),
+            ).fetchall()
+        messages: list[dict[str, Any]] = []
+        for row in rows:
+            payload = json.loads(row["payload_json"])
+            if not isinstance(payload, dict):
+                continue
+            if not payload.get("created_at") and not payload.get("timestamp"):
+                payload["created_at"] = row["created_at"]
+            messages.append(payload)
+        return messages
 
     def recover_running_turns(self) -> int:
         """Cancel turns left running by a previous process."""

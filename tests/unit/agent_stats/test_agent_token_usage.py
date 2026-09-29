@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import json
 from datetime import date
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
@@ -15,6 +14,8 @@ from qwenpaw.agent_stats.service import (
     AgentStatsService,
     _process_session_file,
 )
+from qwenpaw.app.chats.transcript_catalog import TranscriptCatalog
+from qwenpaw.schemas import Message
 from qwenpaw.token_usage.manager import TokenUsageStats, TokenUsageSummary
 from qwenpaw.token_usage.turn_usage import TURN_USAGE_META_KEY
 
@@ -57,6 +58,43 @@ def _assistant_with_usage(
             },
         },
     }
+
+
+def _write_transcript(root: Path, messages: list[dict]) -> Path:
+    root.mkdir(parents=True, exist_ok=True)
+    catalog = TranscriptCatalog(root)
+    for index, raw in enumerate(messages):
+        turn_id = f"turn-{index}"
+        metadata = dict(raw.get("metadata") or {})
+        metadata["timestamp"] = raw["created_at"]
+        message = Message(
+            id=f"message-{index}",
+            role=raw["role"],
+            content=raw.get("content") or [],
+            metadata=metadata,
+        ).completed()
+        catalog.start_turn(
+            session_id="s1",
+            user_id="user",
+            channel="console",
+            turn_id=turn_id,
+            created_at=raw["created_at"],
+        )
+        catalog.upsert_message(
+            session_id="s1",
+            turn_id=turn_id,
+            message=message,
+            ordinal=0,
+            created_at=raw["created_at"],
+        )
+        catalog.finish_turn(
+            session_id="s1",
+            turn_id=turn_id,
+            status="completed",
+            finished_at=raw["created_at"],
+        )
+    catalog.close()
+    return root
 
 
 class TestProcessSessionFileAgentTokens:
@@ -342,33 +380,20 @@ class TestAgentStatsServiceAgentTokens:
         tmp_path: Path,
     ):
         workspace = tmp_path / "agent-a"
-        sessions = workspace / "sessions" / "console"
-        sessions.mkdir(parents=True)
-        session_file = sessions / "s1.json"
-        session_file.write_text(
-            json.dumps(
+        _write_transcript(
+            workspace,
+            [
                 {
-                    "agent": {
-                        "state": {
-                            "context": [
-                                {
-                                    "role": "user",
-                                    "created_at": "2026-07-23T09:00:00Z",
-                                    "content": [
-                                        {"type": "text", "text": "hi"},
-                                    ],
-                                },
-                                _assistant_with_usage(
-                                    created_at="2026-07-23T09:00:01Z",
-                                    prompt_tokens=111,
-                                    completion_tokens=22,
-                                ),
-                            ],
-                        },
-                    },
+                    "role": "user",
+                    "created_at": "2026-07-23T09:00:00Z",
+                    "content": [{"type": "text", "text": "hi"}],
                 },
-            ),
-            encoding="utf-8",
+                _assistant_with_usage(
+                    created_at="2026-07-23T09:00:01Z",
+                    prompt_tokens=111,
+                    completion_tokens=22,
+                ),
+            ],
         )
 
         global_summary = TokenUsageSummary(
@@ -421,27 +446,16 @@ class TestAgentStatsServiceAgentTokens:
     async def test_agent_tokens_isolated_per_workspace(self, tmp_path: Path):
         def _write_workspace(name: str, prompt: int, completion: int) -> Path:
             root = tmp_path / name
-            sess_dir = root / "sessions" / "console"
-            sess_dir.mkdir(parents=True)
-            (sess_dir / "s.json").write_text(
-                json.dumps(
-                    {
-                        "agent": {
-                            "state": {
-                                "context": [
-                                    _assistant_with_usage(
-                                        created_at="2026-07-23T10:00:00Z",
-                                        prompt_tokens=prompt,
-                                        completion_tokens=completion,
-                                    ),
-                                ],
-                            },
-                        },
-                    },
-                ),
-                encoding="utf-8",
+            return _write_transcript(
+                root,
+                [
+                    _assistant_with_usage(
+                        created_at="2026-07-23T10:00:00Z",
+                        prompt_tokens=prompt,
+                        completion_tokens=completion,
+                    ),
+                ],
             )
-            return root
 
         ws_a = _write_workspace("agent-a", 100, 10)
         ws_b = _write_workspace("agent-b", 500, 50)
@@ -483,8 +497,7 @@ class TestAgentStatsServiceAgentTokens:
 
 
 def _write_trend_workspace(root: Path, n_turns: int, n_tools: int) -> Path:
-    sess_dir = root / "sessions" / "console"
-    sess_dir.mkdir(parents=True)
+    root.mkdir(parents=True)
     (root / "agent.json").write_text("{}", encoding="utf-8")
     content: list[dict] = [{"type": "text", "text": "hi"}]
     content.extend(
@@ -500,11 +513,7 @@ def _write_trend_workspace(root: Path, n_turns: int, n_tools: int) -> Path:
         )
         msg["content"] = list(content)
         turns.append(msg)
-    (sess_dir / "s.json").write_text(
-        json.dumps({"agent": {"state": {"context": turns}}}),
-        encoding="utf-8",
-    )
-    return root
+    return _write_transcript(root, turns)
 
 
 @pytest.mark.asyncio

@@ -14,8 +14,11 @@ from typing import TYPE_CHECKING
 
 from ..utils.io_utils import run_sync_io
 
-from .policy import is_qwenpaw_state_path
-from .policy import session_file_path, session_key
+from .policy import (
+    is_qwenpaw_state_path,
+    session_key,
+    session_snapshot_path,
+)
 from .models import (
     CheckpointEntry,
     CheckpointError,
@@ -409,8 +412,11 @@ class RestoreService:
                     prepared.current_tree if include_files else None
                 ),
             )
-            self.repository.restore_internal_paths(
-                {conversation_path: prepared.conversation_blob},
+            self.service.restore_runtime_snapshot(
+                prepared.conversation_blob,
+                session_id=session_id,
+                user_id=user_id,
+                channel=channel,
             )
             if include_files:
                 self.repository.restore_tree_paths(
@@ -431,6 +437,9 @@ class RestoreService:
                     original=exc,
                     pre_commit=pre_snapshot.commit,
                     conversation_path=conversation_path,
+                    session_id=session_id,
+                    user_id=user_id,
+                    channel=channel,
                     file_paths=set(prepared.touched),
                     include_memory=(
                         memory is not None and memory.mutation_started
@@ -447,6 +456,9 @@ class RestoreService:
         original: BaseException,
         pre_commit: str,
         conversation_path: str,
+        session_id: str,
+        user_id: str,
+        channel: str,
         file_paths: set[str],
         include_memory: bool,
         session_key_str: str,
@@ -458,8 +470,11 @@ class RestoreService:
                 pre_commit,
                 conversation_path,
             )
-            self.repository.restore_internal_paths(
-                {conversation_path: conversation},
+            self.service.restore_runtime_snapshot(
+                conversation,
+                session_id=session_id,
+                user_id=user_id,
+                channel=channel,
             )
             self.repository.restore_tree_paths(pre_commit, file_paths)
             if include_memory and memory is not None:
@@ -652,19 +667,17 @@ class RestoreService:
         user_id: str,
         channel: str,
     ) -> str:
-        conv_path = session_file_path(
-            self.service.workspace_dir,
-            session_id=session_id,
-            user_id=user_id,
+        return session_snapshot_path(
             channel=channel,
+            user_id=user_id,
+            session_id=session_id,
         )
-        return conv_path.relative_to(self.service.workspace_dir).as_posix()
 
     @staticmethod
     def _is_file_restore_candidate(rel: str, *, conv_rel: str) -> bool:
         if not rel or rel == conv_rel:
             return False
-        if rel.startswith("sessions/"):
+        if rel.startswith(("sessions/", ".qwenpaw-checkpoint/")):
             return False
         if rel == "MEMORY.md" or rel.startswith("memory/"):
             return False

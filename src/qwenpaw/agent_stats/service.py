@@ -3,20 +3,16 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
-import os
 from datetime import date, timedelta
 from pathlib import Path
 
-import aiofiles
-import aiofiles.os
-import orjson
-
 from ..app.chats.repo import JsonChatRepository
+from ..app.chats.transcript_catalog import TranscriptCatalog
 from ..config.utils import get_agent_dirs
 from ..token_usage import get_token_usage_manager
 from ..token_usage.turn_usage import TURN_USAGE_META_KEY
+from ..utils.io_utils import run_sync_io
 from .models import (
     AgentStatsSummary,
     ChannelStats,
@@ -25,28 +21,6 @@ from .models import (
 )
 
 logger = logging.getLogger(__name__)
-
-
-# pylint: disable=unused-argument
-def _should_skip_by_mtime(
-    session_file: Path,
-    start_date: date,
-    end_date: date,
-) -> bool:
-    try:
-        mtime = session_file.stat().st_mtime
-        mtime_date = date.fromtimestamp(mtime)
-        if mtime_date < start_date:
-            logger.debug(
-                "Skipping %s by mtime (%s) before start date %s",
-                session_file.name,
-                mtime_date.isoformat(),
-                start_date.isoformat(),
-            )
-            return True
-    except OSError:
-        pass
-    return False
 
 
 def _extract_session_messages(session_data: dict) -> list:
@@ -63,52 +37,6 @@ def _extract_session_messages(session_data: dict) -> list:
     if isinstance(memory_raw, dict):
         return memory_raw.get("memories") or memory_raw.get("content") or []
     return []
-
-
-def _should_skip_by_content_range(
-    session_data: dict,
-    start_date_str: str,
-    end_date_str: str,
-) -> bool:
-    memories = _extract_session_messages(session_data)
-
-    if not memories:
-        return True
-
-    timestamps: list[str] = []
-    for msg_item in memories:
-        if isinstance(msg_item, list) and len(msg_item) > 0:
-            msg_data = msg_item[0]
-        elif isinstance(msg_item, dict):
-            msg_data = msg_item
-        else:
-            continue
-
-        if not isinstance(msg_data, dict):
-            continue
-
-        timestamp = msg_data.get("created_at") or msg_data.get("timestamp")
-        if timestamp:
-            timestamps.append(str(timestamp)[:10])
-
-    if not timestamps:
-        return True
-
-    first_date = timestamps[0]
-    last_date = timestamps[-1]
-
-    if last_date < start_date_str or first_date > end_date_str:
-        logger.debug(
-            "Skipping session by content range [%s, %s] "
-            "outside target [%s, %s]",
-            first_date,
-            last_date,
-            start_date_str,
-            end_date_str,
-        )
-        return True
-
-    return False
 
 
 def _extract_turn_usage_tokens(msg_data: dict) -> tuple[int, int] | None:
@@ -280,6 +208,7 @@ class AgentStatsService:
         end_date: date,
         *,
         include_token_overlay: bool = True,
+        transcript_catalog: TranscriptCatalog | None = None,
     ) -> AgentStatsSummary:
         """Return Agent Statistics for one workspace.
 
@@ -288,7 +217,6 @@ class AgentStatsService:
         agent_llm_calls and tool_calls are still counted.
         """
         chats_file = workspace_dir / "chats.json"
-        sessions_dir = workspace_dir / "sessions"
 
         daily_stats: dict[str, dict] = {}
         days = (end_date - start_date).days + 1
@@ -335,102 +263,53 @@ class AgentStatsService:
             except Exception as e:
                 logger.warning("Failed to load chat statistics: %s", e)
 
-        # pylint: disable=too-many-nested-blocks
-        if sessions_dir.exists():
+        catalog = transcript_catalog
+        owns_catalog = False
+        if (
+            catalog is None
+            and (workspace_dir / "transcript_catalog.db").exists()
+        ):
             try:
-                session_files = []
-
-                # Scan root sessions directory for legacy files
-                channel_names = await aiofiles.os.listdir(sessions_dir)
-                for channel_name in channel_names:
-                    channel_path = sessions_dir / channel_name
-                    if await aiofiles.os.path.isdir(channel_path):
-                        try:
-                            channel_files = await aiofiles.os.listdir(
-                                channel_path,
-                            )
-                            for channel_file in channel_files:
-                                session_file = channel_path / channel_file
-                                if session_file.name.endswith(".json"):
-                                    session_files.append(session_file)
-                        except Exception as e:
-                            logger.debug(
-                                "Failed to scan channel directory %s: %s",
-                                channel_path,
-                                e,
-                            )
-
-                session_fd_sem = asyncio.Semaphore((os.cpu_count() or 4) * 2)
-
-                async def _process_one(
-                    session_file: Path,
-                ) -> tuple[int, bool, int, int, int]:
-                    async with session_fd_sem:
-                        if _should_skip_by_mtime(
-                            session_file,
-                            start_date,
-                            end_date,
-                        ):
-                            return 0, False, 0, 0, 0
-
-                        try:
-                            async with aiofiles.open(
-                                session_file,
-                                "r",
-                                encoding="utf-8",
-                            ) as f:
-                                session_data = orjson.loads(await f.read())
-                        except Exception as e:
-                            logger.debug(
-                                "Failed to read session file %s: %s",
-                                session_file,
-                                e,
-                            )
-                            return 0, False, 0, 0, 0
-
-                        if _should_skip_by_content_range(
-                            session_data,
-                            start_date_str,
-                            end_date_str,
-                        ):
-                            return 0, False, 0, 0, 0
-
-                        stem = session_file.stem
-                        # Check if session is in a channel subdirectory
-                        channel = session_file.parent.name
-
-                        return _process_session_file(
-                            session_data,
-                            start_date_str,
-                            end_date_str,
-                            daily_stats,
-                            channel_stats,
-                            channel,
-                            stem,
-                            active_sessions,
-                        )
-
-                tasks = [_process_one(sf) for sf in session_files]
-                results = await asyncio.gather(*tasks, return_exceptions=True)
-                for result in results:
-                    if isinstance(result, tuple) and len(result) == 5:
-                        (
-                            tool_calls,
-                            has_messages,
-                            sess_prompt,
-                            sess_completion,
-                            sess_llm_calls,
-                        ) = result
-                        total_tool_calls += tool_calls
-                        if has_messages:
-                            total_active_sessions += 1
-                        agent_prompt_tokens += sess_prompt
-                        agent_completion_tokens += sess_completion
-                        agent_llm_calls += sess_llm_calls
-                    elif isinstance(result, Exception):
-                        logger.debug("Failed to process session: %s", result)
-            except Exception as e:
-                logger.warning("Failed to load message statistics: %s", e)
+                catalog = await run_sync_io(TranscriptCatalog, workspace_dir)
+                owns_catalog = True
+            except Exception as exc:
+                logger.warning("Failed to open transcript catalog: %s", exc)
+        if catalog is not None:
+            try:
+                sessions = await run_sync_io(
+                    catalog.session_message_payloads,
+                    start_date=start_date_str,
+                    end_date=end_date_str,
+                )
+                for session_id, channel, messages in sessions:
+                    result = _process_session_file(
+                        {"agent": {"state": {"context": messages}}},
+                        start_date_str,
+                        end_date_str,
+                        daily_stats,
+                        channel_stats,
+                        channel,
+                        session_id,
+                        active_sessions,
+                    )
+                    (
+                        tool_calls,
+                        has_messages,
+                        sess_prompt,
+                        sess_completion,
+                        sess_llm_calls,
+                    ) = result
+                    total_tool_calls += tool_calls
+                    if has_messages:
+                        total_active_sessions += 1
+                    agent_prompt_tokens += sess_prompt
+                    agent_completion_tokens += sess_completion
+                    agent_llm_calls += sess_llm_calls
+            except Exception as exc:
+                logger.warning("Failed to load message statistics: %s", exc)
+            finally:
+                if owns_catalog:
+                    await run_sync_io(catalog.close)
 
         total_prompt_tokens = 0
         total_completion_tokens = 0

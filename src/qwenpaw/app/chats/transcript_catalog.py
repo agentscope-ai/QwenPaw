@@ -322,6 +322,18 @@ class TranscriptCatalog:
                     value=value,
                 )
 
+    def replace_runtime_state(self, **kwargs: Any) -> None:
+        """Replace one session's runtime snapshot exactly."""
+        with self._lease(
+            session_id=kwargs["session_id"],
+            user_id=kwargs["user_id"],
+            channel=kwargs["channel"],
+            create=True,
+        ) as handle:
+            if handle is None:
+                raise RuntimeError("failed to create runtime session")
+            handle.store.replace_runtime_state(**kwargs)
+
     def set_current_usage(self, **kwargs: Any) -> None:
         """Update the current context projection for one session."""
         self._write_existing("set_current_usage", **kwargs)
@@ -389,6 +401,80 @@ class TranscriptCatalog:
                 limit=limit,
                 max_bytes=max_bytes,
             )
+
+    def clone_session(
+        self,
+        *,
+        source_session_id: str,
+        source_user_id: str,
+        source_channel: str,
+        target_session_id: str,
+        target_user_id: str,
+        target_channel: str,
+    ) -> bool:
+        """Clone completed history and agent runtime into a new session."""
+        with self._lock:
+            target_existed = self._catalog_row(target_session_id) is not None
+        try:
+            with self._lease(
+                session_id=source_session_id,
+                user_id=source_user_id,
+                channel=source_channel,
+                create=False,
+            ) as source:
+                if source is None:
+                    return False
+                with self._lease(
+                    session_id=target_session_id,
+                    user_id=target_user_id,
+                    channel=target_channel,
+                    create=True,
+                ) as target:
+                    if target is None:
+                        raise RuntimeError("failed to create fork session")
+                    return target.store.clone_completed_session_from(
+                        source_path=source.store.path,
+                        source_session_id=source_session_id,
+                        target_session_id=target_session_id,
+                        target_user_id=target_user_id,
+                        target_channel=target_channel,
+                    )
+        except BaseException:
+            if not target_existed:
+                self.delete_session(target_session_id)
+            raise
+
+    def session_message_payloads(
+        self,
+        *,
+        start_date: str,
+        end_date: str,
+    ) -> list[tuple[str, str, list[dict[str, Any]]]]:
+        """Return persisted messages grouped by session and channel."""
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT session_id, user_id, channel "
+                "FROM transcript_files ORDER BY session_id",
+            ).fetchall()
+        result: list[tuple[str, str, list[dict[str, Any]]]] = []
+        for row in rows:
+            session_id = str(row["session_id"])
+            with self._lease(
+                session_id=session_id,
+                user_id=str(row["user_id"]),
+                channel=str(row["channel"]),
+                create=False,
+            ) as handle:
+                if handle is None:
+                    continue
+                messages = handle.store.message_payloads(
+                    session_id=session_id,
+                    start_date=start_date,
+                    end_date=end_date,
+                )
+            if messages:
+                result.append((session_id, str(row["channel"]), messages))
+        return result
 
     def find_turn_for_message(self, **kwargs: Any) -> str | None:
         session_id = str(kwargs["session_id"])

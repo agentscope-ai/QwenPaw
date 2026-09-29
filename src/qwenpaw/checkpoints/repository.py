@@ -259,15 +259,46 @@ class CheckpointRepository:
             ) from exc
         self._pending_index_policy = None
 
-    def write_workspace_tree(self) -> str:
+    def write_workspace_tree(
+        self,
+        virtual_files: dict[str, str] | None = None,
+    ) -> str:
         """Stage the snapshot boundary and return its Git tree object."""
         pathspecs = tuple(SNAPSHOT_EXCLUDE_PATHSPECS)
         if not self._index_policy_matches(pathspecs):
             self.run_git("read-tree", "--empty")
         self.run_git("add", "-f", "-A", "--", ".", *pathspecs)
+        self._stage_virtual_files(virtual_files or {})
         tree = self.run_git("write-tree")
         self._commit_index_policy()
         return tree
+
+    def add_virtual_files_to_tree(
+        self,
+        tree: str,
+        virtual_files: dict[str, str],
+    ) -> str:
+        """Return a tree with in-memory checkpoint-owned files added."""
+        self.run_git("read-tree", tree)
+        self._stage_virtual_files(virtual_files)
+        return self.run_git("write-tree")
+
+    def _stage_virtual_files(self, virtual_files: dict[str, str]) -> None:
+        for rel, content in virtual_files.items():
+            blob = self.run_git(
+                "hash-object",
+                "-w",
+                "--stdin",
+                input_text=content,
+            )
+            self.run_git(
+                "update-index",
+                "--add",
+                "--cacheinfo",
+                "100644",
+                blob,
+                rel,
+            )
 
     def reset(self) -> None:
         """Delete and recreate all checkpoint-owned persistence."""

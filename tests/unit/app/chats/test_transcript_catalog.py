@@ -236,3 +236,67 @@ def test_failed_turn_write_releases_handle(
 
     assert not catalog._handles  # pylint: disable=protected-access
     catalog.close()
+
+
+def test_clone_session_copies_completed_history_and_agent_runtime(
+    tmp_path: Path,
+) -> None:
+    catalog = TranscriptCatalog(tmp_path)
+    _start(catalog, "parent")
+    _upsert(catalog, "parent")
+    _finish(catalog, "parent")
+    catalog.replace_runtime_state(
+        session_id="parent",
+        user_id="user-1",
+        channel="console",
+        state={
+            "agent": {"state": {"summary": "copied"}},
+            "mode_state": {"mission": {"active": True}},
+        },
+        context_generation=3,
+        current_usage={"usage": {"total_tokens": 12}},
+    )
+    catalog.start_turn(
+        session_id="parent",
+        user_id="user-1",
+        channel="console",
+        turn_id="running-turn",
+    )
+    catalog.upsert_message(
+        session_id="parent",
+        turn_id="running-turn",
+        message=_message("running-message", "partial"),
+        ordinal=0,
+    )
+
+    assert catalog.clone_session(
+        source_session_id="parent",
+        source_user_id="user-1",
+        source_channel="console",
+        target_session_id="child",
+        target_user_id="user-1",
+        target_channel="console",
+    )
+
+    page = catalog.get_page(
+        session_id="child",
+        user_id="user-1",
+        channel="console",
+    )
+    assert page is not None
+    assert [message.id for message in page.messages] == ["message-parent"]
+    runtime = catalog.read_runtime_state(
+        session_id="child",
+        user_id="user-1",
+        channel="console",
+    )
+    assert runtime is not None
+    assert runtime.context_generation == 3
+    assert runtime.state == {"agent": {"state": {"summary": "copied"}}}
+    assert runtime.current_usage == {"usage": {"total_tokens": 12}}
+    catalog.finish_turn(
+        session_id="parent",
+        turn_id="running-turn",
+        status="cancelled",
+    )
+    catalog.close()
