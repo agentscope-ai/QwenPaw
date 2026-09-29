@@ -50,8 +50,9 @@ class FallbackChatModel(ChatModelBase):
     A candidate that fails a hop is put on cooldown, so the next request
     starts from a healthy candidate instead of paying the failing model's
     retry cost again.  Cooldown never turns a slow request into a failed
-    one: when every candidate is cooling down the configured order is
-    used unchanged.
+    one: a cooling candidate moves to the back of the order rather than
+    dropping out, so every candidate a plain chain would try is still
+    tried, and only the order changes.
     """
 
     def __init__(
@@ -192,21 +193,25 @@ class FallbackChatModel(ChatModelBase):
     def _request_plan(self) -> tuple[int, ...]:
         """Return the candidate indexes to try for one request, in order.
 
-        Candidates that are cooling down are left out, so a model that
-        just failed is not paid for again.  When every candidate is
-        cooling down the full configured order is returned: cooldown must
-        never turn a slow request into a hard failure.
+        Healthy candidates come first; candidates that are cooling down are
+        kept at the back as a last resort.  Leaving a cooling candidate out
+        entirely would turn a request that a plain chain serves into a hard
+        failure whenever the remaining candidates also fail -- measured: a
+        primary that recovered during its cooldown was never retried, and
+        the request raised even though the primary would have served it.
+        Keeping the cooling candidate costs one extra attempt, and only
+        after every healthy candidate has failed.
         """
         if not self._cooldown.enabled:
             return tuple(range(len(self._models)))
-        eligible = tuple(
-            index
-            for index, key in enumerate(self._cooldown_keys)
-            if not is_on_cooldown(key)
-        )
-        if eligible:
-            return eligible
-        return tuple(range(len(self._models)))
+        ready: list[int] = []
+        cooling: list[int] = []
+        for index, key in enumerate(self._cooldown_keys):
+            if is_on_cooldown(key):
+                cooling.append(index)
+            else:
+                ready.append(index)
+        return tuple(ready) + tuple(cooling)
 
     def _record_failure(self, model: ChatModelBase, exc: Exception) -> None:
         """Cool down a candidate the chain already decided to skip."""
@@ -417,13 +422,11 @@ class FallbackChatModel(ChatModelBase):
         # healthy candidates behind it, so its own error never stops the
         # walk.
         #
-        # Consequence while the primary is cooling down: it is not
-        # attempted, so no candidate carries the primary's gate and a
-        # request-level error (400, context overflow, content safety) from
-        # the candidate tried first lets the walk continue.  That is the
-        # same rule every secondary candidate already followed, and it is
-        # deliberate: gating on the first attempt instead would let one
-        # broken fallback hide the healthy models behind it.
+        # A cooling candidate sits at the back of the plan, so this same
+        # rule applies at whatever position it lands on: the primary still
+        # gates when it is reached, and every other candidate never does.
+        # Gating on "the first attempt" instead would let one broken
+        # fallback hide the healthy models behind it.
         return plan[position] > 0 or is_fallback_eligible(exc)
 
     def _record_fallback(

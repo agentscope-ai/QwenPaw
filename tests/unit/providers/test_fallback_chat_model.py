@@ -499,6 +499,33 @@ async def test_next_request_skips_a_cooling_down_primary() -> None:
     assert fallback.calls == 2
 
 
+async def test_cooling_candidate_is_a_last_resort_not_a_hole() -> None:
+    """A cooling candidate moves to the back; it is never dropped.
+
+    Dropping cooling candidates from the plan turned a request a plain
+    chain serves into a hard failure: the primary recovered during its
+    cooldown, the fallback also failed, and nothing retried the primary,
+    so every request in that window failed the same way.
+    """
+    primary = FakeModel("primary", lambda: _stream(_response("primary-ok")))
+    fallback = FakeModel("fallback", HttpError(503))
+    model = FallbackChatModel([primary, fallback])
+
+    model_cooldown.record_model_failure(
+        f":primary",
+        HttpError(503),
+        CooldownPolicy(),
+    )
+    assert model._request_plan() == (1, 0)
+
+    response = await model(messages=[], tools=[])
+    chunks = [chunk async for chunk in response]
+
+    assert chunks[-1].content[0]["text"] == "primary-ok"
+    assert primary.calls == 1
+    assert fallback.calls == 1
+
+
 async def test_cooling_down_primary_is_retried_after_its_window(
     cooldown_clock,
 ) -> None:
