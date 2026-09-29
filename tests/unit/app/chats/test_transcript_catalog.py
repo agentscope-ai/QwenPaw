@@ -175,6 +175,46 @@ def test_reopen_cancels_orphaned_running_turn(tmp_path: Path) -> None:
     reopened.close()
 
 
+def test_read_only_catalog_does_not_recover_running_turn(
+    tmp_path: Path,
+) -> None:
+    writer = TranscriptCatalog(tmp_path)
+    _start(writer, "session-a")
+    _upsert(writer, "session-a")
+    writer.upsert_message(
+        session_id="session-a",
+        turn_id="turn-session-a",
+        message=Message(
+            id="assistant-session-a",
+            role="assistant",
+            content=[TextContent(text="partial reply")],
+        ).completed(),
+        ordinal=1,
+    )
+
+    reader = TranscriptCatalog(
+        tmp_path,
+        recover_orphaned_turns=False,
+    )
+    page = reader.get_page(
+        session_id="session-a",
+        user_id="user-1",
+        channel="console",
+    )
+
+    assert page is not None
+    assert [message.id for message in page.messages] == [
+        "message-session-a",
+    ]
+    reader.close()
+    writer.finish_turn(
+        session_id="session-a",
+        turn_id="turn-session-a",
+        status="cancelled",
+    )
+    writer.close()
+
+
 def test_delete_waits_for_active_lease(tmp_path: Path) -> None:
     catalog = TranscriptCatalog(tmp_path)
     _start(catalog, "session-a")

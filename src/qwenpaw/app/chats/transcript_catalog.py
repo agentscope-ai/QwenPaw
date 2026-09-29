@@ -43,6 +43,8 @@ class TranscriptCatalog:
     def __init__(
         self,
         workspace_dir: str | Path,
+        *,
+        recover_orphaned_turns: bool = True,
     ) -> None:
         self._workspace_dir = Path(workspace_dir).expanduser()
         self._workspace_dir.mkdir(parents=True, exist_ok=True)
@@ -52,6 +54,7 @@ class TranscriptCatalog:
         self._lock = threading.RLock()
         self._condition = threading.Condition(self._lock)
         self._closed = False
+        self._recover_orphaned_turns = recover_orphaned_turns
         self._handles: dict[str, _SessionHandle] = {}
         self._conn = sqlite3.connect(
             str(self._path),
@@ -181,7 +184,8 @@ class TranscriptCatalog:
                             initialize_schema=not path.exists(),
                         ),
                     )
-                    handle.store.recover_running_turns()
+                    if self._recover_orphaned_turns:
+                        handle.store.recover_running_turns()
                     self._handles[session_id] = handle
                 handle.active += 1
         if handle is None:

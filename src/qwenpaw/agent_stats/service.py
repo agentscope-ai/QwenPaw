@@ -270,7 +270,11 @@ class AgentStatsService:
             and (workspace_dir / "transcript_catalog.db").exists()
         ):
             try:
-                catalog = await run_sync_io(TranscriptCatalog, workspace_dir)
+                catalog = await run_sync_io(
+                    TranscriptCatalog,
+                    workspace_dir,
+                    recover_orphaned_turns=False,
+                )
                 owns_catalog = True
             except Exception as exc:
                 logger.warning("Failed to open transcript catalog: %s", exc)
