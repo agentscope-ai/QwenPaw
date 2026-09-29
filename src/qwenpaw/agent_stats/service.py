@@ -139,6 +139,7 @@ def _process_session_file(
 
             role = msg_data.get("role", "")
             content = msg_data.get("content", [])
+            message_type = msg_data.get("type")
 
             if role == "user":
                 ds["user_messages"] += 1
@@ -171,7 +172,10 @@ def _process_session_file(
                     ds["agent_cache_read_tokens"] += cache_read
                     ds["agent_cache_eligible_input_tokens"] += cache_eligible
 
-            if isinstance(content, list):
+            if message_type == "plugin_call":
+                ds["tool_calls"] += 1
+                tool_call_count += 1
+            elif isinstance(content, list):
                 for block in content:
                     btype = (
                         block.get("type")

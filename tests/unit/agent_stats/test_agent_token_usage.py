@@ -226,6 +226,43 @@ class TestProcessSessionFileAgentTokens:
         )
         assert result[2:] == (0, 0, 0)
 
+    def test_counts_transcript_plugin_call_message(self):
+        daily_stats = {"2026-07-23": _empty_daily("2026-07-23")}
+        session_data = {
+            "agent": {
+                "state": {
+                    "context": [
+                        {
+                            "type": "plugin_call",
+                            "role": "assistant",
+                            "created_at": "2026-07-23T10:00:00Z",
+                            "content": [{"type": "data", "data": {}}],
+                        },
+                        {
+                            "type": "plugin_call_output",
+                            "role": "assistant",
+                            "created_at": "2026-07-23T10:00:01Z",
+                            "content": [{"type": "data", "data": {}}],
+                        },
+                    ],
+                },
+            },
+        }
+
+        result = _process_session_file(
+            session_data,
+            "2026-07-23",
+            "2026-07-23",
+            daily_stats,
+            {},
+            "console",
+            "sess-plugin",
+            {},
+        )
+
+        assert result[0] == 1
+        assert daily_stats["2026-07-23"]["tool_calls"] == 1
+
     def test_invalid_usage_tokens_do_not_wipe_session_stats(self):
         daily_stats = {"2026-07-23": _empty_daily("2026-07-23")}
         session_data = {
