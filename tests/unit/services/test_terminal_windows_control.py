@@ -59,23 +59,35 @@ def test_control_c_uses_console_event_and_preserves_text_order(monkeypatch):
 def test_interrupt_attaches_only_to_owned_shell(monkeypatch):
     kernel = MagicMock()
     kernel.AttachConsole.return_value = True
-    kernel.SetConsoleCtrlHandler.return_value = True
-    kernel.GenerateConsoleCtrlEvent.return_value = True
+    kernel.CreateFileW.return_value = 123
+    kernel.MapVirtualKeyW.return_value = 46
+    kernel.WriteConsoleInputW.return_value = True
+
+    def record_count(_handle, _records, count, written):
+        pointer = ctypes.cast(written, ctypes.POINTER(ctypes.c_ulong))
+        pointer.contents.value = count
+        return True
+
+    kernel.WriteConsoleInputW.side_effect = record_count
     monkeypatch.setattr(
         ctypes,
         "WinDLL",
         lambda *_a, **_kw: kernel,
         raising=False,
     )
-    monkeypatch.setattr(windows.time, "sleep", lambda _: None)
     windows.interrupt_console(123)
-    assert kernel.mock_calls == [
-        call.FreeConsole(),
-        call.AttachConsole(123),
-        call.SetConsoleCtrlHandler(None, True),
-        call.GenerateConsoleCtrlEvent(0, 0),
-        call.FreeConsole(),
-    ]
+    kernel.FreeConsole.assert_has_calls([call(), call()])
+    kernel.AttachConsole.assert_called_once_with(123)
+    kernel.CreateFileW.assert_called_once()
+    kernel.MapVirtualKeyW.assert_called_once_with(windows.VK_C, 0)
+    kernel.WriteConsoleInputW.assert_called_once()
+    records = kernel.WriteConsoleInputW.call_args.args[1]
+    assert [record.event.key.key_down for record in records] == [True, False]
+    assert all(
+        record.event.key.control_key_state == windows.LEFT_CTRL_PRESSED
+        for record in records
+    )
+    kernel.CloseHandle.assert_called_once_with(123)
 
 
 def test_failed_attach_never_signals_another_console(monkeypatch):
@@ -96,14 +108,16 @@ def test_failed_attach_never_signals_another_console(monkeypatch):
     )
     with pytest.raises(OSError, match="attach failed"):
         windows.interrupt_console(123)
-    kernel.GenerateConsoleCtrlEvent.assert_not_called()
+    kernel.CreateFileW.assert_not_called()
+    kernel.WriteConsoleInputW.assert_not_called()
 
 
 def test_failed_event_detaches_console(monkeypatch):
     kernel = MagicMock()
     kernel.AttachConsole.return_value = True
-    kernel.SetConsoleCtrlHandler.return_value = True
-    kernel.GenerateConsoleCtrlEvent.return_value = False
+    kernel.CreateFileW.return_value = 123
+    kernel.MapVirtualKeyW.return_value = 46
+    kernel.WriteConsoleInputW.return_value = False
     monkeypatch.setattr(
         ctypes,
         "WinDLL",
@@ -119,4 +133,5 @@ def test_failed_event_detaches_console(monkeypatch):
     )
     with pytest.raises(OSError, match="signal failed"):
         windows.interrupt_console(123)
+    kernel.CloseHandle.assert_called_once_with(123)
     assert kernel.mock_calls[-1] == call.FreeConsole()

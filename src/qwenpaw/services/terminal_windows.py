@@ -7,24 +7,96 @@ import importlib
 import multiprocessing
 import threading
 import time
+from ctypes import wintypes
 
 import psutil
 
 
+class _Character(ctypes.Union):
+    _fields_ = [
+        ("unicode", ctypes.c_wchar),
+        ("ascii", ctypes.c_char),
+    ]
+
+
+class _KeyEvent(ctypes.Structure):
+    _fields_ = [
+        ("key_down", wintypes.BOOL),
+        ("repeat_count", wintypes.WORD),
+        ("virtual_key_code", wintypes.WORD),
+        ("virtual_scan_code", wintypes.WORD),
+        ("character", _Character),
+        ("control_key_state", wintypes.DWORD),
+    ]
+
+
+class _Event(ctypes.Union):
+    _fields_ = [("key", _KeyEvent)]
+
+
+class _InputRecord(ctypes.Structure):
+    _fields_ = [
+        ("event_type", wintypes.WORD),
+        ("event", _Event),
+    ]
+
+
+KEY_EVENT = 0x0001
+LEFT_CTRL_PRESSED = 0x0008
+VK_C = 0x43
+GENERIC_READ = 0x80000000
+GENERIC_WRITE = 0x40000000
+FILE_SHARE_READ = 0x00000001
+FILE_SHARE_WRITE = 0x00000002
+OPEN_EXISTING = 3
+INVALID_HANDLE_VALUE = ctypes.c_void_p(-1).value
+
+
 def interrupt_console(pid):
-    """Send Ctrl+C only from the isolated worker to its shell's console."""
+    """Inject Ctrl+C into only the isolated shell's console input."""
     kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel.CreateFileW.restype = wintypes.HANDLE
     kernel.FreeConsole()
     if not kernel.AttachConsole(pid):
         raise ctypes.WinError(ctypes.get_last_error())
+    input_handle = INVALID_HANDLE_VALUE
     try:
-        if not kernel.SetConsoleCtrlHandler(None, True):
+        input_handle = kernel.CreateFileW(
+            "CONIN$",
+            GENERIC_READ | GENERIC_WRITE,
+            FILE_SHARE_READ | FILE_SHARE_WRITE,
+            None,
+            OPEN_EXISTING,
+            0,
+            None,
+        )
+        if input_handle == INVALID_HANDLE_VALUE:
             raise ctypes.WinError(ctypes.get_last_error())
-        if not kernel.GenerateConsoleCtrlEvent(0, 0):
+        scan_code = kernel.MapVirtualKeyW(VK_C, 0)
+        records = (_InputRecord * 2)()
+        for index, key_down in enumerate((True, False)):
+            records[index].event_type = KEY_EVENT
+            records[index].event.key = _KeyEvent(
+                key_down,
+                1,
+                VK_C,
+                scan_code,
+                _Character(unicode="\x03"),
+                LEFT_CTRL_PRESSED,
+            )
+        written = wintypes.DWORD()
+        if not kernel.WriteConsoleInputW(
+            input_handle,
+            records,
+            len(records),
+            ctypes.byref(written),
+        ):
             raise ctypes.WinError(ctypes.get_last_error())
-        # Control handlers run asynchronously; stay attached for delivery.
-        time.sleep(0.1)
+        if written.value != len(records):
+            raise OSError("Incomplete Ctrl+C console input")
     finally:
+        if input_handle != INVALID_HANDLE_VALUE:
+            kernel.CloseHandle(input_handle)
         kernel.FreeConsole()
 
 
