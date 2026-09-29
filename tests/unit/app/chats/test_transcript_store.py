@@ -144,6 +144,116 @@ def test_runtime_snapshot_reset_advances_context_generation(tmp_path):
     store.close()
 
 
+def test_database_snapshot_restores_history_and_keeps_active_turn(tmp_path):
+    store = TranscriptStore(tmp_path / "session.db")
+    store.write_runtime_state(
+        session_id="session-1",
+        user_id="user-1",
+        channel="console",
+        state={"agent": {"state": {"context": ["checkpoint"]}}},
+    )
+    _start(store, "turn-1")
+    store.upsert_message(
+        session_id="session-1",
+        turn_id="turn-1",
+        message=_message("message-1", "checkpoint"),
+        ordinal=0,
+    )
+    store.finish_turn(
+        session_id="session-1",
+        turn_id="turn-1",
+        status="completed",
+    )
+    snapshot = store.export_database(
+        session_id="session-1",
+        user_id="user-1",
+        channel="console",
+    )
+
+    _start(store, "turn-2")
+    store.upsert_message(
+        session_id="session-1",
+        turn_id="turn-2",
+        message=_message("message-2", "later"),
+        ordinal=0,
+    )
+    store.finish_turn(
+        session_id="session-1",
+        turn_id="turn-2",
+        status="completed",
+    )
+    _start(store, "restore-turn")
+    store.upsert_message(
+        session_id="session-1",
+        turn_id="restore-turn",
+        message=_message("restore-message", "/checkpoint restore"),
+        ordinal=0,
+    )
+
+    store.restore_database(
+        snapshot,
+        session_id="session-1",
+        user_id="user-1",
+        channel="console",
+    )
+    store.finish_turn(
+        session_id="session-1",
+        turn_id="restore-turn",
+        status="completed",
+    )
+    page = store.get_page(
+        session_id="session-1",
+        user_id="user-1",
+        channel="console",
+    )
+    runtime = store.read_runtime_state(
+        session_id="session-1",
+        user_id="user-1",
+        channel="console",
+    )
+
+    assert page is not None
+    assert [message.id for message in page.messages] == [
+        "message-1",
+        "restore-message",
+    ]
+    assert runtime is not None
+    assert runtime.state == {
+        "agent": {"state": {"context": ["checkpoint"]}},
+    }
+    store.close()
+
+
+def test_database_snapshot_excludes_running_turns(tmp_path):
+    store = TranscriptStore(tmp_path / "session.db")
+    _start(store, "checkpoint-turn")
+    store.upsert_message(
+        session_id="session-1",
+        turn_id="checkpoint-turn",
+        message=_message("checkpoint-message", "/checkpoint snap"),
+        ordinal=0,
+    )
+
+    snapshot = store.export_database(
+        session_id="session-1",
+        user_id="user-1",
+        channel="console",
+    )
+    snapshot_path = tmp_path / "snapshot.db"
+    snapshot_path.write_bytes(snapshot)
+    restored = TranscriptStore(snapshot_path, initialize_schema=False)
+    page = restored.get_page(
+        session_id="session-1",
+        user_id="user-1",
+        channel="console",
+    )
+
+    assert page is not None
+    assert not page.messages
+    restored.close()
+    store.close()
+
+
 @pytest.mark.parametrize(
     ("turn_status", "wire_status"),
     [("failed", "failed"), ("cancelled", "canceled")],

@@ -412,7 +412,7 @@ class RestoreService:
                     prepared.current_tree if include_files else None
                 ),
             )
-            self.service.restore_runtime_snapshot(
+            self.service.restore_session_database(
                 prepared.conversation_blob,
                 session_id=session_id,
                 user_id=user_id,
@@ -470,7 +470,7 @@ class RestoreService:
                 pre_commit,
                 conversation_path,
             )
-            self.service.restore_runtime_snapshot(
+            self.service.restore_session_database(
                 conversation,
                 session_id=session_id,
                 user_id=user_id,

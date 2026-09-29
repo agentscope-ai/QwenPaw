@@ -28,6 +28,7 @@ from qwenpaw.checkpoints.models import CheckpointError, RestoreResult
 from qwenpaw.checkpoints.render import render_restore
 from qwenpaw.checkpoints.repository import CheckpointRepository
 from qwenpaw.checkpoints.restore import RestoreService
+from qwenpaw.schemas import Message, TextContent
 
 pytestmark = pytest.mark.skipif(
     shutil.which("git") is None,
@@ -94,6 +95,45 @@ def _session_text(path: Path) -> str:
         for block in content
         if isinstance(block, dict) and isinstance(block.get("text"), str)
     )
+
+
+def _append_turn(workspace: Path, turn_id: str, text: str) -> None:
+    catalog = TranscriptCatalog(workspace)
+    catalog.start_turn(
+        session_id=SESSION_ID,
+        user_id=USER_ID,
+        channel=CHANNEL,
+        turn_id=turn_id,
+    )
+    catalog.upsert_message(
+        session_id=SESSION_ID,
+        turn_id=turn_id,
+        message=Message(
+            id=f"message-{turn_id}",
+            role="user",
+            content=[TextContent(text=text)],
+        ).completed(),
+        ordinal=0,
+    )
+    catalog.finish_turn(
+        session_id=SESSION_ID,
+        turn_id=turn_id,
+        status="completed",
+    )
+    catalog.close()
+
+
+def _transcript_texts(workspace: Path) -> list[str]:
+    catalog = TranscriptCatalog(workspace)
+    page = catalog.get_page(
+        session_id=SESSION_ID,
+        user_id=USER_ID,
+        channel=CHANNEL,
+        limit=100,
+    )
+    catalog.close()
+    assert page is not None
+    return [message.content[0].text for message in page.messages]
 
 
 async def _checkpoint(
@@ -171,7 +211,7 @@ def test_file_restore_candidates_skip_qwenpaw_state_files(
 
     assert service._is_file_restore_candidate(
         "src/app.py",
-        conv_rel=".qwenpaw-checkpoint/sessions/test.json",
+        conv_rel=".qwenpaw-checkpoint/sessions/test.db",
     )
     for rel in (
         "chats.json",
@@ -186,13 +226,13 @@ def test_file_restore_candidates_skip_qwenpaw_state_files(
         "mem_agent/index.json",
         "mem_session/state.json",
         ".scroll/cache.json",
-        ".qwenpaw-checkpoint/sessions/test.json",
+        ".qwenpaw-checkpoint/sessions/test.db",
         "MEMORY.md",
         "memory/note.md",
     ):
         assert not service._is_file_restore_candidate(
             rel,
-            conv_rel=".qwenpaw-checkpoint/sessions/test.json",
+            conv_rel=".qwenpaw-checkpoint/sessions/test.db",
         )
 
 
@@ -286,6 +326,30 @@ async def test_conversation_restore_dry_run_then_confirm(
         )
         == first_commit
     )
+
+
+@pytest.mark.asyncio
+async def test_conversation_restore_rolls_back_transcript_and_runtime(
+    tmp_path: Path,
+) -> None:
+    engine = CheckpointService(tmp_path)
+    _write_session(tmp_path, "two")
+    _append_turn(tmp_path, "turn-2", "2")
+    checkpoint_two = await _checkpoint(engine, "two")
+
+    _write_session(tmp_path, "three")
+    _append_turn(tmp_path, "turn-3", "3")
+    await _checkpoint(engine, "three")
+
+    await engine.restore(
+        target=checkpoint_two[:12],
+        session_id=SESSION_ID,
+        user_id=USER_ID,
+        channel=CHANNEL,
+    )
+
+    assert _session_text(tmp_path) == "two"
+    assert _transcript_texts(tmp_path) == ["2"]
 
 
 @pytest.mark.asyncio
@@ -1039,7 +1103,7 @@ async def test_restore_io_does_not_block_event_loop(
     await _checkpoint(engine, "second")
     started = threading.Event()
     release = threading.Event()
-    original_restore = engine.restore_runtime_snapshot
+    original_restore = engine.restore_session_database
 
     def slow_restore(blob: bytes, **kwargs) -> None:
         started.set()
@@ -1049,7 +1113,7 @@ async def test_restore_io_does_not_block_event_loop(
 
     monkeypatch.setattr(
         engine,
-        "restore_runtime_snapshot",
+        "restore_session_database",
         slow_restore,
     )
     restore_task = asyncio.create_task(

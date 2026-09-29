@@ -338,6 +338,52 @@ class TranscriptCatalog:
         """Update the current context projection for one session."""
         self._write_existing("set_current_usage", **kwargs)
 
+    def export_session_database(
+        self,
+        *,
+        session_id: str,
+        user_id: str,
+        channel: str,
+    ) -> bytes:
+        """Export one session database for a checkpoint."""
+        with self._lease(
+            session_id=session_id,
+            user_id=user_id,
+            channel=channel,
+            create=False,
+        ) as handle:
+            if handle is None:
+                raise KeyError(session_id)
+            return handle.store.export_database(
+                session_id=session_id,
+                user_id=user_id,
+                channel=channel,
+            )
+
+    def restore_session_database(
+        self,
+        blob: bytes,
+        *,
+        session_id: str,
+        user_id: str,
+        channel: str,
+    ) -> None:
+        """Restore one session database from a checkpoint."""
+        with self._lease(
+            session_id=session_id,
+            user_id=user_id,
+            channel=channel,
+            create=False,
+        ) as handle:
+            if handle is None:
+                raise KeyError(session_id)
+            handle.store.restore_database(
+                blob,
+                session_id=session_id,
+                user_id=user_id,
+                channel=channel,
+            )
+
     def _write_existing(self, method_name: str, **kwargs: Any) -> Any:
         session_id = str(kwargs["session_id"])
         identity = self._identity_for_session(session_id)

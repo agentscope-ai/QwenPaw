@@ -434,13 +434,13 @@ def session_snapshot_path(
     user_id: str,
     session_id: str,
 ) -> str:
-    """Return the internal checkpoint path for one runtime snapshot."""
+    """Return the internal checkpoint path for one session database."""
     key = session_key(
         channel=channel,
         user_id=user_id,
         session_id=session_id,
     )
-    return f".qwenpaw-checkpoint/sessions/{key}.json"
+    return f".qwenpaw-checkpoint/sessions/{key}.db"
 
 
 def sanitize_ref_component(value: str, *, fallback: str = "snapshot") -> str:

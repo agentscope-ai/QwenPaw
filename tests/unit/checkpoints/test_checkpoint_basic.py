@@ -667,9 +667,17 @@ async def test_snapshot_reuses_index_and_timeline_batches_git_reads(
     calls: list[tuple[str, ...]] = []
     original_run_git = engine.repository.run_git
 
-    def recording_run_git(*args: str, input_text: str | None = None) -> str:
+    def recording_run_git(
+        *args: str,
+        input_text: str | None = None,
+        input_bytes: bytes | None = None,
+    ) -> str:
         calls.append(args)
-        return original_run_git(*args, input_text=input_text)
+        return original_run_git(
+            *args,
+            input_text=input_text,
+            input_bytes=input_bytes,
+        )
 
     monkeypatch.setattr(engine.repository, "run_git", recording_run_git)
     _write_session(tmp_path, "second")
@@ -708,9 +716,17 @@ async def test_gc_skips_git_maintenance_when_nothing_is_deleted(
     calls: list[tuple[str, ...]] = []
     original_run_git = engine.repository.run_git
 
-    def recording_run_git(*args: str, input_text: str | None = None) -> str:
+    def recording_run_git(
+        *args: str,
+        input_text: str | None = None,
+        input_bytes: bytes | None = None,
+    ) -> str:
         calls.append(args)
-        return original_run_git(*args, input_text=input_text)
+        return original_run_git(
+            *args,
+            input_text=input_text,
+            input_bytes=input_bytes,
+        )
 
     monkeypatch.setattr(engine.repository, "run_git", recording_run_git)
     result = await engine.gc(

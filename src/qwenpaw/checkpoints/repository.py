@@ -8,6 +8,7 @@ import os
 import shutil
 import stat
 import subprocess
+from collections.abc import Mapping
 from pathlib import Path
 
 from ..utils.io_utils import read_json, write_json_atomic, write_text_atomic
@@ -94,7 +95,14 @@ class CheckpointRepository:
             env.pop(name, None)
         return env
 
-    def run_git(self, *args: str, input_text: str | None = None) -> str:
+    def run_git(
+        self,
+        *args: str,
+        input_text: str | None = None,
+        input_bytes: bytes | None = None,
+    ) -> str:
+        if input_text is not None and input_bytes is not None:
+            raise ValueError("Git input must be text or bytes, not both")
         try:
             proc = subprocess.run(
                 self._git_command(*args),
@@ -103,7 +111,7 @@ class CheckpointRepository:
                 input=(
                     input_text.encode("utf-8")
                     if input_text is not None
-                    else None
+                    else input_bytes
                 ),
                 capture_output=True,
                 check=False,
@@ -261,7 +269,7 @@ class CheckpointRepository:
 
     def write_workspace_tree(
         self,
-        virtual_files: dict[str, str] | None = None,
+        virtual_files: Mapping[str, str | bytes] | None = None,
     ) -> str:
         """Stage the snapshot boundary and return its Git tree object."""
         pathspecs = tuple(SNAPSHOT_EXCLUDE_PATHSPECS)
@@ -276,21 +284,32 @@ class CheckpointRepository:
     def add_virtual_files_to_tree(
         self,
         tree: str,
-        virtual_files: dict[str, str],
+        virtual_files: Mapping[str, str | bytes],
     ) -> str:
         """Return a tree with in-memory checkpoint-owned files added."""
         self.run_git("read-tree", tree)
         self._stage_virtual_files(virtual_files)
         return self.run_git("write-tree")
 
-    def _stage_virtual_files(self, virtual_files: dict[str, str]) -> None:
+    def _stage_virtual_files(
+        self,
+        virtual_files: Mapping[str, str | bytes],
+    ) -> None:
         for rel, content in virtual_files.items():
-            blob = self.run_git(
-                "hash-object",
-                "-w",
-                "--stdin",
-                input_text=content,
-            )
+            if isinstance(content, str):
+                blob = self.run_git(
+                    "hash-object",
+                    "-w",
+                    "--stdin",
+                    input_text=content,
+                )
+            else:
+                blob = self.run_git(
+                    "hash-object",
+                    "-w",
+                    "--stdin",
+                    input_bytes=content,
+                )
             self.run_git(
                 "update-index",
                 "--add",

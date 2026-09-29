@@ -8,8 +8,8 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
+import sqlite3
 import time
 import weakref
 from dataclasses import dataclass
@@ -369,15 +369,10 @@ class CheckpointService:
             user_id=user_id,
             channel=channel,
         )
-        conversation_blob = json.dumps(
-            {
-                "schema_version": 1,
-                "state": runtime.state,
-                "context_generation": runtime.context_generation,
-                "current_usage": runtime.current_usage,
-            },
-            ensure_ascii=False,
-            separators=(",", ":"),
+        conversation_blob = self._session_database_snapshot(
+            session_id=session_id,
+            user_id=user_id,
+            channel=channel,
         )
         virtual_files = {conversation_path: conversation_blob}
         parent_commit = self.session_head(key)
@@ -461,7 +456,29 @@ class CheckpointService:
             )
         return snapshot
 
-    def restore_runtime_snapshot(
+    def _session_database_snapshot(
+        self,
+        *,
+        session_id: str,
+        user_id: str,
+        channel: str,
+    ) -> bytes:
+        store, owned = self._transcript_store()
+        try:
+            return store.export_session_database(
+                session_id=session_id,
+                user_id=user_id,
+                channel=channel,
+            )
+        except (KeyError, OSError, sqlite3.Error, ValueError) as exc:
+            raise CheckpointError(
+                "Conversation database snapshot failed",
+            ) from exc
+        finally:
+            if owned:
+                store.close()
+
+    def restore_session_database(
         self,
         blob: bytes,
         *,
@@ -469,32 +486,19 @@ class CheckpointService:
         user_id: str,
         channel: str,
     ) -> None:
-        """Restore one checkpoint runtime blob into the session database."""
-        try:
-            payload = json.loads(blob)
-            if payload.get("schema_version") != 1:
-                raise ValueError("unsupported runtime snapshot schema")
-            state = payload["state"]
-            generation = int(payload["context_generation"])
-            current_usage = payload.get("current_usage")
-        except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
-            raise CheckpointError(
-                "Checkpoint runtime snapshot is invalid",
-            ) from exc
-        if not isinstance(state, dict) or (
-            current_usage is not None and not isinstance(current_usage, dict)
-        ):
-            raise CheckpointError("Checkpoint runtime snapshot is invalid")
+        """Restore one checkpoint database into the live session."""
         store, owned = self._transcript_store()
         try:
-            store.replace_runtime_state(
+            store.restore_session_database(
+                blob,
                 session_id=session_id,
                 user_id=user_id,
                 channel=channel,
-                state=state,
-                context_generation=generation,
-                current_usage=current_usage,
             )
+        except (KeyError, OSError, sqlite3.Error, ValueError) as exc:
+            raise CheckpointError(
+                "Checkpoint session database is invalid",
+            ) from exc
         finally:
             if owned:
                 store.close()

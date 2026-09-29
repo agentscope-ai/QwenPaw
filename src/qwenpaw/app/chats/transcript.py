@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import tempfile
 import threading
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -474,6 +475,151 @@ class TranscriptStore:
             )
             if cursor.rowcount != 1:
                 raise KeyError(session_id)
+
+    def export_database(
+        self,
+        *,
+        session_id: str,
+        user_id: str,
+        channel: str,
+    ) -> bytes:
+        """Return a consistent database snapshot without running turns."""
+        with tempfile.TemporaryDirectory() as directory:
+            snapshot_path = Path(directory) / "session.db"
+            snapshot = sqlite3.connect(str(snapshot_path))
+            snapshot.row_factory = sqlite3.Row
+            snapshot.execute("PRAGMA foreign_keys=ON")
+            try:
+                with self._lock:
+                    session = self._session_row(session_id)
+                    if session is None:
+                        raise KeyError(session_id)
+                    self._assert_identity(
+                        session,
+                        user_id=user_id,
+                        channel=channel,
+                    )
+                    self._conn.backup(snapshot)
+                with snapshot:
+                    snapshot.execute(
+                        "DELETE FROM transcript_turns "
+                        "WHERE session_id = ? AND status = 'running'",
+                        (session_id,),
+                    )
+                    snapshot.execute(
+                        "UPDATE transcript_sessions SET next_turn_seq = "
+                        "COALESCE((SELECT MAX(turn_seq) + 1 "
+                        "FROM transcript_turns WHERE session_id = ?), 1) "
+                        "WHERE session_id = ?",
+                        (session_id, session_id),
+                    )
+                integrity = snapshot.execute(
+                    "PRAGMA integrity_check",
+                ).fetchone()
+                if integrity is None or integrity[0] != "ok":
+                    raise sqlite3.DatabaseError(
+                        "checkpoint database integrity check failed",
+                    )
+            finally:
+                snapshot.close()
+            return snapshot_path.read_bytes()
+
+    def restore_database(
+        self,
+        blob: bytes,
+        *,
+        session_id: str,
+        user_id: str,
+        channel: str,
+    ) -> None:
+        """Restore a database snapshot and retain active command turns."""
+        with tempfile.TemporaryDirectory() as directory:
+            snapshot_path = Path(directory) / "session.db"
+            snapshot_path.write_bytes(blob)
+            source = sqlite3.connect(str(snapshot_path))
+            source.row_factory = sqlite3.Row
+            source.execute("PRAGMA query_only=ON")
+            try:
+                integrity = source.execute(
+                    "PRAGMA integrity_check",
+                ).fetchone()
+                if integrity is None or integrity[0] != "ok":
+                    raise sqlite3.DatabaseError(
+                        "checkpoint database integrity check failed",
+                    )
+                session = self._session_row(session_id, source)
+                if session is None:
+                    raise KeyError(session_id)
+                self._assert_identity(
+                    session,
+                    user_id=user_id,
+                    channel=channel,
+                )
+                with self._lock:
+                    running_turns = self._conn.execute(
+                        "SELECT session_id, turn_seq, turn_id, status, "
+                        "error_json, replaces_turn_id, created_at, "
+                        "finished_at FROM transcript_turns "
+                        "WHERE session_id = ? AND status = 'running'",
+                        (session_id,),
+                    ).fetchall()
+                    running_messages = self._conn.execute(
+                        "SELECT m.session_id, m.turn_id, m.message_id, "
+                        "m.ordinal, m.role, m.payload_json, "
+                        "m.client_message_id, m.superseded_at, "
+                        "m.created_at, m.finished_at "
+                        "FROM transcript_messages AS m "
+                        "JOIN transcript_turns AS t "
+                        "ON t.session_id = m.session_id "
+                        "AND t.turn_id = m.turn_id "
+                        "WHERE m.session_id = ? AND t.status = 'running'",
+                        (session_id,),
+                    ).fetchall()
+                    source.backup(self._conn)
+                    with self._conn:
+                        row = self._conn.execute(
+                            "SELECT COALESCE(MAX(turn_seq), 0) "
+                            "FROM transcript_turns WHERE session_id = ?",
+                            (session_id,),
+                        ).fetchone()
+                        next_turn_seq = int(row[0]) + 1
+                        restored_turns = [
+                            (
+                                turn["session_id"],
+                                next_turn_seq + index,
+                                turn["turn_id"],
+                                turn["status"],
+                                turn["error_json"],
+                                turn["replaces_turn_id"],
+                                turn["created_at"],
+                                turn["finished_at"],
+                            )
+                            for index, turn in enumerate(running_turns)
+                        ]
+                        self._conn.executemany(
+                            "INSERT INTO transcript_turns("
+                            "session_id, turn_seq, turn_id, status, "
+                            "error_json, replaces_turn_id, created_at, "
+                            "finished_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                            restored_turns,
+                        )
+                        self._conn.executemany(
+                            "INSERT INTO transcript_messages("
+                            "session_id, turn_id, message_id, ordinal, role, "
+                            "payload_json, client_message_id, "
+                            "superseded_at, created_at, finished_at) "
+                            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                            [tuple(row) for row in running_messages],
+                        )
+                        self._conn.execute(
+                            "UPDATE transcript_sessions SET next_turn_seq = "
+                            "COALESCE((SELECT MAX(turn_seq) + 1 "
+                            "FROM transcript_turns WHERE session_id = ?), 1) "
+                            "WHERE session_id = ?",
+                            (session_id, session_id),
+                        )
+            finally:
+                source.close()
 
     def clone_completed_session_from(
         self,
