@@ -709,6 +709,11 @@ class DatabaseSession:
                 config_key="session.key",
                 message="key path is empty",
             )
+        await self._import_legacy(
+            session_id=session_id,
+            user_id=user_id,
+            channel=channel,
+        )
         try:
             await run_sync_io(
                 self._catalog.update_runtime_state,

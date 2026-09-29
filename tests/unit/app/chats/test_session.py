@@ -256,6 +256,36 @@ async def test_load_missing_session_allow_not_exist(session):
 
 
 @pytest.mark.asyncio
+async def test_database_session_imports_legacy_before_partial_update(
+    tmp_path: Path,
+) -> None:
+    legacy_dir = tmp_path / "sessions"
+    legacy_dir.mkdir()
+    legacy_path = legacy_dir / session_filename("pawapp--example", "")
+    legacy_path.write_text(
+        json.dumps({"existing_setting": "must survive"}),
+        encoding="utf-8",
+    )
+    catalog = TranscriptCatalog(tmp_path)
+    session = DatabaseSession(
+        catalog=catalog,
+        legacy_save_dir=str(legacy_dir),
+    )
+
+    await session.update_session_state(
+        session_id="pawapp--example",
+        key="new_setting",
+        value="new",
+    )
+
+    state = await session.get_session_state_dict("pawapp--example")
+    assert state["existing_setting"] == "must survive"
+    assert state["new_setting"] == "new"
+    assert not legacy_path.exists()
+    catalog.close()
+
+
+@pytest.mark.asyncio
 async def test_load_missing_session_raises_when_not_allowed(session):
     with pytest.raises(AgentStateError):
         await session.load_session_state(
