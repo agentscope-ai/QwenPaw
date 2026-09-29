@@ -20,6 +20,11 @@ def _escape_html(text: str) -> str:
     return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
+def _escape_attr(text: str) -> str:
+    """Escape an HTML attribute value."""
+    return _escape_html(text).replace('"', "&quot;").replace("'", "&#39;")
+
+
 _FENCE_OPEN_RE = re.compile(r"^[ \t]*(`{3,}|~{3,})(.*)$")
 
 
@@ -44,8 +49,11 @@ def _replace_fenced_blocks(
             fence = match.group(1)
             for j in range(i + 1, len(lines)):
                 closing = lines[j].strip()
-                bare_run = closing == fence[0] * len(closing)
-                if bare_run and len(closing) >= len(fence):
+                if (
+                    closing
+                    and set(closing) == {fence[0]}
+                    and len(closing) >= len(fence)
+                ):
                     info = match.group(2).split()
                     code = "".join(line + "\n" for line in lines[i + 1 : j])
                     out.append(render(info[0] if info else "", code))
@@ -92,7 +100,7 @@ def markdown_to_telegram_html(text: str) -> str:
         code = _escape_html(code)
         if lang:
             return _ph(
-                f'<pre><code class="language-{_escape_html(lang)}">'
+                f'<pre><code class="language-{_escape_attr(lang)}">'
                 f"{code}</code></pre>",
             )
         return _ph(f"<pre>{code}</pre>")

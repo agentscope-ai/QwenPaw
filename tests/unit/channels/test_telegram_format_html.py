@@ -63,3 +63,41 @@ def test_existing_fence_output_is_unchanged(
     expected: str,
 ) -> None:
     assert markdown_to_telegram_html(markdown) == expected
+
+
+@pytest.mark.parametrize(
+    ("markdown", "expected"),
+    [
+        pytest.param(
+            '```a"onmouseover="alert(1)\ncode\n```',
+            '<pre><code class="language-a&quot;onmouseover=&quot;alert(1)">'
+            "code\n</code></pre>",
+            id="info-string-with-quote-is-escaped-in-attribute",
+        ),
+        pytest.param(
+            "```python\r\nx = 1\r\n```",
+            '<pre><code class="language-python">x = 1\r\n</code></pre>',
+            id="crlf-line-endings",
+        ),
+        pytest.param(
+            "```python\nx\n`````",
+            '<pre><code class="language-python">x\n</code></pre>',
+            id="longer-closing-run",
+        ),
+        pytest.param(
+            "```python {.highlight}\nx\n```",
+            '<pre><code class="language-python">x\n</code></pre>',
+            id="info-string-with-attributes",
+        ),
+        pytest.param(
+            # As in CommonMark, an unclosed fence runs until a bare closing
+            # run: "```bash" has an info string, so it is code, not a close.
+            "```python\nx = 1\nSome prose\n```bash\ny = 2\n```",
+            '<pre><code class="language-python">'
+            "x = 1\nSome prose\n```bash\ny = 2\n</code></pre>",
+            id="fence-with-info-string-does-not-close",
+        ),
+    ],
+)
+def test_fence_edge_cases(markdown: str, expected: str) -> None:
+    assert markdown_to_telegram_html(markdown) == expected
