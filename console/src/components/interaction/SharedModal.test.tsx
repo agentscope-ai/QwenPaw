@@ -32,10 +32,12 @@ describe("SharedModal", () => {
     // The backdrop fades with the surface, not after its exit completes.
     expect(document.querySelector(".ant-modal-mask")).toHaveStyle({
       opacity: "0",
+      transition: "opacity 120ms ease-out",
     });
     fireEvent.click(trigger);
     expect(document.querySelector(".ant-modal-mask")).toHaveStyle({
       opacity: "1",
+      transition: "none",
     });
     fireEvent.click(screen.getByRole("button", { name: "Close" }));
     await waitFor(() =>

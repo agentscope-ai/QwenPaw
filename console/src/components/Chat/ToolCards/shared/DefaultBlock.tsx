@@ -16,6 +16,7 @@ import { Copy as CopyOutlined, Check as CheckOutlined } from "lucide-react";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
 import { copyText } from "@/utils/clipboard";
+import { useEffectiveFontSize } from "@/contexts/FontSizeContext";
 import { looksLikeMarkdown } from "./utils";
 import styles from "./toolCards.module.less";
 
@@ -156,6 +157,8 @@ const DefaultBlock: React.FC<DefaultBlockProps> = ({
       .catch(() => {});
   }, [content]);
 
+  const baseFontSize = useEffectiveFontSize();
+
   const renderContent = () => {
     if (largeExcerpt) {
       const {
@@ -193,7 +196,7 @@ const DefaultBlock: React.FC<DefaultBlockProps> = ({
     if (isMarkdown) {
       return (
         <div className={styles.defaultBlockContentMd}>
-          <Markdown content={head} />
+          <Markdown content={head} baseFontSize={baseFontSize} />
         </div>
       );
     }

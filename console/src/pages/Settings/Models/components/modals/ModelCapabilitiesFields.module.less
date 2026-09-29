@@ -15,7 +15,7 @@
   background: var(--app-surface-raised);
   color: var(--app-text-secondary, #6e6e73);
   font: inherit;
-  font-size: 13px;
+  font-size: var(--app-font-secondary);
   cursor: pointer;
   transition:
     border-color 120ms,
@@ -35,7 +35,7 @@
   }
 }
 .auto {
-  font-size: 11px;
+  font-size: calc(11px * var(--app-font-scale));
   color: var(--app-text-secondary, #86868b);
 }
 .editor {

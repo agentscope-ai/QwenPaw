@@ -1798,6 +1798,63 @@ class TestHandleWSPayload:
         assert sent_data["op"] == OP_IDENTIFY
         hb.start.assert_called_once_with(30000)
 
+    def test_handle_hello_clears_stale_seq_when_identifying(
+        self,
+        qq_channel,
+        mock_websocket,
+    ):
+        """IDENTIFY means a fresh session, so the seq mark must reset.
+
+        Regression test for M1: if a ``READY`` arrives without a
+        ``session_id``, ``session_id`` goes falsy while ``last_seq`` keeps
+        the previous session's high value. The next ``HELLO`` then takes
+        the IDENTIFY branch -- a brand-new session whose ``s`` restarts at
+        1. Keeping the stale mark would make the replay guard silently
+        drop that session's ``READY``, leaving the channel unable to
+        recover.
+        """
+        from qwenpaw.app.channels.qq.channel import (
+            _WSState,
+            _HeartbeatController,
+            OP_IDENTIFY,
+        )
+
+        state = _WSState()
+        # Divergent state: no session_id, but a stale high-water mark.
+        state.session_id = None
+        state.last_seq = 300
+        hb = MagicMock(spec=_HeartbeatController)
+
+        hello = {"op": 10, "d": {"heartbeat_interval": 45000}}  # OP_HELLO
+        qq_channel._handle_ws_payload(
+            hello,
+            mock_websocket,
+            "token123",
+            state,
+            hb,
+        )
+
+        sent_data = json.loads(mock_websocket.send.call_args[0][0])
+        assert sent_data["op"] == OP_IDENTIFY
+        assert state.last_seq is None
+
+        # The new session's READY (``s`` restarts at 1) must survive.
+        ready = {
+            "op": 0,  # OP_DISPATCH
+            "t": "READY",
+            "d": {"session_id": "sess_new"},
+            "s": 1,
+        }
+        qq_channel._handle_ws_payload(
+            ready,
+            mock_websocket,
+            "token123",
+            state,
+            hb,
+        )
+        assert state.session_id == "sess_new"
+        assert state.last_seq == 1
+
     def test_handle_dispatch_ready(self, qq_channel, mock_websocket):
         """Should update state on READY dispatch."""
         from qwenpaw.app.channels.qq.channel import (
@@ -1887,6 +1944,62 @@ class TestHandleWSPayload:
         assert result is None
         assert state.last_seq == 300
         qq_channel._enqueue.assert_called_once()
+
+    def test_handle_dispatch_replayed_seq_is_skipped(
+        self,
+        qq_channel,
+        mock_websocket,
+    ):
+        """A DISPATCH at/below the processed seq is dropped as a replay.
+
+        Uses a *different* msg id so the seq guard (not the id guard)
+        is what suppresses it.
+        """
+        from qwenpaw.app.channels.qq.channel import (
+            _WSState,
+            _HeartbeatController,
+        )
+
+        state = _WSState()
+        hb = MagicMock(spec=_HeartbeatController)
+        qq_channel._enqueue = MagicMock()
+
+        first = {
+            "op": 0,  # OP_DISPATCH
+            "t": "C2C_MESSAGE_CREATE",
+            "d": {
+                "id": "msg_seq_1",
+                "content": "hello",
+                "author": {"user_openid": "user1"},
+            },
+            "s": 300,
+        }
+        qq_channel._handle_ws_payload(first, mock_websocket, "tok", state, hb)
+        assert qq_channel._enqueue.call_count == 1
+
+        # Replay: same seq, different id -> must be dropped by seq.
+        replay = {
+            **first,
+            "d": {**first["d"], "id": "msg_seq_1_replay"},
+        }
+        assert (
+            qq_channel._handle_ws_payload(
+                replay,
+                mock_websocket,
+                "tok",
+                state,
+                hb,
+            )
+            is None
+        )
+        assert qq_channel._enqueue.call_count == 1
+        assert state.last_seq == 300
+
+        # A genuinely newer event (higher seq) still goes through.
+        newer = {**first, "d": {**first["d"], "id": "msg_seq_2"}, "s": 301}
+        qq_channel._handle_ws_payload(newer, mock_websocket, "tok", state, hb)
+        assert qq_channel._enqueue.call_count == 2
+        assert state.last_seq == 301
 
     def test_handle_heartbeat_ack(self, qq_channel, mock_websocket):
         """Should handle HEARTBEAT_ACK."""
@@ -2304,6 +2417,70 @@ class TestHandleMsgEvent:
         qq_channel._handle_msg_event("C2C_MESSAGE_CREATE", d)
         assert len(enqueued) == 1
         assert enqueued[0].channel_meta["sender_id"] == "fallback_id"
+
+    def test_replayed_message_is_deduplicated(self, qq_channel):
+        """A replayed event (same platform msg id) enqueues only once.
+
+        After a session resume the QQ gateway re-delivers events it
+        never saw acked; the duplicate must be dropped before enqueue.
+        """
+        enqueued = []
+        qq_channel._enqueue = enqueued.append
+        d = {
+            "author": {"user_openid": "sender_1"},
+            "content": "hello",
+            "id": "msg_replay_1",
+            "attachments": [],
+        }
+        qq_channel._handle_msg_event("C2C_MESSAGE_CREATE", d)
+        qq_channel._handle_msg_event("C2C_MESSAGE_CREATE", d)
+        assert len(enqueued) == 1
+
+    def test_distinct_message_ids_are_not_deduplicated(self, qq_channel):
+        """Different platform msg ids are each processed once."""
+        enqueued = []
+        qq_channel._enqueue = enqueued.append
+        base = {"author": {"user_openid": "sender_1"}, "content": "hello"}
+        qq_channel._handle_msg_event(
+            "C2C_MESSAGE_CREATE",
+            {**base, "id": "msg_a"},
+        )
+        qq_channel._handle_msg_event(
+            "C2C_MESSAGE_CREATE",
+            {**base, "id": "msg_b"},
+        )
+        assert len(enqueued) == 2
+
+
+class TestHandleInteractionEventReplay:
+    """Replay guard for INTERACTION_CREATE (button) events."""
+
+    def test_replayed_interaction_event_is_deduplicated(self, qq_channel):
+        """A replayed INTERACTION_CREATE is handled only once.
+
+        Button events carry side effects (tool-call approvals); a
+        gateway replay must not approve the same interaction twice.
+        """
+        handled = []
+        qq_channel._card_handler = MagicMock()
+        qq_channel._card_handler.handle_interaction_event.side_effect = (
+            handled.append
+        )
+        d = {"id": "int_replay_1", "data": {}}
+        qq_channel._handle_interaction_event(d)
+        qq_channel._handle_interaction_event(d)
+        assert len(handled) == 1
+
+    def test_distinct_interaction_ids_are_not_deduplicated(self, qq_channel):
+        """Different interaction ids are each handled once."""
+        handled = []
+        qq_channel._card_handler = MagicMock()
+        qq_channel._card_handler.handle_interaction_event.side_effect = (
+            handled.append
+        )
+        qq_channel._handle_interaction_event({"id": "int_a", "data": {}})
+        qq_channel._handle_interaction_event({"id": "int_b", "data": {}})
+        assert len(handled) == 2
 
 
 class TestSendImages:

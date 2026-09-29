@@ -9,6 +9,11 @@
   overflow: hidden;
 
   :global {
+    // The SDK renders raw user text with an inline 14px font size.
+    [data-role="user"] [class$="-markdown"] {
+      font-size: var(--app-font-body) !important;
+    }
+
     [class$="-bubble-files-download"] {
       opacity: 1 !important;
       background: transparent !important;
@@ -20,12 +25,108 @@
 
     [class$="-sender-content-bottom"] {
       align-items: center;
-      column-gap: 8px;
+      flex-wrap: nowrap;
+      row-gap: 8px;
+      column-gap: 6px;
+      font-size: var(--app-font-caption);
+
+      :where(
+          button,
+          input,
+          .ant-select-selection-item,
+          .qwenpaw-select-selection-item
+        ) {
+        font-size: inherit !important;
+      }
+    }
+
+    textarea[data-sender-input="true"] {
+      font-size: var(--app-font-body) !important;
+      line-height: 1.5 !important;
+    }
+
+    [class$="-welcome-prompts-greeting"] {
+      font-size: var(--app-font-subtitle) !important;
+      line-height: 1.35 !important;
+    }
+
+    [class$="-welcome-prompts-description"],
+    [class$="-disclaimer"],
+    [class$="-sender-actions-list-length"] {
+      font-size: var(--app-font-caption) !important;
+      line-height: 1.4 !important;
+    }
+
+    [class$="-welcome-prompts-prompt-label"],
+    .qwenpaw-welcome-prompts-prompt-label {
+      font-size: var(--app-font-body) !important;
+      line-height: 1.4 !important;
+    }
+
+    [class$="-sender-actions-list-length"],
+    [class$="-sender-actions-list-presets"] {
+      flex: 0 0 auto;
+      white-space: nowrap;
     }
 
     [class$="-sender-actions-list"] {
       align-items: center;
-      column-gap: 8px;
+      column-gap: 6px;
+      min-width: 0;
+      max-width: 100%;
+      flex: 0 1 auto;
+      flex-wrap: nowrap;
+      row-gap: 8px;
+    }
+
+    // Use the prefix's content width when deciding whether actions fit.
+    [class$="-sender-prefix"] {
+      width: auto;
+      flex: 1 1 auto;
+      min-width: 0;
+      max-width: 100%;
+      overflow: visible;
+
+      > div {
+        flex-wrap: nowrap;
+        min-width: 0;
+      }
+    }
+
+    [class$="-sender-prefix"] button,
+    [class$="-sender-actions-list"] button,
+    [class$="-sender-actions-btn"] {
+      min-height: var(--app-icon-button);
+    }
+
+    [class$="-sender-prefix"] button svg,
+    [class$="-sender-actions-list"] button svg,
+    [class$="-sender-actions-btn"] svg {
+      width: var(--app-icon-sm);
+      height: var(--app-icon-sm);
+    }
+
+    [class$="-sender-prefix"] button [data-spark-icon],
+    [class$="-sender-actions-list"] button [data-spark-icon],
+    [class$="-sender-actions-btn"] [data-spark-icon] {
+      font-size: var(--app-icon-sm) !important;
+    }
+
+    [class$="-bubble-footer-actions-item"]:has(svg) {
+      display: inline-flex;
+      min-width: var(--app-icon-button);
+      min-height: var(--app-icon-button);
+      align-items: center;
+      justify-content: center;
+
+      [data-spark-icon] {
+        font-size: var(--app-icon-md) !important;
+      }
+
+      svg {
+        width: var(--app-icon-md);
+        height: var(--app-icon-md);
+      }
     }
   }
 }
@@ -37,6 +138,26 @@
     transition:
       width 330ms cubic-bezier(0.22, 0.78, 0.24, 1),
       opacity 220ms ease;
+
+    :global {
+      /* The files panel narrows the chat column. Let the sender bottom row
+         wrap so the model/mode entry stays fully visible on its own line
+         instead of being pushed out of the visible area. */
+      [class$="-sender-content-bottom"] {
+        flex-wrap: wrap;
+        row-gap: 8px;
+      }
+
+      [class$="-sender-prefix"] {
+        flex: 1 1 100%;
+        min-width: 0;
+      }
+
+      [class$="-sender-actions-list"] {
+        min-width: 0;
+        flex-wrap: wrap;
+      }
+    }
   }
 }
 
@@ -83,8 +204,15 @@
 
 .senderActionAffix {
   display: inline-flex;
+  flex-wrap: nowrap;
+  min-width: 0;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
+
+  > * {
+    min-width: 0;
+    flex: 0 1 auto;
+  }
 }
 
 .senderContextAffix {
@@ -92,6 +220,25 @@
   min-width: 0;
   flex: 0 0 auto;
   align-items: center;
+}
+
+/* Desktop sender controls share one height and reserve space for their labels.
+ * The project control may give back width; approval stays on one line. */
+.senderProjectControl,
+.senderApprovalControl {
+  box-sizing: border-box;
+  min-height: max(34px, calc(34px * var(--app-font-scale))) !important;
+  white-space: nowrap !important;
+}
+
+.senderProjectControl {
+  min-width: 0;
+  max-width: min(220px, 24vw);
+  flex: 1 1 150px !important;
+}
+
+.senderApprovalControl {
+  flex: 0 0 auto !important;
 }
 
 @media (max-width: 1024px) {
@@ -371,6 +518,11 @@
     min-width: 0;
     max-width: 100%;
     gap: 4px;
+  }
+
+  .senderProjectControl,
+  .senderApprovalControl {
+    min-height: var(--app-icon-button) !important;
   }
 
   .senderActionAffix > button {

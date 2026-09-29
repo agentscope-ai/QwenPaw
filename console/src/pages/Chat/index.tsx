@@ -4114,11 +4114,14 @@ export default function ChatPage() {
               <SessionProjectDirectory
                 scope={sessionScope}
                 compact={isMobile || compactSender}
-                className={
-                  isMobile || compactSender
-                    ? styles.mobileComposerControl
-                    : undefined
-                }
+                className={[
+                  !isMobile && !compactSender
+                    ? styles.senderProjectControl
+                    : "",
+                  isMobile || compactSender ? styles.mobileComposerControl : "",
+                ]
+                  .filter(Boolean)
+                  .join(" ")}
               />
             )}
             {usesQwenPawBackend ? (
@@ -4126,11 +4129,14 @@ export default function ChatPage() {
                 sessionId={queueKey}
                 runningConfigApprovalLevel={runningConfigApprovalLevel}
                 compact={isMobile || compactSender}
-                className={
-                  isMobile || compactSender
-                    ? styles.mobileComposerControl
-                    : undefined
-                }
+                className={[
+                  !isMobile && !compactSender
+                    ? styles.senderApprovalControl
+                    : "",
+                  isMobile || compactSender ? styles.mobileComposerControl : "",
+                ]
+                  .filter(Boolean)
+                  .join(" ")}
                 onChange={(sessionOverride) => {
                   sessionApprovalLevelRef.current = sessionOverride;
                 }}

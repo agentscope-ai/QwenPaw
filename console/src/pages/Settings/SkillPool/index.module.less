@@ -1,8 +1,12 @@
 /* SkillPool Page Styles - Referenced from Skills */
 
+@import (reference) "../../../styles/scaledTypography.less";
+
 /* ─── Page Layout ─────────────────────────────────────────────────────────── */
 .skillsPage {
+  .scaled-control-typography();
   padding: 0;
+  font-size: var(--app-font-body);
   display: flex;
   flex-direction: column;
   height: 100%;
@@ -31,7 +35,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 16px;
+  font-size: var(--app-font-subtitle);
   flex: 1;
 }
 
@@ -48,7 +52,7 @@
 .breadcrumbCurrent {
   color: var(--app-text);
   font-weight: 600;
-  font-size: 20px;
+  font-size: var(--app-font-title);
 }
 
 .headerRight {
@@ -106,7 +110,7 @@
 }
 
 .builtinNoticeTitle {
-  font-size: 14px;
+  font-size: var(--app-font-body);
   font-weight: 600;
   color: var(--app-error-text);
 }
@@ -114,7 +118,7 @@
 .builtinNoticeList {
   display: grid;
   gap: 4px;
-  font-size: 13px;
+  font-size: var(--app-font-secondary);
   color: var(--app-text);
 }
 
@@ -144,7 +148,7 @@
 }
 
 .noSearchResultsText {
-  font-size: 14px;
+  font-size: var(--app-font-body);
 }
 
 /* ─── Toolbar (search + view toggle) ─────────────────────────────────────── */
@@ -217,7 +221,7 @@
 .typeBadge {
   display: inline-flex;
   align-items: center;
-  font-size: 12px;
+  font-size: var(--app-font-caption);
   font-weight: 500;
   padding: 1px 8px;
   border-radius: 4px;
@@ -230,7 +234,7 @@
 .statusValue {
   display: inline-flex;
   align-items: center;
-  font-size: 12px;
+  font-size: var(--app-font-caption);
   font-weight: 500;
   padding: 1px 8px;
   border-radius: 4px;
@@ -253,13 +257,13 @@
 }
 
 .listItemTime {
-  font-size: 12px;
+  font-size: var(--app-font-caption);
   color: var(--app-text-tertiary);
 }
 
 .listItemDesc {
   margin: 4px 0 0;
-  font-size: 13px;
+  font-size: var(--app-font-secondary);
   color: var(--app-text-secondary);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -305,14 +309,14 @@
 }
 
 .batchCount {
-  font-size: 13px;
+  font-size: var(--app-font-secondary);
   color: var(--app-text-secondary);
   margin-right: 4px;
 }
 
 /* ─── Skill Card ──────────────────────────────────────────────────────────── */
 .skillCard {
-  min-height: 240px;
+  min-height: max(240px, calc(240px * var(--app-font-scale)));
   height: auto;
   display: flex;
   flex-direction: column;
@@ -369,7 +373,7 @@
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  font-size: 13px;
+  font-size: var(--app-font-secondary);
   font-weight: 500;
   white-space: nowrap;
 
@@ -439,10 +443,10 @@
 
 .skillTitle {
   margin: 0;
-  font-size: 15px;
+  font-size: var(--app-font-subtitle);
   font-weight: 600;
   color: var(--app-text);
-  line-height: 22px;
+  line-height: 1.4;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -452,7 +456,7 @@
 
 /* Built-in / Custom tags */
 .builtinTag {
-  font-size: 11px;
+  font-size: var(--app-font-caption);
   padding: 1px 8px;
   border-radius: 4px;
   font-weight: 500;
@@ -464,7 +468,7 @@
 }
 
 .customTag {
-  font-size: 11px;
+  font-size: var(--app-font-caption);
   padding: 1px 8px;
   border-radius: 4px;
   font-weight: 500;
@@ -476,7 +480,7 @@
 }
 
 .automationTag {
-  font-size: 11px;
+  font-size: var(--app-font-caption);
   padding: 1px 8px;
   border-radius: 4px;
   font-weight: 500;
@@ -492,7 +496,7 @@
   display: flex;
   align-items: flex-start;
   gap: 8px;
-  font-size: 13px;
+  font-size: var(--app-font-secondary);
   margin-bottom: 6px;
 
   .metaInfoLabel {
@@ -514,7 +518,7 @@
   }
 
   .calendarIcon {
-    font-size: 11px;
+    font-size: var(--app-font-caption);
     color: var(--app-text-tertiary);
   }
 }
@@ -539,7 +543,7 @@
 }
 
 .infoLabel {
-  font-size: 12px;
+  font-size: var(--app-font-caption);
   color: var(--app-text-secondary);
 }
 
@@ -549,7 +553,7 @@
   width: fit-content;
   padding: 4px 10px;
   border-radius: 6px;
-  font-size: 12px;
+  font-size: var(--app-font-caption);
   font-weight: 500;
   border: 1px solid transparent;
 
@@ -589,7 +593,7 @@
 }
 
 .metaIcon {
-  font-size: 12px;
+  font-size: var(--app-font-caption);
   flex-shrink: 0;
   display: inline-flex;
   align-items: center;
@@ -606,9 +610,9 @@
 .categoryChip {
   display: inline-flex;
   align-items: center;
-  font-size: 11px;
+  font-size: var(--app-font-caption);
   font-weight: 500;
-  line-height: 16px;
+  line-height: 1.35;
   padding: 0 6px;
   border-radius: 3px;
   background: var(--app-info-bg);
@@ -628,8 +632,8 @@
 .tagChip {
   display: inline-flex;
   align-items: center;
-  font-size: 13px;
-  line-height: 16px;
+  font-size: var(--app-font-secondary);
+  line-height: 1.35;
   padding: 1px 8px;
   border-radius: 4px;
   font-weight: 500;
@@ -645,9 +649,9 @@
   box-sizing: border-box;
   border: 1px solid var(--app-border-subtle);
   padding: 2px 4px;
-  line-height: 20px;
+  line-height: 1.55;
   margin: 0;
-  font-size: 13px;
+  font-size: var(--app-font-secondary);
   color: var(--app-text-secondary);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -671,13 +675,13 @@
 }
 
 .metaLabel {
-  font-size: 11px;
+  font-size: var(--app-font-caption);
   color: var(--app-text-secondary);
   min-width: 60px;
 }
 
 .metaValue {
-  font-size: 11px;
+  font-size: var(--app-font-caption);
   color: var(--app-text-secondary);
 }
 
@@ -697,8 +701,9 @@
 
 .actionButton {
   flex: 1;
-  height: 34px;
-  font-size: 14px;
+  height: auto;
+  min-height: max(34px, calc(34px * var(--app-font-scale)));
+  font-size: var(--app-font-body);
   border: 1px solid var(--app-border);
   background-color: var(--app-surface-raised);
   color: var(--app-text);
@@ -708,8 +713,9 @@
 
 .deleteButton {
   flex: 1;
-  height: 34px;
-  font-size: 14px;
+  height: auto;
+  min-height: max(34px, calc(34px * var(--app-font-scale)));
+  font-size: var(--app-font-body);
   cursor: pointer;
   border-radius: 8px;
   border: 1px solid var(--app-border);
@@ -719,8 +725,8 @@
 
 .automationButton {
   flex: 0 0 auto;
-  width: 34px;
-  height: 34px;
+  width: var(--app-icon-box);
+  height: var(--app-icon-box);
   cursor: pointer;
   border-radius: 8px;
 }
@@ -772,15 +778,15 @@
 
 .automationSettingTitle {
   color: var(--app-text);
-  font-size: 13px;
+  font-size: var(--app-font-secondary);
   font-weight: 600;
 }
 
 .automationFlow,
 .automationTargetsHint {
   color: var(--app-text-secondary);
-  font-size: 12px;
-  line-height: 18px;
+  font-size: var(--app-font-caption);
+  line-height: 1.5;
 }
 
 .automationTargets {

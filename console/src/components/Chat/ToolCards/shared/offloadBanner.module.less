@@ -80,7 +80,7 @@
 .offloadInfo {
   flex: 1;
   min-width: 0;
-  font-size: 12px;
+  font-size: var(--app-font-caption);
   font-weight: 600;
   color: var(--app-warning-text);
   overflow: hidden;
@@ -120,7 +120,7 @@
 }
 
 .timerCaption {
-  font-size: 11px;
+  font-size: var(--app-font-caption);
   font-weight: 500;
   line-height: 1;
   color: var(--app-warning-text);
@@ -181,7 +181,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 9px;
+  font-size: calc(9px * var(--app-font-scale));
   font-weight: 700;
   color: var(--app-warning-text);
 }
@@ -229,7 +229,7 @@
   gap: 4px;
   width: 100%;
   min-width: 0;
-  min-height: 36px;
+  min-height: max(36px, calc(36px * var(--app-font-scale)));
   padding: 6px 8px;
   border-radius: 7px;
   border: 1px solid var(--app-border);
@@ -242,7 +242,7 @@
     box-shadow 0.15s,
     opacity 0.15s,
     transform 0.15s;
-  font-size: 11px;
+  font-size: var(--app-font-caption);
   font-weight: 600;
   color: var(--app-text);
   line-height: 1.25;
@@ -302,7 +302,7 @@
 
 .offloadNote {
   padding: 0 12px 10px;
-  font-size: 10px;
+  font-size: var(--app-font-caption);
   color: var(--app-text-tertiary);
   display: flex;
   align-items: center;
@@ -324,7 +324,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 12px;
+  font-size: var(--app-font-caption);
   color: var(--app-info-text);
 }
 
@@ -350,7 +350,7 @@
 
 .bgElapsed {
   font-family: "SF Mono", "Fira Code", monospace;
-  font-size: 11px;
+  font-size: var(--app-font-caption);
   color: var(--app-info-text);
   font-weight: 600;
 }

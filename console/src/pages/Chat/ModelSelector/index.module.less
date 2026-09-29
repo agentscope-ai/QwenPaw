@@ -8,7 +8,7 @@
   padding: 4px 10px;
   border-radius: 6px;
   cursor: pointer;
-  font-size: 14px;
+  font-size: var(--app-font-body);
   font-weight: 500;
   transition:
     color 150ms ease,
@@ -465,14 +465,14 @@
   :global(.ant-select-selection-placeholder) {
     padding-right: 12px !important;
     color: var(--ms-text) !important;
-    font-size: 12px;
+    font-size: var(--app-font-caption);
     line-height: 34px !important;
   }
 
   :global(.ant-select-selection-search-input) {
     height: 34px !important;
     color: var(--ms-text);
-    font-size: 12px;
+    font-size: var(--app-font-caption);
   }
 
   :global(.ant-select-arrow) {
@@ -1604,6 +1604,13 @@
   display: inline-flex;
   min-width: 0;
   max-width: 100%;
+  flex: 0 1 auto;
+  overflow: hidden;
+
+  > * {
+    min-width: 0;
+    max-width: 100%;
+  }
 }
 .pickerOverlay {
   max-width: calc(100vw - 24px);

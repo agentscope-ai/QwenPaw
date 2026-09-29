@@ -265,7 +265,7 @@ function RubricSection() {
     <div className={loopStyles.gateForm}>
       <p
         style={{
-          fontSize: 12,
+          fontSize: "var(--app-font-caption)",
           color: "var(--app-text-secondary)",
           marginBottom: 12,
           lineHeight: 1.6,

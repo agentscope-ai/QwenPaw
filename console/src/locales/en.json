@@ -428,6 +428,8 @@
     "desktopApplication": "Desktop app",
     "languageHint": "Changes the interface language on this device.",
     "themeHint": "Use a light, dark or system-matched appearance.",
+    "uiFontSize": "Console font size",
+    "uiFontSizeHint": "Set the base font size for the console and login pages.",
     "customTheme": "Custom theme",
     "customThemeHint": "Choose a color palette or fine-tune the colors and corner radius.",
     "themePalette": "Theme palette",

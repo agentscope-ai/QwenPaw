@@ -79,7 +79,7 @@ function CapabilityTag({
         minHeight: 24,
         padding: iconOnly ? "1px 4px" : "1px 6px",
         borderRadius: 4,
-        fontSize: 12,
+        fontSize: "var(--app-font-caption)",
         fontWeight: 500,
         lineHeight: "20px",
         borderWidth: 1,

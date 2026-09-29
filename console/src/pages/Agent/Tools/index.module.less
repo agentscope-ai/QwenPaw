@@ -1,5 +1,9 @@
+@import (reference) "../../../styles/scaledTypography.less";
+
 .toolsPage {
+  .scaled-control-typography();
   min-width: 0;
+  font-size: var(--app-font-body);
   color: var(--app-text);
 }
 
@@ -295,6 +299,6 @@
   background: var(--app-fill-strong);
 }
 
-.rowActions > div > .toggleButton {
+.rowActions > .toggleButton {
   border-radius: 20px;
 }

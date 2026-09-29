@@ -22,7 +22,7 @@ export function ProviderApiKeyLink({ url }: { url: unknown }) {
         display: "inline-flex",
         alignItems: "center",
         gap: 4,
-        fontSize: 12,
+        fontSize: "var(--app-font-caption)",
         textTransform: "none",
         letterSpacing: 0,
       }}

@@ -20,17 +20,17 @@
 
   strong {
     color: var(--app-text);
-    font-size: 14px;
+    font-size: var(--app-font-body);
     font-weight: 650;
   }
 }
 
 .closeButton {
-  width: 44px;
-  height: 44px;
+  width: max(44px, calc(44px * var(--app-font-scale)));
+  height: max(44px, calc(44px * var(--app-font-scale)));
   padding: 0;
   display: inline-flex;
-  flex: 0 0 44px;
+  flex: 0 0 max(44px, calc(44px * var(--app-font-scale)));
   align-items: center;
   justify-content: center;
   color: var(--app-text-secondary);
@@ -38,6 +38,11 @@
   border-radius: 10px;
   background: transparent;
   cursor: pointer;
+
+  > svg {
+    width: var(--app-icon-md);
+    height: var(--app-icon-md);
+  }
 
   &:hover,
   &:active {
@@ -59,10 +64,10 @@
 .option {
   width: 100%;
   min-width: 0;
-  min-height: 64px;
+  min-height: max(64px, calc(64px * var(--app-font-scale)));
   padding: 8px 10px;
   display: grid;
-  grid-template-columns: 34px minmax(0, 1fr) 20px;
+  grid-template-columns: var(--app-icon-box) minmax(0, 1fr) var(--app-icon-md);
   align-items: center;
   gap: 10px;
   color: var(--app-text-tertiary);
@@ -90,14 +95,24 @@
 }
 
 .optionIcon {
-  width: 34px;
-  height: 34px;
+  width: var(--app-icon-box);
+  height: var(--app-icon-box);
   display: inline-flex;
   align-items: center;
   justify-content: center;
   color: var(--app-text-secondary);
   border-radius: 9px;
   background: var(--app-fill-subtle);
+
+  > svg {
+    width: var(--app-icon-xs);
+    height: var(--app-icon-xs);
+  }
+}
+
+.option > svg:last-child {
+  width: var(--app-icon-md);
+  height: var(--app-icon-md);
 }
 
 .optionCopy {
@@ -114,20 +129,26 @@
 
   strong {
     color: var(--app-text);
-    font-size: 13px;
+    font-size: var(--app-font-secondary);
     font-weight: 650;
     white-space: nowrap;
   }
 
   small {
     color: var(--app-text-tertiary);
-    font-size: 11px;
+    font-size: var(--app-font-caption);
     line-height: 1.35;
   }
 }
 .trigger {
-  min-height: 28px;
+  min-width: var(--app-icon-button);
+  min-height: var(--app-icon-button);
   padding: 0 7px;
+
+  > svg {
+    width: var(--app-icon-xs);
+    height: var(--app-icon-xs);
+  }
   border: 1px solid;
   border-radius: 6px;
   background: var(--app-surface);

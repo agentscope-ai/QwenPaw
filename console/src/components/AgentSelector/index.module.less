@@ -112,11 +112,15 @@
   align-items: center;
   justify-content: space-between;
   gap: 4px;
-  font-size: 12px;
+  font-size: var(--app-font-caption);
   font-weight: 500;
   color: var(--app-text-tertiary);
   white-space: nowrap;
   user-select: none;
+
+  > span:first-child {
+    font-size: inherit;
+  }
 
   svg {
     opacity: 0.5;
@@ -124,7 +128,7 @@
 }
 
 .agentCountBadge {
-  font-size: 12px;
+  font-size: var(--app-font-caption);
   font-weight: 500;
   color: var(--app-text-tertiary);
 }
@@ -133,7 +137,7 @@
   display: inline-flex;
   align-items: center;
   gap: 2px;
-  font-size: 12px;
+  font-size: var(--app-font-caption);
   font-weight: 500;
   color: var(--app-accent);
   background: none;
@@ -157,8 +161,9 @@
       border: none !important;
       background: transparent !important;
       box-shadow: none !important;
-      height: 32px !important;
-      font-size: 13px;
+      height: auto !important;
+      min-height: max(32px, calc(32px * var(--app-font-scale)));
+      font-size: var(--app-font-secondary);
       font-weight: normal;
       border-radius: 8px !important;
       transition:
@@ -184,7 +189,7 @@
 
     .ant-select-selection-item {
       padding: 0 !important;
-      line-height: 22px;
+      line-height: max(22px, calc(22px * var(--app-font-scale)));
     }
 
     .ant-select-arrow {
@@ -222,7 +227,7 @@
 
   span {
     font-weight: 600;
-    font-size: 13px;
+    font-size: var(--app-font-secondary);
   }
 }
 

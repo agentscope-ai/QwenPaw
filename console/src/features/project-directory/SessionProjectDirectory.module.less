@@ -1,6 +1,7 @@
 .trigger {
   max-width: 240px;
-  height: 30px;
+  height: auto;
+  min-height: max(30px, calc(30px * var(--app-font-scale)));
   padding: 0 9px;
   display: inline-flex;
   align-items: center;
@@ -12,10 +13,16 @@
   border-radius: 8px;
   cursor: pointer;
 
+  > svg {
+    width: var(--app-icon-sm);
+    height: var(--app-icon-sm);
+    flex: 0 0 auto;
+  }
+
   > span {
     overflow: hidden;
     color: var(--app-text);
-    font-size: 12px;
+    font-size: var(--app-font-caption);
     font-weight: 550;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -23,7 +30,7 @@
 
   em {
     color: var(--app-accent-text);
-    font-size: 11px;
+    font-size: calc(11px * var(--app-font-scale));
     font-style: normal;
     white-space: nowrap;
   }
@@ -40,8 +47,8 @@
 }
 
 .triggerCompact {
-  width: 30px;
-  min-width: 30px;
+  width: var(--app-icon-button);
+  min-width: var(--app-icon-button);
   padding: 0;
   justify-content: center;
 }
@@ -90,7 +97,7 @@
 
   strong {
     color: var(--app-text);
-    font-size: 13px;
+    font-size: var(--app-font-secondary);
     font-weight: 600;
     line-height: 1.25;
   }
@@ -99,7 +106,7 @@
     color: var(--app-text-secondary);
     flex: 1;
     font-family: "SFMono-Regular", Consolas, monospace;
-    font-size: 11px;
+    font-size: var(--app-font-caption);
     font-weight: 500;
     line-height: 1.3;
   }
@@ -162,7 +169,7 @@
 
   strong {
     color: var(--app-text);
-    font-size: 14px;
+    font-size: var(--app-font-body);
     font-weight: 650;
   }
 }
@@ -176,13 +183,18 @@
 .inlineHint {
   min-width: 0;
   flex: 1;
-  font-size: 13px;
+  font-size: var(--app-font-secondary);
 }
 
 .panelClose {
-  width: 44px;
-  height: 44px;
-  flex: 0 0 44px;
+  width: max(44px, calc(44px * var(--app-font-scale)));
+  height: max(44px, calc(44px * var(--app-font-scale)));
+  flex: 0 0 max(44px, calc(44px * var(--app-font-scale)));
+
+  > svg {
+    width: var(--app-icon-md);
+    height: var(--app-icon-md);
+  }
 }
 
 /* Bound-directory count, sitting at the end of the title row. */
@@ -191,7 +203,7 @@
   min-width: 20px;
   padding: 1px 7px;
   color: var(--app-text-secondary);
-  font-size: 11px;
+  font-size: var(--app-font-caption);
   font-weight: 650;
   text-align: center;
   border-radius: 7px;
@@ -199,8 +211,8 @@
 }
 
 .headingIcon {
-  width: 32px;
-  height: 32px;
+  width: var(--app-icon-button);
+  height: var(--app-icon-button);
   display: inline-flex;
   flex: 0 0 auto;
   align-items: center;
@@ -208,6 +220,11 @@
   color: var(--app-accent);
   border-radius: 11px;
   background: var(--app-accent-soft);
+
+  > svg {
+    width: var(--app-icon-md);
+    height: var(--app-icon-md);
+  }
 }
 
 .pathInput {
@@ -238,14 +255,19 @@
 }
 
 .pathChipIcon {
-  width: 32px;
-  height: 32px;
+  width: var(--app-icon-button);
+  height: var(--app-icon-button);
   display: inline-flex;
   align-items: center;
   justify-content: center;
   color: var(--app-accent);
   border-radius: 9px;
   background: var(--app-surface);
+
+  > svg {
+    width: var(--app-icon-md);
+    height: var(--app-icon-md);
+  }
 }
 
 .pathChipCopy {
@@ -262,14 +284,14 @@
 
   strong {
     color: var(--app-text);
-    font-size: 12px;
+    font-size: var(--app-font-caption);
     font-weight: 650;
   }
 
   small {
     color: var(--app-text-secondary);
     font-family: "SFMono-Regular", Consolas, monospace;
-    font-size: 11px;
+    font-size: var(--app-font-caption);
   }
 }
 
@@ -324,11 +346,11 @@
   align-items: flex-start;
   justify-content: space-between;
   color: var(--app-text-tertiary);
-  font-size: 10px;
+  font-size: var(--app-font-caption);
 
   strong {
     color: var(--app-text-secondary);
-    font-size: 13px;
+    font-size: var(--app-font-secondary);
     font-weight: 600;
   }
 }
@@ -387,13 +409,18 @@
 }
 
 .recentIcon {
-  width: 24px;
-  height: 24px;
+  width: var(--app-icon-button);
+  height: var(--app-icon-button);
   display: inline-flex;
   align-items: center;
   justify-content: center;
   border-radius: 8px;
   background: var(--app-fill-subtle);
+
+  > svg {
+    width: var(--app-icon-md);
+    height: var(--app-icon-md);
+  }
 
   .recentSelected & {
     background: var(--app-surface);
@@ -414,14 +441,14 @@
 
   strong {
     color: var(--app-text);
-    font-size: 13px;
+    font-size: var(--app-font-secondary);
     font-weight: 600;
   }
 
   small {
     color: var(--app-text-secondary);
     font-family: "SFMono-Regular", Consolas, monospace;
-    font-size: 11px;
+    font-size: var(--app-font-caption);
   }
 }
 
@@ -451,8 +478,16 @@
 
   strong {
     color: var(--app-text-secondary);
-    font-size: 13px;
+    font-size: var(--app-font-secondary);
     font-weight: 600;
+  }
+
+  code {
+    overflow: hidden;
+    color: var(--app-text-tertiary);
+    font-size: var(--app-font-caption);
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 }
 
@@ -483,7 +518,7 @@
   > small {
     grid-column: 1 / -1;
     color: var(--app-error-text);
-    font-size: 11px;
+    font-size: var(--app-font-caption);
     line-height: 1.3;
   }
 }
@@ -497,13 +532,15 @@
   gap: 3px;
   overflow: auto;
 }
+
 .directoryRow {
   display: flex;
   flex-shrink: 0;
-  min-height: 44px;
+  min-height: max(44px, calc(44px * var(--app-font-scale)));
   border: 1px solid transparent;
   border-radius: 10px;
   overflow: hidden;
+
   &:hover {
     background: var(--app-fill-faint);
   }
@@ -535,7 +572,7 @@
     text-overflow: ellipsis;
     white-space: nowrap;
     color: var(--app-text);
-    font-size: 13px;
+    font-size: var(--app-font-secondary);
   }
   > svg {
     flex-shrink: 0;
@@ -570,7 +607,7 @@
   padding: 24px 8px;
   display: block;
   color: var(--app-text-tertiary);
-  font-size: 10px;
+  font-size: var(--app-font-caption);
   text-align: center;
 }
 
@@ -602,7 +639,7 @@
   min-width: 0;
   flex: 0 0 auto;
   color: var(--app-text-secondary);
-  font-size: 12px;
+  font-size: var(--app-font-caption);
   line-height: 1.4;
 
   :global(.ant-checkbox + span) {
@@ -629,7 +666,7 @@
 
 .hint {
   color: var(--app-text-tertiary);
-  font-size: 10px;
+  font-size: var(--app-font-caption);
 }
 
 .spin {
@@ -734,14 +771,14 @@
 
   strong {
     color: var(--app-text);
-    font-size: 12px;
+    font-size: var(--app-font-caption);
     font-weight: 650;
   }
 
   small {
     color: var(--app-text-tertiary);
     font-family: "SFMono-Regular", Consolas, monospace;
-    font-size: 11px;
+    font-size: var(--app-font-caption);
   }
 }
 
@@ -750,7 +787,7 @@
 .boundTag,
 .boundAction {
   flex: 0 0 auto;
-  font-size: 10px;
+  font-size: var(--app-font-caption);
   font-style: normal;
   white-space: nowrap;
 }
@@ -807,14 +844,14 @@
 .boundHint {
   margin-top: 1px;
   color: var(--app-text-tertiary);
-  font-size: 10px;
+  font-size: var(--app-font-caption);
   font-weight: 400;
   line-height: 1.4;
 }
 
 .listError {
   color: var(--app-error-text);
-  font-size: 10px;
+  font-size: var(--app-font-caption);
   word-break: break-all;
 }
 

@@ -1,5 +1,9 @@
+@import (reference) "../../../styles/scaledTypography.less";
+
 .channelsPage {
+  .scaled-control-typography();
   height: 100%;
+  font-size: var(--app-font-body);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -24,7 +28,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 16px;
+  font-size: var(--app-font-subtitle);
   flex: 1;
 }
 
@@ -41,18 +45,18 @@
 .breadcrumbCurrent {
   color: var(--app-text);
   font-weight: 600;
-  font-size: 20px;
+  font-size: var(--app-font-title);
 }
 
 .title {
-  font-size: 20px;
+  font-size: var(--app-font-title);
   font-weight: 600;
   color: var(--app-text);
 }
 
 .description {
   color: var(--app-text-tertiary);
-  font-size: 14px;
+  font-size: var(--app-font-body);
   margin: 0;
   display: none;
 }
@@ -71,7 +75,7 @@
   border-radius: 7px;
   border: none;
   background: transparent;
-  font-size: 13px;
+  font-size: var(--app-font-secondary);
   color: var(--app-text-secondary);
   cursor: pointer;
   transition:
@@ -133,7 +137,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 13px;
+  font-size: var(--app-font-secondary);
   font-weight: 500;
   color: var(--app-text-secondary);
   margin-bottom: 16px;
@@ -165,7 +169,7 @@
 
   p {
     margin: 0 0 16px;
-    font-size: 14px;
+    font-size: var(--app-font-body);
   }
 }
 
@@ -211,7 +215,7 @@
 
 .availableItemName {
   flex: 1;
-  font-size: 13px;
+  font-size: var(--app-font-secondary);
   font-weight: 500;
   color: var(--app-text);
   overflow: hidden;
@@ -220,7 +224,7 @@
 }
 
 .availableItemAction {
-  font-size: 12px;
+  font-size: var(--app-font-caption);
   color: var(--app-text-tertiary);
   flex-shrink: 0;
 }
@@ -270,7 +274,7 @@
   }
 
   .panelTitle {
-    font-size: 12px;
+    font-size: var(--app-font-caption);
     margin-bottom: 12px;
   }
 
@@ -290,7 +294,7 @@
 /* ---- Channel Card Styles ---- */
 
 .channelCard {
-  min-height: 150px;
+  min-height: max(150px, calc(150px * var(--app-font-scale)));
   display: flex;
   flex-direction: column;
   padding: 16px;
@@ -352,15 +356,15 @@
   display: flex;
   align-items: center;
   gap: 4px;
-  font-size: 11px;
+  font-size: var(--app-font-caption);
   flex-shrink: 0;
 }
 
 .statusText {
   font-family: inherit;
-  font-size: 12px;
+  font-size: var(--app-font-caption);
   font-weight: normal;
-  line-height: 19px;
+  line-height: 1.6;
   letter-spacing: normal;
 
   &.enabled {
@@ -396,9 +400,9 @@
 
 .cardTitle {
   color: var(--app-text);
-  font-size: 14px;
+  font-size: var(--app-font-body);
   font-weight: 500;
-  line-height: 24px;
+  line-height: 1.5;
   letter-spacing: normal;
   margin: 12px 0;
 }
@@ -408,9 +412,9 @@
   background: var(--app-fill);
   border-radius: 2px;
   padding: 0px 4px;
-  font-size: 12px;
+  font-size: var(--app-font-caption);
   font-weight: 500;
-  line-height: 20px;
+  line-height: 1.6;
   letter-spacing: normal;
   margin-left: 12px;
 }
@@ -420,9 +424,9 @@
   background: var(--app-fill);
   border-radius: 2px;
   padding: 0px 4px;
-  font-size: 12px;
+  font-size: var(--app-font-caption);
   font-weight: normal;
-  line-height: 16px;
+  line-height: 1.35;
   white-space: nowrap;
   flex-shrink: 0;
   margin-left: 12px;
@@ -435,7 +439,7 @@
 }
 
 .cardDescription {
-  font-size: 11px;
+  font-size: var(--app-font-caption);
   color: var(--app-text-tertiary);
   line-height: 1.4;
   overflow: hidden;
@@ -453,11 +457,11 @@
 .actionButton {
   padding: 0;
   height: auto;
-  font-size: 11px;
+  font-size: var(--app-font-caption);
 }
 
 .cardHint {
-  font-size: 11px;
+  font-size: var(--app-font-caption);
   color: var(--app-text-quaternary);
 }
 
@@ -470,7 +474,7 @@
 }
 
 .dingtalkDocBtn {
-  font-size: 12px;
+  font-size: var(--app-font-caption);
   padding: 0 8px;
 }
 
@@ -509,7 +513,7 @@
 .schemaDescription {
   margin-bottom: 12px;
   color: var(--app-text-tertiary);
-  font-size: 13px;
+  font-size: var(--app-font-secondary);
 }
 
 /* Page-specific settings refinement. */
