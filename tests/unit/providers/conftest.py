@@ -4,7 +4,6 @@
 import pytest
 
 from qwenpaw.providers import model_catalog, model_cooldown
-from qwenpaw.providers.model_cooldown import reset_model_cooldowns
 
 
 class _Clock:
@@ -15,14 +14,6 @@ class _Clock:
 
     def __call__(self) -> float:
         return self.value
-
-
-@pytest.fixture(autouse=True)
-def isolate_model_cooldowns():
-    """The cooldown registry is process-wide, so tests must not share it."""
-    reset_model_cooldowns()
-    yield
-    reset_model_cooldowns()
 
 
 @pytest.fixture(autouse=True)
