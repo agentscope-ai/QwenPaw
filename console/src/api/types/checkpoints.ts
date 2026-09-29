@@ -17,9 +17,11 @@ export interface CheckpointNode {
   user_id: string;
   session_id: string;
   session_title: string;
+  chat_id: string;
 }
 
 export interface CheckpointSession {
+  chat_id: string;
   session_key: string;
   session_id: string;
   user_id: string;

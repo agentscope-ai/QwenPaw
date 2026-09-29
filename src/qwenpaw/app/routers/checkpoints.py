@@ -59,13 +59,13 @@ class GcSettingsRequest(BaseModel):
 def _entry_payload(
     entry: CheckpointEntry,
     session_titles: dict[tuple[str, str, str], str] | None = None,
+    chat_ids: dict[tuple[str, str, str], str] | None = None,
 ) -> dict:
+    identity = (entry.channel, entry.user_id, entry.session_id)
     payload = asdict(entry)
     payload["sha"] = entry.commit[:12]
-    payload["session_title"] = (session_titles or {}).get(
-        (entry.channel, entry.user_id, entry.session_id),
-        "",
-    )
+    payload["session_title"] = (session_titles or {}).get(identity, "")
+    payload["chat_id"] = (chat_ids or {}).get(identity, "")
     return payload
 
 
@@ -100,6 +100,7 @@ async def _workspace_sessions(service) -> list[dict]:
         return []
     return [
         {
+            "chat_id": chat.id,
             "session_key": session_key(
                 channel=chat.channel,
                 user_id=chat.user_id,
@@ -158,7 +159,13 @@ async def checkpoint_graph(
         (item["channel"], item["user_id"], item["session_id"]): item["title"]
         for item in sessions
     }
-    nodes = [_entry_payload(entry, titles) for entry in entries]
+    chat_ids = {
+        (item["channel"], item["user_id"], item["session_id"]): item[
+            "chat_id"
+        ]
+        for item in sessions
+    }
+    nodes = [_entry_payload(entry, titles, chat_ids) for entry in entries]
     return {
         "nodes": nodes,
         "sessions": sessions,
