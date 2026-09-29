@@ -1,7 +1,7 @@
 ; Vendored from Tauri v2.11.4:
 ; crates/tauri-bundler/src/bundle/windows/nsis/installer.nsi
-; Local change: use per-file compression instead of /SOLID so makensis does
-; not need to map the complete uncompressed application payload at once.
+; Local change: use per-file compression instead of /SOLID to reduce the
+; uncompressed temporary datablock size during packaging.
 Unicode true
 ManifestDPIAware true
 ; Add in `dpiAwareness` `PerMonitorV2` to manifest for Windows 10 1607+ (note this should not affect lower versions since they should be able to ignore this and pick up `dpiAware` `true` set by `ManifestDPIAware true`)

@@ -134,6 +134,8 @@ def test_nsis_template_avoids_solid_compression() -> None:
     ]["version"]
 
     assert nsis["compression"] == "zlib"
+    # This is a version-sync reminder, not an upstream content check.
+    # When upgrading the CLI, compare the template with that release.
     assert f"Vendored from Tauri v{tauri_cli_version}" in template
     assert 'SetCompressor "{{compression}}"' in template
     assert "SetCompressor /SOLID" not in template
