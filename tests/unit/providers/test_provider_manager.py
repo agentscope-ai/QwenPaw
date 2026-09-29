@@ -2057,7 +2057,8 @@ async def test_failed_discovery_preserves_last_cache_and_user_models(
     assert {model.id for model in result.models} >= {"cached-remote"}
     assert "user-only" not in {model.id for model in result.models}
     assert caplog.records[-1].getMessage() == (
-        "Model discovery failed; using static fallback"
+        f"Model discovery failed for openai; using static fallback: "
+        f"model discovery timed out"
     )
 
 
@@ -3512,12 +3513,13 @@ async def test_discovery_classifies_failures(
 async def test_discovery_error_redacts_credentials_before_persisting(
     isolated_secret_dir,
     monkeypatch,
+    caplog,
 ) -> None:
     manager = ProviderManager()
 
     async def fetch_models(_self, timeout=5):
         _ = timeout
-        raise RuntimeError("api_key=discovery-secret")
+        raise RuntimeError(f"api_key=discovery-secret\nforged log")
 
     monkeypatch.setattr(OpenAIProvider, "fetch_models", fetch_models)
 
@@ -3526,9 +3528,13 @@ async def test_discovery_error_redacts_credentials_before_persisting(
 
     assert result.success is False
     assert "discovery-secret" not in result.error
-    assert result.error == "api_key=[redacted]"
+    assert result.error == f"api_key=[redacted]\nforged log"
     assert provider is not None
     assert provider.models_last_sync_error == result.error
+    assert caplog.records[-1].getMessage() == (
+        f"Model discovery failed for openai; using static fallback: "
+        f"api_key=[redacted]\\nforged log"
+    )
 
 
 def test_connection_message_sanitizer_redacts_credentials() -> None:
