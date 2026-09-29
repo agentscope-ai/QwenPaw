@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """Regression tests for desktop packaging workflows."""
 
+import json
 from pathlib import Path
 import tomllib
 
@@ -110,3 +111,29 @@ def test_download_helper_resolves_verifier_from_its_own_checkout() -> None:
 
     assert 'script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")"' in script
     assert 'python3 "$script_dir/verify_desktop_artifacts.py"' in script
+
+
+def test_nsis_template_avoids_solid_compression() -> None:
+    """Large desktop payloads must not use NSIS solid compression."""
+    config = json.loads(
+        (REPO_ROOT / "console/src-tauri/tauri.conf.json").read_text(
+            encoding="utf-8",
+        ),
+    )
+    package_lock = json.loads(
+        (REPO_ROOT / "console/package-lock.json").read_text(
+            encoding="utf-8",
+        ),
+    )
+    nsis = config["bundle"]["windows"]["nsis"]
+    template = (REPO_ROOT / "console/src-tauri" / nsis["template"]).read_text(
+        encoding="utf-8",
+    )
+    tauri_cli_version = package_lock["packages"][
+        "node_modules/@tauri-apps/cli"
+    ]["version"]
+
+    assert nsis["compression"] == "zlib"
+    assert f"Vendored from Tauri v{tauri_cli_version}" in template
+    assert 'SetCompressor "{{compression}}"' in template
+    assert "SetCompressor /SOLID" not in template
