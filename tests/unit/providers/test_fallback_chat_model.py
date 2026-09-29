@@ -22,6 +22,7 @@ from agentscope.model._model_response import ChatResponse, StructuredResponse
 from agentscope.model._model_usage import ChatUsage
 
 from qwenpaw.agents import model_factory
+from qwenpaw.providers import model_cooldown
 from qwenpaw.providers.capping_formatter import (
     _CappingAnthropicFormatter,
     _CappingOpenAIFormatter,
@@ -30,6 +31,7 @@ from qwenpaw.providers.fallback_chat_model import (
     FallbackChatModel,
     install_fallback_notice_sink,
 )
+from qwenpaw.providers.model_cooldown import CooldownPolicy
 from qwenpaw.providers.rate_limiter import _limiters
 from qwenpaw.providers.retry_chat_model import (
     RateLimitConfig,
@@ -133,6 +135,17 @@ def _response(text: str) -> ChatResponse:
         content=[{"type": "text", "text": text}],
         is_last=True,
     )
+
+
+def _without_cooldown() -> CooldownPolicy:
+    """Hold cooldown out of tests whose subject is not cooldown.
+
+    Cooldown makes a settled request expose the candidate the next
+    request will start with, so a test about identity, usage, or the
+    reset invariant must disable it to keep testing what it was written
+    for.  Cooldown behaviour has its own tests below.
+    """
+    return CooldownPolicy(enabled=False)
 
 
 async def test_falls_back_on_transient_error_before_output() -> None:
@@ -264,7 +277,10 @@ async def test_identity_and_context_follow_fallback(
         context_size=fallback_size,
         provider_id="fallback-provider",
     )
-    model = FallbackChatModel([primary, fallback])
+    model = FallbackChatModel(
+        [primary, fallback],
+        cooldown=_without_cooldown(),
+    )
 
     response = await model(messages=[], tools=[])
 
@@ -272,7 +288,8 @@ async def test_identity_and_context_follow_fallback(
     # During the request the response metadata reports the serving model;
     # once the request settles, identity resets to the primary so the
     # compaction budget and capability learning size for the model the
-    # NEXT request will try first.
+    # NEXT request will try first.  Cooldown is disabled here so that
+    # "next request" stays unambiguously the primary.
     actual = response.metadata["qwenpaw_actual_model"]
     assert actual["model_id"] == "fallback"
     assert actual["context_size"] == fallback_size
@@ -446,7 +463,27 @@ async def test_cancelled_full_wrapper_chain_closes_provider_stream() -> None:
         _limiters.clear()
 
 
-async def test_each_request_starts_from_primary_model() -> None:
+async def test_each_request_starts_from_primary_when_cooldown_is_off() -> None:
+    primary = FakeModel(
+        "primary",
+        lambda: _stream(error=HttpError(503)),
+    )
+    fallback = FakeModel("fallback", lambda: _stream(_response("ok")))
+    model = FallbackChatModel(
+        [primary, fallback],
+        cooldown=_without_cooldown(),
+    )
+
+    for _ in range(2):
+        response = await model(messages=[], tools=[])
+        _ = [chunk async for chunk in response]
+
+    assert primary.calls == 2
+    assert fallback.calls == 2
+
+
+async def test_next_request_skips_a_cooling_down_primary() -> None:
+    """The failing primary is not paid for again on the next request."""
     primary = FakeModel(
         "primary",
         lambda: _stream(error=HttpError(503)),
@@ -458,8 +495,238 @@ async def test_each_request_starts_from_primary_model() -> None:
         response = await model(messages=[], tools=[])
         _ = [chunk async for chunk in response]
 
-    assert primary.calls == 2
+    assert primary.calls == 1
     assert fallback.calls == 2
+
+
+async def test_cooling_down_primary_is_retried_after_its_window(
+    cooldown_clock,
+) -> None:
+    """Cooldown is self-healing: the primary returns to the front."""
+    primary = FakeModel(
+        "primary",
+        lambda: _stream(error=HttpError(503)),
+    )
+    fallback = FakeModel("fallback", lambda: _stream(_response("ok")))
+    model = FallbackChatModel([primary, fallback])
+
+    first = await model(messages=[], tools=[])
+    _ = [chunk async for chunk in first]
+    assert primary.calls == 1
+
+    primary.behavior = lambda: _stream(_response("recovered"))
+    cooldown_clock.value += 61.0
+
+    second = await model(messages=[], tools=[])
+    chunks = [chunk async for chunk in second]
+
+    assert primary.calls == 2
+    assert chunks[-1].content[0]["text"] == "recovered"
+
+
+async def test_all_candidates_cooling_down_uses_the_configured_order() -> None:
+    """The safety valve: cooldown never short-circuits to an empty plan.
+
+    The registry is process-wide, so a chain can legitimately find every
+    candidate cooling down -- another chain may have cooled them, or an
+    entry may outlive its window.  The request must still run.
+    """
+    primary = FakeModel("primary", lambda: _stream(_response("primary-ok")))
+    fallback = FakeModel("fallback", lambda: _stream(_response("unused")))
+    model = FallbackChatModel([primary, fallback])
+
+    for key in (f":primary", f":fallback"):
+        model_cooldown.record_model_failure(
+            key,
+            HttpError(503),
+            CooldownPolicy(),
+        )
+
+    assert model._request_plan() == (0, 1)
+
+    response = await model(messages=[], tools=[])
+    chunks = [chunk async for chunk in response]
+
+    assert primary.calls == 1
+    assert chunks[-1].content[0]["text"] == "primary-ok"
+
+
+async def test_skips_every_cooling_down_candidate() -> None:
+    primary = FakeModel(
+        "primary",
+        lambda: _stream(error=HttpError(503)),
+    )
+    first_fallback = FakeModel("first-fallback", HttpError(503))
+    second_fallback = FakeModel(
+        "second-fallback",
+        lambda: _stream(_response("ok")),
+    )
+    model = FallbackChatModel(
+        [primary, first_fallback, second_fallback],
+    )
+
+    first = await model(messages=[], tools=[])
+    _ = [chunk async for chunk in first]
+
+    assert (primary.calls, first_fallback.calls) == (1, 1)
+    assert model_cooldown.is_on_cooldown(f":primary") is True
+    assert model_cooldown.is_on_cooldown(f":first-fallback") is True
+
+    second = await model(messages=[], tools=[])
+    chunks = [chunk async for chunk in second]
+
+    assert chunks[-1].content[0]["text"] == "ok"
+    assert (primary.calls, first_fallback.calls) == (1, 1)
+    assert second_fallback.calls == 2
+
+
+async def test_request_level_failure_does_not_cool_down_a_candidate() -> None:
+    """A request the model could not serve is not the model's fault."""
+    primary = FakeModel(
+        "primary",
+        lambda: _stream(error=HttpError(503)),
+    )
+    first_fallback = FakeModel(
+        "first-fallback",
+        ValueError(f"context length exceeded"),
+    )
+    second_fallback = FakeModel(
+        "second-fallback",
+        lambda: _stream(_response("ok")),
+    )
+    model = FallbackChatModel(
+        [primary, first_fallback, second_fallback],
+    )
+
+    response = await model(messages=[], tools=[])
+    _ = [chunk async for chunk in response]
+
+    # The primary could not serve the request, so it cools down ...
+    assert model_cooldown.is_on_cooldown(f":primary") is True
+    # ... but an oversized request says nothing about the fallback.
+    assert model_cooldown.is_on_cooldown(f":first-fallback") is False
+
+
+async def test_post_output_failure_does_not_cool_down_the_primary() -> None:
+    primary = FakeModel(
+        "primary",
+        lambda: _stream(_response("partial"), error=HttpError(503)),
+    )
+    fallback = FakeModel("fallback", lambda: _stream(_response("unused")))
+    model = FallbackChatModel([primary, fallback])
+
+    response = await model(messages=[], tools=[])
+    with pytest.raises(HttpError):
+        _ = [chunk async for chunk in response]
+
+    # The model was serving until the stream broke mid-flight, so it
+    # stays in front for the next request.
+    assert model_cooldown.is_on_cooldown(f":primary") is False
+
+
+async def test_cooldown_start_publishes_a_notice() -> None:
+    sink = install_fallback_notice_sink()
+    primary = FakeModel(
+        "primary",
+        lambda: _stream(error=HttpError(503)),
+    )
+    fallback = FakeModel(
+        "fallback",
+        lambda: _stream(_response("ok")),
+        provider_id="fallback-provider",
+    )
+    model = FallbackChatModel([primary, fallback])
+
+    first = await model(messages=[], tools=[])
+    _ = [chunk async for chunk in first]
+
+    sink["events"] = []
+    sink["actual_model"] = None
+
+    second = await model(messages=[], tools=[])
+    _ = [chunk async for chunk in second]
+
+    assert sink["events"] == [
+        {
+            "type": "model_fallback",
+            "from_provider_id": "",
+            "from_model_id": "primary",
+            "to_provider_id": "fallback-provider",
+            "to_model_id": "fallback",
+            "reason_kind": f"cooldown",
+        },
+    ]
+    assert (sink["actual_model"] or {})["model_id"] == "fallback"
+
+
+async def test_settled_request_exposes_the_next_start_model() -> None:
+    primary = FakeModel("primary", HttpError(503), context_size=32_768)
+    fallback = FakeModel(
+        "fallback",
+        lambda: _stream(_response("ok")),
+        context_size=262_144,
+    )
+    model = FallbackChatModel([primary, fallback])
+
+    response = await model(messages=[], tools=[])
+    _ = [chunk async for chunk in response]
+
+    # The primary is cooling down, so compaction must budget for the
+    # model the next request will actually start with.
+    assert model.model == "fallback"
+    assert model.context_size == 262_144
+    assert model.model_key == "fallback"
+
+
+async def test_structured_output_skips_a_cooling_down_primary() -> None:
+    primary = FakeModel("primary", HttpError(503))
+    fallback = FakeModel(
+        "fallback",
+        lambda: StructuredResponse(content={"answer": "ok"}),
+    )
+    model = FallbackChatModel([primary, fallback])
+
+    await model.generate_structured_output(messages=[], tools=[])
+    assert primary.calls == 1
+
+    await model.generate_structured_output(messages=[], tools=[])
+
+    assert primary.calls == 1
+    assert fallback.calls == 2
+
+
+async def test_cooldown_is_shared_across_chain_instances() -> None:
+    """Every agent and cron job builds its own chain, so a cooldown must
+    be process-wide rather than per-instance."""
+    failing = FakeModel(
+        "primary",
+        lambda: _stream(error=HttpError(503)),
+    )
+    first = FallbackChatModel(
+        [
+            failing,
+            FakeModel("fallback", lambda: _stream(_response("ok"))),
+        ],
+    )
+
+    response = await first(messages=[], tools=[])
+    _ = [chunk async for chunk in response]
+
+    second_primary = FakeModel(
+        "primary",
+        lambda: _stream(error=HttpError(503)),
+    )
+    second = FallbackChatModel(
+        [
+            second_primary,
+            FakeModel("fallback", lambda: _stream(_response("ok"))),
+        ],
+    )
+
+    response = await second(messages=[], tools=[])
+    _ = [chunk async for chunk in response]
+
+    assert second_primary.calls == 0
 
 
 async def test_concurrent_requests_keep_fallback_state_isolated() -> None:
@@ -468,7 +735,10 @@ async def test_concurrent_requests_keep_fallback_state_isolated() -> None:
         lambda: _stream(error=HttpError(503)),
     )
     fallback = FakeModel("fallback", lambda: _stream(_response("ok")))
-    model = FallbackChatModel([primary, fallback])
+    model = FallbackChatModel(
+        [primary, fallback],
+        cooldown=_without_cooldown(),
+    )
 
     async def consume() -> list[ChatResponse]:
         response = await model(messages=[], tools=[])
@@ -510,7 +780,10 @@ async def test_concurrent_requests_keep_active_metadata_isolated() -> None:
         context_size=1_000_000,
         provider_id="fallback-provider",
     )
-    model = FallbackChatModel([primary, fallback])
+    model = FallbackChatModel(
+        [primary, fallback],
+        cooldown=_without_cooldown(),
+    )
 
     async def consume_first():
         response = await model(messages=[], tools=[])
@@ -537,7 +810,8 @@ async def test_concurrent_requests_keep_active_metadata_isolated() -> None:
     # While each stream is live, the tasks see their own serving model.
     assert first[1] == ("fallback", 1_000_000)
     assert second[1] == ("primary", 128_000)
-    # After both requests settle, identity is back on the primary.
+    # After both requests settle, identity is back on the primary
+    # (cooldown is off, so the primary is unambiguously next in line).
     assert model.model_key == "primary"
     assert model.context_size == 128_000
     assert first[0].metadata["qwenpaw_actual_model"] == {
@@ -579,7 +853,10 @@ async def test_usage_and_model_key_follow_actual_fallback(
         "fallback-provider",
         fallback,
     )
-    model = FallbackChatModel([wrapped_primary, wrapped_fallback])
+    model = FallbackChatModel(
+        [wrapped_primary, wrapped_fallback],
+        cooldown=_without_cooldown(),
+    )
 
     response = await model(messages=[], tools=[])
     _ = [chunk async for chunk in response]
@@ -588,7 +865,8 @@ async def test_usage_and_model_key_follow_actual_fallback(
     )
 
     # Usage is attributed per slot by TokenRecordingModelWrapper; the
-    # wrapper's own identity resets to the primary once the stream ends.
+    # wrapper's own identity resets to the primary once the stream ends
+    # (cooldown is off, so the primary is unambiguously next in line).
     assert model.model_key == "primary"
     assert usage is not None
     assert usage["provider_id"] == "fallback-provider"
@@ -614,6 +892,7 @@ async def test_structured_output_reports_multi_hop_fallback() -> None:
     )
     model = FallbackChatModel(
         [primary, first_fallback, final_fallback],
+        cooldown=_without_cooldown(),
     )
 
     response = await model.generate_structured_output(messages=[], tools=[])
@@ -743,7 +1022,10 @@ async def test_active_model_resets_after_streamed_fallback() -> None:
         lambda: _stream(_response("ok")),
         context_size=262_144,
     )
-    model = FallbackChatModel([primary, fallback])
+    model = FallbackChatModel(
+        [primary, fallback],
+        cooldown=_without_cooldown(),
+    )
 
     response = await model(messages=[], tools=[])
     during: list[tuple[str, int]] = []
@@ -762,7 +1044,10 @@ async def test_active_model_resets_after_streamed_fallback() -> None:
 async def test_active_model_resets_when_all_models_fail() -> None:
     primary = FakeModel("primary", HttpError(503), context_size=32_768)
     fallback = FakeModel("fallback", HttpError(503), context_size=262_144)
-    model = FallbackChatModel([primary, fallback])
+    model = FallbackChatModel(
+        [primary, fallback],
+        cooldown=_without_cooldown(),
+    )
 
     with pytest.raises(HttpError):
         await model(messages=[], tools=[])
@@ -778,7 +1063,10 @@ async def test_active_model_resets_after_structured_fallback() -> None:
         lambda: StructuredResponse(content={"answer": "ok"}),
         context_size=262_144,
     )
-    model = FallbackChatModel([primary, fallback])
+    model = FallbackChatModel(
+        [primary, fallback],
+        cooldown=_without_cooldown(),
+    )
 
     await model.generate_structured_output(messages=[], tools=[])
 
@@ -802,7 +1090,10 @@ async def test_late_close_of_abandoned_stream_keeps_primary_active() -> None:
         lambda: _stream(_response("one"), _response("two")),
         context_size=262_144,
     )
-    model = FallbackChatModel([primary, fallback])
+    model = FallbackChatModel(
+        [primary, fallback],
+        cooldown=_without_cooldown(),
+    )
 
     stream1 = await model(messages=[], tools=[])
     first = await stream1.__anext__()

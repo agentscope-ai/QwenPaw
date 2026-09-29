@@ -55,6 +55,7 @@ from ..providers.hub_managed import (
     managed_slot,
 )
 from ..providers.capping_formatter import MAX_INLINE_MEDIA_BYTES
+from ..providers.model_cooldown import CooldownPolicy
 from ..utils.tool_call_extra import tool_call_extras_for_provider
 from ..providers.retry_chat_model import (
     RetryChatModel,
@@ -2073,6 +2074,9 @@ class _AgentModelSettings:
     fallback_slots: list[Any] = field(default_factory=list)
     fallback_enabled: bool = False
     fallback_free_only: bool = False
+    fallback_cooldown: CooldownPolicy = field(
+        default_factory=CooldownPolicy,
+    )
     thinking_level: Any = "inherit"
     thinking_budget: int | None = None
     compact_threshold: Optional[float] = None
@@ -2112,6 +2116,23 @@ def _load_agent_model_settings(
             settings.fallback_free_only = (
                 fallback_policy.target_scope == "free_only"
             )
+            settings.fallback_cooldown = CooldownPolicy(
+                enabled=getattr(
+                    fallback_policy,
+                    f"cooldown_enabled",
+                    True,
+                ),
+                base_seconds=getattr(
+                    fallback_policy,
+                    f"cooldown_base_seconds",
+                    60.0,
+                ),
+                max_seconds=getattr(
+                    fallback_policy,
+                    f"cooldown_max_seconds",
+                    3600.0,
+                ),
+            )
         running = agent_config.running
         settings.retry_config = RetryConfig(
             enabled=running.llm_retry_enabled,
@@ -2141,6 +2162,7 @@ def _apply_model_fallbacks(
     fallback_slots: list[Any],
     fallback_enabled: bool,
     fallback_free_only: bool,
+    fallback_cooldown: CooldownPolicy | None = None,
     thinking_level: str,
     thinking_budget: int | None = None,
     compact_threshold: Optional[float],
@@ -2222,7 +2244,10 @@ def _apply_model_fallbacks(
         seen_slots.add(fallback_key)
 
     if len(fallback_models) > 1:
-        return FallbackChatModel(fallback_models)
+        return FallbackChatModel(
+            fallback_models,
+            cooldown=fallback_cooldown,
+        )
     return wrapped_model
 
 
@@ -2364,6 +2389,7 @@ def create_model_and_formatter(
         fallback_slots=settings.fallback_slots,
         fallback_enabled=settings.fallback_enabled,
         fallback_free_only=settings.fallback_free_only,
+        fallback_cooldown=settings.fallback_cooldown,
         thinking_level=settings.thinking_level,
         thinking_budget=settings.thinking_budget,
         compact_threshold=settings.compact_threshold,

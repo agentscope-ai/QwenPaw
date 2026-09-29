@@ -2091,6 +2091,28 @@ class FallbackPolicyConfig(BaseModel):
     target_scope: Literal["configured", "free_only"] = Field(
         default="configured",
     )
+    cooldown_enabled: bool = Field(
+        default=True,
+        description=(
+            "Skip a candidate that just failed a fallback hop until its "
+            "cooldown expires."
+        ),
+    )
+    cooldown_base_seconds: float = Field(
+        default=60.0,
+        ge=0.0,
+        le=86_400.0,
+        description=(
+            "Cooldown after the first failure; doubles per consecutive "
+            "failure."
+        ),
+    )
+    cooldown_max_seconds: float = Field(
+        default=3_600.0,
+        ge=0.0,
+        le=604_800.0,
+        description="Upper bound for one candidate's cooldown.",
+    )
 
 
 class AgentMailCredential(BaseModel):

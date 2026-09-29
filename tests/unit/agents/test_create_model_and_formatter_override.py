@@ -27,6 +27,7 @@ from qwenpaw.config.config import ModelSlotConfig
 from qwenpaw.providers import fallback_chat_model
 from qwenpaw.providers import provider as provider_module
 from qwenpaw.providers.dashscope_provider import DashScopeProvider
+from qwenpaw.providers.model_cooldown import CooldownPolicy
 from qwenpaw.providers.provider_manager import ProviderManager
 from qwenpaw.providers.retry_chat_model import RetryChatModel
 from qwenpaw.token_usage import TokenRecordingModelWrapper
@@ -583,7 +584,7 @@ def test_preloaded_agent_config_preserves_model_settings(monkeypatch):
     monkeypatch.setattr(
         fallback_chat_model,
         "FallbackChatModel",
-        lambda models: SimpleNamespace(models=models),
+        lambda models, **_kwargs: SimpleNamespace(models=models),
     )
     monkeypatch.setattr(
         model_factory,
@@ -604,6 +605,42 @@ def test_preloaded_agent_config_preserves_model_settings(monkeypatch):
     assert [item.max_concurrent for item in rate_limit_configs] == [2, 2]
     assert compact_thresholds == [0.75, 0.75]
     assert thinking_levels == ["high", "high"]
+
+
+def test_cooldown_policy_is_loaded_from_the_fallback_policy():
+    """The agent's fallback policy configures fallback cooldown."""
+    config = _patched_load_agent_config("agent-1")
+    config.fallback_policy = SimpleNamespace(
+        enabled=True,
+        target_scope="any",
+        cooldown_enabled=False,
+        cooldown_base_seconds=5.0,
+        cooldown_max_seconds=30.0,
+    )
+
+    settings = model_factory._load_agent_model_settings(
+        "agent-1",
+        agent_config=config,
+    )
+
+    assert settings.fallback_cooldown == CooldownPolicy(
+        enabled=False,
+        base_seconds=5.0,
+        max_seconds=30.0,
+    )
+
+
+def test_legacy_fallback_policy_keeps_cooldown_defaults():
+    """An agent.json written before these fields existed still works."""
+    config = _patched_load_agent_config("agent-1")
+    config.fallback_policy = SimpleNamespace(enabled=True, target_scope="any")
+
+    settings = model_factory._load_agent_model_settings(
+        "agent-1",
+        agent_config=config,
+    )
+
+    assert settings.fallback_cooldown == CooldownPolicy()
 
 
 def test_each_fallback_model_gets_its_own_formatter(monkeypatch):
@@ -660,7 +697,7 @@ def test_each_fallback_model_gets_its_own_formatter(monkeypatch):
     monkeypatch.setattr(
         fallback_chat_model,
         "FallbackChatModel",
-        lambda models: SimpleNamespace(models=models),
+        lambda models, **_kwargs: SimpleNamespace(models=models),
     )
 
     model, formatter = model_factory.create_model_and_formatter(
