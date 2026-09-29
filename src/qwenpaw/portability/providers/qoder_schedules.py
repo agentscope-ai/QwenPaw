@@ -708,11 +708,11 @@ def _parse_aware_datetime(value: Any) -> datetime | None:
 
 
 def _load_timezone(value: str) -> ZoneInfo | None:
-    if not value:
+    if not value or not value.strip():
         return None
     try:
         return ZoneInfo(value)
-    except (ValueError, ZoneInfoNotFoundError):
+    except (OSError, ValueError, ZoneInfoNotFoundError):
         return None
 
 
