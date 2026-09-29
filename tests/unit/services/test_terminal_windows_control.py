@@ -1,9 +1,11 @@
 # -*- coding: utf-8 -*-
 """PTY interrupt contracts and a Windows-only native smoke test."""
 
+import ctypes
 import os
 import sys
 import time
+from types import SimpleNamespace
 from unittest.mock import MagicMock, call
 
 import pytest
@@ -11,9 +13,26 @@ import pytest
 from qwenpaw.services import terminal_windows as windows
 
 
+def worker_ignoring_ctrl_c(*args):
+    """Reproduce a launcher that passes Ctrl+C suppression to its children."""
+    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    if not kernel.SetConsoleCtrlHandler(None, True):
+        raise ctypes.WinError(ctypes.get_last_error())
+    windows.pty_worker(*args)
+
+
 @pytest.mark.skipif(sys.platform != "win32", reason="Real Windows console")
-def test_native_ping_interrupt_and_host_cleanup(tmp_path):
+@pytest.mark.parametrize("inherited_ignore", [False, True])
+def test_native_ping_interrupt_and_host_cleanup(
+    tmp_path,
+    monkeypatch,
+    inherited_ignore,
+):
     pytest.importorskip("winpty")
+    if inherited_ignore:
+        # multiprocessing spawn imports this module afresh in the worker,
+        # where windows.pty_worker still refers to the production function.
+        monkeypatch.setattr(windows, "pty_worker", worker_ignoring_ctrl_c)
     adapter = windows.WindowsPty.spawn(
         ["powershell.exe", "-NoLogo", "-NoProfile"],
         str(tmp_path),
@@ -42,6 +61,32 @@ def test_native_ping_interrupt_and_host_cleanup(tmp_path):
     finally:
         adapter.close()
     assert all(not process.is_running() for process in owned)
+
+
+@pytest.mark.parametrize("success", [True, False])
+def test_enable_ctrl_c_clears_inherited_ignore(monkeypatch, success):
+    kernel = MagicMock()
+    kernel.SetConsoleCtrlHandler.return_value = success
+    monkeypatch.setattr(windows, "sys", SimpleNamespace(platform="win32"))
+    monkeypatch.setattr(
+        ctypes,
+        "WinDLL",
+        lambda *_a, **_kw: kernel,
+        raising=False,
+    )
+    monkeypatch.setattr(ctypes, "get_last_error", lambda: 6, raising=False)
+    monkeypatch.setattr(
+        ctypes,
+        "WinError",
+        lambda _: OSError("reset failed"),
+        raising=False,
+    )
+    if success:
+        windows.enable_ctrl_c()
+    else:
+        with pytest.raises(OSError, match="reset failed"):
+            windows.enable_ctrl_c()
+    assert kernel.mock_calls == [call.SetConsoleCtrlHandler(None, False)]
 
 
 @pytest.mark.parametrize(

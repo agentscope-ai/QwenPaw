@@ -2,12 +2,25 @@
 """Keep Windows PTY handles and console control outside the server process."""
 
 import codecs
+import ctypes
 import importlib
 import multiprocessing
+import sys
 import threading
 import time
 
 import psutil
+
+
+def enable_ctrl_c():
+    """Clear inherited Ctrl+C suppression in the isolated PTY worker."""
+    if sys.platform != "win32":
+        return
+    # Console Ctrl+C ignore state is inherited, including by ConPTY children.
+    # Reset it before spawning the shell; writing ETX cannot override it.
+    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    if not kernel.SetConsoleCtrlHandler(None, False):
+        raise ctypes.WinError(ctypes.get_last_error())
 
 
 def write_input(process, data):
@@ -46,6 +59,7 @@ def pty_worker(control, output, command, cwd, env, dimensions):
     """Own one native PTY; process exit releases its OS handles as well."""
     try:
         native = importlib.import_module("winpty").PtyProcess
+        enable_ctrl_c()
         process = native.spawn(
             command,
             cwd=cwd,

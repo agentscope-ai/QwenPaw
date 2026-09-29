@@ -7,7 +7,7 @@ import multiprocessing
 import subprocess
 import sys
 import threading
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, call
 
 import psutil
 import pytest
@@ -22,6 +22,9 @@ def test_worker_protocol_and_eof(monkeypatch):
     process.fileobj.recv.return_value = b""
     process.isalive.return_value = False
     process.exitstatus = 7
+    startup = MagicMock()
+    startup.attach_mock(native.PtyProcess.spawn, "spawn")
+    monkeypatch.setattr(windows, "enable_ctrl_c", startup.enable_ctrl_c)
     monkeypatch.setattr(windows.importlib, "import_module", lambda _: native)
     control, child_control = multiprocessing.Pipe()
     output, child_output = multiprocessing.Pipe(duplex=False)
@@ -34,6 +37,10 @@ def test_worker_protocol_and_eof(monkeypatch):
     try:
         assert control.poll(3)
         assert control.recv() == (True, 123)
+        assert startup.mock_calls[:2] == [
+            call.enable_ctrl_c(),
+            call.spawn([], cwd=".", env={}, dimensions=(24, 80)),
+        ]
         for request_id, (operation, args, expected) in enumerate(
             [
                 ("write", ("hello",), None),
