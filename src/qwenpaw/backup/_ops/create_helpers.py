@@ -1,8 +1,10 @@
 # -*- coding: utf-8 -*-
 """Helpers for creating backups: agents, global config, secrets, skill pool."""
+
 from __future__ import annotations
 
 import logging
+import tempfile
 import zipfile
 from pathlib import Path
 from typing import Any
@@ -14,6 +16,8 @@ from .._utils.constants import (
     PREFIX_WORKSPACES,
 )
 from ...constant import CONFIG_FILE, SECRET_DIR, WORKING_DIR
+
+from .sqlite_snapshot import stage_databases
 
 logger = logging.getLogger(__name__)
 
@@ -47,27 +51,38 @@ def add_agent_workspaces(
         if ws.is_dir():
             file_count = 0
             skipped = 0
-            for entry in sorted(ws.rglob("*")):
-                if stop_event and stop_event.is_set():
+            entries = [p for p in sorted(ws.rglob("*")) if p.is_file()]
+            with tempfile.TemporaryDirectory(prefix="qwenpaw-backup-") as tmp:
+                staged = stage_databases(entries, Path(tmp), stop_event)
+                if staged is None:
                     return False
-                if not entry.is_file():
-                    continue
-                rel = entry.relative_to(ws).as_posix()
-                arcname = f"{PREFIX_WORKSPACES}{aid}/{rel}"
-                try:
-                    zf.write(entry, arcname)
-                except (PermissionError, OSError) as exc:
-                    # A file that can't be added (e.g. an open Chromium
-                    # cache file the backend has locked) must not abort
-                    # the whole backup; skip it and continue (#4916).
-                    skipped += 1
-                    logger.warning(
-                        "Skipping %s (could not be added to backup): %s",
-                        entry,
-                        exc,
-                    )
-                    continue
-                file_count += 1
+                snapshots, sidecars = staged
+                for entry in entries:
+                    if stop_event and stop_event.is_set():
+                        return False
+                    if str(entry) in sidecars:
+                        continue
+                    rel = entry.relative_to(ws).as_posix()
+                    arcname = f"{PREFIX_WORKSPACES}{aid}/{rel}"
+                    if str(entry) in snapshots:
+                        # Abort on snapshot errors; never omit history.
+                        zf.write(snapshots[str(entry)], arcname)
+                        file_count += 1
+                        continue
+                    try:
+                        zf.write(entry, arcname)
+                    except (PermissionError, OSError) as exc:
+                        # A file that can't be added (e.g. an open Chromium
+                        # cache file the backend has locked) must not abort
+                        # the whole backup; skip it and continue (#4916).
+                        skipped += 1
+                        logger.warning(
+                            "Skipping %s (could not be added to backup): %s",
+                            entry,
+                            exc,
+                        )
+                        continue
+                    file_count += 1
             if skipped:
                 logger.warning(
                     "Agent '%s': skipped %d file(s) that could not be "
