@@ -44,6 +44,7 @@
   --app-icon-sm: calc(14px * var(--app-font-scale));
   --app-icon-md: calc(16px * var(--app-font-scale));
   --app-icon-lg: calc(18px * var(--app-font-scale));
+  --app-icon-default: calc(20px * var(--app-font-scale));
   --app-icon-box: max(34px, calc(34px * var(--app-font-scale)));
   --app-icon-button: max(32px, calc(32px * var(--app-font-scale)));
   /* Surfaces */

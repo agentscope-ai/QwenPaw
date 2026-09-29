@@ -481,11 +481,15 @@ describe("console font-size coverage", () => {
       "--app-icon-sm",
       "--app-icon-md",
       "--app-icon-lg",
+      "--app-icon-default",
       "--app-icon-box",
       "--app-icon-button",
     ]) {
       expect(tokensSource).toContain(`${token}:`);
     }
+    expect(tokensSource).toMatch(
+      /--app-icon-default:\s*calc\(20px \* var\(--app-font-scale\)\)/,
+    );
     expect(tokensSource).toMatch(
       /--app-icon-lg:\s*calc\(18px \* var\(--app-font-scale\)\)/,
     );
@@ -520,6 +524,13 @@ describe("console font-size coverage", () => {
   });
 
   it("scales sender control icons and their hit areas", () => {
+    expect(chatStyles).toMatch(
+      /\[class\$="-sender-prefix"\] button svg,[\s\S]*?width: var\(--app-icon-default\);[\s\S]*?height: var\(--app-icon-default\);/,
+    );
+    expect(chatStyles).toMatch(
+      /\[class\$="-sender-prefix"\] button \[data-spark-icon\],[\s\S]*?font-size: var\(--app-icon-default\) !important;/,
+    );
+
     const approvalTrigger = readRule(approvalStyles, ".trigger");
     expect(approvalTrigger).toContain("var(--app-icon-button)");
     expect(approvalTrigger).toContain("width: var(--app-icon-xs)");
@@ -540,6 +551,17 @@ describe("console font-size coverage", () => {
     expect(readRule(projectDirectoryStyles, ".trigger")).toContain(
       "width: var(--app-icon-sm)",
     );
+  });
+
+  it("keeps the project-directory label shrinkable when text is enlarged", () => {
+    const triggerRule = readRule(projectDirectoryStyles, ".trigger");
+
+    expect(triggerRule).toContain("min-width: 0");
+    expect(triggerRule).toContain("flex: 1 1 0");
+    expect(triggerRule).toContain("text-overflow: ellipsis");
+    expect(triggerRule).toContain("white-space: nowrap");
+    expect(triggerRule).toContain("flex: 0 1 auto");
+    expect(triggerRule).toContain("overflow: hidden");
   });
 
   it("scales collapsed-step text, status icon, arrow, and header height", () => {

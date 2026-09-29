@@ -1,5 +1,6 @@
 .trigger {
   max-width: 240px;
+  min-width: 0;
   height: auto;
   min-height: max(30px, calc(30px * var(--app-font-scale)));
   padding: 0 9px;
@@ -20,6 +21,8 @@
   }
 
   > span {
+    min-width: 0;
+    flex: 1 1 0;
     overflow: hidden;
     color: var(--app-text);
     font-size: var(--app-font-caption);
@@ -29,9 +32,13 @@
   }
 
   em {
+    min-width: 0;
+    flex: 0 1 auto;
+    overflow: hidden;
     color: var(--app-accent-text);
     font-size: calc(11px * var(--app-font-scale));
     font-style: normal;
+    text-overflow: ellipsis;
     white-space: nowrap;
   }
 
