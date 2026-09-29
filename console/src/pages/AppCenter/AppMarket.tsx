@@ -5,7 +5,7 @@
  * `installPlugin` flow, filtered to UI extensions (category "app") so the
  * market surfaces installable PawApps.
  */
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   Alert,
@@ -36,11 +36,13 @@ import {
 import { installPlugin, type InstallPluginResult } from "@/api/modules/plugin";
 import { rootApi } from "@/api/modules/root";
 import { isMarketPluginCompatible } from "@/utils/pluginCompatibility";
-import { getMarketAppState, type MarketAppState } from "@/utils/marketAppState";
+import { getMarketAppState } from "@/utils/marketAppState";
 import type { InstalledPluginIdentity } from "@/utils/marketPluginIdentity";
 import styles from "./index.module.less";
+import { InteractiveCard } from "@/components/interaction/InteractiveCard";
+import { SettingsDrawer } from "@/components/interaction/SettingsDrawer";
 
-const { Text, Paragraph } = Typography;
+const { Paragraph } = Typography;
 
 const APP_CATEGORY = "app";
 const MARKET_PAGE_SIZE = 20;
@@ -75,11 +77,6 @@ function LoadMoreSentinel({ onVisible }: { onVisible: () => void }) {
 // provide an icon for them.
 const FEATURED_APP_ICONS: Record<string, string> = {
   "@agentscope/qwenpaw-creator": "/creator-logo.png",
-};
-// Emoji icons from the plugins' own plugin.json (the market API carries no
-// icon field), so uninstalled cards match what the installed view shows.
-const FEATURED_APP_EMOJIS: Record<string, string> = {
-  "@zhijianma/agent-kanban": "📋",
 };
 // The upstream market entry ships the same English text under every locale
 // key, so curated apps carry their real translations here (keyed by language
@@ -133,6 +130,9 @@ export function AppMarket({
   const tRef = useRef(t);
   tRef.current = t;
 
+  const surfacePrefix = useId();
+  const [preview, setPreview] = useState<MarketPluginEntry | null>(null);
+  const [previewOpen, setPreviewOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [plugins, setPlugins] = useState<MarketPluginEntry[]>([]);
@@ -379,6 +379,46 @@ export function AppMarket({
     />
   );
 
+  const installButton = (entry: MarketPluginEntry) => {
+    const state = getMarketAppState(
+      entry,
+      installedAppVersions,
+      isOfficial ? "official" : "app",
+      installedApps,
+    );
+    const isInstalled = state === "installed";
+    const canUpdate = state === "update";
+    return (
+      <Button
+        type={isInstalled ? "default" : "primary"}
+        icon={
+          isInstalled ? (
+            <BadgeCheck size={14} />
+          ) : canUpdate ? (
+            <RefreshCw size={14} />
+          ) : (
+            <Download size={14} />
+          )
+        }
+        loading={!isInstalled && installingId === entry.id}
+        disabled={
+          isInstalled ||
+          !versionChecked ||
+          (installingId !== null && installingId !== entry.id)
+        }
+        onClick={() => requestInstall(entry)}
+      >
+        {isInstalled
+          ? t("appCenter.installedStatus", "Installed")
+          : canUpdate
+          ? t("appCenter.update", "Update")
+          : installingId === entry.id
+          ? t("appCenter.installing", "安装中...")
+          : t("appCenter.install", "安装")}
+      </Button>
+    );
+  };
+
   return (
     <div>
       {isOfficial ? (
@@ -451,109 +491,84 @@ export function AppMarket({
             <div className={styles.grid}>
               {plugins.map((entry) => {
                 const iconSrc = entry.logo_url || FEATURED_APP_ICONS[entry.id];
-                const marketState: MarketAppState = getMarketAppState(
-                  entry,
-                  installedAppVersions,
-                  isOfficial ? "official" : "app",
-                  installedApps,
-                );
-                const isInstalled = marketState === "installed";
-                const canUpdate = marketState === "update";
                 return (
-                  <Card key={entry.id} className={styles.appCard}>
-                    <div className={styles.cardIcon}>
-                      {iconSrc ? (
-                        <img
-                          src={iconSrc}
-                          alt=""
-                          className={styles.marketLogo}
-                        />
-                      ) : FEATURED_APP_EMOJIS[entry.id] ? (
-                        <span className={styles.cardIconEmoji} aria-hidden>
-                          {FEATURED_APP_EMOJIS[entry.id]}
-                        </span>
-                      ) : (
-                        <AppWindow size={24} strokeWidth={1.75} />
-                      )}
-                    </div>
-                    <div className={styles.cardBody}>
-                      <div className={styles.cardHeader}>
-                        <Text strong className={styles.cardTitle} ellipsis>
-                          {entry.display_name}
-                        </Text>
-                        <span className={styles.versionBadge}>
-                          v{entry.version}
-                        </span>
-                        {entry.is_featured === true && (
-                          <span className={styles.featuredTag}>
-                            <Sparkles size={11} strokeWidth={2} />
-                            {t("appCenter.featured", "精选")}
-                          </span>
+                  <InteractiveCard
+                    key={entry.id}
+                    tilt={2}
+                    layoutId={`${surfacePrefix}:${entry.id}`}
+                    style={{ borderRadius: 20, height: "100%" }}
+                  >
+                    <Card className={styles.appCard}>
+                      <div className={styles.cardIcon}>
+                        {iconSrc ? (
+                          <img
+                            src={iconSrc}
+                            alt=""
+                            className={styles.marketLogo}
+                          />
+                        ) : (
+                          <AppWindow size={24} strokeWidth={1.75} />
                         )}
                       </div>
-                      <Paragraph
-                        type="secondary"
-                        className={styles.cardDesc}
-                        ellipsis={{ rows: 2 }}
-                      >
-                        {pickDescription(entry, lang) ||
-                          t("appCenter.noDescription", "No description")}
-                      </Paragraph>
-                      <div className={styles.cardFooter}>
-                        <span className={styles.cardMeta}>
-                          {entry.developer || entry.owner || ""}
-                        </span>
-                        {entry.downloads != null && (
-                          <span className={styles.metaDownloads}>
-                            <Download size={12} strokeWidth={2} />
-                            {entry.downloads}
+                      <div className={styles.cardBody}>
+                        <div className={styles.cardHeader}>
+                          <button
+                            className={`${styles.cardTitle} ${styles.previewTrigger}`}
+                            onClick={() => {
+                              setPreview(entry);
+                              setPreviewOpen(true);
+                            }}
+                          >
+                            {entry.display_name}
+                          </button>
+                          <span className={styles.versionBadge}>
+                            v{entry.version}
                           </span>
-                        )}
-                      </div>
-                      <div
-                        className={`${styles.cardActions} ${styles.cardHoverActions}`}
-                      >
-                        <Button
-                          type={isInstalled ? "default" : "primary"}
-                          icon={
-                            isInstalled ? (
-                              <BadgeCheck size={14} />
-                            ) : canUpdate ? (
-                              <RefreshCw size={14} />
-                            ) : (
-                              <Download size={14} />
-                            )
-                          }
-                          loading={!isInstalled && installingId === entry.id}
-                          disabled={
-                            isInstalled ||
-                            !versionChecked ||
-                            (installingId !== null && installingId !== entry.id)
-                          }
-                          onClick={() => requestInstall(entry)}
+                          {entry.is_featured === true && (
+                            <span className={styles.featuredTag}>
+                              <Sparkles size={11} strokeWidth={2} />
+                              {t("appCenter.featured", "精选")}
+                            </span>
+                          )}
+                        </div>
+                        <Paragraph
+                          type="secondary"
+                          className={styles.cardDesc}
+                          ellipsis={{ rows: 2 }}
                         >
-                          {isInstalled
-                            ? t("appCenter.installedStatus", "Installed")
-                            : canUpdate
-                            ? t("appCenter.update", "Update")
-                            : installingId === entry.id
-                            ? t("appCenter.installing", "安装中...")
-                            : t("appCenter.install", "安装")}
-                        </Button>
-                        <Button
-                          icon={<ExternalLink size={14} />}
-                          disabled={!entry.details_url}
-                          onClick={() => {
-                            if (entry.details_url) {
-                              void openExternalLink(entry.details_url);
-                            }
-                          }}
+                          {pickDescription(entry, lang) ||
+                            t("appCenter.noDescription", "No description")}
+                        </Paragraph>
+                        <div className={styles.cardFooter}>
+                          <span className={styles.cardMeta}>
+                            {entry.developer || entry.owner || ""}
+                          </span>
+                          {entry.downloads != null && (
+                            <span className={styles.metaDownloads}>
+                              <Download size={12} strokeWidth={2} />
+                              {entry.downloads}
+                            </span>
+                          )}
+                        </div>
+                        <div
+                          className={`${styles.cardActions} ${styles.cardHoverActions}`}
                         >
-                          {t("appCenter.details", "详情")}
-                        </Button>
+                          {installButton(entry)}
+                          <Button
+                            icon={<ExternalLink size={14} />}
+                            disabled={!entry.details_url}
+                            onClick={() => {
+                              if (entry.details_url) {
+                                void openExternalLink(entry.details_url);
+                              }
+                            }}
+                          >
+                            {t("appCenter.details", "详情")}
+                          </Button>
+                        </div>
                       </div>
-                    </div>
-                  </Card>
+                    </Card>
+                  </InteractiveCard>
                 );
               })}
             </div>
@@ -578,6 +593,46 @@ export function AppMarket({
           </>
         )}
       </Spin>
+      <SettingsDrawer
+        open={previewOpen}
+        onClose={() => setPreviewOpen(false)}
+        surfaceId={preview ? `${surfacePrefix}:${preview.id}` : undefined}
+        title={preview?.display_name}
+        width={620}
+        footer={
+          preview ? (
+            <div className={styles.previewActions}>
+              {installButton(preview)}
+              {preview.details_url && (
+                <Button
+                  icon={<ExternalLink size={14} />}
+                  onClick={() => void openExternalLink(preview.details_url!)}
+                >
+                  {t("appCenter.details")}
+                </Button>
+              )}
+            </div>
+          ) : undefined
+        }
+      >
+        {preview && (
+          <div className={styles.previewBody}>
+            <div className={styles.cardFooter}>
+              <span className={styles.versionBadge}>v{preview.version}</span>
+              <span>{preview.developer || preview.owner}</span>
+              {preview.downloads != null && (
+                <span className={styles.metaDownloads}>
+                  <Download size={14} />
+                  {preview.downloads}
+                </span>
+              )}
+            </div>
+            <p>
+              {pickDescription(preview, lang) || t("appCenter.noDescription")}
+            </p>
+          </div>
+        )}
+      </SettingsDrawer>
     </div>
   );
 }

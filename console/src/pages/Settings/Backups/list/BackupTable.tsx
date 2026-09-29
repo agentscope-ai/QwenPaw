@@ -14,7 +14,6 @@ import {
   Empty,
   Modal,
   Pagination,
-  Popconfirm,
   Table,
   Tooltip,
   Typography,
@@ -26,6 +25,7 @@ import relativeTime from "dayjs/plugin/relativeTime";
 import api from "@/api";
 import { useAppMessage } from "@/hooks/useAppMessage";
 import type { BackupMeta } from "@/api/types/backup";
+import { DeleteAction } from "@/components/interaction/DeleteAction";
 import ScopeTags from "./ScopeTags";
 import styles from "./BackupTable.module.less";
 
@@ -88,8 +88,9 @@ export default function BackupTable({
       await api.deleteBackups([id]);
       message.success(t("backup.deleteSuccess"));
       onRefresh();
-    } catch {
+    } catch (error) {
       message.error(t("backup.deleteFailed"));
+      throw error;
     }
   };
 
@@ -168,14 +169,10 @@ export default function BackupTable({
           <Button type="link" size="small" onClick={() => handleExport(record)}>
             {t("backup.export")}
           </Button>
-          <Popconfirm
-            title={t("backup.deleteConfirm")}
+          <DeleteAction
+            label={t("backup.deleteConfirm")}
             onConfirm={() => handleDelete(record.id)}
-          >
-            <Button type="link" size="small" danger>
-              {t("backup.delete")}
-            </Button>
-          </Popconfirm>
+          />
         </span>
       ),
     },
@@ -242,14 +239,10 @@ export default function BackupTable({
         <Button size="small" onClick={() => handleExport(backup)}>
           {t("backup.export")}
         </Button>
-        <Popconfirm
-          title={t("backup.deleteConfirm")}
+        <DeleteAction
+          label={t("backup.deleteConfirm")}
           onConfirm={() => handleDelete(backup.id)}
-        >
-          <Button size="small" danger>
-            {t("backup.delete")}
-          </Button>
-        </Popconfirm>
+        />
       </div>
     </Card>
   );

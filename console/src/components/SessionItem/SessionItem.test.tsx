@@ -135,7 +135,8 @@ describe("SessionItem actions", () => {
 
     const row = screen.getByText("Chat").closest('[role="button"]')!;
     fireEvent.focus(row);
-    expect(await screen.findByRole("tooltip")).toBeInTheDocument();
+    const info = await screen.findByRole("tooltip");
+    expect(info).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "More actions" }));
     expect(
@@ -144,9 +145,7 @@ describe("SessionItem actions", () => {
       }),
     ).toBeInTheDocument();
     await waitFor(() => {
-      const closingPopover = screen
-        .getByRole("tooltip")
-        .closest(".ant-popover");
+      const closingPopover = info.closest(".ant-popover");
       expect(closingPopover).toHaveClass("ant-zoom-big-leave-active");
       expect(closingPopover).toHaveStyle({ pointerEvents: "none" });
     });
@@ -279,5 +278,39 @@ describe("SessionItem info card", () => {
     expect(
       screen.queryByText("chat.sessionPanel.groupByTime"),
     ).not.toBeInTheDocument();
+  });
+});
+
+describe("Session action surface", () => {
+  it("moves through the group picker without selecting the conversation", async () => {
+    const onMove = vi.fn();
+    const onClick = vi.fn();
+    render(
+      <SessionItem
+        sessionId="group-chat"
+        name="Grouped"
+        groupId="one"
+        groups={
+          [
+            { id: "one", name: "Current" },
+            { id: "two", name: "Target" },
+          ] as never
+        }
+        onMove={onMove}
+        onClick={onClick}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "More actions" }));
+    fireEvent.click(
+      await screen.findByRole("menuitem", {
+        name: "chat.contextMenu.moveToGroup",
+      }),
+    );
+    expect(
+      await screen.findByRole("menuitem", { name: "Current" }),
+    ).toBeDisabled();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Target" }));
+    expect(onMove).toHaveBeenCalledExactlyOnceWith("group-chat", "two");
+    expect(onClick).not.toHaveBeenCalled();
   });
 });

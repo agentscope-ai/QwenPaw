@@ -82,6 +82,7 @@ export function useSkillsPage() {
 
   // ── Local state ─────────────────────────────────────────────────────────
 
+  const savedEdit = useRef<SkillDetail | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [importModalOpen, setImportModalOpen] = useState(false);
   const [editingSkill, setEditingSkill] = useState<SkillDetail | null>(null);
@@ -193,11 +194,22 @@ export function useSkillsPage() {
     [filteredSkills],
   );
 
+  // Page by identity, then group visually by status. Toggling a skill must
+  // not push its destination outside the mounted slice or reset pagination.
+  const renderOrderSkills = useMemo(
+    () => filteredSkills.slice().sort((a, b) => a.name.localeCompare(b.name)),
+    [filteredSkills],
+  );
+  const renderKey = JSON.stringify([
+    selectedAgent,
+    renderOrderSkills.map((skill) => skill.name),
+  ]);
+
   const {
     visibleItems: visibleSkills,
     hasMore,
     sentinelRef,
-  } = useProgressiveRender(sortedSkills);
+  } = useProgressiveRender(renderOrderSkills, renderKey);
 
   // ── Effects ─────────────────────────────────────────────────────────────
 
@@ -290,11 +302,15 @@ export function useSkillsPage() {
         : [];
       if (conflicts.length === 0) break;
       const newRenames = await showConflictRenameModal(
-        conflicts.map((c: { skill_name: string; suggested_name: string }) => ({
-          key: c.skill_name,
-          label: c.skill_name,
-          suggested_name: c.suggested_name,
-        })),
+        conflicts
+          .filter((c): c is { skill_name: string; suggested_name: string } =>
+            Boolean(c.skill_name && c.suggested_name),
+          )
+          .map((c) => ({
+            key: c.skill_name,
+            label: c.skill_name,
+            suggested_name: c.suggested_name,
+          })),
       );
       if (!newRenames) break;
       renameMap = { ...renameMap, ...newRenames };
@@ -360,6 +376,7 @@ export function useSkillsPage() {
     try {
       const detail = await api.getSkill(skill.name, selectedAgent);
       if (detailRequestIdRef.current !== requestId) return;
+      savedEdit.current = detail;
       setEditingSkill(detail);
     } catch (error) {
       if (detailRequestIdRef.current !== requestId) return;
@@ -378,7 +395,6 @@ export function useSkillsPage() {
   const handleToggleEnabled = async (skill: SkillSpec, e: React.MouseEvent) => {
     e.stopPropagation();
     await toggleEnabled(skill);
-    await refreshSkills();
   };
 
   const handleDelete = async (skill: SkillSpec, e?: React.MouseEvent) => {
@@ -398,47 +414,46 @@ export function useSkillsPage() {
 
   const handleSubmit = async (values: SkillDetail) => {
     if (editingSkill) {
-      const sourceName = editingSkill.name;
+      const baseline = savedEdit.current || editingSkill;
+      const sourceName = baseline.name;
       const targetName = values.name;
       const saveEditedSkill = async (overwrite = false) => {
-        const result = await api.saveSkill({
-          name: targetName,
-          content: values.content,
-          source_name: sourceName !== targetName ? sourceName : undefined,
-          config: values.config,
-          overwrite,
-        });
+        const result = await api.saveSkill(
+          {
+            name: targetName,
+            content: values.content,
+            source_name: sourceName !== targetName ? sourceName : undefined,
+            config: values.config,
+            overwrite,
+          },
+          selectedAgent,
+        );
+        savedEdit.current = { ...baseline, name: result.name };
         const sideUpdates: Promise<unknown>[] = [];
         const newChannels = values.channels || ["all"];
         if (
           JSON.stringify(newChannels) !==
-          JSON.stringify(editingSkill.channels || ["all"])
+          JSON.stringify(baseline.channels || ["all"])
         ) {
-          sideUpdates.push(api.updateSkillChannels(result.name, newChannels));
-        }
-        const newPreload = values.preload ?? false;
-        if (newPreload !== (editingSkill.preload ?? false)) {
-          sideUpdates.push(api.updateSkillPreload(result.name, newPreload));
-        }
-        const newTags = values.tags || [];
-        if (
-          JSON.stringify(newTags) !== JSON.stringify(editingSkill.tags || [])
-        ) {
-          sideUpdates.push(api.updateSkillTags(result.name, newTags));
-        }
-        await Promise.all(sideUpdates);
-        if (result.mode === "noop" && sideUpdates.length === 0) {
-          setDrawerOpen(false);
-          return;
-        }
-        if (result.mode !== "noop") {
-          message.success(
-            result.mode === "rename"
-              ? `${t("common.save")}: ${result.name}`
-              : t("common.save"),
+          sideUpdates.push(
+            api.updateSkillChannels(result.name, newChannels, selectedAgent),
           );
         }
-        setDrawerOpen(false);
+        const newPreload = values.preload ?? false;
+        if (newPreload !== (baseline.preload ?? false)) {
+          sideUpdates.push(
+            api.updateSkillPreload(result.name, newPreload, selectedAgent),
+          );
+        }
+        const newTags = values.tags || [];
+        if (JSON.stringify(newTags) !== JSON.stringify(baseline.tags || [])) {
+          sideUpdates.push(
+            api.updateSkillTags(result.name, newTags, selectedAgent),
+          );
+        }
+        await Promise.all(sideUpdates);
+        savedEdit.current = { ...baseline, ...values, name: result.name };
+        if (result.mode === "noop" && sideUpdates.length === 0) return;
         invalidateSkillCache({ agentId: selectedAgent });
         await refreshSkills();
       };
@@ -446,31 +461,18 @@ export function useSkillsPage() {
         await saveEditedSkill();
       } catch (error) {
         const detail = parseErrorDetail(error);
-        if (detail?.reason === "conflict") {
-          const confirmed = await confirmOverwrite(
-            t("skillPool.overwriteConfirm"),
-            <div style={{ display: "grid", gap: 8 }}>
-              <div>{t("skills.overwriteExistingList")}</div>
-              <ul style={{ margin: 0, paddingLeft: 20 }}>
-                <li>{targetName}</li>
-              </ul>
-            </div>,
-          );
-          if (!confirmed) return;
-          try {
-            await saveEditedSkill(true);
-          } catch (retryError) {
-            message.error(
-              retryError instanceof Error
-                ? retryError.message
-                : t("common.save"),
-            );
-          }
-        } else {
-          message.error(
-            error instanceof Error ? error.message : t("common.save"),
-          );
-        }
+        if (detail?.reason !== "conflict") throw error;
+        const confirmed = await confirmOverwrite(
+          t("skillPool.overwriteConfirm"),
+          <div>
+            {t("skills.overwriteExistingList")}
+            <ul>
+              <li>{targetName}</li>
+            </ul>
+          </div>,
+        );
+        if (!confirmed) return false;
+        await saveEditedSkill(true);
       }
     } else {
       const submitName = values.name;

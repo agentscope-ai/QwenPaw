@@ -69,10 +69,11 @@ export const agentApi = {
   listMemoryBackends: () =>
     request<MemoryBackendDescriptor[]>("/agents/memory/backends"),
 
-  updateAgentRunningConfig: (config: AgentsRunningConfig) =>
+  updateAgentRunningConfig: (config: AgentsRunningConfig, agentId?: string) =>
     request<AgentsRunningConfig>("/workspace/running-config", {
       method: "PUT",
       body: JSON.stringify(config),
+      ...(agentId ? { headers: { "X-Agent-Id": agentId } } : {}),
       timeout: 10 * 60 * 1000,
     }),
 

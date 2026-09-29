@@ -19,8 +19,9 @@ export const cronJobApi = {
   getCronJob: (jobId: string) =>
     request<CronJobView>(`/cron/jobs/${encodeURIComponent(jobId)}`),
 
-  replaceCronJob: (jobId: string, spec: CronJobSpecInput) =>
+  replaceCronJob: (jobId: string, spec: CronJobSpecInput, agentId?: string) =>
     request<CronJobSpecOutput>(`/cron/jobs/${encodeURIComponent(jobId)}`, {
+      ...(agentId ? { headers: { "X-Agent-Id": agentId } } : {}),
       method: "PUT",
       body: JSON.stringify(spec),
     }),

@@ -92,12 +92,55 @@
   }
 }
 
+.control[data-tone="quiet"] {
+  --thinking-start: color-mix(in srgb, var(--app-accent) 20%, var(--app-fill));
+  --thinking-mid: color-mix(in srgb, var(--app-accent) 58%, var(--app-fill));
+  --thinking-end: color-mix(in srgb, var(--app-accent) 76%, var(--app-text));
+
+  :global(.ant-slider),
+  :global(.qwenpaw-slider) {
+    height: 32px;
+    margin-top: 6px;
+    padding-block: 9px;
+  }
+
+  :global(.ant-slider-rail),
+  :global(.qwenpaw-slider-rail),
+  :global(.ant-slider-track),
+  :global(.qwenpaw-slider-track) {
+    height: 10px;
+  }
+
+  :global(.ant-slider-step),
+  :global(.qwenpaw-slider-step) {
+    top: 9px;
+    height: 10px;
+  }
+
+  :global(.ant-slider-handle),
+  :global(.qwenpaw-slider-handle) {
+    top: 16px;
+    width: 18px;
+    height: 18px;
+  }
+
+  :global(.ant-slider-handle::after),
+  :global(.qwenpaw-slider-handle::after),
+  :global(.ant-slider-handle:hover::after),
+  :global(.qwenpaw-slider-handle:hover::after),
+  :global(.ant-slider-handle:focus::after),
+  :global(.qwenpaw-slider-handle:focus::after) {
+    width: 18px;
+    height: 18px;
+  }
+}
+
 .header {
   display: grid;
   grid-template-columns: 64px minmax(0, 1fr) 64px;
   align-items: start;
   gap: 4px;
-  font-size: 12px;
+  font-size: var(--app-font-caption);
 }
 .identity {
   min-width: 0;
@@ -108,7 +151,7 @@
     justify-content: center;
     gap: 3px;
     color: var(--thinking-pigment);
-    font-size: 15px;
+    font-size: calc(15px * var(--app-font-scale));
     font-weight: 600;
   }
 }
@@ -133,7 +176,7 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    font-size: 12px;
+    font-size: var(--app-font-caption);
   }
   &:hover {
     background: var(--app-fill-hover);
@@ -195,7 +238,7 @@
   background: transparent;
   color: var(--app-text-secondary);
   font: inherit;
-  font-size: 12px;
+  font-size: var(--app-font-caption);
   font-variant-numeric: tabular-nums;
   cursor: pointer;
   &:hover {
@@ -217,12 +260,17 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  height: 32px;
+  min-width: 0;
+  max-width: 100%;
+  height: auto;
+  min-height: max(32px, calc(32px * var(--app-font-scale)));
   padding: 0 9px;
   border: 1px solid var(--app-border);
   border-radius: 8px;
   background: transparent;
   color: var(--app-text-secondary);
+  font-size: var(--app-font-body);
+  line-height: 1.35;
   cursor: pointer;
   white-space: nowrap;
   &:hover,
@@ -231,9 +279,12 @@
     border-color: var(--app-accent);
   }
   > span:first-of-type {
+    min-width: 0;
     max-width: min(220px, 35vw);
+    flex: 1 1 auto;
     overflow: hidden;
     text-overflow: ellipsis;
+    white-space: nowrap;
   }
 }
 .thinkingIndicator {

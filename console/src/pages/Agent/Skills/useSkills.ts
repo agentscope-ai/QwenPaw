@@ -21,7 +21,14 @@ import { subscribeToSkillChanges } from "../../../utils/skillChangeEvents";
 
 type SkillActionResult =
   | { success: true; name?: string; imported?: string[] }
-  | { success: false; conflict?: Record<string, any> };
+  | {
+      success: false;
+      conflict?: {
+        suggested_name?: string;
+        skill_name?: string;
+        conflicts?: { suggested_name?: string; skill_name?: string }[];
+      };
+    };
 
 export function useSkills() {
   const { t } = useTranslation();
@@ -51,7 +58,7 @@ export function useSkills() {
       message.error(msg);
       return false;
     },
-    [t],
+    [message, t],
   );
 
   const checkScanWarnings = useCallback(

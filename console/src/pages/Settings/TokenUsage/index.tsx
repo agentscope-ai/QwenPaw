@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { DatePicker, Tooltip } from "antd";
+import { DatePicker, Segmented, Tooltip } from "antd";
 import { Card } from "@agentscope-ai/design";
 import { Line } from "@ant-design/plots";
 import { useTranslation } from "react-i18next";
@@ -25,12 +25,18 @@ import { lineChartChrome } from "./hooks/lineChartChrome";
 import { useModelTrendConfig } from "./hooks/useModelTrendConfig";
 import { useTokenTypeConfig } from "./hooks/useTokenTypeConfig";
 import { buildByDateRows } from "./tokenUsageRows";
+import { ChartNoAxesCombined, CalendarDays } from "lucide-react";
+import { UsageActivity } from "./components/UsageActivity";
+import { motion, useReducedMotion } from "motion/react";
 import styles from "./index.module.less";
 
 function TokenUsagePage() {
   const { t } = useTranslation();
   const { message } = useAppMessage();
   const { isDark } = useTheme();
+  const reduced = useReducedMotion();
+  const [chartView, setChartView] = useState<"trends" | "activity">("trends");
+  const [activityYear, setActivityYear] = useState(dayjs().year());
   const agents = useAgentStore((state) => state.agents);
   const agentsById = useMemo(
     () => new Map(agents.map((agent) => [agent.id, agent])),
@@ -52,10 +58,18 @@ function TokenUsagePage() {
 
   const dateRange = useMemo(
     () => ({
-      start_date: startDate.format("YYYY-MM-DD"),
-      end_date: endDate.format("YYYY-MM-DD"),
+      start_date: (chartView === "activity"
+        ? dayjs().year(activityYear).startOf("year")
+        : startDate
+      ).format("YYYY-MM-DD"),
+      end_date: (chartView === "activity"
+        ? activityYear === dayjs().year()
+          ? dayjs()
+          : dayjs().year(activityYear).endOf("year")
+        : endDate
+      ).format("YYYY-MM-DD"),
     }),
-    [startDate, endDate],
+    [startDate, endDate, chartView, activityYear],
   );
 
   const fetchTrend = useCallback(
@@ -154,7 +168,7 @@ function TokenUsagePage() {
         startDate,
         endDate,
         seriesField: "type",
-        colors: ["#722ed1", "#13c2c2"],
+        colors: isDark ? ["#ffad66", "#c59e80"] : ["#e87919", "#887466"],
       }),
     };
   }, [llmToolDays, startDate, endDate, isDark, t]);
@@ -213,35 +227,64 @@ function TokenUsagePage() {
     <PageHeader parent={t("nav.settings")} current={t("tokenUsage.title")} />
   );
 
-  if (loading) {
-    return (
-      <div className={styles.container}>
-        {pageHeader}
-        <LoadingState message={t("common.loading", "Loading...")} />
-      </div>
-    );
-  }
-
   return (
     <div className={styles.container}>
       {pageHeader}
 
       <div className={styles.content}>
         <div className={styles.toolbar}>
-          <DatePicker.RangePicker
-            value={[startDate, endDate]}
-            onChange={handleDateChange}
-            disabledDate={(current: Dayjs, info?: { from?: Dayjs }) => {
-              if (!current || current.isAfter(dayjs(), "day")) return true;
-              if (info?.from) {
-                return Math.abs(current.diff(info.from, "day")) >= 365;
-              }
-              return false;
-            }}
+          <Segmented
+            value={chartView}
+            onChange={setChartView}
+            options={[
+              {
+                value: "trends",
+                label: t("tokenUsage.trends", "Trends"),
+                icon: <ChartNoAxesCombined size={15} />,
+              },
+              {
+                value: "activity",
+                label: t("tokenUsage.activity", "Activity"),
+                icon: <CalendarDays size={15} />,
+              },
+            ]}
           />
+          {chartView === "activity" ? (
+            <DatePicker
+              picker="year"
+              allowClear={false}
+              value={dayjs().year(activityYear)}
+              onChange={(value) => {
+                if (value) setActivityYear(value.year());
+              }}
+              disabledDate={(current) => current.year() > dayjs().year()}
+              aria-label={t("tokenUsage.year", "Year")}
+            />
+          ) : (
+            <DatePicker.RangePicker
+              presets={[30, 90, 365].map((days) => ({
+                label: t("tokenUsage.lastDays", {
+                  count: days,
+                  defaultValue: "Last {{count}} days",
+                }),
+                value: [dayjs().subtract(days - 1, "day"), dayjs()],
+              }))}
+              value={[startDate, endDate]}
+              onChange={handleDateChange}
+              disabledDate={(current: Dayjs, info?: { from?: Dayjs }) => {
+                if (!current || current.isAfter(dayjs(), "day")) return true;
+                if (info?.from) {
+                  return Math.abs(current.diff(info.from, "day")) >= 365;
+                }
+                return false;
+              }}
+            />
+          )}
         </div>
 
-        {error ? (
+        {loading ? (
+          <LoadingState message={t("common.loading", "Loading...")} />
+        ) : error ? (
           <LoadingState
             message={t("tokenUsage.loadFailed")}
             error
@@ -261,43 +304,61 @@ function TokenUsagePage() {
               />
             )}
 
-            <div className={styles.trendRow}>
-              <ModelTrendChart chartConfig={modelTrendConfig} />
-              <TokenTypeChart chartConfig={tokenTypeConfig} />
-            </div>
+            <motion.div
+              key={chartView}
+              initial={reduced ? false : { opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.2 }}
+            >
+              {chartView === "activity" ? (
+                <UsageActivity
+                  records={records}
+                  startDate={dayjs().year(activityYear).startOf("year")}
+                  endDate={dayjs().year(activityYear).endOf("year")}
+                />
+              ) : (
+                <div className={styles.trendRow}>
+                  <ModelTrendChart chartConfig={modelTrendConfig} />
+                  <TokenTypeChart chartConfig={tokenTypeConfig} />
+                </div>
+              )}
+            </motion.div>
           </>
         )}
 
-        <Card
-          className={styles.chartCard}
-          title={
-            <Tooltip title={t("tokenUsage.llmAndToolTrendTooltip")}>
-              <span className={styles.chartTitle}>
-                {t("tokenUsage.llmAndToolTrend")}
-              </span>
-            </Tooltip>
-          }
-        >
-          {trendLoading ? (
-            <LoadingState message={t("common.loading", "Loading...")} />
-          ) : trendError ? (
-            <LoadingState
-              message={t("tokenUsage.llmAndToolTrendLoadFailed")}
-              error
-              onRetry={() => {
-                void fetchTrend(++trendFetchIdRef.current);
-              }}
-            />
-          ) : (llmToolDays ?? []).every(
-              (d) => d.agent_llm_calls === 0 && d.tool_calls === 0,
-            ) ? (
-            <EmptyState message={t("tokenUsage.noData")} />
-          ) : (
-            <Line {...llmToolConfig} />
-          )}
-        </Card>
+        {!loading && chartView === "trends" && (
+          <Card
+            className={styles.chartCard}
+            title={
+              <Tooltip title={t("tokenUsage.llmAndToolTrendTooltip")}>
+                <span className={styles.chartTitle}>
+                  {t("tokenUsage.llmAndToolTrend")}
+                </span>
+              </Tooltip>
+            }
+          >
+            {trendLoading ? (
+              <LoadingState message={t("common.loading", "Loading...")} />
+            ) : trendError ? (
+              <LoadingState
+                message={t("tokenUsage.llmAndToolTrendLoadFailed")}
+                error
+                onRetry={() => {
+                  void fetchTrend(++trendFetchIdRef.current);
+                }}
+              />
+            ) : (llmToolDays ?? []).every(
+                (d) => d.agent_llm_calls === 0 && d.tool_calls === 0,
+              ) ? (
+              <EmptyState message={t("tokenUsage.noData")} />
+            ) : (
+              <Line {...llmToolConfig} />
+            )}
+          </Card>
+        )}
 
-        {!error &&
+        {!loading &&
+          !error &&
           (tablesEmpty ? (
             <EmptyState message={t("tokenUsage.noData")} />
           ) : (

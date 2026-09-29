@@ -1,4 +1,11 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import type { ReactNode, ComponentProps } from "react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // `t` and `i18n` must be referentially stable: `validateFrontmatter` is a
@@ -8,7 +15,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const h = vi.hoisted(() => ({
   stableT: (key: string) => key,
   stableI18n: { language: "en" },
-  message: { success: vi.fn(), error: vi.fn(), warning: vi.fn() },
+  message: {
+    success: vi.fn(),
+    error: vi.fn(),
+    warning: vi.fn(),
+    destroy: vi.fn(),
+  },
   streamOptimizeSkill: vi.fn(),
   // Captured from the mocked Form/Form.Item so the tests can drive submit and
   // the two inline validators directly instead of going through real antd.
@@ -35,21 +47,53 @@ vi.mock("@ant-design/icons", () => ({
   StopOutlined: () => <span data-testid="icon-stop" />,
 }));
 
-vi.mock("@agentscope-ai/design", () => {
-  const Drawer = ({ children, title, footer, open }: any) => (
+vi.mock("@/components/interaction/SettingsDrawer", () => {
+  const SettingsDrawer = ({
+    children,
+    title,
+    footer,
+    open,
+  }: {
+    children?: ReactNode;
+    title?: ReactNode;
+    footer?: ReactNode;
+    open?: boolean;
+  }) => (
     <div data-testid="drawer" data-open={String(open)}>
       <div data-testid="drawer-title">{title}</div>
       <div data-testid="drawer-body">{children}</div>
       <div data-testid="drawer-footer">{footer}</div>
     </div>
   );
-  const Form: any = ({ children, onFinish }: any) => {
+  return { SettingsDrawer };
+});
+
+vi.mock("@agentscope-ai/design", () => {
+  const Form = ({
+    children,
+    onFinish,
+  }: {
+    children?: ReactNode;
+    onFinish?: (value: unknown) => void;
+  }) => {
     h.onFinishRef.current = onFinish;
     return <div data-testid="skill-form">{children}</div>;
   };
   // Captures `rules` per field name so the inline validators can be invoked
   // directly; items without a name fall back to their label as the key.
-  Form.Item = ({ children, label, name, rules, help }: any) => {
+  Form.Item = ({
+    children,
+    label,
+    name,
+    rules,
+    help,
+  }: {
+    children?: ReactNode;
+    label?: ReactNode;
+    name?: string;
+    rules?: Array<Record<string, unknown>>;
+    help?: ReactNode;
+  }) => {
     if (rules) h.rulesByName[String(name ?? label)] = rules;
     return (
       <div data-testid={`form-item-${String(name ?? label)}`}>
@@ -59,7 +103,7 @@ vi.mock("@agentscope-ai/design", () => {
       </div>
     );
   };
-  const Input = ({ value, disabled, placeholder }: any) => (
+  const Input = ({ value, disabled, placeholder }: ComponentProps<"input">) => (
     <input
       data-testid="text-input"
       value={value ?? ""}
@@ -68,7 +112,13 @@ vi.mock("@agentscope-ai/design", () => {
       readOnly
     />
   );
-  const Button = ({ children, onClick, disabled, icon, danger }: any) => (
+  const Button = ({
+    children,
+    onClick,
+    disabled,
+    icon,
+    danger,
+  }: ComponentProps<"button"> & { icon?: ReactNode; danger?: boolean }) => (
     <button
       type="button"
       onClick={onClick}
@@ -79,9 +129,17 @@ vi.mock("@agentscope-ai/design", () => {
       {children}
     </button>
   );
-  const Select = ({ placeholder, maxCount, options }: any) => (
+  const Select = ({
+    placeholder,
+    maxCount,
+    options,
+  }: {
+    placeholder?: string;
+    maxCount?: number;
+    options?: Array<{ value: string; label: string }>;
+  }) => (
     <select data-testid="tag-select" data-max={maxCount} title={placeholder}>
-      {(options ?? []).map((o: any) => (
+      {(options ?? []).map((o) => (
         <option key={o.value} value={o.value}>
           {o.label}
         </option>
@@ -89,13 +147,21 @@ vi.mock("@agentscope-ai/design", () => {
     </select>
   );
   const Switch = () => <span data-testid="switch" />;
-  return { Drawer, Form, Input, Button, Select, Switch };
+  return { Form, Input, Button, Select, Switch };
 });
 
 // Exposes the streaming editor as a plain textarea so tests can drive
 // handleContentChange, which is what feeds `contentValue`.
 vi.mock("../../../../components/MarkdownCopy/MarkdownCopy", () => ({
-  MarkdownCopy: ({ content, onContentChange, textareaProps }: any) => (
+  MarkdownCopy: ({
+    content,
+    onContentChange,
+    textareaProps,
+  }: {
+    content?: string;
+    onContentChange?: (value: string) => void;
+    textareaProps?: ComponentProps<"textarea">;
+  }) => (
     <div data-testid="markdown-copy">
       <span data-testid="md-content">{content}</span>
       <textarea
@@ -109,7 +175,13 @@ vi.mock("../../../../components/MarkdownCopy/MarkdownCopy", () => ({
 }));
 
 vi.mock("../../../../components/SkillConfigEditor", () => ({
-  SkillConfigEditor: ({ value, onChange }: any) => (
+  SkillConfigEditor: ({
+    value,
+    onChange,
+  }: {
+    value?: string;
+    onChange: (value: string) => void;
+  }) => (
     <textarea
       data-testid="config-editor"
       value={value}
@@ -122,12 +194,8 @@ vi.mock("./SkillChannelSelect", () => ({
   SkillChannelSelect: () => <div data-testid="channel-select" />,
 }));
 
-import {
-  MAX_TAGS,
-  MAX_TAG_LENGTH,
-  SkillDrawer,
-  parseFrontmatter,
-} from "./SkillDrawer";
+import { MAX_TAGS, MAX_TAG_LENGTH, SkillDrawer } from "./SkillDrawer";
+import { parseFrontmatter } from "./skillFrontmatter";
 
 // `utils/skill` is deliberately NOT mocked: normalizeSkillChannels and
 // deriveInstalledFromLabel run for real, so the assertions below pin their
@@ -145,13 +213,16 @@ function makeForm() {
 
 const VALID_CONTENT = "---\nname: demo\ndescription: a demo skill\n---\nbody";
 
+type DrawerProps = Parameters<typeof SkillDrawer>[0];
+type EditingSkill = NonNullable<DrawerProps["editingSkill"]>;
+
 function setup(overrides: Partial<Parameters<typeof SkillDrawer>[0]> = {}) {
   const props = {
-    channelOptions: {} as any,
+    channelOptions: {} as DrawerProps["channelOptions"],
     open: true,
     editing: false,
     editingSkill: null,
-    form: makeForm() as any,
+    form: makeForm() as unknown as DrawerProps["form"],
     onClose: vi.fn(),
     onSubmit: vi.fn(),
     ...overrides,
@@ -171,7 +242,9 @@ function contentValidator() {
 function tagsValidator() {
   const rule = h.rulesByName["tags"]?.find(
     (r) => typeof r.validator === "function",
-  ) as { validator: (a: unknown, b: string[]) => Promise<void> } | undefined;
+  ) as
+    | { validator: (a: unknown, b: string[] | undefined) => Promise<void> }
+    | undefined;
   if (!rule) throw new Error("tags validator was not captured");
   return rule.validator;
 }
@@ -282,26 +355,26 @@ describe("SkillDrawer rendering", () => {
     expect(screen.queryByTestId("skill-form")).not.toBeInTheDocument();
   });
 
-  it("disables the save button while loading in edit mode", () => {
+  it("omits manual save while loading in edit mode", () => {
     setup({ editing: true, loading: true, editingSkill: null });
-    expect(screen.getByText("common.save").closest("button")).toBeDisabled();
+    expect(screen.queryByText("common.save")).not.toBeInTheDocument();
   });
 
   it("renders the AI optimize footer only when creating", () => {
     setup();
     expect(screen.getByText("skills.optimizeWithAI")).toBeInTheDocument();
     setup({ editing: true });
-    expect(screen.getAllByText("common.save").length).toBeGreaterThan(0);
+    expect(screen.queryByText("common.save")).not.toBeInTheDocument();
   });
 
   it("shows the installed-from label only in edit mode with a skill", () => {
-    const skill: any = {
+    const skill = {
       name: "demo",
       source: "builtin",
       content: VALID_CONTENT,
       installed_from: "some_unknown_source",
     };
-    setup({ editing: true, editingSkill: skill });
+    setup({ editing: true, editingSkill: skill as EditingSkill });
     // An unknown installed_from falls through to the raw value.
     const inputs = screen.getAllByTestId("text-input");
     expect(
@@ -315,12 +388,12 @@ describe("SkillDrawer rendering", () => {
   });
 
   it("renders an empty installed-from value when the field is absent", () => {
-    const skill: any = {
+    const skill = {
       name: "demo",
       source: "builtin",
       content: VALID_CONTENT,
     };
-    setup({ editing: true, editingSkill: skill });
+    setup({ editing: true, editingSkill: skill as EditingSkill });
     const inputs = screen
       .getAllByTestId("text-input")
       .map((i) => (i as HTMLInputElement).value);
@@ -331,7 +404,7 @@ describe("SkillDrawer rendering", () => {
 describe("SkillDrawer populating the form from editingSkill", () => {
   it("fills the form and normalises channels through the real util", () => {
     const form = makeForm();
-    const skill: any = {
+    const skill = {
       name: "demo",
       source: "builtin",
       content: VALID_CONTENT,
@@ -340,7 +413,11 @@ describe("SkillDrawer populating the form from editingSkill", () => {
       tags: ["a"],
       config: { k: 1 },
     };
-    setup({ editing: true, editingSkill: skill, form: form as any });
+    setup({
+      editing: true,
+      editingSkill: skill as EditingSkill,
+      form: form as unknown as DrawerProps["form"],
+    });
     expect(form.setFieldsValue).toHaveBeenCalledWith({
       name: "demo",
       content: VALID_CONTENT,
@@ -365,8 +442,8 @@ describe("SkillDrawer populating the form from editingSkill", () => {
         source: "builtin",
         content: VALID_CONTENT,
         channels: ["all", "dingtalk"],
-      } as any,
-      form: form as any,
+      } as EditingSkill,
+      form: form as unknown as DrawerProps["form"],
     });
     expect(form.setFieldsValue).toHaveBeenCalledWith(
       expect.objectContaining({ channels: ["all"] }),
@@ -381,8 +458,8 @@ describe("SkillDrawer populating the form from editingSkill", () => {
         name: "demo",
         source: "builtin",
         content: VALID_CONTENT,
-      } as any,
-      form: form as any,
+      } as EditingSkill,
+      form: form as unknown as DrawerProps["form"],
     });
     expect(form.setFieldsValue).toHaveBeenCalledWith(
       expect.objectContaining({ preload: false, tags: [] }),
@@ -393,7 +470,7 @@ describe("SkillDrawer populating the form from editingSkill", () => {
 
   it("resets the form and clears local state when switching to create mode", () => {
     const form = makeForm();
-    setup({ editing: false, form: form as any });
+    setup({ editing: false, form: form as unknown as DrawerProps["form"] });
     expect(form.resetFields).toHaveBeenCalled();
     expect(screen.getByTestId("md-content")).toHaveTextContent("");
     expect(screen.getByTestId("config-editor")).toHaveValue("{}");
@@ -449,9 +526,7 @@ describe("SkillDrawer content validator", () => {
 describe("SkillDrawer tags validator", () => {
   it("accepts an undefined or empty tag list", async () => {
     setup();
-    await expect(
-      tagsValidator()(null, undefined as any),
-    ).resolves.toBeUndefined();
+    await expect(tagsValidator()(null, undefined)).resolves.toBeUndefined();
     await expect(tagsValidator()(null, [])).resolves.toBeUndefined();
   });
 
@@ -550,7 +625,7 @@ describe("SkillDrawer submit", () => {
         name: "demo",
         source: "builtin",
         content: VALID_CONTENT,
-      } as any,
+      } as EditingSkill,
     });
     await h.onFinishRef.current?.({ name: "demo", content: VALID_CONTENT });
     expect(onSubmit).toHaveBeenCalledWith(
@@ -560,7 +635,7 @@ describe("SkillDrawer submit", () => {
 
   it("submits the form when the create button is clicked", () => {
     const form = makeForm();
-    setup({ form: form as any });
+    setup({ form: form as unknown as DrawerProps["form"] });
     fireEvent.click(screen.getByText("skills.create"));
     expect(form.submit).toHaveBeenCalled();
   });
@@ -726,7 +801,7 @@ describe("SkillDrawer content change wiring", () => {
   it("mirrors edits into the form, revalidates and notifies the parent", () => {
     const form = makeForm();
     const onContentChange = vi.fn();
-    setup({ form: form as any, onContentChange });
+    setup({ form: form as unknown as DrawerProps["form"], onContentChange });
     fireEvent.change(screen.getByTestId("md-textarea"), {
       target: { value: VALID_CONTENT },
     });
@@ -742,7 +817,7 @@ describe("SkillDrawer content change wiring", () => {
   it("swallows a rejection from the revalidation pass", async () => {
     const form = makeForm();
     form.validateFields = vi.fn(() => Promise.reject(new Error("invalid")));
-    setup({ form: form as any });
+    setup({ form: form as unknown as DrawerProps["form"] });
     fireEvent.change(screen.getByTestId("md-textarea"), {
       target: { value: "no frontmatter" },
     });
@@ -774,7 +849,7 @@ describe("SkillDrawer content change wiring", () => {
         name: "demo",
         source: "builtin",
         content: VALID_CONTENT,
-      } as any,
+      } as EditingSkill,
     });
     expect(screen.getByTestId("md-textarea")).not.toHaveAttribute(
       "placeholder",
@@ -793,8 +868,65 @@ describe("SkillDrawer channels field", () => {
   });
 
   it("passes the channel options through to the select", () => {
-    const channelOptions: any = { options: [], loading: false };
+    const channelOptions = {
+      options: [],
+      loading: false,
+    } as unknown as DrawerProps["channelOptions"];
     setup({ channelOptions });
     expect(screen.getByTestId("channel-select")).toBeInTheDocument();
+  });
+});
+
+describe("SkillDrawer automatic persistence", () => {
+  it("saves edited content after one idle second without closing", async () => {
+    vi.useFakeTimers();
+    const { props, unmount } = setup({
+      editing: true,
+      editingSkill: { name: "demo", content: VALID_CONTENT } as EditingSkill,
+    });
+    fireEvent.change(screen.getByTestId("md-textarea"), {
+      target: { value: VALID_CONTENT + " updated" },
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(999);
+    });
+    expect(props.onSubmit).not.toHaveBeenCalled();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1);
+    });
+    expect(props.onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({ content: VALID_CONTENT + " updated" }),
+    );
+    expect(props.onClose).not.toHaveBeenCalled();
+    unmount();
+    vi.useRealTimers();
+  });
+  it("flushes content when navigating away before the debounce", async () => {
+    const { props, unmount } = setup({
+      editing: true,
+      editingSkill: { name: "demo", content: VALID_CONTENT } as EditingSkill,
+    });
+    fireEvent.change(screen.getByTestId("md-textarea"), {
+      target: { value: VALID_CONTENT + " pending" },
+    });
+    await act(async () => {
+      unmount();
+    });
+    expect(props.onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({ content: VALID_CONTENT + " pending" }),
+    );
+  });
+  it("does not autosave new skills", async () => {
+    vi.useFakeTimers();
+    const { props, unmount } = setup();
+    fireEvent.change(screen.getByTestId("md-textarea"), {
+      target: { value: VALID_CONTENT },
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1000);
+    });
+    expect(props.onSubmit).not.toHaveBeenCalled();
+    unmount();
+    vi.useRealTimers();
   });
 });

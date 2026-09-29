@@ -1,12 +1,12 @@
 import { Badge, message, Popover, Spin, Tooltip } from "antd";
 import {
-  CheckCircleOutlined,
-  CheckOutlined,
-  CopyOutlined,
-  ExclamationCircleOutlined,
-  SyncOutlined,
-  TagOutlined,
-} from "@ant-design/icons";
+  CircleCheck as CheckCircleOutlined,
+  Check as CheckOutlined,
+  Copy as CopyOutlined,
+  CircleAlert as ExclamationCircleOutlined,
+  RefreshCw as SyncOutlined,
+  Tag as TagOutlined,
+} from "lucide-react";
 import { Button, Modal } from "@agentscope-ai/design";
 import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
@@ -53,7 +53,7 @@ function UpdateCodeBlock({ code }: { code: string }) {
         onClick={handleCopy}
         title="Copy"
       >
-        {copied ? <CheckOutlined /> : <CopyOutlined />}
+        {copied ? <CheckOutlined size="1em" /> : <CopyOutlined size="1em" />}
       </button>
     </div>
   );
@@ -241,7 +241,11 @@ export default function AppBrand({
       )}
       {isBackgroundActive && (
         <Tooltip title={backgroundDownloadTitle}>
-          <SyncOutlined spin className={styles.appBrandUpdateIcon} />
+          <SyncOutlined
+            size="1em"
+            data-spinning={true}
+            className={styles.appBrandUpdateIcon}
+          />
         </Tooltip>
       )}
       {isReady && (
@@ -267,13 +271,17 @@ export default function AppBrand({
           trigger="click"
         >
           <Tooltip title={t("sidebar.updateModal.readyToInstall")}>
-            <CheckCircleOutlined className={styles.appBrandReadyIcon} />
+            <CheckCircleOutlined
+              size="1em"
+              className={styles.appBrandReadyIcon}
+            />
           </Tooltip>
         </Popover>
       )}
       {isBackgroundFailed && (
         <Tooltip title={backgroundFailureTitle}>
           <ExclamationCircleOutlined
+            size="1em"
             className={styles.appBrandFailedIcon}
             onClick={() => void desktop.startBackgroundDownload()}
           />
@@ -349,7 +357,7 @@ export default function AppBrand({
         <div className={styles.updateModalBanner}>
           <div className={styles.updateModalBannerLeft}>
             <span className={styles.updateModalVersionTag}>
-              <TagOutlined />
+              <TagOutlined size="1em" />
               Version {modalVersion || version}
             </span>
             <div className={styles.updateModalBannerTitle}>
@@ -367,7 +375,7 @@ export default function AppBrand({
               rehypePlugins={[rehypeKatex]}
               components={{
                 a: ExternalMarkdownLink,
-                code({ node, className, children, ...props }: any) {
+                code({ node, className, children, ...props }) {
                   const match = /language-(\w+)/.exec(className || "");
                   const isBlock =
                     node?.position?.start?.line !== node?.position?.end?.line ||

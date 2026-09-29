@@ -5,18 +5,38 @@
   margin: 0 auto;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 12px;
   padding: 4px 0 12px;
 }
 .capabilities,
 .limits,
 .thinking,
 .advanced {
+  --reflection-highlight: var(--app-accent-faint);
+  --reflection-silver: transparent;
+  --reflection-edge: var(--app-accent-border);
+  --reflection-shadow: var(--app-border-subtle);
+
   background: var(--model-card);
   border: 1px solid var(--model-hairline);
-  border-radius: 18px;
-  padding: 20px;
+  border-radius: 14px;
+  padding: 16px;
   min-width: 0;
+  box-shadow: none;
+  transition:
+    border-color 150ms ease,
+    background-color 150ms ease;
+}
+.capabilities:hover,
+.capabilities:focus-within,
+.limits:hover,
+.limits:focus-within,
+.thinking:hover,
+.thinking:focus-within,
+.advanced:hover,
+.advanced:focus-within {
+  border-color: var(--app-accent-border);
+  background: color-mix(in srgb, var(--app-accent) 2%, var(--model-card));
 }
 .capabilities:has(> div:empty) {
   display: none;
@@ -24,7 +44,7 @@
 .basics {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 16px;
+  gap: 12px;
   align-items: stretch;
 }
 .limits {
@@ -35,21 +55,35 @@
 .thinking {
   display: flex;
   align-items: center;
-  padding: 8px;
+  padding: 14px;
 }
 .advanced > details > summary {
+  display: flex;
+  min-height: 40px;
+  align-items: center;
+  margin: -8px;
+  padding: 8px;
+  border-radius: 10px;
   cursor: pointer;
-  font-size: 13px;
+  font-size: var(--app-font-secondary);
   color: var(--app-text-secondary);
+  transition:
+    color 150ms ease,
+    background-color 150ms ease;
+}
+.advanced > details > summary:hover,
+.advanced > details > summary:focus-visible {
+  color: var(--app-text);
+  background: var(--app-accent-soft);
 }
 .advanced > details[open] > summary {
-  margin-bottom: 16px;
+  margin-bottom: 12px;
 }
 .jsonHeading {
   display: flex;
   gap: 6px;
   align-items: center;
-  font-size: 12px;
+  font-size: var(--app-font-caption);
   margin: 16px 0 8px;
   color: var(--app-text-secondary);
 }
@@ -57,6 +91,22 @@
   display: flex;
   justify-content: flex-end;
   padding-top: 4px;
+}
+.settingRow {
+  display: flex;
+  min-height: 44px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 10px 0 4px;
+  padding: 8px 10px;
+  border: 1px solid var(--app-border-subtle);
+  border-radius: 10px;
+  background: var(--app-surface-subtle);
+}
+.settingLabel {
+  color: var(--app-text);
+  font-size: var(--app-font-secondary);
 }
 @media (max-width: 640px) {
   .basics {
@@ -75,6 +125,14 @@
 }
 .capabilities button {
   justify-content: flex-start;
+}
+@media (prefers-reduced-motion: reduce) {
+  .capabilities,
+  .limits,
+  .thinking,
+  .advanced {
+    transition: none;
+  }
 }
 @media (max-width: 420px) {
   .capabilities > div {

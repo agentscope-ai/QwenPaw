@@ -58,6 +58,7 @@ interface AgentModelSettingsProps {
       | "thinking_budget"
     >,
   ) => void;
+  surface?: "default" | "settings";
 }
 
 interface ModelOption {
@@ -89,6 +90,7 @@ export function AgentModelSettings({
   initialConfig,
   draftResetToken,
   onDraftChange,
+  surface = "default",
 }: AgentModelSettingsProps) {
   const { t } = useTranslation();
   const { message } = useAppMessage();
@@ -335,7 +337,7 @@ export function AgentModelSettings({
   };
 
   return (
-    <section className={styles.agentModelSettings}>
+    <section className={styles.agentModelSettings} data-surface={surface}>
       {!expanded && (
         <button
           type="button"
@@ -369,6 +371,7 @@ export function AgentModelSettings({
             <>
               {showThinking && (
                 <ThinkingControl
+                  tone={surface === "settings" ? "quiet" : "default"}
                   control={
                     activeOption?.thinkingControl ?? {
                       kind: "unknown",

@@ -20,7 +20,33 @@
  */
 
 :root {
-  --app-radius: 8px;
+  --app-radius: 10px;
+  --app-radius-card: 16px;
+  --app-radius-panel: 24px;
+  --app-glass: color-mix(in srgb, var(--app-surface) 88%, transparent);
+  --app-shadow-panel: 0 2px 6px rgb(0 0 0 / 3%), 0 24px 64px rgb(0 0 0 / 12%);
+
+  /* Typography scale. `--app-font-scale` is driven by the console font-size
+   * setting (App.tsx -> applyUiFontSizeToRoot); default 1 keeps the baseline.
+   * Project styles use these role tokens (px baseline * scale) so explicit
+   * font sizes track the setting without compounding the root percentage. */
+  --app-font-scale: 1;
+  --app-font-caption: calc(12px * var(--app-font-scale));
+  --app-font-secondary: calc(13px * var(--app-font-scale));
+  --app-font-body: calc(14px * var(--app-font-scale));
+  --app-font-subtitle: calc(16px * var(--app-font-scale));
+  --app-font-title: calc(20px * var(--app-font-scale));
+
+  /* Icons paired with text follow the same scale. Logo, avatars, media and
+   * decorative illustrations intentionally keep their own dimensions. Icon
+   * button/box tokens never shrink below the existing click target. */
+  --app-icon-xs: calc(12px * var(--app-font-scale));
+  --app-icon-sm: calc(14px * var(--app-font-scale));
+  --app-icon-md: calc(16px * var(--app-font-scale));
+  --app-icon-lg: calc(18px * var(--app-font-scale));
+  --app-icon-default: calc(20px * var(--app-font-scale));
+  --app-icon-box: max(34px, calc(34px * var(--app-font-scale)));
+  --app-icon-button: max(32px, calc(32px * var(--app-font-scale)));
   /* Surfaces */
   --app-bg: #f9f8f4;
   --app-surface: #ffffff;
@@ -67,17 +93,15 @@
   --app-accent-ring: color-mix(in srgb, var(--app-accent) 20%, transparent);
   --app-focus-ring: var(--app-accent-text);
 
-  /* Navigation selection stays neutral in the light shell. */
-  --app-nav-selected-bg: rgba(43, 18, 0, 0.08);
-  --app-nav-selected-bg-hover: rgba(43, 18, 0, 0.1);
-  --app-nav-selected-text: var(--app-text);
+  /* Navigation and selection share the current brand accent. */
+  --app-nav-selected-bg: var(--app-accent-soft);
+  --app-nav-selected-bg-hover: var(--app-accent-soft-hover);
+  --app-nav-selected-text: var(--app-accent-text);
 
-  /* Selected row / active item. Still antd blue: kept as-is so the token
-   * extraction stays visually neutral. Switching selection to the brand
-   * orange is a design decision and only needs an edit here. */
-  --app-selected-bg: #e6f4ff;
-  --app-selected-bg-hover: #d6eaff;
-  --app-selected-border: #1677ff;
+  /* Selection follows the active theme in both color schemes. */
+  --app-selected-bg: var(--app-accent-soft);
+  --app-selected-bg-hover: var(--app-accent-soft-hover);
+  --app-selected-border: var(--app-accent-border);
 
   /* Informational callouts (also antd blue) */
   --app-info-bg: rgba(22, 119, 255, 0.06);
@@ -121,6 +145,8 @@
 }
 
 html.dark-mode {
+  --app-accent: #ff9d4d;
+  --app-shadow-panel: 0 2px 6px rgb(0 0 0 / 12%), 0 24px 64px rgb(0 0 0 / 36%);
   /* Surfaces */
   --app-bg: #141414;
   --app-surface: #1f1f1f;
@@ -165,9 +191,9 @@ html.dark-mode {
   --app-nav-selected-text: var(--app-accent-text);
 
   /* Selection */
-  --app-selected-bg: rgba(22, 119, 255, 0.12);
-  --app-selected-bg-hover: rgba(22, 119, 255, 0.18);
-  --app-selected-border: #4096ff;
+  --app-selected-bg: var(--app-accent-soft);
+  --app-selected-bg-hover: var(--app-accent-soft-hover);
+  --app-selected-border: var(--app-accent-border);
 
   /* Informational callouts */
   --app-info-bg: rgba(22, 119, 255, 0.12);

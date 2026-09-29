@@ -56,7 +56,7 @@ vi.mock("react-i18next", () => ({
 
 // Capture the imperative modal.confirm from Modal.useModal.
 vi.mock("antd", async (importOriginal) => {
-  const actual = (await importOriginal()) as Record<string, any>;
+  const actual = await importOriginal<typeof import("antd")>();
   return {
     ...actual,
     Modal: Object.assign(actual.Modal, {

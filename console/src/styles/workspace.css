@@ -1,0 +1,110 @@
+/* Shared console / Hub material and control language. */
+body {
+  font-family:
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  font-optical-sizing: auto;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+button:focus-visible,
+[role="button"]:focus-visible {
+  outline: 2px solid var(--app-focus-ring);
+  outline-offset: 3px;
+}
+svg.lucide {
+  flex-shrink: 0;
+  vertical-align: -0.125em;
+}
+h1,
+h2,
+h3 {
+  text-wrap: balance;
+}
+
+:is(.ant-card, .qwenpaw-card) {
+  border-radius: var(--app-radius-card);
+  border-color: var(--app-border-subtle);
+  box-shadow: var(--app-shadow-sm);
+}
+:is(.ant-modal-content, .qwenpaw-modal-content) {
+  border-radius: var(--app-radius-panel) !important;
+  box-shadow: var(--app-shadow-panel) !important;
+}
+:is(
+    .ant-popover-inner,
+    .qwenpaw-popover-inner,
+    .ant-dropdown-menu,
+    .qwenpaw-dropdown-menu
+  ) {
+  border-radius: 16px !important;
+  background: var(--app-glass) !important;
+  backdrop-filter: blur(20px);
+  box-shadow: var(--app-shadow-panel) !important;
+}
+:is(.ant-btn, .qwenpaw-btn) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font-weight: 500;
+}
+:is(.ant-btn-primary, .qwenpaw-btn-primary):not(:disabled) {
+  box-shadow: 0 2px 5px var(--app-accent-soft);
+}
+:is(.ant-table, .qwenpaw-table, .ant-statistic, .qwenpaw-statistic) {
+  font-variant-numeric: tabular-nums;
+}
+:is(.ant-tabs-nav, .qwenpaw-tabs-nav) {
+  max-width: 100%;
+}
+:is(.ant-modal, .qwenpaw-modal) {
+  max-width: calc(100vw - 24px);
+}
+
+@keyframes workspace-spin {
+  to {
+    rotate: 360deg;
+  }
+}
+svg[data-spinning="true"],
+svg.lucide-loader-circle {
+  animation: workspace-spin 1s linear infinite;
+}
+@media (pointer: coarse) {
+  :is(.ant-btn, .qwenpaw-btn):not(.ant-btn-sm, .qwenpaw-btn-sm) {
+    min-height: 44px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  svg[data-spinning="true"],
+  svg.lucide-loader-circle {
+    animation: none;
+  }
+  :is(.ant-btn, .qwenpaw-btn):active {
+    scale: 1 !important;
+  }
+}
+@media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+  :root {
+    --app-glass: var(--app-surface);
+  }
+  :is(
+      .ant-popover-inner,
+      .qwenpaw-popover-inner,
+      .ant-dropdown-menu,
+      .qwenpaw-dropdown-menu
+    ) {
+    backdrop-filter: none;
+    border: 1px solid var(--app-border-strong);
+  }
+}

@@ -27,7 +27,7 @@ describe("ChatActionGroup", () => {
       />,
     );
     expect(
-      document.querySelector('[data-icon="SparkNewChatLine"]'),
+      document.querySelector("svg.lucide-square-pen"),
     ).not.toBeInTheDocument();
 
     const terminal = screen.getByRole("button", { name: "terminal.title" });
@@ -42,8 +42,8 @@ describe("ChatActionGroup", () => {
       padding: "0px",
     });
     expect(terminal.querySelector("svg")).toHaveStyle({
-      width: "16px",
-      height: "16px",
+      width: "17px",
+      height: "17px",
     });
     fireEvent.click(terminal);
     expect(onToggleTerminal).toHaveBeenCalledOnce();
@@ -64,11 +64,11 @@ describe("ChatActionGroup", () => {
       height: "32px",
       padding: "0px",
     });
-    expect(button?.querySelector("svg")).toHaveAttribute("width", "16");
-    expect(button?.querySelector("svg")).toHaveAttribute("height", "16");
+    expect(button?.querySelector("svg")).toHaveAttribute("width", "17");
+    expect(button?.querySelector("svg")).toHaveAttribute("height", "17");
     expect(button?.querySelector("svg")).toHaveStyle({
-      width: "16px",
-      height: "16px",
+      width: "17px",
+      height: "17px",
     });
     button?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     expect(onToggleWorkspace).toHaveBeenCalledOnce();

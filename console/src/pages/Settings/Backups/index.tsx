@@ -7,7 +7,7 @@
  */
 import { useCallback, useEffect, useState } from "react";
 import { Button, Spin } from "antd";
-import { PlusOutlined } from "@ant-design/icons";
+import { Plus as PlusOutlined } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import api, { agentsApi } from "@/api";
 import { PageHeader } from "@/components/PageHeader";
@@ -86,7 +86,7 @@ export default function BackupsPage() {
             <ImportButton onPick={importFlow.handleImport} />
             <Button
               type="primary"
-              icon={<PlusOutlined />}
+              icon={<PlusOutlined size="1em" />}
               onClick={() => {
                 setResumeJob(null);
                 setCreateOpen(true);

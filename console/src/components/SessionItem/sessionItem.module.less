@@ -84,7 +84,7 @@
 .nameViewport {
   flex: 1;
   min-width: 0;
-  font-size: 14px;
+  font-size: var(--app-font-body);
   font-weight: 400;
   line-height: 24px;
   color: var(--app-text);
@@ -133,11 +133,11 @@
 .infoName {
   display: -webkit-box;
   min-width: 0;
-  max-height: 66px;
+  max-height: calc(66px * var(--app-font-scale));
   overflow: hidden;
-  font-size: 15px;
+  font-size: calc(15px * var(--app-font-scale));
   font-weight: 600;
-  line-height: 22px;
+  line-height: 1.47;
   overflow-wrap: anywhere;
   text-overflow: ellipsis;
   text-wrap: pretty;
@@ -148,10 +148,10 @@
 .infoTime {
   padding-top: 1px;
   color: var(--app-text-tertiary);
-  font-size: 12px;
+  font-size: var(--app-font-caption);
   font-weight: 400;
   font-variant-numeric: tabular-nums;
-  line-height: 20px;
+  line-height: 1.5;
   white-space: nowrap;
 }
 
@@ -161,8 +161,8 @@
   gap: 6px;
   margin-top: 10px;
   color: var(--app-text-secondary);
-  font-size: 14px;
-  line-height: 20px;
+  font-size: var(--app-font-body);
+  line-height: 1.43;
 }
 
 .infoRow {
@@ -264,7 +264,13 @@
   cursor: pointer;
   opacity: 0;
   pointer-events: none;
-  transition: all 0.15s;
+  transition:
+    background-color 0.15s,
+    color 0.15s,
+    border-color 0.15s,
+    box-shadow 0.15s,
+    opacity 0.15s,
+    transform 0.15s;
   flex-shrink: 0;
 
   &:hover {
@@ -295,5 +301,5 @@
 .renameInput {
   flex: 1;
   min-width: 0;
-  font-size: 13px;
+  font-size: var(--app-font-secondary);
 }

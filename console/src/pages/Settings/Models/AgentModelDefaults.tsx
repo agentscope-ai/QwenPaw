@@ -1,4 +1,4 @@
-import { ModelCardSurface } from "./components/cards/ModelCardSurface";
+import { InteractiveCard } from "@/components/interaction/InteractiveCard";
 import { ModelChoice } from "../../Chat/ModelSelector/ModelChoice";
 import { useEffect, useState } from "react";
 import { Tooltip } from "antd";
@@ -49,7 +49,7 @@ export function AgentModelDefaults({
     }
   }
   return (
-    <ModelCardSurface
+    <InteractiveCard
       as="section"
       tilt={0}
       className={styles.section}
@@ -90,6 +90,7 @@ export function AgentModelDefaults({
               </div>
               <AgentModelSettings
                 expanded
+                surface="settings"
                 key={`${agent.id}:${agent.active_model?.provider_id}:${agent.active_model?.model}`}
                 agentId={agent.id}
                 providers={eligible}
@@ -104,6 +105,6 @@ export function AgentModelDefaults({
             </div>
           </div>
         ))}
-    </ModelCardSurface>
+    </InteractiveCard>
   );
 }

@@ -1,3 +1,20 @@
+vi.mock("@/components/interaction/SettingsDrawer", () => ({
+  SettingsDrawer: ({
+    children,
+    title,
+    open,
+  }: {
+    children: React.ReactNode;
+    title: React.ReactNode;
+    open: boolean;
+  }) =>
+    open ? (
+      <section data-testid="acl-drawer">
+        <h2>{title}</h2>
+        {children}
+      </section>
+    ) : null,
+}));
 // @vitest-environment jsdom
 /**
  * AccessControlDrawer — channel access control management. Covers ACL

@@ -1,8 +1,17 @@
-import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
-import { Drawer, Popover } from "antd";
-import { X } from "lucide-react";
+import {
+  lazy,
+  Suspense,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
+import { Popover } from "antd";
+
 import { useTranslation } from "react-i18next";
 import styles from "./index.module.less";
+
+const BottomSheet = lazy(() => import("@/components/interaction/BottomSheet"));
 
 /** Keep the menu anchored and its scroll viewport stable while browsing. */
 export function ModelPickerPopover({
@@ -51,13 +60,30 @@ export function ModelPickerPopover({
   }, [open]);
   const panel = (
     <div
+      role="dialog"
+      aria-label={t(
+        picker ? "modelSelector.selectModel" : "thinkingControl.title",
+      )}
+      onKeyDown={(event) => {
+        if (event.key === "Escape") {
+          event.stopPropagation();
+          onOpenChange(false);
+          anchor.current
+            ?.querySelector("button")
+            ?.focus({ preventScroll: true });
+        }
+      }}
       className={styles.pickerViewport}
       style={{
         width: 360,
-        maxHeight: picker ? Math.max(160, layout.height) : undefined,
+        borderRadius: 20,
+        background: "var(--app-surface)",
+        maxHeight: Math.max(120, layout.height),
       }}
     >
-      {content}
+      <div style={{ display: "flex", flexDirection: "column", minHeight: 0 }}>
+        {content}
+      </div>
     </div>
   );
   return (
@@ -68,27 +94,39 @@ export function ModelPickerPopover({
         onOpenChange={onOpenChange}
         trigger="click"
         placement={layout.above ? "topLeft" : "bottomLeft"}
+        transitionName="qwenpaw-picker-fade"
         autoAdjustOverflow
         overlayClassName={styles.pickerOverlay}
         destroyOnHidden
         content={panel}
       >
-        <span ref={anchor} className={styles.pickerAnchor}>
+        <span
+          ref={anchor}
+          className={styles.pickerAnchor}
+          style={{ position: "relative", isolation: "isolate" }}
+        >
           {children}
         </span>
       </Popover>
-      <Drawer
-        open={open && layout.mobile}
-        onClose={() => onOpenChange(false)}
-        placement="bottom"
-        height="auto"
-        title={null}
-        closeIcon={<X size={18} aria-label={t("common.close")} />}
-        className={styles.pickerSheet}
-        destroyOnHidden
-      >
-        {content}
-      </Drawer>
+      {layout.mobile && (
+        <Suspense fallback={null}>
+          <BottomSheet
+            open={open}
+            onOpenChange={onOpenChange}
+            title={t(
+              picker ? "modelSelector.selectModel" : "thinkingControl.title",
+            )}
+            tall={picker}
+            onCloseFocus={() =>
+              anchor.current
+                ?.querySelector("button")
+                ?.focus({ preventScroll: true })
+            }
+          >
+            {content}
+          </BottomSheet>
+        </Suspense>
+      )}
     </>
   );
 }

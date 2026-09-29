@@ -6,7 +6,9 @@
 
   display: inline-flex;
   max-width: 230px;
-  height: 34px;
+  height: auto;
+  min-height: max(34px, calc(34px * var(--app-font-scale)));
+  min-width: var(--app-icon-button);
   align-items: center;
   gap: 7px;
   padding: 0 11px;
@@ -23,8 +25,15 @@
     white-space: nowrap;
   }
 
-  svg:first-child {
+  > svg {
+    width: var(--app-icon-sm);
+    height: var(--app-icon-sm);
     flex: 0 0 auto;
+  }
+
+  svg:first-child {
+    width: calc(15px * var(--app-font-scale));
+    height: calc(15px * var(--app-font-scale));
     color: var(--hms-trigger-icon);
   }
 }
@@ -50,7 +59,12 @@
       align-items: center;
       gap: 6px;
       color: var(--hms-text-muted);
-      font-size: 12px;
+      font-size: var(--app-font-caption);
+
+      > svg {
+        width: var(--app-icon-sm);
+        height: var(--app-icon-sm);
+      }
       font-weight: 600;
     }
   }
@@ -82,7 +96,12 @@
   align-items: center;
   gap: 6px;
   color: var(--hms-footer);
-  font-size: 11px;
+  font-size: var(--app-font-caption);
+
+  > svg {
+    width: var(--app-icon-sm);
+    height: var(--app-icon-sm);
+  }
 }
 
 :global(.dark-mode) .trigger {

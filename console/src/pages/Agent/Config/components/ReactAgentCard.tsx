@@ -1,8 +1,10 @@
+import { SettingsField } from "@/components/interaction/SettingsField";
+import { NumberSlider } from "@/components/interaction/NumberSlider";
+import { Collapse } from "antd";
 import {
   Button,
   Form,
   Input,
-  InputNumber,
   Select,
   Card,
   Alert,
@@ -14,7 +16,7 @@ import { useTranslation } from "react-i18next";
 import { codingModeApi } from "../../../../api/modules/codingMode";
 import { projectDirectoryApi } from "../../../../api/modules/projectDirectory";
 import ProjectSelectModal from "../../../../components/ProjectSelectModal";
-import { useTimezoneOptions } from "../../../../hooks/useTimezoneOptions";
+import TimezoneAtlas from "./TimezoneAtlas";
 import { useMemoryBackends } from "../../../../plugins/memoryBackends";
 import { useAgentStore } from "../../../../stores/agentStore";
 import {
@@ -82,7 +84,7 @@ function ProjectDirectorySetting() {
 
   return (
     <>
-      <Form.Item
+      <SettingsField
         label={t("agentConfig.projectDirectoryTitle")}
         tooltip={t("agentConfig.projectDirectoryDescription")}
         className={styles.reactAgentWideField}
@@ -109,7 +111,7 @@ function ProjectDirectorySetting() {
             </Button>
           )}
         </div>
-      </Form.Item>
+      </SettingsField>
       <ProjectSelectModal
         agentId={selectedAgent}
         open={modalOpen}
@@ -156,7 +158,7 @@ function EnhancedCodeCapabilitySetting() {
   };
 
   return (
-    <Form.Item
+    <SettingsField
       label={t("agentConfig.enhancedCodeCapability")}
       tooltip={t("agentConfig.enhancedCodeCapabilityTooltip")}
       className={styles.reactAgentWideField}
@@ -174,7 +176,7 @@ function EnhancedCodeCapabilitySetting() {
           />
         )}
       </div>
-    </Form.Item>
+    </SettingsField>
   );
 }
 
@@ -183,7 +185,6 @@ export function ReactAgentCard({
   savingLang,
   onLanguageChange,
   timezone,
-  savingTimezone,
   onTimezoneChange,
 }: ReactAgentCardProps) {
   const memoryBackends = useMemoryBackends();
@@ -207,9 +208,9 @@ export function ReactAgentCard({
   const { t } = useTranslation();
 
   return (
-    <Card className={styles.formCard} title={t("agentConfig.reactAgentTitle")}>
+    <Card className={styles.formCard}>
       <div className={styles.reactAgentRow}>
-        <Form.Item
+        <SettingsField
           label={t("agentConfig.language")}
           tooltip={t("agentConfig.languageTooltip")}
           className={styles.reactAgentField}
@@ -222,67 +223,15 @@ export function ReactAgentCard({
             disabled={savingLang}
             style={{ width: "100%" }}
           />
-        </Form.Item>
+        </SettingsField>
 
-        <Form.Item
+        <SettingsField
           label={t("agentConfig.timezone")}
           tooltip={t("agentConfig.timezoneTooltip")}
           className={styles.reactAgentField}
         >
-          <Select
-            showSearch
-            value={timezone}
-            placeholder={t("agentConfig.selectTimezone")}
-            filterOption={(input, option) =>
-              (option?.label?.toString() || "")
-                .toLowerCase()
-                .includes(input.toLowerCase())
-            }
-            options={useTimezoneOptions()}
-            onChange={onTimezoneChange}
-            loading={savingTimezone}
-            disabled={savingTimezone}
-            style={{ width: "100%" }}
-          />
-        </Form.Item>
-
-        <Form.Item
-          label={t("agentConfig.shellCommandTimeout")}
-          name="shell_command_timeout"
-          rules={[
-            {
-              required: true,
-              message: t("agentConfig.shellCommandTimeoutRequired"),
-            },
-            {
-              type: "number",
-              min: 1,
-              message: t("agentConfig.shellCommandTimeoutMin"),
-            },
-          ]}
-          tooltip={t("agentConfig.shellCommandTimeoutTooltip")}
-          className={styles.reactAgentField}
-        >
-          <InputNumber
-            style={{ width: "100%" }}
-            min={1}
-            step={10}
-            placeholder={t("agentConfig.shellCommandTimeoutPlaceholder")}
-          />
-        </Form.Item>
-
-        <Form.Item
-          label={t("agentConfig.shellCommandExecutable")}
-          name="shell_command_executable"
-          tooltip={t("agentConfig.shellCommandExecutableTooltip")}
-          className={styles.reactAgentField}
-        >
-          <Input
-            style={{ width: "100%" }}
-            placeholder={t("agentConfig.shellCommandExecutablePlaceholder")}
-            allowClear
-          />
-        </Form.Item>
+          <TimezoneAtlas value={timezone} onChange={onTimezoneChange} />
+        </SettingsField>
       </div>
 
       <div className={styles.reactAgentSettings}>
@@ -290,30 +239,88 @@ export function ReactAgentCard({
         <EnhancedCodeCapabilitySetting />
       </div>
 
-      <Form.Item
+      <SettingsField
         label={t("agentConfig.autoGenerateSessionTitle")}
         name={["auto_title_config", "enabled"]}
         valuePropName="checked"
         tooltip={t("agentConfig.autoGenerateSessionTitleTooltip")}
       >
         <Switch />
-      </Form.Item>
+      </SettingsField>
 
-      <div className={styles.reactAgentRow}>
-        <Form.Item
-          label={t("agentConfig.memoryManagerBackend")}
-          name="memory_manager_backend"
-          tooltip={t("agentConfig.memoryManagerBackendTooltip")}
-          className={styles.reactAgentField}
-        >
-          <Select options={memoryBackendOptions} style={{ width: "100%" }} />
-        </Form.Item>
-      </div>
-      <Alert
-        type="warning"
-        showIcon
-        message={t("agentConfig.memoryManagerBackendRestartWarning")}
-        style={{ marginBottom: 16 }}
+      <Collapse
+        ghost
+        items={[
+          {
+            key: "runtime",
+            label: t("agentConfig.advancedRuntime", "Advanced runtime"),
+            forceRender: true,
+            children: (
+              <>
+                <div className={styles.reactAgentRow}>
+                  {" "}
+                  <SettingsField
+                    label={t("agentConfig.shellCommandTimeout")}
+                    name="shell_command_timeout"
+                    rules={[
+                      {
+                        required: true,
+                        message: t("agentConfig.shellCommandTimeoutRequired"),
+                      },
+                      {
+                        type: "number",
+                        min: 1,
+                        message: t("agentConfig.shellCommandTimeoutMin"),
+                      },
+                    ]}
+                    tooltip={t("agentConfig.shellCommandTimeoutTooltip")}
+                    className={styles.reactAgentField}
+                  >
+                    <NumberSlider
+                      min={1}
+                      max={600}
+                      step={1}
+                      label={t("agentConfig.shellCommandTimeout")}
+                    />
+                  </SettingsField>
+                  <SettingsField
+                    label={t("agentConfig.shellCommandExecutable")}
+                    name="shell_command_executable"
+                    tooltip={t("agentConfig.shellCommandExecutableTooltip")}
+                    className={styles.reactAgentField}
+                  >
+                    <Input
+                      style={{ width: "100%" }}
+                      placeholder={t(
+                        "agentConfig.shellCommandExecutablePlaceholder",
+                      )}
+                      allowClear
+                    />
+                  </SettingsField>
+                </div>{" "}
+                <div className={styles.reactAgentRow}>
+                  <SettingsField
+                    label={t("agentConfig.memoryManagerBackend")}
+                    name="memory_manager_backend"
+                    tooltip={t("agentConfig.memoryManagerBackendTooltip")}
+                    className={styles.reactAgentField}
+                  >
+                    <Select
+                      options={memoryBackendOptions}
+                      style={{ width: "100%" }}
+                    />
+                  </SettingsField>
+                </div>
+                <Alert
+                  type="warning"
+                  showIcon
+                  message={t("agentConfig.memoryManagerBackendRestartWarning")}
+                  style={{ marginBottom: 16 }}
+                />
+              </>
+            ),
+          },
+        ]}
       />
     </Card>
   );

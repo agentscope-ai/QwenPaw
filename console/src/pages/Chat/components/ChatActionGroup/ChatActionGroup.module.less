@@ -4,23 +4,38 @@
 }
 
 .workspaceButton {
-  width: 32px !important;
-  height: 32px !important;
+  width: var(--app-icon-button) !important;
+  min-width: var(--app-icon-button) !important;
+  height: var(--app-icon-button) !important;
   padding: 0 !important;
 
   :global(.ant-btn-icon) {
-    width: 16px;
-    height: 16px;
+    width: var(--app-icon-md);
+    height: var(--app-icon-md);
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    font-size: 16px;
+    font-size: var(--app-icon-md);
     line-height: 1;
 
-    > svg {
-      width: 16px !important;
-      height: 16px !important;
-      flex: 0 0 16px;
+    > [data-spark-icon] {
+      font-size: var(--app-icon-md) !important;
     }
+
+    > svg {
+      width: var(--app-icon-md) !important;
+      height: var(--app-icon-md) !important;
+      flex: 0 0 var(--app-icon-md);
+    }
+  }
+}
+
+.actionGroup button {
+  border-radius: 9px;
+  color: var(--app-text-secondary);
+  svg {
+    width: var(--app-icon-md) !important;
+    height: var(--app-icon-md) !important;
+    stroke-width: 1.75;
   }
 }

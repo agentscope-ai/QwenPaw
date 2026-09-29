@@ -1,5 +1,6 @@
+import { SharedModal } from "@/components/interaction/SharedModal";
 import { formatCompact } from "@/utils/formatNumber";
-import { ModelCardSurface } from "../cards/ModelCardSurface";
+import { InteractiveCard } from "@/components/interaction/InteractiveCard";
 import { useState, useEffect, useMemo, useDeferredValue, useRef } from "react";
 import { Button, Form, Modal, Tag, Tooltip } from "@agentscope-ai/design";
 import { Pagination, Spin, Switch } from "antd";
@@ -108,7 +109,7 @@ export function RemoteModelManageModal({
       active = false;
       clearTimeout(timer);
     };
-  }, [open, provider, deferredFilters, tab, offset, revision]);
+  }, [open, provider, deferredFilters, tab, offset, revision, message, t]);
   useEffect(() => {
     const timers = hoverTimers.current;
     return () => timers.forEach(clearTimeout);
@@ -278,7 +279,8 @@ export function RemoteModelManageModal({
 
   const configuredModel = rows.find((model) => model.id === configId);
   return (
-    <Modal
+    <SharedModal
+      surfaceId={`provider:${provider.id}`}
       title={t("models.manageModelsTitle", { provider: current.name })}
       open={open}
       onCancel={onClose}
@@ -286,9 +288,10 @@ export function RemoteModelManageModal({
       width={860}
       centered
       destroyOnHidden
-      className={styles.modal}
+      className={`${styles.modal} ${configId ? styles.detailModal : ""}`}
     >
       <Modal
+        className={styles.subModal}
         title={t("models.pool.enableAllConfirm", {
           count: (page?.selected_count ?? 0) + (page?.candidate_count ?? 0),
         })}
@@ -416,8 +419,8 @@ export function RemoteModelManageModal({
               const isNew = !isSelected && !seenIds.has(model.id);
               const expanded = configId === model.id;
               return (
-                <ModelCardSurface
-                  tilt={3}
+                <InteractiveCard
+                  tilt={2}
                   frameClassName={styles.entryFrame}
                   key={model.id}
                   className={`${styles.entry} ${
@@ -532,7 +535,7 @@ export function RemoteModelManageModal({
                       </label>
                     </div>
                   </div>
-                </ModelCardSurface>
+                </InteractiveCard>
               );
             })}
           </Spin>
@@ -610,6 +613,7 @@ export function RemoteModelManageModal({
         </div>
       )}
       <Modal
+        className={styles.subModal}
         title={t("models.addModel")}
         open={adding}
         onCancel={() => setAdding(false)}
@@ -632,6 +636,6 @@ export function RemoteModelManageModal({
           />
         </Form>
       </Modal>
-    </Modal>
+    </SharedModal>
   );
 }

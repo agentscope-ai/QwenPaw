@@ -80,8 +80,9 @@ export function useMCP() {
         message.success(t("mcp.createSuccess"));
         await loadClients();
         return true;
-      } catch (error: any) {
-        const errorMsg = error?.message || t("mcp.createError");
+      } catch (error) {
+        const errorMsg =
+          error instanceof Error ? error.message : t("mcp.createError");
         message.error(errorMsg);
         return false;
       }
@@ -108,31 +109,38 @@ export function useMCP() {
     ) => {
       try {
         await api.updateMCPClient(key, updates);
-        message.success(t("mcp.updateSuccess"));
-        await loadClients();
+        setClients((current) =>
+          current.map((item) =>
+            item.key === key ? { ...item, ...updates } : item,
+          ),
+        );
         return true;
-      } catch (error: any) {
-        const errorMsg = error?.message || t("mcp.updateError");
+      } catch (error) {
+        const errorMsg =
+          error instanceof Error ? error.message : t("mcp.updateError");
         message.error(errorMsg);
         return false;
       }
     },
-    [message, t, loadClients],
+    [message, t],
   );
 
   const toggleEnabled = useCallback(
     async (client: MCPClientInfo) => {
       try {
         await api.toggleMCPClient(client.key);
-        message.success(
-          client.enabled ? t("mcp.disableSuccess") : t("mcp.enableSuccess"),
+        setClients((current) =>
+          current.map((item) =>
+            item.key === client.key
+              ? { ...item, enabled: !client.enabled }
+              : item,
+          ),
         );
-        await loadClients();
-      } catch (error) {
+      } catch {
         message.error(t("mcp.toggleError"));
       }
     },
-    [message, t, loadClients],
+    [message, t],
   );
 
   const deleteClient = useCallback(
@@ -141,7 +149,7 @@ export function useMCP() {
         await api.deleteMCPClient(client.key);
         message.success(t("mcp.deleteSuccess"));
         await loadClients();
-      } catch (error) {
+      } catch {
         message.error(t("mcp.deleteError"));
       }
     },
@@ -155,8 +163,9 @@ export function useMCP() {
         message.success(t("mcp.access.saveSuccess"));
         await loadClients();
         return true;
-      } catch (error: any) {
-        const errorMsg = error?.message || t("mcp.access.saveError");
+      } catch (error) {
+        const errorMsg =
+          error instanceof Error ? error.message : t("mcp.access.saveError");
         message.error(errorMsg);
         return false;
       }

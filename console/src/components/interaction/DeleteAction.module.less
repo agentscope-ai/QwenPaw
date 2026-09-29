@@ -1,0 +1,72 @@
+.root {
+  position: relative;
+  display: inline-flex;
+  vertical-align: middle;
+}
+.root button {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: 10px;
+  cursor: pointer;
+  color: var(--app-text-secondary);
+  background: transparent;
+  &:hover {
+    color: var(--app-accent-text);
+    background: var(--app-accent-soft);
+  }
+  &:focus-visible {
+    outline: 2px solid var(--app-accent);
+    outline-offset: 2px;
+  }
+  &:disabled {
+    cursor: wait;
+    opacity: 0.6;
+  }
+  span {
+    display: flex;
+  }
+}
+.panel {
+  position: absolute;
+  z-index: 20;
+  right: 36px;
+  top: -5px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 16px;
+  border: 1px solid var(--app-border);
+  background: var(--app-surface);
+  box-shadow: 0 8px 28px rgb(0 0 0 / 12%);
+  transform-origin: right center;
+}
+.label {
+  max-width: 180px;
+  padding: 0 8px;
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--app-text);
+}
+.root .confirm {
+  background: var(--app-accent-soft);
+  color: var(--app-accent-text);
+}
+.loading {
+  animation: spin 1s linear infinite;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .loading {
+    animation: none;
+  }
+}

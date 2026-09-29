@@ -37,6 +37,7 @@ import { useChatAnywhereOptions } from "@agentscope-ai/chat/lib/AgentScopeRuntim
 import { Avatar, Flex } from "antd";
 import { useTranslation } from "react-i18next";
 import { renderableCodeComponents } from "../../components/RenderableCodeBlock";
+import { useEffectiveFontSize } from "@/contexts/FontSizeContext";
 import {
   useChatScalarSnapshot,
   useChatListSnapshot,
@@ -88,9 +89,11 @@ function DeferredMarkdown({
   // expensive than appending stream text. A deferred value lets React skip
   // obsolete intermediate parses while keeping input and scrolling responsive.
   const deferredContent = useDeferredValue(content);
+  const baseFontSize = useEffectiveFontSize();
 
   return (
     <Markdown
+      baseFontSize={baseFontSize}
       components={renderableCodeComponents}
       content={deferredContent}
       cursor={cursor}
@@ -111,6 +114,7 @@ const HostMessage = React.memo(function HostMessage({
   );
   const formatMediaURL = (url?: string) =>
     url ? replaceMediaURL?.(url) || url : url;
+  const baseFontSize = useEffectiveFontSize();
 
   if (!data.content?.length) return null;
 
@@ -127,7 +131,14 @@ const HostMessage = React.memo(function HostMessage({
               />
             );
           case AgentScopeRuntimeContentType.REFUSAL:
-            return <Markdown key={index} content={item.refusal} raw />;
+            return (
+              <Markdown
+                key={index}
+                content={item.refusal}
+                raw
+                baseFontSize={baseFontSize}
+              />
+            );
           case AgentScopeRuntimeContentType.IMAGE:
             return (
               <DefaultCards.Images

@@ -1,5 +1,5 @@
 import { ProviderCardStatus } from "./ProviderCardStatus";
-import { ModelCardSurface } from "./ModelCardSurface";
+import { InteractiveCard } from "@/components/interaction/InteractiveCard";
 import React from "react";
 import type { ProviderInfo } from "../../../../../api/types";
 import { useTranslation } from "react-i18next";
@@ -21,7 +21,11 @@ export const LocalProviderCard = React.memo(function LocalProviderCard({
   const statusReady = totalCount > 0;
 
   return (
-    <ModelCardSurface className={styles.groupCardGlass}>
+    <InteractiveCard
+      layoutId={`provider:${provider.id}`}
+      className={styles.groupCardGlass}
+      tilt={2}
+    >
       {/* Header - same layout as GroupCard */}
       <div className={styles.groupCardHeader}>
         <ProviderIcon providerId={provider.id} size={36} />
@@ -49,7 +53,9 @@ export const LocalProviderCard = React.memo(function LocalProviderCard({
           </div>
         </div>
         <div className={styles.groupCardField}>
-          <span className={styles.groupCardFieldLabel}>Models</span>
+          <span className={styles.groupCardFieldLabel}>
+            {t("models.models")}
+          </span>
           <span className={styles.groupCardFieldValue}>
             {totalCount > 0
               ? t("models.modelsCount", { count: totalCount })
@@ -67,6 +73,6 @@ export const LocalProviderCard = React.memo(function LocalProviderCard({
           {t("models.models")}
         </button>
       </div>
-    </ModelCardSurface>
+    </InteractiveCard>
   );
 });

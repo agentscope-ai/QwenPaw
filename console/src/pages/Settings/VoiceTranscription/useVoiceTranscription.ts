@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import api from "../../../api";
 import { useAppMessage } from "../../../hooks/useAppMessage";
@@ -32,7 +32,7 @@ export function useVoiceTranscription() {
   const [localWhisperStatus, setLocalWhisperStatus] =
     useState<LocalWhisperStatus | null>(null);
 
-  const fetchSettings = async () => {
+  const fetchSettings = useCallback(async () => {
     setLoading(true);
     try {
       const [modeRes, provTypeRes, provRes, lwStatus] = await Promise.all([
@@ -52,13 +52,14 @@ export function useVoiceTranscription() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [message, t]);
 
   useEffect(() => {
     fetchSettings();
-  }, []);
+  }, [fetchSettings]);
 
-  const handleSave = async () => {
+  const handleSave = async (automatic = false) => {
+    if (providerType === "whisper_api" && !selectedProviderId) return;
     setSaving(true);
     try {
       const promises: Promise<unknown>[] = [
@@ -69,8 +70,9 @@ export function useVoiceTranscription() {
         promises.push(api.updateTranscriptionProvider(selectedProviderId));
       }
       await Promise.all(promises);
-      message.success(t("voiceTranscription.saveSuccess"));
+      if (!automatic) message.success(t("voiceTranscription.saveSuccess"));
     } catch (err) {
+      if (automatic) throw err;
       console.error("Failed to save voice transcription settings:", err);
       message.error(t("voiceTranscription.saveFailed"));
     } finally {

@@ -13,6 +13,7 @@ Probed on this platform: two fds in one process *do* contend on ``flock``
 import errno
 import os
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -23,20 +24,6 @@ _POSIX_FLOCK = pytest.mark.skipif(
     _WINDOWS,
     reason="POSIX-only: fcntl.flock does not exist on Windows",
 )
-
-
-def _fd_count() -> int:
-    """Count open fds where the platform exposes them, else 0.
-
-    ``/proc/self/fd`` is Linux-only; macOS and Windows have no such
-    directory, so the leak assertion degrades to ``0 <= 0`` there. The
-    fd-releasing behaviour is still covered on Linux and by the
-    functional lock tests on every platform.
-    """
-    try:
-        return len(os.listdir("/proc/self/fd"))
-    except OSError:
-        return 0
 
 
 @pytest.fixture()
@@ -184,11 +171,13 @@ class TestContextManager:
             os.close(fd)
 
     def test_closes_its_descriptor(self, lock_path):
-        before = _fd_count()
-        with lock_mod.plugin_install_lock(lock_path):
-            pass
-        after = _fd_count()
-        assert after <= before
+        with patch.object(lock_mod.os, "close", wraps=os.close) as close:
+            with lock_mod.plugin_install_lock(lock_path) as acquired:
+                assert acquired is True
+        close.assert_called_once()
+        with pytest.raises(OSError) as error:
+            os.fstat(close.call_args.args[0])
+        assert error.value.errno == errno.EBADF
 
 
 class TestTimeoutFallsOpen:

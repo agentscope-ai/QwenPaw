@@ -1,4 +1,18 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  Bot,
+  Cable,
+  ArrowRight,
+  Wrench,
+  Plus,
+  SlidersHorizontal,
+  Search,
+} from "lucide-react";
+import { Input, Segmented, Empty } from "antd";
+import InlineHelp from "@/components/InlineHelp";
+import NumberFlow from "@number-flow/react";
+import { SharedModal } from "@/components/interaction/SharedModal";
+import { Cascade } from "@/components/interaction/Cascade";
+import { useCallback, useEffect, useId, useMemo, useState } from "react";
 import { Button, Form, Modal, Select } from "@agentscope-ai/design";
 import type { TFunction } from "i18next";
 import { useTranslation } from "react-i18next";
@@ -15,13 +29,13 @@ import { useAgentStore } from "../../../stores/agentStore";
 import { isDesktopTauriRuntime } from "../../../utils/openExternalLink";
 import { parseErrorDetail } from "../../../utils/error";
 import { ACPCard } from "./components/ACPCard";
+import { ACPDrawer } from "./components/ACPDrawer";
 import {
-  ACPDrawer,
   parseArgsText,
   parseEnvText,
   stringifyArgs,
   stringifyEnv,
-} from "./components/ACPDrawer";
+} from "./components/acpFormValues";
 import styles from "../../Control/Channels/index.module.less";
 import stylesACP from "./index.module.less";
 
@@ -130,6 +144,8 @@ function ACPPage() {
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<FilterType>("all");
   const [activeKey, setActiveKey] = useState<string | null>(null);
+  const surfacePrefix = useId();
+  const [drawerSurface, setDrawerSurface] = useState<string>();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [isCreateMode, setIsCreateMode] = useState(false);
@@ -179,6 +195,7 @@ function ACPPage() {
     ];
   }, [agents]);
 
+  const [search, setSearch] = useState("");
   const cards = useMemo(() => {
     const enabledCards: { key: string; config: ACPAgentConfig }[] = [];
     const disabledCards: { key: string; config: ACPAgentConfig }[] = [];
@@ -186,6 +203,11 @@ function ACPPage() {
     orderedKeys.forEach((key) => {
       const config = agents[key];
       if (!config) return;
+      if (
+        search &&
+        !`${key} ${config.command}`.toLowerCase().includes(search.toLowerCase())
+      )
+        return;
 
       const builtin = isBuiltinACPAgent(key);
       if (filter === "builtin" && !builtin) return;
@@ -199,7 +221,7 @@ function ACPPage() {
     });
 
     return [...enabledCards, ...disabledCards];
-  }, [agents, orderedKeys, filter]);
+  }, [agents, orderedKeys, filter, search]);
 
   const nodeOptions = useMemo(
     () => [
@@ -270,6 +292,7 @@ function ACPPage() {
   };
 
   const handleCardClick = (key: string) => {
+    setDrawerSurface(`${surfacePrefix}:${key}`);
     const config = agents[key];
     setIsCreateMode(false);
     setActiveKey(key);
@@ -286,6 +309,7 @@ function ACPPage() {
   };
 
   const handleCreateClick = () => {
+    setDrawerSurface(undefined);
     setIsCreateMode(true);
     setActiveKey(null);
     setDrawerOpen(true);
@@ -304,20 +328,17 @@ function ACPPage() {
 
   const handleClose = () => {
     setDrawerOpen(false);
-    setActiveKey(null);
-    setIsCreateMode(false);
-    form.resetFields();
   };
 
   const handleSubmit = async (values: Record<string, unknown>) => {
     const targetKey = String(values.agentKey || activeKey || "").trim();
-    if (!targetKey) return;
+    if (!targetKey) return false;
     const existingConfig: Partial<ACPAgentConfig> =
       (!isCreateMode && activeKey ? agents[activeKey] : undefined) || {};
 
     if ((isCreateMode || targetKey !== activeKey) && agents[targetKey]) {
       message.error(t("acp.agentKeyExists"));
-      return;
+      return false;
     }
 
     const updatedConfig: ACPAgentConfig = {
@@ -348,13 +369,21 @@ function ACPPage() {
       } else {
         await api.updateACPAgentConfig(targetKey, updatedConfig);
       }
-      await fetchACP();
-      setDrawerOpen(false);
-      message.success(
-        isCreateMode ? t("acp.createSuccess") : t("acp.configSaved"),
-      );
+      setAgents((current) => {
+        const next = { ...current };
+        if (activeKey && activeKey !== targetKey) delete next[activeKey];
+        next[targetKey] = updatedConfig;
+        return next;
+      });
+      if (isCreateMode) {
+        setDrawerOpen(false);
+        message.success(t("acp.createSuccess"));
+      } else {
+        setActiveKey(targetKey);
+      }
     } catch (error) {
       console.error("❌ Failed to update ACP config:", error);
+      if (!isCreateMode) throw error;
       message.error(t("acp.configFailed"));
     } finally {
       setSaving(false);
@@ -398,32 +427,72 @@ function ACPPage() {
       <PageHeader
         className={stylesACP.pageHeader}
         items={[{ title: t("nav.agent") }, { title: t("acp.title") }]}
-        center={
-          <div className={styles.filterTabs}>
-            {FILTER_TABS.map(({ key, label }) => (
-              <button
-                key={key}
-                className={`${styles.filterTab} ${
-                  filter === key ? styles.filterTabActive : ""
-                }`}
-                onClick={() => setFilter(key)}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
+        afterBreadcrumb={
+          <InlineHelp>{`${t("acp.intro")} ${t(
+            "acp.protocolHelp",
+          )}`}</InlineHelp>
         }
         extra={
           <div className={stylesACP.headerActions}>
-            <Button onClick={handleNodeSettingsClick}>
+            <Button
+              icon={<SlidersHorizontal size={16} />}
+              onClick={handleNodeSettingsClick}
+            >
               {t("acp.nodeSettings")}
             </Button>
-            <Button type="primary" onClick={handleCreateClick}>
+            <Button
+              type="primary"
+              icon={<Plus size={16} />}
+              onClick={handleCreateClick}
+            >
               {t("acp.create")}
             </Button>
           </div>
         }
       />
+      <section className={stylesACP.intro}>
+        <div className={stylesACP.connection} aria-label={t("acp.intro")}>
+          <span>
+            <Bot size={18} />
+            {t("acp.currentAgent")}
+          </span>
+          <ArrowRight size={16} aria-hidden />
+          <span className={stylesACP.protocol}>
+            <Cable size={20} />
+            ACP
+          </span>
+          <ArrowRight size={16} aria-hidden />
+          <span>
+            <Wrench size={18} />
+            {t("acp.callableTools")}
+          </span>
+        </div>
+        <div className={stylesACP.metric}>
+          <NumberFlow
+            value={Object.values(agents).filter((item) => item.enabled).length}
+            respectMotionPreference
+          />
+          <span>{t("acp.enabledIntegrations")}</span>
+        </div>
+      </section>
+      <div className={stylesACP.collectionControls}>
+        <Segmented
+          value={filter}
+          onChange={(value) => setFilter(value as FilterType)}
+          options={FILTER_TABS.map((item) => ({
+            value: item.key,
+            label: item.label,
+          }))}
+        />
+        <Input
+          value={search}
+          onChange={(event) => setSearch(event.target.value)}
+          allowClear
+          prefix={<Search size={16} />}
+          placeholder={t("acp.search")}
+          aria-label={t("acp.search")}
+        />
+      </div>
       <div className={styles.channelsContainer}>
         {loading ? (
           <div className={styles.loading}>
@@ -433,19 +502,37 @@ function ACPPage() {
           <div
             className={`${styles.channelsGrid} ${stylesACP.channelsGridMobile}`}
           >
-            {cards.map(({ key, config }) => (
-              <ACPCard
-                key={key}
-                agentKey={key}
-                config={config}
-                isBuiltin={isBuiltinACPAgent(key)}
-                onClick={() => handleCardClick(key)}
-              />
+            {!cards.length && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} />}
+            {cards.map(({ key, config }, index) => (
+              <Cascade key={key} index={index}>
+                <ACPCard
+                  surfaceId={`${surfacePrefix}:${key}`}
+                  agentKey={key}
+                  config={config}
+                  isBuiltin={isBuiltinACPAgent(key)}
+                  onClick={() => handleCardClick(key)}
+                  onToggle={async () => {
+                    try {
+                      await api.updateACPAgentConfig(key, {
+                        ...config,
+                        enabled: !config.enabled,
+                      });
+                      setAgents((current) => ({
+                        ...current,
+                        [key]: { ...current[key], enabled: !config.enabled },
+                      }));
+                    } catch {
+                      message.error(t("acp.configFailed"));
+                    }
+                  }}
+                />
+              </Cascade>
             ))}
           </div>
         )}
       </div>
       <ACPDrawer
+        surfaceId={drawerSurface}
         open={drawerOpen}
         activeKey={activeKey}
         isCreateMode={isCreateMode}
@@ -458,7 +545,7 @@ function ACPPage() {
         onSubmit={handleSubmit}
         onDelete={handleDelete}
       />
-      <Modal
+      <SharedModal
         title={t("acp.nodeSettings")}
         open={nodeModalOpen}
         onCancel={() => setNodeModalOpen(false)}
@@ -476,7 +563,7 @@ function ACPPage() {
             style={{ width: "100%" }}
           />
         </div>
-      </Modal>
+      </SharedModal>
     </div>
   );
 }

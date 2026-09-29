@@ -15,8 +15,8 @@
 .file {
   width: 100%;
   min-width: 0;
-  min-height: 64px;
-  height: 64px;
+  min-height: max(64px, calc(64px * var(--app-font-scale)));
+  height: auto;
   padding: 10px 14px;
   display: flex;
   align-items: center;
@@ -64,20 +64,20 @@
   }
 
   strong {
-    font-size: 14px;
+    font-size: var(--app-font-body);
     font-weight: 600;
   }
 
   small {
     color: var(--app-text-tertiary);
-    font-size: 12px;
+    font-size: var(--app-font-caption);
   }
 }
 
 .status {
   flex: 0 0 auto;
   color: var(--app-success-text);
-  font-size: 12px;
+  font-size: var(--app-font-caption);
   font-weight: 500;
 
   &[data-change="modified"],
@@ -95,7 +95,7 @@
   border: 0;
   border-radius: 5px;
   background: transparent;
-  font-size: 12px;
+  font-size: var(--app-font-caption);
   cursor: pointer;
 
   &:hover {

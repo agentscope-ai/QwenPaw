@@ -2,7 +2,8 @@ import { memo, useMemo } from "react";
 import { Button, Drawer } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
 import type { MarketResult } from "../../../../api/modules/market";
-import { SkillIcon, sourceLabel } from "./SkillIcon";
+import { SkillIcon } from "./SkillIcon";
+import { sourceLabel } from "./skillSources";
 import styles from "./DetailDrawer.module.less";
 
 interface DetailDrawerProps {

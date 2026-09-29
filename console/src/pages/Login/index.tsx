@@ -195,19 +195,11 @@ export default function LoginPage() {
             alt="QwenPaw"
             style={{ height: 48, marginBottom: 12 }}
           />
-          <h2 style={{ margin: 0, fontWeight: 600, fontSize: 20 }}>
+          <h2 className={styles.loginTitle}>
             {t(isRegister ? "login.registerTitle" : "login.title")}
           </h2>
           {!hasUsers && (
-            <p
-              style={{
-                margin: "8px 0 0",
-                color: "var(--app-text-tertiary)",
-                fontSize: 13,
-              }}
-            >
-              {t("login.firstUserHint")}
-            </p>
+            <p className={styles.loginHint}>{t("login.firstUserHint")}</p>
           )}
         </div>
 

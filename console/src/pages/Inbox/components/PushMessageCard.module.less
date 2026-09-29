@@ -4,7 +4,8 @@
   cursor: pointer;
 
   :global(.qwenpaw-card-body) {
-    height: 142px !important;
+    height: auto !important;
+    min-height: max(142px, calc(142px * var(--app-font-scale)));
     display: flex;
     flex-direction: column;
   }
@@ -33,7 +34,7 @@
 }
 
 .senderInfo {
-  font-size: 12px;
+  font-size: var(--app-font-caption);
   color: var(--app-text-tertiary);
 }
 
@@ -57,14 +58,14 @@
 .messageTitle {
   margin-bottom: 4px;
   line-height: 1.35;
-  font-size: 14px;
+  font-size: var(--app-font-body);
 }
 
 .messageContent {
   color: color-mix(in srgb, var(--app-text) 90%, transparent);
   margin-bottom: 0;
   line-height: 1.6;
-  font-size: 13px;
+  font-size: var(--app-font-secondary);
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;

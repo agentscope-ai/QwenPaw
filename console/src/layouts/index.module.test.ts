@@ -22,10 +22,6 @@ const mainLayoutSource = readFileSync(
   join(process.cwd(), "src/layouts/MainLayout/index.tsx"),
   "utf8",
 );
-const sessionListSource = readFileSync(
-  join(process.cwd(), "src/layouts/SidebarSessionList.tsx"),
-  "utf8",
-);
 const sessionListStylesSource = readFileSync(
   join(process.cwd(), "src/layouts/sidebarSessionList.module.less"),
   "utf8",
@@ -96,36 +92,6 @@ describe("Sidebar overflow layout", () => {
     expect(sidebarSource).not.toContain("sidebar.collapseShortcuts");
   });
 
-  it("keeps model navigation outside the secondary shortcut scroll region", () => {
-    const scrollStart = sidebarSource.indexOf("ref={navScrollRef}");
-    const scrollRegion = sidebarSource.slice(
-      scrollStart,
-      sidebarSource.indexOf("{modelNav.map(renderNavItem)}", scrollStart),
-    );
-
-    expect(scrollStart).toBeGreaterThanOrEqual(0);
-    expect(scrollRegion).toContain("inboxEntry &&");
-    expect(scrollRegion).toContain("secondaryNav.map((entry, index)");
-    expect(scrollRegion).not.toContain("modelNav.map(renderNavItem)");
-    expect(
-      sidebarSource.indexOf("{modelNav.map(renderNavItem)}", scrollStart),
-    ).toBeGreaterThan(scrollStart);
-  });
-
-  it("pins the expanded new-task button directly above inbox shortcuts", () => {
-    const taskStart = sidebarSource.indexOf("className={styles.newTask}");
-    const scrollStart = sidebarSource.indexOf("ref={navScrollRef}");
-    const inboxStart = sidebarSource.indexOf("inboxEntry &&", scrollStart);
-
-    expect(taskStart).toBeGreaterThanOrEqual(0);
-    expect(taskStart).toBeLessThan(scrollStart);
-    expect(scrollStart).toBeLessThan(inboxStart);
-    expect(sidebarSource.slice(taskStart, scrollStart)).toContain(
-      't("chat.newTask", "New task")',
-    );
-    expect(stylesSource).toContain(".newTask");
-  });
-
   it("uses the configured accent tokens for the new-task button", () => {
     const taskStart = stylesSource.indexOf(".newTask {");
     const taskRule = stylesSource.slice(
@@ -139,22 +105,6 @@ describe("Sidebar overflow layout", () => {
     expect(taskRule).not.toContain("#ff7f16");
   });
 
-  it("pins more settings below shortcuts and preserves the return path", () => {
-    const scrollStart = sidebarSource.indexOf("ref={navScrollRef}");
-    const moreSettingsStart = sidebarSource.indexOf(
-      "className={styles.moreSettings}",
-    );
-    const sessionsStart = sidebarSource.indexOf("{/* Session list");
-
-    expect(scrollStart).toBeGreaterThanOrEqual(0);
-    expect(moreSettingsStart).toBeGreaterThan(scrollStart);
-    expect(moreSettingsStart).toBeLessThan(sessionsStart);
-    expect(sidebarSource).toContain('t("nav.moreSettings", "More settings")');
-    expect(sidebarSource).toContain('navigate("/settings/general"');
-    expect(sidebarSource).toContain("settingsReturnTo:");
-    expect(stylesSource).toContain(".moreSettings");
-  });
-
   it("separates conversation history from the shortcut panel", () => {
     const historyAreaStart = stylesSource.indexOf(".sessionArea {");
     const historyAreaRule = stylesSource.slice(
@@ -165,28 +115,6 @@ describe("Sidebar overflow layout", () => {
     expect(historyAreaStart).toBeGreaterThanOrEqual(0);
     expect(historyAreaRule).toContain("margin-top: 10px;");
     expect(sidebarSource).toContain("className={styles.sessionArea}");
-  });
-
-  it("retains the bottom settings icon in expanded and collapsed modes", () => {
-    const bottomControlsStart = sidebarSource.indexOf(
-      "className={styles.collapseToggleContainer}",
-    );
-    const bottomControls = sidebarSource.slice(
-      bottomControlsStart,
-      sidebarSource.indexOf("<Modal", bottomControlsStart),
-    );
-
-    expect(bottomControlsStart).toBeGreaterThanOrEqual(0);
-    expect(bottomControls).toContain("<Settings size={18} />");
-    expect(bottomControls).toContain("<SidebarSettingsPanel");
-    expect(bottomControls).toContain("onOpenSettings={handleOpenSettings}");
-    expect(bottomControls).toContain("className={styles.sidebarUser}");
-    expect(bottomControls).toContain("authEnabled={authEnabled}");
-    expect(bottomControls).toContain("onOpenAccount={handleOpenAccount}");
-    expect(bottomControls).toContain("onLogout={handleLogout}");
-    expect(bottomControls).toContain("open={settingsOpen}");
-    expect(bottomControls).toContain("destroyOnHidden");
-    expect(bottomControls).not.toContain("{collapsed && (");
   });
 
   it("removes the prefixed popover shell around quick settings", () => {
@@ -225,22 +153,6 @@ describe("Sidebar overflow layout", () => {
 
   it("removes the standalone chat navigation entry", () => {
     expect(sidebarSource).not.toContain('t("nav.chat")');
-  });
-
-  it("uses a recent-style history header with compact actions", () => {
-    expect(sessionListSource).toContain("<SparkNewChatLine size={18} />");
-    expect(sessionListSource).toContain("<Ellipsis size={16} />");
-    expect(sessionListSource).toContain('key: "search"');
-    expect(sessionListSource).toContain('key: "create-group"');
-    expect(sessionListSource).toContain("setHistoryCollapsed(false)");
-    expect(sessionListSource).toContain("searchInputRef.current?.focus()");
-    expect(sessionListSource).toContain("groupInputRef.current?.focus()");
-    expect(sessionListSource).not.toContain("styles.newChatBtn");
-    expect(sessionListSource).not.toContain("styles.createGroupBtn");
-    expect(sessionListStylesSource).toContain(".historyActions");
-    expect(sessionListStylesSource).toContain(".historyAction");
-    expect(sessionListStylesSource).not.toContain(".newChatBtn");
-    expect(sessionListStylesSource).not.toContain(".createGroupBtn");
   });
 
   it("keeps history actions visible in dark mode", () => {

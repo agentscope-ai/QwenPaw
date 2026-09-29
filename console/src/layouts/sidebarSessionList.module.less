@@ -44,14 +44,14 @@
 
 .searchInput {
   border-radius: 6px;
-  font-size: 12px;
+  font-size: var(--app-font-caption);
   background: var(--sidebar-input-bg);
   border-color: var(--sidebar-input-border);
 }
 
 .groupInput {
   border-radius: 6px;
-  font-size: 11px;
+  font-size: var(--app-font-caption);
   background: var(--sidebar-input-bg);
   border-color: var(--sidebar-input-border);
 }
@@ -92,7 +92,7 @@
   border: none;
   background: transparent;
   cursor: pointer;
-  font-size: 11px;
+  font-size: var(--app-font-caption);
   font-weight: 600;
   letter-spacing: 0.5px;
   text-transform: uppercase;
@@ -112,7 +112,7 @@
   align-items: center;
   justify-content: center;
   padding: 24px 12px;
-  font-size: 12px;
+  font-size: var(--app-font-caption);
   color: var(--sidebar-state-text);
 }
 
@@ -175,7 +175,7 @@
 }
 
 .historyLabel {
-  font-size: 13px;
+  font-size: var(--app-font-secondary);
   font-weight: 600;
   letter-spacing: 0.1px;
   user-select: none;
@@ -213,5 +213,19 @@
       color: rgba(255, 255, 255, 0.92);
       background: rgba(255, 255, 255, 0.08);
     }
+  }
+}
+
+.primarySidebar {
+  .searchContainer {
+    padding: 6px 4px 8px;
+  }
+  .searchInput {
+    min-height: 32px;
+    padding: 5px 10px;
+    border: 0;
+    border-radius: 10px;
+    background: var(--app-fill-subtle);
+    font-size: 12px;
   }
 }

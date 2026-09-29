@@ -210,7 +210,7 @@ export default function FilesWorkspace({
     async (target: FileTarget) => {
       if (target.source === "profile") {
         return {
-          content: (await workspaceApi.loadFile(target.path)).content,
+          content: (await workspaceApi.loadFile(target.path, agentId)).content,
           previewKind: "text" as const,
           readOnly: false,
           etag: "",
@@ -281,7 +281,7 @@ export default function FilesWorkspace({
         etag: response.headers.get("ETag") ?? "",
       };
     },
-    [chatId, projectDirOverride],
+    [agentId, chatId, projectDirOverride],
   );
 
   const loadTab = useCallback(
@@ -677,7 +677,7 @@ export default function FilesWorkspace({
               const source = path.slice(0, separator);
               const sourcePath = path.slice(separator + 2);
               if (source === "profile") {
-                await workspaceApi.saveFile(sourcePath, content);
+                await workspaceApi.saveFile(sourcePath, content, agentId);
               } else if (source === "daily" || source === "digest") {
                 await workspaceApi.saveMemoryFile(sourcePath, content, source);
               } else if (source === "memory") {

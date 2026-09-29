@@ -5,7 +5,7 @@ import React, {
   useRef,
   useState,
 } from "react";
-import { Dropdown, Input, Popover } from "antd";
+import { Input, Popover } from "antd";
 import type { InputRef } from "antd";
 import { useTranslation } from "react-i18next";
 import {
@@ -27,6 +27,7 @@ import type { ChatGroup } from "../../api/types/chat";
 import { useAppMessage } from "../../hooks/useAppMessage";
 import { copyText } from "../../utils/clipboard";
 import styles from "./sessionItem.module.less";
+import SessionActions from "./SessionActions";
 
 const MAX_LIST_NAME_CHARS = 100;
 const MAX_INFO_NAME_CHARS = 500;
@@ -397,32 +398,30 @@ const SessionItem: React.FC<SessionItemProps> = ({
       )}
 
       {!editing && (
-        <Dropdown
-          menu={{
-            items: dropdownItems,
-            onClick: ({ domEvent }) => domEvent.stopPropagation(),
-          }}
-          trigger={["click"]}
-          placement="bottomRight"
+        <SessionActions
+          items={dropdownItems}
+          name={name}
           onOpenChange={handleDropdownOpenChange}
         >
           <button
             type="button"
             aria-label={t("appCenter.moreActions", "More actions")}
+            data-press
             className={styles.moreBtn}
             onClick={(e) => e.stopPropagation()}
           >
             <MoreHorizontal size={14} />
           </button>
-        </Dropdown>
+        </SessionActions>
       )}
     </div>
   );
 
   return (
-    <Dropdown
-      menu={{ items: dropdownItems }}
-      trigger={["contextMenu"]}
+    <SessionActions
+      items={dropdownItems}
+      name={name}
+      context
       onOpenChange={handleDropdownOpenChange}
     >
       <Popover
@@ -437,7 +436,7 @@ const SessionItem: React.FC<SessionItemProps> = ({
       >
         {itemContent}
       </Popover>
-    </Dropdown>
+    </SessionActions>
   );
 };
 

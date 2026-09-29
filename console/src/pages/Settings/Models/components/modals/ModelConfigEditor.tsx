@@ -1,4 +1,4 @@
-import { ModelCardSurface } from "../cards/ModelCardSurface";
+import { InteractiveCard } from "@/components/interaction/InteractiveCard";
 import styles from "./ModelConfigEditor.module.less";
 import InlineHelp from "../../../../../components/InlineHelp";
 import { ThinkingControl } from "@/features/thinking/ThinkingControl";
@@ -188,7 +188,7 @@ export function ModelConfigEditor({
 
   return (
     <div className={styles.editor}>
-      <ModelCardSurface as="section" tilt={0} className={styles.capabilities}>
+      <InteractiveCard as="section" tilt={0} className={styles.capabilities}>
         <ModelCapabilitiesFields
           model={model}
           changes={capabilities}
@@ -197,9 +197,9 @@ export function ModelConfigEditor({
             setDirty(true);
           }}
         />
-      </ModelCardSurface>
+      </InteractiveCard>
       <div className={styles.basics}>
-        <ModelCardSurface as="section" tilt={0} className={styles.limits}>
+        <InteractiveCard as="section" tilt={0} className={styles.limits}>
           <OutputTokenLimitField
             value={maxTokens}
             onChange={handleMaxTokensChange}
@@ -223,10 +223,11 @@ export function ModelConfigEditor({
                 : undefined
             }
           />
-        </ModelCardSurface>
+        </InteractiveCard>
         {(model.thinking_control || thinkingParamStyle) && (
-          <ModelCardSurface as="section" tilt={0} className={styles.thinking}>
+          <InteractiveCard as="section" tilt={0} className={styles.thinking}>
             <ThinkingControl
+              tone="quiet"
               control={
                 model.thinking_control ?? {
                   kind: thinkingParamStyle === "budget" ? "budget" : "effort",
@@ -262,10 +263,10 @@ export function ModelConfigEditor({
                 setDirty(true);
               }}
             />
-          </ModelCardSurface>
+          </InteractiveCard>
         )}
       </div>
-      <ModelCardSurface tilt={0} className={styles.advanced}>
+      <InteractiveCard tilt={0} className={styles.advanced}>
         <details>
           <summary>{t("common.advancedSettings")}</summary>
           <ThinkingCapabilityFields
@@ -284,22 +285,9 @@ export function ModelConfigEditor({
          that the API requires to be echoed back; relay_reasoning has no
          effect, so hide the toggle to avoid confusion. */}
           {chatModel !== "OpenAIResponseModel" && (
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                marginBottom: 8,
-                padding: "6px 0",
-              }}
-            >
+            <div className={styles.settingRow}>
               <div>
-                <span
-                  style={{
-                    fontSize: 13,
-                    color: "var(--app-text)",
-                  }}
-                >
+                <span className={styles.settingLabel}>
                   {t("models.relayReasoningLabel")}
                 </span>
                 <InlineHelp>{t("models.relayReasoningHint")}</InlineHelp>
@@ -324,7 +312,7 @@ export function ModelConfigEditor({
             placeholder="{}"
           />
         </details>
-      </ModelCardSurface>
+      </InteractiveCard>
       <div className={styles.actions}>
         <Button
           type="primary"

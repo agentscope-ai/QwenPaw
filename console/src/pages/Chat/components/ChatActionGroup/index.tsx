@@ -36,9 +36,9 @@ const ChatActionGroup: React.FC<ChatActionGroupProps> = ({
             aria-expanded={terminalOpen}
             icon={
               <Terminal
-                size={16}
+                size={17}
                 strokeWidth={1.8}
-                style={{ width: 16, height: 16 }}
+                style={{ width: 17, height: 17 }}
               />
             }
             style={{
@@ -81,9 +81,9 @@ const ChatActionGroup: React.FC<ChatActionGroupProps> = ({
             aria-pressed={workspaceOpen}
             icon={
               <Files
-                size={16}
+                size={17}
                 strokeWidth={2}
-                style={{ width: 16, height: 16 }}
+                style={{ width: 17, height: 17 }}
               />
             }
             style={{
