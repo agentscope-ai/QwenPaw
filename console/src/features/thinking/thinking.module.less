@@ -97,7 +97,7 @@
   grid-template-columns: 64px minmax(0, 1fr) 64px;
   align-items: start;
   gap: 4px;
-  font-size: 12px;
+  font-size: var(--app-font-caption);
 }
 .identity {
   min-width: 0;
@@ -108,7 +108,7 @@
     justify-content: center;
     gap: 3px;
     color: var(--thinking-pigment);
-    font-size: 15px;
+    font-size: calc(15px * var(--app-font-scale));
     font-weight: 600;
   }
 }
@@ -133,7 +133,7 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    font-size: 12px;
+    font-size: var(--app-font-caption);
   }
   &:hover {
     background: var(--app-fill-hover);
@@ -195,7 +195,7 @@
   background: transparent;
   color: var(--app-text-secondary);
   font: inherit;
-  font-size: 12px;
+  font-size: var(--app-font-caption);
   font-variant-numeric: tabular-nums;
   cursor: pointer;
   &:hover {
@@ -217,12 +217,17 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  height: 32px;
+  min-width: 0;
+  max-width: 100%;
+  height: auto;
+  min-height: max(32px, calc(32px * var(--app-font-scale)));
   padding: 0 9px;
   border: 1px solid var(--app-border);
   border-radius: 8px;
   background: transparent;
   color: var(--app-text-secondary);
+  font-size: var(--app-font-body);
+  line-height: 1.35;
   cursor: pointer;
   white-space: nowrap;
   &:hover,
@@ -231,9 +236,12 @@
     border-color: var(--app-accent);
   }
   > span:first-of-type {
+    min-width: 0;
     max-width: min(220px, 35vw);
+    flex: 1 1 auto;
     overflow: hidden;
     text-overflow: ellipsis;
+    white-space: nowrap;
   }
 }
 .thinkingIndicator {

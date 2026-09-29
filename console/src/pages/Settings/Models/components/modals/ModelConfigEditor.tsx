@@ -296,7 +296,7 @@ export function ModelConfigEditor({
               <div>
                 <span
                   style={{
-                    fontSize: 13,
+                    fontSize: "var(--app-font-secondary)",
                     color: "var(--app-text)",
                   }}
                 >

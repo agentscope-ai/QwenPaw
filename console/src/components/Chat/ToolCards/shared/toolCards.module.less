@@ -47,7 +47,7 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 13px;
+  font-size: var(--app-font-secondary);
   cursor: pointer;
   user-select: none;
   list-style: none;
@@ -118,25 +118,25 @@
 // with high specificity. We double the class selector to win the
 // specificity battle while keeping !important.
 .diffAddBadge.diffAddBadge {
-  font-size: 12px;
+  font-size: var(--app-font-caption);
   color: var(--app-success) !important;
   font-weight: 500;
 }
 
 .diffDelBadge.diffDelBadge {
-  font-size: 12px;
+  font-size: var(--app-font-caption);
   color: var(--app-error) !important;
   font-weight: 500;
 }
 
 .lineReadBadge.lineReadBadge {
-  font-size: 12px;
+  font-size: var(--app-font-caption);
   color: var(--app-info-text) !important;
   font-weight: 500;
 }
 
 .lineSearchBadge.lineSearchBadge {
-  font-size: 12px;
+  font-size: var(--app-font-caption);
   color: var(--app-warning) !important;
   font-weight: 500;
 }
@@ -144,7 +144,7 @@
 // Diff block
 .toolCallDiff {
   margin: 4px 0 2px 18px;
-  font-size: 12px;
+  font-size: var(--app-font-caption);
   line-height: 1.6;
   font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
   overflow-x: auto;
@@ -214,7 +214,7 @@
   padding: 0;
   color: var(--app-info-text);
   font: inherit;
-  font-size: 12px;
+  font-size: var(--app-font-caption);
   line-height: 1;
   border: 0;
   background: transparent;
@@ -254,7 +254,7 @@
 }
 
 .defaultBlockTitle {
-  font-size: 13px;
+  font-size: var(--app-font-secondary);
   font-weight: 500;
   color: inherit !important;
 }
@@ -289,7 +289,7 @@
 .defaultBlockContent {
   margin: 0;
   padding: 10px 12px;
-  font-size: 12px;
+  font-size: var(--app-font-caption);
   line-height: 1.6;
   font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
   white-space: pre-wrap;
@@ -301,7 +301,7 @@
 
 .defaultBlockContentMd {
   padding: 10px 12px;
-  font-size: 13px;
+  font-size: var(--app-font-secondary);
   line-height: 1.6;
   max-height: 360px;
   overflow-y: auto;
@@ -316,7 +316,7 @@
   :global(table) {
     width: 100%;
     border-collapse: collapse;
-    font-size: 12px;
+    font-size: var(--app-font-caption);
   }
   :global(th),
   :global(td) {
@@ -332,7 +332,7 @@
 
 // Inline result (next to tool label)
 .toolCallInlineResult {
-  font-size: 12px;
+  font-size: var(--app-font-caption);
   color: var(--app-text-tertiary);
   margin-left: 6px;
   overflow: hidden;
@@ -360,7 +360,7 @@
 
 // Markdown result block
 .toolCallResultMd {
-  font-size: 13px;
+  font-size: var(--app-font-secondary);
   line-height: 1.6;
   margin: 4px 0 2px 18px;
   padding: 8px 12px;
@@ -389,7 +389,7 @@
   :global(table) {
     width: 100%;
     border-collapse: collapse;
-    font-size: 12px;
+    font-size: var(--app-font-caption);
     margin: 4px 0;
   }
   :global(th),

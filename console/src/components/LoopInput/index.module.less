@@ -1,17 +1,22 @@
 .modeTrigger,
 .activeMode {
   display: inline-flex;
-  min-height: 28px;
+  min-height: max(28px, calc(28px * var(--app-font-scale)));
   align-items: center;
   gap: 6px;
   border: 1px solid var(--app-border);
   border-radius: 9px;
   background: color-mix(in srgb, var(--app-surface) 92%, transparent);
   color: var(--app-text-secondary);
-  font-size: 12px;
+  font-size: var(--app-font-caption);
   font-weight: 600;
-  line-height: 1;
+  line-height: 1.2;
   white-space: nowrap;
+
+  > svg {
+    width: var(--app-icon-sm);
+    height: var(--app-icon-sm);
+  }
 }
 
 .modeTrigger {
@@ -59,7 +64,7 @@
 
 .activeState {
   color: var(--app-text-tertiary);
-  font-size: 11px;
+  font-size: var(--app-font-caption);
   font-weight: 500;
 }
 
@@ -110,20 +115,20 @@
 
 .menuTitle {
   color: var(--app-text);
-  font-size: 13px;
+  font-size: var(--app-font-secondary);
   font-weight: 650;
 }
 
 .menuHint {
   margin-top: 3px;
   color: var(--app-text-tertiary);
-  font-size: 11px;
+  font-size: var(--app-font-caption);
 }
 
 .settingsButton {
   display: inline-grid;
-  width: 28px;
-  height: 28px;
+  width: var(--app-icon-button);
+  height: var(--app-icon-button);
   flex: 0 0 auto;
   place-items: center;
   border: 0;
@@ -131,6 +136,11 @@
   background: transparent;
   color: var(--app-text-tertiary);
   cursor: pointer;
+
+  > svg {
+    width: var(--app-icon-md);
+    height: var(--app-icon-md);
+  }
 }
 
 .settingsButton:hover {
@@ -151,7 +161,7 @@
 .groupLabel {
   padding: 4px 7px 5px;
   color: var(--app-text-quaternary);
-  font-size: 10px;
+  font-size: var(--app-font-caption);
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -170,6 +180,11 @@
   color: var(--app-text-tertiary);
   text-align: left;
   cursor: pointer;
+
+  > svg:last-child {
+    width: var(--app-icon-sm);
+    height: var(--app-icon-sm);
+  }
 }
 
 .modeOption:hover,
@@ -183,13 +198,18 @@
 
 .optionIcon {
   display: inline-grid;
-  width: 30px;
-  height: 30px;
+  width: var(--app-icon-button);
+  height: var(--app-icon-button);
   flex: 0 0 auto;
   place-items: center;
   border-radius: 9px;
   background: var(--app-fill-subtle);
   color: var(--app-text-secondary);
+
+  > svg {
+    width: var(--app-icon-md);
+    height: var(--app-icon-md);
+  }
 }
 
 .selected .optionIcon {
@@ -208,7 +228,7 @@
 .optionName {
   overflow: hidden;
   color: var(--app-text);
-  font-size: 12px;
+  font-size: var(--app-font-caption);
   font-weight: 650;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -218,7 +238,7 @@
   display: -webkit-box;
   overflow: hidden;
   color: var(--app-text-tertiary);
-  font-size: 11px;
+  font-size: var(--app-font-caption);
   line-height: 1.35;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
@@ -231,7 +251,7 @@
   gap: 12px;
   margin: 8px 6px 2px;
   color: var(--app-error);
-  font-size: 11px;
+  font-size: var(--app-font-caption);
 }
 
 .menuError button {

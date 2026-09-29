@@ -362,6 +362,8 @@
     "desktopApplication": "Ứng dụng máy tính",
     "languageHint": "Thay đổi ngôn ngữ giao diện trên thiết bị này.",
     "themeHint": "Dùng giao diện sáng, tối hoặc theo hệ thống.",
+    "uiFontSize": "Cỡ chữ cơ bản của console",
+    "uiFontSizeHint": "Đặt cỡ chữ cơ bản cho console và trang đăng nhập.",
     "customTheme": "Chủ đề tùy chỉnh",
     "customThemeHint": "Chọn bảng màu hoặc tinh chỉnh màu sắc và bán kính góc.",
     "themePalette": "Bảng màu chủ đề",

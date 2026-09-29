@@ -87,7 +87,7 @@ export function ModelInfoPreview({
       <div
         role="status"
         style={{
-          fontSize: 12,
+          fontSize: "var(--app-font-caption)",
           color: "var(--app-text-secondary)",
           fontVariantNumeric: "tabular-nums",
         }}

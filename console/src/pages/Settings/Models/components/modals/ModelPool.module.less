@@ -14,7 +14,7 @@
     margin-bottom: 16px;
   }
   :global(.qwenpaw-modal-title) {
-    font-size: 20px;
+    font-size: var(--app-font-title);
     font-weight: 600;
     letter-spacing: -0.3px;
   }
@@ -43,7 +43,7 @@
 .hint {
   margin: 12px 0 16px;
   color: var(--app-text-secondary);
-  font-size: 13px;
+  font-size: var(--app-font-secondary);
   line-height: 1.6;
   text-wrap: pretty;
 }
@@ -54,7 +54,7 @@
 .summary {
   margin: 16px 0 8px;
   color: var(--app-text-tertiary);
-  font-size: 12px;
+  font-size: var(--app-font-caption);
   font-variant-numeric: tabular-nums;
 }
 .list {
@@ -102,7 +102,7 @@
   align-items: center;
   gap: 8px;
   min-height: 24px;
-  font-size: 14px;
+  font-size: var(--app-font-body);
   strong {
     overflow-wrap: anywhere;
     font-weight: 600;
@@ -111,7 +111,7 @@
 .id {
   display: block;
   color: var(--app-text-secondary);
-  font-size: 12px;
+  font-size: var(--app-font-caption);
   margin: 3px 0 10px;
   overflow-wrap: anywhere;
 }
@@ -121,7 +121,7 @@
   align-items: center;
   gap: 6px 10px;
   color: var(--app-text-secondary);
-  font-size: 12px;
+  font-size: var(--app-font-caption);
   font-variant-numeric: tabular-nums;
   :global(.qwenpaw-tag) {
     margin: 0;
@@ -153,7 +153,7 @@
 .footer {
   padding-top: 16px;
   color: var(--app-text-secondary);
-  font-size: 12px;
+  font-size: var(--app-font-caption);
 }
 .empty {
   display: grid;
@@ -198,7 +198,7 @@
   padding: 1px 6px;
   color: var(--app-info-text);
   background: var(--app-info-bg);
-  font-size: 11px;
+  font-size: calc(11px * var(--app-font-scale));
   font-weight: 500;
 }
 
@@ -217,7 +217,7 @@
   justify-content: flex-end;
   margin-left: 8px;
   color: var(--app-text-secondary);
-  font-size: 12px;
+  font-size: var(--app-font-caption);
 }
 .toolbar > :global(.qwenpaw-select) {
   min-width: 168px;
@@ -233,7 +233,7 @@
   flex-wrap: wrap;
 }
 .selectionSummary {
-  font-size: 13px;
+  font-size: var(--app-font-secondary);
   color: var(--app-text-secondary);
 }
 .selectedFilter {
@@ -260,7 +260,7 @@
   border-radius: 10px;
   color: var(--app-text-secondary);
   background: var(--model-card);
-  font-size: 12px;
+  font-size: var(--app-font-caption);
   cursor: pointer;
   &[aria-pressed="true"] {
     color: var(--app-accent-text);
@@ -294,7 +294,7 @@
   }
   legend {
     margin-bottom: 8px;
-    font-size: 12px;
+    font-size: var(--app-font-caption);
     font-weight: 600;
     color: var(--app-text-secondary);
   }

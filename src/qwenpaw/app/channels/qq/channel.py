@@ -19,6 +19,7 @@ import os
 import re
 import threading
 import time
+from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
@@ -703,6 +704,11 @@ class QQChannel(BaseChannel):
             self._media_dir = _DEFAULT_MEDIA_DIR
         self._max_reconnect_attempts = max_reconnect_attempts
         self._ack_message = ack_message
+        # Bounded dedup of platform event ids: the QQ gateway replays
+        # un-acked events after a session resume, so the same event can
+        # arrive more than once. Keep the last N ids and drop repeats
+        # before any side effect (ack, quoted parsing, enqueue).
+        self._seen_event_ids: deque[str] = deque(maxlen=256)
 
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._ws_thread: Optional[threading.Thread] = None
@@ -1552,6 +1558,22 @@ class QQChannel(BaseChannel):
 
         return None
 
+    def _is_replayed_event(self, event_id: str) -> bool:
+        """Return True if ``event_id`` was already handled.
+
+        The QQ gateway re-delivers un-acked events after a session
+        resume, so the same event can arrive more than once. Remember
+        the last N ids and drop repeats before any side effect (ack /
+        quoted parsing / enqueue), so a replay cannot double-run the
+        agent or a non-idempotent command.
+        """
+        if not event_id:
+            return False
+        if event_id in self._seen_event_ids:
+            return True
+        self._seen_event_ids.append(event_id)
+        return False
+
     def _handle_msg_event(
         self,
         event_type: str,
@@ -1576,6 +1598,13 @@ class QQChannel(BaseChannel):
             return
 
         msg_id = d.get("id", "")
+        if self._is_replayed_event(msg_id):
+            logger.info(
+                "qq duplicate %s msg_id=%s ignored (replayed event)",
+                spec.message_type,
+                msg_id,
+            )
+            return
         att = d.get("attachments") or []
         is_group = spec.message_type in ("group", "guild")
         meta: Dict[str, Any] = {
@@ -1658,6 +1687,14 @@ class QQChannel(BaseChannel):
 
     def _handle_interaction_event(self, d: Dict[str, Any]) -> None:
         """Handle an INTERACTION_CREATE WebSocket event."""
+        interaction_id = str(d.get("id") or "")
+        if self._is_replayed_event(interaction_id):
+            logger.info(
+                "qq duplicate INTERACTION_CREATE id=%s ignored "
+                "(replayed event)",
+                interaction_id,
+            )
+            return
         self._card_handler.handle_interaction_event(d)
 
     async def on_event_message_completed(
@@ -1686,7 +1723,7 @@ class QQChannel(BaseChannel):
     # WebSocket: payload dispatch
     # ------------------------------------------------------------------
 
-    def _handle_ws_payload(
+    def _handle_ws_payload(  # pylint: disable=too-many-return-statements
         self,
         payload: Dict[str, Any],
         ws: Any,
@@ -1702,6 +1739,34 @@ class QQChannel(BaseChannel):
         d = payload.get("d")
         s = payload.get("s")
         t = payload.get("t")
+
+        # Drop replayed DISPATCH events. After a session resume the
+        # gateway may re-deliver events it never saw acked. The event
+        # sequence ``s`` is monotonic within a session, so a DISPATCH at
+        # or below the highest sequence already processed is a replay.
+        # This is O(1) memory and covers every dispatch event type
+        # (messages and interactions), unlike a bounded per-id set.
+        #
+        # Division of labour with the per-id guard in
+        # ``_handle_msg_event``: a resume replays events *after* the
+        # submitted seq (i.e. with a higher ``s``), which is the shape
+        # seen in #7946, so the id guard is what catches that one. This
+        # seq guard covers the other shape: the same event delivered
+        # again with an unchanged ``s``. Keep both -- neither alone is
+        # sufficient.
+        if (
+            op == OP_DISPATCH
+            and s is not None
+            and state.last_seq is not None
+            and s <= state.last_seq
+        ):
+            logger.info(
+                "qq duplicate dispatch t=%s seq=%s ignored (replayed event)",
+                t,
+                s,
+            )
+            return None
+
         if s is not None:
             state.last_seq = s
 
@@ -1722,6 +1787,10 @@ class QQChannel(BaseChannel):
                     ),
                 )
             else:
+                # Fresh session: the gateway restarts `s` from 1, so the
+                # previous high-water mark is meaningless and would make
+                # the replay guard drop the upcoming READY.
+                state.last_seq = None
                 intents = INTENT_PUBLIC_GUILD_MESSAGES | INTENT_GUILD_MEMBERS
                 intents |= INTENT_INTERACTION
                 if state.identify_fail_count < 3:

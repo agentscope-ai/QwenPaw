@@ -391,6 +391,8 @@
     "desktopApplication": "Aplikasi desktop",
     "languageHint": "Mengubah bahasa antarmuka di perangkat ini.",
     "themeHint": "Gunakan tampilan terang, gelap, atau ikuti sistem.",
+    "uiFontSize": "Ukuran font konsol",
+    "uiFontSizeHint": "Atur ukuran font dasar untuk konsol dan halaman masuk.",
     "customTheme": "Tema khusus",
     "customThemeHint": "Pilih palet tema atau sesuaikan warna dan radius sudut.",
     "themePalette": "Palet tema",

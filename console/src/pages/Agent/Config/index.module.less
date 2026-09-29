@@ -1,5 +1,9 @@
+@import (reference) "../../../styles/scaledTypography.less";
+
 .configPage {
+  .scaled-control-typography();
   height: 100%;
+  font-size: var(--app-font-body);
   width: 100%;
   display: flex;
   flex-direction: column;
@@ -33,7 +37,7 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-size: 14px;
+  font-size: var(--app-font-body);
 }
 
 .tabContent {
@@ -50,7 +54,7 @@
   gap: 6px;
   margin-bottom: 20px;
   color: var(--app-text-tertiary);
-  font-size: 11px;
+  font-size: var(--app-font-caption);
 
   a {
     color: var(--app-accent-text);
@@ -89,7 +93,7 @@
   h3 {
     margin: 3px 0 5px;
     color: var(--app-text);
-    font-size: 17px;
+    font-size: var(--app-font-subtitle);
     font-weight: 650;
   }
 
@@ -97,7 +101,7 @@
     max-width: 720px;
     margin: 0;
     color: var(--app-text-secondary);
-    font-size: 12px;
+    font-size: var(--app-font-caption);
     line-height: 1.55;
   }
 }
@@ -108,7 +112,7 @@
   gap: 7px;
   padding: 4px 9px;
   border-radius: 999px;
-  font-size: 11px;
+  font-size: var(--app-font-caption);
   font-weight: 600;
 
   > span,
@@ -221,8 +225,8 @@
   border: 0;
   background: transparent;
   color: var(--app-accent-text);
-  font-size: 10px;
-  line-height: 16px;
+  font-size: var(--app-font-caption);
+  line-height: 1.35;
   cursor: pointer;
 
   &:hover {
@@ -256,13 +260,13 @@
   > span {
     margin-bottom: 5px;
     color: var(--app-text-secondary);
-    font-size: 11px;
+    font-size: var(--app-font-caption);
   }
 
   > strong {
     overflow: hidden;
     color: var(--app-text);
-    font-size: 13px;
+    font-size: var(--app-font-secondary);
     font-weight: 600;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -272,8 +276,8 @@
     margin-top: 2px;
     overflow: hidden;
     color: var(--app-text-tertiary);
-    font-size: 10px;
-    line-height: 16px;
+    font-size: var(--app-font-caption);
+    line-height: 1.35;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
@@ -353,8 +357,8 @@
 .memoryServiceStatusLine .memoryReferences {
   flex: none;
   margin: 0;
-  font-size: 11px;
-  line-height: 16px;
+  font-size: var(--app-font-caption);
+  line-height: 1.35;
 }
 
 .memoryOverviewMetrics {
@@ -373,13 +377,13 @@
   small {
     flex: none;
     color: var(--app-text-tertiary);
-    font-size: 10px;
+    font-size: var(--app-font-caption);
   }
 
   strong {
     overflow: hidden;
     color: var(--app-text);
-    font-size: 13px;
+    font-size: var(--app-font-secondary);
     font-weight: 600;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -405,13 +409,13 @@
     gap: 5px;
     margin-bottom: 5px;
     color: var(--app-text-secondary);
-    font-size: 11px;
+    font-size: var(--app-font-caption);
   }
 
   > div > strong {
     margin-bottom: 2px;
     color: var(--app-text);
-    font-size: 13px;
+    font-size: var(--app-font-secondary);
     font-weight: 650;
   }
 
@@ -419,7 +423,7 @@
     display: -webkit-box;
     overflow: hidden;
     color: var(--app-text-tertiary);
-    font-size: 10px;
+    font-size: var(--app-font-caption);
     line-height: 1.5;
     -webkit-box-orient: vertical;
     -webkit-line-clamp: 1;
@@ -474,7 +478,7 @@
   span {
     margin-bottom: 3px;
     color: var(--app-accent-text);
-    font-size: 9px;
+    font-size: var(--app-font-caption);
     font-weight: 700;
     letter-spacing: 0.1em;
     text-transform: uppercase;
@@ -483,7 +487,7 @@
   h4 {
     margin: 0;
     color: var(--app-text);
-    font-size: 14px;
+    font-size: var(--app-font-body);
     font-weight: 650;
   }
 
@@ -494,7 +498,7 @@
     border-radius: 999px;
     background: var(--app-fill-faint);
     color: var(--app-text-secondary);
-    font-size: 10px;
+    font-size: var(--app-font-caption);
   }
 }
 
@@ -514,9 +518,9 @@
   border-radius: 999px;
   background: var(--app-info-bg);
   color: var(--app-info-text) !important;
-  font-size: 9px !important;
+  font-size: var(--app-font-caption) !important;
   font-weight: 650 !important;
-  line-height: 15px;
+  line-height: 1.35;
   letter-spacing: 0.02em !important;
   text-transform: none !important;
 }
@@ -566,13 +570,13 @@
   strong {
     margin-bottom: 4px;
     color: var(--app-text);
-    font-size: 13px;
+    font-size: var(--app-font-secondary);
     font-weight: 650;
   }
 
   small {
     color: var(--app-text-secondary);
-    font-size: 11px;
+    font-size: var(--app-font-caption);
     line-height: 1.45;
   }
 
@@ -593,7 +597,7 @@
   border-radius: 7px;
   background: var(--app-fill-subtle);
   color: var(--app-text-secondary);
-  font-size: 20px;
+  font-size: var(--app-font-title);
   line-height: 1;
   transform: rotate(0deg);
   transition: transform 0.2s ease;
@@ -614,7 +618,7 @@
     align-items: center;
     gap: 3px;
     color: var(--app-accent-text);
-    font-size: 10px;
+    font-size: var(--app-font-caption);
     font-weight: 600;
     text-decoration: none;
 
@@ -629,7 +633,7 @@
     border-radius: 999px;
     background: var(--app-fill-faint);
     color: var(--app-text-secondary);
-    font-size: 10px;
+    font-size: var(--app-font-caption);
   }
 }
 
@@ -642,7 +646,7 @@
 .memorySourceDisclaimer {
   margin: -2px 0 16px;
   color: var(--app-text-tertiary);
-  font-size: 10px;
+  font-size: var(--app-font-caption);
   line-height: 1.55;
 }
 
@@ -661,14 +665,14 @@
   h3 {
     margin: 0 0 4px;
     color: var(--app-text);
-    font-size: 16px;
+    font-size: var(--app-font-subtitle);
     font-weight: 650;
   }
 
   p {
     margin: 0;
     color: var(--app-text-secondary);
-    font-size: 12px;
+    font-size: var(--app-font-caption);
     line-height: 1.55;
   }
 }
@@ -697,13 +701,13 @@
   strong {
     margin-bottom: 3px;
     color: var(--app-text);
-    font-size: 13px;
+    font-size: var(--app-font-secondary);
     font-weight: 600;
   }
 
   span {
     color: var(--app-text-secondary);
-    font-size: 11px;
+    font-size: var(--app-font-caption);
     line-height: 1.45;
   }
 }
@@ -759,13 +763,13 @@
   strong {
     margin-bottom: 3px;
     color: var(--app-text);
-    font-size: 13px;
+    font-size: var(--app-font-secondary);
     font-weight: 600;
   }
 
   > div:first-child > span {
     color: var(--app-text-secondary);
-    font-size: 11px;
+    font-size: var(--app-font-caption);
     line-height: 1.45;
   }
 }
@@ -792,14 +796,14 @@
 
   strong {
     color: var(--app-text);
-    font-size: 16px;
+    font-size: var(--app-font-subtitle);
     font-weight: 650;
   }
 
   > span {
     margin-top: 3px;
     color: var(--app-text-secondary);
-    font-size: 11px;
+    font-size: var(--app-font-caption);
     font-weight: 400;
   }
 }
@@ -818,7 +822,7 @@
   flex-direction: column;
   gap: 14px;
   color: var(--app-text-secondary);
-  font-size: 12px;
+  font-size: var(--app-font-caption);
 }
 
 .memoryStatusContent {
@@ -853,13 +857,13 @@
   > div > strong {
     margin-bottom: 5px;
     color: var(--app-text);
-    font-size: 14px;
+    font-size: var(--app-font-body);
     font-weight: 680;
   }
 
   > div > span {
     color: var(--app-text-secondary);
-    font-size: 10px;
+    font-size: var(--app-font-caption);
     line-height: 1.6;
   }
 }
@@ -879,12 +883,12 @@
 
   strong {
     color: var(--app-text);
-    font-size: 11px;
+    font-size: var(--app-font-caption);
   }
 
   span {
     color: var(--app-text-tertiary);
-    font-size: 10px;
+    font-size: var(--app-font-caption);
   }
 }
 
@@ -910,7 +914,7 @@
     span,
     strong,
     small {
-      font-size: 10px;
+      font-size: var(--app-font-caption);
     }
 
     span {
@@ -936,7 +940,7 @@
     border-top: 1px solid var(--app-border-subtle);
     color: var(--app-text);
     font-family: inherit;
-    font-size: 11px;
+    font-size: var(--app-font-caption);
     line-height: 1.6;
     white-space: pre-wrap;
     overflow-wrap: anywhere;
@@ -949,7 +953,7 @@
   border-radius: 8px;
   background: var(--app-fill-faint);
   color: var(--app-text-tertiary);
-  font-size: 10px;
+  font-size: var(--app-font-caption);
   text-align: center;
 }
 
@@ -978,20 +982,20 @@
 
   span {
     color: var(--app-text-secondary);
-    font-size: 11px;
+    font-size: var(--app-font-caption);
   }
 
   strong {
     margin: 5px 0 3px;
     color: var(--app-text);
-    font-size: 22px;
+    font-size: var(--app-font-title);
     font-weight: 680;
     letter-spacing: -0.02em;
   }
 
   small {
     color: var(--app-text-tertiary);
-    font-size: 10px;
+    font-size: var(--app-font-caption);
   }
 }
 
@@ -999,7 +1003,7 @@
   h4 {
     margin: 0 0 10px;
     color: var(--app-text);
-    font-size: 13px;
+    font-size: var(--app-font-secondary);
     font-weight: 650;
   }
 }
@@ -1024,21 +1028,21 @@
 
   > span {
     color: var(--app-text);
-    font-size: 12px;
+    font-size: var(--app-font-caption);
     font-weight: 550;
   }
 
   code {
     overflow: hidden;
     color: var(--app-text-secondary);
-    font-size: 11px;
+    font-size: var(--app-font-caption);
     text-overflow: ellipsis;
     white-space: nowrap;
   }
 
   strong {
     color: var(--app-text);
-    font-size: 12px;
+    font-size: var(--app-font-caption);
     font-weight: 650;
   }
 }
@@ -1062,14 +1066,14 @@
     border-radius: 50%;
     background: var(--app-fill-strong);
     color: var(--app-text-secondary);
-    font-size: 10px;
+    font-size: var(--app-font-caption);
     font-weight: 700;
   }
 
   p {
     margin: 0;
     color: var(--app-text-secondary);
-    font-size: 10px;
+    font-size: var(--app-font-caption);
     line-height: 1.55;
   }
 }
@@ -1234,8 +1238,8 @@
   display: block;
   min-height: 20px;
   margin: -12px 0 16px;
-  font-size: 13px;
-  line-height: 20px;
+  font-size: var(--app-font-secondary);
+  line-height: 1.5;
 }
 
 .visualCompactNote {
@@ -1244,7 +1248,7 @@
   border: 1px solid var(--app-border);
   border-radius: 8px;
   background: var(--app-fill-faint);
-  font-size: 12px;
+  font-size: var(--app-font-caption);
   line-height: 1.6;
 }
 
@@ -1313,7 +1317,7 @@
   .projectDirectoryPaths strong {
     overflow: hidden;
     color: var(--app-text);
-    font-size: 14px;
+    font-size: var(--app-font-body);
     font-weight: 650;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -1322,7 +1326,7 @@
   .projectDirectoryPaths span {
     overflow: hidden;
     color: var(--app-text-secondary);
-    font-size: 11px;
+    font-size: var(--app-font-caption);
     line-height: 1.4;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -1332,7 +1336,7 @@
 .projectDirectoryCount {
   flex: 0 0 auto;
   color: var(--app-text-secondary);
-  font-size: 11px;
+  font-size: var(--app-font-caption);
   font-style: normal;
   font-weight: 650;
 }
@@ -1342,7 +1346,7 @@
 
   > span {
     color: var(--app-text-secondary);
-    font-size: 12px;
+    font-size: var(--app-font-caption);
     line-height: 1.5;
   }
 }
@@ -1386,12 +1390,12 @@
 }
 
 .stateText {
-  font-size: 14px;
+  font-size: var(--app-font-body);
   color: var(--app-text-secondary);
 }
 
 .stateTextError {
-  font-size: 14px;
+  font-size: var(--app-font-body);
   color: var(--app-error-text);
 }
 
@@ -1603,11 +1607,11 @@
   gap: 16px;
   flex-wrap: wrap;
   strong {
-    font-size: 15px;
+    font-size: var(--app-font-subtitle);
     font-weight: 600;
   }
   span {
-    font-size: 12px;
+    font-size: var(--app-font-caption);
     color: var(--app-text-secondary);
   }
 }

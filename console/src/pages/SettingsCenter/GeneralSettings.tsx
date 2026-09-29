@@ -5,12 +5,14 @@ import {
   ColorPicker,
   Input,
   Grid,
+  InputNumber,
   Segmented,
   Select,
   Slider,
   Switch,
 } from "antd";
 import {
+  ALargeSmall,
   BrainCircuit,
   Expand,
   Languages,
@@ -23,11 +25,12 @@ import {
   Check,
   SlidersHorizontal,
 } from "lucide-react";
-import { useEffect, useState, useId } from "react";
+import { useEffect, useId, useState, useSyncExternalStore } from "react";
 import { useTranslation } from "react-i18next";
 
 import { LANGUAGE_LIST } from "@/constants/languageList";
 import { useTheme, type ThemeMode } from "@/contexts/ThemeContext";
+import { useIsMobile } from "@/hooks/useIsMobile";
 import type { ThemeConfig } from "@/api/modules/theme";
 import { isTauriRuntime } from "@/tauri/backendRuntime";
 import {
@@ -42,6 +45,13 @@ import {
   getChatWideModePreference,
   setChatWideModePreference,
 } from "@/utils/chatLayoutPreference";
+import {
+  getUiFontSize,
+  setUiFontSize,
+  subscribeUiFontSize,
+  UI_FONT_SIZE_MAX,
+  UI_FONT_SIZE_MIN,
+} from "@/utils/uiFontSizePreference";
 import {
   getAssistantMessageDisplayPreference,
   getShowThinkingPreference,
@@ -119,7 +129,9 @@ export default function GeneralSettings() {
   const { message } = App.useApp();
   const [editorOpen, setEditorOpen] = useState(false);
   const screens = Grid.useBreakpoint();
-  const mobile = screens.md === false;
+  const viewportIsMobile = useIsMobile();
+  const mobile =
+    screens.md === false || (screens.md === undefined && viewportIsMobile);
   const surfaceId = useId();
   const reduced = useReducedMotion();
   const closeEditor = () => {
@@ -136,6 +148,7 @@ export default function GeneralSettings() {
     getAssistantMessageDisplayPreference,
   );
   const [showThinking, setShowThinking] = useState(getShowThinkingPreference);
+  const uiFontSize = useSyncExternalStore(subscribeUiFontSize, getUiFontSize);
   const rawLanguage = i18n.resolvedLanguage || i18n.language || "en";
   const currentLanguage = LANGUAGES.some(
     (language) => language.value === rawLanguage,
@@ -224,6 +237,11 @@ export default function GeneralSettings() {
   const changeShowThinking = (show: boolean) => {
     setShowThinkingPreference(show);
     setShowThinking(show);
+  };
+
+  const changeUiFontSize = (value: number | null) => {
+    if (value === null) return;
+    setUiFontSize(value);
   };
 
   const themeEditor = (
@@ -441,6 +459,34 @@ export default function GeneralSettings() {
               </div>
               <div className={styles.settingRow} data-setting-block>
                 <span className={styles.settingIcon}>
+                  <ALargeSmall size={18} />
+                </span>
+                <span className={styles.settingCopy}>
+                  <strong id="settingsUiFontSizeLabel">
+                    {t("settingsCenter.uiFontSize", "Console font size")}
+                  </strong>
+                  <small>
+                    {t(
+                      "settingsCenter.uiFontSizeHint",
+                      "Set the base font size for the console and login pages.",
+                    )}
+                  </small>
+                </span>
+                <div className={styles.fontSizeControl}>
+                  <InputNumber
+                    className={styles.fontSizeInput}
+                    min={UI_FONT_SIZE_MIN}
+                    max={UI_FONT_SIZE_MAX}
+                    step={1}
+                    value={uiFontSize}
+                    onChange={changeUiFontSize}
+                    aria-labelledby="settingsUiFontSizeLabel"
+                  />
+                  <span className={styles.fontSizeUnit}>px</span>
+                </div>
+              </div>
+              <div className={styles.settingRow} data-setting-block>
+                <span className={styles.settingIcon}>
                   <Monitor size={18} />
                 </span>
                 <span className={styles.settingCopy}>
@@ -516,6 +562,7 @@ export default function GeneralSettings() {
                 </span>
                 <Segmented<ContentWidth>
                   className={styles.segmentedControl}
+                  vertical={mobile}
                   aria-label={t("settingsCenter.contentWidth", "Message width")}
                   value={wideMode ? "wide" : "standard"}
                   options={[
@@ -554,6 +601,7 @@ export default function GeneralSettings() {
                 </span>
                 <Segmented<AssistantMessageDisplayPreference>
                   className={styles.messageDisplayControl}
+                  vertical={mobile}
                   value={assistantDisplayMode}
                   options={[
                     {
@@ -619,6 +667,7 @@ export default function GeneralSettings() {
                 </span>
                 <Segmented<ToolDisplayPreference>
                   className={styles.segmentedControl}
+                  vertical={mobile}
                   value={toolDisplayMode}
                   options={[
                     {

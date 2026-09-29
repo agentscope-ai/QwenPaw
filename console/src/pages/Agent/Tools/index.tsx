@@ -2,7 +2,7 @@ import { useAgentStore } from "@/stores/agentStore";
 import { useAutoSave } from "@/hooks/useAutoSave";
 import { SharedModal as Modal } from "@/components/interaction/SharedModal";
 import { CircleHelp, TriangleAlert, Search, Wrench, X } from "lucide-react";
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Spin, Popover, Segmented } from "antd";
 import {
   Switch,
@@ -25,7 +25,6 @@ import type { ToolInfo } from "../../../api/modules/tools";
 import { PageHeader } from "@/components/PageHeader";
 import { WebSearchConfigModal } from "./WebSearchConfigModal";
 import styles from "./index.module.less";
-import { motion, useReducedMotion } from "motion/react";
 import { InteractiveCard } from "@/components/interaction/InteractiveCard";
 import { Cascade } from "@/components/interaction/Cascade";
 import { TOOL_GROUPS, TOOL_PRESENTATION, toolGroup } from "./toolPresentation";
@@ -103,10 +102,8 @@ function ToolConfigModal({
   visible,
   onClose,
   onSave,
-  surfaceId,
 }: {
   tool: ToolInfo;
-  surfaceId?: string;
   visible: boolean;
   onClose: () => void;
   onSave: (values: Record<string, unknown>) => Promise<void>;
@@ -152,7 +149,6 @@ function ToolConfigModal({
   return (
     <Modal
       closeIcon={<X size={18} aria-hidden />}
-      surfaceId={surfaceId}
       title={`${t("tools.configure")} · ${
         tool.source_plugin_id
           ? tool.name
@@ -245,9 +241,7 @@ function ToolConfigModal({
 
 export default function ToolsPage() {
   const { t } = useTranslation();
-  const instanceId = useId();
   const { selectedAgent } = useAgentStore();
-  const reducedMotion = useReducedMotion();
   const entered = useRef(false);
   const {
     tools,
@@ -523,39 +517,22 @@ export default function ToolsPage() {
                                   )}
                                 <div className={styles.rowActions}>
                                   {canConfigure && (
-                                    <motion.div
-                                      layoutId={
-                                        reducedMotion
-                                          ? undefined
-                                          : `${instanceId}-${tool.name}-config`
+                                    <Button
+                                      data-press
+                                      className={styles.toggleButton}
+                                      aria-label={`${t(
+                                        "tools.configure",
+                                      )} ${toolLabel(tool)}`}
+                                      onClick={() => handleConfigure(tool)}
+                                      icon={
+                                        <SettingOutlined
+                                          size={16}
+                                          aria-hidden
+                                        />
                                       }
-                                      style={{
-                                        borderRadius: 20,
-                                        background: "var(--app-surface)",
-                                      }}
-                                      transition={{
-                                        type: "spring",
-                                        stiffness: 360,
-                                        damping: 38,
-                                      }}
                                     >
-                                      <Button
-                                        data-press
-                                        className={styles.toggleButton}
-                                        aria-label={`${t(
-                                          "tools.configure",
-                                        )} ${toolLabel(tool)}`}
-                                        onClick={() => handleConfigure(tool)}
-                                        icon={
-                                          <SettingOutlined
-                                            size={16}
-                                            aria-hidden
-                                          />
-                                        }
-                                      >
-                                        {t("tools.configure")}
-                                      </Button>
-                                    </motion.div>
+                                      {t("tools.configure")}
+                                    </Button>
                                   )}
                                 </div>
                               </div>
@@ -608,7 +585,6 @@ export default function ToolsPage() {
       {currentTool && WEBSEARCH_TOOL_NAMES.has(currentTool.name) ? (
         <WebSearchConfigModal
           key={`${configAgentId}:${currentTool.name}`}
-          surfaceId={`${instanceId}-${currentTool.name}-config`}
           tool={currentTool}
           visible={configModalVisible}
           onClose={() => setConfigModalVisible(false)}
@@ -618,7 +594,6 @@ export default function ToolsPage() {
         currentTool && (
           <ToolConfigModal
             key={`${configAgentId}:${currentTool.name}`}
-            surfaceId={`${instanceId}-${currentTool.name}-config`}
             tool={currentTool}
             visible={configModalVisible}
             onClose={() => setConfigModalVisible(false)}

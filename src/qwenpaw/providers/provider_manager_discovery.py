@@ -391,7 +391,11 @@ class ProviderManagerDiscoveryMixin(
             error = Provider.sanitize_connection_message(
                 str(exc) or exc.__class__.__name__,
             )
-            logger.warning("Model discovery failed; using static fallback")
+            logger.warning(
+                f"Model discovery failed for "
+                f"{sanitize_log_value(provider_id)}; using static fallback: "
+                f"{sanitize_log_value(error)}",
+            )
             if save:
                 committed = await self._save_discovery_locked(
                     provider_id,

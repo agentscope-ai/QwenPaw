@@ -3160,6 +3160,8 @@
     "desktopApplication": "デスクトップアプリ",
     "languageHint": "このデバイスの表示言語を変更します。",
     "themeHint": "ライト、ダーク、またはシステムに合わせた外観を使用します。",
+    "uiFontSize": "コンソールの基準フォントサイズ",
+    "uiFontSizeHint": "コンソールとログインページの基準フォントサイズを設定します。",
     "customTheme": "カスタムテーマ",
     "customThemeHint": "テーマパレットを選択するか、色と角の丸みを調整します。",
     "themePalette": "テーマパレット",

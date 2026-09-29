@@ -3,7 +3,7 @@
   margin-bottom: 24px;
   h3 {
     margin: 0 0 12px;
-    font-size: 15px;
+    font-size: calc(15px * var(--app-font-scale));
     font-weight: 600;
   }
 }
@@ -26,7 +26,7 @@
 .model {
   margin-left: auto;
   color: var(--app-text-secondary);
-  font-size: 13px;
+  font-size: var(--app-font-secondary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -91,7 +91,7 @@
   align-items: center;
 }
 .choice > span {
-  font-size: 13px;
+  font-size: var(--app-font-secondary);
   flex-shrink: 0;
 }
 .choice > button {

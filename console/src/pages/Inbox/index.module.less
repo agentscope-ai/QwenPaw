@@ -1,4 +1,7 @@
+@import (reference) "../../styles/scaledTypography.less";
+
 .inboxPage {
+  .scaled-control-typography();
   height: 100%;
   display: flex;
   flex-direction: column;
@@ -19,7 +22,7 @@
   gap: 20px;
   margin-bottom: 18px;
   color: var(--app-text-secondary);
-  font-size: 13px;
+  font-size: var(--app-font-secondary);
 }
 
 .inboxTabs {
@@ -37,7 +40,7 @@
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  font-size: 15px;
+  font-size: calc(15px * var(--app-font-scale));
 }
 
 .wobbleToggleActive {
@@ -71,7 +74,7 @@
 }
 
 .selectedCountText {
-  font-size: 12px;
+  font-size: var(--app-font-caption);
   color: var(--app-text-secondary);
 }
 
@@ -112,7 +115,7 @@
 }
 
 .messageDetailLabel {
-  font-size: 12px;
+  font-size: var(--app-font-caption);
   color: var(--app-text-secondary);
 }
 
@@ -123,7 +126,7 @@
   border-radius: 8px;
   border: 1px solid var(--app-border);
   background: var(--app-surface);
-  font-size: 12px;
+  font-size: var(--app-font-caption);
   line-height: 1.6;
   white-space: pre-wrap;
   word-break: break-word;
@@ -135,7 +138,7 @@
   border-radius: 8px;
   border: 1px solid var(--app-border);
   background: var(--app-surface);
-  font-size: 12px;
+  font-size: var(--app-font-caption);
   line-height: 1.6;
   white-space: pre-wrap;
   word-break: break-word;
@@ -149,7 +152,7 @@
   border-radius: 8px;
   border: 1px solid var(--app-border);
   background: var(--app-surface);
-  font-size: 12px;
+  font-size: var(--app-font-caption);
   line-height: 1.6;
   max-height: 360px;
   overflow-y: auto;
@@ -250,12 +253,12 @@
   align-items: center;
   justify-content: center;
   color: var(--app-text-secondary);
-  font-size: 14px;
+  font-size: var(--app-font-body);
 }
 
 .traceFoldTitle {
   font-weight: 500;
-  font-size: 13px;
+  font-size: var(--app-font-secondary);
   color: var(--app-text);
 }
 
@@ -263,7 +266,7 @@
   display: inline-flex;
   align-items: center;
   color: var(--app-text-tertiary);
-  font-size: 12px;
+  font-size: var(--app-font-caption);
   opacity: 0;
   transform: rotate(0deg);
   transition:
@@ -283,11 +286,11 @@
 .traceFoldTime {
   margin-left: auto;
   color: var(--app-text-tertiary);
-  font-size: 12px;
+  font-size: var(--app-font-caption);
 }
 
 .traceAssistantMessage {
-  font-size: 14px;
+  font-size: var(--app-font-body);
   line-height: 1.65;
   color: var(--app-text);
   white-space: normal;
@@ -345,7 +348,7 @@
   color: var(--app-text);
   border-radius: 14px;
   padding: 10px 12px;
-  font-size: 14px;
+  font-size: var(--app-font-body);
   line-height: 1.6;
   border: 1px solid var(--app-border);
   white-space: pre-wrap;
@@ -384,7 +387,7 @@
 }
 
 .traceCodeTitle {
-  font-size: 12px;
+  font-size: var(--app-font-caption);
   font-weight: 600;
   color: var(--app-text-secondary);
 }
@@ -393,7 +396,7 @@
   border: none;
   background: transparent;
   color: var(--app-text-secondary);
-  font-size: 12px;
+  font-size: var(--app-font-caption);
   cursor: pointer;
   line-height: 1;
   padding: 2px;
@@ -408,7 +411,7 @@
   border-radius: 8px;
   border: 1px solid var(--app-border);
   padding: 10px 12px;
-  font-size: 12px;
+  font-size: var(--app-font-caption);
   line-height: 1.6;
   white-space: pre-wrap;
   word-break: break-word;
@@ -426,7 +429,7 @@
   border: none;
   background: var(--app-surface);
   padding: 10px 12px;
-  font-size: 12px;
+  font-size: var(--app-font-caption);
   line-height: 1.6;
   white-space: pre;
   word-break: normal;
@@ -438,7 +441,7 @@
 }
 
 .traceMarkdownBlock {
-  font-size: 13px;
+  font-size: var(--app-font-secondary);
   line-height: 1.75;
 
   :global(.markdown > p),
