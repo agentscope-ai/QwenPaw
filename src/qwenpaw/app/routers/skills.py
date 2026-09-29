@@ -1423,13 +1423,15 @@ def _download_one_or_raise(
     }
 
 
-@router.post("/pool/download")
-async def download_pool_skill_to_workspaces(
+def _download_pool_skills_blocking(
     body: DownloadFromPoolRequest,
-) -> dict[str, Any]:
-    """Download one pool skill into one or more workspaces.
+) -> dict[str, Any] | JSONResponse:
+    """Run the whole pool download synchronously (call off the event loop).
 
-    All-or-nothing: if any target conflicts, reject everything.
+    Every step — preflight, snapshot rollback copies, the per-target copy
+    itself — is blocking filesystem work that scales with the skill's file
+    count.  Running it inline in the async handler freezes the event loop
+    and every other API for the duration of the copy.
     """
     targets, hub_service = _resolve_and_preflight(body)
     if body.preview_only:
@@ -1466,6 +1468,23 @@ async def download_pool_skill_to_workspaces(
                 shutil.rmtree(Path(backup_dir).parent, ignore_errors=True)
 
     return {"downloaded": downloaded}
+
+
+@router.post("/pool/download")
+async def download_pool_skill_to_workspaces(
+    body: DownloadFromPoolRequest,
+) -> dict[str, Any]:
+    """Download one pool skill into one or more workspaces.
+
+    All-or-nothing: if any target conflicts, reject everything.
+
+    The copy runs in a worker thread so a large skill (tens of thousands of
+    files) cannot block the event loop and starve every other endpoint.
+    """
+    return await asyncio.to_thread(
+        _download_pool_skills_blocking,
+        body,
+    )
 
 
 @router.post("/pool/import-builtin")
