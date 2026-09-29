@@ -33,7 +33,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
-from ._cleanup_logging import cleanup_logging
+from ._cleanup_logging import cleanup_errors, cleanup_logging
 
 if sys.platform == "win32" or TYPE_CHECKING:
     import msvcrt
@@ -1778,22 +1778,26 @@ def _iter_orphaned_metadata(
     result: List[Tuple[Path, Dict[str, Any]]] = []
 
     for meta_file in sb_dir.glob("*.json"):
-        try:
+        with cleanup_errors(logger, "Failed to read metadata %s", meta_file):
             meta = json.loads(meta_file.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError):
-            continue
-
-        owner_pid = meta.get("owner_pid")
-        if owner_pid is not None and owner_pid != my_pid:
-            if _is_pid_alive(owner_pid):
-                logger.debug(
-                    "Skipping sandbox %s — owner pid %d still alive",
-                    meta.get("sandbox_id", "?"),
-                    owner_pid,
-                )
-                continue
-
-        result.append((meta_file, meta))
+            if not isinstance(meta, dict):
+                raise ValueError("Sandbox metadata must be an object")
+            owner_pid = meta.get("owner_pid")
+            if owner_pid is not None and (
+                not isinstance(owner_pid, int)
+                or isinstance(owner_pid, bool)
+                or owner_pid <= 0
+            ):
+                raise ValueError("Invalid sandbox owner PID")
+            if owner_pid is not None and owner_pid != my_pid:
+                if _is_pid_alive(owner_pid):
+                    logger.debug(
+                        "Skipping sandbox %s — owner pid %d still alive",
+                        meta.get("sandbox_id", "?"),
+                        owner_pid,
+                    )
+                    continue
+            result.append((meta_file, meta))
 
     return result
 
@@ -2874,7 +2878,13 @@ def _move_to_failed_cleanup_unelevated(
 
 def shutdown_cleanup(*, log_progress: bool = True) -> None:
     """Clean sandbox state, optionally silencing the whole cleanup chain."""
-    with cleanup_logging(log_progress):
+    with (
+        cleanup_logging(log_progress),
+        cleanup_errors(
+            logger,
+            "Unexpected sandbox shutdown failure",
+        ),
+    ):
         _shutdown_cleanup()
 
 
@@ -2896,7 +2906,8 @@ def _shutdown_cleanup() -> None:  # pylint: disable=R0912
     except Exception as e:
         logger.warning("Failed to clean deny_paths protection on exit: %s", e)
 
-    _migrate_legacy_state_file()
+    with cleanup_errors(logger, "Failed to migrate legacy sandbox state"):
+        _migrate_legacy_state_file()
 
     sb_dir = _unelevated_sandboxes_dir()
     orphaned = _iter_orphaned_metadata(sb_dir)
@@ -2907,12 +2918,9 @@ def _shutdown_cleanup() -> None:  # pylint: disable=R0912
     sandboxes_processed = 0
 
     for meta_file, meta in orphaned:
-        try:
+        with cleanup_errors(logger, "Failed to clean metadata %s", meta_file):
             if _cleanup_unelevated_metadata(meta_file, meta):
                 sandboxes_processed += 1
-        except Exception:
-            # Preserve metadata for retry; one failure must not stop others.
-            continue
 
     if sb_dir.exists() and not list(sb_dir.glob("*.json")):
         try:

@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+import os
+
 import pytest
 from agentscope.message import DataBlock, URLSource
 
@@ -16,6 +18,10 @@ from qwenpaw._compat.message import _ensure_url_scheme, msg_from_dict
         r"\\server\share\real.png",
         "C:/Users/alice/real.png",
         "/tmp/real.png",
+        r"file://C:\files\real.png",
+        r"file://\\server\share\real.png",
+        r".\dir\real.png",
+        r"..\dir\real.png",
         r"/tmp/invoice\real.png",
     ],
 )
@@ -74,3 +80,28 @@ def test_msg_from_dict_legacy_image_with_local_path_source(tmp_path):
     assert isinstance(block, DataBlock)
     assert isinstance(block.source, URLSource)
     assert str(block.source.url).startswith("file://")
+
+
+@pytest.mark.skipif(
+    os.name == "nt",
+    reason="POSIX permits backslashes in names",
+)
+def test_legacy_relative_posix_filename(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    filename = r"invoice\real.png"
+    (tmp_path / filename).write_bytes(b"file content")
+    msg = msg_from_dict(
+        {
+            "name": "user",
+            "role": "user",
+            "content": [
+                {
+                    "type": "file",
+                    "source": {"type": "url", "url": filename},
+                },
+            ],
+        },
+    )
+    assert (
+        msg.content[0].text == f"File '{filename}' is available at: {filename}"
+    )

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import ntpath
+import os
 import posixpath
 
 from urllib.parse import unquote, urlparse
@@ -29,6 +30,8 @@ def file_url_to_path(url: str) -> str:
         value = value[1:]
     elif len(value) >= 2 and value[0].isalpha() and value[1] == ":":
         pass
+    elif value.startswith("\\\\"):
+        pass
     elif not value.startswith("/"):
         value = f"//{value}"
     return unquote(value)
@@ -50,11 +53,19 @@ def media_basename(path: str) -> str:
     """Extract a name without treating POSIX backslashes as separators.
 
     Drive, UNC and explicit backslash-relative paths use Windows rules.
-    A slash-rooted path uses POSIX rules, even on a Windows host.
+    Slash-rooted paths use POSIX rules. Ambiguous relative paths follow
+    the host platform; cross-host callers should supply a filename hint.
+    File URLs are decoded only for name extraction.
     """
+    if path.startswith("file://"):
+        path = file_url_to_path(path)
     windows_path = (
         (len(path) >= 2 and path[0].isalpha() and path[1] == ":")
         or path.startswith(("\\\\", "//", ".\\", "..\\"))
-        or ("\\" in path and "/" not in path)
+        or (
+            os.name == "nt"
+            and not path.startswith("/")
+            and not urlparse(path).scheme
+        )
     )
     return ntpath.basename(path) if windows_path else posixpath.basename(path)

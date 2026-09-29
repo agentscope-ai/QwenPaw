@@ -818,3 +818,29 @@ def test_fixup_rewrites_only_the_affected_position(tmp_path) -> None:
     mf._fixup_media_list(items)
     assert items[0] is keep
     assert isinstance(items[1], TextBlock)
+
+
+@pytest.mark.skipif(
+    os.name == "nt",
+    reason="POSIX permits backslashes in names",
+)
+def test_fixup_relative_posix_filename(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    filename = r"invoice\real.png"
+    (tmp_path / filename).write_bytes(b"file content")
+    items = [{"type": "file", "source": {"type": "url", "url": filename}}]
+    mf._fixup_media_list(items)
+    assert items[0].text == f"File '{filename}' is available at: {filename}"
+
+
+@pytest.mark.parametrize(
+    "url,path",
+    [
+        (r"file://C:\files\real.png", r"C:\files\real.png"),
+        (r"file://\\server\share\real.png", r"\\server\share\real.png"),
+    ],
+)
+def test_fixup_legacy_windows_file_url(url, path):
+    items = [{"type": "file", "source": {"type": "url", "url": url}}]
+    mf._fixup_media_list(items)
+    assert items[0].text == f"File 'real.png' is available at: {path}"

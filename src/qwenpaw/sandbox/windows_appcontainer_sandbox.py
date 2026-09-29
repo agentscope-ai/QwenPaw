@@ -46,7 +46,7 @@ from .windows_unelevated_sandbox import (
     _string_to_sid,
 )
 
-from ._cleanup_logging import cleanup_logging
+from ._cleanup_logging import cleanup_errors, cleanup_logging
 
 logger = logging.getLogger(__name__)
 
@@ -1206,7 +1206,13 @@ def _cleanup_single_container(  # pylint: disable=R0912
 
 def shutdown_cleanup(*, log_progress: bool = True) -> None:
     """Clean containers, silencing the entire sandbox call chain at exit."""
-    with cleanup_logging(log_progress):
+    with (
+        cleanup_logging(log_progress),
+        cleanup_errors(
+            logger,
+            "Unexpected sandbox shutdown failure",
+        ),
+    ):
         _shutdown_cleanup(log_progress=log_progress)
 
 
@@ -1224,13 +1230,17 @@ def _shutdown_cleanup(*, log_progress: bool) -> None:
     my_pid = os.getpid()
 
     for meta_file in containers_dir.glob("*.json"):
-        try:
+        with cleanup_errors(logger, "Failed to clean metadata %s", meta_file):
             meta = json.loads(meta_file.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError):
-            continue
-
-        try:
+            if not isinstance(meta, dict):
+                raise ValueError("Sandbox metadata must be an object")
             owner_pid = meta.get("owner_pid")
+            if owner_pid is not None and (
+                not isinstance(owner_pid, int)
+                or isinstance(owner_pid, bool)
+                or owner_pid <= 0
+            ):
+                raise ValueError("Invalid sandbox owner PID")
 
             if owner_pid is not None and owner_pid != my_pid:
                 if _is_pid_alive(owner_pid):
@@ -1247,10 +1257,6 @@ def _shutdown_cleanup(*, log_progress: bool) -> None:
                 if log_progress:
                     logger.info("Cleaning AppContainer: %s", container_name)
                 _cleanup_single_container(meta, meta_file)
-        except Exception:
-            # Leave metadata in place for a later retry, and continue with
-            # the next container even if a Win32 call or handler raises.
-            continue
 
     if containers_dir.exists() and not list(containers_dir.glob("*.json")):
         try:

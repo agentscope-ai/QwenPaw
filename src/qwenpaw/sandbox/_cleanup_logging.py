@@ -35,3 +35,16 @@ def cleanup_logging(log_progress: bool):
         for logger in loggers:
             logger.removeFilter(log_filter)
         _QUIET.reset(token)
+
+
+@contextmanager
+def cleanup_errors(logger: logging.Logger, message: str, *args):
+    """Keep cleanup best-effort while reporting failures outside quiet mode."""
+    try:
+        yield
+    except Exception:
+        try:
+            logger.exception(message, *args)
+        except Exception:
+            # A broken logging handler must not prevent subsequent cleanup.
+            pass
