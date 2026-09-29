@@ -3,6 +3,9 @@
 
 from __future__ import annotations
 
+import ntpath
+import posixpath
+
 from urllib.parse import unquote, urlparse
 
 _REMOTE_MEDIA_SCHEMES = frozenset(
@@ -41,3 +44,17 @@ def local_media_path(url: str) -> str | None:
     if scheme and not is_windows_drive:
         return None
     return path or None
+
+
+def media_basename(path: str) -> str:
+    """Extract a name without treating POSIX backslashes as separators.
+
+    Drive, UNC and explicit backslash-relative paths use Windows rules.
+    A slash-rooted path uses POSIX rules, even on a Windows host.
+    """
+    windows_path = (
+        (len(path) >= 2 and path[0].isalpha() and path[1] == ":")
+        or path.startswith(("\\\\", "//", ".\\", "..\\"))
+        or ("\\" in path and "/" not in path)
+    )
+    return ntpath.basename(path) if windows_path else posixpath.basename(path)

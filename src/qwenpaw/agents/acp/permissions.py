@@ -396,6 +396,7 @@ class ACPPermissionAdapter:
         return self._summary(tool_call)
 
     def _display_path(self, value: str) -> str:
+        """Use native separators for valid paths; preserve NUL input."""
         if "\x00" in value:
             return value
         try:

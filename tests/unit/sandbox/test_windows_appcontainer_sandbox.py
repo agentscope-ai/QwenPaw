@@ -1025,3 +1025,80 @@ def test_shutdown_cleanup_preserves_cleanup_without_progress_logging(
 
     cleanup.assert_called_once_with(metadata, meta_file)
     assert logger.info.call_count == int(log_progress)
+
+
+@pytest.mark.parametrize("unexpected_error", [False, True])
+def test_quiet_cleanup_preserves_failed_metadata_and_continues(
+    tmp_path,
+    monkeypatch,
+    unexpected_error,
+):
+    import logging
+    from qwenpaw.sandbox import windows_appcontainer_sandbox as mod
+    from qwenpaw.sandbox import windows_unelevated_sandbox as acl
+
+    class ClosedHandler(logging.Handler):
+        def emit(self, record):
+            raise AssertionError("cleanup must not write to closed handlers")
+
+    for log in (mod.logger, acl.logger):
+        monkeypatch.setattr(log, "handlers", [ClosedHandler()])
+        monkeypatch.setattr(log, "propagate", False)
+        monkeypatch.setattr(log, "level", logging.DEBUG)
+        monkeypatch.setattr(log, "_cache", {})
+
+    containers = tmp_path / "containers"
+    containers.mkdir()
+    bad_path = tmp_path / "bad"
+    good_path = tmp_path / "good"
+    bad_path.mkdir()
+    good_path.mkdir()
+    for name, workspace in (("a_bad", bad_path), ("b_good", good_path)):
+        (containers / f"{name}.json").write_text(
+            json.dumps(
+                {
+                    "container_name": name,
+                    "owner_pid": os.getpid(),
+                    "sid": "S-1-15-2-12345",
+                    "workspace_dir": str(workspace),
+                },
+            ),
+            encoding="utf-8",
+        )
+    original_glob = Path.glob
+    monkeypatch.setattr(
+        Path,
+        "glob",
+        lambda path, pattern: iter(sorted(original_glob(path, pattern))),
+    )
+    monkeypatch.setattr(mod, "_state_dir", tmp_path)
+    monkeypatch.setattr(acl.time, "sleep", lambda _: None)
+    userenv = MagicMock()
+    monkeypatch.setattr(mod, "_get_userenv", lambda: userenv)
+    visited = []
+
+    def remove_ace(path, _sid):
+        visited.append(path)
+        if path == str(bad_path):
+            if unexpected_error:
+                raise RuntimeError("Win32 cleanup failed")
+            # Exercise logging inside the low-level ACL API too.
+            acl.logger.warning("ACL deletion failed")
+            return False
+        return True
+
+    monkeypatch.setattr(acl, "_remove_ace_by_sid_api", remove_ace)
+    mod.shutdown_cleanup(log_progress=False)
+
+    assert visited[0] == str(bad_path)
+    assert str(good_path) in visited
+    assert not (containers / "b_good.json").exists()
+    if unexpected_error:
+        assert (containers / "a_bad.json").exists()
+    else:
+        saved = tmp_path / "failed_cleanup" / "a_bad.json"
+        assert (
+            "ACL removal failed"
+            in json.loads(saved.read_text())["_cleanup_error"]["reason"]
+        )
+        assert not (containers / "a_bad.json").exists()

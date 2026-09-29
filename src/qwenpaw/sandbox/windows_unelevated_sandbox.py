@@ -33,6 +33,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
+from ._cleanup_logging import cleanup_logging
+
 if sys.platform == "win32" or TYPE_CHECKING:
     import msvcrt
 
@@ -2870,7 +2872,13 @@ def _move_to_failed_cleanup_unelevated(
     logger.info("Cleanup failed, metadata preserved: %s", dest.name)
 
 
-def shutdown_cleanup() -> None:  # pylint: disable=R0912
+def shutdown_cleanup(*, log_progress: bool = True) -> None:
+    """Clean sandbox state, optionally silencing the whole cleanup chain."""
+    with cleanup_logging(log_progress):
+        _shutdown_cleanup()
+
+
+def _shutdown_cleanup() -> None:  # pylint: disable=R0912
     """Best-effort cleanup of unelevated sandbox ACLs on process exit.
 
     Removes ACEs for orphaned sandboxes whose owner process is dead.
@@ -2899,67 +2907,12 @@ def shutdown_cleanup() -> None:  # pylint: disable=R0912
     sandboxes_processed = 0
 
     for meta_file, meta in orphaned:
-        cap_sid = meta.get("cap_sid", "")
-        if not cap_sid:
+        try:
+            if _cleanup_unelevated_metadata(meta_file, meta):
+                sandboxes_processed += 1
+        except Exception:
+            # Preserve metadata for retry; one failure must not stop others.
             continue
-
-        sandbox_id = meta.get("sandbox_id", cap_sid)
-        acl_entries = meta.get("acl_entries", [])
-        deadline = time.monotonic() + 60.0
-        failed_paths: List[str] = []
-
-        t_sandbox = time.monotonic()
-        for entry in acl_entries:
-            entry_path = entry.get("path", "")
-            if entry_path and os.path.exists(entry_path):
-                t_entry = time.monotonic()
-                ok = _remove_acl_with_verify_sync(
-                    entry_path,
-                    cap_sid,
-                    deadline=deadline,
-                )
-                logger.debug(
-                    "  [%s] ACL remove [%s] %s: %.2fs",
-                    sandbox_id,
-                    "OK" if ok else "FAIL",
-                    entry_path,
-                    time.monotonic() - t_entry,
-                )
-                if not ok:
-                    failed_paths.append(entry_path)
-
-        t_acl_done = time.monotonic()
-
-        if failed_paths:
-            logger.warning(
-                "Unelevated sandbox cleanup: failed to remove ACL for "
-                "SID %s from %d path(s): %s",
-                cap_sid,
-                len(failed_paths),
-                failed_paths,
-            )
-
-        logger.info(
-            "[%s] ACL removal: %.2fs (%d entries, %d failed)",
-            sandbox_id,
-            t_acl_done - t_sandbox,
-            len(acl_entries),
-            len(failed_paths),
-        )
-
-        if failed_paths:
-            _move_to_failed_cleanup_unelevated(
-                meta,
-                meta_file,
-                f"ACL removal failed for {len(failed_paths)} path(s)",
-            )
-        else:
-            try:
-                meta_file.unlink()
-            except OSError:
-                pass
-
-        sandboxes_processed += 1
 
     if sb_dir.exists() and not list(sb_dir.glob("*.json")):
         try:
@@ -2976,7 +2929,71 @@ def shutdown_cleanup() -> None:  # pylint: disable=R0912
         )
 
 
-atexit.register(shutdown_cleanup)
+def _cleanup_unelevated_metadata(meta_file: Path, meta: dict) -> bool:
+    """Clean one sandbox, preserving metadata if ACL removal fails."""
+    cap_sid = meta.get("cap_sid", "")
+    if not cap_sid:
+        return False
+
+    sandbox_id = meta.get("sandbox_id", cap_sid)
+    acl_entries = meta.get("acl_entries", [])
+    deadline = time.monotonic() + 60.0
+    failed_paths: List[str] = []
+
+    t_sandbox = time.monotonic()
+    for entry in acl_entries:
+        entry_path = entry.get("path", "")
+        if entry_path and os.path.exists(entry_path):
+            t_entry = time.monotonic()
+            ok = _remove_acl_with_verify_sync(
+                entry_path,
+                cap_sid,
+                deadline=deadline,
+            )
+            logger.debug(
+                "  [%s] ACL remove [%s] %s: %.2fs",
+                sandbox_id,
+                "OK" if ok else "FAIL",
+                entry_path,
+                time.monotonic() - t_entry,
+            )
+            if not ok:
+                failed_paths.append(entry_path)
+
+    t_acl_done = time.monotonic()
+
+    if failed_paths:
+        logger.warning(
+            "Unelevated sandbox cleanup: failed to remove ACL for "
+            "SID %s from %d path(s): %s",
+            cap_sid,
+            len(failed_paths),
+            failed_paths,
+        )
+
+    logger.info(
+        "[%s] ACL removal: %.2fs (%d entries, %d failed)",
+        sandbox_id,
+        t_acl_done - t_sandbox,
+        len(acl_entries),
+        len(failed_paths),
+    )
+
+    if failed_paths:
+        _move_to_failed_cleanup_unelevated(
+            meta,
+            meta_file,
+            f"ACL removal failed for {len(failed_paths)} path(s)",
+        )
+    else:
+        try:
+            meta_file.unlink()
+        except OSError:
+            pass
+    return True
+
+
+atexit.register(shutdown_cleanup, log_progress=False)
 
 # On module load, clean up any orphaned deny_paths ACLs from crashed sessions
 if sys.platform == "win32":

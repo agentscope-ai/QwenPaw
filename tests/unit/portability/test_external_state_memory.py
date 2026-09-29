@@ -547,7 +547,7 @@ def test_qoder_project_cwds_no_dir(tmp_path: Path) -> None:
 
 
 def test_qoder_project_cwds_encodes_key(tmp_path: Path) -> None:
-    cwd = str(tmp_path / "Some" / "Dir")
+    cwd = r"\\server\share\Some\Dir" if os.name == "nt" else "/Some/Dir"
     d = tmp_path / "projects" / "pa"
     d.mkdir(parents=True)
     (d / "x.jsonl").write_text(
@@ -555,8 +555,12 @@ def test_qoder_project_cwds_encodes_key(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     mapping = es._qoder_project_cwds(tmp_path)
-    encoded = cwd.lstrip("/\\").replace("/", "-").replace("\\", "-")
-    assert mapping == {encoded: cwd}
+    expected = (
+        {"server-share-Some-Dir": r"\\server\share\Some\Dir"}
+        if os.name == "nt"
+        else {"Some-Dir": "/Some/Dir"}
+    )
+    assert mapping == expected
 
 
 def test_qoder_project_cwds_relative_skipped(tmp_path: Path) -> None:

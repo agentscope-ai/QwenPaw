@@ -14,7 +14,6 @@ import base64
 from collections import defaultdict, deque
 import hashlib
 import logging
-import ntpath
 import os
 import re
 from contextvars import ContextVar
@@ -70,6 +69,7 @@ from ..utils.image_resize import (
 )
 from ..utils.logging import sanitize_log_value
 from ..utils.media_paths import (
+    media_basename,
     file_url_to_path as _file_url_to_path,
     local_media_path as _local_media_path,
 )
@@ -1437,7 +1437,7 @@ def _fixup_media_list(items: list) -> None:
                 fname_hint
                 # Accept both separators, including Windows session paths
                 # processed on a different host platform.
-                or (ntpath.basename(readable_path) if readable_path else "")
+                or (media_basename(readable_path) if readable_path else "")
                 or "file"
             )
             items[i] = TextBlock(

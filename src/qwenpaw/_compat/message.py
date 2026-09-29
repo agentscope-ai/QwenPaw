@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import json
 import mimetypes
-import ntpath
 from pathlib import Path
 from typing import Any, Mapping
 from urllib.parse import unquote
@@ -28,6 +27,8 @@ from agentscope.message import (
     ToolCallBlock,
     URLSource,
 )
+
+from ..utils.media_paths import media_basename
 
 _MODALITY_DEFAULT_MIME = {
     "image": "image/*",
@@ -176,9 +177,7 @@ def _coerce_block(block: Any) -> Any:
                 path = ""
         else:
             path = str(source) if source else ""
-        filename = (
-            filename or (ntpath.basename(path) if path else "") or "file"
-        )
+        filename = filename or (media_basename(path) if path else "") or "file"
         text = (
             f"File '{filename}' is available at: {path}"
             if path

@@ -104,6 +104,7 @@ def temp_copaw_home(
 
     # Set isolated environment
     monkeypatch.setenv("HOME", temp_dir)
+    monkeypatch.setenv("USERPROFILE", temp_dir)
     monkeypatch.setenv("COPAW_HOME", str(temp_path / ".copaw"))
 
     # Clear sensitive tokens to prevent accidental API calls

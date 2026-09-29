@@ -16,6 +16,7 @@ from qwenpaw._compat.message import _ensure_url_scheme, msg_from_dict
         r"\\server\share\real.png",
         "C:/Users/alice/real.png",
         "/tmp/real.png",
+        r"/tmp/invoice\real.png",
     ],
 )
 @pytest.mark.parametrize("hint_key", [None, "filename", "name"])
@@ -26,7 +27,15 @@ def test_legacy_file_name_handles_cross_platform_paths(path, hint_key):
     msg = msg_from_dict(
         {"name": "user", "role": "user", "content": [block]},
     )
-    filename = "report.pdf" if hint_key else "real.png"
+    filename = (
+        "report.pdf"
+        if hint_key
+        else (
+            r"invoice\real.png"
+            if path.startswith("/tmp/invoice")
+            else "real.png"
+        )
+    )
     assert msg.content[0].text == f"File '{filename}' is available at: {path}"
 
 

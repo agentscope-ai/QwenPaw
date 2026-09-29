@@ -642,6 +642,7 @@ def test_fixup_leaves_data_blocks_without_a_local_file_url(block) -> None:
         r"\\server\share\real.png",
         "C:/Users/alice/real.png",
         "/tmp/real.png",
+        r"/tmp/invoice\real.png",
     ],
 )
 @pytest.mark.parametrize("as_object", [False, True])
@@ -662,7 +663,15 @@ def test_fixup_file_name_handles_cross_platform_paths(
         block = SimpleNamespace(**block)
     items = [block]
     mf._fixup_media_list(items)
-    filename = "report.pdf" if hint_key else "real.png"
+    filename = (
+        "report.pdf"
+        if hint_key
+        else (
+            r"invoice\real.png"
+            if path.startswith("/tmp/invoice")
+            else "real.png"
+        )
+    )
     assert items[0].text == f"File '{filename}' is available at: {path}"
 
 

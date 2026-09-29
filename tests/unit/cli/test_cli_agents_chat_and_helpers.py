@@ -137,7 +137,16 @@ def test_handle_stream_mode_delegates_to_shared_streamer(
     )
     _stub_chat_request(monkeypatch)
 
-    result = CliRunner().invoke(cli, _chat_args("--mode", "stream"))
+    result = CliRunner().invoke(
+        cli,
+        [
+            "--host",
+            "127.0.0.1",
+            "--port",
+            "8088",
+            *_chat_args("--mode", "stream"),
+        ],
+    )
 
     assert result.exit_code == 0
     assert "chunk-1" in result.output
