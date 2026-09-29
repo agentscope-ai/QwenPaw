@@ -88,12 +88,21 @@ function isMobileSidebarViewport() {
   );
 }
 const TOOLS_MODE_KEY = "qwenpaw_sidebar_tools_mode";
+const TOOLS_LAST_OPEN_MODE_KEY = "qwenpaw_sidebar_tools_last_open_mode";
 function readToolsMode(): number {
   try {
     const value = Number(localStorage.getItem(TOOLS_MODE_KEY));
     return [0, 1, 2].includes(value) ? value : 0;
   } catch {
     return 0;
+  }
+}
+function readLastOpenToolsMode(): number {
+  try {
+    const value = Number(localStorage.getItem(TOOLS_LAST_OPEN_MODE_KEY));
+    return value === 2 ? 2 : 1;
+  } catch {
+    return 1;
   }
 }
 const INBOX_BADGE_POLLING_MS = 6000;
@@ -158,6 +167,9 @@ export default function Sidebar({
   const navScrollRef = useRef<HTMLDivElement>(null);
   const reducedMotion = useReducedMotion();
   const [toolsMode, setToolsMode] = useState(readToolsMode);
+  const lastOpenToolsModeRef = useRef(
+    toolsMode === 1 || toolsMode === 2 ? toolsMode : readLastOpenToolsMode(),
+  );
   const toolsOpen = toolsMode !== 0;
   const modeLabel = [
     t("sidebar.toolsCompact", "Compact tools"),
@@ -165,17 +177,27 @@ export default function Sidebar({
     t("sidebar.foldTools", "Collapse tools"),
   ][toolsMode];
   const setPersistedToolsMode = (next: number) => {
+    if (next === 1 || next === 2) {
+      lastOpenToolsModeRef.current = next;
+    }
     setToolsMode(next);
     try {
       localStorage.setItem(TOOLS_MODE_KEY, String(next));
+      localStorage.setItem(
+        TOOLS_LAST_OPEN_MODE_KEY,
+        String(lastOpenToolsModeRef.current),
+      );
     } catch {
       /* Storage can be disabled. */
     }
   };
   const cycleTools = () => setPersistedToolsMode((toolsMode + 1) % 3);
-  const toggleToolsFromHeader = () => setPersistedToolsMode(toolsOpen ? 0 : 1);
+  const toggleToolsFromHeader = () =>
+    setPersistedToolsMode(toolsOpen ? 0 : lastOpenToolsModeRef.current);
   const headerToggleLabel = toolsOpen
     ? t("sidebar.foldTools", "Collapse tools")
+    : lastOpenToolsModeRef.current === 2
+    ? t("sidebar.toolsDetailed", "Detailed tools")
     : t("sidebar.toolsCompact", "Compact tools");
   const [unreadCount, setUnreadCount] = useState(0);
   const [hasPendingApprovals, setHasPendingApprovals] = useState(false);

@@ -430,6 +430,30 @@ describe("Sidebar", () => {
     expect(screen.getByRole("button", { name: "Compact tools" })).toBeVisible();
   });
 
+  it("restores the previous detailed mode after a header collapse", async () => {
+    localStorage.setItem("qwenpaw_sidebar_tools_mode", "2");
+    renderSidebar();
+
+    fireEvent.click(screen.getByTestId("tool-header-toggle"));
+
+    expect(localStorage.getItem("qwenpaw_sidebar_tools_mode")).toBe("0");
+    expect(localStorage.getItem("qwenpaw_sidebar_tools_last_open_mode")).toBe(
+      "2",
+    );
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("button", { name: "Workspace" }),
+      ).not.toBeInTheDocument(),
+    );
+
+    fireEvent.click(screen.getByTestId("tool-header-toggle"));
+
+    expect(localStorage.getItem("qwenpaw_sidebar_tools_mode")).toBe("2");
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Workspace" })).toBeVisible(),
+    );
+  });
+
   it("renders the unified desktop sidebar with agent and settings menus", async () => {
     renderSidebar();
     await waitFor(() => {
