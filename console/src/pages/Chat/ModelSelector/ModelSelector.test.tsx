@@ -1639,7 +1639,8 @@ describe("ModelSelector", () => {
     });
   });
 
-  it("keeps cooldown values when cooldown is turned off", async () => {    vi.mocked(agentsApi.getAgent).mockResolvedValue({
+  it("keeps cooldown values when cooldown is turned off", async () => {
+    vi.mocked(agentsApi.getAgent).mockResolvedValue({
       id: "default",
       name: "Default",
       fallback_models: [],

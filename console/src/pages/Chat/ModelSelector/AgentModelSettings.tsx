@@ -117,8 +117,7 @@ function cooldownValues(
     };
   }
   return {
-    cooldown_base_seconds:
-      custom?.baseSeconds ?? DEFAULT_COOLDOWN.baseSeconds,
+    cooldown_base_seconds: custom?.baseSeconds ?? DEFAULT_COOLDOWN.baseSeconds,
     cooldown_max_seconds: custom?.maxSeconds ?? DEFAULT_COOLDOWN.maxSeconds,
   };
 }
