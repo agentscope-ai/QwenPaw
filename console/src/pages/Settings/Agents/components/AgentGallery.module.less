@@ -14,6 +14,16 @@
   background: var(--app-surface);
   padding: 12px 16px;
   color: var(--app-text);
+  transition:
+    background-color 0.18s ease,
+    border-color 0.18s ease;
+
+  &:hover,
+  &:focus-within {
+    border-color: var(--app-accent-border);
+    background: var(--app-accent-faint);
+  }
+
   &[data-dragging] {
     box-shadow: var(--app-shadow-md);
     border-color: var(--app-accent);

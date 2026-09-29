@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { Bell } from "lucide-react";
+import { Mail } from "lucide-react";
 import {
   AnimatePresence,
   motion,
@@ -45,8 +45,8 @@ export function NotificationBell({
   }, [count, attention, ring, animate, reduced, controls]);
   return (
     <span className={styles.root} aria-hidden="true">
-      <motion.span className={styles.bell} animate={controls}>
-        <Bell size={19} />
+      <motion.span className={styles.icon} animate={controls}>
+        <Mail size={19} strokeWidth={1.75} />
       </motion.span>
       <AnimatePresence>
         {(count > 0 || attention) && (

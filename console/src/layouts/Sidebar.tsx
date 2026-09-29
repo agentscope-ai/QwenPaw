@@ -164,8 +164,7 @@ export default function Sidebar({
     t("sidebar.toolsDetailed", "Detailed tools"),
     t("sidebar.foldTools", "Collapse tools"),
   ][toolsMode];
-  const cycleTools = () => {
-    const next = (toolsMode + 1) % 3;
+  const setPersistedToolsMode = (next: number) => {
     setToolsMode(next);
     try {
       localStorage.setItem(TOOLS_MODE_KEY, String(next));
@@ -173,6 +172,11 @@ export default function Sidebar({
       /* Storage can be disabled. */
     }
   };
+  const cycleTools = () => setPersistedToolsMode((toolsMode + 1) % 3);
+  const toggleToolsFromHeader = () => setPersistedToolsMode(toolsOpen ? 0 : 1);
+  const headerToggleLabel = toolsOpen
+    ? t("sidebar.foldTools", "Collapse tools")
+    : t("sidebar.toolsCompact", "Compact tools");
   const [unreadCount, setUnreadCount] = useState(0);
   const [hasPendingApprovals, setHasPendingApprovals] = useState(false);
   const [shakeInbox, setShakeInbox] = useState(false);
@@ -619,44 +623,49 @@ export default function Sidebar({
     const isActive = selectedKey === entry.key;
     const isInbox = entry.key === "core.inbox";
     return (
-      <button
+      <Tooltip
         key={entry.key}
-        aria-label={typeof entry.label === "string" ? entry.label : undefined}
-        type="button"
-        aria-current={isActive ? "page" : undefined}
-        data-press
-        onMouseEnter={isInbox ? handleInboxHover : undefined}
-        className={`${styles.navigationItem} ${
-          isActive ? styles.navigationItemActive : ""
-        }`}
-        onClick={() => {
-          if (entry.href) {
-            openExternalLink(entry.href);
-          } else {
-            navigate(entry.path);
-          }
-        }}
+        title={toolsMode === 2 ? null : entry.label}
+        placement="right"
       >
-        <span className={styles.inboxIcon}>
-          {isInbox ? (
-            <NotificationBell
-              count={unreadCount}
-              attention={hasPendingApprovals}
-              animate={wobbleEnabled}
-              ring={effectiveShake}
-            />
-          ) : (
-            entry.icon ?? <Puzzle size={18} />
-          )}
-        </span>
-        <motion.span
-          className={skin.navLabel}
-          animate={{ opacity: toolsMode === 2 ? 1 : 0 }}
-          transition={{ duration: reducedMotion ? 0 : 0.18 }}
+        <button
+          aria-label={typeof entry.label === "string" ? entry.label : undefined}
+          type="button"
+          aria-current={isActive ? "page" : undefined}
+          data-press
+          onMouseEnter={isInbox ? handleInboxHover : undefined}
+          className={`${styles.navigationItem} ${
+            isActive ? styles.navigationItemActive : ""
+          }`}
+          onClick={() => {
+            if (entry.href) {
+              openExternalLink(entry.href);
+            } else {
+              navigate(entry.path);
+            }
+          }}
         >
-          {entry.label}
-        </motion.span>
-      </button>
+          <span className={styles.inboxIcon}>
+            {isInbox ? (
+              <NotificationBell
+                count={unreadCount}
+                attention={hasPendingApprovals}
+                animate={wobbleEnabled}
+                ring={effectiveShake}
+              />
+            ) : (
+              entry.icon ?? <Puzzle size={18} />
+            )}
+          </span>
+          <motion.span
+            className={skin.navLabel}
+            animate={{ opacity: toolsMode === 2 ? 1 : 0 }}
+            transition={{ duration: reducedMotion ? 0 : 0.18 }}
+          >
+            {entry.label}
+          </motion.span>
+        </button>
+      </Tooltip>
     );
   };
 
@@ -845,10 +854,11 @@ export default function Sidebar({
                 <button
                   type="button"
                   className={skin.toolHeaderHitArea}
+                  data-testid="tool-header-toggle"
                   aria-hidden="true"
                   tabIndex={-1}
-                  title={modeLabel}
-                  onClick={cycleTools}
+                  title={headerToggleLabel}
+                  onClick={toggleToolsFromHeader}
                 />
                 <div className={skin.agent}>
                   <AgentSelector compact />

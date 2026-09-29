@@ -38,7 +38,11 @@ import { ChunkErrorBoundary } from "@/components/ChunkErrorBoundary";
 import { useTheme } from "@/contexts/ThemeContext";
 import { useMenuItems, useRoutes } from "@/plugins/registry/hooks";
 import { usePlugins } from "@/plugins/PluginContext";
-import { findMenuItem, flattenMenu } from "@/layouts/registry/adapter";
+import {
+  findMenuItem,
+  flattenMenu,
+  renderIcon,
+} from "@/layouts/registry/adapter";
 import { useAgentStore } from "@/stores/agentStore";
 import { supportsPortabilityImport } from "@/utils/agentBackend";
 import GeneralSettings from "./GeneralSettings";
@@ -300,6 +304,7 @@ export default function SettingsCenter() {
   const navigate = useNavigate();
   const routes = useRoutes();
   const { loading: pluginsLoading } = usePlugins();
+  const rawAgentMenu = useMenuItems("primary.agentScoped");
   const rawSettingsMenu = useMenuItems("primary.settings");
   const canImport = useAgentStore(({ selectedAgent, agents }) =>
     supportsPortabilityImport(
@@ -315,11 +320,17 @@ export default function SettingsCenter() {
   }, [routes]);
 
   const availableGroups = useMemo(() => {
+    const registeredMenu = [...rawAgentMenu, ...rawSettingsMenu];
     const coreGroups = SETTINGS_GROUPS.map((group) => ({
       ...group,
-      pages: group.pages.filter(
-        (page) => !page.routeId || componentByRouteId.has(page.routeId),
-      ),
+      pages: group.pages
+        .filter((page) => !page.routeId || componentByRouteId.has(page.routeId))
+        .map((page) => {
+          const menuIcon = page.routeId
+            ? findMenuItem(registeredMenu, page.routeId)?.icon
+            : undefined;
+          return menuIcon ? { ...page, icon: renderIcon(menuIcon, 18) } : page;
+        }),
     })).filter((group) => group.pages.length > 0);
     const representedRoutes = new Set(
       coreGroups.flatMap((group) =>
@@ -356,7 +367,7 @@ export default function SettingsCenter() {
           },
         ]
       : coreGroups;
-  }, [componentByRouteId, rawSettingsMenu, routes]);
+  }, [componentByRouteId, rawAgentMenu, rawSettingsMenu, routes]);
 
   const activeKey = pageKeyFromPath(location.pathname);
   const allPages = availableGroups.flatMap((group) => group.pages);

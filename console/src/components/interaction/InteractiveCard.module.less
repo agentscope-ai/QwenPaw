@@ -8,17 +8,10 @@
   border-radius: var(--app-radius-card);
   position: relative;
   min-width: 0;
-  --reflection-highlight: rgb(255 255 255 / 40%);
-  --reflection-silver: rgb(90 105 125 / 16%);
-  --reflection-edge: rgb(255 255 255 / 85%);
-  --reflection-shadow: rgb(30 40 55 / 12%);
-
-  :global(.dark-mode) & {
-    --reflection-highlight: rgb(255 255 255 / 26%);
-    --reflection-silver: rgb(255 255 255 / 4%);
-    --reflection-edge: rgb(255 255 255 / 18%);
-    --reflection-shadow: rgb(0 0 0 / 20%);
-  }
+  --reflection-highlight: var(--app-accent-faint);
+  --reflection-silver: transparent;
+  --reflection-edge: var(--app-accent-border);
+  --reflection-shadow: var(--app-border-subtle);
 }
 
 .frame > .surface {
