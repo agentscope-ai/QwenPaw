@@ -3474,7 +3474,7 @@
     "sidebarPreview": "Itens visíveis"
   },
   "chat": {
-    "historyLoadFailed": "Não foi possível carregar a conversa. Abra-a novamente.",
+    "sessionLoadFailed": "Não foi possível carregar a conversa. Abra-a novamente.",
     "newTask": "Nova tarefa",
     "newChat": "Novo chat",
     "groups": {

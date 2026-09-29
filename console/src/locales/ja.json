@@ -3215,7 +3215,7 @@
     "sidebarPreview": "表示中の項目"
   },
   "chat": {
-    "historyLoadFailed": "会話を読み込めませんでした。もう一度開いてください。",
+    "sessionLoadFailed": "会話を読み込めませんでした。もう一度開いてください。",
     "newTask": "新しいタスク",
     "newChat": "新しいチャット",
     "groups": {

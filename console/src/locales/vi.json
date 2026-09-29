@@ -1104,7 +1104,7 @@
     "runtimeRestartFailed": "Không thể khởi động lại môi trường"
   },
   "chat": {
-    "historyLoadFailed": "Không thể tải cuộc trò chuyện. Vui lòng mở lại.",
+    "sessionLoadFailed": "Không thể tải cuộc trò chuyện. Vui lòng mở lại.",
     "newTask": "Tác vụ mới",
     "newChat": "Cuộc trò chuyện mới",
     "groups": {

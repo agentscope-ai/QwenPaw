@@ -35,7 +35,7 @@ export function ChatSessionTransition(props: Props) {
       </div>
       {!ready && (
         <div className={styles.status} role={failed ? "alert" : "status"}>
-          {t(failed ? "chat.historyLoadFailed" : "common.loading")}
+          {t(failed ? "chat.sessionLoadFailed" : "common.loading")}
         </div>
       )}
     </div>

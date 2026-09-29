@@ -3982,7 +3982,7 @@
     "system": "System"
   },
   "chat": {
-    "historyLoadFailed": "Could not load this conversation. Please reopen it.",
+    "sessionLoadFailed": "Could not load this conversation. Please reopen it.",
     "switchSession": "Switch conversation",
     "lastActive": "Last active · {{time}}",
     "fileReference": {

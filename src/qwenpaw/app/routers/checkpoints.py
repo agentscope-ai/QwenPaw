@@ -160,9 +160,7 @@ async def checkpoint_graph(
         for item in sessions
     }
     chat_ids = {
-        (item["channel"], item["user_id"], item["session_id"]): item[
-            "chat_id"
-        ]
+        (item["channel"], item["user_id"], item["session_id"]): item["chat_id"]
         for item in sessions
     }
     nodes = [_entry_payload(entry, titles, chat_ids) for entry in entries]

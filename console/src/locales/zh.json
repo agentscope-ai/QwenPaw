@@ -3842,7 +3842,7 @@
     "system": "跟随系统"
   },
   "chat": {
-    "historyLoadFailed": "会话加载失败，请重新打开此会话。",
+    "sessionLoadFailed": "会话加载失败，请重新打开此会话。",
     "switchSession": "切换会话",
     "lastActive": "上次活跃 · {{time}}",
     "fileReference": {
