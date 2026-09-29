@@ -350,7 +350,7 @@ def test_high_fanout_turn_stays_on_one_page(tmp_path):
     store.close()
 
 
-def test_page_byte_limit_always_returns_one_oversized_turn(tmp_path):
+def test_page_byte_limit_splits_one_oversized_turn(tmp_path):
     store = TranscriptStore(tmp_path / "session.db")
     _start(store, "turn-1")
     store.upsert_message(
@@ -391,18 +391,28 @@ def test_page_byte_limit_always_returns_one_oversized_turn(tmp_path):
     )
 
     assert page is not None
-    assert [message.id for message in page.messages] == [
-        "message-0",
-        "message-1",
-    ]
+    assert [message.id for message in page.messages] == ["message-1"]
     assert page.has_more is True
-    assert page.next_before == TranscriptCursor(turn_seq=2, ordinal=0)
+    assert page.next_before == TranscriptCursor(turn_seq=2, ordinal=1)
+
+    middle = store.get_page(
+        session_id="session-1",
+        user_id="user-1",
+        channel="console",
+        before=page.next_before,
+        limit=50,
+        max_bytes=100,
+    )
+    assert middle is not None
+    assert [message.id for message in middle.messages] == ["message-0"]
+    assert middle.has_more is True
+    assert middle.next_before == TranscriptCursor(turn_seq=2, ordinal=0)
 
     older = store.get_page(
         session_id="session-1",
         user_id="user-1",
         channel="console",
-        before=page.next_before,
+        before=middle.next_before,
         limit=50,
         max_bytes=100,
     )

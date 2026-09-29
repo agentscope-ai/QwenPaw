@@ -271,7 +271,7 @@ class ChatHistoryMetadata(BaseModel):
 
 
 class ChatMessagePage(ChatHistoryMetadata):
-    """One turn-bounded page of durable chat messages."""
+    """One byte-bounded page of durable chat messages."""
 
     messages: list[Message] = Field(default_factory=list)
 

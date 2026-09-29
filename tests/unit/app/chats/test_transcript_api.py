@@ -194,6 +194,72 @@ async def test_message_pages_use_opaque_item_cursor(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_message_pages_continue_within_oversized_turn(
+    tmp_path: Path,
+) -> None:
+    store = TranscriptStore(tmp_path / "session.db")
+    _append_turn(store, 1, "older")
+    store.start_turn(
+        session_id="session-1",
+        user_id="user-1",
+        channel="console",
+        turn_id="turn-2",
+    )
+    for ordinal, role in enumerate((Role.USER, Role.ASSISTANT)):
+        store.upsert_message(
+            session_id="session-1",
+            turn_id="turn-2",
+            message=Message(
+                id=f"large-{ordinal}",
+                role=role,
+                content=[TextContent(text="x" * 2_000)],
+                status=RunStatus.Completed,
+            ),
+            ordinal=ordinal,
+        )
+    store.finish_turn(
+        session_id="session-1",
+        turn_id="turn-2",
+        status="completed",
+    )
+    manager = SimpleNamespace(get_chat=AsyncMock(return_value=_chat()))
+    workspace = _workspace(store)
+
+    newest = await get_chat_messages(
+        chat_id="chat-1",
+        before=None,
+        limit=20,
+        max_bytes=100,
+        mgr=manager,
+        workspace=workspace,
+    )
+    middle = await get_chat_messages(
+        chat_id="chat-1",
+        before=newest.next_before,
+        limit=20,
+        max_bytes=100,
+        mgr=manager,
+        workspace=workspace,
+    )
+    older = await get_chat_messages(
+        chat_id="chat-1",
+        before=middle.next_before,
+        limit=20,
+        max_bytes=100,
+        mgr=manager,
+        workspace=workspace,
+    )
+
+    assert [item.id for item in newest.messages] == ["large-1"]
+    assert newest.next_before == "2:1"
+    assert [item.id for item in middle.messages] == ["large-0"]
+    assert middle.next_before == "2:0"
+    assert [item.id for item in older.messages] == ["message-1"]
+    assert older.has_more is False
+    store.close()
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "cursor",
     ("turn:2", "1:2:3", "2", "0:0", "2:-1"),

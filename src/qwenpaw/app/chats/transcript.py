@@ -41,7 +41,7 @@ class TranscriptCursor:
 
 @dataclass(frozen=True)
 class TranscriptPage:
-    """One turn-bounded transcript page in chronological display order."""
+    """One byte-bounded transcript page in chronological display order."""
 
     messages: list[Message]
     next_before: TranscriptCursor | None
@@ -772,7 +772,7 @@ class TranscriptStore:
         limit: int = 20,
         max_bytes: int = _DEFAULT_PAGE_MAX_BYTES,
     ) -> TranscriptPage | None:
-        """Read complete turns without replaying active outputs."""
+        """Read a byte-bounded page without replaying active outputs."""
         if limit < 1 or limit > 100:
             raise ValueError(
                 "transcript turn limit must be between 1 and 100",
@@ -788,11 +788,8 @@ class TranscriptStore:
                 user_id=user_id,
                 channel=channel,
             )
-            turn_sql = (
-                "WITH page_turns AS ("
-                "SELECT t.session_id, t.turn_id, t.turn_seq, t.status "
-                "FROM transcript_turns t WHERE t.session_id = ? "
-            )
+            turn_sql = "SELECT t.turn_seq FROM transcript_turns t "
+            turn_sql += "WHERE t.session_id = ? "
             params: list[Any] = [session_id]
             if before is not None:
                 operator = "<" if before.ordinal == 0 else "<="
@@ -804,61 +801,83 @@ class TranscriptStore:
                 "AND vm.turn_id = t.turn_id "
                 "AND vm.superseded_at IS NULL "
                 "AND (t.status != 'running' OR vm.role = 'user')) "
-                "ORDER BY t.turn_seq DESC LIMIT ?) "
-                "SELECT t.turn_seq, "
-                "SUM(length(CAST(m.payload_json AS BLOB))) AS payload_bytes "
-                "FROM page_turns t CROSS JOIN transcript_messages m "
-                "ON m.session_id = t.session_id AND m.turn_id = t.turn_id "
-                "WHERE m.superseded_at IS NULL "
-                "AND (t.status != 'running' OR m.role = 'user')"
+                "ORDER BY t.turn_seq DESC LIMIT ?"
             )
             params.append(limit + 1)
-            turn_sql += " GROUP BY t.turn_seq ORDER BY t.turn_seq DESC"
             candidates = connection.execute(turn_sql, params).fetchall()
-            selected_turns: list[int] = []
-            payload_bytes = 0
-            for row in candidates[:limit]:
-                turn_bytes = int(row["payload_bytes"])
-                if selected_turns and payload_bytes + turn_bytes > max_bytes:
-                    break
-                selected_turns.append(int(row["turn_seq"]))
-                payload_bytes += turn_bytes
-                if payload_bytes >= max_bytes:
-                    break
-            has_more = len(selected_turns) < len(candidates)
+            selected_turns = [
+                int(row["turn_seq"]) for row in candidates[:limit]
+            ]
             if not selected_turns:
                 return TranscriptPage(
                     messages=[],
                     next_before=None,
                     has_more=False,
                 )
+
             placeholders = ",".join("?" for _ in selected_turns)
+            message_filter = (
+                "FROM transcript_turns t CROSS JOIN transcript_messages m "
+                "ON m.session_id = t.session_id AND m.turn_id = t.turn_id "
+                "WHERE t.session_id = ? AND m.superseded_at IS NULL "
+                "AND (t.status != 'running' OR m.role = 'user') "
+                f"AND t.turn_seq IN ({placeholders}) "
+            )
+            message_params: list[Any] = [session_id, *selected_turns]
+            if before is not None and before.ordinal > 0:
+                message_filter += "AND (t.turn_seq < ? OR "
+                message_filter += "(t.turn_seq = ? AND m.ordinal < ?)) "
+                message_params.extend(
+                    [before.turn_seq, before.turn_seq, before.ordinal],
+                )
+
+            size_sql = (
+                "SELECT t.turn_seq, m.ordinal, "
+                "length(CAST(m.payload_json AS BLOB)) AS payload_bytes "
+                + message_filter
+                + "ORDER BY t.turn_seq DESC, m.ordinal DESC"
+            )
+            selected_count = 0
+            payload_bytes = 0
+            oldest_position: TranscriptCursor | None = None
+            has_more = len(candidates) > limit
+            for row in connection.execute(size_sql, message_params):
+                message_bytes = int(row["payload_bytes"])
+                exceeds_limit = payload_bytes + message_bytes > max_bytes
+                if selected_count and exceeds_limit:
+                    has_more = True
+                    break
+                selected_count += 1
+                payload_bytes += message_bytes
+                oldest_position = TranscriptCursor(
+                    turn_seq=int(row["turn_seq"]),
+                    ordinal=int(row["ordinal"]),
+                )
+
+            if selected_count == 0:
+                return TranscriptPage(
+                    messages=[],
+                    next_before=None,
+                    has_more=False,
+                )
+
             message_sql = (
                 "SELECT m.payload_json, "
                 "m.created_at AS message_created_at, "
                 "m.finished_at AS message_finished_at, m.ordinal, "
                 "t.turn_id, t.turn_seq, t.status AS turn_status, "
                 "t.error_json, t.finished_at AS turn_finished_at "
-                "FROM transcript_turns t CROSS JOIN transcript_messages m "
-                "ON m.session_id = t.session_id AND m.turn_id = t.turn_id "
-                "WHERE t.session_id = ? AND m.superseded_at IS NULL "
-                "AND (t.status != 'running' OR m.role = 'user') "
-                f"AND t.turn_seq IN ({placeholders}) "
-                "ORDER BY t.turn_seq, m.ordinal"
+                + message_filter
+                + "ORDER BY t.turn_seq DESC, m.ordinal DESC LIMIT ?"
             )
             rows = connection.execute(
                 message_sql,
-                [session_id, *selected_turns],
+                [*message_params, selected_count],
             ).fetchall()
-            next_before = None
-            if has_more:
-                next_before = TranscriptCursor(
-                    turn_seq=selected_turns[-1],
-                    ordinal=0,
-                )
+            rows.reverse()
             return TranscriptPage(
                 messages=[self._message_from_row(row) for row in rows],
-                next_before=next_before,
+                next_before=oldest_position if has_more else None,
                 has_more=has_more,
             )
 

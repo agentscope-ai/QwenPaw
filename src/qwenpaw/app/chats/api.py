@@ -1000,7 +1000,7 @@ async def get_chat_messages(
     mgr: ChatManager = Depends(get_chat_manager),
     workspace=Depends(get_workspace),
 ) -> ChatMessagePage:
-    """Return one turn-bounded page of durable chat messages."""
+    """Return one byte-bounded page of durable chat messages."""
     chat = await mgr.get_chat(chat_id)
     if chat is None:
         raise HTTPException(
