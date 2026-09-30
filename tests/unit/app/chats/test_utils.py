@@ -1,7 +1,10 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
-from datetime import datetime
+import os
+import time
+from contextlib import contextmanager
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import patch
 from zoneinfo import ZoneInfo
@@ -12,6 +15,7 @@ from qwenpaw.app.chats.utils import (
     _abspath_from_url,
     _is_local_file_url,
     _normalize_msg_timestamp,
+    _process_local_tz,
     _resolve_content_url,
     agentscope_msg_to_message,
     clean_display_text,
@@ -505,3 +509,102 @@ def test_clean_title_keeps_long_title():
     long_title = "x" * 200
     result = _clean_title(long_title)
     assert result == long_title
+
+
+# ---------------------------------------------------------------------------
+# process-local timezone must resolve per timestamp, not freeze today's offset
+# ---------------------------------------------------------------------------
+
+
+@contextmanager
+def _process_timezone(name: str):
+    """Run a block with the process clock in ``name``."""
+    previous = os.environ.get("TZ")
+    os.environ["TZ"] = name
+    time.tzset()
+    try:
+        yield
+    finally:
+        if previous is None:
+            os.environ.pop("TZ", None)
+        else:
+            os.environ["TZ"] = previous
+        time.tzset()
+
+
+def test_process_local_tz_resolves_offset_per_date():
+    """A DST zone must report two different offsets across the year.
+
+    The old implementation returned ``datetime.now().astimezone().tzinfo``,
+    a fixed offset frozen at today's value, so both dates came back equal.
+    """
+    with _process_timezone("America/New_York"):
+        proc_tz = _process_local_tz()
+        summer = proc_tz.utcoffset(datetime(2026, 7, 15, 12))
+        winter = proc_tz.utcoffset(datetime(2026, 1, 15, 12))
+        assert summer != winter
+        assert summer == ZoneInfo("America/New_York").utcoffset(
+            datetime(2026, 7, 15, 12),
+        )
+        assert winter == ZoneInfo("America/New_York").utcoffset(
+            datetime(2026, 1, 15, 12),
+        )
+
+
+def test_normalize_msg_timestamp_across_dst_boundary():
+    """A naive timestamp from the other DST half keeps its true instant."""
+    shanghai = ZoneInfo("Asia/Shanghai")
+    eastern = ZoneInfo("America/New_York")
+
+    with _process_timezone("America/New_York"):
+        in_dst_now = datetime.now().astimezone().dst() != timedelta(0)
+        # Pick a month in the half-year the process is not currently in.
+        month = 1 if in_dst_now else 7
+        written = f"2026-{month:02d}-15T09:00:00"
+
+        expected = (
+            datetime.fromisoformat(written)
+            .replace(tzinfo=eastern)
+            .astimezone(shanghai)
+            .isoformat()
+        )
+        actual = _normalize_msg_timestamp(written, shanghai)
+
+    assert actual == expected
+
+
+def test_process_local_tz_matches_zoneinfo_without_dst():
+    """A DST-free host must keep resolving exactly as before."""
+    shanghai = ZoneInfo("Asia/Shanghai")
+    with _process_timezone("Asia/Shanghai"):
+        wall = datetime(2026, 1, 15, 9, 0, 0)
+        assert wall.replace(tzinfo=_process_local_tz()) == wall.replace(
+            tzinfo=shanghai,
+        )
+        assert (
+            _normalize_msg_timestamp("2026-01-15T09:00:00", shanghai)
+            == "2026-01-15T09:00:00+08:00"
+        )
+
+
+def test_system_local_zone_fromutc_round_trip():
+    """fromutc must place a UTC instant and survive the round trip."""
+    with _process_timezone("America/New_York"):
+        utc_value = datetime(2026, 7, 15, 13, 0, tzinfo=timezone.utc)
+        localized = utc_value.astimezone(_process_local_tz())
+        assert localized.utcoffset() == timedelta(hours=-4)
+        assert localized.astimezone(timezone.utc) == utc_value
+
+
+def test_normalize_msg_timestamp_near_representable_limit():
+    """A timestamp at the top of the range still gets its offset.
+
+    Converting ``datetime.max`` overflows in a zone east of UTC, so the
+    zone falls back to the current fixed offset instead of raising.
+    """
+    shanghai = ZoneInfo("Asia/Shanghai")
+    with _process_timezone("Asia/Shanghai"):
+        assert (
+            _normalize_msg_timestamp("9999-12-31T23:59:59", shanghai)
+            == "9999-12-31T23:59:59+08:00"
+        )

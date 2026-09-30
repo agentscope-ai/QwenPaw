@@ -3,7 +3,8 @@ import json
 import logging
 import platform
 import re
-from datetime import datetime, timezone
+import time
+from datetime import datetime, timedelta, timezone, tzinfo
 from typing import List, Optional, Union
 from urllib.parse import unquote, urlparse
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -39,9 +40,76 @@ from ...constant import (
 logger = logging.getLogger(__name__)
 
 
+class _SystemLocalZone(tzinfo):
+    """The platform's local timezone, resolved per datetime.
+
+    ``datetime.now().astimezone().tzinfo`` describes *the current moment*
+    only: it is a fixed offset frozen at today's UTC offset, so a naive
+    ``Msg.created_at`` recorded in the other half of a DST year is read
+    with the wrong offset. On a US-East host, a January message is shown
+    an hour early for the whole summer.
+
+    This delegates to the platform, which applies the offset in force at
+    each timestamp's own date. It deliberately avoids resolving an IANA
+    name: ``$TZ`` is usually unset and ``tzname`` reports Windows names
+    such as "China Standard Time", so a ``ZoneInfo`` lookup would fail
+    there and fall back to UTC -- worse than the original behaviour.
+    """
+
+    __slots__ = ()
+
+    def _system_local(self, dt: datetime) -> datetime:
+        # Strip self before converting. CPython calls utcoffset() with
+        # dt.tzinfo is self, and astimezone() from there would re-enter
+        # this object until the recursion limit.
+        if dt.tzinfo is self:
+            dt = dt.replace(tzinfo=None)
+        try:
+            return dt.astimezone()
+        except (OverflowError, OSError, ValueError):
+            # Conversion can fail at the representable limits: in a zone
+            # east of UTC, datetime.min would land in year 0. Fall back to
+            # the current fixed offset so the object stays total and
+            # extreme values keep the pre-existing behaviour.
+            return dt.replace(tzinfo=datetime.now().astimezone().tzinfo)
+
+    def utcoffset(self, dt):  # type: ignore[override]
+        return None if dt is None else self._system_local(dt).utcoffset()
+
+    def dst(self, dt):  # type: ignore[override]
+        if dt is None:
+            return None
+        offset = self.utcoffset(dt)
+        if offset is None:
+            return None
+        if not time.daylight:
+            return timedelta(0)
+        # time.timezone is the standard, non-DST offset west of UTC, so
+        # the DST delta is whatever the current offset exceeds it by.
+        return offset + timedelta(seconds=time.timezone)
+
+    def tzname(self, dt):  # type: ignore[override]
+        return None if dt is None else self._system_local(dt).tzname()
+
+    def fromutc(self, dt):  # type: ignore[override]
+        if dt.tzinfo is not None and dt.tzinfo is not self:
+            raise ValueError("fromutc: dt.tzinfo is not self")
+        # dt's wall clock is UTC here. Converting through timezone.utc
+        # keeps this independent of self, then re-tag the result.
+        local = dt.replace(tzinfo=timezone.utc).astimezone()
+        return local.replace(tzinfo=self)
+
+
+_SYSTEM_LOCAL_TZ = _SystemLocalZone()
+
+
 def _process_local_tz():
-    """Return the process-local timezone used by ``datetime.now()``."""
-    return datetime.now().astimezone().tzinfo or timezone.utc
+    """Return the process-local timezone used by ``datetime.now()``.
+
+    The returned object resolves the offset per timestamp, so naive
+    values keep their true instant across DST transitions.
+    """
+    return _SYSTEM_LOCAL_TZ
 
 
 def _normalize_msg_timestamp(ts_value: str, user_tz: ZoneInfo) -> str:
