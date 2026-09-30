@@ -405,7 +405,7 @@ See [Security](https://qwenpaw.agentscope.io/docs/security) for details.
 | [Console](https://qwenpaw.agentscope.io/docs/console)                   | Web UI: chat and agent configuration            |
 | [Terminal UI (TUI)](https://qwenpaw.agentscope.io/docs/tui)             | Full-screen terminal chat, same agent as Console |
 | [Desktop App](https://qwenpaw.agentscope.io/docs/desktop)               | Desktop application installation and usage       |
-| [Models](https://qwenpaw.agentscope.io/docs/models)                     | Configure cloud, local, and custom providers    |
+| [Models](https://qwenpaw.agentscope.io/docs/models)                     | Configure providers and media URL recovery      |
 | [Channels](https://qwenpaw.agentscope.io/docs/channels)                  | DingTalk, Lark, QQ, Discord, iMessage, and more |
 | [Skills](https://qwenpaw.agentscope.io/docs/skills)                      | Extend and customize capabilities               |
 | [Plugins](https://qwenpaw.agentscope.io/docs/plugins)                    | Plugin system and Plugin Market                  |
