@@ -893,6 +893,68 @@ class TestGovernancePolicyEvaluate:
 
 
 # ---------------------------------------------------------------------------
+# Test: bundled inline Office COM detection rule
+# ---------------------------------------------------------------------------
+
+
+class TestOfficeComAutomationRule:
+    """Inline Office COM must not reach the unsandboxed ALLOW path.
+
+    PowerPoint/Excel/Word/Outlook are single-instance COM servers, so
+    attaching to one binds to the user's running application and
+    ``Quit()`` closes it.  The command used to match no rule, became
+    SANDBOX_FALLBACK, and ResourceGovernor rewrote that to ALLOW whenever
+    the sandbox was off.
+    """
+
+    @pytest.fixture()
+    def policy(self):
+        return _create_default_policy(workspace_dir="/tmp/test-workspace")
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "New-Object -ComObject PowerPoint.Application",
+            "$ppt = New-Object -ComObject PowerPoint.Application; "
+            "$ppt.Quit()",
+            'powershell -c "(New-Object -ComObject Excel.Application)'
+            '.Quit()"',
+            '$t=[Type]::GetTypeFromProgID("Word.Application"); '
+            "[Activator]::CreateInstance($t)",
+            'win32com.client.Dispatch("Outlook.Application").Quit()',
+            '$w = GetActiveObject("Word.Application"); $w.Quit()',
+        ],
+    )
+    def test_inline_office_com_is_ask(self, policy, command):
+        decision = policy.evaluate(_tc("Bash", command))
+
+        assert decision.action == GovernanceAction.ASK
+        assert decision.findings
+        assert any(
+            f.rule_id == "TOOL_CMD_OFFICE_COM_AUTOMATION"
+            for f in decision.findings
+        )
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "echo hello",
+            "python render_deck.py --out deck.pptx",
+            "git commit -m 'document Word.Application'",
+            "echo 'PowerPoint.Application is a COM server'",
+        ],
+    )
+    def test_benign_commands_still_fall_through(self, policy, command):
+        decision = policy.evaluate(_tc("Bash", command))
+
+        assert decision.action == GovernanceAction.SANDBOX_FALLBACK
+        assert not any(
+            f.rule_id == "TOOL_CMD_OFFICE_COM_AUTOMATION"
+            for f in (decision.findings or [])
+        )
+
+
+# ---------------------------------------------------------------------------
 # Test: ResourceGovernor assert_policy with sandbox fallback escalation
 # ---------------------------------------------------------------------------
 
