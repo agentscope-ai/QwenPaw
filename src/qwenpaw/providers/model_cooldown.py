@@ -167,7 +167,17 @@ def _cooldown_seconds(failures: int, policy: CooldownPolicy) -> float:
 
 
 def _prune() -> None:
-    """Forget the longest-expired entries once the registry is too big."""
+    """Forget the longest-expired entries once the registry is too big.
+
+    The earliest expiry goes first on purpose.  Dropping an entry makes its
+    candidate usable again -- it moves to the front of the next plan -- so
+    the entries worth forgetting are the ones already out of their window;
+    the entry closest to expiry is also the one whose counter matters least
+    if it is re-recorded.  Dropping the *latest* expiry instead would put a
+    still-broken candidate straight back in front of a healthy one, which
+    costs far more than an escalation step.  Only reachable past
+    ``_MAX_TRACKED`` keys, after heavy provider churn.
+    """
     overflow = len(_states) - _MAX_TRACKED
     if overflow <= 0:
         return
