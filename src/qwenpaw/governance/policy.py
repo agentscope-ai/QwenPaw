@@ -57,6 +57,7 @@ class GovernanceDecision:
     #   "sensitive_paths"       — Phase 1 finding (sensitive_path_detector)
     #   "detection_rules"       — Phase 1 finding (pattern_detector)
     #   "shell_evasion_checks"  — Phase 1 finding (shell_evasion_detector)
+    #   "shared_safety_checks"  — Phase 1 shared destructive classification
     #   "shell_danger_keywords" — Phase 1.5 hardcoded shell-danger regex
     #   "sandbox"               — Phase 3 shell sandbox fallback
     #   "No rule hit"           — Phase 3 fallback (no rule/finding matched)
@@ -884,6 +885,7 @@ class GovernancePolicy:
         """
         try:
             from .detectors import run_deep_scan
+            from ..config.context import get_tool_base_dir
 
             # Merge config.json custom_rules + shell_evasion_checks into
             # the policy.yaml-sourced rules so frontend settings take
@@ -898,6 +900,7 @@ class GovernancePolicy:
                 detection_rules=detection_rules,
                 shell_evasion_checks=shell_evasion_checks,
                 raw_params=tc_spec.raw_params,
+                cwd=get_tool_base_dir(),
             )
         except Exception as exc:
             logger.warning(
@@ -1164,6 +1167,7 @@ _SEVERITY_ORDER = ["CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO"]
 # section produced a finding-driven decision, rather than the threat
 # category.
 _DETECTOR_TO_SOURCE: dict[str, str] = {
+    "shared_safety_detector": "shared_safety_checks",
     "sensitive_path_detector": "sensitive_paths",
     "pattern_detector": "detection_rules",
     "shell_evasion_detector": "shell_evasion_checks",
@@ -1453,7 +1457,9 @@ _DEFAULT_SHELL_EVASION_CHECKS: dict[str, bool] = {
     "quoted_newline": True,
 }
 
-# Default sensitive paths (migrated from config.json)
+# Default user credential paths (migrated from config.json). System credential
+# paths are added by ensure_file_guard_paths at resolution time, including
+# when loading older policy.yaml files that only persisted this list.
 _DEFAULT_SENSITIVE_PATHS: List[str] = [
     "~/.ssh/",
     "~/.aws/",
@@ -1688,12 +1694,16 @@ def _guard_rule_to_detection_config(guard_rule: Any) -> DetectionRuleConfig:
         id=guard_rule.id,
         tools=list(guard_rule.tools),
         params=list(guard_rule.params),
-        category=str(guard_rule.category.value)
-        if hasattr(guard_rule.category, "value")
-        else str(guard_rule.category),
-        severity=str(guard_rule.severity.value)
-        if hasattr(guard_rule.severity, "value")
-        else str(guard_rule.severity),
+        category=(
+            str(guard_rule.category.value)
+            if hasattr(guard_rule.category, "value")
+            else str(guard_rule.category)
+        ),
+        severity=(
+            str(guard_rule.severity.value)
+            if hasattr(guard_rule.severity, "value")
+            else str(guard_rule.severity)
+        ),
         patterns=list(guard_rule.patterns),
         exclude_patterns=list(guard_rule.exclude_patterns),
         description=guard_rule.description,
