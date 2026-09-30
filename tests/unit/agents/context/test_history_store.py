@@ -514,6 +514,135 @@ def test_purge_retains_null_created_at(store: HistoryStore):
     assert store.count("s") == 1
 
 
+# --------------------------------------------------------------------------
+# age_out_blocks: null the structured payload of old tool_result rows while
+# keeping every row (text, FTS, recall) intact.
+# --------------------------------------------------------------------------
+
+
+def _blocks_of(store: HistoryStore, dedup_key: str):
+    row = store._conn.execute(
+        "SELECT blocks FROM conversation_history WHERE dedup_key = ?",
+        (dedup_key,),
+    ).fetchone()
+    return None if row is None else row["blocks"]
+
+
+def test_age_out_blocks_nulls_old_tool_result_only(store: HistoryStore):
+    old = "2020-01-01T00:00:00+00:00"
+    big = "x" * 1000
+    store.append(
+        session_id="s",
+        dedup_key="old_result",
+        entry=_entry(
+            "old tool output",
+            kind="tool_result",
+            blocks=big,
+            created_at=old,
+        ),
+    )
+    store.append(
+        session_id="s",
+        dedup_key="old_turn",
+        entry=_entry(
+            "conversation",
+            kind="model_turn",
+            blocks="thinking",
+            created_at=old,
+        ),
+    )
+    store.append(
+        session_id="s",
+        dedup_key="new_result",
+        entry=_entry(
+            "fresh tool output",
+            kind="tool_result",
+            blocks=big,
+            created_at="2030-01-01T00:00:00+00:00",
+        ),
+    )
+    out = store.age_out_blocks(before="2025-01-01T00:00:00+00:00")
+    assert out == {"rows": 1, "blocks_bytes": 1000}
+    # The old tool_result row survives, text intact, payload gone.
+    assert store.count("s") == 3
+    assert _blocks_of(store, "old_result") is None
+    # model_turn blocks are the thinking stream resumed sessions replay.
+    assert _blocks_of(store, "old_turn") == "thinking"
+    # Recent tool results are untouched.
+    assert _blocks_of(store, "new_result") == big
+
+
+def test_age_out_blocks_dry_run_reports_without_writing(
+    store: HistoryStore,
+):
+    store.append(
+        session_id="s",
+        dedup_key="old_result",
+        entry=_entry(
+            "old tool output",
+            kind="tool_result",
+            blocks="x" * 40,
+            created_at="2020-01-01T00:00:00+00:00",
+        ),
+    )
+    would = store.age_out_blocks(
+        before="2025-01-01T00:00:00+00:00",
+        dry_run=True,
+    )
+    assert would == {"rows": 1, "blocks_bytes": 40}
+    assert _blocks_of(store, "old_result") == "x" * 40
+    # A real pass then matches the previewed numbers.
+    out = store.age_out_blocks(before="2025-01-01T00:00:00+00:00")
+    assert out == {"rows": 1, "blocks_bytes": 40}
+
+
+def test_age_out_blocks_is_idempotent(store: HistoryStore):
+    store.append(
+        session_id="s",
+        dedup_key="old_result",
+        entry=_entry(
+            "old tool output",
+            kind="tool_result",
+            blocks="x" * 10,
+            created_at="2020-01-01T00:00:00+00:00",
+        ),
+    )
+    first = store.age_out_blocks(before="2025-01-01T00:00:00+00:00")
+    assert first["rows"] == 1
+    second = store.age_out_blocks(before="2025-01-01T00:00:00+00:00")
+    assert second == {"rows": 0, "blocks_bytes": 0}
+
+
+def test_age_out_blocks_keeps_fts_intact(store: HistoryStore):
+    store.append(
+        session_id="s",
+        dedup_key="old_result",
+        entry=_entry(
+            "a very distinctive wheelbarrow",
+            kind="tool_result",
+            blocks="x" * 500,
+            created_at="2020-01-01T00:00:00+00:00",
+        ),
+    )
+    store.age_out_blocks(before="2025-01-01T00:00:00+00:00")
+    hits = store._conn.execute(
+        "SELECT COUNT(*) AS n FROM conversation_history_fts "
+        "WHERE conversation_history_fts MATCH 'wheelbarrow'",
+    ).fetchone()["n"]
+    assert hits == 1
+
+
+def test_age_out_blocks_retains_null_created_at(store: HistoryStore):
+    with store._conn:
+        store._conn.execute(
+            "INSERT INTO conversation_history(session_id, kind, created_at, "
+            "dedup_key, blocks) VALUES ('s', 'tool_result', NULL, 'k', 'x')",
+        )
+    out = store.age_out_blocks(before="2999-01-01T00:00:00+00:00")
+    assert out["rows"] == 0
+    assert _blocks_of(store, "k") == "x"
+
+
 class _NoFTSConn:
     """Delegates to a real connection but fails the FTS5 table creation,
     simulating a SQLite build without the FTS5 module."""

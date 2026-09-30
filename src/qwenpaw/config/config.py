@@ -1258,6 +1258,21 @@ class ScrollContextConfig(BaseModel):
         ),
     )
 
+    blocks_retention_days: int = Field(
+        default=14,
+        ge=0,
+        description=(
+            "Days to keep the structured blocks of tool_result rows in "
+            "durable history before they are nulled on startup and on agent "
+            "teardown (0 = keep blocks forever). Unlike "
+            "history_retention_days this never deletes a row: the searchable "
+            "text stays until history_retention_days, only the large "
+            "structured payload ages out. In a production store these blocks "
+            "held ~75% of total bytes; the default 14 shrank it ~25% while "
+            "keeping every row recallable."
+        ),
+    )
+
     allow_unsandboxed: bool = Field(
         default=False,
         description=(
