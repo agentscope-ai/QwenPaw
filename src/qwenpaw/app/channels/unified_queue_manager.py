@@ -386,7 +386,7 @@ class UnifiedQueueManager:
                 await asyncio.sleep(self._cleanup_interval)
 
                 now = time.time()
-                to_cleanup: list[QueueKey] = []
+                to_cleanup: list[tuple[QueueKey, QueueState]] = []
 
                 # Find idle queues
                 async with self._lock:
@@ -395,13 +395,20 @@ class UnifiedQueueManager:
                         if state.queue.empty():
                             idle_time = now - state.last_activity
                             if idle_time > self._idle_timeout:
-                                to_cleanup.append(key)
+                                to_cleanup.append((key, state))
 
                 # Cancel idle consumers (outside lock)
-                for key in to_cleanup:
+                for key, candidate in to_cleanup:
                     cleanup_state: QueueState | None = None
                     async with self._lock:
-                        if key in self._queues:
+                        # Earlier consumers can take time to stop. Messages
+                        # may arrive or the queue may be replaced meanwhile.
+                        if (
+                            self._queues.get(key) is candidate
+                            and candidate.queue.empty()
+                            and time.time() - candidate.last_activity
+                            > self._idle_timeout
+                        ):
                             cleanup_state = self._queues.pop(key)
 
                     if cleanup_state is not None:
