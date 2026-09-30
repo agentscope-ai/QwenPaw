@@ -9,6 +9,7 @@ from urllib.parse import unquote, urlparse
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from agentscope.message import Msg
+from agentscope.state import AgentState
 from pydantic import ValidationError
 from qwenpaw.agents.context.scroll.serialize import strip_headline
 from qwenpaw.schemas import (
@@ -133,6 +134,26 @@ def parse_legacy_memory_state(
             messages.append(payload)
     summary = memory_raw.get("_compressed_summary") or ""
     return messages, summary
+
+
+def session_state_to_messages(state: dict) -> List[Message]:
+    """Convert persisted agent state into user-visible history messages."""
+    agent_raw = state.get("agent") or {}
+    memories: List[Msg] = []
+    state_raw = agent_raw.get("state")
+    if isinstance(state_raw, dict):
+        try:
+            memories = list(AgentState.model_validate(state_raw).context)
+        except Exception:
+            logger.debug(
+                "Failed to parse agent.state, falling back to legacy",
+                exc_info=True,
+            )
+    if not memories:
+        memory_raw = agent_raw.get("memory") or {}
+        if memory_raw:
+            memories, _summary = parse_legacy_memory_state(memory_raw)
+    return agentscope_msg_to_message(memories)
 
 
 def build_env_context(

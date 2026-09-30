@@ -42,9 +42,11 @@ async def test_scroll_component_build_runs_in_worker_thread(
     release = threading.Event()
     loop_thread = threading.get_ident()
     result = object()
+    captured = {}
 
-    def blocking_build(**_kwargs):
+    def blocking_build(**kwargs):
         assert threading.get_ident() != loop_thread
+        captured.update(kwargs)
         started.set()
         assert release.wait(timeout=2)
         return result
@@ -58,6 +60,7 @@ async def test_scroll_component_build_runs_in_worker_thread(
         workspace=SimpleNamespace(workspace_dir=tmp_path),
         session_id="session",
         agent_id="agent",
+        session_state={"_context_generation": 3},
     )
     config = SimpleNamespace(id="agent")
 
@@ -78,3 +81,4 @@ async def test_scroll_component_build_runs_in_worker_thread(
         release.set()
 
     assert await asyncio.wait_for(task, timeout=1) is result
+    assert captured["context_generation"] == 3

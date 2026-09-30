@@ -1090,7 +1090,7 @@
     "acceptInvitation": "Bergabung melalui undangan"
   },
   "chat": {
-    "historyLoadFailed": "Percakapan tidak dapat dimuat. Silakan buka kembali.",
+    "sessionLoadFailed": "Percakapan tidak dapat dimuat. Silakan buka kembali.",
     "newTask": "Tugas baru",
     "newChat": "Chat baru",
     "groups": {
@@ -1102,6 +1102,7 @@
     },
     "modelSelectTooltip": "Pilih model",
     "chatHistoryTooltip": "Riwayat chat",
+    "historyLoadFailed": "Gagal memuat pesan sebelumnya",
     "messageDisplay": {
       "stepsRunning": "Berjalan… · {{count}} langkah",
       "stepsCanceled": "Dibatalkan · {{count}} langkah",

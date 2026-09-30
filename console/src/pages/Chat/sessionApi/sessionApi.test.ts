@@ -317,6 +317,117 @@ describe("bound session history owner epochs", () => {
   });
 });
 
+describe("durable transcript pagination", () => {
+  beforeEach(() => {
+    sessionApi.resetForTests();
+    sessionApi.setActiveAgent("A");
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    sessionApi.resetForTests();
+  });
+
+  it("loads one older page and stops after the cursor is exhausted", async () => {
+    const chatId = "33333333-3333-4333-8333-333333333333";
+    vi.spyOn(api, "getChat").mockResolvedValue({
+      messages: [msg({ id: "new-user", content: "new" })],
+      status: "idle",
+      history: {
+        has_more: true,
+        next_before: "2:0",
+      },
+    });
+    const getMessages = vi.spyOn(api, "getChatMessages").mockResolvedValue({
+      messages: [msg({ id: "old-user", content: "old" })],
+      has_more: false,
+      next_before: null,
+    });
+
+    await sessionApi.getSession(chatId);
+    const first = await sessionApi.loadOlderHistory(chatId);
+    const exhausted = await sessionApi.loadOlderHistory(chatId);
+
+    expect(getMessages).toHaveBeenCalledExactlyOnceWith(chatId, {
+      before: "2:0",
+      limit: 20,
+      signal: undefined,
+      include_app_owned: false,
+    });
+    expect(first.messages).toHaveLength(1);
+    expect(first.messages[0]).toMatchObject({
+      id: "old-user",
+      role: "user",
+      history: true,
+    });
+    expect(first.noMore).toBe(true);
+    expect(exhausted).toEqual({ messages: [], noMore: true });
+  });
+
+  it("releases a failed page request so an explicit retry can succeed", async () => {
+    const chatId = "44444444-4444-4444-8444-444444444444";
+    vi.spyOn(api, "getChat").mockResolvedValue({
+      messages: [],
+      status: "idle",
+      history: {
+        has_more: true,
+        next_before: "2:0",
+      },
+    });
+    const getMessages = vi
+      .spyOn(api, "getChatMessages")
+      .mockRejectedValueOnce(new Error("temporarily unavailable"))
+      .mockResolvedValueOnce({
+        messages: [msg({ id: "old-user", content: "old" })],
+        has_more: false,
+        next_before: null,
+      });
+
+    await sessionApi.getSession(chatId);
+    await expect(sessionApi.loadOlderHistory(chatId)).rejects.toThrow(
+      "temporarily unavailable",
+    );
+
+    const retried = await sessionApi.loadOlderHistory(chatId);
+
+    expect(getMessages).toHaveBeenCalledTimes(2);
+    expect(retried.messages).toHaveLength(1);
+    expect(retried.noMore).toBe(true);
+  });
+
+  it("merges assistant fragments when one turn spans history pages", () => {
+    const fragment = (id: string, ordinal: number) =>
+      msg({
+        id,
+        role: "assistant",
+        content: `part ${ordinal}`,
+        metadata: {
+          qwenpaw_transcript_position: {
+            turn_id: "turn-1",
+            turn_seq: 1,
+            ordinal,
+          },
+        },
+      });
+    const older = T.convertMessages([fragment("m1", 1), fragment("m2", 2)]);
+    const newer = T.convertMessages([fragment("m3", 3), fragment("m4", 4)]);
+
+    const merged = T.mergeHistoryMessages(older, newer);
+
+    expect(merged).toHaveLength(1);
+    expect(merged[0].id).toBe("history-turn:turn-1");
+    const data = merged[0].cards?.[0]?.data as {
+      output?: Array<{ id?: string }>;
+    };
+    expect(data.output?.map((item) => item.id)).toEqual([
+      "m1",
+      "m2",
+      "m3",
+      "m4",
+    ]);
+  });
+});
+
 type SessionLike = {
   id: string;
   name?: string;
@@ -656,6 +767,47 @@ describe("visible session usage ownership", () => {
   afterEach(() => {
     vi.restoreAllMocks();
     sessionApi.resetForTests();
+  });
+  it("prefers current context state over historical turn usage", async () => {
+    const { useTurnUsageStore } = await import("../turnUsageStore");
+    vi.spyOn(api, "getChat").mockResolvedValue({
+      messages: [
+        {
+          role: "assistant",
+          content: [{ type: "text", text: "old turn" }],
+          metadata: {
+            qwenpaw_turn_usage: {
+              context_usage: {
+                estimated_tokens: 500,
+                max_input_length: 100000,
+                context_usage_ratio: 0.5,
+              },
+            },
+          },
+        },
+      ],
+      status: "idle",
+      context_state: {
+        generation: 1,
+        usage: {
+          usage: null,
+          context_usage: {
+            estimated_tokens: 0,
+            max_input_length: 100000,
+            context_usage_ratio: 0,
+          },
+        },
+      },
+    } as ChatHistory);
+
+    sessionApi.setVisibleSession("cleared");
+    await sessionApi.getSession("cleared");
+
+    expect(useTurnUsageStore.getState().snapshot?.context_usage).toEqual({
+      estimated_tokens: 0,
+      max_input_length: 100000,
+      context_usage_ratio: 0,
+    });
   });
   it("does not project a late history response over the selected session", async () => {
     const { useTurnUsageStore } = await import("../turnUsageStore");

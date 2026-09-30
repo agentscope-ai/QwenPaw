@@ -37,14 +37,16 @@ import {
   CircleAlert as ExclamationCircleOutlined,
   Copy,
   Paperclip as SparkAttachmentLine,
+  RotateCw,
   Settings as SettingOutlined,
+  TriangleAlert,
 } from "lucide-react";
 import { usePlugins } from "../../plugins/PluginContext";
 import { useTranslation } from "react-i18next";
 import { AnimatePresence } from "motion/react";
 import i18n from "../../i18n";
 import { useLocation, useNavigate } from "react-router-dom";
-import sessionApi from "./sessionApi";
+import sessionApi, { mergeHistoryMessages } from "./sessionApi";
 import {
   getDraftStorageKey,
   parseDraft,
@@ -183,7 +185,12 @@ import {
 import { useCodingTabsStore } from "../../stores/codingTabsStore";
 import { RichFileReferenceInputProvider } from "./RichFileReferenceInput";
 import type { ParsedFileReference } from "./fileReferenceFormatting";
-import { scrollReverseMessageList } from "./messageScroll";
+import {
+  captureMessageScrollAnchor,
+  isOldestLoadedMessageVisible,
+  restoreMessageScrollAnchor,
+  scrollReverseMessageList,
+} from "./messageScroll";
 import { LONG_CHAT_USER_MESSAGE_ANCHORS } from "./longChatPerformance";
 import { isApprovalInCurrentScope } from "./approvalScope";
 import { buildSubmissionBizParams } from "./submissionBizParams";
@@ -293,7 +300,7 @@ import {
 
 /**
  * Convert a queue item's attachments array into the content-item format
- * expected by the backend POST body and by patchLastUserMessage.
+ * expected by the backend POST body.
  */
 function buildAttachmentContentItems(
   attachments: Array<{ url: string; name?: string; type?: string }> | undefined,
@@ -464,27 +471,6 @@ async function startBackgroundQueue(
           .getState()
           .setItemStatus(queueKey, item.id, "sending");
 
-        // Mirror what foreground customFetch does: cache the in-flight user
-        // text in shared storage so that when ChatPage re-mounts during
-        // generation, sessionApi.patchLastUserMessage can patch THIS user
-        // message into history (otherwise the previous turn's stale text
-        // would surface, e.g. showing user="2" while task3 is generating).
-        if (chatIdForStatus || backendSessionId || queueKey) {
-          // Build content items matching the POST body (stored-name format)
-          // so patchLastUserMessage can rebuild the user card with attachments.
-          const contentItems: Array<{ type: string; [key: string]: unknown }> =
-            [
-              { type: "text", text: item.text },
-              ...buildAttachmentContentItems(item.attachments),
-            ];
-          sessionApi.setLastUserMessage(
-            [chatIdForStatus, queueKey],
-            item.text,
-            contentItems,
-            clientMessageId,
-          );
-        }
-
         let fetchSucceeded = false;
         // True once fetch() has resolved with an HTTP response. For a streaming
         // chat endpoint, this means the backend has already accepted the
@@ -555,10 +541,6 @@ async function startBackgroundQueue(
           }
 
           if (!res.ok) {
-            sessionApi.discardLastUserMessage(
-              [chatIdForStatus, queueKey],
-              clientMessageId,
-            );
             throw new Error(`HTTP ${res.status}`);
           }
           setPendingThinking(queueAgentId, queueKey, null);
@@ -707,44 +689,41 @@ interface CommandSuggestion {
   description: string;
 }
 
-function messageRequestsHistoryClear(message: unknown): boolean {
-  if (!message || typeof message !== "object") return false;
-  const metadata = (message as Record<string, unknown>).metadata;
-  if (!metadata || typeof metadata !== "object") return false;
-
-  const meta = metadata as Record<string, unknown>;
-  if (meta.clear_history === true) return true;
-
-  const nested = meta.metadata;
-  return (
-    !!nested &&
-    typeof nested === "object" &&
-    (nested as Record<string, unknown>).clear_history === true
-  );
-}
-
-function payloadRequestsHistoryClear(payload: unknown): boolean {
-  if (!payload || typeof payload !== "object") return false;
-
-  const record = payload as Record<string, unknown>;
-  const candidates: unknown[] = [];
-
-  if (record.object === "message") {
-    candidates.push(record);
-  }
-
-  if (record.object === "response" && Array.isArray(record.output)) {
-    candidates.push(...record.output);
-  }
-
-  return candidates.some(messageRequestsHistoryClear);
-}
-
 function payloadCompletesResponse(payload: unknown): boolean {
   if (!payload || typeof payload !== "object") return false;
 
   const record = payload as Record<string, unknown>;
   return record.object === "response" && record.status === "completed";
+}
+
+function payloadResetsContext(payload: Record<string, unknown>): boolean {
+  const output = Array.isArray(payload.output) ? payload.output : [];
+  return output.some((item) => {
+    if (!item || typeof item !== "object") return false;
+    const metadata = (item as Record<string, unknown>).metadata;
+    return (
+      metadata !== null &&
+      typeof metadata === "object" &&
+      (metadata as Record<string, unknown>).context_reset === true
+    );
+  });
+}
+
+function resetCurrentContextUsage(): void {
+  const store = useTurnUsageStore.getState();
+  const maxInputLength =
+    store.snapshot?.context_usage?.max_input_length ??
+    store.activeMaxInputLength ??
+    131072;
+  store.invalidateTurn();
+  store.setSnapshot({
+    usage: null,
+    context_usage: {
+      estimated_tokens: 0,
+      max_input_length: maxInputLength,
+      context_usage_ratio: 0,
+    },
+  });
 }
 
 function renderSuggestionLabel(command: string, description?: string) {
@@ -1620,13 +1599,9 @@ export default function ChatPage() {
           );
           if (!idle) return false;
           // A retry may already have a durable receipt. Reconcile the visible
-          // history as well as the queue, and remove the previous failed local
-          // attempt before creating another SDK request card.
+          // history as well as the queue before creating another SDK request
+          // card.
           if (canSend() && (item.retryCount > 0 || !locateQueue())) {
-            sessionApi.discardLastUserMessage(
-              [queueSessionId, sessionApi.getRealIdForSession(queueSessionId)],
-              item.clientMessageId ?? item.id,
-            );
             const recovered = await sessionApi.refreshSession(
               queueSessionId,
               signal,
@@ -2360,7 +2335,6 @@ export default function ChatPage() {
     return () => window.removeEventListener("model-switched", handler);
   }, [fetchMultimodalCaps]);
 
-  const pendingClearHistoryRef = useRef(false);
   const whisperSpeechRef = useRef<WhisperSpeechButtonRef>(null);
   const [whisperEnabled, setWhisperEnabled] = useState(false);
   const [whisperChecked, setWhisperChecked] = useState(false);
@@ -2689,10 +2663,6 @@ export default function ChatPage() {
               queueKey,
             );
             if (!idle || signal.aborted) return;
-            sessionApi.discardLastUserMessage(
-              [queueSessionId, sessionApi.getRealIdForSession(queueSessionId)],
-              skipped.clientMessageId ?? skipped.id,
-            );
             const recovered = await sessionApi.refreshSession(
               queueSessionId,
               signal,
@@ -2807,15 +2777,6 @@ export default function ChatPage() {
     sessionApi.trackNavigatedSession(chatId, setLastChatId, selectedAgent);
   }, [chatId, selectedAgent, setLastChatId]);
 
-  const scheduleHistoryClear = useCallback(() => {
-    queueMicrotask(() => {
-      if (!pendingClearHistoryRef.current) return;
-      pendingClearHistoryRef.current = false;
-      chatRef.current?.messages.removeAllMessages();
-      useTurnUsageStore.getState().setSnapshot(null);
-    });
-  }, []);
-
   const handleCompactCommand = useCallback(() => {
     const execution = chatRef.current?.execution;
     if (!execution || !queueSessionId || queueSessionId === "new") return;
@@ -2838,16 +2799,7 @@ export default function ChatPage() {
   }, [queueSessionId, selectedAgent, captureRequestContext]);
 
   const handleNewCommand = useCallback(() => {
-    const current = useTurnUsageStore.getState().snapshot;
-    const maxInputLength = current?.context_usage?.max_input_length ?? 131072;
-    useTurnUsageStore.getState().setSnapshot({
-      usage: null,
-      context_usage: {
-        estimated_tokens: 0,
-        max_input_length: maxInputLength,
-        context_usage_ratio: 0,
-      },
-    });
+    resetCurrentContextUsage();
     chatRef.current?.input.submit({ query: "/new" });
   }, []);
 
@@ -3385,38 +3337,6 @@ export default function ChatPage() {
         appliedProjectDir = pendingRequest.projectDir ?? null;
       }
 
-      const submittedChatId = fallbackLocalChatId || "";
-      const backendChatId =
-        sessionApi.getRealIdForSession(submittedChatId) ?? submittedChatId;
-      const pendingSessionIds = [backendChatId, submittedChatId];
-      if (backendChatId) {
-        const userMessages = rewrittenInput.filter((m) => m.role === "user");
-        const userText = userMessages
-          .map(extractUserMessageText)
-          .join("\n")
-          .trim();
-        const lastUserMsg = userMessages.slice(-1)[0];
-        const contentArr = Array.isArray(lastUserMsg?.content)
-          ? (lastUserMsg.content as Array<{
-              type: string;
-              [key: string]: unknown;
-            }>)
-          : undefined;
-        const hasAttachmentContent = contentArr?.some(
-          (item) => item.type !== "text",
-        );
-        if (userText || hasAttachmentContent) {
-          // Cache full content so attachment-only messages survive refresh,
-          // reconnect, and the backend history flush window.
-          sessionApi.setLastUserMessage(
-            pendingSessionIds,
-            userText,
-            contentArr,
-            clientMessageId,
-          );
-        }
-      }
-
       headlineStreamFilterRef.current = createHeadlineFilterState();
 
       const response = await fetch(getApiUrl("/console/chat"), {
@@ -3425,10 +3345,6 @@ export default function ChatPage() {
         body: JSON.stringify(requestBody),
         signal: data.signal,
       });
-
-      if (!response.ok && backendChatId) {
-        sessionApi.discardLastUserMessage(pendingSessionIds, clientMessageId);
-      }
 
       // Session allocation can replace the SDK Input before its own acceptance
       // callback clears it. Clear the current composer only when it still holds
@@ -3524,6 +3440,98 @@ export default function ChatPage() {
 
   const compactSender = filesDrawerState.kind === "workspace";
   const chatMessagesAreaRef = useRef<HTMLDivElement>(null);
+  const historyLoadRef = useRef<Promise<void> | null>(null);
+  const historyLoadSessionRef = useRef(chatId);
+  const [historyLoadFailed, setHistoryLoadFailed] = useState(false);
+  historyLoadSessionRef.current = chatId;
+
+  useEffect(() => {
+    setHistoryLoadFailed(false);
+  }, [chatId]);
+
+  const loadOlderHistory = useCallback(
+    (target: HTMLElement) => {
+      if (!chatId || historyLoadRef.current) return;
+      const sessionId = chatId;
+      const previousHeight = target.scrollHeight;
+      const previousTop = target.scrollTop;
+      const reverse = target.classList.contains(
+        "qwenpaw-bubble-list-order-desc",
+      );
+      const anchor = captureMessageScrollAnchor(target);
+      setHistoryLoadFailed(false);
+      const load = sessionApi
+        .loadOlderHistory(sessionId)
+        .then(({ messages: olderMessages }) => {
+          if (
+            olderMessages.length === 0 ||
+            historyLoadSessionRef.current !== sessionId
+          ) {
+            return;
+          }
+          const messagesApi = chatRef.current?.messages;
+          if (!messagesApi) return;
+          messagesApi.setSessionMessages(sessionId, (current) => {
+            return mergeHistoryMessages(olderMessages, current);
+          });
+          return new Promise<void>((resolve) => {
+            requestAnimationFrame(() => {
+              requestAnimationFrame(() => {
+                if (historyLoadSessionRef.current === sessionId) {
+                  const restored =
+                    anchor && restoreMessageScrollAnchor(target, anchor);
+                  if (!restored) {
+                    const growth = target.scrollHeight - previousHeight;
+                    target.scrollTop = reverse
+                      ? previousTop - growth
+                      : previousTop + growth;
+                  }
+                }
+                // Keep the in-flight lock through the scroll event emitted by
+                // anchor restoration. A later user scroll may load one page.
+                requestAnimationFrame(() => resolve());
+              });
+            });
+          });
+        })
+        .catch((error) => {
+          if (error instanceof DOMException && error.name === "AbortError") {
+            return;
+          }
+          message.error(
+            t("chat.historyLoadFailed", "Failed to load older messages"),
+          );
+          setHistoryLoadFailed(true);
+        })
+        .finally(() => {
+          if (historyLoadRef.current === load) {
+            historyLoadRef.current = null;
+          }
+        });
+      historyLoadRef.current = load;
+    },
+    [chatId, message, t],
+  );
+
+  const handleHistoryScroll = useCallback(
+    (event: React.UIEvent<HTMLDivElement>) => {
+      const target = event.target;
+      const oldestLoadedMessage = chatRef.current?.messages.getMessages()?.[0];
+      const oldestLoadedElement = oldestLoadedMessage?.id
+        ? document.getElementById(oldestLoadedMessage.id)
+        : null;
+      if (
+        !(target instanceof HTMLElement) ||
+        target.scrollHeight <= target.clientHeight ||
+        !isOldestLoadedMessageVisible(target, oldestLoadedElement) ||
+        historyLoadRef.current
+      ) {
+        return;
+      }
+      loadOlderHistory(target);
+    },
+    [loadOlderHistory],
+  );
 
   useEffect(() => {
     const root = chatMessagesAreaRef.current;
@@ -4247,6 +4255,10 @@ export default function ChatPage() {
           markLoopModeRunning();
           sanitizeHeadlinePayload(payload, headlineStreamFilterRef.current);
 
+          if (payloadResetsContext(payload)) {
+            resetCurrentContextUsage();
+          }
+
           for (const event of parseModelFallbackEvents(payload)) {
             const key = modelFallbackEventKey(event);
             if (pendingFallbackEventKeysRef.current.has(key)) continue;
@@ -4324,13 +4336,6 @@ export default function ChatPage() {
             setRateLimitAlternatives(alts);
             message.warning(t("chat.rateLimitHit"));
             return null;
-          }
-
-          if (payloadRequestsHistoryClear(payload)) {
-            pendingClearHistoryRef.current = true;
-            if (payloadCompletesResponse(payload)) {
-              scheduleHistoryClear();
-            }
           }
 
           return payload as unknown as ReturnType<
@@ -4504,7 +4509,6 @@ export default function ChatPage() {
     toolRenderConfig,
     extScalar,
     extLists,
-    scheduleHistoryClear,
     consoleSkills,
     loopAvailableModes,
     selectedAgent,
@@ -4577,12 +4581,39 @@ export default function ChatPage() {
         <div className={styles.chatMainArea}>
           <div
             ref={chatMessagesAreaRef}
+            onScrollCapture={handleHistoryScroll}
             className={
               isWideMode
                 ? `${styles.chatMessagesArea} ${styles.wideMode}`
                 : styles.chatMessagesArea
             }
           >
+            {historyLoadFailed && (
+              <Alert
+                banner
+                className={styles.historyNotice}
+                icon={<TriangleAlert size={16} />}
+                type="error"
+                message={t(
+                  "chat.historyLoadFailed",
+                  "Failed to load older messages",
+                )}
+                action={
+                  <Tooltip title={t("common.retry", "Retry")}>
+                    <Button
+                      aria-label={t("common.retry", "Retry")}
+                      icon={<RotateCw size={15} />}
+                      size="small"
+                      type="text"
+                      onClick={() => {
+                        const target = chatMessagesAreaRef.current;
+                        if (target) loadOlderHistory(target);
+                      }}
+                    />
+                  </Tooltip>
+                }
+              />
+            )}
             <RichFileReferenceInputProvider
               onOpenReference={(reference, trigger) =>
                 void openInlineFileReference(reference, trigger)

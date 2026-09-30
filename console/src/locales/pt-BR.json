@@ -3476,7 +3476,7 @@
     "sidebarPreview": "Itens visíveis"
   },
   "chat": {
-    "historyLoadFailed": "Não foi possível carregar a conversa. Abra-a novamente.",
+    "sessionLoadFailed": "Não foi possível carregar a conversa. Abra-a novamente.",
     "newTask": "Nova tarefa",
     "newChat": "Novo chat",
     "groups": {
@@ -3488,6 +3488,7 @@
     },
     "modelSelectTooltip": "Selecionar Modelo",
     "chatHistoryTooltip": "Chat history",
+    "historyLoadFailed": "Falha ao carregar mensagens anteriores",
     "messageDisplay": {
       "stepsRunning": "Em execução… · {{count}} etapas",
       "stepsCanceled": "Cancelado · {{count}} etapas",

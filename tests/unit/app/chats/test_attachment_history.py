@@ -9,6 +9,7 @@ import pytest
 from agentscope.agent import Agent
 from agentscope.message import Msg
 from agentscope.state import AgentState
+from fastapi import BackgroundTasks
 
 from qwenpaw.app.channels.console.channel import ConsoleChannel
 from qwenpaw.app.chats.api import get_chat
@@ -100,6 +101,7 @@ async def test_console_file_survives_agent_ingestion_and_disk_history(
     )
     history = await get_chat(
         chat_id=chat.id,
+        background_tasks=BackgroundTasks(),
         include_app_owned=True,
         mgr=SimpleNamespace(get_chat=AsyncMock(return_value=chat)),
         session=SafeJSONSession(save_dir=str(tmp_path / "sessions")),

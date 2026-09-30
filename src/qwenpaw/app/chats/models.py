@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """Chat models with UUID management."""
+
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -243,6 +244,13 @@ class ChatGroupOrderUpdate(BaseModel):
     group_ids: list[str] = Field(min_length=2)
 
 
+class ChatContextState(BaseModel):
+    """Current model-context projection, separate from message history."""
+
+    generation: int = Field(default=0, ge=0)
+    usage: Optional[dict[str, Any]] = None
+
+
 class ChatHistory(BaseModel):
     """Complete chat view with spec and state."""
 
@@ -251,6 +259,21 @@ class ChatHistory(BaseModel):
         default="idle",
         description="Conversation status: idle or running",
     )
+    history: Optional["ChatHistoryMetadata"] = None
+    context_state: Optional[ChatContextState] = None
+
+
+class ChatHistoryMetadata(BaseModel):
+    """Cursor metadata for a transcript page."""
+
+    has_more: bool = False
+    next_before: Optional[str] = None
+
+
+class ChatMessagePage(ChatHistoryMetadata):
+    """One byte-bounded page of durable chat messages."""
+
+    messages: list[Message] = Field(default_factory=list)
 
 
 class BatchFailure(BaseModel):

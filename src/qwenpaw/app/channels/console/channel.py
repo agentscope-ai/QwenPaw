@@ -430,6 +430,7 @@ class ConsoleChannel(BaseChannel):
             event_count = 0
             last_usage = None
             headline_stream_states: dict[str, Any] = {}
+            completed_response: Any | None = None
 
             async for event in self._process(request):
                 usage = TokenRecordingModelWrapper.peek_usage_for_session(
@@ -492,11 +493,14 @@ class ConsoleChannel(BaseChannel):
                     ):
                         yield f"data: {pending_data}\n\n"
 
-                data = self._serialize_event_for_sse(
-                    event,
-                    headline_stream_states,
-                )
-                yield f"data: {data}\n\n"
+                if obj == "response" and status == RunStatus.Completed:
+                    completed_response = event
+                else:
+                    data = self._serialize_event_for_sse(
+                        event,
+                        headline_stream_states,
+                    )
+                    yield f"data: {data}\n\n"
 
                 if obj == "message" and status == RunStatus.Completed:
                     parts = self._message_to_content_parts(event)
@@ -511,16 +515,28 @@ class ConsoleChannel(BaseChannel):
                 yield f"data: {pending_data}\n\n"
 
             err_msg = self._get_response_error_message(last_response)
+            usage_sse: list[str] = []
             if err_msg:
                 self._clear_session_turn_usage(session_id)
                 self._print_error(err_msg)
             else:
-                for sse in await self._commit_turn_usage(
+                usage_sse = await self._commit_turn_usage(
                     request,
                     session_id,
                     emit_sse=True,
-                ):
-                    yield sse
+                )
+
+            # Emit usage before the terminal response. Some consumers stop
+            # reading as soon as ``response.completed`` arrives.
+            for sse in usage_sse:
+                yield sse
+
+            if completed_response is not None:
+                data = self._serialize_event_for_sse(
+                    completed_response,
+                    headline_stream_states,
+                )
+                yield f"data: {data}\n\n"
 
             logger.info(
                 "console stream done: event_count=%s has_response=%s",

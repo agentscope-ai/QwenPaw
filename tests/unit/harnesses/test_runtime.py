@@ -395,4 +395,4 @@ async def test_runtime_handles_host_clear_for_every_backend(
     ]
 
     assert adapter.reset_session_id == "chat-1"
-    assert output[-1].output[-1].metadata["clear_history"] is True
+    assert output[-1].output[-1].metadata["context_reset"] is True

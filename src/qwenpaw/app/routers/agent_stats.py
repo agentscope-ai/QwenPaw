@@ -60,6 +60,7 @@ async def get_agent_statistics(
         workspace_dir=workspace.workspace_dir,
         start_date=start_d,
         end_date=end_d,
+        transcript_catalog=workspace.transcript_store,
     )
 
 

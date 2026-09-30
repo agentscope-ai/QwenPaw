@@ -232,11 +232,11 @@ class HarnessRuntime:
         for item in text_stream.finish():
             yield tagged(item)
 
-        clear_history = command in {"new", "clear"}
-        if clear_history and response.output:
+        reset_context = command in {"new", "clear"}
+        if reset_context and response.output:
             response.output[-1].metadata = {
                 **dict(response.output[-1].metadata or {}),
-                "clear_history": True,
+                "context_reset": True,
             }
 
         if error_text:
@@ -249,7 +249,7 @@ class HarnessRuntime:
         response.completed_at = datetime.now(timezone.utc).isoformat(
             timespec="seconds",
         )
-        if self._session_bridge is not None and clear_history:
+        if self._session_bridge is not None and reset_context:
             try:
                 await self._session_bridge.clear(
                     session_id=session_id,

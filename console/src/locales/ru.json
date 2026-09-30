@@ -3232,7 +3232,7 @@
     "sidebarPreview": "Видимые пункты"
   },
   "chat": {
-    "historyLoadFailed": "Не удалось загрузить диалог. Откройте его снова.",
+    "sessionLoadFailed": "Не удалось загрузить диалог. Откройте его снова.",
     "newTask": "Новая задача",
     "newChat": "Новый чат",
     "groups": {
@@ -3244,6 +3244,7 @@
     },
     "modelSelectTooltip": "Выбор модели",
     "chatHistoryTooltip": "История чатов",
+    "historyLoadFailed": "Не удалось загрузить предыдущие сообщения",
     "messageDisplay": {
       "stepsRunning": "Выполняется… · шагов: {{count}}",
       "stepsCanceled": "Отменено · шагов: {{count}}",

@@ -92,9 +92,19 @@ def _session_ctx(
             "channel": channel,
         }
 
+    async def _reset(*, session_id, user_id, channel, agent):
+        await _save(
+            session_id=session_id,
+            user_id=user_id,
+            channel=channel,
+            agent=agent,
+        )
+        saved["reset"] = True
+
     session = SimpleNamespace(
         load_session_state=AsyncMock(side_effect=_load),
         save_session_state=AsyncMock(side_effect=_save),
+        reset_session_state=AsyncMock(side_effect=_reset),
     )
     workspace = SimpleNamespace(
         session=session,
@@ -551,6 +561,17 @@ class TestLoadAgentState:
 
 
 class TestSaveAgentState:
+    async def test_context_reset_uses_atomic_reset(self):
+        ctx, saved = _session_ctx({})
+        await bc._save_agent_state(
+            ctx,
+            AgentState(),
+            reset_context=True,
+        )
+        assert saved["reset"] is True
+        ctx.workspace.session.reset_session_state.assert_awaited_once()
+        ctx.workspace.session.save_session_state.assert_not_awaited()
+
     async def test_writes_state_mode_and_scroll(self):
         ctx, saved = _session_ctx({})
         await bc._save_agent_state(

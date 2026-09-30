@@ -452,6 +452,7 @@ async def _save_agent_state(
     state: "Any",
     *,
     scroll_block: dict | None = None,
+    reset_context: bool = False,
 ) -> None:
     """Save AgentState back to workspace.session.
 
@@ -476,7 +477,10 @@ async def _save_agent_state(
     if scroll_block is not None:
         proxy.data["scroll"] = scroll_block
     proxy.data["mode_state"] = getattr(ctx, "mode_state", {})
-    await session.save_session_state(
+    save = session.save_session_state
+    if reset_context and hasattr(session, "reset_session_state"):
+        save = session.reset_session_state
+    await save(
         session_id=ctx.session_id,
         user_id=user_id or ctx.session_id,
         channel=channel,
@@ -599,7 +603,12 @@ def _make_conversation_adapter(
             context_empty=not state.context,
             existing=existing_scroll,
         )
-        await _save_agent_state(ctx, state, scroll_block=scroll_block)
+        await _save_agent_state(
+            ctx,
+            state,
+            scroll_block=scroll_block,
+            reset_context=name in {"clear", "new"},
+        )
         return result
 
     return CommandSpec(
