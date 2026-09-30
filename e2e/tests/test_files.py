@@ -286,9 +286,24 @@ class TestFileToggleReorderMemory:
         page.wait_for_load_state("domcontentloaded")
         page.wait_for_timeout(3000)
 
-        refreshed_items = page.locator(FILE_ITEM_SELECTOR).all()
+        open_profile_files(page)
+        refreshed_items = get_file_items(page)
         assert len(refreshed_items) >= 1, "File list is empty after reload"
-        logger.info(f"File list still present after reload, count: {len(refreshed_items)}")
+        persisted_order = [
+            item.locator(FILE_NAME_SELECTOR).first.inner_text()
+            for item in refreshed_items[:2]
+        ]
+        assert persisted_order == new_order, "File order did not persist"
+
+        log_test_step("8. Restore the original file order")
+        moved_row = page.locator(FILE_ITEM_SELECTOR).filter(
+            has_text=initial_order[0]
+        ).first
+        restore_handle = moved_row.locator(DRAG_HANDLE_SELECTOR).first
+        restore_handle.drag_to(page.locator(FILE_ITEM_SELECTOR).first)
+        expect(page.locator(FILE_NAME_SELECTOR).first).to_have_text(
+            initial_order[0], timeout=5000
+        )
 
         log_test_result(test_name, True, 0)
         logger.info(f"Test {test_name} passed - toggle, drag reorder and reload restore OK")
@@ -385,8 +400,8 @@ class TestFileContentEditAndSave:
             page.wait_for_load_state("domcontentloaded")
             page.wait_for_timeout(3000)
 
-            file_items = page.locator(FILE_ITEM_SELECTOR).all()
-            assert file_items, "File list is empty after reload"
+            open_profile_files(page)
+            file_items = get_file_items(page)
             file_items[0].click()
             page.wait_for_timeout(2000)
 
