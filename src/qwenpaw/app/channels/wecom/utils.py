@@ -14,6 +14,22 @@ logger = logging.getLogger(__name__)
 _WECOM_IMAGE_MAX_SIZE = 1.9 * 1024 * 1024  # 1.9 MB
 
 
+# A GFM table delimiter row: cells containing only hyphens, colons and pipes.
+_SEPARATOR_RE = re.compile(r"^[\s\-:|]+$")
+
+
+def _is_delimiter_row(line: str | None) -> bool:
+    """True when *line* is a table delimiter row.
+
+    A delimiter row is what distinguishes a real table from prose that merely
+    contains a pipe, so it must carry at least one pipe to pair with the
+    header row.
+    """
+    if not line or "|" not in line:
+        return False
+    return _SEPARATOR_RE.match(line) is not None
+
+
 def format_markdown_tables(text: str) -> str:
     """Format GFM markdown tables for WeCom compatibility.
 
@@ -43,8 +59,13 @@ def format_markdown_tables(text: str) -> str:
             result.append(line)
             i += 1
             continue
-        # Detect table start (line with |) when not inside a code fence
-        if "|" in line:
+        # Detect a table start: a row with pipes whose next line is the
+        # delimiter row. Without that second row the pipes are ordinary
+        # prose (a shell pipeline, a regex alternation) and rewriting it
+        # into a table would corrupt the message.
+        if "|" in line and _is_delimiter_row(
+            lines[i + 1] if i + 1 < len(lines) else None,
+        ):
             # Collect table lines
             table_lines: List[str] = []
             while (
@@ -69,8 +90,7 @@ def _format_table(lines: List[str]) -> List[str]:
         return lines
 
     # Check if second row is separator (contains only -, :, |, spaces)
-    sep_pattern = re.compile(r"^[\s\-:|]+$")
-    has_separator = len(lines) >= 2 and sep_pattern.match(lines[1]) is not None
+    has_separator = len(lines) >= 2 and _is_delimiter_row(lines[1])
 
     # Parse cells, skipping the separator row (it will be rebuilt)
     rows: List[List[str]] = []

@@ -260,6 +260,35 @@ class TestFormatMarkdownTables:
 
         assert format_markdown_tables(text) == text
 
+    def test_prose_containing_a_pipe_is_not_treated_as_a_table(self):
+        """A pipe in prose is not a table: GFM needs a delimiter row."""
+        text = "Use a || b when you want logical or."
+
+        assert format_markdown_tables(text) == text
+
+    def test_shell_pipeline_line_is_not_treated_as_a_table(self):
+        text = "Run:\ncat log | grep error | wc -l"
+
+        assert format_markdown_tables(text) == text
+
+    def test_regex_alternation_is_not_treated_as_a_table(self):
+        text = "The pattern ^(foo|bar)$ matches either."
+
+        assert format_markdown_tables(text) == text
+
+    def test_prose_with_pipe_next_to_a_real_table(self):
+        """A genuine table still formats when prose around it has a pipe."""
+        text = "either a|b\n| name |\n| --- |\n| 1 |"
+
+        assert format_markdown_tables(text) == (
+            "either a|b\n| name |\n| ---- |\n| 1    |"
+        )
+
+    def test_single_line_with_pipes_is_left_alone(self):
+        text = "| just | pipes |"
+
+        assert format_markdown_tables(text) == text
+
 
 # ---------------------------------------------------------------------------
 # compress_image_for_wecom
