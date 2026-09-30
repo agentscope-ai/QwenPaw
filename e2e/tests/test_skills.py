@@ -146,8 +146,8 @@ class TestSkillListAndFilter:
         # -- Step 5: Search filter --
         log_test_step("5. Search filter")
         search_input = page.locator(
-            'input[aria-label="Search skills"], '
-            'input[aria-label="搜索技能"]'
+            'input[aria-label="Search skills across platforms"], '
+            'input[aria-label="在多平台中搜索技能"]'
         ).first
         if search_input.is_visible():
             keyword = title_text.split()[0] if title_text else "browser"

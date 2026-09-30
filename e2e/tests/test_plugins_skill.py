@@ -232,8 +232,8 @@ class TestSkillPoolBrowsing:
 
         log_test_step("4. Search for a skill by name")
         search_input = clean_chat_page.page.locator(
-            'input[placeholder*="Search"], input[placeholder*="搜索"], '
-            '[class*="search-input"]'
+            'input[aria-label="Search skills across platforms"], '
+            'input[aria-label="在多平台中搜索技能"]'
         ).first
         if search_input.count() > 0 and search_input.is_visible():
             search_input.fill("test")

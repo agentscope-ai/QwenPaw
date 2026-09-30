@@ -86,11 +86,8 @@ class TestSkillPoolSearch:
 
         log_test_step("Verify search input exists")
         search_input = page.locator(
-            'input[placeholder*="筛选"], input[placeholder*="搜索"], '
-            'input[placeholder*="search"], input[placeholder*="Search"], '
-            'input[placeholder*="filter"], '
-            '.qwenpaw-select-selection-search-input, '
-            '.qwenpaw-input-search input'
+            'input[aria-label="Search skills across platforms"], '
+            'input[aria-label="在多平台中搜索技能"]'
         ).first
         expect(search_input).to_be_visible(timeout=5000)
         logger.info("Search input exists")
@@ -111,19 +108,8 @@ class TestSkillPoolSearch:
             return
 
         log_test_step("Enter search keyword")
-        # Search input is a qwenpaw-select component (readonly input); click parent container to trigger dropdown
-        is_readonly = search_input.get_attribute("readonly") is not None
-        if is_readonly:
-            select_container = page.locator('.qwenpaw-select').first
-            select_container.click()
-            page.wait_for_timeout(500)
-            page.keyboard.type("nonexistent_skill_xyz")
-            page.wait_for_timeout(1500)
-            page.keyboard.press("Escape")
-            page.wait_for_timeout(500)
-        else:
-            search_input.fill("nonexistent_skill_xyz")
-            page.wait_for_timeout(1500)
+        search_input.fill("nonexistent_skill_xyz")
+        page.wait_for_timeout(1500)
 
         filtered_cards = page.locator('.qwenpaw-card').all()
         filtered_count = len(filtered_cards)
@@ -133,19 +119,7 @@ class TestSkillPoolSearch:
         logger.info("Search filter is effective")
 
         log_test_step("Clear search to restore list")
-        if is_readonly:
-            clear_btn = page.locator('.qwenpaw-select-clear').first
-            if clear_btn.count() > 0:
-                clear_btn.click()
-            else:
-                select_container = page.locator('.qwenpaw-select').first
-                select_container.click()
-                page.wait_for_timeout(300)
-                page.keyboard.press("Control+a")
-                page.keyboard.press("Backspace")
-                page.keyboard.press("Escape")
-        else:
-            search_input.clear()
+        search_input.clear()
         page.wait_for_timeout(1500)
 
         restored_cards = page.locator('.qwenpaw-card').all()
