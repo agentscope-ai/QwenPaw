@@ -26,42 +26,14 @@ from utils.helpers import log_test_step, log_test_result
 
 logger = logging.getLogger(__name__)
 
-# The ACP page's own create button.
-#
-# The selector this replaces was
-#   button:has-text("Create"), ... button:has-text("New")
-# plus ``.first``. Upstream #7502 added a "New task" button to the sidebar
-# whose label is real text (``<span>New task</span>`` in ``layouts/Sidebar.tsx``,
-# not merely an aria-label), so ``has-text("New")`` matched it. The sidebar
-# comes before ``main`` in DOM order and ``.first`` picks DOM order, so the case
-# clicked "New task", got navigated to /chat, and then failed asserting that the
-# ACP drawer was visible — the drawer never had a chance to open. The failure
-# surface was misleading twice over: pytest's logging prefix pointed at
-# ``test_acp.py:243`` (a ``logger.error`` call inside the except block) and the
-# traceback line at the drawer assertion, neither of which is where the defect
-# is.
-#
-# Three things pin the new selector to the right button:
-# - ``headerActions`` is the PageHeader action row of this page
-#   (``pages/Agent/ACP/index.tsx`` -> ``stylesACP.headerActions``). No sidebar
-#   component uses that class, so scoping to it excludes the sidebar entirely.
-#   This matters because the ACP page renders no ``<main>`` element, so the
-#   usual "limit to main" scoping is not available here.
-# - ``btn-primary``: the button is ``<Button type="primary">``. Its sibling
-#   "Node Settings" has no type, so this also separates the two.
-# - The label comes from ``acp.create``, which is "Add Custom Agent" in en.json
-#   and "新增 Custom Agent" in zh.json — note it contains neither "Create" nor
-#   "New" in English, which is why the old text anchors could only ever match
-#   the sidebar.
-# ``btn-primary`` is not unique on its own: the account panel in
-# ``layouts/Sidebar.tsx`` also has a primary Save button, and five other pages
-# define their own ``headerActions`` class. The two anchors together are.
+# Match the page action by its localized visible label. Generic Create/New
+# selectors also match the sidebar's New task button.
 ACP_CREATE_BUTTON = (
-    '[class*="headerActions"] button.qwenpaw-btn-primary:has-text("Add Custom Agent"), '
-    '[class*="headerActions"] button.qwenpaw-btn-primary:has-text("新增 Custom Agent"), '
-    '[class*="headerActions"] button.ant-btn-primary:has-text("Add Custom Agent"), '
-    '[class*="headerActions"] button.ant-btn-primary:has-text("新增 Custom Agent")'
+    'button:has-text("Add ACP integration"), '
+    'button:has-text("添加 ACP 接入")'
 )
+ACP_CARD_SELECTOR = '[class*="channelsGrid"] [class*="card"]'
+ACP_DIALOG_SELECTOR = '[role="dialog"]:visible'
 
 
 # ============================================================================
@@ -128,9 +100,7 @@ class TestACPPageDisplay:
 
             # 5. Verify ACP card list
             log_test_step("5. Verify ACP card list")
-            cards = page.locator(
-                '[class*="acpCard"], [class*="ACPCard"], .qwenpaw-card'
-            ).all()
+            cards = page.locator(ACP_CARD_SELECTOR).all()
             assert len(cards) > 0, "ACP card list should not be empty (at least builtin ACP expected)"
             logger.info(f"Found {len(cards)} ACP cards")
 
@@ -194,7 +164,7 @@ class TestCreateACPDrawerForm:
 
             # 3. Verify drawer opens
             log_test_step("3. Verify drawer opens")
-            drawer = page.locator(".qwenpaw-drawer, .qwenpaw-modal").first
+            drawer = page.locator(ACP_DIALOG_SELECTOR)
             expect(drawer).to_be_visible(timeout=5000)
             logger.info("ACP create drawer opened")
 
@@ -306,9 +276,7 @@ class TestACPToggleSwitch:
 
             # 2. Find toggle on ACP card
             log_test_step("2. Find toggle on ACP card")
-            cards = page.locator(
-                '[class*="acpCard"], [class*="ACPCard"], .qwenpaw-card'
-            ).all()
+            cards = page.locator(ACP_CARD_SELECTOR).all()
 
             if len(cards) == 0:
                 logger.info("No ACP cards found, skipping validation")
@@ -334,13 +302,14 @@ class TestACPToggleSwitch:
 
             # 4. Toggle state
             log_test_step("4. Toggle switch state")
-            target_switch.click()
-            page.wait_for_timeout(1000)
-
-            new_checked = target_switch.evaluate(
-                "el => el.classList.contains('qwenpaw-switch-checked') || "
-                "el.getAttribute('aria-checked') === 'true'"
-            )
+            with page.expect_request(
+                lambda request: request.method == "PUT"
+                and "/config/acp/" in request.url
+            ) as request_info:
+                target_switch.click()
+            request = request_info.value
+            payload = request.post_data_json
+            new_checked = payload["enabled"]
             logger.info(f"Switch state after toggle: {'enabled' if new_checked else 'disabled'}")
             assert new_checked != initial_checked, \
                 f"Switch state should change: initial={initial_checked}, current={new_checked}"
@@ -356,15 +325,11 @@ class TestACPToggleSwitch:
         finally:
             # Restore original state
             try:
-                if initial_checked is not None and target_switch is not None:
-                    current = target_switch.evaluate(
-                        "el => el.classList.contains('qwenpaw-switch-checked') || "
-                        "el.getAttribute('aria-checked') === 'true'"
-                    )
-                    if current != initial_checked:
-                        target_switch.click()
-                        page.wait_for_timeout(500)
-                        logger.info("Switch restored to original state")
+                if initial_checked is not None and "request" in locals():
+                    payload["enabled"] = initial_checked
+                    response = page.request.put(request.url, data=payload)
+                    assert response.ok
+                    logger.info("Switch restored to original state")
             except Exception as restore_err:
                 logger.warning(f"Failed to restore original state: {restore_err}")
 
@@ -400,9 +365,7 @@ class TestACPFilterTabs:
 
             # 2. Record card count under All tab
             log_test_step("2. Record card count under All tab")
-            all_cards = page.locator(
-                '[class*="acpCard"], [class*="ACPCard"], .qwenpaw-card'
-            ).all()
+            all_cards = page.locator(ACP_CARD_SELECTOR).all()
             all_count = len(all_cards)
             logger.info(f"Card count under All tab: {all_count}")
 
@@ -423,9 +386,7 @@ class TestACPFilterTabs:
             builtin_tab.click()
             page.wait_for_timeout(1000)
 
-            builtin_cards = page.locator(
-                '[class*="acpCard"], [class*="ACPCard"], .qwenpaw-card'
-            ).all()
+            builtin_cards = page.locator(ACP_CARD_SELECTOR).all()
             builtin_count = len(builtin_cards)
             logger.info(f"Card count under Builtin tab: {builtin_count}")
 
@@ -447,9 +408,7 @@ class TestACPFilterTabs:
                 custom_tab.click()
                 page.wait_for_timeout(1000)
 
-                custom_cards = page.locator(
-                    '[class*="acpCard"], [class*="ACPCard"], .qwenpaw-card'
-                ).all()
+                custom_cards = page.locator(ACP_CARD_SELECTOR).all()
                 custom_count = len(custom_cards)
                 logger.info(f"Card count under Custom tab: {custom_count}")
 
@@ -470,9 +429,7 @@ class TestACPFilterTabs:
                 all_tab.click()
                 page.wait_for_timeout(1000)
 
-                restored_cards = page.locator(
-                    '[class*="acpCard"], [class*="ACPCard"], .qwenpaw-card'
-                ).all()
+                restored_cards = page.locator(ACP_CARD_SELECTOR).all()
                 restored_count = len(restored_cards)
                 assert restored_count == all_count, \
                     f"Restored count should match initial: restored={restored_count}, all={all_count}"
@@ -517,9 +474,7 @@ class TestEditACPConfig:
 
             # 2. Click the first ACP card
             log_test_step("2. Click the first ACP card")
-            cards = page.locator(
-                '[class*="acpCard"], [class*="ACPCard"], .qwenpaw-card'
-            ).all()
+            cards = page.locator(ACP_CARD_SELECTOR).all()
 
             if len(cards) == 0:
                 logger.info("No ACP cards found, skipping validation")
@@ -543,7 +498,7 @@ class TestEditACPConfig:
 
             # 3. Verify edit drawer opens
             log_test_step("3. Verify edit drawer opens")
-            drawer = page.locator(".qwenpaw-drawer, .qwenpaw-modal").first
+            drawer = page.locator(ACP_DIALOG_SELECTOR)
             expect(drawer).to_be_visible(timeout=5000)
             logger.info("Edit drawer opened")
 
@@ -629,9 +584,7 @@ class TestCreateAndDeleteCustomACP:
             page.goto(f"{config.base_url}/acp", wait_until="domcontentloaded", timeout=30000)
             page.wait_for_timeout(3000)
 
-            initial_cards = page.locator(
-                '[class*="acpCard"], [class*="ACPCard"], .qwenpaw-card'
-            ).all()
+            initial_cards = page.locator(ACP_CARD_SELECTOR).all()
             initial_count = len(initial_cards)
 
             # 2. Click create button
@@ -643,7 +596,7 @@ class TestCreateAndDeleteCustomACP:
             create_btn.click()
             page.wait_for_timeout(500)
 
-            drawer = page.locator(".qwenpaw-drawer, .qwenpaw-modal").first
+            drawer = page.locator(ACP_DIALOG_SELECTOR)
             expect(drawer).to_be_visible(timeout=5000)
 
             # 3. Fill in the form
@@ -689,9 +642,7 @@ class TestCreateAndDeleteCustomACP:
             # 5. Verify new ACP appears in the list
             log_test_step("5. Verify new ACP appears")
             page.wait_for_timeout(1000)
-            new_cards = page.locator(
-                '[class*="acpCard"], [class*="ACPCard"], .qwenpaw-card'
-            ).all()
+            new_cards = page.locator(ACP_CARD_SELECTOR).all()
             new_count = len(new_cards)
             logger.info(f"Card count after creation: {new_count} (initial: {initial_count})")
 
@@ -708,9 +659,7 @@ class TestCreateAndDeleteCustomACP:
                 log_test_step("6. Delete newly created ACP")
                 # Click the new card to open the edit drawer
                 target_card = page.locator(
-                    f'[class*="acpCard"]:has-text("{created_acp_key}"), '
-                    f'[class*="ACPCard"]:has-text("{created_acp_key}"), '
-                    f'.qwenpaw-card:has-text("{created_acp_key}")'
+                    f'{ACP_CARD_SELECTOR}:has-text("{created_acp_key}")'
                 ).first
 
                 if target_card.is_visible(timeout=3000):
@@ -723,7 +672,7 @@ class TestCreateAndDeleteCustomACP:
                         target_card.click()
                     page.wait_for_timeout(500)
 
-                    edit_drawer = page.locator(".qwenpaw-drawer, .qwenpaw-modal").first
+                    edit_drawer = page.locator(ACP_DIALOG_SELECTOR)
                     if edit_drawer.is_visible(timeout=5000):
                         delete_btn = edit_drawer.locator(
                             'button:has-text("Delete"), button:has-text("删除")'
@@ -752,9 +701,7 @@ class TestCreateAndDeleteCustomACP:
 
                 # Verify count returns after deletion
                 page.wait_for_timeout(1000)
-                final_cards = page.locator(
-                    '[class*="acpCard"], [class*="ACPCard"], .qwenpaw-card'
-                ).all()
+                final_cards = page.locator(ACP_CARD_SELECTOR).all()
                 final_count = len(final_cards)
                 logger.info(f"Card count after deletion: {final_count}")
 
@@ -806,9 +753,7 @@ class TestBuiltinACPProtection:
                 builtin_tab.click()
                 page.wait_for_timeout(1000)
 
-            cards = page.locator(
-                '[class*="acpCard"], [class*="ACPCard"], .qwenpaw-card'
-            ).all()
+            cards = page.locator(ACP_CARD_SELECTOR).all()
 
             if len(cards) == 0:
                 logger.info("No builtin ACP cards found, skipping protection validation")
@@ -827,7 +772,7 @@ class TestBuiltinACPProtection:
                 first_card.click()
             page.wait_for_timeout(500)
 
-            drawer = page.locator(".qwenpaw-drawer, .qwenpaw-modal").first
+            drawer = page.locator(ACP_DIALOG_SELECTOR)
             if not drawer.is_visible(timeout=5000):
                 logger.info("Edit drawer did not open")
                 log_test_result(test_name, True, 0)
@@ -904,9 +849,7 @@ class TestACPCardDetails:
 
             # 2. Get ACP card list
             log_test_step("2. Get card list")
-            cards = page.locator(
-                '[class*="acpCard"], [class*="ACPCard"], .qwenpaw-card'
-            ).all()
+            cards = page.locator(ACP_CARD_SELECTOR).all()
 
             assert len(cards) > 0, "ACP card list should not be empty"
             logger.info(f"Found {len(cards)} ACP cards")
