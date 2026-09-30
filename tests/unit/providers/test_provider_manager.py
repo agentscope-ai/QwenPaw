@@ -4295,3 +4295,75 @@ async def test_agentscope_platform_configuration_reloads(isolated_secret_dir):
     assert restored.meta[f"api_key_url"] == (
         f"https://platform.agentscope.io/model-calls"
     )
+
+
+def test_custom_provider_prompt_cache_declaration_from_json(
+    isolated_secret_dir,
+) -> None:
+    """A custom provider JSON may declare OpenAI prompt cache support.
+
+    The declaration is a real persisted field, so it survives a UI-driven
+    update and unblocks ``prompt_cache_key`` on a non-api.openai.com
+    gateway without touching the class-level ``cache_modes``.
+    """
+    custom_path = isolated_secret_dir / "providers" / "custom"
+    custom_path.mkdir(parents=True, exist_ok=True)
+    (custom_path / "my-gateway.json").write_text(
+        json.dumps(
+            {
+                "id": "my-gateway",
+                "name": "My Gateway",
+                "base_url": "https://gateway.example.com/v1",
+                "api_key": "sk-test",
+                "chat_model": "OpenAIResponseModel",
+                "is_custom": True,
+                "supports_openai_prompt_cache": True,
+            },
+        ),
+        encoding="utf-8",
+    )
+
+    manager = ProviderManager()
+    provider = manager.get_provider("my-gateway")
+    assert provider is not None
+    assert provider.supports_openai_prompt_cache is True
+    assert provider.cache_capabilities("gpt-x") == frozenset({"openai"})
+
+    prepared = provider.prepare_request(
+        "gpt-x",
+        "responses",
+        {"prompt_cache_key": "my-stable-key"},
+    )
+    assert prepared["prompt_cache_key"] == "my-stable-key"
+
+
+def test_custom_provider_without_declaration_keeps_gate_closed(
+    isolated_secret_dir,
+) -> None:
+    """A legacy custom provider JSON keeps the wire-level gate closed."""
+    custom_path = isolated_secret_dir / "providers" / "custom"
+    custom_path.mkdir(parents=True, exist_ok=True)
+    (custom_path / "my-gateway.json").write_text(
+        json.dumps(
+            {
+                "id": "my-gateway",
+                "name": "My Gateway",
+                "base_url": "https://gateway.example.com/v1",
+                "api_key": "sk-test",
+                "chat_model": "OpenAIResponseModel",
+                "is_custom": True,
+            },
+        ),
+        encoding="utf-8",
+    )
+
+    manager = ProviderManager()
+    provider = manager.get_provider("my-gateway")
+    assert provider is not None
+    assert provider.supports_openai_prompt_cache is False
+    with pytest.raises(ValueError, match="Unsupported cache control"):
+        provider.prepare_request(
+            "gpt-x",
+            "responses",
+            {"prompt_cache_key": "my-stable-key"},
+        )
