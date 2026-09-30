@@ -8,8 +8,10 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import sqlite3
+import tempfile
 import time
 import weakref
 from dataclasses import dataclass
@@ -502,6 +504,66 @@ class CheckpointService:
         finally:
             if owned:
                 store.close()
+
+    def restore_legacy_session_state(
+        self,
+        blob: bytes,
+        *,
+        session_id: str,
+        user_id: str,
+        channel: str,
+    ) -> None:
+        """Convert one legacy JSON checkpoint and restore it as a database."""
+        from ..app.chats.session import _legacy_current_usage
+        from ..app.chats.transcript import TranscriptStore
+        from ..app.chats.utils import session_state_to_messages
+
+        try:
+            state = json.loads(blob.decode("utf-8", errors="surrogatepass"))
+            if not isinstance(state, dict):
+                raise ValueError("session state must be an object")
+            messages = session_state_to_messages(state)
+            with tempfile.TemporaryDirectory() as directory:
+                snapshot = TranscriptStore(Path(directory) / "session.db")
+                try:
+                    snapshot.replace_runtime_state(
+                        session_id=session_id,
+                        user_id=user_id,
+                        channel=channel,
+                        state=state,
+                        context_generation=0,
+                        current_usage=_legacy_current_usage(state),
+                    )
+                    snapshot.import_legacy_messages(
+                        session_id=session_id,
+                        user_id=user_id,
+                        channel=channel,
+                        messages=messages,
+                    )
+                    database = snapshot.export_database(
+                        session_id=session_id,
+                        user_id=user_id,
+                        channel=channel,
+                    )
+                finally:
+                    snapshot.close()
+            self.restore_session_database(
+                database,
+                session_id=session_id,
+                user_id=user_id,
+                channel=channel,
+            )
+        except (
+            KeyError,
+            OSError,
+            UnicodeError,
+            json.JSONDecodeError,
+            sqlite3.Error,
+            ValueError,
+        ) as exc:
+            raise CheckpointError(
+                "Legacy checkpoint session state is invalid",
+            ) from exc
 
     def _transcript_store(self):
         workspace = self.workspace

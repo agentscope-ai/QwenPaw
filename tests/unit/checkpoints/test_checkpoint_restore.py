@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import shutil
 import subprocess
@@ -19,6 +20,7 @@ from qwenpaw.app.task_tracker import TaskTracker
 from qwenpaw.app.chats.transcript_catalog import TranscriptCatalog
 from qwenpaw.checkpoints.service import CheckpointService
 from qwenpaw.checkpoints.policy import (
+    encode_metadata,
     sanitize_ref_component,
     session_key,
     session_snapshot_path,
@@ -326,6 +328,75 @@ async def test_conversation_restore_dry_run_then_confirm(
         )
         == first_commit
     )
+
+
+@pytest.mark.asyncio
+async def test_conversation_restore_imports_legacy_json_checkpoint(
+    tmp_path: Path,
+) -> None:
+    engine = CheckpointService(tmp_path)
+    _write_session(tmp_path, "current")
+    legacy_state = {
+        "agent": {
+            "state": {
+                "context": [
+                    {
+                        "id": "legacy-user",
+                        "name": "user",
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": "legacy"},
+                        ],
+                        "created_at": "2026-01-01T00:00:00+00:00",
+                    },
+                ],
+            },
+        },
+    }
+    legacy_path = "sessions/console/user_session-1.json"
+    tree = engine.repository.write_workspace_tree(
+        {legacy_path: json.dumps(legacy_state)},
+    )
+    metadata = encode_metadata(
+        "legacy",
+        channel=CHANNEL,
+        user_id=USER_ID,
+        session_id=SESSION_ID,
+    )
+    commit = engine.repository.run_git(
+        "commit-tree",
+        tree,
+        input_text=f"snapshot legacy\n\n{metadata}\n",
+    )
+    key = session_key(
+        channel=CHANNEL,
+        user_id=USER_ID,
+        session_id=SESSION_ID,
+    )
+    engine.repository.run_git(
+        "update-ref",
+        f"refs/snap/{key}/legacy",
+        commit,
+    )
+
+    preview = await engine.restore(
+        target=commit[:12],
+        session_id=SESSION_ID,
+        user_id=USER_ID,
+        channel=CHANNEL,
+        dry_run=True,
+    )
+    assert preview.restored_paths == (legacy_path,)
+
+    await engine.restore(
+        target=commit[:12],
+        session_id=SESSION_ID,
+        user_id=USER_ID,
+        channel=CHANNEL,
+    )
+
+    assert _session_text(tmp_path) == "legacy"
+    assert _transcript_texts(tmp_path) == ["legacy"]
 
 
 @pytest.mark.asyncio

@@ -40,6 +40,7 @@ class _PreparedRestore:
     conversation_blob: bytes
     touched: frozenset[str]
     current_tree: str | None = None
+    legacy_conversation: bool = False
 
 
 def _changed_paths(
@@ -412,12 +413,20 @@ class RestoreService:
                     prepared.current_tree if include_files else None
                 ),
             )
-            self.service.restore_session_database(
-                prepared.conversation_blob,
-                session_id=session_id,
-                user_id=user_id,
-                channel=channel,
-            )
+            if prepared.legacy_conversation:
+                self.service.restore_legacy_session_state(
+                    prepared.conversation_blob,
+                    session_id=session_id,
+                    user_id=user_id,
+                    channel=channel,
+                )
+            else:
+                self.service.restore_session_database(
+                    prepared.conversation_blob,
+                    session_id=session_id,
+                    user_id=user_id,
+                    channel=channel,
+                )
             if include_files:
                 self.repository.restore_tree_paths(
                     prepared.entry.commit,
@@ -518,6 +527,19 @@ class RestoreService:
             channel,
         )
         previous_head = self.service.session_head(session_key_str)
+        legacy_conversation = False
+        if not self.repository.tree_has_blob(
+            entry.commit,
+            conversation_path,
+        ):
+            legacy_path = self._legacy_conversation_rel(
+                session_id=session_id,
+                user_id=user_id,
+                channel=channel,
+            )
+            if self.repository.tree_has_blob(entry.commit, legacy_path):
+                conversation_path = legacy_path
+                legacy_conversation = True
         touched: set[str] = set()
         current_tree: str | None = None
         if include_files:
@@ -549,6 +571,7 @@ class RestoreService:
             conversation_blob=conversation,
             touched=frozenset(touched),
             current_tree=current_tree,
+            legacy_conversation=legacy_conversation,
         )
 
     def _build_plan(
@@ -672,6 +695,22 @@ class RestoreService:
             user_id=user_id,
             session_id=session_id,
         )
+
+    @staticmethod
+    def _legacy_conversation_rel(
+        *,
+        session_id: str,
+        user_id: str,
+        channel: str,
+    ) -> str:
+        """Return the session path used by checkpoints before DB snapshots."""
+        from ..app.chats.session import sanitize_filename, session_filename
+
+        parts = ["sessions"]
+        if channel:
+            parts.append(sanitize_filename(channel))
+        parts.append(session_filename(session_id, user_id))
+        return PurePosixPath(*parts).as_posix()
 
     @staticmethod
     def _is_file_restore_candidate(rel: str, *, conv_rel: str) -> bool:
