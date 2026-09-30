@@ -5,8 +5,10 @@
 This module provides utilities for building system prompts from
 markdown configuration files in the working directory.
 """
+
 import logging
 import re
+import time
 from pathlib import Path
 from typing import Any
 
@@ -18,6 +20,11 @@ from .memory.base_memory_manager import BaseMemoryManager
 from .utils.file_handling import read_text_file_with_encoding_fallback
 
 logger = logging.getLogger(__name__)
+
+# Single-slot TTL cache for the multimodal capability hint (see
+# build_multimodal_hint).
+_MULTIMODAL_HINT_CACHE: dict = {}
+_MULTIMODAL_HINT_TTL = 60.0
 
 # Default fallback prompt
 DEFAULT_SYS_PROMPT = """
@@ -520,10 +527,22 @@ def get_active_model_multimodal_raw() -> bool | None:
 
 def build_multimodal_hint() -> str:
     """Build a short system-prompt snippet describing multimodal capability."""
+    # The hint is a pure function of the active model's capability
+    # metadata, but resolving that re-reads the agent config and provider
+    # catalog on every request. Cache the rendered hint briefly; it is
+    # advisory text, so bounded staleness after a model switch is
+    # harmless.
+    now = time.monotonic()
+    cached = _MULTIMODAL_HINT_CACHE.get("hint")
+    if cached is not None and now - cached[0] < _MULTIMODAL_HINT_TTL:
+        return cached[1]
     model_info, model_name = _get_active_model_info()
     if model_info is None:
-        return ""
-    return format_multimodal_hint(model_info, model_name)
+        hint = ""
+    else:
+        hint = format_multimodal_hint(model_info, model_name)
+    _MULTIMODAL_HINT_CACHE["hint"] = (now, hint)
+    return hint
 
 
 def build_driver_policy_recheck_hint() -> str:

@@ -21,7 +21,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from fnmatch import fnmatch
 from pathlib import Path
-from typing import Any, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import yaml
 
@@ -1211,12 +1211,44 @@ def _findings_source(findings: list[Any]) -> str:
 # ---------------------------------------------------------------------------
 
 
+# Parsed policy.yaml cache, keyed by path and validated by (mtime_ns, size).
+# Request-scoped governors re-load policy on every start; re-parsing a
+# large YAML each time dominates the per-request build cost. The raw dict
+# is only read downstream (the GovernancePolicy built from it is always
+# fresh), so sharing it across loads is safe. A rewritten policy.yaml (new
+# mtime/size from a policy transaction) invalidates the entry immediately.
+_POLICY_YAML_CACHE: Dict[str, Tuple[Tuple[int, int], dict]] = {}
+
+
+def _read_policy_yaml_cached(path: Path) -> Optional[dict]:
+    """Return the parsed policy.yaml dict, or None when absent/invalid."""
+    try:
+        stat = path.stat()
+    except OSError:
+        return None
+    signature = (stat.st_mtime_ns, stat.st_size)
+    cache_key = str(path)
+    cached = _POLICY_YAML_CACHE.get(cache_key)
+    if cached is not None and cached[0] == signature:
+        return cached[1]
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = yaml.safe_load(f)
+    except Exception:
+        return None
+    if not isinstance(data, dict):
+        return None
+    _POLICY_YAML_CACHE[cache_key] = (signature, data)
+    return data
+
+
 def load_governance_policy(
     policy_dir: str,
     workspace_dir: str,
     coding_project_dir: str = "",
     extra_project_dirs: Optional[List[str]] = None,
-) -> GovernancePolicy:
+    return_changed: bool = False,
+) -> GovernancePolicy | Tuple[GovernancePolicy, bool]:
     """Load from policy_dir/policy.yaml; return default policy if missing.
 
     Args:
@@ -1231,35 +1263,35 @@ def load_governance_policy(
             revoking access means unbinding the directory, not deleting
             the rule.
 
+        return_changed: when True, return ``(policy, changed)`` where
+            ``changed`` says whether this load altered the effective policy
+            (missing defaults filled, migrations recorded, extra-dir rules
+            synced, legacy version). Callers that persist the loaded policy
+            can skip a byte-identical rewrite.
+
     Supports both v1.0 and v2.0 YAML formats.
     """
+    # Tracks whether this load changed the effective policy vs. the file,
+    # so ``ResourceGovernor.start`` can skip redundant saves.
+    changed = False
+
     path = Path(policy_dir) / "policy.yaml"
-    if not path.exists():
-        return _create_default_policy(
+    data = _read_policy_yaml_cached(path)
+    if data is None:
+        # Missing/unreadable/invalid: fall back to defaults, and persist.
+        policy = _create_default_policy(
             workspace_dir,
             coding_project_dir,
             extra_project_dirs=extra_project_dirs,
         )
-
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            data = yaml.safe_load(f)
-    except Exception:
-        return _create_default_policy(
-            workspace_dir,
-            coding_project_dir,
-            extra_project_dirs=extra_project_dirs,
-        )
-
-    if not isinstance(data, dict):
-        return _create_default_policy(
-            workspace_dir,
-            coding_project_dir,
-            extra_project_dirs=extra_project_dirs,
-        )
+        return (policy, True) if return_changed else policy
 
     version = data.get("version", "1.0")
     audit_level = data.get("audit_level", "all")
+    # save_governance_policy always writes the v2.0 format; a file still
+    # on v1.0 is normalized on the next persist.
+    if str(version) != "2.0":
+        changed = True
 
     # ── builtin_rules: ALWAYS sourced from code (not from YAML) ──
     # Rationale: builtin_rules encode system-level protections (e.g. ASK on
@@ -1268,6 +1300,7 @@ def load_governance_policy(
     # protections. Any ``builtin_rules`` key in YAML is intentionally
     # ignored.
     if "builtin_rules" in data:
+        changed = True
         logger.warning(
             "load_governance_policy: ignoring 'builtin_rules' in %s; "
             "builtin rules are managed in code and cannot be overridden "
@@ -1290,20 +1323,28 @@ def load_governance_policy(
     # ── Cold start / migration: fill in missing default rules ──
     if not user_rules:
         user_rules = copy.deepcopy(get_default_user_rules())
+        changed = True
     else:
-        user_rules = _merge_missing_default_user_rules(
+        merged_rules = _merge_missing_default_user_rules(
             user_rules,
             workspace_dir,
             coding_project_dir,
             applied_migrations=applied_migrations,
         )
+        if merged_rules != user_rules:
+            changed = True
+        user_rules = merged_rules
     # Record all DEFAULT_USER_RULES as applied so the next save
     # makes any user deletion of a default rule stick.
+    applied_before = set(applied_migrations)
     applied_migrations = sorted(
-        set(applied_migrations) | {r.match for r in get_default_user_rules()},
+        applied_before | {r.match for r in get_default_user_rules()},
     )
+    if set(applied_migrations) != applied_before:
+        changed = True
     if not env_blacklist:
         env_blacklist = list(DEFAULT_ENV_BLACKLIST)
+        changed = True
 
     # ── v2.0 fields ──
     execution_level = data.get("execution_level", "smart")
@@ -1337,14 +1378,17 @@ def load_governance_policy(
         _resolve_placeholders(user_rules, workspace_dir, cpd)
 
     # ── Sync system-managed ALLOW rules for extra project dirs ──
-    user_rules = _sync_extra_project_dir_rules(
+    synced_rules = _sync_extra_project_dir_rules(
         user_rules,
         workspace_dir,
         cpd,
         extra_project_dirs or [],
     )
+    if synced_rules != user_rules:
+        changed = True
+    user_rules = synced_rules
 
-    return GovernancePolicy(
+    policy = GovernancePolicy(
         version=version,
         builtin_rules=builtin_rules,
         user_rules=user_rules,
@@ -1356,6 +1400,7 @@ def load_governance_policy(
         detection_rules=detection_rules,
         applied_migrations=applied_migrations,
     )
+    return (policy, changed) if return_changed else policy
 
 
 def save_governance_policy(
@@ -1688,12 +1733,16 @@ def _guard_rule_to_detection_config(guard_rule: Any) -> DetectionRuleConfig:
         id=guard_rule.id,
         tools=list(guard_rule.tools),
         params=list(guard_rule.params),
-        category=str(guard_rule.category.value)
-        if hasattr(guard_rule.category, "value")
-        else str(guard_rule.category),
-        severity=str(guard_rule.severity.value)
-        if hasattr(guard_rule.severity, "value")
-        else str(guard_rule.severity),
+        category=(
+            str(guard_rule.category.value)
+            if hasattr(guard_rule.category, "value")
+            else str(guard_rule.category)
+        ),
+        severity=(
+            str(guard_rule.severity.value)
+            if hasattr(guard_rule.severity, "value")
+            else str(guard_rule.severity)
+        ),
         patterns=list(guard_rule.patterns),
         exclude_patterns=list(guard_rule.exclude_patterns),
         description=guard_rule.description,
