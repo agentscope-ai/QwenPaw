@@ -1,11 +1,15 @@
 # -*- coding: utf-8 -*-
+# pylint: disable=protected-access
 from __future__ import annotations
 
-from datetime import datetime
+import sys
+import time
+from datetime import datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import patch
 from zoneinfo import ZoneInfo
 
+import pytest
 from agentscope.message import Msg
 
 from qwenpaw.app.chats.utils import (
@@ -429,6 +433,75 @@ def test_agentscope_msg_to_message_timestamp_uses_process_local_tz():
     converted = datetime.fromisoformat(message.metadata["timestamp"])
     assert converted.hour == 12
     assert converted.tzinfo is not None
+
+
+def test_process_local_tz_carries_dst_rule(monkeypatch):
+    """Regression #8046: the process zone must answer for the timestamp's
+    own date, not freeze the offset in effect right now."""
+    import qwenpaw.app.chats.utils as chats_utils
+
+    chats_utils._process_local_tz.cache_clear()
+    monkeypatch.setattr(
+        chats_utils,
+        "detect_system_timezone",
+        lambda: "America/New_York",
+    )
+    try:
+        tz = chats_utils._process_local_tz()
+        assert tz.utcoffset(datetime(2026, 7, 15, 12)) != tz.utcoffset(
+            datetime(2026, 1, 15, 12),
+        )
+    finally:
+        chats_utils._process_local_tz.cache_clear()
+
+
+def test_process_local_tz_falls_back_when_zone_unresolvable(monkeypatch):
+    """An unresolvable IANA name must not raise — fall back to a tzinfo."""
+    import qwenpaw.app.chats.utils as chats_utils
+
+    chats_utils._process_local_tz.cache_clear()
+    monkeypatch.setattr(
+        chats_utils,
+        "detect_system_timezone",
+        lambda: "Mars/Phobos",
+    )
+    try:
+        assert chats_utils._process_local_tz() is not None
+    finally:
+        chats_utils._process_local_tz.cache_clear()
+
+
+def test_normalize_msg_timestamp_other_dst_half_year():
+    """Regression #8046: a naive timestamp from the other DST half-year
+    keeps its instant — 09:00 EST (-05:00) == 22:00 +08:00."""
+    shanghai = ZoneInfo("Asia/Shanghai")
+    with patch(
+        "qwenpaw.app.chats.utils._process_local_tz",
+        return_value=ZoneInfo("America/New_York"),
+    ):
+        assert (
+            _normalize_msg_timestamp("2026-01-15T09:00:00", shanghai)
+            == "2026-01-15T22:00:00+08:00"
+        )
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="tzset() is POSIX-only")
+def test_process_local_tz_dst_rule_via_tz_env(monkeypatch):
+    """Mirror the issue repro: with ``TZ=America/New_York`` the process
+    zone reports EST in January and EDT in July."""
+    import qwenpaw.app.chats.utils as chats_utils
+
+    monkeypatch.setenv("TZ", "America/New_York")
+    time.tzset()
+    chats_utils._process_local_tz.cache_clear()
+    try:
+        tz = chats_utils._process_local_tz()
+        assert tz.utcoffset(datetime(2026, 1, 15, 12)) == timedelta(hours=-5)
+        assert tz.utcoffset(datetime(2026, 7, 15, 12)) == timedelta(hours=-4)
+    finally:
+        chats_utils._process_local_tz.cache_clear()
+        monkeypatch.delenv("TZ", raising=False)
+        time.tzset()
 
 
 # ---------------------------------------------------------------------------

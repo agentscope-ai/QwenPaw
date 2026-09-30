@@ -4,6 +4,7 @@ import logging
 import platform
 import re
 from datetime import datetime, timezone
+from functools import lru_cache
 from typing import List, Optional, Union
 from urllib.parse import unquote, urlparse
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -29,6 +30,7 @@ from qwenpaw.exceptions import (
 )
 
 from ...config import load_config
+from ...config.timezone import detect_system_timezone
 from ...constant import (
     QWENPAW_MESSAGE_TAG_KEY,
     QWENPAW_USER_CONTENT_KEY,
@@ -39,9 +41,21 @@ from ...constant import (
 logger = logging.getLogger(__name__)
 
 
+@lru_cache(maxsize=1)
 def _process_local_tz():
-    """Return the process-local timezone used by ``datetime.now()``."""
-    return datetime.now().astimezone().tzinfo or timezone.utc
+    """Return the process-local timezone used by ``datetime.now()``.
+
+    Resolve the host's IANA zone so the returned ``tzinfo`` carries DST
+    rules.  ``datetime.now().astimezone().tzinfo`` only ever describes the
+    *current* offset (a fixed ``datetime.timezone``), so attaching it to a
+    naive timestamp recorded in the opposite DST half-year silently shifts
+    the value by the DST delta.  Falls back to that fixed offset when no
+    IANA zone can be resolved (no worse than the previous behaviour).
+    """
+    try:
+        return ZoneInfo(detect_system_timezone())
+    except (ZoneInfoNotFoundError, KeyError, ValueError):
+        return datetime.now().astimezone().tzinfo or timezone.utc
 
 
 def _normalize_msg_timestamp(ts_value: str, user_tz: ZoneInfo) -> str:
