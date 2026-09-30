@@ -477,6 +477,42 @@ async def test_concurrent_attach_or_start_only_one_producer():
                 break
 
 
+@pytest.mark.asyncio
+async def test_failed_task_creation_leaves_no_zombie_run(monkeypatch):
+    """A failed task creation must not leak a permanent "running" entry.
+
+    Defensive path: ``attach_or_start`` registers the run only *after*
+    the producer task exists, so a failure to create it leaves nothing
+    behind. This is not reachable in production -- the register/create
+    window is synchronous and a running loop cannot be closed -- so the
+    failure is injected through the module-level ``_create_task`` seam,
+    leaving the process-wide ``asyncio`` module untouched.
+    """
+    from qwenpaw.app import task_tracker as tracker_mod
+
+    tracker = TaskTracker()
+
+    def _boom(coro):
+        coro.close()
+        raise RuntimeError("create_task failed")
+
+    monkeypatch.setattr(tracker_mod, "_create_task", _boom)
+
+    with pytest.raises(RuntimeError):
+        await tracker.attach_or_start(
+            "run-fail",
+            None,
+            _make_stream(["data: x\n\n"]),
+        )
+
+    assert "run-fail" not in tracker._runs
+    assert await tracker.list_active_tasks() == []
+    assert await tracker.has_active_tasks() is False
+    status = await tracker.get_global_status()
+    assert status["running_task_count"] == 0
+    assert status["status"] == "idle"
+
+
 # ---------------------------------------------------------------------------
 # attach(): replay-end marker for reconnect fast-forward
 # ---------------------------------------------------------------------------

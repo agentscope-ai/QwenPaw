@@ -451,6 +451,10 @@ async def batch_delete_chats(
 
     """
     chats = {chat.id: chat for chat in await mgr.list_chats(archived=None)}
+    # Stop any live run first: a deleted chat must not leave a run behind
+    # in the tracker, or it inflates the aggregate running count forever.
+    for chat_id in chat_ids:
+        await workspace.task_tracker.request_stop(chat_id)
     deleted = await mgr.delete_chats(chat_ids=chat_ids)
     if deleted:
         await CHECKPOINT_RUNTIME.delete_session_checkpoints(
@@ -961,6 +965,9 @@ async def delete_chat(
         HTTPException: If chat not found (404)
     """
     chat = await mgr.get_chat(chat_id)
+    # Stop any live run first: a deleted chat must not leave a run behind
+    # in the tracker, or it inflates the aggregate running count forever.
+    await workspace.task_tracker.request_stop(chat_id)
     deleted = await mgr.delete_chats(chat_ids=[chat_id])
     if not deleted:
         raise HTTPException(
