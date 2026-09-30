@@ -24,6 +24,18 @@ async def _post(
     return resp.json()
 
 
+async def _get(
+    url: str,
+    headers: dict,
+    params: dict,
+) -> dict:
+    """Async HTTP GET with certificate validation always on."""
+    async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+        resp = await client.get(url, headers=headers, params=params)
+    resp.raise_for_status()
+    return resp.json()
+
+
 def format_search_results(results: list[dict]) -> str:
     """Format search results into readable text."""
     if not results:
@@ -56,4 +68,4 @@ class SearchProvider(ABC):
         raise NotImplementedError
 
 
-__all__ = ["SearchProvider", "format_search_results", "_post"]
+__all__ = ["SearchProvider", "format_search_results", "_post", "_get"]
