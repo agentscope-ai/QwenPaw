@@ -161,7 +161,7 @@ def test_fingerprints_keep_openai_use_dimensions(fingerprint) -> None:
 class _BatchRejectingModel:
     """Fake provider: rejects multi-text requests, answers single texts."""
 
-    def __init__(self, poison: int = 1, dimension: int = 3) -> None:
+    def __init__(self, dimension: int = 3) -> None:
         self.calls: list[list[str]] = []
         self.dimension = dimension
 
@@ -232,7 +232,9 @@ def test_fallback_wrapper_delegates_provider_attributes() -> None:
     """ReMe reads model attributes through the wrapper transparently."""
     wrapper = module.PerItemFallbackEmbeddingModel(
         SimpleNamespace(
-            model="embedding-model", dimensions=3, client=object()
+            model="embedding-model",
+            dimensions=3,
+            client=object(),
         ),
     )
 
