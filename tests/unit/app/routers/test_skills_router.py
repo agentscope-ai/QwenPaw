@@ -247,3 +247,113 @@ def test_start_install_422_on_missing_bundle_url(client, patch_get_agent):
     )
 
     assert response.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# POST /skills/pool/download
+# ---------------------------------------------------------------------------
+
+
+def _download_body(**overrides):
+    payload = {
+        "skill_name": "pool-skill",
+        "targets": [{"workspace_id": "default"}],
+    }
+    payload.update(overrides)
+    return payload
+
+
+def test_pool_download_returns_downloaded(client):
+    with patch.object(
+        skills_module,
+        "_download_pool_skills_blocking",
+        return_value={"downloaded": [{"workspace_id": "default"}]},
+    ) as blocking:
+        response = client.post(
+            "/api/skills/pool/download",
+            json=_download_body(),
+        )
+
+    assert response.status_code == 200, response.text
+    assert response.json() == {"downloaded": [{"workspace_id": "default"}]}
+    blocking.assert_called_once()
+
+
+def test_pool_download_preview_only_skips_copy(client):
+    with patch.object(
+        skills_module,
+        "_download_pool_skills_blocking",
+        return_value={"downloaded": []},
+    ) as blocking:
+        response = client.post(
+            "/api/skills/pool/download",
+            json=_download_body(preview_only=True),
+        )
+
+    assert response.status_code == 200, response.text
+    assert response.json() == {"downloaded": []}
+    # ``preview_only`` is resolved inside the worker, never copied to disk.
+    blocking.assert_called_once()
+
+
+def test_pool_download_surfaces_preflight_409(client):
+    from fastapi import HTTPException
+
+    with patch.object(
+        skills_module,
+        "_download_pool_skills_blocking",
+        side_effect=HTTPException(status_code=409, detail="conflict"),
+    ):
+        response = client.post(
+            "/api/skills/pool/download",
+            json=_download_body(),
+        )
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "conflict"
+
+
+async def test_pool_download_runs_off_the_event_loop():
+    """The copy must not block the loop it is awaited on (#8013).
+
+    A large skill copy takes minutes.  When the blocking work ran inline in
+    the async handler, every other endpoint starved for that whole window.
+    """
+    import time
+
+    from qwenpaw.app.routers.skills import (
+        DownloadFromPoolRequest,
+        download_pool_skill_to_workspaces,
+    )
+
+    blocking_seconds = 0.2
+    ticks = 0
+
+    def blocking_download(_body):
+        time.sleep(blocking_seconds)
+        return {"downloaded": []}
+
+    async def heartbeat():
+        """Tick every 10ms for as long as the blocking copy runs."""
+        nonlocal ticks
+        for _ in range(int(blocking_seconds * 100)):
+            await asyncio.sleep(0.01)
+            ticks += 1
+
+    with patch.object(
+        skills_module,
+        "_download_pool_skills_blocking",
+        blocking_download,
+    ):
+        ticker = asyncio.create_task(heartbeat())
+        started = time.monotonic()
+        result = await download_pool_skill_to_workspaces(
+            DownloadFromPoolRequest(**_download_body()),
+        )
+        await ticker
+        elapsed = time.monotonic() - started
+
+    assert result == {"downloaded": []}
+    assert ticks == int(blocking_seconds * 100)
+    # Inline blocking work would serialise the two waits (~2x the copy).
+    assert elapsed < blocking_seconds * 1.5
