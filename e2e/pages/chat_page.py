@@ -38,8 +38,14 @@ class ChatPage(BasePage):
     # ========== Selector definitions ==========
     # Page components use the qwenpaw- CSS prefix
 
-    # Navigation and new chat (compatible with both spark-icon and anticon icon sets)
-    NEW_CHAT_BTN = 'button:has(.spark-icon-spark-newChat-fill), button:has(.anticon-plus), button:has([class*="newChat"])'
+    # Sidebar.tsx exposes the current action through its translated accessible
+    # name. ``:visible`` excludes the duplicate compact/expanded surface.
+    NEW_CHAT_BTN = (
+        'button[aria-label="New task"]:visible, '
+        'button[aria-label="新建任务"]:visible, '
+        'button:has-text("New task"):visible, '
+        'button:has-text("新建任务"):visible'
+    )
     # Conversation-history disclosure button in the sidebar.
     #
     # The previous value ended with a very broad ``button:has([class*="history"])``
@@ -357,12 +363,20 @@ class ChatPage(BasePage):
             del self._has_sent_message
         self._ai_count_before_send = 0
         
-        new_chat_btn = self.find(self.NEW_CHAT_BTN)
-        if new_chat_btn.count() > 0:
-            new_chat_btn.click()
-            # Wait for page navigation and full load
-            self.page.wait_for_load_state("networkidle")
-            self.page.locator(self.CHAT_INPUT).wait_for(state="visible", timeout=10000)
+        new_chat_btn = self.find(self.NEW_CHAT_BTN).first
+        expect(new_chat_btn).to_be_visible(timeout=self.timeout)
+        new_chat_btn.click()
+        # The chat page keeps an SSE connection open, so ``networkidle`` is
+        # not a useful completion signal. The new-task event is complete once
+        # the previous transcript is gone and the composer is interactive.
+        expect(self.page.locator(self.MESSAGE_CONTAINER)).to_have_count(
+            0,
+            timeout=self.timeout,
+        )
+        self.page.locator(self.CHAT_INPUT).first.wait_for(
+            state="visible",
+            timeout=self.timeout,
+        )
         self.step_shot("create_new_chat_done")
         return self
     
