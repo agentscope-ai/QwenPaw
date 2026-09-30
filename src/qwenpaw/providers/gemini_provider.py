@@ -4,6 +4,7 @@ GeminiChatModel."""
 
 from __future__ import annotations
 
+import base64
 import copy
 import logging
 import time
@@ -30,6 +31,7 @@ from qwenpaw.providers.provider import (
 )
 from ..utils.io_utils import run_sync_io
 from ..utils.logging import sanitize_log_value
+from ..utils.tool_call_extra import attach_transient_tool_call_extra
 from .capping_formatter import _CappingGeminiFormatter
 from .capping_formatter import MAX_INLINE_MEDIA_BYTES
 
@@ -418,7 +420,9 @@ class GeminiProvider(Provider):
             formatter=_CappingGeminiFormatter(
                 max_bytes=self.max_inline_media_bytes,
                 relay_reasoning_content=self._get_relay_reasoning(model_id),
+                thought_signature_provider_id=self.id,
             ),
+            provider_id=self.id,
         )
 
     async def probe_model_multimodal(
@@ -600,6 +604,51 @@ class GeminiProvider(Provider):
             return None, f"Probe failed: {e}"
 
 
+def _gemini_fc_signature_entries(parts: Any) -> list:
+    """Return ``(has_signature, signature_bytes)`` per ``functionCall`` part.
+
+    Entries are in the same order AgentScope appends tool-call blocks to
+    the parsed response, which the ``_Compat`` overrides rely on to attach
+    the captured signatures to the right blocks.
+    """
+    entries: list = []
+    for part in parts or ():
+        if getattr(part, "function_call", None) is None:
+            continue
+        sig = getattr(part, "thought_signature", None)
+        entries.append((bool(sig), sig))
+    return entries
+
+
+class _SignatureCapturingStream:
+    """Async iterator wrapper that records ``functionCall`` signatures.
+
+    Wraps the raw Gemini streaming response, recording each chunk's
+    ``functionCall`` part signatures (in arrival order) while yielding the
+    unmodified chunks downstream.
+    """
+
+    def __init__(self, stream: Any) -> None:
+        self._stream = stream
+        self.entries: list = []
+
+    def __aiter__(self) -> "_SignatureCapturingStream":
+        return self
+
+    async def __anext__(self) -> Any:
+        chunk = await self._stream.__anext__()
+        candidates = getattr(chunk, "candidates", None)
+        if (
+            candidates
+            and candidates[0].content
+            and candidates[0].content.parts
+        ):
+            self.entries.extend(
+                _gemini_fc_signature_entries(candidates[0].content.parts),
+            )
+        return chunk
+
+
 class _GeminiChatModelCompat:
     """Factory that creates a ``GeminiChatModel`` subclass with custom headers
     and extra config kwargs injected into every API call."""
@@ -609,6 +658,7 @@ class _GeminiChatModelCompat:
 
         default_headers = kwargs.pop("default_headers", None)
         extra_config_kwargs = kwargs.pop("extra_config_kwargs", None) or {}
+        provider_id = kwargs.pop("provider_id", None)
         if default_headers:
             client_kwargs = dict(kwargs.get("client_kwargs") or {})
             client_kwargs["http_options"] = genai_types.HttpOptions(
@@ -618,6 +668,7 @@ class _GeminiChatModelCompat:
 
         class _Compat(GeminiChatModel):
             _qp_extra_config_kwargs = extra_config_kwargs
+            _qp_provider_id = provider_id
 
             # Apply QwenPaw's proxy-compatible normalization before the
             # AgentScope 2.0.6 formatter performs its native sanitization.
@@ -636,6 +687,74 @@ class _GeminiChatModelCompat:
                         sanitized.append({**schema, "function": func})
                     tools = sanitized
                 return super()._format_tools(tools, tool_choice)
+
+            def _attach_thought_signatures(self, content, entries):
+                """Attach captured signatures to parsed tool-call blocks.
+
+                ``entries`` holds ``(has_signature, signature_bytes)`` in
+                the same order as the ``tool_call`` blocks in ``content``;
+                each block that carried a signature gets a transient
+                extra so the agent can persist it in ``Msg.metadata``
+                (the formatter relays it back on the next request).
+                """
+                if not entries or not self._qp_provider_id:
+                    return
+                for block in content or ():
+                    block_type = (
+                        block.get("type")
+                        if isinstance(block, dict)
+                        else getattr(block, "type", None)
+                    )
+                    if block_type != "tool_call" or not entries:
+                        continue
+                    has_sig, sig = entries.pop(0)
+                    if not (has_sig and sig):
+                        continue
+                    if isinstance(sig, bytes):
+                        sig_b64 = base64.b64encode(sig).decode("ascii")
+                    else:
+                        sig_b64 = str(sig)
+                    attach_transient_tool_call_extra(
+                        block,
+                        provider_id=self._qp_provider_id,
+                        extra_content={"thought_signature": sig_b64},
+                    )
+
+            async def _parse_stream_response(self, start_datetime, response):
+                """Stream parsing with Gemini thought_signature capture."""
+                if not isinstance(
+                    response,
+                    _SignatureCapturingStream,
+                ):
+                    response = _SignatureCapturingStream(response)
+                async for delta in super()._parse_stream_response(
+                    start_datetime,
+                    response,
+                ):
+                    self._attach_thought_signatures(
+                        delta.content,
+                        response.entries,
+                    )
+                    yield delta
+
+            def _parse_completion_response(self, start_datetime, response):
+                """Non-stream parsing with thought_signature capture."""
+                result = super()._parse_completion_response(
+                    start_datetime,
+                    response,
+                )
+                candidates = getattr(response, "candidates", None)
+                entries: list = []
+                if (
+                    candidates
+                    and candidates[0].content
+                    and candidates[0].content.parts
+                ):
+                    entries = _gemini_fc_signature_entries(
+                        candidates[0].content.parts,
+                    )
+                self._attach_thought_signatures(result.content, entries)
+                return result
 
             async def _call_api(
                 self,
