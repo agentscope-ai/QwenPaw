@@ -1,0 +1,218 @@
+diff --git a/src/i18n/locales/en.ts b/src/i18n/locales/en.ts
+index 06de161..0edfec8 100644
+--- a/src/i18n/locales/en.ts
++++ b/src/i18n/locales/en.ts
+@@ -764,6 +764,14 @@ export default {
+     resetPasswordFailed: 'Password reset failed, please try again',
+     backToLogin: '← Back to Login',
+   },
++  communityLogin: {
++    appLabel: 'QwenPaw Community',
++    title: 'Authorize QwenPaw Community',
++    description: 'Connect your community account to see replies, resource mentions and feedback in QwenPaw Inbox. This authorization uses the general Platform permissions listed below.',
++    cancelledDesc: 'Authorization cancelled. You can close this page and return to QwenPaw.',
++    invalidHint: 'Start a new connection from Community settings in QwenPaw.',
++    securityNote: 'Credentials are stored in your QwenPaw instance. You can disconnect in Community settings.',
++  },
+   cliLogin: {
+     appLabel: 'Terminal App',
+     title: 'Authorize AgentScope Platform CLI',
+@@ -785,11 +793,11 @@ export default {
+     invalidHint: 'Please run asp auth login again from your terminal to get a new authorization link.',
+     securityNote: 'After authorization, the CLI stores credentials locally only. Your password is never shared with third parties.',
+     errors: {
+-      missing_params: 'The authorization link is missing required parameters. Please restart login from your terminal.',
+-      invalid_client: 'Invalid client ID. Please use the official AgentScope Platform CLI.',
+-      invalid_response_type: 'Unsupported response type. Please upgrade the CLI to the latest version.',
+-      invalid_challenge_method: 'Unsupported PKCE challenge method. Please upgrade the CLI to the latest version.',
+-      invalid_redirect_uri: 'Invalid callback URL. CLI authorization only allows localhost callbacks.',
++      missing_params: 'The authorization link is missing required parameters. Please restart login from your client.',
++      invalid_client: 'Invalid client ID. Please use a supported Platform client.',
++      invalid_response_type: 'Unsupported response type. Please upgrade your client to the latest version.',
++      invalid_challenge_method: 'Unsupported PKCE challenge method. Please upgrade your client to the latest version.',
++      invalid_redirect_uri: 'Invalid callback URL. Authorization only allows localhost callbacks.',
+     },
+   },
+   skillMarket: {
+diff --git a/src/i18n/locales/zh.ts b/src/i18n/locales/zh.ts
+index 76a50ea..137bc87 100644
+--- a/src/i18n/locales/zh.ts
++++ b/src/i18n/locales/zh.ts
+@@ -767,6 +767,14 @@ export default {
+     resetPasswordFailed: '密码重置失败，请稍后重试',
+     backToLogin: '← 返回登录',
+   },
++  communityLogin: {
++    appLabel: 'QwenPaw 社区',
++    title: '授权 QwenPaw 社区',
++    description: '将社区账号连接到 QwenPaw，在收件箱中查看回复、资源关联和问题反馈。当前授权使用 Platform 通用权限，具体权限如下。',
++    cancelledDesc: '你已取消授权。可以关闭此页面并返回 QwenPaw。',
++    invalidHint: '请从 QwenPaw 的社区设置中重新发起连接。',
++    securityNote: '访问凭证保存在你的 QwenPaw 实例中，可在社区设置中解除连接。',
++  },
+   cliLogin: {
+     appLabel: '终端应用',
+     title: '授权 AgentScope Platform CLI',
+@@ -788,11 +796,11 @@ export default {
+     invalidHint: '请从终端重新运行 asp auth login 获取新的授权链接。',
+     securityNote: '授权后，CLI 将仅在本地保存访问凭证，不会向第三方共享你的密码。',
+     errors: {
+-      missing_params: '授权链接缺少必要参数，请从终端重新发起登录。',
+-      invalid_client: '客户端标识无效，请确认使用的是官方 AgentScope Platform CLI。',
+-      invalid_response_type: '不支持的响应类型，请升级 CLI 到最新版本。',
+-      invalid_challenge_method: '不支持的 PKCE 校验方式，请升级 CLI 到最新版本。',
+-      invalid_redirect_uri: '回调地址无效，CLI 授权仅允许本机 localhost 回调。',
++      missing_params: '授权链接缺少必要参数，请从客户端重新发起登录。',
++      invalid_client: '客户端标识无效，请使用受支持的 Platform 客户端。',
++      invalid_response_type: '不支持的响应类型，请升级客户端到最新版本。',
++      invalid_challenge_method: '不支持的 PKCE 校验方式，请升级客户端到最新版本。',
++      invalid_redirect_uri: '回调地址无效，授权仅允许本机 localhost 回调。',
+     },
+   },
+   skillMarket: {
+diff --git a/src/lib/cliOAuthParams.ts b/src/lib/cliOAuthParams.ts
+index 9102078..ba62784 100644
+--- a/src/lib/cliOAuthParams.ts
++++ b/src/lib/cliOAuthParams.ts
+@@ -64,3 +64,9 @@ export function buildCliLoginPath(searchParams: URLSearchParams): string {
+   const query = searchParams.toString();
+   return query ? `/cli/login?${query}` : "/cli/login";
+ }
++
++/** Presentation hint only; OAuth identity and permissions stay unchanged. */
++export function isQwenPawCommunityLogin(searchParams: URLSearchParams): boolean {
++  return searchParams.get("client_id")?.trim() === CLI_CLIENT_ID
++    && searchParams.get("source") === "qwenpaw-community";
++}
+diff --git a/src/pages/CliLogin/index.tsx b/src/pages/CliLogin/index.tsx
+index b6f68a2..47e52f3 100644
+--- a/src/pages/CliLogin/index.tsx
++++ b/src/pages/CliLogin/index.tsx
+@@ -10,6 +10,7 @@ import { getApiErrorMessage } from "@/lib/apiError";
+ import { resolveShowAvatar } from "@/lib/avatar";
+ import {
+   buildCliLoginPath,
++  isQwenPawCommunityLogin,
+   parseCliOAuthParams,
+   validateCliOAuthParams,
+ } from "@/lib/cliOAuthParams";
+@@ -50,6 +51,10 @@ const CliLoginPage = () => {
+     [searchParams],
+   );
+ 
++  const clientCopy = isQwenPawCommunityLogin(searchParams)
++    ? "communityLogin"
++    : "cliLogin";
++
+   const returnPath = useMemo(
+     () => buildCliLoginPath(searchParams),
+     [searchParams],
+@@ -122,7 +127,7 @@ const CliLoginPage = () => {
+         {t(`cliLogin.errors.${validationError ?? "missing_params"}`)}
+       </p>
+       <p className="mt-4 text-xs text-[#8a8278]">
+-        {t("cliLogin.invalidHint")}
++        {t(`${clientCopy}.invalidHint`)}
+       </p>
+     </div>
+   );
+@@ -133,7 +138,7 @@ const CliLoginPage = () => {
+         {t("cliLogin.cancelledTitle")}
+       </h1>
+       <p className="mt-3 text-sm leading-relaxed text-[#5c5650]">
+-        {t("cliLogin.cancelledDesc")}
++        {t(`${clientCopy}.cancelledDesc`)}
+       </p>
+     </div>
+   );
+@@ -146,13 +151,13 @@ const CliLoginPage = () => {
+         </div>
+         <div className="min-w-0 pt-0.5">
+           <p className="text-xs font-medium uppercase tracking-wide text-[#8a8278]">
+-            {t("cliLogin.appLabel")}
++            {t(`${clientCopy}.appLabel`)}
+           </p>
+           <h1 className="mt-1 text-[22px] font-bold leading-tight text-[#2d2a28]">
+-            {t("cliLogin.title")}
++            {t(`${clientCopy}.title`)}
+           </h1>
+           <p className="mt-2 text-sm leading-relaxed text-[#5c5650]">
+-            {t("cliLogin.description")}
++            {t(`${clientCopy}.description`)}
+           </p>
+         </div>
+       </div>
+@@ -224,7 +229,7 @@ const CliLoginPage = () => {
+       </div>
+ 
+       <p className="mt-6 text-center text-xs leading-relaxed text-[#8a8278]">
+-        {t("cliLogin.securityNote")}
++        {t(`${clientCopy}.securityNote`)}
+       </p>
+     </>
+   );
+diff --git a/tests/oauth-clients.test.mjs b/tests/oauth-clients.test.mjs
+new file mode 100644
+index 0000000..27d9a55
+--- /dev/null
++++ b/tests/oauth-clients.test.mjs
+@@ -0,0 +1,59 @@
++import assert from 'node:assert/strict';
++import test from 'node:test';
++import { fileURLToPath } from 'node:url';
++import { build } from 'vite';
++
++const result = await build({
++  configFile: false,
++  logLevel: 'silent',
++  resolve: { alias: { '@': fileURLToPath(new URL('../src', import.meta.url)) } },
++  build: {
++    write: false,
++    minify: false,
++    lib: {
++      entry: fileURLToPath(new URL('../src/lib/cliOAuthParams.ts', import.meta.url)),
++      formats: ['es'],
++    },
++  },
++});
++const output = (Array.isArray(result) ? result[0] : result).output;
++const code = output.find(item => item.type === 'chunk').code;
++const { validateCliOAuthParams, parseCliOAuthParams, buildCliLoginPath, isQwenPawCommunityLogin } =
++  await import(`data:text/javascript;base64,${Buffer.from(code).toString('base64')}`);
++const params = {
++  client_id: 'agentscope-platform-cli',
++  scope: 'platform:control',
++  redirect_uri: 'http://127.0.0.1:18892/callback/test_nonce',
++  response_type: 'code',
++  state: 'state-1',
++  code_challenge: 'a'.repeat(43),
++  code_challenge_method: 'S256',
++};
++for (const source of ['', 'qwenpaw-community']) {
++  test(`${source || 'CLI'} preserves login context without changing OAuth identity`, () => {
++    const input = new URLSearchParams({ ...params, source });
++    const parsed = parseCliOAuthParams(input);
++    assert.equal(validateCliOAuthParams(parsed), null);
++    assert.equal(parsed.client_id, 'agentscope-platform-cli');
++    assert.equal(Object.hasOwn(parsed, 'source'), false);
++    assert.equal(isQwenPawCommunityLogin(input), source === 'qwenpaw-community');
++    const returnUrl = new URL(buildCliLoginPath(input), 'https://platform.agentscope.io');
++    assert.equal(returnUrl.searchParams.get('source'), source);
++    assert.equal(returnUrl.searchParams.get('redirect_uri'), params.redirect_uri);
++    assert.equal(returnUrl.searchParams.get('state'), params.state);
++  });
++}
++test('source hint cannot admit an unsupported client', () => {
++  const input = new URLSearchParams({...params, client_id: 'qwenpaw-community', source: 'qwenpaw-community'});
++  assert.equal(isQwenPawCommunityLogin(input), false);
++  assert.equal(validateCliOAuthParams(parseCliOAuthParams(input)), 'invalid_client');
++});
++for (const [changes, error] of [
++  [{client_id: 'unknown'}, 'invalid_client'],
++  [{redirect_uri: 'https://example.com/callback/test_nonce'}, 'invalid_redirect_uri'],
++  [{code_challenge_method: 'plain'}, 'invalid_challenge_method'],
++]) {
++  test(`rejects ${error}`, () => {
++    assert.equal(validateCliOAuthParams({...params, ...changes}), error);
++  });
++}

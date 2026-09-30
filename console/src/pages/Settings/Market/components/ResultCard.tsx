@@ -6,6 +6,8 @@ import type { MarketResult } from "../../../../api/modules/market";
 import { SkillIcon } from "./SkillIcon";
 import { sourceLabel } from "./skillSources";
 import styles from "./ResultCard.module.less";
+import { CommunityFeedback } from "@/components/CommunityFeedback";
+import { skillMarketResource } from "@/utils/communityResources";
 
 interface ResultCardProps {
   item: MarketResult;
@@ -81,7 +83,14 @@ export const ResultCard = memo(function ResultCard({
     >
       <div className={styles.cardTopRow}>
         <SkillIcon url={item.icon_url} alt={item.name} source={item.source} />
-        <span className={styles.sourceBadge}>{sourceLabel(item.source)}</span>
+        <div className={styles.cardTopActions}>
+          <CommunityFeedback
+            origin={skillMarketResource(item)?.origin}
+            resourceName={item.name}
+            variant="inline"
+          />
+          <span className={styles.sourceBadge}>{sourceLabel(item.source)}</span>
+        </div>
       </div>
 
       <div className={styles.titleRow}>

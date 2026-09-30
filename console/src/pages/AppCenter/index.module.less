@@ -273,6 +273,24 @@
   }
 }
 
+.cardTopRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.cardIconButton {
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  font: inherit;
+  &:focus-visible {
+    outline: 2px solid var(--app-focus-ring);
+    outline-offset: 2px;
+  }
+}
+
 .cardIcon {
   display: flex;
   align-items: center;

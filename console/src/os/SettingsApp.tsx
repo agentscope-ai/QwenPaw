@@ -14,6 +14,7 @@ import {
   Cpu,
   Sparkles,
   Globe,
+  MessagesSquare,
   ShieldCheck,
   BarChart3,
   Archive,
@@ -38,6 +39,12 @@ interface SettingsItem {
 
 /** Mirrors the core.settings-group entries in builtinMenu. */
 const SETTINGS_ITEMS: SettingsItem[] = [
+  {
+    routeId: "core.community",
+    labelKey: "community.title",
+    fallback: "Community",
+    Icon: MessagesSquare,
+  },
   {
     routeId: "core.agents",
     labelKey: "nav.agents",

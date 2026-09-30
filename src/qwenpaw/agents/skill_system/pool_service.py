@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from ...exceptions import SkillsError
+from ...installation_origin import validated_origin
 from ...utils.io_utils import write_text_atomic
 from ..utils.file_handling import read_text_file_with_encoding_fallback
 from .models import SkillInfo
@@ -77,6 +78,7 @@ def _register_pool_skill_entry(
     source: str = "customized",
     protected: bool = False,
     installed_from: str = "",
+    installation_origin: dict[str, Any] | None = None,
     config: dict[str, Any] | None = None,
     tags: Any | None = None,
     preserve_from: dict[str, Any] | None = None,
@@ -93,6 +95,13 @@ def _register_pool_skill_entry(
         protected=protected,
     )
     entry["external"] = not is_primary_pool_skill_dir(skill_dir)
+    entry["installation_origin"] = validated_origin(
+        (
+            installation_origin
+            if installation_origin is not None
+            else preserve_from.get("installation_origin")
+        ),
+    )
 
     installed_from_final = installed_from or str(
         preserve_from.get("installed_from", "") or "",
@@ -169,6 +178,9 @@ class SkillPoolService:
                 entry.get("source", "customized"),
             )
             if skill is not None:
+                skill.installation_origin = validated_origin(
+                    entry.get("installation_origin"),
+                )
                 skills.append(skill)
         return skills
 
@@ -181,6 +193,7 @@ class SkillPoolService:
         extra_files: dict[str, Any] | None = None,
         config: dict[str, Any] | None = None,
         installed_from: str = "",
+        installation_origin: dict[str, Any] | None = None,
     ) -> str | None:
         validate_skill_content(content)
         skill_name = normalize_skill_dir_name(name)
@@ -209,6 +222,7 @@ class SkillPoolService:
                 skill_dir,
                 source="customized",
                 installed_from=installed_from,
+                installation_origin=installation_origin,
                 config=config,
                 preserve_from={},
             )
@@ -864,6 +878,9 @@ class SkillPoolService:
                     "channels": _old.get("channels") or ["all"],
                     "preload": _old.get("preload") is True,
                     "source": metadata["source"],
+                    "installation_origin": validated_origin(
+                        _old.get("installation_origin"),
+                    ),
                     "installed_from": str(
                         _old.get("installed_from", "") or "",
                     ),
@@ -948,6 +965,9 @@ class SkillPoolService:
                 target_dir,
                 source="customized",
                 installed_from=ws_installed_from,
+                installation_origin=validated_origin(
+                    workspace_entry.get("installation_origin"),
+                ),
                 config=ws_config if ws_config else None,
                 tags=ws_tags,
                 preserve_from={},
@@ -1148,6 +1168,9 @@ class SkillPoolService:
                 "preload": prior.get("preload") is True,
                 "source": metadata["source"],
                 "installed_from": pool_installed_from,
+                "installation_origin": validated_origin(
+                    entry.get("installation_origin"),
+                ),
                 "config": (
                     prior["config"] if "config" in prior else pool_config
                 ),
