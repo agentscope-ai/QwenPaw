@@ -48,13 +48,13 @@ jobs:
             }
             const changedLines = pr.additions + pr.deletions;
             const sizes = [
-              { name: 'size/XS', max: 9, color: '3CBF00', range: '0-9' },
-              { name: 'size/S', max: 49, color: '5D9801', range: '10-49' },
-              { name: 'size/M', max: 199, color: '7F7203', range: '50-199' },
-              { name: 'size/L', max: 499, color: 'A14C05', range: '200-499' },
-              { name: 'size/XL', max: 999, color: 'C32607', range: '500-999' },
-              { name: 'size/XXL', max: 1999, color: 'E50009', range: '1000-1999' },
-              { name: 'size/XXXL', max: Infinity, color: 'B60205', range: '2000+' },
+              { name: 'size/XS', max: 49, color: '3CBF00', range: '0-49' },
+              { name: 'size/S', max: 199, color: '5D9801', range: '50-199' },
+              { name: 'size/M', max: 499, color: '7F7203', range: '200-499' },
+              { name: 'size/L', max: 999, color: 'A14C05', range: '500-999' },
+              { name: 'size/XL', max: 1999, color: 'C32607', range: '1000-1999' },
+              { name: 'size/XXL', max: 3999, color: 'E50009', range: '2000-3999' },
+              { name: 'size/XXXL', max: Infinity, color: 'B60205', range: '4000+' },
             ];
             const target = sizes.find(size => changedLines <= size.max);
 
