@@ -60,6 +60,16 @@ class FallbackChatModel(ChatModelBase):
         models: list[ChatModelBase],
         cooldown: CooldownPolicy | None = None,
     ) -> None:
+        """Wrap an ordered candidate chain.
+
+        Args:
+            models: Candidates in configuration order; the first is the
+                primary.
+            cooldown: Policy for skipping a candidate that just failed a
+                hop.  ``None`` selects the default policy, which is
+                **enabled**; pass ``CooldownPolicy(enabled=False)`` to
+                switch cooldown off entirely.
+        """
         if not models:
             raise ValueError("FallbackChatModel requires at least one model")
         primary = models[0]
@@ -138,17 +148,30 @@ class FallbackChatModel(ChatModelBase):
 
     @property
     def context_size(self) -> int:
-        """Return the current request's actual context window."""
+        """Return the window to budget for, never above the primary's.
+
+        The serving model's window during a request.  Between requests this
+        is the start model's window, and the primary's window caps it: the
+        primary starts the next request once its cooldown expires, and
+        compaction reads this value *before* the request begins
+        (``agents/context/scroll/manager.py`` uses it as the hard limit), so
+        a larger fallback window would hand the primary an oversized history
+        -- and a context overflow does not engage fallback, so that request
+        would fail instead of being compacted.  Under-budgeting while a
+        larger fallback serves costs context, which is the safe direction.
+        """
         active = getattr(self, "_active_model_var", None)
         if active is not None:
-            return int(
+            size = int(
                 getattr(
                     active.get(),
                     "context_size",
                     self._default_context_size,
                 ),
             )
-        return self._default_context_size
+        else:
+            size = self._default_context_size
+        return min(size, self._default_context_size)
 
     @context_size.setter
     def context_size(self, value: int) -> None:

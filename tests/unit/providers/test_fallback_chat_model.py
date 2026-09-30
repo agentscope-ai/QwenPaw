@@ -698,11 +698,45 @@ async def test_settled_request_exposes_the_next_start_model() -> None:
     response = await model(messages=[], tools=[])
     _ = [chunk async for chunk in response]
 
-    # The primary is cooling down, so compaction must budget for the
-    # model the next request will actually start with.
+    # The primary is cooling down, so the next request starts from the
+    # fallback.  The window stays capped at the primary's, because the
+    # primary takes over again the moment its cooldown expires and
+    # compaction reads the window before the next request begins.
     assert model.model == "fallback"
-    assert model.context_size == 262_144
     assert model.model_key == "fallback"
+    assert model.context_size == 32_768
+
+
+async def test_reported_window_never_rises_with_a_larger_fallback(
+    cooldown_clock,
+) -> None:
+    """A bigger fallback must not raise the budget for the next request.
+
+    Compaction reads the window between requests and uses it as the hard
+    limit, while the primary serves again as soon as its cooldown expires.
+    Reporting the fallback's larger window would let an oversized history
+    through to the primary, and a context overflow does not engage
+    fallback -- the request would fail instead of being compacted.
+    """
+    primary = FakeModel("primary", HttpError(503), context_size=32_768)
+    fallback = FakeModel(
+        "fallback",
+        lambda: _stream(_response("ok")),
+        context_size=262_144,
+    )
+    model = FallbackChatModel([primary, fallback])
+
+    response = await model(messages=[], tools=[])
+    _ = [chunk async for chunk in response]
+
+    assert model.context_size == 32_768
+
+    cooldown_clock.value += 120.0
+
+    # The cooldown has expired with no request in between, so the next
+    # request starts from the primary and the budget already fits it.
+    assert model._request_plan() == (0, 1)
+    assert model.context_size == 32_768
 
 
 async def test_structured_output_skips_a_cooling_down_primary() -> None:
@@ -900,7 +934,9 @@ async def test_concurrent_requests_keep_active_metadata_isolated() -> None:
     first, second = await asyncio.gather(consume_first(), consume_second())
 
     # While each stream is live, the tasks see their own serving model.
-    assert first[1] == ("fallback", 1_000_000)
+    # The window is reported capped at the primary's, since the budget the
+    # next request runs under has to fit the primary too.
+    assert first[1] == ("fallback", 128_000)
     assert second[1] == ("primary", 128_000)
     # After both requests settle, identity is back on the primary
     # (cooldown is off, so the primary is unambiguously next in line).
@@ -1124,8 +1160,10 @@ async def test_active_model_resets_after_streamed_fallback() -> None:
     async for _chunk in cast(AsyncGenerator[ChatResponse, None], response):
         during.append((model.model, model.context_size))
 
-    # While the fallback serves the stream, identity follows it ...
-    assert during == [("fallback", 262_144)]
+    # While the fallback serves the stream, identity follows it.  Its
+    # window is reported capped at the primary's, because the budget the
+    # next request will run under must fit the primary too.
+    assert during == [("fallback", 32_768)]
     # ... and once the stream settles it resets to the primary, which
     # the next request tries first (compaction must budget for it).
     assert model.model == "primary"
