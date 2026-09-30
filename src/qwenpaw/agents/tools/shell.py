@@ -486,11 +486,6 @@ def _open_windows_temp_output(prefix: str) -> tuple[Any, BinaryIO]:
     fd, name = tempfile.mkstemp(prefix=prefix)
     os.close(fd)
     writer = None
-
-
-
-
-    
     writer_fd: int | None = None
     reader_fd: int | None = None
     try:

@@ -5,7 +5,7 @@ on:
     types: [opened, synchronize, reopened, edited]
 
 permissions:
-  pull-requests: read
+  pull-requests: write
   issues: write
 
 # Serialize updates for each PR. Each run reads the latest diff statistics.
