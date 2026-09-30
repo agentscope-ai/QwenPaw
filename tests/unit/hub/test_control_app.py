@@ -3,6 +3,7 @@
 
 from collections.abc import AsyncIterator, Iterator, Mapping
 import asyncio
+from contextlib import closing
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 import gzip
@@ -1538,11 +1539,12 @@ def test_deleted_runtime_owner_returns_no_username(tmp_path: Path) -> None:
             json={"runtime_id": "orphaned-runtime"},
             headers=_headers(member_token),
         )
-        with sqlite3.connect(auth.database_path) as connection:
-            connection.execute(
-                "UPDATE hub_users SET deleted_at = ? WHERE user_id = ?",
-                ("2026-01-01T00:00:00Z", member.user_id),
-            )
+        with closing(sqlite3.connect(auth.database_path)) as connection:
+            with connection:
+                connection.execute(
+                    "UPDATE hub_users SET deleted_at = ? WHERE user_id = ?",
+                    ("2026-01-01T00:00:00Z", member.user_id),
+                )
         runtimes = client.get(
             "/api/hub/runtimes?q=orphaned-runtime",
             headers=_headers(admin_token),
@@ -1695,11 +1697,12 @@ def test_invitation_failures_map_to_distinct_statuses(
     with _client(tmp_path, hub_config=config) as client:
         admin_token = _register(client, "owner")
         database = tmp_path / "control.db"
-        with sqlite3.connect(database) as connection:
-            connection.execute(
-                "UPDATE hub_settings SET value_json = ? WHERE key = ?",
-                ('"invite"', "registration_mode"),
-            )
+        with closing(sqlite3.connect(database)) as connection:
+            with connection:
+                connection.execute(
+                    "UPDATE hub_settings SET value_json = ? WHERE key = ?",
+                    ('"invite"', "registration_mode"),
+                )
         invitations = InvitationService(
             GovernanceStore(database),
             client.app.state.auth_service,
@@ -1752,11 +1755,12 @@ def test_invitation_failures_map_to_distinct_statuses(
 
         expired_batch = issue()
         past = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
-        with sqlite3.connect(database) as connection:
-            connection.execute(
-                "UPDATE hub_invites SET expires_at = ? WHERE id = ?",
-                (past, expired_batch["codes"][0]["id"]),
-            )
+        with closing(sqlite3.connect(database)) as connection:
+            with connection:
+                connection.execute(
+                    "UPDATE hub_invites SET expires_at = ? WHERE id = ?",
+                    (past, expired_batch["codes"][0]["id"]),
+                )
         expired = attempt(
             "u-expired",
             expired_batch["codes"][0]["code"],
