@@ -198,6 +198,14 @@ class DriverManager:
                         f"Persistent Driver '{card.name}' collides with "
                         f"a transient Driver",
                     )
+                latest_path = await self._card_store.stored_path(card.name)
+                if latest_path is not None and handler is not None:
+                    latest_card = await self._card_store.load_path(latest_path)
+                    latest_card = self._validate_card_for_registered_protocol(
+                        latest_card,
+                    )
+                    handler.set_policy(latest_card.policy)
+                    handler.sync_runtime_metadata(latest_card)
                 old = self._handlers.pop(card.name, None)
                 if handler is not None:
                     self._handlers[card.name] = handler
@@ -219,28 +227,67 @@ class DriverManager:
         handler = None
         if card.enabled:
             handler = await self._build_and_init_handler(card)
-        old = None
         try:
             async with self._lock:
-                if name in self._handler_scopes:
-                    raise ValueError(
-                        f"Persistent Driver '{name}' collides with "
-                        f"a transient Driver",
-                    )
-                await self._card_store.save(card)
-                old = self._handlers.get(name)
-                if handler is None:
-                    old = self._handlers.pop(name, None)
-                else:
-                    self._handlers[name] = handler
+                (
+                    target_card,
+                    handlers_to_shutdown,
+                ) = await self._swap_reloaded_handler(name, handler)
         except BaseException:
             if handler is not None:
                 await self._shutdown_handler(handler)
             raise
 
-        if old is not None:
-            await self._shutdown_handler(old)
-        return self._runtime_info_from_card(card)
+        if handlers_to_shutdown:
+            await self._shutdown_handlers(handlers_to_shutdown)
+        if target_card is None:
+            return None
+        return self._runtime_info_from_card(target_card)
+
+    async def _swap_reloaded_handler(
+        self,
+        name: str,
+        handler: DriverHandler | None,
+    ) -> tuple[DriverCard | None, list[DriverHandler]]:
+        """Publish reloaded handler under lock and reconcile with latest
+        card.
+        """
+        if name in self._handler_scopes:
+            raise ValueError(
+                f"Persistent Driver '{name}' collides with "
+                f"a transient Driver",
+            )
+        latest_path = await self._card_store.stored_path(name)
+        if latest_path is None:
+            retired = [
+                item
+                for item in (self._handlers.pop(name, None), handler)
+                if item is not None
+            ]
+            return None, retired
+
+        latest_card = await self._card_store.load_path(latest_path)
+        latest_card = self._validate_card_for_registered_protocol(latest_card)
+        retired_handlers: list[DriverHandler] = []
+
+        if not latest_card.enabled:
+            old = self._handlers.pop(name, None)
+            if old is not None:
+                retired_handlers.append(old)
+            if handler is not None:
+                retired_handlers.append(handler)
+        else:
+            old = self._handlers.get(name)
+            if old is not None:
+                retired_handlers.append(old)
+            if handler is None:
+                self._handlers.pop(name, None)
+            else:
+                handler.set_policy(latest_card.policy)
+                handler.sync_runtime_metadata(latest_card)
+                self._handlers[name] = handler
+
+        return latest_card, retired_handlers
 
     async def refresh_driver(self, name: str) -> DriverRuntimeInfo | None:
         """Apply an on-disk card change with the lightest safe action."""
