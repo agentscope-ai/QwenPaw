@@ -228,9 +228,11 @@ class TestAutoMemoryIntervalPersistence:
             interval_input = memory_page.page.locator(
                 memory_page.AUTO_MEMORY_INTERVAL_INPUT
             ).first
-            expect(interval_input).to_be_visible(
-                timeout=memory_page.timeout
-            )
+            if interval_input.is_disabled():
+                memory_page.page.locator(
+                    memory_page.AUTO_MEMORY_ENABLED_SWITCH
+                ).first.click()
+            expect(interval_input).to_be_editable(timeout=memory_page.timeout)
 
             log_test_step("2. Fill a distinct value and wait for auto-save")
             old_value = interval_input.input_value()

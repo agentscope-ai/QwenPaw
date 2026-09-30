@@ -59,11 +59,22 @@ class MemoryPage(BasePage):
         'section[class*="memoryConfigPanel"]:'
         'has(h3:has-text("自动记忆")) input[role="spinbutton"]'
     )
+    AUTO_MEMORY_ENABLED_SWITCH = (
+        'section[class*="memoryConfigPanel"]:'
+        'has(h3:has-text("Auto-memory")) '
+        'button[role="switch"][aria-label="Enable conversation memory"], '
+        'section[class*="memoryConfigPanel"]:'
+        'has(h3:has-text("自动记忆")) '
+        'button[role="switch"][aria-label="启用对话记忆"]'
+    )
     DREAM_CRON_ENABLED_SWITCH = (
         'section[class*="memoryConfigPanel"]:'
-        'has-text("Dream Schedule") button[role="switch"], '
+        'has-text("Dream Schedule") '
+        'button[role="switch"]'
+        '[aria-label="Enable scheduled organization"], '
         'section[class*="memoryConfigPanel"]:'
-        'has-text("梦境定时") button[role="switch"]'
+        'has-text("梦境定时") '
+        'button[role="switch"][aria-label="启用梦境整理"]'
     )
     DREAM_ADVANCED_OPTION = (
         'section[class*="memoryConfigPanel"]:'
