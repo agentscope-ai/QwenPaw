@@ -123,15 +123,25 @@ async def test_real_pty_cwd_unicode_resize_interrupt_and_cleanup(
         assert f"CWD={cwd}" in text
         assert "UTF=你好" in text
         assert "columns=101, lines=37" in text
-        await asyncio.to_thread(session.write, "sleep 30\r")
-        for _ in range(100):
-            if psutil.Process(pid).children():
-                break
-            await asyncio.sleep(0.01)
+        interrupt_script = (
+            "import signal; "
+            "signal.signal(signal.SIGINT, lambda *_: "
+            "(print('INTERRUPTED', flush=True), exit(0))); "
+            "print('SLEEP_READY', flush=True); signal.pause()"
+        )
+        interrupt_command = (
+            f"{shlex.quote(sys.executable)} -c "
+            f"{shlex.quote(interrupt_script)}\r"
+        )
+        await asyncio.to_thread(session.write, interrupt_command)
+        _, cursor = await read_until(session, "SLEEP_READY", cursor)
         await asyncio.to_thread(session.write, "\x03")
-        await asyncio.to_thread(session.write, "printf 'INTERRUPTED\\n'\r")
         _, cursor = await read_until(session, "INTERRUPTED", cursor)
-        await asyncio.to_thread(session.write, "sleep 60 &\r")
+        await asyncio.to_thread(
+            session.write,
+            "sleep 60 & printf 'BACKGROUND_READY\\n'\r",
+        )
+        _, cursor = await read_until(session, "BACKGROUND_READY", cursor)
         children = []
         for _ in range(100):
             children = psutil.Process(pid).children(recursive=True)
