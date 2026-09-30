@@ -350,6 +350,31 @@ def test_installed_plugin_ids_skips_noise(plugins_dir: Path) -> None:
     assert _installed_plugin_ids() == {"good": "1.0.0"}
 
 
+def test_installed_plugin_ids_skips_disabled_dirs(plugins_dir: Path) -> None:
+    """``foo.disabled`` is skipped by discovery, so it is not installed."""
+    _write_manifest(
+        plugins_dir,
+        "gone.disabled",
+        {"id": "gone", "version": "0.9.0"},
+    )
+
+    assert _installed_plugin_ids() == {}
+
+
+def test_installed_plugin_ids_disabled_dir_does_not_clobber_live_one(
+    plugins_dir: Path,
+) -> None:
+    """A stale disabled copy must not shadow the live manifest."""
+    _write_manifest(plugins_dir, "demo", {"id": "demo", "version": "1.2.0"})
+    _write_manifest(
+        plugins_dir,
+        "demo.disabled",
+        {"id": "demo", "version": "1.0.0"},
+    )
+
+    assert _installed_plugin_ids() == {"demo": "1.2.0"}
+
+
 # ---------------------------------------------------------------------
 # build_plugin_catalog — index shapes that must be dropped
 # ---------------------------------------------------------------------
