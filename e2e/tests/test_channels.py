@@ -181,9 +181,7 @@ class TestConsoleEditConfig:
         log_test_step("3. Verify form fields")
         bot_input = channels_page.page.locator('#bot_prefix')
         assert bot_input.count() > 0 and bot_input.is_visible(), "Bot Prefix input not visible"
-        switch = channels_page.page.locator('.qwenpaw-switch, .ant-switch')
-        assert switch.count() > 0, "Enable switch does not exist"
-        logger.info("Form fields verified (Enable switch + Bot Prefix)")
+        logger.info("Bot Prefix form field verified")
 
         log_test_step("4. Record the original value, modify Bot Prefix and save")
         original_prefix = bot_input.input_value()
@@ -199,7 +197,9 @@ class TestConsoleEditConfig:
                 pytest.fail(f"Console channel should have no form validation errors, but errors were detected")
 
             channels_page.page.wait_for_timeout(2000)
-            drawer_still_open = channels_page.page.locator('.qwenpaw-drawer-open, .ant-drawer-open').first
+            drawer_still_open = channels_page.page.locator(
+                channels_page.CHANNEL_DRAWER
+            ).first
             if drawer_still_open.count() > 0 and drawer_still_open.is_visible(timeout=1000):
                 channels_page.close_drawer()
                 channels_page.page.wait_for_timeout(1000)
@@ -222,26 +222,8 @@ class TestConsoleEditConfig:
             channels_page.close_drawer()
             channels_page.page.wait_for_timeout(1000)
 
-            log_test_step("6. Reopen the drawer, modify and cancel")
-            channels_page.click_channel_card(channel_name)
-            channels_page.wait_for_drawer_open()
-            channels_page.page.wait_for_timeout(500)
-            channels_page.fill_bot_prefix("should_not_save")
-            channels_page.cancel_channel_config()
-            channels_page.page.wait_for_timeout(1000)
-            logger.info("Cancel completed")
-
-            log_test_step("7. Reopen the drawer and verify cancel did not take effect")
-            channels_page.click_channel_card(channel_name)
-            channels_page.wait_for_drawer_open()
-            channels_page.page.wait_for_timeout(1000)
-            after_cancel_prefix = channels_page.page.locator('#bot_prefix').input_value()
-            assert after_cancel_prefix == test_prefix, \
-                f"After cancel, Bot Prefix should still be '{test_prefix}', actual: '{after_cancel_prefix}'"
-            logger.info(f"Cancel verified: Bot Prefix still '{test_prefix}'")
-
             log_test_result(test_name, True, 0)
-            logger.info(f"Test {test_name} passed - Console edit save and cancel work correctly")
+            logger.info(f"Test {test_name} passed - Console auto-save works")
         finally:
             # Whether the test passes or not, restore the original Bot Prefix
             try:
@@ -295,8 +277,8 @@ class TestDiscordEnableDisable:
         2. Click the Discord card and verify the drawer opens
         3. Read the current switch state
         4. Toggle the switch and verify aria-checked change
-        5. Try to save (expected to fail because required fields are empty)
-        6. Close the drawer, reopen it, and verify the switch state was not persisted
+        5. Wait for validation and restore the original state
+        6. Close the editor
         """
         test_name = request.node.name
         channel_name = "Discord"
@@ -325,7 +307,7 @@ class TestDiscordEnableDisable:
             f"Switch state did not change: expected {expected_checked}, actual {new_checked}"
         logger.info(f"Switch toggled: {initial_checked} -> {new_checked}")
 
-        log_test_step("5. Try to save (expected to fail because required fields are empty)")
+        log_test_step("5. Wait for validation and restore the original state")
         channels_page.save_channel_config()
         channels_page.page.wait_for_timeout(1000)
 
@@ -336,24 +318,18 @@ class TestDiscordEnableDisable:
         else:
             logger.warning("Save did not produce validation errors; Discord may already have defaults")
 
-        log_test_step("6. Close the drawer, reopen it, and verify the switch state was not persisted")
-        channels_page.close_drawer()
+        channels_page.toggle_enable(initial_checked == 'true')
         channels_page.page.wait_for_timeout(1000)
 
-        channels_page.click_channel_card(channel_name)
-        channels_page.wait_for_drawer_open()
-        channels_page.page.wait_for_timeout(1000)
-
-        after_reopen_checked = switch.get_attribute('aria-checked')
-        # Since save failed, the switch state should revert to the initial value
-        assert after_reopen_checked == initial_checked, \
-            f"Switch state did not revert: expected {initial_checked}, actual {after_reopen_checked}"
-        logger.info(f"Switch state reverted: {after_reopen_checked} (not persisted)")
-
+        log_test_step("6. Close the editor after restoring the switch")
         channels_page.close_drawer()
+        channels_page.page.wait_for_timeout(1000)
+        logger.info(f"Switch state restored to: {initial_checked}")
 
         log_test_result(test_name, True, 0)
-        logger.info(f"Test {test_name} passed - Discord switch UI toggle works, not persisted")
+        logger.info(
+            f"Test {test_name} passed - Discord switch UI toggle works"
+        )
 
 
 # ============================================================================
@@ -417,7 +393,9 @@ class TestMultipleChannelFormFields:
                 f"{channel_name} unexpected drawer title: {drawer_title}"
 
             # Read all text inside the drawer and verify the expected field keywords are present
-            drawer_content = channels_page.page.locator('.qwenpaw-drawer-body, .ant-drawer-body').inner_text()
+            drawer_content = channels_page.page.locator(
+                '[role="dialog"]:visible'
+            ).inner_text()
             found_keywords = []
             for keyword in expected_field_keywords:
                 if keyword.lower() in drawer_content.lower():
@@ -496,27 +474,17 @@ class TestMattermostComboOperations:
         drawer_title = channels_page.get_drawer_title()
         assert channel_name in drawer_title, f"{channel_name} unexpected drawer title: {drawer_title}"
 
-        log_test_step("5. Record the original Bot Prefix")
-        bot_input = channels_page.page.locator('#bot_prefix')
+        log_test_step("5. Open message presentation and record Bot Prefix")
+        dialog = channels_page.page.locator('[role="dialog"]:visible')
+        dialog.get_by_text("Message presentation", exact=True).click()
+        bot_input = dialog.locator('#bot_prefix:visible')
         original_prefix = bot_input.input_value()
         logger.info(f"Original Bot Prefix: '{original_prefix}'")
 
-        log_test_step("6. Modify Bot Prefix and cancel")
-        channels_page.fill_bot_prefix("temp_prefix_for_cancel")
-        channels_page.cancel_channel_config()
-        channels_page.page.wait_for_timeout(1000)
-        logger.info("Cancel completed")
-
-        log_test_step("7. Reopen the drawer and verify Bot Prefix is unchanged")
-        channels_page.click_channel_card(channel_name)
-        channels_page.wait_for_drawer_open()
-        channels_page.page.wait_for_timeout(1000)
-        after_cancel_prefix = channels_page.page.locator('#bot_prefix').input_value()
-        assert after_cancel_prefix == original_prefix, \
-            f"After cancel, Bot Prefix should revert to '{original_prefix}', actual: '{after_cancel_prefix}'"
-        logger.info(f"Cancel verified: Bot Prefix still '{original_prefix}'")
-
-        channels_page.close_drawer()
+        log_test_step("6. Verify Bot Prefix is editable")
+        bot_input.fill("temp_prefix_for_editability")
+        assert bot_input.input_value() == "temp_prefix_for_editability"
+        bot_input.fill(original_prefix)
 
         log_test_result(test_name, True, 0)
         logger.info(f"Test {test_name} passed - Mattermost filter+edit+cancel combination works")
@@ -568,8 +536,7 @@ class TestMessageFilterSwitches:
         log_test_step("1. Open the Channels page")
         channels_page.open()
 
-        log_test_step("2. Iterate channels, looking for ones with Show Tool Messages / Show Thinking switches")
-        found_switch_channels = []
+        log_test_step("2. Open a channel with message presentation settings")
 
         for channel_name in candidate_channels:
             card = channels_page.find_channel_card(channel_name)
@@ -585,71 +552,43 @@ class TestMessageFilterSwitches:
 
             channels_page.page.wait_for_timeout(500)
 
-            drawer_body = channels_page.page.locator('.qwenpaw-drawer-body, .ant-drawer-body')
-            drawer_text = drawer_body.inner_text()
-
-            has_tool_messages = any(kw in drawer_text.lower() for kw in [
-                'show tool messages', '显示工具消息', '工具消息',
-            ])
-            has_thinking = any(kw in drawer_text.lower() for kw in [
-                'show thinking', '显示思考', '思考过程',
-            ])
-
-            if not (has_tool_messages or has_thinking):
-                logger.info(f"Channel {channel_name} has no message-filter switch, closing drawer and continuing")
+            drawer_body = channels_page.page.locator(
+                '[role="dialog"]:visible'
+            )
+            presentation = drawer_body.get_by_text(
+                "Message presentation", exact=True
+            )
+            if not presentation.is_visible():
                 channels_page.close_drawer()
-                channels_page.page.wait_for_timeout(500)
                 continue
+            presentation.click()
+            target_switch = drawer_body.locator(
+                '.qwenpaw-form-item:has-text("Show Tool Call Information") '
+                '[role="switch"]:visible'
+            )
+            expect(target_switch).to_be_visible(timeout=3000)
+            initial_state = (
+                target_switch.get_attribute("aria-checked") == "true"
+            )
+            with channels_page.page.expect_request(
+                lambda request: request.method == "PUT"
+                and request.url.endswith("/config/channels/console")
+            ) as request_info:
+                target_switch.click()
+            payload = request_info.value.post_data_json
+            assert payload["show_tool_calls"] is not initial_state
+            payload["show_tool_calls"] = initial_state
+            response = channels_page.page.request.put(
+                f"{config.api_url}/config/channels/console",
+                data=payload,
+            )
+            assert response.ok
 
-            logger.info(f"Channel {channel_name} has a message-filter switch")
-            found_switch_channels.append(channel_name)
-
-            # Find the switch corresponding to Show Tool Messages / Show Thinking and toggle it.
-            # The switch is near its text label; here we match by position among all switch elements.
-            switches = drawer_body.locator('.qwenpaw-switch, .ant-switch').all()
-            # The Enable switch is the first one; Show Tool Messages usually comes after.
-            # Skip the first (Enabled switch) and take the second (Show Tool Messages).
-            target_switch = None
-            switch_label = ""
-            if len(switches) >= 2 and has_tool_messages:
-                target_switch = switches[1]
-                switch_label = "Show Tool Messages"
-            elif len(switches) >= 3 and has_thinking:
-                target_switch = switches[2]
-                switch_label = "Show Thinking"
-            elif len(switches) >= 2:
-                target_switch = switches[1]
-                switch_label = "message filter switch"
-
-            if target_switch is not None:
-                initial_state = target_switch.get_attribute('aria-checked')
-                logger.info(f"Initial {switch_label} state: {initial_state}")
-
-                try:
-                    target_switch.click()
-                    channels_page.page.wait_for_timeout(500)
-                    new_state = target_switch.get_attribute('aria-checked')
-                    logger.info(f"After toggle {switch_label} state: {new_state}")
-
-                    assert initial_state != new_state, f"{switch_label} switch state did not change: {initial_state}"
-                    logger.info(f"{switch_label} toggled successfully")
-                finally:
-                    # Whether the assertion passed or not, restore the original state
-                    try:
-                        current_state = target_switch.get_attribute('aria-checked')
-                        if current_state != initial_state:
-                            target_switch.click()
-                            channels_page.page.wait_for_timeout(300)
-                            logger.info(f"Restored {switch_label} to initial state: {initial_state}")
-                    except Exception as restore_err:
-                        logger.warning(f"Failed to restore switch state: {restore_err}")
-
-            channels_page.close_drawer()
-            channels_page.page.wait_for_timeout(500)
-            break  # Only validate the first one found
-
-        assert len(found_switch_channels) > 0, "No channel with a message-filter switch was found"
-        logger.info(f"Channels with message-filter switches: {found_switch_channels}")
+            break
+        else:
+            pytest.fail(
+                "No channel with message presentation settings was found"
+            )
 
         log_test_result(test_name, True, 0)
         logger.info(f"Test {test_name} passed - message-filter switches verified")
@@ -708,7 +647,9 @@ class TestWeComFormFields:
         logger.info(f"Drawer title: {drawer_title}")
 
         log_test_step("4. Verify the unique WeCom form fields exist")
-        drawer_content = channels_page.page.locator('.qwenpaw-drawer-body, .ant-drawer-body').inner_text()
+        drawer_content = channels_page.page.locator(
+            '[role="dialog"]:visible'
+        ).inner_text()
         # WeCom-unique fields (CN/EN both supported)
         expected_keywords = [
             "Bot ID", "Secret", "DM Policy", "Group Policy", "Require @Mention",
@@ -780,7 +721,9 @@ class TestWeChatFormFields:
         logger.info(f"Drawer title: {drawer_title}")
 
         log_test_step("4. Verify WeChat-unique description and fields")
-        drawer_content = channels_page.page.locator('.qwenpaw-drawer-body, .ant-drawer-body').inner_text()
+        drawer_content = channels_page.page.locator(
+            '[role="dialog"]:visible'
+        ).inner_text()
         # WeChat-unique markers (CN/EN both supported)
         wechat_unique_keywords = [
             "iLink", "QR code", "Bot Token", "Bot ID", "Secret",
@@ -849,7 +792,9 @@ class TestOneBotFormFields:
         logger.info(f"Drawer title: {drawer_title}")
 
         log_test_step("4. Verify the form fields exist")
-        drawer_content = channels_page.page.locator('.qwenpaw-drawer-body, .ant-drawer-body').inner_text()
+        drawer_content = channels_page.page.locator(
+            '[role="dialog"]:visible'
+        ).inner_text()
         # OneBot should have URL, Access Token, etc.
         expected_keywords = ["URL", "Access Token", "Token"]
         found_keywords = []
@@ -918,27 +863,18 @@ class TestMQTTBotPrefix:
         assert channel_name in drawer_title, f"Unexpected drawer title: {drawer_title}, expected to contain {channel_name}"
         logger.info(f"Drawer title: {drawer_title}")
 
-        log_test_step("4. Verify the Bot Prefix field exists")
-        bot_input = channels_page.page.locator('#bot_prefix')
+        log_test_step("4. Open message presentation and verify Bot Prefix")
+        dialog = channels_page.page.locator('[role="dialog"]:visible')
+        dialog.get_by_text("Message presentation", exact=True).click()
+        bot_input = dialog.locator('#bot_prefix:visible')
         assert bot_input.count() > 0 and bot_input.is_visible(), "Bot Prefix input not visible"
         original_prefix = bot_input.input_value()
         logger.info(f"Original Bot Prefix: '{original_prefix}'")
 
-        log_test_step("5. Modify Bot Prefix and cancel, verify non-persistence")
-        channels_page.fill_bot_prefix("temp_mqtt_prefix")
-        channels_page.cancel_channel_config()
-        channels_page.page.wait_for_timeout(1000)
-
-        # Reopen and verify non-persistence
-        channels_page.click_channel_card(channel_name)
-        channels_page.wait_for_drawer_open()
-        channels_page.page.wait_for_timeout(1000)
-        after_cancel_prefix = channels_page.page.locator('#bot_prefix').input_value()
-        assert after_cancel_prefix == original_prefix, \
-            f"After cancel, Bot Prefix should revert to '{original_prefix}', actual: '{after_cancel_prefix}'"
-        logger.info(f"Cancel verified: Bot Prefix still '{original_prefix}'")
-
-        channels_page.close_drawer()
+        log_test_step("5. Verify Bot Prefix is editable")
+        bot_input.fill("temp_mqtt_prefix")
+        assert bot_input.input_value() == "temp_mqtt_prefix"
+        bot_input.fill(original_prefix)
 
         log_test_result(test_name, True, 0)
         logger.info(f"Test {test_name} passed - MQTT Bot Prefix configuration verified")

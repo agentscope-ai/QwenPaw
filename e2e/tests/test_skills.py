@@ -145,45 +145,22 @@ class TestSkillListAndFilter:
 
         # -- Step 5: Search filter --
         log_test_step("5. Search filter")
-        search_container = page.locator('div[class*="searchContainer"]').first
-        if search_container.is_visible():
+        search_input = page.locator(
+            'input[aria-label="Search skills"], '
+            'input[aria-label="搜索技能"]'
+        ).first
+        if search_input.is_visible():
             keyword = title_text.split()[0] if title_text else "browser"
             logger.info(f"Search keyword: {keyword}")
-
-            search_select = search_container.locator('.qwenpaw-select').first
-            search_select.click()
-            page.wait_for_timeout(500)
-
-            page.keyboard.type(keyword, delay=50)
+            search_input.fill(keyword)
             page.wait_for_timeout(1500)
-
-            dropdown = page.locator('.qwenpaw-select-dropdown').first
-            if dropdown.is_visible():
-                options = dropdown.locator('.qwenpaw-select-item').all()
-                logger.info(f"Dropdown option count: {len(options)}")
-
-                if len(options) > 0:
-                    options[0].click()
-                    page.wait_for_timeout(1500)
-
-                    filtered_count = len(get_skill_cards(page))
-                    assert filtered_count <= original_count, "Filtered count should not increase"
-                    assert filtered_count >= 1, "Filtered result should have at least 1"
-                    logger.info(f"Skill count after filter: {filtered_count}")
-
-                    # Clear filter
-                    clear_btn = search_container.locator('.qwenpaw-select-clear').first
-                    if clear_btn.is_visible():
-                        clear_btn.click()
-                        page.wait_for_timeout(1000)
-                        restored_count = len(get_skill_cards(page))
-                        assert restored_count == original_count, (
-                            f"Count not restored after clearing filter: expected {original_count}, got {restored_count}"
-                        )
-                        logger.info(f"Restored count after clearing filter: {restored_count}")
-
-            page.keyboard.press("Escape")
-            page.wait_for_timeout(500)
+            filtered_count = len(get_skill_cards(page))
+            assert filtered_count <= original_count
+            assert filtered_count >= 1
+            search_input.fill("")
+            page.wait_for_timeout(1000)
+            restored_count = len(get_skill_cards(page))
+            assert restored_count == original_count
         else:
             logger.info("Search container not found, skipping search verification")
 
@@ -357,7 +334,7 @@ class TestSkillCRUDLifecycle:
 
             # -- Step 4: Verify Drawer opened --
             log_test_step("4. Verify Drawer opened")
-            drawer = page.locator('.qwenpaw-drawer-open').first
+            drawer = page.locator('[role="dialog"]:visible').first
             expect(drawer).to_be_visible(timeout=5000)
             logger.info("Create Drawer opened")
 
@@ -443,7 +420,7 @@ This is an E2E test skill.
             page.wait_for_timeout(1500)
 
             # Verify edit Drawer opened
-            edit_drawer = page.locator('.qwenpaw-drawer-open').first
+            edit_drawer = page.locator('[role="dialog"]:visible').first
             expect(edit_drawer).to_be_visible(timeout=5000)
             logger.info("Edit Drawer opened")
 
@@ -476,13 +453,15 @@ This is an edited E2E test skill.
             page.wait_for_timeout(300)
             logger.info("Skill content modified")
 
-            # -- Step 10: Save edit --
-            log_test_step("10. Save edit")
-            # Source: in edit mode the button text is t("common.save")
-            save_btn = edit_drawer.locator('button.qwenpaw-btn-primary').last
-            expect(save_btn).to_be_visible(timeout=5000)
-            save_btn.click()
-            page.wait_for_timeout(3000)
+            # -- Step 10: Wait for auto-save and close the editor. --
+            log_test_step("10. Wait for edit auto-save")
+            page.wait_for_timeout(2000)
+            close_btn = edit_drawer.locator(
+                '.qwenpaw-modal-close, button[aria-label="Close"]'
+            ).first
+            expect(close_btn).to_be_visible(timeout=5000)
+            close_btn.click()
+            page.wait_for_timeout(1000)
 
             expect(edit_drawer).not_to_be_visible(timeout=10000)
             logger.info("Edit saved, Drawer closed")
@@ -772,15 +751,10 @@ class TestSkillImportFromHub:
         log_test_step("Navigate to skills management page")
         navigate_to_skills(page)
 
-        log_test_step("Find the Hub import button")
-        import_btn = page.locator(
-            'button:has-text("Import"), button:has-text("导入"), '
-            'button:has-text("Hub"), '
-            'button:has(.anticon-import)'
-        ).first
-        assert import_btn.count() > 0, "Hub import button not found"
+        log_test_step("Open the Add Skill menu")
+        page.get_by_role("button", name="Add Skill").click()
+        import_btn = page.get_by_text("Upload via URL", exact=True)
         expect(import_btn).to_be_visible(timeout=5000)
-        logger.info("Hub import button exists")
 
         log_test_step("Click the Hub import button")
         import_btn.click()
@@ -788,14 +762,9 @@ class TestSkillImportFromHub:
 
         log_test_step("Verify import modal opens")
         page.wait_for_timeout(2000)
-        import_modal = page.locator('.qwenpaw-modal, .ant-modal, .qwenpaw-drawer, .ant-drawer, [role="dialog"]').last
-        try:
-            expect(import_modal).to_be_visible(timeout=8000)
-            logger.info("Import modal opened")
-        except Exception:
-            logger.info("Import modal not found; another interaction may be used")
-            log_test_result(test_name, True, 0)
-            return
+        import_modal = page.locator('[role="dialog"]:visible')
+        expect(import_modal).to_be_visible(timeout=8000)
+        logger.info("Import modal opened")
 
         log_test_step("Verify URL input exists")
         url_input = import_modal.locator(
