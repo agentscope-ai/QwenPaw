@@ -132,3 +132,74 @@ def get_channel_registry() -> dict[str, type[BaseChannel]]:
             continue
         out[key] = ch_cls
     return out
+
+
+_CHANNEL_CLASS_CACHE: dict[str, type[BaseChannel] | None] = {}
+_CHANNEL_CLASS_CACHE_LOCK = threading.Lock()
+
+
+def get_channel_class(
+    key: str,
+    *,
+    registry: dict[str, type[BaseChannel]] | None = None,
+) -> type[BaseChannel] | None:
+    """Resolve one channel class, importing only that channel's module.
+
+    Importing every built-in channel module costs seconds (the Feishu
+    SDK alone dominates) and lands wherever the registry is first used;
+    key listing and single-channel instantiation should not pay it.
+    Optional channels whose import fails return ``None``; the required
+    channels raise like the full registry loader does.
+    """
+    if registry is not None:
+        return registry.get(key)
+    with _CHANNEL_CLASS_CACHE_LOCK:
+        if key in _CHANNEL_CLASS_CACHE:
+            return _CHANNEL_CLASS_CACHE[key]
+    cls: type[BaseChannel] | None = None
+    spec = _BUILTIN_SPECS.get(key)
+    if spec is not None:
+        module_name, class_name = spec
+        try:
+            mod = importlib.import_module(module_name, package=__package__)
+            candidate = getattr(mod, class_name)
+            if not (
+                isinstance(candidate, type)
+                and issubclass(candidate, BaseChannel)
+                and candidate is not BaseChannel
+            ):
+                raise TypeError(
+                    f"{module_name}.{class_name} is not a BaseChannel subtype",
+                )
+            cls = candidate
+        except Exception:
+            if key in _REQUIRED_CHANNEL_KEYS:
+                logger.error(
+                    'failed to load required built-in channel "%s"',
+                    key,
+                    exc_info=True,
+                )
+                raise
+            logger.debug(
+                "built-in channel unavailable: %s",
+                key,
+                exc_info=True,
+            )
+    else:
+        cls = _get_plugin_channels().get(key)
+    with _CHANNEL_CLASS_CACHE_LOCK:
+        _CHANNEL_CLASS_CACHE[key] = cls
+    return cls
+
+
+def get_available_keys() -> tuple[str, ...]:
+    """All channel keys without importing any channel module.
+
+    Same ordering as :func:`get_channel_registry` (builtin declaration
+    order, then plugins).
+    """
+    keys: list[str] = list(_BUILTIN_SPECS.keys())
+    for key in _get_plugin_channels():
+        if key not in _BUILTIN_SPECS:
+            keys.append(key)
+    return tuple(keys)
