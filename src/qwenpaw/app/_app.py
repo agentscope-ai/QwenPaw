@@ -262,6 +262,10 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
     migrate_legacy_skills_to_skill_pool()
     ensure_qa_agent_exists()
 
+    from ..agents.skill_system import cleanup_orphan_skill_stages
+
+    await asyncio.to_thread(cleanup_orphan_skill_stages)
+
     from ..config.utils import get_agent_dirs
     from ..portability.transaction_journal import recover_import_transactions
 

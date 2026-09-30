@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import io
 import json
+import tempfile
 import zipfile
 
 import pytest
@@ -24,6 +25,7 @@ from qwenpaw.agents.skill_system.store import (
     _read_json_unlocked,
     _safe_child_path,
     classify_pool_skill_source,
+    cleanup_orphan_skill_stages,
     compute_skill_md_hash,
     copy_pool_skill_automation,
     extract_version,
@@ -708,3 +710,39 @@ class TestExtractZipSkills:
         data = _build_zip({"readme.txt": "nothing here"})
         with pytest.raises(SkillsError):
             store.extract_zip_skills(data)
+
+
+# ---------------------------------------------------------------------------
+# cleanup_orphan_skill_stages
+# ---------------------------------------------------------------------------
+
+
+def test_cleanup_orphan_skill_stages_removes_only_stage_dirs(
+    monkeypatch,
+    tmp_path,
+):
+    """A stage dir from a killed process is removed; others survive."""
+    orphan = tmp_path / "qwenpaw_skill_stage_ppt-master_abc123"
+    (orphan / "ppt-master").mkdir(parents=True)
+    (orphan / "ppt-master" / "SKILL.md").write_text("x", encoding="utf-8")
+    unrelated_dir = tmp_path / "unrelated-temp-dir"
+    unrelated_dir.mkdir()
+    unrelated_file = tmp_path / "qwenpaw_skill_stage_not-a-dir"
+    unrelated_file.write_text("x", encoding="utf-8")
+
+    monkeypatch.setattr(tempfile, "gettempdir", lambda: str(tmp_path))
+
+    assert cleanup_orphan_skill_stages() == 1
+    assert not orphan.exists()
+    assert unrelated_dir.is_dir()
+    assert unrelated_file.is_file()
+
+
+def test_cleanup_orphan_skill_stages_is_a_noop_without_stages(
+    monkeypatch,
+    tmp_path,
+):
+    """An empty temp dir reports nothing removed."""
+    monkeypatch.setattr(tempfile, "gettempdir", lambda: str(tmp_path))
+
+    assert cleanup_orphan_skill_stages() == 0

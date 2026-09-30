@@ -1372,3 +1372,30 @@ def staged_skill_dir(skill_name: str) -> Iterator[Path]:
         yield stage_dir
     finally:
         shutil.rmtree(temp_root, ignore_errors=True)
+
+
+def cleanup_orphan_skill_stages() -> int:
+    """Remove staged skill directories left behind by a killed process.
+
+    ``staged_skill_dir`` removes its temp root in ``finally``, so a surviving
+    directory carrying this prefix can only come from a process that died
+    mid-copy. Startup is the safe moment to sweep them, because no copy of the
+    starting process can be in flight yet. Returns the number removed.
+    """
+    removed = 0
+    # Prefix must match the one used by ``staged_skill_dir`` above.
+    for path in Path(tempfile.gettempdir()).glob("qwenpaw_skill_stage_*"):
+        if not path.is_dir():
+            continue
+        try:
+            shutil.rmtree(path, ignore_errors=True)
+        except OSError:
+            logger.warning(
+                "Failed to remove orphan skill staging dir %s",
+                path,
+            )
+            continue
+        removed += 1
+    if removed:
+        logger.info("Removed %d orphan skill staging dir(s)", removed)
+    return removed

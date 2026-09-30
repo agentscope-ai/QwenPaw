@@ -1430,7 +1430,16 @@ async def download_pool_skill_to_workspaces(
     """Download one pool skill into one or more workspaces.
 
     All-or-nothing: if any target conflicts, reject everything.
+
+    A large skill means thousands of file operations, so the blocking work runs
+    in a worker thread: doing it inline would freeze the event loop and every
+    other API for the whole copy.
     """
+    return await asyncio.to_thread(_download_pool_skill, body)
+
+
+def _download_pool_skill(body: DownloadFromPoolRequest) -> dict[str, Any]:
+    """Blocking body of ``POST /pool/download``; see the route docstring."""
     targets, hub_service = _resolve_and_preflight(body)
     if body.preview_only:
         return {"downloaded": []}

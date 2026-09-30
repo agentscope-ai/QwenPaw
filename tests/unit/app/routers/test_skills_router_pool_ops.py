@@ -2597,3 +2597,31 @@ class TestWriteRouteFailureLegs:
             "success": False,
             "reason": "delete_failed",
         }
+
+
+def test_pool_download_runs_the_copy_off_the_event_loop(monkeypatch):
+    """The blocking copy must run in a worker thread, not on the event loop.
+
+    Doing it inline froze the event loop for the whole download, which made the
+    desktop app look dead and left the skill half-copied (QwenPaw #8013).
+    """
+    worker_threads: list[int] = []
+
+    def fake_download(body):
+        worker_threads.append(threading.get_ident())
+        return {"downloaded": []}
+
+    monkeypatch.setattr(skills_module, "_download_pool_skill", fake_download)
+    body = skills_module.DownloadFromPoolRequest(
+        skill_name="demo",
+        targets=[skills_module.PoolDownloadTarget(workspace_id="ws-1")],
+    )
+    loop_threads: list[int] = []
+
+    async def call_route():
+        loop_threads.append(threading.get_ident())
+        return await skills_module.download_pool_skill_to_workspaces(body)
+
+    assert asyncio.run(call_route()) == {"downloaded": []}
+    assert worker_threads
+    assert worker_threads[0] != loop_threads[0]
