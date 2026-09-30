@@ -141,6 +141,7 @@ class TestToolsPageDisplayAndGlobalToggle:
             # 4. Verify the tool card grid
             log_test_step("4. Verify the tool card grid")
             tool_cards = page.locator('div[class*="toolCard"]')
+            expect(tool_cards.first).to_be_visible(timeout=15000)
             card_count = tool_cards.count()
             logger.info(f"Tool card count: {card_count}")
             assert card_count > 0, "There should be at least one tool card"
