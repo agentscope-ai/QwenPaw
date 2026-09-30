@@ -818,19 +818,15 @@ class TestMemorySummaryConfig:
         logger.info("Memory configuration present")
 
         log_test_step("Verify the memory switches exist")
-        switches = page.locator(
-            'button[role="switch"][id*="reme_light_memory_config"]'
-        ).all()
+        switches = memory_section.locator('button[role="switch"]').all()
         assert len(switches) >= 1, (
             f"Memory switches not found; found {len(switches)}"
         )
         logger.info(f"Found {len(switches)} memory switches")
 
         log_test_step("Verify number inputs exist")
-        number_inputs = page.locator(
-            'input[id*="reme_light_memory_config_auto_memory_interval"], '
-            'input[id*="reme_light_memory_config_max_results"], '
-            'input[id*="reme_light_memory_config"][type="text"]'
+        number_inputs = memory_section.locator(
+            'input[role="spinbutton"]'
         ).all()
         assert len(number_inputs) >= 1, (
             f"No number inputs found; got {len(number_inputs)}"
