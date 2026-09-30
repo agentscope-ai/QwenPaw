@@ -3,6 +3,7 @@
 
 Blocks tool calls that target files explicitly listed in a sensitive-file set.
 """
+
 from __future__ import annotations
 
 import ntpath
@@ -27,11 +28,29 @@ _TOOL_FILE_PARAMS: dict[str, tuple[str, ...]] = {
     "write_file": ("file_path",),
     "edit_file": ("file_path",),
     "append_file": ("file_path",),
+    "delete_file": ("file_path", "path"),
     "send_file_to_user": ("file_path",),
     # agentscope built-ins (may be enabled by users)
     "view_text_file": ("file_path", "path"),
     "write_text_file": ("file_path", "path"),
 }
+
+_MUTATION_FILE_TOOLS = frozenset(
+    {
+        "write_file",
+        "edit_file",
+        "append_file",
+        "write_text_file",
+        "delete_file",
+    },
+)
+
+_SHELL_DESTRUCTIVE_VERBS_RE = re.compile(
+    r"\b(rm|del|rmdir|rd|erase|Remove-Item|ri|unlink|truncate)\b|"
+    r"shutil\.(rmtree|rm)\b|"
+    r"os\.(remove|unlink|rmdir)\b",
+    re.IGNORECASE,
+)
 
 _SECRET_DIR_CURRENT_NAME = ".qwenpaw.secret"
 _SECRET_DIR_LEGACY_NAME = ".copaw.secret"
@@ -162,6 +181,98 @@ def _is_file_guard_enabled() -> bool:
         return bool(load_config().security.file_guard.enabled)
     except Exception:
         return True
+
+
+def _is_protect_skills_enabled() -> bool:
+    """Check ``security.file_guard.protect_skills`` from config."""
+    try:
+        from qwenpaw.config import load_config
+
+        fg = load_config().security.file_guard
+        return bool(getattr(fg, "protect_skills", True))
+    except Exception:
+        return True
+
+
+def _default_protected_skill_dirs() -> (
+    list[str]
+):  # pylint: disable=too-many-branches
+    """Collect known directories holding skills for integrity protection."""
+    dirs: list[str] = []
+    try:
+        from qwenpaw.constant import WORKING_DIR
+        from qwenpaw.agents.skill_system.store import (
+            get_skill_pool_dir,
+            get_extra_skill_dirs,
+        )
+        from qwenpaw.agents.skill_system.registry import (
+            get_builtin_skills_dir,
+        )
+
+        try:
+            builtin = get_builtin_skills_dir()
+            if builtin and builtin.is_dir():
+                dirs.append(_with_platform_trailing_sep(builtin.resolve()))
+        except Exception:
+            pass
+
+        try:
+            pool = get_skill_pool_dir()
+            if pool:
+                dirs.append(_with_platform_trailing_sep(pool.resolve()))
+            legacy_pool = Path.home() / ".copaw" / "skill_pool"
+            if legacy_pool.exists():
+                dirs.append(_with_platform_trailing_sep(legacy_pool.resolve()))
+        except Exception:
+            pass
+
+        try:
+            for extra in get_extra_skill_dirs():
+                dirs.append(_with_platform_trailing_sep(extra.resolve()))
+        except Exception:
+            pass
+
+        try:
+            workspaces_dir = WORKING_DIR / "workspaces"
+            if workspaces_dir.is_dir():
+                for ws in workspaces_dir.iterdir():
+                    if ws.is_dir():
+                        sdir = ws / "skills"
+                        dirs.append(
+                            _with_platform_trailing_sep(sdir.resolve()),
+                        )
+            legacy_ws = Path.home() / ".copaw" / "workspaces"
+            if legacy_ws.is_dir():
+                for ws in legacy_ws.iterdir():
+                    if ws.is_dir():
+                        sdir = ws / "skills"
+                        dirs.append(
+                            _with_platform_trailing_sep(sdir.resolve()),
+                        )
+        except Exception:
+            pass
+    except Exception:
+        pass
+
+    try:
+        ws_root = _workspace_root()
+        dirs.append(
+            _with_platform_trailing_sep((ws_root / "skills").resolve()),
+        )
+    except Exception:
+        pass
+
+    return list(dict.fromkeys(dirs))
+
+
+def _is_destructive_shell_command(command: str, raw_path: str) -> bool:
+    """Return True if command performs deletion, truncation, or overwrite."""
+    if _SHELL_DESTRUCTIVE_VERBS_RE.search(command):
+        return True
+    escaped = re.escape(raw_path)
+    if re.search(r"(?:>|>>)\s*[\"']?" + escaped, command):
+        return True
+    return False
 
 
 def _load_sensitive_files_from_config() -> list[str]:
@@ -320,6 +431,10 @@ class FilePathToolGuardian(BaseToolGuardian):
     ) -> None:
         super().__init__(name="file_path_tool_guardian", always_run=True)
         self._enabled: bool = _is_file_guard_enabled()
+        self._protect_skills: bool = _is_protect_skills_enabled()
+        self._protected_skill_dirs: set[str] = set(
+            _normalize_path(d) for d in _default_protected_skill_dirs()
+        )
         self._sensitive_files: set[str] = set()
         self._sensitive_dirs: set[str] = set()
         self.set_sensitive_files(_load_sensitive_files_from_config())
@@ -374,6 +489,28 @@ class FilePathToolGuardian(BaseToolGuardian):
         """Reload enabled state and sensitive-file set from config."""
         self._enabled = _is_file_guard_enabled()
         self.set_sensitive_files(_load_sensitive_files_from_config())
+        self._protect_skills = _is_protect_skills_enabled()
+        self._protected_skill_dirs = set(
+            _normalize_path(d) for d in _default_protected_skill_dirs()
+        )
+
+    def _is_protected_skill(self, abs_path: str) -> bool:
+        """Return True when abs_path is inside a protected skills directory."""
+        if not self._protect_skills or not abs_path:
+            return False
+        for dir_path in self._protected_skill_dirs:
+            if not dir_path:
+                continue
+            trimmed = dir_path.rstrip("/\\")
+            if not trimmed:
+                continue
+            if abs_path == trimmed:
+                return True
+            if abs_path.startswith(trimmed + "/") or abs_path.startswith(
+                trimmed + "\\",
+            ):
+                return True
+        return False
 
     def _is_sensitive(self, abs_path: str) -> bool:
         """Return True when *abs_path* hits sensitive file/dir constraints.
@@ -435,6 +572,43 @@ class FilePathToolGuardian(BaseToolGuardian):
             metadata={"resolved_path": abs_path},
         )
 
+    def _make_protected_finding(
+        self,
+        tool_name: str,
+        param_name: str,
+        raw_value: str,
+        abs_path: str,
+        *,
+        snippet: str | None = None,
+    ) -> GuardFinding:
+        return GuardFinding(
+            id=f"GUARD-{uuid.uuid4().hex}",
+            rule_id="PROTECTED_SKILL_MODIFICATION",
+            category=GuardThreatCategory.COMMAND_INJECTION,
+            severity=GuardSeverity.HIGH,
+            title=(
+                "[HIGH] Modification or deletion of protected skill is blocked"
+            ),
+            description=(
+                f"Tool '{tool_name}' attempted to modify or delete "
+                f"protected skill '{abs_path}' via parameter '{param_name}'."
+            ),
+            tool_name=tool_name,
+            param_name=param_name,
+            matched_value=raw_value,
+            matched_pattern=abs_path,
+            snippet=snippet or abs_path,
+            remediation=(
+                "Agent skills are protected against unauthorized modification "
+                "and deletion. Manage skills via the Skills console or API."
+            ),
+            guardian=self.name,
+            metadata={
+                "resolved_path": abs_path,
+                "protection": "skill_integrity",
+            },
+        )
+
     def _check_value(
         self,
         tool_name: str,
@@ -458,20 +632,19 @@ class FilePathToolGuardian(BaseToolGuardian):
                 ),
             )
 
-    def guard(
+    def guard(  # pylint: disable=too-many-branches
         self,
         tool_name: str,
         params: dict[str, Any],
     ) -> list[GuardFinding]:
-        """Block tool call when targeted file path is sensitive.
+        """Block tool call when targeted file path is sensitive or protected.
 
         Checks all tools: known file tools use specific param names,
-        shell commands get path extraction, and all other tools have
-        every string parameter scanned for sensitive paths.
+        shell commands get path extraction and destructive pattern checks,
+        and all other tools have every string parameter scanned for sensitive
+        paths.
         """
         if not self._enabled:
-            return []
-        if not self._sensitive_files and not self._sensitive_dirs:
             return []
 
         findings: list[GuardFinding] = []
@@ -481,14 +654,31 @@ class FilePathToolGuardian(BaseToolGuardian):
             command = params.get("command")
             if not isinstance(command, str) or not command.strip():
                 return findings
-            for raw_path in _extract_paths_from_shell_command(command):
-                self._check_value(
-                    tool_name,
-                    "command",
-                    raw_path,
-                    findings,
-                    snippet=command,
-                )
+            extracted = _extract_paths_from_shell_command(command)
+            for raw_path in extracted:
+                normalized_input = _sanitize_path_candidate(raw_path)
+                abs_path = _normalize_path(normalized_input)
+                if self._is_sensitive(abs_path):
+                    findings.append(
+                        self._make_finding(
+                            tool_name,
+                            "command",
+                            raw_path,
+                            abs_path,
+                            snippet=command,
+                        ),
+                    )
+                elif self._is_protected_skill(abs_path):
+                    if _is_destructive_shell_command(command, raw_path):
+                        findings.append(
+                            self._make_protected_finding(
+                                tool_name,
+                                "command",
+                                raw_path,
+                                abs_path,
+                                snippet=command,
+                            ),
+                        )
             return findings
 
         # Known file tools: check only the file-path parameters.
@@ -498,7 +688,31 @@ class FilePathToolGuardian(BaseToolGuardian):
                 raw_value = params.get(param_name)
                 if not isinstance(raw_value, str) or not raw_value.strip():
                     continue
-                self._check_value(tool_name, param_name, raw_value, findings)
+                normalized_input = _sanitize_path_candidate(raw_value)
+                abs_path = _normalize_path(normalized_input)
+                if self._is_sensitive(abs_path):
+                    findings.append(
+                        self._make_finding(
+                            tool_name,
+                            param_name,
+                            raw_value,
+                            abs_path,
+                        ),
+                    )
+                elif (
+                    tool_name in _MUTATION_FILE_TOOLS
+                    and self._is_protected_skill(
+                        abs_path,
+                    )
+                ):
+                    findings.append(
+                        self._make_protected_finding(
+                            tool_name,
+                            param_name,
+                            raw_value,
+                            abs_path,
+                        ),
+                    )
             return findings
 
         # All other tools: scan every string parameter that looks like a path.
@@ -507,6 +721,30 @@ class FilePathToolGuardian(BaseToolGuardian):
                 continue
             if not _looks_like_path_token(param_value):
                 continue
-            self._check_value(tool_name, param_name, param_value, findings)
+            normalized_input = _sanitize_path_candidate(param_value)
+            abs_path = _normalize_path(normalized_input)
+            if self._is_sensitive(abs_path):
+                findings.append(
+                    self._make_finding(
+                        tool_name,
+                        param_name,
+                        param_value,
+                        abs_path,
+                    ),
+                )
+            elif (
+                tool_name in _MUTATION_FILE_TOOLS
+                and self._is_protected_skill(
+                    abs_path,
+                )
+            ):
+                findings.append(
+                    self._make_protected_finding(
+                        tool_name,
+                        param_name,
+                        param_value,
+                        abs_path,
+                    ),
+                )
 
         return findings
