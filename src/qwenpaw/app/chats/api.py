@@ -194,6 +194,21 @@ async def _delete_chat_data(workspace, chats: list[ChatSpec]) -> None:
         ) from exc
 
 
+async def _reject_running_chat_deletion(
+    workspace,
+    chats: list[ChatSpec],
+) -> None:
+    """Reject destructive deletion while any target chat is running."""
+    statuses = await asyncio.gather(
+        *(workspace.task_tracker.get_status(chat.id) for chat in chats),
+    )
+    if any(status == "running" for status in statuses):
+        raise HTTPException(
+            status_code=409,
+            detail="Cannot delete a running chat",
+        )
+
+
 def _unshared_chat_data_targets(
     targets: list[ChatSpec],
     catalog: list[ChatSpec],
@@ -628,6 +643,7 @@ async def batch_delete_chats(
         if (chat := chats.get(chat_id)) is not None
     ]
     data_targets = _unshared_chat_data_targets(targets, catalog)
+    await _reject_running_chat_deletion(workspace, data_targets)
     deleted = await mgr.delete_chats(chat_ids=chat_ids)
     if deleted and data_targets:
         await _delete_chat_data(
@@ -1199,13 +1215,9 @@ async def delete_chat(
             status_code=404,
             detail=f"Chat not found: {chat_id}",
         )
-    if await workspace.task_tracker.get_status(chat_id) == "running":
-        raise HTTPException(
-            status_code=409,
-            detail="Cannot delete a running chat",
-        )
     catalog = await mgr.list_chats(archived=None)
     data_targets = _unshared_chat_data_targets([chat], catalog)
+    await _reject_running_chat_deletion(workspace, data_targets)
     deleted = await mgr.delete_chats(chat_ids=[chat_id])
     if not deleted:
         raise HTTPException(

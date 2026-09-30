@@ -14,6 +14,7 @@ from fastapi import BackgroundTasks, HTTPException
 
 from qwenpaw.app.chats.api import (
     _delete_chat_data,
+    batch_delete_chats,
     delete_chat,
     get_chat,
     get_chat_messages,
@@ -40,7 +41,7 @@ def _workspace(store) -> SimpleNamespace:
         transcript_store=store,
         config=SimpleNamespace(backend="qwenpaw"),
         task_tracker=SimpleNamespace(
-            get_status=AsyncMock(return_value="idle"),
+            get_status=AsyncMock(return_value="running"),
         ),
     )
 
@@ -507,6 +508,7 @@ async def test_delete_keeps_data_while_another_chat_maps_same_session() -> (
 
     assert result == {"deleted": True}
     store.delete_session.assert_not_called()
+    workspace.task_tracker.get_status.assert_not_awaited()
     manager.delete_chats.assert_awaited_once_with(chat_ids=[first.id])
 
 
@@ -514,7 +516,7 @@ async def test_delete_keeps_data_while_another_chat_maps_same_session() -> (
 async def test_delete_rejects_running_chat() -> None:
     manager = SimpleNamespace(
         get_chat=AsyncMock(return_value=_chat()),
-        list_chats=AsyncMock(),
+        list_chats=AsyncMock(return_value=[_chat()]),
         delete_chats=AsyncMock(),
     )
     workspace = SimpleNamespace(
@@ -531,5 +533,29 @@ async def test_delete_rejects_running_chat() -> None:
         )
 
     assert raised.value.status_code == 409
-    manager.list_chats.assert_not_awaited()
+    manager.list_chats.assert_awaited_once_with(archived=None)
+    manager.delete_chats.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_batch_delete_rejects_running_chat() -> None:
+    chat = _chat()
+    manager = SimpleNamespace(
+        list_chats=AsyncMock(return_value=[chat]),
+        delete_chats=AsyncMock(),
+    )
+    workspace = SimpleNamespace(
+        task_tracker=SimpleNamespace(
+            get_status=AsyncMock(return_value="running"),
+        ),
+    )
+
+    with pytest.raises(HTTPException) as raised:
+        await batch_delete_chats(
+            chat_ids=[chat.id],
+            mgr=manager,
+            workspace=workspace,
+        )
+
+    assert raised.value.status_code == 409
     manager.delete_chats.assert_not_awaited()
