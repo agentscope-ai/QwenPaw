@@ -15,11 +15,23 @@ function compactNumber(value: unknown): string {
   return Number.isFinite(n) ? String(n) : "";
 }
 
+// Backend tags automatic memory recall tool calls with
+// auto_memory_search_hidden=true in their metadata. Skip rendering those
+// entirely so users never see the auto-search artifact on the timeline.
+function isAutoMemorySearchHidden(content: ToolCallContent): boolean {
+  const meta = (content as { metadata?: unknown }).metadata;
+  if (!meta || typeof meta !== "object") return false;
+  return Boolean((meta as Record<string, unknown>).auto_memory_search_hidden);
+}
+
 const MemorySearchCard: React.FC<MemorySearchCardProps> = ({
   content,
   isStreaming,
 }) => {
   const { t } = useTranslation();
+  if (isAutoMemorySearchHidden(content)) {
+    return null;
+  }
   const params = content.params || {};
   const query = (params.query || params.text || "") as string;
   const queryShort = query.length > 20 ? query.slice(0, 20) + "…" : query;
