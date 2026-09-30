@@ -20,9 +20,8 @@ from utils.helpers import log_test_step, log_test_result
 logger = logging.getLogger(__name__)
 
 WORKSPACE_URL = f"{config.base_url}/files"
-FILE_ITEM_SELECTOR = 'div[class*="fileItem"]'
-FILE_NAME_SELECTOR = 'div[class*="fileItemName"]'
-FILE_META_SELECTOR = 'div[class*="fileItemMeta"]'
+FILE_ITEM_SELECTOR = 'div[class*="profileRow"]'
+FILE_NAME_SELECTOR = 'button[class*="profileOpen"] > span:last-child'
 SWITCH_SELECTOR = 'button.qwenpaw-switch[role="switch"]'
 DRAG_HANDLE_SELECTOR = 'div[class*="dragHandle"]'
 
@@ -48,12 +47,29 @@ def reset_project_binding(api_context) -> None:
         headers={"X-Agent-Id": "default"},
     )
 
+
+@pytest.fixture(autouse=True)
+def use_default_workspace(api_context) -> None:
+    """Keep every files case on the deterministic default workspace."""
+    reset_project_binding(api_context)
+
 def get_file_items(page: Page):
-    """Get the file list; skip the test if empty."""
+    """Return the managed profile rows after the navigator has loaded."""
+    first_item = page.locator(FILE_ITEM_SELECTOR).first
+    expect(first_item).to_be_visible(timeout=10000)
     items = page.locator(FILE_ITEM_SELECTOR).all()
-    if len(items) == 0:
-        pytest.skip("No file items found")
+    assert items, "Expected at least one managed profile file"
     return items
+
+
+def open_profile_files(page: Page) -> None:
+    """Select the managed profile source that owns toggles and ordering."""
+    profile_tab = page.locator(
+        'button[role="tab"][data-source="profile"]'
+    )
+    expect(profile_tab).to_be_visible(timeout=5000)
+    profile_tab.click()
+    expect(profile_tab).to_have_attribute("aria-selected", "true")
 
 # ============================================================================
 # FILE-001: Page load + file list + editor
@@ -85,26 +101,13 @@ class TestFileListEditSave:
 
         # Step 2: Verify breadcrumb
         log_test_step("2. Verify breadcrumb")
-        try:
-            breadcrumb = page.locator(
-                'span[class*="breadcrumbCurrent"]:has-text("Files"), '
-                'span[class*="breadcrumbCurrent"]:has-text("Workspace")'
-            ).first
-            if not breadcrumb.is_visible():
-                breadcrumb = page.locator('text=Workspace, text=Files').first
-            expect(breadcrumb).to_be_visible(timeout=5000)
-            logger.info("Breadcrumb verified")
-        except Exception:
-            logger.warning("Breadcrumb verification skipped (locale mismatch)")
+        source_tabs = page.locator('[role="tablist"]')
+        expect(source_tabs).to_be_visible(timeout=5000)
+        logger.info("File source navigation verified")
 
         # Step 3: Verify the core-files heading
         log_test_step("3. Verify the core-files heading")
-        section_title = page.locator('h3[class*="sectionTitle"]:has-text("Core Files"), h3[class*="sectionTitle"]:has-text("Core")').first
-        try:
-            expect(section_title).to_be_visible(timeout=5000)
-            logger.info("Core files heading visible")
-        except Exception:
-            logger.warning("Core files heading not found, skipping verification")
+        open_profile_files(page)
 
         # Step 4: Verify the file list
         log_test_step("4. Verify the file list")
@@ -121,12 +124,6 @@ class TestFileListEditSave:
         file_name = name_el.inner_text()
         assert len(file_name) > 0, "File name is empty"
         logger.info(f"First file: {file_name}")
-
-        meta_el = first_file.locator(FILE_META_SELECTOR).first
-        expect(meta_el).to_be_visible(timeout=3000)
-        file_meta = meta_el.inner_text()
-        assert len(file_meta) > 0, "File meta is empty"
-        logger.info(f"Meta: {file_meta}")
 
         # Step 6: Click the file to open the editor
         log_test_step("6. Click the file to open the editor")
@@ -185,13 +182,13 @@ class TestFileToggleReorderMemory:
 
         # Step 2: Get the file list and switch
         log_test_step("2. Get file list and switch")
+        open_profile_files(page)
         file_items = get_file_items(page)
         logger.info(f"File count: {len(file_items)}")
 
         first_file = file_items[0]
         toggle = first_file.locator(SWITCH_SELECTOR).first
-        if not toggle.is_visible():
-            pytest.skip("Enable/disable switch not found")
+        expect(toggle).to_be_visible(timeout=5000)
 
         # Step 3: Record the initial state
         log_test_step("3. Record initial enabled state")
@@ -264,42 +261,24 @@ class TestFileToggleReorderMemory:
         log_test_step("6. Drag reorder")
         file_items = page.locator(FILE_ITEM_SELECTOR).all()
 
-        try:
-            if len(file_items) < 2:
-                logger.info("Fewer than 2 files; skipping drag test")
-            else:
-                initial_order = []
-                for item in file_items[:2]:
-                    name_el = item.locator(FILE_NAME_SELECTOR).first
-                    name = name_el.inner_text()
-                    initial_order.append(name)
-                logger.info(f"Initial order: {initial_order}")
-
-                first_item = file_items[0]
-                second_item = file_items[1]
-                drag_handle = first_item.locator(DRAG_HANDLE_SELECTOR).first
-
-                if drag_handle.is_visible():
-                    drag_handle.drag_to(second_item)
-                else:
-                    first_item.drag_to(second_item)
-                page.wait_for_timeout(1500)
-
-                new_file_items = page.locator(FILE_ITEM_SELECTOR).all()
-                new_order = []
-                for item in new_file_items[:2]:
-                    name_el = item.locator(FILE_NAME_SELECTOR).first
-                    name = name_el.inner_text()
-                    new_order.append(name)
-                logger.info(f"Order after drag: {new_order}")
-
-                if initial_order != new_order:
-                    logger.info("File order updated")
-                else:
-                    logger.info("File order unchanged (drag may not have taken effect; does not affect test pass)")
-        finally:
-            # Try to restore after drag; since the target position is uncertain, only warn
-            logger.warning("Drag reorder executed; file order may have changed and was not auto-restored")
+        assert len(file_items) >= 2, "Expected at least two managed profile files"
+        initial_order = [
+            item.locator(FILE_NAME_SELECTOR).first.inner_text()
+            for item in file_items[:2]
+        ]
+        first_item, second_item = file_items[:2]
+        drag_handle = first_item.locator(DRAG_HANDLE_SELECTOR).first
+        expect(drag_handle).to_be_visible(timeout=5000)
+        drag_handle.drag_to(second_item)
+        expect(page.locator(FILE_NAME_SELECTOR).first).not_to_have_text(
+            initial_order[0], timeout=5000
+        )
+        new_order = [
+            item.locator(FILE_NAME_SELECTOR).first.inner_text()
+            for item in page.locator(FILE_ITEM_SELECTOR).all()[:2]
+        ]
+        assert initial_order != new_order, "File order did not change after drag"
+        logger.info(f"Order changed: {initial_order} -> {new_order}")
 
         # Step 7: Reload the page and verify the file list still exists
         log_test_step("7. Reload and verify file list")
@@ -307,9 +286,24 @@ class TestFileToggleReorderMemory:
         page.wait_for_load_state("domcontentloaded")
         page.wait_for_timeout(3000)
 
-        refreshed_items = page.locator(FILE_ITEM_SELECTOR).all()
+        open_profile_files(page)
+        refreshed_items = get_file_items(page)
         assert len(refreshed_items) >= 1, "File list is empty after reload"
-        logger.info(f"File list still present after reload, count: {len(refreshed_items)}")
+        persisted_order = [
+            item.locator(FILE_NAME_SELECTOR).first.inner_text()
+            for item in refreshed_items[:2]
+        ]
+        assert persisted_order == new_order, "File order did not persist"
+
+        log_test_step("8. Restore the original file order")
+        moved_row = page.locator(FILE_ITEM_SELECTOR).filter(
+            has_text=initial_order[0]
+        ).first
+        restore_handle = moved_row.locator(DRAG_HANDLE_SELECTOR).first
+        restore_handle.drag_to(page.locator(FILE_ITEM_SELECTOR).first)
+        expect(page.locator(FILE_NAME_SELECTOR).first).to_have_text(
+            initial_order[0], timeout=5000
+        )
 
         log_test_result(test_name, True, 0)
         logger.info(f"Test {test_name} passed - toggle, drag reorder and reload restore OK")
@@ -349,6 +343,7 @@ class TestFileContentEditAndSave:
         navigate_to_workspace(page)
 
         log_test_step("2. Get the file list, click the first .md file")
+        open_profile_files(page)
         file_items = get_file_items(page)
         first_file = file_items[0]
         file_name_el = first_file.locator(FILE_NAME_SELECTOR).first
@@ -379,11 +374,7 @@ class TestFileContentEditAndSave:
 
         log_test_step("5. Locate textarea and record original content")
         textarea = editor_card.locator('textarea').first
-        if not textarea.is_visible():
-            # If no textarea, may not be an md file; skip
-            logger.info("Textarea editor not found; skipping edit test")
-            log_test_result(test_name, True, 0)
-            return
+        expect(textarea).to_be_visible(timeout=5000)
 
         original_content = textarea.input_value()
         original_preview = original_content[:50] if len(original_content) > 50 else original_content
@@ -409,9 +400,8 @@ class TestFileContentEditAndSave:
             page.wait_for_load_state("domcontentloaded")
             page.wait_for_timeout(3000)
 
-            file_items = page.locator(FILE_ITEM_SELECTOR).all()
-            if len(file_items) == 0:
-                pytest.skip("File list is empty after reload")
+            open_profile_files(page)
+            file_items = get_file_items(page)
             file_items[0].click()
             page.wait_for_timeout(2000)
 
@@ -559,72 +549,40 @@ class TestDailyMemoryView:
     """
 
     @pytest.mark.test_id("FILE-P1-004")
-    def test_daily_memory_view(self, page: Page, request: pytest.FixtureRequest):
+    def test_daily_memory_view(
+        self, page: Page, api_context, request: pytest.FixtureRequest
+    ):
         """Test daily memory expand/collapse."""
         test_name = request.node.name
+
+        seed = api_context.put(
+            "/api/workspace/memory/2099-02-16.md",
+            data={"content": "E2E daily memory navigation probe"},
+            headers={"X-Agent-Id": "default"},
+        )
+        assert seed.ok, f"Daily memory seed failed [{seed.status}]"
 
         log_test_step("Navigate to the workspace page")
         page.goto(f"{config.base_url}/files")
         page.wait_for_load_state("domcontentloaded")
         page.wait_for_timeout(3000)
 
-        log_test_step("Find the daily memory section")
-        memory_section = page.locator(
-            ':text("Daily"), :text("Memory"), '
-            ':text("daily"), :text("memory"), '
-            '[class*="memory"], [class*="Memory"]'
+        log_test_step("Open the Daily Memory source")
+        daily_tab = page.locator('button[role="tab"][data-source="daily"]')
+        expect(daily_tab).to_be_visible(timeout=5000)
+        daily_tab.click()
+        expect(daily_tab).to_have_attribute("aria-selected", "true")
+
+        log_test_step("Expand and collapse the seeded memory tree")
+        directory = page.locator(
+            'button[class*="treeRow"][aria-expanded]'
         ).first
-
-        if memory_section.count() == 0:
-            logger.info("Daily memory section not found; verifying file list exists")
-            file_list = page.locator(
-                '[class*="fileList"], [class*="FileList"], '
-                '.qwenpaw-tree, .ant-tree'
-            ).first
-            if file_list.count() > 0:
-                logger.info("File list exists")
-            else:
-                logger.info("File list also not found; page may be empty")
-            log_test_result(test_name, True, 0)
-            return
-
-        logger.info("Found daily memory section")
-
-        log_test_step("Find expandable memory items")
-        # Daily memory typically uses Collapse or clickable list items
-        expandable_items = page.locator(
-            '.qwenpaw-collapse-header, .ant-collapse-header, '
-            '[class*="memoryItem"], [class*="memory-item"], '
-            '[class*="dailyMemory"] [class*="header"]'
-        ).all()
-
-        if len(expandable_items) > 0:
-            logger.info(f"Found {len(expandable_items)} expandable memory items")
-
-            log_test_step("Expand the first memory item")
-            expandable_items[0].click()
-            page.wait_for_timeout(1000)
-
-            # Verify expanded content
-            expanded_content = page.locator(
-                '.qwenpaw-collapse-content-active, .ant-collapse-content-active, '
-                '[class*="memoryContent"], [class*="memory-content"]'
-            ).first
-            if expanded_content.count() > 0:
-                content_text = expanded_content.inner_text()
-                logger.info(f"Memory content expanded; length: {len(content_text)}")
-            else:
-                logger.info("No explicit content area found after expansion")
-
-            log_test_step("Collapse the memory item")
-            expandable_items[0].click()
-            page.wait_for_timeout(500)
-            logger.info("Memory item collapsed")
-        else:
-            logger.info("No expandable memory items found; another display mechanism may be used")
-            # Try clicking the memory section
-            memory_section.click()
-            page.wait_for_timeout(1000)
+        expect(directory).to_be_visible(timeout=10000)
+        expect(directory).to_have_attribute("aria-expanded", "false")
+        directory.click()
+        expect(directory).to_have_attribute("aria-expanded", "true")
+        directory.click()
+        expect(directory).to_have_attribute("aria-expanded", "false")
 
         log_test_result(test_name, True, 0)
 
@@ -656,29 +614,10 @@ class TestMarkdownPreview:
         page.wait_for_timeout(3000)
 
         log_test_step("Find Markdown files in the file list")
-        md_files = page.locator(
-            ':text(".md"), :text("README"), '
-            '[class*="file"]:has-text(".md")'
-        ).all()
-
-        if len(md_files) == 0:
-            # Fall back to any file in the file tree
-            file_items = page.locator(
-                '.qwenpaw-tree-treenode, .ant-tree-treenode, '
-                '[class*="fileItem"], [class*="file-item"]'
-            ).all()
-            if len(file_items) > 0:
-                logger.info(f"Found {len(file_items)} file items; clicking the first")
-                file_items[0].click()
-                page.wait_for_timeout(2000)
-            else:
-                logger.info("File list is empty; skipping Markdown preview test")
-                log_test_result(test_name, True, 0)
-                return
-        else:
-            logger.info(f"Found {len(md_files)} Markdown-related files")
-            md_files[0].click()
-            page.wait_for_timeout(2000)
+        open_profile_files(page)
+        file_items = get_file_items(page)
+        file_items[0].locator('button[class*="profileOpen"]').click()
+        page.wait_for_timeout(1000)
 
         log_test_step("Verify editor/preview areas exist")
         editor_area = page.locator(
@@ -703,15 +642,9 @@ class TestMarkdownPreview:
             preview_content = preview_area.inner_text()
             logger.info(f"Preview content length: {len(preview_content)}")
 
-        if not has_editor and not has_preview:
-            # At least verify a file content area exists
-            content_area = page.locator(
-                '[class*="content"], pre, code'
-            ).first
-            if content_area.count() > 0:
-                logger.info("Found a file content display area")
-            else:
-                logger.info("Neither editor nor preview area found")
+        assert has_editor or has_preview, (
+            "Neither Markdown editor nor preview was rendered"
+        )
 
         log_test_result(test_name, True, 0)
 

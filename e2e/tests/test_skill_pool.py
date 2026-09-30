@@ -103,9 +103,7 @@ class TestSkillPoolSearch:
         initial_count = len(skill_cards)
         logger.info(f"Skill count before search: {initial_count}")
         if initial_count == 0:
-            logger.info("Skill pool has no data, skipping search filter assertion")
-            log_test_result(test_name, True, 0)
-            return
+            raise AssertionError("Expected skill pool data for search validation")
 
         log_test_step("Enter search keyword")
         search_input.fill("nonexistent_skill_xyz")
@@ -161,9 +159,7 @@ class TestSkillPoolInstall:
         ).first
 
         if broadcast_btn.count() == 0:
-            logger.info("Broadcast button not found, skipping test")
-            log_test_result(test_name, True, 0)
-            return
+            raise AssertionError("Skill broadcast button not found")
 
         expect(broadcast_btn).to_be_visible(timeout=5000)
         logger.info("Broadcast button exists")
@@ -254,9 +250,7 @@ class TestSkillPoolBroadcast:
         ).first
 
         if broadcast_btn.count() == 0:
-            logger.info("Broadcast button not found, skipping test")
-            log_test_result(test_name, True, 0)
-            return
+            raise AssertionError("Skill broadcast button not found")
 
         broadcast_btn.click()
         page.wait_for_timeout(3000)
@@ -342,9 +336,7 @@ class TestSkillPoolBatchDelete:
         ).first
 
         if batch_btn.count() == 0:
-            logger.info("Batch operation button not found, skipping test")
-            log_test_result(test_name, True, 0)
-            return
+            raise AssertionError("Skill batch operation button not found")
 
         expect(batch_btn).to_be_visible(timeout=5000)
         logger.info("Batch operation button exists")
@@ -433,20 +425,7 @@ class TestSkillPoolZipImport:
             log_test_step("1. Navigate to skill pool page")
             navigate_to_skill_pool(page)
 
-            log_test_step("2. Find ZIP upload button")
-            upload_btn = page.locator(
-                'button:has-text("zip"), button:has-text("ZIP"), '
-                'button:has-text("上传"), button:has-text("Upload"), '
-                'button:has(.anticon-upload)'
-            ).first
-
-            if upload_btn.count() == 0:
-                pytest.skip("ZIP upload button not found, skipping test")
-
-            expect(upload_btn).to_be_visible(timeout=5000)
-            logger.info("ZIP upload button exists")
-
-            log_test_step("3. Verify hidden file input")
+            log_test_step("2. Verify the ZIP input wired to Add Skill")
             file_input = page.locator(
                 'input[type="file"][accept=".zip"], '
                 'input[type="file"][accept*="zip"]'
@@ -457,12 +436,12 @@ class TestSkillPoolZipImport:
             assert ".zip" in accept_attr, f"File input accept attribute does not include .zip: {accept_attr}"
             logger.info(f"File input accept={accept_attr}")
 
-            log_test_step("4. Record initial skill count")
+            log_test_step("3. Record initial skill count")
             initial_cards = page.locator(SkillPoolPage.SKILL_CARD).all()
             initial_count = len(initial_cards)
             logger.info(f"Initial skill count: {initial_count}")
 
-            log_test_step("5. Create temporary zip file")
+            log_test_step("4. Create temporary zip file")
             skill_content = f"""---
 name: {skill_name}
 description: E2E test skill uploaded via zip to skill pool
@@ -473,25 +452,25 @@ description: E2E test skill uploaded via zip to skill pool
 This is a test skill uploaded via zip for E2E testing.
 """
             temp_dir = tempfile.mkdtemp()
-            md_path = os.path.join(temp_dir, f"{skill_name}.md")
+            md_path = os.path.join(temp_dir, "SKILL.md")
             zip_path = os.path.join(temp_dir, f"{skill_name}.zip")
 
             with open(md_path, "w", encoding="utf-8") as md_file:
                 md_file.write(skill_content)
 
             with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
-                zf.write(md_path, f"{skill_name}.md")
+                zf.write(md_path, "SKILL.md")
 
             logger.info(f"Temporary zip file created: {zip_path}")
 
-            log_test_step("6. Upload zip file via hidden input")
+            log_test_step("5. Upload zip file via hidden input")
             file_input.set_input_files(zip_path)
             logger.info("Uploaded zip file via set_input_files")
 
             # Wait for upload to finish processing
             page.wait_for_timeout(5000)
 
-            log_test_step("7. Verify upload result")
+            log_test_step("6. Verify upload result")
             # Check for success message
             success_message = page.locator(
                 '.qwenpaw-message-success, '
@@ -520,7 +499,9 @@ This is a test skill uploaded via zip for E2E testing.
                     skill_uploaded = True
                     logger.info("Skill count increased, upload likely succeeded")
                 else:
-                    logger.warning("No new skill detected; upload may have failed or name mismatch")
+                    raise AssertionError(
+                        "Uploaded skill was absent and the skill count did not increase"
+                    )
 
             log_test_result(test_name, True, 0)
             logger.info(f"Test {test_name} passed - skill pool ZIP import validation passed")
@@ -593,9 +574,6 @@ class TestSkillPoolBuiltinImport:
             'button:has-text("更新")'
         ).first
 
-        if builtin_btn.count() == 0:
-            pytest.skip("Builtin skill import button not found, skipping test")
-
         expect(builtin_btn).to_be_visible(timeout=5000)
         logger.info("Builtin skill import button exists")
 
@@ -604,21 +582,10 @@ class TestSkillPoolBuiltinImport:
 
         # Check if a dialog/drawer opened, or import ran directly
         modal_or_drawer = page.locator('.qwenpaw-modal, .ant-modal, .qwenpaw-drawer, .ant-drawer, [role="dialog"]').last
-        if modal_or_drawer.count() > 0:
-            try:
-                expect(modal_or_drawer).to_be_visible(timeout=5000)
-                logger.info("Builtin skill import dialog opened")
-                page.keyboard.press("Escape")
-                page.wait_for_timeout(500)
-            except Exception:
-                logger.info("Dialog exists but not visible, may have auto-closed")
-        else:
-            # Possibly the click triggered import directly (no dialog)
-            success_msg = page.locator('.qwenpaw-message-success, .ant-message-success').first
-            if success_msg.count() > 0:
-                logger.info("Builtin skill import executed (no dialog confirmation)")
-            else:
-                logger.info("No dialog appeared after click, may be running in background")
+        expect(modal_or_drawer).to_be_visible(timeout=5000)
+        logger.info("Builtin skill import dialog opened")
+        page.keyboard.press("Escape")
+        page.wait_for_timeout(500)
 
         log_test_result(test_name, True, 0)
 

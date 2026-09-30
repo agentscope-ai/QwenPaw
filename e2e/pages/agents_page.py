@@ -81,7 +81,7 @@ class AgentsPage(BasePage):
         'button[aria-label="Enable"], button[aria-label="Disable"], '
         'button[aria-label="启用"], button[aria-label="禁用"]'
     )
-    DELETE_BTN = 'button:has-text("Delete"), button:has-text("删除")'
+    DELETE_BTN = 'button[aria-label="Delete"], button[aria-label="删除"]'
     ENABLE_TOGGLE = TOGGLE_BTN
     REFRESH_BTN = 'button:has(.anticon-reload), button:has(.spark-icon-spark-refresh-line)'
 

@@ -162,11 +162,9 @@ class TestMultiTabQueueBanner:
                 "session_id": f"{config.test.channel}:{config.test.user_id}",
             },
         )
-        if not seed.ok:
-            pytest.skip(f"chat seed failed ({seed.status}); cannot test banner")
+        assert seed.ok, f"Chat seed failed [{seed.status}]: {seed.text()}"
         chat_id = (seed.json() or {}).get("id")
-        if not chat_id:
-            pytest.skip("chat seed returned no id; cannot test banner")
+        assert chat_id, "Chat seed response did not contain an id"
 
         session_url = f"{config.base_url}/chat/{chat_id}"
         page2 = None

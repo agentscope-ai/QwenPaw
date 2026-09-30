@@ -226,7 +226,9 @@ class TestLoginFormValidation:
         ).first
 
         if not submit_btn.is_visible(timeout=3000):
-            logger.info("No login form found (auth may be disabled), skipping form validation test")
+            assert "/login" not in page.url, (
+                "Login route remained active without rendering a login form"
+            )
             log_test_result(test_name, True, 0)
             return
 
@@ -283,7 +285,9 @@ class TestLoginFormValidation:
         ).first
 
         if not submit_btn.is_visible(timeout=3000):
-            logger.info("No login form found (auth may be disabled), skipping test")
+            assert "/login" not in page.url, (
+                "Login route remained active without rendering a login form"
+            )
             log_test_result(test_name, True, 0)
             return
 

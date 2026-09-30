@@ -122,6 +122,11 @@ class ChatPage(BasePage):
         '[class*="sessionItem-module__active"], '
         '[class*=chatSessionItem][class*=active]'
     )
+    SESSION_PINNED = (
+        'div[role="button"][class*="sessionItem-module__item"]'
+        '[data-pinned="true"], '
+        '[class*=chatSessionItem][data-pinned="true"]'
+    )
     # Session title element: ``<div className={styles.name}>``. Scoped to
     # ``sessionItem-module__name`` on purpose — a bare ``[class*=name]`` also
     # matches the sibling ``styles.renameInput`` element ("re**name**Input"),
@@ -1263,22 +1268,16 @@ class ChatPage(BasePage):
         self.step_shot(f"delete_session_{index}_done")
         return self
 
-    def verify_pinned_session(self) -> bool:
-        """Verify the top session is pinned.
-
-        A pinned session's more-menu shows "Unpin" instead of "Pin"; we
-        re-open the first session's menu and look for that item.
-        """
-        if not self._open_session_menu(0):
-            return False
-        unpin = self.page.locator(self.SESSION_MENU_UNPIN).first
-        result = unpin.count() > 0 and unpin.is_visible()
+    def verify_pinned_session(self, session_name: str) -> bool:
+        """Wait until the named session exposes its pinned state."""
+        pinned = self.page.locator(self.SESSION_PINNED).filter(
+            has_text=session_name,
+        ).first
         try:
-            self.page.keyboard.press("Escape")
-        except Exception:
-            pass
-        self.wait(300)
-        return result
+            pinned.wait_for(state="visible", timeout=self.timeout)
+            return pinned.get_attribute("data-pinned") == "true"
+        except TimeoutError:
+            return False
 
     def open_session_search(self) -> "ChatPage":
         """Reveal the conversation search box in the sidebar session list.

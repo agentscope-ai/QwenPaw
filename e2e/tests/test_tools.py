@@ -431,8 +431,7 @@ class TestToolAsyncSwitch:
 
         log_test_step("Find tool cards")
         tool_cards = page.locator('.qwenpaw-card, [class*="toolCard"]').all()
-        if len(tool_cards) == 0:
-            pytest.skip("No tool cards found, skipping test")
+        assert tool_cards, "Expected at least one tool card"
         logger.info(f"Found {len(tool_cards)} tool cards")
 
         log_test_step("Find the async-execute toggle")

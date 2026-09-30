@@ -834,8 +834,7 @@ class TestAgentSwitcherInChat:
             api_context, agent_name, description="switcher probe"
         )
         agent_id = (created or {}).get("id")
-        if not agent_id:
-            pytest.skip(f"agent seed failed: {created!r}")
+        assert agent_id, f"Agent seed failed: {created!r}"
 
         try:
             log_test_step("2. Open /chat — AgentSelector mounts and fetches")

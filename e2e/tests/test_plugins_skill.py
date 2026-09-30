@@ -82,9 +82,7 @@ class TestSkillInstallationAndLoading:
             SkillPoolPage.SKILL_CARD
         ).first
         if skill_card.count() == 0:
-            logger.warning("No skill cards found; skipping skill installation test")
-            log_test_result(test_name, True, 0)
-            return
+            raise AssertionError("Expected at least one skill card")
 
         skill_name = skill_card.inner_text()[:50]
         logger.info(f"Found skill: {skill_name}")
@@ -98,9 +96,7 @@ class TestSkillInstallationAndLoading:
             clean_chat_page.page.wait_for_timeout(3000)
             logger.info("Skill installation triggered")
         else:
-            logger.warning("Install button not found")
-            log_test_result(test_name, True, 0)
-            return
+            raise AssertionError("Skill install button not found")
 
         log_test_step("4. Verify skill appears in installed skills list")
         # Navigate to installed skills or check current page
@@ -214,9 +210,7 @@ class TestSkillPoolBrowsing:
         assert card_count >= 0, "Skill cards should be present (may be 0)"
         logger.info(f"Found {card_count} skill cards")
 
-        if card_count == 0:
-            log_test_result(test_name, True, 0)
-            return
+        assert card_count > 0, "Expected at least one skill pool card"
 
         log_test_step("3. Filter by category")
         # Look for filter tabs

@@ -309,8 +309,14 @@ class TestModelServe:
         model_items = page.locator('[class*=modelItem], .qwenpaw-list-item, .qwenpaw-card').all()
 
         if len(model_items) == 0:
-            logger.info("No downloaded models, skipping start-service test")
-            pytest.skip("No downloaded models")
+            empty_state = page.locator(
+                '.qwenpaw-empty, [class*=empty]:has-text("model"), '
+                '[class*=empty]:has-text("模型")'
+            ).first
+            expect(empty_state).to_be_visible(timeout=5000)
+            logger.info("No downloaded models; verified the explicit empty state")
+            log_test_result(test_name, True, 0)
+            return
 
         logger.info(f"Found {len(model_items)} model items")
 
@@ -528,8 +534,8 @@ class TestCustomProviderCreateAndDelete:
         created_tile = (
             f"[class*=groupCardGlass]:has-text('{provider_name}'), "
             f"[class*=groupCardGlass]:has-text('{provider_id}'), "
-            f"div[class*=availableItem]:has-text('{provider_name}'), "
-            f"div[class*=availableItem]:has-text('{provider_id}')"
+            f"button[class*=availableItem]:has-text('{provider_name}'), "
+            f"button[class*=availableItem]:has-text('{provider_id}')"
         )
         try:
             page.wait_for_selector(created_tile, timeout=10000)
@@ -621,8 +627,7 @@ class TestProviderConfigAndConnection:
             log_test_step("Create a new test provider for the config test")
             add_provider_btn = page.locator("button:has-text('Add Provider'), button:has-text('添加提供商')").first
             if add_provider_btn.count() == 0:
-                logger.info("Add provider button not found, skipping test")
-                return
+                raise AssertionError("Add Provider button not found")
 
             add_provider_btn.click()
             page.wait_for_timeout(1500)
@@ -735,7 +740,7 @@ class TestProviderSearchFilter:
         # backends have nothing configured but the Available section is
         # populated. Match the union.
         provider_tile = (
-            '[class*=groupCardGlass], div[class*=availableItem]'
+            '[class*=groupCardGlass], button[class*=availableItem]'
         )
 
         log_test_step("Record Provider count before search")
@@ -808,7 +813,7 @@ class TestModelActivation:
         # v2.0.0 (PR #5203) — configured providers use `.groupCardGlass`;
         # unconfigured providers render as `.availableItem` tiles in the
         # Available section. Match either.
-        provider_tile = '[class*=groupCardGlass], div[class*=availableItem]'
+        provider_tile = '[class*=groupCardGlass], button[class*=availableItem]'
 
         log_test_step("Find an available Provider card")
         # Provider data loads asynchronously; wait for the first tile to
@@ -893,12 +898,10 @@ class TestOpenRouterFilter:
         # `.availableItem` or Configured section `.groupCardGlass`) rather
         # than the label text span, which is not clickable.
         openrouter_card = page.locator(
-            'div[class*=availableItem]:has-text("OpenRouter"), '
+            'button[class*=availableItem]:has-text("OpenRouter"), '
             '[class*=groupCardGlass]:has-text("OpenRouter")'
         ).first
-        if openrouter_card.count() == 0:
-            pytest.skip("OpenRouter Provider not found, skipping test")
-
+        expect(openrouter_card).to_be_visible(timeout=10000)
         logger.info("OpenRouter Provider found")
         openrouter_card.click()
 
@@ -913,19 +916,10 @@ class TestOpenRouterFilter:
             '.qwenpaw-modal:has-text("Base URL"), '
             '.ant-modal:has-text("Base URL")'
         ).first
-        try:
-            expect(config_modal).to_be_visible(timeout=10000)
-            logger.info("OpenRouter configuration modal opened")
-            page.keyboard.press("Escape")
-            page.wait_for_timeout(500)
-        except Exception:
-            # Some builds may surface the config inline instead of a modal;
-            # a visible OpenRouter tile that responded to the click is still
-            # acceptable for this smoke-level check.
-            logger.info(
-                "No standalone OpenRouter modal detected after click; "
-                "tile is present and clickable, which suffices"
-            )
+        expect(config_modal).to_be_visible(timeout=10000)
+        logger.info("OpenRouter configuration modal opened")
+        page.keyboard.press("Escape")
+        page.wait_for_timeout(500)
 
         log_test_result(test_name, True, 0)
 
@@ -951,9 +945,10 @@ class TestModelJsonEditor:
         page.wait_for_timeout(3000)
 
         log_test_step("Find Provider cards")
-        provider_cards = page.locator('.qwenpaw-card').all()
-        if len(provider_cards) == 0:
-            pytest.skip("No Provider cards found, skipping test")
+        provider_cards = page.locator(
+            '[class*=groupCardGlass], button[class*=availableItem]'
+        ).all()
+        assert provider_cards, "Expected at least one provider card"
 
         log_test_step("Click the first Provider's settings button")
         settings_btn = page.locator(

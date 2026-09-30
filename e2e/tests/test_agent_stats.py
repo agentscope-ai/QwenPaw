@@ -610,9 +610,7 @@ class TestAgentStatsCardTooltip:
             ).all()
 
             if len(cards) == 0:
-                logger.info("No summary cards found, skipping tooltip validation")
-                log_test_result(test_name, True, 0)
-                return
+                raise AssertionError("Expected at least one summary card")
 
             # 3. Hover on info icon of the first card
             log_test_step("3. Hover to see tooltip")

@@ -81,20 +81,14 @@ class TestACPProtocolIntegration:
         )
         card_count = acp_cards.count()
         logger.info(f"Found {card_count} ACP cards")
-        assert card_count >= 0, "ACP cards should be present (may be 0)"
-
-        if card_count == 0:
-            log_test_result(test_name, True, 0)
-            return
+        assert card_count > 0, "Expected at least one ACP card"
 
         log_test_step("3. Create a new ACP configuration")
         create_btn = clean_chat_page.page.locator(
             'button:has-text("Create"), button:has-text("创建")'
         ).first
         if create_btn.count() == 0:
-            logger.warning("Create button not found")
-            log_test_result(test_name, True, 0)
-            return
+            raise AssertionError("Create ACP button not found")
 
         create_btn.click()
         clean_chat_page.page.wait_for_timeout(2000)
@@ -252,9 +246,7 @@ class TestACPConfigEditDelete:
         acp_cards = clean_chat_page.page.locator(
             '[class*="acp-card"], [class*="ACPCard"]'
         )
-        if acp_cards.count() == 0:
-            log_test_result(test_name, True, 0)
-            return
+        assert acp_cards.count() > 0, "Expected at least one ACP card"
 
         first_card = acp_cards.first
         logger.info("Found ACP card")
@@ -268,9 +260,7 @@ class TestACPConfigEditDelete:
             clean_chat_page.page.wait_for_timeout(2000)
             logger.info("Edit button clicked")
         else:
-            logger.info("Edit button not found")
-            log_test_result(test_name, True, 0)
-            return
+            raise AssertionError("ACP edit button not found")
 
         log_test_step("4. Modify the command field")
         command_input = clean_chat_page.page.locator(

@@ -325,8 +325,7 @@ class TestSessionEditAndSave:
 
         log_test_step("2. Verify operable sessions exist")
         session_count = sessions_page.get_session_count()
-        if session_count == 0:
-            pytest.skip("No operable sessions")
+        assert session_count > 0, "Expected at least one operable session"
 
         first_row = sessions_page.page.locator(sessions_page.SESSION_TABLE_ROW).first
 
@@ -344,8 +343,7 @@ class TestSessionEditAndSave:
             fixed_row = sessions_page.page.locator('.qwenpaw-table-cell-fix-right button:has-text("Edit")').first
             if fixed_row.is_visible():
                 edit_btn = fixed_row
-        if not edit_btn.is_visible():
-            pytest.skip("Edit button not available")
+        expect(edit_btn).to_be_visible(timeout=5000)
 
         edit_btn.click()
 
@@ -366,7 +364,7 @@ class TestSessionEditAndSave:
                 name_input.fill(new_name)
                 logger.info(f"Entered new name: {new_name}")
             else:
-                pytest.skip("Name input not found")
+                raise AssertionError("Session name input not found")
 
         log_test_step("6. Click the save button")
         save_btn = sessions_page.page.locator(sessions_page.FORM_SUBMIT_BTN).first
@@ -376,7 +374,7 @@ class TestSessionEditAndSave:
             save_btn.click()
             logger.info("Clicked save button")
         else:
-            pytest.skip("Save button not found")
+            raise AssertionError("Session save button not found")
 
         log_test_step("7. Verify the drawer closes")
         expect(sessions_page.page.locator(sessions_page.SESSION_DRAWER).first).to_be_hidden(timeout=5000)
@@ -471,8 +469,9 @@ class TestSessionBatchDelete:
         # <tbody>, which the old bare "tbody tr" selector counted as a session
         # (11 instead of 10 rows), so the "at least 2" gate below was off by one.
         session_count = len(sessions_page.get_session_data_rows())
-        if session_count < 2:
-            pytest.skip(f"Insufficient sessions; need at least 2, have {session_count}")
+        assert session_count >= 2, (
+            f"Expected at least two sessions, found {session_count}"
+        )
 
         log_test_step("3. Tick checkboxes for the first two sessions")
         # Source: Table rowSelection; each data row has a checkbox.
@@ -483,8 +482,9 @@ class TestSessionBatchDelete:
         # click registers NO selection -- that silently shrank the batch from 2
         # ids to 1 (or to 0 on nightly), turning this into a single delete.
         row_checkboxes = sessions_page.page.locator(sessions_page.ROW_CHECKBOX).all()
-        if len(row_checkboxes) < 2:
-            pytest.skip(f"Not enough row checkboxes found; got {len(row_checkboxes)}")
+        assert len(row_checkboxes) >= 2, (
+            f"Expected at least two row checkboxes, found {len(row_checkboxes)}"
+        )
 
         checked_count = 0
         for i in range(min(2, len(row_checkboxes))):

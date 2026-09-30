@@ -86,9 +86,7 @@ class TestMCPListAndOperations:
         mcp_cards = page.locator(MCP_CARD_SELECTOR).all()
 
         if len(mcp_cards) == 0:
-            logger.info("MCP client list is empty, skipping card and toggle validation")
-            log_test_result(test_name, True, 0)
-            return
+            raise AssertionError("Expected at least one MCP client card")
 
         card_count = len(mcp_cards)
         assert card_count >= 1, "Should have at least 1 MCP client"
@@ -459,9 +457,7 @@ class TestMcpClientEdit:
         log_test_step("Find MCP client cards")
         mcp_cards = page.locator(MCP_CARD_SELECTOR).all()
         if len(mcp_cards) == 0:
-            logger.info("No MCP client cards, skipping edit test")
-            log_test_result(test_name, True, 0)
-            return
+            raise AssertionError("Expected at least one editable MCP client")
         logger.info(f"Found {len(mcp_cards)} MCP client cards")
 
         log_test_step("Click the first MCP card")

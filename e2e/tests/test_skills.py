@@ -940,14 +940,14 @@ description: E2E test skill uploaded via zip
 This is a test skill uploaded via zip for E2E testing.
 """
             temp_dir = tempfile.mkdtemp()
-            md_path = os.path.join(temp_dir, f"{skill_name}.md")
+            md_path = os.path.join(temp_dir, "SKILL.md")
             zip_path = os.path.join(temp_dir, f"{skill_name}.zip")
 
             with open(md_path, "w", encoding="utf-8") as md_file:
                 md_file.write(skill_content)
 
             with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
-                zf.write(md_path, f"{skill_name}.md")
+                zf.write(md_path, "SKILL.md")
 
             logger.info(f"Temporary zip file created: {zip_path}")
 
