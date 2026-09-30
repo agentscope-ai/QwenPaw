@@ -43,6 +43,7 @@ from qwenpawmail_mcp.imap_ops import (
     move_message as move_message_on_connection,
 )
 from qwenpawmail_mcp.providers import (
+    CUSTOM_PROVIDER,
     ENTERPRISE_PROVIDERS,
     PROVIDERS,
     ProviderCapabilities,
@@ -699,14 +700,21 @@ def build_wake_prompt(
     return prompt
 
 
-def resolve_imap_host(domain: str, provider: str = "") -> Optional[str]:
+def resolve_imap_host(
+    domain: str,
+    provider: str = "",
+    imap_host: str = "",
+) -> Optional[str]:
     """Return the IMAP host, or None when unsupported.
 
     A non-empty *provider* (custom-domain enterprise mail) takes
-    precedence over the *domain* table; unknown domains without a
-    provider return None so monitoring is skipped.
+    precedence over the *domain* table; the ``custom`` provider uses
+    the user-supplied *imap_host*.  Unknown domains without a provider
+    return None so monitoring is skipped.
     """
     provider_key = (provider or "").strip().lower()
+    if provider_key == CUSTOM_PROVIDER:
+        return (imap_host or "").strip() or None
     if provider_key:
         profile = ENTERPRISE_PROVIDERS.get(provider_key)
     else:
@@ -1097,7 +1105,16 @@ class MailMonitorService:
         self.auth_code = credential.auth_code
         self.domain = (credential.domain or "").strip().lower()
         self.provider = (credential.provider or "").strip().lower()
-        self.host = resolve_imap_host(self.domain, self.provider)
+        self.host = resolve_imap_host(
+            self.domain,
+            self.provider,
+            credential.imap_host,
+        )
+        self.imap_port = (
+            credential.imap_port
+            if self.provider == CUSTOM_PROVIDER and credential.imap_port
+            else 993
+        )
         provider_profile = provider_for_email(
             self.email_address,
         ) or provider_for_imap_host(self.host or "")
@@ -1550,7 +1567,7 @@ class MailMonitorService:
             )
         conn = imaplib.IMAP4_SSL(
             self.host,
-            993,
+            self.imap_port,
             timeout=_IMAP_NETWORK_TIMEOUT_SECONDS,
         )
         with self._connection_lock:

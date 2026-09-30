@@ -46,7 +46,11 @@ QwenPaw 当前的托管邮箱流程支持以下 9 个个人邮箱域名：
 | `aliyun.com`  | 阿里邮箱      | 邮箱登录密码      | `imap.aliyun.com:993` / `smtp.aliyun.com:465` |
 | `gmail.com`   | Gmail         | 16 位应用专用密码 | `imap.gmail.com:993` / `smtp.gmail.com:465`   |
 
-当前 QwenPaw 托管流程不支持企业邮箱、自定义域名和 Microsoft 邮箱。
+使用自定义域名的企业邮箱请选择托管该域名的服务商（腾讯企业邮、阿里企业邮或网易企业邮），QwenPaw 会使用该服务商的 IMAP/SMTP 地址。
+
+其他邮箱——自建邮件服务器或上表未列出的服务商——请选择 **其他（自定义服务器）**，并自行填写 IMAP 主机和 SMTP 主机；端口默认为 `993`（IMAP over SSL）和 `465`（SMTP over SSL），可按需修改。QwenPaw 仅通过 SSL/TLS 连接，`143`、`25` 等明文端口不可用。凭证为该服务器 IMAP/SMTP 登录所需的密码，通常即邮箱密码。新邮件监听与内置服务商的方式相同。
+
+Microsoft 邮箱（Outlook、Hotmail、Live、Office 365）因仅支持 OAuth2，暂不支持。
 
 > qwenpawmail MCP 子包也可以脱离 QwenPaw 独立使用。独立部署时可用
 > `QWENPAWMAIL_IMAP_HOST`、`QWENPAWMAIL_IMAP_PORT`、`QWENPAWMAIL_SMTP_HOST`

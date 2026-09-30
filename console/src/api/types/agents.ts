@@ -45,8 +45,14 @@ export interface AgentMailCredential {
   name: string;
   domain: string;
   // "" for whitelisted domains; enterprise provider id
-  // (tencent_exmail / aliyun_qiye / netease_qiye) for custom domains.
+  // (tencent_exmail / aliyun_qiye / netease_qiye) for custom domains;
+  // "custom" for a user-supplied IMAP/SMTP server.
   provider?: string;
+  // Only used with provider "custom"; ports default to 993 / 465.
+  imap_host?: string;
+  imap_port?: number | null;
+  smtp_host?: string;
+  smtp_port?: number | null;
   // Write-only: GET /agents/{id} intentionally omits mailbox secrets.
   auth_code?: string;
 }

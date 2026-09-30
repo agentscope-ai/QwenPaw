@@ -196,6 +196,10 @@ PROVIDERS: dict[str, Provider] = {
     ),
 }
 
+# Provider key for a mailbox whose IMAP/SMTP hosts are supplied by the user
+# instead of a built-in profile (self-hosted or any other mail server).
+CUSTOM_PROVIDER = "custom"
+
 # Explicit provider keys accepted for custom-domain enterprise mailboxes.
 # Endpoint and capability data remain owned by the domain registry above.
 ENTERPRISE_PROVIDERS: dict[str, Provider] = {
