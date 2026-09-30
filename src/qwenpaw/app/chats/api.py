@@ -997,12 +997,24 @@ async def get_chat_messages(
     ] = 2
     * 1024
     * 1024,
+    include_app_owned: bool = Query(
+        True,
+        description=(
+            "Allow reading PawApp-owned chat history. The main Chat surface "
+            "opts out so app dialogues stay inside their owning app."
+        ),
+    ),
     mgr: ChatManager = Depends(get_chat_manager),
     workspace=Depends(get_workspace),
 ) -> ChatMessagePage:
     """Return one byte-bounded page of durable chat messages."""
     chat = await mgr.get_chat(chat_id)
     if chat is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Chat not found: {chat_id}",
+        )
+    if not include_app_owned and _is_app_owned_chat(chat):
         raise HTTPException(
             status_code=404,
             detail=f"Chat not found: {chat_id}",

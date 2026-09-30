@@ -252,10 +252,11 @@ describe("chatApi CRUD", () => {
       before: "42:0",
       limit: 25,
       signal: controller.signal,
+      include_app_owned: false,
     });
 
     expect(request).toHaveBeenCalledWith(
-      "/chats/chat%2F1/messages?before=42%3A0&limit=25",
+      "/chats/chat%2F1/messages?before=42%3A0&limit=25&include_app_owned=false",
       expect.objectContaining({ signal: controller.signal }),
     );
   });

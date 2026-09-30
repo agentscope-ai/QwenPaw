@@ -352,6 +352,7 @@ describe("durable transcript pagination", () => {
       before: "2:0",
       limit: 20,
       signal: undefined,
+      include_app_owned: false,
     });
     expect(first.messages).toHaveLength(1);
     expect(first.messages[0]).toMatchObject({

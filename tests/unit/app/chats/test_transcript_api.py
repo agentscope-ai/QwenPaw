@@ -171,6 +171,7 @@ async def test_message_pages_use_opaque_item_cursor(tmp_path: Path) -> None:
         chat_id="chat-1",
         before=None,
         limit=2,
+        include_app_owned=True,
         mgr=manager,
         workspace=workspace,
     )
@@ -178,6 +179,7 @@ async def test_message_pages_use_opaque_item_cursor(tmp_path: Path) -> None:
         chat_id="chat-1",
         before=newest.next_before,
         limit=2,
+        include_app_owned=True,
         mgr=manager,
         workspace=workspace,
     )
@@ -230,6 +232,7 @@ async def test_message_pages_continue_within_oversized_turn(
         before=None,
         limit=20,
         max_bytes=100,
+        include_app_owned=True,
         mgr=manager,
         workspace=workspace,
     )
@@ -238,6 +241,7 @@ async def test_message_pages_continue_within_oversized_turn(
         before=newest.next_before,
         limit=20,
         max_bytes=100,
+        include_app_owned=True,
         mgr=manager,
         workspace=workspace,
     )
@@ -246,6 +250,7 @@ async def test_message_pages_continue_within_oversized_turn(
         before=middle.next_before,
         limit=20,
         max_bytes=100,
+        include_app_owned=True,
         mgr=manager,
         workspace=workspace,
     )
@@ -270,11 +275,31 @@ async def test_message_page_rejects_invalid_cursor(cursor: str) -> None:
             chat_id="chat-1",
             before=cursor,
             limit=50,
+            include_app_owned=True,
             mgr=SimpleNamespace(get_chat=AsyncMock(return_value=_chat())),
             workspace=_workspace(None),
         )
 
     assert raised.value.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_message_page_hides_app_owned_chat() -> None:
+    chat = _chat().model_copy(
+        update={"meta": {"pawapp": {"app_id": "app-1"}}},
+    )
+
+    with pytest.raises(HTTPException) as raised:
+        await get_chat_messages(
+            chat_id=chat.id,
+            before=None,
+            limit=20,
+            include_app_owned=False,
+            mgr=SimpleNamespace(get_chat=AsyncMock(return_value=chat)),
+            workspace=_workspace(None),
+        )
+
+    assert raised.value.status_code == 404
 
 
 @pytest.mark.asyncio

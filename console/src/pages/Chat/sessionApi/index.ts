@@ -746,6 +746,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
         before: page.next_before,
         limit: 20,
         signal,
+        include_app_owned: false,
       })
       .then((result) => {
         if (!this.isActiveOwner(owner)) {
