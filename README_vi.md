@@ -60,6 +60,8 @@ Trợ lý AI cá nhân của bạn — triển khai cục bộ hoặc trên đá
 
 ## Tin Tức
 
+- [2026-09-22] **v2.2.2** | PawPort hỗ trợ chuyển cuộc trò chuyện và cấu hình từ Codex/Qoder, Hub cho phép cả nhóm dùng chung mô hình, và mỗi cuộc trò chuyện có thể chọn mô hình và điều chỉnh mức độ suy luận riêng. [Ghi chú phát hành v2.2.2 →](https://qwenpaw.agentscope.io/release-notes#v2.2.2)
+
 - [2026-09-10] **v2.2.1** | Bàn làm việc Blueprint của Creator 1.2, định tuyến mô hình theo từng Agent và quản lý môi trường hợp nhất. [Ghi chú phát hành v2.2.1 →](https://qwenpaw.agentscope.io/release-notes#v2.2.1)
 
 - [2026-09-03] **v2.2.0** | QwenPaw Hub đa người dùng tự lưu trữ, QwenPaw Mail, QwenPaw Data nguyên bản, định tuyến mô hình hợp nhất, Creator 1.1 cùng nhiều cải tiến lớn cho Market, Console, Skills, kênh và độ tin cậy. [Ghi chú phát hành v2.2.0 →](https://qwenpaw.agentscope.io/release-notes#v2.2.0)
@@ -67,19 +69,6 @@ Trợ lý AI cá nhân của bạn — triển khai cục bộ hoặc trên đá
 - [2026-08-13] **v2.1.0** | QwenPaw OS Shell, không gian làm việc Files hợp nhất, QwenPaw Creator, tích hợp agent Codex/Qoder, Browser-use, Computer-use, điểm khôi phục workspace và tiếp tục tác vụ hội thoại dài. [Ghi chú phát hành v2.1.0 →](https://qwenpaw.agentscope.io/release-notes#v2.1.0)
 
 - [2026-07-24] **v2.0.1** | Nền tảng mini-app PawApp, Agent Mode do người dùng chỉnh sửa, Oh-My-Paw plugins, nâng cấp bộ nhớ [ReMe](https://github.com/agentscope-ai/ReMe), cải thiện UX desktop v.v. [Ghi chú phát hành v2.0.1 →](https://qwenpaw.agentscope.io/release-notes#v2.0.1)
-
-- [2026-07-10] **v2.0.0 — QwenPaw 2.0 Official Release** 🎉 | Viết lại toàn bộ dựa trên AgentScope 2.0: kiến trúc Agent OS, Loop Engineering, Scroll Context, cơ sở tri thức cá nhân tự tiến hóa [ReMe](https://github.com/agentscope-ai/ReMe) v0.4 và TUI tích hợp.
-
-  | Nổi bật | Nội dung mới |
-  |-----------|------------|
-  | **Agent OS — Workspace** | Ba trụ cột mỗi agent: **Resources** (lưu trữ minh bạch trên đĩa), **Governance** (allow/deny/ask/sandbox), **Sandbox** (macOS / Linux / Windows). |
-  | **Agent OS — Drivers** | Lớp connector trung lập giao thức MCP / A2A / ACP với credentials mã hóa và policy gate mỗi lần gọi. |
-  | **Loop Engineering** | Mẫu vòng lặp agent nâng cao (Coding Mode, Mission Mode, thêm nhiều sắp tới) với cổng phê duyệt kết hợp. |
-  | **Scroll Context** | Mọi lượt được lưu trữ; lượt bị đẩy ra có chỉ mục, recall theo yêu cầu — không tóm tắt, không mất. |
-  | **[ReMe](https://github.com/agentscope-ai/ReMe) v0.4 — Cơ sở tri thức cá nhân tự tiến hóa** | Liên tục chuyển hội thoại và tài liệu thành bộ nhớ Markdown dễ đọc, chỉnh sửa, tìm kiếm và liên kết với nhau. |
-  | **Terminal UI (TUI)** | Chat terminal toàn màn hình — cùng agent, bộ nhớ và phiên với Console và kênh. |
-
-  Dựa trên Agent OS, chúng tôi sẽ ra mắt các ứng dụng QwenPaw sẵn sàng sử dụng — như **QwenPaw Creator** và **QwenPaw Insight** — hãy theo dõi. [v2.0.0 Release Notes →](https://qwenpaw.agentscope.io/release-notes#v2.0.0)
 
 [Tất cả ghi chú phát hành →](https://qwenpaw.agentscope.io/release-notes)
 
