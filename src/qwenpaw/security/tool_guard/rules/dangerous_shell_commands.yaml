@@ -180,6 +180,29 @@
   description: "Detects process termination commands that may kill critical processes"
   remediation: "Confirm with user. Killing processes may cause data loss or system instability."
 
+# ── Windows Office COM Automation (unsandboxed Quit) ──────────────────
+# Office COM servers (PowerPoint / Excel / Word / Outlook) are single-
+# instance: an inline-constructed COM object attaches to the user's
+# already-running application, so Quit() closes it. With no signature here
+# the command is unmatched, becomes SANDBOX_FALLBACK, and is downgraded to
+# ALLOW when the sandbox is off. A CRITICAL finding surfaces before that
+# fallback, so the call is held for approval instead of silently closing
+# the user's Office app.
+- id: TOOL_CMD_OFFICE_COM_AUTOMATION
+  tools: [execute_shell_command]
+  params: [command]
+  category: resource_abuse
+  severity: CRITICAL
+  patterns:
+    - "-ComObject\\s+[\"']?\\s*(?:PowerPoint|Excel|Word|Outlook)\\.Application\\b"
+    - "GetActiveObject\\s*\\(\\s*[\"']?(?:PowerPoint|Excel|Word|Outlook)\\.Application\\b"
+    - "CreateObject\\s*\\(\\s*[\"']?(?:PowerPoint|Excel|Word|Outlook)\\.Application\\b"
+    - "Dispatch(?:Ex)?\\s*\\(\\s*[\"']?(?:PowerPoint|Excel|Word|Outlook)\\.Application\\b"
+    - "GetTypeFromProgID\\s*\\(\\s*[\"']?(?:PowerPoint|Excel|Word|Outlook)\\.Application\\b"
+    - "Activator\\b[^\\r\\n]*CreateInstance[^\\r\\n]*\\b(?:PowerPoint|Excel|Word|Outlook)\\.Application\\b"
+  description: "Command constructs an inline Office COM object (PowerPoint/Excel/Word/Outlook.Application); Quit() on an attached single-instance server closes the user's open application"
+  remediation: "Confirm with user. Do not attach to or Quit() an Office COM server the user may already have open."
+
 # ── Privilege Escalation ──────────────────────────────────────────────
 - id: TOOL_CMD_PRIVILEGE_ESCALATION
   tools: [execute_shell_command]
