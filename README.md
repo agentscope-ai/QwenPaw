@@ -408,7 +408,7 @@ See [Security](https://qwenpaw.agentscope.io/docs/security) for details.
 | [Models](https://qwenpaw.agentscope.io/docs/models)                     | Configure cloud, local, and custom providers    |
 | [Channels](https://qwenpaw.agentscope.io/docs/channels)                  | DingTalk, Lark, QQ, Discord, iMessage, and more |
 | [Skills](https://qwenpaw.agentscope.io/docs/skills)                      | Extend and customize capabilities               |
-| [Plugins](https://qwenpaw.agentscope.io/docs/plugins)                    | Plugin system and Plugin Market                  |
+| [Plugins](https://qwenpaw.agentscope.io/docs/plugins)                    | Plugin system, tool policy hooks, and Plugin Market |
 | [MCP](https://qwenpaw.agentscope.io/docs/mcp)                            | Manage MCP clients                               |
 | [Persona](https://qwenpaw.agentscope.io/docs/persona)                   | Agent personality customization (SOUL / PROFILE)  |
 | [Memory](https://qwenpaw.agentscope.io/docs/memory)                     | Self-evolving personal knowledge base built on local, editable, searchable, and linked Markdown memory, powered by [ReMe](https://github.com/agentscope-ai/ReMe) |

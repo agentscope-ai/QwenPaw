@@ -9,6 +9,7 @@ The plugin system supports the following extension capabilities:
 - **Provider Plugins**: Add new LLM providers and models
 - **Middleware Plugins**: Register AgentScope `MiddlewareBase` factories to wrap `on_acting` / `on_reasoning` hooks in the agent reasoning loop
 - **Hook Plugins**: Execute custom code during application startup/shutdown (app lifespan level, runs once)
+- **Tool Policy Hooks**: Add pre-tool-call risk checks, approval requirements, and audit annotations
 - **Command Plugins**: Register custom `/command` magic commands
 - **HTTP API Plugins**: Expose custom REST endpoints under `/api` via a FastAPI `APIRouter`
 - **Frontend Extension Plugins**: Browser-side JS plugins that share the host's React / Ant Design runtime and declaratively extend the UI via `window.QwenPaw.*` API — register sidebar menus, page routes, UI slots, chat customizations, and more without modifying host code
@@ -2037,6 +2038,94 @@ api.register_provider(
     **metadata,                    # Additional keyword args (chat_model, require_api_key, etc.)
 )
 ```
+
+### register_tool_policy_hook
+
+Register an asynchronous decision callback after static governance evaluation:
+
+```python
+from qwenpaw.plugins import PolicyHint, ToolCallSpec
+
+api.register_tool_policy_hook(
+    hook_name="risk-gate",       # Unique within this plugin
+    callback=decide,             # async (ToolCallSpec) -> PolicyHint | None
+    priority=50,                # Lower runs earlier; equal priorities keep registration order
+    fail="closed",              # "open" (default): abstain; "closed": deny on errors/timeouts
+    timeout_s=0.5,               # Positive, finite seconds; default 1.0
+)
+```
+
+`PolicyHint(action=None, reason="", metadata=None)` accepts `"allow"`, `"ask"`,
+`"deny"`, or `None` (abstain). Returning `None` also abstains. Metadata must be
+a JSON-compatible dictionary. The callback receives an isolated snapshot of
+`tool_name` (the governance name, such as `Bash`), `target`, `agent_id`,
+`session_id`, `raw_params`, and `approval_level` (the effective level, including
+F1's `strict` override); changing it does not change the tool call. Import
+`ToolCallSpec` from `qwenpaw.plugins`: this is the public callback contract,
+with `schema_version=1` identifying its version.
+
+- Hooks apply globally to tools using `PolicyGuardedTool`, including built-in,
+  plugin, and MCP tools. Filter by `agent_id` or tool name inside the callback
+  when a check should apply only to certain calls.
+- Hooks only increase restrictions: static DENY bypasses callbacks, and a
+  plugin's `allow` never overrides static ASK or sandbox requirements. The
+  first explicit DENY ends the chain; otherwise the first ASK wins. Existing
+  static ASK reasons and findings are preserved.
+- Hook ASK uses the existing approval service and cross-session routing.
+  Approval is per invocation, does not create an allow rule, and preserves a
+  sandbox required by the static decision.
+- Each callback has its own timeout. Exceptions, invalid return values, and
+  timeouts follow `fail`. Async callbacks must use non-blocking I/O and honor
+  cancellation; they run in-process, not in a security sandbox. Host request
+  cancellation propagates normally.
+- The final decision's audit entry stores the static decision and each executed
+  hook's identity, action, reason, metadata, and status under
+  `extra.tool_policy`. Audit-only hints and abstentions are recorded too.
+  Do not place credentials or sensitive request content in metadata.
+- Unloading a plugin removes its hooks for subsequent evaluations. Registering
+  the same `(plugin_id, hook_name)` replaces the existing hook. An in-flight
+  evaluation uses its registration snapshot.
+- OFF mode keeps its existing governance bypass, including these hooks. No
+  callbacks run when the governor is unavailable. Without registered hooks,
+  the existing behavior and audit shape are unchanged.
+
+Cookbook: connect a small external risk classifier from a backend plugin's
+`register(api)` method. This example expects your configured endpoint to return
+`{"risk": 0.6, "verdict_id": "v-123"}`; the thresholds are illustrative:
+
+```python
+import httpx
+from qwenpaw.plugins import PolicyHint, ToolCallSpec
+
+
+def register(api):
+    async def decide(spec: ToolCallSpec) -> PolicyHint | None:
+        if spec.tool_name != "Bash":
+            return None
+        async with httpx.AsyncClient(timeout=0.4) as client:
+            response = await client.post(
+                api.config["classifier_url"],
+                json={"command": spec.raw_params.get("command", "")},
+            )
+            response.raise_for_status()
+            verdict = response.json()
+        risk = float(verdict["risk"])
+        if not 0 <= risk <= 1:
+            raise ValueError("Invalid risk score")
+        action = "deny" if risk >= 0.9 else "ask" if risk >= 0.4 else None
+        return PolicyHint(
+            action=action,
+            reason="External classifier risk review",
+            metadata={"risk": risk, "verdict_id": verdict.get("verdict_id")},
+        )
+
+    api.register_tool_policy_hook(
+        "risk-gate", decide, priority=50, fail="closed", timeout_s=0.5,
+    )
+```
+
+This example sends the shell command to the configured classifier. Choose a
+local endpoint or an authorized service appropriate for your data.
 
 ### register_startup_hook
 

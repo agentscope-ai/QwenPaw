@@ -2,11 +2,16 @@
 # pylint:disable=too-many-nested-blocks
 """Central plugin registry."""
 
-from typing import Any, Callable, Dict, List, Optional, Type
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Type
 from dataclasses import dataclass, field
 import logging
 
 from fastapi import APIRouter
+
+if TYPE_CHECKING:
+    from ..governance.tool_policy import ToolPolicyHookRegistration
 
 logger = logging.getLogger(__name__)
 
@@ -153,6 +158,7 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
         self._providers: Dict[str, ProviderRegistration] = {}
         self._startup_hooks: List[HookRegistration] = []
         self._shutdown_hooks: List[HookRegistration] = []
+        self._tool_policy_hooks: List[ToolPolicyHookRegistration] = []
         self._uninstall_hooks: List[HookRegistration] = []
         self._workspace_created_hooks: List[HookRegistration] = []
         self._control_commands: List[ControlCommandRegistration] = []
@@ -168,6 +174,39 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
         self._workspace_manager: Optional[Any] = None
 
         self._initialized = True
+
+    def register_tool_policy_hook(
+        self,
+        plugin_id: str,
+        hook_name: str,
+        callback: Callable,
+        priority: int = 100,
+        *,
+        fail: str = "open",
+        timeout_s: float = 1.0,
+    ) -> None:
+        """Register or replace a hook identified by its plugin and name."""
+        from ..governance.tool_policy import ToolPolicyHookRegistration
+
+        registration = ToolPolicyHookRegistration(
+            plugin_id=plugin_id,
+            hook_name=hook_name,
+            callback=callback,
+            priority=priority,
+            fail=fail,
+            timeout_s=timeout_s,
+        )
+        self._tool_policy_hooks = [
+            hook
+            for hook in self._tool_policy_hooks
+            if (hook.plugin_id, hook.hook_name) != (plugin_id, hook_name)
+        ]
+        self._tool_policy_hooks.append(registration)
+        self._tool_policy_hooks.sort(key=lambda hook: hook.priority)
+
+    def get_tool_policy_hooks(self) -> List[ToolPolicyHookRegistration]:
+        """Return a priority-ordered snapshot of active tool policy hooks."""
+        return self._tool_policy_hooks.copy()
 
     def register_middleware(
         self,
@@ -651,7 +690,7 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
         """Remove specific hooks registered by a plugin.
 
         Removes hooks matching the given ``hook_names`` from all hook
-        lists (startup, shutdown, uninstall, workspace_created).
+        lists (startup, shutdown, uninstall, workspace_created, tool_policy).
 
         Args:
             plugin_id: Plugin identifier that owns the hooks.
@@ -668,6 +707,7 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
 
         self._startup_hooks = _filter(self._startup_hooks)
         self._shutdown_hooks = _filter(self._shutdown_hooks)
+        self._tool_policy_hooks = _filter(self._tool_policy_hooks)
         self._uninstall_hooks = _filter(self._uninstall_hooks)
         self._workspace_created_hooks = _filter(
             self._workspace_created_hooks,
@@ -1008,6 +1048,9 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
         ]
         self._shutdown_hooks = [
             h for h in self._shutdown_hooks if h.plugin_id != plugin_id
+        ]
+        self._tool_policy_hooks = [
+            h for h in self._tool_policy_hooks if h.plugin_id != plugin_id
         ]
         self._uninstall_hooks = [
             h for h in self._uninstall_hooks if h.plugin_id != plugin_id

@@ -104,8 +104,8 @@ def _windows_boundary() -> bool:
     ):
         return False
     try:
-        is_container = ctypes.c_ulong()
-        returned = ctypes.c_ulong()
+        is_container = ctypes.c_ulong(0)
+        returned = ctypes.c_ulong(0)
         # TokenIsAppContainer = 29; TOKEN_QUERY = 0x0008.
         success = security.GetTokenInformation(
             token,
