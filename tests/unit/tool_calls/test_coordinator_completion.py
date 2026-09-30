@@ -373,9 +373,14 @@ async def test_background_completion_emits_hint():
 
     assert events[-1].metadata["offloaded"] is True
     assert hint.role == "assistant"
-    text_block = next(
+    hint_block = next(
         block
         for block in hint.content
+        if getattr(block, "type", None) == "hint"
+    )
+    text_block = next(
+        block
+        for block in hint_block.hint
         if getattr(block, "type", None) == "text"
     )
     assert "slow_tool" in text_block.text
