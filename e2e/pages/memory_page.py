@@ -36,10 +36,10 @@ class MemoryPage(BasePage):
 
     # ========== Selectors ==========
 
-    # Long-term Memory tab on /agent-config
+    # Memory group tab rendered by RuntimeWorkbench on /agent-config.
     MEMORY_TAB = (
-        '.qwenpaw-tabs-tab:has-text("Long-term Memory"), '
-        '.qwenpaw-tabs-tab:has-text("长期记忆")'
+        '[role="tab"]:has-text("Memory"), '
+        '[role="tab"]:has-text("记忆与检索")'
     )
     # Switches and inputs use stable form-item names (Form.Item name=[...]).
     # The dream_cron input is unique to this card and serves as a
