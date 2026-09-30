@@ -561,11 +561,14 @@ class TestMessageFilterSwitches:
             if not presentation.is_visible():
                 channels_page.close_drawer()
                 continue
-            presentation.click()
             target_switch = drawer_body.locator(
                 '.qwenpaw-form-item:has-text("Show Tool Call Information") '
                 '[role="switch"]:visible'
             )
+            # Console opens the presentation section by default. Other
+            # channels keep it collapsed, so only expand it when needed.
+            if not target_switch.is_visible():
+                presentation.click()
             expect(target_switch).to_be_visible(timeout=3000)
             initial_state = (
                 target_switch.get_attribute("aria-checked") == "true"
