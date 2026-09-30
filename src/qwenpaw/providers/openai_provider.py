@@ -156,6 +156,17 @@ class OpenAIProvider(Provider):
         ),
     )
 
+    supports_openai_prompt_cache: bool = Field(
+        default=False,
+        description=(
+            "Declare that this endpoint accepts the OpenAI prompt cache "
+            "parameters (prompt_cache_key / prompt_cache_retention). Only "
+            "needed for OpenAI-compatible gateways other than "
+            "api.openai.com, and only when their documentation confirms "
+            "the parameters. Unset keeps the wire-level gate closed."
+        ),
+    )
+
     def cache_capabilities(self, model_id: str) -> frozenset[str]:
         """Enable OpenAI cache controls only on the documented service."""
         if urlparse(self.base_url).hostname == f"api.openai.com":
@@ -163,6 +174,11 @@ class OpenAIProvider(Provider):
             if model_id == f"gpt-5.6" or model_id.startswith(f"gpt-5.6-"):
                 modes.add(f"openai_explicit")
             return frozenset(modes)
+        if self.supports_openai_prompt_cache:
+            # Opt-in override for a gateway the user has verified: expose
+            # only the explicit prompt cache parameters, not the
+            # breakpoint/TTL controls those still need the host model.
+            return super().cache_capabilities(model_id) | {f"openai"}
         return super().cache_capabilities(model_id)
 
     def request_headers(self) -> dict:

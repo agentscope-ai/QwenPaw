@@ -156,3 +156,88 @@ def test_fingerprints_keep_openai_use_dimensions(fingerprint) -> None:
     second = _config(backend="openai", use_dimensions=True)
 
     assert fingerprint(first) != fingerprint(second)
+
+
+class _BatchRejectingModel:
+    """Fake provider: rejects multi-text requests, answers single texts."""
+
+    def __init__(self, dimension: int = 3) -> None:
+        self.calls: list[list[str]] = []
+        self.dimension = dimension
+
+    async def __call__(self, inputs, **_kwargs):
+        self.calls.append(list(inputs))
+        if len(inputs) > 1:
+            raise RuntimeError(
+                "Error code: 400 - {'error': {'message': "
+                "'the input length exceeds the context length'}}",
+            )
+        if inputs[0] == "poison":
+            raise RuntimeError("still over the per-item limit")
+        return SimpleNamespace(embeddings=[[0.1] * self.dimension])
+
+
+@pytest.mark.asyncio
+async def test_batch_rejection_retries_item_by_item() -> None:
+    """One over-limit text must not drop the healthy vectors of its batch."""
+    inner = _BatchRejectingModel()
+
+    wrapper = module.PerItemFallbackEmbeddingModel(inner)
+    response = await wrapper(["fine", "fine", "poison"])
+
+    assert [embedding is None for embedding in response.embeddings] == [
+        False,
+        False,
+        True,
+    ]
+    assert inner.calls[0] == ["fine", "fine", "poison"]
+    assert inner.calls[1:] == [["fine"], ["fine"], ["poison"]]
+
+
+@pytest.mark.asyncio
+async def test_totally_rejected_batch_reraises_original_error() -> None:
+    """Real outages keep their original error for caller-side retries."""
+
+    class AlwaysFailing(_BatchRejectingModel):
+        async def __call__(self, inputs, **_kwargs):
+            self.calls.append(list(inputs))
+            raise TimeoutError("gateway timeout")
+
+    inner = AlwaysFailing()
+    wrapper = module.PerItemFallbackEmbeddingModel(inner)
+
+    with pytest.raises(TimeoutError, match="gateway timeout"):
+        await wrapper(["a", "b"])
+    assert inner.calls == [["a", "b"], ["a"], ["b"]]
+
+
+@pytest.mark.asyncio
+async def test_single_text_failure_is_not_retried() -> None:
+    """A one-text request carries no batch to salvage."""
+
+    class Failing(_BatchRejectingModel):
+        async def __call__(self, inputs, **_kwargs):
+            self.calls.append(list(inputs))
+            raise TimeoutError("gateway timeout")
+
+    inner = Failing()
+    wrapper = module.PerItemFallbackEmbeddingModel(inner)
+
+    with pytest.raises(TimeoutError):
+        await wrapper(["only"])
+    assert inner.calls == [["only"]]
+
+
+def test_fallback_wrapper_delegates_provider_attributes() -> None:
+    """ReMe reads model attributes through the wrapper transparently."""
+    wrapper = module.PerItemFallbackEmbeddingModel(
+        SimpleNamespace(
+            model="embedding-model",
+            dimensions=3,
+            client=object(),
+        ),
+    )
+
+    assert wrapper.model == "embedding-model"
+    assert wrapper.dimensions == 3
+    assert wrapper.client is not None
