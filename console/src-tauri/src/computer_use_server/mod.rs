@@ -11,15 +11,28 @@
 mod app_identity;
 mod approval;
 mod connection;
+mod contract;
+mod device_coordinator;
 mod dispatch;
+mod event_stream;
+mod event_stream_native;
+mod event_stream_recorder;
 mod framing;
+mod indicator;
+mod permission_broker;
+mod service;
+mod staging;
 mod state;
 
 pub(super) use connection::run;
 
 /// Version of the request/response contract this helper speaks. The host
 /// refuses a helper that does not match, so a stale binary cannot half-work.
-pub(crate) use crate::computer_use_protocol::VERSION as PROTOCOL_VERSION;
+pub(crate) use crate::computer_use_protocol::{
+    COMPUTER_USE_CONTRACT, COMPUTER_USE_CONTRACT_VERSION, COMPUTER_USE_FEATURES,
+    EVENT_STREAM_CONTRACT, EVENT_STREAM_CONTRACT_VERSION, EVENT_STREAM_FEATURE,
+    VERSION as PROTOCOL_VERSION,
+};
 const MAX_FRAME_BYTES: usize = 64 * 1024 * 1024;
 
 #[derive(Debug, PartialEq)]
@@ -38,7 +51,8 @@ mod platform_windows;
 use platform_windows::{
     active_window, click, close_window, desktop_locked, drag, ensure_permissions, input_sequence,
     invoke_element, is_forbidden, last_input_age_ms, list_apps, list_windows, observe_window,
-    press_key, resolve_window, scroll, set_value, type_text, validate_observation,
+    permission_granted, press_key, request_permission, resolve_window, scroll, set_value,
+    type_text, validate_observation,
 };
 
 #[cfg(target_os = "macos")]
@@ -47,6 +61,7 @@ mod platform_macos;
 use platform_macos::{
     active_window, app_id_from_bundle_path, click, close_window, desktop_locked, drag,
     element_requires_frontmost, ensure_permissions, input_sequence, invoke_element, is_forbidden,
-    last_input_age_ms, list_apps, list_windows, observe_window, press_key, resolve_window, scroll,
-    set_value, target_is_frontmost, type_text, validate_observation,
+    last_input_age_ms, list_apps, list_windows, observe_window, permission_granted, press_key,
+    request_permission, resolve_window, scroll, set_value, target_is_frontmost, type_text,
+    validate_observation,
 };

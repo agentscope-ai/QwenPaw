@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleDevelopmentRegion</key>
+    <string>en</string>
+    <key>CFBundleDisplayName</key>
+    <string>QwenPaw Computer Use</string>
+    <key>CFBundleExecutable</key>
+    <string>qwenpaw-computer-use-helper</string>
+    <key>CFBundleIdentifier</key>
+    <string>io.agentscope.qwenpaw.computer-use.v1</string>
+    <key>CFBundleInfoDictionaryVersion</key>
+    <string>6.0</string>
+    <key>CFBundleName</key>
+    <string>QwenPaw Computer Use</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleShortVersionString</key>
+    <string>1.0</string>
+    <key>CFBundleVersion</key>
+    <string>1</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>14.0</string>
+    <key>LSUIElement</key>
+    <true/>
+    <key>NSAccessibilityUsageDescription</key>
+    <string>QwenPaw uses Accessibility to identify and operate the control selected by the user.</string>
+    <key>NSInputMonitoringUsageDescription</key>
+    <string>QwenPaw observes input only while a visible workflow recording is active.</string>
+    <key>NSScreenCaptureUsageDescription</key>
+    <string>QwenPaw captures the selected app window when desktop automation is used.</string>
+</dict>
+</plist>

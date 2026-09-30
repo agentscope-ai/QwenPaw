@@ -9,21 +9,20 @@
 
 use serde_json::{json, Value};
 use std::io::{Read, Write};
-use std::sync::Mutex;
 
 use super::app_identity::{launch_at, resolve_launch_target};
 use super::approval::request_approval;
 #[cfg(target_os = "macos")]
 use super::platform_macos::element_is_transient_menu_item;
+use super::service::DesktopAutomationService;
 use super::state::{
     accessibility_revision, Observation, PendingAction, ServerState, WindowInfo,
     INPUT_GUARD_GRACE_MS,
 };
 use super::{
-    active_window, click, close_window, desktop_locked, drag, ensure_permissions, input_sequence,
-    invoke_element, last_input_age_ms, list_apps, list_windows, observe_window, press_key,
-    resolve_window, scroll, set_value, type_text, validate_observation, InputStep,
-    PROTOCOL_VERSION,
+    active_window, click, close_window, desktop_locked, drag, input_sequence, invoke_element,
+    last_input_age_ms, list_apps, list_windows, observe_window, press_key, resolve_window, scroll,
+    set_value, type_text, validate_observation, InputStep, PROTOCOL_VERSION,
 };
 #[cfg(target_os = "macos")]
 use super::{element_requires_frontmost, target_is_frontmost};
@@ -61,73 +60,10 @@ const SERVED_METHODS: &[&str] = &[
     "type_text",
 ];
 
-/// Held while one session disturbs the desktop.
-///
-/// Each connection is served on its own thread, which is right for observation
-/// and for one session waiting on an approval while another works. Input is
-/// different: the keyboard, the pointer and the foreground window are one
-/// shared resource, and every input path here is "focus the window, then
-/// inject". Two of those interleaving means one session's keystrokes arrive in
-/// the window the other just brought forward -- silently, and with whatever
-/// text or shortcut was being sent.
-///
-/// A single session cannot race itself: a connection is served one request at a
-/// time, and the caller holds its own lock across the round trip. This exists
-/// only for the case those cannot see, which is two sessions at once.
-///
-/// Serialising is not a compromise here but the only correct answer: there is
-/// one system cursor and one keyboard to synthesize into. A platform offering a
-/// cursor per task could schedule them in parallel instead; these APIs do not.
-static DESKTOP_HELD: Mutex<bool> = Mutex::new(false);
-
-/// A turn at the desktop, released when dropped.
-#[derive(Debug)]
-struct DesktopTurn;
-
-impl Drop for DesktopTurn {
-    fn drop(&mut self) {
-        // Runs even if the action panicked, so a failure cannot strand the
-        // desktop as permanently taken.
-        *DESKTOP_HELD
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner()) = false;
-    }
-}
-
-/// Take the desktop for one action, or refuse at once if another session has it.
-///
-/// Deliberately does not wait. Waiting here would mean holding a request the
-/// caller may already have abandoned: a stop closes the connection, and a thread
-/// parked on a lock is not reading that connection, so it would wake later and
-/// inject input the user had already asked to stop. The helper is the one
-/// process with no notion of a stop, so it must never hold work that a stop
-/// needs to reach. Refusing immediately leaves the waiting to the caller, where
-/// a stop already takes effect.
-///
-/// `desktop_busy` is raised before anything is touched, so unlike a timeout it
-/// carries no possibility of a half-performed action, and retrying it is safe.
-fn take_desktop() -> Result<DesktopTurn, (&'static str, String)> {
-    // A poisoned lock is recovered rather than propagated: the flag is the whole
-    // state, and refusing every later action because an unrelated request
-    // panicked would turn one failure into an outage.
-    let mut held = DESKTOP_HELD
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
-    if *held {
-        return Err((
-            "desktop_busy",
-            "Another Computer Use session is using the desktop; observe the \
-             window again and retry."
-                .to_string(),
-        ));
-    }
-    *held = true;
-    Ok(DesktopTurn)
-}
-
 pub(super) fn dispatch_request(
     connection: &mut (impl Read + Write),
     state: &mut ServerState,
+    service: &DesktopAutomationService,
     message: &Value,
 ) -> Result<Value, (&'static str, String)> {
     if message.get("protocol_version").and_then(Value::as_u64) != Some(PROTOCOL_VERSION) {
@@ -229,7 +165,7 @@ pub(super) fn dispatch_request(
     };
     let window = target;
     request_approval(connection, &window, &meta)?;
-    ensure_permissions(method)?;
+    service.permissions().ensure_for(method)?;
     // Mutations are serialized across agent sessions. Human input is a
     // separate concern: this lock cannot prevent it, so only operations that
     // actually require foreground input apply the recent-input guard below.
@@ -240,7 +176,7 @@ pub(super) fn dispatch_request(
             element_requires_frontmost(observation(state, observation_id)?, &params)?;
     }
     let _desktop = if changes_window_state(method) {
-        let held = take_desktop()?;
+        let held = service.devices().try_computer_use_mutation()?;
         if needs_user_idle {
             enforce_input_guard(state)?;
         }
@@ -745,6 +681,7 @@ fn requires_user_idle_on_mac(method: &str, target_is_frontmost: bool) -> bool {
 mod tests {
     use super::super::state::{ScreenshotTarget, WindowInfo};
     use super::*;
+    #[cfg(windows)]
     use std::io::Cursor;
 
     fn observation(hwnd: isize) -> Observation {
@@ -824,9 +761,15 @@ mod tests {
             },
         });
         let mut connection = Cursor::new(Vec::new());
+        let service = DesktopAutomationService::prepare("windows-dispatch-test").unwrap();
 
-        let error = dispatch_request(&mut connection, &mut ServerState::default(), &message)
-            .expect_err("Windows must not treat an invoke as a text editor");
+        let error = dispatch_request(
+            &mut connection,
+            &mut ServerState::default(),
+            &service,
+            &message,
+        )
+        .expect_err("Windows must not treat an invoke as a text editor");
 
         assert_eq!(error.0, "unsupported_operation");
     }
@@ -1060,70 +1003,5 @@ mod tests {
                 "{method} must guard its foreground input"
             );
         }
-    }
-
-    /// Taken by any test that touches the desktop turn.
-    ///
-    /// The turn is process-global, and the test harness runs tests on parallel
-    /// threads, so two of them contending for it would make each other's timing
-    /// assertions meaningless. Passing without this is luck, not isolation.
-    static ONE_AT_A_TIME: Mutex<()> = Mutex::new(());
-
-    #[test]
-    fn a_second_session_is_refused_rather_than_queued() {
-        let _serial = ONE_AT_A_TIME
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let first = take_desktop().expect("first turn");
-
-        let (code, _message) = take_desktop().expect_err("the second must be refused");
-        assert_eq!(code, "desktop_busy");
-
-        drop(first);
-        assert!(
-            take_desktop().is_ok(),
-            "the desktop should be available once the first turn ends"
-        );
-    }
-
-    #[test]
-    fn being_refused_does_not_park_the_thread() {
-        // The refusal has to be immediate, not a wait that gives up. A thread
-        // parked here is not reading its connection, so a stop could not reach
-        // it, and it would wake up later to inject input the user had already
-        // asked to stop -- the helper knows nothing of stops, so it must not
-        // hold work that a stop needs to cancel.
-        let _serial = ONE_AT_A_TIME
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let _first = take_desktop().expect("first turn");
-
-        let started = std::time::Instant::now();
-        assert!(take_desktop().is_err());
-        assert!(
-            started.elapsed() < std::time::Duration::from_millis(100),
-            "refusal took {:?}, which means it waited",
-            started.elapsed()
-        );
-    }
-
-    #[test]
-    fn the_desktop_is_released_even_if_an_action_panics() {
-        let _serial = ONE_AT_A_TIME
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let panicked = std::thread::spawn(|| {
-            let _turn = take_desktop().expect("turn");
-            panic!("an action failed");
-        })
-        .join();
-        assert!(panicked.is_err(), "the thread should have panicked");
-
-        // If the release depended on the happy path, the desktop would stay
-        // taken and every later action would be refused.
-        assert!(
-            take_desktop().is_ok(),
-            "a panicked action must not strand the desktop as taken"
-        );
     }
 }

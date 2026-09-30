@@ -11,11 +11,12 @@
 //! thread, so one session waiting on an approval never stalls another.
 
 use std::io::{Read, Write};
+use std::sync::Arc;
 use std::thread;
 
-use super::dispatch::dispatch_request;
+use super::contract::{hello_result, Contract};
 use super::framing::{read_message, request_id, write_error, write_result};
-use super::state::ServerState;
+use super::service::DesktopAutomationService;
 use super::PROTOCOL_VERSION;
 
 use serde_json::{json, Value};
@@ -48,6 +49,7 @@ use windows::Win32::System::Pipes::{
 #[cfg(windows)]
 pub(crate) fn run(args: &[String]) -> Result<(), String> {
     let (pipe_name, capability) = parse_arguments(args)?;
+    let service = DesktopAutomationService::prepare(&pipe_name)?;
     let result = unsafe { CoInitializeEx(None, COINIT_MULTITHREADED) };
     if result.is_err() {
         return Err(format!("CoInitializeEx failed: {result}"));
@@ -57,6 +59,7 @@ pub(crate) fn run(args: &[String]) -> Result<(), String> {
     loop {
         let mut connection = accept_connection(&pipe_path, &mut ready_sent)?;
         let worker_capability = capability.clone();
+        let worker_service = Arc::clone(&service);
         let worker = thread::Builder::new()
             .name("computer-use-conn".to_string())
             .spawn(move || {
@@ -65,7 +68,9 @@ pub(crate) fn run(args: &[String]) -> Result<(), String> {
                     eprintln!("Computer Use worker CoInitializeEx failed: {com_result}");
                     return;
                 }
-                if let Err(error) = serve_connection(&mut connection, &worker_capability) {
+                if let Err(error) =
+                    serve_connection(&mut connection, &worker_capability, &worker_service)
+                {
                     eprintln!("Computer Use pipe connection ended: {error}");
                 }
             });
@@ -80,6 +85,7 @@ pub(crate) fn run(args: &[String]) -> Result<(), String> {
     use std::os::unix::fs::PermissionsExt;
     use std::os::unix::net::UnixListener;
     let (socket_path, capability) = parse_arguments(args)?;
+    let service = DesktopAutomationService::prepare(&socket_path)?;
     // Fresh bind: clear any stale socket file left by a previous run.
     let _ = std::fs::remove_file(&socket_path);
     let listener = UnixListener::bind(&socket_path)
@@ -104,10 +110,13 @@ pub(crate) fn run(args: &[String]) -> Result<(), String> {
             }
         };
         let worker_capability = capability.clone();
+        let worker_service = Arc::clone(&service);
         let worker = thread::Builder::new()
             .name("computer-use-conn".to_string())
             .spawn(move || {
-                if let Err(error) = serve_connection(&mut connection, &worker_capability) {
+                if let Err(error) =
+                    serve_connection(&mut connection, &worker_capability, &worker_service)
+                {
                     eprintln!("Computer Use socket connection ended: {error}");
                 }
             });
@@ -203,13 +212,20 @@ fn ready_line() -> Result<String, String> {
     Ok(format!("{HELPER_READY_PREFIX}{payload}"))
 }
 
-fn serve_connection(connection: &mut (impl Read + Write), capability: &str) -> Result<(), String> {
+fn serve_connection(
+    connection: &mut (impl Read + Write),
+    capability: &str,
+    service: &DesktopAutomationService,
+) -> Result<(), String> {
     let hello = read_message(connection)?;
     let hello_id = request_id(&hello)?;
-    let secret = hello
+    let params = hello
         .get("params")
         .and_then(Value::as_object)
-        .and_then(|params| params.get("capability"))
+        .cloned()
+        .unwrap_or_default();
+    let secret = params
+        .get("capability")
         .and_then(Value::as_str)
         .unwrap_or_default();
     if hello.get("method").and_then(Value::as_str) != Some("hello") || secret != capability {
@@ -221,16 +237,32 @@ fn serve_connection(connection: &mut (impl Read + Write), capability: &str) -> R
         )?;
         return Err("Computer Use capability authentication failed".to_string());
     }
-    write_result(
-        connection,
-        &hello_id,
-        json!({"protocol_version": PROTOCOL_VERSION}),
-    )?;
+    let envelope_version = hello.get("protocol_version").and_then(Value::as_u64);
+    let parameter_version = params.get("protocol_version").and_then(Value::as_u64);
+    if envelope_version != Some(PROTOCOL_VERSION)
+        || parameter_version.is_some_and(|version| version != PROTOCOL_VERSION)
+    {
+        write_error(
+            connection,
+            &hello_id,
+            "protocol_mismatch",
+            "Unsupported protocol version.",
+        )?;
+        return Err("Computer Use protocol handshake failed".to_string());
+    }
+    let contract = match Contract::negotiate(&params, service) {
+        Ok(contract) => contract,
+        Err((code, message)) => {
+            write_error(connection, &hello_id, code, &message)?;
+            return Err("Desktop automation contract handshake failed".to_string());
+        }
+    };
+    write_result(connection, &hello_id, hello_result(contract, service))?;
 
-    let mut state = ServerState::default();
+    let mut state = contract.state(service);
     while let Ok(message) = read_message(connection) {
         let id = request_id(&message)?;
-        let result = dispatch_request(connection, &mut state, &message);
+        let result = contract.dispatch(connection, &mut state, service, &message);
         match result {
             Ok(value) => write_result(connection, &id, value)?,
             Err((code, message)) => write_error(connection, &id, code, &message)?,

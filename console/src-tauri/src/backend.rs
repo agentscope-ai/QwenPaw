@@ -224,7 +224,9 @@ impl BackendState {
                 self.force_kill();
                 match wait_for_termination(terminated, FORCED_SHUTDOWN_EXIT_TIMEOUT).await {
                     Ok(()) => {
-                        log::warn!("[backend] sidecar force-terminated after graceful shutdown failure");
+                        log::warn!(
+                            "[backend] sidecar force-terminated after graceful shutdown failure"
+                        );
                         self.finish_stop();
                         Ok(())
                     }
@@ -310,8 +312,8 @@ pub(crate) async fn restart_backend(app: tauri::AppHandle) -> Result<(), String>
     }
 }
 
-/// Installs backend-related plugins and starts the sidecar during app setup.
-pub(crate) fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
+/// Installs backend logging before any desktop subsystem emits diagnostics.
+pub(crate) fn install_logging(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     app.handle().plugin(
         tauri_plugin_log::Builder::default()
             .clear_targets()
@@ -324,18 +326,27 @@ pub(crate) fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Erro
             .level(desktop_log_level())
             .build(),
     )?;
-
     if let Err(err) = crate::computer_use_runtime::prepare(app.handle()) {
         log::warn!("[computer-use] control endpoint unavailable: {err}");
     }
-
-    start(app.handle());
     Ok(())
 }
 
 /// Gracefully stops the current sidecar and waits for its process to exit.
 pub(crate) async fn stop_and_wait(app: &tauri::AppHandle) -> Result<(), String> {
     app.state::<BackendState>().stop_and_wait().await
+}
+
+/// Last-resort synchronous cleanup from ``RunEvent::Exit``.
+///
+/// Normal exits have already completed ``stop_and_wait``. This guard covers
+/// startup-time termination and platform exits that reach the final event
+/// without completing the async close flow, so a sidecar can never be adopted
+/// by PID 1.
+pub(crate) fn force_stop_on_exit(app: &tauri::AppHandle) {
+    let state = app.state::<BackendState>();
+    state.force_kill();
+    state.finish_stop();
 }
 
 fn desktop_log_level() -> log::LevelFilter {
@@ -352,7 +363,7 @@ fn desktop_log_level() -> log::LevelFilter {
 }
 
 /// Starts the sidecar and records startup failures for the frontend retry UI.
-fn start(app: &tauri::AppHandle) {
+pub(crate) fn start(app: &tauri::AppHandle) {
     let state = app.state::<BackendState>();
     let generation = state.next_generation();
     state.clear_startup_state();
