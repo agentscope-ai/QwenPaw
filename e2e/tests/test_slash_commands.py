@@ -152,18 +152,9 @@ def _assert_any(text: str, *needles: str) -> None:
     )
 
 
-_XFAIL_FIRST_MSG_RERENDER = (
-    "Known frontend bug: on a newly created session the first slash "
-    "command response is rendered then immediately cleared by a "
-    "re-render cycle, causing the bubble text to read as empty. "
-    "Tracked internally; will remove xfail once fixed."
-)
-
-
 @pytest.mark.slash_commands
 @pytest.mark.p0
 @pytest.mark.test_id("SLASH-001")
-@pytest.mark.xfail(strict=False, reason=_XFAIL_FIRST_MSG_RERENDER)
 def test_slash_skills_lists_or_reports_empty(clean_chat_page: ChatPage):
     """``/skills`` returns either an enabled-skill list or the empty notice."""
     chat = clean_chat_page.open()
@@ -179,7 +170,6 @@ def test_slash_skills_lists_or_reports_empty(clean_chat_page: ChatPage):
 @pytest.mark.slash_commands
 @pytest.mark.p0
 @pytest.mark.test_id("SLASH-002")
-@pytest.mark.xfail(strict=False, reason=_XFAIL_FIRST_MSG_RERENDER)
 def test_slash_model_shows_current_or_empty(clean_chat_page: ChatPage):
     """``/model`` reports either the active model or 'No Active Model'."""
     chat = clean_chat_page.open()
@@ -190,7 +180,6 @@ def test_slash_model_shows_current_or_empty(clean_chat_page: ChatPage):
 @pytest.mark.slash_commands
 @pytest.mark.p1
 @pytest.mark.test_id("SLASH-003")
-@pytest.mark.xfail(strict=False, reason=_XFAIL_FIRST_MSG_RERENDER)
 def test_slash_model_help(clean_chat_page: ChatPage):
     """``/model -h`` shows the help block."""
     chat = clean_chat_page.open()
@@ -201,7 +190,6 @@ def test_slash_model_help(clean_chat_page: ChatPage):
 @pytest.mark.slash_commands
 @pytest.mark.p1
 @pytest.mark.test_id("SLASH-004")
-@pytest.mark.xfail(strict=False, reason=_XFAIL_FIRST_MSG_RERENDER)
 def test_slash_history_renders(clean_chat_page: ChatPage):
     """``/history`` returns the conversation summary (even if short)."""
     chat = clean_chat_page.open()
@@ -214,7 +202,6 @@ def test_slash_history_renders(clean_chat_page: ChatPage):
 @pytest.mark.slash_commands
 @pytest.mark.p1
 @pytest.mark.test_id("SLASH-005")
-@pytest.mark.xfail(strict=False, reason=_XFAIL_FIRST_MSG_RERENDER)
 def test_slash_proactive_status(clean_chat_page: ChatPage):
     """``/proactive`` (no args) toggles or reports proactive mode."""
     chat = clean_chat_page.open()
@@ -231,7 +218,6 @@ def test_slash_proactive_status(clean_chat_page: ChatPage):
 @pytest.mark.slash_commands
 @pytest.mark.p2
 @pytest.mark.test_id("SLASH-007")
-@pytest.mark.xfail(strict=False, reason=_XFAIL_FIRST_MSG_RERENDER)
 def test_slash_dump_history_writes_file(clean_chat_page: ChatPage):
     """``/dump_history`` reports a target file path."""
     chat = clean_chat_page.open()
@@ -242,7 +228,6 @@ def test_slash_dump_history_writes_file(clean_chat_page: ChatPage):
 @pytest.mark.slash_commands
 @pytest.mark.p2
 @pytest.mark.test_id("SLASH-008")
-@pytest.mark.xfail(strict=False, reason=_XFAIL_FIRST_MSG_RERENDER)
 def test_slash_clear_resets_history(clean_chat_page: ChatPage):
     """``/clear`` returns a confirmation message."""
     chat = clean_chat_page.open()
