@@ -35,7 +35,9 @@ from .config import (
     SandboxMode,
     create_sandbox,
     detect_platform_mode,
+    is_volume_root,
     probe_sandbox_support,
+    volume_root_paths,
 )
 from .local_sandbox import (
     LocalSandbox,
@@ -79,8 +81,10 @@ __all__ = [
     "WindowsUnelevatedSandbox",
     "create_sandbox",
     "detect_platform_mode",
+    "is_volume_root",
     "probe_sandbox_support",
     "shutdown_all_sandboxes",
+    "volume_root_paths",
 ]
 
 

@@ -2309,6 +2309,8 @@
     "closeWorkspace": "ワークスペースを閉じる"
   },
   "projectDirectory": {
+    "volumeRootWarningTitle": "ボリュームのルートが選択されました",
+    "volumeRootWarningMessage": "{{path}} はボリュームのルートです。サンドボックスはここにアクセス権を付与できません（権限エントリは継承され、ルートには親がないため、ドライブ全体に適用され、アクセス不能になる恐れがあります）。このセッションはサンドボックスなしで実行されます。続行しますか？",
     "agentTitle": "エージェントのプロジェクトディレクトリ",
     "sessionTitle": "セッションのプロジェクトディレクトリ",
     "pathPlaceholder": "絶対ディレクトリパスを入力",

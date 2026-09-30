@@ -1295,3 +1295,91 @@ class TestShutdownBudget:
             assert result is False
         finally:
             wrs._SHUTDOWN_ACL_DEADLINE = old_deadline
+
+
+# ============================================================================
+# ACL guards (#7943): never fill a NULL DACL, never reset a volume root
+# ============================================================================
+
+
+class TestTraverseAceNullDaclGuard:
+    """``_add_traverse_ace`` must refuse a directory whose DACL is NULL."""
+
+    @patch("qwenpaw.sandbox.windows_elevated_sandbox._ensure_privileges")
+    @patch("qwenpaw.sandbox.windows_elevated_sandbox._get_ntdll")
+    @patch("qwenpaw.sandbox.windows_elevated_sandbox._get_advapi32")
+    @patch("qwenpaw.sandbox.windows_elevated_sandbox._get_kernel32")
+    def test_null_dacl_is_refused(
+        self,
+        mock_kernel32_fn,
+        mock_advapi32_fn,
+        mock_ntdll_fn,
+        mock_privileges,
+    ):
+        """GetSecurityInfo succeeds but yields no DACL -> refuse."""
+        from qwenpaw.sandbox import windows_elevated_sandbox as mod
+
+        kernel32 = MagicMock()
+        kernel32.CreateFileW.return_value = 1234
+        mock_kernel32_fn.return_value = kernel32
+
+        advapi32 = MagicMock()
+        advapi32.GetSecurityInfo.return_value = 0
+        mock_advapi32_fn.return_value = advapi32
+
+        psid = ctypes.c_void_p(1)
+        assert mod._add_traverse_ace(r"C:\ws", psid) is False
+        advapi32.SetEntriesInAclW.assert_not_called()
+        kernel32.CloseHandle.assert_called_once_with(1234)
+
+
+class TestVolumeRootResetGuard:
+    """``icacls /reset`` must never run on a volume root."""
+
+    @patch("qwenpaw.sandbox.windows_elevated_sandbox._run_icacls_sync_local")
+    @patch(
+        "qwenpaw.sandbox.windows_elevated_sandbox"
+        "._remove_acl_with_verify_sync",
+    )
+    @patch(
+        "qwenpaw.sandbox.windows_elevated_sandbox.is_volume_root",
+        return_value=True,
+    )
+    @patch("os.path.exists", return_value=True)
+    def test_reset_is_refused_on_a_volume_root(
+        self,
+        mock_exists,
+        mock_is_root,
+        mock_remove,
+        mock_icacls,
+    ):
+        """A volume root is skipped instead of being reset."""
+        mock_remove.return_value = False
+
+        assert (
+            _remove_acl_with_verify_sync_local(r"C:\\", "S-1-5-21-x") is False
+        )
+        mock_icacls.assert_not_called()
+
+    @patch("qwenpaw.sandbox.windows_elevated_sandbox._run_icacls_sync_local")
+    @patch(
+        "qwenpaw.sandbox.windows_elevated_sandbox"
+        "._remove_acl_with_verify_sync",
+    )
+    @patch(
+        "qwenpaw.sandbox.windows_elevated_sandbox.is_volume_root",
+        return_value=False,
+    )
+    @patch("os.path.exists", return_value=True)
+    def test_reset_still_runs_on_a_normal_directory(
+        self,
+        mock_exists,
+        mock_is_root,
+        mock_remove,
+        mock_icacls,
+    ):
+        """An ordinary directory keeps the previous behaviour."""
+        mock_remove.return_value = False
+
+        _remove_acl_with_verify_sync_local(r"C:\ws", "S-1-5-21-x")
+        mock_icacls.assert_called_once()

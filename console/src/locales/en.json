@@ -3053,6 +3053,8 @@
     "artifactsCollapse": "Show fewer files"
   },
   "projectDirectory": {
+    "volumeRootWarningTitle": "Volume root selected",
+    "volumeRootWarningMessage": "{{path}} is a volume root. The sandbox cannot grant access here: its permission entry is inheritable and a volume root has no parent, so it would apply to the whole drive and can make it inaccessible. This session will run without the sandbox. Continue anyway?",
     "agentTitle": "Agent project directory",
     "agentDescription": "The Agent Files workspace uses this default directory.",
     "sessionTitle": "Session project directory",

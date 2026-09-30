@@ -683,3 +683,101 @@ class TestCreateSandboxWindowsDowngrade:
         sb = create_sandbox(config)
         assert isinstance(sb, NoneSandbox)
         mock_detect.assert_called_once()
+
+
+# ============================================================================
+# ACL guard (#7943): a NULL DACL must never be filled with sandbox-only ACEs
+# ============================================================================
+
+
+class TestSetPathAceNullDaclGuard:
+    """``_set_path_ace`` must refuse a path whose DACL is NULL.
+
+    Merging an ACE into a NULL DACL produces a DACL that holds only the
+    sandbox SID, silently locking SYSTEM / Administrators / the user out
+    of the path. See #7943.
+    """
+
+    @patch("qwenpaw.sandbox.windows_unelevated_sandbox._get_kernel32")
+    @patch("qwenpaw.sandbox.windows_unelevated_sandbox._get_advapi32")
+    def test_null_dacl_is_refused(self, mock_advapi32, mock_kernel32):
+        """GetNamedSecurityInfoW succeeds but yields no DACL -> refuse."""
+        from qwenpaw.sandbox import windows_unelevated_sandbox as mod
+
+        advapi = MagicMock()
+        advapi.GetNamedSecurityInfoW.return_value = 0
+        mock_advapi32.return_value = advapi
+        mock_kernel32.return_value = MagicMock()
+
+        psid = ctypes.c_void_p(1)
+        assert mod._set_path_ace(r"C:\ws", psid, 0x1, 0x1) is False
+        advapi.SetEntriesInAclW.assert_not_called()
+        advapi.SetNamedSecurityInfoW.assert_not_called()
+
+    @patch("qwenpaw.sandbox.windows_unelevated_sandbox._get_kernel32")
+    @patch("qwenpaw.sandbox.windows_unelevated_sandbox._get_advapi32")
+    def test_present_dacl_is_still_merged(self, mock_advapi32, mock_kernel32):
+        """A normal DACL keeps the previous behaviour."""
+        from qwenpaw.sandbox import windows_unelevated_sandbox as mod
+
+        advapi = MagicMock()
+
+        def _get(path, obj, info, owner, group, dacl_ref, sacl, sd_ref):
+            ctypes.cast(dacl_ref, ctypes.POINTER(ctypes.c_void_p))[0] = 0x1234
+            return 0
+
+        advapi.GetNamedSecurityInfoW.side_effect = _get
+        advapi.SetEntriesInAclW.return_value = 0
+        advapi.SetNamedSecurityInfoW.return_value = 0
+        mock_advapi32.return_value = advapi
+        mock_kernel32.return_value = MagicMock()
+
+        psid = ctypes.c_void_p(1)
+        assert mod._set_path_ace(r"C:\ws", psid, 0x1, 0x1) is True
+        advapi.SetEntriesInAclW.assert_called_once()
+
+
+class TestSetPathAceVolumeRootGuard:
+    """``_set_path_ace`` is the single ACL write point; guard it too."""
+
+    @patch("qwenpaw.sandbox.windows_unelevated_sandbox._get_kernel32")
+    @patch("qwenpaw.sandbox.windows_unelevated_sandbox._get_advapi32")
+    @patch(
+        "qwenpaw.sandbox.windows_unelevated_sandbox.is_volume_root",
+        return_value=True,
+    )
+    def test_volume_root_is_refused(
+        self,
+        mock_is_root,
+        mock_advapi32,
+        mock_kernel32,
+    ):
+        """A volume root is refused before any Win32 call is made."""
+        from qwenpaw.sandbox import windows_unelevated_sandbox as mod
+
+        advapi = MagicMock()
+        mock_advapi32.return_value = advapi
+        mock_kernel32.return_value = MagicMock()
+
+        psid = ctypes.c_void_p(1)
+        assert mod._set_path_ace(r"C:\\", psid, 0x1, 0x1) is False
+        advapi.GetNamedSecurityInfoW.assert_not_called()
+
+
+class TestResetDaclToInheritedVolumeRootGuard:
+    """``_reset_dacl_to_inherited`` must never run on a volume root."""
+
+    @patch("qwenpaw.sandbox.windows_unelevated_sandbox._get_advapi32")
+    @patch(
+        "qwenpaw.sandbox.windows_unelevated_sandbox.is_volume_root",
+        return_value=True,
+    )
+    def test_volume_root_is_refused(self, mock_is_root, mock_advapi32):
+        """A volume root is refused before any Win32 call is made."""
+        from qwenpaw.sandbox import windows_unelevated_sandbox as mod
+
+        advapi = MagicMock()
+        mock_advapi32.return_value = advapi
+
+        assert mod._reset_dacl_to_inherited(r"C:\\") is False
+        advapi.SetNamedSecurityInfoW.assert_not_called()
