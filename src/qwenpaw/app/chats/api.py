@@ -1199,6 +1199,11 @@ async def delete_chat(
             status_code=404,
             detail=f"Chat not found: {chat_id}",
         )
+    if await workspace.task_tracker.get_status(chat_id) == "running":
+        raise HTTPException(
+            status_code=409,
+            detail="Cannot delete a running chat",
+        )
     catalog = await mgr.list_chats(archived=None)
     data_targets = _unshared_chat_data_targets([chat], catalog)
     deleted = await mgr.delete_chats(chat_ids=[chat_id])

@@ -491,7 +491,13 @@ async def test_delete_keeps_data_while_another_chat_maps_same_session() -> (
         list_chats=AsyncMock(return_value=[first, second]),
         delete_chats=AsyncMock(return_value=True),
     )
-    workspace = SimpleNamespace(transcript_store=store, session=None)
+    workspace = SimpleNamespace(
+        transcript_store=store,
+        session=None,
+        task_tracker=SimpleNamespace(
+            get_status=AsyncMock(return_value="idle"),
+        ),
+    )
 
     result = await delete_chat(
         chat_id=first.id,
@@ -502,3 +508,28 @@ async def test_delete_keeps_data_while_another_chat_maps_same_session() -> (
     assert result == {"deleted": True}
     store.delete_session.assert_not_called()
     manager.delete_chats.assert_awaited_once_with(chat_ids=[first.id])
+
+
+@pytest.mark.asyncio
+async def test_delete_rejects_running_chat() -> None:
+    manager = SimpleNamespace(
+        get_chat=AsyncMock(return_value=_chat()),
+        list_chats=AsyncMock(),
+        delete_chats=AsyncMock(),
+    )
+    workspace = SimpleNamespace(
+        task_tracker=SimpleNamespace(
+            get_status=AsyncMock(return_value="running"),
+        ),
+    )
+
+    with pytest.raises(HTTPException) as raised:
+        await delete_chat(
+            chat_id="chat-1",
+            mgr=manager,
+            workspace=workspace,
+        )
+
+    assert raised.value.status_code == 409
+    manager.list_chats.assert_not_awaited()
+    manager.delete_chats.assert_not_awaited()
