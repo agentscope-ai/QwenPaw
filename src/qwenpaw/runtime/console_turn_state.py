@@ -79,7 +79,10 @@ def stamp_console_turn(
             terminal = {"status": status}
             if status == "failed" and error is not None:
                 terminal["error"] = {
-                    "code": type(error).__name__,
+                    "code": (
+                        getattr(error, "error_code", None)
+                        or type(error).__name__
+                    ),
                     "message": str(error),
                 }
             message["metadata"] = {**meta, TURN_STATE: terminal}

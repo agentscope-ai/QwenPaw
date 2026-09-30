@@ -18,6 +18,7 @@ from fastapi import HTTPException
 
 from qwenpaw.app.routers import providers as providers_mod
 from qwenpaw.config.config import ModelSlotConfig
+from qwenpaw.exceptions import AgentConfigConflictError
 from qwenpaw.providers.openrouter_provider import OpenRouterProvider
 from qwenpaw.providers.provider import (
     ExtendedModelInfo,
@@ -590,7 +591,7 @@ class TestGetActiveModels:
         )
         assert result.active_llm == global_slot
 
-    async def test_effective_scope_error_falls_back_to_global(
+    async def test_effective_scope_unavailable_config_reports_503(
         self,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
@@ -607,12 +608,128 @@ class TestGetActiveModels:
             "load_agent_config",
             MagicMock(side_effect=ValueError("corrupt config")),
         )
+        with pytest.raises(HTTPException) as caught:
+            await providers_mod.get_active_models(
+                request=MagicMock(),
+                manager=manager,
+                scope="effective",
+                agent_id=None,
+            )
+
+        # An unreadable configuration is not "no model selected": answering
+        # with the global model would report a model the agent does not use.
+        assert caught.value.status_code == 503
+        assert caught.value.detail["code"] == "AGENT_CONFIG_UNAVAILABLE"
+        # The message keeps the part the user acts on.
+        assert "corrupt config" in caught.value.detail["message"]
+
+    async def test_agent_scope_reports_the_same_verdict(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        manager = self._manager_with_global(
+            ModelSlotConfig(provider_id="p", model="global-m"),
+        )
+        monkeypatch.setattr(
+            providers_mod,
+            "get_agent_for_request",
+            AsyncMock(return_value=SimpleNamespace(agent_id="agent-1")),
+        )
+        monkeypatch.setattr(
+            providers_mod,
+            "load_agent_config",
+            MagicMock(side_effect=ValueError("corrupt config")),
+        )
+        # Every call site maps the failure, not only the effective scope.
+        with pytest.raises(HTTPException) as caught:
+            await providers_mod.get_active_models(
+                request=MagicMock(),
+                manager=manager,
+                scope="agent",
+                agent_id="agent-1",
+            )
+
+        assert caught.value.status_code == 503
+        assert caught.value.detail["code"] == "AGENT_CONFIG_UNAVAILABLE"
+
+    async def test_effective_scope_stale_config_reports_409(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        global_slot = ModelSlotConfig(provider_id="p", model="global-m")
+        manager = self._manager_with_global(global_slot)
+        workspace = SimpleNamespace(agent_id="agent-1")
+        monkeypatch.setattr(
+            providers_mod,
+            "get_agent_for_request",
+            AsyncMock(return_value=workspace),
+        )
+        monkeypatch.setattr(
+            providers_mod,
+            "load_agent_config",
+            MagicMock(side_effect=AgentConfigConflictError("agent-1")),
+        )
+        with pytest.raises(HTTPException) as caught:
+            await providers_mod.get_active_models(
+                request=MagicMock(),
+                manager=manager,
+                scope="effective",
+                agent_id=None,
+            )
+
+        assert caught.value.status_code == 409
+        assert caught.value.detail["code"] == "AGENT_CONFIG_STALE"
+
+    async def test_effective_scope_http_error_is_not_swallowed(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        global_slot = ModelSlotConfig(provider_id="p", model="global-m")
+        manager = self._manager_with_global(global_slot)
+        monkeypatch.setattr(
+            providers_mod,
+            "get_agent_for_request",
+            AsyncMock(
+                side_effect=HTTPException(
+                    status_code=403,
+                    detail="Agent 'agent-1' is disabled",
+                ),
+            ),
+        )
+        with pytest.raises(HTTPException) as caught:
+            await providers_mod.get_active_models(
+                request=MagicMock(),
+                manager=manager,
+                scope="effective",
+                agent_id=None,
+            )
+
+        assert caught.value.status_code == 403
+
+    async def test_effective_scope_missing_model_keeps_global_fallback(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        global_slot = ModelSlotConfig(provider_id="p", model="global-m")
+        manager = self._manager_with_global(global_slot)
+        workspace = SimpleNamespace(agent_id="agent-1")
+        monkeypatch.setattr(
+            providers_mod,
+            "get_agent_for_request",
+            AsyncMock(return_value=workspace),
+        )
+        monkeypatch.setattr(
+            providers_mod,
+            "load_agent_config",
+            MagicMock(return_value=SimpleNamespace(active_model=None)),
+        )
         result = await providers_mod.get_active_models(
             request=MagicMock(),
             manager=manager,
             scope="effective",
             agent_id=None,
         )
+        # No selection is a valid state, not a failure.
         assert result.active_llm == global_slot
 
 

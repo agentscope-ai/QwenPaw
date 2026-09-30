@@ -12,9 +12,24 @@ from typing import Any
 
 from ....utils.io_utils import run_sync_io
 from ....utils.logging import sanitize_log_value
+from ...configuration import load_runtime_agent_config
 from .base import BaseControlCommandHandler, ControlContext
 
 logger = logging.getLogger(__name__)
+
+
+async def _get_agent_config(context: ControlContext) -> Any:
+    """Return the request snapshot, loading only for standalone calls."""
+    if context.agent_config is None:
+        if context.agent_config_error is not None:
+            raise context.agent_config_error
+        agent_id = (
+            context.agent_id
+            or getattr(context.workspace, "agent_id", None)
+            or "default"
+        )
+        context.agent_config = await load_runtime_agent_config(agent_id)
+    return context.agent_config
 
 
 class ModelCommandHandler(BaseControlCommandHandler):
@@ -110,11 +125,18 @@ class ModelCommandHandler(BaseControlCommandHandler):
         Returns:
             Formatted response with current model info
         """
-        workspace = context.workspace
-        agent_config = workspace.config
+        try:
+            agent_config = await _get_agent_config(context)
+        except Exception:
+            logger.warning(
+                "Unable to read agent model configuration; "
+                "reporting the global model instead",
+                exc_info=True,
+            )
+            agent_config = None
 
         # Get agent-level active model
-        active_model = agent_config.active_model
+        active_model = agent_config.active_model if agent_config else None
 
         if active_model is None or not active_model.provider_id:
             # Fallback to global active model
@@ -153,10 +175,18 @@ class ModelCommandHandler(BaseControlCommandHandler):
         from ....providers.provider_manager import ProviderManager
 
         manager = ProviderManager.get_instance()
-        workspace = context.workspace
 
         # Get current active model
-        active_model = workspace.config.active_model
+        try:
+            agent_config = await _get_agent_config(context)
+        except Exception:
+            logger.warning(
+                "Unable to read agent model configuration; "
+                "reporting the global model instead",
+                exc_info=True,
+            )
+            agent_config = None
+        active_model = agent_config.active_model if agent_config else None
         if active_model is None:
             active_model = await run_sync_io(manager.get_active_model)
 
@@ -290,7 +320,9 @@ class ModelCommandHandler(BaseControlCommandHandler):
                 f"Use `/model list` to see available models."
             )
 
-        # Update agent config
+        # Update agent config. A write is a read-modify-write of the real
+        # file, so it keeps using the workspace snapshot object even when a
+        # request-scoped snapshot was available for reading.
         from ....config.config import update_agent_config_async
         from ....config.config import ModelSlotConfig as ModelSlot
 
@@ -344,6 +376,7 @@ class ModelCommandHandler(BaseControlCommandHandler):
         from ....config.config import update_agent_config_async
         from ....providers.provider_manager import ProviderManager
 
+        # As with a switch, a reset is a read-modify-write of the real file.
         workspace = context.workspace
         agent_config = workspace.config
 

@@ -20,9 +20,16 @@ import uuid
 from typing import Any, AsyncGenerator
 
 from ..agents.acp.meta import ACP_EPHEMERAL_META_KEY
-from ..exceptions import ConfigurationException
+from ..exceptions import (
+    CONFIGURATION_REQUIRED,
+    ConfigurationException,
+)
 from ..utils.daily_telemetry import record_agent_activity
 from .builder import AgentBuilder
+from .configuration import (
+    is_config_independent_command,
+    load_runtime_agent_config,
+)
 from .envelope import Envelope
 from .executor import AgentExecutor
 from .hooks import HookAction, HookContext
@@ -45,9 +52,13 @@ class Runtime:
         *,
         workspace: Any,
         app_services: Any,
+        agent_config: Any | None = None,
+        config_error: Exception | None = None,
     ) -> None:
         self.workspace = workspace
         self.app_services = app_services
+        self.agent_config = agent_config
+        self.config_error = config_error
 
     async def run(  # pylint: disable=too-many-branches,too-many-statements
         self,
@@ -63,6 +74,20 @@ class Runtime:
         skip_agent = False
 
         try:
+            if not await self._resolve_agent_config(ctx, request):
+                error = self.config_error
+                # Report before giving up so the client still receives a
+                # terminal event. Returning rather than raising keeps this
+                # from re-entering the handler below and emitting a second
+                # envelope for the same failure.
+                async for ev in envelope.error_envelope(
+                    error.message or str(error),
+                    getattr(error, "error_code", None)
+                    or CONFIGURATION_REQUIRED,
+                ):
+                    yield ev
+                return
+
             # --- [phase 1] PRE_DISPATCH ---
             r = await hooks.run(Phase.PRE_DISPATCH, ctx)
             if r.action == HookAction.SHORT_CIRCUIT:
@@ -498,6 +523,34 @@ class Runtime:
 
         return closed
 
+    async def _resolve_agent_config(
+        self,
+        ctx: HookContext,
+        request: Any,
+    ) -> bool:
+        """Pin one configuration snapshot for the whole request.
+
+        Hooks, the builder and control commands read this snapshot, so one
+        turn loads the agent configuration once instead of three times.
+        Returns False only when the configuration is unavailable and this
+        request needs it; a read-only ``/model`` form continues so it can
+        still report the global model.
+        """
+        if ctx.agent_config is not None:
+            return True
+        if self.config_error is None:
+            try:
+                ctx.agent_config = await load_runtime_agent_config(
+                    ctx.agent_id,
+                )
+                return True
+            except ConfigurationException as exc:
+                self.config_error = exc
+        if not is_config_independent_command(request):
+            return False
+        ctx.extras["agent_config_error"] = self.config_error
+        return True
+
     @staticmethod
     def _normalize(request: Any) -> Any:
         from ..schemas import AgentRequest
@@ -533,6 +586,7 @@ class Runtime:
             workspace=self.workspace,
             app_services=self.app_services,
             input_msgs=_request_input_to_msgs(request.input),
+            agent_config=self.agent_config,
         )
 
     @staticmethod
