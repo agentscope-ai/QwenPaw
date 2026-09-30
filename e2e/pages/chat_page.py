@@ -125,23 +125,32 @@ class ChatPage(BasePage):
         '[class*="sessionItem-module__name"], '
         '[class*=chatSessionItem] [class*=name]'
     )
-    # SessionItem actions now live behind a "more" button (SparkMoreLine)
-    # that opens an antd Dropdown menu (Pin / Rename / Archive / Delete).
+    # SessionItem actions live behind a "more" button. The current console
+    # renders a custom Popover menu; the qwenpaw dropdown selectors remain as
+    # fallbacks for older builds.
     SESSION_MORE_BTN = '[class*=moreBtn]'
     # ``:text-is`` is exact so "Pin" does not also match "Unpin".
     SESSION_MENU_PIN = (
+        'div[role="menu"] button[role="menuitem"]:text-is("Pin"), '
+        'div[role="menu"] button[role="menuitem"]:text-is("置顶"), '
         '.qwenpaw-dropdown-menu-item:has-text("Pin"), '
         '.qwenpaw-dropdown-menu-item:has-text("置顶")'
     )
     SESSION_MENU_UNPIN = (
+        'div[role="menu"] button[role="menuitem"]:text-is("Unpin"), '
+        'div[role="menu"] button[role="menuitem"]:text-is("取消置顶"), '
         '.qwenpaw-dropdown-menu-item:has-text("Unpin"), '
         '.qwenpaw-dropdown-menu-item:has-text("取消置顶")'
     )
     SESSION_MENU_RENAME = (
+        'div[role="menu"] button[role="menuitem"]:has-text("Rename"), '
+        'div[role="menu"] button[role="menuitem"]:has-text("重命名"), '
         '.qwenpaw-dropdown-menu-item:has-text("Rename"), '
         '.qwenpaw-dropdown-menu-item:has-text("重命名")'
     )
     SESSION_MENU_DELETE = (
+        'div[role="menu"] button[role="menuitem"]:has-text("Delete"), '
+        'div[role="menu"] button[role="menuitem"]:has-text("删除"), '
         '.qwenpaw-dropdown-menu-item:has-text("Delete"), '
         '.qwenpaw-dropdown-menu-item:has-text("删除")'
     )
@@ -1074,9 +1083,10 @@ class ChatPage(BasePage):
         # nth() right before each interaction attempt instead.
         target = self.page.locator(self.SESSION_ITEM).nth(index)
 
-        # antd keeps closed menus in the DOM with a ``-hidden`` modifier; the
-        # open one is the menu WITHOUT it.
+        # The current SessionActions component renders a custom role-based
+        # menu. Keep the old dropdown selector as a compatibility fallback.
         open_menu_item = (
+            'div[role="menu"] button[role="menuitem"], '
             '.qwenpaw-dropdown:not(.qwenpaw-dropdown-hidden) '
             '.qwenpaw-dropdown-menu-item'
         )
@@ -1667,7 +1677,14 @@ class ChatPage(BasePage):
 
             try:
                 self.delete_session(0)
-                deleted_count += 1
+                remaining_count = self.get_session_count()
+                if remaining_count >= session_count:
+                    logger.warning(
+                        "[cleanup] session count did not decrease "
+                        f"({session_count}); stop cleanup"
+                    )
+                    break
+                deleted_count += session_count - remaining_count
             except Exception as error:
                 logger.warning(f"Failed to delete session: {error}")
                 break
