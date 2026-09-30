@@ -333,11 +333,14 @@ class TestSessionManagement:
         assert initial_count >= 2, f"Not enough sessions: {initial_count}"
 
         log_test_step("5. Rename the first session")
-        clean_chat_page.rename_session(0, "已重命名的测试会话")
+        renamed_session = "已重命名的测试会话"
+        clean_chat_page.rename_session(0, renamed_session)
 
         log_test_step("6. Pin the first session and verify pinned state")
         clean_chat_page.pin_session(0)
-        assert clean_chat_page.verify_pinned_session(), "Pinned marker not shown"
+        assert clean_chat_page.verify_pinned_session(renamed_session), (
+            "Pinned marker not shown"
+        )
 
         log_test_step("7. Switch to another session and verify its content")
         clean_chat_page.switch_to_session(1)
