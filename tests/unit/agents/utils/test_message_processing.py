@@ -6,6 +6,7 @@ Covers:
 - prepend_to_message_content
 - process_file_and_media_blocks_in_message
 """
+
 # pylint: disable=redefined-outer-name
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -232,7 +233,7 @@ class TestProcessAudioDataBlock:
         assert msg.content[0].text == "[Voice message]: hello from voice"
 
     @pytest.mark.asyncio
-    async def test_failed_transcription_keeps_local_path_hint(
+    async def test_failed_transcription_hides_local_path_hint(
         self,
         tmp_path,
         _audio_config,
@@ -247,7 +248,10 @@ class TestProcessAudioDataBlock:
         assert isinstance(msg.content[0], TextBlock)
         assert msg.content[0].text == "[Voice message]: (audio file received)"
         assert isinstance(msg.content[1], TextBlock)
-        assert str(audio_path.resolve()) in msg.content[1].text
+        assert msg.content[1].text == (
+            'User uploaded a file, saved as "voice.opus"'
+        )
+        assert str(audio_path.resolve()) not in msg.content[1].text
 
     @pytest.mark.asyncio
     async def test_native_audio_remains_data_block(
@@ -346,9 +350,8 @@ class TestProcessFileAndMediaBlocks:
 
         await process_file_and_media_blocks_in_message(msg)
 
-        assert msg.content[1].text == (
-            f'用户上传文件 "项目方案.docx"，已经下载到 {local_path}'
-        )
+        assert msg.content[1].text == '用户上传文件，已保存为 "项目方案.docx"'
+        assert str(local_path) not in msg.content[1].text
 
     @pytest.mark.asyncio
     async def test_data_block_hint_normalizes_and_escapes_filename(
@@ -366,10 +369,10 @@ class TestProcessFileAndMediaBlocks:
         await process_file_and_media_blocks_in_message(msg)
 
         assert msg.content[1].text == (
-            "User uploaded a file "
-            '"会议\\n记\\u0085录\\u2028划\\u2029.docx", '
-            f"downloaded to {local_path}"
+            "User uploaded a file, saved as "
+            '"会议\\n记\\u0085录\\u2028划\\u2029.docx"'
         )
+        assert str(local_path) not in msg.content[1].text
 
     @pytest.mark.asyncio
     async def test_data_block_hint_bounds_display_filename(
@@ -385,12 +388,12 @@ class TestProcessFileAndMediaBlocks:
 
         expected_name = "a" * 200
         assert msg.content[1].text == (
-            f'User uploaded a file "{expected_name}", '
-            f"downloaded to {local_path}"
+            f'User uploaded a file, saved as "{expected_name}"'
         )
+        assert str(local_path) not in msg.content[1].text
 
     @pytest.mark.asyncio
-    async def test_file_hint_without_name_keeps_existing_wording(
+    async def test_file_hint_without_name_uses_local_basename(
         self,
         monkeypatch,
         tmp_path,
@@ -402,5 +405,6 @@ class TestProcessFileAndMediaBlocks:
         await process_file_and_media_blocks_in_message(msg)
 
         assert msg.content[1].text == (
-            f"User uploaded a file, downloaded to {local_path}"
+            'User uploaded a file, saved as "stored.bin"'
         )
+        assert str(local_path) not in msg.content[1].text
