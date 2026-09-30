@@ -158,28 +158,20 @@ async def _stop_workspaces_after_dependents_impl(
     if plugin_registry is not None:
         logger.info("Executing plugin shutdown hooks...")
         for hook in plugin_registry.get_shutdown_hooks():
-            try:
-                logger.info(
-                    f"Executing shutdown hook '{hook.hook_name}' "
-                    f"from plugin '{hook.plugin_id}' (priority"
-                    f"={hook.priority})",
-                )
-                result = hook.callback()
-                if inspect.iscoroutine(result) or inspect.isawaitable(result):
-                    await result
-                logger.info(
-                    f"✓ Completed shutdown hook '{hook.hook_name}' "
-                    f"from plugin '{hook.plugin_id}'",
-                )
-            except Exception as exc:
-                logger.error(
-                    "✗ Failed to execute shutdown hook '%s' "
-                    "from plugin '%s': %s",
-                    hook.hook_name,
-                    hook.plugin_id,
-                    exc,
-                    exc_info=True,
-                )
+            logger.info(
+                f"Executing shutdown hook '{hook.hook_name}' "
+                f"from plugin '{hook.plugin_id}' (priority"
+                f"={hook.priority})",
+            )
+            await _safe_execute_plugin_hook(
+                hook,
+                hook_type="shutdown",
+                timeout_sec=10.0,
+            )
+            logger.info(
+                f"✓ Completed shutdown hook '{hook.hook_name}' "
+                f"from plugin '{hook.plugin_id}'",
+            )
 
     # Hooks may access live workspaces. Stop them before unrelated cleanup
     # delays the memory drain, but only after their dependents have finished.
@@ -212,12 +204,57 @@ async def _stop_browser_runtime(app: FastAPI) -> None:
     await stop_managed_chromium_download()
 
 
+async def _safe_execute_plugin_hook(
+    hook: Any,
+    hook_type: str = "hook",
+    timeout_sec: float = 10.0,
+) -> None:
+    """Execute a plugin hook safely with thread offloading and timeout
+    protection.
+
+    .. note::
+        For synchronous hooks offloaded via ``asyncio.to_thread``, a timeout
+        cancels the awaiting coroutine to unblock the application lifecycle,
+        though the underlying worker thread runs until the blocking operation
+        completes.
+    """
+    try:
+        callback = hook.callback
+        if asyncio.iscoroutinefunction(callback):
+            coro = callback()
+        else:
+            coro = asyncio.to_thread(callback)
+
+        result = await asyncio.wait_for(coro, timeout=timeout_sec)
+        if inspect.iscoroutine(result) or inspect.isawaitable(result):
+            await asyncio.wait_for(result, timeout=timeout_sec)
+    except asyncio.TimeoutError:
+        logger.error(
+            f"✗ Plugin {hook_type} hook '{hook.hook_name}' from plugin "
+            f"'{hook.plugin_id}' timed out after {timeout_sec:.1f}s "
+            "and was skipped.",
+        )
+    except Exception as e:
+        logger.error(
+            f"✗ Failed to execute {hook_type} hook '{hook.hook_name}' "
+            f"from plugin '{hook.plugin_id}': {e}",
+            exc_info=True,
+        )
+
+
 @asynccontextmanager
 async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
     app: FastAPI,
 ):
     startup_start_time = time.time()
     add_project_file_handler(LOG_FILE_PATH)
+
+    from ..utils.event_loop_watchdog import (
+        start_event_loop_watchdog,
+        stop_event_loop_watchdog,
+    )
+
+    start_event_loop_watchdog()
 
     # ================================================================
     # Fast synchronous setup (target < 100ms)
@@ -606,30 +643,20 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
             logger.debug("Executing plugin startup hooks...")
             startup_hooks = plugin_loader.registry.get_startup_hooks()
             for hook in startup_hooks:
-                try:
-                    logger.debug(
-                        f"Executing startup hook '{hook.hook_name}' "
-                        f"from plugin '{hook.plugin_id}' "
-                        f"(priority={hook.priority})",
-                    )
-
-                    result = hook.callback()
-                    if inspect.iscoroutine(
-                        result,
-                    ) or inspect.isawaitable(result):
-                        await result
-
-                    logger.debug(
-                        f"Completed startup hook '{hook.hook_name}' "
-                        f"from plugin '{hook.plugin_id}'",
-                    )
-                except Exception as e:
-                    logger.error(
-                        f"✗ Failed to execute startup hook "
-                        f"'{hook.hook_name}' "
-                        f"from plugin '{hook.plugin_id}': {e}",
-                        exc_info=True,
-                    )
+                logger.debug(
+                    f"Executing startup hook '{hook.hook_name}' "
+                    f"from plugin '{hook.plugin_id}' "
+                    f"(priority={hook.priority})",
+                )
+                await _safe_execute_plugin_hook(
+                    hook,
+                    hook_type="startup",
+                    timeout_sec=10.0,
+                )
+                logger.debug(
+                    f"Completed startup hook '{hook.hook_name}' "
+                    f"from plugin '{hook.plugin_id}'",
+                )
 
             # ---- Approval Service ----
             try:
@@ -761,6 +788,7 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
                 logger.error(f"Error during sandbox cleanup: {e}")
 
         logger.info("Application shutdown complete")
+        stop_event_loop_watchdog()
         startup_display.stop()
 
 

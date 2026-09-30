@@ -601,6 +601,15 @@ class PluginApi:  # pylint: disable=too-many-public-methods
         is served at ``GET /api/pets/`` (trailing slash follows FastAPI
         defaults for the mounted path).
 
+        .. note::
+            **CRITICAL NON-BLOCKING CONTRACT**:
+            Route handlers declared as ``async def`` execute directly on the
+            host event loop. Synchronous blocking calls (``time.sleep``,
+            ``requests.*``, ``subprocess.run``, blocking sockets/files) will
+            freeze the entire QwenPaw host instance for all users.
+            Use standard ``def`` (which FastAPI automatically runs in a thread
+            pool) or wrap blocking operations with ``await api.run_sync(...)``.
+
         Args:
             router: ``fastapi.APIRouter`` instance
             prefix: Path under ``/api``, e.g. ``"/pets"``
@@ -617,6 +626,38 @@ class PluginApi:  # pylint: disable=too-many-public-methods
                 prefix=prefix,
                 tags=tags,
             )
+
+    async def run_sync(
+        self,
+        func: Callable[..., Any],
+        *args: Any,
+        **kwargs: Any,
+    ) -> Any:
+        """Run a synchronous/blocking callable in a worker thread.
+
+        Plugins must NEVER execute synchronous blocking I/O (such as
+        ``time.sleep``, ``requests.*``, ``subprocess.run``, or blocking socket
+        reads) inside ``async def`` handlers or lifecycle hooks. Doing so
+        freezes the host event loop, starving all agents, channels, and
+        HTTP/SSE endpoints.
+
+        Use this helper to safely offload synchronous tasks:
+
+            result = await api.run_sync(requests.get, "https://example.com")
+
+        Args:
+            func: The synchronous callable to execute.
+            *args: Positional arguments for *func*.
+            **kwargs: Keyword arguments for *func*.
+
+        Returns:
+            The return value of ``func(*args, **kwargs)``.
+        """
+        import asyncio
+        import functools
+
+        pfunc = functools.partial(func, *args, **kwargs)
+        return await asyncio.to_thread(pfunc)
 
     def register_control_command(
         self,
