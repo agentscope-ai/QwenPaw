@@ -18,7 +18,7 @@ from __future__ import annotations
 import logging
 from typing import List, Optional
 
-from playwright.sync_api import Page, Locator
+from playwright.sync_api import Page, Locator, TimeoutError
 
 from pages.base_page import BasePage
 from config.settings import config
@@ -36,19 +36,23 @@ class SkillPoolPage(BasePage):
     # Page + card grid (SkillPool/index.module.less, PoolSkillCard.tsx)
     PAGE_CONTAINER = '[class*="skillsPage"]'
     SKILL_GRID = '[class*="skillsGrid"]'
-    SKILL_CARD = '[class*="skillCard"]'
-    SKILL_TITLE = '[class*="skillTitle"]'
-    # Sync status badge (rendered for every card) + its colored dot.
+    SKILL_CARD = '[class*="PoolSkillCard-module__card"]'
+    SKILL_TITLE = '[class*="PoolSkillCard-module__title"]'
+    SEARCH_INPUT = (
+        'input[aria-label="Filter by name"], '
+        'input[aria-label="按名称筛选"]'
+    )
+    # Sync status badge rendered for every card.
     STATUS_BADGE = '[class*="statusBadge"]'
-    STATUS_DOT = '[class*="statusDot"]'
-    # Automation chip in the title row (Auto Sync, Auto Update, or both).
-    AUTOMATION_TAG = '[class*="automationTag"]'
+    AUTOMATION_TAG = (
+        'button[data-testid^="skill-automation-"][aria-pressed="true"]'
+    )
     BUILTIN_TAG = '[class*="builtinTag"]'
     CUSTOM_TAG = '[class*="customTag"]'
     # Card footer is only mounted on hover / batch / mobile; the single
     # automation quick action (SyncOutlined) lives inside it.
-    CARD_FOOTER = '[class*="cardFooter"]'
-    AUTOMATION_BUTTON = '[class*="automationButton"]'
+    CARD_FOOTER = '[class*="PoolSkillCard-module__footer"]'
+    AUTOMATION_BUTTON = 'button[data-testid^="skill-automation-"]'
 
     # Edit drawer (PoolSkillDrawer.tsx)
     DRAWER = '.qwenpaw-drawer'
@@ -103,7 +107,11 @@ class SkillPoolPage(BasePage):
         card = self.page.locator(
             f'{self.SKILL_CARD}:has-text("{name}")'
         ).first
-        return card if card.count() > 0 else None
+        try:
+            card.wait_for(state="visible", timeout=self.timeout)
+        except TimeoutError:
+            return None
+        return card
 
     def hover_card(self, card: Locator) -> "SkillPoolPage":
         """Hover a card so its footer automation action is mounted."""

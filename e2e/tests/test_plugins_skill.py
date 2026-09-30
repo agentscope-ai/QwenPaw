@@ -16,6 +16,7 @@ import pytest
 from playwright.sync_api import Page, expect, TimeoutError
 
 from pages.chat_page import ChatPage
+from pages.skill_pool_page import SkillPoolPage
 from config.settings import config
 from utils.helpers import (
     log_test_step,
@@ -78,7 +79,7 @@ class TestSkillInstallationAndLoading:
         log_test_step("2. Find an available skill")
         # Look for skill cards in the pool
         skill_card = clean_chat_page.page.locator(
-            '[class*="skill-card"], [class*="SkillCard"]'
+            SkillPoolPage.SKILL_CARD
         ).first
         if skill_card.count() == 0:
             logger.warning("No skill cards found; skipping skill installation test")
@@ -207,7 +208,7 @@ class TestSkillPoolBrowsing:
 
         log_test_step("2. Verify skill cards are displayed")
         skill_cards = clean_chat_page.page.locator(
-            '[class*="skill-card"], [class*="SkillCard"]'
+            SkillPoolPage.SKILL_CARD
         )
         card_count = skill_cards.count()
         assert card_count >= 0, "Skill cards should be present (may be 0)"
@@ -232,8 +233,7 @@ class TestSkillPoolBrowsing:
 
         log_test_step("4. Search for a skill by name")
         search_input = clean_chat_page.page.locator(
-            'input[aria-label="Search skills across platforms"], '
-            'input[aria-label="在多平台中搜索技能"]'
+            SkillPoolPage.SEARCH_INPUT
         ).first
         if search_input.count() > 0 and search_input.is_visible():
             search_input.fill("test")
