@@ -33,7 +33,7 @@ const isMarker = (event: string): boolean => event.trim() === REPLAY_END_EVENT;
 
 /** Split buffered text into complete SSE events and the partial tail. */
 function splitEvents(buf: string): { events: string[]; rest: string } {
-  const parts = buf.split("\n\n");
+  const parts = buf.split(/\r?\n\r?\n/);
   const rest = parts.pop() ?? "";
   return { events: parts.filter((e) => e.length > 0), rest };
 }
