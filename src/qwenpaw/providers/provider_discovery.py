@@ -10,12 +10,17 @@ from typing import List, Literal
 from pydantic import BaseModel, Field
 
 from .provider import ModelInfo, Provider
+from .error_sanitizer import (
+    CONNECTION_MESSAGE_SCAN_LIMIT,
+    is_challenge_page,
+)
 from .model_metadata import provider_catalog_models
 from .model_sync import reconcile_models
 
 DiscoveryErrorKind = Literal[
     "authentication",
     "authorization",
+    "blocked",
     "timeout",
     "network",
     "invalid_response",
@@ -154,8 +159,14 @@ def classify_discovery_error(
     exc: Exception,
     message: str,
 ) -> DiscoveryErrorKind:
-    """Map a discovery failure to a stable public category."""
-    normalized = message.lower()
+    """Map a discovery failure to a stable public category.
+
+    Expects the *raw* provider message, not a cleaned one: cleanup
+    replaces a challenge body with a fixed line and would hide the
+    markers this looks for. The scan is bounded because the text is
+    remote-controlled.
+    """
+    normalized = message[:CONNECTION_MESSAGE_SCAN_LIMIT].lower()
     status_match = re.search(
         r"\bstatus\s*[=:]\s*(\d{3})\b",
         normalized,
@@ -172,6 +183,11 @@ def classify_discovery_error(
         or f"timeout" in type(exc).__name__.lower()
     ):
         return "timeout"
+    # A bot challenge answers with 403, so it has to be recognized
+    # before the status mapping, which would read it as a bad
+    # credential.
+    if is_challenge_page(message):
+        return "blocked"
     status_kinds: dict[int, DiscoveryErrorKind] = {
         401: "authentication",
         403: "authorization",

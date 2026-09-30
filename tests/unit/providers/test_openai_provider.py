@@ -9,12 +9,14 @@ from agentscope.model import OpenAIChatModel
 import pytest
 
 import qwenpaw.providers.openai_provider as openai_provider_module
+from qwenpaw.providers.error_sanitizer import CHALLENGE_PAGE_MESSAGE
 from qwenpaw.providers.openai_provider import (
     KiloProvider,
     OpenCodeProvider,
     OpenAIProvider,
 )
 from qwenpaw.providers.provider import ModelInfo
+from qwenpaw.providers.provider_model_availability import classify_model_check
 
 
 def _make_provider(is_custom: bool = False) -> OpenAIProvider:
@@ -538,6 +540,60 @@ async def test_check_model_connection_api_error_returns_false(
     assert msg.endswith("failed")
 
 
+async def test_check_model_connection_reports_a_challenge_raw_and_clean(
+    monkeypatch,
+) -> None:
+    provider = _make_provider()
+    body = (
+        "<!DOCTYPE html><html><title>Just a moment...</title>"
+        "<body>Verifying you are human.</body></html>"
+    )
+
+    class ChallengeError(Exception):
+        """SDK-style error carrying a non-JSON body."""
+
+        status_code = 403
+
+        def __init__(self) -> None:
+            super().__init__("blocked by challenge")
+            self.body = body
+
+    class FakeCompletions:
+        async def create(self, **kwargs):
+            _ = kwargs
+            raise ChallengeError()
+
+    fake_client = SimpleNamespace(
+        chat=SimpleNamespace(completions=FakeCompletions()),
+    )
+    monkeypatch.setattr(provider, "_client", lambda timeout=5: fake_client)
+    monkeypatch.setattr(openai_provider_module, "APIError", Exception)
+
+    result = await provider.check_model_connection("gpt-4o-mini", timeout=1)
+
+    assert result.success is False
+    assert result.http_status == 403
+    assert result.raw_message is not None
+    assert "<html" in result.raw_message
+    assert result.raw_message.startswith("status=403: ")
+    assert result.message.startswith(
+        "API error when connecting to model 'gpt-4o-mini' (status=403): ",
+    )
+    assert CHALLENGE_PAGE_MESSAGE in result.message
+    assert "<html" not in result.message
+
+    classified = classify_model_check(
+        result.success,
+        result.message,
+        http_status=result.http_status,
+        error_kind=result.error_kind,
+        raw_message=result.raw_message,
+    )
+
+    assert classified.status == "blocked"
+    assert classified.retryable is False
+
+
 async def test_check_model_connection_non_chat_model_skips_chat_probe(
     monkeypatch,
 ) -> None:
@@ -555,15 +611,15 @@ async def test_check_model_connection_non_chat_model_skips_chat_probe(
     )
     monkeypatch.setattr(provider, "_client", lambda timeout=5: fake_client)
 
-    async def fake_check_connection(self, timeout=5):
+    async def fake_probe_connection(self, timeout):
         del self
         connection_checks.append(timeout)
-        return True, ""
+        return True, "", ""
 
     monkeypatch.setattr(
         OpenAIProvider,
-        "check_connection",
-        fake_check_connection,
+        "_probe_connection",
+        fake_probe_connection,
     )
 
     for model_id in (

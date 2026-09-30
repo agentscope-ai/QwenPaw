@@ -282,12 +282,14 @@ class AnthropicProvider(Provider):
             return ModelConnectionResult(success=True)
         except anthropic.APIError as exc:
             status = getattr(exc, "status_code", None)
+            raw_detail, detail = await self.connection_error_texts_async(exc)
             return ModelConnectionResult(
                 success=False,
                 message=(
                     f"Model '{model_id}' is not reachable or usable: "
-                    f"{self.connection_error_message(exc)}"
+                    f"{detail}"
                 ),
+                raw_message=raw_detail,
                 http_status=status if isinstance(status, int) else None,
                 error_kind=(
                     "permission_denied"
@@ -298,12 +300,14 @@ class AnthropicProvider(Provider):
                 ),
             )
         except Exception as exc:
+            raw_detail, detail = await self.connection_error_texts_async(exc)
             return ModelConnectionResult(
                 success=False,
                 message=(
                     f"Unknown exception when connecting to model "
-                    f"'{model_id}': {self.connection_error_message(exc)}"
+                    f"'{model_id}': {detail}"
                 ),
+                raw_message=raw_detail,
             )
         finally:
             await self._close_client(client)

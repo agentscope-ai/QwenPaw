@@ -8,6 +8,7 @@ const requiredPaths = [
   "models.addAllDiscoveredModels",
   "models.discoveredModelsAdded",
   "models.discoveredModelsAddFailed",
+  "models.pool.status.blocked",
 ] as const;
 
 function getTranslation(locale: Record<string, unknown>, path: string): string {

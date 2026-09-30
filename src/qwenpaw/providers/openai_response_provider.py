@@ -217,21 +217,25 @@ class OpenAIResponseProvider(OpenAIProvider):
             return ModelConnectionResult(success=True)
         except APIError as exc:
             status = getattr(exc, "status_code", None)
+            raw_detail, detail = await self.connection_error_texts_async(exc)
             return ModelConnectionResult(
                 success=False,
                 message=(
                     "API error when connecting to model "
-                    f"'{model_id}': {self.connection_error_message(exc)}"
+                    f"'{model_id}': {detail}"
                 ),
+                raw_message=raw_detail,
                 http_status=status if isinstance(status, int) else None,
             )
         except Exception as exc:
+            raw_detail, detail = await self.connection_error_texts_async(exc)
             return ModelConnectionResult(
                 success=False,
                 message=(
                     "Unknown exception when connecting to model "
-                    f"'{model_id}': {self.connection_error_message(exc)}"
+                    f"'{model_id}': {detail}"
                 ),
+                raw_message=raw_detail,
             )
         finally:
             await self._close_client(client)

@@ -133,6 +133,7 @@ export function ModelPoolFilters({
                 [
                   "all",
                   "available",
+                  "blocked",
                   "unverified",
                   "permission_denied",
                   "model_not_found",
