@@ -54,25 +54,27 @@ class SkillPoolPage(BasePage):
     CARD_FOOTER = '[class*="PoolSkillCard-module__footer"]'
     AUTOMATION_BUTTON = 'button[data-testid^="skill-automation-"]'
 
-    # Edit drawer (PoolSkillDrawer.tsx)
-    DRAWER = '.qwenpaw-drawer'
-    DRAWER_TITLE = '.qwenpaw-drawer-title'
-    AUTO_SYNC_SWITCH = '.qwenpaw-drawer [data-testid="auto-sync-switch"]'
+    # PoolSkillDrawer uses SettingsDrawer, which renders a SharedModal on
+    # desktop. Anchor the editor on its edit-only Auto Sync control so other
+    # dialogs cannot satisfy these selectors.
+    DRAWER = '[role="dialog"]:has([data-testid="auto-sync-switch"])'
+    DRAWER_TITLE = f'{DRAWER} .qwenpaw-modal-title'
+    AUTO_SYNC_SWITCH = f'{DRAWER} [data-testid="auto-sync-switch"]'
     # Target-agent multi-select is rendered ONLY after the switch is ON; anchor
     # on its placeholder text (unique) so we don't match other selects.
     TARGET_SELECT_PLACEHOLDER = (
-        '.qwenpaw-drawer [class*="select-selection-placeholder"]'
+        f'{DRAWER} [class*="select-selection-placeholder"]'
         ':has-text("All agents that have this skill"), '
-        '.qwenpaw-drawer [class*="select-selection-placeholder"]'
+        f'{DRAWER} [class*="select-selection-placeholder"]'
         ':has-text("所有已安装该技能的智能体")'
     )
     SAVE_BTN = (
-        '.qwenpaw-drawer button:has-text("Save"), '
-        '.qwenpaw-drawer button:has-text("保存")'
+        f'{DRAWER} .qwenpaw-modal-footer button.qwenpaw-btn-primary'
     )
     CANCEL_BTN = (
-        '.qwenpaw-drawer button:has-text("Cancel"), '
-        '.qwenpaw-drawer button:has-text("取消")'
+        f'{DRAWER} button:has-text("Cancel"), '
+        f'{DRAWER} button:has-text("取消"), '
+        f'{DRAWER} button:has-text("取 消")'
     )
 
     # ========== Initialization ==========

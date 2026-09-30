@@ -15,6 +15,7 @@ Cases:
 """
 from __future__ import annotations
 
+from copy import deepcopy
 import logging
 import time
 
@@ -222,16 +223,30 @@ class TestAutoMemoryIntervalPersistence:
         original_cfg = memory_page.api_get_running_config(api_context)
 
         try:
+            setup_cfg = deepcopy(original_cfg)
+            reme_cfg = setup_cfg.setdefault("reme_light_memory_config", {})
+            reme_cfg["auto_memory_interval"] = max(
+                int(reme_cfg.get("auto_memory_interval") or 0),
+                1,
+            )
+            memory_page.api_put_running_config(api_context, setup_cfg)
+            memory_page.wait_for_config_value(
+                api_context,
+                ("reme_light_memory_config", "auto_memory_interval"),
+                reme_cfg["auto_memory_interval"],
+            )
+
             log_test_step("1. Open /agent-config → Long-term Memory tab")
             memory_page.open_agent_config()
             memory_page.click_memory_tab()
             interval_input = memory_page.page.locator(
                 memory_page.AUTO_MEMORY_INTERVAL_INPUT
             ).first
-            if interval_input.is_disabled():
+            expect(
                 memory_page.page.locator(
                     memory_page.AUTO_MEMORY_ENABLED_SWITCH
-                ).first.click()
+                ).first
+            ).to_be_checked(timeout=memory_page.timeout)
             expect(interval_input).to_be_editable(timeout=memory_page.timeout)
 
             log_test_step("2. Fill a distinct value and wait for auto-save")
@@ -288,6 +303,18 @@ class TestDreamCronPersistence:
         original_cfg = memory_page.api_get_running_config(api_context)
 
         try:
+            setup_cfg = deepcopy(original_cfg)
+            reme_cfg = setup_cfg.setdefault("reme_light_memory_config", {})
+            reme_cfg["dream_cron_enabled"] = True
+            if not str(reme_cfg.get("dream_cron") or "").strip():
+                reme_cfg["dream_cron"] = "0 23 * * *"
+            memory_page.api_put_running_config(api_context, setup_cfg)
+            memory_page.wait_for_config_value(
+                api_context,
+                ("reme_light_memory_config", "dream_cron_enabled"),
+                True,
+            )
+
             log_test_step("1. Open /agent-config → Long-term Memory tab")
             memory_page.open_agent_config()
             memory_page.click_memory_tab()
@@ -296,9 +323,7 @@ class TestDreamCronPersistence:
             dream_switch = memory_page.page.locator(
                 memory_page.DREAM_CRON_ENABLED_SWITCH
             ).first
-            expect(dream_switch).to_be_visible(timeout=memory_page.timeout)
-            if dream_switch.get_attribute("aria-checked") != "true":
-                dream_switch.click()
+            expect(dream_switch).to_be_checked(timeout=memory_page.timeout)
             memory_page.page.locator(
                 memory_page.DREAM_ADVANCED_OPTION
             ).first.click()
@@ -323,6 +348,9 @@ class TestDreamCronPersistence:
             memory_page.page.reload(wait_until="domcontentloaded")
             memory_page.page.wait_for_timeout(3000)
             memory_page.click_memory_tab()
+            memory_page.page.locator(
+                memory_page.DREAM_ADVANCED_OPTION
+            ).first.click()
             cron_after = memory_page.page.locator(
                 memory_page.DREAM_CRON_INPUT
             ).first
