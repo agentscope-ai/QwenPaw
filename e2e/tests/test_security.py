@@ -652,10 +652,10 @@ class TestSkillScannerModeSwitch:
 
         # Step 2: Check and switch to the Skill Scanner tab
         log_test_step("2. Check and switch to the Skill Scanner tab")
-        skill_scanner_tab = page.get_by_role("tab", name="Skill Scanner")
-
-        if not skill_scanner_tab.is_visible():
-            pytest.skip("Skill Scanner tab not present, skipping this test")
+        skill_scanner_tab = page.get_by_role(
+            "tab", name="Skill Scanner"
+        ).or_(page.get_by_role("tab", name="技能扫描器")).first
+        expect(skill_scanner_tab).to_be_visible(timeout=5000)
 
         skill_scanner_tab.click()
         page.wait_for_timeout(1500)

@@ -660,9 +660,7 @@ class TestBackupSearchAndFilter:
             ).first
 
             if not search_input.is_visible(timeout=5000):
-                logger.info("Search input not visible; feature may be unavailable or list empty")
-                log_test_result(test_name, True, 0)
-                return
+                raise AssertionError("Backup search input is missing")
 
             logger.info("Search input is visible")
 
@@ -742,9 +740,7 @@ class TestBackupRestoreModal:
             log_test_step("2. Check backup records")
             rows = page.locator(".qwenpaw-table-tbody tr").all()
             if len(rows) == 0:
-                logger.info("No backup records, skipping restore modal verification")
-                log_test_result(test_name, True, 0)
-                return
+                raise AssertionError("Expected a backup record for restore")
 
             # 3. Click the restore button on the first backup
             log_test_step("3. Click restore button")
@@ -770,9 +766,7 @@ class TestBackupRestoreModal:
                     ).first
 
             if not restore_btn.is_visible(timeout=3000):
-                logger.info("Restore button not found (may require certain permission or state)")
-                log_test_result(test_name, True, 0)
-                return
+                raise AssertionError("Backup restore button is missing")
 
             restore_btn.click()
             page.wait_for_timeout(500)
@@ -857,9 +851,7 @@ class TestBackupDeleteAndCancel:
             # 2. Check whether any backup records exist
             rows = page.locator(".qwenpaw-table-tbody tr").all()
             if len(rows) == 0:
-                logger.info("No backup records, skipping delete verification")
-                log_test_result(test_name, True, 0)
-                return
+                raise AssertionError("Expected a backup record for delete")
 
             initial_count = len(rows)
             logger.info(f"Current backup count: {initial_count}")
@@ -887,9 +879,7 @@ class TestBackupDeleteAndCancel:
                     ).first
 
             if not delete_btn.is_visible(timeout=3000):
-                logger.info("Delete button not found")
-                log_test_result(test_name, True, 0)
-                return
+                raise AssertionError("Backup delete button is missing")
 
             delete_btn.click()
             page.wait_for_timeout(500)
@@ -962,9 +952,7 @@ class TestBackupExport:
             # 2. Check whether any backup records exist
             rows = page.locator(".qwenpaw-table-tbody tr").all()
             if len(rows) == 0:
-                logger.info("No backup records, skipping export verification")
-                log_test_result(test_name, True, 0)
-                return
+                raise AssertionError("Expected a backup record for export")
 
             # 3. Find export button
             log_test_step("2. Find export button")
@@ -991,9 +979,7 @@ class TestBackupExport:
                     ).first
 
             if not export_btn.is_visible(timeout=3000):
-                logger.info("Export button not found (export may use another path)")
-                log_test_result(test_name, True, 0)
-                return
+                raise AssertionError("Backup export button is missing")
 
             logger.info("Export button is visible")
 
@@ -1081,10 +1067,7 @@ class TestCreatePartialBackup:
                 '[class*="radio"]:has-text("Partial"), [class*="radio"]:has-text("部分")'
             ).first
             if not partial_option.is_visible(timeout=3000):
-                logger.info("Partial backup option not found, skipping verification")
-                page.keyboard.press("Escape")
-                log_test_result(test_name, True, 0)
-                return
+                raise AssertionError("Partial backup option is missing")
 
             partial_option.click()
             page.wait_for_timeout(500)

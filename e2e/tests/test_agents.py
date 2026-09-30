@@ -771,23 +771,26 @@ class TestAgentProtection:
                 break
 
         if default_agent:
-            # Step 3: Verify the default agent's delete button is disabled
-            log_test_step("3. Verify the default agent's delete protection")
-            actions_cell = default_agent.locator(agents_page.AGENT_ACTIONS_CELL).first
-            delete_btn = actions_cell.locator(agents_page.DELETE_BTN).first
-
-            if delete_btn.is_visible():
-                is_disabled = delete_btn.is_disabled()
-                title = delete_btn.get_attribute("title") or ""
-                logger.info(f"Delete button disabled={is_disabled}, title=\"{title}\"")
-                assert is_disabled, "Default agent's delete button should be disabled"
-                logger.info("Default agent's delete button is disabled, protection verified")
-            else:
-                logger.info("Delete button not found (default agent may not expose one)")
+            # The gallery does not render delete actions. Default-agent
+            # protection is expressed by its disabled edit, pin, and drag
+            # controls in AgentGallery.
+            log_test_step("3. Verify the default agent's protected actions")
+            protected_buttons = default_agent.locator(
+                'button[class*="drag"], button[aria-label="Edit"], '
+                'button[aria-label="编辑"], button[aria-label*="Pin"], '
+                'button[aria-label*="置顶"]'
+            )
+            assert protected_buttons.count() >= 2, (
+                "Default agent protected controls are missing"
+            )
+            for index in range(protected_buttons.count()):
+                assert protected_buttons.nth(index).is_disabled(), (
+                    "A default-agent protected control is enabled"
+                )
 
             logger.info("Default agent protection verified")
         else:
-            pytest.skip("Default agent not found, skipping protection check")
+            raise AssertionError("Default agent is missing from the agent gallery")
 
         log_test_result(test_name, "PASS", "Default agent protection verified")
 
@@ -810,74 +813,59 @@ class TestAgentDragReorder:
     4. Refresh the page to verify persistence
     """
 
-    def test_agent_drag_reorder(self, page: Page):
+    def test_agent_drag_reorder(self, page: Page, api_context):
         """Test agent drag-and-drop reordering."""
-        log_test_step("Navigate to the Agents management page")
-        navigate_to_agents(page)
+        agents_page = AgentsPage(page)
+        created_ids = []
+        stamp = int(time.time())
+        try:
+            for suffix in ("A", "B"):
+                created = agents_page.api_create_agent(
+                    api_context,
+                    f"E2E Reorder {suffix} {stamp}",
+                    description="agent reorder probe",
+                )
+                agent_id = (created or {}).get("id")
+                assert agent_id, f"Agent seed failed: {created!r}"
+                created_ids.append(agent_id)
 
-        log_test_step("Find rows in the agent list")
-        agent_rows = page.locator("tr[data-row-key]").all()
+            log_test_step("Navigate to the Agents management page")
+            navigate_to_agents(page)
+            rows = page.locator(AgentsPage.AGENT_ITEM)
+            expect(rows.first).to_be_visible(timeout=10000)
 
-        if len(agent_rows) < 2:
-            pytest.skip(f"Not enough agents ({len(agent_rows)}); cannot run drag test")
+            def current_order():
+                return [
+                    rows.nth(index)
+                    .locator(AgentsPage.AGENT_ID_CELL)
+                    .first.inner_text()
+                    for index in range(rows.count())
+                ]
 
-        # Post-#6198 the default agent is pinned at the top and its drag handle
-        # is disabled (aria-disabled="true"); only rows with an enabled
-        # MenuOutlined handle can be reordered.
-        draggable_rows = [
-            r for r in agent_rows
-            if r.locator(
-                "button:has(.anticon-menu):not([aria-disabled='true'])"
-            ).count() > 0
-        ]
-        if len(draggable_rows) < 2:
-            pytest.skip(
-                f"Need >=2 reorderable (non-default) agents; got {len(draggable_rows)}"
+            before_order = current_order()
+            first_index = before_order.index(created_ids[0])
+            second_index = before_order.index(created_ids[1])
+            first_row = rows.nth(first_index)
+            second_row = rows.nth(second_index)
+            drag_handle = first_row.locator(
+                'button[class*="drag"]:not([disabled])'
+            ).first
+            expect(drag_handle).to_be_visible(timeout=5000)
+            drag_handle.drag_to(second_row)
+            page.wait_for_timeout(1000)
+
+            after_order = current_order()
+            assert before_order != after_order, (
+                "Agent order did not change after drag"
             )
-
-        log_test_step(
-            f"Found {len(agent_rows)} agent(s), {len(draggable_rows)} reorderable"
-        )
-
-        first_row = draggable_rows[0]
-        second_row = draggable_rows[1]
-
-        log_test_step("Capture agent order before drag")
-        before_order = [r.get_attribute("data-row-key") for r in agent_rows]
-        assert len([k for k in before_order if k]) >= 2, "Could not read >=2 agent keys"
-        logger.info(f"Order before drag: {before_order}")
-
-        log_test_step("Find the drag handle (enabled, non-default row)")
-        drag_handle = first_row.locator("button:has(.anticon-menu)").first
-        if drag_handle.count() == 0:
-            pytest.skip("Drag handle not found; this page may not support drag reordering")
-
-        log_test_step("Drag handle found; starting drag operation")
-        drag_handle.hover()
-        time.sleep(0.5)
-
-        page.mouse.down()
-        time.sleep(0.3)
-
-        second_row_center = second_row.bounding_box()
-        assert second_row_center is not None, "Could not read the position of the second row"
-
-        target_y = second_row_center["y"] + second_row_center["height"] / 2
-        target_x = second_row_center["x"] + second_row_center["width"] / 2
-
-        page.mouse.move(target_x, target_y, steps=10)
-        time.sleep(0.5)
-
-        page.mouse.up()
-        time.sleep(2)
-
-        log_test_step("Drag finished; verifying the new order")
-        refreshed_rows = page.locator("tr[data-row-key]").all()
-        after_order = [r.get_attribute("data-row-key") for r in refreshed_rows]
-
-        logger.info(f"Order after drag: {after_order}")
-        assert before_order != after_order, "Agent order did not change after drag; reorder did not take effect"
-        logger.info("Agent order changed; drag reorder succeeded")
+            page.reload()
+            agents_page.wait_for_page_load()
+            assert current_order() == after_order, (
+                "Agent order did not persist after reload"
+            )
+        finally:
+            for agent_id in created_ids:
+                agents_page.api_delete_agent(api_context, agent_id)
 
         log_test_step("Refresh page to verify persistence")
         page.reload()
@@ -916,11 +904,9 @@ class TestAgentSkillAssociation:
         page.wait_for_timeout(3000)
 
         log_test_step("Look for agent cards")
-        agent_cards = page.locator('.qwenpaw-card, [class*="agentCard"]').all()
+        agent_cards = page.locator(AgentsPage.AGENT_ITEM).all()
         if len(agent_cards) == 0:
-            logger.info("No agent card found, skipping test")
-            log_test_result(test_name, True, 0)
-            return
+            raise AssertionError("Expected at least one agent card")
         logger.info(f"Found {len(agent_cards)} agent card(s)")
 
         log_test_step("Click the first agent to view details")
@@ -940,9 +926,7 @@ class TestAgentSkillAssociation:
             if "/agents/" in current_url or "/agent/" in current_url:
                 logger.info(f"Navigated to agent detail page: {current_url}")
             else:
-                logger.info("Clicking the agent card did not open a detail view or navigate; may not be supported")
-                log_test_result(test_name, True, 0)
-                return
+                raise AssertionError("Agent card did not open its detail view")
         else:
             logger.info("Agent detail view is open")
 
@@ -984,4 +968,3 @@ class TestAgentSkillAssociation:
             page.go_back()
             page.wait_for_timeout(1000)
         log_test_result(test_name, True, 0)
-

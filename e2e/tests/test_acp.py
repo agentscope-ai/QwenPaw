@@ -279,18 +279,14 @@ class TestACPToggleSwitch:
             cards = page.locator(ACP_CARD_SELECTOR).all()
 
             if len(cards) == 0:
-                logger.info("No ACP cards found, skipping validation")
-                log_test_result(test_name, True, 0)
-                return
+                raise AssertionError("Expected at least one ACP card")
 
             # Find switch in the first card
             first_card = cards[0]
             target_switch = first_card.locator('.qwenpaw-switch').first
 
             if not target_switch.is_visible(timeout=3000):
-                logger.info("No switch found on card, skipping validation")
-                log_test_result(test_name, True, 0)
-                return
+                raise AssertionError("ACP card toggle is missing")
 
             # 3. Record initial state
             log_test_step("3. Record initial state")
@@ -379,9 +375,7 @@ class TestACPFilterTabs:
             ).first
 
             if not builtin_tab.is_visible(timeout=5000):
-                logger.info("Builtin tab not visible, skipping tab switch validation")
-                log_test_result(test_name, True, 0)
-                return
+                raise AssertionError("Built-in ACP tab is missing")
 
             builtin_tab.click()
             page.wait_for_timeout(1000)
@@ -477,9 +471,7 @@ class TestEditACPConfig:
             cards = page.locator(ACP_CARD_SELECTOR).all()
 
             if len(cards) == 0:
-                logger.info("No ACP cards found, skipping validation")
-                log_test_result(test_name, True, 0)
-                return
+                raise AssertionError("Expected at least one editable ACP card")
 
             first_card = cards[0]
             card_name = first_card.inner_text().strip()[:50]
@@ -756,9 +748,7 @@ class TestBuiltinACPProtection:
             cards = page.locator(ACP_CARD_SELECTOR).all()
 
             if len(cards) == 0:
-                logger.info("No builtin ACP cards found, skipping protection validation")
-                log_test_result(test_name, True, 0)
-                return
+                raise AssertionError("Expected at least one built-in ACP card")
 
             # 3. Click first builtin ACP card
             log_test_step("3. Open builtin ACP edit drawer")
@@ -774,9 +764,7 @@ class TestBuiltinACPProtection:
 
             drawer = page.locator(ACP_DIALOG_SELECTOR)
             if not drawer.is_visible(timeout=5000):
-                logger.info("Edit drawer did not open")
-                log_test_result(test_name, True, 0)
-                return
+                raise AssertionError("Built-in ACP edit drawer did not open")
 
             # 4. Verify agentKey is not editable
             log_test_step("4. Verify agentKey is not editable")

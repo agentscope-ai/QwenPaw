@@ -685,10 +685,7 @@ class TestCronjobWeeklySchedule:
             page.wait_for_timeout(1500)
 
         drawer = page.locator('[role="dialog"]:visible')
-        if drawer.count() == 0:
-            logger.info("Create dialog not found, skipping test")
-            log_test_result(test_name, True, 0)
-            return
+        expect(drawer).to_be_visible(timeout=5000)
 
         log_test_step("Select Weekly frequency")
         weekly_option = drawer.locator(
@@ -732,9 +729,7 @@ class TestCronjobJsonParams:
 
         drawer = page.locator('[role="dialog"]:visible')
         if drawer.count() == 0:
-            logger.info("Create dialog not found, skipping test")
-            log_test_result(test_name, True, 0)
-            return
+            raise AssertionError("Cron job create dialog did not open")
 
         log_test_step("Open Task Type and switch request input to JSON mode")
         drawer.get_by_role("tab", name="Task Type").click()
@@ -786,9 +781,7 @@ class TestCronjobTimezone:
 
         drawer = page.locator('[role="dialog"]:visible')
         if drawer.count() == 0:
-            logger.info("Create dialog not found, skipping test")
-            log_test_result(test_name, True, 0)
-            return
+            raise AssertionError("Cron job create dialog did not open")
 
         log_test_step("Find the timezone selector")
         timezone_select = drawer.locator(
@@ -803,12 +796,12 @@ class TestCronjobTimezone:
             logger.info(f"Found {len(options)} timezone options")
             page.keyboard.press("Escape")
         else:
-            # Timezone may be displayed differently (e.g. as a plain input)
-            tz_input = drawer.locator('input[placeholder*="timezone"]').first
-            if tz_input.count() > 0:
-                logger.info("Found timezone input")
-            else:
-                pytest.skip("Timezone selector or input not found, skipping test")
+            tz_input = drawer.locator(
+                'input[placeholder*="timezone" i], '
+                'input[placeholder*="时区"]'
+            ).first
+            expect(tz_input).to_be_visible(timeout=5000)
+            logger.info("Found timezone input")
 
         page.keyboard.press("Escape")
         page.wait_for_timeout(500)

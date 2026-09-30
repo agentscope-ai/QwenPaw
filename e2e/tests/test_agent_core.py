@@ -189,9 +189,7 @@ class TestAgentLifecycle:
             'button:has-text("Create"), button:has-text("创建")'
         ).first
         if create_btn.count() == 0:
-            logger.warning("Create button not found")
-            log_test_result(test_name, True, 0, "Skipped: no create button")
-            return
+            raise AssertionError("Create Agent button not found")
 
         create_btn.click()
         clean_chat_page.page.wait_for_timeout(2000)

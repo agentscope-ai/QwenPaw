@@ -669,9 +669,7 @@ class TestChatMessageEdit:
         ).first
 
         if input_area.count() == 0:
-            logger.info("Message input area not found, skipping test")
-            log_test_result(test_name, True, 0)
-            return
+            raise AssertionError("Chat message input is missing")
 
         log_test_step("Find action buttons on existing messages")
         message_actions = page.locator(
@@ -798,9 +796,7 @@ class TestChatLongMessage:
             'textarea, [class*="chatInput"], [contenteditable="true"]'
         ).first
         if input_area.count() == 0:
-            logger.info("Input box not found, skipping test")
-            log_test_result(test_name, True, 0)
-            return
+            raise AssertionError("Chat input is missing")
 
         log_test_step("Type a very long text")
         long_text = "这是一段测试文本。" * 200
@@ -848,9 +844,7 @@ class TestChatIMEInput:
             'textarea, [class*="chatInput"], [contenteditable="true"]'
         ).first
         if input_area.count() == 0:
-            logger.info("Input box not found, skipping test")
-            log_test_result(test_name, True, 0)
-            return
+            raise AssertionError("Chat input is missing")
 
         log_test_step("Simulate Chinese input")
         input_area.click()
@@ -973,16 +967,14 @@ class TestToolApproval:
                 "session_id": f"{config.test.channel}:{config.test.user_id}",
             },
         )
-        if not seed.ok:
-            pytest.skip(
-                f"chat seed failed ({seed.status}); cannot test delete cleanup"
-            )
+        assert seed.ok, f"Chat seed failed [{seed.status}]: {seed.text()}"
 
         log_test_step("2. Open chat, open the session list, select the seeded session")
         chat = clean_chat_page.open()
         chat.open_session_list()
-        if chat.get_session_count() == 0:
-            pytest.skip("seeded session not visible in drawer; skipping cleanup check")
+        assert chat.get_session_count() > 0, (
+            "Seeded session is not visible in the drawer"
+        )
         chat.switch_to_session(0)
         chat.wait(500)
 

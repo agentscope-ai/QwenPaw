@@ -141,20 +141,11 @@ class TestMemorySearchRecall:
     """
     MEM-005: With a seeded daily memory entry containing a unique
     keyword, asking the agent through the chat UI should produce a
-    reply that mentions the keyword. Strongly LLM- and embedding-
-    dependent; declared xfail strict=False so passes do not silently
-    regress.
+    reply that mentions the keyword. This case requires the LLM marker,
+    but a configured run must fail normally if recall regresses.
     """
 
     @pytest.mark.test_id("MEM-005")
-    @pytest.mark.xfail(
-        reason=(
-            "Requires a configured LLM and may also need embedding "
-            "infrastructure; environments without them will not recall "
-            "the seeded keyword."
-        ),
-        strict=False,
-    )
     def test_memory_search_recall_seeded(
         self,
         memory_page: MemoryPage,
