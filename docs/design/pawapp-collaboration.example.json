@@ -1,0 +1,241 @@
+{
+  "$comment": "PROPOSAL ONLY. Appendix A optional live interaction transfer over Core task APIs; no Exchange/Broker dependency. Illustrative descriptor and message trace, not an installable manifest or implemented SDK schema. IDs and revisions are fictional. Host derives and checks identity, workspace and grants.",
+  "contract": "qwenpaw:app-collaboration@1-draft",
+  "descriptor_fragment": {
+    "app_id": "qwenpaw-creator",
+    "action_id": "qwenpaw-creator:develop-video",
+    "engagements": [
+      "delegated",
+      "direct"
+    ],
+    "default_engagement": "delegated",
+    "surfaces": [
+      {
+        "kind": "main_chat",
+        "engagements": [
+          "delegated"
+        ],
+        "entry_ref": "host-task-conversation"
+      },
+      {
+        "kind": "app_chat",
+        "engagements": [
+          "direct"
+        ],
+        "entry_ref": "creator-registered-chat"
+      },
+      {
+        "kind": "workbench",
+        "engagements": [
+          "direct"
+        ],
+        "entry_ref": "creator-registered-project-page"
+      }
+    ],
+    "transitions": [
+      {
+        "from": "delegated",
+        "to": "direct",
+        "preserves": [
+          "task_id",
+          "run_id",
+          "project_ref.id"
+        ],
+        "checkpoint": "adapter-confirmed-safe-point"
+      },
+      {
+        "from": "direct",
+        "to": "delegated",
+        "preserves": [
+          "task_id",
+          "run_id",
+          "project_ref.id"
+        ],
+        "checkpoint": "pending-changes-acknowledged"
+      }
+    ],
+    "direct_entry": true,
+    "accepted_input_alternatives": [
+      "qwenpaw:creative-brief@1",
+      "qwenpaw:script-draft@1"
+    ],
+    "output_types": [
+      "qwenpaw:video-asset@1"
+    ],
+    "collaboration": {
+      "commands": [
+        "start",
+        "respond",
+        "steer",
+        "cancel"
+      ],
+      "pause_supported": false,
+      "recover": "reconcile-external-job-or-report-interrupted",
+      "context_updates": "revision-checked-delta",
+      "events": "durable-at-least-once-with-sequence",
+      "command_authorization": "per-command-effect-and-task-scope"
+    },
+    "adapter_ref": "creator.registered-task-adapter"
+  },
+  "initial_host_snapshot": {
+    "task_id": "task-video-demo",
+    "parent_task_id": "task-launch-demo",
+    "run_id": "run-video-demo",
+    "executor_ref": "qwenpaw-creator",
+    "status": "running",
+    "engagement": "delegated",
+    "surface": "main_chat",
+    "project_ref": {
+      "id": "project-demo",
+      "revision": 7
+    },
+    "context_revision": 3,
+    "interaction_owner_ref": "main-agent-demo",
+    "interaction_epoch": 0,
+    "app_session_ref": "creator-session-demo",
+    "return_session_ref": "main-chat-demo"
+  },
+  "message_trace": [
+    {
+      "type": "interaction.requested",
+      "event_id": "event-demo-11",
+      "sequence": 11,
+      "task_id": "task-video-demo",
+      "request": {
+        "request_id": "interaction-demo-1",
+        "requested_engagement": "direct",
+        "reason": "visual-direction-needs-domain-discussion",
+        "required": true,
+        "blocked_step_refs": [
+          "final-video-generation"
+        ],
+        "can_continue_step_refs": [
+          "authorized-source-indexing"
+        ],
+        "allowed_surfaces": [
+          "app_chat",
+          "workbench"
+        ],
+        "app_session_ref": "creator-session-demo",
+        "project_ref": {
+          "id": "project-demo",
+          "revision": 7
+        },
+        "context_revision": 3,
+        "expected_epoch": 0,
+        "ttl_seconds": 1800
+      }
+    },
+    {
+      "type": "interaction.committed",
+      "event_id": "event-demo-12",
+      "sequence": 12,
+      "task_id": "task-video-demo",
+      "request_id": "interaction-demo-1",
+      "host_preconditions": [
+        "policy-allows",
+        "user-intent-allows",
+        "app-ready",
+        "epoch-and-revisions-match"
+      ],
+      "interaction_owner_ref": "qwenpaw-creator",
+      "engagement": "direct",
+      "interaction_epoch": 1,
+      "app_session_ref": "creator-session-demo",
+      "surface_ref": "host-resolved-creator-project-entry"
+    },
+    {
+      "type": "task.command",
+      "task_id": "task-video-demo",
+      "command_id": "command-demo-1",
+      "command": "steer",
+      "request_id": "interaction-demo-1",
+      "expected_epoch": 1,
+      "expected_context_revision": 3,
+      "expected_project_revision": 7,
+      "context_delta": {
+        "visual_direction": "documentary",
+        "duration_seconds": 60
+      },
+      "authorization_note": "This records creative intent only. It cannot expand spending or generation grants."
+    },
+    {
+      "type": "task.command_applied",
+      "event_id": "event-demo-13",
+      "sequence": 13,
+      "task_id": "task-video-demo",
+      "command_id": "command-demo-1",
+      "context_revision": 4,
+      "project_revision": 8,
+      "decision_refs": [
+        "decision-demo-1"
+      ],
+      "decision_summary": "User selected a documentary visual direction."
+    },
+    {
+      "type": "interaction.released",
+      "event_id": "event-demo-14",
+      "sequence": 14,
+      "task_id": "task-video-demo",
+      "release_id": "release-demo-1",
+      "host_preconditions": [
+        "expected-epoch-1",
+        "context-revision-4",
+        "project-revision-8"
+      ],
+      "interaction_owner_ref": "main-agent-demo",
+      "engagement": "delegated",
+      "interaction_epoch": 2,
+      "status": "running",
+      "context_revision": 4,
+      "project_ref": {
+        "id": "project-demo",
+        "revision": 8
+      },
+      "remaining_work": "Continue generation only within existing valid grants; request authorization if insufficient.",
+      "continuation_trigger": "interaction_released",
+      "resume_policy": "notify-only-no-new-start"
+    },
+    {
+      "type": "task.succeeded",
+      "event_id": "event-demo-15",
+      "sequence": 15,
+      "task_id": "task-video-demo",
+      "run_id": "run-video-demo",
+      "project_ref": {
+        "id": "project-demo",
+        "revision": 9
+      },
+      "output_refs": [
+        {
+          "id": "artifact-video-demo",
+          "type": "qwenpaw:video-asset",
+          "schema_version": "1",
+          "version": 1
+        }
+      ],
+      "host_precondition": "Output references resolve to authorized, validated, committed artifacts before success commits.",
+      "continuation_trigger": "task_succeeded"
+    }
+  ],
+  "failure_contract": {
+    "unsupported_engagement": "Show supported entry options; never silently select another app or claim unavailable behavior.",
+    "unsupported_transition": "Keep current task and owner. Two entry modes alone do not permit live switching.",
+    "checkpoint_required": "Keep current owner until adapter confirms safe attachment; never restart the external job to switch surfaces.",
+    "duplicate_command": "Return the previous command result; do not repeat the side effect.",
+    "stale_epoch": "Reject with stale_owner and refresh the task snapshot.",
+    "stale_revision": "Return conflict with current revisions; preserve proposed changes for explicit merge.",
+    "required_request_declined_or_expired": "Keep affected steps blocked; continue only independent authorized work.",
+    "optional_request_declined_or_expired": "Continue the existing authorized plan.",
+    "navigation_failed_after_commit": "Keep committed owner; reconnect through task entry or explicitly release interaction.",
+    "app_unavailable": "Keep last known task state and reconcile the same submission/run. Unknown outcome remains unresolved; report interrupted only after confirmed loss of execution with no supported recovery.",
+    "cancel_requested": "Persist request; report cancelled only after provider confirmation.",
+    "direct_entry": "Register an independent Host root task with engagement=direct, App origin/session, null parent_task_id and null return_session_ref. Main Chat receives no automatic completion turn; a later conversation-owner transfer requires the explicit Appendix A protocol."
+  },
+  "task_command_boundary": {
+    "transport": "core-task-coordinator-to-registered-app-adapter",
+    "authorization": "Host checks authenticated identity, task scope, current interaction owner/epoch, command effects and applicable grants on every command. Caller cannot replace the adapter.",
+    "persistence": "Persist command identity and receipt before delivering or acknowledging the command; duplicate commands return the existing result.",
+    "private_implementation": "The App task handler and its Skill/Tool dependencies remain App-private."
+  }
+}
