@@ -17,7 +17,9 @@ from pathlib import Path
 
 import pytest
 
-from qwenpaw.agents.context.scroll.history import HistoryStore
+from qwenpaw.storage.backends.sqlite.legacy_history import (
+    SQLiteHistoryStore as HistoryStore,
+)
 from qwenpaw.agents.context.types import LogEntry
 
 

@@ -793,7 +793,7 @@ def _sync_all_scroll_agents() -> None:
     # Imported lazily to keep this module importable without the app config.
     from ....config import load_config
     from ....config.config import load_agent_config
-    from .history import HistoryStore
+    from ....storage.factory import create_legacy_history
 
     config = load_config()
     total_rows = 0
@@ -864,7 +864,7 @@ def _sync_all_scroll_agents() -> None:
 
         db_path = workspace_dir / lcc.scroll_config.db_filename
         retention_days = lcc.scroll_config.history_retention_days
-        history = HistoryStore(db_path)
+        history = create_legacy_history(db_path)
         try:
             report = sync_sessions_to_history(
                 history=history,

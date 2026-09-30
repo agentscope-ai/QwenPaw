@@ -639,12 +639,12 @@ class CommandHandler(ConversationCommandHandlerMixin):
         ):
             return None
         try:
-            from .context.scroll.history import HistoryStore
+            from ..storage.factory import create_legacy_history
             from .context.scroll.manager import ScrollContextManager
 
             sc = lcc.scroll_config
             history = await run_sync_io(
-                HistoryStore,
+                create_legacy_history,
                 Path(self._workspace_dir) / sc.db_filename,
             )
             # Must match the id normal turns persist under (the builder uses

@@ -25,7 +25,9 @@ from agentscope.state import AgentState
 from qwenpaw.agents.context.scroll.continuation_summary import (
     ContinuationSummary,
 )
-from qwenpaw.agents.context.scroll.history import HistoryStore
+from qwenpaw.storage.backends.sqlite.legacy_history import (
+    SQLiteHistoryStore as HistoryStore,
+)
 from qwenpaw.agents.context.scroll.manager import ScrollContextManager
 from qwenpaw.agents.react_agent import QwenPawAgent
 
