@@ -363,6 +363,7 @@ def pytest_configure(config):
                     pass
 
 
+@pytest.hookimpl(optionalhook=True)
 def pytest_html_report_title(report):
     """Set the HTML report title (pytest-html 4.x hook)"""
     try:
