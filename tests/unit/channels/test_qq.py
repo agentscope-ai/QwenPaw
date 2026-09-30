@@ -1512,17 +1512,29 @@ class TestDownloadAttachmentSync:
         qq_channel._loop = MagicMock()
         qq_channel._loop.is_running.return_value = True
 
-        # Mock run_coroutine_threadsafe to raise exception
+        # Mock run_coroutine_threadsafe to raise exception. Production calls
+        # the *module-level* asyncio function, so patch that — patching the
+        # loop's method never fires and leaves the coroutine unawaited.
         future = Future()
         future.set_exception(RuntimeError("Download failed"))
-        qq_channel._loop.run_coroutine_threadsafe.return_value = future
 
-        result = qq_channel._download_attachment_sync(
-            "https://example.com/file.jpg",
-            "file.jpg",
-        )
+        def fake_run_coroutine_threadsafe(coro, loop):
+            coro.close()
+            return future
+
+        with patch(
+            "qwenpaw.app.channels.qq.channel.asyncio"
+            ".run_coroutine_threadsafe",
+            side_effect=fake_run_coroutine_threadsafe,
+        ) as scheduled:
+            result = qq_channel._download_attachment_sync(
+                "https://example.com/file.jpg",
+                "file.jpg",
+            )
 
         assert result is None
+        scheduled.assert_called_once()
+        assert scheduled.call_args.args[1] is qq_channel._loop
 
 
 class TestParseQQAttachments:
