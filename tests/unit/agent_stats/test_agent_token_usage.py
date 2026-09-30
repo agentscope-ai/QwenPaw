@@ -3,7 +3,8 @@
 
 from __future__ import annotations
 
-from datetime import date
+import json
+from datetime import date, datetime, timezone
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
@@ -15,6 +16,8 @@ from qwenpaw.agent_stats.service import (
     _process_session_file,
 )
 from qwenpaw.app.chats.transcript_catalog import TranscriptCatalog
+from qwenpaw.app.chats.models import ChatSpec
+from qwenpaw.app.chats.repo import JsonChatRepository
 from qwenpaw.schemas import Message
 from qwenpaw.token_usage.manager import TokenUsageStats, TokenUsageSummary
 from qwenpaw.token_usage.turn_usage import TURN_USAGE_META_KEY
@@ -45,6 +48,8 @@ def _assistant_with_usage(
     completion_tokens: int,
 ) -> dict:
     return {
+        "id": "assistant-usage",
+        "name": "assistant",
         "role": "assistant",
         "created_at": created_at,
         "content": [{"type": "text", "text": "hi"}],
@@ -411,6 +416,66 @@ class TestProcessSessionFileAgentTokens:
 @pytest.mark.asyncio
 class TestAgentStatsServiceAgentTokens:
     """Cover get_summary wiring for agent_* vs global totals."""
+
+    @pytest.mark.asyncio
+    async def test_get_summary_migrates_legacy_chat_sessions(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        chat = ChatSpec(
+            id="chat-1",
+            session_id="s1",
+            user_id="user",
+            channel="console",
+            created_at=datetime(2026, 7, 23, tzinfo=timezone.utc),
+        )
+        await JsonChatRepository(tmp_path / "chats.json").upsert_chat(chat)
+        session_file = tmp_path / "sessions" / "console" / "user_s1.json"
+        session_file.parent.mkdir(parents=True)
+        session_file.write_text(
+            json.dumps(
+                {
+                    "agent": {
+                        "state": {
+                            "context": [
+                                {
+                                    "id": "user-1",
+                                    "name": "user",
+                                    "role": "user",
+                                    "created_at": (
+                                        "2026-07-23T10:00:00+00:00"
+                                    ),
+                                    "content": [
+                                        {"type": "text", "text": "hello"},
+                                    ],
+                                },
+                                _assistant_with_usage(
+                                    created_at=("2026-07-23T10:00:01+00:00"),
+                                    prompt_tokens=10,
+                                    completion_tokens=4,
+                                ),
+                            ],
+                        },
+                    },
+                },
+            ),
+            encoding="utf-8",
+        )
+
+        summary = await AgentStatsService().get_summary(
+            tmp_path,
+            date(2026, 7, 23),
+            date(2026, 7, 23),
+            include_token_overlay=False,
+        )
+
+        assert summary.total_messages == 2
+        assert summary.total_user_messages == 1
+        assert summary.total_assistant_messages == 1
+        assert summary.agent_prompt_tokens == 10
+        assert summary.agent_completion_tokens == 4
+        assert not session_file.exists()
+        assert (tmp_path / "transcript_catalog.db").exists()
 
     async def test_get_summary_keeps_global_and_fills_agent_fields(
         self,

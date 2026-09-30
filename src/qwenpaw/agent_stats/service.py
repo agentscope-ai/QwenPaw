@@ -8,6 +8,7 @@ from datetime import date, timedelta
 from pathlib import Path
 
 from ..app.chats.repo import JsonChatRepository
+from ..app.chats.session import DatabaseSession
 from ..app.chats.transcript_catalog import TranscriptCatalog
 from ..config.utils import get_agent_dirs
 from ..token_usage import get_token_usage_manager
@@ -21,6 +22,17 @@ from .models import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _message_metadata(msg_data: dict) -> dict:
+    """Return current or AgentScope-wrapped message metadata."""
+    metadata = msg_data.get("metadata")
+    if not isinstance(metadata, dict):
+        return {}
+    if TURN_USAGE_META_KEY in metadata:
+        return metadata
+    nested = metadata.get("metadata")
+    return nested if isinstance(nested, dict) else metadata
 
 
 def _extract_session_messages(session_data: dict) -> list:
@@ -41,9 +53,7 @@ def _extract_session_messages(session_data: dict) -> list:
 
 def _extract_turn_usage_tokens(msg_data: dict) -> tuple[int, int] | None:
     """Return (prompt, completion) from turn-usage metadata, or None."""
-    meta = msg_data.get("metadata")
-    if not isinstance(meta, dict):
-        return None
+    meta = _message_metadata(msg_data)
     turn_meta = meta.get(TURN_USAGE_META_KEY)
     if not isinstance(turn_meta, dict):
         return None
@@ -62,9 +72,7 @@ def _extract_turn_usage_tokens(msg_data: dict) -> tuple[int, int] | None:
 
 def _extract_turn_cache_tokens(msg_data: dict) -> tuple[int, int] | None:
     """Return observed (cache read, eligible input) tokens for one turn."""
-    meta = msg_data.get("metadata")
-    if not isinstance(meta, dict):
-        return None
+    meta = _message_metadata(msg_data)
     turn_meta = meta.get(TURN_USAGE_META_KEY)
     if not isinstance(turn_meta, dict):
         return None
@@ -221,6 +229,8 @@ class AgentStatsService:
         agent_llm_calls and tool_calls are still counted.
         """
         chats_file = workspace_dir / "chats.json"
+        sessions_dir = workspace_dir / "sessions"
+        chats = []
 
         daily_stats: dict[str, dict] = {}
         days = (end_date - start_date).days + 1
@@ -269,9 +279,9 @@ class AgentStatsService:
 
         catalog = transcript_catalog
         owns_catalog = False
-        if (
-            catalog is None
-            and (workspace_dir / "transcript_catalog.db").exists()
+        if catalog is None and (
+            (workspace_dir / "transcript_catalog.db").exists()
+            or (chats and sessions_dir.exists())
         ):
             try:
                 catalog = await run_sync_io(
@@ -284,6 +294,28 @@ class AgentStatsService:
                 logger.warning("Failed to open transcript catalog: %s", exc)
         if catalog is not None:
             try:
+                if chats and sessions_dir.exists():
+                    legacy_session = DatabaseSession(
+                        catalog=catalog,
+                        legacy_save_dir=str(sessions_dir),
+                    )
+                    identities = {
+                        (chat.session_id, chat.user_id, chat.channel)
+                        for chat in chats
+                    }
+                    for session_id, user_id, channel in identities:
+                        try:
+                            await legacy_session.get_session_state_dict(
+                                session_id,
+                                user_id,
+                                channel,
+                            )
+                        except Exception:
+                            logger.warning(
+                                "Failed to migrate legacy session %s",
+                                session_id,
+                                exc_info=True,
+                            )
                 sessions = await run_sync_io(
                     catalog.session_message_payloads,
                     start_date=start_date_str,
