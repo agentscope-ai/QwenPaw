@@ -4272,6 +4272,9 @@
     "providerDescription": "Whisper API による音声文字起こしに使用するプロバイダーを選択します。Whisper 対応エンドポイントを持つプロバイダーのみ表示されます。",
     "providerPlaceholder": "プロバイダーを選択...",
     "noProvidersWarning": "文字起こし対応のプロバイダーが見つかりません。音声文字起こしを有効にするには、OpenAI プロバイダーを設定してください。",
+    "modelLabel": "文字起こしモデル",
+    "modelDescription": "Whisper API エンドポイントに送信するモデル名。プロバイダーが対応するモデル ID を指定してください（例: SiliconFlow の \"FunAudioLLM/SenseVoiceSmall\"）。空欄の場合は既定の \"whisper-1\" を使用します。",
+    "modelPlaceholder": "例: whisper-1",
     "transcriptionInfoTitle": "文字起こしの仕組み",
     "transcriptionInfoDesc": "Whisper API 文字起こしは OpenAI 互換の /v1/audio/transcriptions エンドポイントを使用します。Whisper 対応エンドポイントを持つプロバイダー（例: OpenAI）の設定が必要です。上記で具体的なプロバイダーを選択して文字起こしを有効にしてください。",
     "transcriptionInfoDescLocal": "ローカル Whisper 文字起こしは、お使いのマシン上で直接 openai-whisper ライブラリを実行します。ffmpeg（音声デコード用）と openai-whisper Python パッケージの両方のインストールが必要です。API キーやネットワーク接続は不要です。インストール：uv pip install 'qwenpaw[whisper]'。"

@@ -1441,7 +1441,10 @@
     "modeNative": "Âm thanh gốc",
     "modeNativeDesc": "Gửi file âm thanh trực tiếp đến mô hình. Chỉ hoạt động với mô hình hỗ trợ âm thanh (ví dụ: gpt-4o-audio).",
     "providerTypeLabel": "Loại dịch vụ phiên âm",
-    "providerLabel": "Nhà cung cấp phiên âm"
+    "providerLabel": "Nhà cung cấp phiên âm",
+    "modelLabel": "Mô hình chuyển văn bản",
+    "modelDescription": "Tên mô hình gửi tới endpoint Whisper API. Điền ID mô hình mà nhà cung cấp của bạn hỗ trợ, ví dụ \"FunAudioLLM/SenseVoiceSmall\" cho SiliconFlow. Để trống để dùng mặc định \"whisper-1\".",
+    "modelPlaceholder": "ví dụ: whisper-1"
   },
   "heartbeat": {
     "title": "Heartbeat",

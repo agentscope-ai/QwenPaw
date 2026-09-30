@@ -135,4 +135,21 @@ describe("agentApi", () => {
       body: JSON.stringify({ provider_id: "openai" }),
     });
   });
+
+  it("getTranscriptionModel calls GET /workspace/transcription-model", async () => {
+    vi.mocked(request).mockResolvedValue({ transcription_model: "whisper-1" });
+    const result = await agentApi.getTranscriptionModel();
+    expect(request).toHaveBeenCalledWith("/workspace/transcription-model");
+    expect(result).toEqual({ transcription_model: "whisper-1" });
+  });
+
+  it("updateTranscriptionModel sends PUT with transcription_model", async () => {
+    await agentApi.updateTranscriptionModel("FunAudioLLM/SenseVoiceSmall");
+    expect(request).toHaveBeenCalledWith("/workspace/transcription-model", {
+      method: "PUT",
+      body: JSON.stringify({
+        transcription_model: "FunAudioLLM/SenseVoiceSmall",
+      }),
+    });
+  });
 });
