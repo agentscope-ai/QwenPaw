@@ -112,6 +112,10 @@ _EXPLICIT_UNSUPPORTED_MEDIA_PATTERNS = (
         r"\bunsupported\s+modality\s*:?\s*(?:image|audio|video)\b",
         re.IGNORECASE,
     ),
+    re.compile(
+        r"\bfile\s+must\s+have\s+a\s+file_id\s+or\s+file_data\b",
+        re.IGNORECASE,
+    ),
 )
 
 # These messages reject only the current media shape, not the model's
