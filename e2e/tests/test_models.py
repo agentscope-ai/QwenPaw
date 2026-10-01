@@ -925,54 +925,37 @@ class TestOpenRouterFilter:
     """MODEL-P2-001: OpenRouter filter configuration."""
 
     @pytest.mark.test_id("MODEL-P2-001")
-    def test_openrouter_filter(self, page: Page, request: pytest.FixtureRequest):
-        """Test OpenRouter filter configuration."""
+    def test_openrouter_filter(
+        self,
+        page: Page,
+        request: pytest.FixtureRequest,
+    ):
+        """Open the registered OpenRouter provider configuration."""
         test_name = request.node.name
 
         log_test_step("Navigate to model management page")
-        page.goto(f"{config.base_url}/models")
-        page.wait_for_load_state("domcontentloaded")
-        page.wait_for_timeout(3000)
+        navigate_to_models(page)
 
-        log_test_step("Find the OpenRouter Provider")
-        # v2.0.0 (PR #5203) — click the outer tile (Available section
-        # `.availableItem` or Configured section `.groupCardGlass`) rather
-        # than the label text span, which is not clickable.
+        log_test_step("Open the OpenRouter provider")
         openrouter_card = page.locator(
-            'div[class*=availableItem]:has-text("OpenRouter"), '
+            'button[class*=availableItem]:has-text("OpenRouter"), '
             '[class*=groupCardGlass]:has-text("OpenRouter")'
         ).first
-        if openrouter_card.count() == 0:
-            pytest.skip("OpenRouter Provider not found, skipping test")
-
-        logger.info("OpenRouter Provider found")
+        expect(openrouter_card).to_be_visible(timeout=10000)
         openrouter_card.click()
 
-        # Clicking an unconfigured provider tile opens the "Configure
-        # <Provider>" modal directly (see v2.0.0 Models Overhaul, PR #5203).
-        # Assert that modal appears rather than hunting for a separate
-        # settings button (which does not exist on this flow and caused a
-        # 60s click timeout).
         config_modal = page.locator(
             '.qwenpaw-modal:has-text("OpenRouter"), '
-            '.ant-modal:has-text("OpenRouter"), '
-            '.qwenpaw-modal:has-text("Base URL"), '
-            '.ant-modal:has-text("Base URL")'
+            '.ant-modal:has-text("OpenRouter")'
         ).first
-        try:
-            expect(config_modal).to_be_visible(timeout=10000)
-            logger.info("OpenRouter configuration modal opened")
-            page.keyboard.press("Escape")
-            page.wait_for_timeout(500)
-        except Exception:
-            # Some builds may surface the config inline instead of a modal;
-            # a visible OpenRouter tile that responded to the click is still
-            # acceptable for this smoke-level check.
-            logger.info(
-                "No standalone OpenRouter modal detected after click; "
-                "tile is present and clickable, which suffices"
+        expect(config_modal).to_be_visible(timeout=10000)
+        expect(
+            config_modal.get_by_text("Base URL", exact=True).or_(
+                config_modal.get_by_text("基础 URL", exact=True)
             )
-
+        ).to_be_visible(timeout=5000)
+        page.keyboard.press("Escape")
+        expect(config_modal).to_be_hidden(timeout=5000)
         log_test_result(test_name, True, 0)
 
 
@@ -987,50 +970,43 @@ class TestModelJsonEditor:
     """MODEL-P2-002: JSON config editor."""
 
     @pytest.mark.test_id("MODEL-P2-002")
-    def test_model_json_editor(self, page: Page, request: pytest.FixtureRequest):
-        """Test the model JSON config editor."""
+    def test_model_json_editor(
+        self,
+        page: Page,
+        request: pytest.FixtureRequest,
+    ):
+        """Verify the provider JSON editor and syntax highlight stay synced."""
         test_name = request.node.name
+        navigate_to_models(page)
 
-        log_test_step("Navigate to model management page")
-        page.goto(f"{config.base_url}/models")
-        page.wait_for_load_state("domcontentloaded")
-        page.wait_for_timeout(3000)
-
-        log_test_step("Find Provider cards")
-        provider_cards = page.locator('.qwenpaw-card').all()
-        if len(provider_cards) == 0:
-            pytest.skip("No Provider cards found, skipping test")
-
-        log_test_step("Click the first Provider's settings button")
-        settings_btn = page.locator(
-            'button:has-text("Settings"), button:has-text("设置"), '
-            'button:has-text("Configure"), button:has-text("配置"), '
-            'button:has(.anticon-setting)'
+        provider = page.locator(
+            'button[class*=availableItem]:has-text("OpenRouter"), '
+            '[class*=groupCardGlass]:has-text("OpenRouter")'
         ).first
+        expect(provider).to_be_visible(timeout=10000)
+        provider.click()
 
-        if settings_btn.count() > 0:
-            settings_btn.click()
-            page.wait_for_timeout(1500)
-        else:
-            # Try clicking the first Provider card
-            provider_cards[0].click()
-            page.wait_for_timeout(1500)
+        modal = page.locator(
+            '.qwenpaw-modal:has-text("OpenRouter"), '
+            '.ant-modal:has-text("OpenRouter")'
+        ).first
+        expect(modal).to_be_visible(timeout=10000)
+        advanced = modal.get_by_role(
+            "button", name="Advanced Configuration", exact=True
+        ).or_(
+            modal.get_by_role("button", name="进阶配置", exact=True)
+        )
+        expect(advanced).to_be_visible(timeout=5000)
+        advanced.click()
 
-        page.wait_for_timeout(500)
-        modal_or_drawer = page.locator('.qwenpaw-modal, .ant-modal, .qwenpaw-drawer, .ant-drawer').first
-        if modal_or_drawer.count() > 0:
-            expect(modal_or_drawer).to_be_visible(timeout=5000)
-            logger.info("Settings modal/panel opened")
+        editor = modal.locator('textarea[class*=jsonEditorTextarea]')
+        expect(editor).to_be_visible(timeout=5000)
+        sample = '{"temperature": 0.2, "stream": true}'
+        editor.fill(sample)
+        expect(editor).to_have_value(sample)
 
-            json_area = modal_or_drawer.locator('textarea, [class*="editor"], [class*="CodeMirror"]').first
-            if json_area.count() > 0:
-                logger.info("JSON config editor exists")
-            else:
-                logger.info("JSON editor not found (settings modal may use a form instead)")
-
-            page.keyboard.press("Escape")
-            page.wait_for_timeout(500)
-        else:
-            logger.info("Settings modal did not open; Provider may not support standalone settings")
-
+        highlight = modal.locator('[class*=jsonEditorHighlight]')
+        expect(highlight).to_contain_text('"temperature"')
+        expect(highlight).to_contain_text("0.2")
+        expect(highlight).to_contain_text("true")
         log_test_result(test_name, True, 0)
