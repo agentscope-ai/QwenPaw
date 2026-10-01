@@ -916,6 +916,17 @@ class PawApp(App):
             tok_out_approx=est > 0,
         )
 
+    async def _close_assistant(self) -> None:
+        """Finalize and detach the current assistant bubble.
+
+        Called whenever a new content block (thinking / tool / user turn /
+        turn end) closes the current answer so its finished text can be
+        CJK-emphasis-normalized before it stops streaming.
+        """
+        if self._assistant is not None:
+            await self._assistant.finalize()
+            self._assistant = None
+
     # pylint: disable-next=too-many-branches, too-many-statements
     async def _dispatch(self, event) -> None:
         if isinstance(event, TextDelta):
@@ -946,7 +957,7 @@ class PawApp(App):
             activity.set_thinking()
             # A new thinking block: any answer text after it should mount
             # below, so close the current assistant bubble.
-            self._assistant = None
+            await self._close_assistant()
             if self._thought is None:
                 self._thought = ThoughtMessage(live=True)
                 self._thought.add_class("hidden")
@@ -976,7 +987,7 @@ class PawApp(App):
                 if self._thought is not None:
                     self._thought.done()
                     self._thought = None
-                self._assistant = None
+                await self._close_assistant()
                 panel = ToolPanel(
                     event.tool_call_id,
                     event.title,
@@ -1015,7 +1026,7 @@ class PawApp(App):
             if self._activity is not None:
                 self._activity.done()
                 self._activity = None
-            self._assistant = None
+            await self._close_assistant()
             self._labeled = False
             await self._mount(UserMessage(event.text))
 
@@ -1090,7 +1101,7 @@ class PawApp(App):
                 self._thought.done()
             if self._activity is not None:
                 self._activity.done()
-            self._assistant = None
+            await self._close_assistant()
             self._thought = None
             self._activity = None
             self._labeled = False
