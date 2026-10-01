@@ -13,6 +13,8 @@ Run with: pytest tests/test_tools_p0.py -v
 from __future__ import annotations
 
 import logging
+import re
+
 import pytest
 from playwright.sync_api import APIRequestContext, Page, expect
 
@@ -417,52 +419,75 @@ class TestToolAsyncSwitch:
     """TOOL-P2-001: Async-execute toggle verification."""
 
     @pytest.mark.test_id("TOOL-P2-001")
-    def test_tool_async_switch(self, page: Page, request: pytest.FixtureRequest):
-        """Test the tool async-execute toggle."""
+    def test_tool_async_switch(
+        self,
+        page: Page,
+        api_context: APIRequestContext,
+        request: pytest.FixtureRequest,
+    ):
+        """Toggle async execution for the shell-command tool only."""
         test_name = request.node.name
+        response = api_context.get("/api/tools")
+        assert response.ok, response.text()
+        shell_tool = next(
+            (
+                tool
+                for tool in response.json()
+                if tool["name"] == "execute_shell_command"
+            ),
+            None,
+        )
+        assert shell_tool is not None, (
+            "execute_shell_command must be registered"
+        )
+        original_enabled = shell_tool["enabled"]
+        original_async = shell_tool["async_execution"]
 
-        log_test_step("Navigate to the tools management page")
         try:
-            page.goto(f"{config.base_url}/tools", wait_until="domcontentloaded", timeout=60000)
-        except Exception as nav_error:
-            logger.warning(f"Tools page navigation timed out, trying commit level: {nav_error}")
-            page.goto(f"{config.base_url}/tools", wait_until="commit", timeout=30000)
-        page.wait_for_timeout(3000)
+            if not original_enabled:
+                enabled = api_context.patch(
+                    "/api/tools/execute_shell_command/toggle"
+                )
+                assert enabled.ok, enabled.text()
 
-        log_test_step("Find tool cards")
-        tool_cards = page.locator('.qwenpaw-card, [class*="toolCard"]').all()
-        if len(tool_cards) == 0:
-            pytest.skip("No tool cards found, skipping test")
-        logger.info(f"Found {len(tool_cards)} tool cards")
+            page.goto(
+                f"{config.base_url}/tools",
+                wait_until="domcontentloaded",
+                timeout=60000,
+            )
+            card = page.locator('div[class*="toolCard"]').filter(
+                has_text=re.compile(r"Run commands|执行命令")
+            )
+            expect(card).to_have_count(1, timeout=10000)
 
-        log_test_step("Find the async-execute toggle")
-        async_switches = page.locator(
-            '.qwenpaw-switch, [class*="asyncSwitch"]'
-        ).all()
-        assert len(async_switches) > 0, "Tools page should have toggle controls"
-        logger.info(f"Found {len(async_switches)} toggles")
+            async_button = card.locator('button[aria-pressed]')
+            expect(async_button).to_be_visible(timeout=5000)
+            initial_state = async_button.get_attribute("aria-pressed")
+            assert initial_state == str(original_async).lower()
 
-        first_switch = async_switches[0]
-        original_state = first_switch.get_attribute("aria-checked")
-        assert original_state is not None, "Toggle should have an aria-checked attribute"
-        logger.info(f"Toggle initial state: aria-checked={original_state}")
-
-        log_test_step("Click to toggle the async-execute switch")
-        first_switch.click()
-        page.wait_for_timeout(1500)
-
-        new_state = first_switch.get_attribute("aria-checked")
-        logger.info(f"State after toggle: aria-checked={new_state}")
-        assert new_state != original_state, \
-            f"Async toggle had no effect: before={original_state}, after={new_state}"
-        logger.info("Async toggle state changed successfully")
-
-        log_test_step("Restore original state")
-        first_switch.click()
-        page.wait_for_timeout(1000)
-        restored_state = first_switch.get_attribute("aria-checked")
-        assert restored_state == original_state, \
-            f"Async toggle restore failed: expected {original_state}, got {restored_state}"
-        logger.info("Async toggle restored to original state")
-
-        log_test_result(test_name, True, 0)
+            async_button.click()
+            expected = str(not original_async).lower()
+            expect(async_button).to_have_attribute(
+                "aria-pressed", expected, timeout=10000
+            )
+            updated = api_context.get("/api/tools")
+            assert updated.ok, updated.text()
+            updated_shell = next(
+                tool
+                for tool in updated.json()
+                if tool["name"] == "execute_shell_command"
+            )
+            assert updated_shell["async_execution"] is not original_async
+            log_test_result(test_name, True, 0)
+        finally:
+            restored = api_context.patch(
+                "/api/tools/execute_shell_command/async-execution",
+                data={"async_execution": original_async},
+            )
+            assert restored.ok, restored.text()
+            current = restored.json()
+            if current["enabled"] != original_enabled:
+                toggle = api_context.patch(
+                    "/api/tools/execute_shell_command/toggle"
+                )
+                assert toggle.ok, toggle.text()
