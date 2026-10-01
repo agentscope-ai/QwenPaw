@@ -321,10 +321,21 @@ class TestFileContentEditAndSave:
             page.keyboard.press("ControlOrMeta+A")
             page.keyboard.insert_text(original_content + test_marker)
             save_button = page.locator(
-                'div[class*="documentActions"] button'
-            ).last
+                'div[class*="documentActions"] button:has(svg.lucide-save)'
+            )
             expect(save_button).to_be_enabled(timeout=config.browser.timeout)
-            save_button.click()
+            with page.expect_response(
+                lambda candidate: (
+                    candidate.request.method == "PUT"
+                    and candidate.url.endswith(
+                        f"/api/workspace/files/{filename}"
+                    )
+                ),
+                timeout=config.browser.timeout,
+            ) as save_info:
+                save_button.click()
+            save_response = save_info.value
+            assert save_response.ok, save_response.body()
 
             log_test_step("3. Verify persistence through the Files API")
             expect(save_button).to_be_disabled(timeout=config.browser.timeout)
