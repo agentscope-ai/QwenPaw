@@ -465,8 +465,23 @@ class TestToolAsyncSwitch:
             initial_state = async_button.get_attribute("aria-pressed")
             assert initial_state == str(original_async).lower()
 
-            async_button.click()
             expected = str(not original_async).lower()
+            with page.expect_response(
+                lambda candidate: (
+                    candidate.request.method == "PATCH"
+                    and candidate.url.endswith(
+                        "/api/tools/execute_shell_command/async-execution"
+                    )
+                ),
+                timeout=config.browser.timeout,
+            ) as update_info:
+                async_button.click()
+            update_response = update_info.value
+            assert update_response.ok, update_response.body()
+            assert (
+                update_response.json()["async_execution"]
+                is not original_async
+            )
             expect(async_button).to_have_attribute(
                 "aria-pressed", expected, timeout=10000
             )
