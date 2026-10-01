@@ -165,7 +165,8 @@ async def _notify_parent_task_finished(
         status_code = await asyncio.to_thread(_post)
         if status_code == 409:
             logger.info(
-                "Task %s finished but parent session %s is busy; notify skipped",
+                "Task %s finished but parent session %s is busy;"
+                " notify skipped",
                 task_id,
                 session_id,
             )
@@ -1191,7 +1192,7 @@ async def post_console_chat_task(
                             "error": {
                                 "message": "Failed to finalize fork worktree",
                             },
-                        }
+                        },
                     )
                     return
         except asyncio.CancelledError:
@@ -1205,7 +1206,7 @@ async def post_console_chat_task(
                 {
                     "status": "failed",
                     "error": cancel_error,
-                }
+                },
             )
             # In-flight Git finalize is detached bookkeeping; do not race
             # it with mark_fork_failed or let it flip this result later.
@@ -1223,7 +1224,7 @@ async def post_console_chat_task(
                 {
                     "status": "failed",
                     "error": {"message": str(exc)},
-                }
+                },
             )
             await _mark_background_fork_failed(
                 fork_project_dir,
@@ -1240,7 +1241,7 @@ async def post_console_chat_task(
                     "status": "completed",
                     "session_id": session_id,
                     **last_response,
-                }
+                },
             )
         else:
             await _publish_terminal(
@@ -1248,7 +1249,7 @@ async def post_console_chat_task(
                     "status": "completed",
                     "session_id": session_id,
                     "output": [],
-                }
+                },
             )
 
     atask = asyncio.create_task(_run())

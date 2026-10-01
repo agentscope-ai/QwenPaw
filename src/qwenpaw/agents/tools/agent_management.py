@@ -641,7 +641,6 @@ async def chat_with_agent(
 
     # Get root_session_id from current context for cross-session approval
     from ...app.agent_context import (
-        get_current_agent_id,
         get_current_session_id,
         get_current_root_session_id,
     )
@@ -1279,7 +1278,10 @@ async def spawn_subagent(  # pylint: disable=too-many-return-statements
     except ValueError as exc:
         return _tool_text_response(f"ERROR: {exc}")
 
-    from ...app.agent_context import get_current_agent_id, get_current_session_id
+    from ...app.agent_context import (
+        get_current_agent_id,
+        get_current_session_id,
+    )
 
     current_agent_id = get_current_agent_id()
     if not current_agent_id:
