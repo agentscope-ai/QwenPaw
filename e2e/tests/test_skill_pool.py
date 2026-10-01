@@ -417,7 +417,12 @@ class TestSkillPoolZipImport:
     """
 
     @pytest.mark.test_id("POOL-P1-005")
-    def test_skill_pool_zip_import(self, page: Page, request: pytest.FixtureRequest):
+    def test_skill_pool_zip_import(
+        self,
+        page: Page,
+        api_context,
+        request: pytest.FixtureRequest,
+    ):
         """Test skill pool ZIP import (with actual upload)."""
         import zipfile
         import tempfile
@@ -427,24 +432,27 @@ class TestSkillPoolZipImport:
         test_name = request.node.name
         skill_name = f"e2e_pool_zip_{int(time.time())}"
         zip_path = None
-        skill_uploaded = False
+        imported_skill_name = ""
 
         try:
             log_test_step("1. Navigate to skill pool page")
             navigate_to_skill_pool(page)
 
-            log_test_step("2. Find ZIP upload button")
-            upload_btn = page.locator(
-                'button:has-text("zip"), button:has-text("ZIP"), '
-                'button:has-text("上传"), button:has-text("Upload"), '
-                'button:has(.anticon-upload)'
+            log_test_step("2. Verify ZIP upload in the Add Skill menu")
+            add_skill = page.locator(
+                'button:has-text("Add Skill"), '
+                'button:has-text("添加技能")'
             ).first
-
-            if upload_btn.count() == 0:
-                pytest.skip("ZIP upload button not found, skipping test")
-
-            expect(upload_btn).to_be_visible(timeout=5000)
-            logger.info("ZIP upload button exists")
+            expect(add_skill).to_be_visible(timeout=5000)
+            add_skill.click()
+            upload_entry = page.get_by_text(
+                "Upload via Zip", exact=True
+            ).or_(
+                page.get_by_text("通过Zip上传", exact=True)
+            ).first
+            expect(upload_entry).to_be_visible(timeout=5000)
+            page.keyboard.press("Escape")
+            logger.info("ZIP upload entry exists in the Add Skill menu")
 
             log_test_step("3. Verify hidden file input")
             file_input = page.locator(
@@ -454,15 +462,13 @@ class TestSkillPoolZipImport:
             assert file_input.count() > 0, "Hidden ZIP file input not found"
 
             accept_attr = file_input.get_attribute("accept")
-            assert ".zip" in accept_attr, f"File input accept attribute does not include .zip: {accept_attr}"
+            assert ".zip" in accept_attr, (
+                "File input accept attribute does not include .zip: "
+                f"{accept_attr}"
+            )
             logger.info(f"File input accept={accept_attr}")
 
-            log_test_step("4. Record initial skill count")
-            initial_cards = page.locator(SkillPoolPage.SKILL_CARD).all()
-            initial_count = len(initial_cards)
-            logger.info(f"Initial skill count: {initial_count}")
-
-            log_test_step("5. Create temporary zip file")
+            log_test_step("4. Create temporary zip file")
             skill_content = f"""---
 name: {skill_name}
 description: E2E test skill uploaded via zip to skill pool
@@ -473,25 +479,57 @@ description: E2E test skill uploaded via zip to skill pool
 This is a test skill uploaded via zip for E2E testing.
 """
             temp_dir = tempfile.mkdtemp()
-            md_path = os.path.join(temp_dir, f"{skill_name}.md")
+            md_path = os.path.join(temp_dir, "SKILL.md")
             zip_path = os.path.join(temp_dir, f"{skill_name}.zip")
 
             with open(md_path, "w", encoding="utf-8") as md_file:
                 md_file.write(skill_content)
 
             with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
-                zf.write(md_path, f"{skill_name}.md")
+                zf.write(md_path, "SKILL.md")
 
             logger.info(f"Temporary zip file created: {zip_path}")
 
-            log_test_step("6. Upload zip file via hidden input")
-            file_input.set_input_files(zip_path)
+            log_test_step("5. Upload zip file via hidden input")
+            with page.expect_response(
+                lambda response: (
+                    "/api/skills/pool/upload-zip" in response.url
+                    and response.request.method == "POST"
+                ),
+                timeout=10000,
+            ) as upload_response_info:
+                file_input.set_input_files(zip_path)
+            upload_response = upload_response_info.value
+            assert upload_response.ok, (
+                "Skill pool ZIP upload failed "
+                f"[{upload_response.status}]: {upload_response.text()}"
+            )
+            upload_result = upload_response.json()
+            imported = upload_result.get("imported", [])
+            assert len(imported) == 1, (
+                "Expected exactly one imported pool skill, got "
+                f"{imported!r}"
+            )
+            imported_skill_name = imported[0]
+            assert imported_skill_name == skill_name, (
+                f"Imported skill name {imported_skill_name!r} does not match "
+                f"fixture name {skill_name!r}"
+            )
             logger.info("Uploaded zip file via set_input_files")
 
             # Wait for upload to finish processing
             page.wait_for_timeout(5000)
 
-            log_test_step("7. Verify upload result")
+            imported_detail = api_context.get(
+                f"/api/skills/pool/{imported_skill_name}"
+            )
+            assert imported_detail.ok, (
+                f"Imported pool skill '{imported_skill_name}' was not "
+                "persisted after upload "
+                f"[{imported_detail.status}]: {imported_detail.text()}"
+            )
+
+            log_test_step("6. Verify upload result")
             # Check for success message
             success_message = page.locator(
                 '.qwenpaw-message-success, '
@@ -506,66 +544,49 @@ This is a test skill uploaded via zip for E2E testing.
             page.wait_for_load_state("domcontentloaded")
             page.wait_for_timeout(3000)
 
-            # Verify the new skill appears in the list
-            new_skill_locator = page.locator(f'text="{skill_name}"').first
-            try:
-                expect(new_skill_locator).to_be_visible(timeout=8000)
-                skill_uploaded = True
-                logger.info(f"Uploaded skill appeared in the skill pool list: {skill_name}")
-            except Exception:
-                updated_cards = page.locator(SkillPoolPage.SKILL_CARD).all()
-                updated_count = len(updated_cards)
-                logger.info(f"Skill count after upload: {updated_count} (initial: {initial_count})")
-                if updated_count > initial_count:
-                    skill_uploaded = True
-                    logger.info("Skill count increased, upload likely succeeded")
-                else:
-                    logger.warning("No new skill detected; upload may have failed or name mismatch")
+            reloaded_detail = api_context.get(
+                f"/api/skills/pool/{imported_skill_name}"
+            )
+            assert reloaded_detail.ok, (
+                f"Imported pool skill '{imported_skill_name}' disappeared "
+                "after page reload "
+                f"[{reloaded_detail.status}]: {reloaded_detail.text()}"
+            )
 
+            # Verify the new skill appears in the list
+            new_skill_locator = page.locator(
+                f'{SkillPoolPage.SKILL_CARD}:has-text("{imported_skill_name}")'
+            ).first
+            expect(new_skill_locator).to_be_visible(timeout=8000)
+            logger.info(
+                "Uploaded skill appeared in the skill pool list: %s",
+                imported_skill_name,
+            )
             log_test_result(test_name, True, 0)
-            logger.info(f"Test {test_name} passed - skill pool ZIP import validation passed")
+            logger.info(
+                "Test %s passed - skill pool ZIP import validation passed",
+                test_name,
+            )
 
         finally:
-            # Cleanup: delete the uploaded test skill
-            if skill_uploaded:
-                try:
-                    target_card = page.locator(
-                        f'{SkillPoolPage.SKILL_CARD}:has-text("{skill_name}")'
-                    ).first
-                    if target_card.is_visible():
-                        # Try to find delete button on the card
-                        target_card.hover()
-                        page.wait_for_timeout(500)
-                        delete_btn = target_card.locator(
-                            'button.qwenpaw-btn-dangerous, '
-                            'button:has-text("删除"), '
-                            'button:has-text("Delete"), '
-                            'button:has(.anticon-delete)'
-                        ).first
-                        if delete_btn.is_visible():
-                            delete_btn.click()
-                            page.wait_for_timeout(1000)
-                            confirm_btn = page.locator(
-                                '.qwenpaw-modal-confirm-btns button.qwenpaw-btn-dangerous, '
-                                '.qwenpaw-modal button.qwenpaw-btn-dangerous, '
-                                '.qwenpaw-modal button.qwenpaw-btn-primary'
-                            ).first
-                            if confirm_btn.is_visible():
-                                confirm_btn.click()
-                                page.wait_for_timeout(2000)
-                            logger.info(f"Cleanup: deleted test skill '{skill_name}'")
-                except Exception:
-                    logger.warning(f"Cleanup failed: could not delete test skill '{skill_name}'")
+            if imported_skill_name:
+                response = api_context.delete(
+                    f"/api/skills/pool/{imported_skill_name}"
+                )
+                assert response.ok, (
+                    f"Cleanup failed for pool skill '{imported_skill_name}' "
+                    f"[{response.status}]: {response.text()}"
+                )
+                logger.info(
+                    "Cleanup: deleted test skill '%s'",
+                    imported_skill_name,
+                )
 
-            # Cleanup: delete temp file
             if zip_path:
-                try:
-                    import shutil
-                    temp_dir_to_clean = os.path.dirname(zip_path)
-                    shutil.rmtree(temp_dir_to_clean, ignore_errors=True)
-                    logger.info("Cleanup: deleted temporary zip file")
-                except Exception:
-                    logger.warning("Cleanup failed: could not delete temp file")
+                import shutil
+                temp_dir_to_clean = os.path.dirname(zip_path)
+                shutil.rmtree(temp_dir_to_clean)
+                logger.info("Cleanup: deleted temporary zip file")
 
 
 # ============================================================================
