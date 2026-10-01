@@ -1,479 +1,349 @@
 # -*- coding: utf-8 -*-
-"""
-QwenPaw file management module P0 end-to-end test cases.
+"""QwenPaw file management end-to-end tests."""
 
-Combined test cases:
-- FILE-001: Page load + file list hard-assert + click file to open editor + editor content verification
-- FILE-002: Toggle switch hard-assert + drag reorder + reload restore
-
-Run with: pytest tests/test_files_p0.py -v
-"""
 from __future__ import annotations
 
 import logging
+
 import pytest
-from playwright.sync_api import Page, expect
+from playwright.sync_api import APIRequestContext, Page, expect
 
 from config.settings import config
-from utils.helpers import log_test_step, log_test_result
+from utils.helpers import log_test_result, log_test_step
 
 logger = logging.getLogger(__name__)
 
 WORKSPACE_URL = f"{config.base_url}/files"
-FILE_ITEM_SELECTOR = 'div[class*="fileItem"]'
-FILE_NAME_SELECTOR = 'div[class*="fileItemName"]'
-FILE_META_SELECTOR = 'div[class*="fileItemMeta"]'
+PROFILE_FIXTURES = {
+    "_e2e_profile_a.md": "# E2E Profile A\n\nProfile fixture A.\n",
+    "_e2e_profile_b.md": "# E2E Profile B\n\nProfile fixture B.\n",
+}
+FILE_ITEM_SELECTOR = 'div[class*="profileRow"]'
+FILE_NAME_SELECTOR = 'button[class*="profileOpen"] > span:last-child'
 SWITCH_SELECTOR = 'button.qwenpaw-switch[role="switch"]'
-DRAG_HANDLE_SELECTOR = 'div[class*="dragHandle"]'
+DRAG_HANDLE_SELECTOR = 'span[class*="dragHandle"]'
 
-def navigate_to_workspace(page: Page):
-    """Navigate to the workspace page and wait for it to load."""
+
+@pytest.fixture(scope="module")
+def profile_file_fixtures(
+    api_context: APIRequestContext,
+) -> tuple[str, ...]:
+    """Create deterministic profile files and restore the original state."""
+    workspace = config.working_dir / "workspaces" / "default"
+    workspace.mkdir(parents=True, exist_ok=True)
+    originals: dict[str, bytes | None] = {}
+    headers = {"X-Agent-Id": "default"}
+
+    enabled_response = api_context.get(
+        "/api/workspace/system-prompt-files",
+        headers=headers,
+    )
+    assert enabled_response.ok, enabled_response.text()
+    original_enabled = enabled_response.json()
+    assert isinstance(original_enabled, list)
+
+    for filename, content in PROFILE_FIXTURES.items():
+        path = workspace / filename
+        originals[filename] = path.read_bytes() if path.exists() else None
+        response = api_context.put(
+            f"/api/workspace/files/{filename}",
+            data={"content": content},
+            headers=headers,
+        )
+        assert response.ok, response.text()
+
+    fixture_names = tuple(PROFILE_FIXTURES)
+    seeded_enabled = [
+        *fixture_names,
+        *(name for name in original_enabled if name not in fixture_names),
+    ]
+    update_response = api_context.put(
+        "/api/workspace/system-prompt-files",
+        data=seeded_enabled,
+        headers=headers,
+    )
+    assert update_response.ok, update_response.text()
+
+    try:
+        yield fixture_names
+    finally:
+        restore_response = api_context.put(
+            "/api/workspace/system-prompt-files",
+            data=original_enabled,
+            headers=headers,
+        )
+        assert restore_response.ok, restore_response.text()
+        for filename, original in originals.items():
+            path = workspace / filename
+            if original is None:
+                path.unlink(missing_ok=True)
+            else:
+                path.write_bytes(original)
+
+
+def navigate_to_workspace(page: Page) -> None:
+    """Navigate to the workspace and wait for the source tabs."""
     page.goto(WORKSPACE_URL)
     page.wait_for_load_state("domcontentloaded")
-    page.wait_for_timeout(3000)
+    profile_tab = page.get_by_role("tab", name="Profile", exact=True).or_(
+        page.get_by_role("tab", name="档案", exact=True)
+    )
+    expect(profile_tab).to_be_visible(timeout=config.browser.timeout)
 
 
-def reset_project_binding(api_context) -> None:
-    """Defensive reset: coding cases may leave a project directory bound,
-    which makes the files page show the (possibly empty) project tree
-    instead of the workspace tree the cases seed files into."""
-    api_context.post(
+def reset_project_binding(api_context: APIRequestContext) -> None:
+    """Keep workspace tests independent from coding-mode project bindings."""
+    disable_response = api_context.post(
         "/api/coding-mode",
         data={"enabled": False},
         headers={"X-Agent-Id": "default"},
     )
-    api_context.put(
+    assert disable_response.ok, disable_response.text()
+    binding_response = api_context.put(
         "/api/workspace/project-directory",
         data={"path": None},
         headers={"X-Agent-Id": "default"},
     )
+    assert binding_response.ok, binding_response.text()
+
+
+def open_profile_files(page: Page) -> None:
+    """Open the managed profile source."""
+    profile_tab = page.get_by_role("tab", name="Profile", exact=True).or_(
+        page.get_by_role("tab", name="档案", exact=True)
+    )
+    profile_tab.click()
+    expect(profile_tab).to_have_attribute("aria-selected", "true")
+
+
+def profile_row(page: Page, filename: str):
+    """Return one profile row by its exact filename."""
+    return page.locator(FILE_ITEM_SELECTOR).filter(
+        has=page.get_by_role("button", name=filename, exact=True)
+    )
+
 
 def get_file_items(page: Page):
-    """Get the file list; skip the test if empty."""
+    """Return the currently rendered profile rows."""
+    first_item = page.locator(FILE_ITEM_SELECTOR).first
+    expect(first_item).to_be_visible(timeout=config.browser.timeout)
     items = page.locator(FILE_ITEM_SELECTOR).all()
-    if len(items) == 0:
-        pytest.skip("No file items found")
+    assert items, "Expected at least one managed profile file"
     return items
 
-# ============================================================================
-# FILE-001: Page load + file list + editor
-# ============================================================================
+
+def drag_profile_row(page: Page, source, target) -> None:
+    """Reorder two rows through the dnd-kit pointer sensor."""
+    handle = source.locator(DRAG_HANDLE_SELECTOR).first
+    expect(handle).to_be_visible(timeout=5000)
+    source_box = handle.bounding_box()
+    target_box = target.bounding_box()
+    assert source_box is not None
+    assert target_box is not None
+    start_x = source_box["x"] + source_box["width"] / 2
+    start_y = source_box["y"] + source_box["height"] / 2
+    target_x = target_box["x"] + target_box["width"] / 2
+    target_y = target_box["y"] + target_box["height"] * 0.75
+    page.mouse.move(start_x, start_y)
+    page.mouse.down()
+    page.mouse.move(target_x, target_y, steps=12)
+    page.mouse.up()
+
 
 @pytest.mark.integration
 @pytest.mark.p0
 @pytest.mark.files
 class TestFileListEditSave:
-    """
-    FILE-001: Page load + file list hard-assert + click file to open editor + editor content verification.
-
-    Coverage:
-    1. Hard-assert breadcrumb / core files heading
-    2. Hard-assert file list count > 0
-    3. Hard-assert first file name / meta non-empty
-    4. Click file -> editor panel visible + content non-empty hard-assert
-    5. Hard-assert toggle switch exists
-    """
+    """Verify deterministic profile-file navigation."""
 
     @pytest.mark.test_id("FILE-001")
-    def test_file_list_view_edit_save(self, page: Page, request: pytest.FixtureRequest):
-        """Verify file list display and opening the editor."""
+    def test_file_list_view_edit_save(
+        self,
+        page: Page,
+        profile_file_fixtures: tuple[str, ...],
+        request: pytest.FixtureRequest,
+    ) -> None:
+        """Verify a managed profile file opens in preview mode."""
         test_name = request.node.name
+        filename = profile_file_fixtures[0]
 
-        # Step 1: Visit the workspace page
-        log_test_step("1. Visit the workspace page")
+        log_test_step("1. Open the managed profile source")
         navigate_to_workspace(page)
+        open_profile_files(page)
 
-        # Step 2: Verify breadcrumb
-        log_test_step("2. Verify breadcrumb")
-        try:
-            breadcrumb = page.locator(
-                'span[class*="breadcrumbCurrent"]:has-text("Files"), '
-                'span[class*="breadcrumbCurrent"]:has-text("Workspace")'
-            ).first
-            if not breadcrumb.is_visible():
-                breadcrumb = page.locator('text=Workspace, text=Files').first
-            expect(breadcrumb).to_be_visible(timeout=5000)
-            logger.info("Breadcrumb verified")
-        except Exception:
-            logger.warning("Breadcrumb verification skipped (locale mismatch)")
+        log_test_step("2. Verify the seeded profile rows")
+        assert len(get_file_items(page)) >= 2
+        row = profile_row(page, filename)
+        expect(row).to_have_count(1)
+        expect(row.locator(FILE_NAME_SELECTOR)).to_have_text(filename)
+        expect(row.locator(SWITCH_SELECTOR)).to_be_checked()
 
-        # Step 3: Verify the core-files heading
-        log_test_step("3. Verify the core-files heading")
-        section_title = page.locator('h3[class*="sectionTitle"]:has-text("Core Files"), h3[class*="sectionTitle"]:has-text("Core")').first
-        try:
-            expect(section_title).to_be_visible(timeout=5000)
-            logger.info("Core files heading visible")
-        except Exception:
-            logger.warning("Core files heading not found, skipping verification")
-
-        # Step 4: Verify the file list
-        log_test_step("4. Verify the file list")
-        file_items = get_file_items(page)
-        file_count = len(file_items)
-        assert file_count >= 1, "File list should have at least 1 file"
-        logger.info(f"File count: {file_count}")
-
-        # Step 5: Verify the first file's info
-        log_test_step("5. Verify the first file's info")
-        first_file = file_items[0]
-        name_el = first_file.locator(FILE_NAME_SELECTOR).first
-        expect(name_el).to_be_visible(timeout=3000)
-        file_name = name_el.inner_text()
-        assert len(file_name) > 0, "File name is empty"
-        logger.info(f"First file: {file_name}")
-
-        meta_el = first_file.locator(FILE_META_SELECTOR).first
-        expect(meta_el).to_be_visible(timeout=3000)
-        file_meta = meta_el.inner_text()
-        assert len(file_meta) > 0, "File meta is empty"
-        logger.info(f"Meta: {file_meta}")
-
-        # Step 6: Click the file to open the editor
-        log_test_step("6. Click the file to open the editor")
-        first_file.click()
-        page.wait_for_timeout(2000)
-
-        content_area = page.locator(
-            '[class*="markdownViewer"], [class*="preview"], '
-            '[class*="editor"], textarea, .monaco-editor'
-        ).first
-        expect(content_area).to_be_visible(timeout=5000)
-        editor_content = content_area.text_content() or ""
-        assert len(editor_content.strip()) > 0, "Editor/preview content is empty"
-        logger.info(f"Editor opened; content length: {len(editor_content)} chars")
-
-        # Step 7: Verify the toggle switch exists
-        log_test_step("7. Verify the file enable switch exists")
-        switches = page.locator(SWITCH_SELECTOR).all()
-        assert len(switches) >= 1, "There should be at least 1 enable switch"
-        first_switch = switches[0]
-        checked = first_switch.get_attribute('aria-checked')
-        assert checked in ['true', 'false'], f"Unexpected switch aria-checked value: {checked}"
-        logger.info(f"Switch exists, current state: {checked}")
+        log_test_step("3. Open the seeded Markdown preview")
+        row.get_by_role("button", name=filename, exact=True).click()
+        heading = page.get_by_role("heading", name="E2E Profile A")
+        expect(heading).to_be_visible(timeout=config.browser.timeout)
 
         log_test_result(test_name, True, 0)
-        logger.info(f"Test {test_name} passed - file list display and opening editor OK")
 
-# ============================================================================
-# FILE-002: Toggle switch + drag reorder + reload restore
-# ============================================================================
 
 @pytest.mark.integration
 @pytest.mark.p0
 @pytest.mark.files
 class TestFileToggleReorderMemory:
-    """
-    FILE-002: Toggle switch hard-assert + drag reorder + reload restore.
-
-    Coverage:
-    1. Toggle switch -> assert state flipped
-    2. Restore -> assert state back to initial
-    3. Record the initial file order
-    4. Drag-reorder (no try/except)
-    5. Verify the order changed
-    6. Reload the page and verify the file list still exists
-    """
+    """Verify profile toggling and persistent ordering."""
 
     @pytest.mark.test_id("FILE-002")
-    def test_file_toggle_reorder_memory(self, page: Page, request: pytest.FixtureRequest):
-        """Verify file toggle, drag reorder, and reload restore."""
+    def test_file_toggle_reorder_memory(
+        self,
+        page: Page,
+        api_context: APIRequestContext,
+        profile_file_fixtures: tuple[str, ...],
+        request: pytest.FixtureRequest,
+    ) -> None:
+        """Toggle and reorder isolated profile-file fixtures."""
         test_name = request.node.name
+        first_name, second_name = profile_file_fixtures
+        headers = {"X-Agent-Id": "default"}
 
-        # Step 1: Visit the workspace page
-        log_test_step("1. Visit the workspace page")
         navigate_to_workspace(page)
+        open_profile_files(page)
 
-        # Step 2: Get the file list and switch
-        log_test_step("2. Get file list and switch")
-        file_items = get_file_items(page)
-        logger.info(f"File count: {len(file_items)}")
-
-        first_file = file_items[0]
-        toggle = first_file.locator(SWITCH_SELECTOR).first
-        if not toggle.is_visible():
-            pytest.skip("Enable/disable switch not found")
-
-        # Step 3: Record the initial state
-        log_test_step("3. Record initial enabled state")
-        initial_checked = toggle.get_attribute('aria-checked')
-        initial_enabled = initial_checked == 'true'
-        logger.info(f"Initial state: aria-checked={initial_checked}")
-
-        # Step 4: Toggle the switch and hard-assert
-        log_test_step("4. Toggle the switch and verify")
-        # Scroll the switch into view
-        toggle.scroll_into_view_if_needed()
-        page.wait_for_timeout(500)
-        # Use a normal click (force=True may bypass React events)
-        toggle.click()
-        page.wait_for_timeout(1500)
-
-        # Handle a possible confirm dialog (Ant Popconfirm or Modal)
-        popconfirm = page.locator(
-            '.qwenpaw-popconfirm-buttons button.qwenpaw-btn-primary, '
-            '.qwenpaw-modal-footer button.qwenpaw-btn-primary, '
-            '.ant-popconfirm-buttons button.ant-btn-primary, '
-            '.ant-modal-footer button.ant-btn-primary, '
-            '.qwenpaw-popover button:has-text("OK"), '
-            '.qwenpaw-popover button:has-text("Yes"), '
-            '.ant-popover button:has-text("OK"), '
-            '.ant-popover button:has-text("Yes")'
+        log_test_step("1. Toggle the first profile file off")
+        order_response = api_context.get(
+            "/api/workspace/system-prompt-files",
+            headers=headers,
         )
-        if popconfirm.count() > 0 and popconfirm.first.is_visible(timeout=3000):
-            popconfirm.first.click()
-            logger.info("Confirmed toggle dialog")
-            page.wait_for_timeout(2000)
-        else:
-            page.wait_for_timeout(1500)
-
-        # Re-fetch the switch reference (DOM may have updated)
-        file_items = get_file_items(page)
-        toggle = file_items[0].locator(SWITCH_SELECTOR).first
-        new_checked = toggle.get_attribute('aria-checked')
-        new_enabled = new_checked == 'true'
-        assert new_enabled != initial_enabled, (
-            f"Switch did not flip after toggle: {initial_checked} -> {new_checked}"
-        )
-        logger.info(f"Switch toggled: {initial_checked} -> {new_checked}")
-
-        # Step 5: Restore the initial state and hard-assert
-        log_test_step("5. Restore initial state")
-        toggle.scroll_into_view_if_needed()
-        page.wait_for_timeout(500)
-        toggle.click()
-        page.wait_for_timeout(1000)
-
-        # Handle a possible confirm dialog
-        if popconfirm.count() > 0 and popconfirm.first.is_visible(timeout=2000):
-            popconfirm.first.click()
-            logger.info("Confirmed restore dialog")
-            page.wait_for_timeout(1500)
-        else:
-            page.wait_for_timeout(1000)
-
-        # Re-fetch the switch reference
-        file_items = get_file_items(page)
-        toggle = file_items[0].locator(SWITCH_SELECTOR).first
-        restored_checked = toggle.get_attribute('aria-checked')
-        assert restored_checked == initial_checked, (
-            f"Switch not restored: expected {initial_checked}, got {restored_checked}"
-        )
-        logger.info("Switch state restored")
-
-        # Step 6: Drag reorder (requires at least 2 files)
-        log_test_step("6. Drag reorder")
-        file_items = page.locator(FILE_ITEM_SELECTOR).all()
-
+        assert order_response.ok, order_response.text()
+        original_order = order_response.json()
         try:
-            if len(file_items) < 2:
-                logger.info("Fewer than 2 files; skipping drag test")
-            else:
-                initial_order = []
-                for item in file_items[:2]:
-                    name_el = item.locator(FILE_NAME_SELECTOR).first
-                    name = name_el.inner_text()
-                    initial_order.append(name)
-                logger.info(f"Initial order: {initial_order}")
-
-                first_item = file_items[0]
-                second_item = file_items[1]
-                drag_handle = first_item.locator(DRAG_HANDLE_SELECTOR).first
-
-                if drag_handle.is_visible():
-                    drag_handle.drag_to(second_item)
-                else:
-                    first_item.drag_to(second_item)
-                page.wait_for_timeout(1500)
-
-                new_file_items = page.locator(FILE_ITEM_SELECTOR).all()
-                new_order = []
-                for item in new_file_items[:2]:
-                    name_el = item.locator(FILE_NAME_SELECTOR).first
-                    name = name_el.inner_text()
-                    new_order.append(name)
-                logger.info(f"Order after drag: {new_order}")
-
-                if initial_order != new_order:
-                    logger.info("File order updated")
-                else:
-                    logger.info("File order unchanged (drag may not have taken effect; does not affect test pass)")
+            toggle = profile_row(page, first_name).locator(SWITCH_SELECTOR)
+            expect(toggle).to_be_checked()
+            toggle.click()
+            expect(profile_row(page, first_name)).to_have_count(
+                0,
+                timeout=config.browser.timeout,
+            )
+            disabled_response = api_context.get(
+                "/api/workspace/system-prompt-files",
+                headers=headers,
+            )
+            assert disabled_response.ok, disabled_response.text()
+            assert first_name not in disabled_response.json()
         finally:
-            # Try to restore after drag; since the target position is uncertain, only warn
-            logger.warning("Drag reorder executed; file order may have changed and was not auto-restored")
+            restore_response = api_context.put(
+                "/api/workspace/system-prompt-files",
+                data=original_order,
+                headers=headers,
+            )
+            assert restore_response.ok, restore_response.text()
 
-        # Step 7: Reload the page and verify the file list still exists
-        log_test_step("7. Reload and verify file list")
         page.reload()
         page.wait_for_load_state("domcontentloaded")
-        page.wait_for_timeout(3000)
+        open_profile_files(page)
+        expect(profile_row(page, first_name)).to_have_count(1)
+        expect(
+            profile_row(page, first_name).locator(SWITCH_SELECTOR)
+        ).to_be_checked()
 
-        refreshed_items = page.locator(FILE_ITEM_SELECTOR).all()
-        assert len(refreshed_items) >= 1, "File list is empty after reload"
-        logger.info(f"File list still present after reload, count: {len(refreshed_items)}")
+        log_test_step("2. Reorder the two fixture rows")
+        try:
+            drag_profile_row(
+                page,
+                profile_row(page, first_name),
+                profile_row(page, second_name),
+            )
+            first_visible_name = page.locator(FILE_NAME_SELECTOR).first
+            expect(first_visible_name).to_have_text(
+                second_name,
+                timeout=config.browser.timeout,
+            )
+            persisted_response = api_context.get(
+                "/api/workspace/system-prompt-files",
+                headers=headers,
+            )
+            assert persisted_response.ok, persisted_response.text()
+            assert persisted_response.json()[:2] == [second_name, first_name]
+        finally:
+            restore_response = api_context.put(
+                "/api/workspace/system-prompt-files",
+                data=original_order,
+                headers=headers,
+            )
+            assert restore_response.ok, restore_response.text()
+
+        log_test_step("3. Reload and verify the restored profile list")
+        page.reload()
+        page.wait_for_load_state("domcontentloaded")
+        open_profile_files(page)
+        expect(profile_row(page, first_name)).to_have_count(1)
 
         log_test_result(test_name, True, 0)
-        logger.info(f"Test {test_name} passed - toggle, drag reorder and reload restore OK")
 
-# ============================================================================
-# FILE-003: File content edit, save and reset
-# ============================================================================
 
 @pytest.mark.integration
 @pytest.mark.p0
 @pytest.mark.files
 class TestFileContentEditAndSave:
-    """
-    FILE-003: File content edit, save and reset.
-
-    Coverage:
-    1. Click file to open editor (default Markdown preview mode)
-    2. Turn off the preview switch to enter edit mode (textarea)
-    3. Modify content in the textarea
-    4. Click save (the button is enabled only when hasChanges is true)
-    5. Reload to verify persistence
-    6. Use the reset button to restore the original content
-
-    Source reference: FileEditor.tsx - default showMarkdown=true,
-    must turn off the Preview Switch to expose the Input.TextArea.
-    Save/Reset buttons live in the editorHeader buttonGroup.
-    """
+    """Verify profile-file editing and persistence."""
 
     @pytest.mark.test_id("FILE-003")
-    def test_file_content_edit_save_reset(self, page: Page, request: pytest.FixtureRequest):
-        """Verify file content edit, save and reset."""
+    def test_file_content_edit_save_reset(
+        self,
+        page: Page,
+        api_context: APIRequestContext,
+        profile_file_fixtures: tuple[str, ...],
+        request: pytest.FixtureRequest,
+    ) -> None:
+        """Edit a fixture in Monaco, save it, then restore it by API."""
         test_name = request.node.name
         test_marker = "\n# E2E Test Marker"
-        original_content = None
+        filename = profile_file_fixtures[0]
+        original_content = PROFILE_FIXTURES[filename]
+        headers = {"X-Agent-Id": "default"}
 
-        log_test_step("1. Visit the workspace page")
         navigate_to_workspace(page)
+        open_profile_files(page)
+        row = profile_row(page, filename)
+        row.get_by_role("button", name=filename, exact=True).click()
 
-        log_test_step("2. Get the file list, click the first .md file")
-        file_items = get_file_items(page)
-        first_file = file_items[0]
-        file_name_el = first_file.locator(FILE_NAME_SELECTOR).first
-        file_name = file_name_el.inner_text()
-        logger.info(f"Selected file: {file_name}")
-        first_file.click()
-        page.wait_for_timeout(2000)
-
-        log_test_step("3. Wait for the editor area to load")
-        editor_card = page.locator('[class*="editorCard"]').first
-        expect(editor_card).to_be_visible(timeout=5000)
-        logger.info("Editor card loaded")
-
-        log_test_step("4. Turn off Markdown preview to enter edit mode")
-        # Source: Preview Switch is in the contentLabel area
-        preview_switch = editor_card.locator('button.qwenpaw-switch[role="switch"]').first
-        if preview_switch.is_visible():
-            # If preview is on (aria-checked=true), click to turn it off
-            is_preview_on = preview_switch.get_attribute('aria-checked') == 'true'
-            if is_preview_on:
-                preview_switch.click()
-                page.wait_for_timeout(1000)
-                logger.info("Turned off Markdown preview; entered edit mode")
-            else:
-                logger.info("Preview is already off; currently in edit mode")
-        else:
-            logger.info("Preview switch not found; may not be a .md file")
-
-        log_test_step("5. Locate textarea and record original content")
-        textarea = editor_card.locator('textarea').first
-        if not textarea.is_visible():
-            # If no textarea, may not be an md file; skip
-            logger.info("Textarea editor not found; skipping edit test")
-            log_test_result(test_name, True, 0)
-            return
-
-        original_content = textarea.input_value()
-        original_preview = original_content[:50] if len(original_content) > 50 else original_content
-        logger.info(f"Original content preview: {original_preview}")
+        log_test_step("1. Switch the fixture from preview to edit mode")
+        edit_button = page.get_by_role("button", name="Edit", exact=True).or_(
+            page.get_by_role("button", name="编辑", exact=True)
+        )
+        expect(edit_button).to_be_visible(timeout=config.browser.timeout)
+        edit_button.click()
+        editor = page.locator(".monaco-editor").first
+        expect(editor).to_be_visible(timeout=config.browser.timeout)
 
         try:
-            log_test_step("6. Append test text to the textarea")
-            textarea.fill(original_content + test_marker)
-            page.wait_for_timeout(500)
-            logger.info("Appended test text")
+            log_test_step("2. Edit and save the fixture")
+            editor.click()
+            page.keyboard.press("ControlOrMeta+A")
+            page.keyboard.insert_text(original_content + test_marker)
+            save_button = page.locator(
+                'div[class*="documentActions"] button'
+            ).last
+            expect(save_button).to_be_enabled(timeout=config.browser.timeout)
+            save_button.click()
 
-            log_test_step("7. Verify save button becomes enabled and click it")
-            # Source: save button has SaveOutlined icon; text is t("common.save")
-            save_btn = editor_card.locator('button:has-text("Save")').first
-            expect(save_btn).to_be_visible(timeout=3000)
-            expect(save_btn).to_be_enabled(timeout=3000)
-            save_btn.click()
-            page.wait_for_timeout(2000)
-            logger.info("Clicked save button")
-
-            log_test_step("8. Reload and reopen the file")
-            page.reload()
-            page.wait_for_load_state("domcontentloaded")
-            page.wait_for_timeout(3000)
-
-            file_items = page.locator(FILE_ITEM_SELECTOR).all()
-            if len(file_items) == 0:
-                pytest.skip("File list is empty after reload")
-            file_items[0].click()
-            page.wait_for_timeout(2000)
-
-            # Turn off preview again
-            editor_card = page.locator('[class*="editorCard"]').first
-            expect(editor_card).to_be_visible(timeout=5000)
-            preview_switch = editor_card.locator('button.qwenpaw-switch[role="switch"]').first
-            if preview_switch.is_visible() and preview_switch.get_attribute('aria-checked') == 'true':
-                preview_switch.click()
-                page.wait_for_timeout(1000)
-
-            log_test_step("9. Verify the appended content was persisted")
-            textarea = editor_card.locator('textarea').first
-            expect(textarea).to_be_visible(timeout=5000)
-            updated_content = textarea.input_value()
-            assert test_marker.strip() in updated_content, \
-                f"Appended marker not found; content tail: {updated_content[-80:]}"
-            logger.info("Appended content saved and verified")
-
-            log_test_step("10. Use the reset button to restore original content")
-            # Modify content first to make hasChanges=true, then click reset
-            textarea.fill(original_content)
-            page.wait_for_timeout(500)
-
-            reset_btn = editor_card.locator('button:has-text("Reset")').first
-            if reset_btn.is_visible() and reset_btn.is_enabled():
-                reset_btn.click()
-                page.wait_for_timeout(1000)
-                logger.info("Clicked reset button")
-            else:
-                logger.info("Reset button unavailable (content may already be restored)")
-
-            log_test_step("11. Save the restored content")
-            # Manually re-fill original content and save
-            textarea = editor_card.locator('textarea').first
-            if textarea.is_visible():
-                textarea.fill(original_content)
-                page.wait_for_timeout(500)
-                save_btn = editor_card.locator('button:has-text("Save")').first
-                if save_btn.is_visible() and save_btn.is_enabled():
-                    save_btn.click()
-                    page.wait_for_timeout(2000)
-                    logger.info("Saved restored content")
-
-            log_test_result(test_name, True, 0)
-            logger.info(f"Test {test_name} passed - file content edit, save and reset OK")
+            log_test_step("3. Verify persistence through the Files API")
+            expect(save_button).to_be_disabled(timeout=config.browser.timeout)
+            response = api_context.get(
+                f"/api/workspace/files/{filename}",
+                headers=headers,
+            )
+            assert response.ok, response.text()
+            assert test_marker.strip() in response.json()["content"]
         finally:
-            # Ensure the file content is restored to original
-            if original_content is not None:
-                try:
-                    editor_card = page.locator('[class*="editorCard"]').first
-                    textarea = editor_card.locator('textarea').first
-                    if textarea.is_visible():
-                        textarea.fill(original_content)
-                        page.wait_for_timeout(500)
-                        save_btn = editor_card.locator('button:has-text("Save")').first
-                        if save_btn.is_visible() and save_btn.is_enabled():
-                            save_btn.click()
-                            page.wait_for_timeout(2000)
-                            logger.info("Cleanup: file content restored to original")
-                except Exception:
-                    logger.warning("Cleanup failed: could not restore original file content")
+            restore_response = api_context.put(
+                f"/api/workspace/files/{filename}",
+                data={"content": original_content},
+                headers=headers,
+            )
+            assert restore_response.ok, restore_response.text()
+
+        log_test_result(test_name, True, 0)
+
 
 # ============================================================================
 # FILE-004: Workspace upload and download
