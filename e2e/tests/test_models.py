@@ -14,7 +14,12 @@ from __future__ import annotations
 
 import logging
 import pytest
-from playwright.sync_api import Page, expect, TimeoutError
+from playwright.sync_api import (
+    APIRequestContext,
+    Page,
+    TimeoutError,
+    expect,
+)
 import time
 
 from config.settings import config
@@ -285,84 +290,125 @@ class TestModelDownload:
 @pytest.mark.models_serve
 class TestModelServe:
     """
-    MODEL-003: Start model service + port verification + service status.
+    MODEL-003: Local model service readiness and truthful action state.
 
     Covers:
-    1. Downloaded model list display
-    2. Start model service button
-    3. Port config / display
-    4. Service status toggle
-    5. Service start success verification
+    1. Runtime status from the public API
+    2. Local model management modal
+    3. Runtime install state
+    4. Downloaded model action state
+    5. Empty-state guidance when no model is downloaded
     """
 
     @pytest.mark.test_id("MODEL-003")
-    def test_model_serve_flow(self, page: Page, request: pytest.FixtureRequest):
-        """Verify model start-service flow."""
+    def test_model_serve_flow(
+        self,
+        page: Page,
+        api_context: APIRequestContext,
+        request: pytest.FixtureRequest,
+    ):
+        """Verify service actions match the backend's actual readiness."""
         test_name = request.node.name
 
-        # Step 1: Visit the local models page
-        log_test_step("1. Visit local models page")
+        log_test_step("1. Read local runtime and model state")
+        status_response = api_context.get("/api/local-models/server")
+        assert status_response.ok, (
+            "Local model server status API failed: "
+            f"{status_response.status} {status_response.text()}"
+        )
+        server_status = status_response.json()
+        assert isinstance(server_status.get("installed"), bool), (
+            "Server status must expose a boolean installed field"
+        )
+
+        models_response = api_context.get("/api/local-models/models")
+        assert models_response.ok, (
+            "Local models API failed: "
+            f"{models_response.status} {models_response.text()}"
+        )
+        models = models_response.json()
+        assert isinstance(models, list), "Local models API must return a list"
+        downloaded_models = [model for model in models if model["downloaded"]]
+
+        log_test_step("2. Open the embedded local-provider modal")
         navigate_to_models(page)
+        local_tab = page.locator(
+            '[class*=tabItem]:has-text("Local & Custom"), '
+            '[class*=tabItem]:has-text("本地 & 自定义")'
+        ).first
+        expect(local_tab).to_be_visible(timeout=10000)
+        local_tab.click()
 
-        # Step 2: Find downloaded models
-        log_test_step("2. Find downloaded models")
-        model_items = page.locator('[class*=modelItem], .qwenpaw-list-item, .qwenpaw-card').all()
+        local_card = page.locator("[class*=groupCardGlass]").filter(
+            has=page.locator("[class*=localTag]")
+        ).first
+        expect(local_card).to_be_visible(timeout=10000)
+        manage_button = local_card.locator(
+            'button:has-text("Models"), button:has-text("模型")'
+        ).first
+        expect(manage_button).to_be_visible(timeout=5000)
+        manage_button.click()
 
-        if len(model_items) == 0:
-            logger.info("No downloaded models, skipping start-service test")
-            pytest.skip("No downloaded models")
+        modal = page.locator(".qwenpaw-modal").first
+        expect(modal).to_be_visible(timeout=10000)
+        expect(
+            modal.get_by_text("Inference engine", exact=True).or_(
+                modal.get_by_text("推理引擎", exact=True)
+            )
+        ).to_be_visible(timeout=10000)
 
-        logger.info(f"Found {len(model_items)} model items")
+        log_test_step("3. Verify actions match runtime readiness")
+        install_button = modal.get_by_role("button", name="Install llama.cpp")
+        install_button_zh = modal.get_by_role(
+            "button", name="安装 llama.cpp"
+        )
+        start_buttons = modal.get_by_role("button", name="Start", exact=True)
+        start_buttons_zh = modal.get_by_role(
+            "button", name="启动", exact=True
+        )
+        stop_buttons = modal.get_by_role("button", name="Stop", exact=True)
+        stop_buttons_zh = modal.get_by_role(
+            "button", name="停止", exact=True
+        )
 
-        # Step 3: Verify model action buttons
-        log_test_step("3. Verify model action buttons")
-        # Find start/serve buttons
-        serve_btns = page.locator('button:has-text("启动"), button:has-text("Serve"), button:has-text("服务"), .qwenpaw-btn:has-text("启动")').or_(page.get_by_text("启动")).or_(page.get_by_text("Serve")).or_(page.get_by_text("服务")).all()
-
-        # Step 3: Find and click the start/serve button
-        log_test_step("3. Find and click the start/serve button")
-        if len(serve_btns) > 0:
-            logger.info(f"Found {len(serve_btns)} start buttons")
-            first_serve_btn = serve_btns[0]
-            btn_text = first_serve_btn.text_content() or ""
-            logger.info(f"Clicking start button: {btn_text[:30]}")
-            first_serve_btn.click()
-            page.wait_for_timeout(2000)
-
-            # Verify response after click (modal / status change / port config appears)
-            response_indicators = page.locator(
-                '.qwenpaw-modal, .qwenpaw-drawer, '
-                '.qwenpaw-message, .qwenpaw-notification, '
-                '[class*="serving"], [class*="running"], [class*="port"]'
-            ).all()
-            visible_indicators = [ind for ind in response_indicators if ind.is_visible()]
-            if len(visible_indicators) > 0:
-                logger.info(f"After clicking start: {len(visible_indicators)} response elements")
-            else:
-                logger.info("No modal/notification after click (button may be disabled or service started directly)")
-
-            # Close any modal that may have popped up
-            page.keyboard.press("Escape")
-            page.wait_for_timeout(500)
+        if not server_status["installed"]:
+            expect(install_button.or_(install_button_zh)).to_be_visible()
+            assert start_buttons.count() + start_buttons_zh.count() == 0, (
+                "Start must not be offered before the runtime is installed"
+            )
+        elif not downloaded_models:
+            empty_notice = modal.get_by_text(
+                "Download a suitable model before starting the local "
+                "inference service.",
+                exact=True,
+            ).or_(
+                modal.get_by_text(
+                    "请先下载合适的模型，"
+                    "再启动本地推理服务。",
+                    exact=True,
+                )
+            )
+            expect(empty_notice).to_be_visible()
+            assert start_buttons.count() + start_buttons_zh.count() == 0, (
+                "Start must not be offered without a downloaded model"
+            )
         else:
-            logger.info("Start button not found (model may not be downloaded or UI differs)")
+            expected_running = bool(server_status.get("model_name"))
+            action_count = (
+                stop_buttons.count() + stop_buttons_zh.count()
+                if expected_running
+                else start_buttons.count() + start_buttons_zh.count()
+            )
+            assert action_count > 0, (
+                "Downloaded models must expose the action matching the "
+                "server state"
+            )
 
-        # Step 4: Verify port config / status display
-        log_test_step("4. Verify port or service status")
-        port_display = page.locator('[class*=port]').or_(page.get_by_text("端口")).or_(page.get_by_text("Port")).first
-        status_display = page.locator('[class*="status"], [class*="serving"], .qwenpaw-tag, .qwenpaw-badge').first
-        has_port = port_display.count() > 0 and port_display.is_visible(timeout=3000)
-        has_status = status_display.count() > 0 and status_display.is_visible(timeout=2000)
-        assert has_port or has_status or len(serve_btns) > 0, \
-            "Model service page should have at least one of: port info, service status, or start button"
-        if has_port:
-            port_text = port_display.inner_text()
-            logger.info(f"Port info: {port_text}")
-        if has_status:
-            status_text = status_display.inner_text()
-            logger.info(f"Service status: {status_text}")
-
-        log_test_result(test_name, "PASS", "Model serve flow verified")
+        log_test_result(
+            test_name,
+            "PASS",
+            "Local model readiness and actions match backend state",
+        )
 
 
 # ============================================================================
