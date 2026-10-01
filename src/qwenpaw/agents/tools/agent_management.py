@@ -748,6 +748,7 @@ async def submit_to_agent(
 
     # Get root_session_id from current context for cross-session approval
     from ...app.agent_context import (
+        get_current_agent_id,
         get_current_session_id,
         get_current_root_session_id,
     )
@@ -763,6 +764,12 @@ async def submit_to_agent(
         from_agent=None,
         root_session_id=final_root_session,
     )
+
+    if caller_session_id:
+        request_payload["notify_on_finish"] = {
+            "agent_id": get_current_agent_id() or "default",
+            "session_id": caller_session_id,
+        }
 
     result = await asyncio.to_thread(
         submit_agent_chat_task,
@@ -1271,7 +1278,10 @@ async def spawn_subagent(  # pylint: disable=too-many-return-statements
     except ValueError as exc:
         return _tool_text_response(f"ERROR: {exc}")
 
-    from ...app.agent_context import get_current_agent_id
+    from ...app.agent_context import (
+        get_current_agent_id,
+        get_current_session_id,
+    )
 
     current_agent_id = get_current_agent_id()
     if not current_agent_id:
@@ -1309,6 +1319,14 @@ async def spawn_subagent(  # pylint: disable=too-many-return-statements
     }
 
     if background:
+        # Wake the parent session when this task reaches a terminal state,
+        # so controllers do not have to poll check_agent_task().
+        parent_session_id = get_current_session_id() or ""
+        if parent_session_id:
+            request_payload["notify_on_finish"] = {
+                "agent_id": current_agent_id,
+                "session_id": parent_session_id,
+            }
         result = await asyncio.to_thread(
             submit_agent_chat_task,
             None,

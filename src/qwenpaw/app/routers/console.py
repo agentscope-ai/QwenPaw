@@ -100,6 +100,92 @@ def _background_task_cancel_error(
     return {"message": "Task cancelled"}
 
 
+async def _notify_parent_task_finished(
+    notify: Optional[Dict[str, Any]],
+    task_id: str,
+    result: Dict[str, Any],
+) -> None:
+    """Best-effort wake-up for the session that submitted a background task.
+
+    ``spawn_subagent``/``submit_to_agent`` attach ``notify_on_finish``
+    (``{"agent_id": ..., "session_id": ...}``) so controllers do not have to
+    poll ``check_agent_task``: when the task reaches a terminal state, a
+    short notification message is posted into the parent console session,
+    which starts a new agent run there.
+
+    Failures are logged, never raised. A 409 (parent session already has an
+    active run) is silently skipped — the parent will discover the result on
+    its own next poll.
+    """
+    if not isinstance(notify, dict):
+        return
+    agent_id = str(notify.get("agent_id") or "").strip()
+    session_id = str(notify.get("session_id") or "").strip()
+    if not agent_id or not session_id:
+        return
+    status = str((result or {}).get("status") or "unknown")
+    error = (result or {}).get("error")
+    error_msg = ""
+    if isinstance(error, dict) and error.get("message"):
+        error_msg = f" Error: {error['message']}"
+    message = (
+        f"[task-notification] Background task {task_id} finished "
+        f"(status: {status}).{error_msg} Harvest with "
+        f"check_agent_task(task_id='{task_id}') and continue your work."
+    )
+    payload = {
+        "session_id": session_id,
+        "input": [
+            {"role": "user", "content": [{"type": "text", "text": message}]},
+        ],
+    }
+    headers = {"X-Agent-Id": agent_id}
+
+    def _post() -> int:
+        # Lazy import: avoids import cycles between app routers and tools.
+        from qwenpaw.agents.tools.agent_management import (
+            create_agent_api_client,
+        )
+
+        with create_agent_api_client(None, default_timeout=10.0) as client:
+            # Start the parent run, read one event, then detach. The
+            # TaskTracker keeps the run alive after a client disconnects,
+            # so closing the stream here only detaches this notifier.
+            with client.stream(
+                "POST",
+                "/console/chat",
+                json=payload,
+                headers=headers,
+            ) as response:
+                for _line in response.iter_lines():
+                    return response.status_code
+                return response.status_code
+
+    try:
+        status_code = await asyncio.to_thread(_post)
+        if status_code == 409:
+            logger.info(
+                "Task %s finished but parent session %s is busy;"
+                " notify skipped",
+                task_id,
+                session_id,
+            )
+        else:
+            logger.info(
+                "Task %s finished; parent session %s notified (HTTP %s)",
+                task_id,
+                session_id,
+                status_code,
+            )
+    except Exception:  # pylint: disable=broad-except
+        logger.warning(
+            "Failed to notify parent session %s for task %s",
+            session_id,
+            task_id,
+            exc_info=True,
+        )
+
+
 def _safe_filename(name: str) -> str:
     """Safe basename, alphanumeric/./-/_, max 200 chars."""
     base = Path(name).name if name else "file"
@@ -985,6 +1071,10 @@ async def post_console_chat_task(
         native_payload,
     )
 
+    # Parent wake-up target: set by spawn_subagent/submit_to_agent so the
+    # submitting session gets a notification message when this task finishes.
+    notify_on_finish = request_data.get("notify_on_finish")
+
     fork_project_dir = ""
     fork_worktree_branch = ""
     fork_scope_id = ""
@@ -1004,6 +1094,14 @@ async def post_console_chat_task(
         status="running",
         started_at=time.time(),
     )
+
+    async def _publish_terminal(result: Dict[str, Any]) -> None:
+        """Set terminal state, then wake the parent session (best-effort)."""
+        bg.status = "finished"
+        bg.finished_at = time.time()
+        bg.result = result
+        await _notify_parent_task_finished(notify_on_finish, task_id, result)
+
     timed_out = False
     producer_error: Exception | None = None
     producer_cancelled = False
@@ -1088,14 +1186,14 @@ async def post_console_chat_task(
                     )
                     finalized = False
                 if not finalized:
-                    bg.status = "finished"
-                    bg.finished_at = time.time()
-                    bg.result = {
-                        "status": "failed",
-                        "error": {
-                            "message": "Failed to finalize fork worktree",
+                    await _publish_terminal(
+                        {
+                            "status": "failed",
+                            "error": {
+                                "message": "Failed to finalize fork worktree",
+                            },
                         },
-                    }
+                    )
                     return
         except asyncio.CancelledError:
             if is_new_run:
@@ -1104,12 +1202,12 @@ async def post_console_chat_task(
                 timed_out=timed_out,
                 timeout_seconds=effective_timeout,
             )
-            bg.status = "finished"
-            bg.finished_at = time.time()
-            bg.result = {
-                "status": "failed",
-                "error": cancel_error,
-            }
+            await _publish_terminal(
+                {
+                    "status": "failed",
+                    "error": cancel_error,
+                },
+            )
             # In-flight Git finalize is detached bookkeeping; do not race
             # it with mark_fork_failed or let it flip this result later.
             if not finalize_started:
@@ -1122,12 +1220,12 @@ async def post_console_chat_task(
                 )
             return
         except Exception as exc:
-            bg.status = "finished"
-            bg.finished_at = time.time()
-            bg.result = {
-                "status": "failed",
-                "error": {"message": str(exc)},
-            }
+            await _publish_terminal(
+                {
+                    "status": "failed",
+                    "error": {"message": str(exc)},
+                },
+            )
             await _mark_background_fork_failed(
                 fork_project_dir,
                 fork_worktree_branch,
@@ -1137,20 +1235,22 @@ async def post_console_chat_task(
             )
             return
 
-        bg.status = "finished"
-        bg.finished_at = time.time()
         if last_response is not None:
-            bg.result = {
-                "status": "completed",
-                "session_id": session_id,
-                **last_response,
-            }
+            await _publish_terminal(
+                {
+                    "status": "completed",
+                    "session_id": session_id,
+                    **last_response,
+                },
+            )
         else:
-            bg.result = {
-                "status": "completed",
-                "session_id": session_id,
-                "output": [],
-            }
+            await _publish_terminal(
+                {
+                    "status": "completed",
+                    "session_id": session_id,
+                    "output": [],
+                },
+            )
 
     atask = asyncio.create_task(_run())
     bg.asyncio_task = atask
