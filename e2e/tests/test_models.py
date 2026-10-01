@@ -14,7 +14,12 @@ from __future__ import annotations
 
 import logging
 import pytest
-from playwright.sync_api import Page, expect, TimeoutError
+from playwright.sync_api import (
+    APIRequestContext,
+    Page,
+    TimeoutError,
+    expect,
+)
 import time
 
 from config.settings import config
@@ -285,84 +290,125 @@ class TestModelDownload:
 @pytest.mark.models_serve
 class TestModelServe:
     """
-    MODEL-003: Start model service + port verification + service status.
+    MODEL-003: Local model service readiness and truthful action state.
 
     Covers:
-    1. Downloaded model list display
-    2. Start model service button
-    3. Port config / display
-    4. Service status toggle
-    5. Service start success verification
+    1. Runtime status from the public API
+    2. Local model management modal
+    3. Runtime install state
+    4. Downloaded model action state
+    5. Empty-state guidance when no model is downloaded
     """
 
     @pytest.mark.test_id("MODEL-003")
-    def test_model_serve_flow(self, page: Page, request: pytest.FixtureRequest):
-        """Verify model start-service flow."""
+    def test_model_serve_flow(
+        self,
+        page: Page,
+        api_context: APIRequestContext,
+        request: pytest.FixtureRequest,
+    ):
+        """Verify service actions match the backend's actual readiness."""
         test_name = request.node.name
 
-        # Step 1: Visit the local models page
-        log_test_step("1. Visit local models page")
+        log_test_step("1. Read local runtime and model state")
+        status_response = api_context.get("/api/local-models/server")
+        assert status_response.ok, (
+            "Local model server status API failed: "
+            f"{status_response.status} {status_response.text()}"
+        )
+        server_status = status_response.json()
+        assert isinstance(server_status.get("installed"), bool), (
+            "Server status must expose a boolean installed field"
+        )
+
+        models_response = api_context.get("/api/local-models/models")
+        assert models_response.ok, (
+            "Local models API failed: "
+            f"{models_response.status} {models_response.text()}"
+        )
+        models = models_response.json()
+        assert isinstance(models, list), "Local models API must return a list"
+        downloaded_models = [model for model in models if model["downloaded"]]
+
+        log_test_step("2. Open the embedded local-provider modal")
         navigate_to_models(page)
+        local_tab = page.locator(
+            '[class*=tabItem]:has-text("Local & Custom"), '
+            '[class*=tabItem]:has-text("本地 & 自定义")'
+        ).first
+        expect(local_tab).to_be_visible(timeout=10000)
+        local_tab.click()
 
-        # Step 2: Find downloaded models
-        log_test_step("2. Find downloaded models")
-        model_items = page.locator('[class*=modelItem], .qwenpaw-list-item, .qwenpaw-card').all()
+        local_card = page.locator("[class*=groupCardGlass]").filter(
+            has=page.locator("[class*=localTag]")
+        ).first
+        expect(local_card).to_be_visible(timeout=10000)
+        manage_button = local_card.locator(
+            'button:has-text("Models"), button:has-text("模型")'
+        ).first
+        expect(manage_button).to_be_visible(timeout=5000)
+        manage_button.click()
 
-        if len(model_items) == 0:
-            logger.info("No downloaded models, skipping start-service test")
-            pytest.skip("No downloaded models")
+        modal = page.locator(".qwenpaw-modal").first
+        expect(modal).to_be_visible(timeout=10000)
+        expect(
+            modal.get_by_text("Inference engine", exact=True).or_(
+                modal.get_by_text("推理引擎", exact=True)
+            )
+        ).to_be_visible(timeout=10000)
 
-        logger.info(f"Found {len(model_items)} model items")
+        log_test_step("3. Verify actions match runtime readiness")
+        install_button = modal.get_by_role("button", name="Install llama.cpp")
+        install_button_zh = modal.get_by_role(
+            "button", name="安装 llama.cpp"
+        )
+        start_buttons = modal.get_by_role("button", name="Start", exact=True)
+        start_buttons_zh = modal.get_by_role(
+            "button", name="启动", exact=True
+        )
+        stop_buttons = modal.get_by_role("button", name="Stop", exact=True)
+        stop_buttons_zh = modal.get_by_role(
+            "button", name="停止", exact=True
+        )
 
-        # Step 3: Verify model action buttons
-        log_test_step("3. Verify model action buttons")
-        # Find start/serve buttons
-        serve_btns = page.locator('button:has-text("启动"), button:has-text("Serve"), button:has-text("服务"), .qwenpaw-btn:has-text("启动")').or_(page.get_by_text("启动")).or_(page.get_by_text("Serve")).or_(page.get_by_text("服务")).all()
-
-        # Step 3: Find and click the start/serve button
-        log_test_step("3. Find and click the start/serve button")
-        if len(serve_btns) > 0:
-            logger.info(f"Found {len(serve_btns)} start buttons")
-            first_serve_btn = serve_btns[0]
-            btn_text = first_serve_btn.text_content() or ""
-            logger.info(f"Clicking start button: {btn_text[:30]}")
-            first_serve_btn.click()
-            page.wait_for_timeout(2000)
-
-            # Verify response after click (modal / status change / port config appears)
-            response_indicators = page.locator(
-                '.qwenpaw-modal, .qwenpaw-drawer, '
-                '.qwenpaw-message, .qwenpaw-notification, '
-                '[class*="serving"], [class*="running"], [class*="port"]'
-            ).all()
-            visible_indicators = [ind for ind in response_indicators if ind.is_visible()]
-            if len(visible_indicators) > 0:
-                logger.info(f"After clicking start: {len(visible_indicators)} response elements")
-            else:
-                logger.info("No modal/notification after click (button may be disabled or service started directly)")
-
-            # Close any modal that may have popped up
-            page.keyboard.press("Escape")
-            page.wait_for_timeout(500)
+        if not server_status["installed"]:
+            expect(install_button.or_(install_button_zh)).to_be_visible()
+            assert start_buttons.count() + start_buttons_zh.count() == 0, (
+                "Start must not be offered before the runtime is installed"
+            )
+        elif not downloaded_models:
+            empty_notice = modal.get_by_text(
+                "Download a suitable model before starting the local "
+                "inference service.",
+                exact=True,
+            ).or_(
+                modal.get_by_text(
+                    "请先下载合适的模型，"
+                    "再启动本地推理服务。",
+                    exact=True,
+                )
+            )
+            expect(empty_notice).to_be_visible()
+            assert start_buttons.count() + start_buttons_zh.count() == 0, (
+                "Start must not be offered without a downloaded model"
+            )
         else:
-            logger.info("Start button not found (model may not be downloaded or UI differs)")
+            expected_running = bool(server_status.get("model_name"))
+            action_count = (
+                stop_buttons.count() + stop_buttons_zh.count()
+                if expected_running
+                else start_buttons.count() + start_buttons_zh.count()
+            )
+            assert action_count > 0, (
+                "Downloaded models must expose the action matching the "
+                "server state"
+            )
 
-        # Step 4: Verify port config / status display
-        log_test_step("4. Verify port or service status")
-        port_display = page.locator('[class*=port]').or_(page.get_by_text("端口")).or_(page.get_by_text("Port")).first
-        status_display = page.locator('[class*="status"], [class*="serving"], .qwenpaw-tag, .qwenpaw-badge').first
-        has_port = port_display.count() > 0 and port_display.is_visible(timeout=3000)
-        has_status = status_display.count() > 0 and status_display.is_visible(timeout=2000)
-        assert has_port or has_status or len(serve_btns) > 0, \
-            "Model service page should have at least one of: port info, service status, or start button"
-        if has_port:
-            port_text = port_display.inner_text()
-            logger.info(f"Port info: {port_text}")
-        if has_status:
-            status_text = status_display.inner_text()
-            logger.info(f"Service status: {status_text}")
-
-        log_test_result(test_name, "PASS", "Model serve flow verified")
+        log_test_result(
+            test_name,
+            "PASS",
+            "Local model readiness and actions match backend state",
+        )
 
 
 # ============================================================================
@@ -879,54 +925,37 @@ class TestOpenRouterFilter:
     """MODEL-P2-001: OpenRouter filter configuration."""
 
     @pytest.mark.test_id("MODEL-P2-001")
-    def test_openrouter_filter(self, page: Page, request: pytest.FixtureRequest):
-        """Test OpenRouter filter configuration."""
+    def test_openrouter_filter(
+        self,
+        page: Page,
+        request: pytest.FixtureRequest,
+    ):
+        """Open the registered OpenRouter provider configuration."""
         test_name = request.node.name
 
         log_test_step("Navigate to model management page")
-        page.goto(f"{config.base_url}/models")
-        page.wait_for_load_state("domcontentloaded")
-        page.wait_for_timeout(3000)
+        navigate_to_models(page)
 
-        log_test_step("Find the OpenRouter Provider")
-        # v2.0.0 (PR #5203) — click the outer tile (Available section
-        # `.availableItem` or Configured section `.groupCardGlass`) rather
-        # than the label text span, which is not clickable.
+        log_test_step("Open the OpenRouter provider")
         openrouter_card = page.locator(
-            'div[class*=availableItem]:has-text("OpenRouter"), '
+            'button[class*=availableItem]:has-text("OpenRouter"), '
             '[class*=groupCardGlass]:has-text("OpenRouter")'
         ).first
-        if openrouter_card.count() == 0:
-            pytest.skip("OpenRouter Provider not found, skipping test")
-
-        logger.info("OpenRouter Provider found")
+        expect(openrouter_card).to_be_visible(timeout=10000)
         openrouter_card.click()
 
-        # Clicking an unconfigured provider tile opens the "Configure
-        # <Provider>" modal directly (see v2.0.0 Models Overhaul, PR #5203).
-        # Assert that modal appears rather than hunting for a separate
-        # settings button (which does not exist on this flow and caused a
-        # 60s click timeout).
         config_modal = page.locator(
             '.qwenpaw-modal:has-text("OpenRouter"), '
-            '.ant-modal:has-text("OpenRouter"), '
-            '.qwenpaw-modal:has-text("Base URL"), '
-            '.ant-modal:has-text("Base URL")'
+            '.ant-modal:has-text("OpenRouter")'
         ).first
-        try:
-            expect(config_modal).to_be_visible(timeout=10000)
-            logger.info("OpenRouter configuration modal opened")
-            page.keyboard.press("Escape")
-            page.wait_for_timeout(500)
-        except Exception:
-            # Some builds may surface the config inline instead of a modal;
-            # a visible OpenRouter tile that responded to the click is still
-            # acceptable for this smoke-level check.
-            logger.info(
-                "No standalone OpenRouter modal detected after click; "
-                "tile is present and clickable, which suffices"
+        expect(config_modal).to_be_visible(timeout=10000)
+        expect(
+            config_modal.get_by_text("Base URL", exact=True).or_(
+                config_modal.get_by_text("基础 URL", exact=True)
             )
-
+        ).to_be_visible(timeout=5000)
+        page.keyboard.press("Escape")
+        expect(config_modal).to_be_hidden(timeout=5000)
         log_test_result(test_name, True, 0)
 
 
@@ -941,50 +970,43 @@ class TestModelJsonEditor:
     """MODEL-P2-002: JSON config editor."""
 
     @pytest.mark.test_id("MODEL-P2-002")
-    def test_model_json_editor(self, page: Page, request: pytest.FixtureRequest):
-        """Test the model JSON config editor."""
+    def test_model_json_editor(
+        self,
+        page: Page,
+        request: pytest.FixtureRequest,
+    ):
+        """Verify the provider JSON editor and syntax highlight stay synced."""
         test_name = request.node.name
+        navigate_to_models(page)
 
-        log_test_step("Navigate to model management page")
-        page.goto(f"{config.base_url}/models")
-        page.wait_for_load_state("domcontentloaded")
-        page.wait_for_timeout(3000)
-
-        log_test_step("Find Provider cards")
-        provider_cards = page.locator('.qwenpaw-card').all()
-        if len(provider_cards) == 0:
-            pytest.skip("No Provider cards found, skipping test")
-
-        log_test_step("Click the first Provider's settings button")
-        settings_btn = page.locator(
-            'button:has-text("Settings"), button:has-text("设置"), '
-            'button:has-text("Configure"), button:has-text("配置"), '
-            'button:has(.anticon-setting)'
+        provider = page.locator(
+            'button[class*=availableItem]:has-text("OpenRouter"), '
+            '[class*=groupCardGlass]:has-text("OpenRouter")'
         ).first
+        expect(provider).to_be_visible(timeout=10000)
+        provider.click()
 
-        if settings_btn.count() > 0:
-            settings_btn.click()
-            page.wait_for_timeout(1500)
-        else:
-            # Try clicking the first Provider card
-            provider_cards[0].click()
-            page.wait_for_timeout(1500)
+        modal = page.locator(
+            '.qwenpaw-modal:has-text("OpenRouter"), '
+            '.ant-modal:has-text("OpenRouter")'
+        ).first
+        expect(modal).to_be_visible(timeout=10000)
+        advanced = modal.get_by_role(
+            "button", name="Advanced Configuration", exact=True
+        ).or_(
+            modal.get_by_role("button", name="进阶配置", exact=True)
+        )
+        expect(advanced).to_be_visible(timeout=5000)
+        advanced.click()
 
-        page.wait_for_timeout(500)
-        modal_or_drawer = page.locator('.qwenpaw-modal, .ant-modal, .qwenpaw-drawer, .ant-drawer').first
-        if modal_or_drawer.count() > 0:
-            expect(modal_or_drawer).to_be_visible(timeout=5000)
-            logger.info("Settings modal/panel opened")
+        editor = modal.locator('textarea[class*=jsonEditorTextarea]')
+        expect(editor).to_be_visible(timeout=5000)
+        sample = '{"temperature": 0.2, "stream": true}'
+        editor.fill(sample)
+        expect(editor).to_have_value(sample)
 
-            json_area = modal_or_drawer.locator('textarea, [class*="editor"], [class*="CodeMirror"]').first
-            if json_area.count() > 0:
-                logger.info("JSON config editor exists")
-            else:
-                logger.info("JSON editor not found (settings modal may use a form instead)")
-
-            page.keyboard.press("Escape")
-            page.wait_for_timeout(500)
-        else:
-            logger.info("Settings modal did not open; Provider may not support standalone settings")
-
+        highlight = modal.locator('[class*=jsonEditorHighlight]')
+        expect(highlight).to_contain_text('"temperature"')
+        expect(highlight).to_contain_text("0.2")
+        expect(highlight).to_contain_text("true")
         log_test_result(test_name, True, 0)
