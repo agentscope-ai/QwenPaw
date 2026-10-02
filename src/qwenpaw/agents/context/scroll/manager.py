@@ -173,6 +173,35 @@ class ScrollContextManager:
         return tokens > trigger
 
     @staticmethod
+    def _requested_max_output_tokens(agent: Any) -> int | None:
+        """A4-PR1: output cap declared by the model (design §3 案A).
+
+        Read from ``parameters.max_tokens`` — the field the providers
+        populate from the request-side ``max_tokens`` generation kwargs —
+        with the ``extra_generate_kwargs`` parking spot (used when the
+        model takes ``max_completion_tokens``) as fallback. ``None`` means
+        the request declares no cap, in which case the configured reserve
+        alone bounds the input budget.
+        """
+        model = getattr(agent, "model", None)
+        parameters = getattr(model, "parameters", None)
+        candidates = [getattr(parameters, "max_tokens", None)]
+        gen_kwargs = getattr(model, "extra_generate_kwargs", None)
+        if isinstance(gen_kwargs, dict):
+            candidates.append(gen_kwargs.get("max_tokens"))
+            candidates.append(gen_kwargs.get("max_completion_tokens"))
+        for value in candidates:
+            if value is None:
+                continue
+            try:
+                declared = int(value)
+            except (TypeError, ValueError):
+                return None
+            if declared > 0:
+                return declared
+        return None
+
+    @staticmethod
     def _block_metadata(block: Any) -> dict[str, Any]:
         metadata = (
             block.get("metadata", {})
@@ -521,7 +550,18 @@ class ScrollContextManager:
         trigger = cfg.trigger_ratio * agent.model.context_size
         tokens = await self._count_model_input_tokens(agent, kwargs)
         mark("count_tokens")
-        if not self.should_compress(tokens, trigger):
+        # A4-PR1: pre-check hard budget (design §3 案A, re-mapped onto the
+        # trigger gate): window minus max(configured output reserve,
+        # requested output cap). Below-trigger input that still exceeds
+        # this budget must not pass through silently.
+        requested_max_tokens = self._requested_max_output_tokens(agent)
+        hard_budget = (
+            hard_limit - max(output_reserve, requested_max_tokens)
+            if requested_max_tokens is not None
+            else effective_hard_limit
+        )
+        over_hard_budget = tokens > hard_budget
+        if not self.should_compress(tokens, trigger) and not over_hard_budget:
             self._overflow_warned = False
             log_timings("at_or_below_trigger")
             return
@@ -540,7 +580,12 @@ class ScrollContextManager:
         base_trigger_ratio = float(
             getattr(base_cfg, "trigger_ratio", cfg.trigger_ratio),
         )
-        is_forced_compaction = float(cfg.trigger_ratio) < base_trigger_ratio
+        # A4-PR1: over-budget input takes the forced path too — the pre-fold
+        # pass returns early at the trigger, which would re-open the silent
+        # pass-through the budget gate just closed (design §3 案A).
+        is_forced_compaction = (
+            float(cfg.trigger_ratio) < base_trigger_ratio or over_hard_budget
+        )
         if not is_forced_compaction:
             pre_folded, tokens = await self._batch_fold_completed_tool_results(
                 agent,
@@ -707,6 +752,21 @@ class ScrollContextManager:
                     "scroll: hard-limit-folded %d seen active-turn tool "
                     "result(s)",
                     active_folded,
+                )
+        # A4-PR1: pre-check hard budget, final gate (design §3 案A). When
+        # the request declares an output cap beyond the configured reserve
+        # the budget is tighter than ``effective_hard_limit``, so recount
+        # the live context once and refuse to send what still does not
+        # fit. With no declared cap the two limits coincide and the
+        # existing check below is this same gate — no extra count.
+        if hard_budget < effective_hard_limit:
+            tokens = await self._live_tokens(agent)
+            mark("final_budget_count")
+            if tokens > hard_budget:
+                log_timings("unfit_hard_budget")
+                raise ContextWindowUnfitError(
+                    tokens=tokens,
+                    hard_limit=hard_budget,
                 )
         # Once per overflow episode, not once per reasoning step — the stuck
         # state repeats every step until the turn ends. Manual /compact
