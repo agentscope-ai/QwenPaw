@@ -47,7 +47,7 @@ from .shell import execute_shell_command  # noqa: E402
 from .send_file import send_file_to_user  # noqa: E402
 from .web_search import web_search, web_fetch  # noqa: E402
 from .desktop_screenshot import desktop_screenshot  # noqa: E402
-from .view_media import view_image, view_video  # noqa: E402
+from .view_media import view_image, view_video, view_audio  # noqa: E402
 from .get_current_time import get_current_time, set_user_timezone  # noqa: E402
 from .get_token_usage import get_token_usage  # noqa: E402
 from .agent_management import (  # noqa: E402

@@ -109,6 +109,17 @@ _VIDEO_EXTENSIONS = {
     ".mkv",
 }
 
+_AUDIO_EXTENSIONS = {
+    ".mp3",
+    ".wav",
+    ".ogg",
+    ".flac",
+    ".m4a",
+    ".amr",
+    ".opus",
+    ".webm",
+}
+
 
 def _is_url(path: str) -> bool:
     """Return True if *path* looks like an HTTP(S) URL."""
@@ -879,4 +890,140 @@ async def view_video(video_path: str) -> ToolChunk:
             _media_data_block(file_url, "video"),
             TextBlock(type="text", text=text_msg),
         ],
+    )
+
+
+@tool_descriptor(
+    requires_sandbox=("file_read",),
+    async_execution=True,
+    tool_type="file",
+    target_param="audio_path",
+    policy_name="ListenAudio",
+    default_policy="allow",
+    policy_reason="Audio listen (global)",
+    ui_description="Load audio into LLM context for transcription or analysis",
+    ui_icon="\U0001f3a7",
+    display_to_user=False,
+)
+async def view_audio(audio_path: str) -> ToolChunk:
+    """Load an audio file so the model can listen to and understand it.
+
+    Use this when the user asks about an audio file or when another
+    tool produces an audio file path.  In ``auto`` mode (default) the
+    audio is transcribed to text via the configured transcription
+    backend.  In ``native`` mode the audio is sent directly to the
+    model (only works when the model supports audio input).
+
+    Args:
+        audio_path (`str`):
+            Local path of the audio file to listen to.
+
+    Returns:
+        `ToolChunk`:
+            Transcribed text or an audio block the model can
+            inspect, or an error / guidance message.
+    """
+    # --- Validate local path ---
+    resolved, err = _validate_media_path(
+        audio_path,
+        _AUDIO_EXTENSIONS,
+        "audio",
+    )
+    if err is not None:
+        return err
+
+    local_path = str(resolved)
+
+    # --- Read audio_mode ---
+    try:
+        from ...config import load_config
+
+        audio_mode = load_config().agents.audio_mode
+    except Exception:
+        audio_mode = "auto"
+
+    # ================================================================
+    # native mode: send audio directly to the model
+    # ================================================================
+    if audio_mode == "native":
+        try:
+            from ..utils.message_processing import _convert_audio_to_wav
+
+            converted = await run_sync_io(
+                _convert_audio_to_wav,
+                local_path,
+            )
+        except Exception:
+            converted = None
+
+        audio_file = converted if converted else local_path
+        file_url = _path_to_file_url(audio_file)
+        return ToolChunk(
+            is_last=True,
+            state=ToolResultState.SUCCESS,
+            content=[
+                _media_data_block(file_url, "audio"),
+                TextBlock(
+                    type="text",
+                    text=(
+                        f"Audio loaded in native mode: "
+                        f"{resolved.name}"
+                    ),
+                ),
+            ],
+        )
+
+    # ================================================================
+    # auto mode (default): transcribe to text
+    # ================================================================
+    from ..utils.audio_transcription import transcribe_audio
+
+    text = await transcribe_audio(local_path)
+
+    if text:
+        return ToolChunk(
+            is_last=True,
+            state=ToolResultState.SUCCESS,
+            content=[
+                TextBlock(
+                    type="text",
+                    text=(
+                        f"[Audio transcript of {resolved.name}]:\n"
+                        f"{text}"
+                    ),
+                ),
+            ],
+        )
+
+    # Transcription returned nothing — give actionable guidance
+    try:
+        from ...config import load_config
+
+        provider_type = (
+            load_config().agents.transcription_provider_type
+        )
+    except Exception:
+        provider_type = "disabled"
+
+    if provider_type == "disabled":
+        guidance = (
+            f"Error: audio transcription is not configured. "
+            f"To enable it, go to Settings \u2192 Voice Transcription "
+            f"and select a backend (Local Whisper or Whisper API), "
+            f"then restart QwenPaw. "
+            f"Alternatively, set audio_mode=native in the config to "
+            f"send audio directly to models that support audio input."
+        )
+    else:
+        guidance = (
+            f"Error: transcription of {resolved.name} failed or "
+            f"returned empty text. Check that the file contains "
+            f"audible content and that the transcription backend "
+            f"({provider_type}) is working correctly."
+        )
+
+    return ToolChunk(
+        is_last=True,
+        state=ToolResultState.SUCCESS,
+        content=[TextBlock(type="text", text=guidance)],
     )
