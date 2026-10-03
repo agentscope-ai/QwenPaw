@@ -42,6 +42,25 @@ def test_reme_file_processing_is_limited_to_10_mb() -> None:
     )
 
 
+def test_auto_dream_only_consolidates_durable_memory() -> None:
+    cfg = _config_for_embedding(EmbeddingModelConfig())
+
+    auto_dream = cfg["jobs"]["auto_dream"]
+    assert auto_dream["steps"] == [
+        {
+            "backend": "dream_extract_step",
+            "file_catalog": "dream",
+            "scan_days": 2,
+            "max_units": 5,
+        },
+        {"backend": "dream_integrate_step"},
+        {"backend": "dream_finish_step", "file_catalog": "dream"},
+    ]
+    properties = auto_dream["parameters"]["properties"]
+    assert "topic_count" not in properties
+    assert "topic_diversity_days" not in properties
+
+
 def test_reindex_job_exposes_explicit_scopes() -> None:
     cfg = _config_for_embedding(EmbeddingModelConfig())
 
