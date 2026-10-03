@@ -105,11 +105,20 @@ class ChannelManager:
         """
         available = get_available_channels()
         registry = get_channel_registry()
-        channels: list[BaseChannel] = [
-            ch_cls.from_env(process, on_reply_sent=on_last_dispatch)
-            for key, ch_cls in registry.items()
-            if key in available
-        ]
+        channels: list[BaseChannel] = []
+        for key, ch_cls in registry.items():
+            if key not in available:
+                continue
+            try:
+                channels.append(
+                    ch_cls.from_env(process, on_reply_sent=on_last_dispatch),
+                )
+            except Exception as e:
+                logger.warning(
+                    "Failed to initialize channel '%s', skipping: %s",
+                    key,
+                    e,
+                )
         return cls(channels)
 
     @classmethod
@@ -177,24 +186,25 @@ class ChannelManager:
                 "workspace_dir": workspace_dir,
             }
 
-            # Only pass kwargs that the channel's from_config accepts
-            import inspect
-
-            sig = inspect.signature(ch_cls.from_config)
-            filtered_kwargs: dict[str, Any]
-            if any(
-                p.kind == inspect.Parameter.VAR_KEYWORD
-                for p in sig.parameters.values()
-            ):
-                filtered_kwargs = from_config_kwargs
-            else:
-                filtered_kwargs = {
-                    k: v
-                    for k, v in from_config_kwargs.items()
-                    if k in sig.parameters
-                }
-
             try:
+                # Inspecting from_config also resolves a lazy channel
+                # class. Keep that inside the try so a missing optional
+                # SDK becomes the existing "skipping" warning instead of
+                # aborting workspace startup.
+                import inspect
+
+                sig = inspect.signature(ch_cls.from_config)
+                if any(
+                    p.kind == inspect.Parameter.VAR_KEYWORD
+                    for p in sig.parameters.values()
+                ):
+                    filtered_kwargs = from_config_kwargs
+                else:
+                    filtered_kwargs = {
+                        k: v
+                        for k, v in from_config_kwargs.items()
+                        if k in sig.parameters
+                    }
                 channels.append(ch_cls.from_config(**filtered_kwargs))
             except Exception as e:
                 logger.warning(
