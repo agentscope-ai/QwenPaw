@@ -128,6 +128,7 @@ PROVIDER_CATALOG = (
             tool_stream=True,
             session_resume=True,
             attachments=True,
+            context_usage=True,
             qwenpaw_skills_projection=True,
             qwenpaw_mcp_projection=True,
             provider_skills_discovery=True,

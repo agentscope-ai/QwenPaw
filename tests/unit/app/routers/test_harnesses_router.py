@@ -125,3 +125,37 @@ async def test_qoder_logout_returns_structured_conflict(
             "Qoder CLI does not expose a non-interactive logout command."
         ),
     }
+
+
+@pytest.mark.parametrize(
+    "endpoint",
+    [
+        harnesses.get_harness_models,
+        harnesses.get_harness_skills,
+    ],
+)
+@pytest.mark.asyncio
+async def test_qoder_discovery_uses_configured_binary_before_backend_switch(
+    endpoint: Callable[[str, Request], Awaitable[dict]],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    adapter = AsyncMock()
+    adapter.models.return_value = []
+    adapter.discover_skills.return_value = []
+    runtime = SimpleNamespace(adapter=AsyncMock(return_value=adapter))
+    settings = {"binary": "/custom/qoderclicn"}
+    workspace = SimpleNamespace(
+        config=SimpleNamespace(backend="qwenpaw", backend_settings=settings),
+        harness_runtime=runtime,
+        workspace_dir=tmp_path,
+    )
+    monkeypatch.setattr(
+        harnesses,
+        "get_agent_for_request",
+        AsyncMock(return_value=workspace),
+    )
+
+    await endpoint("qoder", cast(Request, object()))
+
+    runtime.adapter.assert_awaited_once_with("qoder", settings)
