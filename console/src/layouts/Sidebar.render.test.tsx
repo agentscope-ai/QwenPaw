@@ -10,6 +10,7 @@ import { act, screen, fireEvent, waitFor } from "@testing-library/react";
 import React from "react";
 import { renderWithProviders } from "@/test/common_setup";
 import { useLocation } from "react-router-dom";
+import sessionApi from "../pages/Chat/sessionApi";
 
 // ---- Hoisted mocks ---------------------------------------------------------
 
@@ -135,6 +136,7 @@ vi.mock("../pages/Chat/sessionApi", () => ({
   default: {
     getSessionList: () => Promise.resolve(mocks.sessionList),
     getEffectiveSessionId: (id: string) => `real-${id}`,
+    trackNavigatedSession: vi.fn(),
   },
 }));
 
@@ -521,6 +523,17 @@ describe("Sidebar", () => {
   it("navigates to the chat path from the sticky chat button", async () => {
     renderSidebar();
     fireEvent.click(screen.getByRole("button", { name: "New task" }));
+    await waitFor(() => {
+      expect(screen.getByTestId("probe-path").textContent).toContain("/chat");
+    });
+  });
+
+  it("tracks the last active chat id when a history session is clicked", async () => {
+    renderSidebar();
+    fireEvent.click(screen.getByTestId("sl-click"));
+    await waitFor(() => {
+      expect(sessionApi.trackNavigatedSession).toHaveBeenCalledWith("real-s-1");
+    });
     await waitFor(() => {
       expect(screen.getByTestId("probe-path").textContent).toContain("/chat");
     });
