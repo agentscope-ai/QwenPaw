@@ -423,7 +423,17 @@ def _get_active_model_info():
 
         for m in provider.all_models():
             if m.id == active.model:
-                return m, active.model
+                try:
+                    model_info = provider.model_capabilities(m)
+                except Exception:
+                    logger.warning(
+                        "Failed to resolve capabilities for active model %s/%s",
+                        active.provider_id,
+                        active.model,
+                        exc_info=True,
+                    )
+                    return None, None
+                return model_info, active.model
         return None, None
     except Exception:
         return None, None

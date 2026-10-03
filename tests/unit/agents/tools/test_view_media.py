@@ -199,6 +199,103 @@ class TestCheckMultimodalSupport:
         mock_info.return_value = (model_info, None)
         assert _check_multimodal_support("image") is True
 
+    @patch("qwenpaw.providers.provider_manager.ProviderManager.get_instance")
+    @patch(
+        "qwenpaw.config.config.load_agent_config",
+        side_effect=RuntimeError("no agent override"),
+    )
+    @patch("qwenpaw.app.agent_context.get_current_agent_id", return_value=None)
+    def test_active_model_uses_resolved_capabilities(
+        self,
+        _agent_id,
+        _agent_config,
+        get_instance,
+    ):
+        from qwenpaw.agents.prompt import _get_active_model_info
+        from qwenpaw.providers.model_info import ModelInfo
+        from qwenpaw.providers.openai_provider import OpenAIProvider
+
+        active = MagicMock(provider_id="mimo", model="mimo-v2.6-flash")
+        discovered_model = ModelInfo(
+            id=active.model,
+            name=active.model,
+            supports_image=True,
+            supports_multimodal=True,
+            probe_source="api",
+        )
+        manager = MagicMock()
+        manager.get_active_model.return_value = active
+        get_instance.return_value = manager
+
+        for overrides, expected_image_support in (
+            ([], True),
+            (["supports_image"], False),
+        ):
+            raw_model = ModelInfo(
+                id=active.model,
+                name=active.model,
+                supports_image=False,
+                supports_multimodal=False,
+                config_overrides=overrides,
+            )
+            provider = OpenAIProvider(
+                id="mimo",
+                name="Mimo",
+                extra_models=[raw_model],
+                discovered_models=[discovered_model],
+            )
+            manager.get_provider.return_value = provider
+
+            model_info, model_name = _get_active_model_info()
+
+            assert model_info.supports_image is expected_image_support
+            assert model_name == active.model
+            with patch(
+                "qwenpaw.agents.prompt._get_active_model_info",
+                return_value=(model_info, model_name),
+            ):
+                assert (
+                    _check_multimodal_support("image")
+                    is expected_image_support
+                )
+
+    @patch("qwenpaw.providers.provider_manager.ProviderManager.get_instance")
+    @patch(
+        "qwenpaw.config.config.load_agent_config",
+        side_effect=RuntimeError("no agent override"),
+    )
+    @patch("qwenpaw.app.agent_context.get_current_agent_id", return_value=None)
+    def test_active_model_resolution_failure_is_logged(
+        self,
+        _agent_id,
+        _agent_config,
+        get_instance,
+        caplog,
+    ):
+        import logging
+
+        from qwenpaw.agents.prompt import _get_active_model_info
+        from qwenpaw.providers.model_info import ModelInfo
+
+        active = MagicMock(provider_id="mimo", model="mimo-v2.6-flash")
+        provider = MagicMock()
+        provider.all_models.return_value = [
+            ModelInfo(id=active.model, name=active.model),
+        ]
+        provider.model_capabilities.side_effect = RuntimeError(
+            "resolver failed",
+        )
+        manager = MagicMock()
+        manager.get_active_model.return_value = active
+        manager.get_provider.return_value = provider
+        get_instance.return_value = manager
+
+        with caplog.at_level(logging.WARNING):
+            assert _get_active_model_info() == (None, None)
+
+        assert "mimo/mimo-v2.6-flash" in caplog.text
+        assert "resolver failed" in caplog.text
+
     @patch("qwenpaw.agents.prompt._get_active_model_info", create=True)
     def test_video_requires_explicit_support(self, mock_info):
         model_info = MagicMock()
