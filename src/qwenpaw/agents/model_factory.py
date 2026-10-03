@@ -2197,7 +2197,7 @@ def _apply_model_fallbacks(
             _install_model_formatter(
                 fallback_model,
                 provider_id=fallback_provider_id,
-                model_info=fallback_info,
+                model_info=fallback_provider.model_capabilities(fallback_info),
             )
         except Exception:
             logger.warning(
@@ -2245,7 +2245,7 @@ def _create_hub_model_and_formatter(settings, model_slot, *, explicit):
     formatter = _install_model_formatter(
         model,
         provider_id=PROVIDER_ID,
-        model_info=provider.get_model_info(selected.model),
+        model_info=provider.resolve_model_info(selected.model),
     )
     wrapped = TokenRecordingModelWrapper(
         PROVIDER_ID,
@@ -2337,7 +2337,7 @@ def create_model_and_formatter(
     formatter = _install_model_formatter(
         model,
         provider_id=provider_id,
-        model_info=provider.get_model_info(selected_model_id),
+        model_info=provider.resolve_model_info(selected_model_id),
     )
 
     # agentscope 2.0 ChatModelBase has its own retry loop
