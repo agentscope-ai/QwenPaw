@@ -3122,6 +3122,7 @@
   },
   "settingsCenter": {
     "backToApp": "アプリに戻る",
+    "openNavigation": "設定メニューを開く",
     "searchPlaceholder": "設定を検索",
     "noResults": "一致する設定はありません",
     "groups": {
