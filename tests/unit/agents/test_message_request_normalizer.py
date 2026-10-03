@@ -320,23 +320,22 @@ def test_normalize_keeps_user_pdf_for_openai_multimodal_model():
     assert _is_data_block(normalized[0].content[0])
 
 
-def test_normalize_strips_tool_pdf_for_openai_multimodal_model():
-    """Tool-returned PDFs are stripped for the OpenAI chat-completions
-    family regardless of multimodal support (Fixes #7597)."""
+def test_normalize_strips_sent_tool_pdf_for_openai_multimodal_model():
+    """PDFs sent to users are not replayed to OpenAI chat-completions."""
     msg = Msg(
         name="assistant",
         role="assistant",
         content=[
             ToolCallBlock(
                 type="tool_call",
-                id="call_read",
-                name="read_document",
-                input='{"path":"/tmp/report.pdf"}',
+                id="call_send",
+                name="send_file_to_user",
+                input='{"file_path":"report.pdf"}',
             ),
             ToolResultBlock(
                 type="tool_result",
-                id="call_read",
-                name="read_document",
+                id="call_send",
+                name="send_file_to_user",
                 output=[
                     _data_block(
                         "application/pdf",
