@@ -167,6 +167,27 @@ def _sanitize_stream_item(item: Any) -> Any:
     return _sanitize_chunk(item)
 
 
+_STREAM_CAPTURE_ATTR = "_qwenpaw_stream_capture"
+
+
+def _mark_truncation(parsed: ChatResponse, finish_reason: Any) -> None:
+    """Surface a provider-reported cut-off on the response metadata.
+
+    The base parser consumes provider ``finish_reason`` values without
+    exposing them, so callers cannot tell a truncated answer from a
+    complete one (issue #8085).
+    """
+    if finish_reason != "length":
+        return
+    parsed.metadata = {
+        **(parsed.metadata or {}),
+        "finish_reason": "length",
+    }
+    logger.warning(
+        "Model output truncated by the provider (finish_reason=length).",
+    )
+
+
 class _SanitizedStream:
     """Proxy OpenAI async stream that sanitizes each emitted item and
     captures ``extra_content`` from tool-call chunks (used by Gemini
@@ -178,6 +199,7 @@ class _SanitizedStream:
         self.extra_contents: dict[str, Any] = {}
         self._tool_call_ids: dict[int, str] = {}
         self.raw_usage = None
+        self.finish_reason: str | None = None
         self.headers = getattr(
             getattr(stream, f"response", None),
             f"headers",
@@ -203,9 +225,16 @@ class _SanitizedStream:
         if self._ctx_stream is None:
             raise StopAsyncIteration
         item = await self._ctx_stream.__anext__()
-        raw_usage = getattr(getattr(item, f"chunk", item), f"usage", None)
+        chunk = getattr(item, "chunk", item)
+        raw_usage = getattr(chunk, "usage", None)
         if raw_usage is not None:
             self.raw_usage = raw_usage
+        # The terminal choice carries the provider stop reason, which the
+        # base parser never reads; remember the last non-empty value.
+        for choice in getattr(chunk, "choices", None) or []:
+            finish_reason = getattr(choice, "finish_reason", None)
+            if finish_reason:
+                self.finish_reason = finish_reason
         self._capture_extra_content(item)
         return _sanitize_stream_item(item)
 
@@ -782,25 +811,41 @@ class OpenAIChatModelCompat(OpenAIChatModel):
         AgentScope copies ``model_extra`` while merging an existing
         ``ToolCallBlock``, but QwenPaw's transient attribute intentionally is
         not a Pydantic field. Keep a sidecar local to this model call and
-        reattach its records to the final accumulated response.
+        reattach its records to the final accumulated response. The
+        ``finish_reason`` captured by ``_SanitizedStream`` is surfaced the
+        same way: it is only observable while the raw chunks flow, so the
+        value is read from the sidecar once the final response arrives.
         """
         extras: dict[str, dict[str, Any]] = {}
+        stream_capture: Any | None = None
         try:
             async for chunk in response:
                 extras.update(
                     collect_transient_tool_call_extras(chunk.content),
                 )
-                if chunk.is_last and extras:
-                    for block in chunk.content:
-                        tool_id = _battr(block, "id")
-                        record = extras.get(tool_id)
-                        if not record:
-                            continue
-                        attach_transient_tool_call_extra(
-                            block,
-                            provider_id=str(record.get("provider_id") or ""),
-                            extra_content=record["extra_content"],
-                        )
+                capture = getattr(chunk, _STREAM_CAPTURE_ATTR, None)
+                if capture is not None:
+                    stream_capture = capture
+                if chunk.is_last:
+                    finish_reason = getattr(
+                        stream_capture,
+                        "finish_reason",
+                        None,
+                    )
+                    _mark_truncation(chunk, finish_reason)
+                    if extras:
+                        for block in chunk.content:
+                            tool_id = _battr(block, "id")
+                            record = extras.get(tool_id)
+                            if not record:
+                                continue
+                            attach_transient_tool_call_extra(
+                                block,
+                                provider_id=str(
+                                    record.get("provider_id") or "",
+                                ),
+                                extra_content=record["extra_content"],
+                            )
                 yield chunk
         finally:
             await response.aclose()
@@ -889,6 +934,11 @@ class OpenAIChatModelCompat(OpenAIChatModel):
             getattr(response, f"usage", None),
             CACHE_RESPONSE_HEADERS.get(),
         )
+        choices = getattr(response, "choices", None)
+        finish_reason = (
+            getattr(choices[0], "finish_reason", None) if choices else None
+        )
+        _mark_truncation(parsed, finish_reason)
         return parsed
 
     # pylint: disable=too-many-branches, too-many-statements
@@ -1042,4 +1092,5 @@ class OpenAIChatModelCompat(OpenAIChatModel):
                         list(parsed.content) + recovered_tool_calls
                     )
 
+            setattr(parsed, _STREAM_CAPTURE_ATTR, sanitized_response)
             yield parsed
