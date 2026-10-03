@@ -191,6 +191,7 @@ def test_registry_exposes_qoder_capabilities(tmp_path: Path) -> None:
     assert provider.capabilities.reasoning_stream is True
     assert provider.capabilities.tool_stream is True
     assert provider.capabilities.attachments is True
+    assert provider.capabilities.context_usage is True
     assert [command.name for command in provider.capabilities.commands] == [
         "compact",
     ]
@@ -332,6 +333,12 @@ async def test_models_and_turns_use_sdk_capabilities(tmp_path: Path) -> None:
         "reasoning-effort": "high",
     }
     assert turn_client.options.include_partial_messages is True
+    assert clients[0].options.env == {
+        "QODER_SDK_CUSTOM_BASE_URL_BYOK": "1",
+    }
+    assert turn_client.options.env == {
+        "QODER_SDK_CUSTOM_BASE_URL_BYOK": "1",
+    }
     assert turn_client.prompts == [("Fix it", "default")]
     assert (tmp_path / "qoder_sessions.json").is_file()
 
