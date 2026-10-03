@@ -323,7 +323,7 @@ describe("ProviderConfigModal", () => {
 
     it("sends parsed generate config in the payload", async () => {
       const user = userEvent.setup();
-      renderModal(makeProvider({ support_connection_check: false }));
+      renderModal();
 
       const textarea = document.querySelector("textarea")!;
       fireEvent.change(textarea, {
@@ -339,6 +339,12 @@ describe("ProviderConfigModal", () => {
             generate_kwargs: { temperature: 0.7 },
           }),
         ),
+      );
+      expect(apiMocks.testProviderConnection).toHaveBeenCalledWith(
+        "custom-provider",
+        expect.objectContaining({
+          generate_kwargs: { temperature: 0.7 },
+        }),
       );
     });
 
@@ -458,6 +464,27 @@ describe("ProviderConfigModal", () => {
 
       await waitFor(() =>
         expect(messageMocks.error).toHaveBeenCalledWith("net down"),
+      );
+    });
+
+    it("sends the configured generation headers", async () => {
+      const user = userEvent.setup();
+      renderModal();
+
+      const textarea = document.querySelector("textarea")!;
+      fireEvent.change(textarea, {
+        target: { value: '{"extra_headers": {"token": "abc"}}' },
+      });
+
+      await user.click(screen.getByText("models.testConnection"));
+
+      await waitFor(() =>
+        expect(apiMocks.testProviderConnection).toHaveBeenCalledWith(
+          "custom-provider",
+          expect.objectContaining({
+            generate_kwargs: { extra_headers: { token: "abc" } },
+          }),
+        ),
       );
     });
   });
