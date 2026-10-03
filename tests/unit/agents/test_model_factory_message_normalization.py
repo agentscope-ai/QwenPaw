@@ -575,6 +575,178 @@ async def test_deepseek_formatter_preserves_exact_reasoning(
     assert thought.thinking == "must be replayed exactly"
 
 
+def _pdf_tool_result_message() -> Msg:
+    return Msg(
+        name="assistant",
+        role="assistant",
+        content=[
+            ToolCallBlock(id="call_pdf", name="send_file_to_user", input="{}"),
+            ToolResultBlock(
+                id="call_pdf",
+                name="send_file_to_user",
+                output=[
+                    _base64_data_block(
+                        "application/pdf",
+                        b"%PDF-1.4 poisoned",
+                    ),
+                ],
+                state=ToolResultState.SUCCESS,
+            ),
+            TextBlock(text="done"),
+        ],
+    )
+
+
+def _user_pdf_message() -> Msg:
+    return Msg(
+        name="user",
+        role="user",
+        content=[
+            _base64_data_block("application/pdf", b"%PDF-1.4 uploaded"),
+            TextBlock(text="summarize this"),
+        ],
+    )
+
+
+def _audio_tool_result_message() -> Msg:
+    return Msg(
+        name="assistant",
+        role="assistant",
+        content=[
+            ToolCallBlock(id="call_audio", name="transcribe", input="{}"),
+            ToolResultBlock(
+                id="call_audio",
+                name="transcribe",
+                output=[_base64_data_block("audio/mpeg", b"ID3 fake")],
+                state=ToolResultState.SUCCESS,
+            ),
+            TextBlock(text="done"),
+        ],
+    )
+
+
+@pytest.mark.parametrize(
+    ("provider_id", "model_id"),
+    [
+        ("deepseek", None),
+        ("openrouter", "deepseek/deepseek-chat"),
+    ],
+)
+@pytest.mark.asyncio
+async def test_deepseek_formatter_skips_user_pdf_blocks(
+    provider_id: str,
+    model_id: str | None,
+) -> None:
+    """DeepSeek accepts image parts only — user PDFs must not wire out.
+
+    A ``file`` part is emitted with a nested ``{"file": {...}}`` object
+    that DeepSeek's Chat Completions schema rejects with a hard 400, and
+    the block stays in history, permanently poisoning the session
+    (#8064). The text of the message must survive the skip.
+    """
+    formatter_class = model_factory._create_file_block_support_formatter(
+        _CappingOpenAIFormatter,
+        provider_id=provider_id,
+        model_id=model_id,
+    )
+    formatted = await formatter_class().format([_user_pdf_message()])
+
+    wire = json.dumps(formatted)
+    assert '"type": "file"' not in wire
+    assert "file_data" not in wire
+    assert "file_id" not in wire
+    assert "summarize this" in wire
+
+
+@pytest.mark.asyncio
+async def test_deepseek_formatter_degrades_tool_result_audio() -> None:
+    """Tool-result audio must degrade to the textual fallback for DeepSeek.
+
+    ``audio/*`` is in the OpenAI-chat default input_types, so the block
+    would otherwise be promoted into an ``input_audio`` part that
+    DeepSeek rejects (#8064).
+    """
+    formatter_class = model_factory._create_file_block_support_formatter(
+        _CappingOpenAIFormatter,
+        provider_id="deepseek",
+    )
+    formatted = await formatter_class().format([_audio_tool_result_message()])
+
+    wire = json.dumps(formatted)
+    assert "input_audio" not in wire
+    # The result must not vanish: it degrades to the textual fallback.
+    assert "audio file is returned" in wire
+
+
+@pytest.mark.asyncio
+async def test_deepseek_formatter_never_promotes_tool_result_pdfs() -> None:
+    """Guard: tool-result PDFs must stay off the DeepSeek wire.
+
+    The request normalizer already strips tool-result documents for the
+    OpenAI-chat family; this locks the formatter-level capability gate so
+    the two layers stay aligned (defense in depth for #8064).
+    """
+    formatter_class = model_factory._create_file_block_support_formatter(
+        _CappingOpenAIFormatter,
+        provider_id="deepseek",
+    )
+    formatted = await formatter_class().format([_pdf_tool_result_message()])
+
+    wire = json.dumps(formatted)
+    assert '"type": "file"' not in wire
+    assert "file_data" not in wire
+    assert "file_id" not in wire
+
+
+@pytest.mark.asyncio
+async def test_deepseek_formatter_still_promotes_images() -> None:
+    """Only non-image media is degraded — images keep the promoted path."""
+    formatter_class = model_factory._create_file_block_support_formatter(
+        _CappingOpenAIFormatter,
+        provider_id="deepseek",
+    )
+    formatter = formatter_class()
+    msg = Msg(
+        name="assistant",
+        role="assistant",
+        content=[
+            ToolCallBlock(id="call_img", name="view_image", input="{}"),
+            ToolResultBlock(
+                id="call_img",
+                name="view_image",
+                output=[_base64_data_block("image/png", _png_bytes((4, 4)))],
+                state=ToolResultState.SUCCESS,
+            ),
+            TextBlock(text="done"),
+        ],
+    )
+    formatted = await formatter.format([msg])
+
+    assert '"type": "image_url"' in json.dumps(formatted)
+
+
+@pytest.mark.asyncio
+async def test_openai_formatter_keeps_user_pdf_file_parts() -> None:
+    """Providers without the DeepSeek restriction keep upstream PDF parts."""
+    formatter_class = model_factory._create_file_block_support_formatter(
+        _CappingOpenAIFormatter,
+    )
+    formatted = await formatter_class().format([_user_pdf_message()])
+
+    assert '"file_data"' in json.dumps(formatted)
+
+
+@pytest.mark.asyncio
+async def test_openai_formatter_still_promotes_tool_result_audio() -> None:
+    """The DeepSeek audio degradation must not leak to other providers."""
+    formatter_class = model_factory._create_file_block_support_formatter(
+        _CappingOpenAIFormatter,
+    )
+    formatted = await formatter_class().format([_audio_tool_result_message()])
+
+    assert "input_audio" in json.dumps(formatted)
+
+
 @pytest.mark.asyncio
 async def test_required_reasoning_rejects_thinking_omission() -> None:
     """A learned exact-replay requirement overrides prior fold state."""
