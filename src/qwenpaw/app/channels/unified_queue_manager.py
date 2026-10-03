@@ -263,7 +263,12 @@ class UnifiedQueueManager:
         finally:
             # Remove from queues dict when consumer exits
             async with self._lock:
-                self._queues.pop(queue_key, None)
+                current_state = self._queues.get(queue_key)
+                if (
+                    current_state is not None
+                    and current_state.consumer_task is asyncio.current_task()
+                ):
+                    self._queues.pop(queue_key, None)
 
             logger.info(
                 f"Consumer stopped: channel={channel_id} "
