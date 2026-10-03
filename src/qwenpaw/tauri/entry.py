@@ -108,7 +108,7 @@ def _redirect_backend_python_cmd(cmd: object) -> "list | None":
     exe = cmd[0]
     if not isinstance(exe, str):
         return None
-    if os.path.normcase(exe) != os.path.normcase(sys.executable):
+    if os.normcase(exe) != os.normcase(sys.executable):
         return None
     if not _looks_like_python_invocation([str(a) for a in cmd[1:]]):
         return None
