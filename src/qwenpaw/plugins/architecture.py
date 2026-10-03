@@ -230,6 +230,13 @@ class PluginManifest(BaseModel):
         return cls.model_validate(data)
 
 
+class InstallSource(str, Enum):
+    """How a plugin was installed."""
+
+    ZIP = "zip"
+    PIP = "pip"
+
+
 @dataclass
 class PluginRecord:
     """Plugin record for loaded plugins."""
@@ -239,3 +246,4 @@ class PluginRecord:
     enabled: bool
     instance: Optional[Any] = None
     diagnostics: List[str] = field(default_factory=list)
+    install_source: InstallSource = InstallSource.ZIP
