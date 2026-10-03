@@ -336,8 +336,13 @@ async def test_multimodal_probes_close_clients_on_success_and_error(
     video_close.assert_awaited_once()
 
 
-async def test_check_gpt5_model_uses_max_completion_tokens(
+@pytest.mark.parametrize(
+    "model_id",
+    ["gpt-5.2", "gpt-6.1-sol", "openai/gpt-6.1-sol", "gpt-10-mini"],
+)
+async def test_check_modern_gpt_model_uses_max_completion_tokens(
     monkeypatch,
+    model_id,
 ) -> None:
     provider = _make_provider()
     captured: list[dict] = []
@@ -371,7 +376,7 @@ async def test_check_gpt5_model_uses_max_completion_tokens(
     )
     monkeypatch.setattr(provider, "_client", lambda timeout=5: fake_client)
 
-    ok, msg = await provider.check_model_connection("gpt-5.2", timeout=4)
+    ok, msg = await provider.check_model_connection(model_id, timeout=4)
 
     assert ok is True
     assert msg == ""
@@ -379,6 +384,27 @@ async def test_check_gpt5_model_uses_max_completion_tokens(
     assert captured[0]["max_completion_tokens"] == 20
     assert "max_tokens" not in captured[0]
     assert stream.closed is True
+
+
+@pytest.mark.parametrize(
+    ("model_id", "expected_param"),
+    [
+        ("gpt-6.1-sol", "max_completion_tokens"),
+        (" OpenAI/GPT-6.1-SOL ", "max_completion_tokens"),
+        ("gpt-10-mini", "max_completion_tokens"),
+        ("gpt-4.1", "max_tokens"),
+        ("gpt-3.5-turbo", "max_tokens"),
+        ("gpt-custom", "max_tokens"),
+    ],
+)
+def test_token_limit_kwargs_handles_gpt_versions(
+    model_id,
+    expected_param,
+) -> None:
+    assert openai_provider_module.token_limit_kwargs(
+        model_id,
+        200,
+    ) == {expected_param: 200}
 
 
 def test_token_limit_kwargs_handles_reasoning_model_ids() -> None:
