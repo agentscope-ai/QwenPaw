@@ -42,6 +42,34 @@
         letter-spacing: 0.08em;
         text-transform: uppercase;
       }
+      .qwenpaw-boot__error {
+        align-items: center;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        text-align: center;
+      }
+      .qwenpaw-boot__error-title {
+        color: #1f1f1f;
+        font-size: 15px;
+        font-weight: 600;
+      }
+      .qwenpaw-boot__error-detail {
+        color: #70706c;
+        font-size: 12px;
+        max-width: 320px;
+        overflow-wrap: anywhere;
+      }
+      .qwenpaw-boot__reload {
+        background: #1f1f1f;
+        border: none;
+        border-radius: 6px;
+        color: #f7f7f5;
+        cursor: pointer;
+        font-size: 13px;
+        margin-top: 6px;
+        padding: 8px 18px;
+      }
       @media (prefers-color-scheme: dark) {
         .qwenpaw-boot {
           background: #141414;
@@ -49,6 +77,16 @@
         }
         .qwenpaw-boot__label {
           color: #a6a6a0;
+        }
+        .qwenpaw-boot__error-title {
+          color: #f4f4f1;
+        }
+        .qwenpaw-boot__error-detail {
+          color: #a6a6a0;
+        }
+        .qwenpaw-boot__reload {
+          background: #f4f4f1;
+          color: #141414;
         }
       }
     </style>
@@ -62,6 +100,7 @@
         </div>
       </div>
     </div>
+    <script src="/bootWatchdog.js"></script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
