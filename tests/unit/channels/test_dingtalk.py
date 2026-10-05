@@ -83,7 +83,9 @@ def dingtalk_channel(
     temp_media_dir,
 ) -> Generator:
     """Create a DingTalkChannel instance for testing."""
-    from qwenpaw.app.channels.dingtalk.channel import DingTalkChannel
+    from qwenpaw.bundled_plugins.channel.dingtalk.channel import (
+        DingTalkChannel,
+    )
 
     channel = DingTalkChannel(
         process=mock_process_handler,
@@ -106,7 +108,9 @@ def dingtalk_channel_shared_group(
     temp_media_dir,
 ) -> Generator:
     """Create a DingTalkChannel sharing one session per group."""
-    from qwenpaw.app.channels.dingtalk.channel import DingTalkChannel
+    from qwenpaw.bundled_plugins.channel.dingtalk.channel import (
+        DingTalkChannel,
+    )
 
     channel = DingTalkChannel(
         process=mock_process_handler,
@@ -130,7 +134,9 @@ def dingtalk_channel_with_workspace(
     temp_workspace_dir,
 ) -> Generator:
     """Create a DingTalkChannel with workspace for testing."""
-    from qwenpaw.app.channels.dingtalk.channel import DingTalkChannel
+    from qwenpaw.bundled_plugins.channel.dingtalk.channel import (
+        DingTalkChannel,
+    )
 
     channel = DingTalkChannel(
         process=mock_process_handler,
@@ -203,7 +209,9 @@ class TestDingTalkChannelInit:
         temp_media_dir,
     ):
         """Constructor should store all basic configuration parameters."""
-        from qwenpaw.app.channels.dingtalk.channel import DingTalkChannel
+        from qwenpaw.bundled_plugins.channel.dingtalk.channel import (
+            DingTalkChannel,
+        )
 
         channel = DingTalkChannel(
             process=mock_process_handler,
@@ -228,7 +236,9 @@ class TestDingTalkChannelInit:
         temp_media_dir,
     ):
         """Constructor should store advanced configuration parameters."""
-        from qwenpaw.app.channels.dingtalk.channel import DingTalkChannel
+        from qwenpaw.bundled_plugins.channel.dingtalk.channel import (
+            DingTalkChannel,
+        )
 
         channel = DingTalkChannel(
             process=mock_process_handler,
@@ -251,7 +261,9 @@ class TestDingTalkChannelInit:
 
     def test_init_creates_required_data_structures(self, mock_process_handler):
         """Constructor should initialize required internal data structures."""
-        from qwenpaw.app.channels.dingtalk.channel import DingTalkChannel
+        from qwenpaw.bundled_plugins.channel.dingtalk.channel import (
+            DingTalkChannel,
+        )
 
         channel = DingTalkChannel(
             process=mock_process_handler,
@@ -277,7 +289,9 @@ class TestDingTalkChannelInit:
 
     def test_init_creates_locks(self, mock_process_handler):
         """Constructor should create required locks for thread safety."""
-        from qwenpaw.app.channels.dingtalk.channel import DingTalkChannel
+        from qwenpaw.bundled_plugins.channel.dingtalk.channel import (
+            DingTalkChannel,
+        )
 
         channel = DingTalkChannel(
             process=mock_process_handler,
@@ -314,7 +328,9 @@ class TestDingTalkChannelFromEnv:
         monkeypatch,
     ):
         """from_env should read basic environment variables."""
-        from qwenpaw.app.channels.dingtalk.channel import DingTalkChannel
+        from qwenpaw.bundled_plugins.channel.dingtalk.channel import (
+            DingTalkChannel,
+        )
 
         monkeypatch.setenv("DINGTALK_CHANNEL_ENABLED", "0")
         monkeypatch.setenv("DINGTALK_CLIENT_ID", "env_client_id")
@@ -334,7 +350,9 @@ class TestDingTalkChannelFromEnv:
         monkeypatch,
     ):
         """from_env should read advanced environment variables."""
-        from qwenpaw.app.channels.dingtalk.channel import DingTalkChannel
+        from qwenpaw.bundled_plugins.channel.dingtalk.channel import (
+            DingTalkChannel,
+        )
 
         monkeypatch.setenv("DINGTALK_CLIENT_ID", "test_id")
         monkeypatch.setenv("DINGTALK_CLIENT_SECRET", "test_secret")
@@ -360,7 +378,9 @@ class TestDingTalkChannelFromEnv:
         monkeypatch,
     ):
         """from_env should parse DINGTALK_ALLOW_FROM correctly."""
-        from qwenpaw.app.channels.dingtalk.channel import DingTalkChannel
+        from qwenpaw.bundled_plugins.channel.dingtalk.channel import (
+            DingTalkChannel,
+        )
 
         monkeypatch.setenv("DINGTALK_CLIENT_ID", "test_id")
         monkeypatch.setenv("DINGTALK_CLIENT_SECRET", "test_secret")
@@ -378,7 +398,9 @@ class TestDingTalkChannelFromEnv:
         monkeypatch,
     ):
         """from_env should handle empty DINGTALK_ALLOW_FROM."""
-        from qwenpaw.app.channels.dingtalk.channel import DingTalkChannel
+        from qwenpaw.bundled_plugins.channel.dingtalk.channel import (
+            DingTalkChannel,
+        )
 
         monkeypatch.setenv("DINGTALK_CLIENT_ID", "test_id")
         monkeypatch.setenv("DINGTALK_CLIENT_SECRET", "test_secret")
@@ -390,7 +412,9 @@ class TestDingTalkChannelFromEnv:
 
     def test_from_env_defaults(self, mock_process_handler, monkeypatch):
         """from_env should use sensible defaults."""
-        from qwenpaw.app.channels.dingtalk.channel import DingTalkChannel
+        from qwenpaw.bundled_plugins.channel.dingtalk.channel import (
+            DingTalkChannel,
+        )
 
         monkeypatch.setenv("DINGTALK_CLIENT_ID", "test_id")
         monkeypatch.setenv("DINGTALK_CLIENT_SECRET", "test_secret")
@@ -410,7 +434,9 @@ class TestDingTalkChannelFromConfig:
 
     def test_from_config_uses_config_values(self, mock_process_handler):
         """from_config should use values from config object."""
-        from qwenpaw.app.channels.dingtalk.channel import DingTalkChannel
+        from qwenpaw.bundled_plugins.channel.dingtalk.channel import (
+            DingTalkChannel,
+        )
         from qwenpaw.config.config import DingTalkConfig
 
         config = DingTalkConfig(
@@ -559,7 +585,7 @@ class TestDingTalkTokenCache:
         dingtalk_channel,
     ):
         """Should fetch new token when cache is empty."""
-        from qwenpaw.app.channels.dingtalk.constants import (
+        from qwenpaw.bundled_plugins.channel.dingtalk.constants import (
             DINGTALK_TOKEN_TTL_SECONDS,
         )
 
@@ -988,7 +1014,7 @@ class TestDingTalkResolveSession:
 
 def _shared_sid(conversation_id: str) -> str:
     """Expected shared-group session_id for a conversation_id."""
-    from qwenpaw.app.channels.dingtalk.content_utils import (
+    from qwenpaw.bundled_plugins.channel.dingtalk.content_utils import (
         shared_group_session_id_from_conversation_id,
     )
 
@@ -1109,7 +1135,9 @@ class TestDingTalkShareSessionInGroup:
 
     def test_from_config_passes_flag(self, mock_process_handler):
         """from_config should forward share_session_in_group."""
-        from qwenpaw.app.channels.dingtalk.channel import DingTalkChannel
+        from qwenpaw.bundled_plugins.channel.dingtalk.channel import (
+            DingTalkChannel,
+        )
         from qwenpaw.config.config import DingTalkConfig
 
         config = DingTalkConfig(
@@ -1431,7 +1459,7 @@ class TestDingTalkUtils:
 
     def test_guess_suffix_from_file_content_pdf(self, tmp_path):
         """Should detect PDF files by magic bytes."""
-        from qwenpaw.app.channels.dingtalk.utils import (
+        from qwenpaw.bundled_plugins.channel.dingtalk.utils import (
             guess_suffix_from_file_content,
         )
 
@@ -1444,7 +1472,7 @@ class TestDingTalkUtils:
 
     def test_guess_suffix_from_file_content_png(self, tmp_path):
         """Should detect PNG files by magic bytes."""
-        from qwenpaw.app.channels.dingtalk.utils import (
+        from qwenpaw.bundled_plugins.channel.dingtalk.utils import (
             guess_suffix_from_file_content,
         )
 
@@ -1457,7 +1485,7 @@ class TestDingTalkUtils:
 
     def test_guess_suffix_from_file_content_jpg(self, tmp_path):
         """Should detect JPG files by magic bytes."""
-        from qwenpaw.app.channels.dingtalk.utils import (
+        from qwenpaw.bundled_plugins.channel.dingtalk.utils import (
             guess_suffix_from_file_content,
         )
 
@@ -1470,7 +1498,7 @@ class TestDingTalkUtils:
 
     def test_guess_suffix_from_file_content_unknown(self, tmp_path):
         """Should return None for unknown file types."""
-        from qwenpaw.app.channels.dingtalk.utils import (
+        from qwenpaw.bundled_plugins.channel.dingtalk.utils import (
             guess_suffix_from_file_content,
         )
 
@@ -1485,7 +1513,7 @@ class TestDingTalkUtils:
 
     def test_guess_suffix_from_nonexistent_file(self, tmp_path):
         """Should handle non-existent file."""
-        from qwenpaw.app.channels.dingtalk.utils import (
+        from qwenpaw.bundled_plugins.channel.dingtalk.utils import (
             guess_suffix_from_file_content,
         )
 
@@ -1589,7 +1617,9 @@ class TestDingTalkAICardStore:
 
     def test_load_empty_store(self, tmp_path):
         """Loading from non-existent file returns empty list."""
-        from qwenpaw.app.channels.dingtalk.ai_card import AICardPendingStore
+        from qwenpaw.bundled_plugins.channel.dingtalk.ai_card import (
+            AICardPendingStore,
+        )
 
         store = AICardPendingStore(tmp_path / "nonexistent.json")
         result = store.load()
@@ -1598,7 +1628,9 @@ class TestDingTalkAICardStore:
 
     def test_load_existing_cards(self, tmp_path):
         """Loading from existing file returns cards."""
-        from qwenpaw.app.channels.dingtalk.ai_card import AICardPendingStore
+        from qwenpaw.bundled_plugins.channel.dingtalk.ai_card import (
+            AICardPendingStore,
+        )
 
         card_file = tmp_path / "cards.json"
         card_file.write_text(
@@ -1622,7 +1654,7 @@ class TestDingTalkAICardStore:
 
     def test_save_cards(self, tmp_path):
         """Saving cards writes to file."""
-        from qwenpaw.app.channels.dingtalk.ai_card import (
+        from qwenpaw.bundled_plugins.channel.dingtalk.ai_card import (
             AICardPendingStore,
             ActiveAICard,
         )
@@ -1655,7 +1687,7 @@ class TestDingTalkAICardStore:
 
     def test_save_skips_terminal_states(self, tmp_path):
         """Saving should skip cards in terminal states."""
-        from qwenpaw.app.channels.dingtalk.ai_card import (
+        from qwenpaw.bundled_plugins.channel.dingtalk.ai_card import (
             AICardPendingStore,
             ActiveAICard,
             FINISHED,
@@ -2023,7 +2055,7 @@ class TestDingTalkCallbackHandler:
     @pytest.fixture
     def handler(self, mock_download_fetcher, mock_process_handler):
         """Create a DingTalkChannelHandler instance."""
-        from qwenpaw.app.channels.dingtalk.handler import (
+        from qwenpaw.bundled_plugins.channel.dingtalk.handler import (
             DingTalkChannelHandler,
         )
 
@@ -2119,7 +2151,7 @@ class TestDingTalkCallbackHandler:
 
     def test_handler_require_mention_flag(self, mock_download_fetcher):
         """Handler should store require_mention flag."""
-        from qwenpaw.app.channels.dingtalk.handler import (
+        from qwenpaw.bundled_plugins.channel.dingtalk.handler import (
             DingTalkChannelHandler,
         )
 
@@ -2316,7 +2348,7 @@ class TestDingTalkAICardMethods:
         dingtalk_channel,
     ):
         """Successfully stream content to AI card."""
-        from qwenpaw.app.channels.dingtalk.ai_card import (
+        from qwenpaw.bundled_plugins.channel.dingtalk.ai_card import (
             ActiveAICard,
             PROCESSING,
         )
@@ -2349,7 +2381,7 @@ class TestDingTalkAICardMethods:
         dingtalk_channel,
     ):
         """Finalize AI card streaming."""
-        from qwenpaw.app.channels.dingtalk.ai_card import (
+        from qwenpaw.bundled_plugins.channel.dingtalk.ai_card import (
             ActiveAICard,
             PROCESSING,
         )
@@ -2385,7 +2417,7 @@ class TestDingTalkAICardMethods:
         mock_http_session,
     ):
         """Skip streaming if content hasn't changed."""
-        from qwenpaw.app.channels.dingtalk.ai_card import (
+        from qwenpaw.bundled_plugins.channel.dingtalk.ai_card import (
             ActiveAICard,
             PROCESSING,
         )
@@ -2421,7 +2453,7 @@ class TestDingTalkAICardMethods:
     ):
         """Refresh token on 401 response from SDK."""
         from Tea.exceptions import TeaException
-        from qwenpaw.app.channels.dingtalk.ai_card import (
+        from qwenpaw.bundled_plugins.channel.dingtalk.ai_card import (
             ActiveAICard,
             PROCESSING,
         )
@@ -2816,7 +2848,7 @@ class TestDingTalkStreamRequestTimeout:
         monkeypatch,
     ):
         """Connection and chatbot ACK requests should share timeouts."""
-        from qwenpaw.app.channels.dingtalk.channel import (
+        from qwenpaw.bundled_plugins.channel.dingtalk.channel import (
             _DINGTALK_REQUESTS_WITH_TIMEOUT,
             dingtalk_chatbot_module,
             dingtalk_stream_module,
@@ -2824,7 +2856,7 @@ class TestDingTalkStreamRequestTimeout:
 
         mock_post = MagicMock(return_value=MagicMock())
         monkeypatch.setattr(
-            "qwenpaw.app.channels.dingtalk.channel.requests.post",
+            "qwenpaw.bundled_plugins.channel.dingtalk.channel.requests.post",
             mock_post,
         )
         monkeypatch.setattr(
@@ -3018,7 +3050,7 @@ class TestDingTalkHealthCheck:
         )
 
         with patch(
-            "qwenpaw.app.channels.dingtalk.channel."
+            "qwenpaw.bundled_plugins.channel.dingtalk.channel."
             "_STREAM_HEALTH_PING_TIMEOUT_SECONDS",
             0.01,
         ):
@@ -3073,13 +3105,16 @@ class TestDingTalkHealthCheck:
             coro.close()
             return Future()
 
-        with patch(
-            "asyncio.run_coroutine_threadsafe",
-            side_effect=leave_probe_pending,
-        ), patch(
-            "qwenpaw.app.channels.dingtalk.channel."
-            "_STREAM_HEALTH_PING_TIMEOUT_SECONDS",
-            0.01,
+        with (
+            patch(
+                "asyncio.run_coroutine_threadsafe",
+                side_effect=leave_probe_pending,
+            ),
+            patch(
+                "qwenpaw.bundled_plugins.channel.dingtalk.channel."
+                "_STREAM_HEALTH_PING_TIMEOUT_SECONDS",
+                0.01,
+            ),
         ):
             result = await dingtalk_channel.health_check()
 
@@ -3227,7 +3262,7 @@ class TestDingTalkSendMethodsExtended:
         dingtalk_channel._http = mock_http_session
 
         with patch(
-            "qwenpaw.app.channels.dingtalk.channel.logger.warning",
+            "qwenpaw.bundled_plugins.channel.dingtalk.channel.logger.warning",
         ) as mock_warning:
             # Should return quietly (no raise) for non-API sends.
             await dingtalk_channel.send(
@@ -3487,7 +3522,7 @@ class TestDingTalkHandlerRichContent:
     @pytest.fixture
     def rich_handler(self, mock_download_fetcher):
         """Create a handler for rich content tests."""
-        from qwenpaw.app.channels.dingtalk.handler import (
+        from qwenpaw.bundled_plugins.channel.dingtalk.handler import (
             DingTalkChannelHandler,
         )
 
@@ -3955,7 +3990,7 @@ class TestDingTalkAdditionalCoverage:
 
     def test_sender_from_chatbot_message_skip_bot(self):
         """Skip messages from bot itself."""
-        from qwenpaw.app.channels.dingtalk.content_utils import (
+        from qwenpaw.bundled_plugins.channel.dingtalk.content_utils import (
             sender_from_chatbot_message,
         )
 

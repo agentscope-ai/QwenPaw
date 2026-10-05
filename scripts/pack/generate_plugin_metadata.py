@@ -61,7 +61,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-KIND_DIRS = ("bundle", "tool", "memory", "apps")
+KIND_DIRS = ("bundle", "tool", "memory", "apps", "channel")
 
 EXCLUDE_PATTERNS = (
     "__pycache__",
@@ -78,6 +78,23 @@ EXCLUDE_PATTERNS = (
     ".ruff_cache",
     "*.log",
 )
+
+
+def _plugin_dirs(plugins_root: Path, kind: str) -> list[Path]:
+    """Include wheel-bundled migration packages in the same release catalog."""
+    roots = [plugins_root / kind]
+    bundled = (
+        plugins_root.parent / "src" / "qwenpaw" / "bundled_plugins" / kind
+    )
+    if plugins_root.name == "plugins":
+        roots.append(bundled)
+    return sorted(
+        child
+        for root in roots
+        if root.is_dir()
+        for child in root.iterdir()
+        if child.is_dir()
+    )
 
 
 def _is_excluded(name: str) -> bool:
@@ -459,10 +476,7 @@ def discover_and_pack(
         return index, failed
 
     for kind in KIND_DIRS:
-        kind_dir = plugins_root / kind
-        if not kind_dir.is_dir():
-            continue
-        for plugin_dir in sorted(p for p in kind_dir.iterdir() if p.is_dir()):
+        for plugin_dir in _plugin_dirs(plugins_root, kind):
             manifest = _read_manifest(plugin_dir)
             if manifest is None:
                 continue
@@ -516,10 +530,7 @@ def _dry_run_scan(
 ) -> None:
     """List what would be packed without writing anything."""
     for kind in KIND_DIRS:
-        kind_dir = plugins_root / kind
-        if not kind_dir.is_dir():
-            continue
-        for plugin_dir in sorted(p for p in kind_dir.iterdir() if p.is_dir()):
+        for plugin_dir in _plugin_dirs(plugins_root, kind):
             manifest = _read_manifest(plugin_dir)
             if manifest is None:
                 continue

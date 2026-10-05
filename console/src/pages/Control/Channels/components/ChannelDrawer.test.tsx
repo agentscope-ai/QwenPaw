@@ -695,3 +695,31 @@ describe("ChannelDrawer matrix submit", () => {
     expect(onSubmit).not.toHaveBeenCalled();
   });
 });
+
+describe("DingTalk plugin compatibility", () => {
+  it("keeps the original credentials, QR flow and card settings for plugin channels", () => {
+    renderDrawer({
+      activeKey: "dingtalk",
+      isBuiltin: false,
+      initialValues: {
+        pluginInstalled: true,
+        message_type: "card",
+        client_id: "old-id",
+      },
+    });
+    expect(screen.getByText("DingTalk channel plugin")).toBeTruthy();
+    expect(screen.getByText("channels.fieldCardTemplateID")).toBeTruthy();
+    expect(screen.getByTestId("qr-dingtalk")).toBeTruthy();
+    expect(screen.getByDisplayValue("old-id")).toBeTruthy();
+  });
+
+  it("keeps credentials visible and explains a missing plugin", () => {
+    renderDrawer({
+      activeKey: "dingtalk",
+      isBuiltin: false,
+      initialValues: { pluginInstalled: false, client_id: "preserved-id" },
+    });
+    expect(screen.getByText(/The DingTalk plugin is unavailable/)).toBeTruthy();
+    expect(screen.getByDisplayValue("preserved-id")).toBeTruthy();
+  });
+});

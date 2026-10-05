@@ -9,6 +9,7 @@ Run:
     pytest tests/contract/channels/test_dingtalk_contract.py -v
     pytest tests/contract/channels/ -v  # Run all channel contract tests
 """
+
 # pylint: disable=protected-access
 
 from __future__ import annotations
@@ -53,7 +54,9 @@ class TestDingTalkChannelContract(ChannelContractTest):
 
         Uses mocks to avoid requiring real DingTalk credentials.
         """
-        from qwenpaw.app.channels.dingtalk.channel import DingTalkChannel
+        from qwenpaw.bundled_plugins.channel.dingtalk.channel import (
+            DingTalkChannel,
+        )
 
         process = AsyncMock()
 

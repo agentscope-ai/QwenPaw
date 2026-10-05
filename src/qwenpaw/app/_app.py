@@ -484,7 +484,15 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
             # and load through the same pipeline as 'app'-type plugins
             # (plugin.json carrying meta.pawapp); surfaced only in the App
             # Center, hidden from the sidebar.
+            from ..plugins.bundled_channels import (
+                ensure_bundled_channel_plugins,
+            )
+
             plugin_dirs = [get_plugins_dir()]
+            await asyncio.to_thread(
+                ensure_bundled_channel_plugins,
+                plugin_dirs[0],
+            )
 
             plugin_loader = PluginLoader(plugin_dirs)
 

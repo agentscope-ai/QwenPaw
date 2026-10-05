@@ -123,7 +123,12 @@ function ChannelsPage() {
     if (!activeKey) return;
 
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const { isBuiltin: _isBuiltin, ...savedConfig } = channels[activeKey] || {};
+    const {
+      isBuiltin: _isBuiltin,
+      pluginId: _pluginId,
+      pluginInstalled: _pluginInstalled,
+      ...savedConfig
+    } = channels[activeKey] || {};
     const updatedChannel = keepConsoleEnabled(activeKey, {
       ...savedConfig,
       ...values,

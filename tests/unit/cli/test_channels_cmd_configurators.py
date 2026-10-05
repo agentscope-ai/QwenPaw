@@ -690,7 +690,7 @@ class TestLoadChannelPluginsForCli:
 
         assert calls == []
 
-    def test_first_call_loads_and_sets_the_guard(self, monkeypatch):
+    def test_first_call_loads_and_sets_the_guard(self, monkeypatch, tmp_path):
         calls = []
         monkeypatch.setattr(cc, "_CLI_CHANNEL_PLUGINS_LOADED", False)
         monkeypatch.setattr(
@@ -698,7 +698,11 @@ class TestLoadChannelPluginsForCli:
             "load_config",
             lambda: SimpleNamespace(plugins={"sentinel": {}}),
         )
-        monkeypatch.setattr(cc, "get_plugins_dir", lambda: "/plugins")
+        monkeypatch.setattr(
+            cc,
+            "get_plugins_dir",
+            lambda: tmp_path / "plugins",
+        )
 
         loader = SimpleNamespace(
             registry=SimpleNamespace(

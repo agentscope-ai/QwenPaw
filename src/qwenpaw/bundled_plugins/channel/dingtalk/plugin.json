@@ -1,0 +1,22 @@
+{
+  "id": "dingtalk",
+  "name": "DingTalk",
+  "version": "1.0.0",
+  "type": "channel",
+  "description": "钉钉渠道：兼容已有凭据、会话、扫码登录与 AI 卡片。",
+  "author": "QwenPaw Team",
+  "entry": {
+    "backend": "plugin.py"
+  },
+  "qwenpaw_version": {
+    "min": "2.2.2b4"
+  },
+  "dependencies": [
+    "dingtalk-stream>=0.24.3",
+    "alibabacloud-dingtalk>=2.2.42"
+  ],
+  "meta": {
+    "channel_key": "dingtalk",
+    "startup_dependency_policy": "local"
+  }
+}

@@ -101,6 +101,8 @@ const BASE_FIELDS = [
   "tool_result_max_length",
   "show_thinking",
   "isBuiltin",
+  "pluginId",
+  "pluginInstalled",
 ];
 
 // Resolve a plugin-provided localized text (a plain string or a
@@ -1859,6 +1861,30 @@ export function ChannelDrawer({
           onValuesChange={schedule}
           onFinish={() => void flush()}
         >
+          {activeKey === "dingtalk" && (
+            <Alert
+              type={
+                initialValues?.pluginInstalled === false ? "warning" : "info"
+              }
+              showIcon
+              message={t(
+                "channels.dingtalkPluginTitle",
+                "DingTalk channel plugin",
+              )}
+              description={
+                initialValues?.pluginInstalled === false
+                  ? t(
+                      "channels.dingtalkPluginMissing",
+                      "The DingTalk plugin is unavailable. Reinstall it in Plugins; your existing settings are retained.",
+                    )
+                  : t(
+                      "channels.dingtalkPluginReady",
+                      "DingTalk is provided by a plugin. Your credentials, QR sign-in and conversation history are unchanged.",
+                    )
+              }
+              style={{ marginBottom: 16 }}
+            />
+          )}
           <Form.Item
             className={styles.channelEnabled}
             hidden={activeKey === "console"}
@@ -1869,7 +1895,7 @@ export function ChannelDrawer({
             <Switch disabled={activeKey === "console"} />
           </Form.Item>
 
-          {isBuiltin
+          {isBuiltin || activeKey === "dingtalk"
             ? renderBuiltinExtraFields(activeKey)
             : renderCustomExtraFields(initialValues)}
 

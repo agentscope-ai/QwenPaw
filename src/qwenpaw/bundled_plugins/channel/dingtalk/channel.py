@@ -56,14 +56,14 @@ from alibabacloud_dingtalk.card_1_0 import (
 from alibabacloud_tea_util import models as tea_util_models
 from Tea.exceptions import TeaException
 
-from ..utils import file_url_to_local_path
-from ....config.config import DingTalkConfig as DingTalkChannelConfig
-from ....config.utils import get_config_path
-from ....constant import DEFAULT_MEDIA_DIR
-from ....exceptions import ChannelError
+from qwenpaw.app.channels.utils import file_url_to_local_path
+from qwenpaw.config.config import DingTalkConfig as DingTalkChannelConfig
+from qwenpaw.config.utils import get_config_path
+from qwenpaw.constant import DEFAULT_MEDIA_DIR
+from qwenpaw.exceptions import ChannelError
 
-from ..renderer import ChannelDisplayConfig
-from ..base import (
+from qwenpaw.app.channels.renderer import ChannelDisplayConfig
+from qwenpaw.app.channels.base import (
     BaseChannel,
     ContentType,
     OnReplySent,
@@ -2881,7 +2881,13 @@ class DingTalkChannel(BaseChannel):
             return
         self._stop_event.set()
         if self._stream_thread:
-            self._stream_thread.join(timeout=3)
+            await asyncio.to_thread(self._stream_thread.join, timeout=5)
+            if self._stream_thread.is_alive():
+                raise RuntimeError(
+                    "DingTalk stream thread did not stop; restart QwenPaw "
+                    "before replacing the plugin",
+                )
+            self._stream_thread = None
         for task in self._debounce_timers.values():
             if task and not task.done():
                 task.cancel()

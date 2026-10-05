@@ -1924,6 +1924,9 @@
     "selectAtLeastOneDay": "Select at least one day."
   },
   "channels": {
+    "dingtalkPluginTitle": "DingTalk channel plugin",
+    "dingtalkPluginMissing": "The DingTalk plugin is unavailable. Reinstall it in Plugins; your existing settings are retained.",
+    "dingtalkPluginReady": "DingTalk is provided by a plugin. Your credentials, QR sign-in and conversation history are unchanged.",
     "manualCredentials": "Manual credentials",
     "deliverySettings": "Delivery options",
     "presentationSettings": "Message presentation",

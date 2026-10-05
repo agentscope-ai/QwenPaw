@@ -99,7 +99,8 @@ class ChannelRegistration:
 
     plugin_id: str
     channel_key: str
-    channel_class: Type
+    channel_class: Optional[Type]
+    channel_loader: Optional[Callable] = None
     label: str = ""
     description: str = ""
     config_fields: List[Dict[str, Any]] = field(default_factory=list)
@@ -157,6 +158,7 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
         self._workspace_created_hooks: List[HookRegistration] = []
         self._control_commands: List[ControlCommandRegistration] = []
         self._channels: Dict[str, ChannelRegistration] = {}
+        self._used_channel_plugins: set[str] = set()
         self._runtime_helpers = None
         self._plugin_manifests: Dict[str, Dict[str, Any]] = {}
         self._middleware_registrations: List[MiddlewareRegistration] = []
@@ -766,12 +768,13 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
         self,
         plugin_id: str,
         channel_key: str,
-        channel_class: Type,
+        channel_class: Optional[Type] = None,
         label: str = "",
         description: str = "",
         config_fields: Optional[List[Dict[str, Any]]] = None,
         icon: str = "",
         doc_url: Any = "",
+        channel_loader: Optional[Callable] = None,
     ) -> None:
         """Register a custom channel from a plugin.
 
@@ -798,7 +801,10 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
             TypeError: If channel_class is not a BaseChannel subclass.
         """
         from ..app.channels.base import BaseChannel
-        from ..app.channels.registry import BUILTIN_CHANNEL_KEYS
+        from ..app.channels.registry import (
+            BUILTIN_CHANNEL_KEYS,
+            MIGRATED_CHANNELS,
+        )
 
         if not channel_key or not channel_key.strip():
             raise ValueError("channel_key must be a non-empty string")
@@ -813,7 +819,8 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
                 channel_key,
                 normalized_key,
             )
-            setattr(channel_class, "channel", normalized_key)
+            if channel_class is not None:
+                setattr(channel_class, "channel", normalized_key)
 
         # Validate config_fields structure
         required_field_keys = {"name", "label", "type"}
@@ -844,7 +851,18 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
                 f"by plugin '{owner}'",
             )
 
-        if not (
+        owner = MIGRATED_CHANNELS.get(normalized_key)
+        if owner is not None and owner != plugin_id:
+            raise ValueError(
+                f"Channel '{normalized_key}' belongs to plugin '{owner}'",
+            )
+        if (channel_class is None) == (channel_loader is None):
+            raise ValueError(
+                "Provide exactly one of channel_class or channel_loader",
+            )
+        if channel_loader is not None and not callable(channel_loader):
+            raise TypeError("channel_loader must be callable")
+        if channel_class is not None and not (
             isinstance(channel_class, type)
             and issubclass(channel_class, BaseChannel)
             and channel_class is not BaseChannel
@@ -858,6 +876,7 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
             plugin_id=plugin_id,
             channel_key=normalized_key,
             channel_class=channel_class,
+            channel_loader=channel_loader,
             label=label or normalized_key,
             description=description,
             config_fields=config_fields or [],
@@ -890,6 +909,21 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
             ChannelRegistration or None.
         """
         return self._channels.get(channel_key)
+
+    def mark_channel_used(self, channel_key: str) -> None:
+        """Remember code used by live or retired workspaces and SDK threads."""
+        registration = self._channels.get(channel_key)
+        if registration is not None:
+            self._used_channel_plugins.add(registration.plugin_id)
+
+    def assert_channel_plugin_not_used(self, plugin_id: str) -> None:
+        """Require a restart after disabling channels before replacement."""
+        if plugin_id in self._used_channel_plugins:
+            raise ValueError(
+                f"Plugin '{plugin_id}' was used by a channel in this process. "
+                "Disable its channels in ALL workspaces, restart QwenPaw, "
+                "Then retry updating or uninstalling; settings are retained.",
+            )
 
     def _unregister_plugin_channels(self, plugin_id: str) -> None:
         """Remove all channels registered by a plugin (used on unload).

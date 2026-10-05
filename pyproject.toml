@@ -88,7 +88,7 @@ Issues = "https://github.com/agentscope-ai/QwenPaw/issues"
 version = {attr = "qwenpaw.__version__.__version__"}
 
 [tool.setuptools]
-packages = { find = { where = ["src", "packages/qwenpawmail-mcp/src"] } }
+packages = { find = { where = ["src", "packages/qwenpawmail-mcp/src"], exclude = ["*.__pycache__"] } }
 include-package-data = true
 
 [tool.setuptools.package-data]
@@ -112,6 +112,9 @@ include-package-data = true
     "providers/data/**",
     "docs/*.md",
     "app/channels/yuanbao/proto/**",
+    "bundled_plugins/channel/*/plugin.json",
+    "bundled_plugins/channel/*/requirements.txt",
+    "bundled_plugins/channel/*/README.md",
 ]
 
 [build-system]

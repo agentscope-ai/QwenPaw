@@ -145,3 +145,21 @@ def test_required_relpaths_merges_entries_and_drops_unsafe() -> None:
         "ui/dist/index.js",
         "ui/dist/vendor/index.html",
     ]
+
+
+def test_bundled_dingtalk_is_published_as_standalone_channel(tmp_path):
+    import zipfile
+
+    _, failed = packer.discover_and_pack(
+        REPOSITORY_ROOT / "plugins",
+        tmp_path,
+        "/files/plugins",
+        only=["dingtalk"],
+    )
+    assert not failed
+    archive = tmp_path / "channel" / "dingtalk" / "dingtalk-1.0.0.zip"
+    with zipfile.ZipFile(archive) as plugin_zip:
+        names = plugin_zip.namelist()
+        assert any(name.endswith("plugin.json") for name in names)
+        assert any(name.endswith("channel.py") for name in names)
+        assert not any("__pycache__" in name for name in names)

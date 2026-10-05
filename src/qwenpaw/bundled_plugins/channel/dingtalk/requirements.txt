@@ -1,0 +1,2 @@
+dingtalk-stream>=0.24.3
+alibabacloud-dingtalk>=2.2.42

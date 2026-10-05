@@ -59,6 +59,7 @@ _data_dirs = [
     ("security/skill_scanner/data", "qwenpaw/security/skill_scanner/data"),
     ("app/channels/yuanbao/proto", "qwenpaw/app/channels/yuanbao/proto"),
     ("providers/data", "qwenpaw/providers/data"),
+    ("bundled_plugins", "qwenpaw/bundled_plugins"),
 ]
 datas = [
     (str(SRC / src), dst) for src, dst in _data_dirs if (SRC / src).is_dir()
@@ -197,6 +198,13 @@ a = Analysis(
         *collect_submodules("qwenpawmail_mcp"),
         # All channel adapters (imported on-demand at runtime)
         *collect_submodules("qwenpaw.app.channels"),
+        # DingTalk moved into a data-only plugin; retain SDKs for the
+        # backwards-compatible first release (runtime imports are lazy).
+        *collect_submodules("dingtalk_stream"),
+        *collect_submodules("alibabacloud_dingtalk"),
+        *collect_submodules("alibabacloud_tea_openapi"),
+        *collect_submodules("alibabacloud_tea_util"),
+        *collect_submodules("Tea"),
         # Console channel — required by qwenpaw.app.channels.registry but
         # loaded via importlib.import_module(".console", ...), so PyInstaller
         # cannot discover it. Without this entry the desktop bundle fails to

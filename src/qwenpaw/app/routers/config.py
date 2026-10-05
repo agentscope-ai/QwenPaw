@@ -165,6 +165,13 @@ async def list_channels(request: Request) -> dict:
             channel_data = {"enabled": False, "bot_prefix": ""}
         if isinstance(channel_data, dict):
             channel_data["isBuiltin"] = key in BUILTIN_CHANNEL_KEYS
+            if key == "dingtalk":
+                from ...plugins.registry import PluginRegistry
+
+                channel_data["pluginId"] = "dingtalk"
+                channel_data["pluginInstalled"] = (
+                    PluginRegistry().get_channel_registration(key) is not None
+                )
         result[key] = channel_data
 
     return result
@@ -544,6 +551,22 @@ async def put_channel(
     else:
         # For custom channels, just use the dict
         channel_config = single_channel_config
+
+    if channel_name == "dingtalk" and getattr(
+        channel_config,
+        "enabled",
+        False,
+    ):
+        from ..channels.registry import get_channel_class
+
+        if get_channel_class(channel_name) is None:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "DingTalk plugin is unavailable. Install it and retry. "
+                    "Existing settings have been retained."
+                ),
+            )
 
     # Set channel config in agent's config
     setattr(agent.config.channels, channel_name, channel_config)

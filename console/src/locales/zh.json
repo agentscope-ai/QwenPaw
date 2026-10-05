@@ -1764,6 +1764,9 @@
     "selectAtLeastOneDay": "请选择至少一天。"
   },
   "channels": {
+    "dingtalkPluginTitle": "钉钉渠道插件",
+    "dingtalkPluginMissing": "钉钉插件未安装或加载失败。请在插件管理中重新安装；原有设置已保留。",
+    "dingtalkPluginReady": "钉钉现在由插件提供。原有凭据、扫码登录和聊天记录保持不变。",
     "manualCredentials": "手动填写凭据",
     "deliverySettings": "发送方式",
     "presentationSettings": "消息呈现",

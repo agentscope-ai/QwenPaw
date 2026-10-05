@@ -746,7 +746,18 @@ class PluginLoader:
             return record
 
         # Ensure plugin dependencies are installed before loading
-        await self._ensure_dependencies_installed(source_path, plugin_id)
+        if manifest.meta.get("startup_dependency_policy") == "local":
+            _ensure_plugin_site_on_path()
+            if self._find_unsatisfied_dependencies(
+                source_path / "requirements.txt",
+            ):
+                raise RuntimeError(
+                    f"Plugin '{plugin_id}' has missing dependencies. "
+                    "Reinstall it explicitly. "
+                    "Startup does not install packages.",
+                )
+        else:
+            await self._ensure_dependencies_installed(source_path, plugin_id)
 
         backend_entry = manifest.entry.backend
         frontend_entry = manifest.entry.frontend
@@ -1387,6 +1398,7 @@ class PluginLoader:
                 f"Plugin '{plugin_id}' is not loaded",
             )
 
+        self.registry.assert_channel_plugin_not_used(plugin_id)
         self.registry.assert_memory_backends_not_in_use(plugin_id)
 
         # Execute shutdown hooks registered by this plugin

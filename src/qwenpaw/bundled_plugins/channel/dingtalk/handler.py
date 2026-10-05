@@ -13,7 +13,7 @@ from qwenpaw.schemas import (
     TextContent,
 )
 
-from ..base import ContentType
+from qwenpaw.app.channels.base import ContentType
 
 from .content_utils import (
     conversation_id_from_chatbot_message,

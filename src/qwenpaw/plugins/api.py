@@ -678,12 +678,15 @@ class PluginApi:  # pylint: disable=too-many-public-methods
 
     def register_channel(
         self,
-        channel_class: Type,
+        channel_class: Optional[Type] = None,
         label: str = "",
         description: str = "",
         config_fields: Optional[List[Dict[str, Any]]] = None,
         icon: str = "",
         doc_url: Any = "",
+        *,
+        channel_key: Optional[str] = None,
+        channel_loader: Optional[Callable] = None,
     ) -> None:
         """Register a custom messaging channel.
 
@@ -692,6 +695,8 @@ class PluginApi:  # pylint: disable=too-many-public-methods
         class attribute that serves as the unique key.
 
         Args:
+            channel_key: Required for lazy registration.
+            channel_loader: SDK-free factory that returns the class on demand.
             channel_class: BaseChannel subclass implementing the channel.
                 Must have a ``channel`` class attribute (used as key).
             label: Display name shown in the UI (defaults to channel key).
@@ -744,7 +749,7 @@ class PluginApi:  # pylint: disable=too-many-public-methods
             )
             return
 
-        channel_key = getattr(channel_class, "channel", None)
+        channel_key = channel_key or getattr(channel_class, "channel", None)
         if not channel_key:
             raise ValueError(
                 f"channel_class {channel_class!r} must have a "
@@ -754,6 +759,7 @@ class PluginApi:  # pylint: disable=too-many-public-methods
             plugin_id=self.plugin_id,
             channel_key=channel_key,
             channel_class=channel_class,
+            channel_loader=channel_loader,
             label=label,
             description=description,
             config_fields=config_fields,

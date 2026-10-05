@@ -17,14 +17,13 @@ from qwenpaw.schemas import (
     VideoContent,
 )
 
-from ..base import ContentType
+from qwenpaw.app.channels.base import ContentType
 
 from .constants import (
     DINGTALK_SESSION_ID_SUFFIX_LEN,
     DINGTALK_SHARED_SESSION_HASH_LEN,
     DINGTALK_TYPE_MAPPING,
 )
-
 
 _DATA_URL_RE = re.compile(
     r"^data:(?P<mime>[^;]+);base64,(?P<b64>.*)$",

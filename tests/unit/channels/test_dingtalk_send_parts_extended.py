@@ -8,6 +8,7 @@ back to Open API, the no-webhook Open API text+media path, the
 no-webhook/no-conversation skip, the plain-text fallback, and refusal
 content handling.
 """
+
 # pylint: disable=protected-access,redefined-outer-name,unused-argument
 from __future__ import annotations
 
@@ -49,7 +50,9 @@ def temp_media_dir(tmp_path) -> Path:
 
 @pytest.fixture
 def channel(mock_process_handler, temp_media_dir) -> Generator:
-    from qwenpaw.app.channels.dingtalk.channel import DingTalkChannel
+    from qwenpaw.bundled_plugins.channel.dingtalk.channel import (
+        DingTalkChannel,
+    )
 
     channel = DingTalkChannel(
         process=mock_process_handler,

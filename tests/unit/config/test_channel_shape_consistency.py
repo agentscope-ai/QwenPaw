@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from typing import get_args
 
-from qwenpaw.app.channels.registry import _BUILTIN_SPECS
+from qwenpaw.app.channels.registry import _BUILTIN_SPECS, MIGRATED_CHANNELS
 from qwenpaw.app.routers.config import _channel_config_class
 from qwenpaw.config.config import ChannelConfig, ChannelConfigUnion
 
@@ -29,7 +29,9 @@ def _declared_config_classes() -> set[type]:
 
 def test_builtin_specs_match_channel_config_fields() -> None:
     """Every built-in channel implementation has a config field."""
-    assert set(_BUILTIN_SPECS) == set(ChannelConfig.model_fields)
+    assert set(_BUILTIN_SPECS) | set(MIGRATED_CHANNELS) == set(
+        ChannelConfig.model_fields,
+    )
 
 
 def test_channel_config_union_covers_every_builtin_channel() -> None:

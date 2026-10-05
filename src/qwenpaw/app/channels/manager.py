@@ -22,7 +22,7 @@ from typing import (
 from .base import BaseChannel, ContentType, ProcessHandler, TextContent
 from .renderer import ChannelDisplayConfig
 from .command_registry import CommandRegistry
-from .registry import get_channel_registry
+from .registry import get_channel_class, get_channel_registry
 from .unified_queue_manager import UnifiedQueueManager
 from ...config import get_available_channels
 
@@ -74,6 +74,10 @@ class ChannelManager:
 
     def __init__(self, channels: List[BaseChannel]):
         self.channels = channels
+        from ...plugins.registry import PluginRegistry
+
+        for channel in channels:
+            PluginRegistry().mark_channel_used(channel.channel)
         self._lock = asyncio.Lock()
         self._loop: Optional[asyncio.AbstractEventLoop] = None
 
@@ -135,9 +139,7 @@ class ChannelManager:
         extra = getattr(ch, "__pydantic_extra__", None) or {}
 
         channels: list[BaseChannel] = []
-        for key, ch_cls in get_channel_registry().items():
-            if key not in available:
-                continue
+        for key in available:
             ch_cfg = getattr(ch, key, None)
             if ch_cfg is None and key in extra:
                 ch_cfg = extra[key]
@@ -161,6 +163,14 @@ class ChannelManager:
             if not enabled:
                 continue
 
+            ch_cls = get_channel_class(key)
+            if ch_cls is None:
+                logger.warning(
+                    "Enabled channel '%s' is unavailable; "
+                    "configuration retained",
+                    key,
+                )
+                continue
             no_text_debounce = getattr(ch_cfg, "no_text_debounce", True)
 
             # Channel classes may expose different plugin-specific factory
@@ -726,6 +736,9 @@ class ChannelManager:
             Queue and consumer are created on-demand by UnifiedQueueManager
         """
         new_channel_name = new_channel.channel
+        from ...plugins.registry import PluginRegistry
+
+        PluginRegistry().mark_channel_used(new_channel_name)
 
         # 1) Set enqueue callback before start() so the channel
         #    (e.g. DingTalk) can register its handler

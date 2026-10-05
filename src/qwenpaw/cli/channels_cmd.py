@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """CLI channel: list and interactively configure channels in config.json."""
+
 from __future__ import annotations
 
 import asyncio
@@ -32,7 +33,6 @@ from ..config.utils import get_plugins_dir
 from ..plugins.loader import PluginLoader
 from .utils import prompt_confirm, prompt_path, prompt_select
 from .http import client, print_json, resolve_base_url
-
 
 # Fields that contain secrets — display masked in ``list``
 _SECRET_FIELDS = {
@@ -637,7 +637,10 @@ def _load_channel_plugins_for_cli() -> None:
     if _CLI_CHANNEL_PLUGINS_LOADED:
         return
 
+    from ..plugins.bundled_channels import ensure_bundled_channel_plugins
+
     config = load_config()
+    ensure_bundled_channel_plugins(get_plugins_dir())
     loader = PluginLoader([get_plugins_dir()])
     loader.registry.set_plugin_http_app(FastAPI())
     asyncio.run(
