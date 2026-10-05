@@ -716,6 +716,13 @@
 .mobileNavigation {
   display: none;
 }
+
+// The mobile navigation Select popup renders in a body-level container, so
+// it is sized independently of the squeezed trigger width; cap it to the
+// viewport so long labels wrap instead of truncating.
+.mobileNavDropdown {
+  max-width: calc(100vw - 32px);
+}
 @media (max-width: 768px) {
   .body {
     grid-template-rows: auto minmax(0, 1fr);

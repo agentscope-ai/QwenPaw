@@ -481,6 +481,8 @@ export default function SettingsCenter() {
             value={activePage?.key}
             showSearch
             filterOption={false}
+            popupMatchSelectWidth={false}
+            popupClassName={styles.mobileNavDropdown}
             onSearch={setQuery}
             onChange={(value) => {
               const [pageKey, itemKey] = value.split("::");
