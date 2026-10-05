@@ -2253,6 +2253,7 @@
     "projectDirectory": "プロジェクトディレクトリ",
     "workspaceDirectory": "設定ディレクトリ",
     "switchRoot": "ディレクトリを切り替え",
+    "showHidden": "隠しファイルを表示",
     "manageDirs": "ディレクトリを管理…",
     "primaryRoot": "メイン",
     "rootMissing": "見つかりません",

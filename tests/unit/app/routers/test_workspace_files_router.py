@@ -88,6 +88,25 @@ def test_tree_metadata_and_chunk_contract(
     assert content["truncated"] is True
 
 
+def test_tree_show_hidden_is_opt_in(files_client: TestClient) -> None:
+    """``show_hidden`` reveals dot entries; omitting it keeps them hidden."""
+    project_dir = files_client.app.state.project_dir
+    (project_dir / ".env.example").write_text("KEY=", encoding="utf-8")
+    (project_dir / "README.md").write_text("Hello", encoding="utf-8")
+
+    default = files_client.get("/api/workspace/tree").json()
+    revealed = files_client.get(
+        "/api/workspace/tree",
+        params={"show_hidden": "true"},
+    ).json()
+
+    assert [e["name"] for e in default["entries"]] == ["README.md"]
+    assert [e["name"] for e in revealed["entries"]] == [
+        ".env.example",
+        "README.md",
+    ]
+
+
 def test_save_uses_if_match_conflict_detection(
     files_client: TestClient,
 ) -> None:

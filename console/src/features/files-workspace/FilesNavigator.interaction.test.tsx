@@ -20,6 +20,7 @@ vi.mock("react-i18next", () => ({
         "files.daily": "Daily",
         "files.digest": "Digest",
         "files.upload": "Upload",
+        "files.showHidden": "Show hidden files",
         "files.addSystemPrompt": "Add from workspace",
         "files.addSystemPromptTitle": "Add a system prompt file",
         "files.addSystemPromptDescription": "Choose a file",
@@ -119,6 +120,57 @@ describe("FilesNavigator system prompt interactions", () => {
 
     fireEvent.click(screen.getByRole("tab", { name: "Workspace" }));
     expect(screen.getByRole("button", { name: "Upload" })).toBeInTheDocument();
+  });
+
+  it("toggles hidden files and re-lists the workspace root", async () => {
+    mocks.listFiles.mockResolvedValue([]);
+    mocks.getSystemPromptFiles.mockResolvedValue([]);
+
+    renderNavigator();
+    const toggle = await screen.findByRole("button", {
+      name: "Show hidden files",
+    });
+    expect(toggle).toHaveAttribute("aria-pressed", "false");
+    await waitFor(() =>
+      expect(mocks.listDirectory).toHaveBeenLastCalledWith(
+        "",
+        undefined,
+        200,
+        undefined,
+        "project",
+        undefined,
+        false,
+      ),
+    );
+
+    fireEvent.click(toggle);
+
+    expect(toggle).toHaveAttribute("aria-pressed", "true");
+    await waitFor(() =>
+      expect(mocks.listDirectory).toHaveBeenLastCalledWith(
+        "",
+        undefined,
+        200,
+        undefined,
+        "project",
+        undefined,
+        true,
+      ),
+    );
+  });
+
+  it("offers the hidden-files toggle only in the workspace tab", async () => {
+    mocks.listFiles.mockResolvedValue([]);
+    mocks.getSystemPromptFiles.mockResolvedValue([]);
+
+    renderNavigator();
+    await screen.findByRole("button", { name: "Show hidden files" });
+
+    fireEvent.click(screen.getByRole("tab", { name: "Profile" }));
+
+    expect(
+      screen.queryByRole("button", { name: "Show hidden files" }),
+    ).not.toBeInTheDocument();
   });
 
   it("can add a custom prompt again after disabling it", async () => {

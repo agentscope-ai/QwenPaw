@@ -410,6 +410,7 @@ async def list_workspace_tree(
         ge=1,
         le=MAX_PAGE_SIZE,
     ),
+    show_hidden: bool = Query(default=False),
 ) -> dict:
     """List immediate children without materializing the full project."""
     workspace = await get_agent_for_request(request)
@@ -422,6 +423,7 @@ async def list_workspace_tree(
                 path,
                 cursor,
                 limit,
+                show_hidden,
             )
     except InvalidCursor as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

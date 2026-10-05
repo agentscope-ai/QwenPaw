@@ -2333,6 +2333,7 @@
     "projectDirectory": "Thư mục dự án",
     "workspaceDirectory": "Thư mục cấu hình",
     "switchRoot": "Chuyển thư mục",
+    "showHidden": "Hiện tệp ẩn",
     "manageDirs": "Quản lý thư mục…",
     "primaryRoot": "Chính",
     "rootMissing": "Thiếu",

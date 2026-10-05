@@ -2988,6 +2988,7 @@
     "projectDirectory": "Project directory",
     "workspaceDirectory": "Configuration directory",
     "switchRoot": "Switch directory",
+    "showHidden": "Show hidden files",
     "manageDirs": "Manage directories…",
     "primaryRoot": "Primary",
     "rootMissing": "Missing",

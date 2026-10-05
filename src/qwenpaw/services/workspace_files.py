@@ -215,8 +215,13 @@ def list_directory(
     api_path: str,
     cursor: str | None,
     limit: int,
+    show_hidden: bool = False,
 ) -> dict[str, Any]:
-    """List one directory page using ``os.scandir``."""
+    """List one directory page using ``os.scandir``.
+
+    Dot-prefixed entries are hidden unless ``show_hidden`` is set; tooling
+    directories in ``_SKIPPED_NAMES`` are always excluded.
+    """
     directory = resolve_workspace_path(root, api_path, allow_root=True)
     if not directory.is_dir():
         raise NotADirectoryError(api_path)
@@ -226,7 +231,9 @@ def list_directory(
 
     with os.scandir(directory) as scanner:
         for entry in scanner:
-            if entry.name.startswith(".") or entry.name in _SKIPPED_NAMES:
+            if entry.name in _SKIPPED_NAMES:
+                continue
+            if entry.name.startswith(".") and not show_hidden:
                 continue
             try:
                 info = entry.stat(follow_symlinks=False)

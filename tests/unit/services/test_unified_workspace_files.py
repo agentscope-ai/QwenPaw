@@ -135,6 +135,40 @@ def test_list_directory_is_sorted_paginated_and_non_recursive(
     assert all(entry["name"] != "nested.txt" for entry in second["entries"])
 
 
+def _hidden_fixture(root: Path) -> None:
+    (root / "visible.txt").write_text("v", encoding="utf-8")
+    (root / ".gitignore").write_text("*.log", encoding="utf-8")
+    (root / ".mcp").mkdir()
+    (root / ".git").mkdir()
+    (root / "__pycache__").mkdir()
+
+
+def test_list_directory_hides_dot_entries_by_default(tmp_path: Path) -> None:
+    """The default listing is unchanged: no dot-prefixed entries."""
+    _hidden_fixture(tmp_path)
+
+    names = [
+        e["name"] for e in list_directory(tmp_path, "", None, 20)["entries"]
+    ]
+
+    assert names == ["visible.txt"]
+
+
+def test_list_directory_show_hidden_keeps_tooling_skipped(
+    tmp_path: Path,
+) -> None:
+    """Dot entries appear on request; tooling directories never do."""
+    _hidden_fixture(tmp_path)
+
+    page = list_directory(tmp_path, "", None, 20, show_hidden=True)
+
+    assert [e["name"] for e in page["entries"]] == [
+        ".mcp",
+        ".gitignore",
+        "visible.txt",
+    ]
+
+
 def test_list_directory_rejects_invalid_cursor(tmp_path: Path) -> None:
     """Malformed cursor values fail explicitly."""
     with pytest.raises(InvalidCursor):
