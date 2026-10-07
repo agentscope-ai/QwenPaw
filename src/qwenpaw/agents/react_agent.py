@@ -694,6 +694,8 @@ class QwenPawAgent(CodingModeMixin, Agent):
 
         overflow_marker_groups = (
             ("tokens", "exceeds the available context size"),
+            ("max_tokens", "does not fit"),
+            ("prompt", "max tokens", "exceeds the context"),
             (
                 "input token count",
                 "exceeds the maximum number of tokens allowed",
