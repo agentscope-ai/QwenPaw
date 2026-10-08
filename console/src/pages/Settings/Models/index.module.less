@@ -54,6 +54,13 @@
   background: transparent;
 }
 
+:global(.os-window-body) .settingsPage .pageHeader {
+  padding: 20px 24px;
+  border-bottom: 1px solid var(--app-border-subtle);
+  backdrop-filter: blur(16px);
+  background: var(--app-glass);
+}
+
 .settingsPage .breadcrumbParent {
   color: var(--models-text-faint);
 }
@@ -417,6 +424,10 @@
 @media (max-width: 768px) {
   .settingsPage .pageHeader {
     padding: 14px 16px;
+  }
+
+  :global(.os-window-body) .settingsPage .pageHeader {
+    padding: 12px 16px;
   }
 
   .settingsPage .sectionHeaderRow {

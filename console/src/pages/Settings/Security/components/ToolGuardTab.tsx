@@ -152,7 +152,8 @@ export function ToolGuardTab({
           <h2 className={styles.sectionTitle}>{t("security.rules.title")}</h2>
           <Button
             type="primary"
-            icon={<PlusCircleOutlined size="1em" />}
+            icon={<PlusCircleOutlined />}
+            iconSize={16}
             onClick={openAddRule}
             disabled={!enabled}
             size="middle"

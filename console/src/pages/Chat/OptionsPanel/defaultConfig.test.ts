@@ -25,8 +25,8 @@ describe("defaultConfig static shape", () => {
 
   it("carries the sender defaults including the long-text upload flag", () => {
     expect(defaultConfig.sender.attachments).toBe(true);
-    expect(defaultConfig.sender.maxLength).toBe(10000);
-    expect(defaultConfig.sender.longTextUpload.enabled).toBe(true);
+    expect(defaultConfig.sender).not.toHaveProperty("maxLength");
+    expect(defaultConfig.sender.longTextUpload).toBe(false);
     expect(defaultConfig.sender.disclaimer).toBe(
       "Works for you, grows with you",
     );
@@ -64,7 +64,7 @@ describe("getDefaultConfig", () => {
       { value: "chat.prompt2" },
     ]);
     // Untouched defaults survive the spread.
-    expect(cfg.sender.maxLength).toBe(10000);
+    expect(cfg.sender).not.toHaveProperty("maxLength");
     expect(cfg.theme.colorPrimary).toBe("#FF7F16");
     expect(cfg.welcome.avatar).toBe("/online.svg");
     expect(cfg.api).toEqual({ baseURL: "", token: "" });

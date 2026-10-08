@@ -114,7 +114,10 @@ def _http_error_detail(resp: httpx.Response) -> str:
 def _uses_max_completion_tokens(model_id: str) -> bool:
     """Return whether an OpenAI model requires max_completion_tokens."""
     model_name = model_id.strip().lower().rsplit("/", maxsplit=1)[-1]
-    return model_name.startswith("gpt-5") or (
+    gpt_version = re.match(r"gpt-([0-9]+)", model_name)
+    if gpt_version and int(gpt_version.group(1)) >= 5:
+        return True
+    return (
         len(model_name) > 1
         and model_name[0] == "o"
         and model_name[1].isdigit()
