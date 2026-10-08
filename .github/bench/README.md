@@ -13,9 +13,8 @@ TL;DR：不创建根目录 `evaluation/`，不修改产品依赖。配置和调�
 | `.github/workflows/bench-model.yml` | 单模型九批串行执行 |
 | `.github/workflows/bench-batch.yml` | 批内 matrix，每题一个 GitHub-hosted runner |
 | `scripts/bench/` | prepare / run / collect，共用 manifest 校验 |
-| `tests/unit/scripts/bench/` | 计分、完整性、预算、费用与隔离测试 |
 
-所有命令从仓库根目录执行。`uv run --no-project --with harbor==0.24.0 --with litellm==1.103.4` 使用 uv 的工具环境，不读取产品项目依赖，不创建产品 `.venv`。容器里的 QwenPaw 使用 `uvx --no-cache --from` 从本次 workflow 检出提交的源码归档动态构建开发包，通过 ACP 调用，不复制产品 agent loop。模型由 runtime provider 的 `OPENAI_MODEL` 固定，不设置 Harbor agent.model_name：后者会请求可选 ACP session model selection，当前双方没有协商出该接口。模型身份由冻结配置和 receipt 保存，不发生隐式 fallback。运行数据放 `$RUNNER_TEMP`，不进入源码目录。
+所有命令从仓库根目录执行。`uv run --no-project --with harbor==0.24.0 --with litellm==1.103.4` 使用 uv 的工具环境，不读取产品项目依赖，不创建产品 `.venv`。容器里的 QwenPaw 使用 `uvx --no-cache --with pip==26.0.1 --from` 从本次 workflow 检出提交的源码归档动态构建开发包，通过 ACP 调用，不复制产品 agent loop。模型由 runtime provider 的 `OPENAI_MODEL` 固定，不设置 Harbor agent.model_name：后者会请求可选 ACP session model selection，当前双方没有协商出该接口。模型身份由冻结配置和 receipt 保存，不发生隐式 fallback。运行数据放 `$RUNNER_TEMP`，不进入源码目录。
 
 不做纯 YAML：完整性校验、跨 benchmark 等权聚合、费用未知处理不是 workflow 表达式擅长的工作。把这些逻辑塞进 YAML 的内联脚本也没有减少代码，反而难以测试。
 
@@ -31,14 +30,11 @@ TL;DR：不创建根目录 `evaluation/`，不修改产品依赖。配置和调�
 
 每实验最多九批，实验和批内并发可通过 dispatch 配置；模型/provider 数量来自 dispatch。基础设施失败或缺少 receipt 自动恢复一次，不对有效评分择优重试。
 
-本地验证已有导出的数据（目录为 OUTPUT/datasets/benchmark-id/task）：
+手动导出并冻结任务（在 Actions 环境运行，或设置 GITHUB_OUTPUT 输出文件）：
 
 ```sh
 uv run --no-project --with harbor==0.24.0 --with litellm==1.103.4 python -m scripts.bench.dispatch \
   --output /tmp/qwenpaw-bench --sha COMMIT_SHA --repository OWNER/REPO
-uv run --no-project --with harbor==0.24.0 --with litellm==1.103.4 --with pytest python -m pytest \
-  -c /dev/null --confcutdir=tests/unit/scripts/bench \
-  -p no:cacheprovider tests/unit/scripts/bench -q
 ```
 
 Windows 使用等价路径和 PowerShell 命令续行；Python 帮助程序使用 pathlib。容器执行工作流的目标环境是 Linux。
@@ -49,11 +45,11 @@ Windows 使用等价路径和 PowerShell 命令续行；Python 帮助程序使�
 
 每题公开上传未加密的 `bench-trace-*` artifact，保留 Harbor 输出、ACP 事件、工具调用与结果和 grader 文件；只脱敏凭据。`trajectory.tar.gz` 附 `files.json` 文件清单与 SHA-256，保留 90 天。脱敏导出成功后才允许上传，跳过符号链接。Harbor 子进程日志不直接输出到 Actions 控制台。公开仓库仅运行公开评测，私有比较在私有仓库运行相同 workflow。
 
-`.github/workflows/bench-smoke.yml` 仅手动触发，不再随 push 自动调用付费模型。正式评测仍由 release + `BENCH_ENABLED` 或显式 workflow_dispatch 触发。ACP 初始化跳过 BOOTSTRAP.md 的生成和引导 hook，其他配置与技能正常初始化；旧用户文件不删除。
+正式评测仍由 release + `BENCH_ENABLED` 或显式 workflow_dispatch 触发。ACP 初始化跳过 BOOTSTRAP.md 的生成和引导 hook，其他配置与技能正常初始化；旧用户文件不删除。
 
 ## 验收状态与后续
 
-- 已通过单测、Harbor JobConfig 校验与 actionlint；没有修改产品依赖文件。
+- 已通过 Harbor JobConfig 校验与 actionlint；没有修改产品依赖文件。
 - 数据导出在单轮内按文件哈希冻结；跨 release 固定 dataset revision、镜像 digest 与传递依赖锁定仍待完成，当前不能宣称跨轮完全可复现。
 - 六模型的账户权限、多模态、工具调用和生成参数需离线确认；parity 报告也离线完成，不放进 release 的在线确认流程。
 - PawBench / Claw-Eval 待确认现成 Harbor 接入后再讨论纳入；AppWorld / Terminal-Bench 不在首期。
@@ -63,7 +59,7 @@ Windows 使用等价路径和 PowerShell 命令续行；Python 帮助程序使�
 `bench.yml` 接受 `harnesses`、`models`、`benchmarks`，均支持一个 ID、逗号分隔多个 ID 或 `all`。默认 `qwenpaw / all / all`。首次支持的 harness 注册于 `.github/bench/harnesses.yaml`，每个 ID 指向包含 suite/models/prices/harbor YAML 的配置目录。私有仓库可登记 Harbor 原生 Codex、Claude Code 或已有 ACP registry 配置，不需要另一套 workflow。原生 agent 协议、实际版本、模型和 endpoint 必须匹配；未验证的组合不能声称已兼容。
 
 ```sh
-gh workflow run bench.yml -R OWNER/REPO --ref feat/bench \
+gh workflow run bench.yml -R OWNER/REPO --ref main \
   -f harnesses=qwenpaw -f models=qwen3.8-27b,glm-5.3 \
   -f benchmarks=gaia
 ```
@@ -77,7 +73,6 @@ prepare 冻结完整题集来计算配置身份，但只执行选择的任务。
 私有配置拒绝在公开仓库运行；私有仓库的 PR、artifacts 和索引保持 private，不推送上游网站。Bench environment 在 stage 检查凭据存在，并在单题执行 job 通过 BENCH_API_KEY 注入所选 secret。替代 harness 在 harbor.yaml 使用环境变量引用，不写明文 Key。
 
 
-
 ## 动态 provider 与模型
 
 `providers.yaml` 保存 endpoint、协议和 Bench secret **名称**。`provider` 支持单个 ID、逗号分隔多个 ID、`all`；多个 provider 与选定模型/harness 取笛卡尔积。`models=all` 指当前配置的默认六模型，并不查询服务商模型列表；跨服务商时应明确填写双方支持的模型 ID。
@@ -85,7 +80,7 @@ prepare 冻结完整题集来计算配置身份，但只执行选择的任务。
 新模型不需要修改源码。新 provider 可在 dispatch 同时提供 `base_url` 和 `api_key_secret`（只填名称）。endpoint 必须是无内嵌凭据的 HTTPS 地址。多 provider 时使用各自登记配置，不能使用单 endpoint/secret 覆盖。当前 QwenPaw 要求 OpenAI-compatible API。
 
 ```sh
-gh workflow run bench.yml -R OWNER/REPO --ref feat/bench \
+gh workflow run bench.yml -R OWNER/REPO --ref main \
   -f harnesses=qwenpaw -f provider=my-provider \
   -f base_url=https://api.example.com/v1 \
   -f api_key_secret=MY_PROVIDER_KEY \
@@ -94,8 +89,6 @@ gh workflow run bench.yml -R OWNER/REPO --ref feat/bench \
 ```
 
 `model_options` 按实际模型 ID 覆盖 supports_image、max_input_tokens、max_output_tokens、generate_kwargs；未知模型默认不声明图像能力，其余采用共享生成配置。`price_snapshot` 可指定仓库内官方价格快照；更换 endpoint 或缺少模型价格时不沿用其他服务商价格，未能从服务端/usage 取得费用则显示 unknown。模型、provider、endpoint、生成配置和价格快照都进入配置标识，网站显示 provider，避免把不同接入的历史成绩混在一起。
-
-验证记录：个人预览已部署 https://rayrayraykk.github.io/CoPaw/evaluation/ 。正式运行 37748464447 因 artifact 网络错误及任务凭据不可用而取消，未产出完整成绩；已增加 artifact 上传恢复、逐层 secrets 传递和调度前凭据检查。结果合并自动部署还要求这些实现 workflow 先进入默认分支。
 
 ### 小批量与并发
 

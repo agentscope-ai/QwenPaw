@@ -17,7 +17,6 @@ def export(data: dict, receipts: list[dict], url: str) -> dict:
         summary,
         url,
         visibility=data[f"suite"][f"visibility"],
-        partial=True,
     )
     run[f"configuration_sha256"] = text(
         data[f"configuration_sha256"],
@@ -77,7 +76,6 @@ def index(root: Path, visibility: str) -> dict:
             raw,
             raw[f"workflow_url"],
             visibility=visibility,
-            partial=True,
         )
         key = text(raw[f"configuration_sha256"], rf"[a-f0-9]{{64}}")
         if len(clean[f"records"]) != 1:

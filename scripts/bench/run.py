@@ -165,7 +165,7 @@ def redact(message: str) -> str:
 
 # Each branch recognizes an independent diagnostic category.
 # pylint: disable=too-many-branches
-def diagnostics(output: Path, smoke: bool = False) -> list[str]:
+def diagnostics(output: Path) -> list[str]:
     """Export fixed failure labels, never raw process messages."""
     markers = {
         f"no such option": f"unsupported_cli_option",
@@ -220,18 +220,6 @@ def diagnostics(output: Path, smoke: bool = False) -> list[str]:
                 found.add(f"frame:{filename}:{int(line)}:{function}")
             for code in re.findall(rf"exit code[: ]+(\d+)", content):
                 found.add(f"exit_code_{int(code)}")
-    if smoke:
-        chunks = []
-        for path in output.rglob(f"acp-events.jsonl"):
-            for line in path.read_text(encoding=f"utf-8").splitlines():
-                event = json.loads(line)
-                update = (event.get(f"payload") or {}).get(f"update") or {}
-                if update.get(f"sessionUpdate") == f"agent_message_chunk":
-                    content = update.get(f"content") or {}
-                    chunks.append(str(content.get(f"text", f"")))
-        if chunks:
-            text = redact(f"".join(chunks))
-            found.add(f"synthetic_task_reply:{text[-1500:]}")
     return sorted(found)
 
 
@@ -290,10 +278,7 @@ def main() -> None:
     )
     receipt = normalize(raw, data, task, model, args.attempt)
     attach(receipt, data, output)
-    receipt[f"diagnostics"] = diagnostics(
-        output,
-        smoke=task[f"benchmark"] == f"smoke",
-    )
+    receipt[f"diagnostics"] = diagnostics(output)
     encoded = json.dumps(receipt)
     if os.environ[f"BENCH_API_KEY"] in encoded:
         raise ValueError(f"Secret detected in receipt; export blocked")

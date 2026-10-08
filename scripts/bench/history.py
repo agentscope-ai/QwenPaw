@@ -37,16 +37,14 @@ def public_run(
     workflow_url: str,
     *,
     visibility: str = f"public",
-    partial: bool = False,
 ) -> dict:
-    """Project a complete public QwenPaw run into the website contract."""
+    """Validate complete or partial results for the website contract."""
     if (
         summary[f"schema_version"] != 1
         or summary[f"visibility"] != visibility
-        or (not partial and summary[f"complete"] is not True)
         or not summary[f"records"]
     ):
-        raise ValueError(f"Only complete public results can be published")
+        raise ValueError(f"Invalid result summary")
     sha = text(summary[f"evaluation_sha"], rf"[0-9a-f]{{40}}")
     sources = {
         f"harbor_reported",
@@ -59,11 +57,9 @@ def public_run(
     identities = set()
     for record in summary[f"records"]:
         if (
-            (visibility == f"public" and record[f"harness"] != f"QwenPaw")
-            or (not partial and record[f"complete"] is not True)
-            or record[f"source_sha"] != sha
-        ):
-            raise ValueError(f"Foreign harness, source or partial result")
+            visibility == f"public" and record[f"harness"] != f"QwenPaw"
+        ) or record[f"source_sha"] != sha:
+            raise ValueError(f"Foreign harness or source")
         model = text(record[f"model"], rf"[a-zA-Z0-9_.:/-]{{1,160}}")
         if model in identities:
             raise ValueError(f"Duplicate model record")
@@ -78,9 +74,7 @@ def public_run(
                 or not 0 <= scored <= expected
             ):
                 raise ValueError(f"Invalid benchmark coverage")
-            if (not partial and scored != expected) or (
-                scored < expected and part[f"score"] is not None
-            ):
+            if scored < expected and part[f"score"] is not None:
                 raise ValueError(f"Incomplete benchmark")
             parts.append(
                 {
@@ -107,9 +101,7 @@ def public_run(
                     ),
                 },
             )
-        if not parts or (
-            not partial and any(p[f"score"] is None for p in parts)
-        ):
+        if not parts:
             raise ValueError(f"Missing benchmark score")
         if len({p[f"benchmark"] for p in parts}) != len(parts):
             raise ValueError(f"Duplicate benchmark")

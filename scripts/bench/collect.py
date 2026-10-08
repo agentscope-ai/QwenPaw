@@ -1,12 +1,8 @@
 # -*- coding: utf-8 -*-
 """Validate complete coverage and export only public summary fields."""
 
-import argparse
 import math
 from collections import Counter, defaultdict
-from pathlib import Path
-
-from .common import load, manifest, save
 
 
 def aggregate(data: dict, receipts: list[dict]) -> dict:
@@ -167,25 +163,3 @@ def aggregate(data: dict, receipts: list[dict]) -> dict:
         f"records": records,
         f"complete": len(selected) == len(expected),
     }
-
-
-def main() -> None:
-    """Keep raw transcripts separate from the website's allowlisted JSON."""
-    parser = argparse.ArgumentParser()
-    parser.add_argument(f"--manifest", type=Path, required=True)
-    parser.add_argument(f"--receipts", type=Path, required=True)
-    parser.add_argument(f"--output", type=Path, required=True)
-    parser.add_argument(f"--public", action=f"store_true")
-    args = parser.parse_args()
-    data = manifest(args.manifest)
-    if args.public and data[f"suite"][f"visibility"] != f"public":
-        raise ValueError(f"Private results cannot be published")
-    rows = [load(path) for path in args.receipts.rglob(f"receipt.json")]
-    result = aggregate(data, rows)
-    save(args.output, result)
-    if not result[f"complete"]:
-        raise SystemExit(1)
-
-
-if __name__ == f"__main__":
-    main()

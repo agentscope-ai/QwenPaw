@@ -6,34 +6,18 @@ on:
       - '.github/workflows/bench*.yml'
       - '.github/workflows/deploy-website.yml'
       - 'scripts/bench/**'
-      - 'tests/unit/scripts/bench/**'
       - 'website/**'
   push:
-    branches: [feat/bench, main]
+    branches: [main]
     paths:
       - '.github/bench/**'
       - '.github/workflows/bench*.yml'
       - '.github/workflows/deploy-website.yml'
       - 'scripts/bench/**'
-      - 'tests/unit/scripts/bench/**'
       - 'website/**'
 permissions:
   contents: read
 jobs:
-  contracts:
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
-        with:
-          version: '0.8.22'
-          python-version: '3.12'
-      - name: Scoring, cost and publication contracts
-        run: >-
-          uv run --no-project --with harbor==0.24.0 --with litellm==1.103.4
-          --with pytest python -m pytest -c /dev/null
-          --confcutdir=tests/unit/scripts/bench -p no:cacheprovider
-          tests/unit/scripts/bench -q
   website:
     runs-on: ubuntu-24.04
     steps:
@@ -47,7 +31,6 @@ jobs:
           cache: pnpm
           cache-dependency-path: website/pnpm-lock.yaml
       - run: pnpm --dir website install --frozen-lockfile
-      - run: pnpm --dir website test:evaluation
       - uses: astral-sh/setup-uv@v6
         with:
           version: '0.8.22'

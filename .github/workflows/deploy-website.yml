@@ -10,11 +10,6 @@ on:
   release:
     types: [published]
   workflow_dispatch:
-    inputs:
-      deploy_preview:
-        description: "Deploy a project-site preview on the personal fork"
-        type: boolean
-        default: false
   workflow_call:
     inputs:
       ref:
@@ -82,7 +77,7 @@ jobs:
         working-directory: website
         env:
           VITE_EVALUATION_VISIBILITY: ${{ github.event.repository.private && 'private' || 'public' }}
-          VITE_BASE_PATH: ${{ github.repository == 'rayrayraykk/CoPaw' && '/CoPaw/' || '/' }}
+          VITE_BASE_PATH: "/"
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
         run: pnpm run build
@@ -178,21 +173,7 @@ jobs:
           publish_dir: website/dist
           cname: qwenpaw.agentscope.io
 
-      - name: Deploy personal preview
-        if: ${{ !inputs.dry_run && github.repository == 'rayrayraykk/CoPaw' && (inputs.deploy_preview || github.event_name == 'push') }}
-        uses: peaceiris/actions-gh-pages@v4
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: website/dist
-
       - name: Dry-run notice
-        if: ${{ inputs.dry_run || (github.repository != 'agentscope-ai/QwenPaw' && !inputs.deploy_preview) }}
+        if: ${{ inputs.dry_run || github.repository != 'agentscope-ai/QwenPaw' }}
         run: |
           echo "DRY-RUN: would deploy website/dist to GitHub Pages (cname qwenpaw.agentscope.io)"
-
-      - name: Archive built website
-        uses: actions/upload-artifact@v4
-        with:
-          name: evaluation-website
-          path: website/dist
-          retention-days: 14

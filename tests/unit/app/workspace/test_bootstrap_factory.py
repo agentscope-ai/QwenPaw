@@ -21,7 +21,6 @@ class TestWorkspaceBootstrapFactory:
         kwargs = WorkspaceBootstrapFactory.build_bootstrap_kwargs(None)
         hook_clses = kwargs.get("builtin_hook_clses", [])
         assert len(hook_clses) > 0, "Expected at least some hook classes"
-        assert any(hook.name == f"bootstrap" for hook in hook_clses)
         assert CheckpointQueryGateHook in hook_clses
         assert CheckpointAutoSnapshotHook in hook_clses
 

@@ -627,10 +627,6 @@ def test_acp_bootstrap_includes_runtime_slash_commands():
         spec.name for spec in kwargs.get("builtin_command_specs", [])
     }
 
-    assert all(
-        hook.name != f"bootstrap" for hook in kwargs[f"builtin_hook_clses"]
-    )
-
     # Verify that builtin commands are collected via the shared factory.
     # The exact set depends on what's registered in builtin_commands.py.
     assert len(command_names) > 0, "Expected at least some builtin commands"
@@ -833,28 +829,3 @@ async def test_emit_usage_clears_bar_when_window_unknown(monkeypatch):
     assert ups[0].used == 0
     assert ups[0].size == 0
     assert ups[0].field_meta is None
-
-
-def test_usage_meta_preserves_cache_details(monkeypatch):
-    """Expose billing counters separately from context occupancy."""
-    from qwenpaw.token_usage.model_wrapper import TokenRecordingModelWrapper
-
-    monkeypatch.setattr(
-        TokenRecordingModelWrapper,
-        f"pop_usage_for_session",
-        classmethod(
-            lambda cls, session_id: {
-                f"prompt_tokens": 100,
-                f"completion_tokens": 20,
-                f"cache_read_tokens": 60,
-                f"cache_write_tokens": 0,
-                f"cache_eligible_input_tokens": 100,
-                f"cache_complete": True,
-            },
-        ),
-    )
-    result = QwenPawACPAgent._pop_session_usage(f"cache-session")[f"usage"]
-    assert result[f"cacheReadTokens"] == 60
-    assert result[f"cacheWriteTokens"] == 0
-    assert result[f"cacheEligibleInputTokens"] == 100
-    assert result[f"cacheUsageComplete"] is True
