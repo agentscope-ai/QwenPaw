@@ -12,6 +12,7 @@ vi.mock("@agentscope-ai/chat", () => ({}));
 import sessionApi, { __test__ as T } from "./index";
 import api, { type ChatHistory, type ChatSpec } from "../../../api";
 import { createSdkSessionAdapter } from "../sdkSessionAdapter";
+import { toMessagesPage } from "../tests/convertMessagesHelper";
 import { groupChatsByDate } from "../../../utils/chatGroups";
 import type { ExtendedSession } from "../../../stores/sessionListStore";
 
@@ -57,10 +58,12 @@ describe("createSession owner-epoch singleflight", () => {
     const live = { usage: { total_tokens: 125 }, context_usage: null };
     useTurnUsageStore.getState().setSnapshotForTurn(live, turn);
     sessionApi.setVisibleSession("one");
-    vi.spyOn(api, "getChat").mockResolvedValue({
-      messages: [],
-      status: "idle",
-    } as ChatHistory);
+    vi.spyOn(api, "getMessages").mockResolvedValue(
+      toMessagesPage({
+        messages: [],
+        status: "idle",
+      } as ChatHistory),
+    );
     await sessionApi.getSession("one");
     expect(useTurnUsageStore.getState().activeTurn).toEqual(turn);
     expect(useTurnUsageStore.getState().snapshot).toEqual(live);
@@ -258,7 +261,9 @@ describe("bound session history owner epochs", () => {
   it("suppresses A1's late idle observer after A -> B -> A2 while preserving direct getSession results", async () => {
     const chatId = "11111111-1111-4111-8111-111111111111";
     const pending = deferred<ChatHistory>();
-    const history = vi.spyOn(api, "getChat").mockReturnValue(pending.promise);
+    const history = vi
+      .spyOn(api, "getMessages")
+      .mockReturnValue(pending.promise.then((h) => toMessagesPage(h)));
     const clearLoading = vi.fn();
     const oldObserver = vi.fn((_id, session) => {
       if (session && !session.generating) clearLoading();
@@ -272,7 +277,9 @@ describe("bound session history owner epochs", () => {
 
     sessionApi.setActiveAgent("B");
     sessionApi.setActiveAgent("A");
-    history.mockResolvedValue({ messages: [], status: "running" });
+    history.mockResolvedValue(
+      toMessagesPage({ messages: [], status: "running" }),
+    );
     const currentObserver = vi.fn();
     const currentAdapter = createSdkSessionAdapter(
       sessionApi.bindToOwner(),
@@ -303,10 +310,12 @@ describe("bound session history owner epochs", () => {
 
   it("still delivers current-owner idle history to the observer", async () => {
     const chatId = "22222222-2222-4222-8222-222222222222";
-    vi.spyOn(api, "getChat").mockResolvedValue({
-      messages: [],
-      status: "idle",
-    });
+    vi.spyOn(api, "getMessages").mockResolvedValue(
+      toMessagesPage({
+        messages: [],
+        status: "idle",
+      }),
+    );
     const observer = vi.fn();
     const adapter = createSdkSessionAdapter(sessionApi.bindToOwner(), observer);
     const session = await adapter.api.getSession(chatId);
@@ -680,8 +689,10 @@ describe("visible session usage ownership", () => {
         status: "idle",
       }) as ChatHistory;
     const slow = deferred<ChatHistory>();
-    vi.spyOn(api, "getChat").mockImplementation((id) =>
-      id === "one" ? slow.promise : Promise.resolve(history(200)),
+    vi.spyOn(api, "getMessages").mockImplementation((id) =>
+      id === "one"
+        ? slow.promise.then((h) => toMessagesPage(h))
+        : Promise.resolve(toMessagesPage(history(200))),
     );
     sessionApi.setVisibleSession("one");
     const first = sessionApi.getSession("one");
@@ -700,7 +711,8 @@ describe("visible session usage ownership", () => {
   });
   it("restores usage when selection hits the preload result cache", async () => {
     const { useTurnUsageStore } = await import("../turnUsageStore");
-    vi.spyOn(api, "getChat").mockResolvedValue({
+    vi.spyOn(api, "getMessages").mockResolvedValue(
+      toMessagesPage({
       messages: [
         {
           role: "assistant",
@@ -717,7 +729,8 @@ describe("visible session usage ownership", () => {
         },
       ],
       status: "idle",
-    } as ChatHistory);
+    } as ChatHistory),
+    );
     sessionApi.setVisibleSession(null);
     await sessionApi.preloadSession("cached");
     expect(useTurnUsageStore.getState().snapshot).toBeNull();

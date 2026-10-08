@@ -754,7 +754,9 @@ def _purge_old_history(
         datetime.now(timezone.utc) - timedelta(days=retention_days)
     ).isoformat()
     try:
-        removed = history.purge(before=cutoff)
+        # Only tool output is disposable; user/assistant turns stay durable
+        # so scroll-back always reaches the true start of the conversation.
+        removed = history.purge(before=cutoff, kinds=("tool_result",))
     except Exception as exc:  # noqa: BLE001 - retention must never break boot
         logger.warning(
             "session-sync[%s]: retention purge failed: %s",

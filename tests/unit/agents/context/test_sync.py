@@ -1059,3 +1059,49 @@ def test_blocked_registry_does_not_quarantine_corrupt_history(
 
     assert db_path.read_bytes() == original
     assert not list(workspace.glob("history.db.corrupt-*"))
+
+
+def test_purge_old_history_only_drops_tool_result(tmp_path: Path):
+    """The startup retention purge (``_purge_old_history``) must scope to
+    ``kind="tool_result"`` like ``ScrollContextManager.purge_old`` does —
+    otherwise a fresh boot would silently delete conversation history past
+    the tool-result retention window."""
+    store = HistoryStore(tmp_path / "history.db")
+    try:
+        ancient = "2000-01-01T00:00:00+00:00"
+        store.append(
+            session_id="s1",
+            dedup_key="u1",
+            entry=LogEntry(
+                kind="context_msg",
+                role="user",
+                content="ancient question",
+                created_at=ancient,
+            ),
+        )
+        store.append(
+            session_id="s1",
+            dedup_key="a1",
+            entry=LogEntry(
+                kind="model_turn",
+                role="assistant",
+                content="ancient answer",
+                created_at=ancient,
+            ),
+        )
+        store.append(
+            session_id="s1",
+            dedup_key="tc1",
+            entry=LogEntry(
+                kind="tool_result",
+                content="ancient tool output",
+                tool_call_id="tc1",
+                created_at=ancient,
+            ),
+        )
+
+        sync_mod._purge_old_history(store, retention_days=1, agent_id="ag1")
+
+        assert store.count("s1") == 2
+    finally:
+        store.close()
