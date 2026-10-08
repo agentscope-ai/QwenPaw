@@ -100,6 +100,7 @@ def index(root: Path, visibility: str) -> dict:
                 clean[f"records"][0][field] != record[field]
                 for field in (
                     f"model",
+                    f"provider",
                     f"harness",
                     f"sdk_version",
                     f"source_sha",

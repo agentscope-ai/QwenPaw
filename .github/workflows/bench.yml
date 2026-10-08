@@ -13,6 +13,26 @@ on:
         description: 'Harness IDs: one, comma-separated, or all'
         type: string
         default: qwenpaw
+      provider:
+        description: 'Provider ID(s), comma-separated, or all; default dashscope'
+        type: string
+        default: dashscope
+      base_url:
+        description: 'Optional HTTPS endpoint override (one provider only)'
+        type: string
+        default: ''
+      api_key_secret:
+        description: 'Bench secret NAME override, never the key value'
+        type: string
+        default: ''
+      model_options:
+        description: 'JSON keyed by model ID: token limits, supports_image, generate_kwargs'
+        type: string
+        default: '{}'
+      price_snapshot:
+        description: 'Optional checked-in price snapshot path; otherwise unknown if unavailable'
+        type: string
+        default: ''
       models:
         description: 'Model IDs: one, comma-separated, or all'
         type: string
@@ -43,6 +63,11 @@ jobs:
       - id: prepare
         name: Freeze protocol and resolve selected experiments
         env:
+          PROVIDER_SELECTION: ${{ github.event_name == 'release' && 'dashscope' || inputs.provider }}
+          PROVIDER_BASE_URL: ${{ inputs.base_url }}
+          PROVIDER_SECRET_NAME: ${{ inputs.api_key_secret }}
+          MODEL_OPTIONS: ${{ inputs.model_options || '{}' }}
+          PRICE_SNAPSHOT: ${{ inputs.price_snapshot }}
           HARNESS_SELECTION: ${{ github.event_name == 'release' && 'qwenpaw' || inputs.harnesses }}
           MODEL_SELECTION: ${{ github.event_name == 'release' && 'all' || inputs.models }}
           BENCHMARK_SELECTION: ${{ github.event_name == 'release' && 'all' || inputs.benchmarks }}
@@ -54,6 +79,9 @@ jobs:
           if [ "$PRIVATE_REPOSITORY" = true ]; then flags+=(--private-repository); fi
           uv run --no-project --with harbor==0.24.0 --with litellm==1.103.4 \
             python -m scripts.bench.dispatch "${flags[@]}" \
+            --provider "$PROVIDER_SELECTION" --base-url "$PROVIDER_BASE_URL" \
+            --secret-name "$PROVIDER_SECRET_NAME" --model-options "$MODEL_OPTIONS" \
+            --price-snapshot "$PRICE_SNAPSHOT" \
             --harnesses "$HARNESS_SELECTION" --models "$MODEL_SELECTION" \
             --benchmarks "$BENCHMARK_SELECTION" \
             --output "$RUNNER_TEMP/bench" --sha "$SOURCE_SHA" \
@@ -72,6 +100,7 @@ jobs:
       matrix:
         include: ${{ fromJSON(needs.prepare.outputs.experiments) }}
     uses: ./.github/workflows/bench-model.yml
+    secrets: inherit
     with:
       experiment: ${{ matrix.experiment }}
       batches: ${{ matrix.batches }}

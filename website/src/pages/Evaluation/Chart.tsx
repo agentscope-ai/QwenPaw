@@ -13,7 +13,9 @@ const escape = (value: string) =>
       ]!,
   );
 const group = (row: Row, privateView: boolean) =>
-  privateView ? `${row.model}/${row.harness}` : row.model;
+  privateView
+    ? `${row.provider ?? ""}/${row.model}/${row.harness}`
+    : `${row.provider ?? ""}/${row.model}`;
 export function bestRows(rows: Row[], privateView: boolean): Set<string> {
   const best = new Map<string, Row>();
   for (const row of rows.filter((r) => r.score !== null)) {
@@ -123,10 +125,17 @@ export default function Chart({
         text: points.map(tip),
         customdata: points.map((r) => r.id),
         hovertemplate: "%{text}<extra></extra>",
-        marker: { size: 27, color: "rgba(0,0,0,0)" },
+        marker: {
+          size: 15,
+          color: points.map((r) =>
+            logo(r.model) ? "rgba(0,0,0,0)" : "#7565c7",
+          ),
+          opacity: points.map((r) => (best.has(r.id) ? 1 : 0.23)),
+        },
         showlegend: false,
       });
-      points.forEach((r, i) =>
+      points.forEach((r, i) => {
+        if (!logo(r.model)) return;
         images.push({
           source: logo(r.model),
           xref: missingCost ? "x2" : "x",
@@ -140,8 +149,8 @@ export default function Chart({
           sizing: "contain",
           layer: "above",
           opacity: best.has(r.id) ? 1 : 0.23,
-        }),
-      );
+        });
+      });
     }
     traces.unshift({
       type: "scatter",

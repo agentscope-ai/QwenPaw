@@ -12,6 +12,7 @@ export interface Benchmark {
   cost_known_attempts: number;
 }
 export interface RecordResult {
+  provider?: string;
   model: string;
   harness: string;
   sdk_version: string;
@@ -93,12 +94,15 @@ export function selectRows(runs: Run[], metric: string): Row[] {
     }),
   );
 }
-export function logo(model: string): string {
+export function logo(model: string): string | undefined {
   const provider = model.toLowerCase().startsWith("qwen")
     ? "qwen"
     : model.toLowerCase().startsWith("deepseek")
     ? "deepseek"
-    : "zai";
+    : model.toLowerCase().startsWith("glm")
+    ? "zai"
+    : undefined;
+  if (!provider) return undefined;
   return `${import.meta.env.BASE_URL}evaluation/logos/${provider}.svg`;
 }
 export function money(

@@ -10,7 +10,7 @@ agents:
   - name: acp
     env:
       QWENPAW_TELEMETRY_DISABLED: "true"
-      OPENAI_API_KEY: ${DASHSCOPE_API_KEY}
+      OPENAI_API_KEY: ${BENCH_API_KEY}
     kwargs:
       permission_mode: allow
       registry_entry:

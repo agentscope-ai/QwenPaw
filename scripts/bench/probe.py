@@ -13,7 +13,7 @@ from .common import load
 def main() -> None:
     """Print only model IDs and HTTP status from a trusted endpoint."""
     settings = load(Path(f".github/bench/models.yaml"))
-    key = os.environ[f"DASHSCOPE_API_KEY"]
+    key = os.environ[f"BENCH_API_KEY"]
     request = Request(
         f"{settings['base_url']}/models",
         headers={f"Authorization": f"Bearer {key}"},

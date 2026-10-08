@@ -21,12 +21,16 @@ release published / manual dispatch
 | 输入 | 默认值 | 行为 |
 |---|---|---|
 | `harnesses` | `qwenpaw` | 一个 ID 或逗号分隔多个 ID；只接受已登记的 Harbor 配置 |
-| `models` | `all` | 一个模型 ID、多个 ID 或 all |
+| `models` | `all` | 实际模型 ID、多个 ID 或默认模型 all；允许新 ID |
+| `provider` | `dashscope` | 单个、多个或登记 provider 的 all |
+| `base_url` / `api_key_secret` | 空 | 单 provider 的 HTTPS endpoint / secret 名称覆盖 |
+| `model_options` | `{}` | 按模型 ID 覆盖能力、token 限制与生成参数 |
+| `price_snapshot` | 空 | 仓库内价格快照；没有价格则 unknown |
 | `benchmarks` | `all` | 一个 benchmark ID、多个 ID 或 all |
 
-GitHub 原生 workflow_dispatch choice 是单选，不提供原生多选组件；因此多选使用逗号分隔字符串。prepare 去空白、去重、验证 ID、解析 all。空值、未知项和空任务集直接失败，不静默退回默认全量。
+GitHub 原生 workflow_dispatch choice 是单选，不提供原生多选组件；因此多选使用逗号分隔字符串。prepare 去空白、去重、验证 ID、解析 all。空值、未登记 harness/benchmark 和空任务集直接失败，不静默退回默认全量。
 
-模型 × harness × benchmark 取所选笛卡尔积。一题一个 runner；批次大小 128、批内并发 8。不再把六模型或九批写成运行所必需的固定数量。替代 harness 不混入公开 release 默认运行，私有结果只在私有仓库创建结果 PR。
+provider × 模型 × harness × benchmark 取所选笛卡尔积。一题一个 runner；批次大小 128、批内并发 8。不再把六模型或九批写成运行所必需的固定数量。替代 harness 不混入公开 release 默认运行，私有结果只在私有仓库创建结果 PR。
 
 例：`harnesses=qwenpaw`、`models=qwen3.8-27b,glm-5.3`、`benchmarks=gaia` 只执行两个模型的 GAIA，不能生成新的三项完整主榜成绩。
 
@@ -87,7 +91,7 @@ PR 只允许上述目录中的 `.json` 文件，不包含 Markdown、代码、wo
 
 ## 实施 checklist
 
-- [x] dispatch 的三维单/多选解析与无效输入测试。
+- [x] dispatch 的 harness/provider/model/benchmark 单多选与动态模型配置。
 - [x] 动态实验组合与批次调度，默认公开范围保持不变。
 - [x] 明确并测试独立于 dispatch 选择集合的配置主键。
 - [x] JSON upsert：覆盖同 key、新增新 key、保留未选与 SDK 历史。

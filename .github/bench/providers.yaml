@@ -1,0 +1,10 @@
+# Values are configuration only. Credentials stay in the Bench environment.
+dashscope:
+  base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
+  secret_name: DASHSCOPE_API_KEY
+  protocol: openai
+  prices: .github/bench/prices.yaml
+openai:
+  base_url: https://api.openai.com/v1
+  secret_name: OPENAI_API_KEY
+  protocol: openai

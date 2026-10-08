@@ -14,6 +14,7 @@ import {
   Download,
   ExternalLink,
   Search,
+  CircleHelp,
 } from "lucide-react";
 import Chart, { bestRows, frontier } from "./Chart";
 import { demoHistory } from "./demo";
@@ -403,9 +404,14 @@ export default function Evaluation() {
                     <tr key={row.id} className={best.has(row.id) ? "best" : ""}>
                       <td>
                         <div className="evaluation-model">
-                          <img src={logo(row.model)} alt="" />
+                          {logo(row.model) ? (
+                            <img src={logo(row.model)} alt="" />
+                          ) : (
+                            <CircleHelp size={22} aria-hidden="true" />
+                          )}
                           <div>
                             <strong>{row.model}</strong>
+                            {row.provider && <small>{row.provider}</small>}
                             {best.has(row.id) && (
                               <small>{t("bestShort")}</small>
                             )}

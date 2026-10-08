@@ -52,7 +52,7 @@ def job_config(data: dict, task: dict, model: dict, root: Path) -> dict:
     ]
     settings = data[f"models"]
     info = {
-        key: settings[key]
+        key: model.get(key, settings[key])
         for key in (
             f"max_input_tokens",
             f"max_output_tokens",
@@ -60,6 +60,19 @@ def job_config(data: dict, task: dict, model: dict, root: Path) -> dict:
         )
     }
     info.update(supports_image=model[f"supports_image"])
+    provider = settings[f"provider"]
+    if provider and data[f"harness"] != f"QwenPaw":
+        prefix = (
+            f"ANTHROPIC"
+            if provider[f"protocol"] == f"anthropic"
+            else f"OPENAI"
+        )
+        agent.setdefault(f"env", {}).update(
+            {
+                f"{prefix}_API_KEY": f"${{BENCH_API_KEY}}",
+                f"{prefix}_BASE_URL": settings[f"base_url"],
+            },
+        )
     if data[f"harness"] == f"QwenPaw":
         agent[f"env"].update(
             {
@@ -105,6 +118,7 @@ def normalize(raw: dict, data: dict, task: dict, model: dict, attempt: int):
         f"task_id": task[f"id"],
         f"benchmark": task[f"benchmark"],
         f"model_id": model[f"id"],
+        f"provider": data[f"models"][f"provider"][f"id"],
         f"harness": data[f"harness"],
         f"sdk_version": data[f"harness_version"],
         f"source_sha": data[f"evaluation_sha"],
@@ -133,7 +147,7 @@ def normalize(raw: dict, data: dict, task: dict, model: dict, attempt: int):
 
 def redact(message: str) -> str:
     """Remove the injected credential and its common encoded forms."""
-    key = os.environ.get(f"DASHSCOPE_API_KEY", f"")
+    key = os.environ.get(f"BENCH_API_KEY", f"")
     if key:
         for variant in (
             key,
@@ -236,8 +250,8 @@ def main() -> None:
     path = resolve(args.datasets, task[f"path"])
     if tree_hash(path) != task[f"sha256"]:
         raise ValueError(f"Task checksum mismatch")
-    if not os.environ.get(f"DASHSCOPE_API_KEY"):
-        raise ValueError(f"DASHSCOPE_API_KEY is required")
+    if not os.environ.get(f"BENCH_API_KEY"):
+        raise ValueError(f"BENCH_API_KEY is required")
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=False)
     config = job_config(data, task, model, args.datasets)
@@ -277,7 +291,7 @@ def main() -> None:
         smoke=task[f"benchmark"] == f"smoke",
     )
     encoded = json.dumps(receipt)
-    if os.environ[f"DASHSCOPE_API_KEY"] in encoded:
+    if os.environ[f"BENCH_API_KEY"] in encoded:
         raise ValueError(f"Secret detected in receipt; export blocked")
     save(output / f"receipt.json", receipt)
     print(f"Task status: {receipt['status']}")

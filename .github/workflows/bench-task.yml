@@ -41,6 +41,19 @@ jobs:
         with:
           name: bench-tasks-${{ inputs.experiment }}-${{ inputs.batch }}
           path: ${{ runner.temp }}/batches
+      - name: Resolve provider secret reference
+        id: provider
+        env:
+          MANIFEST_PATH: ${{ runner.temp }}/manifest/manifest.json
+        run: |
+          python - <<'PYCODE'
+          import json, os
+          from pathlib import Path
+          data = json.loads(Path(os.environ['MANIFEST_PATH']).read_text())
+          name = data['models']['provider']['secret_name']
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write('secret_name=' + name + '\n')
+          PYCODE
       - name: Unpack frozen batch
         env:
           BATCH: ${{ inputs.batch }}
@@ -54,7 +67,7 @@ jobs:
           PYCODE
       - name: Run one task-trial via Harbor ACP
         env:
-          DASHSCOPE_API_KEY: ${{ secrets.DASHSCOPE_API_KEY }}
+          BENCH_API_KEY: ${{ secrets[steps.provider.outputs.secret_name] }}
           TASK_ID: ${{ inputs.task }}
           MODEL_INDEX: ${{ inputs.model }}
           ATTEMPT: ${{ inputs.attempt }}

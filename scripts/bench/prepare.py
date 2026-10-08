@@ -21,7 +21,9 @@ def validate_prices(prices: dict, models: dict) -> None:
     if not isinstance(fx, (int, float)) or not math.isfinite(fx) or fx <= 0:
         raise ValueError(f"Invalid exchange rate")
     for model in models[f"models"]:
-        rate = prices[f"models"][model[f"id"]]
+        rate = prices[f"models"].get(model[f"id"])
+        if rate is None:
+            continue
         for key in (f"input", f"output", f"cache"):
             value = rate[key]
             if type(value) not in (int, float) or not math.isfinite(value):

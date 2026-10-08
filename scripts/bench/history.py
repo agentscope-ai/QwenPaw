@@ -116,6 +116,7 @@ def public_run(
         records.append(
             {
                 f"model": model,
+                f"provider": text(record[f"provider"], rf"[A-Za-z0-9_.-]+"),
                 f"harness": text(record[f"harness"], rf"[A-Za-z0-9_. -]+"),
                 f"sdk_version": text(
                     record[f"sdk_version"],

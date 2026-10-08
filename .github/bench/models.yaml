@@ -1,5 +1,9 @@
 # One region, no implicit fallback or server-side model routing.
 base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
+provider:
+  id: dashscope
+  secret_name: DASHSCOPE_API_KEY
+  protocol: openai
 models:
   - id: qwen3.8-max-0902
     supports_image: true

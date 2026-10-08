@@ -44,6 +44,7 @@ jobs:
       matrix:
         include: ${{ fromJSON(needs.matrix.outputs.tasks) }}
     uses: ./.github/workflows/bench-task.yml
+    secrets: inherit
     with:
       experiment: ${{ inputs.experiment }}
       model: ${{ inputs.model }}
@@ -96,6 +97,7 @@ jobs:
       matrix:
         include: ${{ fromJSON(needs.recovery.outputs.tasks) }}
     uses: ./.github/workflows/bench-task.yml
+    secrets: inherit
     with:
       experiment: ${{ inputs.experiment }}
       model: ${{ inputs.model }}

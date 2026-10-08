@@ -14,6 +14,7 @@ from scripts.bench.prepare import freeze
 from scripts.bench.retry import plan
 from scripts.bench.history import public_run
 from scripts.bench.dispatch import experiments, select
+from scripts.bench.provider import configured
 from scripts.bench.results import index, write
 from scripts.bench.run import diagnostics, job_config, normalize
 
@@ -103,7 +104,7 @@ def test_native_timeouts_are_preserved(prepared):
     assert f"override_timeout_sec" not in config[f"agents"][0]
     assert (
         config[f"agents"][0][f"env"][f"OPENAI_API_KEY"]
-        == f"${{DASHSCOPE_API_KEY}}"
+        == f"${{BENCH_API_KEY}}"
     )
     assert (
         config[f"agents"][0][f"kwargs"][f"registry_entry"][f"distribution"][
@@ -248,7 +249,7 @@ def test_diagnostics_export_labels_not_raw_credentials(tmp_path):
 
 def test_acp_summary_redacts_secret_encodings(tmp_path, monkeypatch):
     key = f"TEST_ONLY_CREDENTIAL"
-    monkeypatch.setenv(f"DASHSCOPE_API_KEY", key)
+    monkeypatch.setenv(f"BENCH_API_KEY", key)
     save(
         tmp_path / f"acp-summary.json",
         {f"error": {f"type": f"RuntimeError", f"message": key}},
@@ -303,7 +304,7 @@ def test_native_harness_keeps_adapter_and_private_identity(prepared):
     harbor[f"agents"] = [
         {
             f"name": f"codex",
-            f"env": {f"OPENAI_API_KEY": f"${{DASHSCOPE_API_KEY}}"},
+            f"env": {f"OPENAI_API_KEY": f"${{BENCH_API_KEY}}"},
         },
     ]
     harbor_path.write_text(yaml.safe_dump(harbor))
@@ -387,3 +388,78 @@ def test_partial_upsert_preserves_other_benchmarks_and_failures(
     assert partial[f"domains"][f"research"] == 100
     with pytest.raises(ValueError):
         index(folder, f"private")
+
+
+def test_dispatch_accepts_custom_provider_and_new_model(prepared, tmp_path):
+    _, datasets, source = prepared
+    target = configured(
+        source,
+        tmp_path / f"effective",
+        provider=f"my-provider",
+        models=f"new-model",
+        base_url=f"https://models.example.test/v1",
+        secret_name=f"MY_PROVIDER_KEY",
+        model_options=json.dumps(
+            {
+                f"new-model": {
+                    f"supports_image": True,
+                    f"max_output_tokens": 1024,
+                },
+            },
+        ),
+    )
+    data = freeze(target, datasets, f"1.0.0", f"a" * 40)
+    assert data[f"prices"][f"models"] == {}
+    leaf = experiments(data, f"all", f"all")[0]
+    assert leaf[f"models"][f"provider"][f"secret_name"] == f"MY_PROVIDER_KEY"
+    task = leaf[f"tasks"][0]
+    job = job_config(leaf, task, leaf[f"models"][f"models"][0], datasets)
+    env = job[f"agents"][0][f"env"]
+    assert env[f"OPENAI_MODEL"] == f"new-model"
+    assert env[f"OPENAI_BASE_URL"] == f"https://models.example.test/v1"
+    assert env[f"OPENAI_API_KEY"] == f"${{BENCH_API_KEY}}"
+    info = json.loads(env[f"QWENPAW_MODEL_INFO_JSON"])
+    assert info[f"max_output_tokens"] == 1024
+    assert info[f"supports_image"] is True
+    with pytest.raises(ValueError):
+        configured(
+            source,
+            target,
+            provider=f"custom",
+            models=f"m",
+            base_url=f"https://key:secret@example.test",
+            secret_name=f"KEY",
+        )
+
+
+@pytest.mark.parametrize(
+    f"overrides",
+    [
+        {f"secret_name": f"GITHUB_TOKEN"},
+        {f"base_url": f"http://example.test/v1"},
+        {f"base_url": f"https://example.test/v1?key=value"},
+        {f"models": f"new-model,"},
+        {f"model_options": f'{{"other": {{}}}}'},
+        {
+            f"model_options": (
+                f'{{"new-model": {{"max_output_tokens": -1}}}}'
+            ),
+        },
+    ],
+)
+def test_dispatch_rejects_invalid_provider_options(
+    prepared,
+    tmp_path,
+    overrides,
+):
+    _, _, source = prepared
+    options = {
+        f"provider": f"custom",
+        f"models": f"new-model",
+        f"base_url": f"https://example.test/v1",
+        f"secret_name": f"CUSTOM_KEY",
+        **overrides,
+    }
+    with pytest.raises(ValueError):
+        configured(source, tmp_path / f"invalid", **options)
+    assert not (tmp_path / f"invalid").exists()

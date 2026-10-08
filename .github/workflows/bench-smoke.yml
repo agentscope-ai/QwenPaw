@@ -22,11 +22,11 @@ jobs:
             -p no:cacheprovider tests/unit/scripts/bench -q
       - name: Check model catalog without exposing credentials
         env:
-          DASHSCOPE_API_KEY: ${{ secrets.DASHSCOPE_API_KEY }}
+          BENCH_API_KEY: ${{ secrets.DASHSCOPE_API_KEY }}
         run: uv run --no-project --with harbor==0.24.0 --with litellm==1.103.4 python -m scripts.bench.probe
       - name: Real Docker and QwenPaw ACP smoke
         env:
-          DASHSCOPE_API_KEY: ${{ secrets.DASHSCOPE_API_KEY }}
+          BENCH_API_KEY: ${{ secrets.DASHSCOPE_API_KEY }}
           EVALUATION_SHA: ${{ github.sha }}
           SOURCE_REPOSITORY: ${{ github.repository }}
         run: |
@@ -54,7 +54,7 @@ jobs:
           python-version: '3.12'
       - name: One native GAIA task with original grader and timeouts
         env:
-          DASHSCOPE_API_KEY: ${{ secrets.DASHSCOPE_API_KEY }}
+          BENCH_API_KEY: ${{ secrets.DASHSCOPE_API_KEY }}
           EVALUATION_SHA: ${{ github.sha }}
           SOURCE_REPOSITORY: ${{ github.repository }}
         run: |

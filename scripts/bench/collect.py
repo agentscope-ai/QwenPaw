@@ -28,6 +28,7 @@ def aggregate(data: dict, receipts: list[dict]) -> dict:
             or identity in identities
             or receipt[f"manifest_sha256"] != data[f"sha256"]
             or receipt[f"source_sha"] != data[f"evaluation_sha"]
+            or receipt[f"provider"] != data[f"models"][f"provider"][f"id"]
             or receipt[f"harness"] != data[f"harness"]
             or receipt[f"sdk_version"] != data[f"harness_version"]
             or receipt[f"status"]
@@ -129,6 +130,7 @@ def aggregate(data: dict, receipts: list[dict]) -> dict:
         records.append(
             {
                 f"model": model[f"id"],
+                f"provider": data[f"models"][f"provider"][f"id"],
                 f"harness": data[f"harness"],
                 f"sdk_version": data[f"harness_version"],
                 f"source_sha": data[f"evaluation_sha"],

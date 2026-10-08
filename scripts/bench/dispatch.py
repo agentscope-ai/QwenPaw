@@ -8,10 +8,12 @@ import os
 import subprocess
 import sys
 import tarfile
+from itertools import product
 from pathlib import Path
 
 from .common import digest, load, save, source_version
 from .prepare import freeze
+from .provider import configured
 
 
 def select(value: str, available: list[str]) -> list[str]:
@@ -70,6 +72,11 @@ def main() -> None:
     parser.add_argument(f"--harnesses", default=f"qwenpaw")
     parser.add_argument(f"--models", default=f"all")
     parser.add_argument(f"--benchmarks", default=f"all")
+    parser.add_argument(f"--provider", default=f"dashscope")
+    parser.add_argument(f"--base-url", default=f"")
+    parser.add_argument(f"--secret-name", default=f"")
+    parser.add_argument(f"--model-options", default=f"{{}}")
+    parser.add_argument(f"--price-snapshot", default=f"")
     parser.add_argument(f"--output", type=Path, required=True)
     parser.add_argument(f"--sha", required=True)
     parser.add_argument(f"--repository", required=True)
@@ -78,17 +85,50 @@ def main() -> None:
     registry = load(Path(f".github/bench/harnesses.yaml"))
     matrix = []
     visibility = None
-    for harness_id in select(args.harnesses, list(registry)):
+    catalog = load(Path(f".github/bench/providers.yaml"))
+    providers = (
+        list(catalog)
+        if args.provider == f"all"
+        else list(
+            dict.fromkeys(p.strip() for p in args.provider.split(f",")),
+        )
+    )
+    if len(providers) > 1 and (
+        args.base_url or args.secret_name or args.price_snapshot
+    ):
+        raise ValueError(
+            f"Endpoint, secret and price overrides require one provider",
+        )
+    for harness_id, provider_id in product(
+        select(args.harnesses, list(registry)),
+        providers,
+    ):
         config = Path(registry[harness_id]).resolve()
         config.relative_to(Path.cwd().resolve())
+        config = configured(
+            config,
+            args.output / f"configs" / harness_id / provider_id,
+            provider=provider_id,
+            models=args.models,
+            base_url=args.base_url,
+            secret_name=args.secret_name,
+            model_options=args.model_options,
+            price_snapshot=args.price_snapshot,
+        )
         suite = load(config / f"suite.yaml")
         if suite[f"visibility"] == f"private" and not args.private_repository:
             raise ValueError(
                 f"Private configuration requires a private repository",
             )
-        if visibility and visibility != suite[f"visibility"]:
+        if (
+            visibility
+            and not args.private_repository
+            and visibility != suite[f"visibility"]
+        ):
             raise ValueError(f"Cannot mix public and private experiments")
-        visibility = suite[f"visibility"]
+        visibility = (
+            f"private" if args.private_repository else suite[f"visibility"]
+        )
         select(
             args.models,
             [m[f"id"] for m in load(config / f"models.yaml")[f"models"]],
@@ -96,6 +136,8 @@ def main() -> None:
         select(args.benchmarks, [b[f"id"] for b in suite[f"benchmarks"]])
         datasets = args.output / f"datasets" / harness_id
         for item in suite[f"benchmarks"]:
+            if (datasets / item[f"id"]).exists():
+                continue
             subprocess.run(
                 [
                     sys.executable,
@@ -117,7 +159,8 @@ def main() -> None:
             args.sha,
             args.repository,
         )
-        for leaf in experiments(data, args.models, args.benchmarks):
+        data[f"suite"][f"visibility"] = visibility
+        for leaf in experiments(data, f"all", args.benchmarks):
             experiment = leaf[f"configuration_sha256"][:24]
             folder = args.output / f"experiments" / experiment
             save(folder / f"manifest.json", leaf)
