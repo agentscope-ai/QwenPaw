@@ -245,6 +245,15 @@ export function MarketPanel({
   const market = useMarketSearch();
   const [detailItem, setDetailItem] = useState<MarketResult | null>(null);
 
+  useEffect(() => {
+    if (
+      detailItem &&
+      !market.providers.some((p) => p.key === detailItem.source)
+    ) {
+      setDetailItem(null);
+    }
+  }, [detailItem, market.providers]);
+
   const onInstall = useCallback(
     (item: MarketResult) => {
       install.enqueue([item], installTarget);
@@ -351,7 +360,9 @@ export function MarketPanel({
           );
         })}
 
-        {market.loading && market.results.length === 0 ? (
+        {market.providersLoaded && market.providers.length === 0 ? (
+          <EmptyState text={t("market.noHubs")} />
+        ) : market.loading && market.results.length === 0 ? (
           <EmptyState text={t("common.loading")} />
         ) : market.results.length === 0 &&
           (market.globalError || market.errors.length > 0) ? (

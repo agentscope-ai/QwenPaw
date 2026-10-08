@@ -56,6 +56,11 @@ const PLUGIN_TYPE_CONFIG: Record<
     color: "purple",
     icon: <BrainCircuit size={11} />,
   },
+  hub: {
+    label: "Hub",
+    color: "default",
+    icon: <Package size={11} />,
+  },
   general: {
     label: "General",
     color: "default",

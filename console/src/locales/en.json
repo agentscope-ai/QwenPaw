@@ -5276,6 +5276,7 @@
     "categoryAll": "All",
     "categoryPlaceholder": "Search category",
     "searchResult": "Found {{count}} skills matching \"{{keyword}}\"",
+    "noHubs": "No Hub plugins are loaded. Install a Hub in Plugin Management.",
     "providerUnavailable": "Provider unavailable",
     "noResults": "No results",
     "startTyping": "Type a query above to search the market",

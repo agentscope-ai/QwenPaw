@@ -5296,6 +5296,7 @@
     "categoryAll": "全部",
     "categoryPlaceholder": "搜索分类",
     "searchResult": "\"{{keyword}}\" 相关技能共搜索到 {{count}} 个结果",
+    "noHubs": "暂无已加载的 Hub，请在插件管理中安装 Hub 插件。",
     "providerUnavailable": "数据源不可用",
     "noResults": "没有找到结果",
     "startTyping": "在上方输入关键字以搜索技能市场",

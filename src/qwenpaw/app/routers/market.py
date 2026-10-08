@@ -1,10 +1,9 @@
 # -*- coding: utf-8 -*-
-"""Skill Market HTTP routes.
-"""
+"""Skill Market HTTP routes."""
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from ...market import (
@@ -15,8 +14,7 @@ from ...market import (
     list_providers,
     search_market,
 )
-from ...market.providers import PROVIDERS
-
+from ...market.registry import market_registry
 
 router = APIRouter(prefix="/market", tags=["market"])
 
@@ -31,6 +29,7 @@ class ProviderInfoSpec(BaseModel):
 
 class MarketResultSpec(BaseModel):
     source: str
+    source_label: str | None = None
     slug: str
     name: str
     description: str | None = None
@@ -77,7 +76,10 @@ class MarketSearchResponse(BaseModel):
 
 
 @router.get("/providers", response_model=list[ProviderInfoSpec])
-async def get_market_providers() -> list[ProviderInfoSpec]:
+async def get_market_providers(request: Request) -> list[ProviderInfoSpec]:
+    ready = getattr(request.app.state, "market_ready", None)
+    if ready is not None:
+        await ready.wait()
     return [_provider_info_to_spec(p) for p in list_providers()]
 
 
@@ -88,7 +90,8 @@ async def get_market_categories(lang: str = "en") -> list[CategorySpec]:
 
 @router.post("/search", response_model=MarketSearchResponse)
 async def market_search(body: MarketSearchRequest) -> MarketSearchResponse:
-    unknown = [k for k in body.provider_pages if k not in PROVIDERS]
+    providers = market_registry.snapshot()
+    unknown = [k for k in body.provider_pages if k not in providers]
     if unknown:
         raise HTTPException(
             status_code=400,
@@ -123,8 +126,10 @@ def _provider_info_to_spec(info: ProviderInfo) -> ProviderInfoSpec:
 
 
 def _result_to_spec(item: MarketResult) -> MarketResultSpec:
+    provider = market_registry.snapshot().get(item.source)
     return MarketResultSpec(
         source=item.source,
+        source_label=provider.label if provider else item.source,
         slug=item.slug,
         name=item.name,
         description=item.description,

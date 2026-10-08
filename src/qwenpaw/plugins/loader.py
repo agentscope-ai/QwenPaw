@@ -529,6 +529,8 @@ class PluginLoader:
             ImportError: If module spec cannot be created.
             AttributeError: If plugin doesn't export required objects.
         """
+        from qwenpaw.market import market_registry
+
         module_name = f"plugin_{plugin_id.replace('-', '_')}"
         plugin_dir_str = str(source_path)
         # Plugins with a nested entry (e.g. ``backend/main.py``) resolve
@@ -604,6 +606,7 @@ class PluginLoader:
             api = PluginApi(plugin_id, config or {}, manifest_dict)
             api.set_registry(self.registry)
             self.registry.register_plugin_manifest(plugin_id, manifest_dict)
+            market_registry.begin_load(plugin_id)
 
             if hasattr(plugin_def, "register"):
                 result = plugin_def.register(api)
@@ -638,6 +641,7 @@ class PluginLoader:
             # serving later plugins even with sys.path clean.
             sweep_bare_tree_modules(source_path, modules_before)
 
+        market_registry.finish_load(plugin_id)
         return plugin_def
 
     def _cleanup_failed_load(
@@ -747,6 +751,11 @@ class PluginLoader:
 
         # Ensure plugin dependencies are installed before loading
         await self._ensure_dependencies_installed(source_path, plugin_id)
+
+        if config is None:
+            from ..config import load_config
+
+            config = load_config().plugins.get(plugin_id, {})
 
         backend_entry = manifest.entry.backend
         frontend_entry = manifest.entry.frontend
@@ -1368,10 +1377,13 @@ class PluginLoader:
     ) -> None:
         """Unload a plugin and release a failed unload reservation."""
         from qwenpaw.memory import memory_registry
+        from qwenpaw.market import market_registry
 
+        market_registry.begin_unload(plugin_id)
         try:
             await self._unload_plugin_reserved(plugin_id, delete_files)
         except BaseException:
+            market_registry.cancel_unload(plugin_id)
             memory_registry.cancel_owner_unload(plugin_id)
             raise
 

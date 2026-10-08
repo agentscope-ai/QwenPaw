@@ -88,10 +88,15 @@ Issues = "https://github.com/agentscope-ai/QwenPaw/issues"
 version = {attr = "qwenpaw.__version__.__version__"}
 
 [tool.setuptools]
-packages = { find = { where = ["src", "packages/qwenpawmail-mcp/src"] } }
 include-package-data = true
 
+[tool.setuptools.package-dir]
+"qwenpaw" = "src/qwenpaw"
+"qwenpawmail_mcp" = "packages/qwenpawmail-mcp/src/qwenpawmail_mcp"
+"qwenpaw.plugins.bundled.hub" = "plugins/hub"
+
 [tool.setuptools.package-data]
+"qwenpaw.plugins.bundled.hub" = ["*/plugin.json"]
 # Dockerfile copies console build output to src/qwenpaw/console/ (no dist subdir).
 "qwenpaw" = [
     "console/**",

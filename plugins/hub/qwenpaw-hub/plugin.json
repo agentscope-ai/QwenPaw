@@ -1,0 +1,14 @@
+{
+  "id": "qwenpaw-hub",
+  "name": "QwenPaw Hub",
+  "version": "1.0.0",
+  "type": "hub",
+  "description": "QwenPaw Skill marketplace source.",
+  "author": "QwenPaw Team",
+  "entry": {
+    "backend": "plugin.py"
+  },
+  "qwenpaw_version": {
+    "min": "2.2.2"
+  }
+}

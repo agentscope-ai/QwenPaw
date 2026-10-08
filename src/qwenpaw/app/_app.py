@@ -439,6 +439,7 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
     app.state.get_agent_by_id = _get_agent_by_id
 
     app.state.startup_ready = asyncio.Event()
+    app.state.market_ready = asyncio.Event()
     app.state.startup_time = startup_start_time
     from ..browser.execution.kernel import get_default_kernel_manager
 
@@ -473,7 +474,7 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
     async def _background_startup():  # pylint: disable=too-many-statements
         try:
             # ---- Plugin System (phase 1: startup-critical plugins) ----
-            # Channel and memory plugins must register before agents start.
+            # Channels, memory backends and Hubs register before readiness.
             logger.debug("Initializing plugin system...")
 
             from ..config.utils import get_plugins_dir
@@ -484,6 +485,16 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
             # and load through the same pipeline as 'app'-type plugins
             # (plugin.json carrying meta.pawapp); surfaced only in the App
             # Center, hidden from the sidebar.
+            from ..market.builtin import seed_builtin_hub_plugins
+
+            try:
+                await asyncio.to_thread(
+                    seed_builtin_hub_plugins,
+                    get_plugins_dir(),
+                )
+            except (OSError, ValueError, TimeoutError):
+                logger.exception("Could not initialize default Hub plugins")
+
             plugin_dirs = [get_plugins_dir()]
 
             plugin_loader = PluginLoader(plugin_dirs)
@@ -501,9 +512,10 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
             # Phase 1: load startup-critical plugins before agents start
             await plugin_loader.load_all_plugins(
                 configs=plugin_configs,
-                types=["channel", "memory"],
+                types=["channel", "memory", "hub"],
             )
-            logger.debug("Phase 1: channel and memory plugins loaded")
+            logger.debug("Phase 1: channel, memory and Hub plugins loaded")
+            app.state.market_ready.set()
 
             def _mark_core_agents_ready(_results: dict[str, bool]) -> None:
                 """Publish readiness after the core agent phase."""
@@ -673,6 +685,8 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
                 "Background startup encountered an error",
                 exc_info=True,
             )
+        finally:
+            app.state.market_ready.set()
 
     _bg_task = asyncio.create_task(_background_startup())
     daily_telemetry = start_daily_telemetry()

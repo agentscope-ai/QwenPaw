@@ -392,6 +392,16 @@ class PluginApi:  # pylint: disable=too-many-public-methods
             backend_id,
         )
 
+    def register_market_provider(self, provider, priority: int = 100) -> None:
+        """Register a searchable/downloadable Hub owned by this plugin.
+
+        Import MarketProvider, MarketInstallProvider and MarketResult from
+        qwenpaw.market. Lower priority values appear first in the market.
+        """
+        from qwenpaw.market import market_registry
+
+        market_registry.register(self.plugin_id, provider, priority)
+
     def register_provider(
         self,
         provider_id: str,

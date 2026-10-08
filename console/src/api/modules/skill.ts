@@ -328,6 +328,7 @@ export const skillApi = {
   startHubSkillInstall: (
     payload: {
       bundle_url: string;
+      provider_key?: string;
       version?: string;
       enable?: boolean;
       target_name?: string;
@@ -346,6 +347,7 @@ export const skillApi = {
 
   importPoolSkillFromHub: (payload: {
     bundle_url: string;
+    provider_key?: string;
     version?: string;
     target_name?: string;
   }) =>
