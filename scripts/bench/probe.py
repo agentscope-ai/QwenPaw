@@ -3,7 +3,6 @@
 
 import json
 import os
-import re
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
@@ -35,14 +34,29 @@ def main() -> None:
     }
     for model in settings[f"models"]:
         print(f"Configured model {model['id']}: {model['id'] in ids}")
-    for model in sorted(ids):
-        if (
-            re.fullmatch(rf"(?:qwen|deepseek|glm)[a-zA-Z0-9._-]*", model)
-            and key not in model
-        ):
-            print(f"Available model: {model}")
-    if settings[f"models"][1][f"id"] not in ids:
-        raise SystemExit(2)
+    model = settings[f"models"][1][f"id"]
+    body = {
+        f"model": model,
+        f"messages": [{f"role": f"user", f"content": f"Reply OK"}],
+        f"max_tokens": 16,
+        f"enable_thinking": False,
+    }
+    request = Request(
+        f"{settings['base_url']}/chat/completions",
+        data=json.dumps(body).encode(),
+        headers={
+            f"Authorization": f"Bearer {key}",
+            f"Content-Type": f"application/json",
+        },
+    )
+    try:
+        with urlopen(request, timeout=90) as response:
+            print(f"Direct model probe HTTP status: {response.status}")
+    except HTTPError as error:
+        print(f"Direct model probe HTTP status: {error.code}")
+        raise SystemExit(2) from None
+    except URLError:
+        raise SystemExit(f"Direct model probe network failure") from None
 
 
 if __name__ == f"__main__":
