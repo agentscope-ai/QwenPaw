@@ -111,7 +111,24 @@ def normalize(raw: dict, data: dict, task: dict, model: dict, attempt: int):
     }
 
 
-def diagnostics(output: Path) -> list[str]:
+def redact(message: str) -> str:
+    """Remove the injected credential and its common encoded forms."""
+    key = os.environ.get(f"DASHSCOPE_API_KEY", f"")
+    if key:
+        for variant in (
+            key,
+            quote(key, safe=f""),
+            json.dumps(key)[1:-1],
+            base64.b64encode(key.encode()).decode(),
+            key.encode().hex(),
+        ):
+            message = message.replace(variant, f"[REDACTED]")
+    return re.sub(rf"sk-[a-zA-Z0-9_-]+", f"[REDACTED]", message)
+
+
+# Each branch recognizes an independent diagnostic category.
+# pylint: disable=too-many-branches
+def diagnostics(output: Path, smoke: bool = False) -> list[str]:
     """Export fixed failure labels, never raw process messages."""
     markers = {
         f"no such option": f"unsupported_cli_option",
@@ -145,23 +162,8 @@ def diagnostics(output: Path) -> list[str]:
                 found.add(f"acp_stage:{stage}")
         error = summary.get(f"error") or {}
         message = str(error.get(f"message", f""))
-        key = os.environ.get(f"DASHSCOPE_API_KEY", f"")
-        if key:
-            variants = (
-                key,
-                quote(key, safe=f""),
-                json.dumps(key)[1:-1],
-                base64.b64encode(key.encode()).decode(),
-                key.encode().hex(),
-            )
-            for variant in variants:
-                message = message.replace(variant, f"[REDACTED]")
-            message = re.sub(
-                rf"sk-[a-zA-Z0-9_-]+",
-                f"[REDACTED]",
-                message,
-            )
-            found.add(f"acp_error_summary:{message[:1000]}")
+        if message:
+            found.add(f"acp_error_summary:{redact(message)[:1000]}")
         if error.get(f"type") in (
             f"RequestError",
             f"RuntimeError",
@@ -183,6 +185,18 @@ def diagnostics(output: Path) -> list[str]:
                 found.add(f"frame:{filename}:{int(line)}:{function}")
             for code in re.findall(rf"exit code[: ]+(\d+)", content):
                 found.add(f"exit_code_{int(code)}")
+    if smoke:
+        chunks = []
+        for path in output.rglob(f"acp-events.jsonl"):
+            for line in path.read_text(encoding=f"utf-8").splitlines():
+                event = json.loads(line)
+                update = (event.get(f"payload") or {}).get(f"update") or {}
+                if update.get(f"sessionUpdate") == f"agent_message_chunk":
+                    content = update.get(f"content") or {}
+                    chunks.append(str(content.get(f"text", f"")))
+        if chunks:
+            text = redact(f"".join(chunks))
+            found.add(f"synthetic_task_reply:{text[-1500:]}")
     return sorted(found)
 
 
@@ -239,7 +253,10 @@ def main() -> None:
         }
     )
     receipt = normalize(raw, data, task, model, args.attempt)
-    receipt[f"diagnostics"] = diagnostics(output)
+    receipt[f"diagnostics"] = diagnostics(
+        output,
+        smoke=task[f"benchmark"] == f"smoke",
+    )
     encoded = json.dumps(receipt)
     if os.environ[f"DASHSCOPE_API_KEY"] in encoded:
         raise ValueError(f"Secret detected in receipt; export blocked")
