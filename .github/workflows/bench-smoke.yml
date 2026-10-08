@@ -50,7 +50,7 @@ jobs:
           if-no-files-found: warn
 
   gaia:
-    needs: smoke
+    if: github.repository == 'rayrayraykk/CoPaw'
     environment: Bench
     runs-on: ubuntu-24.04
     timeout-minutes: 60
