@@ -128,6 +128,25 @@ def diagnostics(output: Path) -> list[str]:
         f"validationerror": f"validation_error",
     }
     found = set()
+    for path in output.rglob(f"acp-summary.json"):
+        summary = load(path)
+        for stage in (
+            f"initialize_response",
+            f"session",
+            f"set_model_response",
+            f"prompt_response",
+            f"set_model_error",
+        ):
+            if stage in summary:
+                found.add(f"acp_stage:{stage}")
+        error = summary.get(f"error") or {}
+        if error.get(f"type") in (
+            f"RequestError",
+            f"RuntimeError",
+            f"ValueError",
+            f"TimeoutError",
+        ):
+            found.add(f"acp_error:{error['type']}")
     for path in output.rglob(f"*"):
         if path.is_file() and path.suffix in (f".json", f".log", f".txt"):
             content = path.read_text(errors=f"replace").lower()
