@@ -125,7 +125,9 @@ def test_rate_limit_status_precedes_context_heuristic() -> None:
         "Input text data may contain inappropriate content",
     ],
 )
-def test_content_safety_allows_cross_model_fallback_without_retry(message: str) -> None:
+def test_content_safety_allows_cross_model_fallback_without_retry(
+    message: str,
+) -> None:
     decision = classify_model_error(
         HttpError(400, message),
     )
