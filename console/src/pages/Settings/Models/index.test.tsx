@@ -119,6 +119,7 @@ vi.mock("./components/ProviderIconComponent", () => ({
 }));
 
 import ModelsPage from "./index";
+import styles from "./index.module.less";
 
 function makeProvider(overrides: Partial<ProviderInfo> = {}): ProviderInfo {
   return {
@@ -149,6 +150,28 @@ describe("ModelsPage", () => {
     vi.clearAllMocks();
     localStorage.clear();
     setProviders([]);
+  });
+
+  it("keeps the unified header for the home entry", () => {
+    renderWithProviders(<ModelsPage />, { initialEntries: ["/models"] });
+
+    const header = screen
+      .getByText("models.llmTitle")
+      .closest("[data-page-header]");
+    expect(header).not.toHaveClass(styles.pageHeader);
+    expect(screen.queryByText("nav.settings")).not.toBeInTheDocument();
+  });
+
+  it("keeps only the page title and the settings header style", () => {
+    renderWithProviders(<ModelsPage />, {
+      initialEntries: ["/settings/models"],
+    });
+
+    const header = screen
+      .getByText("models.llmTitle")
+      .closest("[data-page-header]");
+    expect(header).toHaveClass(styles.pageHeader);
+    expect(screen.queryByText("nav.settings")).not.toBeInTheDocument();
   });
 
   it("shows the loading state while fetching", () => {

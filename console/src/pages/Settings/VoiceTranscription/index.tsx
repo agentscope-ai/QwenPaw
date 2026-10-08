@@ -55,10 +55,7 @@ function VoiceTranscriptionPage() {
             )}
           </InlineHelp>
         }
-        items={[
-          { title: t("nav.settings") },
-          { title: t("voiceTranscription.title") },
-        ]}
+        current={t("voiceTranscription.title")}
       />
       <div className={styles.content}>
         <AudioModeCard

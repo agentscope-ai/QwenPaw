@@ -66,12 +66,8 @@ vi.mock("../../../stores/agentStore", () => ({
 }));
 
 vi.mock("@/components/PageHeader", () => ({
-  PageHeader: ({ parent, current }: { parent: string; current: string }) =>
-    React.createElement(
-      "div",
-      { "data-testid": "page-header" },
-      `${parent}/${current}`,
-    ),
+  PageHeader: ({ current }: { current: string }) =>
+    React.createElement("div", { "data-testid": "page-header" }, current),
 }));
 
 const capturedProps = vi.hoisted(() => ({

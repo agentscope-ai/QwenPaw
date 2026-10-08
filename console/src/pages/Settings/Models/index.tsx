@@ -11,7 +11,7 @@ import {
   useMemo,
   useState,
 } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useMatch, useSearchParams } from "react-router-dom";
 import { Button, Input, Modal } from "@agentscope-ai/design";
 import { Alert } from "antd";
 import { Plus, Search, RefreshCw, Plug, ChevronRight } from "lucide-react";
@@ -40,6 +40,7 @@ import styles from "./index.module.less";
 /* ------------------------------------------------------------------ */
 
 function ModelsPage() {
+  const isSettingsEntry = useMatch("/settings/*") !== null;
   const reducedMotion = useReducedMotion();
   const [scopeTab, setScopeTab] = useState<"global" | "agent">("global");
   const { t } = useTranslation();
@@ -330,8 +331,7 @@ function ModelsPage() {
         <>
           {/* ---- LLM Section (top) ---- */}
           <PageHeader
-            className={styles.pageHeader}
-            parent={t("nav.settings")}
+            className={isSettingsEntry ? styles.pageHeader : undefined}
             current={t("models.llmTitle")}
           />
           <div className={styles.scopeTabs} role="tablist">

@@ -79,7 +79,6 @@ export default function BackupsPage() {
     <div className={styles.page}>
       <PageHeader
         className={styles.pageHeader}
-        parent={t("nav.settings")}
         current={t("backup.title")}
         extra={
           <div className={styles.headerRight}>

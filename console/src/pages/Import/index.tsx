@@ -446,7 +446,6 @@ function ImportWorkflow() {
   return (
     <div className={styles.page}>
       <PageHeader
-        parent={t("nav.marketplace")}
         current={t("portabilityImport.title")}
         extra={<InlineHelp>{t("portabilityImport.description")}</InlineHelp>}
       />

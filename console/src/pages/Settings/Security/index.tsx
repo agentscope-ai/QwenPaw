@@ -87,10 +87,7 @@ function SecurityPage() {
 
   return (
     <div className={styles.securityPage}>
-      <PageHeader
-        parent={t("security.parent")}
-        current={t("security.security")}
-      />
+      <PageHeader current={t("security.security")} />
 
       <div className={styles.content}>
         <Tabs
