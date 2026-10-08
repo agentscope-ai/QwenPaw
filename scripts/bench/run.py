@@ -2,6 +2,7 @@
 """Render a native Harbor job and normalize its single trial receipt."""
 
 import argparse
+import base64
 import copy
 import json
 import math
@@ -11,6 +12,7 @@ import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
+from urllib.parse import quote
 
 from harbor.models.job.config import JobConfig
 
@@ -131,7 +133,7 @@ def diagnostics(output: Path) -> list[str]:
     for path in output.rglob(f"acp-summary.json"):
         summary = load(path)
         for stage in (
-            f"initialize_response",
+            f"initialize",
             f"session",
             f"set_model_response",
             f"prompt_response",
@@ -140,6 +142,24 @@ def diagnostics(output: Path) -> list[str]:
             if stage in summary:
                 found.add(f"acp_stage:{stage}")
         error = summary.get(f"error") or {}
+        message = str(error.get(f"message", f""))
+        key = os.environ.get(f"DASHSCOPE_API_KEY", f"")
+        if key:
+            variants = (
+                key,
+                quote(key, safe=f""),
+                json.dumps(key)[1:-1],
+                base64.b64encode(key.encode()).decode(),
+                key.encode().hex(),
+            )
+            for variant in variants:
+                message = message.replace(variant, f"[REDACTED]")
+            message = re.sub(
+                rf"sk-[a-zA-Z0-9_-]+",
+                f"[REDACTED]",
+                message,
+            )
+            found.add(f"acp_error_summary:{message[:1000]}")
         if error.get(f"type") in (
             f"RequestError",
             f"RuntimeError",
