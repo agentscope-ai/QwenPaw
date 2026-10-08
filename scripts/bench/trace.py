@@ -52,7 +52,11 @@ def redacted(payload: bytes, suffix: str) -> bytes:
         text = payload.decode(f"utf-8")
     except UnicodeDecodeError:
         return payload
-    text = re.sub(rf"sk-[A-Za-z0-9_-]+", f"[REDACTED]", text)
+    text = re.sub(
+        rf"(?<![A-Za-z0-9_-])sk-[A-Za-z0-9_-]{{16,}}",
+        f"[REDACTED]",
+        text,
+    )
     text = re.sub(
         rf"(?i)(Bearer\s+)[A-Za-z0-9._~+/=-]+",
         rf"\1[REDACTED]",

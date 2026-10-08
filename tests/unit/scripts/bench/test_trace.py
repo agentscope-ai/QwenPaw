@@ -8,7 +8,7 @@ import tarfile
 
 import pytest
 
-from scripts.bench.trace import publish
+from scripts.bench.trace import publish, redacted
 
 
 def test_trace_preserves_events_and_redacts_credentials(tmp_path, monkeypatch):
@@ -61,3 +61,14 @@ def test_trace_does_not_follow_external_symlinks(tmp_path):
     ]
     with pytest.raises(ValueError):
         publish(root, root / f"public")
+
+
+def test_redaction_preserves_task_words_and_code(monkeypatch):
+    monkeypatch.delenv(f"BENCH_API_KEY", raising=False)
+    text = f"task-specific task-scoped xlsx-task-workflow task-long-name-here"
+    assert redacted(text.encode(), f".txt").decode() == text
+    token = f"sk-abcdefghijklmnop123456"
+    assert token.encode() not in redacted(
+        f"key={token}\n".encode(),
+        f".txt",
+    )
