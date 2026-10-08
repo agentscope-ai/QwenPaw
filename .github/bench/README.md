@@ -16,7 +16,7 @@ TL;DR：不创建根目录 `evaluation/`，不修改产品依赖。配置和调�
 | `tests/unit/scripts/bench/` | 计分、完整性、预算、费用与隔离测试 |
 | `docs/design/` | HTML 效果原型与实施 checklist |
 
-所有命令从仓库根目录执行。`uv run --no-project --with harbor==0.24.0` 使用 uv 的工具环境，不读取产品项目依赖，不创建产品 `.venv`。容器里的 QwenPaw 使用 `uvx` 安装指定已发布版本，通过 ACP 调用，不复制产品 agent loop。运行数据放 `$RUNNER_TEMP`，不进入源码目录。
+所有命令从仓库根目录执行。`uv run --no-project --with harbor==0.24.0` 使用 uv 的工具环境，不读取产品项目依赖，不创建产品 `.venv`。容器里的 QwenPaw 使用 `uvx` 安装指定已发布版本，通过 ACP 调用，不复制产品 agent loop。模型由 runtime provider 的 `OPENAI_MODEL` 固定，不设置 Harbor agent.model_name：后者会请求可选 ACP session model selection，当前双方没有协商出该接口。模型身份由冻结配置和 receipt 保存，不发生隐式 fallback。运行数据放 `$RUNNER_TEMP`，不进入源码目录。
 
 不做纯 YAML：完整性校验、跨 benchmark 等权聚合、费用未知处理不是 workflow 表达式擅长的工作。把这些逻辑塞进 YAML 的内联脚本也没有减少代码，反而难以测试。
 

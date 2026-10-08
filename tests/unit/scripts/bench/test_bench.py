@@ -92,6 +92,10 @@ def test_native_timeouts_are_preserved(prepared):
     assert task[f"job_minutes"] == 45
     config = job_config(data, task, data[f"models"][f"models"][0], datasets)
     assert config[f"timeout_multiplier"] == 1
+    assert f"model_name" not in config[f"agents"][0]
+    assert config[f"agents"][0][f"env"][f"OPENAI_MODEL"] == (
+        data[f"models"][f"models"][0][f"id"]
+    )
     assert f"override_timeout_sec" not in config[f"agents"][0]
     assert (
         config[f"agents"][0][f"env"][f"OPENAI_API_KEY"]
@@ -233,3 +237,15 @@ def test_diagnostics_export_labels_not_raw_credentials(tmp_path):
         f"SECRET_TEST_VALUE no such option: --runtime-provider exit code: 2",
     )
     assert diagnostics(tmp_path) == [f"exit_code_2", f"unsupported_cli_option"]
+
+
+def test_acp_summary_redacts_secret_encodings(tmp_path, monkeypatch):
+    key = f"TEST_ONLY_CREDENTIAL"
+    monkeypatch.setenv(f"DASHSCOPE_API_KEY", key)
+    save(
+        tmp_path / f"acp-summary.json",
+        {f"error": {f"type": f"RuntimeError", f"message": key}},
+    )
+    result = json.dumps(diagnostics(tmp_path))
+    assert key not in result
+    assert f"[REDACTED]" in result
