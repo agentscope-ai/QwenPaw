@@ -27,7 +27,9 @@ def job_config(data: dict, task: dict, model: dict, root: Path) -> dict:
     version = data[f"product_version"]
     registry[f"version"] = version
     registry[f"distribution"][f"uvx"][f"package"] = f"qwenpaw=={version}"
-    agent[f"model_name"] = f"runtime-openai:{model[f'id']}"
+    # OPENAI_MODEL fixes the runtime provider for this task.
+    # Avoid the optional ACP session model-selection extension.
+    agent.pop(f"model_name", None)
     agent[f"override_setup_timeout_sec"] = data[f"suite"][
         f"agent_setup_seconds"
     ]
