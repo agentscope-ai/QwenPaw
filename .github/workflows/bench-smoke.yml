@@ -27,6 +27,8 @@ jobs:
           uv run --no-project --with harbor==0.24.0 --with pytest python -m pytest \
             -c /dev/null --confcutdir=tests/unit/scripts/bench \
             -p no:cacheprovider tests/unit/scripts/bench -q
+      - name: Verify published ACP entry point without credentials
+        run: uvx --from qwenpaw==2.2.2b4 qwenpaw acp --help
       - name: Real Docker and QwenPaw ACP smoke
         env:
           DASHSCOPE_API_KEY: ${{ secrets.DASHSCOPE_API_KEY }}

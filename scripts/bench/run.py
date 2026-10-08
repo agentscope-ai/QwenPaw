@@ -5,6 +5,7 @@ import copy
 import json
 import math
 import os
+import re
 import subprocess
 import sys
 from datetime import datetime
@@ -105,6 +106,37 @@ def normalize(raw: dict, data: dict, task: dict, model: dict, attempt: int):
     }
 
 
+def diagnostics(output: Path) -> list[str]:
+    """Export fixed failure labels, never raw process messages."""
+    markers = {
+        f"no such option": f"unsupported_cli_option",
+        f"no such command": f"unsupported_cli_command",
+        f"modulenotfounderror": f"missing_python_module",
+        f"importerror": f"python_import_error",
+        f"command not found": f"missing_executable",
+        f"invalid_api_key": f"authentication_failed",
+        f"incorrect api key": f"authentication_failed",
+        f"modelnotfound": f"model_unavailable",
+        f"model not found": f"model_unavailable",
+        f"connection refused": f"connection_refused",
+        f"permission denied": f"permission_denied",
+        f"out of memory": f"out_of_memory",
+        f"no space left": f"disk_full",
+        f"unsupportedmodel": f"unsupported_model",
+        f"validationerror": f"validation_error",
+    }
+    found = set()
+    for path in output.rglob(f"*"):
+        if path.is_file() and path.suffix in (f".json", f".log", f".txt"):
+            content = path.read_text(errors=f"replace").lower()
+            found.update(
+                label for token, label in markers.items() if token in content
+            )
+            for code in re.findall(rf"exit code[: ]+(\d+)", content):
+                found.add(f"exit_code_{int(code)}")
+    return sorted(found)
+
+
 def main() -> None:
     """Run one task and store its raw artifacts beside the receipt."""
     parser = argparse.ArgumentParser()
@@ -158,6 +190,7 @@ def main() -> None:
         }
     )
     receipt = normalize(raw, data, task, model, args.attempt)
+    receipt[f"diagnostics"] = diagnostics(output)
     encoded = json.dumps(receipt)
     if os.environ[f"DASHSCOPE_API_KEY"] in encoded:
         raise ValueError(f"Secret detected in receipt; export blocked")

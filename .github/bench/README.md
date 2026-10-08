@@ -22,7 +22,7 @@ TL;DR：不创建根目录 `evaluation/`，不修改产品依赖。配置和调�
 
 ## 执行
 
-配置 `DASHSCOPE_API_KEY` secret。离线验收后将 repository variable `BENCH_ENABLED=true`，才自动响应 published release；手动 workflow_dispatch 可用于验收，version 必须是已发布包的精确版本。发布 tag 与包版本须一致，包须已可下载。
+在 `Bench` environment 配置 `DASHSCOPE_API_KEY` secret；实际模型 job 绑定该 environment，调用层不传递凭据。离线验收后将 repository variable `BENCH_ENABLED=true`，才自动响应 published release；手动 workflow_dispatch 可用于验收，version 必须是已发布包的精确版本。发布 tag 与包版本须一致，包须已可下载。
 
 1. 原生 Harbor CLI 导出数据；核对 165 + 400 + 500 题，冻结文件校验和与本轮配置。
 2. 每模型 1,065 题，拆成 8 × 128 + 41，共九批。六模型依次执行，批间串行、批内并发 8，一题一次 trial 独占一台 runner。完整一轮为 6,390 个任务 job，另有准备和汇总 job。
@@ -48,7 +48,9 @@ Windows 使用等价路径和 PowerShell 命令续行；Python 帮助程序使�
 
 公开 JSON 是白名单摘要，包含 SDK 版本、模型、配置摘要、综合/领域/benchmark 分数、覆盖率、平均耗时和模型费用。保留每轮产物供后续构建 SDK 历史，不选最高 attempt。当前费用只取 Harbor 返回的 model cost；未知为 null，不填 0、不冒充完整账单。`observed_model_spend_usd` 单独统计收到的全部 attempt 中已知费用（含基础设施失败），同时给出已知数量和 observed 数量；它不是全量费用。工具、judge、基础设施费用仍待对账接入。
 
-原始轨迹单独上传 artifact，不进入摘要。在公开仓库中 artifact 不是私有存储；只允许公开评测进入该 workflow，须完成数据许可和日志披露检查。private harness 比较必须留在私有仓库；当前运行器只实现 QwenPaw，不能宣称已经支持其他 harness。
+当前不上传原始轨迹，也不输出 Harbor 子进程日志；只上传经过 Key 字面值检查的结构化 receipt。在公开仓库中 artifact 不是私有存储，只允许公开评测进入该 workflow。private harness 比较必须留在私有仓库；当前运行器只实现 QwenPaw，不能宣称已经支持其他 harness。
+
+`.github/workflows/bench-smoke.yml` 在个人 origin 的 `feat/bench` push 时运行一个合成任务，用 `qwen3.8-27b` 验证真实 Docker / ACP / 工具 / grader 链路。合成任务不属于正式 benchmark，也不发布排名。生产自动发布仍由 `BENCH_ENABLED` 控制。
 
 ## 验收状态与后续
 

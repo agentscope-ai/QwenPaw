@@ -10,7 +10,7 @@ import yaml
 from scripts.bench.collect import aggregate
 from scripts.bench.common import manifest, resolve, save
 from scripts.bench.prepare import freeze
-from scripts.bench.run import job_config, normalize
+from scripts.bench.run import diagnostics, job_config, normalize
 
 
 @pytest.fixture
@@ -213,3 +213,10 @@ def test_yaml_scope_fits_serial_batches():
     assert len(workflow[f"jobs"]) == len(sizes)
     for i in range(1, len(sizes)):
         assert workflow[f"jobs"][f"batch_{i}"][f"needs"] == f"batch_{i - 1}"
+
+
+def test_diagnostics_export_labels_not_raw_credentials(tmp_path):
+    (tmp_path / f"stderr.txt").write_text(
+        f"SECRET_TEST_VALUE no such option: --runtime-provider exit code: 2"
+    )
+    assert diagnostics(tmp_path) == [f"exit_code_2", f"unsupported_cli_option"]
