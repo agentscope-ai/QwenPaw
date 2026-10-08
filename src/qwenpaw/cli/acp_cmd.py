@@ -78,7 +78,7 @@ def acp_cmd(
 
     # ACP owns stdout exclusively; setup diagnostics belong on stderr.
     with redirect_stdout(sys.stderr):
-        ensure_local_runtime_initialized()
+        ensure_local_runtime_initialized(skip_bootstrap=True)
 
     from ..agents.acp.server import run_qwenpaw_agent
 

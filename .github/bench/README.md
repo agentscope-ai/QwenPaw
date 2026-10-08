@@ -50,7 +50,7 @@ Windows 使用等价路径和 PowerShell 命令续行；Python 帮助程序使�
 
 当前不上传原始轨迹，也不输出 Harbor 子进程日志；只上传经过 Key 字面值检查的结构化 receipt。诊断摘要会先移除 Key 及其常见编码形式；合成任务另保留脱敏回复用于排错，真实 benchmark 不导出回复正文。在公开仓库中 artifact 不是私有存储，只允许公开评测进入该 workflow。private harness 比较必须留在私有仓库；当前运行器只实现 QwenPaw，不能宣称已经支持其他 harness。
 
-`.github/workflows/bench-smoke.yml` 在个人 origin 的 `feat/bench` push 时运行一个合成任务，用 `qwen3.8-27b` 验证真实 Docker / ACP / 工具 / grader 链路，同时独立执行一题固定 GAIA 任务。合成任务不属于正式 benchmark，也不发布排名。生产自动发布仍由 `BENCH_ENABLED` 控制。
+`.github/workflows/bench-smoke.yml` 仅手动触发，不再随 push 自动调用付费模型。正式评测仍由 release + `BENCH_ENABLED` 或显式 workflow_dispatch 触发。ACP 初始化跳过 BOOTSTRAP.md 的生成和引导 hook，其他配置与技能正常初始化；旧用户文件不删除。
 
 ## 验收状态与后续
 
@@ -58,5 +58,5 @@ Windows 使用等价路径和 PowerShell 命令续行；Python 帮助程序使�
 - 已在个人 origin 的 GitHub-hosted runner 上跑通真实 Docker / ACP 合成任务（reward 1）及 GAIA 单题原生评分（reward 0），模型直接调用返回 HTTP 200。详见 [试跑记录](../../docs/design/qwenpaw-evaluation-smoke-report.md)。这不代表全量 benchmark 或另外两项的资源验收已完成。
 - 数据导出在单轮内按文件哈希冻结；跨 release 固定 dataset revision、镜像 digest 与传递依赖锁定仍待完成，当前不能宣称跨轮完全可复现。
 - 六模型的账户权限、多模态、工具调用和生成参数需离线确认；parity 报告也离线完成，不放进 release 的在线确认流程。
-- 当前只生成公开 summary artifact，尚未接网站历史存储和自动部署。HTML 是带 mock 数据的设计原型，不是实测成绩。
+- 已实现 bench-results 历史索引与统一网站部署代码，尚未完成真实发布验收；网站页面仍待验收和提交。完整状态见[实现差距核对](../../docs/design/qwenpaw-evaluation-gap-review.md)。
 - PawBench / Claw-Eval 待确认现成 Harbor 接入后再讨论纳入；AppWorld / Terminal-Bench 不在首期。

@@ -155,7 +155,10 @@ def _sync_default_workspace_skills(
     return enabled
 
 
-def ensure_local_runtime_initialized() -> None:
+def ensure_local_runtime_initialized(
+    *,
+    skip_bootstrap: bool = False,
+) -> None:
     """Initialize a Local Hub runtime once without resetting existing data."""
     working_dir = get_config_path().parent
     marker = working_dir / ".hub-initialized"
@@ -168,6 +171,7 @@ def ensure_local_runtime_initialized() -> None:
                 force=False,
                 use_defaults=True,
                 accept_security=True,
+                skip_bootstrap=skip_bootstrap,
             )
     else:
         config = load_config()
@@ -181,7 +185,12 @@ def ensure_local_runtime_initialized() -> None:
         ensure_skill_pool_initialized()
         _sync_default_workspace_skills(workspace)
         language = config.agents.language or "zh"
-        copy_md_files(language, skip_existing=True, workspace_dir=workspace)
+        copy_md_files(
+            language,
+            skip_existing=True,
+            workspace_dir=workspace,
+            exclude_filenames={f"BOOTSTRAP.md"} if skip_bootstrap else None,
+        )
         heartbeat_path = get_heartbeat_query_path()
         if not heartbeat_path.exists():
             heartbeat_path.write_text(
@@ -212,11 +221,17 @@ def ensure_local_runtime_initialized() -> None:
     is_flag=True,
     help="Skip security confirmation (use with --defaults for scripts/Docker).",
 )
+@click.option(
+    f"--skip-bootstrap",
+    is_flag=True,
+    help=f"Do not create BOOTSTRAP.md (for non-interactive agents).",
+)
 # pylint: disable=too-many-branches,too-many-statements
 def init_cmd(
     force: bool,
     use_defaults: bool,
     accept_security: bool,
+    skip_bootstrap: bool = False,
 ) -> None:
     """Create working dir with config.json and HEARTBEAT.md (interactive)."""
     from ..app.migration import (
@@ -497,6 +512,7 @@ def init_cmd(
             current_language,
             skip_existing=True,
             workspace_dir=default_workspace,
+            exclude_filenames={f"BOOTSTRAP.md"} if skip_bootstrap else None,
         )
         if copied:
             config.agents.installed_md_files_language = current_language
@@ -515,6 +531,7 @@ def init_cmd(
         copied = copy_md_files(
             current_language,
             workspace_dir=default_workspace,
+            exclude_filenames={f"BOOTSTRAP.md"} if skip_bootstrap else None,
         )
         if copied:
             config.agents.installed_md_files_language = current_language

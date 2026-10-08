@@ -12,7 +12,8 @@ from qwenpaw.cli.acp_cmd import acp_cmd
 def test_acp_cmd_passes_local_diagnostics(monkeypatch, tmp_path):
     captured = {}
 
-    def initialize():
+    def initialize(*, skip_bootstrap):
+        assert skip_bootstrap is True
         captured[f"initialized"] = True
         print(f"Initialization diagnostic")
 
@@ -51,7 +52,8 @@ def test_acp_cmd_passes_local_diagnostics(monkeypatch, tmp_path):
 
 
 def test_acp_initialization_failure_does_not_start_agent(monkeypatch):
-    def initialize():
+    def initialize(*, skip_bootstrap):
+        assert skip_bootstrap is True
         raise OSError(f"Workspace is not writable")
 
     async def start(**_kwargs):
