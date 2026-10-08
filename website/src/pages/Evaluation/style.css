@@ -122,7 +122,9 @@
   max-width: 100%;
   background: var(--eval-canvas);
   border: 1px solid var(--eval-border);
-  padding: 8px 12px;
+  appearance: none;
+  width: 100%;
+  padding: 8px 40px 8px 14px;
   border-radius: 10px;
   color: var(--eval-text);
 }
@@ -415,13 +417,7 @@
     gap: 4px 16px;
     padding: 12px;
   }
-  .evaluation-controls label:first-child {
-    width: 100%;
-  }
-  .evaluation-controls label:first-child select {
-    flex: 1;
-    min-width: 0;
-  }
+
   .evaluation-chart-surface {
     border-radius: 16px;
   }
@@ -484,4 +480,67 @@
 }
 .evaluation-search input:focus-visible {
   outline: none;
+}
+
+.evaluation-board-controls,
+.evaluation-display-controls {
+  display: flex;
+  align-items: center;
+  gap: 12px 24px;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+.evaluation-display-controls {
+  margin-left: auto;
+}
+.evaluation-controls label {
+  white-space: nowrap;
+}
+.evaluation-select {
+  position: relative;
+  display: inline-flex;
+  min-width: 0;
+  max-width: 100%;
+}
+.evaluation-select > svg {
+  position: absolute;
+  right: 14px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--eval-muted);
+  pointer-events: none;
+}
+.evaluation-board-select .evaluation-select {
+  width: clamp(230px, 22vw, 320px);
+}
+.evaluation-scope-select {
+  width: 200px;
+}
+@media (max-width: 1100px) {
+  .evaluation-display-controls {
+    margin-left: 0;
+    width: 100%;
+    justify-content: flex-start;
+  }
+  .evaluation-board-controls {
+    width: 100%;
+  }
+}
+@media (max-width: 700px) {
+  .evaluation-controls {
+    gap: 12px;
+  }
+  .evaluation-board-select {
+    width: 100%;
+  }
+  .evaluation-board-select .evaluation-select {
+    width: auto;
+    flex: 1;
+  }
+  .evaluation-display-controls {
+    gap: 6px 18px;
+  }
+  .evaluation-scope-select {
+    width: 100%;
+  }
 }

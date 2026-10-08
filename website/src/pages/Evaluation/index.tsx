@@ -252,72 +252,85 @@ export default function Evaluation() {
         <>
           <section className="evaluation-chart-surface">
             <div className="evaluation-controls">
-              <label>
-                {t("board")}
-                <select
-                  value={metric}
-                  onChange={(e) => setMetric(e.target.value)}
-                >
-                  <option value="index">{t("main")}</option>
-                  <optgroup label={t("domainBoards")}>
-                    {Object.keys(domains).map((key) => (
-                      <option key={key} value={`domain:${key}`}>
-                        {t(`domains.${key}`)}
-                      </option>
-                    ))}
-                  </optgroup>
-                  <optgroup label={t("benchmarkBoards")}>
-                    {Object.entries(benchmarks).map(([key, label]) => (
-                      <option key={key} value={`benchmark:${key}`}>
-                        {label}
-                      </option>
-                    ))}
-                  </optgroup>
-                </select>
-              </label>
-              {versions.length > 1 && (
-                <label>
-                  {t("protocol")}
-                  <select
-                    value={activeProtocol}
-                    onChange={(e) => setProtocol(e.target.value)}
-                  >
-                    {versions.map((v) => (
-                      <option key={v}>{v}</option>
-                    ))}
-                  </select>
+              <div className="evaluation-board-controls">
+                <label className="evaluation-board-select">
+                  <span>{t("board")}</span>
+                  <span className="evaluation-select">
+                    <select
+                      value={metric}
+                      onChange={(e) => setMetric(e.target.value)}
+                    >
+                      <option value="index">{t("main")}</option>
+                      <optgroup label={t("domainBoards")}>
+                        {Object.keys(domains).map((key) => (
+                          <option key={key} value={`domain:${key}`}>
+                            {t(`domains.${key}`)}
+                          </option>
+                        ))}
+                      </optgroup>
+                      <optgroup label={t("benchmarkBoards")}>
+                        {Object.entries(benchmarks).map(([key, label]) => (
+                          <option key={key} value={`benchmark:${key}`}>
+                            {label}
+                          </option>
+                        ))}
+                      </optgroup>
+                    </select>
+                    <ChevronDown size={16} aria-hidden="true" />
+                  </span>
                 </label>
-              )}
-              <label>
-                <input
-                  type="checkbox"
-                  checked={showHistory}
-                  onChange={(e) => setShowHistory(e.target.checked)}
-                />
-                {t("historyPoints")}
-              </label>
-              <label>
-                <input
-                  type="checkbox"
-                  checked={demo}
-                  onChange={(e) => changeDemo(e.target.checked)}
-                />
-                {t("demo")}
-              </label>
-              {demo && (
-                <select
-                  aria-label={t("demoScope")}
-                  value={privateView ? "private" : "public"}
-                  onChange={(e) => {
-                    const next = new URLSearchParams(params);
-                    next.set("scope", e.target.value);
-                    setParams(next);
-                  }}
-                >
-                  <option value="public">{t("publicDemo")}</option>
-                  <option value="private">{t("privateDemo")}</option>
-                </select>
-              )}
+                {versions.length > 1 && (
+                  <label>
+                    {t("protocol")}
+                    <span className="evaluation-select">
+                      <select
+                        value={activeProtocol}
+                        onChange={(e) => setProtocol(e.target.value)}
+                      >
+                        {versions.map((v) => (
+                          <option key={v}>{v}</option>
+                        ))}
+                      </select>
+                      <ChevronDown size={16} aria-hidden="true" />
+                    </span>
+                  </label>
+                )}
+              </div>
+              <div className="evaluation-display-controls">
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={showHistory}
+                    onChange={(e) => setShowHistory(e.target.checked)}
+                  />
+                  {t("historyPoints")}
+                </label>
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={demo}
+                    onChange={(e) => changeDemo(e.target.checked)}
+                  />
+                  {t("demo")}
+                </label>
+                {demo && (
+                  <span className="evaluation-select evaluation-scope-select">
+                    <select
+                      aria-label={t("demoScope")}
+                      value={privateView ? "private" : "public"}
+                      onChange={(e) => {
+                        const next = new URLSearchParams(params);
+                        next.set("scope", e.target.value);
+                        setParams(next);
+                      }}
+                    >
+                      <option value="public">{t("publicDemo")}</option>
+                      <option value="private">{t("privateDemo")}</option>
+                    </select>
+                    <ChevronDown size={16} aria-hidden="true" />
+                  </span>
+                )}
+              </div>
             </div>
             <div className="evaluation-chart">
               <Chart
