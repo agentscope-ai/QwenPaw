@@ -2,6 +2,9 @@ name: One model benchmark suite
 on:
   workflow_call:
     inputs:
+      task_parallelism:
+        required: true
+        type: number
       batches:
         required: true
         type: number
@@ -228,6 +231,7 @@ jobs:
     with:
       experiment: ${{ inputs.experiment }}
       model: ${{ inputs.model }}
+      task_parallelism: ${{ inputs.task_parallelism }}
       batch: 0
   batch_1:
     needs: [stage, batch_0]
@@ -237,6 +241,7 @@ jobs:
     with:
       experiment: ${{ inputs.experiment }}
       model: ${{ inputs.model }}
+      task_parallelism: ${{ inputs.task_parallelism }}
       batch: 1
   batch_2:
     needs: [stage, batch_1]
@@ -246,6 +251,7 @@ jobs:
     with:
       experiment: ${{ inputs.experiment }}
       model: ${{ inputs.model }}
+      task_parallelism: ${{ inputs.task_parallelism }}
       batch: 2
   batch_3:
     needs: [stage, batch_2]
@@ -255,6 +261,7 @@ jobs:
     with:
       experiment: ${{ inputs.experiment }}
       model: ${{ inputs.model }}
+      task_parallelism: ${{ inputs.task_parallelism }}
       batch: 3
   batch_4:
     needs: [stage, batch_3]
@@ -264,6 +271,7 @@ jobs:
     with:
       experiment: ${{ inputs.experiment }}
       model: ${{ inputs.model }}
+      task_parallelism: ${{ inputs.task_parallelism }}
       batch: 4
   batch_5:
     needs: [stage, batch_4]
@@ -273,6 +281,7 @@ jobs:
     with:
       experiment: ${{ inputs.experiment }}
       model: ${{ inputs.model }}
+      task_parallelism: ${{ inputs.task_parallelism }}
       batch: 5
   batch_6:
     needs: [stage, batch_5]
@@ -282,6 +291,7 @@ jobs:
     with:
       experiment: ${{ inputs.experiment }}
       model: ${{ inputs.model }}
+      task_parallelism: ${{ inputs.task_parallelism }}
       batch: 6
   batch_7:
     needs: [stage, batch_6]
@@ -291,6 +301,7 @@ jobs:
     with:
       experiment: ${{ inputs.experiment }}
       model: ${{ inputs.model }}
+      task_parallelism: ${{ inputs.task_parallelism }}
       batch: 7
   batch_8:
     needs: [stage, batch_7]
@@ -300,4 +311,5 @@ jobs:
     with:
       experiment: ${{ inputs.experiment }}
       model: ${{ inputs.model }}
+      task_parallelism: ${{ inputs.task_parallelism }}
       batch: 8

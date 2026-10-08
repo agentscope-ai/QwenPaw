@@ -9,6 +9,14 @@ on:
     types: [published]
   workflow_dispatch:
     inputs:
+      task_limit:
+        description: Tasks per benchmark for incomplete validation only (0 = full)
+        type: number
+        default: 0
+      parallelism:
+        description: 'Runner concurrency JSON: experiments x tasks (account limit still applies)'
+        type: string
+        default: '{"experiments":6,"tasks":16}'
       harnesses:
         description: 'Harness IDs: one, comma-separated, or all'
         type: string
@@ -54,6 +62,8 @@ jobs:
     outputs:
       experiments: ${{ steps.prepare.outputs.experiments }}
       visibility: ${{ steps.prepare.outputs.visibility }}
+      experiment_parallelism: ${{ steps.prepare.outputs.experiment_parallelism }}
+      task_parallelism: ${{ steps.prepare.outputs.task_parallelism }}
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
@@ -63,6 +73,8 @@ jobs:
       - id: prepare
         name: Freeze protocol and resolve selected experiments
         env:
+          TASK_LIMIT: ${{ inputs.task_limit || 0 }}
+          PARALLELISM: ${{ inputs.parallelism || '{"experiments":6,"tasks":16}' }}
           PROVIDER_SELECTION: ${{ github.event_name == 'release' && 'dashscope' || inputs.provider }}
           PROVIDER_BASE_URL: ${{ inputs.base_url }}
           PROVIDER_SECRET_NAME: ${{ inputs.api_key_secret }}
@@ -79,6 +91,8 @@ jobs:
           if [ "$PRIVATE_REPOSITORY" = true ]; then flags+=(--private-repository); fi
           uv run --no-project --with harbor==0.24.0 --with litellm==1.103.4 \
             python -m scripts.bench.dispatch "${flags[@]}" \
+            --task-limit "$TASK_LIMIT" \
+            --parallelism "$PARALLELISM" \
             --provider "$PROVIDER_SELECTION" --base-url "$PROVIDER_BASE_URL" \
             --secret-name "$PROVIDER_SECRET_NAME" --model-options "$MODEL_OPTIONS" \
             --price-snapshot "$PRICE_SNAPSHOT" \
@@ -96,7 +110,7 @@ jobs:
     needs: prepare
     strategy:
       fail-fast: false
-      max-parallel: 1
+      max-parallel: ${{ fromJSON(needs.prepare.outputs.experiment_parallelism) }}
       matrix:
         include: ${{ fromJSON(needs.prepare.outputs.experiments) }}
     uses: ./.github/workflows/bench-model.yml
@@ -105,6 +119,7 @@ jobs:
       experiment: ${{ matrix.experiment }}
       batches: ${{ matrix.batches }}
       model: 0
+      task_parallelism: ${{ fromJSON(needs.prepare.outputs.task_parallelism) }}
   results:
     needs: [prepare, experiments]
     if: ${{ always() && !cancelled() && needs.prepare.result == 'success' }}

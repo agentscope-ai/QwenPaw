@@ -47,7 +47,7 @@ Windows 使用等价路径和 PowerShell 命令续行；Python 帮助程序使�
 
 公开 JSON 是白名单摘要，包含 SDK 版本、模型、配置摘要、综合/领域/benchmark 分数、覆盖率、平均耗时和模型费用。保留每轮产物供后续构建 SDK 历史，不选最高 attempt。费用按服务端报告 → LiteLLM → 官方价格快照 × token usage 选择；仍缺必要数据才为 null。价格/汇率随 manifest 冻结。ACP `_meta.usage` 透传缓存计数与完整性，context occupancy 不用于计费。缓存不完整按无缓存价保守估算；DeepSeek 未提供逐请求峰谷条件时使用忙时价上界，均标记 upper_bound。估算不冒充账单实付。benchmark 平均费用含该题所有允许尝试，综合费用按 benchmark 等权。`observed_model_spend_usd` 单独统计收到的全部 attempt 中已知费用（含基础设施失败），同时给出已知数量和 observed 数量；它不是全量费用。工具、judge、基础设施费用仍待对账接入。
 
-当前不上传原始轨迹，也不输出 Harbor 子进程日志；只上传经过 Key 字面值检查的结构化 receipt。诊断摘要会先移除 Key 及其常见编码形式；合成任务另保留脱敏回复用于排错，真实 benchmark 不导出回复正文。在公开仓库中 artifact 不是私有存储，只允许公开评测进入该 workflow。private harness 比较必须留在私有仓库；运行器支持登记 Harbor 原生 agent 或 ACP 配置；其他 harness 的真实运行尚未验收。
+每题公开上传未加密的 `bench-trace-*` artifact，保留 Harbor 输出、ACP 事件、工具调用与结果和 grader 文件；只脱敏凭据。`trajectory.tar.gz` 附 `files.json` 文件清单与 SHA-256，保留 90 天。脱敏导出成功后才允许上传，跳过符号链接。Harbor 子进程日志不直接输出到 Actions 控制台。公开仓库仅运行公开评测，私有比较在私有仓库运行相同 workflow。
 
 `.github/workflows/bench-smoke.yml` 仅手动触发，不再随 push 自动调用付费模型。正式评测仍由 release + `BENCH_ENABLED` 或显式 workflow_dispatch 触发。ACP 初始化跳过 BOOTSTRAP.md 的生成和引导 hook，其他配置与技能正常初始化；旧用户文件不删除。
 
@@ -96,3 +96,7 @@ gh workflow run bench.yml -R OWNER/REPO --ref feat/bench \
 `model_options` 按实际模型 ID 覆盖 supports_image、max_input_tokens、max_output_tokens、generate_kwargs；未知模型默认不声明图像能力，其余采用共享生成配置。`price_snapshot` 可指定仓库内官方价格快照；更换 endpoint 或缺少模型价格时不沿用其他服务商价格，未能从服务端/usage 取得费用则显示 unknown。模型、provider、endpoint、生成配置和价格快照都进入配置标识，网站显示 provider，避免把不同接入的历史成绩混在一起。
 
 验证记录：个人预览已部署 https://rayrayraykk.github.io/CoPaw/evaluation/ 。正式运行 37748464447 因 artifact 网络错误及任务凭据不可用而取消，未产出完整成绩；已增加 artifact 上传恢复、逐层 secrets 传递和调度前凭据检查。结果合并自动部署还要求这些实现 workflow 先进入默认分支。
+
+### 小批量与并发
+
+Dispatch 的 `task_limit` 为每个 benchmark 抽取的前 N 题，0 表示全量。抽样仍以完整任务清单计算覆盖率，不生成虚假的完整成绩。`parallelism` 接收 `{"experiments":6,"tasks":16}`，分别控制实验并行数和单实验每批任务并行数；每题独占一个 runner，批次顺序执行。实际并发受账户额度限制：个人 Free 账户最多 20，组织额度需另行确认。

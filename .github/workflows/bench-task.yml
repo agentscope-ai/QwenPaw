@@ -76,6 +76,24 @@ jobs:
             --manifest "$RUNNER_TEMP/manifest/manifest.json" \
             --datasets "$RUNNER_TEMP/datasets" --task "$TASK_ID" \
             --model "$MODEL_INDEX" --attempt "$ATTEMPT" --output "$RUNNER_TEMP/result"
+      - name: Preserve credential-redacted trajectory
+        id: trace
+        if: ${{ always() && !cancelled() }}
+        env:
+          BENCH_API_KEY: ${{ secrets[steps.provider.outputs.secret_name] }}
+        run: |
+          if [ -d "$RUNNER_TEMP/result" ]; then
+            cp "$RUNNER_TEMP/manifest/manifest.json" "$RUNNER_TEMP/result/manifest.json"
+            uv run --no-project --with pyyaml==6.0.2 python -m scripts.bench.trace \
+              --input "$RUNNER_TEMP/result" --output "$RUNNER_TEMP/public-trace"
+          fi
+      - uses: actions/upload-artifact@v4
+        if: ${{ always() && !cancelled() && steps.trace.outcome == 'success' }}
+        with:
+          name: bench-trace-${{ inputs.experiment }}-${{ inputs.model }}-${{ inputs.task }}-${{ inputs.attempt }}
+          path: ${{ runner.temp }}/public-trace
+          retention-days: 90
+          if-no-files-found: warn
       - uses: actions/upload-artifact@v4
         if: always()
         with:

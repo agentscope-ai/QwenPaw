@@ -5,7 +5,8 @@ version: index-v1
 harbor_version: 0.24.0
 visibility: public
 batch_size: 128
-max_parallel: 8
+max_parallel: 16
+experiment_parallelism: 6
 agent_setup_seconds: 1200
 upload_margin_seconds: 300
 benchmarks:

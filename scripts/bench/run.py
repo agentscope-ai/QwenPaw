@@ -256,20 +256,21 @@ def main() -> None:
     output.mkdir(parents=True, exist_ok=False)
     config = job_config(data, task, model, args.datasets)
     save(output / f"job.json", config)
-    result = subprocess.run(
-        [
-            sys.executable,
-            f"-m",
-            f"harbor.cli.main",
-            f"run",
-            f"-c",
-            str(output / f"job.json"),
-        ],
-        cwd=output,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.STDOUT,
-        check=False,
-    )
+    with (output / f"harbor.log").open(f"wb") as log:
+        result = subprocess.run(
+            [
+                sys.executable,
+                f"-m",
+                f"harbor.cli.main",
+                f"run",
+                f"-c",
+                str(output / f"job.json"),
+            ],
+            cwd=output,
+            stdout=log,
+            stderr=subprocess.STDOUT,
+            check=False,
+        )
     trials = []
     for file in (output / f"harbor").rglob(f"result.json"):
         raw = load(file)

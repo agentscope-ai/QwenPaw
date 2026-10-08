@@ -13,7 +13,7 @@ from scripts.bench.common import manifest, resolve, save
 from scripts.bench.prepare import freeze
 from scripts.bench.retry import plan
 from scripts.bench.history import public_run
-from scripts.bench.dispatch import experiments, select
+from scripts.bench.dispatch import concurrency, experiments, select
 from scripts.bench.provider import configured
 from scripts.bench.results import index, write
 from scripts.bench.run import diagnostics, job_config, normalize
@@ -463,3 +463,38 @@ def test_dispatch_rejects_invalid_provider_options(
     with pytest.raises(ValueError):
         configured(source, tmp_path / f"invalid", **options)
     assert not (tmp_path / f"invalid").exists()
+
+
+@pytest.mark.parametrize(
+    f"tasks,models",
+    [(0, 6), (129, 6), (16, 0), (16, 257)],
+)
+def test_concurrency_rejects_invalid_limits(tasks, models):
+    with pytest.raises(ValueError):
+        concurrency(tasks, models)
+
+
+def test_concurrency_keeps_account_limits_separate():
+    assert concurrency(16, 6) == {
+        f"max_parallel": 16,
+        f"experiment_parallelism": 6,
+    }
+
+
+def test_small_batch_cannot_become_complete_score(prepared):
+    data, _, _ = prepared
+    full = experiments(data, f"all", f"all")[0]
+    sample = experiments(data, f"all", f"all", task_limit=1)[0]
+    assert sample[f"configuration_sha256"] == full[f"configuration_sha256"]
+    scheduled = [t for batch in sample[f"batches"] for t in batch]
+    assert len(scheduled) == len(sample[f"suite"][f"benchmarks"])
+    assert len(sample[f"tasks"]) == len(full[f"tasks"])
+    summary = aggregate(sample, [receipt(sample, t) for t in scheduled])
+    assert not summary[f"complete"]
+    record = summary[f"records"][0]
+    assert record[f"index_score"] is None
+    assert all(
+        part[f"score"] is None
+        for part in record[f"benchmarks"]
+        if part[f"expected"] > 1
+    )

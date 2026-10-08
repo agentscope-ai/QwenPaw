@@ -26,8 +26,15 @@ def select(value: str, available: list[str]) -> list[str]:
     return selected
 
 
-def experiments(data: dict, models: str, benchmarks: str) -> list[dict]:
+def experiments(
+    data: dict,
+    models: str,
+    benchmarks: str,
+    task_limit: int = 0,
+) -> list[dict]:
     """Keep configuration identity independent of neighboring selections."""
+    if task_limit < 0:
+        raise ValueError(f"Task limit cannot be negative")
     model_ids = select(models, [m[f"id"] for m in data[f"models"][f"models"]])
     benchmark_ids = select(
         benchmarks,
@@ -55,10 +62,19 @@ def experiments(data: dict, models: str, benchmarks: str) -> list[dict]:
             for b in data[f"suite"][f"benchmarks"]
             if b[f"id"] in benchmark_ids
         ]
+        scheduled = leaf[f"tasks"]
+        if task_limit:
+            scheduled = [
+                task
+                for benchmark in benchmark_ids
+                for task in [
+                    t for t in scheduled if t[f"benchmark"] == benchmark
+                ][:task_limit]
+            ]
+        leaf[f"task_limit"] = task_limit
         size = leaf[f"suite"][f"batch_size"]
         leaf[f"batches"] = [
-            leaf[f"tasks"][i : i + size]
-            for i in range(0, len(leaf[f"tasks"]), size)
+            scheduled[i : i + size] for i in range(0, len(scheduled), size)
         ]
         if not 1 <= len(leaf[f"batches"]) <= 9:
             raise ValueError(f"Configured suite exceeds nine batch slots")
@@ -66,9 +82,29 @@ def experiments(data: dict, models: str, benchmarks: str) -> list[dict]:
     return records
 
 
-def main() -> None:
-    """Export full protocol once, then schedule only selected tasks."""
+def concurrency(task_parallelism: int, experiment_parallelism: int) -> dict:
+    """Bound requested slots; GitHub account limits remain authoritative."""
+    if type(task_parallelism) is not int or not 1 <= task_parallelism <= 128:
+        raise ValueError(f"Task parallelism must be between 1 and 128")
+    if (
+        type(experiment_parallelism) is not int
+        or not 1 <= experiment_parallelism <= 256
+    ):
+        raise ValueError(f"Experiment parallelism must be between 1 and 256")
+    return {
+        f"max_parallel": task_parallelism,
+        f"experiment_parallelism": experiment_parallelism,
+    }
+
+
+def arguments() -> argparse.Namespace:
+    """Read dispatch options without modifying configuration."""
     parser = argparse.ArgumentParser()
+    parser.add_argument(f"--task-limit", type=int, default=0)
+    parser.add_argument(
+        f"--parallelism",
+        default=f'{{"experiments":6,"tasks":16}}',
+    )
     parser.add_argument(f"--harnesses", default=f"qwenpaw")
     parser.add_argument(f"--models", default=f"all")
     parser.add_argument(f"--benchmarks", default=f"all")
@@ -81,7 +117,19 @@ def main() -> None:
     parser.add_argument(f"--sha", required=True)
     parser.add_argument(f"--repository", required=True)
     parser.add_argument(f"--private-repository", action=f"store_true")
-    args = parser.parse_args()
+    return parser.parse_args()
+
+
+def main() -> None:
+    """Export full protocol once, then schedule only selected tasks."""
+    args = arguments()
+    if args.task_limit < 0:
+        raise ValueError(f"Task limit cannot be negative")
+    parallelism = json.loads(args.parallelism)
+    scheduling = concurrency(
+        parallelism[f"tasks"],
+        parallelism[f"experiments"],
+    )
     registry = load(Path(f".github/bench/harnesses.yaml"))
     matrix = []
     visibility = None
@@ -116,6 +164,8 @@ def main() -> None:
             price_snapshot=args.price_snapshot,
         )
         suite = load(config / f"suite.yaml")
+        suite.update(scheduling)
+        save(config / f"suite.yaml", suite)
         if suite[f"visibility"] == f"private" and not args.private_repository:
             raise ValueError(
                 f"Private configuration requires a private repository",
@@ -160,7 +210,12 @@ def main() -> None:
             args.repository,
         )
         data[f"suite"][f"visibility"] = visibility
-        for leaf in experiments(data, f"all", args.benchmarks):
+        for leaf in experiments(
+            data,
+            f"all",
+            args.benchmarks,
+            args.task_limit,
+        ):
             experiment = leaf[f"configuration_sha256"][:24]
             folder = args.output / f"experiments" / experiment
             save(folder / f"manifest.json", leaf)
@@ -185,6 +240,10 @@ def main() -> None:
     ) as stream:
         stream.write(f"experiments={json.dumps(matrix)}\n")
         stream.write(f"visibility={visibility}\n")
+        stream.write(f"task_parallelism={scheduling['max_parallel']}\n")
+        stream.write(
+            f"experiment_parallelism={scheduling['experiment_parallelism']}\n",
+        )
 
 
 if __name__ == f"__main__":

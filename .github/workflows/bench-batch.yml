@@ -2,6 +2,9 @@ name: Independent task runners
 on:
   workflow_call:
     inputs:
+      task_parallelism:
+        required: true
+        type: number
       experiment:
         required: true
         type: string
@@ -40,7 +43,7 @@ jobs:
     needs: matrix
     strategy:
       fail-fast: false
-      max-parallel: 8
+      max-parallel: ${{ inputs.task_parallelism }}
       matrix:
         include: ${{ fromJSON(needs.matrix.outputs.tasks) }}
     uses: ./.github/workflows/bench-task.yml
@@ -93,7 +96,7 @@ jobs:
     if: ${{ always() && !cancelled() && needs.recovery.result == 'success' && needs.recovery.outputs.tasks != '[]' }}
     strategy:
       fail-fast: false
-      max-parallel: 8
+      max-parallel: ${{ inputs.task_parallelism }}
       matrix:
         include: ${{ fromJSON(needs.recovery.outputs.tasks) }}
     uses: ./.github/workflows/bench-task.yml
