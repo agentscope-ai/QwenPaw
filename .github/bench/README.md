@@ -48,14 +48,14 @@ Windows 使用等价路径和 PowerShell 命令续行；Python 帮助程序使�
 
 公开 JSON 是白名单摘要，包含 SDK 版本、模型、配置摘要、综合/领域/benchmark 分数、覆盖率、平均耗时和模型费用。保留每轮产物供后续构建 SDK 历史，不选最高 attempt。当前费用只取 Harbor 返回的 model cost；未知为 null，不填 0、不冒充完整账单。`observed_model_spend_usd` 单独统计收到的全部 attempt 中已知费用（含基础设施失败），同时给出已知数量和 observed 数量；它不是全量费用。工具、judge、基础设施费用仍待对账接入。
 
-当前不上传原始轨迹，也不输出 Harbor 子进程日志；只上传经过 Key 字面值检查的结构化 receipt。在公开仓库中 artifact 不是私有存储，只允许公开评测进入该 workflow。private harness 比较必须留在私有仓库；当前运行器只实现 QwenPaw，不能宣称已经支持其他 harness。
+当前不上传原始轨迹，也不输出 Harbor 子进程日志；只上传经过 Key 字面值检查的结构化 receipt。诊断摘要会先移除 Key 及其常见编码形式；合成任务另保留脱敏回复用于排错，真实 benchmark 不导出回复正文。在公开仓库中 artifact 不是私有存储，只允许公开评测进入该 workflow。private harness 比较必须留在私有仓库；当前运行器只实现 QwenPaw，不能宣称已经支持其他 harness。
 
-`.github/workflows/bench-smoke.yml` 在个人 origin 的 `feat/bench` push 时运行一个合成任务，用 `qwen3.8-27b` 验证真实 Docker / ACP / 工具 / grader 链路。合成任务不属于正式 benchmark，也不发布排名。生产自动发布仍由 `BENCH_ENABLED` 控制。
+`.github/workflows/bench-smoke.yml` 在个人 origin 的 `feat/bench` push 时运行一个合成任务，用 `qwen3.8-27b` 验证真实 Docker / ACP / 工具 / grader 链路，同时独立执行一题固定 GAIA 任务。合成任务不属于正式 benchmark，也不发布排名。生产自动发布仍由 `BENCH_ENABLED` 控制。
 
 ## 验收状态与后续
 
 - 已通过单测、Harbor JobConfig 校验与 actionlint；没有修改产品依赖文件。
-- 本机 Docker daemon 不可用，尚未运行真实容器或模型 API；标准 hosted runner 的内存、磁盘和全流程时间仍须逐 benchmark 实测。Harbor 有 adapter 不代表当前 runner 或模型组合已验收。
+- 已在个人 origin 的 GitHub-hosted runner 上跑通真实 Docker / ACP 合成任务（reward 1）及 GAIA 单题原生评分（reward 0），模型直接调用返回 HTTP 200。详见 [试跑记录](../../docs/design/qwenpaw-evaluation-smoke-report.md)。这不代表全量 benchmark 或另外两项的资源验收已完成。
 - 数据导出在单轮内按文件哈希冻结；跨 release 固定 dataset revision、镜像 digest 与传递依赖锁定仍待完成，当前不能宣称跨轮完全可复现。
 - 六模型的账户权限、多模态、工具调用和生成参数需离线确认；parity 报告也离线完成，不放进 release 的在线确认流程。
 - 当前只生成公开 summary artifact，尚未接网站历史存储和自动部署。HTML 是带 mock 数据的设计原型，不是实测成绩。

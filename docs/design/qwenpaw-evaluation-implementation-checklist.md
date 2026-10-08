@@ -26,11 +26,14 @@ HTML 中的成绩、历史版本、费用与私榜组合都是 mock，不是实�
 - [x] 实现任务冻结、单题 ACP 调用和 receipt 归一化。
 - [x] 实现九批串行、单题独立 runner、artifact 隔离。
 - [x] 实现等权汇总、覆盖率校验、费用未知与公开字段白名单。
-- [x] 单测 16 项通过，ruff 与 actionlint 通过。
-- [ ] 三个 benchmark 的真实容器与模型 API 验收；本机 Docker daemon 不可用。
+- [x] 单测 18 项通过，ruff 与 actionlint 通过。
+- [x] 在个人 origin 的 GitHub-hosted runner 上跑通真实 Docker / Harbor / QwenPaw ACP 合成任务（score 1），以及模型直接调用（HTTP 200）。
+- [ ] 三个 benchmark 的真实容器与模型 API 验收；GAIA 单题链路已完成（原生 reward 0），另两项未启动。
 - [ ] 固定跨 release 数据/镜像/传递依赖，离线完成模型协议与 parity 验收。
 - [ ] 实现基础设施失败自动恢复，完成工具/judge/基础设施费用对账。
 - [ ] 私有其他 harness 的实际运行接入。
 - [ ] 网站 SDK 历史页、结果持久化与自动部署。
 
-当前实现配置、调度和汇总基础链路；未启动真实模型调用、未发布网站。详见 [.github/bench/README.md](../../.github/bench/README.md)。HTML 成绩仍为 mock。
+当前实现配置、调度和汇总基础链路，已执行真实模型调用与容器试跑；未发布网站。详见 [.github/bench/README.md](../../.github/bench/README.md)。HTML 成绩仍为 mock。
+
+试跑证据：[个人 origin 验收记录](qwenpaw-evaluation-smoke-report.md)。
