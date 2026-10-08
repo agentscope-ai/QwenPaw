@@ -14,7 +14,6 @@ TL;DR：不创建根目录 `evaluation/`，不修改产品依赖。配置和调�
 | `.github/workflows/bench-batch.yml` | 批内 matrix，每题一个 GitHub-hosted runner |
 | `scripts/bench/` | prepare / run / collect，共用 manifest 校验 |
 | `tests/unit/scripts/bench/` | 计分、完整性、预算、费用与隔离测试 |
-| `docs/design/` | HTML 效果原型与实施 checklist |
 
 所有命令从仓库根目录执行。`uv run --no-project --with harbor==0.24.0 --with litellm==1.103.4` 使用 uv 的工具环境，不读取产品项目依赖，不创建产品 `.venv`。容器里的 QwenPaw 使用 `uvx --no-cache --from` 从本次 workflow 检出提交的源码归档动态构建开发包，通过 ACP 调用，不复制产品 agent loop。模型由 runtime provider 的 `OPENAI_MODEL` 固定，不设置 Harbor agent.model_name：后者会请求可选 ACP session model selection，当前双方没有协商出该接口。模型身份由冻结配置和 receipt 保存，不发生隐式 fallback。运行数据放 `$RUNNER_TEMP`，不进入源码目录。
 
@@ -55,10 +54,8 @@ Windows 使用等价路径和 PowerShell 命令续行；Python 帮助程序使�
 ## 验收状态与后续
 
 - 已通过单测、Harbor JobConfig 校验与 actionlint；没有修改产品依赖文件。
-- 已在个人 origin 的 GitHub-hosted runner 上跑通真实 Docker / ACP 合成任务（reward 1）及 GAIA 单题原生评分（reward 0），模型直接调用返回 HTTP 200。详见 [试跑记录](../../docs/design/qwenpaw-evaluation-smoke-report.md)。这不代表全量 benchmark 或另外两项的资源验收已完成。
 - 数据导出在单轮内按文件哈希冻结；跨 release 固定 dataset revision、镜像 digest 与传递依赖锁定仍待完成，当前不能宣称跨轮完全可复现。
 - 六模型的账户权限、多模态、工具调用和生成参数需离线确认；parity 报告也离线完成，不放进 release 的在线确认流程。
-- 已改为纯 JSON 结果 PR、合并后生成索引与部署；网站页面已提交并通过桌面/移动端/双语验收，真实发布验收仍在进行。完整状态见[实现差距核对](../../docs/design/qwenpaw-evaluation-gap-review.md)。
 - PawBench / Claw-Eval 待确认现成 Harbor 接入后再讨论纳入；AppWorld / Terminal-Bench 不在首期。
 
 ## 单选/多选 dispatch 与纯 JSON PR
@@ -79,7 +76,6 @@ prepare 冻结完整题集来计算配置身份，但只执行选择的任务。
 
 私有配置拒绝在公开仓库运行；私有仓库的 PR、artifacts 和索引保持 private，不推送上游网站。Bench environment 在 stage 检查凭据存在，并在单题执行 job 通过 BENCH_API_KEY 注入所选 secret。替代 harness 在 harbor.yaml 使用环境变量引用，不写明文 Key。
 
-详细行为与实现清单见[发布机制](../../docs/design/qwenpaw-evaluation-dispatch-publication.md)。
 
 
 ## 动态 provider 与模型

@@ -1,6 +1,5 @@
 {
   "evaluation": "Evaluation",
-  "plan": "Implementation",
   "private": "Private · Model × Harness",
   "public": "Public · QwenPaw",
   "board": "Leaderboard",
@@ -24,7 +23,7 @@
   "empty": "No official runs have been archived yet. Enable demo data to preview the leaderboard; demos are never published as measured results.",
   "unavailable": "The result index is temporarily unavailable",
   "invalidData": "Result format or visibility does not match this deployment",
-  "toggleTable": "Show / Hide Table View",
+  "toggleTable": "Results table",
   "onlyFrontier": "Pareto frontier only",
   "search": "Search model, SDK, or harness",
   "model": "Language Model",
@@ -67,67 +66,15 @@
   "sdkHistory": "SDK version history",
   "mockShort": "Mock · not measured",
   "seconds": "{{value}}s",
-  "planTitle": "QwenPaw Evaluation implementation plan",
-  "limits": "GitHub Actions limits",
   "domains": {
     "research": "Information research",
     "office": "Office tasks",
     "coding": "Code repair"
   },
-  "planSections": [
-    {
-      "title": "TL;DR",
-      "paragraphs": [
-        "Start with three existing Harbor adapters: GAIA validation, SpreadsheetBench Verified, and SWE-bench Verified, covering research, office work, and coding. Each contributes 1/3 of the index. Run six DashScope models once per release and retain model and SDK history.",
-        "GitHub Actions orchestrates Harbor ACP on one hosted runner per task. Build QwenPaw from the workflow’s current commit. Keep evaluation dependencies isolated, archive results on a dedicated data branch, and reuse website deployment. Parity, comparison, and attribution are offline."
-      ]
-    },
-    {
-      "title": "Scope and leaderboards",
-      "paragraphs": [
-        "GAIA validation: 165 tasks; SpreadsheetBench Verified: 400; SWE-bench Verified: 500. Domain leaderboards weight their benchmarks equally; individual boards use native scores. Overall ranking requires complete coverage.",
-        "Highlight the highest-scoring SDK result per model while retaining every historical point and table row. Revisit PawBench and ClawEval after public Harbor adapter and resource verification. Terminal-Bench and AppWorld are out of scope."
-      ]
-    },
-    {
-      "title": "Model scope",
-      "paragraphs": [
-        "Use the DashScope Beijing pay-as-you-go API throughout, with no implicit model switching. Start with six configurations:",
-        "Qwen: qwen3.8-max-0902, qwen3.8-27b; DeepSeek: deepseek-v4-pro-0813, deepseek-v4.1-flash; GLM: glm-5.3, glm-5.2.",
-        "Freeze model IDs, reasoning settings, tool policy, provider region, task hashes, source SHA, and pricing. Record dates and available model versions to account for provider updates behind the same ID."
-      ]
-    },
-    {
-      "title": "Code and execution architecture",
-      "paragraphs": [
-        "No root evaluation package. YAML lives in .github/bench, workflows in .github/workflows, helpers in scripts/bench, and the UI in website/src/pages/Evaluation. Pin Harbor and LiteLLM in an isolated uv environment.",
-        "Each model runs 1,065 tasks in nine batches of at most 128. Each task gets a matrix job; max-parallel is 8. Models and batches run sequentially, totaling 6,390 task-trials. Preserve native timeouts and reject budgets beyond hosted limits. Self-hosted runners remain a future extension.",
-        "Retry infrastructure failures at most once on a fresh runner and retain the first attempt. Never rescore normal failures or agent timeouts. Lost receipts mean unknown spend, not free execution."
-      ]
-    },
-    {
-      "title": "Cost and usage",
-      "paragraphs": [
-        "Reported cost → LiteLLM completion_cost → official pricing snapshot × token usage. Use Unknown only when required data is still missing. ACP carries cache counters and completeness; context occupancy is not billing usage.",
-        "Request cost = [(input − cached) × input rate + cached × cache rate + output × output rate] / 1,000,000. Do not add reasoning tokens again when already included in output. Sum permitted attempts per task and weight benchmark costs equally.",
-        "Missing cache detail uses an uncached upper bound. DeepSeek uses peak-rate bounds when billing-time detail is absent. Mark these estimates and exclude them from the deterministic Pareto frontier. Freeze prices and FX; distinguish estimates from billed charges. Track tool, judge, and runner costs separately; missing is not zero."
-      ]
-    },
-    {
-      "title": "Public archives and private comparisons",
-      "paragraphs": [
-        "Public runs contain QwenPaw only. Private comparisons group by model × harness × SDK. Codex, Claude Code, and DeepSeek Harness demos do not imply verified integrations. Private results stay in private deployments and never enter the public bundle.",
-        "Validate allowlisted fields, coverage, and visibility, then archive immutable runs on the bench-results branch by manifest identity. Serialize index updates, make repeat publication idempotent, and reject conflicting rewrites. Every website build reads the same history.",
-        "Model jobs receive only the Bench model secret and have no publishing permission. Publishing jobs receive no model key. Export structured statistics only; raw requests and unredacted traces are not automatically public. Demos have no fabricated evidence links."
-      ]
-    },
-    {
-      "title": "Offline parity and acceptance",
-      "paragraphs": [
-        "Fix task sets, models, tools, budgets, and graders. Document official-condition replication separately from controlled comparisons. Reports identify applicable SHAs and known differences; releases reference offline reports without online confirmation.",
-        "Official publication requires resource and protocol acceptance plus complete benchmark runs. Keep implemented code, mock layouts, and measured results distinct. Single-task smoke checks are not official benchmark scores."
-      ]
-    }
-  ],
-  "latestIncomplete": "Latest run incomplete"
+  "latestIncomplete": "Latest run incomplete",
+  "headline": "QwenPaw Index",
+  "subtitle": "Model performance, across SDK releases.",
+  "breakdown": "Benchmark details",
+  "recordsCount": "{{count}} records",
+  "tableTitle": "Results & history"
 }

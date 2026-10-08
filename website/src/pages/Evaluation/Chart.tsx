@@ -69,6 +69,16 @@ export default function Chart({
   const container = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const element = container.current!;
+    const style = getComputedStyle(element);
+    const token = (name: string) => style.getPropertyValue(name).trim();
+    const colors = {
+      surface: token("--eval-surface"),
+      text: token("--eval-text"),
+      muted: token("--eval-muted"),
+      border: token("--eval-border"),
+      accent: token("--eval-accent"),
+      accentText: token("--eval-accent-text"),
+    };
     const money = (value: number | null) =>
       formatMoney(value, i18n.language, t("unknown"));
     const number = (value: number) =>
@@ -128,7 +138,7 @@ export default function Chart({
         marker: {
           size: 15,
           color: points.map((r) =>
-            logo(r.model) ? "rgba(0,0,0,0)" : "#7565c7",
+            logo(r.model) ? "rgba(0,0,0,0)" : colors.accentText,
           ),
           opacity: points.map((r) => (best.has(r.id) ? 1 : 0.23)),
         },
@@ -158,23 +168,23 @@ export default function Chart({
       x: pareto.map((r) => r.cost!),
       y: pareto.map((r) => r.score!),
       hoverinfo: "skip",
-      line: { color: "#e3be54", width: 2, dash: "dash" },
+      line: { color: colors.accent, width: 1.5 },
       showlegend: false,
     });
     const layout: Partial<Layout> = {
       autosize: true,
-      paper_bgcolor: "#fff",
-      plot_bgcolor: "#fff",
-      margin: { l: mobile ? 48 : 78, r: mobile ? 18 : 46, t: 92, b: 100 },
+      paper_bgcolor: colors.surface,
+      plot_bgcolor: colors.surface,
+      margin: { l: mobile ? 48 : 78, r: mobile ? 18 : 46, t: 66, b: 64 },
       title: {
         text: escape(t("chartTitle", { title })),
         x: 0.035,
         y: 0.955,
-        font: { size: mobile ? 16 : 23 },
+        font: { size: mobile ? 13 : 16 },
       },
       font: {
-        family: "Geist Variable, Arial, sans-serif",
-        color: "#242832",
+        family: "-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif",
+        color: colors.text,
         size: 12,
       },
       xaxis: {
@@ -183,7 +193,7 @@ export default function Chart({
         domain: [0, missing.length ? 0.87 : 1],
         title: { text: t("xAxis"), standoff: 22 },
         tickprefix: "$",
-        gridcolor: "#e8edf5",
+        gridcolor: colors.border,
         zeroline: false,
       },
       xaxis2: {
@@ -205,7 +215,7 @@ export default function Chart({
           103,
         ],
         title: { text: t("averageScore"), standoff: 18 },
-        gridcolor: "#e8edf5",
+        gridcolor: colors.border,
         dtick: 10,
         zeroline: false,
       },
@@ -213,8 +223,8 @@ export default function Chart({
       hovermode: "closest",
       hoverdistance: 25,
       hoverlabel: {
-        bgcolor: "#242832",
-        bordercolor: "#242832",
+        bgcolor: colors.text,
+        bordercolor: colors.text,
         font: { color: "white", size: 13 },
         align: "left",
       },
@@ -231,26 +241,6 @@ export default function Chart({
           showarrow: false,
           font: { size: mobile ? 9 : 11 },
         })),
-        {
-          text: "QwenPaw",
-          xref: "paper",
-          yref: "paper",
-          x: 0,
-          y: mobile ? -0.3 : -0.15,
-          showarrow: false,
-          xanchor: "left",
-          font: { size: 18 },
-        },
-        {
-          text: demo ? t("mockShort") : t("sdkHistory"),
-          xref: "paper",
-          yref: "paper",
-          x: 1,
-          y: mobile ? -0.3 : -0.15,
-          showarrow: false,
-          xanchor: "right",
-          font: { color: "#8c929d", size: 10 },
-        },
         ...(missing.length
           ? [
               {
@@ -274,7 +264,7 @@ export default function Chart({
                 x: 0.5,
                 y: 0.5,
                 showarrow: false,
-                font: { size: 18, color: "#9196a1" },
+                font: { size: 18, color: colors.muted },
               },
             ]
           : []),
@@ -289,7 +279,7 @@ export default function Chart({
               x1: 0.895,
               y0: 0,
               y1: 1,
-              line: { color: "#bcc4d1", dash: "dot" },
+              line: { color: colors.border, dash: "dot" },
             },
           ]
         : [],

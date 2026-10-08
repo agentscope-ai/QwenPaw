@@ -75,6 +75,7 @@ export default function Evaluation() {
   const [search, setSearch] = useState("");
   const [showHistory, setShowHistory] = useState(true);
   const [showTable, setShowTable] = useState(true);
+  const [showBreakdown, setShowBreakdown] = useState(false);
   const [onlyFrontier, setOnlyFrontier] = useState(false);
   const [protocol, setProtocol] = useState("");
   const [sort, setSort] = useState<{
@@ -187,13 +188,21 @@ export default function Evaluation() {
   );
   return (
     <main className="evaluation-page">
-      <nav className="evaluation-nav" aria-label={t("evaluation")}>
-        <Link to="/evaluation" className="selected">
-          {t("evaluation")}
-        </Link>
-        <Link to="/evaluation/plan">{t("plan")}</Link>
-        <span>{privateView ? t("private") : t("public")}</span>
-      </nav>
+      <header className="evaluation-header">
+        <div className="evaluation-brand">
+          <img
+            src={`${import.meta.env.BASE_URL}evaluation/logos/qwenpaw.png`}
+            alt=""
+          />
+          <div>
+            <h1>{t("headline")}</h1>
+            <p>{t("subtitle")}</p>
+          </div>
+        </div>
+        <span className="evaluation-scope">
+          {privateView ? t("private") : t("public")}
+        </span>
+      </header>
       {id ? (
         <section className="evaluation-detail">
           <Link to={`/evaluation${demo ? "?demo=1" : ""}`}>{t("back")}</Link>
@@ -241,101 +250,103 @@ export default function Evaluation() {
         </section>
       ) : (
         <>
-          <div className="evaluation-controls">
-            <label>
-              {t("board")}
-              <select
-                value={metric}
-                onChange={(e) => setMetric(e.target.value)}
-              >
-                <option value="index">{t("main")}</option>
-                <optgroup label={t("domainBoards")}>
-                  {Object.keys(domains).map((key) => (
-                    <option key={key} value={`domain:${key}`}>
-                      {t(`domains.${key}`)}
-                    </option>
-                  ))}
-                </optgroup>
-                <optgroup label={t("benchmarkBoards")}>
-                  {Object.entries(benchmarks).map(([key, label]) => (
-                    <option key={key} value={`benchmark:${key}`}>
-                      {label}
-                    </option>
-                  ))}
-                </optgroup>
-              </select>
-            </label>
-            {versions.length > 1 && (
+          <section className="evaluation-chart-surface">
+            <div className="evaluation-controls">
               <label>
-                {t("protocol")}
+                {t("board")}
                 <select
-                  value={activeProtocol}
-                  onChange={(e) => setProtocol(e.target.value)}
+                  value={metric}
+                  onChange={(e) => setMetric(e.target.value)}
                 >
-                  {versions.map((v) => (
-                    <option key={v}>{v}</option>
-                  ))}
+                  <option value="index">{t("main")}</option>
+                  <optgroup label={t("domainBoards")}>
+                    {Object.keys(domains).map((key) => (
+                      <option key={key} value={`domain:${key}`}>
+                        {t(`domains.${key}`)}
+                      </option>
+                    ))}
+                  </optgroup>
+                  <optgroup label={t("benchmarkBoards")}>
+                    {Object.entries(benchmarks).map(([key, label]) => (
+                      <option key={key} value={`benchmark:${key}`}>
+                        {label}
+                      </option>
+                    ))}
+                  </optgroup>
                 </select>
               </label>
-            )}
-            <label>
-              <input
-                type="checkbox"
-                checked={showHistory}
-                onChange={(e) => setShowHistory(e.target.checked)}
+              {versions.length > 1 && (
+                <label>
+                  {t("protocol")}
+                  <select
+                    value={activeProtocol}
+                    onChange={(e) => setProtocol(e.target.value)}
+                  >
+                    {versions.map((v) => (
+                      <option key={v}>{v}</option>
+                    ))}
+                  </select>
+                </label>
+              )}
+              <label>
+                <input
+                  type="checkbox"
+                  checked={showHistory}
+                  onChange={(e) => setShowHistory(e.target.checked)}
+                />
+                {t("historyPoints")}
+              </label>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={demo}
+                  onChange={(e) => changeDemo(e.target.checked)}
+                />
+                {t("demo")}
+              </label>
+              {demo && (
+                <select
+                  aria-label={t("demoScope")}
+                  value={privateView ? "private" : "public"}
+                  onChange={(e) => {
+                    const next = new URLSearchParams(params);
+                    next.set("scope", e.target.value);
+                    setParams(next);
+                  }}
+                >
+                  <option value="public">{t("publicDemo")}</option>
+                  <option value="private">{t("privateDemo")}</option>
+                </select>
+              )}
+            </div>
+            <div className="evaluation-chart">
+              <Chart
+                rows={visible}
+                title={title}
+                privateView={privateView}
+                history={showHistory}
+                demo={demo}
+                onSelect={navigateRow}
               />
-              {t("historyPoints")}
-            </label>
-            <label>
-              <input
-                type="checkbox"
-                checked={demo}
-                onChange={(e) => changeDemo(e.target.checked)}
-              />
-              {t("demo")}
-            </label>
-            {demo && (
-              <select
-                aria-label={t("demoScope")}
-                value={privateView ? "private" : "public"}
-                onChange={(e) => {
-                  const next = new URLSearchParams(params);
-                  next.set("scope", e.target.value);
-                  setParams(next);
-                }}
-              >
-                <option value="public">{t("publicDemo")}</option>
-                <option value="private">{t("privateDemo")}</option>
-              </select>
-            )}
-          </div>
-          <div className="evaluation-chart">
-            <Chart
-              rows={visible}
-              title={title}
-              privateView={privateView}
-              history={showHistory}
-              demo={demo}
-              onSelect={navigateRow}
-            />
-          </div>
-          <div className="evaluation-legend">
-            <span>
-              <i />
-              {t("best")}
-            </span>
-            <span>
-              <i className="faded" />
-              {t("history")}
-            </span>
-            <span>
-              <i className="line" />
-              {t("pareto")}
-            </span>
-            <span className="evaluation-right">
-              {demo ? t("mock") : t("costNote")}
-            </span>
-          </div>
+            </div>
+            <div className="evaluation-legend">
+              <span>
+                <i />
+                {t("best")}
+              </span>
+              <span>
+                <i className="faded" />
+                {t("history")}
+              </span>
+              <span>
+                <i className="line" />
+                {t("pareto")}
+              </span>
+              <span className="evaluation-right">
+                {demo ? t("mock") : t("costNote")}
+              </span>
+            </div>
+          </section>
           <p className="evaluation-note">
             {t("chartNote")}
             {privateView && t("privateNote")}
@@ -350,178 +361,267 @@ export default function Evaluation() {
               {loading ? t("loading") : t("empty")}
             </p>
           )}
-          <div className="evaluation-table-controls">
-            <button onClick={() => setShowTable(!showTable)}>
-              {showTable ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-              {t("toggleTable")}
-            </button>
-            <label>
-              <input
-                type="checkbox"
-                checked={onlyFrontier}
-                onChange={(e) => setOnlyFrontier(e.target.checked)}
-              />
-              {t("onlyFrontier")}
-            </label>
-            <label className="evaluation-search">
-              <Search size={15} />
-              <input
-                aria-label={t("search")}
-                placeholder={t("search")}
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-              />
-            </label>
-            <button onClick={() => download(visible)}>
-              <Download size={16} />
-              JSON
-            </button>
-          </div>
-          {showTable && (
-            <div className="evaluation-table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>{t("model")}</th>
-                    {privateView && <th>Harness</th>}
-                    <th>{t("sdk")}</th>
-                    <th>{sortButton("score", `${title} ${t("score")}`)}</th>
-                    <th>{sortButton("cost", t("cost"))}</th>
-                    <th>{sortButton("runtime", t("runtime"))}</th>
-                    {Object.entries(benchmarks).map(([key, label]) => (
-                      <th key={key}>
-                        {label}
-                        <small>{t("metrics")}</small>
+          <section className="evaluation-results">
+            <div className="evaluation-results-heading">
+              <h2>{t("tableTitle")}</h2>
+              <span>{t("recordsCount", { count: ordered.length })}</span>
+            </div>
+            <div className="evaluation-table-controls">
+              <button
+                aria-expanded={showTable}
+                onClick={() => setShowTable(!showTable)}
+              >
+                {showTable ? (
+                  <ChevronUp size={16} />
+                ) : (
+                  <ChevronDown size={16} />
+                )}
+                {t("toggleTable")}
+              </button>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={onlyFrontier}
+                  onChange={(e) => setOnlyFrontier(e.target.checked)}
+                />
+                {t("onlyFrontier")}
+              </label>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={showBreakdown}
+                  onChange={(e) => setShowBreakdown(e.target.checked)}
+                />
+                {t("breakdown")}
+              </label>
+              <label className="evaluation-search">
+                <Search size={15} />
+                <input
+                  aria-label={t("search")}
+                  placeholder={t("search")}
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                />
+              </label>
+              <button onClick={() => download(visible)}>
+                <Download size={16} />
+                JSON
+              </button>
+            </div>
+            {showTable && (
+              <div className="evaluation-table-wrap">
+                <table className={showBreakdown ? "with-breakdown" : undefined}>
+                  <thead>
+                    <tr>
+                      <th>{t("model")}</th>
+                      {privateView && <th>Harness</th>}
+                      <th>{t("sdk")}</th>
+                      <th
+                        className="evaluation-numeric"
+                        aria-sort={
+                          sort.key === "score"
+                            ? sort.asc
+                              ? "ascending"
+                              : "descending"
+                            : "none"
+                        }
+                      >
+                        {sortButton("score", t("score"))}
                       </th>
-                    ))}
-                    <th>{sortButton("date", t("date"))}</th>
-                    <th>{t("coverage")}</th>
-                    <th>{t("evidence")}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {ordered.map((row) => (
-                    <tr key={row.id} className={best.has(row.id) ? "best" : ""}>
-                      <td>
-                        <div className="evaluation-model">
-                          {logo(row.model) ? (
-                            <img src={logo(row.model)} alt="" />
-                          ) : (
-                            <CircleHelp size={22} aria-hidden="true" />
-                          )}
-                          <div>
-                            <strong>{row.model}</strong>
-                            {row.provider && <small>{row.provider}</small>}
-                            {best.has(row.id) && (
-                              <small>{t("bestShort")}</small>
-                            )}
-                            {pareto.has(row.id) && (
-                              <small className="frontier">
-                                {t("onFrontier")}
-                              </small>
-                            )}
-                          </div>
-                        </div>
-                      </td>
-                      {privateView && (
+                      <th
+                        className="evaluation-numeric"
+                        aria-sort={
+                          sort.key === "cost"
+                            ? sort.asc
+                              ? "ascending"
+                              : "descending"
+                            : "none"
+                        }
+                      >
+                        {sortButton("cost", t("cost"))}
+                      </th>
+                      <th
+                        className="evaluation-numeric"
+                        aria-sort={
+                          sort.key === "runtime"
+                            ? sort.asc
+                              ? "ascending"
+                              : "descending"
+                            : "none"
+                        }
+                      >
+                        {sortButton("runtime", t("runtime"))}
+                      </th>
+                      {showBreakdown &&
+                        Object.entries(benchmarks).map(([key, label]) => (
+                          <th key={key}>
+                            {label}
+                            <small>{t("metrics")}</small>
+                          </th>
+                        ))}
+                      <th
+                        className="evaluation-numeric"
+                        aria-sort={
+                          sort.key === "date"
+                            ? sort.asc
+                              ? "ascending"
+                              : "descending"
+                            : "none"
+                        }
+                      >
+                        {sortButton("date", t("date"))}
+                      </th>
+                      <th>{t("coverage")}</th>
+                      <th>{t("evidence")}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {ordered.map((row) => (
+                      <tr
+                        key={row.id}
+                        className={best.has(row.id) ? "best" : ""}
+                      >
                         <td>
                           <div className="evaluation-model">
-                            <img
-                              alt=""
-                              src={`${
-                                import.meta.env.BASE_URL
-                              }evaluation/logos/${row.harness
-                                .toLowerCase()
-                                .replace(/[^a-z]/g, "")}.${
-                                row.harness === "QwenPaw" ? "png" : "svg"
-                              }`}
-                            />
-                            {row.harness}
+                            {logo(row.model) ? (
+                              <img src={logo(row.model)} alt="" />
+                            ) : (
+                              <CircleHelp size={22} aria-hidden="true" />
+                            )}
+                            <div>
+                              <strong>{row.model}</strong>
+                              {row.provider && <small>{row.provider}</small>}
+                              {best.has(row.id) && (
+                                <small>{t("bestShort")}</small>
+                              )}
+                              {pareto.has(row.id) && (
+                                <small className="frontier">
+                                  {t("onFrontier")}
+                                </small>
+                              )}
+                            </div>
                           </div>
                         </td>
-                      )}
-                      <td>
-                        {row.sdk_version}
-                        <small>{row.source_sha.slice(0, 8)}</small>
-                      </td>
-                      <td className="evaluation-score">
-                        {(row.score === null ? undefined : number(row.score)) ??
-                          t("incomplete")}
-                      </td>
-                      <td>
-                        {money(row.cost)}
-                        <small>
-                          {row.upperBound
-                            ? t("upperBound")
-                            : row.cost === null
-                            ? t("unknown")
-                            : row.benchmarks.some(
-                                (p) =>
-                                  p.cost_sources.litellm_estimated ||
-                                  p.cost_sources.snapshot_estimated,
-                              )
-                            ? t("estimated")
-                            : t("reported")}
-                        </small>
-                      </td>
-                      <td>
-                        {row.runtime === null
-                          ? t("unknown")
-                          : t("seconds", {
-                              value: new Intl.NumberFormat(
-                                i18n.language,
-                              ).format(Math.round(row.runtime)),
-                            })}
-                      </td>
-                      {Object.keys(benchmarks).map((key) => {
-                        const p = row.benchmarks.find(
-                          (b) => b.benchmark === key,
-                        );
-                        return (
-                          <td key={key}>
-                            {(p?.score == null ? undefined : number(p.score)) ??
-                              "—"}
-                            <small>
-                              {money(p?.mean_model_cost_usd ?? null)} /{" "}
-                              {p?.mean_runtime_seconds === null || !p
-                                ? t("unknown")
-                                : t("seconds", {
-                                    value: new Intl.NumberFormat(
-                                      i18n.language,
-                                    ).format(
-                                      Math.round(p.mean_runtime_seconds),
-                                    ),
-                                  })}
-                            </small>
+                        {privateView && (
+                          <td>
+                            <div className="evaluation-model">
+                              <img
+                                alt=""
+                                src={`${
+                                  import.meta.env.BASE_URL
+                                }evaluation/logos/${row.harness
+                                  .toLowerCase()
+                                  .replace(/[^a-z]/g, "")}.${
+                                  row.harness === "QwenPaw" ? "png" : "svg"
+                                }`}
+                              />
+                              {row.harness}
+                            </div>
                           </td>
-                        );
-                      })}
-                      <td>{date(row.run.date)}</td>
-                      <td>
-                        {row.coverage}
-                        {row.run.latest_attempts?.some(
-                          (attempt) => !attempt.complete,
-                        ) && (
-                          <small className="evaluation-rerun-status">
-                            {t("latestIncomplete")}
-                          </small>
                         )}
-                      </td>
-                      <td>
-                        <button onClick={() => navigateRow(row)}>
-                          {t("record")}
-                          <ExternalLink size={13} />
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              {!ordered.length && (
-                <p className="evaluation-empty">{t("noMatch")}</p>
-              )}
-            </div>
-          )}
+                        <td>
+                          {row.sdk_version}
+                          <small>{row.source_sha.slice(0, 8)}</small>
+                        </td>
+                        <td className="evaluation-score evaluation-numeric">
+                          {(row.score === null
+                            ? undefined
+                            : number(row.score)) ?? t("incomplete")}
+                          {row.score !== null && (
+                            <span
+                              className="evaluation-score-track"
+                              aria-hidden="true"
+                            >
+                              <span
+                                style={{
+                                  width: `${Math.max(
+                                    0,
+                                    Math.min(100, row.score),
+                                  )}%`,
+                                }}
+                              />
+                            </span>
+                          )}
+                        </td>
+                        <td>
+                          {money(row.cost)}
+                          <small>
+                            {row.upperBound
+                              ? t("upperBound")
+                              : row.cost === null
+                              ? t("unknown")
+                              : row.benchmarks.some(
+                                  (p) =>
+                                    p.cost_sources.litellm_estimated ||
+                                    p.cost_sources.snapshot_estimated,
+                                )
+                              ? t("estimated")
+                              : t("reported")}
+                          </small>
+                        </td>
+                        <td>
+                          {row.runtime === null
+                            ? t("unknown")
+                            : t("seconds", {
+                                value: new Intl.NumberFormat(
+                                  i18n.language,
+                                ).format(Math.round(row.runtime)),
+                              })}
+                        </td>
+                        {showBreakdown &&
+                          Object.keys(benchmarks).map((key) => {
+                            const p = row.benchmarks.find(
+                              (b) => b.benchmark === key,
+                            );
+                            return (
+                              <td key={key}>
+                                {(p?.score == null
+                                  ? undefined
+                                  : number(p.score)) ?? "—"}
+                                <small>
+                                  {money(p?.mean_model_cost_usd ?? null)} /{" "}
+                                  {p?.mean_runtime_seconds === null || !p
+                                    ? t("unknown")
+                                    : t("seconds", {
+                                        value: new Intl.NumberFormat(
+                                          i18n.language,
+                                        ).format(
+                                          Math.round(p.mean_runtime_seconds),
+                                        ),
+                                      })}
+                                </small>
+                              </td>
+                            );
+                          })}
+                        <td className="evaluation-numeric">
+                          {date(row.run.date)}
+                        </td>
+                        <td>
+                          {row.coverage}
+                          {row.run.latest_attempts?.some(
+                            (attempt) => !attempt.complete,
+                          ) && (
+                            <small className="evaluation-rerun-status">
+                              {t("latestIncomplete")}
+                            </small>
+                          )}
+                        </td>
+                        <td>
+                          <button onClick={() => navigateRow(row)}>
+                            {t("record")}
+                            <ExternalLink size={13} />
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {!ordered.length && (
+                  <p className="evaluation-empty">{t("noMatch")}</p>
+                )}
+              </div>
+            )}
+          </section>
           <p className="evaluation-note">{t("weightNote")}</p>
         </>
       )}

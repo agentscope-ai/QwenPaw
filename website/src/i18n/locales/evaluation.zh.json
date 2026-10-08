@@ -1,6 +1,5 @@
 {
   "evaluation": "评测榜单",
-  "plan": "实现方案",
   "private": "私榜 · 模型 × Harness",
   "public": "公开榜 · QwenPaw",
   "board": "榜单",
@@ -24,7 +23,7 @@
   "empty": "尚无已归档的正式运行。可打开演示数据预览榜单；演示不会作为真实成绩发布。",
   "unavailable": "结果索引暂时不可用",
   "invalidData": "结果格式或可见性不匹配",
-  "toggleTable": "显示 / 隐藏表格",
+  "toggleTable": "成绩表格",
   "onlyFrontier": "仅 Pareto 前沿",
   "search": "搜索模型、SDK 或 harness",
   "model": "语言模型",
@@ -67,67 +66,15 @@
   "sdkHistory": "SDK 版本历史",
   "mockShort": "模拟数据 · 非实测",
   "seconds": "{{value}} 秒",
-  "planTitle": "QwenPaw Evaluation 的实现方案",
-  "limits": "GitHub Actions 平台限制",
   "domains": {
     "research": "信息研究",
     "office": "办公任务",
     "coding": "代码修复"
   },
-  "planSections": [
-    {
-      "title": "TL;DR",
-      "paragraphs": [
-        "首期使用 GAIA validation、SpreadsheetBench Verified、SWE-bench Verified 三个已有 Harbor adapter 的 benchmark，覆盖信息研究、办公和 coding；综合榜各占 1/3。六个百炼模型，每个 release 运行一次，保留模型与 SDK 历史。",
-        "GitHub Actions 编排，Harbor ACP 执行，单题独立 hosted runner；从 workflow 当前提交动态构建开发包。评测依赖隔离，结果归档到专用数据分支，复用网站部署。parity、对比和归因离线完成。"
-      ]
-    },
-    {
-      "title": "范围与榜单",
-      "paragraphs": [
-        "GAIA validation：165 题；SpreadsheetBench Verified：400 题；SWE-bench Verified：500 题。子榜展示领域内等权分数和单 benchmark 原生分数，完整覆盖后才进入综合排名。",
-        "同模型高亮最高分 SDK 记录，保留所有历史点和表格行。PawBench、ClawEval 在公开 Harbor 接入与资源验收后另行评估；Terminal-Bench、AppWorld 不在首期范围。"
-      ]
-    },
-    {
-      "title": "模型 scope",
-      "paragraphs": [
-        "统一使用百炼北京区按量 API，禁止隐式切换模型。首期固定六个配置：",
-        "Qwen：qwen3.8-max-0902、qwen3.8-27b；DeepSeek：deepseek-v4-pro-0813、deepseek-v4.1-flash；GLM：glm-5.3、glm-5.2。",
-        "模型 ID、思考配置、工具政策、供应商地域、任务 hash、源码 SHA 与价格快照一起冻结。同一 ID 的服务端更新也要记录日期与可获取的版本信息。"
-      ]
-    },
-    {
-      "title": "代码与执行架构",
-      "paragraphs": [
-        "不创建根目录 evaluation 包。YAML 放 .github/bench，工作流放 .github/workflows，辅助代码放 scripts/bench，网站模块放 website/src/pages/Evaluation。Harbor 与 LiteLLM 通过 uv 隔离并固定版本。",
-        "每模型 1,065 题，最多 128 题一批，共 9 批；批内每题一个 matrix job，max-parallel 为 8，模型和批次串行，共 6,390 个正式 task-trial。原生 timeout 不缩短，总预算超过 hosted 上限时显式拒绝；self-hosted 作为后续扩展。",
-        "基础设施失败最多自动重试一次，使用新的 runner 并保留前次记录；正常答错与 agent timeout 不重评分。丢失 receipt 的尝试标为费用未知，不能假设免费。"
-      ]
-    },
-    {
-      "title": "费用和用量",
-      "paragraphs": [
-        "服务端 cost → LiteLLM completion_cost → 官方价格快照 × token usage；必要数据仍不足才标 Unknown。ACP 传递缓存读写与完整性，context occupancy 不用于计费。",
-        "单次费用 = [(输入 − 缓存命中) × 输入价 + 缓存命中 × 缓存价 + 输出 × 输出价] / 1,000,000。思考 token 已计入输出时不重复计算。每题汇总全部允许尝试，综合费用按 benchmark 等权。",
-        "缺少缓存明细使用无缓存价上界；DeepSeek 缺少峰谷条件时使用忙时价上界，明确标记为保守估算，不参与确定性 Pareto 比较。固定价格与汇率快照，估算和实付区分；工具、judge、runner 费用分别记录，缺失不记零。"
-      ]
-    },
-    {
-      "title": "公开归档与私有对照",
-      "paragraphs": [
-        "公开运行仅含 QwenPaw，私榜按 model × harness × SDK 组织。Codex、Claude Code、DeepSeek Harness 的演示布局不代表已通过集成验收。私有数据留在私有部署，公开 bundle 不包含私有成绩。",
-        "公开结果通过字段白名单、完整性与可见性验证，按 manifest 身份不可变归档到 bench-results 分支。串行更新索引，重复发布幂等，冲突拒绝覆盖。每次网站构建读取同一索引，保留历史。",
-        "模型 job 只获得 Bench 的模型 secret，不持有发布权限；发布 job 不获得模型 key。只上传结构化统计，原始请求和未脱敏轨迹不自动公开。mock 不生成虚假证据链接。"
-      ]
-    },
-    {
-      "title": "离线 parity 与验收",
-      "paragraphs": [
-        "固定题集、模型、工具政策、预算和 grader；分别记录官方条件复现与统一条件对比。报告附适用 SHA 和已知差异，release 只引用离线报告，不触发在线确认。",
-        "正式发布前需完成三套 benchmark 的资源/协议验收与完整套件运行。代码实现、模拟布局和实测成绩分开记录，单题 smoke 不作为正式 benchmark 分数。"
-      ]
-    }
-  ],
-  "latestIncomplete": "最近一次运行未完成"
+  "latestIncomplete": "最近一次运行未完成",
+  "headline": "QwenPaw Index",
+  "subtitle": "模型能力，随每一次 SDK 发布演进。",
+  "breakdown": "Benchmark 明细",
+  "recordsCount": "{{count}} 条记录",
+  "tableTitle": "成绩与版本历史"
 }
