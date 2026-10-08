@@ -1,0 +1,348 @@
+.evaluation-page {
+  width: 100%;
+  min-width: 0;
+  max-width: 1760px;
+  margin: 0 auto;
+  padding: 24px 32px 64px;
+  color: #282c35;
+  font-family: "Geist Variable", Arial, sans-serif;
+}
+.evaluation-page button,
+.evaluation-page select,
+.evaluation-page input {
+  font: inherit;
+}
+.evaluation-page button,
+.evaluation-page a {
+  cursor: pointer;
+}
+.evaluation-page button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: none;
+  border: 0;
+  color: inherit;
+}
+.evaluation-page a {
+  color: #5448a5;
+  text-decoration: none;
+}
+.evaluation-page :focus-visible {
+  outline: 2px solid #7565c7;
+  outline-offset: 4px;
+}
+.evaluation-nav {
+  display: flex;
+  align-items: center;
+  gap: 28px;
+  border-bottom: 1px solid #e8e9ed;
+  height: 46px;
+  font-size: 14px;
+}
+.evaluation-nav a {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  color: #858995;
+}
+.evaluation-nav .selected {
+  color: #282c35;
+  border-bottom: 2px solid #6252ba;
+}
+.evaluation-nav span {
+  margin-left: auto;
+  color: #9297a3;
+  font-size: 12px;
+}
+.evaluation-controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 22px;
+  min-height: 70px;
+  font-size: 12px;
+}
+.evaluation-controls label,
+.evaluation-table-controls label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.evaluation-page input[type="checkbox"] {
+  accent-color: #6657af;
+}
+.evaluation-controls select {
+  background: white;
+  border: 1px solid #e3e5ec;
+  padding: 7px 10px;
+  border-radius: 4px;
+  color: #353b48;
+}
+.evaluation-chart {
+  border: 1px solid #d9dfeb;
+  border-radius: 4px;
+  overflow: hidden;
+}
+.evaluation-plot {
+  width: 100%;
+  height: clamp(530px, 65vh, 790px);
+}
+.evaluation-legend {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  flex-wrap: wrap;
+  padding: 15px 2px;
+  color: #818793;
+  font-size: 11px;
+}
+.evaluation-legend span {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.evaluation-legend i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #6454b4;
+}
+.evaluation-legend i.faded {
+  opacity: 0.25;
+}
+.evaluation-legend i.line {
+  width: 20px;
+  height: 0;
+  border-top: 2px dashed #d9b748;
+  background: none;
+  border-radius: 0;
+}
+.evaluation-right {
+  margin-left: auto;
+}
+.evaluation-note {
+  color: #8b909b;
+  font-size: 12px;
+  line-height: 1.75;
+  margin: 8px 0 20px;
+}
+.evaluation-notice {
+  background: #f6f6fa;
+  border-left: 2px solid #b0a8ce;
+  padding: 14px 18px;
+  font-size: 13px;
+  line-height: 1.7;
+  margin: 18px 0;
+}
+.evaluation-table-controls {
+  display: flex;
+  gap: 24px;
+  align-items: center;
+  font-size: 12px;
+  margin: 26px 0 16px;
+  flex-wrap: wrap;
+}
+.evaluation-search {
+  margin-left: auto;
+  border-bottom: 1px solid #d9dce4;
+  padding: 8px 0;
+}
+.evaluation-search input {
+  border: 0;
+  outline: 0;
+  width: 230px;
+  background: transparent;
+}
+.evaluation-table-wrap {
+  overflow-x: auto;
+}
+.evaluation-page table {
+  border-collapse: collapse;
+  width: 100%;
+  text-align: left;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.evaluation-table-wrap table {
+  min-width: 1430px;
+}
+.evaluation-page th {
+  padding: 14px 16px;
+  color: #7f8592;
+  font-weight: 500;
+  border-bottom: 1px solid #dcdfe7;
+  white-space: nowrap;
+}
+.evaluation-page td {
+  padding: 19px 16px;
+  border-bottom: 1px solid #eceef2;
+  white-space: nowrap;
+}
+.evaluation-page th:first-child,
+.evaluation-page td:first-child {
+  padding-left: 0;
+}
+.evaluation-page td small,
+.evaluation-page th small {
+  display: block;
+  font-size: 10px;
+  font-weight: 400;
+  color: #999fab;
+  margin-top: 5px;
+}
+.evaluation-page tr:hover {
+  background: #fafafe;
+}
+.evaluation-page .evaluation-score {
+  font-weight: 600;
+  font-size: 15px;
+}
+.evaluation-model {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+.evaluation-model img {
+  width: 25px;
+  height: 25px;
+  object-fit: contain;
+}
+.evaluation-model strong {
+  font-weight: 500;
+}
+.evaluation-model small.frontier {
+  color: #9b8137;
+}
+.evaluation-empty {
+  text-align: center;
+  color: #959aa7;
+  padding: 40px;
+}
+.evaluation-detail,
+.evaluation-plan > section,
+.evaluation-plan > h1 {
+  max-width: 1020px;
+  margin-left: auto;
+  margin-right: auto;
+}
+.evaluation-plan h1,
+.evaluation-detail h1 {
+  font-size: 32px;
+  font-weight: 560;
+  letter-spacing: -1px;
+  margin-top: 52px;
+  margin-bottom: 26px;
+}
+.evaluation-plan section {
+  margin-top: 46px;
+}
+.evaluation-plan section h2 {
+  font-size: 21px;
+  font-weight: 560;
+  letter-spacing: -0.4px;
+  margin-bottom: 16px;
+}
+.evaluation-plan section p,
+.evaluation-plan section li {
+  line-height: 1.9;
+  font-size: 14px;
+  color: #69707c;
+  margin: 14px 0;
+}
+.evaluation-plan ul {
+  padding-left: 20px;
+  list-style: disc;
+}
+.evaluation-plan .evaluation-tldr {
+  padding: 24px 28px;
+  background: #f7f7fb;
+  border-radius: 6px;
+  margin-top: 0;
+}
+.evaluation-page pre {
+  padding: 24px;
+  background: #f6f7fa;
+  overflow: auto;
+  border-radius: 5px;
+  line-height: 1.8;
+  font-size: 12px;
+  margin: 24px 0;
+}
+.evaluation-detail {
+  padding-top: 30px;
+}
+.evaluation-detail dl {
+  display: grid;
+  grid-template-columns: 130px 1fr;
+  gap: 14px;
+  font-size: 13px;
+  margin: 32px 0;
+}
+.evaluation-detail dt {
+  color: #9197a3;
+}
+.evaluation-detail dd {
+  overflow-wrap: anywhere;
+}
+.evaluation-page .evaluation-button {
+  border: 1px solid #dce0e9;
+  border-radius: 4px;
+  padding: 10px 14px;
+  margin: 12px;
+  font-size: 13px;
+}
+@media (max-width: 700px) {
+  .evaluation-page {
+    padding: 16px 14px 40px;
+  }
+  .evaluation-controls {
+    gap: 12px;
+    padding: 14px 0;
+  }
+  .evaluation-nav {
+    gap: 20px;
+  }
+  .evaluation-nav span {
+    font-size: 10px;
+  }
+  .evaluation-plot {
+    height: 460px;
+  }
+  .evaluation-legend {
+    gap: 12px;
+  }
+  .evaluation-right {
+    margin-left: 0;
+    width: 100%;
+  }
+  .evaluation-table-controls {
+    gap: 14px;
+  }
+  .evaluation-search {
+    margin-left: 0;
+    order: 3;
+    width: 100%;
+  }
+  .evaluation-search input {
+    width: 100%;
+  }
+  .evaluation-plan h1,
+  .evaluation-detail h1 {
+    font-size: 25px;
+  }
+  .evaluation-plan .evaluation-tldr {
+    padding: 20px;
+  }
+  .evaluation-plan table {
+    font-size: 10px;
+  }
+  .evaluation-plan th,
+  .evaluation-plan td {
+    padding: 12px 6px;
+    white-space: normal;
+  }
+  .evaluation-detail dl {
+    grid-template-columns: 90px 1fr;
+  }
+}
