@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """Render a native Harbor job and normalize its single trial receipt."""
 
 import argparse
@@ -43,7 +44,7 @@ def job_config(data: dict, task: dict, model: dict, root: Path) -> dict:
             f"OPENAI_BASE_URL": settings[f"base_url"],
             f"OPENAI_MODEL": model[f"id"],
             f"QWENPAW_MODEL_INFO_JSON": json.dumps(info),
-        }
+        },
     )
     config[f"tasks"] = [{f"path": str(resolve(root, task[f"path"]))}]
     config[f"job_name"] = f"task"

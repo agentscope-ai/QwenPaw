@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """Regression tests for evaluation isolation, identity, and scoring."""
 
 import copy
@@ -13,18 +14,22 @@ from scripts.bench.prepare import freeze
 from scripts.bench.run import diagnostics, job_config, normalize
 
 
-@pytest.fixture
-def prepared(tmp_path):
+@pytest.fixture(name=f"prepared")
+def prepared_fixture(tmp_path):
     config = tmp_path / f"config"
     config.mkdir()
     for source in Path(f".github/bench").glob(f"*.yaml"):
-        (config / source.name).write_text(source.read_text())
-    suite = yaml.safe_load((config / f"suite.yaml").read_text())
+        (config / source.name).write_text(source.read_text(encoding=f"utf-8"))
+    suite = yaml.safe_load(
+        (config / f"suite.yaml").read_text(encoding=f"utf-8"),
+    )
     suite[f"benchmarks"] = suite[f"benchmarks"][:2]
     suite[f"benchmarks"][0][f"count"] = 1
     suite[f"benchmarks"][1][f"count"] = 2
     (config / f"suite.yaml").write_text(yaml.safe_dump(suite))
-    models = yaml.safe_load((config / f"models.yaml").read_text())
+    models = yaml.safe_load(
+        (config / f"models.yaml").read_text(encoding=f"utf-8"),
+    )
     models[f"models"] = models[f"models"][:1]
     (config / f"models.yaml").write_text(yaml.safe_dump(models))
     datasets = tmp_path / f"datasets"
@@ -36,7 +41,7 @@ def prepared(tmp_path):
             (task / f"instruction.md").write_text(f"Write /app/answer.txt")
             (task / f"environment/Dockerfile").write_text(f"FROM ubuntu:24.04")
             (task / f"tests/test.sh").write_text(
-                f"echo 1 > /logs/verifier/reward.txt"
+                f"echo 1 > /logs/verifier/reward.txt",
             )
             (task / f"task.toml").write_text(
                 f'version="1.0"\n[agent]\ntimeout_sec=600\n'
@@ -105,7 +110,10 @@ def test_hosted_limit_is_not_clamped(prepared):
     _, datasets, config = prepared
     task = next(datasets.rglob(f"task.toml"))
     task.write_text(
-        task.read_text().replace(f"timeout_sec=600", f"timeout_sec=22000")
+        task.read_text(encoding=f"utf-8").replace(
+            f"timeout_sec=600",
+            f"timeout_sec=22000",
+        ),
     )
     with pytest.raises(ValueError, match=f"exceeds hosted"):
         freeze(config, datasets, f"1.0.0", f"a" * 40)
@@ -123,7 +131,8 @@ def test_manifest_tampering(prepared, tmp_path):
 
 
 @pytest.mark.parametrize(
-    f"relative", [f"../escape", f"/tmp/escape", f"..\\escape"]
+    f"relative",
+    [f"../escape", f"/tmp/escape", f"..\\escape"],
 )
 def test_paths_cannot_escape(tmp_path, relative):
     with pytest.raises(ValueError):
@@ -200,7 +209,9 @@ def test_unknown_status_is_rejected(prepared):
 
 
 def test_yaml_scope_fits_serial_batches():
-    suite = yaml.safe_load(Path(f".github/bench/suite.yaml").read_text())
+    suite = yaml.safe_load(
+        Path(f".github/bench/suite.yaml").read_text(encoding=f"utf-8"),
+    )
     total = sum(b[f"count"] for b in suite[f"benchmarks"])
     sizes = [
         min(suite[f"batch_size"], total - i)
@@ -208,7 +219,9 @@ def test_yaml_scope_fits_serial_batches():
     ]
     assert sizes == [128] * 8 + [41]
     workflow = yaml.safe_load(
-        Path(f".github/workflows/bench-model.yml").read_text()
+        Path(f".github/workflows/bench-model.yml").read_text(
+            encoding=f"utf-8",
+        ),
     )
     assert len(workflow[f"jobs"]) == len(sizes)
     for i in range(1, len(sizes)):
@@ -217,6 +230,6 @@ def test_yaml_scope_fits_serial_batches():
 
 def test_diagnostics_export_labels_not_raw_credentials(tmp_path):
     (tmp_path / f"stderr.txt").write_text(
-        f"SECRET_TEST_VALUE no such option: --runtime-provider exit code: 2"
+        f"SECRET_TEST_VALUE no such option: --runtime-provider exit code: 2",
     )
     assert diagnostics(tmp_path) == [f"exit_code_2", f"unsupported_cli_option"]

@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """Validate complete coverage and export only public summary fields."""
 
 import argparse
@@ -20,6 +21,8 @@ def aggregate(data: dict, receipts: list[dict]) -> dict:
     for receipt in receipts:
         key = (receipt[f"model_id"], receipt[f"task_id"])
         identity = (*key, receipt[f"attempt"])
+        # Keep receipt identity checks together for auditability.
+        # pylint: disable=too-many-boolean-expressions
         if (
             key not in expected
             or identity in identities
@@ -38,7 +41,7 @@ def aggregate(data: dict, receipts: list[dict]) -> dict:
     for key, attempts in grouped.items():
         attempts.sort(key=lambda r: r[f"attempt"])
         if [r[f"attempt"] for r in attempts] != list(
-            range(1, len(attempts) + 1)
+            range(1, len(attempts) + 1),
         ):
             raise ValueError(f"Attempt history has gaps")
         completed = [r for r in attempts if r[f"status"] != f"infra_error"]
@@ -87,7 +90,7 @@ def aggregate(data: dict, receipts: list[dict]) -> dict:
                     f"mean_model_cost_usd": sum(costs) / len(tasks)
                     if complete and known
                     else None,
-                }
+                },
             )
         complete = all(p[f"score"] is not None for p in parts)
         costs = [p[f"mean_model_cost_usd"] for p in parts]
@@ -133,7 +136,7 @@ def aggregate(data: dict, receipts: list[dict]) -> dict:
                 else f"unknown",
                 f"domains": domains,
                 f"benchmarks": parts,
-            }
+            },
         )
     return {
         f"schema_version": 1,

@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """Download Harbor datasets once and freeze portable task batches."""
 
 import argparse
@@ -49,7 +50,7 @@ def freeze(config: Path, datasets: Path, version: str, sha: str) -> dict:
                     + suite[f"agent_setup_seconds"]
                     + suite[f"upload_margin_seconds"]
                 )
-                / 60
+                / 60,
             )
             if minutes > 360:
                 raise ValueError(f"Native budget exceeds hosted: {task.name}")
@@ -62,7 +63,7 @@ def freeze(config: Path, datasets: Path, version: str, sha: str) -> dict:
                     f"sha256": tree_hash(path.parent),
                     f"job_minutes": minutes,
                     f"resources": native.environment.model_dump(mode=f"json"),
-                }
+                },
             )
     size = suite[f"batch_size"]
     payload = {
@@ -113,7 +114,8 @@ def main() -> None:
     save(args.output / f"manifest.json", data)
     for i, batch in enumerate(data[f"batches"]):
         with tarfile.open(
-            args.output / f"batch-{i}.tar.gz", f"w:gz"
+            args.output / f"batch-{i}.tar.gz",
+            f"w:gz",
         ) as archive:
             for task in batch:
                 archive.add(datasets / task[f"path"], arcname=task[f"path"])

@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """Portable manifest serialization shared by workflow helpers."""
 
 import hashlib

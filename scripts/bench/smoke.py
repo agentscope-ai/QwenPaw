@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """Exercise the real ACP path without publishing a benchmark score."""
 
 import argparse
@@ -23,7 +24,7 @@ def main() -> None:
     suite = load(source / f"suite.yaml")
     suite[f"version"] = f"smoke-only"
     suite[f"benchmarks"] = [
-        {f"id": f"smoke", f"count": 1, f"domains": [f"smoke"]}
+        {f"id": f"smoke", f"count": 1, f"domains": [f"smoke"]},
     ]
     models = load(source / f"models.yaml")
     models[f"models"] = [models[f"models"][1]]
@@ -32,7 +33,8 @@ def main() -> None:
     shutil.copyfile(source / f"harbor.yaml", config / f"harbor.yaml")
     datasets = args.output / f"datasets"
     shutil.copytree(
-        Path(f"tests/fixtures/bench/smoke"), datasets / f"smoke/task"
+        Path(f"tests/fixtures/bench/smoke"),
+        datasets / f"smoke/task",
     )
     data = freeze(config, datasets, args.version, args.sha)
     manifest_path = args.output / f"manifest.json"
