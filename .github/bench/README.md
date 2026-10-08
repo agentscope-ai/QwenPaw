@@ -9,7 +9,7 @@ TL;DR：不创建根目录 `evaluation/`，不修改产品依赖。配置和调�
 | `.github/bench/suite.yaml` | benchmark、题数、分批与预算配置 |
 | `.github/bench/models.yaml` | 六个模型、服务地址、能力及生成参数 |
 | `.github/bench/harbor.yaml` | 原生 Harbor JobConfig、Docker 和 ACP 安装定义 |
-| `.github/workflows/bench.yml` | release/manual 入口、冻结任务、串行模型、最终汇总 |
+| `.github/workflows/bench.yml` | release/manual 入口、冻结任务、并行实验、最终汇总 |
 | `.github/workflows/bench-model.yml` | 单模型九批串行执行 |
 | `.github/workflows/bench-batch.yml` | 批内 matrix，每题一个 GitHub-hosted runner |
 | `scripts/bench/` | prepare / run / collect，共用 manifest 校验 |
@@ -24,12 +24,12 @@ TL;DR：不创建根目录 `evaluation/`，不修改产品依赖。配置和调�
 在 `Bench` environment 配置 `DASHSCOPE_API_KEY` secret；stage 和实际模型 job 绑定该 environment，嵌套调用使用 secrets: inherit；stage 先检查所选凭据是否存在，不输出值。离线验收后将 repository variable `BENCH_ENABLED=true`，才自动响应 published release；手动 workflow_dispatch 可用于验收，使用所选分支当前提交构建；SDK 版本从检出的 `src/qwenpaw/__version__.py` 读取，源码 repository/SHA 写入 manifest，receipt 记录 source_sha。不固定 runner 分支，也不依赖 PyPI 包发布。
 
 1. 原生 Harbor CLI 导出数据；核对 165 + 400 + 500 题，冻结文件校验和与本轮配置。
-2. 每模型 1,065 题，拆成 8 × 128 + 41，共九批。六模型依次执行，批间串行、批内并发 8，一题一次 trial 独占一台 runner。完整一轮为 6,390 个任务 job，另有准备和汇总 job。
+2. 每模型 1,065 题，拆成 8 × 128 + 41，共九批。默认六模型并行，批间串行、批内并发 16（受账户总额度限制），一题一次 trial 独占一台 runner。完整一轮为 6,390 个任务 job，另有准备和汇总 job。
 3. 每个 runner 只下载所在批次。启动前再校验题目内容。Harbor 重试为 0，尝试次数为 1；模型任务只获模型 key，不获网站写权限。
 4. 任务使用原生 agent/verifier/build timeout；job 预算另外包含安装和上传余量。超过 hosted 单 job 上限时准备阶段报错，不缩短 benchmark timeout。将来接 self-hosted 时修改 runner 与预算预检，当前没有启用。
 5. 汇总单题 receipt；缺题或基础设施失败使相应 benchmark 和综合分为空。有效失败和 agent timeout 计 0，verifier 错误不伪装为模型失败。各 benchmark 和领域按宏平均等权。
 
-每实验最多九批、批内并发 8；模型/provider 数量来自 dispatch。基础设施失败或缺少 receipt 自动恢复一次，不对有效评分择优重试。
+每实验最多九批，实验和批内并发可通过 dispatch 配置；模型/provider 数量来自 dispatch。基础设施失败或缺少 receipt 自动恢复一次，不对有效评分择优重试。
 
 本地验证已有导出的数据（目录为 OUTPUT/datasets/benchmark-id/task）：
 
@@ -68,7 +68,7 @@ gh workflow run bench.yml -R OWNER/REPO --ref feat/bench \
   -f benchmarks=gaia
 ```
 
-prepare 冻结完整题集来计算配置身份，但只执行选择的任务。实验间串行，最多九批/实验，每批最多 128 task、并发 8。未登记的 harness/benchmark 或空 ID 失败；模型 ID 可以直接指定服务端支持的新模型，不静默扩大运行范围。相同源码、模型、harness、完整实验配置和任务摘要产生同一配置 key，不受运行日期或同次 dispatch 选择列表影响。
+prepare 冻结完整题集来计算配置身份，但只执行选择的任务。实验间默认并发 6，最多九批/实验，每批最多 128 task、默认并发 16。未登记的 harness/benchmark 或空 ID 失败；模型 ID 可以直接指定服务端支持的新模型，不静默扩大运行范围。相同源码、模型、harness、完整实验配置和任务摘要产生同一配置 key，不受运行日期或同次 dispatch 选择列表影响。
 
 每个 benchmark 的结果写入 `website/public/evaluation/data/results/<key>.json`；相同 key 覆盖、新 key 新增。失败重跑保留旧完整成绩，并更新 latest_attempt。完整运行与失败状态另存 `attempts/<run-id>-<attempt>.json`。这些都是白名单字段，不包含原始轨迹。
 
