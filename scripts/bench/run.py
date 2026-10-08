@@ -24,25 +24,29 @@ def job_config(data: dict, task: dict, model: dict, root: Path) -> dict:
     """Keep the model key in the environment, never in saved configuration."""
     config = copy.deepcopy(data[f"harbor"])
     agent = config[f"agents"][0]
-    registry = agent[f"kwargs"][f"registry_entry"]
-    version = data[f"product_version"]
-    registry[f"version"] = version
-    repository = data[f"source_repository"]
-    sha = data[f"evaluation_sha"]
-    registry[f"distribution"][f"uvx"] = {
-        f"package": f"--no-cache",
-        f"args": [
-            f"--from",
-            f"qwenpaw @ https://github.com/{repository}/archive/{sha}.tar.gz",
-            f"qwenpaw",
-            f"acp",
-            f"--runtime-provider",
-            f"openai-env",
-        ],
-    }
-    # OPENAI_MODEL fixes the runtime provider for this task.
-    # Avoid the optional ACP session model-selection extension.
-    agent.pop(f"model_name", None)
+    if data[f"harness"] != f"QwenPaw":
+        agent[f"version"] = data[f"harness_version"]
+        agent[f"model_name"] = model[f"id"]
+    else:
+        registry = agent[f"kwargs"][f"registry_entry"]
+        version = data[f"product_version"]
+        registry[f"version"] = version
+        repository = data[f"source_repository"]
+        sha = data[f"evaluation_sha"]
+        registry[f"distribution"][f"uvx"] = {
+            f"package": f"--no-cache",
+            f"args": [
+                f"--from",
+                f"qwenpaw @ https://github.com/{repository}/archive/{sha}.tar.gz",
+                f"qwenpaw",
+                f"acp",
+                f"--runtime-provider",
+                f"openai-env",
+            ],
+        }
+        # OPENAI_MODEL fixes the runtime provider for this task.
+        # Avoid the optional ACP session model-selection extension.
+        agent.pop(f"model_name", None)
     agent[f"override_setup_timeout_sec"] = data[f"suite"][
         f"agent_setup_seconds"
     ]
@@ -56,13 +60,14 @@ def job_config(data: dict, task: dict, model: dict, root: Path) -> dict:
         )
     }
     info.update(supports_image=model[f"supports_image"])
-    agent[f"env"].update(
-        {
-            f"OPENAI_BASE_URL": settings[f"base_url"],
-            f"OPENAI_MODEL": model[f"id"],
-            f"QWENPAW_MODEL_INFO_JSON": json.dumps(info),
-        },
-    )
+    if data[f"harness"] == f"QwenPaw":
+        agent[f"env"].update(
+            {
+                f"OPENAI_BASE_URL": settings[f"base_url"],
+                f"OPENAI_MODEL": model[f"id"],
+                f"QWENPAW_MODEL_INFO_JSON": json.dumps(info),
+            },
+        )
     config[f"tasks"] = [{f"path": str(resolve(root, task[f"path"]))}]
     config[f"job_name"] = f"task"
     config[f"jobs_dir"] = f"harbor"
@@ -100,8 +105,8 @@ def normalize(raw: dict, data: dict, task: dict, model: dict, attempt: int):
         f"task_id": task[f"id"],
         f"benchmark": task[f"benchmark"],
         f"model_id": model[f"id"],
-        f"harness": f"QwenPaw",
-        f"sdk_version": data[f"product_version"],
+        f"harness": data[f"harness"],
+        f"sdk_version": data[f"harness_version"],
         f"source_sha": data[f"evaluation_sha"],
         f"trial": 0,
         f"attempt": attempt,

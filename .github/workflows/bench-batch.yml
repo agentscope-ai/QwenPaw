@@ -2,6 +2,9 @@ name: Independent task runners
 on:
   workflow_call:
     inputs:
+      experiment:
+        required: true
+        type: string
       model:
         required: true
         type: number
@@ -18,7 +21,7 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
-          name: bench-manifest
+          name: bench-manifest-${{ inputs.experiment }}
           path: manifest
       - id: matrix
         env:
@@ -42,6 +45,7 @@ jobs:
         include: ${{ fromJSON(needs.matrix.outputs.tasks) }}
     uses: ./.github/workflows/bench-task.yml
     with:
+      experiment: ${{ inputs.experiment }}
       model: ${{ inputs.model }}
       batch: ${{ inputs.batch }}
       task: ${{ matrix.id }}
@@ -62,11 +66,11 @@ jobs:
           python-version: '3.12'
       - uses: actions/download-artifact@v4
         with:
-          name: bench-manifest
+          name: bench-manifest-${{ inputs.experiment }}
           path: manifest
       - uses: actions/download-artifact@v4
         with:
-          pattern: bench-receipt-${{ inputs.model }}-*
+          pattern: bench-receipt-${{ inputs.experiment }}-${{ inputs.model }}-*
           path: receipts
       - id: recovery
         env:
@@ -79,7 +83,7 @@ jobs:
             --missing "$RUNNER_TEMP/missing"
       - uses: actions/upload-artifact@v4
         with:
-          name: bench-receipt-missing-${{ inputs.model }}-${{ inputs.batch }}
+          name: bench-receipt-${{ inputs.experiment }}-missing-${{ inputs.model }}-${{ inputs.batch }}
           path: ${{ runner.temp }}/missing
           if-no-files-found: ignore
 
@@ -93,6 +97,7 @@ jobs:
         include: ${{ fromJSON(needs.recovery.outputs.tasks) }}
     uses: ./.github/workflows/bench-task.yml
     with:
+      experiment: ${{ inputs.experiment }}
       model: ${{ inputs.model }}
       batch: ${{ inputs.batch }}
       task: ${{ matrix.id }}

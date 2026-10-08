@@ -124,6 +124,7 @@ def test_acp_sums_consumed_chunks_ignores_context(tmp_path):
 
 def test_reported_zero_has_priority(tmp_path, prices):
     receipt = {
+        f"harness": f"QwenPaw",
         f"usage": usage(),
         f"model_id": f"qwen3.8-27b",
         f"model_cost_usd": 0,

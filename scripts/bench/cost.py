@@ -163,7 +163,7 @@ def attach(receipt: dict, data: dict, output: Path) -> None:
     """Keep reported cost and estimation separate; never add them together."""
     usage = receipt[f"usage"]
     receipt[f"usage_source"] = f"harbor"
-    if not all(
+    if receipt[f"harness"] == f"QwenPaw" and not all(
         tokens(usage.get(key))
         for key in (f"n_input_tokens", f"n_output_tokens")
     ):

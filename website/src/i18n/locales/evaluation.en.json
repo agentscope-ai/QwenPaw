@@ -128,5 +128,6 @@
         "Official publication requires resource and protocol acceptance plus complete benchmark runs. Keep implemented code, mock layouts, and measured results distinct. Single-task smoke checks are not official benchmark scores."
       ]
     }
-  ]
+  ],
+  "latestIncomplete": "Latest run incomplete"
 }

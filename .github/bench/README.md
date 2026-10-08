@@ -35,7 +35,7 @@ TL;DR：不创建根目录 `evaluation/`，不修改产品依赖。配置和调�
 本地验证已有导出的数据（目录为 OUTPUT/datasets/benchmark-id/task）：
 
 ```sh
-uv run --no-project --with harbor==0.24.0 --with litellm==1.103.4 python -m scripts.bench.prepare \
+uv run --no-project --with harbor==0.24.0 --with litellm==1.103.4 python -m scripts.bench.dispatch \
   --output /tmp/qwenpaw-bench --sha COMMIT_SHA --repository OWNER/REPO
 uv run --no-project --with harbor==0.24.0 --with litellm==1.103.4 --with pytest python -m pytest \
   -c /dev/null --confcutdir=tests/unit/scripts/bench \
@@ -58,5 +58,25 @@ Windows 使用等价路径和 PowerShell 命令续行；Python 帮助程序使�
 - 已在个人 origin 的 GitHub-hosted runner 上跑通真实 Docker / ACP 合成任务（reward 1）及 GAIA 单题原生评分（reward 0），模型直接调用返回 HTTP 200。详见 [试跑记录](../../docs/design/qwenpaw-evaluation-smoke-report.md)。这不代表全量 benchmark 或另外两项的资源验收已完成。
 - 数据导出在单轮内按文件哈希冻结；跨 release 固定 dataset revision、镜像 digest 与传递依赖锁定仍待完成，当前不能宣称跨轮完全可复现。
 - 六模型的账户权限、多模态、工具调用和生成参数需离线确认；parity 报告也离线完成，不放进 release 的在线确认流程。
-- 已实现 bench-results 历史索引与统一网站部署代码，尚未完成真实发布验收；网站页面仍待验收和提交。完整状态见[实现差距核对](../../docs/design/qwenpaw-evaluation-gap-review.md)。
+- 已改为纯 JSON 结果 PR、合并后生成索引与部署；网站页面已提交并通过桌面/移动端/双语验收，真实发布验收仍在进行。完整状态见[实现差距核对](../../docs/design/qwenpaw-evaluation-gap-review.md)。
 - PawBench / Claw-Eval 待确认现成 Harbor 接入后再讨论纳入；AppWorld / Terminal-Bench 不在首期。
+
+## 单选/多选 dispatch 与纯 JSON PR
+
+`bench.yml` 接受 `harnesses`、`models`、`benchmarks`，均支持一个 ID、逗号分隔多个 ID 或 `all`。默认 `qwenpaw / all / all`。首次支持的 harness 注册于 `.github/bench/harnesses.yaml`，每个 ID 指向包含 suite/models/prices/harbor YAML 的配置目录。私有仓库可登记 Harbor 原生 Codex、Claude Code 或已有 ACP registry 配置，不需要另一套 workflow。原生 agent 协议、实际版本、模型和 endpoint 必须匹配；未验证的组合不能声称已兼容。
+
+```sh
+gh workflow run bench.yml -R OWNER/REPO --ref feat/bench \
+  -f harnesses=qwenpaw -f models=qwen3.8-27b,glm-5.3 \
+  -f benchmarks=gaia
+```
+
+prepare 冻结完整题集来计算配置身份，但只执行选择的任务。实验间串行，最多九批/实验，每批最多 128 task、并发 8。未知/空 ID 失败，不静默扩大运行范围。相同源码、模型、harness、完整实验配置和任务摘要产生同一配置 key，不受运行日期或同次 dispatch 选择列表影响。
+
+每个 benchmark 的结果写入 `website/public/evaluation/data/results/<key>.json`；相同 key 覆盖、新 key 新增。失败重跑保留旧完整成绩，并更新 latest_attempt。完整运行与失败状态另存 `attempts/<run-id>-<attempt>.json`。这些都是白名单字段，不包含原始轨迹。
+
+评测结束由单独的无模型密钥 job 从默认分支创建纯 JSON PR，不直接部署、不自动合并。PR 仅允许 results/attempts 目录的 JSON。默认分支合并后，网站 workflow 从全部已合并 JSON 重新生成 index.json 并部署；index 不由结果 PR 修改，避免不同 benchmark 的 PR 相互覆盖。相同文件发生并发修改时必须解决 Git 冲突，不能强行覆盖其他 PR。
+
+私有配置拒绝在公开仓库运行；私有仓库的 PR、artifacts 和索引保持 private，不推送上游网站。Bench environment 仍只在单题执行 job 注入 DASHSCOPE_API_KEY。替代 harness 在 harbor.yaml 使用环境变量引用，不写明文 Key。
+
+详细行为与实现清单见[发布机制](../../docs/design/qwenpaw-evaluation-dispatch-publication.md)。

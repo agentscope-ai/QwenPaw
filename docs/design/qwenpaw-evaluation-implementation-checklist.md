@@ -66,3 +66,7 @@ HTML 中的成绩、历史版本、费用与私榜组合都是 mock，不是实�
 - [x] ACP 初始化排除 BOOTSTRAP.md，普通 init 默认行为保留；48 项相关测试通过。已有用户文件不删除，新评测容器不生成该文件。
 
 完整差距核对与下一步顺序：[实现差距核对](qwenpaw-evaluation-gap-review.md)。
+
+## 最新发布机制（取代直接归档部署）
+
+按用户最新要求：release 后评测生成纯 JSON PR，合并后部署网站；手动 dispatch 支持单选/多选与相同配置默认覆盖。细节及待办见[dispatch 与 JSON PR 发布机制](qwenpaw-evaluation-dispatch-publication.md)。此前 bench-results 直接发布代码需要替换，不视为最终发布闭环已完成。

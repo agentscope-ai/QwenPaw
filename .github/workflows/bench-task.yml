@@ -2,6 +2,9 @@ name: One isolated task attempt
 on:
   workflow_call:
     inputs:
+      experiment:
+        required: true
+        type: string
       model:
         required: true
         type: number
@@ -32,11 +35,11 @@ jobs:
           python-version: '3.12'
       - uses: actions/download-artifact@v4
         with:
-          name: bench-manifest
+          name: bench-manifest-${{ inputs.experiment }}
           path: ${{ runner.temp }}/manifest
       - uses: actions/download-artifact@v4
         with:
-          name: bench-tasks-${{ inputs.batch }}
+          name: bench-tasks-${{ inputs.experiment }}-${{ inputs.batch }}
           path: ${{ runner.temp }}/batches
       - name: Unpack frozen batch
         env:
@@ -63,6 +66,6 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: bench-receipt-${{ inputs.model }}-${{ inputs.task }}-${{ inputs.attempt }}
+          name: bench-receipt-${{ inputs.experiment }}-${{ inputs.model }}-${{ inputs.task }}-${{ inputs.attempt }}
           path: ${{ runner.temp }}/result/receipt.json
           if-no-files-found: warn

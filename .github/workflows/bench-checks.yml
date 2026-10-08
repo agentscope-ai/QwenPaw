@@ -48,6 +48,16 @@ jobs:
           cache-dependency-path: website/pnpm-lock.yaml
       - run: pnpm --dir website install --frozen-lockfile
       - run: pnpm --dir website test:evaluation
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: '0.8.22'
+          python-version: '3.12'
+      - name: Validate result JSON and generate website index
+        env:
+          VISIBILITY: ${{ github.event.repository.private && 'private' || 'public' }}
+        run: >-
+          uv run --no-project --with pyyaml==6.0.2 python -m scripts.bench.results
+          --build-index --data website/public/evaluation/data --visibility "$VISIBILITY"
       - run: pnpm --dir website build
       - uses: actions/upload-artifact@v4
         with:

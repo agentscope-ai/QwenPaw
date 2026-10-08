@@ -28,6 +28,7 @@ export interface RecordResult {
   benchmarks: Benchmark[];
 }
 export interface Run {
+  latest_attempts?: { complete: boolean; benchmark: string }[];
   schema_version: 1;
   visibility: "public" | "private";
   index_version: string;

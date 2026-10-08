@@ -1,0 +1,148 @@
+# -*- coding: utf-8 -*-
+"""Expand dispatch selections into independently frozen experiments."""
+
+import argparse
+import copy
+import json
+import os
+import subprocess
+import sys
+import tarfile
+from pathlib import Path
+
+from .common import digest, load, save, source_version
+from .prepare import freeze
+
+
+def select(value: str, available: list[str]) -> list[str]:
+    """Resolve one or many IDs without silently widening the selection."""
+    selected = list(dict.fromkeys(item.strip() for item in value.split(f",")))
+    if selected == [f"all"]:
+        return available
+    if not selected or any(item not in available for item in selected):
+        raise ValueError(f"Unknown or empty selection: {value}")
+    return selected
+
+
+def experiments(data: dict, models: str, benchmarks: str) -> list[dict]:
+    """Keep configuration identity independent of neighboring selections."""
+    model_ids = select(models, [m[f"id"] for m in data[f"models"][f"models"]])
+    benchmark_ids = select(
+        benchmarks,
+        [b[f"id"] for b in data[f"suite"][f"benchmarks"]],
+    )
+    records = []
+    for model in data[f"models"][f"models"]:
+        if model[f"id"] not in model_ids:
+            continue
+        leaf = copy.deepcopy(data)
+        leaf.pop(f"sha256")
+        leaf[f"models"][f"models"] = [model]
+        identity = copy.deepcopy(leaf)
+        for key in (f"created_at", f"batches", f"product_version"):
+            identity.pop(key)
+        leaf[f"configuration_sha256"] = digest(identity)
+        leaf[f"index_benchmarks"] = copy.deepcopy(
+            data[f"suite"][f"benchmarks"],
+        )
+        leaf[f"tasks"] = [
+            t for t in data[f"tasks"] if t[f"benchmark"] in benchmark_ids
+        ]
+        leaf[f"suite"][f"benchmarks"] = [
+            b
+            for b in data[f"suite"][f"benchmarks"]
+            if b[f"id"] in benchmark_ids
+        ]
+        size = leaf[f"suite"][f"batch_size"]
+        leaf[f"batches"] = [
+            leaf[f"tasks"][i : i + size]
+            for i in range(0, len(leaf[f"tasks"]), size)
+        ]
+        if not 1 <= len(leaf[f"batches"]) <= 9:
+            raise ValueError(f"Configured suite exceeds nine batch slots")
+        records.append({**leaf, f"sha256": digest(leaf)})
+    return records
+
+
+def main() -> None:
+    """Export full protocol once, then schedule only selected tasks."""
+    parser = argparse.ArgumentParser()
+    parser.add_argument(f"--harnesses", default=f"qwenpaw")
+    parser.add_argument(f"--models", default=f"all")
+    parser.add_argument(f"--benchmarks", default=f"all")
+    parser.add_argument(f"--output", type=Path, required=True)
+    parser.add_argument(f"--sha", required=True)
+    parser.add_argument(f"--repository", required=True)
+    parser.add_argument(f"--private-repository", action=f"store_true")
+    args = parser.parse_args()
+    registry = load(Path(f".github/bench/harnesses.yaml"))
+    matrix = []
+    visibility = None
+    for harness_id in select(args.harnesses, list(registry)):
+        config = Path(registry[harness_id]).resolve()
+        config.relative_to(Path.cwd().resolve())
+        suite = load(config / f"suite.yaml")
+        if suite[f"visibility"] == f"private" and not args.private_repository:
+            raise ValueError(
+                f"Private configuration requires a private repository",
+            )
+        if visibility and visibility != suite[f"visibility"]:
+            raise ValueError(f"Cannot mix public and private experiments")
+        visibility = suite[f"visibility"]
+        select(
+            args.models,
+            [m[f"id"] for m in load(config / f"models.yaml")[f"models"]],
+        )
+        select(args.benchmarks, [b[f"id"] for b in suite[f"benchmarks"]])
+        datasets = args.output / f"datasets" / harness_id
+        for item in suite[f"benchmarks"]:
+            subprocess.run(
+                [
+                    sys.executable,
+                    f"-m",
+                    f"harbor.cli.main",
+                    f"datasets",
+                    f"download",
+                    item[f"dataset"],
+                    f"--output-dir",
+                    str(datasets / item[f"id"]),
+                    f"--export",
+                ],
+                check=True,
+            )
+        data = freeze(
+            config,
+            datasets,
+            source_version(),
+            args.sha,
+            args.repository,
+        )
+        for leaf in experiments(data, args.models, args.benchmarks):
+            experiment = leaf[f"configuration_sha256"][:24]
+            folder = args.output / f"experiments" / experiment
+            save(folder / f"manifest.json", leaf)
+            for i, batch in enumerate(leaf[f"batches"]):
+                with tarfile.open(
+                    folder / f"batch-{i}.tar.gz",
+                    f"w:gz",
+                ) as archive:
+                    for task in batch:
+                        archive.add(
+                            datasets / task[f"path"],
+                            arcname=task[f"path"],
+                        )
+            matrix.append(
+                {f"experiment": experiment, f"batches": len(leaf[f"batches"])},
+            )
+    if not matrix or len(matrix) > 256:
+        raise ValueError(f"Experiment matrix must contain 1 to 256 entries")
+    with Path(os.environ[f"GITHUB_OUTPUT"]).open(
+        f"a",
+        encoding=f"utf-8",
+    ) as stream:
+        stream.write(f"experiments={json.dumps(matrix)}\n")
+        stream.write(f"visibility={visibility}\n")
+
+
+if __name__ == f"__main__":
+    main()

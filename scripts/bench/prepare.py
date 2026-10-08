@@ -1,18 +1,14 @@
 # -*- coding: utf-8 -*-
 """Download Harbor datasets once and freeze portable task batches."""
 
-import argparse
 import math
 import re
-import subprocess
-import sys
-import tarfile
 from datetime import datetime, timezone
 from pathlib import Path
 
 from harbor.models.task.task import Task
 
-from .common import digest, load, save, source_version, tree_hash
+from .common import digest, load, tree_hash
 
 
 def validate_prices(prices: dict, models: dict) -> None:
@@ -34,6 +30,21 @@ def validate_prices(prices: dict, models: dict) -> None:
                 raise ValueError(f"Negative price")
         if rate[f"cache"] > rate[f"input"]:
             raise ValueError(f"Cache price exceeds uncached price")
+
+
+def harness_identity(suite: dict, version: str) -> tuple[str, str]:
+    """Validate the selected harness and its publication boundary."""
+    harness = suite[f"harness"]
+    harness_version = suite[f"harness_version"]
+    if not re.fullmatch(rf"[A-Za-z0-9_. -]{{1,80}}", harness):
+        raise ValueError(f"Invalid harness name")
+    if harness == f"QwenPaw":
+        harness_version = version
+    elif harness_version == f"source" or not harness_version:
+        raise ValueError(f"Alternative harness requires an explicit version")
+    if harness != f"QwenPaw" and suite[f"visibility"] != f"private":
+        raise ValueError(f"Alternative harness results must remain private")
+    return harness, harness_version
 
 
 def freeze(
@@ -63,6 +74,7 @@ def freeze(
         ids = [item[f"id"] for item in records]
         if not ids or len(ids) != len(set(ids)):
             raise ValueError(f"Empty or duplicate {field} IDs")
+    harness, harness_version = harness_identity(suite, version)
     tasks = []
     for benchmark in suite[f"benchmarks"]:
         if not re.fullmatch(rf"[a-z0-9-]+", benchmark[f"id"]):
@@ -103,6 +115,8 @@ def freeze(
         f"schema_version": 1,
         f"created_at": datetime.now(timezone.utc).isoformat(),
         f"product_version": version,
+        f"harness": harness,
+        f"harness_version": harness_version,
         f"evaluation_sha": sha,
         f"source_repository": repository,
         f"suite": suite,
@@ -113,54 +127,3 @@ def freeze(
         f"batches": [tasks[i : i + size] for i in range(0, len(tasks), size)],
     }
     return {**payload, f"sha256": digest(payload)}
-
-
-def main() -> None:
-    """Export datasets through the pinned Harbor CLI, then pack batches."""
-    parser = argparse.ArgumentParser()
-    parser.add_argument(f"--config", type=Path, default=Path(f".github/bench"))
-    parser.add_argument(f"--output", type=Path, required=True)
-    parser.add_argument(f"--sha", required=True)
-    parser.add_argument(f"--repository", required=True)
-    parser.add_argument(f"--download", action=f"store_true")
-    args = parser.parse_args()
-    datasets = args.output / f"datasets"
-    if args.download:
-        for item in load(args.config / f"suite.yaml")[f"benchmarks"]:
-            subprocess.run(
-                [
-                    sys.executable,
-                    f"-m",
-                    f"harbor.cli.main",
-                    f"datasets",
-                    f"download",
-                    item[f"dataset"],
-                    f"--output-dir",
-                    str(datasets / item[f"id"]),
-                    f"--export",
-                ],
-                check=True,
-            )
-    data = freeze(
-        args.config,
-        datasets,
-        source_version(),
-        args.sha,
-        args.repository,
-    )
-    if len(data[f"batches"]) != 9 or len(data[f"models"][f"models"]) != 6:
-        raise ValueError(f"Release YAML supports exactly 9 batches / 6 models")
-    if data[f"suite"][f"max_parallel"] != 8:
-        raise ValueError(f"Release YAML currently requires max_parallel=8")
-    save(args.output / f"manifest.json", data)
-    for i, batch in enumerate(data[f"batches"]):
-        with tarfile.open(
-            args.output / f"batch-{i}.tar.gz",
-            f"w:gz",
-        ) as archive:
-            for task in batch:
-                archive.add(datasets / task[f"path"], arcname=task[f"path"])
-
-
-if __name__ == f"__main__":
-    main()

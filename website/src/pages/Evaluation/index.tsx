@@ -491,7 +491,16 @@ export default function Evaluation() {
                         );
                       })}
                       <td>{date(row.run.date)}</td>
-                      <td>{row.coverage}</td>
+                      <td>
+                        {row.coverage}
+                        {row.run.latest_attempts?.some(
+                          (attempt) => !attempt.complete,
+                        ) && (
+                          <small className="evaluation-rerun-status">
+                            {t("latestIncomplete")}
+                          </small>
+                        )}
+                      </td>
                       <td>
                         <button onClick={() => navigateRow(row)}>
                           {t("record")}

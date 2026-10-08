@@ -346,3 +346,10 @@
     grid-template-columns: 90px 1fr;
   }
 }
+
+.evaluation-rerun-status {
+  display: block;
+  color: #855719;
+  margin-top: 6px;
+  white-space: normal;
+}

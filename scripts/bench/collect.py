@@ -28,8 +28,8 @@ def aggregate(data: dict, receipts: list[dict]) -> dict:
             or identity in identities
             or receipt[f"manifest_sha256"] != data[f"sha256"]
             or receipt[f"source_sha"] != data[f"evaluation_sha"]
-            or receipt[f"harness"] != f"QwenPaw"
-            or receipt[f"sdk_version"] != data[f"product_version"]
+            or receipt[f"harness"] != data[f"harness"]
+            or receipt[f"sdk_version"] != data[f"harness_version"]
             or receipt[f"status"]
             not in (f"infra_error", f"scored", f"agent_timeout")
             or receipt[f"trial"] != 0
@@ -129,8 +129,8 @@ def aggregate(data: dict, receipts: list[dict]) -> dict:
         records.append(
             {
                 f"model": model[f"id"],
-                f"harness": f"QwenPaw",
-                f"sdk_version": data[f"product_version"],
+                f"harness": data[f"harness"],
+                f"sdk_version": data[f"harness_version"],
                 f"source_sha": data[f"evaluation_sha"],
                 f"complete": complete,
                 f"index_score": sum(p[f"score"] for p in parts) / len(parts)

@@ -1,12 +1,8 @@
 # -*- coding: utf-8 -*-
-"""Validate and append immutable public evaluation summaries."""
+"""Validate allowlisted evaluation summaries before publication."""
 
-import argparse
 import math
 import re
-from pathlib import Path
-
-from .common import load, save
 
 
 def text(value, pattern: str) -> str:
@@ -36,12 +32,18 @@ def counts(value: dict, allowed: set[str]) -> dict:
     return value
 
 
-def public_run(summary: dict, workflow_url: str) -> dict:
+def public_run(
+    summary: dict,
+    workflow_url: str,
+    *,
+    visibility: str = f"public",
+    partial: bool = False,
+) -> dict:
     """Project a complete public QwenPaw run into the website contract."""
     if (
         summary[f"schema_version"] != 1
-        or summary[f"visibility"] != f"public"
-        or summary[f"complete"] is not True
+        or summary[f"visibility"] != visibility
+        or (not partial and summary[f"complete"] is not True)
         or not summary[f"records"]
     ):
         raise ValueError(f"Only complete public results can be published")
@@ -57,8 +59,8 @@ def public_run(summary: dict, workflow_url: str) -> dict:
     identities = set()
     for record in summary[f"records"]:
         if (
-            record[f"harness"] != f"QwenPaw"
-            or record[f"complete"] is not True
+            (visibility == f"public" and record[f"harness"] != f"QwenPaw")
+            or (not partial and record[f"complete"] is not True)
             or record[f"source_sha"] != sha
         ):
             raise ValueError(f"Foreign harness, source or partial result")
@@ -72,7 +74,12 @@ def public_run(summary: dict, workflow_url: str) -> dict:
             if (
                 type(expected) is not int
                 or expected <= 0
-                or scored != expected
+                or type(scored) is not int
+                or not 0 <= scored <= expected
+            ):
+                raise ValueError(f"Invalid benchmark coverage")
+            if (not partial and scored != expected) or (
+                scored < expected and part[f"score"] is not None
             ):
                 raise ValueError(f"Incomplete benchmark")
             parts.append(
@@ -100,20 +107,22 @@ def public_run(summary: dict, workflow_url: str) -> dict:
                     ),
                 },
             )
-        if not parts or any(p[f"score"] is None for p in parts):
+        if not parts or (
+            not partial and any(p[f"score"] is None for p in parts)
+        ):
             raise ValueError(f"Missing benchmark score")
         if len({p[f"benchmark"] for p in parts}) != len(parts):
             raise ValueError(f"Duplicate benchmark")
         records.append(
             {
                 f"model": model,
-                f"harness": f"QwenPaw",
+                f"harness": text(record[f"harness"], rf"[A-Za-z0-9_. -]+"),
                 f"sdk_version": text(
                     record[f"sdk_version"],
                     rf"[0-9a-zA-Z.+-]+",
                 ),
                 f"source_sha": sha,
-                f"complete": True,
+                f"complete": record[f"complete"] is True,
                 f"index_score": number(record[f"index_score"], 100),
                 f"index_model_cost_usd": number(
                     record[f"index_model_cost_usd"],
@@ -142,8 +151,8 @@ def public_run(summary: dict, workflow_url: str) -> dict:
     prices = summary[f"prices"]
     return {
         f"schema_version": 1,
-        f"visibility": f"public",
-        f"complete": True,
+        f"visibility": visibility,
+        f"complete": summary[f"complete"] is True,
         f"index_version": text(summary[f"index_version"], rf"[a-z0-9.-]+"),
         f"manifest_sha256": text(
             summary[f"manifest_sha256"],
@@ -164,49 +173,3 @@ def public_run(summary: dict, workflow_url: str) -> dict:
             },
         },
     }
-
-
-def append(history: dict, run: dict) -> dict:
-    """Treat repeated publication as a no-op; never rewrite an existing run."""
-    if history[f"schema_version"] != 1 or history[f"visibility"] != f"public":
-        raise ValueError(f"Invalid public history")
-    runs = []
-    seen = set()
-    for previous in [*history[f"runs"], run]:
-        previous = public_run(previous, previous[f"workflow_url"])
-        identity = previous[f"manifest_sha256"]
-        if identity in seen:
-            if (
-                next(r for r in runs if r[f"manifest_sha256"] == identity)
-                != previous
-            ):
-                raise ValueError(f"Immutable run conflict")
-            continue
-        seen.add(identity)
-        runs.append(previous)
-    runs.sort(key=lambda r: (r[f"date"], r[f"manifest_sha256"]), reverse=True)
-    return {f"schema_version": 1, f"visibility": f"public", f"runs": runs}
-
-
-def main() -> None:
-    """Write only validated public data; the workflow owns git publication."""
-    parser = argparse.ArgumentParser()
-    parser.add_argument(f"--summary", type=Path, required=True)
-    parser.add_argument(f"--index", type=Path, required=True)
-    parser.add_argument(f"--workflow-url", required=True)
-    args = parser.parse_args()
-    history = (
-        load(args.index)
-        if args.index.exists()
-        else {
-            f"schema_version": 1,
-            f"visibility": f"public",
-            f"runs": [],
-        }
-    )
-    run = public_run(load(args.summary), args.workflow_url)
-    save(args.index, append(history, run))
-
-
-if __name__ == f"__main__":
-    main()

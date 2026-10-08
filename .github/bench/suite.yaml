@@ -1,4 +1,6 @@
 # All three adapters already exist in Harbor. Pin exported tasks by manifest hash.
+harness: QwenPaw
+harness_version: source
 version: index-v1
 harbor_version: 0.24.0
 visibility: public
