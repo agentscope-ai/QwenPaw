@@ -28,7 +28,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   prepare:
-    if: github.event_name == 'workflow_dispatch' || vars.BENCH_ENABLED == 'true'
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'release' && vars.BENCH_ENABLED == 'true')
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     outputs:
