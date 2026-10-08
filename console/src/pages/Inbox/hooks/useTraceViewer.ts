@@ -3,6 +3,7 @@ import { message } from "antd";
 import { useTranslation } from "react-i18next";
 import api from "../../../api";
 import type { PushMessage } from "../types";
+import { copyText } from "../../../utils/clipboard";
 import {
   buildContentFallbackTrace,
   buildTraceDisplayItems,
@@ -120,7 +121,7 @@ export function useTraceViewer(
     async (text: string) => {
       if (!text) return;
       try {
-        await navigator.clipboard.writeText(text);
+        await copyText(text);
         message.success(t("common.copied"));
       } catch {
         message.error(t("common.copyFailed"));
