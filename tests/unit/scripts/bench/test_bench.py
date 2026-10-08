@@ -105,7 +105,7 @@ def test_native_timeouts_are_preserved(prepared):
         config[f"agents"][0][f"kwargs"][f"registry_entry"][f"distribution"][
             f"uvx"
         ][f"package"]
-        == f"qwenpaw==1.0.0"
+        == f"--no-cache"
     )
     assert f"QwenPaw" not in json.dumps(config.get(f"dependencies", {}))
 
@@ -199,7 +199,7 @@ def test_runtime_and_infrastructure_retry_spend(prepared):
     rows[0][f"attempt"] = 2
     record = aggregate(data, [failed, *rows])[f"records"][0]
     assert record[f"index_runtime_seconds"] == 120
-    assert record[f"index_model_cost_usd"] == 2
+    assert record[f"index_model_cost_usd"] == 2.5
     assert record[f"observed_model_spend_usd"] == 7
     assert record[f"attempts_with_known_cost"] == 4
 

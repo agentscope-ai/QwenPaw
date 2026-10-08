@@ -3,7 +3,7 @@
 
 import argparse
 import math
-from collections import defaultdict
+from collections import Counter, defaultdict
 from pathlib import Path
 
 from .common import load, manifest, save
@@ -27,6 +27,7 @@ def aggregate(data: dict, receipts: list[dict]) -> dict:
             key not in expected
             or identity in identities
             or receipt[f"manifest_sha256"] != data[f"sha256"]
+            or receipt[f"source_sha"] != data[f"evaluation_sha"]
             or receipt[f"harness"] != f"QwenPaw"
             or receipt[f"sdk_version"] != data[f"product_version"]
             or receipt[f"status"]
@@ -67,7 +68,13 @@ def aggregate(data: dict, receipts: list[dict]) -> dict:
                 if (model[f"id"], t[f"id"]) in selected
             ]
             complete = len(rows) == len(tasks) and bool(tasks)
-            costs = [r[f"model_cost_usd"] for r in rows]
+            attempts = [
+                r
+                for r in receipts
+                if r[f"model_id"] == model[f"id"]
+                and r[f"benchmark"] == benchmark[f"id"]
+            ]
+            costs = [r[f"model_cost_usd"] for r in attempts]
             known = all(
                 c is not None and math.isfinite(c) and c >= 0 for c in costs
             )
@@ -78,6 +85,14 @@ def aggregate(data: dict, receipts: list[dict]) -> dict:
             parts.append(
                 {
                     f"benchmark": benchmark[f"id"],
+                    f"cost_sources": dict(
+                        Counter(r[f"cost_source"] for r in attempts),
+                    ),
+                    f"cost_bases": dict(
+                        Counter(r[f"cost_basis"] for r in attempts),
+                    ),
+                    f"cost_observed_attempts": len(attempts),
+                    f"cost_known_attempts": sum(c is not None for c in costs),
                     f"domains": benchmark[f"domains"],
                     f"expected": len(tasks),
                     f"scored": len(rows),
@@ -116,6 +131,7 @@ def aggregate(data: dict, receipts: list[dict]) -> dict:
                 f"model": model[f"id"],
                 f"harness": f"QwenPaw",
                 f"sdk_version": data[f"product_version"],
+                f"source_sha": data[f"evaluation_sha"],
                 f"complete": complete,
                 f"index_score": sum(p[f"score"] for p in parts) / len(parts)
                 if complete
@@ -144,6 +160,7 @@ def aggregate(data: dict, receipts: list[dict]) -> dict:
         f"index_version": data[f"suite"][f"version"],
         f"manifest_sha256": data[f"sha256"],
         f"evaluation_sha": data[f"evaluation_sha"],
+        f"prices": data[f"prices"],
         f"date": data[f"created_at"],
         f"records": records,
         f"complete": len(selected) == len(expected),

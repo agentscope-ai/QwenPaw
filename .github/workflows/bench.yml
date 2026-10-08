@@ -3,11 +3,6 @@ on:
   release:
     types: [published]
   workflow_dispatch:
-    inputs:
-      version:
-        description: Exact published QwenPaw package version (without v)
-        required: true
-        type: string
 permissions:
   contents: read
 concurrency:
@@ -27,12 +22,12 @@ jobs:
           python-version: '3.12'
       - name: Export and freeze native Harbor datasets
         env:
-          PRODUCT_VERSION: ${{ inputs.version || github.event.release.tag_name }}
           EVALUATION_SHA: ${{ github.sha }}
+          SOURCE_REPOSITORY: ${{ github.repository }}
         run: |
-          uv run --no-project --with harbor==0.24.0 python -m scripts.bench.prepare \
+          uv run --no-project --with harbor==0.24.0 --with litellm==1.103.4 python -m scripts.bench.prepare \
             --download --output "$RUNNER_TEMP/bench" \
-            --version "${PRODUCT_VERSION#v}" --sha "$EVALUATION_SHA"
+            --sha "$EVALUATION_SHA" --repository "$SOURCE_REPOSITORY"
       - uses: actions/upload-artifact@v4
         with:
           name: bench-manifest
@@ -148,7 +143,7 @@ jobs:
           path: ${{ runner.temp }}/receipts
       - name: Validate coverage and export public summary
         run: |
-          uv run --no-project --with harbor==0.24.0 python -m scripts.bench.collect \
+          uv run --no-project --with harbor==0.24.0 --with litellm==1.103.4 python -m scripts.bench.collect \
             --manifest "$RUNNER_TEMP/manifest/manifest.json" \
             --receipts "$RUNNER_TEMP/receipts" --public \
             --output "$RUNNER_TEMP/public/index.json"

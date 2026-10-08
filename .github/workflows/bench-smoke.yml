@@ -6,6 +6,8 @@ on:
       - '.github/bench/**'
       - '.github/workflows/bench*.yml'
       - 'scripts/bench/**'
+      - 'src/qwenpaw/agents/acp/**'
+      - 'src/qwenpaw/token_usage/**'
       - 'tests/**/bench/**'
   workflow_dispatch:
 permissions:
@@ -24,23 +26,22 @@ jobs:
           python-version: '3.12'
       - name: Unit tests
         run: |
-          uv run --no-project --with harbor==0.24.0 --with pytest python -m pytest \
+          uv run --no-project --with harbor==0.24.0 --with litellm==1.103.4 --with pytest python -m pytest \
             -c /dev/null --confcutdir=tests/unit/scripts/bench \
             -p no:cacheprovider tests/unit/scripts/bench -q
       - name: Check model catalog without exposing credentials
         env:
           DASHSCOPE_API_KEY: ${{ secrets.DASHSCOPE_API_KEY }}
-        run: uv run --no-project --with harbor==0.24.0 python -m scripts.bench.probe
-      - name: Verify published ACP entry point without credentials
-        run: uvx --from qwenpaw==2.2.2b4 qwenpaw acp --help
+        run: uv run --no-project --with harbor==0.24.0 --with litellm==1.103.4 python -m scripts.bench.probe
       - name: Real Docker and QwenPaw ACP smoke
         env:
           DASHSCOPE_API_KEY: ${{ secrets.DASHSCOPE_API_KEY }}
           EVALUATION_SHA: ${{ github.sha }}
+          SOURCE_REPOSITORY: ${{ github.repository }}
         run: |
-          uv run --no-project --with harbor==0.24.0 python -m scripts.bench.smoke \
-            --output "$RUNNER_TEMP/smoke" --version 2.2.2b4 \
-            --sha "$EVALUATION_SHA"
+          uv run --no-project --with harbor==0.24.0 --with litellm==1.103.4 python -m scripts.bench.smoke \
+            --output "$RUNNER_TEMP/smoke" \
+            --sha "$EVALUATION_SHA" --repository "$SOURCE_REPOSITORY"
       - name: Upload structured receipt only
         if: always()
         uses: actions/upload-artifact@v4
@@ -64,10 +65,11 @@ jobs:
         env:
           DASHSCOPE_API_KEY: ${{ secrets.DASHSCOPE_API_KEY }}
           EVALUATION_SHA: ${{ github.sha }}
+          SOURCE_REPOSITORY: ${{ github.repository }}
         run: |
-          uv run --no-project --with harbor==0.24.0 python -m scripts.bench.smoke \
-            --gaia --output "$RUNNER_TEMP/gaia" --version 2.2.2b4 \
-            --sha "$EVALUATION_SHA"
+          uv run --no-project --with harbor==0.24.0 --with litellm==1.103.4 python -m scripts.bench.smoke \
+            --gaia --output "$RUNNER_TEMP/gaia" \
+            --sha "$EVALUATION_SHA" --repository "$SOURCE_REPOSITORY"
       - name: Upload native task receipt only
         if: always()
         uses: actions/upload-artifact@v4

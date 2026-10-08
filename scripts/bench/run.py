@@ -17,6 +17,7 @@ from urllib.parse import quote
 from harbor.models.job.config import JobConfig
 
 from .common import load, manifest, resolve, save, tree_hash
+from .cost import amount, attach
 
 
 def job_config(data: dict, task: dict, model: dict, root: Path) -> dict:
@@ -26,7 +27,19 @@ def job_config(data: dict, task: dict, model: dict, root: Path) -> dict:
     registry = agent[f"kwargs"][f"registry_entry"]
     version = data[f"product_version"]
     registry[f"version"] = version
-    registry[f"distribution"][f"uvx"][f"package"] = f"qwenpaw=={version}"
+    repository = data[f"source_repository"]
+    sha = data[f"evaluation_sha"]
+    registry[f"distribution"][f"uvx"] = {
+        f"package": f"--no-cache",
+        f"args": [
+            f"--from",
+            f"qwenpaw @ https://github.com/{repository}/archive/{sha}.tar.gz",
+            f"qwenpaw",
+            f"acp",
+            f"--runtime-provider",
+            f"openai-env",
+        ],
+    }
     # OPENAI_MODEL fixes the runtime provider for this task.
     # Avoid the optional ACP session model-selection extension.
     agent.pop(f"model_name", None)
@@ -79,7 +92,7 @@ def normalize(raw: dict, data: dict, task: dict, model: dict, attempt: int):
             - datetime.fromisoformat(raw[f"started_at"])
         ).total_seconds()
     cost = usage.get(f"cost_usd")
-    if cost is not None and (not math.isfinite(cost) or cost < 0):
+    if not amount(cost):
         cost = None
     return {
         f"schema_version": 1,
@@ -89,6 +102,7 @@ def normalize(raw: dict, data: dict, task: dict, model: dict, attempt: int):
         f"model_id": model[f"id"],
         f"harness": f"QwenPaw",
         f"sdk_version": data[f"product_version"],
+        f"source_sha": data[f"evaluation_sha"],
         f"trial": 0,
         f"attempt": attempt,
         f"status": status,
@@ -104,6 +118,7 @@ def normalize(raw: dict, data: dict, task: dict, model: dict, attempt: int):
         },
         f"model_cost_usd": cost,
         f"cost_source": f"harbor_reported" if cost is not None else f"unknown",
+        f"cost_basis": f"reported" if cost is not None else f"unknown",
         f"tool_cost_usd": None,
         f"judge_cost_usd": None,
         f"infrastructure_cost_usd": None,
@@ -251,6 +266,7 @@ def main() -> None:
         }
     )
     receipt = normalize(raw, data, task, model, args.attempt)
+    attach(receipt, data, output)
     receipt[f"diagnostics"] = diagnostics(
         output,
         smoke=task[f"benchmark"] == f"smoke",

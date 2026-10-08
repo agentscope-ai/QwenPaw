@@ -7,7 +7,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from .common import load, save
+from .common import load, save, source_version
 from .prepare import freeze
 
 
@@ -15,8 +15,8 @@ def main() -> None:
     """Use one synthetic task and one configured model for acceptance."""
     parser = argparse.ArgumentParser()
     parser.add_argument(f"--output", type=Path, required=True)
-    parser.add_argument(f"--version", required=True)
     parser.add_argument(f"--sha", required=True)
+    parser.add_argument(f"--repository", required=True)
     parser.add_argument(f"--gaia", action=f"store_true")
     args = parser.parse_args()
     config = args.output / f"config"
@@ -33,6 +33,7 @@ def main() -> None:
     save(config / f"suite.yaml", suite)
     save(config / f"models.yaml", models)
     shutil.copyfile(source / f"harbor.yaml", config / f"harbor.yaml")
+    shutil.copyfile(source / f"prices.yaml", config / f"prices.yaml")
     datasets = args.output / f"datasets"
     task_source = Path(f"tests/fixtures/bench/smoke")
     if args.gaia:
@@ -60,7 +61,13 @@ def main() -> None:
             if p.parent.name == task_id
         )
     shutil.copytree(task_source, datasets / benchmark / task_source.name)
-    data = freeze(config, datasets, args.version, args.sha)
+    data = freeze(
+        config,
+        datasets,
+        source_version(),
+        args.sha,
+        args.repository,
+    )
     manifest_path = args.output / f"manifest.json"
     save(manifest_path, data)
     result_path = args.output / f"result"
@@ -83,6 +90,10 @@ def main() -> None:
         check=True,
     )
     receipt = load(result_path / f"receipt.json")
+    if receipt[f"model_cost_usd"] is None:
+        raise SystemExit(f"ACP smoke task did not produce model cost")
+    if receipt[f"usage"][f"n_cache_tokens"] is None:
+        raise SystemExit(f"ACP smoke task did not report cache usage")
     if not args.gaia and receipt[f"score"] != 1:
         raise SystemExit(f"ACP smoke task did not pass")
 

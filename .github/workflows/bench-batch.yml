@@ -74,7 +74,7 @@ jobs:
           TASK_ID: ${{ matrix.id }}
           MODEL_INDEX: ${{ inputs.model }}
         run: |
-          uv run --no-project --with harbor==0.24.0 python -m scripts.bench.run \
+          uv run --no-project --with harbor==0.24.0 --with litellm==1.103.4 python -m scripts.bench.run \
             --manifest "$RUNNER_TEMP/manifest/manifest.json" \
             --datasets "$RUNNER_TEMP/datasets" --task "$TASK_ID" \
             --model "$MODEL_INDEX" --output "$RUNNER_TEMP/result"

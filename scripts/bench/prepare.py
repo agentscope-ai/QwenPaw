@@ -12,15 +12,48 @@ from pathlib import Path
 
 from harbor.models.task.task import Task
 
-from .common import digest, load, save, tree_hash
+from .common import digest, load, save, source_version, tree_hash
 
 
-def freeze(config: Path, datasets: Path, version: str, sha: str) -> dict:
+def validate_prices(prices: dict, models: dict) -> None:
+    """Reject a price snapshot for another endpoint or invalid rates."""
+    if prices[f"base_url"] != models[f"base_url"]:
+        raise ValueError(f"Price region does not match API endpoint")
+    if prices[f"currency"] != f"CNY" or prices[f"unit_tokens"] != 1000000:
+        raise ValueError(f"Unsupported price currency or token unit")
+    fx = prices[f"fx"][f"cny_per_usd"]
+    if not isinstance(fx, (int, float)) or not math.isfinite(fx) or fx <= 0:
+        raise ValueError(f"Invalid exchange rate")
+    for model in models[f"models"]:
+        rate = prices[f"models"][model[f"id"]]
+        for key in (f"input", f"output", f"cache"):
+            value = rate[key]
+            if type(value) not in (int, float) or not math.isfinite(value):
+                raise ValueError(f"Invalid price")
+            if value < 0:
+                raise ValueError(f"Negative price")
+        if rate[f"cache"] > rate[f"input"]:
+            raise ValueError(f"Cache price exceeds uncached price")
+
+
+def freeze(
+    config: Path,
+    datasets: Path,
+    version: str,
+    sha: str,
+    repository: str = f"agentscope-ai/QwenPaw",
+) -> dict:
     """Validate coverage and native budgets without modifying tasks."""
     if not re.fullmatch(rf"[0-9][0-9a-zA-Z.+-]*", version):
         raise ValueError(f"Expected an explicit QwenPaw package version")
+    if not re.fullmatch(rf"[0-9a-f]{{40}}", sha):
+        raise ValueError(f"Expected a full source commit SHA")
+    if not re.fullmatch(rf"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository):
+        raise ValueError(f"Invalid public source repository")
     suite = load(config / f"suite.yaml")
     models = load(config / f"models.yaml")
+    prices = load(config / f"prices.yaml")
+    validate_prices(prices, models)
     if not 1 <= suite[f"batch_size"] <= 256:
         raise ValueError(f"Batch size must be between 1 and 256")
     for field, records in (
@@ -71,8 +104,10 @@ def freeze(config: Path, datasets: Path, version: str, sha: str) -> dict:
         f"created_at": datetime.now(timezone.utc).isoformat(),
         f"product_version": version,
         f"evaluation_sha": sha,
+        f"source_repository": repository,
         f"suite": suite,
         f"models": models,
+        f"prices": prices,
         f"harbor": load(config / f"harbor.yaml"),
         f"tasks": tasks,
         f"batches": [tasks[i : i + size] for i in range(0, len(tasks), size)],
@@ -85,8 +120,8 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument(f"--config", type=Path, default=Path(f".github/bench"))
     parser.add_argument(f"--output", type=Path, required=True)
-    parser.add_argument(f"--version", required=True)
     parser.add_argument(f"--sha", required=True)
+    parser.add_argument(f"--repository", required=True)
     parser.add_argument(f"--download", action=f"store_true")
     args = parser.parse_args()
     datasets = args.output / f"datasets"
@@ -106,7 +141,13 @@ def main() -> None:
                 ],
                 check=True,
             )
-    data = freeze(args.config, datasets, args.version, args.sha)
+    data = freeze(
+        args.config,
+        datasets,
+        source_version(),
+        args.sha,
+        args.repository,
+    )
     if len(data[f"batches"]) != 9 or len(data[f"models"][f"models"]) != 6:
         raise ValueError(f"Release YAML supports exactly 9 batches / 6 models")
     if data[f"suite"][f"max_parallel"] != 8:

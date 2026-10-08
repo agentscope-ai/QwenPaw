@@ -1,0 +1,48 @@
+# Official list prices; real-time Beijing API, implicit caching only.
+version: dashscope-beijing-2026-10-08
+verified_at: '2026-10-08'
+base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
+currency: CNY
+unit_tokens: 1000000
+fx:
+  cny_per_usd: 6.7351
+  date: '2026-09-30'
+  source: https://www.safe.gov.cn/AppStructured/hlw/RMBQuery.do
+models:
+  qwen3.8-max-0902:
+    input: 12
+    output: 36
+    cache: 1.5
+    basis: list_price
+    source: https://help.aliyun.com/zh/model-studio/qwen3-8-max
+  qwen3.8-27b:
+    input: 3
+    output: 12
+    cache: 0.6
+    basis: list_price
+    source: https://help.aliyun.com/zh/model-studio/qwen3-8-27b
+  deepseek-v4-pro-0813:
+    # Peak prices are an upper bound without per-request billing times.
+    input: 9
+    output: 27
+    cache: 0.9
+    basis: peak_upper_bound
+    source: https://help.aliyun.com/zh/model-studio/deepseek-v4-pro
+  deepseek-v4.1-flash:
+    input: 2
+    output: 8
+    cache: 0.2
+    basis: peak_upper_bound
+    source: https://help.aliyun.com/zh/model-studio/deepseek-v4-1-flash
+  glm-5.3:
+    input: 8
+    output: 28
+    cache: 2
+    basis: list_price
+    source: https://help.aliyun.com/zh/model-studio/glm-5-3
+  glm-5.2:
+    input: 8
+    output: 28
+    cache: 2
+    basis: list_price
+    source: https://help.aliyun.com/zh/model-studio/model-routing

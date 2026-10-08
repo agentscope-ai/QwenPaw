@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """Portable manifest serialization shared by workflow helpers."""
 
+import ast
 import hashlib
 import json
 from pathlib import Path, PurePosixPath
@@ -59,3 +60,18 @@ def manifest(path: Path) -> dict:
     if digest(payload) != expected:
         raise ValueError(f"Manifest checksum mismatch")
     return data
+
+
+def source_version() -> str:
+    """Read the checked-out SDK version without importing the product."""
+    path = Path(f"src/qwenpaw/__version__.py")
+    module = ast.parse(path.read_text(encoding=f"utf-8"))
+    for node in module.body:
+        if isinstance(node, ast.Assign) and any(
+            isinstance(target, ast.Name) and target.id == f"__version__"
+            for target in node.targets
+        ):
+            value = ast.literal_eval(node.value)
+            if isinstance(value, str):
+                return value
+    raise ValueError(f"Missing source SDK version")

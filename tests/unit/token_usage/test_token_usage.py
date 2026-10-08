@@ -1312,3 +1312,31 @@ class TestTokenRecordingModelWrapper:
             TokenRecordingModelWrapper.pop_usage_for_session("test-session")
             is None
         )
+
+
+@pytest.mark.parametrize(f"observed", [(True, False), (False, True)])
+def test_session_cache_completeness_requires_every_call(monkeypatch, observed):
+    """A partial cache counter must never be reported as a complete total."""
+    monkeypatch.setattr(
+        f"qwenpaw.app.agent_context.get_current_session_id",
+        lambda: f"cache-completeness",
+    )
+    monkeypatch.setattr(TokenRecordingModelWrapper, f"_usage_by_session", {})
+    wrapper = object.__new__(TokenRecordingModelWrapper)
+    for present in observed:
+        # pylint: disable=protected-access
+        wrapper._store_usage(
+            {
+                f"prompt_tokens": 100,
+                f"completion_tokens": 10,
+                f"cache_read_tokens": 40 if present else 0,
+                f"cache_write_tokens": 0,
+                f"cache_eligible_input_tokens": 100 if present else 0,
+                f"cache_observed": present,
+                f"cache_complete": present,
+            },
+        )
+    result = wrapper.pop_usage_for_session(f"cache-completeness")
+    assert result[f"prompt_tokens"] == 200
+    assert result[f"cache_read_tokens"] == 40
+    assert result[f"cache_complete"] is False
