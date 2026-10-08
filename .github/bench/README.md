@@ -100,3 +100,5 @@ gh workflow run bench.yml -R OWNER/REPO --ref feat/bench \
 ### 小批量与并发
 
 Dispatch 的 `task_limit` 为每个 benchmark 抽取的前 N 题，0 表示全量。抽样仍以完整任务清单计算覆盖率，不生成虚假的完整成绩。`parallelism` 接收 `{"experiments":6,"tasks":16}`，分别控制实验并行数和单实验每批任务并行数；每题独占一个 runner，批次顺序执行。实际并发受账户额度限制：个人 Free 账户最多 20，组织额度需另行确认。
+
+ACP 的 uvx 环境显式安装 `pip==26.0.1`。QwenPaw shell 优先使用运行时 Python，因此必须同时提供对应的 pip/pip3，避免裸 `pip` 安装到系统环境后 Python 无法导入。任务原生镜像、依赖和 grader 不作预装修改。

@@ -115,6 +115,21 @@ def test_native_timeouts_are_preserved(prepared):
     assert f"QwenPaw" not in json.dumps(config.get(f"dependencies", {}))
 
 
+def test_acp_runner_seeds_pip_in_its_python_environment(prepared):
+    data, datasets, _ = prepared
+    config = job_config(
+        data,
+        data[f"tasks"][0],
+        data[f"models"][f"models"][0],
+        datasets,
+    )
+    distribution = config[f"agents"][0][f"kwargs"][f"registry_entry"][
+        f"distribution"
+    ][f"uvx"]
+    assert distribution[f"args"][:2] == [f"--with", f"pip==26.0.1"]
+    assert f"qwenpaw @ https://github.com/" in distribution[f"args"][3]
+
+
 def test_hosted_limit_is_not_clamped(prepared):
     _, datasets, config = prepared
     task = next(datasets.rglob(f"task.toml"))

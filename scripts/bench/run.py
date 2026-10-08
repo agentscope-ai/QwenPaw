@@ -36,6 +36,9 @@ def job_config(data: dict, task: dict, model: dict, root: Path) -> dict:
         registry[f"distribution"][f"uvx"] = {
             f"package": f"--no-cache",
             f"args": [
+                # Shell tools use this Python; seed its matching pip too.
+                f"--with",
+                f"pip==26.0.1",
                 f"--from",
                 f"qwenpaw @ https://github.com/{repository}/archive/{sha}.tar.gz",
                 f"qwenpaw",
