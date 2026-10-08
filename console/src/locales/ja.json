@@ -3217,6 +3217,12 @@
     "sidebarPreview": "表示中の項目"
   },
   "chat": {
+    "longTextPaste": {
+      "title": "長いテキストを貼り付け",
+      "asText": "テキストとして貼り付け",
+      "asFile": "ファイルとして添付",
+      "characters": "{{count}} 文字"
+    },
     "historyLoadFailed": "会話を読み込めませんでした。もう一度開いてください。",
     "newTask": "新しいタスク",
     "newChat": "新しいチャット",
@@ -3243,7 +3249,6 @@
     "prompt1": "新しい旅を始めましょう！",
     "prompt2": "あなたのスキルを教えてください。",
     "inputPlaceholder": "\"↑↓\"でメッセージ移動 · \"/\"でクイックコマンド",
-    "longTextUploadPrompt": "アップロードされたプロンプトファイルを読み、その内容に基づいて回答してください。",
     "emptyOutputError": "アシスタントが空のレスポンスを返しました。",
     "commands": {
       "clear": {
