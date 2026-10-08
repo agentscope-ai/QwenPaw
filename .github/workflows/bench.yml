@@ -1,0 +1,161 @@
+name: Release benchmarks
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Exact published QwenPaw package version (without v)
+        required: true
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: release-benchmarks
+  cancel-in-progress: false
+jobs:
+  prepare:
+    # Enable after offline protocol, API and hosted-resource acceptance.
+    if: github.event_name == 'workflow_dispatch' || vars.BENCH_ENABLED == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: '0.8.22'
+          python-version: '3.12'
+      - name: Export and freeze native Harbor datasets
+        env:
+          PRODUCT_VERSION: ${{ inputs.version || github.event.release.tag_name }}
+          EVALUATION_SHA: ${{ github.sha }}
+        run: |
+          uv run --no-project --with harbor==0.24.0 python -m scripts.bench.prepare \
+            --download --output "$RUNNER_TEMP/bench" \
+            --version "${PRODUCT_VERSION#v}" --sha "$EVALUATION_SHA"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bench-manifest
+          path: ${{ runner.temp }}/bench/manifest.json
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bench-tasks-0
+          path: ${{ runner.temp }}/bench/batch-0.tar.gz
+          compression-level: 0
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bench-tasks-1
+          path: ${{ runner.temp }}/bench/batch-1.tar.gz
+          compression-level: 0
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bench-tasks-2
+          path: ${{ runner.temp }}/bench/batch-2.tar.gz
+          compression-level: 0
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bench-tasks-3
+          path: ${{ runner.temp }}/bench/batch-3.tar.gz
+          compression-level: 0
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bench-tasks-4
+          path: ${{ runner.temp }}/bench/batch-4.tar.gz
+          compression-level: 0
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bench-tasks-5
+          path: ${{ runner.temp }}/bench/batch-5.tar.gz
+          compression-level: 0
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bench-tasks-6
+          path: ${{ runner.temp }}/bench/batch-6.tar.gz
+          compression-level: 0
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bench-tasks-7
+          path: ${{ runner.temp }}/bench/batch-7.tar.gz
+          compression-level: 0
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bench-tasks-8
+          path: ${{ runner.temp }}/bench/batch-8.tar.gz
+          compression-level: 0
+          if-no-files-found: error
+  model_0:
+    needs: [prepare]
+    if: ${{ always() && !cancelled() && needs.prepare.result == 'success' }}
+    uses: ./.github/workflows/bench-model.yml
+    with:
+      model: 0
+  model_1:
+    needs: [prepare, model_0]
+    if: ${{ always() && !cancelled() && needs.prepare.result == 'success' }}
+    uses: ./.github/workflows/bench-model.yml
+    with:
+      model: 1
+  model_2:
+    needs: [prepare, model_1]
+    if: ${{ always() && !cancelled() && needs.prepare.result == 'success' }}
+    uses: ./.github/workflows/bench-model.yml
+    with:
+      model: 2
+  model_3:
+    needs: [prepare, model_2]
+    if: ${{ always() && !cancelled() && needs.prepare.result == 'success' }}
+    uses: ./.github/workflows/bench-model.yml
+    with:
+      model: 3
+  model_4:
+    needs: [prepare, model_3]
+    if: ${{ always() && !cancelled() && needs.prepare.result == 'success' }}
+    uses: ./.github/workflows/bench-model.yml
+    with:
+      model: 4
+  model_5:
+    needs: [prepare, model_4]
+    if: ${{ always() && !cancelled() && needs.prepare.result == 'success' }}
+    uses: ./.github/workflows/bench-model.yml
+    with:
+      model: 5
+  collect:
+    needs: [prepare, model_0, model_1, model_2, model_3, model_4, model_5]
+    if: ${{ always() && !cancelled() && needs.prepare.result == 'success' }}
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: '0.8.22'
+          python-version: '3.12'
+      - uses: actions/download-artifact@v4
+        with:
+          name: bench-manifest
+          path: ${{ runner.temp }}/manifest
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: bench-receipt-*
+          path: ${{ runner.temp }}/receipts
+      - name: Validate coverage and export public summary
+        run: |
+          uv run --no-project --with harbor==0.24.0 python -m scripts.bench.collect \
+            --manifest "$RUNNER_TEMP/manifest/manifest.json" \
+            --receipts "$RUNNER_TEMP/receipts" --public \
+            --output "$RUNNER_TEMP/public/index.json"
+      - name: Archive complete or incomplete summary
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bench-public-summary
+          path: ${{ runner.temp }}/public/index.json
+          if-no-files-found: error

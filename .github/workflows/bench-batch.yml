@@ -1,0 +1,86 @@
+name: Independent task runners
+on:
+  workflow_call:
+    inputs:
+      model:
+        required: true
+        type: number
+      batch:
+        required: true
+        type: number
+permissions:
+  contents: read
+jobs:
+  matrix:
+    runs-on: ubuntu-24.04
+    outputs:
+      tasks: ${{ steps.matrix.outputs.tasks }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: bench-manifest
+          path: manifest
+      - id: matrix
+        env:
+          BATCH: ${{ inputs.batch }}
+        run: |
+          python - <<'PYCODE'
+          import json, os
+          from pathlib import Path
+          data = json.loads(Path('manifest/manifest.json').read_text())
+          tasks = [{k: t[k] for k in ('id', 'job_minutes')}
+                   for t in data['batches'][int(os.environ['BATCH'])]]
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as out:
+              out.write('tasks=' + json.dumps(tasks) + '\n')
+          PYCODE
+  task:
+    environment: Bench
+    needs: matrix
+    strategy:
+      fail-fast: false
+      max-parallel: 8
+      matrix:
+        include: ${{ fromJSON(needs.matrix.outputs.tasks) }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: ${{ matrix.job_minutes }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: '0.8.22'
+          python-version: '3.12'
+      - uses: actions/download-artifact@v4
+        with:
+          name: bench-manifest
+          path: ${{ runner.temp }}/manifest
+      - uses: actions/download-artifact@v4
+        with:
+          name: bench-tasks-${{ inputs.batch }}
+          path: ${{ runner.temp }}/batches
+      - name: Unpack frozen batch
+        env:
+          BATCH: ${{ inputs.batch }}
+        run: |
+          python - <<'PYCODE'
+          import os, tarfile
+          from pathlib import Path
+          root = Path(os.environ['RUNNER_TEMP'])
+          with tarfile.open(root / 'batches' / ('batch-' + os.environ['BATCH'] + '.tar.gz')) as archive:
+              archive.extractall(root / 'datasets', filter='data')
+          PYCODE
+      - name: Run one task-trial via Harbor ACP
+        env:
+          DASHSCOPE_API_KEY: ${{ secrets.DASHSCOPE_API_KEY }}
+          TASK_ID: ${{ matrix.id }}
+          MODEL_INDEX: ${{ inputs.model }}
+        run: |
+          uv run --no-project --with harbor==0.24.0 python -m scripts.bench.run \
+            --manifest "$RUNNER_TEMP/manifest/manifest.json" \
+            --datasets "$RUNNER_TEMP/datasets" --task "$TASK_ID" \
+            --model "$MODEL_INDEX" --output "$RUNNER_TEMP/result"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: bench-receipt-${{ inputs.model }}-${{ matrix.id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/result/receipt.json
+          if-no-files-found: warn

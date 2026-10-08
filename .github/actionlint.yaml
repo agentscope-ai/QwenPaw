@@ -1,6 +1,7 @@
 self-hosted-runner:
   labels: []
 config-variables:
+  - bench_enabled
   - tauri_updater_pubkey
   - tauri_updater_endpoints
   - oss_bucket

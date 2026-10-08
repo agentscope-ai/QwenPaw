@@ -1,0 +1,71 @@
+name: One model benchmark suite
+on:
+  workflow_call:
+    inputs:
+      model:
+        required: true
+        type: number
+permissions:
+  contents: read
+jobs:
+  batch_0:
+    uses: ./.github/workflows/bench-batch.yml
+    with:
+      model: ${{ inputs.model }}
+      batch: 0
+  batch_1:
+    needs: batch_0
+    if: ${{ always() && !cancelled() }}
+    uses: ./.github/workflows/bench-batch.yml
+    with:
+      model: ${{ inputs.model }}
+      batch: 1
+  batch_2:
+    needs: batch_1
+    if: ${{ always() && !cancelled() }}
+    uses: ./.github/workflows/bench-batch.yml
+    with:
+      model: ${{ inputs.model }}
+      batch: 2
+  batch_3:
+    needs: batch_2
+    if: ${{ always() && !cancelled() }}
+    uses: ./.github/workflows/bench-batch.yml
+    with:
+      model: ${{ inputs.model }}
+      batch: 3
+  batch_4:
+    needs: batch_3
+    if: ${{ always() && !cancelled() }}
+    uses: ./.github/workflows/bench-batch.yml
+    with:
+      model: ${{ inputs.model }}
+      batch: 4
+  batch_5:
+    needs: batch_4
+    if: ${{ always() && !cancelled() }}
+    uses: ./.github/workflows/bench-batch.yml
+    with:
+      model: ${{ inputs.model }}
+      batch: 5
+  batch_6:
+    needs: batch_5
+    if: ${{ always() && !cancelled() }}
+    uses: ./.github/workflows/bench-batch.yml
+    with:
+      model: ${{ inputs.model }}
+      batch: 6
+  batch_7:
+    needs: batch_6
+    if: ${{ always() && !cancelled() }}
+    uses: ./.github/workflows/bench-batch.yml
+    with:
+      model: ${{ inputs.model }}
+      batch: 7
+  batch_8:
+    needs: batch_7
+    if: ${{ always() && !cancelled() }}
+    uses: ./.github/workflows/bench-batch.yml
+    with:
+      model: ${{ inputs.model }}
+      batch: 8

@@ -1,0 +1,10 @@
+version = "1.0"
+[agent]
+timeout_sec = 180
+[verifier]
+timeout_sec = 60
+[environment]
+build_timeout_sec = 300
+cpus = 2
+memory_mb = 4096
+storage_mb = 4096

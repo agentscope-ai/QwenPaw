@@ -1,0 +1,44 @@
+name: Benchmark ACP smoke
+on:
+  push:
+    branches: [feat/bench]
+    paths:
+      - '.github/bench/**'
+      - '.github/workflows/bench*.yml'
+      - 'scripts/bench/**'
+      - 'tests/**/bench/**'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  smoke:
+    if: github.repository == 'rayrayraykk/CoPaw'
+    environment: Bench
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: '0.8.22'
+          python-version: '3.12'
+      - name: Unit tests
+        run: |
+          uv run --no-project --with harbor==0.24.0 --with pytest python -m pytest \
+            -c /dev/null --confcutdir=tests/unit/scripts/bench \
+            -p no:cacheprovider tests/unit/scripts/bench -q
+      - name: Real Docker and QwenPaw ACP smoke
+        env:
+          DASHSCOPE_API_KEY: ${{ secrets.DASHSCOPE_API_KEY }}
+          EVALUATION_SHA: ${{ github.sha }}
+        run: |
+          uv run --no-project --with harbor==0.24.0 python -m scripts.bench.smoke \
+            --output "$RUNNER_TEMP/smoke" --version 2.2.2b4 \
+            --sha "$EVALUATION_SHA"
+      - name: Upload structured receipt only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bench-smoke-receipt
+          path: ${{ runner.temp }}/smoke/result/receipt.json
+          if-no-files-found: warn

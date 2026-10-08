@@ -1,0 +1,23 @@
+# Native Harbor JobConfig; run.py supplies one frozen task and model only.
+n_attempts: 1
+n_concurrent_trials: 1
+timeout_multiplier: 1.0
+retry:
+  max_retries: 0
+environment:
+  type: docker
+agents:
+  - name: acp
+    env:
+      OPENAI_API_KEY: ${DASHSCOPE_API_KEY}
+    kwargs:
+      permission_mode: allow
+      registry_entry:
+        id: qwenpaw
+        name: QwenPaw
+        version: SET_BY_MANIFEST
+        description: QwenPaw release under evaluation
+        distribution:
+          uvx:
+            package: SET_BY_MANIFEST
+            args: [acp, --runtime-provider, openai-env]
