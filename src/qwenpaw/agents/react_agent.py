@@ -1046,6 +1046,7 @@ class QwenPawAgent(CodingModeMixin, Agent):
             )
             media_payload_retry = (
                 not media_capability_retry
+                and self._uses_request_time_media_normalization()
                 and self._last_wire_request_had_media()
                 and self._is_media_payload_rejection_error(e)
             )
@@ -1076,22 +1077,12 @@ class QwenPawAgent(CodingModeMixin, Agent):
             elif media_payload_retry:
                 logger.warning(
                     "_reasoning failed because the provider rejected the "
-                    "media payload itself (%s); dropping the offending "
-                    "media and retrying. The model's multimodal capability "
-                    "is not at fault, so no capability loss is cached.",
+                    "media payload itself (%s); stripping media from the "
+                    "retry request. Stored history remains unchanged, and "
+                    "no capability loss is cached.",
                     e,
                 )
-                if self._uses_request_time_media_normalization():
-                    self._set_formatter_media_strip(True)
-                # The rejected block sits in the stored context and would be
-                # replayed on the next turn, failing the same way. Repair
-                # history so the session heals instead of 400-ing forever.
-                if self._strip_media_blocks_from_memory() == 0:
-                    logger.warning(
-                        "Media payload rejection could not be traced back to "
-                        "a stored media block; recovery relies on the "
-                        "request-scoped strip alone.",
-                    )
+                self._set_formatter_media_strip(True)
             else:
                 logger.warning(
                     "_reasoning failed because the provider explicitly "
