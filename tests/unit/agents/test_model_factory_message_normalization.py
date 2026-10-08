@@ -35,7 +35,7 @@ try:
 except ImportError:
     GeminiChatFormatter = None
 
-from PIL import Image
+from PIL import Image, ImageOps
 
 from qwenpaw.agents import model_factory
 from qwenpaw.constant import MEDIA_UNSUPPORTED_PLACEHOLDER
@@ -64,6 +64,21 @@ def _base64_data_block(media_type: str, content: bytes) -> DataBlock:
 def _png_bytes(size: tuple[int, int]) -> bytes:
     output = BytesIO()
     Image.new("RGB", size, color="red").save(output, format="PNG")
+    return output.getvalue()
+
+
+def _oriented_jpeg_bytes(
+    size: tuple[int, int],
+    orientation: int,
+) -> bytes:
+    output = BytesIO()
+    exif = Image.Exif()
+    exif[274] = orientation
+    Image.new("RGB", size, color="red").save(
+        output,
+        format="JPEG",
+        exif=exif,
+    )
     return output.getvalue()
 
 
@@ -247,6 +262,45 @@ async def test_request_time_image_resize_preserves_original(
         BytesIO(base64.b64decode(original.source.data)),
     ) as untouched:
         assert untouched.size == (100, 50)
+
+
+@pytest.mark.asyncio
+async def test_request_time_image_resize_applies_exif_orientation(
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("QWENPAW_MAX_IMAGE_PIXELS", "2400")
+    formatter_class = model_factory._create_file_block_support_formatter(
+        _CappingOpenAIFormatter,
+    )
+    formatter = formatter_class()
+    original_bytes = _oriented_jpeg_bytes((120, 80), 6)
+    original = _base64_data_block("image/jpeg", original_bytes)
+    msg = Msg(name="user", role="user", content=[original])
+
+    formatted = await formatter.format([msg])
+
+    image_url = formatted[0]["content"][0]["image_url"]["url"]
+    resized_data = image_url.split(",", 1)[1]
+    with Image.open(BytesIO(base64.b64decode(resized_data))) as resized:
+        assert {
+            "display_size": ImageOps.exif_transpose(resized).size,
+            "orientation": resized.getexif().get(274),
+        } == {
+            "display_size": (40, 60),
+            "orientation": None,
+        }
+    with Image.open(
+        BytesIO(base64.b64decode(original.source.data)),
+    ) as untouched:
+        assert {
+            "display_size": ImageOps.exif_transpose(untouched).size,
+            "orientation": untouched.getexif().get(274),
+            "bytes": original.source.data,
+        } == {
+            "display_size": (80, 120),
+            "orientation": 6,
+            "bytes": base64.b64encode(original_bytes).decode("ascii"),
+        }
 
 
 @pytest.mark.asyncio
