@@ -10,6 +10,22 @@ from urllib.parse import urlsplit
 from .common import load, save
 
 
+def selection(value: str) -> list[str]:
+    """Resolve configured defaults or an explicit provider selection."""
+    catalog = load(Path(f".github/bench/providers.yaml"))
+    if value == f"default":
+        selected = [
+            key for key, spec in catalog.items() if spec.get(f"default")
+        ]
+    elif value == f"all":
+        selected = list(catalog)
+    else:
+        selected = list(dict.fromkeys(p.strip() for p in value.split(f",")))
+    if not selected or any(not provider for provider in selected):
+        raise ValueError(f"Configure default providers or select provider IDs")
+    return selected
+
+
 def _provider_spec(provider: str, base_url: str, secret_name: str) -> dict:
     """Resolve a provider without accepting inline credentials."""
     catalog = load(Path(f".github/bench/providers.yaml"))
@@ -47,9 +63,9 @@ def _provider_spec(provider: str, base_url: str, secret_name: str) -> dict:
     return spec
 
 
-def _model_cards(settings: dict, models: str, model_options: str) -> list:
+def _model_cards(defaults: list, models: str, model_options: str) -> list:
     """Validate selected model capabilities and generation options."""
-    known = {m[f"id"]: m for m in settings[f"models"]}
+    known = {m[f"id"]: m for m in defaults}
     selected = (
         list(known)
         if models == f"all"
@@ -57,7 +73,9 @@ def _model_cards(settings: dict, models: str, model_options: str) -> list:
             dict.fromkeys(m.strip() for m in models.split(f",")),
         )
     )
-    if not selected or any(
+    if not selected:
+        raise ValueError(f"Provider has no default models; specify model IDs")
+    if any(
         not re.fullmatch(rf"[A-Za-z0-9][A-Za-z0-9_.:/-]{{0,159}}", m)
         or m == f"all"
         for m in selected
@@ -111,7 +129,11 @@ def configured(
     """Materialize the effective checked configuration for manifest hashing."""
     spec = _provider_spec(provider, base_url, secret_name)
     settings = load(source / f"models.yaml")
-    settings[f"models"] = _model_cards(settings, models, model_options)
+    settings[f"models"] = _model_cards(
+        spec.get(f"models", []),
+        models,
+        model_options,
+    )
     settings[f"base_url"] = spec[f"base_url"]
     settings[f"provider"] = {
         f"id": provider,
@@ -128,12 +150,14 @@ def configured(
         path.relative_to(Path.cwd().resolve())
         prices = load(path)
     else:
-        prices = load(source / f"prices.yaml")
-        prices.update(
-            version=f"unpriced",
-            base_url=spec[f"base_url"],
-            models={},
-        )
+        prices = {
+            f"version": f"unpriced",
+            f"base_url": spec[f"base_url"],
+            f"currency": f"USD",
+            f"unit_tokens": 1000000,
+            f"fx": {f"date": None, f"cny_per_usd": None},
+            f"models": {},
+        }
     suite = load(source / f"suite.yaml")
     if suite[f"harness"] == f"QwenPaw" and spec[f"protocol"] != f"openai":
         raise ValueError(

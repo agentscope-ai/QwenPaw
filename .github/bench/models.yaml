@@ -1,22 +1,3 @@
-# One region, no implicit fallback or server-side model routing.
-base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
-provider:
-  id: dashscope
-  secret_name: DASHSCOPE_API_KEY
-  protocol: openai
-models:
-  - id: qwen3.8-max-0902
-    supports_image: true
-  - id: qwen3.8-27b
-    supports_image: true
-  - id: deepseek-v4-pro-0813
-    supports_image: false
-  - id: deepseek-v4.1-flash
-    supports_image: true
-  - id: glm-5.3
-    supports_image: false
-  - id: glm-5.2
-    supports_image: false
 # These are evaluation settings, not claims about model native limits.
 # Freeze reasoning/tool settings after offline parity before enabling releases.
 max_input_tokens: 128000

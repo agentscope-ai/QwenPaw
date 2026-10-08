@@ -161,7 +161,9 @@ def public_run(
         f"prices": {
             f"version": text(prices[f"version"], rf"[a-z0-9.-]+"),
             f"fx": {
-                f"date": text(prices[f"fx"][f"date"], rf"[0-9-]+"),
+                f"date": text(prices[f"fx"][f"date"], rf"[0-9-]+")
+                if prices[f"fx"][f"date"] is not None
+                else None,
                 f"cny_per_usd": number(prices[f"fx"][f"cny_per_usd"]),
             },
         },

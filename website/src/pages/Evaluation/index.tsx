@@ -222,11 +222,15 @@ export default function Evaluation({ demo = false }: { demo?: boolean }) {
                 <dd>{detail.manifest_sha256}</dd>
                 <dt>{t("priceSnapshot")}</dt>
                 <dd>{detail.prices.version}</dd>
-                <dt>{t("exchangeRate")}</dt>
-                <dd>
-                  {detail.prices.fx.cny_per_usd} CNY/USD ·{" "}
-                  {detail.prices.fx.date}
-                </dd>
+                {detail.prices.fx.cny_per_usd !== null && (
+                  <>
+                    <dt>{t("exchangeRate")}</dt>
+                    <dd>
+                      {detail.prices.fx.cny_per_usd} CNY/USD ·{" "}
+                      {detail.prices.fx.date}
+                    </dd>
+                  </>
+                )}
               </dl>
               {safeWorkflow(detail.workflow_url) && (
                 <a href={detail.workflow_url} target="_blank" rel="noreferrer">

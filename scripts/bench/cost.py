@@ -100,13 +100,14 @@ def estimate(usage: dict, model: str, prices: dict) -> dict:
         return result
     cached = cache if cache is not None else 0
     divisor = Decimal(str(prices[f"unit_tokens"]))
-    cny = (
+    subtotal = (
         Decimal(prompt - cached) * Decimal(str(rate[f"input"]))
         + Decimal(cached) * Decimal(str(rate[f"cache"]))
         + Decimal(output) * Decimal(str(rate[f"output"]))
     ) / divisor
-    fx = Decimal(str(prices[f"fx"][f"cny_per_usd"]))
-    fallback = float(cny / fx)
+    is_cny = prices[f"currency"] == f"CNY"
+    fx = Decimal(str(prices[f"fx"][f"cny_per_usd"])) if is_cny else Decimal(1)
+    fallback = float(subtotal / fx)
     value = None
     response = {
         f"model": model,
@@ -148,7 +149,7 @@ def estimate(usage: dict, model: str, prices: dict) -> dict:
     )
     result.update(
         amount_usd=value if valid else fallback,
-        amount_cny=float(cny),
+        amount_cny=float(subtotal) if is_cny else None,
         source=f"litellm_estimated" if valid else f"snapshot_estimated",
         basis=(
             f"upper_bound"

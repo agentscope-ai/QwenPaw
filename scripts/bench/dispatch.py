@@ -13,7 +13,7 @@ from pathlib import Path
 
 from .common import digest, load, save, source_version
 from .prepare import freeze
-from .provider import configured
+from .provider import configured, selection
 
 
 def select(value: str, available: list[str]) -> list[str]:
@@ -108,7 +108,7 @@ def arguments() -> argparse.Namespace:
     parser.add_argument(f"--harnesses", default=f"qwenpaw")
     parser.add_argument(f"--models", default=f"all")
     parser.add_argument(f"--benchmarks", default=f"all")
-    parser.add_argument(f"--provider", default=f"dashscope")
+    parser.add_argument(f"--provider", default=f"default")
     parser.add_argument(f"--base-url", default=f"")
     parser.add_argument(f"--secret-name", default=f"")
     parser.add_argument(f"--model-options", default=f"{{}}")
@@ -133,14 +133,7 @@ def main() -> None:
     registry = load(Path(f".github/bench/harnesses.yaml"))
     matrix = []
     visibility = None
-    catalog = load(Path(f".github/bench/providers.yaml"))
-    providers = (
-        list(catalog)
-        if args.provider == f"all"
-        else list(
-            dict.fromkeys(p.strip() for p in args.provider.split(f",")),
-        )
-    )
+    providers = selection(args.provider)
     if len(providers) > 1 and (
         args.base_url or args.secret_name or args.price_snapshot
     ):

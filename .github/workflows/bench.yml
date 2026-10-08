@@ -17,9 +17,9 @@ on:
         type: string
         default: qwenpaw
       provider:
-        description: 'Provider ID(s), comma-separated, or all; default dashscope'
+        description: 'Provider ID(s), comma-separated, all, or configured default'
         type: string
-        default: dashscope
+        default: default
       base_url:
         description: 'Optional HTTPS endpoint override (one provider only)'
         type: string
@@ -37,7 +37,7 @@ on:
         type: string
         default: ''
       models:
-        description: 'Model IDs: one, comma-separated, or all'
+        description: 'Model IDs: one, comma-separated, or all provider defaults'
         type: string
         default: all
       benchmarks:
@@ -70,7 +70,7 @@ jobs:
         env:
           TASK_LIMIT: ${{ inputs.task_limit || 0 }}
           PARALLELISM: ${{ inputs.parallelism || '{"experiments":6,"tasks":16}' }}
-          PROVIDER_SELECTION: ${{ github.event_name == 'release' && 'dashscope' || inputs.provider }}
+          PROVIDER_SELECTION: ${{ inputs.provider || 'default' }}
           PROVIDER_BASE_URL: ${{ inputs.base_url }}
           PROVIDER_SECRET_NAME: ${{ inputs.api_key_secret }}
           MODEL_OPTIONS: ${{ inputs.model_options || '{}' }}

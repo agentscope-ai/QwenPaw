@@ -39,7 +39,10 @@ export interface Run {
   workflow_url: string;
   records: RecordResult[];
   complete: boolean;
-  prices: { version: string; fx: { date: string; cny_per_usd: number } };
+  prices: {
+    version: string;
+    fx: { date: string | null; cny_per_usd: number | null };
+  };
 }
 export interface History {
   schema_version: 1;

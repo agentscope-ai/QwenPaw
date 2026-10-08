@@ -7,7 +7,9 @@ TL;DR：不创建根目录 `evaluation/`，不修改产品依赖。配置和调�
 | 位置 | 职责 |
 | --- | --- |
 | `.github/bench/suite.yaml` | benchmark、题数、分批与预算配置 |
-| `.github/bench/models.yaml` | 六个模型、服务地址、能力及生成参数 |
+| `.github/bench/models.yaml` | 共用 token 限制及生成参数 |
+| `.github/bench/providers.yaml` | 各 provider 的 endpoint、secret 名称、默认模型及价格快照 |
+| `.github/bench/prices/` | 按 provider/区域保存的价格快照 |
 | `.github/bench/harbor.yaml` | 原生 Harbor JobConfig、Docker 和 ACP 安装定义 |
 | `.github/workflows/bench.yml` | release/manual 入口、冻结任务、并行实验、最终汇总 |
 | `.github/workflows/bench-model.yml` | 单模型九批串行执行 |
@@ -20,7 +22,7 @@ TL;DR：不创建根目录 `evaluation/`，不修改产品依赖。配置和调�
 
 ## 执行
 
-在 `Bench` environment 配置 `DASHSCOPE_API_KEY` secret；stage 和实际模型 job 绑定该 environment，嵌套调用使用 secrets: inherit；stage 先检查所选凭据是否存在，不输出值。离线验收后将 repository variable `BENCH_ENABLED=true`，才自动响应 published release；手动 workflow_dispatch 可用于验收，使用所选分支当前提交构建；SDK 版本从检出的 `src/qwenpaw/__version__.py` 读取，源码 repository/SHA 写入 manifest，receipt 记录 source_sha。不固定 runner 分支，也不依赖 PyPI 包发布。
+在 `Bench` environment 配置所选 provider 的 `secret_name` 对应 secret；stage 和实际模型 job 绑定该 environment，嵌套调用使用 secrets: inherit；stage 先检查所选凭据是否存在，不输出值。离线验收后将 repository variable `BENCH_ENABLED=true`，才自动响应 published release；手动 workflow_dispatch 可用于验收，使用所选分支当前提交构建；SDK 版本从检出的 `src/qwenpaw/__version__.py` 读取，源码 repository/SHA 写入 manifest，receipt 记录 source_sha。不固定 runner 分支，也不依赖 PyPI 包发布。
 
 1. 原生 Harbor CLI 导出数据；核对 165 + 400 + 500 题，冻结文件校验和与本轮配置。
 2. 每模型 1,065 题，拆成 8 × 128 + 41，共九批。默认六模型并行，批间串行、批内并发 16（受账户总额度限制），一题一次 trial 独占一台 runner。完整一轮为 6,390 个任务 job，另有准备和汇总 job。
@@ -56,7 +58,7 @@ Windows 使用等价路径和 PowerShell 命令续行；Python 帮助程序使�
 
 ## 单选/多选 dispatch 与纯 JSON PR
 
-`bench.yml` 接受 `harnesses`、`models`、`benchmarks`，均支持一个 ID、逗号分隔多个 ID 或 `all`。默认 `qwenpaw / all / all`。首次支持的 harness 注册于 `.github/bench/harnesses.yaml`，每个 ID 指向包含 suite/models/prices/harbor YAML 的配置目录。私有仓库可登记 Harbor 原生 Codex、Claude Code 或已有 ACP registry 配置，不需要另一套 workflow。原生 agent 协议、实际版本、模型和 endpoint 必须匹配；未验证的组合不能声称已兼容。
+`bench.yml` 接受 `harnesses`、`models`、`benchmarks`，均支持一个 ID、逗号分隔多个 ID 或 `all`。默认 `qwenpaw / all / all`。首次支持的 harness 注册于 `.github/bench/harnesses.yaml`，每个 ID 指向包含 suite/models/harbor YAML 的配置目录，价格快照由 provider 指定。私有仓库可登记 Harbor 原生 Codex、Claude Code 或已有 ACP registry 配置，不需要另一套 workflow。原生 agent 协议、实际版本、模型和 endpoint 必须匹配；未验证的组合不能声称已兼容。
 
 ```sh
 gh workflow run bench.yml -R OWNER/REPO --ref main \
@@ -75,7 +77,9 @@ prepare 冻结完整题集来计算配置身份，但只执行选择的任务。
 
 ## 动态 provider 与模型
 
-`providers.yaml` 保存 endpoint、协议和 Bench secret **名称**。`provider` 支持单个 ID、逗号分隔多个 ID、`all`；多个 provider 与选定模型/harness 取笛卡尔积。`models=all` 指当前配置的默认六模型，并不查询服务商模型列表；跨服务商时应明确填写双方支持的模型 ID。
+`providers.yaml` 是 provider 配置的唯一入口：各项分别保存 endpoint、协议、Bench secret **名称**、默认模型和价格快照。`provider=default`（release 与手动默认值）选择标记 `default: true` 的所有 provider；也支持单个 ID、逗号分隔多个 ID或 `all`。
+
+`models=all` 分别使用每个 provider 自己的模型列表，不会把百炼模型转发给其他服务商。没有配置默认模型的 provider 必须通过 dispatch 指定模型；显式模型列表会应用到每个所选 provider。当前百炼预置六模型，OpenAI 预置 endpoint/secret 名称但不假设账号可用模型。
 
 新模型不需要修改源码。新 provider 可在 dispatch 同时提供 `base_url` 和 `api_key_secret`（只填名称）。endpoint 必须是无内嵌凭据的 HTTPS 地址。多 provider 时使用各自登记配置，不能使用单 endpoint/secret 覆盖。当前 QwenPaw 要求 OpenAI-compatible API。
 
@@ -88,7 +92,7 @@ gh workflow run bench.yml -R OWNER/REPO --ref main \
   -f 'model_options={"model-large":{"supports_image":true,"max_output_tokens":8192}}'
 ```
 
-`model_options` 按实际模型 ID 覆盖 supports_image、max_input_tokens、max_output_tokens、generate_kwargs；未知模型默认不声明图像能力，其余采用共享生成配置。`price_snapshot` 可指定仓库内官方价格快照；更换 endpoint 或缺少模型价格时不沿用其他服务商价格，未能从服务端/usage 取得费用则显示 unknown。模型、provider、endpoint、生成配置和价格快照都进入配置标识，网站显示 provider，避免把不同接入的历史成绩混在一起。
+`model_options` 按实际模型 ID 覆盖 supports_image、max_input_tokens、max_output_tokens、generate_kwargs；未知模型默认不声明图像能力，其余采用共享生成配置。`price_snapshot` 可指定仓库内官方价格快照，支持 CNY（使用快照汇率）和 USD（无需换汇）；更换 endpoint 或缺少模型价格时不沿用其他服务商的价格或汇率，未能从服务端/usage 取得费用则显示 unknown。模型、provider、endpoint、生成配置和价格快照都进入配置标识，网站显示 provider，避免把不同接入的历史成绩混在一起。
 
 ### 小批量与并发
 

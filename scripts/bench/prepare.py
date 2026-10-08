@@ -15,10 +15,15 @@ def validate_prices(prices: dict, models: dict) -> None:
     """Reject a price snapshot for another endpoint or invalid rates."""
     if prices[f"base_url"] != models[f"base_url"]:
         raise ValueError(f"Price region does not match API endpoint")
-    if prices[f"currency"] != f"CNY" or prices[f"unit_tokens"] != 1000000:
+    if (
+        prices[f"currency"] not in (f"CNY", f"USD")
+        or prices[f"unit_tokens"] != 1000000
+    ):
         raise ValueError(f"Unsupported price currency or token unit")
     fx = prices[f"fx"][f"cny_per_usd"]
-    if not isinstance(fx, (int, float)) or not math.isfinite(fx) or fx <= 0:
+    if prices[f"currency"] == f"CNY" and (
+        type(fx) not in (int, float) or not math.isfinite(fx) or fx <= 0
+    ):
         raise ValueError(f"Invalid exchange rate")
     for model in models[f"models"]:
         rate = prices[f"models"].get(model[f"id"])
