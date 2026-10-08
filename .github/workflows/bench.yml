@@ -154,3 +154,61 @@ jobs:
           name: bench-public-summary
           path: ${{ runner.temp }}/public/index.json
           if-no-files-found: error
+
+  publish:
+    needs: collect
+    permissions:
+      contents: write
+    concurrency:
+      group: evaluation-history
+      cancel-in-progress: false
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: '0.8.22'
+          python-version: '3.12'
+      - uses: actions/download-artifact@v4
+        with:
+          name: bench-public-summary
+          path: summary
+      - name: Append validated immutable public history
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          gh auth setup-git
+          store="$RUNNER_TEMP/evaluation-history"
+          git init "$store"
+          git -C "$store" remote add origin "https://github.com/$REPOSITORY.git"
+          if git -C "$store" ls-remote --exit-code origin refs/heads/bench-results; then
+            git -C "$store" fetch --depth=1 origin bench-results
+            git -C "$store" checkout -b bench-results FETCH_HEAD
+          else
+            status=$?
+            if [ "$status" != 2 ]; then exit "$status"; fi
+            git -C "$store" checkout --orphan bench-results
+          fi
+          uv run --no-project --with pyyaml==6.0.2 python -m scripts.bench.history \
+            --summary summary/index.json --index "$store/public/index.json" \
+            --workflow-url "$RUN_URL"
+          git -C "$store" config user.name 'github-actions[bot]'
+          git -C "$store" config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git -C "$store" add public/index.json
+          if ! git -C "$store" diff --cached --quiet; then
+            git -C "$store" commit -m 'Archive public evaluation results'
+            git -C "$store" push origin HEAD:bench-results
+          fi
+
+  website:
+    needs: publish
+    permissions:
+      contents: write
+    uses: ./.github/workflows/deploy-website.yml
+    with:
+      ref: ${{ github.repository == 'agentscope-ai/QwenPaw' && github.event.repository.default_branch || github.sha }}
+      dry_run: ${{ github.repository != 'agentscope-ai/QwenPaw' }}
+    secrets: inherit

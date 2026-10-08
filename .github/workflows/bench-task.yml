@@ -1,0 +1,68 @@
+name: One isolated task attempt
+on:
+  workflow_call:
+    inputs:
+      model:
+        required: true
+        type: number
+      batch:
+        required: true
+        type: number
+      task:
+        required: true
+        type: string
+      job_minutes:
+        required: true
+        type: number
+      attempt:
+        required: true
+        type: number
+permissions:
+  contents: read
+jobs:
+  task:
+    environment: Bench
+    runs-on: ubuntu-24.04
+    timeout-minutes: ${{ inputs.job_minutes }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: '0.8.22'
+          python-version: '3.12'
+      - uses: actions/download-artifact@v4
+        with:
+          name: bench-manifest
+          path: ${{ runner.temp }}/manifest
+      - uses: actions/download-artifact@v4
+        with:
+          name: bench-tasks-${{ inputs.batch }}
+          path: ${{ runner.temp }}/batches
+      - name: Unpack frozen batch
+        env:
+          BATCH: ${{ inputs.batch }}
+        run: |
+          python - <<'PYCODE'
+          import os, tarfile
+          from pathlib import Path
+          root = Path(os.environ['RUNNER_TEMP'])
+          with tarfile.open(root / 'batches' / ('batch-' + os.environ['BATCH'] + '.tar.gz')) as archive:
+              archive.extractall(root / 'datasets', filter='data')
+          PYCODE
+      - name: Run one task-trial via Harbor ACP
+        env:
+          DASHSCOPE_API_KEY: ${{ secrets.DASHSCOPE_API_KEY }}
+          TASK_ID: ${{ inputs.task }}
+          MODEL_INDEX: ${{ inputs.model }}
+          ATTEMPT: ${{ inputs.attempt }}
+        run: |
+          uv run --no-project --with harbor==0.24.0 --with litellm==1.103.4 python -m scripts.bench.run \
+            --manifest "$RUNNER_TEMP/manifest/manifest.json" \
+            --datasets "$RUNNER_TEMP/datasets" --task "$TASK_ID" \
+            --model "$MODEL_INDEX" --attempt "$ATTEMPT" --output "$RUNNER_TEMP/result"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: bench-receipt-${{ inputs.model }}-${{ inputs.task }}-${{ inputs.attempt }}
+          path: ${{ runner.temp }}/result/receipt.json
+          if-no-files-found: warn

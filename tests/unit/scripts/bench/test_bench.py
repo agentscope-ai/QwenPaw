@@ -11,6 +11,8 @@ import yaml
 from scripts.bench.collect import aggregate
 from scripts.bench.common import manifest, resolve, save
 from scripts.bench.prepare import freeze
+from scripts.bench.retry import plan
+from scripts.bench.history import append, public_run
 from scripts.bench.run import diagnostics, job_config, normalize
 
 
@@ -249,3 +251,39 @@ def test_acp_summary_redacts_secret_encodings(tmp_path, monkeypatch):
     result = json.dumps(diagnostics(tmp_path))
     assert key not in result
     assert f"[REDACTED]" in result
+
+
+def test_public_history_is_immutable_and_private_results_rejected(prepared):
+    data, _, _ = prepared
+    summary = aggregate(
+        data,
+        [receipt(data, t, cost=1) for t in data[f"tasks"]],
+    )
+    url = f"https://github.com/example/project/actions/runs/123"
+    run = public_run(summary, url)
+    empty = {f"schema_version": 1, f"visibility": f"public", f"runs": []}
+    history = append(empty, run)
+    assert append(history, run) == history
+    modified = copy.deepcopy(run)
+    modified[f"records"][0][f"benchmarks"][0][f"score"] = 0
+    with pytest.raises(ValueError, match=f"Immutable"):
+        append(history, modified)
+    summary[f"visibility"] = f"private"
+    with pytest.raises(ValueError):
+        public_run(summary, url)
+
+
+def test_recovery_uses_only_infrastructure_and_missing_attempts(prepared):
+    data, _, _ = prepared
+    tasks = data[f"tasks"]
+    scored = receipt(data, tasks[0], score=0, cost=1)
+    timeout = receipt(data, tasks[1], error=f"AgentTimeoutError")
+    retry, missing = plan(data, [scored, timeout], 0, 0)
+    assert [task[f"id"] for task in retry] == [tasks[2][f"id"]]
+    assert len(missing) == 1
+    assert missing[0][f"model_cost_usd"] is None
+    recovered = receipt(data, tasks[2], cost=1)
+    recovered[f"attempt"] = 2
+    result = aggregate(data, [scored, timeout, *missing, recovered])
+    assert result[f"complete"]
+    assert result[f"records"][0][f"index_model_cost_usd"] is None

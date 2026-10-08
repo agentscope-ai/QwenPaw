@@ -1,14 +1,5 @@
 name: Benchmark ACP smoke
 on:
-  push:
-    branches: [feat/bench]
-    paths:
-      - '.github/bench/**'
-      - '.github/workflows/bench*.yml'
-      - 'scripts/bench/**'
-      - 'src/qwenpaw/agents/acp/**'
-      - 'src/qwenpaw/token_usage/**'
-      - 'tests/**/bench/**'
   workflow_dispatch:
 permissions:
   contents: read

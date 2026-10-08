@@ -31,6 +31,7 @@ jobs:
     runs-on: ubuntu-latest
     # Deploy on: stable releases OR manual workflow_dispatch
     if: >-
+      inputs.ref != '' ||
       github.event_name == 'workflow_dispatch' ||
       github.event.release.prerelease == false
     steps:
@@ -54,6 +55,17 @@ jobs:
       - name: Install dependencies
         working-directory: website
         run: pnpm install --frozen-lockfile
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: '0.8.22'
+          python-version: '3.12'
+
+      - name: Restore validated evaluation history
+        run: >-
+          uv run --no-project --with pyyaml==6.0.2
+          python -m scripts.bench.hydrate
+          --output website/public/evaluation/data/index.json
 
       - name: Build
         working-directory: website
@@ -147,7 +159,7 @@ jobs:
         run: cp website/dist/index.html website/dist/404.html
 
       - name: Deploy to GitHub Pages
-        if: ${{ !inputs.dry_run }}
+        if: ${{ !inputs.dry_run && github.repository == 'agentscope-ai/QwenPaw' }}
         uses: peaceiris/actions-gh-pages@v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
@@ -155,6 +167,13 @@ jobs:
           cname: qwenpaw.agentscope.io
 
       - name: Dry-run notice
-        if: ${{ inputs.dry_run }}
+        if: ${{ inputs.dry_run || github.repository != 'agentscope-ai/QwenPaw' }}
         run: |
           echo "DRY-RUN: would deploy website/dist to GitHub Pages (cname qwenpaw.agentscope.io)"
+
+      - name: Archive built website
+        uses: actions/upload-artifact@v4
+        with:
+          name: evaluation-website
+          path: website/dist
+          retention-days: 14
