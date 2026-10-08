@@ -48,3 +48,30 @@ jobs:
           name: bench-smoke-receipt
           path: ${{ runner.temp }}/smoke/result/receipt.json
           if-no-files-found: warn
+
+  gaia:
+    needs: smoke
+    environment: Bench
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: '0.8.22'
+          python-version: '3.12'
+      - name: One native GAIA task with original grader and timeouts
+        env:
+          DASHSCOPE_API_KEY: ${{ secrets.DASHSCOPE_API_KEY }}
+          EVALUATION_SHA: ${{ github.sha }}
+        run: |
+          uv run --no-project --with harbor==0.24.0 python -m scripts.bench.smoke \
+            --gaia --output "$RUNNER_TEMP/gaia" --version 2.2.2b4 \
+            --sha "$EVALUATION_SHA"
+      - name: Upload native task receipt only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bench-gaia-receipt
+          path: ${{ runner.temp }}/gaia/result/receipt.json
+          if-no-files-found: warn
