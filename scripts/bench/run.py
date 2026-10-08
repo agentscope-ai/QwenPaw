@@ -118,6 +118,7 @@ def diagnostics(output: Path) -> list[str]:
         f"invalid_api_key": f"authentication_failed",
         f"incorrect api key": f"authentication_failed",
         f"modelnotfound": f"model_unavailable",
+        f"modelnotfoundexception": f"local_model_catalog_error",
         f"model not found": f"model_unavailable",
         f"connection refused": f"connection_refused",
         f"permission denied": f"permission_denied",
@@ -133,6 +134,12 @@ def diagnostics(output: Path) -> list[str]:
             found.update(
                 label for token, label in markers.items() if token in content
             )
+            frames = re.findall(
+                rf'file "[^"\n]*/([a-z_]+\.py)", line (\d+), in ([a-z_]+)',
+                content,
+            )
+            for filename, line, function in frames:
+                found.add(f"frame:{filename}:{int(line)}:{function}")
             for code in re.findall(rf"exit code[: ]+(\d+)", content):
                 found.add(f"exit_code_{int(code)}")
     return sorted(found)
