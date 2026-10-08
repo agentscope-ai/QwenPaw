@@ -1086,12 +1086,20 @@
   gap: 12px;
   margin: 0 16px 24px;
   > :first-child {
-    flex: 1;
-    min-width: 180px;
+    flex: 0 1 360px;
+    min-width: 0;
+    max-width: 100%;
+  }
+  > :last-child {
+    margin-inline-start: auto;
   }
 }
 @media (max-width: 600px) {
   .collectionToolbar {
     margin-inline: 0;
+
+    > :first-child {
+      flex-basis: 100%;
+    }
   }
 }

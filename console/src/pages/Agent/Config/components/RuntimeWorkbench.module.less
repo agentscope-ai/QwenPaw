@@ -2,33 +2,75 @@
 
 .workbench {
   .settings-tabs();
-  padding: 0 16px 32px;
+  padding: 0 24px 32px;
+
+  > :global(.qwenpaw-tabs-nav),
+  > :global(.ant-tabs-nav) {
+    position: relative;
+    padding: 0 !important;
+    border: 0;
+    border-bottom: 1px solid var(--app-border-subtle);
+    border-radius: 0;
+    background: transparent;
+  }
+
+  :global(.qwenpaw-tabs-tab),
+  :global(.ant-tabs-tab) {
+    padding-inline: 0;
+  }
+}
+
+/* Keep the tab rule on the page title's baseline. The shared page header
+   insets 24px on desktop, 16px on narrow screens, and 16px inside
+   Settings Center. */
+@media (max-width: 768px) {
+  .workbench {
+    padding-inline: 16px;
+  }
+}
+
+:global([data-core-settings="true"]) .workbench {
+  padding-inline: 16px;
 }
 .modules {
   display: grid;
   gap: 24px;
 }
-.module {
+.workbench .module {
   min-width: 0;
   scroll-margin-top: 24px;
   > div {
     padding: 0 !important;
   }
-  :global(.qwenpaw-card),
-  :global(.ant-card) {
-    background: var(--app-surface);
-  }
   > :global(.qwenpaw-card),
   > :global(.ant-card),
   > div > :global(.qwenpaw-card),
   > div > :global(.ant-card) {
-    border: 1px solid var(--app-border-subtle);
-    border-radius: 24px;
+    border: 0;
+    border-radius: 0;
+    background: transparent !important;
     box-shadow: none;
+
+    > :global(.qwenpaw-card-body),
+    > :global(.ant-card-body),
+    > :global(.qwenpaw-card-head),
+    > :global(.ant-card-head) {
+      padding-inline: 0;
+      background: transparent !important;
+    }
+
+    > :global(.qwenpaw-card-body),
+    > :global(.ant-card-body) {
+      padding-block: 0;
+
+      > :global(.qwenpaw-spark-card-wrapper) {
+        padding: 0;
+      }
+    }
   }
-}
-@media (max-width: 600px) {
-  .workbench {
-    padding-inline: 0;
+
+  + .module {
+    padding-top: 24px;
+    border-top: 1px solid var(--app-border-subtle);
   }
 }
