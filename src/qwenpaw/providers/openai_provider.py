@@ -24,7 +24,7 @@ from qwenpaw.providers.provider import (
     Provider,
 )
 
-from .adapters.request_context import session_header
+from .adapters.request_context import with_session_header
 from .model_info import release_date
 from ..utils.io_utils import run_sync_io
 from .model_catalog import catalog_documents
@@ -174,22 +174,11 @@ class OpenAIProvider(Provider):
         return self._build_default_headers()
 
     def _build_default_headers(self) -> dict:
-        headers = dict(self.custom_headers) if self.custom_headers else {}
-        name = self.session_header_name
-        if not name:
-            return headers
-        # ``prepare_request`` attaches the session header to inference
-        # calls, but connection tests and probes go through ``_client()``
-        # and were left without it: OpenCode Go answers those with
-        # ``400 MissingSessionID``.  A user value wins only when it is
-        # non-blank; the endpoint rejects an empty header like a missing one.
-        present = [key for key in headers if key.lower() == name.lower()]
-        if any(str(headers[key]).strip() for key in present):
-            return headers
-        for key in present:
-            del headers[key]
-        headers[name] = session_header(self._request_session)
-        return headers
+        return with_session_header(
+            dict(self.custom_headers) if self.custom_headers else {},
+            self.session_header_name,
+            self._request_session,
+        )
 
     def _client(self, timeout: float = 5) -> AsyncOpenAI:
         kwargs: dict = {

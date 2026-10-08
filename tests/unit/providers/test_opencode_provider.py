@@ -2,6 +2,8 @@
 """Unit tests for the OpenCode built-in provider."""
 # pylint: disable=protected-access
 
+import pytest
+
 from qwenpaw.providers.provider_catalog import (
     KILO_MODELS,
 )
@@ -14,6 +16,7 @@ from qwenpaw.providers.adapters.request_context import (
     model_session,
     session_header,
 )
+from qwenpaw.providers.anthropic_provider import AnthropicProvider
 from qwenpaw.providers.openai_provider import OpenAIProvider
 
 
@@ -157,6 +160,29 @@ class TestOpenCodeSessionHeaderOnClient:
         assert scoped == expected
         assert scoped != unscoped
 
+    @pytest.mark.parametrize(
+        "model_id,protocol",
+        [
+            ("union-alpha", "anthropic"),
+            ("muse-spark-1.3-contributor-free", "responses"),
+            ("mimo-v2.5-free", "chat"),
+        ],
+    )
+    def test_every_protocol_route_carries_the_session_header(
+        self,
+        model_id,
+        protocol,
+    ):
+        """Connection checks resolve a per-protocol provider first."""
+        provider = self._go_provider()
+
+        native = provider._protocol_provider(model_id)
+
+        assert native.wire_protocol == protocol
+        assert native._client().default_headers[self.HEADER] == (
+            session_header(provider._request_session)
+        )
+
     def test_explicit_custom_header_is_preserved(self):
         provider = self._go_provider(
             custom_headers={"X-OpenCode-Session": "mine"},
@@ -180,11 +206,30 @@ class TestOpenCodeSessionHeaderOnClient:
         ]
         assert headers[self.HEADER].strip()
 
-    def test_providers_without_a_session_header_are_unaffected(self):
-        provider = OpenAIProvider(
+    def test_blank_duplicate_does_not_shadow_a_real_value(self):
+        provider = self._go_provider(
+            custom_headers={
+                "X-OpenCode-Session": "  ",
+                self.HEADER: "real",
+            },
+        )
+
+        headers = provider._build_default_headers()
+
+        assert headers == {self.HEADER: "real"}
+
+    @pytest.mark.parametrize(
+        "provider_cls",
+        [OpenAIProvider, AnthropicProvider],
+    )
+    def test_providers_without_a_session_header_are_unaffected(
+        self,
+        provider_cls,
+    ):
+        provider = provider_cls(
             id="plain",
             name="Plain",
-            base_url="https://api.openai.com/v1",
+            base_url="https://api.example.com/v1",
             api_key="sk-test",
         )
 
