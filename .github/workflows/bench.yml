@@ -1,5 +1,10 @@
 name: Release benchmarks
 on:
+  # Register the branch workflow for dispatch before it reaches main.
+  # The prepare gate below prevents paid execution on push.
+  push:
+    branches: [feat/bench]
+    paths: ['.github/workflows/bench.yml']
   release:
     types: [published]
   workflow_dispatch:
