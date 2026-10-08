@@ -117,7 +117,6 @@ _AUDIO_EXTENSIONS = {
     ".m4a",
     ".amr",
     ".opus",
-    ".webm",
 }
 
 
@@ -947,7 +946,10 @@ async def view_audio(audio_path: str) -> ToolChunk:
     # ================================================================
     if audio_mode == "native":
         try:
-            from ..utils.message_processing import _convert_audio_to_wav
+            from ..utils.message_processing import (
+                _convert_audio_to_wav,
+                _FORMATTER_SUPPORTED_AUDIO_EXTS,
+            )
 
             converted = await run_sync_io(
                 _convert_audio_to_wav,
@@ -955,8 +957,35 @@ async def view_audio(audio_path: str) -> ToolChunk:
             )
         except Exception:
             converted = None
+            from ..utils.message_processing import (
+                _FORMATTER_SUPPORTED_AUDIO_EXTS,
+            )
 
-        audio_file = converted if converted else local_path
+        ext = (os.path.splitext(local_path)[1] or "").lower()
+        if converted:
+            # Conversion succeeded — use the converted WAV file.
+            audio_file = converted
+        elif ext in _FORMATTER_SUPPORTED_AUDIO_EXTS:
+            # Already a supported format (WAV/MP3), no conversion needed.
+            audio_file = local_path
+        else:
+            # Unsupported format and conversion failed — return a clear
+            # error instead of sending an unsupported audio block.
+            return ToolChunk(
+                is_last=True,
+                state=ToolResultState.SUCCESS,
+                content=[
+                    TextBlock(
+                        type="text",
+                        text=(
+                            f"Error: audio conversion failed for "
+                            f"{resolved.name}. Install ffmpeg to enable "
+                            f"native audio playback for this format."
+                        ),
+                    ),
+                ],
+            )
+
         file_url = _path_to_file_url(audio_file)
         return ToolChunk(
             is_last=True,
@@ -965,10 +994,7 @@ async def view_audio(audio_path: str) -> ToolChunk:
                 _media_data_block(file_url, "audio"),
                 TextBlock(
                     type="text",
-                    text=(
-                        f"Audio loaded in native mode: "
-                        f"{resolved.name}"
-                    ),
+                    text=(f"Audio loaded in native mode: " f"{resolved.name}"),
                 ),
             ],
         )
@@ -988,8 +1014,7 @@ async def view_audio(audio_path: str) -> ToolChunk:
                 TextBlock(
                     type="text",
                     text=(
-                        f"[Audio transcript of {resolved.name}]:\n"
-                        f"{text}"
+                        f"[Audio transcript of {resolved.name}]:\n" f"{text}"
                     ),
                 ),
             ],
@@ -999,9 +1024,7 @@ async def view_audio(audio_path: str) -> ToolChunk:
     try:
         from ...config import load_config
 
-        provider_type = (
-            load_config().agents.transcription_provider_type
-        )
+        provider_type = load_config().agents.transcription_provider_type
     except Exception:
         provider_type = "disabled"
 

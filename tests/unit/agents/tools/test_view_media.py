@@ -9,6 +9,7 @@ Covers:
 - _get_multimodal_fallback_hint
 - view_image
 - view_video
+- view_audio
 """
 # pylint: disable=protected-access,unused-argument
 
@@ -19,7 +20,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
-from agentscope.message import Base64Source
+from agentscope.message import (
+    Base64Source,
+    DataBlock,
+    Msg,
+    TextBlock,
+)
 from PIL import Image
 
 from qwenpaw.agents.tools import view_media
@@ -34,10 +40,15 @@ from qwenpaw.agents.tools.view_media import (
     _is_url,
     _validate_media_path,
     _validate_url_extension,
+    view_audio,
     view_image,
     view_video,
 )
-from qwenpaw.providers.capping_formatter import MAX_INLINE_MEDIA_BYTES
+from qwenpaw.providers.capping_formatter import (
+    MAX_INLINE_MEDIA_BYTES,
+    _CappingOpenAIFormatter,
+)
+from qwenpaw.agents import model_factory
 
 
 # ---------------------------------------------------------------------------
@@ -1132,3 +1143,230 @@ class TestViewVideo:
         mock_support.return_value = True
         result = await view_video("/nonexistent/vid.mp4")
         assert "does not exist" in result.content[0].text
+
+
+# ---------------------------------------------------------------------------
+# view_audio
+# ---------------------------------------------------------------------------
+
+
+def _make_native_config():
+    """Return a mock config with audio_mode='native'."""
+    cfg = MagicMock()
+    cfg.agents.audio_mode = "native"
+    return cfg
+
+
+class TestViewAudio:
+    """Tests for view_audio (native mode)."""
+
+    # Formats that the formatter supports natively (no ffmpeg needed).
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("ext", [".wav", ".mp3"])
+    async def test_native_no_conversion_needed(self, tmp_path, ext):
+        """WAV/MP3 files should be used directly without conversion."""
+        audio = tmp_path / f"test{ext}"
+        audio.write_bytes(b"\x00" * 100)
+
+        mock_cfg = _make_native_config()
+        with (
+            patch("qwenpaw.config.load_config", return_value=mock_cfg),
+            patch(
+                "qwenpaw.agents.tools.view_media.run_sync_io",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
+        ):
+            result = await view_audio(str(audio))
+
+        types = [getattr(b, "type", None) for b in result.content]
+        assert "data" in types
+        assert result.state.value == "success"
+
+    # Formats that require ffmpeg conversion.
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("ext", [".ogg", ".flac", ".m4a", ".amr", ".opus"])
+    async def test_native_conversion_success(self, tmp_path, ext):
+        """All non-native formats should use converted WAV on success."""
+        audio = tmp_path / f"test{ext}"
+        audio.write_bytes(b"\x00" * 100)
+        converted_wav = tmp_path / "converted.wav"
+        converted_wav.write_bytes(b"RIFF" + b"\x00" * 100)
+
+        mock_cfg = _make_native_config()
+        with (
+            patch("qwenpaw.config.load_config", return_value=mock_cfg),
+            patch(
+                "qwenpaw.agents.tools.view_media.run_sync_io",
+                new_callable=AsyncMock,
+                return_value=str(converted_wav),
+            ),
+        ):
+            result = await view_audio(str(audio))
+
+        types = [getattr(b, "type", None) for b in result.content]
+        assert "data" in types
+        assert result.state.value == "success"
+        data_block = next(
+            b for b in result.content if getattr(b, "type", None) == "data"
+        )
+        assert "converted.wav" in str(data_block.source.url)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("ext", [".ogg", ".flac", ".m4a", ".amr", ".opus"])
+    async def test_native_missing_ffmpeg(self, tmp_path, ext):
+        """Non-native formats with no ffmpeg should return error."""
+        audio = tmp_path / f"test{ext}"
+        audio.write_bytes(b"\x00" * 100)
+
+        mock_cfg = _make_native_config()
+        with (
+            patch("qwenpaw.config.load_config", return_value=mock_cfg),
+            patch(
+                "qwenpaw.agents.tools.view_media.run_sync_io",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
+        ):
+            result = await view_audio(str(audio))
+
+        types = [getattr(b, "type", None) for b in result.content]
+        assert "data" not in types
+        text_block = next(
+            b for b in result.content if getattr(b, "type", None) == "text"
+        )
+        assert "conversion failed" in text_block.text.lower()
+        assert "ffmpeg" in text_block.text.lower()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("ext", [".ogg", ".flac", ".m4a", ".amr", ".opus"])
+    async def test_native_conversion_exception(self, tmp_path, ext):
+        """Non-native formats where conversion raises should return error."""
+        audio = tmp_path / f"test{ext}"
+        audio.write_bytes(b"\x00" * 100)
+
+        mock_cfg = _make_native_config()
+        with (
+            patch("qwenpaw.config.load_config", return_value=mock_cfg),
+            patch(
+                "qwenpaw.agents.tools.view_media.run_sync_io",
+                new_callable=AsyncMock,
+                side_effect=RuntimeError("ffmpeg crashed"),
+            ),
+        ):
+            result = await view_audio(str(audio))
+
+        types = [getattr(b, "type", None) for b in result.content]
+        assert "data" not in types
+        text_block = next(
+            b for b in result.content if getattr(b, "type", None) == "text"
+        )
+        assert "conversion failed" in text_block.text.lower()
+
+
+# ---------------------------------------------------------------------------
+# view_audio → formatter integration
+# ---------------------------------------------------------------------------
+
+
+def _make_openai_formatter():
+    """Create a file-block-aware OpenAI capping formatter."""
+    formatter_class = model_factory._create_file_block_support_formatter(
+        _CappingOpenAIFormatter,
+    )
+    return formatter_class()
+
+
+class TestViewAudioFormatterIntegration:
+    """Verify view_audio output produces correct wire messages."""
+
+    @pytest.mark.asyncio
+    async def test_success_wav_produces_input_audio(self):
+        """WAV DataBlock from view_audio should become input_audio."""
+        wav_bytes = b"RIFF" + b"\x00" * 100
+        audio_block = DataBlock(
+            source=Base64Source(
+                media_type="audio/wav",
+                data=base64.b64encode(wav_bytes).decode("ascii"),
+            ),
+        )
+        msg = Msg(
+            name="tool",
+            role="assistant",
+            content=[
+                audio_block,
+                TextBlock(
+                    type="text",
+                    text="Audio loaded in native mode: test.wav",
+                ),
+            ],
+        )
+
+        formatter = _make_openai_formatter()
+        token = model_factory._FORMATTER_SEEN_MEDIA_KEYS.set(set())
+        try:
+            formatted = await formatter.format([msg])
+        finally:
+            model_factory._FORMATTER_SEEN_MEDIA_KEYS.reset(token)
+
+        content = formatted[0]["content"]
+        wire_types = [item["type"] for item in content]
+        assert "input_audio" in wire_types
+
+    @pytest.mark.asyncio
+    async def test_success_mp3_produces_input_audio(self):
+        """MP3 DataBlock from view_audio should become input_audio."""
+        mp3_bytes = b"\xff\xfb" + b"\x00" * 100
+        audio_block = DataBlock(
+            source=Base64Source(
+                media_type="audio/mp3",
+                data=base64.b64encode(mp3_bytes).decode("ascii"),
+            ),
+        )
+        msg = Msg(
+            name="tool",
+            role="assistant",
+            content=[
+                audio_block,
+                TextBlock(
+                    type="text",
+                    text="Audio loaded in native mode: test.mp3",
+                ),
+            ],
+        )
+
+        formatter = _make_openai_formatter()
+        token = model_factory._FORMATTER_SEEN_MEDIA_KEYS.set(set())
+        try:
+            formatted = await formatter.format([msg])
+        finally:
+            model_factory._FORMATTER_SEEN_MEDIA_KEYS.reset(token)
+
+        content = formatted[0]["content"]
+        wire_types = [item["type"] for item in content]
+        assert "input_audio" in wire_types
+
+    @pytest.mark.asyncio
+    async def test_failure_no_data_block_no_input_audio(self):
+        """Error output (text only) should not produce input_audio."""
+        msg = Msg(
+            name="tool",
+            role="assistant",
+            content=[
+                TextBlock(
+                    type="text",
+                    text=(
+                        "Error: audio conversion failed for test.ogg. "
+                        "Install ffmpeg to enable native audio playback."
+                    ),
+                ),
+            ],
+        )
+
+        formatter = _make_openai_formatter()
+        formatted = await formatter.format([msg])
+
+        content = formatted[0]["content"]
+        wire_types = [item["type"] for item in content]
+        assert "input_audio" not in wire_types
+        assert "audio" not in wire_types
