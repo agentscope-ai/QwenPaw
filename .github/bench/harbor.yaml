@@ -9,6 +9,7 @@ environment:
 agents:
   - name: acp
     env:
+      QWENPAW_TELEMETRY_DISABLED: "true"
       OPENAI_API_KEY: ${DASHSCOPE_API_KEY}
     kwargs:
       permission_mode: allow

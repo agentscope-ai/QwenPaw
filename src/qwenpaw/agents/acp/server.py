@@ -426,6 +426,7 @@ class QwenPawACPAgent(Agent):
 
         return WorkspaceBootstrapFactory.build_bootstrap_kwargs(
             app_services,
+            include_bootstrap_hook=False,
             extra_command_specs=(
                 extra_command_specs if extra_command_specs else None
             ),

@@ -45,3 +45,19 @@ HTML 中的成绩、历史版本、费用与私榜组合都是 mock，不是实�
 - [x] runner 按本次 workflow 的 repository/SHA 动态构建，版本从检出源码读取。
 - [x] 32 项评测单测、75 项 ACP/token 单测和相关 pre-commit 检查通过。
 - [x] 个人 origin run 37740027507 验收开发包的缓存 usage 与估算费用，合成任务和 GAIA 单题均成功。
+
+## 正式交付阶段
+
+- [x] 停止 push 自动触发付费 smoke，仅保留手动诊断入口。
+- [ ] 实现正式榜单、SDK 历史、领域/benchmark 切换、费用与独立方案页。
+- [ ] 实现公开结果不可变归档与串行索引更新，私有结果禁止公开发布。
+- [ ] 接入统一网站部署入口，普通部署保留评测历史。
+- [ ] 正式工作流检查、网站构建与浏览器验收，按模块提交。
+
+## ACP 启动与 onboarding
+
+- [x] 核对 ACP 与产品启动初始化：复用 `ensure_local_runtime_initialized`，初始化输出重定向 stderr，保持 stdout 为 ACP 协议专用。
+- [x] ACP 不注册首次对话 BootstrapHook；保留其他运行时 hook、技能和模板，不删除已有 BOOTSTRAP.md 或伪造完成标记。
+- [x] 35 项相关单测通过：初始化先于 ACP 启动、失败终止、stdout 隔离，其他入口仍注册 BootstrapHook；另以临时空目录验证真实初始化和重复调用，必要配置与 Markdown 文件齐全，无完成标记。
+
+`.bootstrap_completed` 只记录引导提示已经注入，不是 PROFILE/MEMORY 已完善的证明。跳过引导不禁止模型主动读取工作区文件，不能保证完全消除这类工具调用；性能影响需正式评测验证。

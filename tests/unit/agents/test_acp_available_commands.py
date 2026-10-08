@@ -627,6 +627,10 @@ def test_acp_bootstrap_includes_runtime_slash_commands():
         spec.name for spec in kwargs.get("builtin_command_specs", [])
     }
 
+    assert all(
+        hook.name != f"bootstrap" for hook in kwargs[f"builtin_hook_clses"]
+    )
+
     # Verify that builtin commands are collected via the shared factory.
     # The exact set depends on what's registered in builtin_commands.py.
     assert len(command_names) > 0, "Expected at least some builtin commands"

@@ -28,6 +28,7 @@ class WorkspaceBootstrapFactory:
     def build_bootstrap_kwargs(
         app_services: Any | None = None,  # pylint: disable=unused-argument
         *,
+        include_bootstrap_hook: bool = True,
         extra_hook_clses: list[type] | None = None,
         extra_command_specs: list[Any] | None = None,
     ) -> dict[str, Any]:
@@ -97,7 +98,7 @@ class WorkspaceBootstrapFactory:
                 CronMemoryRestoreHook,
                 SessionLoadHook,
                 SessionSaveHook,
-                BootstrapHook,
+                *([BootstrapHook] if include_bootstrap_hook else []),
                 SkillEnvHook,
                 SkillEnvCleanupHook,
                 ContextVarsSetupHook,
