@@ -25,12 +25,8 @@ export function useOfficialPlugins({ onInstalled }: UseOfficialPluginsOptions) {
     setCatalogError(null);
     try {
       const data = await fetchPluginCatalog();
-      if (data.error) {
-        setCatalogError(data.error);
-        setPlugins([]);
-      } else {
-        setPlugins(data.plugins ?? []);
-      }
+      setCatalogError(data.error || null);
+      setPlugins(data.plugins ?? []);
     } catch (err) {
       const msg =
         err instanceof Error

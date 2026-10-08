@@ -5224,6 +5224,7 @@
     "catalogSha256": "SHA256",
     "kindBundle": "插件包",
     "kindTool": "工具",
+    "kindHub": "Hub",
     "filterByName": "按名称筛选",
     "filterByKind": "按标签筛选",
     "marketTitle": "插件市场",

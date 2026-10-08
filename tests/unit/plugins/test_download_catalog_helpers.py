@@ -40,7 +40,7 @@ from qwenpaw.plugins.download_catalog import (
     _normalize_ver,
     _pick_en,
     _plugin_id_from_file_entry,
-    build_plugin_catalog,
+    _build_remote_plugin_catalog as build_plugin_catalog,
     fetch_plugin_catalog_async,
 )
 

@@ -5204,6 +5204,7 @@
     "catalogSha256": "SHA256",
     "kindBundle": "Bundle",
     "kindTool": "Tool",
+    "kindHub": "Hub",
     "filterByName": "Filter by name",
     "filterByKind": "Filter by kind",
     "marketTitle": "Plugin Market",
