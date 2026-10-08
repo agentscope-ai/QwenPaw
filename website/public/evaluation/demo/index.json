@@ -1,0 +1,1395 @@
+{
+  "schema_version": 1,
+  "visibility": "public",
+  "runs": [
+    {
+      "schema_version": 1,
+      "visibility": "public",
+      "index_version": "index-v1",
+      "manifest_sha256": "demo-0",
+      "evaluation_sha": "demo",
+      "date": "2026-07-08T00:00:00Z",
+      "workflow_url": "",
+      "complete": true,
+      "prices": {
+        "version": "demo-prices",
+        "fx": {
+          "date": "demo",
+          "cny_per_usd": 6.7351
+        }
+      },
+      "records": [
+        {
+          "model": "qwen3.8-max-0902",
+          "harness": "QwenPaw",
+          "sdk_version": "2.0.0-demo",
+          "source_sha": "demo",
+          "complete": true,
+          "index_score": null,
+          "index_model_cost_usd": null,
+          "index_runtime_seconds": null,
+          "observed_model_spend_usd": null,
+          "attempts_with_known_cost": 1065,
+          "observed_attempts": 1065,
+          "cost_status": "mock",
+          "domains": {},
+          "benchmarks": [
+            {
+              "benchmark": "gaia",
+              "domains": [
+                "research"
+              ],
+              "expected": 165,
+              "scored": 165,
+              "score": 76,
+              "mean_model_cost_usd": 0.9,
+              "mean_runtime_seconds": 160,
+              "cost_sources": {
+                "litellm_estimated": 165
+              },
+              "cost_bases": {
+                "list_price": 165
+              },
+              "cost_observed_attempts": 165,
+              "cost_known_attempts": 165
+            },
+            {
+              "benchmark": "spreadsheetbench-verified",
+              "domains": [
+                "office"
+              ],
+              "expected": 400,
+              "scored": 400,
+              "score": 81.04882590884738,
+              "mean_model_cost_usd": 1.17,
+              "mean_runtime_seconds": 270,
+              "cost_sources": {
+                "litellm_estimated": 400
+              },
+              "cost_bases": {
+                "list_price": 400
+              },
+              "cost_observed_attempts": 400,
+              "cost_known_attempts": 400
+            },
+            {
+              "benchmark": "swebench-verified",
+              "domains": [
+                "coding"
+              ],
+              "expected": 500,
+              "scored": 500,
+              "score": 81.45578456095409,
+              "mean_model_cost_usd": 1.44,
+              "mean_runtime_seconds": 380,
+              "cost_sources": {
+                "litellm_estimated": 500
+              },
+              "cost_bases": {
+                "list_price": 500
+              },
+              "cost_observed_attempts": 500,
+              "cost_known_attempts": 500
+            }
+          ]
+        },
+        {
+          "model": "qwen3.8-27b",
+          "harness": "QwenPaw",
+          "sdk_version": "2.0.0-demo",
+          "source_sha": "demo",
+          "complete": true,
+          "index_score": null,
+          "index_model_cost_usd": null,
+          "index_runtime_seconds": null,
+          "observed_model_spend_usd": null,
+          "attempts_with_known_cost": 1065,
+          "observed_attempts": 1065,
+          "cost_status": "mock",
+          "domains": {},
+          "benchmarks": [
+            {
+              "benchmark": "gaia",
+              "domains": [
+                "research"
+              ],
+              "expected": 165,
+              "scored": 165,
+              "score": 78.04882590884738,
+              "mean_model_cost_usd": 0.07,
+              "mean_runtime_seconds": 207,
+              "cost_sources": {
+                "litellm_estimated": 165
+              },
+              "cost_bases": {
+                "list_price": 165
+              },
+              "cost_observed_attempts": 165,
+              "cost_known_attempts": 165
+            },
+            {
+              "benchmark": "spreadsheetbench-verified",
+              "domains": [
+                "office"
+              ],
+              "expected": 400,
+              "scored": 400,
+              "score": 78.45578456095409,
+              "mean_model_cost_usd": 0.091,
+              "mean_runtime_seconds": 317,
+              "cost_sources": {
+                "litellm_estimated": 400
+              },
+              "cost_bases": {
+                "list_price": 400
+              },
+              "cost_observed_attempts": 400,
+              "cost_known_attempts": 400
+            },
+            {
+              "benchmark": "swebench-verified",
+              "domains": [
+                "coding"
+              ],
+              "expected": 500,
+              "scored": 500,
+              "score": 73.8467200483592,
+              "mean_model_cost_usd": 0.112,
+              "mean_runtime_seconds": 427,
+              "cost_sources": {
+                "litellm_estimated": 500
+              },
+              "cost_bases": {
+                "list_price": 500
+              },
+              "cost_observed_attempts": 500,
+              "cost_known_attempts": 500
+            }
+          ]
+        },
+        {
+          "model": "deepseek-v4-pro-0813",
+          "harness": "QwenPaw",
+          "sdk_version": "2.0.0-demo",
+          "source_sha": "demo",
+          "complete": true,
+          "index_score": null,
+          "index_model_cost_usd": null,
+          "index_runtime_seconds": null,
+          "observed_model_spend_usd": null,
+          "attempts_with_known_cost": 1065,
+          "observed_attempts": 1065,
+          "cost_status": "mock",
+          "domains": {},
+          "benchmarks": [
+            {
+              "benchmark": "gaia",
+              "domains": [
+                "research"
+              ],
+              "expected": 165,
+              "scored": 165,
+              "score": 75.45578456095409,
+              "mean_model_cost_usd": 0.3,
+              "mean_runtime_seconds": 254,
+              "cost_sources": {
+                "litellm_estimated": 165
+              },
+              "cost_bases": {
+                "list_price": 165
+              },
+              "cost_observed_attempts": 165,
+              "cost_known_attempts": 165
+            },
+            {
+              "benchmark": "spreadsheetbench-verified",
+              "domains": [
+                "office"
+              ],
+              "expected": 400,
+              "scored": 400,
+              "score": 70.8467200483592,
+              "mean_model_cost_usd": 0.39,
+              "mean_runtime_seconds": 364,
+              "cost_sources": {
+                "litellm_estimated": 400
+              },
+              "cost_bases": {
+                "list_price": 400
+              },
+              "cost_observed_attempts": 400,
+              "cost_known_attempts": 400
+            },
+            {
+              "benchmark": "swebench-verified",
+              "domains": [
+                "coding"
+              ],
+              "expected": 500,
+              "scored": 500,
+              "score": 65.45918502815243,
+              "mean_model_cost_usd": 0.48,
+              "mean_runtime_seconds": 474,
+              "cost_sources": {
+                "litellm_estimated": 500
+              },
+              "cost_bases": {
+                "list_price": 500
+              },
+              "cost_observed_attempts": 500,
+              "cost_known_attempts": 500
+            }
+          ]
+        },
+        {
+          "model": "deepseek-v4.1-flash",
+          "harness": "QwenPaw",
+          "sdk_version": "2.0.0-demo",
+          "source_sha": "demo",
+          "complete": true,
+          "index_score": null,
+          "index_model_cost_usd": null,
+          "index_runtime_seconds": null,
+          "observed_model_spend_usd": null,
+          "attempts_with_known_cost": 1065,
+          "observed_attempts": 1065,
+          "cost_status": "mock",
+          "domains": {},
+          "benchmarks": [
+            {
+              "benchmark": "gaia",
+              "domains": [
+                "research"
+              ],
+              "expected": 165,
+              "scored": 165,
+              "score": 67.8467200483592,
+              "mean_model_cost_usd": 0.225,
+              "mean_runtime_seconds": 301,
+              "cost_sources": {
+                "litellm_estimated": 165
+              },
+              "cost_bases": {
+                "list_price": 165
+              },
+              "cost_observed_attempts": 165,
+              "cost_known_attempts": 165
+            },
+            {
+              "benchmark": "spreadsheetbench-verified",
+              "domains": [
+                "office"
+              ],
+              "expected": 400,
+              "scored": 400,
+              "score": 62.45918502815243,
+              "mean_model_cost_usd": 0.2925,
+              "mean_runtime_seconds": 411,
+              "cost_sources": {
+                "litellm_estimated": 400
+              },
+              "cost_bases": {
+                "list_price": 400
+              },
+              "cost_observed_attempts": 400,
+              "cost_known_attempts": 400
+            },
+            {
+              "benchmark": "swebench-verified",
+              "domains": [
+                "coding"
+              ],
+              "expected": 500,
+              "scored": 500,
+              "score": 61.24645435202117,
+              "mean_model_cost_usd": 0.36,
+              "mean_runtime_seconds": 521,
+              "cost_sources": {
+                "litellm_estimated": 500
+              },
+              "cost_bases": {
+                "list_price": 500
+              },
+              "cost_observed_attempts": 500,
+              "cost_known_attempts": 500
+            }
+          ]
+        },
+        {
+          "model": "glm-5.3",
+          "harness": "QwenPaw",
+          "sdk_version": "2.0.0-demo",
+          "source_sha": "demo",
+          "complete": true,
+          "index_score": null,
+          "index_model_cost_usd": null,
+          "index_runtime_seconds": null,
+          "observed_model_spend_usd": null,
+          "attempts_with_known_cost": 1065,
+          "observed_attempts": 1065,
+          "cost_status": "mock",
+          "domains": {},
+          "benchmarks": [
+            {
+              "benchmark": "gaia",
+              "domains": [
+                "research"
+              ],
+              "expected": 165,
+              "scored": 165,
+              "score": 59.45918502815243,
+              "mean_model_cost_usd": 0.18,
+              "mean_runtime_seconds": 348,
+              "cost_sources": {
+                "litellm_estimated": 165
+              },
+              "cost_bases": {
+                "list_price": 165
+              },
+              "cost_observed_attempts": 165,
+              "cost_known_attempts": 165
+            },
+            {
+              "benchmark": "spreadsheetbench-verified",
+              "domains": [
+                "office"
+              ],
+              "expected": 400,
+              "scored": 400,
+              "score": 58.24645435202117,
+              "mean_model_cost_usd": 0.234,
+              "mean_runtime_seconds": 458,
+              "cost_sources": {
+                "litellm_estimated": 400
+              },
+              "cost_bases": {
+                "list_price": 400
+              },
+              "cost_observed_attempts": 400,
+              "cost_known_attempts": 400
+            },
+            {
+              "benchmark": "swebench-verified",
+              "domains": [
+                "coding"
+              ],
+              "expected": 500,
+              "scored": 500,
+              "score": 62.323507010806445,
+              "mean_model_cost_usd": 0.288,
+              "mean_runtime_seconds": 568,
+              "cost_sources": {
+                "litellm_estimated": 500
+              },
+              "cost_bases": {
+                "list_price": 500
+              },
+              "cost_observed_attempts": 500,
+              "cost_known_attempts": 500
+            }
+          ]
+        },
+        {
+          "model": "glm-5.2",
+          "harness": "QwenPaw",
+          "sdk_version": "2.0.0-demo",
+          "source_sha": "demo",
+          "complete": true,
+          "index_score": null,
+          "index_model_cost_usd": null,
+          "index_runtime_seconds": null,
+          "observed_model_spend_usd": null,
+          "attempts_with_known_cost": 1065,
+          "observed_attempts": 1065,
+          "cost_status": "mock",
+          "domains": {},
+          "benchmarks": [
+            {
+              "benchmark": "gaia",
+              "domains": [
+                "research"
+              ],
+              "expected": 165,
+              "scored": 165,
+              "score": 55.24645435202117,
+              "mean_model_cost_usd": null,
+              "mean_runtime_seconds": 395,
+              "cost_sources": {
+                "litellm_estimated": 165
+              },
+              "cost_bases": {
+                "list_price": 165
+              },
+              "cost_observed_attempts": 165,
+              "cost_known_attempts": 0
+            },
+            {
+              "benchmark": "spreadsheetbench-verified",
+              "domains": [
+                "office"
+              ],
+              "expected": 400,
+              "scored": 400,
+              "score": 59.323507010806445,
+              "mean_model_cost_usd": null,
+              "mean_runtime_seconds": 505,
+              "cost_sources": {
+                "litellm_estimated": 400
+              },
+              "cost_bases": {
+                "list_price": 400
+              },
+              "cost_observed_attempts": 400,
+              "cost_known_attempts": 0
+            },
+            {
+              "benchmark": "swebench-verified",
+              "domains": [
+                "coding"
+              ],
+              "expected": 500,
+              "scored": 500,
+              "score": 64.94191959231273,
+              "mean_model_cost_usd": null,
+              "mean_runtime_seconds": 615,
+              "cost_sources": {
+                "litellm_estimated": 500
+              },
+              "cost_bases": {
+                "list_price": 500
+              },
+              "cost_observed_attempts": 500,
+              "cost_known_attempts": 0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "schema_version": 1,
+      "visibility": "public",
+      "index_version": "index-v1",
+      "manifest_sha256": "demo-1",
+      "evaluation_sha": "demo",
+      "date": "2026-08-08T00:00:00Z",
+      "workflow_url": "",
+      "complete": true,
+      "prices": {
+        "version": "demo-prices",
+        "fx": {
+          "date": "demo",
+          "cny_per_usd": 6.7351
+        }
+      },
+      "records": [
+        {
+          "model": "qwen3.8-max-0902",
+          "harness": "QwenPaw",
+          "sdk_version": "2.1.0-demo",
+          "source_sha": "demo",
+          "complete": true,
+          "index_score": null,
+          "index_model_cost_usd": null,
+          "index_runtime_seconds": null,
+          "observed_model_spend_usd": null,
+          "attempts_with_known_cost": 1065,
+          "observed_attempts": 1065,
+          "cost_status": "mock",
+          "domains": {},
+          "benchmarks": [
+            {
+              "benchmark": "gaia",
+              "domains": [
+                "research"
+              ],
+              "expected": 165,
+              "scored": 165,
+              "score": 78.4,
+              "mean_model_cost_usd": 0.828,
+              "mean_runtime_seconds": 147,
+              "cost_sources": {
+                "litellm_estimated": 165
+              },
+              "cost_bases": {
+                "list_price": 165
+              },
+              "cost_observed_attempts": 165,
+              "cost_known_attempts": 165
+            },
+            {
+              "benchmark": "spreadsheetbench-verified",
+              "domains": [
+                "office"
+              ],
+              "expected": 400,
+              "scored": 400,
+              "score": 83.44882590884738,
+              "mean_model_cost_usd": 1.0764,
+              "mean_runtime_seconds": 257,
+              "cost_sources": {
+                "litellm_estimated": 400
+              },
+              "cost_bases": {
+                "list_price": 400
+              },
+              "cost_observed_attempts": 400,
+              "cost_known_attempts": 400
+            },
+            {
+              "benchmark": "swebench-verified",
+              "domains": [
+                "coding"
+              ],
+              "expected": 500,
+              "scored": 500,
+              "score": 83.85578456095409,
+              "mean_model_cost_usd": 1.3248,
+              "mean_runtime_seconds": 367,
+              "cost_sources": {
+                "litellm_estimated": 500
+              },
+              "cost_bases": {
+                "list_price": 500
+              },
+              "cost_observed_attempts": 500,
+              "cost_known_attempts": 500
+            }
+          ]
+        },
+        {
+          "model": "qwen3.8-27b",
+          "harness": "QwenPaw",
+          "sdk_version": "2.1.0-demo",
+          "source_sha": "demo",
+          "complete": true,
+          "index_score": null,
+          "index_model_cost_usd": null,
+          "index_runtime_seconds": null,
+          "observed_model_spend_usd": null,
+          "attempts_with_known_cost": 1065,
+          "observed_attempts": 1065,
+          "cost_status": "mock",
+          "domains": {},
+          "benchmarks": [
+            {
+              "benchmark": "gaia",
+              "domains": [
+                "research"
+              ],
+              "expected": 165,
+              "scored": 165,
+              "score": 80.44882590884738,
+              "mean_model_cost_usd": 0.0644,
+              "mean_runtime_seconds": 194,
+              "cost_sources": {
+                "litellm_estimated": 165
+              },
+              "cost_bases": {
+                "list_price": 165
+              },
+              "cost_observed_attempts": 165,
+              "cost_known_attempts": 165
+            },
+            {
+              "benchmark": "spreadsheetbench-verified",
+              "domains": [
+                "office"
+              ],
+              "expected": 400,
+              "scored": 400,
+              "score": 80.85578456095409,
+              "mean_model_cost_usd": 0.0837,
+              "mean_runtime_seconds": 304,
+              "cost_sources": {
+                "litellm_estimated": 400
+              },
+              "cost_bases": {
+                "list_price": 400
+              },
+              "cost_observed_attempts": 400,
+              "cost_known_attempts": 400
+            },
+            {
+              "benchmark": "swebench-verified",
+              "domains": [
+                "coding"
+              ],
+              "expected": 500,
+              "scored": 500,
+              "score": 76.24672004835921,
+              "mean_model_cost_usd": 0.103,
+              "mean_runtime_seconds": 414,
+              "cost_sources": {
+                "litellm_estimated": 500
+              },
+              "cost_bases": {
+                "list_price": 500
+              },
+              "cost_observed_attempts": 500,
+              "cost_known_attempts": 500
+            }
+          ]
+        },
+        {
+          "model": "deepseek-v4-pro-0813",
+          "harness": "QwenPaw",
+          "sdk_version": "2.1.0-demo",
+          "source_sha": "demo",
+          "complete": true,
+          "index_score": null,
+          "index_model_cost_usd": null,
+          "index_runtime_seconds": null,
+          "observed_model_spend_usd": null,
+          "attempts_with_known_cost": 1065,
+          "observed_attempts": 1065,
+          "cost_status": "mock",
+          "domains": {},
+          "benchmarks": [
+            {
+              "benchmark": "gaia",
+              "domains": [
+                "research"
+              ],
+              "expected": 165,
+              "scored": 165,
+              "score": 77.85578456095409,
+              "mean_model_cost_usd": 0.276,
+              "mean_runtime_seconds": 241,
+              "cost_sources": {
+                "litellm_estimated": 165
+              },
+              "cost_bases": {
+                "list_price": 165
+              },
+              "cost_observed_attempts": 165,
+              "cost_known_attempts": 165
+            },
+            {
+              "benchmark": "spreadsheetbench-verified",
+              "domains": [
+                "office"
+              ],
+              "expected": 400,
+              "scored": 400,
+              "score": 73.24672004835921,
+              "mean_model_cost_usd": 0.3588,
+              "mean_runtime_seconds": 351,
+              "cost_sources": {
+                "litellm_estimated": 400
+              },
+              "cost_bases": {
+                "list_price": 400
+              },
+              "cost_observed_attempts": 400,
+              "cost_known_attempts": 400
+            },
+            {
+              "benchmark": "swebench-verified",
+              "domains": [
+                "coding"
+              ],
+              "expected": 500,
+              "scored": 500,
+              "score": 67.85918502815244,
+              "mean_model_cost_usd": 0.4416,
+              "mean_runtime_seconds": 461,
+              "cost_sources": {
+                "litellm_estimated": 500
+              },
+              "cost_bases": {
+                "list_price": 500
+              },
+              "cost_observed_attempts": 500,
+              "cost_known_attempts": 500
+            }
+          ]
+        },
+        {
+          "model": "deepseek-v4.1-flash",
+          "harness": "QwenPaw",
+          "sdk_version": "2.1.0-demo",
+          "source_sha": "demo",
+          "complete": true,
+          "index_score": null,
+          "index_model_cost_usd": null,
+          "index_runtime_seconds": null,
+          "observed_model_spend_usd": null,
+          "attempts_with_known_cost": 1065,
+          "observed_attempts": 1065,
+          "cost_status": "mock",
+          "domains": {},
+          "benchmarks": [
+            {
+              "benchmark": "gaia",
+              "domains": [
+                "research"
+              ],
+              "expected": 165,
+              "scored": 165,
+              "score": 70.24672004835921,
+              "mean_model_cost_usd": 0.207,
+              "mean_runtime_seconds": 288,
+              "cost_sources": {
+                "litellm_estimated": 165
+              },
+              "cost_bases": {
+                "list_price": 165
+              },
+              "cost_observed_attempts": 165,
+              "cost_known_attempts": 165
+            },
+            {
+              "benchmark": "spreadsheetbench-verified",
+              "domains": [
+                "office"
+              ],
+              "expected": 400,
+              "scored": 400,
+              "score": 64.85918502815244,
+              "mean_model_cost_usd": 0.2691,
+              "mean_runtime_seconds": 398,
+              "cost_sources": {
+                "litellm_estimated": 400
+              },
+              "cost_bases": {
+                "list_price": 400
+              },
+              "cost_observed_attempts": 400,
+              "cost_known_attempts": 400
+            },
+            {
+              "benchmark": "swebench-verified",
+              "domains": [
+                "coding"
+              ],
+              "expected": 500,
+              "scored": 500,
+              "score": 63.64645435202117,
+              "mean_model_cost_usd": 0.3312,
+              "mean_runtime_seconds": 508,
+              "cost_sources": {
+                "litellm_estimated": 500
+              },
+              "cost_bases": {
+                "list_price": 500
+              },
+              "cost_observed_attempts": 500,
+              "cost_known_attempts": 500
+            }
+          ]
+        },
+        {
+          "model": "glm-5.3",
+          "harness": "QwenPaw",
+          "sdk_version": "2.1.0-demo",
+          "source_sha": "demo",
+          "complete": true,
+          "index_score": null,
+          "index_model_cost_usd": null,
+          "index_runtime_seconds": null,
+          "observed_model_spend_usd": null,
+          "attempts_with_known_cost": 1065,
+          "observed_attempts": 1065,
+          "cost_status": "mock",
+          "domains": {},
+          "benchmarks": [
+            {
+              "benchmark": "gaia",
+              "domains": [
+                "research"
+              ],
+              "expected": 165,
+              "scored": 165,
+              "score": 61.85918502815244,
+              "mean_model_cost_usd": 0.1656,
+              "mean_runtime_seconds": 335,
+              "cost_sources": {
+                "litellm_estimated": 165
+              },
+              "cost_bases": {
+                "list_price": 165
+              },
+              "cost_observed_attempts": 165,
+              "cost_known_attempts": 165
+            },
+            {
+              "benchmark": "spreadsheetbench-verified",
+              "domains": [
+                "office"
+              ],
+              "expected": 400,
+              "scored": 400,
+              "score": 60.64645435202117,
+              "mean_model_cost_usd": 0.2153,
+              "mean_runtime_seconds": 445,
+              "cost_sources": {
+                "litellm_estimated": 400
+              },
+              "cost_bases": {
+                "list_price": 400
+              },
+              "cost_observed_attempts": 400,
+              "cost_known_attempts": 400
+            },
+            {
+              "benchmark": "swebench-verified",
+              "domains": [
+                "coding"
+              ],
+              "expected": 500,
+              "scored": 500,
+              "score": 64.72350701080646,
+              "mean_model_cost_usd": 0.265,
+              "mean_runtime_seconds": 555,
+              "cost_sources": {
+                "litellm_estimated": 500
+              },
+              "cost_bases": {
+                "list_price": 500
+              },
+              "cost_observed_attempts": 500,
+              "cost_known_attempts": 500
+            }
+          ]
+        },
+        {
+          "model": "glm-5.2",
+          "harness": "QwenPaw",
+          "sdk_version": "2.1.0-demo",
+          "source_sha": "demo",
+          "complete": true,
+          "index_score": null,
+          "index_model_cost_usd": null,
+          "index_runtime_seconds": null,
+          "observed_model_spend_usd": null,
+          "attempts_with_known_cost": 1065,
+          "observed_attempts": 1065,
+          "cost_status": "mock",
+          "domains": {},
+          "benchmarks": [
+            {
+              "benchmark": "gaia",
+              "domains": [
+                "research"
+              ],
+              "expected": 165,
+              "scored": 165,
+              "score": 57.646454352021166,
+              "mean_model_cost_usd": 0.138,
+              "mean_runtime_seconds": 382,
+              "cost_sources": {
+                "litellm_estimated": 165
+              },
+              "cost_bases": {
+                "list_price": 165
+              },
+              "cost_observed_attempts": 165,
+              "cost_known_attempts": 165
+            },
+            {
+              "benchmark": "spreadsheetbench-verified",
+              "domains": [
+                "office"
+              ],
+              "expected": 400,
+              "scored": 400,
+              "score": 61.72350701080644,
+              "mean_model_cost_usd": 0.1794,
+              "mean_runtime_seconds": 492,
+              "cost_sources": {
+                "litellm_estimated": 400
+              },
+              "cost_bases": {
+                "list_price": 400
+              },
+              "cost_observed_attempts": 400,
+              "cost_known_attempts": 400
+            },
+            {
+              "benchmark": "swebench-verified",
+              "domains": [
+                "coding"
+              ],
+              "expected": 500,
+              "scored": 500,
+              "score": 67.34191959231273,
+              "mean_model_cost_usd": 0.2208,
+              "mean_runtime_seconds": 602,
+              "cost_sources": {
+                "litellm_estimated": 500
+              },
+              "cost_bases": {
+                "list_price": 500
+              },
+              "cost_observed_attempts": 500,
+              "cost_known_attempts": 500
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "schema_version": 1,
+      "visibility": "public",
+      "index_version": "index-v1",
+      "manifest_sha256": "demo-2",
+      "evaluation_sha": "demo",
+      "date": "2026-09-08T00:00:00Z",
+      "workflow_url": "",
+      "complete": true,
+      "prices": {
+        "version": "demo-prices",
+        "fx": {
+          "date": "demo",
+          "cny_per_usd": 6.7351
+        }
+      },
+      "records": [
+        {
+          "model": "qwen3.8-max-0902",
+          "harness": "QwenPaw",
+          "sdk_version": "2.2.0-demo",
+          "source_sha": "demo",
+          "complete": true,
+          "index_score": null,
+          "index_model_cost_usd": null,
+          "index_runtime_seconds": null,
+          "observed_model_spend_usd": null,
+          "attempts_with_known_cost": 1065,
+          "observed_attempts": 1065,
+          "cost_status": "mock",
+          "domains": {},
+          "benchmarks": [
+            {
+              "benchmark": "gaia",
+              "domains": [
+                "research"
+              ],
+              "expected": 165,
+              "scored": 165,
+              "score": 80.8,
+              "mean_model_cost_usd": 0.756,
+              "mean_runtime_seconds": 134,
+              "cost_sources": {
+                "litellm_estimated": 165
+              },
+              "cost_bases": {
+                "list_price": 165
+              },
+              "cost_observed_attempts": 165,
+              "cost_known_attempts": 165
+            },
+            {
+              "benchmark": "spreadsheetbench-verified",
+              "domains": [
+                "office"
+              ],
+              "expected": 400,
+              "scored": 400,
+              "score": 85.84882590884737,
+              "mean_model_cost_usd": 0.9828,
+              "mean_runtime_seconds": 244,
+              "cost_sources": {
+                "litellm_estimated": 400
+              },
+              "cost_bases": {
+                "list_price": 400
+              },
+              "cost_observed_attempts": 400,
+              "cost_known_attempts": 400
+            },
+            {
+              "benchmark": "swebench-verified",
+              "domains": [
+                "coding"
+              ],
+              "expected": 500,
+              "scored": 500,
+              "score": 86.25578456095408,
+              "mean_model_cost_usd": 1.2096,
+              "mean_runtime_seconds": 354,
+              "cost_sources": {
+                "litellm_estimated": 500
+              },
+              "cost_bases": {
+                "list_price": 500
+              },
+              "cost_observed_attempts": 500,
+              "cost_known_attempts": 500
+            }
+          ]
+        },
+        {
+          "model": "qwen3.8-27b",
+          "harness": "QwenPaw",
+          "sdk_version": "2.2.0-demo",
+          "source_sha": "demo",
+          "complete": true,
+          "index_score": null,
+          "index_model_cost_usd": null,
+          "index_runtime_seconds": null,
+          "observed_model_spend_usd": null,
+          "attempts_with_known_cost": 1065,
+          "observed_attempts": 1065,
+          "cost_status": "mock",
+          "domains": {},
+          "benchmarks": [
+            {
+              "benchmark": "gaia",
+              "domains": [
+                "research"
+              ],
+              "expected": 165,
+              "scored": 165,
+              "score": 82.84882590884737,
+              "mean_model_cost_usd": 0.0588,
+              "mean_runtime_seconds": 181,
+              "cost_sources": {
+                "litellm_estimated": 165
+              },
+              "cost_bases": {
+                "list_price": 165
+              },
+              "cost_observed_attempts": 165,
+              "cost_known_attempts": 165
+            },
+            {
+              "benchmark": "spreadsheetbench-verified",
+              "domains": [
+                "office"
+              ],
+              "expected": 400,
+              "scored": 400,
+              "score": 83.25578456095408,
+              "mean_model_cost_usd": 0.0764,
+              "mean_runtime_seconds": 291,
+              "cost_sources": {
+                "litellm_estimated": 400
+              },
+              "cost_bases": {
+                "list_price": 400
+              },
+              "cost_observed_attempts": 400,
+              "cost_known_attempts": 400
+            },
+            {
+              "benchmark": "swebench-verified",
+              "domains": [
+                "coding"
+              ],
+              "expected": 500,
+              "scored": 500,
+              "score": 78.6467200483592,
+              "mean_model_cost_usd": 0.0941,
+              "mean_runtime_seconds": 401,
+              "cost_sources": {
+                "litellm_estimated": 500
+              },
+              "cost_bases": {
+                "list_price": 500
+              },
+              "cost_observed_attempts": 500,
+              "cost_known_attempts": 500
+            }
+          ]
+        },
+        {
+          "model": "deepseek-v4-pro-0813",
+          "harness": "QwenPaw",
+          "sdk_version": "2.2.0-demo",
+          "source_sha": "demo",
+          "complete": true,
+          "index_score": null,
+          "index_model_cost_usd": null,
+          "index_runtime_seconds": null,
+          "observed_model_spend_usd": null,
+          "attempts_with_known_cost": 1065,
+          "observed_attempts": 1065,
+          "cost_status": "mock",
+          "domains": {},
+          "benchmarks": [
+            {
+              "benchmark": "gaia",
+              "domains": [
+                "research"
+              ],
+              "expected": 165,
+              "scored": 165,
+              "score": 80.25578456095408,
+              "mean_model_cost_usd": 0.252,
+              "mean_runtime_seconds": 228,
+              "cost_sources": {
+                "litellm_estimated": 165
+              },
+              "cost_bases": {
+                "list_price": 165
+              },
+              "cost_observed_attempts": 165,
+              "cost_known_attempts": 165
+            },
+            {
+              "benchmark": "spreadsheetbench-verified",
+              "domains": [
+                "office"
+              ],
+              "expected": 400,
+              "scored": 400,
+              "score": 75.6467200483592,
+              "mean_model_cost_usd": 0.3276,
+              "mean_runtime_seconds": 338,
+              "cost_sources": {
+                "litellm_estimated": 400
+              },
+              "cost_bases": {
+                "list_price": 400
+              },
+              "cost_observed_attempts": 400,
+              "cost_known_attempts": 400
+            },
+            {
+              "benchmark": "swebench-verified",
+              "domains": [
+                "coding"
+              ],
+              "expected": 500,
+              "scored": 500,
+              "score": 70.25918502815243,
+              "mean_model_cost_usd": 0.4032,
+              "mean_runtime_seconds": 448,
+              "cost_sources": {
+                "litellm_estimated": 500
+              },
+              "cost_bases": {
+                "list_price": 500
+              },
+              "cost_observed_attempts": 500,
+              "cost_known_attempts": 500
+            }
+          ]
+        },
+        {
+          "model": "deepseek-v4.1-flash",
+          "harness": "QwenPaw",
+          "sdk_version": "2.2.0-demo",
+          "source_sha": "demo",
+          "complete": true,
+          "index_score": null,
+          "index_model_cost_usd": null,
+          "index_runtime_seconds": null,
+          "observed_model_spend_usd": null,
+          "attempts_with_known_cost": 1065,
+          "observed_attempts": 1065,
+          "cost_status": "mock",
+          "domains": {},
+          "benchmarks": [
+            {
+              "benchmark": "gaia",
+              "domains": [
+                "research"
+              ],
+              "expected": 165,
+              "scored": 165,
+              "score": 72.6467200483592,
+              "mean_model_cost_usd": 0.189,
+              "mean_runtime_seconds": 275,
+              "cost_sources": {
+                "litellm_estimated": 165
+              },
+              "cost_bases": {
+                "list_price": 165
+              },
+              "cost_observed_attempts": 165,
+              "cost_known_attempts": 165
+            },
+            {
+              "benchmark": "spreadsheetbench-verified",
+              "domains": [
+                "office"
+              ],
+              "expected": 400,
+              "scored": 400,
+              "score": 67.25918502815243,
+              "mean_model_cost_usd": 0.2457,
+              "mean_runtime_seconds": 385,
+              "cost_sources": {
+                "litellm_estimated": 400
+              },
+              "cost_bases": {
+                "list_price": 400
+              },
+              "cost_observed_attempts": 400,
+              "cost_known_attempts": 400
+            },
+            {
+              "benchmark": "swebench-verified",
+              "domains": [
+                "coding"
+              ],
+              "expected": 500,
+              "scored": 500,
+              "score": 66.04645435202117,
+              "mean_model_cost_usd": 0.3024,
+              "mean_runtime_seconds": 495,
+              "cost_sources": {
+                "litellm_estimated": 500
+              },
+              "cost_bases": {
+                "list_price": 500
+              },
+              "cost_observed_attempts": 500,
+              "cost_known_attempts": 500
+            }
+          ]
+        },
+        {
+          "model": "glm-5.3",
+          "harness": "QwenPaw",
+          "sdk_version": "2.2.0-demo",
+          "source_sha": "demo",
+          "complete": true,
+          "index_score": null,
+          "index_model_cost_usd": null,
+          "index_runtime_seconds": null,
+          "observed_model_spend_usd": null,
+          "attempts_with_known_cost": 1065,
+          "observed_attempts": 1065,
+          "cost_status": "mock",
+          "domains": {},
+          "benchmarks": [
+            {
+              "benchmark": "gaia",
+              "domains": [
+                "research"
+              ],
+              "expected": 165,
+              "scored": 165,
+              "score": 64.25918502815243,
+              "mean_model_cost_usd": 0.1512,
+              "mean_runtime_seconds": 322,
+              "cost_sources": {
+                "litellm_estimated": 165
+              },
+              "cost_bases": {
+                "list_price": 165
+              },
+              "cost_observed_attempts": 165,
+              "cost_known_attempts": 165
+            },
+            {
+              "benchmark": "spreadsheetbench-verified",
+              "domains": [
+                "office"
+              ],
+              "expected": 400,
+              "scored": 400,
+              "score": 63.046454352021165,
+              "mean_model_cost_usd": 0.1966,
+              "mean_runtime_seconds": 432,
+              "cost_sources": {
+                "litellm_estimated": 400
+              },
+              "cost_bases": {
+                "list_price": 400
+              },
+              "cost_observed_attempts": 400,
+              "cost_known_attempts": 400
+            },
+            {
+              "benchmark": "swebench-verified",
+              "domains": [
+                "coding"
+              ],
+              "expected": 500,
+              "scored": 500,
+              "score": 67.12350701080643,
+              "mean_model_cost_usd": 0.2419,
+              "mean_runtime_seconds": 542,
+              "cost_sources": {
+                "litellm_estimated": 500
+              },
+              "cost_bases": {
+                "list_price": 500
+              },
+              "cost_observed_attempts": 500,
+              "cost_known_attempts": 500
+            }
+          ]
+        },
+        {
+          "model": "glm-5.2",
+          "harness": "QwenPaw",
+          "sdk_version": "2.2.0-demo",
+          "source_sha": "demo",
+          "complete": true,
+          "index_score": null,
+          "index_model_cost_usd": null,
+          "index_runtime_seconds": null,
+          "observed_model_spend_usd": null,
+          "attempts_with_known_cost": 1065,
+          "observed_attempts": 1065,
+          "cost_status": "mock",
+          "domains": {},
+          "benchmarks": [
+            {
+              "benchmark": "gaia",
+              "domains": [
+                "research"
+              ],
+              "expected": 165,
+              "scored": 165,
+              "score": 60.046454352021165,
+              "mean_model_cost_usd": 0.126,
+              "mean_runtime_seconds": 369,
+              "cost_sources": {
+                "litellm_estimated": 165
+              },
+              "cost_bases": {
+                "list_price": 165
+              },
+              "cost_observed_attempts": 165,
+              "cost_known_attempts": 165
+            },
+            {
+              "benchmark": "spreadsheetbench-verified",
+              "domains": [
+                "office"
+              ],
+              "expected": 400,
+              "scored": 400,
+              "score": 64.12350701080643,
+              "mean_model_cost_usd": 0.1638,
+              "mean_runtime_seconds": 479,
+              "cost_sources": {
+                "litellm_estimated": 400
+              },
+              "cost_bases": {
+                "list_price": 400
+              },
+              "cost_observed_attempts": 400,
+              "cost_known_attempts": 400
+            },
+            {
+              "benchmark": "swebench-verified",
+              "domains": [
+                "coding"
+              ],
+              "expected": 500,
+              "scored": 500,
+              "score": 69.74191959231273,
+              "mean_model_cost_usd": 0.2016,
+              "mean_runtime_seconds": 589,
+              "cost_sources": {
+                "litellm_estimated": 500
+              },
+              "cost_bases": {
+                "list_price": 500
+              },
+              "cost_observed_attempts": 500,
+              "cost_known_attempts": 500
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

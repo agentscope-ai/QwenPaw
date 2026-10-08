@@ -1,11 +1,6 @@
 import { useTranslation } from "react-i18next";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import {
-  Link,
-  useNavigate,
-  useParams,
-  useSearchParams,
-} from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import {
   ArrowDown,
   ArrowUp,
@@ -16,8 +11,8 @@ import {
   Search,
   CircleHelp,
 } from "lucide-react";
-import Chart, { bestRows, frontier } from "./Chart";
-import { demoHistory } from "./demo";
+import Chart from "./ChartPanel";
+import { bestRows, frontier } from "./metrics";
 import {
   benchmarks,
   domains,
@@ -30,10 +25,6 @@ import {
 } from "./types";
 import "./style.css";
 
-const visibility =
-  import.meta.env.VITE_EVALUATION_VISIBILITY === "private"
-    ? "private"
-    : "public";
 function download(data: unknown) {
   const url = URL.createObjectURL(
     new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }),
@@ -44,7 +35,7 @@ function download(data: unknown) {
   anchor.click();
   URL.revokeObjectURL(url);
 }
-export default function Evaluation() {
+export default function Evaluation({ demo = false }: { demo?: boolean }) {
   const { t, i18n } = useTranslation("evaluation");
   const money = (value: number | null) =>
     formatMoney(value, i18n.language, t("unknown"));
@@ -58,15 +49,11 @@ export default function Evaluation() {
       dateStyle: "medium",
       timeZone: "UTC",
     }).format(new Date(value));
-  const [params, setParams] = useSearchParams();
   const { id } = useParams();
   const navigate = useNavigate();
-  const demo = params.get("demo") === "1";
-  const privateView =
-    visibility === "private" || (demo && params.get("scope") === "private");
   const [data, setData] = useState<History>({
     schema_version: 1,
-    visibility,
+    visibility: "public",
     runs: [],
   });
   const [error, setError] = useState("");
@@ -84,9 +71,19 @@ export default function Evaluation() {
   }>({ key: "score", asc: false });
   useEffect(() => {
     const controller = new AbortController();
-    fetch(`${import.meta.env.BASE_URL}evaluation/data/index.json`, {
-      signal: controller.signal,
-    })
+    let timedOut = false;
+    const timer = window.setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, 10000);
+    fetch(
+      `${import.meta.env.BASE_URL}evaluation/${
+        demo ? "demo" : "data"
+      }/index.json`,
+      {
+        signal: controller.signal,
+      },
+    )
       .then((response) => {
         if (!response.ok) throw new Error("unavailable");
         return response.json();
@@ -94,27 +91,38 @@ export default function Evaluation() {
       .then((history: History) => {
         if (
           history.schema_version !== 1 ||
-          history.visibility !== visibility ||
+          !["public", "private"].includes(history.visibility) ||
           !Array.isArray(history.runs) ||
           history.runs.some(
             (run) =>
-              run.visibility !== visibility || !Array.isArray(run.records),
+              run.visibility !== history.visibility ||
+              !Array.isArray(run.records),
           )
         )
           throw new Error("invalidData");
         setData(history);
       })
       .catch((e: Error) => {
-        if (e.name !== "AbortError")
+        if (timedOut || e.name !== "AbortError")
           setError(e.message === "invalidData" ? "invalidData" : "unavailable");
       })
-      .finally(() => setLoading(false));
-    return () => controller.abort();
-  }, []);
-  const history = useMemo(
-    () => (demo ? demoHistory(privateView) : data),
-    [demo, privateView, data],
-  );
+      .finally(() => {
+        window.clearTimeout(timer);
+        setLoading(false);
+      });
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
+  }, [demo]);
+  const history = data;
+  const compareHarnesses =
+    history.visibility === "private" ||
+    new Set(
+      history.runs.flatMap((run) =>
+        run.records.map((record) => record.harness),
+      ),
+    ).size > 1;
   const versions = [...new Set(history.runs.map((run) => run.index_version))];
   const activeProtocol = versions.includes(protocol) ? protocol : versions[0];
   const rows = useMemo(
@@ -129,7 +137,10 @@ export default function Evaluation() {
       ),
     [history, activeProtocol, metric, search],
   );
-  const best = useMemo(() => bestRows(rows, privateView), [rows, privateView]);
+  const best = useMemo(
+    () => bestRows(rows, compareHarnesses),
+    [rows, compareHarnesses],
+  );
   const pareto = useMemo(
     () =>
       new Set(
@@ -151,11 +162,9 @@ export default function Evaluation() {
   const navigateRow = useCallback(
     (row: Row) =>
       navigate(
-        `/evaluation/runs/${row.run.manifest_sha256}${
-          demo ? `?demo=1${privateView ? "&scope=private" : ""}` : ""
-        }`,
+        `/evaluation${demo ? "/demo" : ""}/runs/${row.run.manifest_sha256}`,
       ),
-    [navigate, demo, privateView],
+    [navigate, demo],
   );
   const detail = id
     ? history.runs.find((run) => run.manifest_sha256 === id)
@@ -166,15 +175,6 @@ export default function Evaluation() {
       : metric.startsWith("domain:")
       ? t(`domains.${metric.slice(7)}`)
       : benchmarks[metric.slice(10)];
-  const changeDemo = (enabled: boolean) => {
-    const next = new URLSearchParams(params);
-    if (enabled) next.set("demo", "1");
-    else {
-      next.delete("demo");
-      next.delete("scope");
-    }
-    setParams(next);
-  };
   const sortButton = (key: typeof sort.key, label: string) => (
     <button
       onClick={() =>
@@ -196,18 +196,15 @@ export default function Evaluation() {
           />
           <div>
             <h1>{t("headline")}</h1>
-            <p>{t("subtitle")}</p>
           </div>
         </div>
-        <span className="evaluation-scope">
-          {privateView ? t("private") : t("public")}
-        </span>
+        {demo && <span className="evaluation-scope">{t("mockShort")}</span>}
       </header>
       {id ? (
         <section className="evaluation-detail">
-          <Link to={`/evaluation${demo ? "?demo=1" : ""}`}>{t("back")}</Link>
+          <Link to={`/evaluation${demo ? "/demo" : ""}`}>{t("back")}</Link>
           <h1>{t("runTitle")}</h1>
-          {loading && !demo ? (
+          {loading ? (
             <p>{t("loading")}</p>
           ) : !detail ? (
             <p>{t("notFound")}</p>
@@ -305,38 +302,13 @@ export default function Evaluation() {
                   />
                   {t("historyPoints")}
                 </label>
-                <label>
-                  <input
-                    type="checkbox"
-                    checked={demo}
-                    onChange={(e) => changeDemo(e.target.checked)}
-                  />
-                  {t("demo")}
-                </label>
-                {demo && (
-                  <span className="evaluation-select evaluation-scope-select">
-                    <select
-                      aria-label={t("demoScope")}
-                      value={privateView ? "private" : "public"}
-                      onChange={(e) => {
-                        const next = new URLSearchParams(params);
-                        next.set("scope", e.target.value);
-                        setParams(next);
-                      }}
-                    >
-                      <option value="public">{t("publicDemo")}</option>
-                      <option value="private">{t("privateDemo")}</option>
-                    </select>
-                    <ChevronDown size={16} aria-hidden="true" />
-                  </span>
-                )}
               </div>
             </div>
             <div className="evaluation-chart">
               <Chart
                 rows={visible}
                 title={title}
-                privateView={privateView}
+                privateView={compareHarnesses}
                 history={showHistory}
                 demo={demo}
                 onSelect={navigateRow}
@@ -355,21 +327,14 @@ export default function Evaluation() {
                 <i className="line" />
                 {t("pareto")}
               </span>
-              <span className="evaluation-right">
-                {demo ? t("mock") : t("costNote")}
-              </span>
             </div>
           </section>
-          <p className="evaluation-note">
-            {t("chartNote")}
-            {privateView && t("privateNote")}
-          </p>
-          {error && !demo && (
+          {error && (
             <p role="alert" className="evaluation-notice">
               {t(error)}
             </p>
           )}
-          {!demo && !data.runs.length && (
+          {!data.runs.length && (
             <p className="evaluation-notice">
               {loading ? t("loading") : t("empty")}
             </p>
@@ -427,7 +392,7 @@ export default function Evaluation() {
                   <thead>
                     <tr>
                       <th>{t("model")}</th>
-                      {privateView && <th>Harness</th>}
+                      {compareHarnesses && <th>Harness</th>}
                       <th>{t("sdk")}</th>
                       <th
                         className="evaluation-numeric"
@@ -515,7 +480,7 @@ export default function Evaluation() {
                             </div>
                           </div>
                         </td>
-                        {privateView && (
+                        {compareHarnesses && (
                           <td>
                             <div className="evaluation-model">
                               <img
@@ -635,7 +600,6 @@ export default function Evaluation() {
               </div>
             )}
           </section>
-          <p className="evaluation-note">{t("weightNote")}</p>
         </>
       )}
     </main>
