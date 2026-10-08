@@ -31,10 +31,17 @@ HTML 中的成绩、历史版本、费用与私榜组合都是 mock，不是实�
 - [ ] 三个 benchmark 的真实容器与模型 API 验收；GAIA 单题链路已完成（原生 reward 0），另两项未启动。
 - [ ] 固定跨 release 数据/镜像/传递依赖，离线完成模型协议与 parity 验收。
 - [ ] 实现基础设施失败自动恢复，完成工具/judge/基础设施费用对账。
-- [ ] 按[费用口径](qwenpaw-evaluation-cost.md)补齐官方价格快照、token 估算、缓存区间和全尝试费用统计；已完成参考源码核查。
+- [ ] 按[费用口径](qwenpaw-evaluation-cost.md)补齐官方价格快照、token 估算、保守估算标记和全尝试费用统计；计算与 ACP 修复已通过单测及开发源码试跑，网站展示待接入。
 - [ ] 私有其他 harness 的实际运行接入。
 - [ ] 网站 SDK 历史页、结果持久化与自动部署。
 
 当前实现配置、调度和汇总基础链路，已执行真实模型调用与容器试跑；未发布网站。详见 [.github/bench/README.md](../../.github/bench/README.md)。HTML 成绩仍为 mock。
 
 试跑证据：[个人 origin 验收记录](qwenpaw-evaluation-smoke-report.md)。
+
+## 当前开发包验收
+
+- [x] ACP 透传缓存读写、可计费输入 token 与完整性。
+- [x] runner 按本次 workflow 的 repository/SHA 动态构建，版本从检出源码读取。
+- [x] 32 项评测单测、75 项 ACP/token 单测和相关 pre-commit 检查通过。
+- [x] 个人 origin run 37740027507 验收开发包的缓存 usage 与估算费用，合成任务和 GAIA 单题均成功。

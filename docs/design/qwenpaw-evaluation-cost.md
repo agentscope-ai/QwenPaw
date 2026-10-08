@@ -6,8 +6,8 @@ TL;DR：优先使用服务端报告的 cost，缺失时调用 LiteLLM `completio
 
 1. `reported cost → LiteLLM completion_cost → official price snapshot × token usage → unknown`，分别记录 `reported`、`litellm_estimated`、`snapshot_estimated`、`unknown` 来源。每次调用只选一个费用结果，不重复相加。
 2. 使用 provider 对应的真实 usage；缓存与 reasoning 由 LiteLLM 支持的字段传入。不得将 context occupancy 当累计计费 token。
-3. 百炼模型使用百炼地域和服务模式对应的官方价格。缺失价格通过 LiteLLM 模型价格注册机制补充；缓存价格不能仅靠输入/输出两个自定义单价表达。
-4. `scripts/bench/` 负责 usage 提取、费用来源选择、价格注册、快照公式兜底和汇总。快照兜底独立于 LiteLLM：即使 LiteLLM 不识别模型或计算失败，只要官方费率和必要 usage 齐全，仍须计算估算费用。
+3. 百炼模型使用百炼地域和服务模式对应的官方价格。将冻结快照中的输入、输出、缓存读单价一起传入固定版 LiteLLM 的 custom_cost_per_token；不使用可能对应其他供应商的同名模型价格。
+4. `scripts/bench/` 负责 usage 提取、费用来源选择、价格配置、快照公式兜底和汇总。快照兜底独立于 LiteLLM：即使 LiteLLM 不识别模型或计算失败，只要官方费率和必要 usage 齐全，仍须计算估算费用。
 5. 只有完整且适用的 usage/费率才能生成可比较估算。缓存信息缺失可标记保守估算；无法确定计费条件时保留 unknown。区间展示不是首期必需项。
 6. LiteLLM 仅进入隔离的评测环境，固定版本；不改变 QwenPaw 产品依赖或 API 调用路径。
 
@@ -48,7 +48,7 @@ C_low  = (I × min(P_input, P_cache) + O × P_output) / 1,000,000
 C_high = (I × max(P_input, P_cache) + O × P_output) / 1,000,000
 ```
 
-上述区间用于解释不确定性，不要求首期实现区间引擎。若采用无缓存价计算，必须标为“保守估算”，不能标成精确费用。峰谷条件无法确定时保留 unknown。只有 total_tokens 而没有输入/输出拆分时不输出精确估算。完全没有 usage 时保留 unknown。
+上述区间用于解释不确定性，不要求首期实现区间引擎。若采用无缓存价计算，必须标为“保守估算”，不能标成精确费用。DeepSeek 缺少逐请求峰谷条件时，使用快照中的忙时费率，明确标记为 upper_bound；不声称是实际账单金额。只有 total_tokens 而没有输入/输出拆分时不输出精确估算。完全没有 usage 时保留 unknown。
 
 ## 价格快照与展示
 
@@ -65,10 +65,11 @@ C_high = (I × max(P_input, P_cache) + O × P_output) / 1,000,000
 - [x] 核查 SDK 计算、评测汇总和单题代理统计源码。
 - [x] 确定公式、缓存缺失、重试与原币种处理口径。
 - [x] 按用户意见采用 LiteLLM 计费路径，并在其失败后增加官方价格快照 × token usage 独立兜底。
-- [ ] 固定 LiteLLM 版本并接入 completion_cost 和官方价格注册。
-- [ ] 实现快照公式兜底，验证 LiteLLM 失败但费率和 usage 齐全时仍产出估算费用。
-- [ ] 冻结六模型官方价格及必要的峰谷/汇率规则。
-- [ ] 从 ACP 中提取真正的 token usage；context occupancy 不用于账单计算。
-- [ ] 对输入、缓存、输出、reasoning、未知值和重复记录做单测。
-- [ ] 在个人 origin 试跑并验证仅导出数值统计，不导出 key 或原始请求。
-- [ ] 接入 receipt、聚合结果和网站 hover/table，保留 estimated/reported 区别。
+- [x] 固定 LiteLLM 1.103.4，接入 completion_cost 与包含缓存价的官方费率配置。
+- [x] 实现 Decimal 快照公式兜底，单测验证 LiteLLM 异常、无效结果和计费不一致时仍产出估算费用。
+- [x] 冻结六模型北京区价格；DeepSeek 峰值上界标注；固定 2026-09-30 汇率 6.7351 CNY/USD。
+- [x] 补齐 QwenPaw ACP 的缓存字段及完整性标记；评测读取已消费的 usage chunk，忽略 context occupancy。
+- [x] 完成输入、缓存、输出、reasoning 不重复计费、未知值、来源优先级和累计完整性单测。
+- [x] 个人 origin run 37740027507 成功：动态源码构建的合成任务及原生 GAIA 均收到缓存 usage 和估算费用；仅上传结构化 receipt，凭据模式扫描通过。
+- [x] 接入 receipt 与聚合结果，保留 estimated/reported、price hash、费用来源与完整性。
+- [ ] 网站 hover/table 展示费用来源、估算口径及价格快照。

@@ -34,3 +34,23 @@ Harbor 的 `agent.model_name` 会触发 ACP session model selection；当前组�
 本地 18 项单测通过，相关文件的完整 pre-commit 检查通过，包括 mypy、black、flake8、pylint、私钥检测和 actionlint。网站未部署，正式 release 全量评测未开启。
 
 仍需完成三项 benchmark 全量资源验收、跨轮 dataset/镜像/依赖固定、费用采集、离线 parity、私有 harness 实际接入以及网站历史数据与自动部署。此记录不宣称 QwenPaw 相对其他 harness 的优越性，也不是正式综合榜成绩。
+
+
+## 开发源码与费用链路验收（2026-10-08）
+
+[GitHub Actions run 37740027507](https://github.com/rayrayraykk/CoPaw/actions/runs/37740027507) 成功。代码提交 `464e16c3e122d497366276771585a63b099ce251`。
+
+runner 不再安装发布包：每次使用 workflow 的 repository/SHA 从源码归档动态构建，uvx 禁用缓存；版本标签从检出的源码读取。没有固定 runner 分支。manifest 保存源码来源、官方价格和汇率，receipt 保存 source_sha 与价格 hash。
+
+| 任务 | 原生 reward | 输入 token | 输出 token | 缓存命中 token | 官方价估算 CNY | 换算 USD |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 合成 ACP 验收 | 1 | 33,903 | 830 | 19,968 | 0.0637458 | 0.0094647147 |
+| 固定 GAIA 单题 | 1 | 200,815 | 2,809 | 171,776 | 0.2238906 | 0.0332423572 |
+
+模型为 `qwen3.8-27b`。usage_source 为 `qwenpaw_acp_meta`，cost_source 为 `litellm_estimated`，cost_basis 为 `list_price`。价格 hash 为 `db3ec0f6dfbfdef93342c19669af6c4ef0fe68ec26ad168c231d48021f3ef8a8`。CNY 按 2026-09-30 的 6.7351 CNY/USD 冻结汇率换算；这些是 list-price 估算，不是账单实付。
+
+本次 GAIA 只是同一固定任务的开发验收，不替换前次 reward 0 的记录，也不能据此声称整套 benchmark 性能提升。未修改题目或 grader。
+
+新增 ACP 缓存字段已通过真实容器链路；部分调用缓存缺失时不冒充完整计数。独立快照兜底已通过 LiteLLM 异常/无效结果测试；真实试跑正常走 LiteLLM 路径，没有故意制造 API 失败。
+
+本地 32 项评测单测、75 项 ACP/token 单测及相关 pre-commit 检查通过。两个公开 receipt 的凭据模式扫描通过，未上传原始请求、完整轨迹或模型运行环境。
