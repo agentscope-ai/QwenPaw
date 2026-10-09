@@ -156,6 +156,62 @@ class TestDefaultPolicyLoad:
             assert len(policy.builtin_rules) == len(DEFAULT_BUILTIN_RULES)
             assert len(policy.user_rules) == len(DEFAULT_USER_RULES)
 
+
+class TestLoadChangedTracking:
+    """``return_changed`` must be exact: reloading a just-saved policy
+    reports no change, so ``ResourceGovernor.start`` can skip the write.
+
+    A false negative would make the governor rewrite policy.yaml on every
+    start (the cost this PR removes); a false positive would skip a needed
+    normalization write and leave the file on the legacy format forever.
+    """
+
+    def test_missing_policy_reports_changed(self, tmp_path):
+        policy, changed = load_governance_policy(
+            str(tmp_path / "nonexistent"), "/tmp/ws", return_changed=True
+        )
+        assert changed is True
+        assert len(policy.builtin_rules) == len(DEFAULT_BUILTIN_RULES)
+
+    def test_reload_of_saved_policy_reports_no_change(self, tmp_path):
+        ws = str(tmp_path / "ws")
+        policy_dir = tmp_path / "policy"
+        policy_dir.mkdir()
+
+        first, changed_first = load_governance_policy(
+            str(policy_dir), ws, return_changed=True
+        )
+        assert changed_first is True  # defaults were filled in
+
+        save_governance_policy(first, str(policy_dir), ws)
+
+        second, changed_second = load_governance_policy(
+            str(policy_dir), ws, return_changed=True
+        )
+        assert changed_second is False
+        assert [r.match for r in second.user_rules] == [
+            r.match for r in first.user_rules
+        ]
+
+    def test_v1_policy_reports_changed_until_normalized(self, tmp_path):
+        ws = str(tmp_path / "ws")
+        policy_dir = tmp_path / "policy"
+        policy_dir.mkdir()
+        (policy_dir / "policy.yaml").write_text(
+            'version: "1.0"\naudit_level: all\n', encoding="utf-8"
+        )
+
+        first, changed_first = load_governance_policy(
+            str(policy_dir), ws, return_changed=True
+        )
+        assert changed_first is True  # legacy version is flagged
+
+        save_governance_policy(first, str(policy_dir), ws)
+        _, changed_second = load_governance_policy(
+            str(policy_dir), ws, return_changed=True
+        )
+        assert changed_second is False
+
     def test_workspace_dir_placeholder_resolved(self):
         policy = _create_default_policy(workspace_dir="/home/user/project")
         # All WORKSPACE_DIR placeholders should be replaced

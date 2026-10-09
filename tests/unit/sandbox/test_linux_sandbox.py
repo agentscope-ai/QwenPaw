@@ -417,7 +417,9 @@ class TestGovernanceSandboxUnavailable:
             ),
         ):
             mock_policy = MagicMock()
-            mock_load.return_value = mock_policy
+            # load_governance_policy(return_changed=True) yields a
+            # (policy, changed) tuple; an unchanged load skips the save.
+            mock_load.return_value = (mock_policy, False)
             governor.start()
 
         assert governor.sandbox_available is False
