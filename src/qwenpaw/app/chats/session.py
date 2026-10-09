@@ -669,18 +669,17 @@ class DatabaseSession:
             channel=channel,
         )
         if snapshot is None:
-            imported = await self._import_legacy(
+            await self._import_legacy(
                 session_id=session_id,
                 user_id=user_id,
                 channel=channel,
             )
-            if imported:
-                snapshot = await run_sync_io(
-                    self._catalog.read_runtime_state,
-                    session_id=session_id,
-                    user_id=user_id,
-                    channel=channel,
-                )
+            snapshot = await run_sync_io(
+                self._catalog.read_runtime_state,
+                session_id=session_id,
+                user_id=user_id,
+                channel=channel,
+            )
         if snapshot is None:
             if allow_not_exist:
                 return {}

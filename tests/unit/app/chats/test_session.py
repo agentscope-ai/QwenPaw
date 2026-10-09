@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import threading
 from pathlib import Path
 
 import pytest
@@ -309,6 +310,64 @@ async def test_database_session_imports_legacy_before_partial_update(
     assert json.loads(legacy_path.read_text(encoding="utf-8")) == {
         "existing_setting": "must survive",
     }
+    catalog.close()
+
+
+@pytest.mark.asyncio
+async def test_concurrent_legacy_imports_return_the_same_state(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    legacy_dir = tmp_path / "sessions"
+    legacy_dir.mkdir()
+    legacy_path = legacy_dir / session_filename("session-1", "u")
+    legacy_path.write_text(
+        json.dumps({"agent": {"marker": "persisted-context"}}),
+        encoding="utf-8",
+    )
+    catalog = TranscriptCatalog(tmp_path)
+    session = DatabaseSession(
+        catalog=catalog,
+        legacy_save_dir=str(legacy_dir),
+    )
+    original_read = catalog.read_runtime_state
+    first_reads = 0
+    first_reads_lock = threading.Lock()
+    first_reads_ready = threading.Barrier(2)
+
+    def synchronized_read(
+        *,
+        session_id: str,
+        user_id: str,
+        channel: str,
+    ):
+        nonlocal first_reads
+        snapshot = original_read(
+            session_id=session_id,
+            user_id=user_id,
+            channel=channel,
+        )
+        should_wait = False
+        if snapshot is None:
+            with first_reads_lock:
+                if first_reads < 2:
+                    first_reads += 1
+                    should_wait = True
+        if should_wait:
+            first_reads_ready.wait(timeout=5)
+        return snapshot
+
+    monkeypatch.setattr(catalog, "read_runtime_state", synchronized_read)
+    results = await asyncio.gather(
+        session.get_session_state_dict("session-1", "u", "console"),
+        session.get_session_state_dict("session-1", "u", "console"),
+    )
+
+    expected = {
+        "agent": {"marker": "persisted-context"},
+        "_context_generation": 0,
+    }
+    assert results == [expected, expected]
     catalog.close()
 
 
