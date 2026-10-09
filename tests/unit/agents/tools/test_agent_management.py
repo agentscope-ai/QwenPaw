@@ -447,6 +447,73 @@ async def test_chat_with_agent_reports_target_stop_failure(monkeypatch):
         )
 
 
+async def test_chat_with_agent_returns_timeout_message_when_deadline_expires(
+    monkeypatch,
+):
+    from qwenpaw.tool_calls import (
+        CancelReason,
+        reset_call_context,
+        set_call_context,
+    )
+    from qwenpaw.tool_calls._context import ToolCallContext
+
+    stop_calls = []
+
+    async def fake_collect_async(*_args, **_kwargs):
+        await asyncio.Future()
+
+    async def fake_stop_async(*args, **kwargs):
+        stop_calls.append((args, kwargs))
+        return True
+
+    monkeypatch.setattr(
+        agent_management,
+        "collect_final_agent_chat_response_async",
+        fake_collect_async,
+    )
+    monkeypatch.setattr(
+        agent_management,
+        "stop_agent_chat_async",
+        fake_stop_async,
+    )
+    monkeypatch.setattr(
+        agent_management,
+        "resolve_calling_agent_id",
+        lambda _from_agent=None: "bot_a",
+    )
+    monkeypatch.setattr(
+        agent_management,
+        "agent_exists",
+        lambda _to_agent, _base_url=None: True,
+    )
+
+    now = asyncio.get_running_loop().time()
+    ctx = ToolCallContext(
+        tool_call_id="tc-chat-timeout",
+        tool_name="chat_with_agent",
+        session_id="session-1",
+        agent_id="bot_a",
+        root_session_id="root-1",
+        started_at=now,
+        offload_deadline=None,
+        cancel_event=asyncio.Event(),
+    )
+    ctx.cancel_reason = CancelReason.TIMEOUT
+    ctx.cancel_event.set()
+    token = set_call_context(ctx)
+    try:
+        response = await agent_management.chat_with_agent(
+            to_agent="bot_b",
+            text="Need help",
+            session_id="session-1",
+        )
+    finally:
+        reset_call_context(token)
+
+    assert "timed out" in response.content[0].text.lower()
+    assert stop_calls == [((None, "session-1", "bot_b"), {})]
+
+
 async def test_chat_with_agent_arms_kill_deadline_from_timeout(monkeypatch):
     """Caller timeout must register kill_deadline (may exceed hook offload)."""
     from qwenpaw.tool_calls import reset_call_context, set_call_context

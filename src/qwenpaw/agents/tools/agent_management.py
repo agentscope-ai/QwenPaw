@@ -1045,7 +1045,7 @@ async def _collect_foreground_agent_chat(
     tool_name: str,
 ) -> Dict[str, Any]:
     """Collect a foreground agent chat with a shared cancel contract."""
-    from ...tool_calls import cancellable_wait
+    from ...tool_calls import CancelReason, cancellable_wait, get_call_context
 
     try:
         return await cancellable_wait(
@@ -1064,6 +1064,25 @@ async def _collect_foreground_agent_chat(
             to_agent,
             tool_name=tool_name,
         )
+        ctx = get_call_context()
+        if ctx is not None and ctx.cancel_reason == CancelReason.TIMEOUT:
+            return {
+                "output": [
+                    {
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": (
+                                    f"The {tool_name} call timed out "
+                                    "before the agent returned a response. "
+                                    "Tell the user it timed out; do not "
+                                    "claim completion."
+                                ),
+                            },
+                        ],
+                    },
+                ],
+            }
         raise
 
 
