@@ -86,6 +86,28 @@ describe("Chat attachment preview styles", () => {
   });
 });
 
+describe("Chat composer responsive layout styles", () => {
+  it("wraps controls only when their content no longer fits", () => {
+    const rootStart = stylesSource.indexOf(".chatPageRoot {");
+    const rootRule = stylesSource.slice(
+      rootStart,
+      stylesSource.indexOf(".filesPreviewOpen,", rootStart),
+    );
+
+    expect(rootStart).toBeGreaterThanOrEqual(0);
+    expect(rootRule).toMatch(
+      /\[class\$="-sender-content-bottom"\][\s\S]*?flex-wrap:\s*wrap/,
+    );
+    expect(rootRule).toMatch(
+      /\[class\$="-sender-prefix"\][\s\S]*?flex:\s*1 1 max-content/,
+    );
+    expect(rootRule).toMatch(
+      /\[class\$="-sender-actions-list"\][\s\S]*?flex:\s*0 0 auto/,
+    );
+    expect(stylesSource).not.toContain("flex: 1 1 100%");
+  });
+});
+
 describe("Chat mobile layout styles", () => {
   it("keeps a fluid wide-mode gutter across desktop and mobile widths", () => {
     const wideModeStart = stylesSource.indexOf(

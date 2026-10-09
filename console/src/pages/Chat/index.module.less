@@ -25,7 +25,7 @@
 
     [class$="-sender-content-bottom"] {
       align-items: center;
-      flex-wrap: nowrap;
+      flex-wrap: wrap;
       row-gap: 8px;
       column-gap: 6px;
       font-size: var(--app-font-caption);
@@ -74,7 +74,7 @@
       column-gap: 6px;
       min-width: 0;
       max-width: 100%;
-      flex: 0 1 auto;
+      flex: 0 0 auto;
       flex-wrap: nowrap;
       row-gap: 8px;
     }
@@ -82,7 +82,7 @@
     // Use the prefix's content width when deciding whether actions fit.
     [class$="-sender-prefix"] {
       width: auto;
-      flex: 1 1 auto;
+      flex: 1 1 max-content;
       min-width: 0;
       max-width: 100%;
       overflow: visible;
@@ -132,26 +132,6 @@
     transition:
       width 330ms cubic-bezier(0.22, 0.78, 0.24, 1),
       opacity 220ms ease;
-
-    :global {
-      /* The files panel narrows the chat column. Let the sender bottom row
-         wrap so the model/mode entry stays fully visible on its own line
-         instead of being pushed out of the visible area. */
-      [class$="-sender-content-bottom"] {
-        flex-wrap: wrap;
-        row-gap: 8px;
-      }
-
-      [class$="-sender-prefix"] {
-        flex: 1 1 100%;
-        min-width: 0;
-      }
-
-      [class$="-sender-actions-list"] {
-        min-width: 0;
-        flex-wrap: wrap;
-      }
-    }
   }
 }
 
