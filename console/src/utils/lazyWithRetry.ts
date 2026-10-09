@@ -2,19 +2,13 @@ import { createElement, lazy } from "react";
 import type { ComponentType } from "react";
 import { moduleRegistry } from "../plugins/moduleRegistry";
 import { isChunkLoadError } from "./chunkRecovery";
+import { importFailures } from "./lazyImportFailure";
+
+export { getLazyImportFailure } from "./lazyImportFailure";
 
 const MAX_RETRIES = 3;
 const RETRY_DELAY_MS = 1000;
 const failedImports = new WeakMap<Error, Set<() => void>>();
-const importFailures = new WeakMap<
-  Error,
-  { attempts: number; modulePath?: string }
->();
-
-export function getLazyImportFailure(error: Error) {
-  return importFailures.get(error);
-}
-
 /** Reset only imports caught by the boundary, after React commits the error. */
 export function resetFailedLazyImports(error: Error): void {
   const resets = failedImports.get(error);

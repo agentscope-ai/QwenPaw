@@ -64,6 +64,12 @@
     }
   },
   "chunkError": {
+    "startup": {
+      "title": "Konsol tidak dapat dimulai",
+      "resource": "Sumber daya yang diperlukan untuk memulai aplikasi gagal dimuat.",
+      "runtime": "Terjadi kesalahan saat menginisialisasi aplikasi.",
+      "timeout": "Aplikasi belum selesai dimulai. Muat ulang halaman atau salin informasi kesalahan untuk pemeriksaan."
+    },
     "title": "Gagal memuat halaman",
     "subTitle": "Ini mungkin disebabkan oleh masalah jaringan atau pembaruan aplikasi.",
     "genericTitle": "Terjadi kesalahan",

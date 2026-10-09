@@ -64,6 +64,12 @@
     }
   },
   "chunkError": {
+    "startup": {
+      "title": "Không thể khởi động bảng điều khiển",
+      "resource": "Không thể tải các tài nguyên cần thiết để khởi động ứng dụng.",
+      "runtime": "Đã xảy ra lỗi khi khởi tạo ứng dụng.",
+      "timeout": "Ứng dụng chưa khởi động xong. Hãy tải lại trang hoặc sao chép thông tin lỗi để kiểm tra."
+    },
     "title": "Không thể tải trang",
     "subTitle": "Có thể do lỗi mạng hoặc ứng dụng vừa được cập nhật.",
     "genericTitle": "Đã xảy ra lỗi",

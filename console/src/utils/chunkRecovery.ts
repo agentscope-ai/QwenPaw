@@ -1,12 +1,15 @@
 const RELOAD_KEY = "qwenpaw:chunk-reload-build";
 // Production bundle URLs contain content hashes; HMR URLs identify dev builds.
-export const FRONTEND_BUILD_ID =
-  Array.from(document.scripts).find(
-    (script) =>
-      script.type === "module" &&
-      script.src &&
-      !script.src.endsWith("/@vite/client"),
-  )?.src ?? import.meta.url;
+export function getFrontendBuildId(): string {
+  return (
+    Array.from(document.scripts).find(
+      (script) =>
+        script.type === "module" &&
+        script.src &&
+        !script.src.endsWith("/@vite/client"),
+    )?.src ?? document.baseURI
+  );
+}
 
 /** Match module loading failures without treating API fetch errors as chunks. */
 export function isChunkLoadError(error: unknown): boolean {
@@ -23,9 +26,9 @@ export function isChunkLoadError(error: unknown): boolean {
 export function reloadAfterChunkError(beforeReload?: () => void): boolean {
   if (!window.navigator.onLine) return false;
   try {
-    if (window.sessionStorage.getItem(RELOAD_KEY) === FRONTEND_BUILD_ID)
-      return false;
-    window.sessionStorage.setItem(RELOAD_KEY, FRONTEND_BUILD_ID);
+    const build = getFrontendBuildId();
+    if (window.sessionStorage.getItem(RELOAD_KEY) === build) return false;
+    window.sessionStorage.setItem(RELOAD_KEY, build);
     beforeReload?.();
     window.location.reload();
     return true;

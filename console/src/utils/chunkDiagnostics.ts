@@ -1,5 +1,5 @@
-import { FRONTEND_BUILD_ID } from "./chunkRecovery";
-import { getLazyImportFailure } from "./lazyWithRetry";
+import { getFrontendBuildId } from "./chunkRecovery";
+import { getLazyImportFailure } from "./lazyImportFailure";
 
 const STORAGE_KEY = "qwenpaw:chunk-diagnostic";
 const RECHECK_TIMEOUT_MS = 2000;
@@ -35,6 +35,9 @@ export interface ChunkDiagnostic {
   originalResourceStatus: number | null;
   recheck: ResourceRecheck | null;
   automaticReloadAttempted: boolean;
+  phase?: "startup";
+  startupFailure?: "resource" | "runtime" | "timeout";
+  elapsedMs?: number;
 }
 
 function safeUrl(value: string): string {
@@ -76,8 +79,10 @@ export function failedResourceUrl(error: Error): string | null {
   return null;
 }
 
-export function captureChunkDiagnostic(error: Error): ChunkDiagnostic {
-  const resourceUrl = failedResourceUrl(error);
+export function captureChunkDiagnostic(
+  error: Error,
+  resourceUrl = failedResourceUrl(error),
+): ChunkDiagnostic {
   const timing = resourceUrl
     ? (performance.getEntriesByName(resourceUrl, "resource").slice(-1)[0] as
         | (PerformanceResourceTiming & { responseStatus?: number })
@@ -87,7 +92,7 @@ export function captureChunkDiagnostic(error: Error): ChunkDiagnostic {
   return {
     capturedAt: new Date().toISOString(),
     page: `${window.location.origin}${window.location.pathname}`,
-    frontendBuild: safeUrl(FRONTEND_BUILD_ID),
+    frontendBuild: safeUrl(getFrontendBuildId()),
     browser: navigator.userAgent,
     online: navigator.onLine,
     originalError: {

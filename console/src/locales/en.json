@@ -75,6 +75,12 @@
     }
   },
   "chunkError": {
+    "startup": {
+      "title": "Unable to start the console",
+      "resource": "Resources required to start the application failed to load.",
+      "runtime": "An error occurred while initializing the application.",
+      "timeout": "The application has not finished starting. Reload or copy the error details to investigate."
+    },
     "title": "Failed to load page",
     "subTitle": "This may be caused by a network issue or an application update.",
     "genericTitle": "Something went wrong",

@@ -64,6 +64,12 @@
     }
   },
   "chunkError": {
+    "startup": {
+      "title": "Não foi possível iniciar o console",
+      "resource": "Falha ao carregar os recursos necessários para iniciar o aplicativo.",
+      "runtime": "Ocorreu um erro durante a inicialização do aplicativo.",
+      "timeout": "O aplicativo ainda não concluiu a inicialização. Recarregue a página ou copie os detalhes do erro para investigar."
+    },
     "title": "Falha ao carregar a página",
     "subTitle": "Isso pode ser causado por um problema de rede ou por uma atualização do aplicativo.",
     "genericTitle": "Algo deu errado",
