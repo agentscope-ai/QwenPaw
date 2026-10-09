@@ -390,6 +390,7 @@
   },
   "settingsCenter": {
     "backToApp": "Back to app",
+    "openNavigation": "Open settings menu",
     "searchPlaceholder": "Search settings",
     "noResults": "No matching settings",
     "groups": {

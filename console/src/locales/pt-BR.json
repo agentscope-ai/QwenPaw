@@ -3381,6 +3381,7 @@
   },
   "settingsCenter": {
     "backToApp": "Voltar ao aplicativo",
+    "openNavigation": "Abrir menu de configurações",
     "searchPlaceholder": "Pesquisar configurações",
     "noResults": "Nenhuma configuração correspondente",
     "groups": {

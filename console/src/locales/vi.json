@@ -324,6 +324,7 @@
   },
   "settingsCenter": {
     "backToApp": "Quay lại ứng dụng",
+    "openNavigation": "Mở menu cài đặt",
     "searchPlaceholder": "Tìm kiếm cài đặt",
     "noResults": "Không có cài đặt phù hợp",
     "groups": {

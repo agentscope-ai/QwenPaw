@@ -6,7 +6,7 @@ import {
   type ComponentType,
   type ReactNode,
 } from "react";
-import { Button, Input, Select, Spin } from "antd";
+import { Button, Input, Spin } from "antd";
 import { LayoutGroup, motion, useReducedMotion } from "motion/react";
 import {
   Archive,
@@ -20,6 +20,7 @@ import {
   Gauge,
   Globe,
   HeartPulse,
+  Menu,
   Mic,
   Plug,
   Radio,
@@ -36,6 +37,8 @@ import { useTranslation } from "react-i18next";
 
 import { ChunkErrorBoundary } from "@/components/ChunkErrorBoundary";
 import { useTheme } from "@/contexts/ThemeContext";
+import { useIsMobile } from "@/hooks/useIsMobile";
+import { OsDrawer } from "@/os/OsOverlay";
 import { useMenuItems, useRoutes } from "@/plugins/registry/hooks";
 import { usePlugins } from "@/plugins/PluginContext";
 import {
@@ -312,6 +315,8 @@ export default function SettingsCenter() {
     ),
   );
   const [query, setQuery] = useState("");
+  const isMobile = useIsMobile();
+  const [navigationOpen, setNavigationOpen] = useState(false);
 
   const componentByRouteId = useMemo(() => {
     const result = new Map<string, ComponentType>();
@@ -450,6 +455,8 @@ export default function SettingsCenter() {
   }
 
   const openPage = (page: SettingsPageDefinition) => {
+    // Selecting a section must always dismiss the mobile navigation drawer.
+    setNavigationOpen(false);
     if (page.href) {
       window.open(page.href, "_blank", "noopener,noreferrer");
       return;
@@ -462,6 +469,108 @@ export default function SettingsCenter() {
       state: { settingsReturnTo: returnTo },
     });
   };
+
+  const settingsNavigation = (
+    <aside className={styles.sidebar}>
+      <Button
+        type="text"
+        className={styles.backButton}
+        icon={<ArrowLeft size={18} />}
+        onClick={() => navigate(returnTo)}
+      >
+        {t("settingsCenter.backToApp", "Back to app")}
+      </Button>
+      <Input
+        className={styles.searchInput}
+        allowClear
+        value={query}
+        prefix={<Search size={15} />}
+        aria-label={t("settingsCenter.searchPlaceholder")}
+        placeholder={t("settingsCenter.searchPlaceholder", "Search settings")}
+        onChange={(event) => {
+          setQuery(event.target.value);
+          setSearchTarget(null);
+        }}
+      />
+      <nav className={styles.navigation} aria-label={t("nav.settings")}>
+        <LayoutGroup id="settings-navigation">
+          {visibleGroups.map((group) => (
+            <section key={group.key} className={styles.navGroup}>
+              <h2>{t(group.labelKey, group.fallback)}</h2>
+              {group.key === "agent-configuration" && <SettingsAgentSelector />}
+              {group.pages.map((page) => {
+                const Icon = page.Icon;
+                return (
+                  <div key={page.key}>
+                    <button
+                      type="button"
+                      aria-current={
+                        activePage?.key === page.key ? "page" : undefined
+                      }
+                      data-press
+                      className={`${styles.navItem} ${
+                        activePage?.key === page.key ? styles.navItemActive : ""
+                      }`}
+                      onClick={() => {
+                        setSearchTarget(null);
+                        openPage(page);
+                      }}
+                    >
+                      {activePage?.key === page.key && (
+                        <motion.span
+                          className={styles.navSelection}
+                          layoutId="selection"
+                          aria-hidden
+                          transition={
+                            reducedMotion
+                              ? { duration: 0 }
+                              : {
+                                  type: "spring",
+                                  stiffness: 420,
+                                  damping: 40,
+                                }
+                          }
+                        />
+                      )}
+                      {page.icon ??
+                        (Icon ? <Icon size={18} strokeWidth={1.75} /> : null)}
+                      <span className={styles.navItemLabel}>
+                        {pageLabel(page)}
+                      </span>
+                    </button>
+                    {(matchingItems.get(page.key) ?? []).map((key) => (
+                      <button
+                        key={key}
+                        type="button"
+                        className={styles.searchResult}
+                        onClick={() => {
+                          setSearchTarget({
+                            page: page.key,
+                            label: t(key),
+                            tab: SETTINGS_SEARCH_TABS[key]
+                              ? t(SETTINGS_SEARCH_TABS[key])
+                              : undefined,
+                          });
+                          openPage(page);
+                        }}
+                      >
+                        <span>{t(key)}</span>
+                      </button>
+                    ))}
+                  </div>
+                );
+              })}
+            </section>
+          ))}
+          {visibleGroups.length === 0 && (
+            <div className={styles.noResults}>
+              {t("settingsCenter.noResults", "No matching settings")}
+            </div>
+          )}
+        </LayoutGroup>
+      </nav>
+    </aside>
+  );
 
   return (
     <div
@@ -476,155 +585,36 @@ export default function SettingsCenter() {
             aria-label={t("settingsCenter.backToApp", "Back to app")}
             onClick={() => navigate(returnTo)}
           />
-          <Select
-            aria-label={t("nav.settings")}
-            value={activePage?.key}
-            showSearch
-            filterOption={false}
-            onSearch={setQuery}
-            onChange={(value) => {
-              const [pageKey, itemKey] = value.split("::");
-              const page = allPages.find((item) => item.key === pageKey);
-              if (page) {
-                setSearchTarget(
-                  itemKey
-                    ? {
-                        page: pageKey,
-                        label: t(itemKey),
-                        tab: SETTINGS_SEARCH_TABS[itemKey]
-                          ? t(SETTINGS_SEARCH_TABS[itemKey])
-                          : undefined,
-                      }
-                    : null,
-                );
-                openPage(page);
-              }
-              setQuery("");
-            }}
-            options={visibleGroups.map((group) => ({
-              label: t(group.labelKey, group.fallback),
-              options: group.pages.flatMap((page) => [
-                { value: page.key, label: pageLabel(page) },
-                ...(matchingItems.get(page.key) ?? []).map((key) => ({
-                  value: `${page.key}::${key}`,
-                  label: `${searchablePageLabel(page)} · ${t(key)}`,
-                })),
-              ]),
-            }))}
+          <Button
+            type="text"
+            icon={<Menu size={18} />}
+            aria-label={t(
+              "settingsCenter.openNavigation",
+              "Open settings menu",
+            )}
+            onClick={() => setNavigationOpen(true)}
           />
           {activePage?.routeId &&
             SETTINGS_GROUPS[1].pages.some(
               (page) => page.key === activePage.key,
             ) && <SettingsAgentSelector />}
         </div>
-        <aside className={styles.sidebar}>
-          <Button
-            type="text"
-            className={styles.backButton}
-            icon={<ArrowLeft size={18} />}
-            onClick={() => navigate(returnTo)}
-          >
-            {t("settingsCenter.backToApp", "Back to app")}
-          </Button>
-          <Input
-            className={styles.searchInput}
-            allowClear
-            value={query}
-            prefix={<Search size={15} />}
-            aria-label={t("settingsCenter.searchPlaceholder")}
-            placeholder={t(
-              "settingsCenter.searchPlaceholder",
-              "Search settings",
-            )}
-            onChange={(event) => {
-              setQuery(event.target.value);
-              setSearchTarget(null);
-            }}
-          />
-          <nav className={styles.navigation} aria-label={t("nav.settings")}>
-            <LayoutGroup id="settings-navigation">
-              {visibleGroups.map((group) => (
-                <section key={group.key} className={styles.navGroup}>
-                  <h2>{t(group.labelKey, group.fallback)}</h2>
-                  {group.key === "agent-configuration" && (
-                    <SettingsAgentSelector />
-                  )}
-                  {group.pages.map((page) => {
-                    const Icon = page.Icon;
-                    return (
-                      <div key={page.key}>
-                        <button
-                          type="button"
-                          aria-current={
-                            activePage?.key === page.key ? "page" : undefined
-                          }
-                          data-press
-                          className={`${styles.navItem} ${
-                            activePage?.key === page.key
-                              ? styles.navItemActive
-                              : ""
-                          }`}
-                          onClick={() => {
-                            setSearchTarget(null);
-                            openPage(page);
-                          }}
-                        >
-                          {activePage?.key === page.key && (
-                            <motion.span
-                              className={styles.navSelection}
-                              layoutId="selection"
-                              aria-hidden
-                              transition={
-                                reducedMotion
-                                  ? { duration: 0 }
-                                  : {
-                                      type: "spring",
-                                      stiffness: 420,
-                                      damping: 40,
-                                    }
-                              }
-                            />
-                          )}
-                          {page.icon ??
-                            (Icon ? (
-                              <Icon size={18} strokeWidth={1.75} />
-                            ) : null)}
-                          <span className={styles.navItemLabel}>
-                            {pageLabel(page)}
-                          </span>
-                        </button>
-                        {(matchingItems.get(page.key) ?? []).map((key) => (
-                          <button
-                            key={key}
-                            type="button"
-                            className={styles.searchResult}
-                            onClick={() => {
-                              setSearchTarget({
-                                page: page.key,
-                                label: t(key),
-                                tab: SETTINGS_SEARCH_TABS[key]
-                                  ? t(SETTINGS_SEARCH_TABS[key])
-                                  : undefined,
-                              });
-                              openPage(page);
-                            }}
-                          >
-                            <span>{t(key)}</span>
-                          </button>
-                        ))}
-                      </div>
-                    );
-                  })}
-                </section>
-              ))}
-              {visibleGroups.length === 0 && (
-                <div className={styles.noResults}>
-                  {t("settingsCenter.noResults", "No matching settings")}
-                </div>
-              )}
-            </LayoutGroup>
-          </nav>
-        </aside>
+        {!isMobile && settingsNavigation}
+        {/* Always mounted, content only mounts while open: on narrow screens the
+            inline aside above is not rendered, so this drawer is the only copy. */}
+        <OsDrawer
+          aria-label={t("nav.settings")}
+          placement="left"
+          width={288}
+          open={navigationOpen}
+          onClose={() => setNavigationOpen(false)}
+          destroyOnHidden
+          closable={false}
+          rootClassName={styles.navDrawer}
+          styles={{ body: { padding: 0, overflow: "hidden" } }}
+        >
+          {settingsNavigation}
+        </OsDrawer>
 
         <main
           ref={contentRef}

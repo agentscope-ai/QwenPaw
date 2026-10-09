@@ -26,9 +26,29 @@ describe("SettingsCenter responsive layout", () => {
     const mobileRule = stylesSource.slice(mobileStart);
 
     expect(mobileStart).toBeGreaterThanOrEqual(0);
-    expect(mobileRule).toContain("max-height: 48vh;");
+    // The section navigation lives in a left drawer now, so it must not
+    // reserve a fixed slice of the viewport anymore.
+    expect(mobileRule).not.toContain("max-height: 48vh;");
     expect(mobileRule).toContain("padding: 18px 20px;");
     expect(mobileRule).toContain("width: calc(100% - 48px);");
+  });
+
+  it("stacks the bar over the content and moves navigation into a drawer", () => {
+    const mobileStart = stylesSource.indexOf("@media (max-width: 768px)");
+    const mobileRule = stylesSource.slice(mobileStart);
+
+    expect(mobileStart).toBeGreaterThanOrEqual(0);
+    expect(mobileRule).toContain("grid-template-rows: auto minmax(0, 1fr);");
+    expect(stylesSource).toContain(".navDrawer {");
+    expect(stylesSource).toContain(".qwenpaw-drawer-content");
+    // The drawer reuses the desktop .sidebar markup and must fill it.
+    const drawerStart = stylesSource.indexOf(".navDrawer {");
+    const drawerRule = stylesSource.slice(
+      drawerStart,
+      stylesSource.indexOf("\n}", drawerStart) + 2,
+    );
+    expect(drawerRule).toContain("height: 100%;");
+    expect(drawerRule).toContain("border-right: 0;");
   });
 
   it("stacks wide controls before the navigation becomes mobile", () => {

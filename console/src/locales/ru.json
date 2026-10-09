@@ -3137,6 +3137,7 @@
   },
   "settingsCenter": {
     "backToApp": "Вернуться в приложение",
+    "openNavigation": "Открыть меню настроек",
     "searchPlaceholder": "Поиск настроек",
     "noResults": "Подходящие настройки не найдены",
     "groups": {

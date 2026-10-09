@@ -390,6 +390,7 @@
   },
   "settingsCenter": {
     "backToApp": "返回应用",
+    "openNavigation": "打开设置菜单",
     "searchPlaceholder": "搜索设置",
     "noResults": "没有匹配的设置",
     "groups": {
