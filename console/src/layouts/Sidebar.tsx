@@ -525,6 +525,7 @@ export default function Sidebar({
   const handleSidebarSessionClick = useCallback(
     (sessionId: string) => {
       const effectiveId = sessionApi.getEffectiveSessionId(sessionId);
+      sessionApi.trackNavigatedSession(effectiveId);
       const targetPath = buildChatPath(effectiveId);
       navigate(targetPath);
     },

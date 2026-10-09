@@ -1458,7 +1458,24 @@ def _fixup_media_list(items: list) -> None:
                 _fixup_media_list(output)
 
 
-_EXACT_REASONING_REPLAY_PROVIDER_IDS = frozenset({"deepseek"})
+_DEEPSEEK_FAMILY_PROVIDER_IDS = frozenset({"deepseek"})
+
+
+def _is_deepseek_family(
+    provider_id: str | None,
+    model_id: str | None,
+) -> bool:
+    """Return whether the provider/model routes to DeepSeek.
+
+    The model-name check covers DeepSeek models served through an
+    aggregator such as OpenRouter.
+    """
+    normalized_provider_id = (provider_id or "").strip().lower()
+    normalized_model_id = (model_id or "").strip().lower()
+    return (
+        normalized_provider_id in _DEEPSEEK_FAMILY_PROVIDER_IDS
+        or "deepseek" in normalized_model_id
+    )
 
 
 def _requires_exact_reasoning_replay(
@@ -1469,15 +1486,8 @@ def _requires_exact_reasoning_replay(
 
     Formatter inheritance is insufficient here because many providers share
     the OpenAI chat formatter while enforcing different tool-call protocols.
-    The model-name check also covers routed DeepSeek models served through an
-    aggregator such as OpenRouter.
     """
-    normalized_provider_id = (provider_id or "").strip().lower()
-    normalized_model_id = (model_id or "").strip().lower()
-    return (
-        normalized_provider_id in _EXACT_REASONING_REPLAY_PROVIDER_IDS
-        or "deepseek" in normalized_model_id
-    )
+    return _is_deepseek_family(provider_id, model_id)
 
 
 # pylint: disable-next=too-many-statements
@@ -1519,6 +1529,10 @@ def _create_file_block_support_formatter(
         provider_id,
         model_id,
     )
+    is_deepseek_family = _is_deepseek_family(
+        provider_id,
+        model_id,
+    )
     supports_thinking_omission = (
         supports_reasoning_content_relay
         # Only this relay owns OpenAI-chat reasoning end to end. Native
@@ -1553,6 +1567,26 @@ def _create_file_block_support_formatter(
                     "image/*",
                     "video/*",
                 ]
+            elif is_deepseek_family and issubclass(
+                base_formatter_class,
+                OpenAIChatFormatter,
+            ):
+                # DeepSeek's Chat Completions schema accepts image content
+                # parts only. The OpenAI-chat default input_types also
+                # matches PDF and audio blocks, which would be serialized
+                # into ``file`` / ``input_audio`` parts that DeepSeek
+                # rejects with a hard 400 — and the block stays in
+                # history, permanently poisoning the session (#8064).
+                # Restrict to images so non-image media degrades to the
+                # textual fallback (or is skipped for user-supplied
+                # blocks) instead of reaching the wire.
+                filtered = [
+                    input_type
+                    for input_type in (kwargs.get("input_types") or [])
+                    if input_type in ("text/plain", "application/x-thinking")
+                    or input_type.startswith("image/")
+                ]
+                kwargs["input_types"] = filtered or ["text/plain", "image/*"]
             super().__init__(**kwargs)
 
         def set_thinking_omit_ids(self, block_ids: set[str]) -> bool:
