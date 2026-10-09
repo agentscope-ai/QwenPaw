@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import sqlite3
 import threading
 from pathlib import Path
 
@@ -400,6 +401,50 @@ async def test_legacy_path_probe_runs_off_event_loop(
     assert state == {}
     assert probe_threads
     assert all(thread_id != loop_thread for thread_id in probe_threads)
+    catalog.close()
+
+
+@pytest.mark.asyncio
+async def test_get_current_usage_does_not_decode_runtime_state(
+    tmp_path: Path,
+) -> None:
+    catalog = TranscriptCatalog(tmp_path)
+    catalog.write_runtime_state(
+        session_id="session-1",
+        user_id="u",
+        channel="console",
+        state={"agent": {"state": {"context": ["large state"]}}},
+    )
+    catalog.set_current_usage(
+        session_id="session-1",
+        usage={"total_tokens": 42},
+        context_usage={"estimated_tokens": 21},
+    )
+    row = catalog._catalog_row("session-1")
+    assert row is not None
+    database_path = catalog._store_path(str(row["file_key"]))
+    with sqlite3.connect(database_path) as connection:
+        connection.execute(
+            "UPDATE session_runtime SET state_json = ? "
+            "WHERE session_id = ?",
+            ("invalid runtime state", "session-1"),
+        )
+
+    session = DatabaseSession(
+        catalog=catalog,
+        legacy_save_dir=str(tmp_path / "sessions"),
+    )
+    generation, usage = await session.get_current_usage(
+        session_id="session-1",
+        user_id="u",
+        channel="console",
+    )
+
+    assert generation == 0
+    assert usage == {
+        "usage": {"total_tokens": 42},
+        "context_usage": {"estimated_tokens": 21},
+    }
     catalog.close()
 
 

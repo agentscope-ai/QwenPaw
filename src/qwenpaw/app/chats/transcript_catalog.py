@@ -275,6 +275,28 @@ class TranscriptCatalog:
                 channel=channel,
             )
 
+    def read_current_usage(
+        self,
+        *,
+        session_id: str,
+        user_id: str,
+        channel: str,
+    ) -> tuple[int, dict[str, Any] | None] | None:
+        """Read context usage without decoding the runtime state."""
+        with self._lease(
+            session_id=session_id,
+            user_id=user_id,
+            channel=channel,
+            create=False,
+        ) as handle:
+            if handle is None:
+                return None
+            return handle.store.read_current_usage(
+                session_id=session_id,
+                user_id=user_id,
+                channel=channel,
+            )
+
     def write_runtime_state(self, **kwargs: Any) -> tuple[int, bool]:
         """Persist one session's runtime snapshot."""
         with self._lease(

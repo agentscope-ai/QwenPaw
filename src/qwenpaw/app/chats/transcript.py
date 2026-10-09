@@ -58,6 +58,7 @@ class RuntimeSnapshot:
     current_usage: dict[str, Any] | None
 
 
+# pylint: disable=too-many-public-methods
 class TranscriptStore:
     """Workspace-owned SQLite store for user-visible chat transcripts."""
 
@@ -274,6 +275,37 @@ class TranscriptStore:
                     else None
                 ),
             )
+
+    def read_current_usage(
+        self,
+        *,
+        session_id: str,
+        user_id: str,
+        channel: str,
+    ) -> tuple[int, dict[str, Any] | None] | None:
+        """Read context usage without decoding the runtime state."""
+        with self._read_connection() as connection:
+            session = self._session_row(session_id, connection)
+            if session is None:
+                return None
+            self._assert_identity(
+                session,
+                user_id=user_id,
+                channel=channel,
+            )
+            row = connection.execute(
+                "SELECT context_generation, current_usage_json "
+                "FROM session_runtime WHERE session_id = ?",
+                (session_id,),
+            ).fetchone()
+            if row is None:
+                return None
+            usage = (
+                json.loads(row["current_usage_json"])
+                if row["current_usage_json"]
+                else None
+            )
+            return int(row["context_generation"]), usage
 
     def write_runtime_state(
         self,

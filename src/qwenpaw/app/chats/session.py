@@ -758,27 +758,27 @@ class DatabaseSession:
         channel: str,
     ) -> tuple[int, dict[str, Any] | None]:
         """Return current context generation and usage projection."""
-        snapshot = await run_sync_io(
-            self._catalog.read_runtime_state,
+        projection = await run_sync_io(
+            self._catalog.read_current_usage,
             session_id=session_id,
             user_id=user_id,
             channel=channel,
         )
-        if snapshot is None:
+        if projection is None:
             await self._import_legacy(
                 session_id=session_id,
                 user_id=user_id,
                 channel=channel,
             )
-            snapshot = await run_sync_io(
-                self._catalog.read_runtime_state,
+            projection = await run_sync_io(
+                self._catalog.read_current_usage,
                 session_id=session_id,
                 user_id=user_id,
                 channel=channel,
             )
-        if snapshot is None:
+        if projection is None:
             return 0, None
-        return snapshot.context_generation, snapshot.current_usage
+        return projection
 
     async def delete_session_state(
         self,
