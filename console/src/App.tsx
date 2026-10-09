@@ -19,18 +19,10 @@ import {
   useSyncExternalStore,
 } from "react";
 import { useTranslation } from "react-i18next";
-import zhCN from "antd/locale/zh_CN";
 import enUS from "antd/locale/en_US";
-import jaJP from "antd/locale/ja_JP";
-import ruRU from "antd/locale/ru_RU";
-import idID from "antd/locale/id_ID";
 import type { Locale } from "antd/es/locale";
 import dayjs from "dayjs";
 import relativeTime from "dayjs/plugin/relativeTime";
-import "dayjs/locale/zh-cn";
-import "dayjs/locale/ja";
-import "dayjs/locale/ru";
-import "dayjs/locale/id";
 dayjs.extend(relativeTime);
 import MainLayout from "./layouts/MainLayout";
 import { ThemeProvider, useTheme } from "./contexts/ThemeContext";
@@ -83,14 +75,7 @@ import "./styles/form-override.css";
 import "./styles/workspace.css";
 import { PressFeedback } from "./components/interaction/PressFeedback";
 import "katex/dist/katex.min.css";
-
-const antdLocaleMap: Record<string, Locale> = {
-  zh: zhCN,
-  en: enUS,
-  ja: jaJP,
-  ru: ruRU,
-  id: idID,
-};
+import { antdLocaleMap, dayjsLocaleMap } from "./constants/uiLocales";
 
 export function getAppThemeToken(
   userTheme: ThemeConfig,
@@ -141,14 +126,6 @@ export function getAppComponentTokens(
     },
   };
 }
-
-const dayjsLocaleMap: Record<string, string> = {
-  zh: "zh-cn",
-  en: "en",
-  ja: "ja",
-  ru: "ru",
-  id: "id",
-};
 
 const GlobalStyle = createGlobalStyle`
 * {
@@ -397,7 +374,11 @@ function AppInner({ backendInfo }: { backendInfo: BackendInfo }) {
   }, [effectiveFontSize]);
   const selectedTheme = isDark ? bailianDarkTheme : bailianTheme;
   const sparkTheme = (selectedTheme as { theme?: AntThemeConfig }).theme;
-  const lang = i18n.resolvedLanguage || i18n.language || "en";
+  // Both consumers below want the language part only ("pt" for "pt-BR"):
+  // the antd/dayjs locale maps are keyed by it, and the languageChanged
+  // handler normalizes the same way, so a regional code like "zh-CN" or
+  // "pt-BR" must not fall through to the English defaults.
+  const lang = (i18n.resolvedLanguage || i18n.language || "en").split("-")[0];
   const [antdLocale, setAntdLocale] = useState<Locale>(
     antdLocaleMap[lang] ?? enUS,
   );
@@ -456,7 +437,7 @@ function AppInner({ backendInfo }: { backendInfo: BackendInfo }) {
     };
 
     // Set initial dayjs locale
-    dayjs.locale(dayjsLocaleMap[lang.split("-")[0]] ?? "en");
+    dayjs.locale(dayjsLocaleMap[lang] ?? "en");
 
     i18n.on("languageChanged", handleLanguageChanged);
     return () => {
