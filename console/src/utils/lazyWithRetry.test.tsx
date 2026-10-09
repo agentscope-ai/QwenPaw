@@ -53,8 +53,12 @@ describe("lazyWithRetry", () => {
   it("retries after chunk-load failures and eventually succeeds", async () => {
     const factory = vi
       .fn()
-      .mockRejectedValueOnce(new Error("chunk gone"))
-      .mockRejectedValueOnce(new Error("chunk gone"))
+      .mockRejectedValueOnce(
+        new TypeError("Failed to fetch dynamically imported module"),
+      )
+      .mockRejectedValueOnce(
+        new TypeError("Failed to fetch dynamically imported module"),
+      )
       .mockResolvedValueOnce({ default: Dummy });
     const Comp = lazyWithRetry(factory);
     const { findByText } = renderLazy(Comp);

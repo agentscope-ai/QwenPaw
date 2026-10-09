@@ -1,9 +1,26 @@
-import { lazy } from "react";
+import { createElement, lazy } from "react";
 import type { ComponentType } from "react";
 import { moduleRegistry } from "../plugins/moduleRegistry";
+import { isChunkLoadError } from "./chunkRecovery";
 
 const MAX_RETRIES = 3;
 const RETRY_DELAY_MS = 1000;
+const failedImports = new WeakMap<Error, Set<() => void>>();
+const importFailures = new WeakMap<
+  Error,
+  { attempts: number; modulePath?: string }
+>();
+
+export function getLazyImportFailure(error: Error) {
+  return importFailures.get(error);
+}
+
+/** Reset only imports caught by the boundary, after React commits the error. */
+export function resetFailedLazyImports(error: Error): void {
+  const resets = failedImports.get(error);
+  failedImports.delete(error);
+  resets?.forEach((reset) => reset());
+}
 
 // ---------------------------------------------------------------------------
 // Internal helpers
@@ -25,7 +42,12 @@ function retryImport<T extends ComponentType<unknown>>(
   retries: number,
 ): Promise<{ default: T }> {
   return factory().catch((error: unknown) => {
-    if (retries <= 0) throw error;
+    if (retries <= 0 || !isChunkLoadError(error)) {
+      if (error instanceof Error) {
+        importFailures.set(error, { attempts: MAX_RETRIES - retries + 1 });
+      }
+      throw error;
+    }
     return new Promise<{ default: T }>((resolve) =>
       setTimeout(
         () => resolve(retryImport(factory, retries - 1)),
@@ -33,6 +55,32 @@ function retryImport<T extends ComponentType<unknown>>(
       ),
     );
   });
+}
+
+/** Keep the public component stable while replacing rejected lazy payloads. */
+function recoverableLazy(
+  loader: () => Promise<{ default: ComponentType<unknown> }>,
+  modulePath?: string,
+): ComponentType<unknown> {
+  const load = () =>
+    loader().catch((error: unknown) => {
+      if (error instanceof Error && isChunkLoadError(error)) {
+        importFailures.set(error, {
+          attempts: importFailures.get(error)?.attempts ?? 1,
+          modulePath,
+        });
+        const resets = failedImports.get(error) ?? new Set<() => void>();
+        resets.add(() => {
+          LazyPage = lazy(load);
+        });
+        failedImports.set(error, resets);
+      }
+      throw error;
+    });
+  let LazyPage = lazy(load);
+  return function RecoverablePage(props: unknown) {
+    return createElement(LazyPage, props as Record<string, unknown>);
+  };
 }
 
 // All page modules, keyed relative to this file (src/utils/).
@@ -78,7 +126,7 @@ export function lazyWithRetry<T extends ComponentType<unknown>>(
   factory: () => Promise<{ default: T }>,
   moduleKeyOrPath?: string,
 ) {
-  return lazy(() => {
+  return recoverableLazy(() => {
     if (moduleKeyOrPath) {
       const key = moduleKeyOrPath.startsWith(".")
         ? pathToModuleKey(moduleKeyOrPath)
@@ -87,7 +135,7 @@ export function lazyWithRetry<T extends ComponentType<unknown>>(
       if (patched) return Promise.resolve({ default: patched as T });
     }
     return retryImport(factory, MAX_RETRIES);
-  });
+  }, moduleKeyOrPath);
 }
 
 /**
@@ -105,9 +153,7 @@ export function lazyWithRetry<T extends ComponentType<unknown>>(
  * Any plugin that patches `Settings/Debug/index.default` in the module
  * registry will automatically take effect.
  */
-export function lazyImportWithRetry(
-  path: string,
-): ReturnType<typeof lazy<ComponentType<unknown>>> {
+export function lazyImportWithRetry(path: string): ComponentType<unknown> {
   // Normalise to the glob-map key (relative to src/utils/).
   // Bare-directory paths like "../../pages/Settings/Debug" are tried with
   // /index.tsx and /index.ts suffixes automatically.
@@ -128,7 +174,7 @@ export function lazyImportWithRetry(
     );
   }
   const key = pathToModuleKey(path);
-  return lazy(() => {
+  return recoverableLazy(() => {
     const patched = moduleRegistry.get(key, "default");
     if (patched) {
       return Promise.resolve({
@@ -139,5 +185,5 @@ export function lazyImportWithRetry(
       () => factory().then((comp) => ({ default: comp })),
       MAX_RETRIES,
     );
-  });
+  }, path);
 }
