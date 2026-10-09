@@ -9,6 +9,7 @@ from fastapi import APIRouter, Query, Request
 
 from ...agent_stats import AgentStatsSummary, get_agent_stats_service
 from ...agent_stats.models import LlmToolDaily
+from ...config.config import load_agent_config_async
 from ..agent_context import get_agent_for_request
 
 router = APIRouter(prefix="/agent-stats", tags=["agent-stats"])
@@ -55,12 +56,14 @@ async def get_agent_statistics(
     start_d, end_d = _resolved_date_range(start_date, end_date)
 
     workspace = await get_agent_for_request(request)
+    backend = (await load_agent_config_async(workspace.agent_id)).backend
     service = get_agent_stats_service()
     return await service.get_summary(
         workspace_dir=workspace.workspace_dir,
         start_date=start_d,
         end_date=end_d,
         transcript_catalog=workspace.transcript_store,
+        backend=backend,
     )
 
 

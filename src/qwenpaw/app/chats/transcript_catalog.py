@@ -37,6 +37,7 @@ class _SessionHandle:
         self.store.close()
 
 
+# pylint: disable=too-many-public-methods
 class TranscriptCatalog:
     """Route transcript operations to independent per-session databases."""
 
@@ -524,6 +525,37 @@ class TranscriptCatalog:
                 )
             if messages:
                 result.append((session_id, str(row["channel"]), messages))
+        return result
+
+    def session_runtime_payloads(
+        self,
+    ) -> list[tuple[str, str, dict[str, Any]]]:
+        """Return runtime states grouped by session and channel."""
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT session_id, user_id, channel "
+                "FROM transcript_files ORDER BY session_id",
+            ).fetchall()
+        result: list[tuple[str, str, dict[str, Any]]] = []
+        for row in rows:
+            session_id = str(row["session_id"])
+            user_id = str(row["user_id"])
+            channel = str(row["channel"])
+            with self._lease(
+                session_id=session_id,
+                user_id=user_id,
+                channel=channel,
+                create=False,
+            ) as handle:
+                if handle is None:
+                    continue
+                snapshot = handle.store.read_runtime_state(
+                    session_id=session_id,
+                    user_id=user_id,
+                    channel=channel,
+                )
+            if snapshot is not None:
+                result.append((session_id, channel, snapshot.state))
         return result
 
     def find_turn_for_message(self, **kwargs: Any) -> str | None:

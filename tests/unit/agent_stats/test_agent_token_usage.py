@@ -15,10 +15,19 @@ from qwenpaw.agent_stats.service import (
     AgentStatsService,
     _process_session_file,
 )
+from qwenpaw.app.chats.session import DatabaseSession
 from qwenpaw.app.chats.transcript_catalog import TranscriptCatalog
 from qwenpaw.app.chats.models import ChatSpec
 from qwenpaw.app.chats.repo import JsonChatRepository
-from qwenpaw.schemas import Message
+from qwenpaw.harnesses.session import HarnessSessionBridge
+from qwenpaw.schemas import (
+    AgentRequest,
+    AgentResponse,
+    Message,
+    Role,
+    RunStatus,
+    TextContent,
+)
 from qwenpaw.token_usage.manager import TokenUsageStats, TokenUsageSummary
 from qwenpaw.token_usage.turn_usage import TURN_USAGE_META_KEY
 
@@ -476,6 +485,57 @@ class TestAgentStatsServiceAgentTokens:
         assert summary.agent_completion_tokens == 4
         assert not session_file.exists()
         assert (tmp_path / "transcript_catalog.db").exists()
+
+    async def test_get_summary_reads_harness_runtime_messages(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        catalog = TranscriptCatalog(tmp_path)
+        session = DatabaseSession(
+            catalog=catalog,
+            legacy_save_dir=str(tmp_path / "sessions"),
+        )
+        bridge = HarnessSessionBridge(session)
+        await bridge.append_turn(
+            request=AgentRequest(
+                session_id="harness-session",
+                user_id="user",
+                channel="console",
+                input=[
+                    Message(
+                        role=Role.USER,
+                        content=[TextContent(text="hello")],
+                    ),
+                ],
+            ),
+            response=AgentResponse(
+                id="response",
+                output=[
+                    Message(
+                        role=Role.ASSISTANT,
+                        status=RunStatus.Completed,
+                        content=[TextContent(text="world")],
+                    ),
+                ],
+                status=RunStatus.Completed,
+            ),
+            backend="codex",
+        )
+        today = date.today()
+
+        summary = await AgentStatsService().get_summary(
+            tmp_path,
+            today,
+            today,
+            include_token_overlay=False,
+            transcript_catalog=catalog,
+            backend="codex",
+        )
+
+        assert summary.total_messages == 2
+        assert summary.total_user_messages == 1
+        assert summary.total_assistant_messages == 1
+        catalog.close()
 
     async def test_get_summary_keeps_global_and_fills_agent_fields(
         self,

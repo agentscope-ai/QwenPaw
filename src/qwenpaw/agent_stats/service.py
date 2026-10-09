@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from datetime import date, timedelta
 from pathlib import Path
@@ -22,6 +23,19 @@ from .models import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _workspace_backend(workspace_dir: Path) -> str:
+    """Read the backend that owns one workspace's visible history."""
+    try:
+        data = json.loads(
+            (workspace_dir / "agent.json").read_text(encoding="utf-8"),
+        )
+    except (OSError, ValueError, TypeError):
+        return "qwenpaw"
+    if not isinstance(data, dict):
+        return "qwenpaw"
+    return str(data.get("backend") or "qwenpaw")
 
 
 def _message_metadata(msg_data: dict) -> dict:
@@ -221,6 +235,7 @@ class AgentStatsService:
         *,
         include_token_overlay: bool = True,
         transcript_catalog: TranscriptCatalog | None = None,
+        backend: str | None = None,
     ) -> AgentStatsSummary:
         """Return Agent Statistics for one workspace.
 
@@ -262,6 +277,9 @@ class AgentStatsService:
         agent_prompt_tokens = 0
         agent_completion_tokens = 0
         agent_llm_calls = 0
+
+        if backend is None:
+            backend = await run_sync_io(_workspace_backend, workspace_dir)
 
         if chats_file.exists():
             try:
@@ -316,14 +334,27 @@ class AgentStatsService:
                                 session_id,
                                 exc_info=True,
                             )
-                sessions = await run_sync_io(
-                    catalog.session_message_payloads,
-                    start_date=start_date_str,
-                    end_date=end_date_str,
-                )
-                for session_id, channel, messages in sessions:
+                if backend == "qwenpaw":
+                    sessions = await run_sync_io(
+                        catalog.session_message_payloads,
+                        start_date=start_date_str,
+                        end_date=end_date_str,
+                    )
+                    session_data = [
+                        (
+                            session_id,
+                            channel,
+                            {"agent": {"state": {"context": messages}}},
+                        )
+                        for session_id, channel, messages in sessions
+                    ]
+                else:
+                    session_data = await run_sync_io(
+                        catalog.session_runtime_payloads,
+                    )
+                for session_id, channel, state in session_data:
                     result = _process_session_file(
-                        {"agent": {"state": {"context": messages}}},
+                        state,
                         start_date_str,
                         end_date_str,
                         daily_stats,
