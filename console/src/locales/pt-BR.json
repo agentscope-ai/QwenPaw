@@ -2499,6 +2499,7 @@
     "projectDirectory": "Diretório do projeto",
     "workspaceDirectory": "Diretório de configuração",
     "switchRoot": "Alternar diretório",
+    "showHidden": "Mostrar arquivos ocultos",
     "manageDirs": "Gerenciar diretórios…",
     "primaryRoot": "Principal",
     "rootMissing": "Ausente",

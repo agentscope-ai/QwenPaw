@@ -17,6 +17,8 @@ import { Dropdown, Modal, Switch, type MenuProps } from "antd";
 import {
   Check,
   ChevronDown,
+  Eye,
+  EyeOff,
   ChevronRight,
   Folder,
   FolderOpen,
@@ -72,6 +74,7 @@ interface DirectoryNodeProps {
   onSelect: (target: FileTarget) => void;
   depth: number;
   root: WorkspaceRoot;
+  showHidden: boolean;
 }
 
 interface ProfileFileRowProps {
@@ -159,6 +162,7 @@ function DirectoryNode({
   onSelect,
   depth,
   root,
+  showHidden,
 }: DirectoryNodeProps) {
   const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
@@ -178,6 +182,7 @@ function DirectoryNode({
           chatId,
           root,
           projectDirOverride,
+          showHidden,
         );
         setChildren((current) =>
           nextCursor ? [...current, ...page.entries] : page.entries,
@@ -188,7 +193,7 @@ function DirectoryNode({
         setLoading(false);
       }
     },
-    [chatId, entry.path, projectDirOverride, root],
+    [chatId, entry.path, projectDirOverride, root, showHidden],
   );
 
   const toggle = () => {
@@ -222,6 +227,7 @@ function DirectoryNode({
               selectedPath={selectedPath}
               onSelect={onSelect}
               root={root}
+              showHidden={showHidden}
             />
           ) : (
             <button
@@ -403,6 +409,7 @@ export default function FilesNavigator({
   const [projectDirectory, setProjectDirectory] = useState("");
   const [workspaceDirectory, setWorkspaceDirectory] = useState("");
   const [workspaceRoot, setWorkspaceRoot] = useState<WorkspaceRoot>("project");
+  const [showHidden, setShowHidden] = useState(false);
   // Every directory bound to this session, primary first. Only session scope
   // can hold more than one — an agent default is a single directory — so agent
   // scope keeps the synthesized single-entry list below.
@@ -647,6 +654,7 @@ export default function FilesNavigator({
         chatId,
         workspaceRoot,
         projectDirOverride,
+        showHidden,
       );
       setEntries(page.entries);
       setCursor(page.next_cursor);
@@ -654,7 +662,7 @@ export default function FilesNavigator({
     } finally {
       setLoading(false);
     }
-  }, [chatId, projectDirOverride, workspaceRoot]);
+  }, [chatId, projectDirOverride, showHidden, workspaceRoot]);
 
   const loadProfile = useCallback(async () => {
     setLoading(true);
@@ -897,6 +905,18 @@ export default function FilesNavigator({
               <button
                 type="button"
                 className={styles.iconButton}
+                onClick={() => setShowHidden((current) => !current)}
+                aria-label={t("files.showHidden")}
+                aria-pressed={showHidden}
+                title={t("files.showHidden")}
+              >
+                {showHidden ? <Eye size={15} /> : <EyeOff size={15} />}
+              </button>
+            )}
+            {source === "workspace" && (
+              <button
+                type="button"
+                className={styles.iconButton}
                 onClick={() => uploadRef.current?.click()}
                 aria-label={t("files.upload")}
                 disabled={uploading}
@@ -988,7 +1008,8 @@ export default function FilesNavigator({
                   }
                   return (
                     <DirectoryNode
-                      key={entry.path}
+                      // Remount on toggle so expanded folders re-list.
+                      key={`${showHidden}:${entry.path}`}
                       entry={entry}
                       chatId={chatId}
                       projectDirOverride={projectDirOverride}
@@ -996,6 +1017,7 @@ export default function FilesNavigator({
                       selectedPath={selectedPath}
                       onSelect={onSelect}
                       root={workspaceRoot}
+                      showHidden={showHidden}
                     />
                   );
                 }
@@ -1052,6 +1074,7 @@ export default function FilesNavigator({
                     chatId,
                     workspaceRoot,
                     projectDirOverride,
+                    showHidden,
                   );
                   setEntries((current) => [...current, ...page.entries]);
                   setCursor(page.next_cursor);

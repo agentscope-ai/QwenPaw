@@ -2268,6 +2268,7 @@
     "projectDirectory": "Каталог проекта",
     "workspaceDirectory": "Каталог конфигурации",
     "switchRoot": "Переключить каталог",
+    "showHidden": "Показать скрытые файлы",
     "manageDirs": "Управление каталогами…",
     "primaryRoot": "Основной",
     "rootMissing": "Отсутствует",

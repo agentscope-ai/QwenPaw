@@ -47,6 +47,30 @@ describe("workspaceApi.listDirectory", () => {
     );
   });
 
+  it("asks for hidden entries only when requested", async () => {
+    vi.mocked(request).mockResolvedValue({
+      directory: "",
+      entries: [],
+      next_cursor: null,
+      has_more: false,
+    });
+
+    await workspaceApi.listDirectory(
+      "src",
+      undefined,
+      200,
+      undefined,
+      "project",
+      undefined,
+      true,
+    );
+
+    expect(request).toHaveBeenCalledWith(
+      "/workspace/tree?path=src&limit=200&root=project&show_hidden=true",
+      { headers: {} },
+    );
+  });
+
   it("sends a validated pending directory for a new Session", async () => {
     vi.mocked(request).mockResolvedValue({
       directory: "",

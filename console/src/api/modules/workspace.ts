@@ -104,9 +104,16 @@ export const workspaceApi = {
     chatId?: string,
     root: WorkspaceRoot = "project",
     projectDirOverride?: string,
+    showHidden = false,
   ): Promise<DirectoryPage> =>
     request<DirectoryPage>(
-      workspaceQuery("/workspace/tree", { path, cursor, limit, root }),
+      workspaceQuery("/workspace/tree", {
+        path,
+        cursor,
+        limit,
+        root,
+        show_hidden: showHidden ? "true" : undefined,
+      }),
       { headers: projectHeaders(chatId, projectDirOverride) },
     ),
 

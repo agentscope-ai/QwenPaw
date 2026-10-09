@@ -2848,6 +2848,7 @@
     "projectDirectory": "项目目录",
     "workspaceDirectory": "配置目录",
     "switchRoot": "切换目录",
+    "showHidden": "显示隐藏文件",
     "manageDirs": "管理目录…",
     "primaryRoot": "主工作目录",
     "rootMissing": "缺失",

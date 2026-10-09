@@ -4043,6 +4043,7 @@
     "projectDirectory": "Direktori proyek",
     "workspaceDirectory": "Direktori konfigurasi",
     "switchRoot": "Ganti direktori",
+    "showHidden": "Tampilkan file tersembunyi",
     "manageDirs": "Kelola direktori…",
     "primaryRoot": "Utama",
     "rootMissing": "Hilang",
