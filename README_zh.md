@@ -34,7 +34,7 @@
 | | |
 | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | **不遗忘对话**                         | 三层记忆 — 实时工作上下文、完整逐字历史，以及由 [ReMe](https://github.com/agentscope-ai/ReMe) 驱动的自进化个人知识库。对话与资料持续沉淀为可读、可编辑、可检索、相互链接的 Markdown 记忆。 |
-| **本地云端，自由运行**                    | QwenPaw-Flash 模型（2B / 4B / 9B）面向 Agent 场景专项训练。内置 QwenPaw Local 运行时，无需 API Key、不依赖云端。同时支持 Ollama、LM Studio 及 14+ 云端模型供应商。                  |
+| **本地云端，自由运行**                    | QwenPaw-Flash 模型（2B / 4B / 9B / 35B-A3B / 27B）面向 Agent 场景专项训练。内置 QwenPaw Local 运行时，无需 API Key、不依赖云端。同时支持 Ollama、LM Studio 及 14+ 云端模型供应商。                  |
 | **安全机制**                         | 内核级 Sandbox、Tool Guard、File Guard 与 Skill Scanner。危险命令在执行前即被拦截。                                        |
 | **多智能体与并行**                        | 创建拥有独立记忆与技能的 Agent；运行时生成子 Agent；通过 Agent Communication Protocol（ACP）实现跨系统编排。                                                                         |
 | **通用文件工作区**                    | 在项目文件与 Agent 文件中统一提供文件导航、预览、编辑、Diff、上传和下载。                                                                                                           |
@@ -372,7 +372,7 @@ qwenpaw .                   # 在当前代码仓库中启动（Coding 模式）
 
 QwenPaw 可在本机完全本地运行大模型，无需 API Key 或云端服务。详情请见 [官方文档](https://qwenpaw.agentscope.io/docs/models)。
 
-QwenPaw 还提供 **QwenPaw-Flash** 系列 — 面向 Agent 场景专项训练的 2B / 4B / 9B 模型，提供 Q4 与 Q8 量化版本。可在 [ModelScope](https://www.modelscope.cn/organization/AgentScope?tab=model) 与 [Hugging Face](https://huggingface.co/agentscope-ai/models) 获取。
+QwenPaw 还提供 **QwenPaw-Flash** 系列 — 面向 Agent 场景专项训练的 2B / 4B / 9B / 35B-A3B / 27B 模型，提供 Q4 与 Q8 量化版本。可在 [ModelScope](https://www.modelscope.cn/organization/AgentScope?tab=model) 与 [Hugging Face](https://huggingface.co/agentscope-ai/models) 获取。
 
 | 后端                              | 适用场景                                 | 安装                                                                 |
 | --------------------------------- | ---------------------------------------- | -------------------------------------------------------------------- |

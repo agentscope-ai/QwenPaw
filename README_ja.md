@@ -34,7 +34,7 @@
 | | |
 | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | **忘れない**                               | 3 層メモリ — ライブな作業コンテキスト、完全な逐語履歴、そして [ReMe](https://github.com/agentscope-ai/ReMe) による自己進化型パーソナルナレッジベース。会話と資料を、読み取り・編集・検索が可能で相互にリンクされた Markdown メモリへ継続的に変換。 |
-| **ローカルもクラウドも、自由に動く**        | QwenPaw-Flash モデル（2B / 4B / 9B）— エージェントタスク向けに訓練。内蔵 QwenPaw Local ランタイム — API キー不要、クラウド依存なし。Ollama、LM Studio、14+ クラウドプロバイダーにも対応。                  |
+| **ローカルもクラウドも、自由に動く**        | QwenPaw-Flash モデル（2B / 4B / 9B / 35B-A3B / 27B）— エージェントタスク向けに訓練。内蔵 QwenPaw Local ランタイム — API キー不要、クラウド依存なし。Ollama、LM Studio、14+ クラウドプロバイダーにも対応。                  |
 | **セキュリティ内蔵**                         | カーネルレベルの Sandbox、Tool Guard、File Guard、Skill Scanner、Access Policy。危険なコマンドは実行前にブロック。                                                                                    |
 | **マルチエージェント＆並列**                | 独自のメモリとスキルを持つ独立エージェントを生成。実行時のサブエージェント。Agent Communication Protocol（ACP）によるクロスシステム編成。                                                                         |
 | **ファイルワークスペース**                     | プロジェクトと Agent のファイルに共通するナビゲーション、プレビュー、編集、Diff、アップロード、ダウンロード。                                                                      |
@@ -372,7 +372,7 @@ qwenpaw .                   # 現在のリポジトリで開始（Coding Mode）
 
 QwenPaw は LLM を完全にローカルマシン上で実行できます — API キーやクラウドサービスは不要です。詳細は [公式ドキュメント](https://qwenpaw.agentscope.io/docs/models) をご覧ください。
 
-QwenPaw は **QwenPaw-Flash** シリーズも提供 — エージェントシナリオ向けに目的訓練された 2B / 4B / 9B モデル、Q4 と Q8 量子化に対応。[ModelScope](https://www.modelscope.cn/organization/AgentScope?tab=model) と [Hugging Face](https://huggingface.co/agentscope-ai/models) で入手可能。
+QwenPaw は **QwenPaw-Flash** シリーズも提供 — エージェントシナリオ向けに目的訓練された 2B / 4B / 9B / 35B-A3B / 27B モデル、Q4 と Q8 量子化に対応。[ModelScope](https://www.modelscope.cn/organization/AgentScope?tab=model) と [Hugging Face](https://huggingface.co/agentscope-ai/models) で入手可能。
 
 | バックエンド              | 最適な用途                                 | インストール                                                              |
 | -------------------- | ---------------------------------------- | -------------------------------------------------------------------- |
