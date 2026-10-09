@@ -56,6 +56,7 @@ import {
   type MemoryTreeEntry,
 } from "./memoryTree";
 import { selectProfileFiles } from "./profileFileSelection";
+import { useDirectoryListing } from "./useDirectoryListing";
 import type {
   DirectoryEntry,
   FileTarget,
@@ -72,6 +73,10 @@ interface DirectoryNodeProps {
   onSelect: (target: FileTarget) => void;
   depth: number;
   root: WorkspaceRoot;
+  scopeKey: string;
+  revision: number;
+  expandedPaths: ReadonlySet<string>;
+  onToggle: (path: string) => void;
 }
 
 interface ProfileFileRowProps {
@@ -159,42 +164,28 @@ function DirectoryNode({
   onSelect,
   depth,
   root,
+  scopeKey,
+  revision,
+  expandedPaths,
+  onToggle,
 }: DirectoryNodeProps) {
   const { t } = useTranslation();
-  const [expanded, setExpanded] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [children, setChildren] = useState<DirectoryEntry[]>([]);
-  const [cursor, setCursor] = useState<string | null>(null);
-  const [hasMore, setHasMore] = useState(false);
-
-  const load = useCallback(
-    async (nextCursor?: string) => {
-      setLoading(true);
-      try {
-        const page = await workspaceApi.listDirectory(
-          entry.path,
-          nextCursor,
-          200,
-          chatId,
-          root,
-          projectDirOverride,
-        );
-        setChildren((current) =>
-          nextCursor ? [...current, ...page.entries] : page.entries,
-        );
-        setCursor(page.next_cursor);
-        setHasMore(page.has_more);
-      } finally {
-        setLoading(false);
-      }
-    },
-    [chatId, entry.path, projectDirOverride, root],
+  const expanded = expandedPaths.has(entry.path);
+  const {
+    entries: children,
+    loading,
+    hasMore,
+    loadMore,
+    failed,
+  } = useDirectoryListing(
+    entry.path,
+    root,
+    chatId,
+    projectDirOverride,
+    scopeKey,
+    revision,
+    expanded,
   );
-
-  const toggle = () => {
-    setExpanded((current) => !current);
-    if (!expanded && children.length === 0) void load();
-  };
 
   return (
     <>
@@ -202,7 +193,7 @@ function DirectoryNode({
         type="button"
         className={styles.treeRow}
         style={{ paddingInlineStart: 12 + depth * 16 }}
-        onClick={toggle}
+        onClick={() => onToggle(entry.path)}
         aria-expanded={expanded}
       >
         {expanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
@@ -222,6 +213,10 @@ function DirectoryNode({
               selectedPath={selectedPath}
               onSelect={onSelect}
               root={root}
+              scopeKey={scopeKey}
+              revision={revision}
+              expandedPaths={expandedPaths}
+              onToggle={onToggle}
             />
           ) : (
             <button
@@ -244,12 +239,13 @@ function DirectoryNode({
         <button
           type="button"
           className={styles.loadMore}
-          onClick={() => void load(cursor ?? undefined)}
-          disabled={loading}
+          onClick={() => void loadMore()}
+          disabled={loading || failed}
         >
           {t("files.loadMore")}
         </button>
       )}
+      {expanded && failed && <div role="alert">{t("files.loadFailed")}</div>}
     </>
   );
 }
@@ -386,14 +382,11 @@ export default function FilesNavigator({
       ? pendingProjectDir
       : initialProjectDirOverride;
   const scopeKey = filesWorkspaceScopeKey(scope);
-  const [entries, setEntries] = useState<DirectoryEntry[]>([]);
   const [allProfileFiles, setAllProfileFiles] = useState<DirectoryEntry[]>([]);
   const [dailyFiles, setDailyFiles] = useState<MemoryTreeEntry[]>([]);
   const [digestFiles, setDigestFiles] = useState<MemoryTreeEntry[]>([]);
   const [enabledFiles, setEnabledFiles] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
-  const [cursor, setCursor] = useState<string | null>(null);
-  const [hasMore, setHasMore] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [pendingUploads, setPendingUploads] = useState<File[] | null>(null);
   const [conflictingNames, setConflictingNames] = useState<string[]>([]);
@@ -403,6 +396,40 @@ export default function FilesNavigator({
   const [projectDirectory, setProjectDirectory] = useState("");
   const [workspaceDirectory, setWorkspaceDirectory] = useState("");
   const [workspaceRoot, setWorkspaceRoot] = useState<WorkspaceRoot>("project");
+  const [directoryRevision, setDirectoryRevision] = useState(0);
+  const [expansion, setExpansion] = useState<
+    Record<string, ReadonlySet<string>>
+  >({});
+  const directoryIdentity = JSON.stringify([
+    scopeKey,
+    chatId,
+    projectDirOverride,
+    workspaceRoot,
+  ]);
+  const expandedPaths = expansion[directoryIdentity] ?? new Set<string>();
+  const toggleDirectory = (path: string) =>
+    setExpansion((current) => {
+      const paths = new Set(current[directoryIdentity]);
+      if (paths.has(path)) paths.delete(path);
+      else paths.add(path);
+      return { ...current, [directoryIdentity]: paths };
+    });
+  const {
+    entries,
+    hasMore,
+    loading: rootLoading,
+    failed: rootFailed,
+    reload: loadRoot,
+    loadMore: loadMoreRoot,
+  } = useDirectoryListing(
+    "",
+    workspaceRoot,
+    chatId,
+    projectDirOverride,
+    scopeKey,
+    directoryRevision,
+  );
+  const navigatorLoading = source === "workspace" ? rootLoading : loading;
   // Every directory bound to this session, primary first. Only session scope
   // can hold more than one — an agent default is a single directory — so agent
   // scope keeps the synthesized single-entry list below.
@@ -637,25 +664,6 @@ export default function FilesNavigator({
     }
   }, [agentId, chatId, projectDirOverride, scopeKind, sessionId]);
 
-  const loadRoot = useCallback(async () => {
-    setLoading(true);
-    try {
-      const page = await workspaceApi.listDirectory(
-        "",
-        undefined,
-        200,
-        chatId,
-        workspaceRoot,
-        projectDirOverride,
-      );
-      setEntries(page.entries);
-      setCursor(page.next_cursor);
-      setHasMore(page.has_more);
-    } finally {
-      setLoading(false);
-    }
-  }, [chatId, projectDirOverride, workspaceRoot]);
-
   const loadProfile = useCallback(async () => {
     setLoading(true);
     try {
@@ -703,8 +711,8 @@ export default function FilesNavigator({
   }, []);
 
   useEffect(() => {
-    void Promise.all([loadDirectoryIdentity(), loadRoot(), loadProfile()]);
-  }, [loadDirectoryIdentity, loadProfile, loadRoot]);
+    void Promise.all([loadDirectoryIdentity(), loadProfile()]);
+  }, [loadDirectoryIdentity, loadProfile]);
 
   // Keep the viewed root one the switcher actually offers. Covers both the
   // primary-is-the-workspace case (where "project" is never offered) and a
@@ -733,7 +741,7 @@ export default function FilesNavigator({
       await loadProfile();
       return;
     }
-    await loadRoot();
+    setDirectoryRevision((current) => current + 1);
   };
 
   const runUpload = async (
@@ -953,7 +961,7 @@ export default function FilesNavigator({
           items={enabledFiles}
           strategy={verticalListSortingStrategy}
         >
-          <div className={styles.tree} role="tree" aria-busy={loading}>
+          <div className={styles.tree} role="tree" aria-busy={navigatorLoading}>
             {source === "profile" && (
               <button
                 type="button"
@@ -964,7 +972,7 @@ export default function FilesNavigator({
                 <span>{t("files.addSystemPrompt")}</span>
               </button>
             )}
-            {loading && displayEntries.length === 0 ? (
+            {navigatorLoading && displayEntries.length === 0 ? (
               <div className={styles.empty}>
                 <LoaderCircle className={styles.spin} size={16} />
                 {t("common.loading")}
@@ -988,7 +996,7 @@ export default function FilesNavigator({
                   }
                   return (
                     <DirectoryNode
-                      key={entry.path}
+                      key={`${directoryIdentity}:${entry.path}`}
                       entry={entry}
                       chatId={chatId}
                       projectDirOverride={projectDirOverride}
@@ -996,6 +1004,10 @@ export default function FilesNavigator({
                       selectedPath={selectedPath}
                       onSelect={onSelect}
                       root={workspaceRoot}
+                      scopeKey={scopeKey}
+                      revision={directoryRevision}
+                      expandedPaths={expandedPaths}
+                      onToggle={toggleDirectory}
                     />
                   );
                 }
@@ -1037,26 +1049,18 @@ export default function FilesNavigator({
                 );
               })
             )}
-            {!loading && displayEntries.length === 0 && (
+            {source === "workspace" && rootFailed && (
+              <div role="alert">{t("files.loadFailed")}</div>
+            )}
+            {!navigatorLoading && displayEntries.length === 0 && (
               <div className={styles.empty}>{t("files.sourceEmpty")}</div>
             )}
             {source === "workspace" && hasMore && (
               <button
                 type="button"
                 className={styles.loadMore}
-                onClick={async () => {
-                  const page = await workspaceApi.listDirectory(
-                    "",
-                    cursor ?? undefined,
-                    200,
-                    chatId,
-                    workspaceRoot,
-                    projectDirOverride,
-                  );
-                  setEntries((current) => [...current, ...page.entries]);
-                  setCursor(page.next_cursor);
-                  setHasMore(page.has_more);
-                }}
+                onClick={() => void loadMoreRoot()}
+                disabled={rootLoading || rootFailed}
               >
                 {t("files.loadMore")}
               </button>
