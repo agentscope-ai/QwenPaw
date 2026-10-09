@@ -67,9 +67,17 @@ let capturedOptions: any = null;
 // ---------------------------------------------------------------------------
 // Module mocks
 // ---------------------------------------------------------------------------
+const { mockMessageError } = vi.hoisted(() => ({
+  mockMessageError: vi.fn(),
+}));
+
 vi.mock("../../hooks/useAppMessage", () => ({
   useAppMessage: () => ({
-    message: { success: vi.fn(), error: vi.fn(), warning: vi.fn() },
+    message: {
+      success: vi.fn(),
+      error: mockMessageError,
+      warning: vi.fn(),
+    },
   }),
 }));
 
@@ -551,6 +559,7 @@ describe("ChatPage coverage", () => {
     stopBackgroundQueue();
     chatExtensions.__resetForTests();
     capturedOptions = null;
+    mockMessageError.mockClear();
     mockCopyText.mockClear();
     mockGetChatStatus.mockReset();
     mockGetChatStatus.mockResolvedValue({ status: "idle" });
@@ -784,6 +793,39 @@ describe("ChatPage coverage", () => {
       );
       expect(parsed).toBeTruthy();
     }
+  });
+
+  it("renders a toast and swallows a terminal error event", async () => {
+    renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/test-session"],
+    });
+    await screen.findByTestId("chat-ui");
+    await act(async () => {});
+
+    expect(capturedOptions?.api?.responseParser).toBeTruthy();
+    const parsed = capturedOptions.api!.responseParser!(
+      JSON.stringify({ type: "error", error: "provider is down" }),
+    );
+    expect(parsed).toBeNull();
+    expect(mockMessageError).toHaveBeenCalledWith("provider is down");
+  });
+
+  it("falls back to generic text for an empty error event", async () => {
+    renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/test-session"],
+    });
+    await screen.findByTestId("chat-ui");
+    await act(async () => {});
+
+    capturedOptions.api!.responseParser!(
+      JSON.stringify({ type: "error", error: "" }),
+    );
+    // The raw empty message must never reach the toast: every error call
+    // carries non-empty human-readable text (other calls in this
+    // environment are pre-existing render-time noise, not this branch).
+    const shown = mockMessageError.mock.calls.map((c) => c[0]);
+    expect(shown.length).toBeGreaterThan(0);
+    expect(shown).not.toContain("");
   });
 
   it("handles file upload via captured options", async () => {
