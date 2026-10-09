@@ -238,9 +238,15 @@ def build_agent_chat_request(
         session_id,
     )
     final_text = ensure_agent_identity_prefix(text, caller_agent_id)
+    # Chats are keyed by (session_id, user_id, channel): using the caller
+    # agent id as user_id makes the console router auto-register the target
+    # session as a second chat on every call (issue #8078). The caller
+    # identity is still carried by the text prefix and root_agent_id.
+    from ...app.agent_context import get_current_user_id
+
     request_payload = {
         "session_id": final_session_id,
-        "user_id": caller_agent_id,
+        "user_id": get_current_user_id() or "",
         "input": [
             {
                 "role": "user",
