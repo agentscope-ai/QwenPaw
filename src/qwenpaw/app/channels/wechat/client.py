@@ -18,6 +18,7 @@ import base64
 import hashlib
 import logging
 import secrets
+import time
 import uuid
 from typing import Any, Dict, Optional, Tuple
 from urllib.parse import quote
@@ -174,15 +175,14 @@ class ILinkClient:
             TimeoutError: If login not confirmed within max_wait.
             RuntimeError: If QR code expired.
         """
-        elapsed = 0.0
-        while elapsed < max_wait:
+        deadline = time.monotonic() + max_wait
+        while time.monotonic() < deadline:
             try:
                 data = await self.get_qrcode_status(qrcode)
             except httpx.ReadTimeout:
                 logger.warning(
                     "wechat: QR status poll timed out, retrying…",
                 )
-                elapsed += poll_interval
                 continue
             status = data.get("status", "")
             if status == "confirmed":
@@ -195,7 +195,6 @@ class ILinkClient:
                     message="WeChat QR code expired, please retry login",
                 )
             await asyncio.sleep(poll_interval)
-            elapsed += poll_interval
         raise TimeoutError(f"WeChat QR code not scanned within {max_wait}s")
 
     # ------------------------------------------------------------------
