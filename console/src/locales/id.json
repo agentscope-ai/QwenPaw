@@ -1091,6 +1091,12 @@
   },
   "chat": {
     "sessionLoadFailed": "Percakapan tidak dapat dimuat. Silakan buka kembali.",
+    "longTextPaste": {
+      "title": "Tempel teks panjang",
+      "asText": "Tempel sebagai teks",
+      "asFile": "Lampirkan sebagai file",
+      "characters": "{{count}} karakter"
+    },
     "newTask": "Tugas baru",
     "newChat": "Chat baru",
     "groups": {
@@ -1117,7 +1123,6 @@
     "prompt1": "Mari mulai perjalanan baru!",
     "prompt2": "Bisa jelaskan skill apa saja yang Anda miliki?",
     "inputPlaceholder": "\"↑↓\" untuk navigasi pesan · \"/\" untuk perintah cepat",
-    "longTextUploadPrompt": "Harap baca file prompt yang diunggah dan jawab berdasarkan isinya.",
     "emptyOutputError": "Asisten mengembalikan respons kosong.",
     "commands": {
       "clear": {

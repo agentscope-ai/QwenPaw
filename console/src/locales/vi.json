@@ -1107,6 +1107,12 @@
   },
   "chat": {
     "sessionLoadFailed": "Không thể tải cuộc trò chuyện. Vui lòng mở lại.",
+    "longTextPaste": {
+      "title": "Dán văn bản dài",
+      "asText": "Dán dưới dạng văn bản",
+      "asFile": "Đính kèm tệp",
+      "characters": "{{count}} ký tự"
+    },
     "newTask": "Tác vụ mới",
     "newChat": "Cuộc trò chuyện mới",
     "groups": {
@@ -1133,7 +1139,6 @@
     "prompt1": "Hãy bắt đầu hành trình mới!",
     "prompt2": "Bạn có thể cho tôi biết những kỹ năng của mình không?",
     "inputPlaceholder": "\"↑↓\" điều hướng tin nhắn · \"/\" lệnh nhanh",
-    "longTextUploadPrompt": "Vui lòng đọc tệp prompt đã tải lên và trả lời dựa trên nội dung đó.",
     "emptyOutputError": "Trợ lý đã trả về phản hồi trống.",
     "commands": {
       "clear": {

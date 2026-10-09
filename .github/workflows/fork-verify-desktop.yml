@@ -161,6 +161,7 @@ jobs:
           New-Item -ItemType Directory -Force -Path dist | Out-Null
           Copy-Item -Force $installer.FullName $target
           Write-Host "Staged: $target"
+          Write-Host "Installer size: $($installer.Length) bytes ($([Math]::Round($installer.Length / 1MB, 2)) MiB)"
 
       - name: Verify desktop (Tauri Windows)
         timeout-minutes: 10

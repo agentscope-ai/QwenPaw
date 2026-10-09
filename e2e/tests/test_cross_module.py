@@ -173,7 +173,7 @@ class TestSkillAgentChatFlow:
             page.wait_for_timeout(1500)
 
             log_test_step("3. Fill in skill information")
-            drawer = page.locator('.qwenpaw-drawer').first
+            drawer = page.locator('[role="dialog"]:visible')
             expect(drawer).to_be_visible(timeout=5000)
 
             name_input = drawer.locator('input[placeholder*="name"], input').first
@@ -447,7 +447,7 @@ class TestSecurityInterceptionInChat:
             navigate_to_security(page)
 
             log_test_step("2. Check the tool-guard tab")
-            tool_guard_tab = page.locator('[data-node-key="toolGuard"] .qwenpaw-tabs-tab-btn').first
+            tool_guard_tab = page.get_by_role("tab", name="Tool Guard")
             if tool_guard_tab.is_visible(timeout=5000):
                 tool_guard_tab.click()
                 page.wait_for_timeout(1500)
@@ -463,7 +463,7 @@ class TestSecurityInterceptionInChat:
                 logger.info("Tool-guard switch not found")
 
             log_test_step("4. Check the file-guard tab")
-            file_guard_tab = page.locator('[data-node-key="fileGuard"] .qwenpaw-tabs-tab-btn').first
+            file_guard_tab = page.get_by_role("tab", name="File Guard")
             if file_guard_tab.is_visible(timeout=3000):
                 file_guard_tab.click()
                 page.wait_for_timeout(1000)
@@ -526,7 +526,7 @@ class TestSecurityInterceptionInChat:
             log_test_step("8. Return to the security page and verify config consistency")
             navigate_to_security(page)
 
-            tool_guard_tab = page.locator('[data-node-key="toolGuard"] .qwenpaw-tabs-tab-btn').first
+            tool_guard_tab = page.get_by_role("tab", name="Tool Guard")
             if tool_guard_tab.is_visible(timeout=5000):
                 tool_guard_tab.click()
                 page.wait_for_timeout(1000)
@@ -772,8 +772,8 @@ class TestEnvAndRuntimeConfigFlow:
         # data-node-key anchors are already proven green in
         # e2e/tests/test_runtime_config.py, so no new selector idiom is
         # introduced here.
-        for tab_key in ("llmRetry", "llmRateLimiter"):
-            tab = page.locator(f'[data-node-key="{tab_key}"] .qwenpaw-tabs-tab-btn').first
+        for tab_key in ("Recovery", "Context budget"):
+            tab = page.get_by_role("tab", name=tab_key)
             expect(tab).to_be_visible(timeout=10000)
             logger.info(f"Agent config tab present: {tab_key}")
         # The two pages coexist as separate routes: #7538 unified how

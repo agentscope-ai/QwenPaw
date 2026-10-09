@@ -51,6 +51,7 @@
         "silent": true
       },
       "nsis": {
+        "template": "nsis/tauri-installer.nsi",
         "installerIcon": "../../scripts/pack/assets/icon.ico",
         "uninstallerIcon": "../../scripts/pack/assets/icon.ico",
         "installerHooks": "nsis-hooks.nsh",

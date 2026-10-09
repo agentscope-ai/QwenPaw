@@ -11,7 +11,7 @@ import termios
 import threading
 
 
-IO_POLL_INTERVAL = 0.1
+IO_POLL_TIMEOUT_MS = 100
 
 
 class PosixPty:
@@ -25,6 +25,10 @@ class PosixPty:
         self.decoder = codecs.getincrementaldecoder("utf-8")("replace")
         self.closing = threading.Event()
         os.set_blocking(master, False)
+        self.reader_poll = select.poll()
+        self.reader_poll.register(master, select.POLLIN)
+        self.writer_poll = select.poll()
+        self.writer_poll.register(master, select.POLLOUT)
 
     @classmethod
     def spawn(cls, command, cwd, env, dimensions):
@@ -70,13 +74,7 @@ class PosixPty:
     def read(self, size):
         """Decode output incrementally, tolerating arbitrary program bytes."""
         while not self.closing.is_set():
-            readable, _, _ = select.select(
-                [self.fd],
-                [],
-                [],
-                IO_POLL_INTERVAL,
-            )
-            if not readable:
+            if not self.reader_poll.poll(IO_POLL_TIMEOUT_MS):
                 continue
             try:
                 data = os.read(self.fd, size)
@@ -96,12 +94,7 @@ class PosixPty:
             try:
                 count = os.write(self.fd, data)
             except BlockingIOError:
-                select.select(
-                    [],
-                    [self.fd],
-                    [],
-                    IO_POLL_INTERVAL,
-                )
+                self.writer_poll.poll(IO_POLL_TIMEOUT_MS)
                 continue
             data = data[count:]
 

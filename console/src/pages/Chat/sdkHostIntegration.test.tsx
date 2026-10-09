@@ -12,6 +12,7 @@ import { useSyncExternalStore, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { renderWithProviders } from "@/test/common_setup";
 import ChatPage from "./index";
+import { LongTextPasteInput } from "./LongTextPaste";
 import { chatExtensions } from "@/plugins/registry/chatExtensions";
 
 // ---------------------------------------------------------------------------
@@ -251,7 +252,7 @@ vi.mock("./OptionsPanel/defaultConfig", () => ({
       },
     },
     welcome: {},
-    sender: {},
+    sender: { longTextUpload: false },
   })),
 }));
 
@@ -1980,21 +1981,15 @@ describe("ChatPage coverage", () => {
     }
   });
 
-  // ── sender longTextUpload customRequest ────────────────────────────────
-  it("sender longTextUpload customRequest is available", async () => {
+  it("uses the host paste adapter without SDK draft conversion or truncation", async () => {
     renderWithProviders(<ChatPage />, {
       initialEntries: ["/chat/test-session"],
     });
     await screen.findByTestId("chat-ui");
 
-    const longTextUpload = capturedOptions?.sender?.longTextUpload;
-    if (longTextUpload) {
-      expect(typeof longTextUpload.customRequest).toBe("function");
-      expect(typeof longTextUpload.prompt).toBe("function");
-      // Exercise the prompt function
-      const promptText = longTextUpload.prompt();
-      expect(typeof promptText).toBe("string");
-    }
+    expect(capturedOptions?.sender?.longTextUpload).toBe(false);
+    expect(capturedOptions?.sender?.maxLength).toBeUndefined();
+    expect(capturedOptions?.sender?.components?.input).toBe(LongTextPasteInput);
   });
 
   // ── sender placeholder ─────────────────────────────────────────────────

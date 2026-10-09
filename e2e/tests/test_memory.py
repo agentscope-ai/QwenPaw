@@ -15,6 +15,7 @@ Cases:
 """
 from __future__ import annotations
 
+from copy import deepcopy
 import logging
 import time
 
@@ -54,14 +55,12 @@ class TestMemoryCardUI:
             memory_page.page.locator(memory_page.MEMORY_TAB).first
         ).to_be_visible(timeout=memory_page.timeout)
 
-        log_test_step("3. Click the tab and verify the dream_cron input")
+        log_test_step("3. Click the tab and verify the memory card")
         memory_page.click_memory_tab()
-        # The dream_cron input is unique to this card and is the most
-        # stable "card body rendered" signal; the card title text
-        # collides with the Tab label and the className is design-system
-        # specific.
         expect(
-            memory_page.page.locator(memory_page.DREAM_CRON_INPUT).first
+            memory_page.page.locator(
+                memory_page.MEMORY_CARD_HEADING
+            ).first
         ).to_be_visible(timeout=memory_page.timeout)
 
         log_test_result(test_name, True, 0)
@@ -224,21 +223,41 @@ class TestAutoMemoryIntervalPersistence:
         original_cfg = memory_page.api_get_running_config(api_context)
 
         try:
+            setup_cfg = deepcopy(original_cfg)
+            reme_cfg = setup_cfg.setdefault("reme_light_memory_config", {})
+            reme_cfg["auto_memory_interval"] = max(
+                int(reme_cfg.get("auto_memory_interval") or 0),
+                1,
+            )
+            memory_page.api_put_running_config(api_context, setup_cfg)
+            memory_page.wait_for_config_value(
+                api_context,
+                ("reme_light_memory_config", "auto_memory_interval"),
+                reme_cfg["auto_memory_interval"],
+            )
+
             log_test_step("1. Open /agent-config → Long-term Memory tab")
             memory_page.open_agent_config()
             memory_page.click_memory_tab()
             interval_input = memory_page.page.locator(
                 memory_page.AUTO_MEMORY_INTERVAL_INPUT
             ).first
-            expect(interval_input).to_be_visible(
-                timeout=memory_page.timeout
-            )
+            expect(
+                memory_page.page.locator(
+                    memory_page.AUTO_MEMORY_ENABLED_SWITCH
+                ).first
+            ).to_be_checked(timeout=memory_page.timeout)
+            expect(interval_input).to_be_editable(timeout=memory_page.timeout)
 
-            log_test_step("2. Fill a distinct value and save")
+            log_test_step("2. Fill a distinct value and wait for auto-save")
             old_value = interval_input.input_value()
             new_value = "7" if old_value != "7" else "9"
             interval_input.fill(new_value)
-            memory_page.click_save()
+            memory_page.wait_for_config_value(
+                api_context,
+                ("reme_light_memory_config", "auto_memory_interval"),
+                int(new_value),
+            )
 
             log_test_step("3. Reload page, re-open tab, value persisted")
             memory_page.page.reload(wait_until="domcontentloaded")
@@ -284,31 +303,54 @@ class TestDreamCronPersistence:
         original_cfg = memory_page.api_get_running_config(api_context)
 
         try:
+            setup_cfg = deepcopy(original_cfg)
+            reme_cfg = setup_cfg.setdefault("reme_light_memory_config", {})
+            reme_cfg["dream_cron_enabled"] = True
+            if not str(reme_cfg.get("dream_cron") or "").strip():
+                reme_cfg["dream_cron"] = "0 23 * * *"
+            memory_page.api_put_running_config(api_context, setup_cfg)
+            memory_page.wait_for_config_value(
+                api_context,
+                ("reme_light_memory_config", "dream_cron_enabled"),
+                True,
+            )
+
             log_test_step("1. Open /agent-config → Long-term Memory tab")
             memory_page.open_agent_config()
             memory_page.click_memory_tab()
+
+            log_test_step("2. Ensure Dream is enabled and select Advanced")
+            dream_switch = memory_page.page.locator(
+                memory_page.DREAM_CRON_ENABLED_SWITCH
+            ).first
+            expect(dream_switch).to_be_checked(timeout=memory_page.timeout)
+            memory_page.page.locator(
+                memory_page.DREAM_ADVANCED_OPTION
+            ).first.click()
             cron_input = memory_page.page.locator(
                 memory_page.DREAM_CRON_INPUT
             ).first
-            expect(cron_input).to_be_visible(timeout=memory_page.timeout)
+            expect(cron_input).to_be_editable(timeout=memory_page.timeout)
 
-            log_test_step("2. Ensure dream cron is enabled (input editable)")
-            if cron_input.is_disabled():
-                memory_page.page.locator(
-                    memory_page.DREAM_CRON_ENABLED_SWITCH
-                ).first.click()
-                memory_page.page.wait_for_timeout(300)
-
-            log_test_step("3. Fill a valid 5-field cron and save")
+            log_test_step("3. Fill a valid cron and wait for auto-save")
             old_value = cron_input.input_value()
-            new_value = "0 3 * * *" if old_value != "0 3 * * *" else "0 4 * * *"
+            new_value = (
+                "0 3 * * *" if old_value != "0 3 * * *" else "0 4 * * *"
+            )
             cron_input.fill(new_value)
-            memory_page.click_save()
+            memory_page.wait_for_config_value(
+                api_context,
+                ("reme_light_memory_config", "dream_cron"),
+                new_value,
+            )
 
             log_test_step("4. Reload page, re-open tab, cron persisted")
             memory_page.page.reload(wait_until="domcontentloaded")
             memory_page.page.wait_for_timeout(3000)
             memory_page.click_memory_tab()
+            memory_page.page.locator(
+                memory_page.DREAM_ADVANCED_OPTION
+            ).first.click()
             cron_after = memory_page.page.locator(
                 memory_page.DREAM_CRON_INPUT
             ).first
@@ -354,7 +396,7 @@ class TestAutoMemorySearchControls:
         memory_page.open_agent_config()
         memory_page.click_memory_tab()
         expect(
-            page.locator(memory_page.DREAM_CRON_INPUT).first
+            page.locator(memory_page.MEMORY_CARD_HEADING).first
         ).to_be_visible(timeout=memory_page.timeout)
 
         log_test_step("2. Locate the Auto Memory Search switch")
@@ -363,27 +405,27 @@ class TestAutoMemorySearchControls:
         switch = page.locator(memory_page.AUTO_SEARCH_SWITCH).first
         expect(switch).to_be_visible(timeout=memory_page.timeout)
 
-        log_test_step("3. Toggle the switch and assert aria-checked flips")
+        log_test_step("3. Enable auto search and verify max_results")
         before = switch.get_attribute("aria-checked")
-        switch.click()
-        page.wait_for_timeout(300)
-        after = switch.get_attribute("aria-checked")
-        assert before != after, (
-            f"auto search switch did not flip: {before} -> {after}"
-        )
+        if before != "true":
+            switch.click()
+            expect(switch).to_have_attribute("aria-checked", "true")
 
-        log_test_step("4. max_results is editable (fill 5, value sticks)")
+        log_test_step("4. max_results is editable and accepts a new value")
         max_results = page.locator(
             memory_page.AUTO_SEARCH_MAX_RESULTS_INPUT
         ).first
-        expect(max_results).to_be_visible(timeout=memory_page.timeout)
-        max_results.fill("5")
-        assert max_results.input_value() == "5"
+        expect(max_results).to_be_editable(timeout=memory_page.timeout)
+        old_max = max_results.input_value()
+        new_max = "5" if old_max != "5" else "6"
+        max_results.fill(new_max)
+        assert max_results.input_value() == new_max
 
-        log_test_step("5. Restore the switch (in-form only, never saved)")
-        switch.click()
-        page.wait_for_timeout(300)
-        assert switch.get_attribute("aria-checked") == before
+        log_test_step("5. Restore values before the auto-save debounce")
+        max_results.fill(old_max)
+        if before != "true":
+            switch.click()
+        expect(switch).to_have_attribute("aria-checked", before or "false")
 
         log_test_result(test_name, True, 0)
         logger.info(f"Test {test_name} passed")

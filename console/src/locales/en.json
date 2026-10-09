@@ -3985,6 +3985,12 @@
   },
   "chat": {
     "sessionLoadFailed": "Could not load this conversation. Please reopen it.",
+    "longTextPaste": {
+      "title": "Paste long text",
+      "asText": "Paste as text",
+      "asFile": "Attach as file",
+      "characters": "{{count}} characters"
+    },
     "switchSession": "Switch conversation",
     "lastActive": "Last active · {{time}}",
     "fileReference": {
@@ -4011,7 +4017,6 @@
     "prompt1": "Let's start a new journey!",
     "prompt2": "Can you tell me what skills you have?",
     "inputPlaceholder": "\"↑↓\" for message navigation · \"/\" for quick commands",
-    "longTextUploadPrompt": "Please read the uploaded prompt file and answer it.",
     "emptyOutputError": "The assistant returned an empty response.",
     "commands": {
       "clear": {

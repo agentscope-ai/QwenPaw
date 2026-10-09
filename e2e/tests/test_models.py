@@ -723,7 +723,9 @@ class TestProviderSearchFilter:
         page.wait_for_timeout(3000)
 
         log_test_step("Verify search box exists")
-        search_input = page.locator('input[type="search"], input[placeholder*="search"], input[placeholder*="Search"], input[placeholder*="搜索"], .qwenpaw-input-search input').first
+        search_input = page.locator(
+            'input[name="models-provider-search-nofill"]'
+        ).first
         expect(search_input).to_be_visible(timeout=5000)
         logger.info("Search box exists")
 
@@ -748,21 +750,12 @@ class TestProviderSearchFilter:
         logger.info(f"Provider count before search: {initial_count}")
 
         log_test_step("Enter search keyword")
-        # Search box is a qwenpaw-select component (readonly input); need to click the parent container to open dropdown
-        is_readonly = search_input.get_attribute("readonly") is not None
-        if is_readonly:
-            # Click the Select container (parent) rather than the input itself
-            select_container = page.locator('.qwenpaw-select').first
-            select_container.click()
-            page.wait_for_timeout(500)
-            page.keyboard.type("ollama")
-            page.wait_for_timeout(1500)
-            # Press Escape to close the dropdown
-            page.keyboard.press("Escape")
-            page.wait_for_timeout(500)
-        else:
-            search_input.fill("ollama")
-            page.wait_for_timeout(1500)
+        # The input starts readonly to avoid browser autofill. Focusing it
+        # clears readonly through the component's onFocus handler.
+        search_input.click()
+        expect(search_input).to_be_editable(timeout=5000)
+        search_input.fill("ollama")
+        page.wait_for_timeout(1500)
 
         filtered_cards = page.locator(provider_tile).all()
         filtered_count = len(filtered_cards)
@@ -774,20 +767,7 @@ class TestProviderSearchFilter:
         logger.info("Search filter is effective")
 
         log_test_step("Clear search to restore the full list")
-        if is_readonly:
-            # For Select components, clear the selection
-            clear_btn = page.locator('.qwenpaw-select-clear').first
-            if clear_btn.count() > 0:
-                clear_btn.click()
-            else:
-                select_container = page.locator('.qwenpaw-select').first
-                select_container.click()
-                page.wait_for_timeout(300)
-                page.keyboard.press("Control+a")
-                page.keyboard.press("Backspace")
-                page.keyboard.press("Escape")
-        else:
-            search_input.clear()
+        search_input.clear()
         page.wait_for_timeout(1500)
 
         restored_cards = page.locator(provider_tile).all()

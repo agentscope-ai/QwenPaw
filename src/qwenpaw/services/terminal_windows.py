@@ -5,35 +5,30 @@ import codecs
 import ctypes
 import importlib
 import multiprocessing
+import sys
 import threading
 import time
 
 import psutil
 
 
-def interrupt_console(pid):
-    """Send Ctrl+C only from the isolated worker to its shell's console."""
+def enable_ctrl_c():
+    """Clear inherited Ctrl+C suppression in the isolated PTY worker."""
+    if sys.platform != "win32":
+        return
+    # Console Ctrl+C ignore state is inherited, including by ConPTY children.
+    # Reset it before spawning the shell; writing ETX cannot override it.
     kernel = ctypes.WinDLL("kernel32", use_last_error=True)
-    kernel.FreeConsole()
-    if not kernel.AttachConsole(pid):
+    if not kernel.SetConsoleCtrlHandler(None, False):
         raise ctypes.WinError(ctypes.get_last_error())
-    try:
-        if not kernel.SetConsoleCtrlHandler(None, True):
-            raise ctypes.WinError(ctypes.get_last_error())
-        if not kernel.GenerateConsoleCtrlEvent(0, 0):
-            raise ctypes.WinError(ctypes.get_last_error())
-        # Control handlers run asynchronously; stay attached for delivery.
-        time.sleep(0.1)
-    finally:
-        kernel.FreeConsole()
 
 
 def write_input(process, data):
-    """Preserve text order while translating ETX into a console event."""
+    """Send interrupts through the owned PTY, preserving input order."""
     parts = data.split("\x03")
     for index, part in enumerate(parts):
         if index:
-            interrupt_console(process.pid)
+            process.sendintr()
         if part:
             process.write(part)
 
@@ -64,6 +59,7 @@ def pty_worker(control, output, command, cwd, env, dimensions):
     """Own one native PTY; process exit releases its OS handles as well."""
     try:
         native = importlib.import_module("winpty").PtyProcess
+        enable_ctrl_c()
         process = native.spawn(
             command,
             cwd=cwd,

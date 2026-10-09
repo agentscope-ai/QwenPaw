@@ -3845,6 +3845,12 @@
   },
   "chat": {
     "sessionLoadFailed": "会话加载失败，请重新打开此会话。",
+    "longTextPaste": {
+      "title": "粘贴长文本",
+      "asText": "粘贴为文本",
+      "asFile": "作为附件",
+      "characters": "{{count}} 个字符"
+    },
     "switchSession": "切换会话",
     "lastActive": "上次活跃 · {{time}}",
     "fileReference": {
@@ -3870,7 +3876,6 @@
     "prompt1": "让我们开启一段新的旅程吧！",
     "prompt2": "能告诉我你有哪些技能吗？",
     "inputPlaceholder": "\"↑↓\" 浏览消息 · \"/\" 快捷指令",
-    "longTextUploadPrompt": "请读取已上传的提示词文件，并根据文件内容回答。",
     "emptyOutputError": "助手返回了空响应。",
     "commands": {
       "clear": {
