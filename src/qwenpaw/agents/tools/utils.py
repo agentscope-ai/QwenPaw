@@ -251,7 +251,7 @@ class ToolResultPruner:
         """Prune one text block, preserving fresh content unless saved."""
         if not text:
             return text, {}
-        if TRUNCATION_NOTICE_MARKER in text:
+        if _validated_truncation_info(text, metadata, encoding, block_index):
             return truncate_text_output(
                 text,
                 max_bytes=max_bytes,
@@ -280,7 +280,7 @@ class ToolResultPruner:
             encoding=encoding,
             block_index=block_index,
         )
-        if TRUNCATION_NOTICE_MARKER not in candidate:
+        if not patch:
             return text, {}
         return candidate, patch
 
@@ -359,93 +359,71 @@ def _truncate_fresh(
     return result + info["notice"], metadata
 
 
-def _legacy_truncation_metadata(
+def _validated_truncation_info(
     text: str,
+    metadata: dict[str, Any] | None,
+    encoding: str,
     block_index: int,
-) -> dict[str, Any]:
-    """Recover enough metadata to compact persisted pre-metadata results."""
-    notice = text.split(TRUNCATION_NOTICE_MARKER, 1)[1]
-    patterns = {
-        "total_lines": r"contains (\d+) lines in total",
-        "start_line": r"starts at line (\d+)",
-        "max_bytes": r"covers the next (\d+) bytes",
-        "read_from": r"start_line=(\d+) to read more",
-    }
-    values = {}
-    for key, pattern in patterns.items():
-        match = re.search(pattern, notice)
-        if not match:
-            return {}
-        values[key] = int(match.group(1))
-    path_match = re.search(
-        r'file_path=(?:"(?P<quoted>[^"]*)"|(?P<legacy>.*?)) '
-        r"start_line=\d+ to read more",
-        notice,
-    )
-    file_path = None
-    if path_match:
-        file_path = path_match.group("quoted")
-        if file_path is None:
-            file_path = path_match.group("legacy")
-    return build_truncation_metadata(
-        file_path=file_path,
-        file_size_bytes=None,
-        excerpt_bytes=len(text.split(TRUNCATION_NOTICE_MARKER, 1)[0].encode()),
-        total_lines=values["total_lines"],
-        start_line=values["start_line"],
-        max_bytes=values["max_bytes"],
-        read_from=values["read_from"],
-        block_index=block_index,
-    )
+) -> dict[str, Any] | None:
+    """Accept only a block's structured record matching its bounded suffix.
+
+    Marker strings and legacy notices in output are ordinary content, not
+    evidence of framework truncation. Historical results without metadata
+    are handled as fresh text so their complete visible content is preserved.
+    """
+    if not isinstance(metadata, dict):
+        return None
+    by_block = metadata.get(TRUNCATION_METADATA_KEY)
+    if not isinstance(by_block, dict):
+        return None
+    info = by_block.get(str(block_index))
+    if not isinstance(info, dict) or info.get("version") != 1:
+        return None
+    for key in ("start_line", "total_lines", "max_bytes", "excerpt_bytes"):
+        if type(info.get(key)) is not int:
+            return None
+    if (
+        info["start_line"] < 1
+        or info["total_lines"] < info["start_line"]
+        or info["max_bytes"] <= 0
+        or not 0 <= info["excerpt_bytes"] <= info["max_bytes"]
+    ):
+        return None
+    notice = info.get("notice")
+    if (
+        not isinstance(notice, str)
+        or not notice.startswith(TRUNCATION_NOTICE_MARKER)
+        or not text.endswith(notice)
+    ):
+        return None
+    try:
+        if len(notice.encode(encoding)) > MAX_TRUNCATION_NOTICE_BYTES:
+            return None
+        if len(text[: -len(notice)].encode(encoding)) != info["excerpt_bytes"]:
+            return None
+    except UnicodeEncodeError:
+        return None
+    return info
 
 
 def _retruncate(
     text: str,
     max_bytes: int,
-    metadata: dict[str, Any] | None,
+    info: dict[str, Any],
     encoding: str,
     block_index: int,
 ) -> tuple[str, dict[str, Any]]:
-    """Re-truncate text that was previously truncated (contains TRUNCATION_NOTICE_MARKER).
-
-    Metadata is authoritative. Text parsing is only used to migrate persisted
-    results created before truncation metadata was introduced.
-    """
-    current = dict(metadata or {})
-    by_block = current.get(TRUNCATION_METADATA_KEY)
-    if not isinstance(by_block, dict):
-        by_block = {}
-    info = by_block.get(str(block_index))
-    if not isinstance(info, dict):
-        legacy = _legacy_truncation_metadata(text, block_index)
-        legacy_by_block = legacy.get(TRUNCATION_METADATA_KEY, {})
-        info = legacy_by_block.get(str(block_index))
-    if not isinstance(info, dict):
-        return text, {}
-
-    try:
-        start_line = int(str(info.get("start_line")))
-        total_lines = int(str(info.get("total_lines")))
-    except (TypeError, ValueError):
-        return text, {}
-    if start_line < 1 or total_lines < start_line:
-        return text, {}
-
-    old_notice = info.get("notice", "")
-    original_content = (
-        text[: -len(old_notice)]
-        if old_notice and text.endswith(old_notice)
-        else text.split(TRUNCATION_NOTICE_MARKER, 1)[0]
-    )
+    """Re-truncate using a validated record, never a marker in the body."""
+    start_line = info["start_line"]
+    total_lines = info["total_lines"]
+    original_content = text[: -len(info["notice"])]
 
     text_bytes = original_content.encode(encoding)
 
     if len(text_bytes) <= max_bytes:
         return text, {}
 
-    # Re-slice to the new byte limit.
-    # Because every line is assumed to be shorter than DEFAULT_MAX_BYTES, the cut
-    # always falls somewhere mid-line, so at least one complete line is preserved.
+    # Re-slice to the new byte limit, including oversized single lines.
     truncated_bytes = text_bytes[:max_bytes]
     # errors="ignore" silently drops any incomplete multi-byte character at the cut boundary.
     result = truncated_bytes.decode(encoding, errors="ignore")
@@ -492,15 +470,15 @@ def truncate_text_output(
     allowing the next read to start from a fresh line.
 
     Dispatches to :func:`_truncate_fresh` for text seen for the first time, or to
-    :func:`_retruncate` when the text already contains a TRUNCATION_NOTICE_MARKER
-    from a previous pass.
+    :func:`_retruncate` when matching structured metadata identifies a previous
+    pass. Literal markers and unverified legacy notices are ordinary content.
 
     Args:
         text: The output text to truncate.
         start_line: The starting line number (1-based). Ignored when text already
-            contains a truncation notice (values are parsed from the notice instead).
+            has valid truncation metadata (values are taken from metadata).
         total_lines: Total lines in the original file. Ignored when text already
-            contains a truncation notice (values are parsed from the notice instead).
+            has valid truncation metadata (values are taken from metadata).
         max_bytes: Maximum size in bytes.
         file_path: Optional file path to include in the truncation notice.
         encoding: Character encoding used for byte-length calculation and decoding.
@@ -515,11 +493,17 @@ def truncate_text_output(
         return text, {}
 
     try:
-        if TRUNCATION_NOTICE_MARKER in text:
+        info = _validated_truncation_info(
+            text,
+            metadata,
+            encoding,
+            block_index,
+        )
+        if info is not None:
             return _retruncate(
                 text,
                 max_bytes=max_bytes,
-                metadata=metadata,
+                info=info,
                 encoding=encoding,
                 block_index=block_index,
             )
@@ -527,7 +511,7 @@ def truncate_text_output(
             return _truncate_fresh(
                 text,
                 start_line=start_line,
-                total_lines=total_lines,
+                total_lines=total_lines or (start_line + text.count("\n")),
                 max_bytes=max_bytes,
                 file_path=file_path,
                 file_size_bytes=file_size_bytes,
