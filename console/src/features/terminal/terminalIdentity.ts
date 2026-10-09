@@ -29,11 +29,28 @@ function save() {
   }
 }
 
+function createTerminalGroupId(): string {
+  if (crypto.randomUUID) return crypto.randomUUID();
+
+  // getRandomValues also works on HTTP origins outside localhost.
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0"));
+  return [
+    hex.slice(0, 4).join(""),
+    hex.slice(4, 6).join(""),
+    hex.slice(6, 8).join(""),
+    hex.slice(8, 10).join(""),
+    hex.slice(10).join(""),
+  ].join("-");
+}
+
 export function terminalGroup(agentId: string, sessionId: string): string {
   const key = JSON.stringify([agentId, sessionId]);
   const entries = readGroups();
   if (!entries[key]) {
-    entries[key] = crypto.randomUUID();
+    entries[key] = createTerminalGroupId();
     save();
   }
   return entries[key];
