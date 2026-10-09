@@ -1108,6 +1108,7 @@ class TranscriptStore:
         if max_bytes < 1:
             raise ValueError("transcript page max_bytes must be positive")
         with self._read_connection() as connection:
+            connection.execute("BEGIN")
             session = self._session_row(session_id, connection)
             if session is None:
                 return None

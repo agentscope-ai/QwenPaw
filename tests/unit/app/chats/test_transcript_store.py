@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """Tests for the independent durable chat transcript store."""
 
+from contextlib import contextmanager
 import threading
 
 import pytest
@@ -598,4 +599,93 @@ def test_running_turn_exposes_user_but_defers_sse_owned_outputs(tmp_path):
         "reasoning-1",
     ]
     assert completed.messages[1].content[0].text == "thinking"
+    store.close()
+
+
+def test_page_uses_one_snapshot_when_running_turn_finishes(
+    tmp_path,
+    monkeypatch,
+):
+    store = TranscriptStore(tmp_path / "session.db")
+    _start(store, "old-turn")
+    store.upsert_message(
+        session_id="session-1",
+        turn_id="old-turn",
+        message=_message("old-user", "old"),
+        ordinal=0,
+    )
+    store.finish_turn(
+        session_id="session-1",
+        turn_id="old-turn",
+        status="completed",
+    )
+    _start(store, "active-turn")
+    store.upsert_message(
+        session_id="session-1",
+        turn_id="active-turn",
+        message=_message("active-user", "question"),
+        ordinal=0,
+    )
+    store.upsert_message(
+        session_id="session-1",
+        turn_id="active-turn",
+        message=_message("active-assistant", "answer", role="assistant"),
+        ordinal=1,
+    )
+
+    finish_requested = threading.Event()
+    finish_completed = threading.Event()
+
+    def finish_turn() -> None:
+        assert finish_requested.wait(timeout=5)
+        store.finish_turn(
+            session_id="session-1",
+            turn_id="active-turn",
+            status="completed",
+        )
+        finish_completed.set()
+
+    writer = threading.Thread(target=finish_turn)
+    writer.start()
+    # pylint: disable=protected-access
+    original_read_connection = store._read_connection
+    # pylint: enable=protected-access
+
+    @contextmanager
+    def interleaved_read_connection():
+        with original_read_connection() as connection:
+            snapshot_started = False
+
+            class ConnectionProxy:
+                """Finish the turn immediately before the body query."""
+
+                def execute(self, sql, parameters=()):
+                    nonlocal snapshot_started
+                    if sql == "BEGIN":
+                        snapshot_started = True
+                    if sql.startswith("SELECT m.payload_json"):
+                        finish_requested.set()
+                        if not snapshot_started:
+                            assert finish_completed.wait(timeout=5)
+                    return connection.execute(sql, parameters)
+
+            yield ConnectionProxy()
+
+    monkeypatch.setattr(
+        store,
+        "_read_connection",
+        interleaved_read_connection,
+    )
+    page = store.get_page(
+        session_id="session-1",
+        user_id="user-1",
+        channel="console",
+        limit=1,
+    )
+    writer.join(timeout=5)
+
+    assert not writer.is_alive()
+    assert page is not None
+    assert [message.id for message in page.messages] == ["active-user"]
+    assert page.next_before == TranscriptCursor(turn_seq=2, ordinal=0)
     store.close()
