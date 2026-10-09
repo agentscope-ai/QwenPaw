@@ -10,6 +10,14 @@ from typing import Any, AsyncGenerator
 from agentscope.model import ChatModelBase
 from agentscope.model._model_response import ChatResponse
 
+from .model_cooldown import (
+    CooldownPolicy,
+    cooldown_remaining,
+    is_on_cooldown,
+    model_cooldown_key,
+    record_model_failure,
+    record_model_success,
+)
 from .model_error_policy import classify_model_error, is_fallback_eligible
 from .stream_progress import has_meaningful_stream_content
 
@@ -37,9 +45,31 @@ def install_fallback_notice_sink() -> dict[str, Any]:
 
 
 class FallbackChatModel(ChatModelBase):
-    """Try configured models in order before any response becomes visible."""
+    """Try configured models in order before any response becomes visible.
 
-    def __init__(self, models: list[ChatModelBase]) -> None:
+    A candidate that fails a hop is put on cooldown, so the next request
+    starts from a healthy candidate instead of paying the failing model's
+    retry cost again.  Cooldown never turns a slow request into a failed
+    one: a cooling candidate moves to the back of the order rather than
+    dropping out, so every candidate a plain chain would try is still
+    tried, and only the order changes.
+    """
+
+    def __init__(
+        self,
+        models: list[ChatModelBase],
+        cooldown: CooldownPolicy | None = None,
+    ) -> None:
+        """Wrap an ordered candidate chain.
+
+        Args:
+            models: Candidates in configuration order; the first is the
+                primary.
+            cooldown: Policy for skipping a candidate that just failed a
+                hop.  ``None`` selects the default policy, which is
+                **enabled**; pass ``CooldownPolicy(enabled=False)`` to
+                switch cooldown off entirely.
+        """
         if not models:
             raise ValueError("FallbackChatModel requires at least one model")
         primary = models[0]
@@ -62,6 +92,8 @@ class FallbackChatModel(ChatModelBase):
             context_size=getattr(primary, "context_size", 32_768),
         )
         self._models = models
+        self._cooldown = cooldown or CooldownPolicy()
+        self._cooldown_keys = tuple(self._key_for(model) for model in models)
         self._thinking_omit_ids: set[str] = set()
         self._activate_model(primary)
 
@@ -116,17 +148,30 @@ class FallbackChatModel(ChatModelBase):
 
     @property
     def context_size(self) -> int:
-        """Return the current request's actual context window."""
+        """Return the window to budget for, never above the primary's.
+
+        The serving model's window during a request.  Between requests this
+        is the start model's window, and the primary's window caps it: the
+        primary starts the next request once its cooldown expires, and
+        compaction reads this value *before* the request begins
+        (``agents/context/scroll/manager.py`` uses it as the hard limit), so
+        a larger fallback window would hand the primary an oversized history
+        -- and a context overflow does not engage fallback, so that request
+        would fail instead of being compacted.  Under-budgeting while a
+        larger fallback serves costs context, which is the safe direction.
+        """
         active = getattr(self, "_active_model_var", None)
         if active is not None:
-            return int(
+            size = int(
                 getattr(
                     active.get(),
                     "context_size",
                     self._default_context_size,
                 ),
             )
-        return self._default_context_size
+        else:
+            size = self._default_context_size
+        return min(size, self._default_context_size)
 
     @context_size.setter
     def context_size(self, value: int) -> None:
@@ -164,29 +209,69 @@ class FallbackChatModel(ChatModelBase):
         self._thinking_omit_ids = {str(item) for item in block_ids}
         return self._apply_thinking_omit_ids(self._active_model)
 
-    def _begin_request(self) -> Token:
-        """Activate the primary model and snapshot the pre-request state.
+    def _key_for(self, model: ChatModelBase) -> str:
+        """Return the cooldown-registry key of one candidate."""
+        return model_cooldown_key(*self._model_identity(model))
+
+    def _request_plan(self) -> tuple[int, ...]:
+        """Return the candidate indexes to try for one request, in order.
+
+        Healthy candidates come first; candidates that are cooling down are
+        kept at the back as a last resort.  Leaving a cooling candidate out
+        entirely would turn a request that a plain chain serves into a hard
+        failure whenever the remaining candidates also fail -- measured: a
+        primary that recovered during its cooldown was never retried, and
+        the request raised even though the primary would have served it.
+        Keeping the cooling candidate costs one extra attempt, and only
+        after every healthy candidate has failed.
+        """
+        if not self._cooldown.enabled:
+            return tuple(range(len(self._models)))
+        ready: list[int] = []
+        cooling: list[int] = []
+        for index, key in enumerate(self._cooldown_keys):
+            if is_on_cooldown(key):
+                cooling.append(index)
+            else:
+                ready.append(index)
+        return tuple(ready) + tuple(cooling)
+
+    def _record_failure(self, model: ChatModelBase, exc: Exception) -> None:
+        """Cool down a candidate the chain already decided to skip."""
+        record_model_failure(self._key_for(model), exc, self._cooldown)
+
+    def _record_success(self, model: ChatModelBase) -> None:
+        """Clear the cooldown of a candidate that just served."""
+        if not self._cooldown.enabled:
+            return
+        record_model_success(self._key_for(model))
+
+    def _begin_request(self) -> tuple[Token, tuple[int, ...]]:
+        """Activate the request's start model and snapshot prior state.
 
         The returned token MUST be passed to :meth:`_end_request` once the
         request settles (response returned, stream exhausted, or error
-        raised).  Without the reset, the last-served fallback would leak
-        into the between-requests window where the compaction manager
-        sizes the context budget and capability learning reads
-        ``model_key`` -- both must see the primary model, because the
-        next request always tries the primary first.
+        raised).  The returned plan is the ordered tuple of candidate
+        indexes this request may use; the start model is ``plan[0]``,
+        which is the primary unless the primary is cooling down.
         """
-        token = self._active_model_var.set(self._models[0])
-        self._apply_thinking_omit_ids(self._models[0])
-        return token
+        plan = self._request_plan()
+        start = self._models[plan[0]]
+        token = self._active_model_var.set(start)
+        self._apply_thinking_omit_ids(start)
+        return token, plan
 
     def _end_request(self, token: Token) -> None:
-        """Restore the pre-request active model.
+        """Restore the start model the next request will use.
 
         Ends by enforcing the invariant directly: between requests the
-        context must expose the primary model.  Token reset alone is not
-        enough -- an abandoned stream closed late resets out of order,
-        and CPython then silently restores the token's stale snapshot
-        instead of raising.
+        context must expose the model the next request starts with, which
+        is the primary unless the primary is cooling down.  Compaction
+        sizes the context budget from it and capability learning reads
+        ``model_key``, so both must see the model that will actually
+        serve.  Token reset alone is not enough -- an abandoned stream
+        closed late resets out of order, and CPython then silently
+        restores the token's stale snapshot instead of raising.
         """
         try:
             self._active_model_var.reset(token)
@@ -195,8 +280,9 @@ class FallbackChatModel(ChatModelBase):
             # one that started the request; fall through and repair the
             # consumer's context below.
             pass
-        if self._active_model_var.get() is not self._models[0]:
-            self._active_model_var.set(self._models[0])
+        start = self._models[self._request_plan()[0]]
+        if self._active_model_var.get() is not start:
+            self._active_model_var.set(start)
 
     @property
     def model_key(self) -> str:
@@ -212,17 +298,20 @@ class FallbackChatModel(ChatModelBase):
     ) -> ChatResponse | AsyncGenerator[ChatResponse, None]:
         last_error: Exception | None = None
         fallback_events: list[dict[str, str]] = []
-        token: Token | None = self._begin_request()
+        token: Token | None
+        token, plan = self._begin_request()
         try:
-            for index, model in enumerate(self._models):
+            self._seed_cooldown_event(plan, fallback_events)
+            for position, index in enumerate(plan):
+                model = self._models[index]
                 self._activate_model(model)
                 try:
                     response = await model(*args, **kwargs)
                 except Exception as exc:
                     last_error = exc
-                    if not self._can_try_next(index, exc):
+                    if not self._can_try_next(position, plan, exc):
                         raise
-                    following = self._models[index + 1]
+                    following = self._models[plan[position + 1]]
                     fallback_events.append(
                         self._record_fallback(model, following, exc),
                     )
@@ -233,12 +322,14 @@ class FallbackChatModel(ChatModelBase):
                     token = None  # the stream wrapper owns the reset now
                     return self._consume_with_fallback(
                         response,
-                        index,
+                        position,
+                        plan,
                         args,
                         kwargs,
                         fallback_events,
                         stream_token,
                     )
+                self._record_success(model)
                 return self._annotate_response(
                     response,
                     fallback_events,
@@ -253,7 +344,8 @@ class FallbackChatModel(ChatModelBase):
     async def _consume_with_fallback(
         self,
         stream: AsyncGenerator[ChatResponse, None],
-        index: int,
+        position: int,
+        plan: tuple[int, ...],
         args: tuple[Any, ...],
         kwargs: dict[str, Any],
         fallback_events: list[dict[str, str]],
@@ -261,8 +353,9 @@ class FallbackChatModel(ChatModelBase):
     ) -> AsyncGenerator[ChatResponse, None]:
         try:
             current = stream
-            current_index = index
-            current_model = self._models[index]
+            current_position = position
+            current_index = plan[position]
+            current_model = self._models[current_index]
             emitted = False
             while True:
                 fallback_error: Exception | None = None
@@ -277,23 +370,31 @@ class FallbackChatModel(ChatModelBase):
                             current_model,
                         )
                         fallback_events = []
+                    self._record_success(current_model)
                     return
                 except Exception as exc:
-                    if emitted or not self._can_try_next(current_index, exc):
+                    if emitted or not self._can_try_next(
+                        current_position,
+                        plan,
+                        exc,
+                    ):
                         raise
                     fallback_error = exc
                 finally:
                     await current.aclose()
                 assert fallback_error is not None
-                response, current_index = await self._start_fallback(
-                    current_index,
+                response, current_position = await self._start_fallback(
+                    current_position,
+                    plan,
                     fallback_error,
                     args,
                     kwargs,
                     fallback_events,
                 )
+                current_index = plan[current_position]
                 current_model = self._models[current_index]
                 if not isinstance(response, AsyncGenerator):
+                    self._record_success(current_model)
                     yield self._annotate_response(
                         response,
                         fallback_events,
@@ -306,7 +407,8 @@ class FallbackChatModel(ChatModelBase):
 
     async def _start_fallback(
         self,
-        current_index: int,
+        current_position: int,
+        plan: tuple[int, ...],
         error: Exception,
         args: tuple[Any, ...],
         kwargs: dict[str, Any],
@@ -314,29 +416,41 @@ class FallbackChatModel(ChatModelBase):
     ) -> tuple[ChatResponse | AsyncGenerator[ChatResponse, None], int]:
         """Start the next usable fallback, skipping pre-stream failures."""
         last_error = error
-        for next_index in range(current_index + 1, len(self._models)):
-            current_model = self._models[next_index - 1]
-            next_model = self._models[next_index]
+        for next_position in range(current_position + 1, len(plan)):
+            current_model = self._models[plan[next_position - 1]]
+            next_model = self._models[plan[next_position]]
             fallback_events.append(
                 self._record_fallback(current_model, next_model, last_error),
             )
             self._activate_model(next_model)
             try:
-                return await next_model(*args, **kwargs), next_index
+                return await next_model(*args, **kwargs), next_position
             except Exception as exc:
                 last_error = exc
-                if not self._can_try_next(next_index, exc):
+                if not self._can_try_next(next_position, plan, exc):
                     raise
         raise last_error
 
-    def _can_try_next(self, index: int, exc: Exception) -> bool:
-        if index + 1 >= len(self._models):
+    def _can_try_next(
+        self,
+        position: int,
+        plan: tuple[int, ...],
+        exc: Exception,
+    ) -> bool:
+        if position + 1 >= len(plan):
             return False
-        # Only the primary model's error class decides whether fallback
-        # engages at all.  Once the chain is running, a broken candidate
-        # (revoked key, deleted model, ...) must not mask the healthy
-        # candidates behind it, so its own error never stops the walk.
-        return index > 0 or is_fallback_eligible(exc)
+        # Only the configured primary model's error class decides whether
+        # fallback engages at all.  Once the chain is running, a broken
+        # candidate (revoked key, deleted model, ...) must not mask the
+        # healthy candidates behind it, so its own error never stops the
+        # walk.
+        #
+        # A cooling candidate sits at the back of the plan, so this same
+        # rule applies at whatever position it lands on: the primary still
+        # gates when it is reached, and every other candidate never does.
+        # Gating on "the first attempt" instead would let one broken
+        # fallback hide the healthy models behind it.
+        return plan[position] > 0 or is_fallback_eligible(exc)
 
     def _record_fallback(
         self,
@@ -344,14 +458,50 @@ class FallbackChatModel(ChatModelBase):
         following: ChatModelBase,
         exc: Exception,
     ) -> dict[str, str]:
-        """Log one fallback hop and publish it to the request sink."""
+        """Log one hop, cool the skipped model, and publish the hop."""
         self._log_fallback(current, following, exc)
+        self._record_failure(current, exc)
         event = self._fallback_event(current, following, exc)
-        sink = _FALLBACK_NOTICE_SINK.get()
-        if sink is not None:
-            sink["events"].append(dict(event))
-            sink["actual_model"] = self._actual_model_dict(following)
+        self._publish_fallback(event, following)
         return event
+
+    def _seed_cooldown_event(
+        self,
+        plan: tuple[int, ...],
+        fallback_events: list[dict[str, str]],
+    ) -> None:
+        """Publish the hop cooldown already decided before this request.
+
+        The request starts from a fallback because the primary is cooling
+        down.  That is a model choice users must be able to see, so it
+        travels the same notice channel as an in-request hop.
+        """
+        if plan[0] == 0:
+            return
+        primary = self._models[0]
+        following = self._models[plan[0]]
+        logger.info(
+            "Primary model %s is cooling down (%.1fs left); starting from "
+            "%s",
+            self._cooldown_keys[0],
+            cooldown_remaining(self._cooldown_keys[0]),
+            self._cooldown_keys[plan[0]],
+        )
+        event = self._event(primary, following, f"cooldown")
+        self._publish_fallback(event, following)
+        fallback_events.append(event)
+
+    def _publish_fallback(
+        self,
+        event: dict[str, str],
+        following: ChatModelBase,
+    ) -> None:
+        """Publish one hop to the per-request notice sink."""
+        sink = _FALLBACK_NOTICE_SINK.get()
+        if sink is None:
+            return
+        sink["events"].append(dict(event))
+        sink["actual_model"] = self._actual_model_dict(following)
 
     @staticmethod
     def _model_identity(model: ChatModelBase) -> tuple[str, str]:
@@ -364,11 +514,11 @@ class FallbackChatModel(ChatModelBase):
         return provider_id, model_id
 
     @classmethod
-    def _fallback_event(
+    def _event(
         cls,
         current: ChatModelBase,
         following: ChatModelBase,
-        exc: Exception,
+        reason_kind: str,
     ) -> dict[str, str]:
         from_provider_id, from_model_id = cls._model_identity(current)
         to_provider_id, to_model_id = cls._model_identity(following)
@@ -378,8 +528,21 @@ class FallbackChatModel(ChatModelBase):
             "from_model_id": from_model_id,
             "to_provider_id": to_provider_id,
             "to_model_id": to_model_id,
-            "reason_kind": classify_model_error(exc).kind,
+            "reason_kind": reason_kind,
         }
+
+    @classmethod
+    def _fallback_event(
+        cls,
+        current: ChatModelBase,
+        following: ChatModelBase,
+        exc: Exception,
+    ) -> dict[str, str]:
+        return cls._event(
+            current,
+            following,
+            classify_model_error(exc).kind,
+        )
 
     @classmethod
     def _actual_model_dict(cls, active_model: ChatModelBase) -> dict[str, Any]:
@@ -432,28 +595,32 @@ class FallbackChatModel(ChatModelBase):
     ) -> Any:
         last_error: Exception | None = None
         fallback_events: list[dict[str, str]] = []
-        token = self._begin_request()
+        token, plan = self._begin_request()
         try:
-            for index, model in enumerate(self._models):
+            self._seed_cooldown_event(plan, fallback_events)
+            for position, index in enumerate(plan):
+                model = self._models[index]
                 self._activate_model(model)
                 try:
                     response = await model.generate_structured_output(
                         *args,
                         **kwargs,
                     )
-                    return self._annotate_response(
-                        response,
-                        fallback_events,
-                        model,
-                    )
                 except Exception as exc:
                     last_error = exc
-                    if not self._can_try_next(index, exc):
+                    if not self._can_try_next(position, plan, exc):
                         raise
-                    following = self._models[index + 1]
+                    following = self._models[plan[position + 1]]
                     fallback_events.append(
                         self._record_fallback(model, following, exc),
                     )
+                    continue
+                self._record_success(model)
+                return self._annotate_response(
+                    response,
+                    fallback_events,
+                    model,
+                )
             assert last_error is not None
             raise last_error
         finally:

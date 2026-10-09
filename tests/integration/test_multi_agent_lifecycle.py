@@ -87,6 +87,14 @@ def test_create_agent_persists_model_routing(app_server) -> None:
         {"provider_id": "openai", "model": "fallback-model"},
     ]
     fallback_policy = {"enabled": True, "target_scope": "free_only"}
+    # The response echoes the stored policy, which carries the cooldown
+    # defaults for the fields this request omits.
+    expected_policy = {
+        **fallback_policy,
+        "cooldown_enabled": True,
+        "cooldown_base_seconds": 60.0,
+        "cooldown_max_seconds": 3600.0,
+    }
     subagent_model = {"provider_id": "openai", "model": "subagent-model"}
 
     try:
@@ -112,7 +120,7 @@ def test_create_agent_persists_model_routing(app_server) -> None:
         assert get_resp.status_code == 200, app_server.logs_tail()
         profile = get_resp.json()
         assert profile.get("fallback_models") == fallback_models
-        assert profile.get("fallback_policy") == fallback_policy
+        assert profile.get("fallback_policy") == expected_policy
         assert profile.get("subagent_model") == subagent_model
     finally:
         delete_agent_quietly(app_server, agent_id)

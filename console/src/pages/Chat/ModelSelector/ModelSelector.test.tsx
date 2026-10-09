@@ -1452,6 +1452,9 @@ describe("ModelSelector", () => {
         fallback_policy: {
           enabled: true,
           target_scope: "configured",
+          cooldown_enabled: true,
+          cooldown_base_seconds: 60,
+          cooldown_max_seconds: 3600,
         },
         subagent_model: {
           provider_id: "openai",
@@ -1539,13 +1542,144 @@ describe("ModelSelector", () => {
           { provider_id: "removed-provider", model: "removed-model" },
           { provider_id: "other-provider", model: "second-model" },
         ],
-        fallback_policy: { enabled: true, target_scope: "free_only" },
+        fallback_policy: {
+          enabled: true,
+          target_scope: "free_only",
+          cooldown_enabled: true,
+          cooldown_base_seconds: 60,
+          cooldown_max_seconds: 3600,
+        },
         subagent_model: {
           provider_id: "removed-provider",
           model: "removed-subagent-model",
         },
       }),
     );
+  });
+
+  it("preserves cooldown values that match no preset", async () => {
+    vi.mocked(agentsApi.getAgent).mockResolvedValue({
+      id: "default",
+      name: "Default",
+      fallback_models: [],
+      fallback_policy: {
+        enabled: true,
+        target_scope: "configured",
+        cooldown_enabled: true,
+        cooldown_base_seconds: 600,
+        cooldown_max_seconds: 7200,
+      },
+      subagent_model: null,
+      thinking_level: "inherit",
+    });
+    const user = userEvent.setup();
+    renderWithProviders(<ModelSelector showAdvancedModelControls />);
+    await screen.findAllByText("GPT-4");
+    await user.click(screen.getAllByText("GPT-4")[0]);
+    await user.click(
+      await screen.findByRole("button", {
+        name: /modelSelector.agentModelSettings/,
+      }),
+    );
+    // Stored values that match no preset are offered as "custom" instead
+    // of being snapped to one, so saving cannot silently rewrite them.
+    await screen.findByText(/modelSelector.cooldownCustom/);
+    await user.click(screen.getByRole("button", { name: /common.save/ }));
+
+    await waitFor(() =>
+      expect(agentsApi.updateModelSettings).toHaveBeenCalledOnce(),
+    );
+    const [, patch] = vi.mocked(agentsApi.updateModelSettings).mock.calls[0];
+    expect(patch?.fallback_policy).toEqual({
+      enabled: true,
+      target_scope: "configured",
+      cooldown_enabled: true,
+      cooldown_base_seconds: 600,
+      cooldown_max_seconds: 7200,
+    });
+  });
+
+  it("writes the chosen cooldown preset pair", async () => {
+    vi.mocked(agentsApi.getAgent).mockResolvedValue({
+      id: "default",
+      name: "Default",
+      fallback_models: [],
+      fallback_policy: { enabled: true, target_scope: "configured" },
+      subagent_model: null,
+      thinking_level: "inherit",
+    });
+    const user = userEvent.setup();
+    renderWithProviders(<ModelSelector showAdvancedModelControls />);
+    await screen.findAllByText("GPT-4");
+    await user.click(screen.getAllByText("GPT-4")[0]);
+    await user.click(
+      await screen.findByRole("button", {
+        name: /modelSelector.agentModelSettings/,
+      }),
+    );
+
+    fireEvent.mouseDown(
+      await screen.findByRole("combobox", {
+        name: "modelSelector.cooldownDuration",
+      }),
+    );
+    fireEvent.click(await screen.findByText("modelSelector.cooldownLong"));
+    await user.click(screen.getByRole("button", { name: /common.save/ }));
+
+    await waitFor(() =>
+      expect(agentsApi.updateModelSettings).toHaveBeenCalledOnce(),
+    );
+    const [, patch] = vi.mocked(agentsApi.updateModelSettings).mock.calls[0];
+    expect(patch?.fallback_policy).toEqual({
+      enabled: true,
+      target_scope: "configured",
+      cooldown_enabled: true,
+      cooldown_base_seconds: 300,
+      cooldown_max_seconds: 21600,
+    });
+  });
+
+  it("keeps cooldown values when cooldown is turned off", async () => {
+    vi.mocked(agentsApi.getAgent).mockResolvedValue({
+      id: "default",
+      name: "Default",
+      fallback_models: [],
+      fallback_policy: {
+        enabled: true,
+        target_scope: "configured",
+        cooldown_enabled: true,
+        cooldown_base_seconds: 30,
+        cooldown_max_seconds: 600,
+      },
+      subagent_model: null,
+      thinking_level: "inherit",
+    });
+    const user = userEvent.setup();
+    renderWithProviders(<ModelSelector showAdvancedModelControls />);
+    await screen.findAllByText("GPT-4");
+    await user.click(screen.getAllByText("GPT-4")[0]);
+    await user.click(
+      await screen.findByRole("button", {
+        name: /modelSelector.agentModelSettings/,
+      }),
+    );
+
+    await user.click(
+      await screen.findByLabelText("modelSelector.cooldownEnabled"),
+    );
+    await user.click(screen.getByRole("button", { name: /common.save/ }));
+
+    await waitFor(() =>
+      expect(agentsApi.updateModelSettings).toHaveBeenCalledOnce(),
+    );
+    const [, patch] = vi.mocked(agentsApi.updateModelSettings).mock.calls[0];
+    expect(patch?.fallback_policy).toEqual({
+      enabled: true,
+      target_scope: "configured",
+      cooldown_enabled: false,
+      cooldown_base_seconds: 30,
+      cooldown_max_seconds: 600,
+    });
   });
 
   it("ignores agent settings loaded for the previously selected agent", async () => {
