@@ -165,30 +165,17 @@ describe("console font-size coverage", () => {
     expect(rule).toContain("var(--app-font-scale)");
   });
 
-  it("wraps sender actions below the model row when files reduce chat width", () => {
-    const marker = ".filesPreviewOpen,";
-    const markerIndex = chatStyles.indexOf(marker);
-    const rule = chatStyles.slice(
-      markerIndex,
-      chatStyles.indexOf(".compactSenderAffix", markerIndex),
-    );
-
-    expect(markerIndex).toBeGreaterThanOrEqual(0);
-    expect(rule).toContain('[class$="-sender-content-bottom"]');
-    expect(rule).toMatch(/flex-wrap:\s*wrap/);
-    expect(rule).toContain('[class$="-sender-prefix"]');
-    expect(rule).toContain('[class$="-sender-actions-list"]');
-    expect(rule).toMatch(/flex:\s*1 1 100%/);
-  });
-
-  it("scales user bubbles and keeps the ordinary sender on one row", () => {
+  it("scales user bubbles and wraps the sender only when space runs out", () => {
     expect(chatStyles).toContain('[data-role="user"] [class$="-markdown"]');
     expect(chatStyles).toContain("font-size: var(--app-font-body) !important");
     const root = chatStyles.slice(0, chatStyles.indexOf(".filesPreviewOpen"));
-    expect(root).toMatch(/-sender-content-bottom[\s\S]*flex-wrap:\s*nowrap/);
-    expect(root).toMatch(/-sender-prefix[\s\S]*flex:\s*1 1 auto/);
+    expect(root).toMatch(/-sender-content-bottom[\s\S]*flex-wrap:\s*wrap/);
+    expect(root).toMatch(/-sender-prefix[\s\S]*flex:\s*1 1 max-content/);
     expect(root).toMatch(/> div \{\s*flex-wrap:\s*nowrap;/);
-    expect(root).toMatch(/-sender-actions-list[\s\S]*flex-wrap:\s*nowrap/);
+    expect(root).toMatch(
+      /-sender-actions-list[\s\S]*flex:\s*0 0 auto;[\s\S]*flex-wrap:\s*nowrap/,
+    );
+    expect(chatStyles).not.toMatch(/flex:\s*1 1 100%/);
     expect(chatStyles).toContain(".senderProjectControl");
     expect(chatStyles).toContain(".senderApprovalControl");
     expect(chatStyles).toContain("white-space: nowrap !important;");
