@@ -14,6 +14,8 @@ Run command: pytest tests/test_heartbeat_p0.py -v
 from __future__ import annotations
 
 import logging
+import time
+
 import pytest
 from playwright.sync_api import Page, expect, TimeoutError
 
@@ -293,85 +295,96 @@ class TestHeartbeatTargetAndActiveHours:
 @pytest.mark.p2
 @pytest.mark.heartbeat
 class TestHeartbeatIntervalUnit:
-    """HB-P2-001: Interval unit switch"""
+    """HB-P2-001: Interval presets and duration units."""
 
     @pytest.mark.test_id("HB-P2-001")
-    def test_heartbeat_interval_unit(self, page: Page, heartbeat_page: "HeartbeatPage", request: pytest.FixtureRequest):
-        """Test heartbeat interval unit switching."""
+    def test_heartbeat_interval_unit(
+        self,
+        page: Page,
+        heartbeat_page: "HeartbeatPage",
+        api_context,
+        request: pytest.FixtureRequest,
+    ):
+        """Verify an interval preset updates and persists the duration."""
         test_name = request.node.name
+        original_response = api_context.get("/api/config/heartbeat")
+        assert original_response.ok, (
+            "Heartbeat config query failed "
+            f"[{original_response.status}]: {original_response.text()}"
+        )
+        original_config = original_response.json()
 
-        log_test_step("Navigate to heartbeat config page")
-        heartbeat_page.open()
+        try:
+            log_test_step("Navigate to heartbeat config page")
+            heartbeat_page.open()
 
-        log_test_step("Find interval unit selector")
-        # The unit selector on the page has input id=everyUnit and class containing everyUnit
-        # Need to locate the .qwenpaw-select container that wraps this input
-        unit_select = page.locator('.qwenpaw-select:has(#everyUnit)').first
+            log_test_step(
+                "Enable heartbeat so interval controls are interactive"
+            )
+            enabled_switch = page.get_by_role("switch").first
+            expect(enabled_switch).to_be_visible(timeout=5000)
+            if enabled_switch.get_attribute("aria-checked") != "true":
+                enabled_switch.click()
 
-        if unit_select.count() > 0:
-            # Get currently selected unit text (use selection-item to avoid duplicate text)
-            selection_item = unit_select.locator('.qwenpaw-select-selection-item')
-            if selection_item.count() > 0:
-                current_unit = selection_item.get_attribute('title') or selection_item.inner_text().strip()
-            else:
-                current_unit = unit_select.inner_text().strip().split('\n')[0]
-            logger.info(f"Current interval unit: {current_unit}")
+            log_test_step("Choose a different interval preset")
+            presets = page.locator('button[data-press][aria-pressed]')
+            expect(presets.first).to_be_visible(timeout=5000)
+            preset_count = presets.count()
+            assert preset_count >= 2, (
+                "Expected at least two heartbeat presets"
+            )
+            selected_index = next(
+                (
+                    index
+                    for index in range(preset_count)
+                    if presets.nth(index).get_attribute("aria-pressed")
+                    == "true"
+                ),
+                None,
+            )
+            target_index = 0 if selected_index != 0 else 1
+            target = presets.nth(target_index)
+            target_hours = int(target.inner_text().split()[0])
+            target.click()
+            expect(target).to_have_attribute(
+                "aria-pressed", "true", timeout=5000
+            )
 
-            log_test_step("Click unit selector to expand options")
-            unit_select.click()
-            page.wait_for_timeout(500)
+            log_test_step("Verify both duration wheel units remain present")
+            hour_group = page.get_by_role("group", name="Hours").or_(
+                page.get_by_role("group", name="小时")
+            )
+            minute_group = page.get_by_role("group", name="Minutes").or_(
+                page.get_by_role("group", name="分钟")
+            )
+            expect(hour_group.first).to_be_visible(timeout=5000)
+            expect(minute_group.first).to_be_visible(timeout=5000)
 
-            options = page.locator('.qwenpaw-select-item-option').all()
-            assert len(options) > 0, "Unit dropdown options should not be empty"
-            logger.info(f"Found {len(options)} unit options")
-
-            option_texts = []
-            for opt in options:
-                opt_title = opt.get_attribute('title') or opt.inner_text().strip()
-                option_texts.append(opt_title)
-                logger.info(f"  Unit option: {opt_title}")
-
-            log_test_step("Switch to another unit")
-            # Pick a unit different from the current one
-            target_option = None
-            target_text = None
-            for opt in options:
-                opt_title = opt.get_attribute('title') or opt.inner_text().strip()
-                if opt_title != current_unit:
-                    target_option = opt
-                    target_text = opt_title
+            log_test_step("Verify the selected interval is persisted")
+            deadline = time.monotonic() + 8
+            persisted_every = None
+            while time.monotonic() < deadline:
+                current = api_context.get("/api/config/heartbeat")
+                assert current.ok, current.text()
+                persisted_every = current.json().get("every")
+                if persisted_every == f"{target_hours}h":
                     break
+                time.sleep(0.25)
+            assert persisted_every == f"{target_hours}h", (
+                "Heartbeat preset was not persisted: "
+                f"expected {target_hours}h, got {persisted_every!r}"
+            )
+            log_test_result(test_name, True, 0)
+        finally:
+            restore_response = api_context.put(
+                "/api/config/heartbeat",
+                data=original_config,
+            )
+            assert restore_response.ok, (
+                "Heartbeat config restore failed "
+                f"[{restore_response.status}]: {restore_response.text()}"
+            )
 
-            if target_option:
-                target_option.click()
-                page.wait_for_timeout(500)
-
-                # Re-read selected value
-                if selection_item.count() > 0:
-                    new_unit = selection_item.get_attribute('title') or selection_item.inner_text().strip()
-                else:
-                    new_unit = unit_select.inner_text().strip().split('\n')[0]
-                logger.info(f"Unit after switch: {new_unit}")
-                assert new_unit == target_text, f"Unit should switch to {target_text}, actual: {new_unit}"
-                logger.info(f"Unit switched from '{current_unit}' to '{new_unit}'")
-
-                log_test_step("Restore original unit")
-                unit_select.click()
-                page.wait_for_timeout(500)
-                restore_option = page.locator(f'.qwenpaw-select-item-option:has-text("{current_unit}")').first
-                if restore_option.count() > 0:
-                    restore_option.click()
-                    page.wait_for_timeout(500)
-                    logger.info(f"Restored to original unit: {current_unit}")
-                else:
-                    page.keyboard.press("Escape")
-            else:
-                logger.info("Only one unit option available, cannot switch")
-                page.keyboard.press("Escape")
-        else:
-            pytest.skip("Interval unit selector not found, skipping test")
-
-        log_test_result(test_name, True, 0)
 
 # ============================================================================
 # Fixtures
