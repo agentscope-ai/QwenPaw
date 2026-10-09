@@ -49,6 +49,7 @@ class _StateModule:
 @pytest.mark.asyncio
 async def test_database_session_imports_json_once_and_resets_context(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     legacy_dir = tmp_path / "sessions"
     legacy_dir.mkdir()
@@ -85,6 +86,24 @@ async def test_database_session_imports_json_once_and_resets_context(
         catalog=catalog,
         legacy_save_dir=str(legacy_dir),
     )
+    import_count = 0
+    import_legacy = session._import_legacy
+
+    async def track_import(
+        *,
+        session_id: str,
+        user_id: str,
+        channel: str,
+    ) -> bool:
+        nonlocal import_count
+        import_count += 1
+        return await import_legacy(
+            session_id=session_id,
+            user_id=user_id,
+            channel=channel,
+        )
+
+    monkeypatch.setattr(session, "_import_legacy", track_import)
 
     state = await session.get_session_state_dict(
         "session-1",
@@ -92,7 +111,13 @@ async def test_database_session_imports_json_once_and_resets_context(
         "console",
     )
     assert state["_context_generation"] == 0
-    assert not legacy_path.exists()
+    assert legacy_path.exists()
+    legacy_state = await SafeJSONSession(
+        save_dir=str(legacy_dir),
+    ).get_session_state_dict("session-1", "u")
+    assert legacy_state == {"agent": state["agent"]}
+    await session.get_session_state_dict("session-1", "u", "console")
+    assert import_count == 1
     _, migrated_usage = await session.get_current_usage(
         session_id="session-1",
         user_id="u",
@@ -281,7 +306,9 @@ async def test_database_session_imports_legacy_before_partial_update(
     state = await session.get_session_state_dict("pawapp--example")
     assert state["existing_setting"] == "must survive"
     assert state["new_setting"] == "new"
-    assert not legacy_path.exists()
+    assert json.loads(legacy_path.read_text(encoding="utf-8")) == {
+        "existing_setting": "must survive",
+    }
     catalog.close()
 
 

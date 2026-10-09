@@ -578,10 +578,9 @@ class DatabaseSession:
                     channel=channel,
                     messages=messages,
                 )
-            await run_sync_io(path.unlink)
         except Exception:
             logger.warning(
-                "Legacy session cleanup deferred for %s",
+                "Failed to import legacy transcript for %s",
                 session_id,
                 exc_info=True,
             )
@@ -669,12 +668,12 @@ class DatabaseSession:
             user_id=user_id,
             channel=channel,
         )
-        imported = await self._import_legacy(
-            session_id=session_id,
-            user_id=user_id,
-            channel=channel,
-        )
         if snapshot is None:
+            imported = await self._import_legacy(
+                session_id=session_id,
+                user_id=user_id,
+                channel=channel,
+            )
             if imported:
                 snapshot = await run_sync_io(
                     self._catalog.read_runtime_state,
@@ -709,11 +708,18 @@ class DatabaseSession:
                 config_key="session.key",
                 message="key path is empty",
             )
-        await self._import_legacy(
+        snapshot = await run_sync_io(
+            self._catalog.read_runtime_state,
             session_id=session_id,
             user_id=user_id,
             channel=channel,
         )
+        if snapshot is None:
+            await self._import_legacy(
+                session_id=session_id,
+                user_id=user_id,
+                channel=channel,
+            )
         try:
             await run_sync_io(
                 self._catalog.update_runtime_state,
