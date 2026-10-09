@@ -1263,16 +1263,18 @@ describe("ChatPage coverage", () => {
     await screen.findByTestId("chat-ui");
 
     const reqActions = capturedOptions?.requestActions?.list;
-    if (reqActions && reqActions.length > 1 && reqActions[1].onClick) {
-      await reqActions[1].onClick({
-        data: {
-          input: [
-            { role: "user", content: [{ type: "text", text: "user msg" }] },
-          ],
-        },
-      });
-      expect(true).toBe(true);
-    }
+    const copyAction = reqActions?.[1];
+    expect(copyAction?.icon?.type).toBe("span");
+    expect(copyAction?.onClick).toBeTypeOf("function");
+
+    await copyAction.onClick({
+      data: {
+        input: [
+          { role: "user", content: [{ type: "text", text: "user msg" }] },
+        ],
+      },
+    });
+    expect(mockCopyText).toHaveBeenCalledWith("user msg");
   });
 
   // ── requestActions: timestamp render ───────────────────────────────────
