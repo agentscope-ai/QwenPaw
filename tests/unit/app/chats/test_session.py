@@ -372,6 +372,38 @@ async def test_concurrent_legacy_imports_return_the_same_state(
 
 
 @pytest.mark.asyncio
+async def test_legacy_path_probe_runs_off_event_loop(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    catalog = TranscriptCatalog(tmp_path)
+    session = DatabaseSession(
+        catalog=catalog,
+        legacy_save_dir=str(tmp_path / "sessions"),
+    )
+    loop_thread = threading.get_ident()
+    probe_threads: list[int] = []
+    original_exists = Path.exists
+
+    def tracked_exists(path: Path) -> bool:
+        if path.name == "u_missing.json":
+            probe_threads.append(threading.get_ident())
+        return original_exists(path)
+
+    monkeypatch.setattr(Path, "exists", tracked_exists)
+    state = await session.get_session_state_dict(
+        "missing",
+        "u",
+        "console",
+    )
+
+    assert state == {}
+    assert probe_threads
+    assert all(thread_id != loop_thread for thread_id in probe_threads)
+    catalog.close()
+
+
+@pytest.mark.asyncio
 async def test_load_missing_session_raises_when_not_allowed(session):
     with pytest.raises(AgentStateError):
         await session.load_session_state(

@@ -526,7 +526,7 @@ class DatabaseSession:
         self._catalog = catalog
         self._legacy_save_dir = Path(legacy_save_dir)
 
-    def _legacy_path(
+    async def _legacy_path(
         self,
         session_id: str,
         user_id: str,
@@ -538,7 +538,7 @@ class DatabaseSession:
             if safe_channel in {".", ".."}:
                 raise ValueError(f"invalid session channel: {channel!r}")
             channel_path = self._legacy_save_dir / safe_channel / filename
-            if channel_path.exists():
+            if await run_sync_io(channel_path.exists):
                 return channel_path
         return self._legacy_save_dir / filename
 
@@ -549,7 +549,7 @@ class DatabaseSession:
         user_id: str,
         channel: str,
     ) -> bool:
-        path = self._legacy_path(session_id, user_id, channel)
+        path = await self._legacy_path(session_id, user_id, channel)
         try:
             state = await run_sync_io(_read_session_json, str(path))
         except FileNotFoundError:
@@ -791,7 +791,7 @@ class DatabaseSession:
             self._catalog.delete_session,
             session_id,
         )
-        path = self._legacy_path(session_id, user_id, channel)
+        path = await self._legacy_path(session_id, user_id, channel)
         try:
             await run_sync_io(path.unlink)
             deleted = True
