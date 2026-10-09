@@ -483,7 +483,9 @@ class TestAgentStatsServiceAgentTokens:
         assert summary.total_assistant_messages == 1
         assert summary.agent_prompt_tokens == 10
         assert summary.agent_completion_tokens == 4
-        assert not session_file.exists()
+        assert session_file.exists()
+        saved = json.loads(session_file.read_text(encoding="utf-8"))
+        assert saved["agent"]["state"]["context"][0]["id"] == "user-1"
         assert (tmp_path / "transcript_catalog.db").exists()
 
     async def test_get_summary_reads_harness_runtime_messages(
