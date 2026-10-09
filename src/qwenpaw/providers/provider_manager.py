@@ -772,6 +772,7 @@ class ProviderManager(
                         "model_id": requested_model.id,
                     },
                 )
+            self._annotate_added_model(candidate, requested_model)
             return True
 
         result = await self._mutate_provider_async(provider_id, add_model)
@@ -785,6 +786,31 @@ class ProviderManager(
                 message=f"Provider '{provider_id}' not found.",
             )
         return await provider.get_info()
+
+    def _annotate_added_model(
+        self,
+        provider: Provider,
+        requested: ModelInfo,
+    ) -> None:
+        """Apply documented capabilities to a model just added.
+
+        Looks up the stored record (the add may have merged into an
+        existing entry) and applies the documented template.  The lookup
+        prefers the provider-specific baseline entry, then falls back to
+        a provider-agnostic bare model-id lookup (custom provider ids are
+        not part of the baseline registry).
+        """
+        stored = next(
+            (m for m in provider.all_models() if m.id == requested.id),
+            None,
+        )
+        if stored is None:
+            return
+        self._annotation_service.annotate_model(
+            provider,
+            stored,
+            bare_name_fallback=True,
+        )
 
     async def update_model_pool(
         self,
@@ -1169,6 +1195,14 @@ class ProviderManager(
         self._annotation_service.apply(
             self.builtin_providers.values(),
             refresh=refresh,
+        )
+        # Custom provider ids are not part of the baseline registry, so
+        # their documented-capability lookup uses the bare model-id
+        # fallback.
+        self._annotation_service.apply(
+            self.custom_providers.values(),
+            refresh=refresh,
+            bare_name_fallback=True,
         )
 
     async def _resume_local_model(self, local_manager) -> None:
