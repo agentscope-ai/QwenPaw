@@ -32,7 +32,12 @@ export interface StartupMessages {
   observations: Record<ResourceOutcome, string>;
 }
 
-/** Runs inline before entry execution; no React or UI dependency is required. */
+/**
+ * Runs inline before entry execution; no React or UI dependency is required.
+ * Optional initialization before React mounts must handle its own errors;
+ * uncaught errors can show the startup failure page. A later successful mount
+ * still replaces that page and stops monitoring.
+ */
 export function installStartupMonitor(
   translations: Record<string, StartupMessages>,
 ): () => void {

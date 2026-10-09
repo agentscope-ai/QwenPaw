@@ -180,6 +180,42 @@ describe("Console startup recovery", () => {
     expect(reloadAfterChunkError).not.toHaveBeenCalled();
   });
 
+  it.each(["runtime", "timeout"] as const)(
+    "allows a successful mount after a %s failure without refreshing",
+    async (kind) => {
+      const removeListener = vi.spyOn(window, "removeEventListener");
+      if (kind === "runtime") {
+        window.dispatchEvent(
+          new ErrorEvent("error", { error: new Error("Startup failed") }),
+        );
+      } else {
+        await vi.advanceTimersByTimeAsync(30_000);
+      }
+      expect(document.body.textContent).toContain(en.chunkError.startup[kind]);
+      expect(document.querySelector(".qwenpaw-boot--error")).not.toBeNull();
+      const diagnostic = readChunkDiagnostic();
+      expect(diagnostic?.startupFailure).toBe(kind);
+
+      document.getElementById("root")!.innerHTML = "<main>Loaded</main>";
+      await vi.advanceTimersByTimeAsync(0);
+      expect(removeListener).toHaveBeenCalledWith(
+        "error",
+        expect.any(Function),
+        true,
+      );
+      expect(removeListener).toHaveBeenCalledWith(
+        "unhandledrejection",
+        expect.any(Function),
+      );
+      entry.dispatchEvent(new Event("error"));
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(document.querySelector(".qwenpaw-boot")).toBeNull();
+      expect(document.body.textContent).toBe("Loaded");
+      expect(readChunkDiagnostic()).toEqual(diagnostic);
+      expect(reloadAfterChunkError).not.toHaveBeenCalled();
+    },
+  );
+
   it("stops collecting failures when React replaces the loading placeholder", async () => {
     document.getElementById("root")!.innerHTML = "<main>Loaded</main>";
     await vi.advanceTimersByTimeAsync(0);

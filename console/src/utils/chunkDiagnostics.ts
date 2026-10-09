@@ -45,6 +45,8 @@ function safeUrl(value: string): string {
   const url = new URL(value, window.location.href);
   url.username = "";
   url.password = "";
+  // Preserve Vite's version hash (v) and HMR timestamp (t) for diagnostics.
+  // This assumes these parameters contain resource versions, not secrets.
   for (const key of [...url.searchParams.keys()]) {
     if (key !== "v" && key !== "t") url.searchParams.delete(key);
   }
