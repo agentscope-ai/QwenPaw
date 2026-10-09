@@ -426,6 +426,53 @@ describe("durable transcript pagination", () => {
       "m4",
     ]);
   });
+
+  it.each(["failed", "canceled", "completed"] as const)(
+    "preserves %s when one turn spans history pages",
+    (status) => {
+      const transcriptPosition = (ordinal: number) => ({
+        turn_id: "turn-terminal",
+        turn_seq: 1,
+        ordinal,
+      });
+      const older = T.convertMessages([
+        msg({
+          id: "terminal-user",
+          metadata: {
+            qwenpaw_transcript_position: transcriptPosition(0),
+            qwenpaw_turn_state: {
+              status,
+              error: status === "failed" ? { message: "boom" } : null,
+            },
+          },
+        }),
+      ]);
+      const newer = T.convertMessages([
+        msg({
+          id: "terminal-assistant",
+          role: "assistant",
+          content: "partial response",
+          metadata: {
+            qwenpaw_transcript_position: transcriptPosition(1),
+          },
+        }),
+      ]);
+
+      const merged = T.mergeHistoryMessages(older, newer);
+      const response = merged.find((message) => message.role === "assistant");
+      const data = response?.cards?.find(
+        (card) => card.code === "AgentScopeRuntimeResponseCard",
+      )?.data as { status?: string; error?: unknown } | undefined;
+
+      expect(data?.status).toBe(status);
+      if (status === "failed") {
+        expect(data?.error).toEqual({ message: "boom" });
+      }
+      expect(response?.msgStatus).toBe(
+        status === "canceled" ? "interrupted" : "finished",
+      );
+    },
+  );
 });
 
 type SessionLike = {

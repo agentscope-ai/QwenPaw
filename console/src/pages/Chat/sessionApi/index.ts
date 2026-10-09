@@ -431,6 +431,10 @@ const mergeResponseMessages = (
       leftPosition.ordinal - rightPosition.ordinal
     );
   });
+  const olderStatus = String(olderData.status ?? "");
+  const preserveOlderTerminal = ["failed", "canceled"].includes(olderStatus);
+  const status = preserveOlderTerminal ? olderData.status : newerData.status;
+  const error = preserveOlderTerminal ? olderData.error : newerData.error;
   const cards = (
     newer.cards as Array<{
       code: string;
@@ -443,6 +447,8 @@ const mergeResponseMessages = (
           data: {
             ...olderData,
             ...newerData,
+            status,
+            error,
             output: sortedOutput,
             created_at: Math.min(
               olderData.created_at ?? Number.MAX_SAFE_INTEGER,
@@ -461,6 +467,7 @@ const mergeResponseMessages = (
   return {
     ...newer,
     cards,
+    msgStatus: status === "canceled" ? "interrupted" : "finished",
     history: olderHistory || newerHistory,
   } as IAgentScopeRuntimeWebUIMessage & { history?: boolean };
 };
