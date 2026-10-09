@@ -19,11 +19,13 @@ from models.image import (
     BFLImageModel,
     GeminiImageModel,
     IdeogramImageModel,
-    _backend_for_protocol,
+    MiniMaxImageModel,
     _detect_backend_from_names,
+    image_backend_for_protocol,
 )
 from models.image import ark_provider, bfl_provider, gemini_provider
 from models.image import ideogram_provider
+from models.image import minimax_provider
 from utils.exceptions import ModelError
 
 pytestmark = pytest.mark.unit
@@ -79,10 +81,18 @@ def _model(cls, name, base_url):
 
 
 def test_backend_detection() -> None:
-    assert _backend_for_protocol("google gemini") == "GEMINI"
-    assert _backend_for_protocol("volcano engine（火山引擎）") == "ARK"
-    assert _backend_for_protocol("black forest labs（flux）") == "BFL"
-    assert _backend_for_protocol("ideogram") == "IDEOGRAM"
+    assert image_backend_for_protocol("google gemini") == "GEMINI"
+    assert image_backend_for_protocol("volcano engine（火山引擎）") == "ARK"
+    assert image_backend_for_protocol("black forest labs（flux）") == "BFL"
+    assert image_backend_for_protocol("ideogram") == "IDEOGRAM"
+    # Labels reach the matcher exactly as the UI stores them; it casefolds
+    # internally, so the request-scoped writer and the persisted-config
+    # fallback can both pass one through untouched.
+    assert image_backend_for_protocol("MiniMax（国内站）") == "MINIMAX"
+    assert image_backend_for_protocol("MiniMax（国际站）") == "MINIMAX"
+    assert _detect_backend_from_names("image-01", "") == "MINIMAX"
+    assert _detect_backend_from_names("", "https://api.minimax.io") == "MINIMAX"
+    assert _detect_backend_from_names("", "https://api.minimax.cn") == "MINIMAX"
     assert _detect_backend_from_names("gemini-3-pro-image", "") == "GEMINI"
     assert _detect_backend_from_names("", "https://api.bfl.ai") == "BFL"
 
@@ -94,6 +104,7 @@ def test_backend_detection() -> None:
         (ArkImageModel, "doubao-seedream-5-0-pro-260628", "https://a", 11),
         (BFLImageModel, "flux-2-pro", "https://b", 9),
         (IdeogramImageModel, "ideogram-v4", "https://i", 1),
+        (MiniMaxImageModel, "image-01", "https://m", 2),
     ],
 )
 def test_over_budget_references_are_rejected(cls, name, base, count) -> None:
@@ -250,3 +261,94 @@ def test_ideogram_request_shapes(monkeypatch) -> None:
         "rendering_speed": "DEFAULT",
     }
     assert captured["files"] is None
+
+
+def test_minimax_request_shape(monkeypatch) -> None:
+    _stub_reference_reading(monkeypatch, minimax_provider)
+    captured: dict = {}
+    model = _model(MiniMaxImageModel, "image-01", "https://api.minimax.io")
+    asyncio.run(
+        model._request(
+            _CapturingClient(captured),
+            "a cat",
+            "16:9",
+            ["/generated/ref.png"],
+        ),
+    )
+    assert captured["url"] == "https://api.minimax.io/v1/image_generation"
+    assert captured["headers"]["Authorization"] == "Bearer k"
+    body = captured["json"]
+    assert body["model"] == "image-01"
+    assert body["aspect_ratio"] == "16:9"
+    assert body["response_format"] == "url"
+    assert body["n"] == 1
+    # A local reference has to reach the endpoint as a data URL: MiniMax
+    # reads neither a URL nor a media type out of bare base64 and answers a
+    # parameter error before generating anything.
+    encoded = base64.b64encode(_PNG).decode()
+    assert body["subject_reference"] == [
+        {
+            "type": "character",
+            "image_file": f"data:image/png;base64,{encoded}",
+        },
+    ]
+
+
+def test_minimax_keeps_a_public_reference_as_url(monkeypatch) -> None:
+    # The documented form is a network URL; inlining a file MiniMax can fetch
+    # itself would only inflate the request body.
+    _stub_reference_reading(monkeypatch, minimax_provider)
+    captured: dict = {}
+    model = _model(MiniMaxImageModel, "image-01", "https://api.minimax.io")
+    asyncio.run(
+        model._request(
+            _CapturingClient(captured),
+            "a cat",
+            "1:1",
+            ["https://cdn.example.com/ref.jpg"],
+        ),
+    )
+    assert captured["json"]["subject_reference"] == [
+        {
+            "type": "character",
+            "image_file": "https://cdn.example.com/ref.jpg",
+        },
+    ]
+
+
+def test_minimax_decode_url_base64_and_base_resp(monkeypatch) -> None:
+    model = _model(MiniMaxImageModel, "image-01", "https://api.minimax.io")
+    downloaded: list = []
+
+    async def fake_download(url, _name):
+        downloaded.append(url)
+        return "/generated/img.png"
+
+    monkeypatch.setattr(minimax_provider, "download_remote_image", fake_download)
+    result = asyncio.run(
+        model._decode({"data": {"image_urls": ["https://cdn/x.png"]}}),
+    )
+    assert result == {"url": "/generated/img.png", "source_url": ""}
+    assert downloaded == ["https://cdn/x.png"]
+
+    # base64 payload path is persisted without a network fetch.
+    png = base64.b64encode(_PNG).decode()
+    persisted: list = []
+    monkeypatch.setattr(
+        minimax_provider,
+        "persist_image_bytes",
+        lambda content, _name, _src: persisted.append(content)
+        or "/generated/img.png",
+    )
+    assert asyncio.run(model._decode({"data": {"image_base64": [png]}})) == {
+        "url": "/generated/img.png",
+        "source_url": "",
+    }
+
+    # HTTP 200 carrying a non-zero base_resp is still a failure.
+    with pytest.raises(ModelError, match="1026"):
+        asyncio.run(
+            model._decode(
+                {"data": {}, "base_resp": {"status_code": 1026, "status_msg": "nsfw"}},
+            ),
+        )

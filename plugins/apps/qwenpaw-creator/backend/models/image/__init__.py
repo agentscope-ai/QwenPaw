@@ -24,6 +24,7 @@ from models.image.gemini_provider import GeminiImageModel
 from models.image.ark_provider import ArkImageModel
 from models.image.bfl_provider import BFLImageModel
 from models.image.ideogram_provider import IdeogramImageModel
+from models.image.minimax_provider import MiniMaxImageModel
 from models import config as model_config
 from utils.logger import setup_logger
 
@@ -37,8 +38,10 @@ __all__ = [
     "ArkImageModel",
     "BFLImageModel",
     "IdeogramImageModel",
+    "MiniMaxImageModel",
     "get_image_backend",
     "get_image_model",
+    "image_backend_for_protocol",
     "generate_image",
     "poll_image_translate_task",
 ]
@@ -51,6 +54,7 @@ _PROVIDERS: dict[str, type[BaseImageModel]] = {
     "ARK": ArkImageModel,
     "BFL": BFLImageModel,
     "IDEOGRAM": IdeogramImageModel,
+    "MINIMAX": MiniMaxImageModel,
 }
 
 
@@ -83,6 +87,8 @@ def _detect_backend_from_names(model_name: str, base_url: str) -> str | None:
         return "BFL"
     if model_name.startswith("ideogram") or "ideogram.ai" in base_url:
         return "IDEOGRAM"
+    if model_name.startswith("image-01") or "minimax" in base_url:
+        return "MINIMAX"
     if (
         model_name.startswith("qwen-image")
         or "multimodal-generation" in base_url
@@ -131,8 +137,8 @@ def get_image_backend() -> str:
             configured_host,
         )
     if isinstance(user_cfg, dict) and user_cfg.get("enabled"):
-        protocol = str(user_cfg.get("protocol") or "").casefold()
-        protocol_backend = _backend_for_protocol(protocol)
+        protocol = str(user_cfg.get("protocol") or "")
+        protocol_backend = image_backend_for_protocol(protocol)
         if protocol_backend is not None:
             logger.info(
                 "Image backend from protocol %s: %s",
@@ -162,22 +168,32 @@ def get_image_backend() -> str:
     return "OPENAI"
 
 
-def _backend_for_protocol(protocol: str) -> str | None:
-    """Map a persisted protocol label onto a provider switch."""
+def image_backend_for_protocol(protocol: str) -> str | None:
+    """Map a persisted protocol label onto a provider switch.
 
-    if "dashscope" in protocol or "百炼" in protocol:
+    Single source of truth: the request-scoped value written by
+    ``api.model_routes.request_tool_configs`` and the persisted-config
+    fallback above both call here, so a provider cannot be wired into
+    one caller and missed in the other. Casefolded internally, so a
+    caller may pass the label exactly as the UI stores it.
+    """
+
+    p = protocol.casefold()
+    if "dashscope" in p or "百炼" in p:
         return "DASHSCOPE"
-    if "token plan" in protocol or "tokenplan" in protocol:
+    if "token plan" in p or "tokenplan" in p:
         return "DASHSCOPE"
-    if "gemini" in protocol:
+    if "gemini" in p:
         return "GEMINI"
-    if "volcano" in protocol or "火山" in protocol or "ark" in protocol:
+    if "volcano" in p or "火山" in p or "ark" in p:
         return "ARK"
-    if "flux" in protocol or "black forest" in protocol or "bfl" in protocol:
+    if "flux" in p or "black forest" in p or "bfl" in p:
         return "BFL"
-    if "ideogram" in protocol:
+    if "ideogram" in p:
         return "IDEOGRAM"
-    if "openai" in protocol:
+    if "minimax" in p or "海螺" in p:
+        return "MINIMAX"
+    if "openai" in p:
         return "OPENAI"
     return None
 

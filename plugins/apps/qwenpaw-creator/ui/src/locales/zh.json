@@ -297,6 +297,8 @@
       "volcengine": "Volcano Engine（火山引擎）",
       "bfl": "Black Forest Labs（FLUX）",
       "ideogram": "Ideogram",
+      "minimaxImageCn": "MiniMax（国内站）",
+      "minimaxImageIntl": "MiniMax（国际站）",
       "googleGeminiVeo": "Google Gemini（Veo）",
       "minimaxHailuo": "MiniMax（海螺）",
       "minimaxH3Sglang": "MiniMax H3（SGLang 自部署）",

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import pytest
 
-from api.model_routes import _probe_payload
+from api.model_routes import _minimax_base_resp_error, _probe_payload
 from schemas.models import ModelConnectionTestRequest
 
 
@@ -176,6 +176,74 @@ def test_video_probe_rejects_unknown_model_before_network(
                 provider=None,
             ),
         )
+
+
+class _Resp:
+    def __init__(self, body, *, valid_json=True):
+        self._body = body
+        self._valid = valid_json
+
+    def json(self):
+        if not self._valid:
+            raise ValueError("not json")
+        return self._body
+
+
+@pytest.mark.parametrize(
+    ("body", "valid", "expect_fragment"),
+    [
+        # Config-level failures must surface even under HTTP 200.
+        ({"base_resp": {"status_code": 1004, "status_msg": "login fail"}}, True, "1004"),
+        ({"base_resp": {"status_code": 2049}}, True, "2049"),
+        ({"base_resp": {"status_code": 1008}}, True, "1008"),
+        # A throwaway task_id legitimately returns non-zero codes for a valid
+        # key; those must NOT fail the connection probe.
+        ({"base_resp": {"status_code": 2013, "status_msg": "task not found"}}, True, None),
+        ({"base_resp": {"status_code": 0}}, True, None),
+        ({"status": "ok"}, True, None),
+        ("", False, None),
+    ],
+)
+def test_minimax_base_resp_error_surfaces_http200_failures(body, valid, expect_fragment) -> None:
+    msg = _minimax_base_resp_error(_Resp(body, valid_json=valid))
+    if expect_fragment is None:
+        assert msg is None
+    else:
+        assert expect_fragment in msg
+
+
+def test_minimax_image_probe_avoids_the_openai_models_path() -> None:
+    # MiniMax has no GET /models/{id}; falling through to the OpenAI probe
+    # surfaced an nginx HTML 404. It must hit the free task-query endpoint,
+    # derived from whichever regional host the user configured.
+    url, headers, payload = _probe_payload(
+        _request(
+            type="image",
+            protocol="MiniMax（国内站）",
+            base_url="https://api.minimax.cn",
+            model_name="image-01",
+            provider=None,
+        ),
+    )
+    assert url == "https://api.minimax.cn/v1/query/video_generation"
+    assert "/models/" not in url
+    assert payload.pop("_get_probe") is True
+    assert payload == {"task_id": "creator-connection-probe"}
+    assert headers["Authorization"] == "Bearer sk-test"
+
+
+def test_openai_image_probe_still_uses_model_retrieve() -> None:
+    url, _headers, payload = _probe_payload(
+        _request(
+            type="image",
+            protocol="OpenAI 协议",
+            base_url="https://api.openai.com/v1",
+            model_name="gpt-image-2",
+            provider=None,
+        ),
+    )
+    assert url == "https://api.openai.com/v1/models/gpt-image-2"
+    assert payload == {"_get_probe": True}
 
 
 def test_llm_probe_still_posts_a_chat_ping() -> None:
