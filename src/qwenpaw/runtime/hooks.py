@@ -31,6 +31,7 @@ from .phases import Phase
 
 if TYPE_CHECKING:
     from agentscope.agent import Agent
+    from agentscope.event import ReplyFinishedReason
     from agentscope.message import Msg
 
     from ..schemas import AgentRequest
@@ -102,6 +103,7 @@ class HookContext:
     session_state: dict | None = None
     agent: "Agent | None" = None
     error: BaseException | None = None
+    reply_finished_reason: "ReplyFinishedReason | None" = None
 
     # ── Context injections (改动6B) ──
     context_injections: list = field(default_factory=list)
