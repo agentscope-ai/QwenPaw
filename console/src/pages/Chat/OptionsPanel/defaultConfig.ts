@@ -1,7 +1,5 @@
 import type { TFunction } from "i18next";
 
-const CHARACTER_COUNT_REFERENCE = 10_000;
-
 const defaultConfig = {
   theme: {
     // The upstream chat theme generator parses this value as a HEX color.
@@ -23,9 +21,6 @@ const defaultConfig = {
     attachments: true,
     // The host handles long pastes without replacing or truncating drafts.
     longTextUpload: false,
-    showCharacterCount: true,
-    characterCountRender: ({ count }: { count: number }) =>
-      `${count}/${CHARACTER_COUNT_REFERENCE}`,
     disclaimer: "Works for you, grows with you",
   },
   welcome: {

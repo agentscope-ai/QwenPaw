@@ -27,10 +27,6 @@ describe("defaultConfig static shape", () => {
     expect(defaultConfig.sender.attachments).toBe(true);
     expect(defaultConfig.sender).not.toHaveProperty("maxLength");
     expect(defaultConfig.sender.longTextUpload).toBe(false);
-    expect(defaultConfig.sender.showCharacterCount).toBe(true);
-    expect(defaultConfig.sender.characterCountRender({ count: 0 })).toBe(
-      "0/10000",
-    );
     expect(defaultConfig.sender.disclaimer).toBe(
       "Works for you, grows with you",
     );
