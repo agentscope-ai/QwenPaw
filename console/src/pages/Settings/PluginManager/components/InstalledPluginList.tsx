@@ -20,6 +20,7 @@ import {
   XCircle,
 } from "lucide-react";
 import { useIsMobile } from "@/hooks/useIsMobile";
+import { CommunityFeedback } from "@/components/CommunityFeedback";
 import type { PluginInfo, PluginUpdateInfo } from "@/api/modules/plugin";
 import { usePluginColumns } from "../hooks/usePluginColumns";
 import { PluginTypeTag } from "./PluginTypeTag";
@@ -189,7 +190,16 @@ export function InstalledPluginList({
                   <div className={cardStyles.cardIcon}>
                     <Package size={18} />
                   </div>
-                  {renderStatus(plugin)}
+                  <div className={cardStyles.cardTopActions}>
+                    <CommunityFeedback
+                      origin={plugin.installation_origin}
+                      installedPluginId={plugin.id}
+                      installedVersion={plugin.version}
+                      resourceName={plugin.name}
+                      variant="inline"
+                    />
+                    {renderStatus(plugin)}
+                  </div>
                 </div>
                 <div className={cardStyles.cardTitleRow}>
                   <Text
@@ -248,6 +258,13 @@ export function InstalledPluginList({
                   </div>
                   <div className={rowStyles.catalogInfo}>
                     <div className={rowStyles.catalogNameRow}>
+                      <CommunityFeedback
+                        origin={plugin.installation_origin}
+                        installedPluginId={plugin.id}
+                        installedVersion={plugin.version}
+                        resourceName={plugin.name}
+                        variant="inline"
+                      />
                       <Text strong>{plugin.name}</Text>
                       <PluginTypeTag type={plugin.plugin_type ?? "general"} />
                       {renderStatus(plugin)}

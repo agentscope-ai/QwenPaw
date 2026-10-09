@@ -18,6 +18,8 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse
 
 from ...plugins.browser_access import browser_prefixes
+from ...installation_origin import read_plugin_origin, write_plugin_origin
+from ...utils.io_utils import run_sync_io
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +51,10 @@ def _build_app_info(
         "id": manifest.get("id", fallback_id),
         "name": manifest.get("name", fallback_id),
         "version": manifest.get("version", "0.0.0"),
+        "installation_origin": read_plugin_origin(
+            _get_apps_dir(),
+            str(manifest.get("id", fallback_id)),
+        ),
         "description": manifest.get("description", ""),
         "description_i18n": manifest.get("description_i18n", {}) or {},
         "author": manifest.get("author", ""),
@@ -148,7 +154,7 @@ async def list_pawapps(request: Request) -> Dict[str, Any]:
     Prefers PluginRegistry data; falls back to directory scan when
     the registry is not yet populated (e.g. during early startup).
     """
-    apps = _get_pawapps_from_registry(request)
+    apps = await run_sync_io(_get_pawapps_from_registry, request)
     if not apps:
         # Run blocking directory scan in thread pool
         apps = await asyncio.to_thread(_scan_installed_apps_fallback)
@@ -158,7 +164,7 @@ async def list_pawapps(request: Request) -> Dict[str, Any]:
 @router.get("/{app_id}")
 async def get_pawapp(app_id: str, request: Request) -> Dict[str, Any]:
     """Get details of a specific PawApp."""
-    apps = _get_pawapps_from_registry(request)
+    apps = await run_sync_io(_get_pawapps_from_registry, request)
     if not apps:
         # Run blocking directory scan in thread pool
         apps = await asyncio.to_thread(_scan_installed_apps_fallback)
@@ -214,6 +220,12 @@ async def uninstall_pawapp(app_id: str, request: Request) -> Dict[str, Any]:
         try:
             # Run blocking directory deletion in thread pool
             await asyncio.to_thread(shutil.rmtree, app_dir)
+            await asyncio.to_thread(
+                write_plugin_origin,
+                apps_dir,
+                app_id,
+                None,
+            )
         except Exception as exc:  # noqa: BLE001
             logger.error("Failed to remove PawApp '%s': %s", app_id, exc)
             raise HTTPException(
@@ -228,7 +240,7 @@ async def uninstall_pawapp(app_id: str, request: Request) -> Dict[str, Any]:
 @router.get("/{app_id}/settings")
 async def get_pawapp_settings(app_id: str, request: Request) -> Dict[str, Any]:
     """Get settings schema for a PawApp."""
-    apps = _get_pawapps_from_registry(request)
+    apps = await run_sync_io(_get_pawapps_from_registry, request)
     if not apps:
         # Run blocking directory scan in thread pool
         apps = await asyncio.to_thread(_scan_installed_apps_fallback)

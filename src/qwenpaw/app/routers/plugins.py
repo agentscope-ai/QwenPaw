@@ -22,6 +22,8 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from ..utils import schedule_agent_reload
+from ...installation_origin import read_plugin_origin
+from ...utils.io_utils import run_sync_io
 
 logger = logging.getLogger(__name__)
 
@@ -86,6 +88,10 @@ def _list_plugins_from_disk() -> list[dict]:
                 "loaded": False,
                 "plugin_type": disk_manifest.plugin_type,
                 "frontend_entry": frontend_entry,
+                "installation_origin": read_plugin_origin(
+                    plugins_dir,
+                    plugin_id,
+                ),
             },
         )
     return result
@@ -481,6 +487,7 @@ async def _load_plugin_with_optional_force_reinstall(
     reload_agents: bool = True,
     pawport_owner: dict | None = None,
     recover_incomplete: bool = False,
+    installation_source: str = "",
 ):
     """Load a plugin, optionally unloading first under one lifecycle lock.
 
@@ -547,6 +554,7 @@ async def _load_plugin_with_optional_force_reinstall(
         after_load=_after_load,
         pawport_owner=pawport_owner,
         recover_incomplete=recover_incomplete,
+        installation_source=installation_source,
     )
 
 
@@ -636,6 +644,11 @@ async def list_plugins(request: Request):
                 "loaded": True,
                 "plugin_type": manifest.plugin_type,
                 "frontend_entry": manifest.entry.frontend,
+                "installation_origin": await run_sync_io(
+                    read_plugin_origin,
+                    record.source_path.parent,
+                    manifest.id,
+                ),
             },
         )
 
@@ -701,6 +714,11 @@ async def install_plugin_source(
             request,
             source_path,
             force=force,
+            installation_source=(
+                normalized
+                if normalized.startswith(("http://", "https://"))
+                else ""
+            ),
             reload_agents=reload_agents,
             pawport_owner=pawport_owner,
             recover_incomplete=recover_incomplete,
@@ -793,6 +811,11 @@ async def install_plugin(
         "id": record.manifest.id,
         "name": record.manifest.name,
         "version": record.manifest.version,
+        "installation_origin": await run_sync_io(
+            read_plugin_origin,
+            record.source_path.parent,
+            record.manifest.id,
+        ),
         "description": record.manifest.description,
         "author": record.manifest.author,
         "loaded": True,
@@ -867,6 +890,11 @@ async def upload_plugin(
         "id": record.manifest.id,
         "name": record.manifest.name,
         "version": record.manifest.version,
+        "installation_origin": await run_sync_io(
+            read_plugin_origin,
+            record.source_path.parent,
+            record.manifest.id,
+        ),
         "description": record.manifest.description,
         "author": record.manifest.author,
         "loaded": True,

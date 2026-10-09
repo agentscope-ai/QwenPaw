@@ -1,0 +1,597 @@
+.page {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--app-surface);
+  color: var(--app-text);
+}
+.scroll {
+  flex: 1;
+  overflow: auto;
+  min-height: 0;
+}
+.content {
+  max-width: 1080px;
+  margin: auto;
+  padding: 28px 32px 48px;
+  h1 {
+    font-size: 24px;
+    line-height: 1.5;
+  }
+  h2 {
+    font-size: 18px;
+  }
+}
+.heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+}
+.meta {
+  color: var(--app-text-secondary);
+  font-size: 13px;
+}
+.postTitle {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  min-width: 0;
+  h1,
+  h2 {
+    overflow-wrap: anywhere;
+  }
+}
+.solvedStatus {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  padding: 2px 7px;
+  border-radius: 4px;
+  background: var(--app-success-bg);
+  color: color-mix(in srgb, var(--app-success-text) 65%, var(--app-text));
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 20px;
+  white-space: nowrap;
+}
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin: 20px 0;
+  :global(:is(.ant-input-search, .qwenpaw-input-search)) {
+    flex: 1;
+    min-width: 200px;
+    max-width: 480px;
+  }
+  :global(:is(.ant-select, .qwenpaw-select)) {
+    min-width: 120px;
+  }
+}
+.feed {
+  min-height: 160px;
+  margin-bottom: 24px;
+}
+.post {
+  display: block;
+  color: var(--app-text);
+  padding: 22px 8px;
+  border-bottom: 1px solid var(--app-border);
+  h2 {
+    margin: 10px 0;
+  }
+  p {
+    color: var(--app-text-secondary);
+    line-height: 1.7;
+  }
+  &:hover h2 {
+    color: var(--app-accent-text);
+  }
+  &:focus-visible {
+    outline: 2px solid var(--app-accent);
+  }
+}
+.body {
+  margin: 28px 0;
+  font-size: 15px;
+  line-height: 1.85;
+  overflow-wrap: anywhere;
+  img {
+    max-width: 100%;
+    height: auto;
+  }
+  pre {
+    overflow: auto;
+    padding: 16px;
+    background: var(--app-bg);
+  }
+  table {
+    display: block;
+    overflow: auto;
+  }
+  a {
+    color: var(--app-accent-text);
+  }
+}
+.discussion {
+  border-top: 1px solid var(--app-border);
+  padding-top: 24px;
+}
+.composer {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+  margin: 20px 0;
+  width: 100%;
+}
+.comment {
+  border-bottom: 1px solid var(--app-border);
+  padding: 16px 0;
+  overflow-wrap: anywhere;
+  img {
+    max-width: 100%;
+  }
+  .comment {
+    margin-left: 20px;
+    padding-left: 16px;
+    border-left: 2px solid var(--app-border);
+  }
+}
+@media (max-width: 768px) {
+  .content {
+    padding: 20px 16px;
+  }
+  .toolbar,
+  .heading {
+    flex-wrap: wrap;
+  }
+}
+
+.commentImages {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 10px 0;
+  > :global(:is(.ant-image, .qwenpaw-image)) {
+    max-width: 100%;
+    width: 240px;
+    overflow: hidden;
+    border-radius: 8px;
+    border: 1px solid var(--app-border);
+    img {
+      display: block;
+      height: 160px;
+      object-fit: contain;
+      background: var(--app-surface-sunken);
+    }
+  }
+}
+
+.customEmoji {
+  display: inline-block;
+  width: 66px;
+  height: 66px;
+  object-fit: contain;
+  vertical-align: middle;
+  margin: 4px;
+}
+
+.headingActions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  flex-shrink: 0;
+}
+@media (max-width: 600px) {
+  .content {
+    padding: 16px 14px 24px;
+  }
+  .content h1 {
+    font-size: 21px;
+    margin: 0 0 6px;
+  }
+  .heading {
+    gap: 14px;
+    align-items: stretch;
+  }
+  .heading > div {
+    min-width: 0;
+    width: 100%;
+  }
+  .headingActions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+  .headingActions > a {
+    grid-column: 1 / -1;
+    font-size: 12px;
+  }
+  .headingActions > button {
+    min-height: 40px;
+    padding-inline: 10px;
+  }
+  .editorHelp {
+    display: none;
+    font-size: 12px;
+    line-height: 1.6;
+    margin: 12px 0 0;
+  }
+  .toolbar {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 10px;
+    margin: 16px 0 4px;
+  }
+  .toolbar > :nth-child(1) {
+    grid-column: 1;
+    min-width: 0;
+  }
+  .toolbar > :nth-child(2) {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    min-width: 0;
+    width: 100%;
+    max-width: none;
+  }
+  .toolbar > :nth-child(3) {
+    grid-column: 1;
+    grid-row: 3;
+    width: 100%;
+  }
+  .toolbar > :nth-child(4) {
+    grid-column: 2;
+    grid-row: 3;
+    min-height: 36px;
+  }
+  .post {
+    padding: 18px 0;
+  }
+  .post h2 {
+    font-size: 17px;
+    line-height: 1.55;
+    margin: 8px 0;
+  }
+  .post > p {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3;
+    overflow: hidden;
+    margin: 8px 0;
+    font-size: 13px;
+  }
+  .meta {
+    font-size: 12px;
+  }
+  .comment .comment {
+    margin-left: 8px;
+    padding-left: 8px;
+  }
+}
+
+// Quiet surfaces separate reading, discussion, and navigation.
+.scroll {
+  background: var(--app-bg);
+}
+.feed {
+  display: grid;
+  gap: 16px;
+  margin: 24px 0;
+}
+.post,
+.articleCard,
+.discussionCard {
+  background: var(--app-surface);
+  border: 1px solid var(--app-border);
+  border-radius: 16px;
+}
+.post {
+  padding: 24px;
+  transition:
+    border-color 160ms ease,
+    box-shadow 160ms ease;
+  &:hover {
+    border-color: var(--app-accent);
+    box-shadow: 0 3px 14px color-mix(in srgb, var(--app-text) 5%, transparent);
+  }
+  &:focus-visible {
+    outline-offset: 3px;
+  }
+  > p {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3;
+    overflow: hidden;
+    margin: 10px 0 18px;
+  }
+}
+.authorRow {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+  > :global(.ant-avatar) {
+    flex-shrink: 0;
+  }
+}
+.authorName {
+  font-size: 13px;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+.typeBadge {
+  margin-left: auto;
+  background: var(--app-surface-sunken);
+  color: var(--app-text-secondary);
+  border-radius: 6px;
+  padding: 3px 8px;
+  font-size: 12px;
+}
+.postStats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  color: var(--app-text-secondary);
+  font-size: 12px;
+  span {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+  }
+}
+.backLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 40px;
+  margin-bottom: 12px;
+  color: var(--app-text-secondary);
+}
+.articleCard {
+  padding: 32px;
+}
+.articleEyebrow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  font-size: 13px;
+  color: var(--app-text-secondary);
+}
+.content .articleTitle {
+  margin: 12px 0 20px;
+  font-size: 28px;
+  line-height: 1.4;
+  letter-spacing: -0.02em;
+  overflow-wrap: anywhere;
+}
+.body {
+  margin: 32px 0;
+  font-size: 16px;
+  line-height: 1.85;
+  > :first-child {
+    margin-top: 0;
+  }
+  > :last-child {
+    margin-bottom: 0;
+  }
+  p {
+    margin: 0 0 1.15em;
+  }
+  h1,
+  h2,
+  h3,
+  h4 {
+    margin: 1.6em 0 0.65em;
+    line-height: 1.45;
+    font-weight: 600;
+  }
+  h1 {
+    font-size: 25px;
+  }
+  h2 {
+    font-size: 21px;
+  }
+  h3 {
+    font-size: 18px;
+  }
+  ul,
+  ol {
+    padding-left: 1.6em;
+    margin: 0 0 1.2em;
+  }
+  li {
+    margin: 0.4em 0;
+  }
+  li > p {
+    margin: 0.4em 0;
+  }
+  blockquote {
+    margin: 24px 0;
+    padding: 12px 18px;
+    background: var(--app-surface-sunken);
+    border-left: 3px solid var(--app-accent);
+    border-radius: 0 8px 8px 0;
+  }
+  blockquote p:last-child {
+    margin-bottom: 0;
+  }
+  img {
+    border-radius: 8px;
+  }
+  pre {
+    border: 1px solid var(--app-border);
+    border-radius: 10px;
+    font-size: 13px;
+  }
+  :not(pre) > code {
+    background: var(--app-surface-sunken);
+    padding: 2px 5px;
+    border-radius: 4px;
+    font-size: 0.9em;
+  }
+  th,
+  td {
+    border: 1px solid var(--app-border);
+    padding: 8px 12px;
+  }
+  th {
+    background: var(--app-surface-sunken);
+  }
+}
+.articleActions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  border-top: 1px solid var(--app-border);
+  padding-top: 20px;
+  button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 36px;
+  }
+}
+.activeAction {
+  color: var(--app-accent-text) !important;
+  background: var(--app-surface-sunken) !important;
+  border-color: var(--app-accent) !important;
+}
+.discussionCard {
+  padding: 24px 32px;
+  margin-top: 20px;
+}
+.discussionTabs {
+  margin-bottom: 16px;
+}
+.discussion {
+  border: 0;
+  padding: 0;
+  scroll-margin-top: 20px;
+}
+.sectionCount {
+  margin-left: 6px;
+  color: var(--app-text-secondary);
+  font-weight: 400;
+  font-size: 15px;
+}
+.composer {
+  background: var(--app-surface-sunken);
+  padding: 16px;
+  border: 1px solid var(--app-border);
+  border-radius: 12px;
+}
+.loginHint {
+  padding: 16px;
+  background: var(--app-surface-sunken);
+  border-radius: 10px;
+  margin: 16px 0;
+}
+.comment {
+  padding: 24px 0;
+  &:last-child {
+    border-bottom: 0;
+  }
+  .comment {
+    padding: 16px 0 0 16px;
+    margin-top: 12px;
+    border-bottom: 0;
+  }
+}
+.commentContent {
+  margin: 12px 0;
+  line-height: 1.8;
+  p {
+    margin: 0 0 8px;
+  }
+  pre {
+    overflow: auto;
+  }
+}
+.commentActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  button {
+    display: inline-flex;
+    align-items: center;
+  }
+}
+.videoBlock {
+  display: block;
+  margin: 16px 0;
+}
+.body video {
+  display: block;
+  width: 100%;
+  max-height: 560px;
+  background: #111;
+  border-radius: 10px;
+}
+.mediaCaption {
+  display: block;
+  font-size: 13px;
+  margin-top: 8px;
+  color: var(--app-text-secondary);
+}
+@media (max-width: 600px) {
+  .feed {
+    gap: 12px;
+    margin-top: 20px;
+  }
+  .post,
+  .articleCard,
+  .discussionCard {
+    padding: 18px 16px;
+    border-radius: 12px;
+  }
+  .authorRow {
+    gap: 6px;
+  }
+  .authorName {
+    max-width: 100%;
+  }
+  .typeBadge {
+    margin-left: 0;
+  }
+  .content .articleTitle {
+    font-size: 23px;
+  }
+  .body {
+    font-size: 15px;
+    margin: 24px 0;
+  }
+  .articleActions button,
+  .commentActions button {
+    min-height: 44px;
+  }
+  .composer {
+    padding: 12px;
+  }
+  .discussionCard {
+    margin-top: 12px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .post {
+    transition: none;
+  }
+}
+
+.ownerActions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 24px;
+}

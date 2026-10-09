@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { PushMessage } from "../types";
+import { COMMUNITY_EVENT_LABEL_KEYS } from "../utils/community";
 import styles from "./PushMessageCard.module.less";
 
 interface PushMessageCardProps {
@@ -31,6 +32,7 @@ const CHANNEL_ICONS = {
   memory: Brain,
   heartbeat: MessageCircle,
   skill: RefreshCw,
+  community: MessageSquare,
 };
 
 const CHANNEL_COLORS = {
@@ -42,6 +44,7 @@ const CHANNEL_COLORS = {
   memory: "#7C3AED",
   heartbeat: "#5865F2",
   skill: "#1677ff",
+  community: "var(--app-accent)",
 };
 
 const normalizeCronTaskName = (title: string): string =>
@@ -57,16 +60,31 @@ export function PushMessageCard(props: PushMessageCardProps) {
   const channelColor = CHANNEL_COLORS[message.channelType];
   const sourceType = (message.metadata?.sourceType || "").toLowerCase();
   const isCronMessage = sourceType === "cron";
+  const isCommunity = sourceType === "community";
   const displayTitle = isCronMessage
     ? t("inbox.pushCronHeader", { name: normalizeCronTaskName(message.title) })
     : message.title;
 
   return (
     <Card
-      className={`${styles.messageCard} ${!message.read ? styles.unread : ""}`}
+      className={`${styles.messageCard} ${!message.read ? styles.unread : ""} ${
+        isCommunity ? styles.communityCard : ""
+      }`}
       hoverable
       bodyStyle={{ padding: 14 }}
       onClick={() => onView(message.id)}
+      tabIndex={0}
+      role="button"
+      aria-label={displayTitle}
+      onKeyDown={(event) => {
+        if (
+          event.target === event.currentTarget &&
+          (event.key === "Enter" || event.key === " ")
+        ) {
+          event.preventDefault();
+          onView(message.id);
+        }
+      }}
     >
       <div className={styles.cardHeader}>
         <div className={styles.channelInfo}>
@@ -82,6 +100,7 @@ export function PushMessageCard(props: PushMessageCardProps) {
           ) : null}
           <Avatar
             size={36}
+            src={isCommunity ? message.sender.avatarUrl : undefined}
             style={{ backgroundColor: channelColor }}
             icon={<IconComponent size={18} />}
           />
@@ -94,6 +113,14 @@ export function PushMessageCard(props: PushMessageCardProps) {
         </div>
         <div className={styles.headerRight}>
           {!message.read ? <span className={styles.unreadDot} /> : null}
+          {isCommunity && (
+            <Tag>
+              {t(
+                COMMUNITY_EVENT_LABEL_KEYS[message.metadata?.eventType || ""] ||
+                  "communityInbox.notification",
+              )}
+            </Tag>
+          )}
           {message.metadata?.priority &&
           message.metadata.priority !== "normal" ? (
             <Tag
@@ -121,6 +148,7 @@ export function PushMessageCard(props: PushMessageCardProps) {
               type="text"
               danger
               icon={<Trash2 size={14} />}
+              aria-label={t("inbox.deleteMessageConfirm")}
               onClick={(event) => event.stopPropagation()}
             />
           </Popconfirm>
@@ -129,6 +157,11 @@ export function PushMessageCard(props: PushMessageCardProps) {
       <div className={styles.cardBody}>
         <h4 className={styles.messageTitle}>{displayTitle}</h4>
         <p className={styles.messageContent}>{message.content}</p>
+        {isCommunity && (
+          <time dateTime={message.createdAt.toISOString()}>
+            {message.createdAt.toLocaleString()}
+          </time>
+        )}
       </div>
     </Card>
   );
