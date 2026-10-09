@@ -7,6 +7,7 @@ including lazy loading, lifecycle management, and hot reloading.
 
 import asyncio
 import logging
+import math
 import time
 from typing import Callable, Dict, Set
 
@@ -21,6 +22,9 @@ from .workspace import Workspace
 from ..constant import (
     BUILTIN_QA_AGENT_ID,
     CUSTOM_AGENT_STARTUP_CONCURRENCY,
+    RELOAD_DRAIN_NOTICE_EN,
+    RELOAD_DRAIN_NOTICE_ZH,
+    RELOAD_DRAIN_TIMEOUT,
 )
 from ..config.utils import load_config
 from ..utils.io_utils import run_async_to_completion
@@ -30,7 +34,6 @@ from ..utils.startup_display import AgentStartupDisplay
 logger = logging.getLogger(__name__)
 
 _OLD_WORKSPACE_TASK_WAIT_SECONDS = 60.0
-_OLD_WORKSPACE_TASK_MAX_WAIT_ROUNDS = 24 * 60
 
 
 class MultiAgentManager:
@@ -365,6 +368,52 @@ class MultiAgentManager:
             "workspace setup",
         )
 
+    async def _notify_and_cancel_drain_timeout(
+        self,
+        old_instance: Workspace,
+        agent_id: str,
+        active_tasks: dict[str, asyncio.Future],
+    ) -> None:
+        """Notify rooms and cancel runs still active at drain timeout.
+
+        Called from ``delayed_cleanup`` after the drain budget is
+        exhausted and before ``stop(final=False)`` closes the channel
+        clients (a notice sent after ``stop`` would be silently
+        dropped).
+        """
+        for run_key, task in active_tasks.items():
+            if task.done():
+                continue
+            spec = None
+            chat_manager = getattr(old_instance, "chat_manager", None)
+            if chat_manager is not None:
+                spec = await chat_manager.get_chat(run_key)
+            if spec is not None and spec.channel == "matrix":
+                channel_manager = getattr(
+                    old_instance,
+                    "channel_manager",
+                    None,
+                )
+                if channel_manager is not None:
+                    try:
+                        await channel_manager.send_text(
+                            channel=spec.channel,
+                            user_id=spec.user_id,
+                            session_id=spec.session_id,
+                            text=(
+                                f"{RELOAD_DRAIN_NOTICE_ZH}\n"
+                                f"{RELOAD_DRAIN_NOTICE_EN}"
+                            ),
+                        )
+                    except Exception:
+                        # A failed notice must not block cleanup
+                        # (e.g. the reload just closed the channel).
+                        logger.exception(
+                            f"reload-drain notice failed for {agent_id} "
+                            f"run {run_key}",
+                        )
+            await old_instance.task_tracker.request_stop(run_key)
+
     async def _graceful_stop_old_instance(
         self,
         old_instance: Workspace,
@@ -401,8 +450,15 @@ class MultiAgentManager:
             async def delayed_cleanup():
                 """Wait for tasks to complete, then stop old instance."""
                 try:
+                    max_rounds = max(
+                        1,
+                        math.ceil(
+                            RELOAD_DRAIN_TIMEOUT
+                            / _OLD_WORKSPACE_TASK_WAIT_SECONDS,
+                        ),
+                    )
                     completed = False
-                    for _ in range(_OLD_WORKSPACE_TASK_MAX_WAIT_ROUNDS):
+                    for _ in range(max_rounds):
                         completed = (
                             await old_instance.task_tracker.wait_tasks_done(
                                 list(active_tasks.values()),
@@ -423,9 +479,15 @@ class MultiAgentManager:
                         )
                     else:
                         logger.error(
-                            f"Tasks did not finish within 24 hours for old "
+                            f"Tasks did not finish within "
+                            f"{RELOAD_DRAIN_TIMEOUT:g}s for old "
                             f"instance {agent_id}. Forcing cleanup to prevent "
                             f"a resource leak.",
+                        )
+                        await self._notify_and_cancel_drain_timeout(
+                            old_instance,
+                            agent_id,
+                            active_tasks,
                         )
                     await old_instance.stop(final=False)
                     logger.info(

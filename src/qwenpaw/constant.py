@@ -78,6 +78,20 @@ CUSTOM_AGENT_STARTUP_CONCURRENCY = EnvVarLoader.get_int(
     min_value=1,
 )
 
+RELOAD_DRAIN_TIMEOUT_ENV = "QWENPAW_RELOAD_DRAIN_TIMEOUT"
+DEFAULT_RELOAD_DRAIN_TIMEOUT = 86400.0
+RELOAD_DRAIN_TIMEOUT = EnvVarLoader.get_float(
+    RELOAD_DRAIN_TIMEOUT_ENV,
+    default=DEFAULT_RELOAD_DRAIN_TIMEOUT,
+    min_value=1.0,
+)
+
+RELOAD_DRAIN_NOTICE_ZH = "⚠️ 本轮处理被配置重载中断（in-flight 超时），已按新配置重启；如任务未完成请重新发送。"
+RELOAD_DRAIN_NOTICE_EN = (
+    "⚠️ This turn was interrupted by a config reload "
+    "(in-flight drain timeout). The agent has been restarted with the "
+    "new config; please resend your request if the task did not complete."
+)
 
 # WORKING_DIR priority:
 # 1. QWENPAW_WORKING_DIR env var is set → use it

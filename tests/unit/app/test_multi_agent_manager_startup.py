@@ -16,6 +16,7 @@ import pytest
 import qwenpaw.app.multi_agent_manager as multi_agent_manager_module
 import qwenpaw.constant as constants
 from qwenpaw.app.agent_startup import AgentStartupStatus
+from qwenpaw.app.chats.models import ChatSpec
 from qwenpaw.app.multi_agent_manager import MultiAgentManager
 from qwenpaw.app.task_tracker import REPLAY_END_SSE, TaskTracker
 from qwenpaw.app.workspace import Workspace
@@ -412,8 +413,8 @@ async def test_cleanup_forces_stop_after_maximum_wait_rounds(
     )
     monkeypatch.setattr(
         multi_agent_manager_module,
-        "_OLD_WORKSPACE_TASK_MAX_WAIT_ROUNDS",
-        2,
+        "RELOAD_DRAIN_TIMEOUT",
+        2 * multi_agent_manager_module._OLD_WORKSPACE_TASK_WAIT_SECONDS,
     )
 
     await manager._graceful_stop_old_instance(
@@ -844,3 +845,380 @@ async def test_cancelled_start_cleans_pending_state(monkeypatch) -> None:
     assert manager.get_agent_startup_status("custom") == (
         AgentStartupStatus.FAILED
     )
+
+
+@pytest.mark.asyncio
+async def test_drain_timeout_cancels_remaining_runs_and_notifies(
+    monkeypatch,
+) -> None:
+    manager = MultiAgentManager()
+    old_workspace = _ReloadWorkspace("agent-1")
+    task = asyncio.Future()
+    old_workspace.task_tracker.wait_tasks_done = AsyncMock(
+        return_value=False,
+    )
+    old_workspace.chat_manager = SimpleNamespace(
+        get_chat=AsyncMock(
+            return_value=ChatSpec(
+                session_id="matrix:!room:example.org",
+                user_id="@user:example.org",
+                channel="matrix",
+            ),
+        ),
+    )
+    order: list[str] = []
+    send_text = AsyncMock(
+        side_effect=lambda **kwargs: order.append("send_text"),
+    )
+    old_workspace.channel_manager = SimpleNamespace(send_text=send_text)
+    old_workspace.task_tracker.request_stop = AsyncMock(
+        side_effect=lambda run_key: order.append("request_stop"),
+    )
+    real_stop = old_workspace.stop
+
+    async def _stop(final: bool = True) -> None:
+        order.append(f"stop(final={final})")
+        await real_stop(final)
+
+    old_workspace.stop = _stop
+    monkeypatch.setattr(
+        multi_agent_manager_module,
+        "RELOAD_DRAIN_TIMEOUT",
+        0.05,
+    )
+    monkeypatch.setattr(
+        multi_agent_manager_module,
+        "_OLD_WORKSPACE_TASK_WAIT_SECONDS",
+        0.05,
+    )
+
+    await manager._graceful_stop_old_instance(
+        old_workspace,
+        "agent-1",
+        active_tasks={"chat-1": task},
+    )
+    cleanup_tasks = list(manager._cleanup_tasks)
+    assert cleanup_tasks
+    await asyncio.wait_for(asyncio.gather(*cleanup_tasks), timeout=5)
+
+    assert send_text.await_count == 1
+    kwargs = send_text.await_args.kwargs
+    assert kwargs["channel"] == "matrix"
+    assert kwargs["user_id"] == "@user:example.org"
+    assert kwargs["session_id"] == "matrix:!room:example.org"
+    assert "⚠️" in kwargs["text"]
+    old_workspace.task_tracker.request_stop.assert_awaited_once_with(
+        "chat-1",
+    )
+    assert old_workspace.stopped is True
+    assert order.index("send_text") < order.index("request_stop")
+    assert order.index("request_stop") < order.index("stop(final=False)")
+
+
+@pytest.mark.asyncio
+async def test_no_cancel_no_notify_when_runs_finish_in_time() -> None:
+    manager = MultiAgentManager()
+    old_workspace = _ReloadWorkspace("agent-1")
+    task = asyncio.Future()
+    old_workspace.task_tracker.wait_tasks_done = AsyncMock(
+        side_effect=[True],
+    )
+    send_text = AsyncMock()
+    old_workspace.channel_manager = SimpleNamespace(send_text=send_text)
+    old_workspace.task_tracker.request_stop = AsyncMock()
+
+    await manager._graceful_stop_old_instance(
+        old_workspace,
+        "agent-1",
+        active_tasks={"chat-1": task},
+    )
+    cleanup_tasks = list(manager._cleanup_tasks)
+    assert cleanup_tasks
+    await asyncio.wait_for(asyncio.gather(*cleanup_tasks), timeout=5)
+
+    assert send_text.await_count == 0
+    assert old_workspace.task_tracker.request_stop.await_count == 0
+    assert old_workspace.stopped is True
+
+
+@pytest.mark.asyncio
+async def test_drain_timeout_skips_done_tasks(monkeypatch) -> None:
+    manager = MultiAgentManager()
+    old_workspace = _ReloadWorkspace("agent-1")
+    task = asyncio.Future()
+    task.set_result(None)
+    old_workspace.task_tracker.wait_tasks_done = AsyncMock(
+        return_value=False,
+    )
+    old_workspace.chat_manager = SimpleNamespace(
+        get_chat=AsyncMock(
+            return_value=ChatSpec(
+                session_id="matrix:!room:example.org",
+                user_id="@user:example.org",
+                channel="matrix",
+            ),
+        ),
+    )
+    send_text = AsyncMock()
+    old_workspace.channel_manager = SimpleNamespace(send_text=send_text)
+    old_workspace.task_tracker.request_stop = AsyncMock()
+    monkeypatch.setattr(
+        multi_agent_manager_module,
+        "RELOAD_DRAIN_TIMEOUT",
+        0.05,
+    )
+    monkeypatch.setattr(
+        multi_agent_manager_module,
+        "_OLD_WORKSPACE_TASK_WAIT_SECONDS",
+        0.05,
+    )
+
+    await manager._graceful_stop_old_instance(
+        old_workspace,
+        "agent-1",
+        active_tasks={"chat-1": task},
+    )
+    cleanup_tasks = list(manager._cleanup_tasks)
+    assert cleanup_tasks
+    await asyncio.wait_for(asyncio.gather(*cleanup_tasks), timeout=5)
+
+    assert send_text.await_count == 0
+    assert old_workspace.task_tracker.request_stop.await_count == 0
+    assert old_workspace.stopped is True
+
+
+@pytest.mark.asyncio
+async def test_drain_timeout_notify_skips_non_matrix_chat(
+    monkeypatch,
+) -> None:
+    manager = MultiAgentManager()
+    old_workspace = _ReloadWorkspace("agent-1")
+    task = asyncio.Future()
+    old_workspace.task_tracker.wait_tasks_done = AsyncMock(
+        return_value=False,
+    )
+    old_workspace.chat_manager = SimpleNamespace(
+        get_chat=AsyncMock(
+            return_value=ChatSpec(
+                session_id="console:user1",
+                user_id="user1",
+                channel="console",
+            ),
+        ),
+    )
+    send_text = AsyncMock()
+    old_workspace.channel_manager = SimpleNamespace(send_text=send_text)
+    old_workspace.task_tracker.request_stop = AsyncMock()
+    monkeypatch.setattr(
+        multi_agent_manager_module,
+        "RELOAD_DRAIN_TIMEOUT",
+        0.05,
+    )
+    monkeypatch.setattr(
+        multi_agent_manager_module,
+        "_OLD_WORKSPACE_TASK_WAIT_SECONDS",
+        0.05,
+    )
+
+    await manager._graceful_stop_old_instance(
+        old_workspace,
+        "agent-1",
+        active_tasks={"chat-1": task},
+    )
+    cleanup_tasks = list(manager._cleanup_tasks)
+    assert cleanup_tasks
+    await asyncio.wait_for(asyncio.gather(*cleanup_tasks), timeout=5)
+
+    assert send_text.await_count == 0
+    old_workspace.task_tracker.request_stop.assert_awaited_once_with(
+        "chat-1",
+    )
+    assert old_workspace.stopped is True
+
+
+@pytest.mark.asyncio
+async def test_drain_timeout_notify_skips_when_chat_not_found(
+    monkeypatch,
+) -> None:
+    manager = MultiAgentManager()
+    old_workspace = _ReloadWorkspace("agent-1")
+    task = asyncio.Future()
+    old_workspace.task_tracker.wait_tasks_done = AsyncMock(
+        return_value=False,
+    )
+    old_workspace.chat_manager = SimpleNamespace(
+        get_chat=AsyncMock(return_value=None),
+    )
+    send_text = AsyncMock()
+    old_workspace.channel_manager = SimpleNamespace(send_text=send_text)
+    old_workspace.task_tracker.request_stop = AsyncMock()
+    monkeypatch.setattr(
+        multi_agent_manager_module,
+        "RELOAD_DRAIN_TIMEOUT",
+        0.05,
+    )
+    monkeypatch.setattr(
+        multi_agent_manager_module,
+        "_OLD_WORKSPACE_TASK_WAIT_SECONDS",
+        0.05,
+    )
+
+    await manager._graceful_stop_old_instance(
+        old_workspace,
+        "agent-1",
+        active_tasks={"chat-1": task},
+    )
+    cleanup_tasks = list(manager._cleanup_tasks)
+    assert cleanup_tasks
+    await asyncio.wait_for(asyncio.gather(*cleanup_tasks), timeout=5)
+
+    assert send_text.await_count == 0
+    old_workspace.task_tracker.request_stop.assert_awaited_once_with(
+        "chat-1",
+    )
+    assert old_workspace.stopped is True
+
+
+@pytest.mark.asyncio
+async def test_drain_timeout_notify_survives_send_failure(
+    monkeypatch,
+) -> None:
+    manager = MultiAgentManager()
+    old_workspace = _ReloadWorkspace("agent-1")
+    task = asyncio.Future()
+    old_workspace.task_tracker.wait_tasks_done = AsyncMock(
+        return_value=False,
+    )
+    old_workspace.chat_manager = SimpleNamespace(
+        get_chat=AsyncMock(
+            return_value=ChatSpec(
+                session_id="matrix:!room:example.org",
+                user_id="@user:example.org",
+                channel="matrix",
+            ),
+        ),
+    )
+    send_text = AsyncMock(
+        side_effect=KeyError("channel not found: matrix"),
+    )
+    old_workspace.channel_manager = SimpleNamespace(send_text=send_text)
+    old_workspace.task_tracker.request_stop = AsyncMock()
+    monkeypatch.setattr(
+        multi_agent_manager_module,
+        "RELOAD_DRAIN_TIMEOUT",
+        0.05,
+    )
+    monkeypatch.setattr(
+        multi_agent_manager_module,
+        "_OLD_WORKSPACE_TASK_WAIT_SECONDS",
+        0.05,
+    )
+
+    await manager._graceful_stop_old_instance(
+        old_workspace,
+        "agent-1",
+        active_tasks={"chat-1": task},
+    )
+    cleanup_tasks = list(manager._cleanup_tasks)
+    assert cleanup_tasks
+    await asyncio.wait_for(asyncio.gather(*cleanup_tasks), timeout=5)
+
+    assert send_text.await_count == 1
+    old_workspace.task_tracker.request_stop.assert_awaited_once_with(
+        "chat-1",
+    )
+    assert old_workspace.stopped is True
+
+
+def _read_reload_drain_timeout(value: str | None = None) -> float:
+    """Read the import-time setting in an isolated interpreter."""
+    env = os.environ.copy()
+    env.pop(constants.RELOAD_DRAIN_TIMEOUT_ENV, None)
+    if value is not None:
+        env[constants.RELOAD_DRAIN_TIMEOUT_ENV] = value
+
+    code = (
+        "from qwenpaw.constant import RELOAD_DRAIN_TIMEOUT; "
+        "print(RELOAD_DRAIN_TIMEOUT)"
+    )
+    completed = subprocess.run(
+        [sys.executable, "-c", code],
+        env=env,
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    return float(completed.stdout.strip())
+
+
+def test_reload_drain_timeout_env_default_and_parsing() -> None:
+    assert _read_reload_drain_timeout(None) == 86400.0
+    assert _read_reload_drain_timeout("300") == 300.0
+    assert _read_reload_drain_timeout("abc") == 86400.0
+    assert _read_reload_drain_timeout("0") == 1.0
+
+
+@pytest.mark.asyncio
+async def test_consecutive_reloads_do_not_double_notify(
+    monkeypatch,
+) -> None:
+    manager = MultiAgentManager()
+    old_workspace = _ReloadWorkspace("agent-1")
+    task = asyncio.Future()
+    old_workspace.task_tracker.wait_tasks_done = AsyncMock(
+        return_value=False,
+    )
+    old_workspace.chat_manager = SimpleNamespace(
+        get_chat=AsyncMock(
+            return_value=ChatSpec(
+                session_id="matrix:!room:example.org",
+                user_id="@user:example.org",
+                channel="matrix",
+            ),
+        ),
+    )
+    send_text = AsyncMock()
+    old_workspace.channel_manager = SimpleNamespace(send_text=send_text)
+    request_stop = AsyncMock()
+    old_workspace.task_tracker.request_stop = request_stop
+    monkeypatch.setattr(
+        multi_agent_manager_module,
+        "RELOAD_DRAIN_TIMEOUT",
+        0.05,
+    )
+    monkeypatch.setattr(
+        multi_agent_manager_module,
+        "_OLD_WORKSPACE_TASK_WAIT_SECONDS",
+        0.05,
+    )
+
+    await manager._graceful_stop_old_instance(
+        old_workspace,
+        "agent-1",
+        active_tasks={"chat-1": task},
+    )
+    first_cleanup = list(manager._cleanup_tasks)
+    assert first_cleanup
+    await asyncio.wait_for(
+        asyncio.gather(*first_cleanup),
+        timeout=5,
+    )
+
+    # The cancelled run has finished; a second reload round sees it done.
+    task.set_result(None)
+    await manager._graceful_stop_old_instance(
+        old_workspace,
+        "agent-1",
+        active_tasks={"chat-1": task},
+    )
+    second_cleanup = list(manager._cleanup_tasks)
+    assert second_cleanup
+    await asyncio.wait_for(
+        asyncio.gather(*second_cleanup),
+        timeout=5,
+    )
+
+    assert send_text.await_count == 1
+    assert request_stop.await_count == 1
+    assert old_workspace.stopped is True
