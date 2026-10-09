@@ -1,7 +1,7 @@
 import {
   captureChunkDiagnostic,
   failedResourceUrl,
-  readChunkDiagnostic,
+  readBeforeAutomaticReloadDiagnostic,
   recheckChunkResource,
   saveChunkDiagnostic,
 } from "../utils/chunkDiagnostics";
@@ -133,11 +133,7 @@ export function installStartupMonitor(
       startupFailure: kind,
       elapsedMs: Date.now() - startedAt,
     };
-    const saved = readChunkDiagnostic();
-    previous =
-      saved?.automaticReloadAttempted && saved.page === diagnostic.page
-        ? saved
-        : null;
+    previous = readBeforeAutomaticReloadDiagnostic(diagnostic.page);
     saveChunkDiagnostic(diagnostic);
     showFailure();
     if (kind !== "resource") return;

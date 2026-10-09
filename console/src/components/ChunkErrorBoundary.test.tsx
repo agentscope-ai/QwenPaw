@@ -179,6 +179,34 @@ describe("ChunkErrorBoundary runtime recovery", () => {
     ).toBeVisible();
   });
 
+  it("copies the original diagnostic after repeated manual refreshes", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const previous = captureChunkDiagnostic(
+      new TypeError("Importing a module script failed."),
+    );
+    previous.automaticReloadAttempted = true;
+    saveChunkDiagnostic(previous);
+    function MissingModule(): ReactElement {
+      throw new TypeError("Importing a module script failed.");
+    }
+    for (let refresh = 0; refresh < 3; refresh += 1) {
+      const { unmount } = render(
+        <ChunkErrorBoundary>
+          <MissingModule />
+        </ChunkErrorBoundary>,
+      );
+      await screen.findByText("chunkError.observations.unavailable");
+      fireEvent.click(screen.getByRole("button", { name: "chunkError.copy" }));
+      await screen.findByRole("button", { name: "chunkError.copied" });
+      expect(
+        JSON.parse(vi.mocked(copyText).mock.calls[refresh][0])
+          .beforeAutomaticReload,
+      ).toEqual(previous);
+      expect(readChunkDiagnostic()?.automaticReloadAttempted).toBe(false);
+      unmount();
+    }
+  });
+
   it("does not refresh a healthy route when an earlier recheck finishes late", async () => {
     vi.spyOn(console, "error").mockImplementation(() => undefined);
     let finish!: (response: Response) => void;

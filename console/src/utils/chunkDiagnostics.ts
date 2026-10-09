@@ -2,8 +2,9 @@ import { getFrontendBuildId } from "./chunkRecovery";
 import { getLazyImportFailure } from "./lazyImportFailure";
 
 const STORAGE_KEY = "qwenpaw:chunk-diagnostic";
+const BEFORE_RELOAD_KEY = "qwenpaw:chunk-diagnostic-before-reload";
 const RECHECK_TIMEOUT_MS = 2000;
-const URL_PATTERN = /(?:https?:\/\/|\/)[^\s"'<>()[\]]+/g;
+const URL_PATTERN = /(?:https?:\/\/|\/)[^\s"'<>]+/g;
 
 export type ResourceOutcome =
   | "missing"
@@ -51,10 +52,25 @@ function safeUrl(value: string): string {
   return url.toString();
 }
 
+/** Keep URL brackets intact while separating surrounding error punctuation. */
+function splitUrlSuffix(value: string): [string, string] {
+  let url = value.replace(/[.,;]+$/, "");
+  let suffix = value.slice(url.length);
+  while (url) {
+    const close = url.slice(-1);
+    const open = close === ")" ? "(" : close === "]" ? "[" : null;
+    if (!open || url.split(open).length >= url.split(close).length) break;
+    url = url.slice(0, -1);
+    suffix = `${close}${suffix}`;
+  }
+  return [url, suffix];
+}
+
 function safeErrorText(text: string): string {
   return text.replace(URL_PATTERN, (value) => {
+    const [url, suffix] = splitUrlSuffix(value);
     try {
-      return safeUrl(value);
+      return `${safeUrl(url)}${suffix}`;
     } catch {
       return "[invalid URL]";
     }
@@ -65,7 +81,8 @@ function safeErrorText(text: string): string {
 export function failedResourceUrl(error: Error): string | null {
   for (const value of error.message.match(URL_PATTERN) ?? []) {
     try {
-      const url = new URL(value.replace(/[.,;]+$/, ""), window.location.href);
+      const [resource] = splitUrlSuffix(value);
+      const url = new URL(resource, window.location.href);
       if (
         /^https?:$/.test(url.protocol) &&
         /\.(?:m?js|jsx|tsx?|css)$/i.test(url.pathname)
@@ -109,19 +126,27 @@ export function captureChunkDiagnostic(
   };
 }
 
-export function saveChunkDiagnostic(report: ChunkDiagnostic): void {
+function saveDiagnostic(key: string, report: ChunkDiagnostic): void {
   try {
-    window.sessionStorage.setItem(STORAGE_KEY, JSON.stringify(report));
+    window.sessionStorage.setItem(key, JSON.stringify(report));
   } catch {
     // In-page details and copying remain available when storage is blocked.
   }
 }
 
-export function readChunkDiagnostic(): ChunkDiagnostic | null {
+export function saveChunkDiagnostic(report: ChunkDiagnostic): void {
+  const beforeReload = report.automaticReloadAttempted
+    ? report
+    : readChunkDiagnostic();
+  if (beforeReload?.automaticReloadAttempted) {
+    saveDiagnostic(BEFORE_RELOAD_KEY, beforeReload);
+  }
+  saveDiagnostic(STORAGE_KEY, report);
+}
+
+function readDiagnostic(key: string): ChunkDiagnostic | null {
   try {
-    const report = JSON.parse(
-      window.sessionStorage.getItem(STORAGE_KEY) ?? "null",
-    );
+    const report = JSON.parse(window.sessionStorage.getItem(key) ?? "null");
     return report &&
       typeof report.capturedAt === "string" &&
       typeof report.page === "string" &&
@@ -131,6 +156,20 @@ export function readChunkDiagnostic(): ChunkDiagnostic | null {
   } catch {
     return null;
   }
+}
+
+export function readChunkDiagnostic(): ChunkDiagnostic | null {
+  return readDiagnostic(STORAGE_KEY);
+}
+
+/** Retain the pre-refresh report independently of subsequent failed boots. */
+export function readBeforeAutomaticReloadDiagnostic(
+  page: string,
+): ChunkDiagnostic | null {
+  const report = readDiagnostic(BEFORE_RELOAD_KEY) ?? readChunkDiagnostic();
+  return report?.automaticReloadAttempted && report.page === page
+    ? report
+    : null;
 }
 
 /** A bounded fresh request observes current availability, not the first failure. */

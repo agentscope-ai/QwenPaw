@@ -41,6 +41,10 @@ let entry: HTMLScriptElement;
 beforeEach(() => {
   vi.useFakeTimers();
   vi.clearAllMocks();
+  vi.mocked(reloadAfterChunkError).mockImplementation((persist) => {
+    persist?.();
+    return true;
+  });
   localStorage.clear();
   sessionStorage.clear();
   vi.spyOn(navigator, "language", "get").mockReturnValue("en");
@@ -215,6 +219,32 @@ describe("Console startup recovery", () => {
     );
     const text = JSON.parse(document.querySelector("pre")!.textContent!);
     expect(text.beforeAutomaticReload).toEqual(previous);
+  });
+
+  it("keeps the original diagnostic through repeated manual refreshes", async () => {
+    entry.dispatchEvent(new Event("error"));
+    await vi.advanceTimersByTimeAsync(0);
+    const previous = readChunkDiagnostic();
+    expect(previous?.automaticReloadAttempted).toBe(true);
+    vi.mocked(reloadAfterChunkError).mockReturnValue(false);
+
+    for (let refresh = 0; refresh < 3; refresh += 1) {
+      stop();
+      document.body.innerHTML =
+        '<div id="root"><div class="qwenpaw-boot"><div class="qwenpaw-boot__content">Loading Console</div></div></div>';
+      stop = installStartupMonitor(translations);
+      entry.dispatchEvent(new Event("error"));
+      await vi.advanceTimersByTimeAsync(0);
+      const text = JSON.parse(document.querySelector("pre")!.textContent!);
+      expect(text.beforeAutomaticReload).toEqual(previous);
+      expect(readChunkDiagnostic()?.automaticReloadAttempted).toBe(false);
+      document.querySelector("button")!.click();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(
+        JSON.parse(vi.mocked(copyText).mock.calls[refresh][0])
+          .beforeAutomaticReload,
+      ).toEqual(previous);
+    }
   });
 
   it("copies redacted diagnostics and reports clipboard success", async () => {

@@ -12,7 +12,7 @@ import { resetFailedLazyImports } from "../utils/lazyWithRetry";
 import {
   captureChunkDiagnostic,
   failedResourceUrl,
-  readChunkDiagnostic,
+  readBeforeAutomaticReloadDiagnostic,
   recheckChunkResource,
   saveChunkDiagnostic,
 } from "../utils/chunkDiagnostics";
@@ -108,14 +108,11 @@ export class ChunkErrorBoundary extends Component<Props, State> {
   diagnoseChunkError = async (error: Error) => {
     const generation = ++this.diagnosticGeneration;
     const diagnostic = captureChunkDiagnostic(error);
-    const previous = readChunkDiagnostic();
+    const previous = readBeforeAutomaticReloadDiagnostic(diagnostic.page);
     saveChunkDiagnostic(diagnostic);
     this.setState({
       diagnostic,
-      previousDiagnostic:
-        previous?.automaticReloadAttempted && previous.page === diagnostic.page
-          ? previous
-          : null,
+      previousDiagnostic: previous,
     });
     const recheck = await recheckChunkResource(failedResourceUrl(error));
     if (generation !== this.diagnosticGeneration || !this.state.hasError)

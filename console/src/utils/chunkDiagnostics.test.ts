@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   captureChunkDiagnostic,
   failedResourceUrl,
+  readBeforeAutomaticReloadDiagnostic,
   readChunkDiagnostic,
   recheckChunkResource,
   saveChunkDiagnostic,
@@ -27,6 +28,44 @@ describe("original chunk diagnostics", () => {
     expect(JSON.stringify(diagnostic)).not.toContain("secret");
     expect(diagnostic.recheck).toBeNull();
     expect(diagnostic.automaticReloadAttempted).toBe(false);
+  });
+
+  it.each([
+    "token=[secret-value]",
+    "token=(secret-value)",
+    "token=%5Bsecret-value%5D",
+    "token=%28secret-value%29",
+    "token=outer(secret-value(inner))",
+    "filters[]=[secret-value]&v=123",
+  ])("redacts complete query values in %s", (query) => {
+    const url = `https://example.com/assets/page.js?${query}`;
+    const error = new TypeError(
+      `Failed to fetch dynamically imported module: ${url}`,
+    );
+    error.stack = `TypeError: ${error.message}\n    at load (${url}:12:34)`;
+    const report = captureChunkDiagnostic(error);
+    expect(failedResourceUrl(error)).toBe(url);
+    expect(report.originalError.message).not.toContain("secret-value");
+    expect(report.originalError.stack).not.toContain("secret-value");
+    expect(report.originalError.stack).toMatch(/\)$/);
+    expect(report.resourceUrl).toBe(
+      `https://example.com/assets/page.js${
+        query.includes("v=123") ? "?v=123" : ""
+      }`,
+    );
+    saveChunkDiagnostic(report);
+    expect(JSON.stringify(readChunkDiagnostic())).not.toContain("secret-value");
+  });
+
+  it("distinguishes URL brackets from surrounding error syntax", () => {
+    const url = "http://[::1]/assets/page(test).js?token=[secret-value]";
+    const error = new Error(`Loading chunk failed (error: ${url}).`);
+    expect(failedResourceUrl(error)).toBe(url);
+    const report = captureChunkDiagnostic(error);
+    expect(report.resourceUrl).toBe("http://[::1]/assets/page(test).js");
+    expect(report.originalError.message).toBe(
+      "Loading chunk failed (error: http://[::1]/assets/page(test).js).",
+    );
   });
 
   it("retains unknown URL/status information rather than inventing a cause", () => {
@@ -77,9 +116,67 @@ describe("original chunk diagnostics", () => {
     expect(readChunkDiagnostic()).toEqual(report);
   });
 
+  it("retains legacy pre-refresh reports when saving later failures", () => {
+    const previous = captureChunkDiagnostic(new Error("Initial failure"));
+    previous.automaticReloadAttempted = true;
+    sessionStorage.setItem(
+      "qwenpaw:chunk-diagnostic",
+      JSON.stringify(previous),
+    );
+    expect(readBeforeAutomaticReloadDiagnostic(previous.page)).toEqual(
+      previous,
+    );
+    const current = captureChunkDiagnostic(new Error("Failure after refresh"));
+    saveChunkDiagnostic(current);
+    saveChunkDiagnostic(current);
+    expect(readChunkDiagnostic()).toEqual(current);
+    expect(readBeforeAutomaticReloadDiagnostic(current.page)).toEqual(previous);
+    expect(
+      readBeforeAutomaticReloadDiagnostic(`${current.page}other`),
+    ).toBeNull();
+  });
+
+  it("replaces the preserved report when a newer automatic refresh occurs", () => {
+    const previous = captureChunkDiagnostic(new Error("Old build failure"));
+    previous.automaticReloadAttempted = true;
+    saveChunkDiagnostic(previous);
+    const current = captureChunkDiagnostic(new Error("New build failure"));
+    current.automaticReloadAttempted = true;
+    saveChunkDiagnostic(current);
+    expect(readBeforeAutomaticReloadDiagnostic(current.page)).toEqual(current);
+  });
+
+  it("still saves the latest report if preserving the earlier report fails", () => {
+    const previous = captureChunkDiagnostic(new Error("Initial failure"));
+    previous.automaticReloadAttempted = true;
+    sessionStorage.setItem(
+      "qwenpaw:chunk-diagnostic",
+      JSON.stringify(previous),
+    );
+    const setItem = Storage.prototype.setItem;
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(function (
+      this: Storage,
+      key: string,
+      value: string,
+    ) {
+      if (key === "qwenpaw:chunk-diagnostic-before-reload") {
+        throw new DOMException("Storage full", "QuotaExceededError");
+      }
+      setItem.call(this, key, value);
+    });
+    const current = captureChunkDiagnostic(new Error("Later failure"));
+    saveChunkDiagnostic(current);
+    expect(readChunkDiagnostic()).toEqual(current);
+  });
+
   it("tolerates storage restrictions and malformed stored reports", () => {
     sessionStorage.setItem("qwenpaw:chunk-diagnostic", "not-json");
+    sessionStorage.setItem(
+      "qwenpaw:chunk-diagnostic-before-reload",
+      "not-json",
+    );
     expect(readChunkDiagnostic()).toBeNull();
+    expect(readBeforeAutomaticReloadDiagnostic(location.href)).toBeNull();
     vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
       throw new Error("blocked");
     });
