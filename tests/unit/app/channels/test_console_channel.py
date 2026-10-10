@@ -316,3 +316,89 @@ class TestNoTextDebounce:
         )
         assert ok is True
         assert len(merged) == 1
+
+
+# ---------------------------------------------------------------------------
+# stream_one terminal error event
+# ---------------------------------------------------------------------------
+
+
+def _sse_payloads(lines):
+    import json as _json
+
+    payloads = []
+    for line in lines:
+        if line.startswith("data: "):
+            try:
+                payloads.append(_json.loads(line[len("data: ") :].strip()))
+            except ValueError:
+                pass
+    return payloads
+
+
+class TestStreamOneErrorEvent:
+    """A failed turn must end with an error event, not a silent cutoff.
+
+    Clients cannot distinguish a failed turn from a completed one when the
+    SSE stream just ends; the generic exception branch therefore yields a
+    ``{"type": "error", "error": ...}`` event before closing (mirroring the
+    ``rate_limited`` branch above it).
+    """
+
+    @staticmethod
+    def _request_stub():
+        request = MagicMock()
+        request.session_id = "s1"
+        request.user_id = "u1"
+        request.channel = "console"
+        request.input = []
+        request.channel_meta = {}
+        return request
+
+    async def test_generic_failure_yields_error_event(
+        self, console_channel, capsys
+    ):
+        async def failing_process(_request):
+            raise RuntimeError("provider is down")
+            yield  # pragma: no cover - async-generator shape only
+
+        console_channel._process = failing_process
+        console_channel._workspace = None
+        console_channel._finish_response_cycle = AsyncMock()
+
+        lines = [
+            line
+            async for line in console_channel.stream_one(self._request_stub())
+        ]
+
+        error_events = [
+            p for p in _sse_payloads(lines) if p.get("type") == "error"
+        ]
+        assert len(error_events) == 1
+        assert "provider is down" in error_events[0]["error"]
+        # the failure is also surfaced locally
+        assert "provider is down" in capsys.readouterr().out
+
+    async def test_empty_message_gets_default_error_text(
+        self, console_channel
+    ):
+        async def failing_process(_request):
+            raise RuntimeError("")
+            yield  # pragma: no cover - async-generator shape only
+
+        console_channel._process = failing_process
+        console_channel._workspace = None
+        console_channel._finish_response_cycle = AsyncMock()
+
+        lines = [
+            line
+            async for line in console_channel.stream_one(self._request_stub())
+        ]
+
+        error_events = [
+            p for p in _sse_payloads(lines) if p.get("type") == "error"
+        ]
+        assert len(error_events) == 1
+        assert error_events[0]["error"] == (
+            "An error occurred while processing."
+        )
