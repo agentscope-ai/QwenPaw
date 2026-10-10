@@ -193,18 +193,35 @@ class _Resp:
     ("body", "valid", "expect_fragment"),
     [
         # Config-level failures must surface even under HTTP 200.
-        ({"base_resp": {"status_code": 1004, "status_msg": "login fail"}}, True, "1004"),
+        (
+            {"base_resp": {"status_code": 1004, "status_msg": "login fail"}},
+            True,
+            "1004",
+        ),
         ({"base_resp": {"status_code": 2049}}, True, "2049"),
         ({"base_resp": {"status_code": 1008}}, True, "1008"),
         # A throwaway task_id legitimately returns non-zero codes for a valid
         # key; those must NOT fail the connection probe.
-        ({"base_resp": {"status_code": 2013, "status_msg": "task not found"}}, True, None),
+        (
+            {
+                "base_resp": {
+                    "status_code": 2013,
+                    "status_msg": "task not found",
+                },
+            },
+            True,
+            None,
+        ),
         ({"base_resp": {"status_code": 0}}, True, None),
         ({"status": "ok"}, True, None),
         ("", False, None),
     ],
 )
-def test_minimax_base_resp_error_surfaces_http200_failures(body, valid, expect_fragment) -> None:
+def test_minimax_base_resp_error_surfaces_http200_failures(
+    body,
+    valid,
+    expect_fragment,
+) -> None:
     msg = _minimax_base_resp_error(_Resp(body, valid_json=valid))
     if expect_fragment is None:
         assert msg is None

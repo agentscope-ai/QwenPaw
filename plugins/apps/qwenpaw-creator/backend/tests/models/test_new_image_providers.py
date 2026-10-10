@@ -91,8 +91,12 @@ def test_backend_detection() -> None:
     assert image_backend_for_protocol("MiniMax（国内站）") == "MINIMAX"
     assert image_backend_for_protocol("MiniMax（国际站）") == "MINIMAX"
     assert _detect_backend_from_names("image-01", "") == "MINIMAX"
-    assert _detect_backend_from_names("", "https://api.minimax.io") == "MINIMAX"
-    assert _detect_backend_from_names("", "https://api.minimax.cn") == "MINIMAX"
+    assert (
+        _detect_backend_from_names("", "https://api.minimax.io") == "MINIMAX"
+    )
+    assert (
+        _detect_backend_from_names("", "https://api.minimax.cn") == "MINIMAX"
+    )
     assert _detect_backend_from_names("gemini-3-pro-image", "") == "GEMINI"
     assert _detect_backend_from_names("", "https://api.bfl.ai") == "BFL"
 
@@ -324,7 +328,11 @@ def test_minimax_decode_url_base64_and_base_resp(monkeypatch) -> None:
         downloaded.append(url)
         return "/generated/img.png"
 
-    monkeypatch.setattr(minimax_provider, "download_remote_image", fake_download)
+    monkeypatch.setattr(
+        minimax_provider,
+        "download_remote_image",
+        fake_download,
+    )
     result = asyncio.run(
         model._decode({"data": {"image_urls": ["https://cdn/x.png"]}}),
     )
@@ -349,6 +357,9 @@ def test_minimax_decode_url_base64_and_base_resp(monkeypatch) -> None:
     with pytest.raises(ModelError, match="1026"):
         asyncio.run(
             model._decode(
-                {"data": {}, "base_resp": {"status_code": 1026, "status_msg": "nsfw"}},
+                {
+                    "data": {},
+                    "base_resp": {"status_code": 1026, "status_msg": "nsfw"},
+                },
             ),
         )
