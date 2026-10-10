@@ -57,7 +57,6 @@ class ErrorNormalizeHook(LifecycleHook):
                 {"agent": ctx.agent},
             )
             if dump_path:
-                error_text += f" [dump: {dump_path}]"
                 logger.info("error_normalize: dump written to %s", dump_path)
         except Exception:
             logger.debug(
