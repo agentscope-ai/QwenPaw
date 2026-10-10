@@ -108,12 +108,10 @@ class ModelBody(StrictBody):
     input_token_limit: int = Field(
         default=DEFAULT_CONTEXT_WINDOW,
         ge=1000,
-        le=10000000,
     )
     output_token_limit: int | None = Field(
         default=None,
         ge=1,
-        le=1000000,
     )
     output_limit_field: Literal[
         "max_tokens",
