@@ -1130,6 +1130,25 @@ fn serve_control_connection(
                     ControlResponse::error("runtime_unavailable")
                 }
             },
+            // TCC decisions are cached per process, so a helper started before
+            // the user granted Screen Recording or Accessibility never sees
+            // the grant. Replace it so the fresh helper picks the
+            // authorization up.
+            "restart" => {
+                if let Err(err) = stop_helper(app) {
+                    log::warn!("[computer-use] control restart stop failed: {err}");
+                }
+                match ensure(app).and_then(|_| {
+                    runtime_capability(app)
+                        .ok_or_else(|| "Computer Use helper did not expose a capability".to_string())
+                }) {
+                    Ok(capability) => ControlResponse::capability(capability),
+                    Err(err) => {
+                        log::warn!("[computer-use] control restart failed: {err}");
+                        ControlResponse::error("runtime_unavailable")
+                    }
+                }
+            },
             #[cfg(target_os = "macos")]
             "begin_focus" => match (request.helper_pid, request.lease_id.as_deref()) {
                 (Some(helper_pid), Some(lease_id)) if !lease_id.is_empty() => {
