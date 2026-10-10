@@ -35,6 +35,41 @@ from .registry import PluginRegistry
 
 logger = logging.getLogger(__name__)
 
+
+def _safe_invalidate_caches() -> None:
+    """Best-effort ``importlib.invalidate_caches()``.
+
+    Some environments expose a mismatched stdlib (e.g. ``PYTHONPATH``
+    pointing at an older Python minor version's stdlib), where a finder's
+    ``invalidate_caches`` may raise ``TypeError``.  A stale import cache
+    must not abort plugin installation.
+    """
+    try:
+        importlib.invalidate_caches()
+    except Exception:
+        logger.warning(
+            "importlib.invalidate_caches() failed; continuing anyway",
+            exc_info=True,
+        )
+
+
+def _pip_install_env() -> Dict[str, str]:
+    """Subprocess environment for pip/uv installs, minus scheme conflicts.
+
+    ``PIP_TARGET``/``PIP_PREFIX`` inherited from the parent environment are
+    honoured by pip itself, but pip also forwards ``PIP_*`` variables into
+    the isolated build-environment subprocesses it spawns when building
+    sdists.  There they conflict with pip's internal ``--prefix`` and abort
+    the build with ``Cannot set --home and --prefix together``.  Strip
+    them; callers that need a target directory pass ``--target``
+    explicitly.
+    """
+    env = dict(os.environ)
+    for var in ("PIP_TARGET", "PIP_PREFIX"):
+        env.pop(var, None)
+    return env
+
+
 # Distribution name -> import name, for the common cases where they differ.
 _IMPORT_NAME_OVERRIDES = {
     "pillow": "PIL",
@@ -198,7 +233,7 @@ def _ensure_plugin_site_on_path() -> None:
     _site.addsitedir(site_dir)
     if site_dir not in sys.path:
         sys.path.insert(0, site_dir)
-    importlib.invalidate_caches()
+    _safe_invalidate_caches()
 
 
 class PluginLoader:
@@ -462,7 +497,7 @@ class PluginLoader:
             # Another process may have installed while we waited; re-probe
             # with fresh import caches before spending resources on pip.
             _ensure_plugin_site_on_path()
-            importlib.invalidate_caches()
+            _safe_invalidate_caches()
             if not self._find_unsatisfied_dependencies(requirements_file):
                 logger.info(
                     "Plugin '%s' dependencies already satisfied by a "
@@ -880,6 +915,7 @@ class PluginLoader:
             stderr=subprocess.STDOUT,
             text=True,
             bufsize=1,
+            env=_pip_install_env(),
         ) as proc:
 
             def _read_output() -> None:
@@ -951,18 +987,24 @@ class PluginLoader:
             return
 
         # ── Attempt 1: python -m pip ──────────────────────────────────
+        # Translate PIP_TARGET into an explicit --target: the variable is
+        # stripped from the child environment (see _pip_install_env), so an
+        # explicit flag keeps the intended install destination working.
+        pip_cmd = [
+            sys.executable,
+            "-m",
+            "pip",
+            "install",
+            "--disable-pip-version-check",
+            "--no-input",
+        ]
+        pip_target = os.environ.get("PIP_TARGET", "").strip()
+        if pip_target:
+            pip_cmd += ["--target", pip_target]
+        pip_cmd += ["-r", req]
         try:
             result = self._run_subprocess_with_streaming_log(
-                [
-                    sys.executable,
-                    "-m",
-                    "pip",
-                    "install",
-                    "--disable-pip-version-check",
-                    "--no-input",
-                    "-r",
-                    req,
-                ],
+                pip_cmd,
                 timeout=timeout,
                 plugin_id=plugin_id,
             )
@@ -987,7 +1029,7 @@ class PluginLoader:
         if not pip_missing:
             raise RuntimeError(
                 f"Dependency installation failed for '{plugin_id}': "
-                f"{result.stderr}",
+                f"{result.stdout or result.stderr}",
             )
 
         # ── Attempt 2: uv pip install ─────────────────────────────────
@@ -1025,7 +1067,7 @@ class PluginLoader:
         if uv_result.returncode != 0:
             raise RuntimeError(
                 f"Dependency installation failed for '{plugin_id}' "
-                f"(via uv): {uv_result.stderr}",
+                f"(via uv): {uv_result.stdout or uv_result.stderr}",
             )
         logger.info(
             f"Dependencies installed for plugin '{plugin_id}' (via uv)",
@@ -1082,7 +1124,7 @@ class PluginLoader:
                 f"Dependency installation failed for '{plugin_id}': "
                 f"{result.stdout}",
             )
-        importlib.invalidate_caches()
+        _safe_invalidate_caches()
         logger.info(
             "Dependencies installed for plugin '%s' into %s",
             plugin_id,
