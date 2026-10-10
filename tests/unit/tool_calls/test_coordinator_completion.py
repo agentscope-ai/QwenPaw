@@ -495,6 +495,8 @@ async def test_kill_deadline_terminates_execution():
     final = events[-1]
     assert isinstance(final, ToolResponse)
     assert "should not reach" not in final.content[0].text
+    assert final.state == ToolResultState.SUCCESS
+    assert "cancelled due to timeout" in final.content[0].text
 
     entry = coordinator.get("call-kill")
     if entry is not None:
