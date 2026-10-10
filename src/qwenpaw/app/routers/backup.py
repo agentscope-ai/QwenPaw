@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -14,7 +15,8 @@ from fastapi import APIRouter, Form, HTTPException, Request, UploadFile, File
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 
 from ...backup import (
-    create_stream,
+    BackupManager,
+    BackupOperationConflict,
     delete_backups,
     execute_restore,
     export_backup,
@@ -25,6 +27,9 @@ from ...backup import (
 from ...backup.models import (
     BackupConflictError,
     BackupDetail,
+    BackupJobPhase,
+    BackupJobSnapshot,
+    BackupJobStatus,
     BackupMeta,
     BackupTrustMode,
     BackupValidationError,
@@ -49,6 +54,98 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/backups", tags=["backups"])
 
 _UPLOAD_TMP_MAX_AGE = 3600  # 1 hour
+_SSE_HEARTBEAT_SECONDS = 15.0
+
+
+def _get_backup_manager(request: Request) -> BackupManager:
+    manager = getattr(request.app.state, "backup_manager", None)
+    if manager is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Backup manager is not available",
+        )
+    return manager
+
+
+def _legacy_event(snapshot: BackupJobSnapshot) -> dict:
+    """Map a job snapshot to the legacy stream event shape."""
+    if snapshot.status == BackupJobStatus.COMPLETED:
+        return {
+            "type": "done",
+            "meta": snapshot.result.model_dump(mode="json"),
+            "percent": 100,
+        }
+    if snapshot.status in {
+        BackupJobStatus.FAILED,
+        BackupJobStatus.CANCELLED,
+    }:
+        return {
+            "type": "error",
+            "message": snapshot.error or "Backup cancelled",
+        }
+    if snapshot.phase == BackupJobPhase.FINALIZING:
+        return {"type": "saving", "percent": snapshot.percent}
+    if snapshot.current_agent:
+        return {
+            "type": "agent",
+            "agent_id": snapshot.current_agent,
+            "index": snapshot.agent_index,
+            "total": snapshot.total_agents,
+            "percent": snapshot.percent,
+        }
+    return {
+        "type": "start",
+        "total_agents": snapshot.total_agents,
+        "percent": 0,
+    }
+
+
+async def _job_event_stream(
+    manager: BackupManager,
+    job_id: str,
+    *,
+    legacy: bool = False,
+):
+    queue = manager.subscribe(job_id)
+    if queue is None:
+        return
+    try:
+        while True:
+            try:
+                snapshot = await asyncio.wait_for(
+                    queue.get(),
+                    timeout=_SSE_HEARTBEAT_SECONDS,
+                )
+            except asyncio.TimeoutError:
+                yield ": heartbeat\n\n"
+                continue
+
+            payload = (
+                _legacy_event(snapshot)
+                if legacy
+                else snapshot.model_dump(mode="json")
+            )
+            yield f"data: {json.dumps(payload)}\n\n"
+            if snapshot.status in {
+                BackupJobStatus.COMPLETED,
+                BackupJobStatus.FAILED,
+                BackupJobStatus.CANCELLED,
+            }:
+                break
+    finally:
+        manager.unsubscribe(job_id, queue)
+
+
+def _stream_response(generator) -> StreamingResponse:
+    return StreamingResponse(
+        generator,
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 def _cleanup_stale_uploads() -> None:
@@ -80,28 +177,74 @@ def _cleanup_stale_uploads() -> None:
                 pass
 
 
+@router.post(
+    "/jobs",
+    response_model=BackupJobSnapshot,
+    status_code=202,
+    summary="Start a backup creation job",
+)
+async def start_backup_job(req: CreateBackupRequest, request: Request):
+    manager = _get_backup_manager(request)
+    try:
+        return manager.start_job(req)
+    except BackupOperationConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@router.get(
+    "/jobs/active",
+    response_model=BackupJobSnapshot | None,
+    summary="Get the active backup creation job",
+)
+async def get_active_backup_job(request: Request):
+    return _get_backup_manager(request).get_active_job()
+
+
+@router.get(
+    "/jobs/{job_id}",
+    response_model=BackupJobSnapshot,
+    summary="Get a backup creation job",
+)
+async def get_backup_job(job_id: str, request: Request):
+    snapshot = _get_backup_manager(request).get_job(job_id)
+    if snapshot is None:
+        raise HTTPException(status_code=404, detail="Backup job not found")
+    return snapshot
+
+
+@router.get(
+    "/jobs/{job_id}/events",
+    summary="Observe a backup creation job via SSE",
+)
+async def backup_job_events(job_id: str, request: Request):
+    manager = _get_backup_manager(request)
+    if manager.get_job(job_id) is None:
+        raise HTTPException(status_code=404, detail="Backup job not found")
+    return _stream_response(_job_event_stream(manager, job_id))
+
+
+@router.post(
+    "/jobs/{job_id}/cancel",
+    response_model=BackupJobSnapshot,
+    summary="Cancel a backup creation job",
+)
+async def cancel_backup_job(job_id: str, request: Request):
+    snapshot = _get_backup_manager(request).cancel_job(job_id)
+    if snapshot is None:
+        raise HTTPException(status_code=404, detail="Backup job not found")
+    return snapshot
+
+
 @router.post("/stream", summary="Create backup with SSE progress stream")
-async def create_backup_stream(req: CreateBackupRequest):
-    """Create a backup and stream progress via SSE.
-
-    When the client disconnects the background thread stops at the next agent
-    boundary without writing the final file. Each event is formatted as
-    `data: <json>\\n\\n`; see create_stream for event shapes.
-    """
-
-    async def generate():
-        try:
-            async for event in create_stream(req):
-                yield f"data: {json.dumps(event)}\n\n"
-        except Exception as exc:
-            payload = {"type": "error", "message": str(exc)}
-            yield f"data: {json.dumps(payload)}\n\n"
-
-    return StreamingResponse(
-        generate(),
-        media_type="text/event-stream",
-        # Disable proxy/nginx buffering so events reach the client immediately
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+async def create_backup_stream(req: CreateBackupRequest, request: Request):
+    """Compatibility adapter over the application-owned backup job."""
+    manager = _get_backup_manager(request)
+    try:
+        snapshot = manager.start_job(req)
+    except BackupOperationConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return _stream_response(
+        _job_event_stream(manager, snapshot.job_id, legacy=True),
     )
 
 
@@ -266,19 +409,27 @@ async def restore_backup(
     req: RestoreBackupRequest,
     request: Request,
 ):
-    manager = getattr(request.app.state, "multi_agent_manager", None)
+    backup_manager = _get_backup_manager(request)
+    agent_manager = getattr(request.app.state, "multi_agent_manager", None)
     try:
-        meta = await execute_restore(
-            backup_id,
-            req,
-            stop_agent_fn=manager.stop_agent if manager else None,
-            # Contractual order: stop agent, browsers, then replace files.
-            stop_browsers_fn=shutdown_browsers_for_workspace_dirs,
-            preload_agent_fn=manager.preload_agent if manager else None,
-            list_running_agent_ids_fn=(
-                manager.list_loaded_agents if manager else None
-            ),
-        )
+        with backup_manager.reserve_restore():
+            meta = await execute_restore(
+                backup_id,
+                req,
+                stop_agent_fn=(
+                    agent_manager.stop_agent if agent_manager else None
+                ),
+                # Contractual order: stop agent, browsers, then replace files.
+                stop_browsers_fn=shutdown_browsers_for_workspace_dirs,
+                preload_agent_fn=(
+                    agent_manager.preload_agent if agent_manager else None
+                ),
+                list_running_agent_ids_fn=(
+                    agent_manager.list_loaded_agents if agent_manager else None
+                ),
+            )
+    except BackupOperationConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except FileNotFoundError as exc:
         raise HTTPException(
             status_code=404,

@@ -1,4 +1,4 @@
-import { request } from "../request";
+import { request, type RequestOptions } from "../request";
 import { getApiUrl } from "../config";
 import { buildAuthHeaders } from "../authHeaders";
 import type {
@@ -8,6 +8,8 @@ import type {
   HubSkillSpec,
   PoolSkillSpec,
   PoolSkillDetail,
+  SkillAutomationResponse,
+  SkillAutomationUpdate,
   SkillDetail,
   SkillSpec,
   WorkspaceSkillSummary,
@@ -18,6 +20,11 @@ declare const VITE_API_BASE_URL: string;
 
 // Simple in-memory cache with TTL
 const CACHE_TTL_MS = 30000; // 30 seconds
+const LIST_REQUEST_OPTIONS: RequestOptions = {
+  timeout: 120_000,
+  retries: 2,
+  retryDelay: 1_000,
+};
 const apiCache = new Map<string, { data: unknown; timestamp: number }>();
 
 function getCached<T>(key: string): T | null {
@@ -50,10 +57,11 @@ export function invalidateSkillCache(options?: {
     }
 
     // Targeted invalidation based on options
-    if (options.pool && key === "/skills/pool") {
+    if (
+      options.pool &&
+      (key === "/skills/pool" || key.startsWith("/skills/pool/"))
+    ) {
       apiCache.delete(key);
-      apiCache.delete("/skills/pool/builtin-notice");
-      apiCache.delete("/skills/pool/builtin-sources");
     } else if (options.workspaces && key === "/skills/workspaces") {
       apiCache.delete(key);
     } else if (options.agentId && key === `/skills?agent=${options.agentId}`) {
@@ -122,7 +130,7 @@ export const skillApi = {
     const cached = getCached<SkillSpec[]>(cacheKey);
     if (cached) return cached;
 
-    const opts: RequestInit = {};
+    const opts: RequestOptions = { ...LIST_REQUEST_OPTIONS };
     if (agentId) opts.headers = new Headers({ "X-Agent-Id": agentId });
     const data = await request<SkillSpec[]>("/skills", opts);
     setCache(cacheKey, data);
@@ -134,7 +142,10 @@ export const skillApi = {
     const cached = getCached<WorkspaceSkillSummary[]>(cacheKey);
     if (cached) return cached;
 
-    const data = await request<WorkspaceSkillSummary[]>("/skills/workspaces");
+    const data = await request<WorkspaceSkillSummary[]>(
+      "/skills/workspaces",
+      LIST_REQUEST_OPTIONS,
+    );
     setCache(cacheKey, data);
     return data;
   },
@@ -144,7 +155,10 @@ export const skillApi = {
     const cached = getCached<PoolSkillSpec[]>(cacheKey);
     if (cached) return cached;
 
-    const data = await request<PoolSkillSpec[]>("/skills/pool");
+    const data = await request<PoolSkillSpec[]>(
+      "/skills/pool",
+      LIST_REQUEST_OPTIONS,
+    );
     // Ensure data is an array
     if (!Array.isArray(data)) {
       throw new Error(
@@ -211,18 +225,22 @@ export const skillApi = {
       }),
     }),
 
-  saveSkill: (payload: {
-    name: string;
-    content: string;
-    source_name?: string;
-    config?: Record<string, unknown>;
-    overwrite?: boolean;
-  }) =>
+  saveSkill: (
+    payload: {
+      name: string;
+      content: string;
+      source_name?: string;
+      config?: Record<string, unknown>;
+      overwrite?: boolean;
+    },
+    agentId?: string,
+  ) =>
     request<{
       success: boolean;
       mode: "edit" | "rename" | "noop";
       name: string;
     }>("/skills/save", {
+      headers: agentId ? new Headers({ "X-Agent-Id": agentId }) : undefined,
       method: "PUT",
       body: JSON.stringify(payload),
     }),
@@ -454,19 +472,35 @@ export const skillApi = {
       body: JSON.stringify(payload),
     }),
 
-  updateSkillChannels: (skillName: string, channels: string[]) =>
+  updateSkillChannels: (
+    skillName: string,
+    channels: string[],
+    agentId?: string,
+  ) =>
     request<{ updated: boolean; channels: string[] }>(
       `/skills/${encodeURIComponent(skillName)}/channels`,
       {
+        headers: agentId ? new Headers({ "X-Agent-Id": agentId }) : undefined,
         method: "PUT",
         body: JSON.stringify(channels),
       },
     ),
 
-  updateSkillTags: (skillName: string, tags: string[]) =>
+  updateSkillPreload: (skillName: string, preload: boolean, agentId?: string) =>
+    request<{ updated: boolean; preload: boolean }>(
+      `/skills/${encodeURIComponent(skillName)}/preload`,
+      {
+        headers: agentId ? new Headers({ "X-Agent-Id": agentId }) : undefined,
+        method: "PUT",
+        body: JSON.stringify({ preload }),
+      },
+    ),
+
+  updateSkillTags: (skillName: string, tags: string[], agentId?: string) =>
     request<{ updated: boolean; tags: string[] }>(
       `/skills/${encodeURIComponent(skillName)}/tags`,
       {
+        headers: agentId ? new Headers({ "X-Agent-Id": agentId }) : undefined,
         method: "PUT",
         body: JSON.stringify(tags),
       },
@@ -481,7 +515,7 @@ export const skillApi = {
       },
     ),
 
-  updatePoolSkillAutoUpdate: (
+  updatePoolSkillAutoSync: (
     skillName: string,
     payload: { enabled: boolean; targets: string[] | null },
   ) =>
@@ -489,10 +523,22 @@ export const skillApi = {
       updated: boolean;
       enabled: boolean;
       targets: string[] | null;
-    }>(`/skills/pool/${encodeURIComponent(skillName)}/auto-update`, {
+    }>(`/skills/pool/${encodeURIComponent(skillName)}/auto-sync`, {
       method: "PUT",
       body: JSON.stringify(payload),
     }),
+
+  updatePoolSkillAutomation: (
+    skillName: string,
+    payload: SkillAutomationUpdate,
+  ) =>
+    request<SkillAutomationResponse>(
+      `/skills/pool/${encodeURIComponent(skillName)}/automation`,
+      {
+        method: "PUT",
+        body: JSON.stringify(payload),
+      },
+    ),
 
   streamOptimizeSkill: async function (
     content: string,

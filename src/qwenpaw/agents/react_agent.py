@@ -14,6 +14,7 @@ from __future__ import annotations
 import logging
 import re
 import uuid
+from functools import partial
 from pathlib import Path
 from typing import Any, Literal, Optional, TYPE_CHECKING
 
@@ -30,8 +31,14 @@ from agentscope.state import AgentState
 from agentscope.tool import Toolkit
 
 from .context.base import ContextManager
+from .context.overflow_recovery import call_with_overflow_recovery
 from .skill_system import get_workspace_skills_dir
 from .utils.image_freezing import freeze_local_images_async
+from .utils.message_request_normalizer import _is_media_block
+from .utils.text_block_utils import (
+    drop_empty_text_blocks,
+    sanitize_empty_text_blocks,
+)
 from ..modes.coding import CodingModeMixin
 from ..utils.io_utils import run_sync_io
 from ..constant import (
@@ -44,10 +51,12 @@ from ..loop.gates import StopAction, StopHandlerResult
 from ..providers.error_utils import extract_status_code
 from ..providers.fallback_chat_model import install_fallback_notice_sink
 from ..providers.model_capability_cache import get_capability_cache
+from ..providers.adapters.request_context import model_session
 from ..utils.tool_call_extra import (
     collect_transient_tool_call_extras,
     persist_tool_call_extras,
 )
+from .utils.tool_call_coerce import _coerce_tool_input
 
 if TYPE_CHECKING:
     from ..config.config import AgentProfileConfig
@@ -137,6 +146,58 @@ _REQUEST_SCOPED_MEDIA_LIMIT_SIGNALS = (
     "file size",
 )
 
+# Asset-level media failures: the provider refused these bytes (undecodable
+# data, an unsupported container, a declared MIME type it cannot render).
+# They say nothing about the model, so they must never be learned as a
+# capability loss — the payload classifier below owns the recovery.
+_INVALID_MEDIA_ASSET_SIGNALS = (
+    "corrupt",
+    "decode",
+    "invalid image",
+    "invalid media",
+    "mime",
+    "unsupported image format",
+)
+
+# The gate for the media-free retry promised by
+# ``_REQUEST_SCOPED_MEDIA_LIMIT_SIGNALS``: those signals reject the current
+# media shape, and asset-level failures reject the current bytes. Both are
+# recoverable by dropping the media, and neither says anything about the
+# model's multimodal capability.
+#
+# Recovery is not optional here: the offending block is replayed from the
+# stored context on every later turn, so without a media-free retry the
+# provider keeps returning the same 400 and the session never heals.
+# DeepSeek, for example, answers an image whose side exceeds its 8192 px
+# limit with "You have uploaded an unsupported image" — the message names
+# neither the limit nor the model's capability.
+_MEDIA_PAYLOAD_REJECTION_SIGNALS = (
+    *_REQUEST_SCOPED_MEDIA_LIMIT_SIGNALS,
+    *_INVALID_MEDIA_ASSET_SIGNALS,
+    "uploaded an unsupported image",
+    "unsupported image",
+    "unsupported media format",
+    "unsupported media type",
+    "unsupported image dimensions",
+    "unsupported dimensions",
+    "image is not valid",
+    "image is invalid",
+    "image too large",
+    "image is too large",
+    "image dimensions",
+)
+
+# A payload rejection only counts when the provider actually names the media
+# it refused; "invalid request" alone must keep its existing handling.
+_MEDIA_PAYLOAD_MEDIA_NOUNS = (
+    "image",
+    "audio",
+    "video",
+    "media",
+    "picture",
+    "photo",
+)
+
 
 def _effective_artifact_retention_days(light_context_config: Any) -> int:
     """Return the independently configured tool-result artifact lifetime."""
@@ -183,6 +244,7 @@ class QwenPawAgent(CodingModeMixin, Agent):
         """
         self._agent_config = agent_config
         self._request_context = dict(request_context or {})
+        self._model_session_id = uuid.uuid4().hex
         self._workspace_dir = workspace_dir
         self._language = agent_config.language
         # Optional context-management strategy. When None, the agent keeps its
@@ -195,6 +257,11 @@ class QwenPawAgent(CodingModeMixin, Agent):
 
         self._governor = governor
         self._gate_pending_stop = None
+
+        # Tool name -> parameter schema index for tool-call input
+        # coercion (issue #6839); rebuilt by ``_call_model`` from exactly
+        # the tool list the model sees on every call.
+        self._tool_schema_index: dict[str, dict[str, Any]] = {}
 
         init_kwargs: dict[str, Any] = {
             "name": name,
@@ -290,7 +357,12 @@ class QwenPawAgent(CodingModeMixin, Agent):
 
     def _save_to_context(self, blocks: Any, usage: Any = None) -> None:
         """Append blocks, then let the context manager write them through."""
-        block_list = list(blocks or [])
+        # A reasoning-only turn arrives as an empty text block.  Persisting
+        # it replays ``{"type": "output_text", "text": ""}`` on every later
+        # request, which providers such as Volcengine Ark reject with
+        # ``400 MissingParameter: input.content.text`` — one empty turn
+        # would otherwise poison the rest of the session.
+        block_list = drop_empty_text_blocks(list(blocks or []))
         tool_call_extras = collect_transient_tool_call_extras(block_list)
 
         super()._save_to_context(block_list, usage)
@@ -381,19 +453,24 @@ class QwenPawAgent(CodingModeMixin, Agent):
             )
 
     def _sanitize_loaded_context(self) -> None:
-        """Strip orphan tool_result messages from the loaded context.
+        """Strip replay-breaking blocks from the loaded context.
 
         Orphan tool_result messages (whose tool_call has been evicted)
         can persist in session JSON and leak across session boundaries
         when loaded by ``load_state_dict``.  Without sanitization here
         they reach the model and cause ``400 - Messages with role 'tool'
         must be a response to a preceding message with 'tool_calls'``.
+
+        Empty assistant text blocks are the same class of defect with a
+        different block type: they make providers such as Volcengine Ark
+        answer ``400 MissingParameter: input.content.text``.  Sessions
+        poisoned before the save-time guard existed heal here.
         """
         try:
             from .utils.tool_message_utils import _sanitize_tool_messages
 
-            self.state.context = _sanitize_tool_messages(
-                self.state.context,
+            self.state.context = sanitize_empty_text_blocks(
+                _sanitize_tool_messages(self.state.context),
             )
         except Exception:
             # Best-effort: a corrupt context will be caught again by
@@ -493,9 +570,6 @@ class QwenPawAgent(CodingModeMixin, Agent):
     # residue would defeat the point.
     # ------------------------------------------------------------------
 
-    _MEDIA_BLOCK_TYPES = {"image", "audio", "video", "file"}
-    _MEDIA_MIME_PREFIXES = ("image/", "audio/", "video/")
-
     def _get_model_key(self) -> str | None:
         """Return the capability-cache key for the active model."""
         model = getattr(self, "model", None)
@@ -561,6 +635,23 @@ class QwenPawAgent(CodingModeMixin, Agent):
             return
         setattr(formatter, "_qwenpaw_force_strip_audio", enabled)
 
+    def _set_formatter_thinking_omit_ids(self, block_ids: set[str]) -> bool:
+        """Propagate reasoning omissions through model wrappers."""
+        model_setter = getattr(self.model, "set_thinking_omit_ids", None)
+        if callable(model_setter):
+            return bool(model_setter(set(block_ids)))
+
+        formatter = self._get_active_formatter()
+        if formatter is None:
+            return False
+        formatter_setter = getattr(formatter, "set_thinking_omit_ids", None)
+        if callable(formatter_setter):
+            return bool(formatter_setter(set(block_ids)))
+        # Compatibility for third-party OpenAI-chat formatters that predate
+        # the explicit interface but consume the QwenPaw extension attribute.
+        setattr(formatter, "_qwenpaw_omit_thinking_ids", set(block_ids))
+        return True
+
     def _last_wire_request_had_media(self) -> bool:
         """Return whether the last completed formatting emitted media."""
         formatter = self._get_active_formatter()
@@ -587,10 +678,20 @@ class QwenPawAgent(CodingModeMixin, Agent):
 
     @staticmethod
     def _is_audio_fallback_error(exc: Exception) -> bool:
-        """Return whether DashScope rejected the current audio payload."""
+        """Return whether a provider rejected the current audio payload."""
         error_str = " ".join(str(exc).lower().split())
         status = extract_status_code(exc)
         has_bad_request_status = status == 400 or "<400>" in error_str
+        rejects_unknown_audio_part = "input_audio" in error_str and any(
+            marker in error_str
+            for marker in (
+                "unknown variant",
+                "unknown field",
+                "unknown part",
+                "unexpected variant",
+                "unexpected field",
+            )
+        )
         invalid_modal = all(
             marker in error_str
             for marker in (
@@ -601,7 +702,7 @@ class QwenPawAgent(CodingModeMixin, Agent):
                 "wrong position",
             )
         )
-        return (
+        return rejects_unknown_audio_part or (
             has_bad_request_status
             and "internalerror.algo.invalidparameter" in error_str
             and invalid_modal
@@ -643,7 +744,8 @@ class QwenPawAgent(CodingModeMixin, Agent):
         if any(marker in error_str for marker in overflow_markers):
             return True
 
-        gemini_overflow_marker_groups = (
+        overflow_marker_groups = (
+            ("tokens", "exceeds the available context size"),
             (
                 "input token count",
                 "exceeds the maximum number of tokens allowed",
@@ -655,7 +757,7 @@ class QwenPawAgent(CodingModeMixin, Agent):
         )
         return any(
             all(marker in error_str for marker in marker_group)
-            for marker_group in gemini_overflow_marker_groups
+            for marker_group in overflow_marker_groups
         )
 
     async def _call_model(
@@ -671,53 +773,149 @@ class QwenPawAgent(CodingModeMixin, Agent):
         recovery changed the model input. The retry calls AgentScope directly,
         so a second overflow propagates instead of entering a recovery loop.
         """
-        try:
-            return await super()._call_model(
-                messages=messages,
-                tools=tools,
-                tool_choice=tool_choice,
-            )
-        except Exception as exc:
-            context_manager = getattr(self, "_context_manager", None)
-            if not isinstance(
-                context_manager,
-                ContextManager,
-            ) or not self._is_context_overflow_error(exc):
-                raise
+        self._index_tool_schemas(tools)
+        return await call_with_overflow_recovery(
+            super()._call_model,
+            partial(self._recover_model_overflow, tool_choice=tool_choice),
+            messages=messages,
+            tools=tools,
+            tool_choice=tool_choice,
+        )
 
-            before = len(getattr(self.state, "context", []) or [])
+    async def _recover_model_overflow(
+        self,
+        exc: Exception,
+        tool_choice: Any,
+    ) -> Any:
+        """Compact rejected input and retry once through AgentScope."""
+        context_manager = getattr(self, "_context_manager", None)
+        if not isinstance(
+            context_manager,
+            ContextManager,
+        ) or not self._is_context_overflow_error(exc):
+            raise exc
+
+        before = len(getattr(self.state, "context", []) or [])
+        logger.warning(
+            "Model input exceeded the provider context limit; attempting "
+            "one context recovery.",
+        )
+        input_changed = await context_manager.recover_from_context_overflow(
+            self,
+        )
+        if not input_changed:
             logger.warning(
-                "Model input exceeded the provider context limit; attempting "
-                "one context recovery.",
+                "Context-overflow recovery did not change the model "
+                "input; skipping the retry.",
             )
-            input_changed = (
-                await context_manager.recover_from_context_overflow(self)
-            )
-            if not input_changed:
-                logger.warning(
-                    "Context-overflow recovery did not change the model "
-                    "input; skipping the retry.",
-                )
-                raise
-            after = len(getattr(self.state, "context", []) or [])
+            raise exc
+        after = len(getattr(self.state, "context", []) or [])
 
-            # The original `messages` list was prepared before compaction and
-            # can still reference evicted turns.  Always rebuild it from the
-            # updated agent state before retrying.
-            refreshed = await self._prepare_model_input()
-            refreshed_messages = refreshed["messages"]
-            refreshed_tools = refreshed.get("tools", [])
-            logger.info(
-                "Context-overflow recovery rebuilt model input "
-                "(messages %d -> %d).",
-                before,
-                after,
-            )
-            return await super()._call_model(
-                messages=refreshed_messages,
-                tools=refreshed_tools,
-                tool_choice=tool_choice,
-            )
+        # The original `messages` list was prepared before compaction and
+        # can still reference evicted turns.  Always rebuild it from the
+        # updated agent state before retrying.
+        refreshed = await self._prepare_model_input()
+        refreshed_messages = refreshed["messages"]
+        refreshed_tools = refreshed.get("tools", [])
+        self._index_tool_schemas(refreshed_tools)
+        logger.info(
+            "Context-overflow recovery rebuilt model input "
+            "(messages %d -> %d).",
+            before,
+            after,
+        )
+        return await super()._call_model(
+            messages=refreshed_messages,
+            tools=refreshed_tools,
+            tool_choice=tool_choice,
+        )
+
+    def _index_tool_schemas(self, tools: list[dict] | None) -> None:
+        """Index ``tool name -> parameter schema`` for input coercion.
+
+        Built in :meth:`_call_model` from exactly the tool list handed to
+        the model (issue #6839), so the coercion schema always matches
+        what the model saw.  Looking schemas up through
+        ``toolkit.check_tool_available`` at tool-call time instead would
+        issue ``list_tools`` against every registered MCP client on
+        every tool call.
+        """
+        index: dict[str, dict[str, Any]] = {}
+        for tool in tools or []:
+            func = tool.get("function") if isinstance(tool, dict) else None
+            if not isinstance(func, dict):
+                continue
+            name = func.get("name")
+            params = func.get("parameters")
+            if isinstance(name, str) and isinstance(params, dict):
+                index[name] = params
+        self._tool_schema_index = index
+
+    def _coerce_tool_call_input(self, tool_call: Any) -> None:
+        """Coerce ``tool_call.input`` in place against the indexed schema.
+
+        Models sometimes emit unquoted numbers/booleans for string-typed
+        tool parameters (issue #6839); agentscope's shared validation
+        rejects those values and every such tool call fails.  The
+        rewrite happens on the block stored in the message, so the
+        repaired input travels with the persisted context, and it runs
+        before the permission check, so a call paused for user
+        confirmation resumes already repaired.  No-op when the tool name
+        is not indexed.
+        """
+        index = getattr(self, "_tool_schema_index", None)
+        if not index:
+            return
+        if isinstance(tool_call, dict):
+            name = tool_call.get("name")
+        else:
+            name = getattr(tool_call, "name", None)
+        if not isinstance(name, str):
+            return
+        schema = index.get(name)
+        if not isinstance(schema, dict):
+            return
+        if isinstance(tool_call, dict):
+            raw_input = tool_call.get("input")
+        else:
+            raw_input = getattr(tool_call, "input", None)
+        if not isinstance(raw_input, str):
+            return
+        coerced = _coerce_tool_input(raw_input, schema)
+        if coerced == raw_input:
+            return
+        if isinstance(tool_call, dict):
+            tool_call["input"] = coerced
+        else:
+            tool_call.input = coerced
+        logger.info(
+            "Coerced tool %r input to match string-typed schema fields "
+            "(#6839)",
+            name,
+        )
+
+    async def _execute_tool_call(
+        self,
+        tool_call: Any,
+        kept_rules: Any | None = None,
+    ):
+        """Coerce the tool input, then delegate to the base funnel.
+
+        ``Agent._execute_tool_call`` is the single funnel for tool-call
+        execution — both the sequential and the concurrent paths reach
+        it — and it runs immediately before agentscope parses and
+        validates the input, which is where the #6839 failure happens.
+        Coercing here covers every provider, not just OpenAI.
+
+        The signature mirrors the base method exactly: the concurrent
+        execution path calls this with two positional arguments
+        (``tool_call`` and the batch-shared ``kept_rules`` accumulator),
+        so accepting only ``tool_call`` raised ``TypeError`` on every
+        concurrent tool call.
+        """
+        self._coerce_tool_call_input(tool_call)
+        async for evt in super()._execute_tool_call(tool_call, kept_rules):
+            yield evt
 
     # pylint: disable=too-many-branches,too-many-statements
     async def _reasoning(
@@ -764,13 +962,9 @@ class QwenPawAgent(CodingModeMixin, Agent):
             )
             return
 
-        # ── Proactive media stripping ──
-        from .model_factory import _supports_multimodal_for_current_model
-
-        should_strip_media = (
-            not _supports_multimodal_for_current_model()
-            or self._model_rejects_media()
-        )
+        # ModelInfo controls per-model request normalization. Only learned
+        # rejections belong here; a global lookup can misclassify fallbacks.
+        should_strip_media = self._model_rejects_media()
         should_strip_audio = (
             not should_strip_media and self._model_rejects_audio()
         )
@@ -795,6 +989,7 @@ class QwenPawAgent(CodingModeMixin, Agent):
         final_msg: Msg | None = None
         context_manager = self._context_manager
         pending_seen_ids: set[str] = set()
+        pending_seen_thinking_ids: set[str] = set()
         if context_manager is not None and hasattr(
             context_manager,
             "model_input_tool_result_ids",
@@ -802,25 +997,39 @@ class QwenPawAgent(CodingModeMixin, Agent):
             pending_seen_ids = context_manager.model_input_tool_result_ids(
                 self,
             )
+        if context_manager is not None and hasattr(
+            context_manager,
+            "model_input_thinking_block_ids",
+        ):
+            pending_seen_thinking_ids = (
+                context_manager.model_input_thinking_block_ids(self)
+            )
 
-        def acknowledge_seen_results(evt: Any) -> None:
+        def acknowledge_seen_inputs(evt: Any) -> None:
             """Acknowledge inputs only after a completed model request."""
             if (
                 isinstance(evt, ModelCallEndEvent)
                 and evt.finished_reason != FinishedReason.INTERRUPTED
                 and context_manager is not None
-                and hasattr(
+            ):
+                if hasattr(
                     context_manager,
                     "acknowledge_model_input_tool_results",
-                )
-            ):
-                context_manager.acknowledge_model_input_tool_results(
-                    pending_seen_ids,
-                )
+                ):
+                    context_manager.acknowledge_model_input_tool_results(
+                        pending_seen_ids,
+                    )
+                if hasattr(
+                    context_manager,
+                    "acknowledge_model_input_thinking_blocks",
+                ):
+                    context_manager.acknowledge_model_input_thinking_blocks(
+                        pending_seen_thinking_ids,
+                    )
 
         try:
             async for evt in super()._reasoning(tool_choice=tool_choice):
-                acknowledge_seen_results(evt)
+                acknowledge_seen_inputs(evt)
                 if isinstance(evt, Msg):
                     final_msg = evt
                 else:
@@ -835,7 +1044,17 @@ class QwenPawAgent(CodingModeMixin, Agent):
                 self._last_wire_request_had_media()
                 and self._is_explicit_media_capability_error(e)
             )
-            if not (audio_fallback_retry or media_capability_retry):
+            media_payload_retry = (
+                not media_capability_retry
+                and self._uses_request_time_media_normalization()
+                and self._last_wire_request_had_media()
+                and self._is_media_payload_rejection_error(e)
+            )
+            if not (
+                audio_fallback_retry
+                or media_capability_retry
+                or media_payload_retry
+            ):
                 if self._uses_request_time_media_normalization():
                     if should_strip_media:
                         self._set_formatter_media_strip(False)
@@ -855,6 +1074,15 @@ class QwenPawAgent(CodingModeMixin, Agent):
                     e,
                 )
                 self._set_formatter_audio_strip(True)
+            elif media_payload_retry:
+                logger.warning(
+                    "_reasoning failed because the provider rejected the "
+                    "media payload itself (%s); stripping media from the "
+                    "retry request. Stored history remains unchanged, and "
+                    "no capability loss is cached.",
+                    e,
+                )
+                self._set_formatter_media_strip(True)
             else:
                 logger.warning(
                     "_reasoning failed because the provider explicitly "
@@ -871,7 +1099,7 @@ class QwenPawAgent(CodingModeMixin, Agent):
                 async for evt in super()._reasoning(
                     tool_choice=tool_choice,
                 ):
-                    acknowledge_seen_results(evt)
+                    acknowledge_seen_inputs(evt)
                     if isinstance(evt, Msg):
                         final_msg = evt
                     else:
@@ -1018,20 +1246,40 @@ class QwenPawAgent(CodingModeMixin, Agent):
         if any(sig in error_str for sig in size_signals):
             return False
 
-        invalid_asset_signals = (
-            "corrupt",
-            "decode",
-            "invalid image",
-            "invalid media",
-            "mime",
-            "unsupported image format",
-        )
-        if any(signal in error_str for signal in invalid_asset_signals):
+        # Asset-level failures describe these bytes, never the model; the
+        # payload classifier below is responsible for recovering from them.
+        if any(signal in error_str for signal in _INVALID_MEDIA_ASSET_SIGNALS):
             return False
 
         return any(
             pattern.search(error_str) is not None
             for pattern in _EXPLICIT_UNSUPPORTED_MEDIA_PATTERNS
+        )
+
+    @staticmethod
+    def _is_media_payload_rejection_error(exc: Exception) -> bool:
+        """Return whether the provider rejected this media payload.
+
+        Covers the request-scoped media limits documented by
+        ``_REQUEST_SCOPED_MEDIA_LIMIT_SIGNALS`` — too many images, a
+        resolution or a video duration the provider refuses — plus
+        asset-level failures: undecodable bytes, an unsupported container,
+        a declared MIME type the provider cannot render. None of them says
+        anything about the model, so recovery is a media-free retry, never
+        a cached model-wide ``rejects_media`` capability loss.
+
+        This matters for session health: the offending block is replayed
+        from history on every later turn, so an unrecovered payload
+        rejection returns the same 400 until the media is repaired in the
+        stored context (see the caller in :meth:`_reasoning`).
+        """
+        error_str = " ".join(str(exc).lower().split())
+        if not any(noun in error_str for noun in _MEDIA_PAYLOAD_MEDIA_NOUNS):
+            return False
+        if QwenPawAgent._is_content_safety_error(exc):
+            return False
+        return any(
+            signal in error_str for signal in _MEDIA_PAYLOAD_REJECTION_SIGNALS
         )
 
     @staticmethod
@@ -1049,17 +1297,8 @@ class QwenPawAgent(CodingModeMixin, Agent):
         )
 
     def _is_media_block(self, block: Any) -> bool:
-        """Return True if *block* carries image/audio/video data."""
-        if isinstance(block, dict):
-            return block.get("type") in self._MEDIA_BLOCK_TYPES
-        btype = getattr(block, "type", None)
-        if btype in self._MEDIA_BLOCK_TYPES:
-            return True
-        if btype == "data":
-            source = getattr(block, "source", None)
-            mt = getattr(source, "media_type", "") or ""
-            return mt.startswith(self._MEDIA_MIME_PREFIXES)
-        return False
+        """Return True if *block* carries model media/document data."""
+        return _is_media_block(block)
 
     # ------------------------------------------------------------------
     # Tool call enhancement: hint injection + hook registration
@@ -1084,8 +1323,26 @@ class QwenPawAgent(CodingModeMixin, Agent):
     async def _reply(self, **kwargs: Any) -> Any:
         """Override kept as extension point; hint injection moved to
         ``_reasoning`` so each ReAct iteration picks up new hints."""
-        async for evt in super()._reply(**kwargs):
-            yield evt
+        stream = super()._reply(**kwargs)
+        try:
+            while True:
+                # Heartbeat consumers may resume each event in a new task.
+                # Never carry a ContextVar token across an outward yield.
+                with model_session(
+                    self._request_context,
+                    self._model_session_id,
+                ):
+                    try:
+                        evt = await anext(stream)
+                    except StopAsyncIteration:
+                        return
+                yield evt
+        finally:
+            with model_session(
+                self._request_context,
+                self._model_session_id,
+            ):
+                await stream.aclose()
 
     def _register_tool_call_hooks(self) -> None:
         """Register per-tool default timeouts on the ToolCoordinator."""
@@ -1107,6 +1364,10 @@ class QwenPawAgent(CodingModeMixin, Agent):
         mgr.hooks.register(
             "chat_with_agent",
             default_timeout_secs=300.0,
+            max_internal_timeout_secs=_owned_cap,
+        )
+        mgr.hooks.register(
+            "spawn_subagent",
             max_internal_timeout_secs=_owned_cap,
         )
         mgr.hooks.register("check_agent_task", default_timeout_secs=30.0)

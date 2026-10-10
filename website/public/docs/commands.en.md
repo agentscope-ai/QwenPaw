@@ -58,7 +58,7 @@ Optionally, add a one-shot instruction to guide which supported information the 
 ```
 **New Conversation Started!**
 
-- Summary task started in background
+- Auto-memory task started in background
 - Ready for new conversation
 ```
 
@@ -460,14 +460,14 @@ Git deduplicates identical content, and automatic GC removes old refs according 
 
 Commands for viewing and managing conversation history.
 
-| Command             | Response Content              |
-| ------------------- | ----------------------------- |
-| `/history`          | 📋 Message list + Token stats |
-| `/message`          | 📄 Specified message details  |
-| `/compact_str`      | 📝 Compressed summary content |
-| `/summarize_status` | 📊 Summary task status        |
-| `/dump_history`     | 📁 Exported history file path |
-| `/load_history`     | ✅ History load result        |
+| Command               | Response Content              |
+| --------------------- | ----------------------------- |
+| `/history`            | 📋 Message list + Token stats |
+| `/message`            | 📄 Specified message details  |
+| `/compact_str`        | 📝 Compressed summary content |
+| `/auto_memory_status` | 📊 Auto-memory task status    |
+| `/dump_history`       | 📁 Exported history file path |
+| `/load_history`       | ✅ History load result        |
 
 ---
 
@@ -583,30 +583,32 @@ Status: in_progress
 
 ---
 
-### /summarize_status - View Summary Task Status
+### /auto_memory_status - View Auto-memory Task Status
 
-Display the running status of all background summary tasks, including task ID, start time, and execution results.
+Display the running status of all background auto-memory tasks, including task ID, start time, and execution results.
 
 ```
-/summarize_status
+/auto_memory_status
 ```
 
 **Example response:**
 
 ```
-**Summary Task Status**
+**Auto-memory Task Status**
 
 - **task-001**
   - Start: 2024-01-15 10:30:00
+  - Trigger: compact
   - Status: completed
   - Result: User requested help building a user authentication system...
 - **task-002**
   - Start: 2024-01-15 10:35:00
+  - Trigger: periodic
   - Status: failed
-  - Error: Summary generation timeout
+  - Error: Auto-memory processing timeout
 ```
 
-> 💡 Using `/compact` or `/new` automatically starts a summary task in the background. Use this command to check its execution status.
+> 💡 Using `/compact` or `/new` automatically starts an auto-memory task in the background. Use this command to check its execution status.
 
 ---
 
@@ -1014,7 +1016,11 @@ qwenpaw daemon logs -n 200   # From terminal, specify 200 lines
 
 ### /approval - Tool Execution Approval Commands
 
-Manage tool guard approval requests. When `approval_level` is set to `STRICT` or `SMART`, tools with CRITICAL or HIGH findings enter a pending-approval flow. Use these commands to approve, deny, list, or cancel requests.
+Manage tool guard and command approval requests. When `approval_level` is set
+to `STRICT` or `SMART`, tools with CRITICAL or HIGH findings enter a
+pending-approval flow. Side-effecting `/reme` generation commands also use
+this flow with exact-requester identity isolation. Use these commands to
+approve, deny, list, or cancel requests visible to the current caller.
 
 **Usage:**
 
@@ -1022,7 +1028,7 @@ Manage tool guard approval requests. When `approval_level` is set to `STRICT` or
 /approval approve [request_id]           # Approve specific request or queue head
 /approval deny [request_id] [reason]     # Deny with optional reason
 /approval list                           # List pending approvals (current session)
-/approval list --all                     # List all pending approvals (all sessions)
+/approval list --all                     # List visible approvals across sessions
 /approval cancel <request_id>            # Cancel a specific request
 ```
 
@@ -1035,7 +1041,11 @@ Manage tool guard approval requests. When `approval_level` is set to `STRICT` or
 /deny <request_id> <reason>              # Same as /approval deny <request_id> <reason>
 ```
 
-> `/approval list` shows pending approvals for the current session (including child sessions). Use `--all` or `-a` to see all sessions for this agent.
+> `/approval list` shows caller-visible approvals for the current session
+> (including permitted child sessions). Use `--all` or `-a` to search the
+> current Agent's other sessions. Exact-requester approvals remain visible and
+> resolvable only to their originating Agent, user, channel, session, and root
+> session; the authenticated Console is an explicit administrator.
 
 ---
 
@@ -1084,6 +1094,64 @@ Decompose large tasks into user stories and complete them through a **master →
 ```
 
 For a full guide, see [Loop Engineering](./loop-engineering).
+
+---
+
+## ReMe Memory Commands
+
+Use the single `/reme` entry point for QwenPaw's explicitly chat-safe ReMe
+actions:
+
+```text
+/reme help
+/reme status
+/reme search query="project decisions" limit=5
+/reme search query="project decisions" tags='["architecture","memory"]'
+/reme auto_dream hint="focus on AI chip work"
+/reme auto_memory count=2 memory_hint="record technical decisions"
+/reme daily_paper topics="agents,memory" force=true
+/reme auto_fin topics="gold,robotics" window_hours=12
+```
+
+The chat allowlist is `status`, `search`, `proactive`, `auto_memory`,
+`auto_dream`, `daily_paper`, and `auto_fin`. Backend availability alone does
+not make an action callable from chat. Raw vault actions such as `read`,
+`read_image`, `write`, `edit`, `delete`, `move`, `list`, `stat`,
+`daily_write`, `daily_list`, `frontmatter_*`, and `node_search` are excluded.
+Global maintenance actions such as `reindex`, `undo_reindex`, and
+`daily_reindex` must instead use the authenticated Console or maintenance API.
+
+The syntax is `/reme <action> key=value`. Wrap values containing spaces in
+double quotes. Wrap JSON lists and objects in single quotes so their inner
+double quotes are preserved, for example `tags='["a","b"]'` or
+`filter='{"kind":"decision"}'`. Values use ReMe's CLI parsing, so numbers,
+booleans, lists, and objects keep their native types. `/reme help` intersects
+the live backend catalog with QwenPaw's chat allowlist, shows the parameters
+accepted by this ReMe version, and marks required arguments with `*`.
+Validation therefore stays aligned with the running backend without allowing a
+new backend job to expand chat permissions automatically.
+
+`auto_memory` is QwenPaw-managed: `count` selects recent assistant reply
+groups from the current conversation (default `1`), `memory_hint` optionally
+guides extraction, and QwenPaw supplies the messages and session ID. Add
+`show_metadata=true` to another action to include its metadata in the visible
+response. The complete visible response is truncated at 20,000 characters to
+protect the chat context. Structured metadata is attached to the message up to
+8,000 serialized characters; larger metadata is replaced by a bounded preview.
+
+Generation actions such as `daily_paper` and `auto_fin` use the same command
+surface. They require approval before running, then the command waits for the
+action result. Each approval is bound to the originating Agent, user, channel,
+session, and root session. Another chat participant or session cannot list,
+approve, deny, or cancel it; the authenticated Console remains an explicit
+administrator. Canceling the originating request also removes its pending
+approval. Unlike `auto_memory`, these actions are not submitted to the
+conversation Auto-Memory queue. Their `*_cron_enabled` settings control
+scheduled runs only and do not gate manual `/reme` execution. Use `/reme help`
+for the exact live parameters supported by the installed ReMe plugins.
+
+The former `/dream`, `/memorize`, and `/reme_status` commands have been
+removed. Use `/reme auto_dream`, `/reme auto_memory`, and `/reme status`.
 
 ---
 

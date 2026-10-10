@@ -17,6 +17,7 @@ import re
 from typing import Any, Mapping, Sequence
 
 from .json_pointer import split_pointer
+from .prompt_sync import is_prompt_sync_pointer
 
 
 @dataclass(slots=True)
@@ -569,6 +570,27 @@ def _pointer_unchanged(
 
     base_found, base_value = _pointer_value(base, tokens)
     candidate_found, candidate_value = _pointer_value(candidate, tokens)
+    if (
+        # pylint: disable-next=too-many-boolean-expressions
+        base_found
+        and candidate_found
+        and len(tokens) in (5, 6)
+        and tokens[:2] == ("timelines", "items")
+        and tokens[3] == "elements_by_id"
+        and (len(tokens) == 5 or tokens[5] == "creation")
+        and isinstance(base_value, dict)
+        and isinstance(candidate_value, dict)
+    ):
+        # A whole Element/creation save may omit server-owned provenance.
+        # Compare the actual creative content before deriving media changes.
+        values = [copy.deepcopy(base_value), copy.deepcopy(candidate_value)]
+        for value in values:
+            creation = (
+                value if len(tokens) == 6 else _record(value.get("creation"))
+            )
+            if creation.get("type") == "r2v":
+                creation.pop("prompt_sync", None)
+        base_value, candidate_value = values
     return base_found == candidate_found and base_value == candidate_value
 
 
@@ -583,6 +605,10 @@ def apply_frontend_edit_impacts(
     document = copy.deepcopy(dict(candidate))
     impact = EditImpact()
     for pointer in dict.fromkeys(submitted_pointers):
+        if is_prompt_sync_pointer(pointer):
+            # This stamp is derived under the commit lock. It does not alter
+            # generated content or invalidate images, videos and renders.
+            continue
         tokens = split_pointer(pointer)
         if base is not None and _pointer_unchanged(base, document, tokens):
             # The pointer was submitted but its value equals the baseline

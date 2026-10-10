@@ -45,18 +45,48 @@ export function findCreatorFieldElement(
   // change.  DOM fields expose that pointer via data-creator-path, plus a
   // human data-creator-field/data-review-field alias.  Match any of them so a
   // backend-derived locator (which uses the pointer) can find the node.
-  return (
-    Array.from(
-      root.querySelectorAll<HTMLElement>(
-        "[data-review-field], [data-creator-field], [data-creator-path]",
-      ),
-    ).find(
-      (element) =>
-        element.getAttribute("data-review-field") === field ||
-        element.getAttribute("data-creator-field") === field ||
-        element.getAttribute("data-creator-path") === field,
-    ) ?? null
+  const nodes = Array.from(
+    root.querySelectorAll<HTMLElement>(
+      "[data-review-field], [data-creator-field], [data-creator-path]",
+    ),
   );
+  const exact = nodes.find(
+    (element) =>
+      element.getAttribute("data-review-field") === field ||
+      element.getAttribute("data-creator-field") === field ||
+      element.getAttribute("data-creator-path") === field,
+  );
+  if (exact) return exact;
+  // Deep pointers (e.g. /creation/shots/3/description) have no exact node in
+  // the overview rail; land on the owning block instead — the longest
+  // attribute value that prefixes the requested field at a '/' boundary.
+  let best: HTMLElement | null = null;
+  let bestLength = 0;
+  for (const element of nodes) {
+    for (const attribute of [
+      "data-review-field",
+      "data-creator-field",
+      "data-creator-path",
+    ]) {
+      const value = element.getAttribute(attribute);
+      if (!value || value.length <= bestLength) continue;
+      if (field.startsWith(value) && field.charAt(value.length) === "/") {
+        best = element;
+        bestLength = value.length;
+      }
+    }
+  }
+  return best;
+}
+
+/** A target inside a collapsed <details> (更多设置) can neither be scrolled to
+ * nor show the flash; open every collapsed ancestor before emphasising. */
+export function revealAncestorDetails(target: HTMLElement): void {
+  let node: HTMLElement | null = target.parentElement;
+  while (node) {
+    if (node instanceof HTMLDetailsElement && !node.open) node.open = true;
+    node = node.parentElement;
+  }
 }
 
 /** textarea/input can't host ::after; flash the enclosing block instead. */
@@ -85,6 +115,7 @@ export function flashCreatorReviewField(
   if (!target) return null;
   const token = ++fallbackFlashSequence;
   fallbackFlashTokens.set(target, token);
+  revealAncestorDetails(target);
   target.scrollIntoView({ behavior: "smooth", block: "center" });
   target.classList.remove("review-flash");
   void target.offsetWidth;
@@ -157,6 +188,7 @@ export function useReviewMediaFocus({
         return;
       }
       retryTimerRef.current = null;
+      revealAncestorDetails(target);
       target.scrollIntoView({ behavior: "smooth", block: "center" });
       target.classList.remove("review-flash");
       void target.offsetWidth;
@@ -227,6 +259,7 @@ export function useReviewFieldFocus({
         if (activeTargetRef.current && activeTargetRef.current !== target) {
           activeTargetRef.current.classList.remove("review-flash");
         }
+        revealAncestorDetails(target);
         target.scrollIntoView({ behavior: "smooth", block: "center" });
         target.classList.remove("review-flash");
         void target.offsetWidth;
@@ -314,10 +347,11 @@ export function useReviewFieldFocus({
   // Cross-page focus requests are consumed per pulse too, so stale store
   // requests never replay on remount.
   useEffect(() => {
-    if (!enabled) return;
     if (!reviewFocusRequest || reviewFocusRequest.path !== path) return;
+    const operationFocus = reviewFocusRequest.query.focusField === "1";
+    if (!enabled && !operationFocus) return;
     if (
-      reviewFocusRequest.query.review !== "1" ||
+      (!operationFocus && reviewFocusRequest.query.review !== "1") ||
       !reviewFocusRequest.query.field
     )
       return;
@@ -334,9 +368,9 @@ export function useReviewFieldFocus({
       query: Record<string, string>;
     }) => {
       if (
-        !enabled ||
+        (!enabled && request.query.focusField !== "1") ||
         request.path !== path ||
-        request.query.review !== "1" ||
+        (request.query.review !== "1" && request.query.focusField !== "1") ||
         !request.query.field
       )
         return;

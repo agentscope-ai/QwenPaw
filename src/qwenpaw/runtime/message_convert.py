@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """Message conversion between AgentRequest and agentscope Msg."""
+
 from __future__ import annotations
 
 import logging
@@ -10,6 +11,7 @@ from urllib.parse import urlparse
 from ..constant import (
     EXTERNAL_USER_QUERY_MESSAGE_TAG,
     QWENPAW_MESSAGE_TAG_KEY,
+    QWENPAW_USER_CONTENT_KEY,
 )
 from .._compat.message import _ensure_url_scheme
 
@@ -19,10 +21,26 @@ logger = logging.getLogger(__name__)
 def _request_message_metadata(
     role: str,
     metadata: dict[str, Any] | None,
+    content: list[Any],
 ) -> dict[str, Any]:
     if role != "user":
         return {}
     result = dict(metadata or {})
+    # Never trust a client-supplied transcript override. AgentScope rewrites
+    # unsupported file DataBlocks into model-facing text before saving them;
+    # keep the original user content separately for history rendering.
+    result.pop(QWENPAW_USER_CONTENT_KEY, None)
+    result.pop("qwenpaw_turn_state", None)
+    if any(
+        getattr(part, "type", None) == "file"
+        and getattr(part, "file_url", None)
+        for part in content
+    ):
+        result[QWENPAW_USER_CONTENT_KEY] = [
+            part.model_dump(mode="json", exclude_none=True)
+            for part in content
+            if hasattr(part, "model_dump")
+        ]
     result[QWENPAW_MESSAGE_TAG_KEY] = EXTERNAL_USER_QUERY_MESSAGE_TAG
     return result
 
@@ -162,6 +180,7 @@ def _request_input_to_msgs(
                 metadata=_request_message_metadata(
                     role,
                     getattr(m, "metadata", None),
+                    getattr(m, "content", None) or [],
                 ),
             ),
         )

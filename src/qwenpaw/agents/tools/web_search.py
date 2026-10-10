@@ -3,7 +3,8 @@
 # pylint: disable=line-too-long
 """Web search and fetch tools.
 
-web_search uses Tavily keyless API.
+web_search delegates to a pluggable search provider (Tavily by
+default, AnySearch when the per-agent Console config selects it).
 web_fetch uses direct HTTP GET + html2text.
 """
 
@@ -21,12 +22,11 @@ from agentscope.tool import ToolChunk
 from agentscope.message import ToolResultState
 
 from ...runtime.tool_registry import tool_descriptor
+from .websearch import format_search_results, get_search_provider
 
 logger = logging.getLogger(__name__)
 
-_TAVILY_SEARCH_URL = "https://api.tavily.com/search"
 _DEFAULT_TIMEOUT = 30
-_DEFAULT_MAX_RESULTS = 5
 
 _SEARCH_FALLBACK_HINT = (
     "This tool uses a free API with rate limits. "
@@ -64,57 +64,6 @@ def _is_ssl_error(exc: BaseException) -> bool:
             return True
         cur = cur.__cause__
     return False
-
-
-async def _post(
-    url: str,
-    headers: dict,
-    payload: dict,
-) -> dict:
-    """Async HTTP POST with SSL-verification fallback."""
-    try:
-        async with httpx.AsyncClient(
-            timeout=_DEFAULT_TIMEOUT,
-        ) as client:
-            resp = await client.post(
-                url,
-                headers=headers,
-                json=payload,
-            )
-    except Exception as first_exc:
-        if not _is_ssl_error(first_exc):
-            raise
-        logger.warning(
-            f"SSL verify failed for {url}, retrying",
-        )
-        async with httpx.AsyncClient(
-            timeout=_DEFAULT_TIMEOUT,
-            verify=False,
-        ) as client:
-            resp = await client.post(
-                url,
-                headers=headers,
-                json=payload,
-            )
-    resp.raise_for_status()
-    return resp.json()
-
-
-def _format_search_results(results: list[dict]) -> str:
-    """Format Tavily search results into readable text."""
-    if not results:
-        return "No results found."
-    lines: list[str] = []
-    for i, r in enumerate(results, 1):
-        title = r.get("title", "")
-        url = r.get("url", "")
-        content = r.get("content", "")
-        lines.append(f"[{i}] {title}")
-        lines.append(f"    URL: {url}")
-        if content:
-            lines.append(f"    {content}")
-        lines.append("")
-    return "\n".join(lines).rstrip()
 
 
 async def _fetch_html(url: str) -> str:
@@ -225,20 +174,12 @@ async def web_search(search_term: str) -> ToolChunk:
         )
 
     try:
-        data = await _post(
-            _TAVILY_SEARCH_URL,
-            headers={
-                "Content-Type": "application/json",
-                "X-Tavily-Access-Mode": "keyless",
-            },
-            payload={
-                "query": query,
-                "max_results": _DEFAULT_MAX_RESULTS,
-                "search_depth": "basic",
-            },
+        provider = get_search_provider()
+        results = await provider.search(
+            query,
+            max_results=5,
         )
-        results = data.get("results", [])
-        text = _format_search_results(results)
+        text = format_search_results(results)
         if not text:
             text = "No content searched."
         return ToolChunk(

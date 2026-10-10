@@ -5,7 +5,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass
+from contextlib import AbstractContextManager, nullcontext
 import errno
 import hashlib
 import json
@@ -13,6 +13,7 @@ import logging
 import os
 from pathlib import Path
 import tempfile
+import time
 from typing import Any, Generic, TypeVar, cast
 
 from pydantic import BaseModel, ValidationError as PydanticValidationError
@@ -105,6 +106,31 @@ def chmod_descriptor_if_supported(descriptor: int, mode: int) -> None:
         fchmod(descriptor, mode)
 
 
+# Reads across the Runtime stores are lock-free.  On POSIX a rename over an
+# open file is invisible to the reader, but Windows opens files without
+# FILE_SHARE_DELETE, so a reader holding a handle makes the publication fail
+# with a sharing violation.  Reads are short, so a bounded retry turns that
+# into a brief wait instead of a lost write.
+_REPLACE_RETRY_ATTEMPTS = 50 if _is_windows() else 1
+_REPLACE_RETRY_DELAY_SECONDS = 0.02
+
+
+def atomic_replace_path(
+    source: str | os.PathLike[str],
+    target: str | os.PathLike[str],
+) -> None:
+    """``os.replace`` with a bounded retry for Windows sharing violations."""
+
+    for attempt in range(_REPLACE_RETRY_ATTEMPTS):
+        try:
+            os.replace(source, target)
+            return
+        except PermissionError:
+            if attempt == _REPLACE_RETRY_ATTEMPTS - 1:
+                raise
+            time.sleep(_REPLACE_RETRY_DELAY_SECONDS)
+
+
 def _json_value(value: Any) -> Any:
     if isinstance(value, BaseModel):
         value = value.model_dump(mode="json", by_alias=True)
@@ -191,7 +217,7 @@ def atomic_replace_bytes(
             os.fsync(handle.fileno())
         if stage_hook is not None:
             stage_hook("temp_fsynced", temporary)
-        os.replace(temporary, path)
+        atomic_replace_path(temporary, path)
         if stage_hook is not None:
             stage_hook("replaced", path)
         fsync_directory(path.parent)
@@ -283,10 +309,42 @@ def durable_unlink(path: str | os.PathLike[str]) -> bool:
     return True
 
 
-@dataclass(frozen=True, slots=True)
+def _dump_value(value: Any) -> Any:
+    if isinstance(value, BaseModel):
+        return value.model_dump(mode="json", by_alias=True)
+    return _json_value(value)
+
+
 class RecordSnapshot(Generic[T]):
-    value: T
-    checksum: str
+    """One record value plus its lazily computed content checksum.
+
+    Hot polling paths read snapshots far more often than anything compares
+    checksums, so the canonical dump + sha256 only runs when ``checksum`` is
+    actually accessed (CAS/update conflict detection).
+    """
+
+    __slots__ = ("value", "_checksum", "_dumped")
+
+    def __init__(
+        self,
+        value: T,
+        checksum: str | None = None,
+        *,
+        dumped: Any = None,
+    ) -> None:
+        self.value = value
+        self._checksum = checksum
+        self._dumped = dumped
+
+    @property
+    def checksum(self) -> str:
+        if self._checksum is None:
+            dumped = self._dumped
+            if dumped is None:
+                dumped = _dump_value(self.value)
+            self._checksum = json_checksum(dumped)
+            self._dumped = None
+        return self._checksum
 
 
 class AtomicJsonRecordStore(Generic[T]):
@@ -301,6 +359,7 @@ class AtomicJsonRecordStore(Generic[T]):
         lock_timeout_seconds: float | None = 10.0,
         mode: int = 0o600,
         stage_hook: WriteStageHook | None = None,
+        locked: bool = True,
     ) -> None:
         self.path = Path(path)
         self.model_type = model_type
@@ -312,8 +371,14 @@ class AtomicJsonRecordStore(Generic[T]):
         self.lock_timeout_seconds = lock_timeout_seconds
         self.mode = mode
         self.stage_hook = stage_hook
+        self.locked = locked
 
-    def _lock(self) -> CrossProcessFileLock:
+    def _lock(self) -> AbstractContextManager[Any]:
+        # ``locked=False`` callers hold a coarser domain lock that already
+        # serializes every writer of this record; the inner per-record lock
+        # would only add file opens and a second timeout source.
+        if not self.locked:
+            return nullcontext()
         return CrossProcessFileLock(
             self.lock_path,
             timeout_seconds=self.lock_timeout_seconds,
@@ -339,9 +404,7 @@ class AtomicJsonRecordStore(Generic[T]):
 
     @staticmethod
     def _dump_value(value: T) -> Any:
-        if isinstance(value, BaseModel):
-            return value.model_dump(mode="json", by_alias=True)
-        return _json_value(value)
+        return _dump_value(value)
 
     def _read_snapshot_unlocked(self) -> RecordSnapshot[T]:
         try:
@@ -354,8 +417,8 @@ class AtomicJsonRecordStore(Generic[T]):
             logger.error("atomic_store corruption: %s: %s", self.path, exc)
             raise CorruptRecordError(self.path, str(exc)) from exc
         validated = self._validate(value, from_disk=True)
-        dumped = self._dump_value(validated)
-        return RecordSnapshot(value=validated, checksum=json_checksum(dumped))
+        # Dump + checksum stay lazy: polling reads outnumber CAS compares.
+        return RecordSnapshot(validated)
 
     def read_snapshot(self) -> RecordSnapshot[T]:
         # Atomic replacement means a reader sees either the complete old inode
@@ -382,7 +445,7 @@ class AtomicJsonRecordStore(Generic[T]):
                 stage_hook=self.stage_hook,
             )
         logger.debug("atomic_store write: %s", self.path)
-        return RecordSnapshot(validated, json_checksum(dumped))
+        return RecordSnapshot(validated, dumped=dumped)
 
     def try_create(self, value: Any) -> RecordSnapshot[T] | None:
         validated = self._validate(value)
@@ -396,7 +459,7 @@ class AtomicJsonRecordStore(Generic[T]):
             )
         if not created:
             return None
-        return RecordSnapshot(validated, json_checksum(dumped))
+        return RecordSnapshot(validated, dumped=dumped)
 
     def create(self, value: Any) -> RecordSnapshot[T]:
         snapshot = self.try_create(value)
@@ -439,7 +502,7 @@ class AtomicJsonRecordStore(Generic[T]):
                 stage_hook=self.stage_hook,
             )
         logger.debug("atomic_store cas: %s", self.path)
-        return RecordSnapshot(validated, json_checksum(dumped))
+        return RecordSnapshot(validated, dumped=dumped)
 
     def update(
         self,
@@ -473,7 +536,7 @@ class AtomicJsonRecordStore(Generic[T]):
                 stage_hook=self.stage_hook,
             )
         logger.debug("atomic_store update: %s", self.path)
-        return RecordSnapshot(validated, json_checksum(dumped))
+        return RecordSnapshot(validated, dumped=dumped)
 
     def delete(self, *, expected_checksum: str | None = None) -> None:
         with self._lock():

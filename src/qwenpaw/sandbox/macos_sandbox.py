@@ -293,6 +293,7 @@ class MacOSSandbox(LocalSandbox):
                 shell,
                 "-c",
                 cmd,
+                stdin=asyncio.subprocess.DEVNULL,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=cwd,

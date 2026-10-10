@@ -8,7 +8,7 @@ export interface ToolConfigField {
   placeholder?: string;
   help?: string;
   options?: string[];
-  default?: any;
+  default?: unknown;
   min?: number;
   max?: number;
 }
@@ -16,12 +16,15 @@ export interface ToolConfigField {
 export interface ToolInfo {
   name: string;
   enabled: boolean;
+  source_plugin_id?: string | null;
+  source_plugin_name?: string | null;
+  category?: string | null;
   description: string;
   async_execution: boolean;
   icon: string;
   requires_config?: boolean;
   config_fields?: ToolConfigField[];
-  config_values?: Record<string, any>;
+  config_values?: Record<string, unknown>;
 }
 
 export const toolsApi = {
@@ -53,20 +56,27 @@ export const toolsApi = {
   /**
    * Get tool configuration
    */
-  getToolConfig: (toolName: string) =>
-    request<Record<string, any>>(
-      `/tools/${encodeURIComponent(toolName)}/config`,
-    ),
+  getToolConfig: (toolName: string, params?: Record<string, string>) => {
+    const query = params ? `?${new URLSearchParams(params).toString()}` : "";
+    return request<Record<string, unknown>>(
+      `/tools/${encodeURIComponent(toolName)}/config${query}`,
+    );
+  },
 
   /**
    * Update tool configuration
    */
-  updateToolConfig: (toolName: string, config: Record<string, any>) =>
+  updateToolConfig: (
+    toolName: string,
+    config: Record<string, unknown>,
+    agentId?: string,
+  ) =>
     request<{ status: string; message: string }>(
       `/tools/${encodeURIComponent(toolName)}/config`,
       {
         method: "POST",
         body: JSON.stringify({ config }),
+        ...(agentId ? { headers: { "X-Agent-Id": agentId } } : {}),
       },
     ),
 };

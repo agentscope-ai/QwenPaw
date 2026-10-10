@@ -1,0 +1,43 @@
+.settings {
+  max-width: 800px;
+  border: 1px solid var(--app-border);
+  border-radius: 14px;
+  background: var(--app-surface);
+}
+.section {
+  display: grid;
+  grid-template-columns: minmax(140px, 1fr) minmax(0, 360px);
+  gap: 32px;
+  padding: 28px;
+  & + & {
+    border-top: 1px solid var(--app-border);
+  }
+  h3 {
+    margin: 6px 0 0;
+    font-size: 14px;
+    font-weight: 600;
+  }
+}
+.controls {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+.controls > div {
+  margin: 0;
+}
+.actions {
+  display: flex;
+  justify-content: flex-end;
+}
+@media (max-width: 700px) {
+  .section {
+    grid-template-columns: 1fr;
+    gap: 20px;
+    padding: 20px;
+  }
+  .section h3 {
+    margin: 0;
+  }
+}

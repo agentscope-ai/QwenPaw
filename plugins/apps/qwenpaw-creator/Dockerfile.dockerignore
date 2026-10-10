@@ -1,0 +1,24 @@
+# Creator's build only consumes this plugin. Keep its runtime Markdown skills;
+# the repository-wide Docker context excludes Markdown for the host image.
+**
+!plugins/
+!plugins/apps/
+!plugins/apps/qwenpaw-creator/
+!plugins/apps/qwenpaw-creator/**
+
+**/.env
+**/.env.*
+**/__pycache__
+**/*.py[cod]
+**/.pytest_cache
+**/.mypy_cache
+**/node_modules
+**/dist
+**/.vite
+**/*.log
+**/.DS_Store
+plugins/apps/qwenpaw-creator/backend/tests
+plugins/apps/qwenpaw-creator/backend/scripts
+plugins/apps/qwenpaw-creator/backend/pytest.ini
+plugins/apps/qwenpaw-creator/e2e
+plugins/apps/qwenpaw-creator/scripts

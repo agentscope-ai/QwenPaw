@@ -142,6 +142,13 @@ describe("chatApi.listChats", () => {
     expect(request).toHaveBeenCalledWith("/chats?user_id=u1");
   });
 
+  it("can list chats for a specific agent without changing the active agent", async () => {
+    await chatApi.listChats({ agentId: "other-agent" });
+    expect(request).toHaveBeenCalledWith("/chats", {
+      headers: { "X-Agent-Id": "other-agent" },
+    });
+  });
+
   it("builds query string with channel", async () => {
     await chatApi.listChats({ channel: "console" });
     expect(request).toHaveBeenCalledWith("/chats?channel=console");
@@ -186,6 +193,55 @@ describe("chatApi CRUD", () => {
     expect(request).toHaveBeenCalledWith(
       "/chats/chat-1?include_app_owned=false",
       expect.objectContaining({ signal: undefined }),
+    );
+  });
+
+  // -------------------------------------------------------------------------
+  // Signal passthrough — regression for #598
+  // When getChat is called with an AbortSignal, it must be forwarded to the
+  // underlying request so callers can cancel in-flight fetches.
+  // -------------------------------------------------------------------------
+  it("getChat forwards AbortSignal to request (#598)", async () => {
+    const controller = new AbortController();
+    await chatApi.getChat("chat-1", { signal: controller.signal });
+    expect(request).toHaveBeenCalledWith(
+      "/chats/chat-1",
+      expect.objectContaining({ signal: controller.signal }),
+    );
+  });
+
+  it("getChat forwards signal together with include_app_owned (#598)", async () => {
+    const controller = new AbortController();
+    await chatApi.getChat("chat-1", {
+      signal: controller.signal,
+      include_app_owned: true,
+    });
+    expect(request).toHaveBeenCalledWith(
+      "/chats/chat-1?include_app_owned=true",
+      expect.objectContaining({ signal: controller.signal }),
+    );
+  });
+
+  it("getChatStatus uses the lightweight status endpoint", async () => {
+    await chatApi.getChatStatus("chat/1");
+    expect(request).toHaveBeenCalledWith(
+      "/chats/chat%2F1/status",
+      expect.objectContaining({ signal: undefined, headers: undefined }),
+    );
+  });
+
+  it("getChatStatus forwards agent identity and AbortSignal", async () => {
+    const controller = new AbortController();
+    await chatApi.getChatStatus("chat-1", {
+      signal: controller.signal,
+      agentId: "agent-2",
+    });
+    expect(request).toHaveBeenCalledWith(
+      "/chats/chat-1/status",
+      expect.objectContaining({
+        signal: controller.signal,
+        headers: { "X-Agent-Id": "agent-2" },
+      }),
     );
   });
 

@@ -23,6 +23,7 @@ import type {
   FileSource,
   WorkspaceRoot,
 } from "../features/files-workspace/types";
+import { isProjectRoot } from "../features/files-workspace/directorySources";
 
 export const ORIGINAL_DIFF_SIZE_LIMIT = 256 * 1024;
 export const AGENT_FILES_TABS_STORAGE_KEY = "qwenpaw-agent-files-tabs";
@@ -60,6 +61,12 @@ interface CodingTabsState {
   setActiveTab: (agentId: string, path: string) => void;
   setTabContent: (agentId: string, path: string, content: string) => void;
   setTabEtag: (agentId: string, path: string, etag: string) => void;
+  refreshTab: (
+    agentId: string,
+    path: string,
+    content: string,
+    etag: string,
+  ) => void;
   setTabDirty: (agentId: string, path: string, dirty: boolean) => void;
 
   clearAgent: (agentId: string) => void;
@@ -184,10 +191,14 @@ export const useCodingTabsStore = create<CodingTabsState>()(
           const tabs = state.tabsByAgent[scopeKey] ?? [];
           const removedPaths = new Set(
             tabs
+              // Every project root, not just the primary: rebinding the list
+              // can remove or reorder any of them, so a tab left open on an
+              // extra root would keep editing a directory this session is no
+              // longer bound to.
               .filter(
                 (tab) =>
                   (tab.source ?? "workspace") === "workspace" &&
-                  (tab.workspaceRoot ?? "project") === "project",
+                  isProjectRoot(tab.workspaceRoot),
               )
               .map((tab) => tab.path),
           );
@@ -305,6 +316,37 @@ export const useCodingTabsStore = create<CodingTabsState>()(
                 t.path === path ? { ...t, etag } : t,
               ),
             },
+          };
+        }),
+
+      refreshTab: (agentId, path, content, etag) =>
+        set((state) => {
+          const tabs = state.tabsByAgent[agentId] ?? [];
+          const tab = tabs.find((item) => item.path === path);
+          if (!tab || tab.dirty) return state;
+          const diffs = state.diffsByAgent[agentId] ?? {};
+          const diff = diffs[path];
+          if (
+            tab.content === content &&
+            tab.etag === etag &&
+            (!diff || diff.modified === content)
+          ) {
+            return state;
+          }
+          // The displayed diff and its write version must advance together.
+          return {
+            tabsByAgent: {
+              ...state.tabsByAgent,
+              [agentId]: tabs.map((item) =>
+                item.path === path ? { ...item, content, etag } : item,
+              ),
+            },
+            ...(diff && {
+              diffsByAgent: {
+                ...state.diffsByAgent,
+                [agentId]: { ...diffs, [path]: { ...diff, modified: content } },
+              },
+            }),
           };
         }),
 

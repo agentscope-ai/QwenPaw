@@ -804,7 +804,9 @@ export default function TimelineTracks({
           onSelectElement(element.element_id);
           onActiveElementIdsChange([element.element_id]);
         }}
-        className={`absolute top-[5px] flex h-[34px] min-w-3 touch-none overflow-hidden rounded-md border text-[10px] font-semibold shadow-sm transition ${
+        className={`absolute top-[5px] flex ${
+          trackType === "subtitle" ? "h-[46px]" : "h-[34px]"
+        } min-w-3 touch-none overflow-hidden rounded-md border text-[10px] font-semibold shadow-sm transition ${
           isTransition
             ? "items-center justify-center px-0"
             : "flex-col justify-center px-2 text-left"
@@ -859,7 +861,11 @@ export default function TimelineTracks({
           </svg>
         ) : (
           <>
-            <span className="pointer-events-none min-w-0 truncate">
+            <span
+              className={`pointer-events-none min-w-0 ${
+                trackType === "subtitle" ? "line-clamp-2" : "truncate"
+              }`}
+            >
               {(playbackState === "generating" ||
                 playbackState === "queued") && (
                 <span
@@ -1061,7 +1067,9 @@ export default function TimelineTracks({
                           {track.lanes.map((lane, laneIndex) => (
                             <div
                               key={lane.id}
-                              className="relative flex h-11 border-b border-[var(--color-border)]/65 last:border-b-0"
+                              className={`relative flex ${
+                                track.type === "subtitle" ? "h-[58px]" : "h-11"
+                              } border-b border-[var(--color-border)]/65 last:border-b-0`}
                             >
                               <div
                                 title={`${track.label}${t(
@@ -1186,7 +1194,7 @@ export default function TimelineTracks({
                                     transition.element_id,
                                   ]);
                                 }}
-                                className={`pointer-events-auto absolute flex h-6 w-6 -translate-x-1/2 -translate-y-1/2 touch-none items-center justify-center rounded-[7px] border bg-white transition ${
+                                className={`pointer-events-auto absolute flex h-6 w-6 -translate-x-1/2 -translate-y-1/2 touch-none items-center justify-center rounded-[7px] border bg-white transition dark:bg-[var(--color-bg-elevated)] ${
                                   junctionSelected
                                     ? "border-[var(--color-accent)] text-[var(--color-accent)] shadow-[0_0_0_2px_rgba(255,127,22,0.18)]"
                                     : "border-[#6844bd] text-[#6844bd] shadow-[0_2px_7px_rgba(36,31,26,0.16)] hover:border-[var(--color-accent)] hover:bg-[var(--color-accent-soft)] hover:text-[var(--color-accent)]"
@@ -1275,7 +1283,7 @@ export default function TimelineTracks({
             <div
               ref={toolbarRef}
               data-timeline-selection-toolbar
-              className="flex flex-col rounded-lg border border-[var(--color-border)] bg-white p-0.5 shadow-lg"
+              className="flex flex-col rounded-lg border border-[var(--color-border)] bg-white p-0.5 shadow-lg dark:bg-[var(--color-bg-elevated)]"
               style={{
                 position: "fixed",
                 top: toolbarPos?.top ?? -9999,

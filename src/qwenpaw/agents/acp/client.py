@@ -6,7 +6,11 @@ import asyncio
 from typing import Any, Awaitable, Callable, NoReturn
 
 from acp import RequestError, session_notification
-from acp.contrib.session_state import SessionAccumulator, ToolCallView
+from acp.contrib.session_state import (
+    SessionAccumulator,
+    SessionSnapshotUnavailableError,
+    ToolCallView,
+)
 from acp.schema import (
     AgentMessageChunk,
     AgentPlanUpdate,
@@ -35,6 +39,10 @@ class ACPHostedClient:
         "allow",
         "yes",
         "approve",
+    )
+    _ALLOW_OPTION_KIND_PREFERENCE = (
+        "allow_once",
+        "allow_always",
     )
 
     def __init__(
@@ -111,7 +119,18 @@ class ACPHostedClient:
         self,
         options: list[dict[str, Any]],
     ) -> dict[str, Any] | None:
-        """Select the most permissive allow option by preference order."""
+        """Select the preferred allow option from an ACP request."""
+        # ACP option ids are chosen by the agent and are not standardized.
+        # The protocol-defined kind carries the stable allow semantics.
+        for preferred_kind in self._ALLOW_OPTION_KIND_PREFERENCE:
+            for opt in options:
+                if not isinstance(opt, dict):
+                    continue
+                kind = str(opt.get("kind") or "").lower()
+                if kind == preferred_kind:
+                    return opt
+
+        # Fall back to ids for clients that omit the protocol kind.
         option_ids = {
             str(opt.get("optionId") or opt.get("option_id") or "").lower(): opt
             for opt in options
@@ -129,6 +148,36 @@ class ACPHostedClient:
             if "allow" in opt_id.lower():
                 return opt
         return None
+
+    def _prior_tool_call_state(self, tool_call: Any) -> Any:
+        """Return accumulated state for *tool_call*, or None if unseen.
+
+        ``session/request_permission`` delivers a ``ToolCallUpdate`` whose
+        only required field is ``toolCallId``.  Runners that send their tool
+        arguments once — in ``ToolCallStart`` — leave that delta without any
+        path or command, so the hard block would have nothing to inspect.
+        The session accumulator still holds the merged state for the id.
+        """
+        call_id = self._tool_call_id(tool_call)
+        if not call_id:
+            return None
+        try:
+            snapshot = self._session_acc.snapshot()
+        except SessionSnapshotUnavailableError:
+            # No notification has been processed yet, so there is no prior
+            # state to consult; the permission payload stands on its own.
+            return None
+        return snapshot.tool_calls.get(call_id)
+
+    @staticmethod
+    def _tool_call_id(tool_call: Any) -> str:
+        if isinstance(tool_call, dict):
+            value = tool_call.get("toolCallId")
+            if value is None:
+                value = tool_call.get("tool_call_id")
+        else:
+            value = getattr(tool_call, "tool_call_id", None)
+        return str(value or "").strip()
 
     async def _emit_hard_block_cancel(self, suspended: Any) -> None:
         """Emit a ``permission_cancelled`` status for a hard-blocked call."""
@@ -160,15 +209,20 @@ class ACPHostedClient:
         await self.flush_assistant_text()
 
         adapter = self._permission_adapter
+        # A permission request carries only a ToolCallUpdate delta; the tool
+        # arguments usually arrived earlier in the ToolCallStart, which the
+        # session accumulator still holds.
+        prior_state = self._prior_tool_call_state(tool_call)
 
         # Trusted runner: hard-block still intercepts,
         # non-hard-block auto-approves
         if self._trusted:
-            if adapter.is_hard_blocked(tool_call):
+            if adapter.is_hard_blocked(tool_call, prior_state=prior_state):
                 suspended = adapter.build_suspended_permission(
                     agent=self.agent_name,
                     tool_call=tool_call,
                     options=options,
+                    prior_state=prior_state,
                 )
                 await self._emit_hard_block_cancel(suspended)
                 return adapter.cancelled_response()
@@ -178,6 +232,7 @@ class ACPHostedClient:
                 agent=self.agent_name,
                 tool_call=tool_call,
                 options=options,
+                prior_state=prior_state,
             )
             selected = self._pick_allow_option(suspended.options)
             if selected is not None:
@@ -188,9 +243,10 @@ class ACPHostedClient:
             agent=self.agent_name,
             tool_call=tool_call,
             options=options,
+            prior_state=prior_state,
         )
 
-        if adapter.is_hard_blocked(tool_call):
+        if adapter.is_hard_blocked(tool_call, prior_state=prior_state):
             await self._emit_hard_block_cancel(suspended)
             return adapter.cancelled_response()
 

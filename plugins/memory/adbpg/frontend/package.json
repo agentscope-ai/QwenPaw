@@ -1,0 +1,12 @@
+{
+  "name": "memory-adbpg-plugin-ui",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": { "build": "vite build" },
+  "devDependencies": {
+    "@types/react": "^18.3.3",
+    "@vitejs/plugin-react": "^4.3.1",
+    "typescript": "^5.5.4",
+    "vite": "^5.4.2"
+  }
+}

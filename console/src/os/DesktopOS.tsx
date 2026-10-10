@@ -13,6 +13,7 @@ import { Suspense, useMemo, useEffect, useState, useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { App, Dropdown, Spin, type MenuProps } from "antd";
 import { Grid2X2, Image as ImageIcon, Trash2 } from "lucide-react";
+import { PawAppAccessGate } from "../plugins/PawAppAccessGate";
 import { useRoutes } from "../plugins/registry/hooks";
 import { uninstallPlugin } from "../api/modules/plugin";
 import { ChunkErrorBoundary } from "../components/ChunkErrorBoundary";
@@ -34,7 +35,7 @@ import { baseFromRoutePath } from "./osRouteMap";
 import MenuBar from "./MenuBar";
 import Dock from "./Dock";
 import SpacesPanel from "./SpacesPanel";
-import { useEdgeReveal } from "./useEdgeReveal";
+import { shouldRevealDock, useEdgeReveal } from "./useEdgeReveal";
 import { useOsIcons, defaultIconPos } from "./osIconStore";
 import { useOsDock } from "./osDockStore";
 import { useIconDrag } from "./useIconDrag";
@@ -220,9 +221,18 @@ export default function DesktopOS() {
     .map((id) => windows[id])
     .filter((w): w is NonNullable<typeof w> => Boolean(w));
 
-  // Desktop keeps the menu bar visible above maximized windows. Mobile uses
-  // full-screen windows and keeps the menu bar hidden.
-  const { topHot } = useEdgeReveal();
+  // Desktop keeps the menu bar visible. A maximized active window hides the
+  // Dock until the pointer reaches the bottom edge; mobile keeps it visible.
+  const { topHot, bottomHot } = useEdgeReveal();
+  const activeWindow = activeId ? windows[activeId] : undefined;
+  const activeWindowMaximized = Boolean(
+    activeWindow?.maximized && !activeWindow.minimized,
+  );
+  const dockRevealed = shouldRevealDock(
+    isMobile,
+    activeWindowMaximized,
+    bottomHot,
+  );
 
   // Persisted desktop icon positions + transient drag handlers. While a
   // drag is in flight the position lives in the DOM only (rAF-coalesced);
@@ -449,6 +459,11 @@ export default function DesktopOS() {
           const isStore = win.id === STORE_APP.routeId;
           const isSettings = win.id === SETTINGS_APP.routeId;
           const Component = componentById.get(win.id);
+          const appRoute = routeById.get(win.id);
+          const pawAppId =
+            appRoute && getPawAppIdFromPath(appRoute.path)
+              ? appRoute.source
+              : undefined;
           if (!isStore && !isSettings && !Component) {
             return null;
           }
@@ -480,7 +495,15 @@ export default function DesktopOS() {
                     <WindowRouter
                       routeId={win.id}
                       base={baseFromRoutePath(routeById.get(win.id)?.path)}
-                      element={<Component />}
+                      element={
+                        pawAppId ? (
+                          <PawAppAccessGate appId={pawAppId}>
+                            <Component />
+                          </PawAppAccessGate>
+                        ) : (
+                          <Component />
+                        )
+                      }
                     />
                   ) : null}
                 </Suspense>
@@ -503,7 +526,7 @@ export default function DesktopOS() {
 
       <SpacesPanel visible={topHot} />
       <MenuBar hidden={isMobile} />
-      <Dock />
+      <Dock revealed={dockRevealed} />
 
       {ctxMenu && (
         <Dropdown

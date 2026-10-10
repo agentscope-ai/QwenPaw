@@ -1,5 +1,9 @@
+@import (reference) "../../../styles/scaledTypography.less";
+
 .mcpPage {
+  .scaled-control-typography();
   display: flex;
+  font-size: var(--app-font-body);
   flex-direction: column;
   height: 100%;
 }
@@ -17,9 +21,9 @@
 .mcpSection {
   min-width: 0;
   padding: 18px;
-  border: 1px solid var(--color-border-secondary, #eae8e7);
+  border: 1px solid var(--app-border);
   border-radius: 16px;
-  background: var(--color-bg-base, #fff);
+  background: var(--app-surface);
 }
 
 .sectionHeader {
@@ -30,39 +34,43 @@
 
   h2 {
     margin: 0;
-    color: var(--color-text, rgba(20, 20, 19, 0.88));
-    font-size: 15px;
+    color: var(--app-text);
+    font-size: var(--app-font-subtitle);
     font-weight: 600;
-    line-height: 22px;
+    line-height: 1.4;
     text-transform: capitalize;
   }
 
   p {
     margin: 3px 0 0;
-    color: var(--color-text-secondary, rgba(20, 20, 19, 0.55));
-    font-size: 12px;
-    line-height: 18px;
+    color: var(--app-text-secondary);
+    font-size: var(--app-font-caption);
+    line-height: 1.5;
   }
 }
 
 .sectionIcon {
   display: inline-flex;
-  width: 34px;
-  height: 34px;
-  flex: 0 0 34px;
+  width: var(--app-icon-box);
+  height: var(--app-icon-box);
+  flex: 0 0 var(--app-icon-box);
   align-items: center;
   justify-content: center;
-  color: var(--color-primary, #ff7a00);
-  border: 1px solid
-    color-mix(in srgb, var(--color-primary, #ff7a00) 28%, transparent);
+  color: var(--app-accent);
+  border: 1px solid color-mix(in srgb, var(--app-accent) 28%, transparent);
   border-radius: 10px;
-  background: color-mix(in srgb, var(--color-primary, #ff7a00) 9%, transparent);
+  background: var(--app-accent-faint);
+
+  > svg {
+    width: var(--app-icon-md);
+    height: var(--app-icon-md);
+  }
 }
 
 .sectionEmpty {
   padding: 22px;
-  color: var(--color-text-secondary, rgba(20, 20, 19, 0.55));
-  border: 1px dashed var(--color-border-secondary, #eae8e7);
+  color: var(--app-text-secondary);
+  border: 1px dashed var(--app-border);
   border-radius: 12px;
   text-align: center;
 }
@@ -76,9 +84,9 @@
 .providerCard {
   min-width: 0;
   padding: 15px;
-  border: 1px solid var(--color-border-secondary, #eae8e7);
+  border: 1px solid var(--app-border);
   border-radius: 12px;
-  background: var(--color-bg-container, #faf9f7);
+  background: var(--app-surface-subtle);
 }
 
 .providerCardHeader {
@@ -90,8 +98,8 @@
   strong {
     min-width: 0;
     overflow: hidden;
-    color: var(--color-text, rgba(20, 20, 19, 0.88));
-    font-size: 14px;
+    color: var(--app-text);
+    font-size: var(--app-font-body);
     text-overflow: ellipsis;
     white-space: nowrap;
   }
@@ -102,18 +110,18 @@
   flex: 0 0 auto;
   padding: 2px 8px;
   border-radius: 999px;
-  font-size: 11px;
-  line-height: 18px;
+  font-size: var(--app-font-caption);
+  line-height: 1.5;
 }
 
 .providerEnabled {
-  color: #237a45;
-  background: rgba(35, 122, 69, 0.1);
+  color: var(--app-success-text);
+  background: var(--app-success-bg);
 }
 
 .providerDisabled {
-  color: var(--color-text-tertiary, rgba(20, 20, 19, 0.4));
-  background: var(--color-fill-secondary, rgba(20, 20, 19, 0.06));
+  color: var(--app-text-tertiary);
+  background: var(--app-fill);
 }
 
 .providerMeta {
@@ -124,11 +132,11 @@
 
   span {
     padding: 3px 7px;
-    color: var(--color-text-secondary, rgba(20, 20, 19, 0.55));
-    border: 1px solid var(--color-border-secondary, #eae8e7);
+    color: var(--app-text-secondary);
+    border: 1px solid var(--app-border);
     border-radius: 6px;
-    font-size: 11px;
-    line-height: 16px;
+    font-size: var(--app-font-caption);
+    line-height: 1.35;
   }
 }
 
@@ -145,7 +153,7 @@
   align-items: center;
   position: relative;
   padding: 20px;
-  border-bottom: 1px solid #eae9e7;
+  border-bottom: 1px solid var(--app-border);
   margin-bottom: 0;
 }
 
@@ -153,24 +161,24 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 16px;
+  font-size: var(--app-font-subtitle);
   flex: 1;
 }
 
 .breadcrumbParent {
-  color: #999;
+  color: var(--app-text-tertiary);
   font-weight: 400;
 }
 
 .breadcrumbSeparator {
-  color: #ccc;
+  color: var(--app-text-quaternary);
   margin: 0 4px;
 }
 
 .breadcrumbCurrent {
-  color: #333;
+  color: var(--app-text);
   font-weight: 600;
-  font-size: 20px;
+  font-size: var(--app-font-title);
 }
 
 .mcpCard {
@@ -179,10 +187,16 @@
   flex-direction: column;
   gap: 12px;
   border-radius: var(--border-radius, 8px);
-  background: var(--color-bg-base, #ffffff);
-  border: 1px solid var(--color-border-secondary, #eae8e7);
+  background: var(--app-surface-raised);
+  border: 1px solid var(--app-border);
   box-sizing: border-box;
-  transition: all 0.2s ease-in-out;
+  transition:
+    background-color 0.2s ease-in-out,
+    color 0.2s ease-in-out,
+    border-color 0.2s ease-in-out,
+    box-shadow 0.2s ease-in-out,
+    opacity 0.2s ease-in-out,
+    transform 0.2s ease-in-out;
 
   :global(.qwenpaw-card-body) {
     padding: 0 !important;
@@ -199,13 +213,13 @@
   }
 
   &.hover {
-    border-color: var(--color-border, #d9d9d9);
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+    border-color: var(--app-border-hover);
+    box-shadow: var(--app-shadow-md);
   }
 
   &.normal {
-    border-color: var(--color-border-secondary, #eae8e7);
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+    border-color: var(--app-border);
+    box-shadow: var(--app-shadow-sm);
   }
 }
 
@@ -217,10 +231,10 @@
 
 .mcpTitle {
   margin: 0;
-  font-size: 14px;
+  font-size: var(--app-font-body);
   font-weight: 500;
-  color: rgba(20, 20, 19, 0.88);
-  line-height: 24px;
+  color: var(--app-text);
+  line-height: 1.5;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -228,7 +242,7 @@
 }
 
 .typeBadge {
-  font-size: 10px;
+  font-size: var(--app-font-caption);
   padding: 2px 6px;
   border-radius: 3px;
   font-weight: 500;
@@ -236,21 +250,21 @@
   margin-left: 8px;
 
   &.local {
-    background-color: rgba(239, 240, 243, 0.8);
-    color: #8e8c99;
+    background-color: var(--app-fill-subtle);
+    color: var(--app-text-tertiary);
   }
 
   &.remote {
-    background-color: rgba(255, 247, 230, 0.9);
-    color: #d48806;
-    border: 1px solid rgba(250, 173, 20, 0.2);
+    background-color: var(--app-warning-bg);
+    color: var(--app-warning-text);
+    border: 1px solid var(--app-warning-border);
   }
 }
 
 .mcpDescription {
   margin: 6px 0 16px 0;
-  color: #666;
-  font-size: 13px;
+  color: var(--app-text-secondary);
+  font-size: var(--app-font-secondary);
   line-height: 1.6;
   min-height: 40px;
   overflow: hidden;
@@ -267,7 +281,7 @@
   gap: 8px;
   padding-top: 12px;
   margin-top: auto;
-  border-top: 1px solid #f0f0f0;
+  border-top: 1px solid var(--app-border-subtle);
 }
 
 .cardSecondaryActions {
@@ -290,20 +304,26 @@
   min-width: 0;
   padding: 6px 10px;
   border-radius: 7px;
-  font-size: 12px;
-  color: #666;
+  font-size: var(--app-font-caption);
+  color: var(--app-text-secondary);
   background: transparent;
-  border: 1px solid #d9d9d9;
+  border: 1px solid var(--app-border-strong);
   cursor: pointer;
-  transition: all 0.18s ease;
+  transition:
+    background-color 0.18s ease,
+    color 0.18s ease,
+    border-color 0.18s ease,
+    box-shadow 0.18s ease,
+    opacity 0.18s ease,
+    transform 0.18s ease;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   justify-content: center;
 
   &:hover {
-    color: #333;
-    border-color: #bfbfbf;
+    color: var(--app-text);
+    border-color: var(--app-border-hover);
   }
 }
 
@@ -312,20 +332,26 @@
   min-width: 0;
   padding: 6px 10px;
   border-radius: 7px;
-  font-size: 12px;
-  color: #ff4d4f;
+  font-size: var(--app-font-caption);
+  color: var(--app-error-text);
   background: transparent;
-  border: 1px solid #d9d9d9;
+  border: 1px solid var(--app-border-strong);
   cursor: pointer;
-  transition: all 0.18s ease;
+  transition:
+    background-color 0.18s ease,
+    color 0.18s ease,
+    border-color 0.18s ease,
+    box-shadow 0.18s ease,
+    opacity 0.18s ease,
+    transform 0.18s ease;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   justify-content: center;
 
   &:hover {
-    color: #ff4d4f;
-    border-color: #ff4d4f;
+    color: var(--app-error);
+    border-color: var(--app-error);
   }
 }
 
@@ -333,7 +359,7 @@
   display: flex;
   align-items: center;
   gap: 4px;
-  font-size: 11px;
+  font-size: var(--app-font-caption);
   flex-shrink: 0;
 }
 
@@ -342,16 +368,16 @@
   height: 6px;
   border-radius: 50%;
   flex-shrink: 0;
-  background-color: #d9d9d9;
+  background-color: var(--app-status-idle);
 }
 
 .statusText {
   font-family: Lato;
-  font-size: 12px;
+  font-size: var(--app-font-caption);
   font-weight: normal;
-  line-height: 19px;
+  line-height: 1.6;
   letter-spacing: normal;
-  color: rgba(20, 20, 19, 0.45);
+  color: var(--app-text-tertiary);
 }
 
 .editJsonTextArea {
@@ -361,18 +387,18 @@
     Monaco,
     Courier New,
     monospace;
-  font-size: 13px;
+  font-size: var(--app-font-secondary);
   padding: 16px;
-  border: 1px solid var(--ant-color-border);
+  border: 1px solid var(--app-border-strong);
   border-radius: 4px;
   resize: vertical;
-  background-color: var(--ant-color-bg-container);
-  color: var(--ant-color-text);
+  background-color: var(--app-surface);
+  color: var(--app-text);
 }
 
 .preformattedText {
-  background-color: var(--ant-color-bg-container-disabled, #f5f5f5);
-  color: var(--ant-color-text);
+  background-color: var(--app-surface-subtle);
+  color: var(--app-text-secondary);
   padding: 16px;
   border-radius: 8px;
   max-height: 500px;
@@ -390,11 +416,21 @@
 .loading {
   text-align: center;
   padding: 60px;
-  color: rgba(20, 20, 19, 0.45);
+  color: var(--app-text-tertiary);
 }
 
 .modalFooter {
   text-align: right;
+}
+
+.formLabel {
+  color: var(--app-text-secondary);
+  font-size: var(--app-font-caption);
+  font-weight: 500;
+}
+
+.formRequired {
+  color: var(--app-error-text);
 }
 
 .importHint {
@@ -403,15 +439,20 @@
 
 .importHintTitle {
   margin: 0;
-  font-size: 13px;
-  color: rgba(20, 20, 19, 0.65);
+  font-size: var(--app-font-secondary);
+  color: var(--app-text-secondary);
 }
 
 .importHintList {
   margin: 8px 0;
   padding: 0 0 0 20px;
-  font-size: 12px;
-  color: rgba(20, 20, 19, 0.45);
+  font-size: var(--app-font-caption);
+  color: var(--app-text-tertiary);
+
+  code {
+    background: var(--app-fill-subtle);
+    color: var(--app-text-secondary);
+  }
 }
 
 .jsonTextArea {
@@ -419,16 +460,16 @@
     Monaco,
     Courier New,
     monospace;
-  font-size: 13px;
+  font-size: var(--app-font-secondary);
 }
 
 .maskedFieldHint {
   margin-bottom: 8px;
   padding: 6px 12px;
-  background-color: rgba(255, 165, 0, 0.08);
+  background-color: var(--app-warning-bg);
   border-radius: 6px;
-  font-size: 12px;
-  color: rgba(0, 0, 0, 0.55);
+  font-size: var(--app-font-caption);
+  color: var(--app-warning-text);
 }
 
 .toolsButton {
@@ -436,25 +477,31 @@
   min-width: 0;
   padding: 6px 10px;
   border-radius: 7px;
-  font-size: 12px;
-  color: #1677ff;
+  font-size: var(--app-font-caption);
+  color: var(--app-accent);
   background: transparent;
-  border: 1px solid #d9d9d9;
+  border: 1px solid var(--app-border-strong);
   cursor: pointer;
-  transition: all 0.18s ease;
+  transition:
+    background-color 0.18s ease,
+    color 0.18s ease,
+    border-color 0.18s ease,
+    box-shadow 0.18s ease,
+    opacity 0.18s ease,
+    transform 0.18s ease;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   justify-content: center;
 
   &:hover {
-    border-color: #1677ff;
+    border-color: var(--app-selected-border);
   }
 
   &:disabled {
-    color: rgba(0, 0, 0, 0.25);
+    color: var(--app-text-quaternary);
     cursor: not-allowed;
-    border-color: #d9d9d9;
+    border-color: var(--app-border-subtle);
   }
 }
 
@@ -487,8 +534,8 @@
 .toolsError {
   text-align: center;
   padding: 24px;
-  color: #ff4d4f;
-  font-size: 13px;
+  color: var(--app-error-text);
+  font-size: var(--app-font-secondary);
 }
 
 .toolsList {
@@ -517,7 +564,7 @@
 
 .accessClientPanel {
   padding-bottom: 14px;
-  border-bottom: 1px solid #f0f0f0;
+  border-bottom: 1px solid var(--app-border-subtle);
 }
 
 .accessSectionHeader {
@@ -528,10 +575,10 @@
 }
 
 .accessSectionTitle {
-  color: rgba(20, 20, 19, 0.88);
-  font-size: 14px;
+  color: var(--app-text);
+  font-size: var(--app-font-body);
   font-weight: 600;
-  line-height: 22px;
+  line-height: 1.4;
 }
 
 .accessDefaultRow {
@@ -566,7 +613,8 @@
 
 .accessClientAddButton {
   min-width: 112px;
-  height: 36px;
+  height: auto;
+  min-height: max(36px, calc(36px * var(--app-font-scale)));
   justify-content: center;
   justify-self: end;
 }
@@ -575,16 +623,16 @@
   display: inline-flex;
   align-items: center;
   min-width: 56px;
-  font-size: 13px;
+  font-size: var(--app-font-secondary);
   font-weight: 500;
-  color: rgba(20, 20, 19, 0.72);
+  color: var(--app-text-secondary);
 }
 
 .accessPolicySegmented {
   padding: 3px;
-  border: 1px solid rgba(20, 20, 19, 0.08);
+  border: 1px solid var(--app-border);
   border-radius: 9px;
-  background: rgba(20, 20, 19, 0.035);
+  background: var(--app-fill-faint);
 
   :global(.ant-segmented-group) {
     gap: 2px;
@@ -610,7 +658,7 @@
 
   :global(.ant-segmented-item) {
     border-radius: 7px;
-    color: rgba(20, 20, 19, 0.62);
+    color: var(--app-text-secondary);
     font-weight: 500;
     transition:
       color 0.18s ease,
@@ -619,7 +667,7 @@
 
   :global(.qwenpaw-segmented-item) {
     border-radius: 7px;
-    color: rgba(20, 20, 19, 0.62);
+    color: var(--app-text-secondary);
     font-weight: 500;
     transition:
       color 0.18s ease,
@@ -627,15 +675,15 @@
   }
 
   :global(.ant-segmented-item-label) {
-    min-height: 28px;
+    min-height: max(28px, calc(28px * var(--app-font-scale)));
     padding: 0 16px;
-    line-height: 28px;
+    line-height: 1.5;
   }
 
   :global(.qwenpaw-segmented-item-label) {
-    min-height: 28px;
+    min-height: max(28px, calc(28px * var(--app-font-scale)));
     padding: 0 16px;
-    line-height: 28px;
+    line-height: 1.5;
   }
 
   :global(.ant-segmented-item-selected) {
@@ -662,9 +710,9 @@
 
 .accessToolGroup {
   padding: 12px;
-  border: 1px solid #f0f0f0;
+  border: 1px solid var(--app-border-subtle);
   border-radius: 8px;
-  background: rgba(250, 250, 250, 0.55);
+  background: var(--app-surface-subtle);
   min-width: 0;
 }
 
@@ -694,14 +742,15 @@
   justify-content: flex-start;
   flex-wrap: wrap;
   gap: 10px;
-  min-height: 36px;
+  min-height: max(36px, calc(36px * var(--app-font-scale)));
   min-width: 0;
   padding: 1px 0;
 }
 
 .accessToolAddButton {
   min-width: 112px;
-  height: 36px;
+  height: auto;
+  min-height: max(36px, calc(36px * var(--app-font-scale)));
   justify-content: center;
   justify-self: end;
 }
@@ -735,8 +784,8 @@
 }
 
 .accessRuleFieldLabel {
-  color: rgba(20, 20, 19, 0.55);
-  font-size: 11px;
+  color: var(--app-text-secondary);
+  font-size: var(--app-font-caption);
   line-height: 1.2;
 }
 
@@ -758,14 +807,14 @@
 }
 
 .accessRuleWarning {
-  color: #d48806;
-  font-size: 11px;
+  color: var(--app-warning-text);
+  font-size: var(--app-font-caption);
   line-height: 1.35;
 }
 
 .accessRuleDeleteButton {
-  width: 32px;
-  height: 32px;
+  width: var(--app-icon-button);
+  height: var(--app-icon-button);
   align-self: end;
 }
 
@@ -773,9 +822,9 @@
   margin-top: 12px;
   padding: 9px 10px;
   border-radius: 6px;
-  background: rgba(0, 0, 0, 0.025);
-  color: rgba(20, 20, 19, 0.45);
-  font-size: 12px;
+  background: var(--app-fill-faint);
+  color: var(--app-text-tertiary);
+  font-size: var(--app-font-caption);
 }
 
 @media (max-width: 920px) {
@@ -863,9 +912,9 @@
 
 .toolItem {
   padding: 12px 16px;
-  border: 1px solid var(--color-border-secondary, #f0f0f0);
+  border: 1px solid var(--app-border-subtle);
   border-radius: 8px;
-  background: var(--color-bg-base, #fafafa);
+  background: var(--app-surface-subtle);
 }
 
 .toolHeader {
@@ -877,22 +926,22 @@
 
 .toolDescription {
   margin: 6px 0 0;
-  font-size: 13px;
-  color: rgba(0, 0, 0, 0.55);
+  font-size: var(--app-font-secondary);
+  color: var(--app-text-secondary);
   line-height: 1.5;
 }
 
 .toolSchema {
   margin-top: 10px;
-  font-size: 12px;
+  font-size: var(--app-font-caption);
 
   summary {
     cursor: pointer;
-    color: rgba(0, 0, 0, 0.45);
+    color: var(--app-text-tertiary);
     user-select: none;
 
     &:hover {
-      color: rgba(0, 0, 0, 0.65);
+      color: var(--app-text-secondary);
     }
   }
 }
@@ -901,199 +950,31 @@
   margin-top: 8px;
   padding: 8px 10px;
   border-radius: 6px;
-  background: rgba(0, 0, 0, 0.025);
-  color: rgba(20, 20, 19, 0.6);
-  font-size: 12px;
+  background: var(--app-fill-faint);
+  color: var(--app-text-secondary);
+  font-size: var(--app-font-caption);
   line-height: 1.55;
 }
 
 .toolSchemaContent {
   margin-top: 6px;
   padding: 10px;
-  background: var(--color-bg-container-disabled, #f5f5f5);
+  background: var(--app-surface-subtle);
   border-radius: 6px;
-  font-size: 11px;
+  font-size: var(--app-font-caption);
   line-height: 1.5;
   max-height: 200px;
   overflow: auto;
-  color: rgba(0, 0, 0, 0.75);
+  color: var(--app-text-secondary);
 }
 
-/* ─── Dark mode ─────────────────────────────────────────────────────────────── */
+/* Segmented controls receive status-specific colors from React. Keep selected
+   labels readable when the dark theme's component styles win the cascade. */
 :global(.dark-mode) {
-  .pageHeader {
-    border-bottom-color: rgba(255, 255, 255, 0.12);
-  }
-
-  .breadcrumbCurrent {
-    color: rgba(255, 255, 255, 0.85);
-  }
-
-  .mcpTitle {
-    color: rgba(255, 255, 255, 0.88);
-  }
-
-  .statusText {
-    color: rgba(255, 255, 255, 0.45);
-  }
-
-  .statusDot {
-    background-color: rgba(255, 255, 255, 0.2);
-  }
-
-  .mcpCard {
-    background: #2d2d2d;
-    border-color: rgba(255, 255, 255, 0.08);
-  }
-
-  .mcpDescription {
-    color: rgba(255, 255, 255, 0.65);
-  }
-
-  .typeBadge {
-    &.local {
-      background-color: rgba(255, 255, 255, 0.08);
-      color: rgba(255, 255, 255, 0.45);
-    }
-
-    &.remote {
-      background-color: rgba(250, 173, 20, 0.15);
-      color: #ffd666;
-      border-color: rgba(250, 173, 20, 0.3);
-    }
-  }
-
-  .cardFooter {
-    border-top-color: rgba(255, 255, 255, 0.08);
-  }
-
-  .toggleButton {
-    color: rgba(255, 255, 255, 0.65);
-    border-color: rgba(255, 255, 255, 0.2);
-
-    &:hover {
-      color: rgba(255, 255, 255, 0.85);
-      border-color: rgba(255, 255, 255, 0.35);
-    }
-  }
-
-  .deleteButton {
-    color: #ff7875;
-    border-color: rgba(255, 255, 255, 0.2);
-
-    &:hover {
-      color: #ff4d4f;
-      border-color: #ff4d4f;
-    }
-  }
-
-  .maskedFieldHint {
-    background-color: rgba(255, 165, 0, 0.12);
-    color: rgba(255, 255, 255, 0.65);
-  }
-
-  .toolsButton {
-    color: #4096ff;
-    border-color: rgba(255, 255, 255, 0.2);
-
-    &:hover {
-      border-color: #4096ff;
-    }
-
-    &:disabled {
-      color: rgba(255, 255, 255, 0.25);
-      border-color: rgba(255, 255, 255, 0.12);
-    }
-  }
-
-  .toolsError {
-    color: #ff7875;
-  }
-
-  .accessDefaultRow {
-    border-bottom-color: rgba(255, 255, 255, 0.08);
-  }
-
-  .accessClientPanel {
-    border-bottom-color: rgba(255, 255, 255, 0.08);
-  }
-
-  .accessSectionTitle {
-    color: rgba(255, 255, 255, 0.88);
-  }
-
-  .accessDefaultLabel {
-    color: rgba(255, 255, 255, 0.72);
-  }
-
   .accessPolicySegmented {
-    border-color: rgba(255, 255, 255, 0.12);
-    background: rgba(255, 255, 255, 0.06);
-
-    :global(.ant-segmented-item) {
-      color: rgba(255, 255, 255, 0.62);
-    }
-
-    :global(.ant-segmented-item-selected) {
-      color: rgba(255, 255, 255, 0.92) !important;
-    }
-
+    :global(.ant-segmented-item-selected),
     :global(.qwenpaw-segmented-item-selected) {
-      color: rgba(255, 255, 255, 0.92) !important;
-    }
-  }
-
-  .accessToolGroup {
-    border-color: rgba(255, 255, 255, 0.1);
-    background: rgba(255, 255, 255, 0.04);
-  }
-
-  .accessNoRules {
-    background: rgba(255, 255, 255, 0.05);
-    color: rgba(255, 255, 255, 0.45);
-  }
-
-  .toolItem {
-    border-color: rgba(255, 255, 255, 0.1);
-    background: rgba(255, 255, 255, 0.04);
-  }
-
-  .toolDescription {
-    color: rgba(255, 255, 255, 0.55);
-  }
-
-  .toolSchemaDescription {
-    background: rgba(255, 255, 255, 0.05);
-    color: rgba(255, 255, 255, 0.62);
-  }
-
-  .toolSchema summary {
-    color: rgba(255, 255, 255, 0.45);
-
-    &:hover {
-      color: rgba(255, 255, 255, 0.65);
-    }
-  }
-
-  .toolSchemaContent {
-    background: rgba(255, 255, 255, 0.06);
-    color: rgba(255, 255, 255, 0.75);
-  }
-
-  .loading {
-    color: rgba(255, 255, 255, 0.45);
-  }
-
-  .importHintTitle {
-    color: rgba(255, 255, 255, 0.65);
-  }
-
-  .importHintList {
-    color: rgba(255, 255, 255, 0.45);
-
-    code {
-      background: rgba(255, 255, 255, 0.08);
-      color: rgba(255, 255, 255, 0.75);
+      color: var(--app-text) !important;
     }
   }
 }
@@ -1129,5 +1010,96 @@
   .toolsButton {
     flex: 1 1 calc(50% - 4px);
     min-width: 0;
+  }
+}
+
+/* Page-specific settings refinement. */
+
+.mcpSections {
+  padding: 8px 16px 24px;
+  gap: 28px;
+}
+.mcpSection {
+  padding: 0;
+  background: transparent;
+  border: 0;
+}
+.mcpGrid,
+.providerGrid {
+  gap: 16px;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr));
+}
+.providerCard {
+  padding: 20px;
+  border-radius: 20px;
+  background: var(--app-surface);
+}
+.sectionHeader p {
+  max-width: 65ch;
+  line-height: 1.6;
+}
+.sectionEmpty {
+  border-style: solid;
+  background: var(--app-fill-faint);
+  padding: 28px;
+}
+.jsonTextArea {
+  font-family: ui-monospace, monospace;
+  font-size: var(--app-font-caption);
+}
+@media (max-width: 600px) {
+  .mcpSections {
+    padding-inline: 0;
+  }
+}
+
+.mcpSection {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+.sectionHeader > div:last-child {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.mcpGrid {
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr));
+  gap: 16px;
+  padding: 0;
+}
+.mcpSections {
+  overflow: visible;
+  padding: 8px 16px 24px;
+}
+@media (max-width: 600px) {
+  .mcpSections {
+    padding-inline: 0;
+  }
+}
+
+.collectionToolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 0 16px 24px;
+  > :first-child {
+    flex: 0 1 360px;
+    min-width: 0;
+    max-width: 100%;
+  }
+  > :last-child {
+    margin-inline-start: auto;
+  }
+}
+@media (max-width: 600px) {
+  .collectionToolbar {
+    margin-inline: 0;
+
+    > :first-child {
+      flex-basis: 100%;
+    }
   }
 }

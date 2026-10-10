@@ -1,0 +1,1100 @@
+{
+  "api_urls": [
+    "https://api.openai.com/v1"
+  ],
+  "remote_id": "openai",
+  "template_owner": true,
+  "default_model_ids": [
+    "gpt-5.2",
+    "gpt-5",
+    "gpt-5-mini",
+    "gpt-5-nano",
+    "gpt-4.1",
+    "gpt-4.1-mini",
+    "gpt-4.1-nano",
+    "o3",
+    "o4-mini",
+    "gpt-4o",
+    "gpt-4o-mini"
+  ],
+  "models": [
+    {
+      "id": "gpt-5.2",
+      "name": "GPT-5.2",
+      "supports_image": true,
+      "supports_video": true,
+      "probe_source": "documentation",
+      "is_free": false,
+      "is_recommended": true,
+      "source": "builtin",
+      "availability_status": "unverified",
+      "availability_retryable": true,
+      "config_overrides": [],
+      "max_input_length": 272000,
+      "max_input_length_configured": false,
+      "generate_kwargs": {},
+      "relay_reasoning": true,
+      "max_output_length": 128000,
+      "max_output_length_source": "catalog",
+      "billing": "paid",
+      "supports_tool_calling": true,
+      "supports_audio": false,
+      "released_at": "2025-12-11",
+      "thinking_control": {
+        "kind": "effort",
+        "efforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh"
+        ],
+        "supports_off": true
+      },
+      "capability_provenance": {
+        "thinking_control": {
+          "source": "catalog",
+          "reference": "https://developers.openai.com/api/docs/guides/reasoning"
+        },
+        "billing": {
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
+    },
+    {
+      "id": "gpt-5",
+      "name": "GPT-5",
+      "supports_image": true,
+      "supports_video": true,
+      "probe_source": "documentation",
+      "is_free": false,
+      "source": "builtin",
+      "availability_status": "unverified",
+      "availability_retryable": true,
+      "config_overrides": [],
+      "max_input_length": 400000,
+      "max_input_length_configured": false,
+      "generate_kwargs": {},
+      "relay_reasoning": true,
+      "max_output_length": 128000,
+      "max_output_length_source": "catalog",
+      "billing": "paid",
+      "supports_tool_calling": true,
+      "supports_audio": false,
+      "released_at": "2025-08-07",
+      "thinking_control": {
+        "kind": "effort",
+        "efforts": [
+          "minimal",
+          "low",
+          "medium",
+          "high"
+        ]
+      },
+      "capability_provenance": {
+        "thinking_control": {
+          "source": "catalog",
+          "reference": "https://developers.openai.com/api/docs/guides/reasoning"
+        },
+        "billing": {
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
+    },
+    {
+      "id": "gpt-5-mini",
+      "name": "GPT-5 Mini",
+      "supports_image": true,
+      "supports_video": true,
+      "probe_source": "documentation",
+      "is_free": false,
+      "source": "builtin",
+      "availability_status": "unverified",
+      "availability_retryable": true,
+      "config_overrides": [],
+      "max_input_length": 400000,
+      "max_input_length_configured": false,
+      "generate_kwargs": {},
+      "relay_reasoning": true,
+      "max_output_length": 128000,
+      "max_output_length_source": "catalog",
+      "billing": "paid",
+      "supports_tool_calling": true,
+      "supports_audio": false,
+      "released_at": "2025-08-07",
+      "thinking_control": {
+        "kind": "effort",
+        "efforts": [
+          "minimal",
+          "low",
+          "medium",
+          "high"
+        ]
+      },
+      "capability_provenance": {
+        "thinking_control": {
+          "source": "catalog",
+          "reference": "https://developers.openai.com/api/docs/guides/reasoning"
+        },
+        "billing": {
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
+    },
+    {
+      "id": "gpt-5-nano",
+      "name": "GPT-5 Nano",
+      "supports_image": true,
+      "supports_video": true,
+      "probe_source": "documentation",
+      "is_free": false,
+      "source": "builtin",
+      "availability_status": "unverified",
+      "availability_retryable": true,
+      "config_overrides": [],
+      "max_input_length": 400000,
+      "max_input_length_configured": false,
+      "generate_kwargs": {},
+      "relay_reasoning": true,
+      "max_output_length": 128000,
+      "max_output_length_source": "catalog",
+      "billing": "paid",
+      "supports_tool_calling": true,
+      "supports_audio": false,
+      "released_at": "2025-08-07",
+      "thinking_control": {
+        "kind": "effort",
+        "efforts": [
+          "minimal",
+          "low",
+          "medium",
+          "high"
+        ]
+      },
+      "capability_provenance": {
+        "thinking_control": {
+          "source": "catalog",
+          "reference": "https://developers.openai.com/api/docs/guides/reasoning"
+        },
+        "billing": {
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
+    },
+    {
+      "id": "gpt-4.1",
+      "name": "GPT-4.1",
+      "supports_image": true,
+      "supports_video": true,
+      "probe_source": "documentation",
+      "is_free": false,
+      "source": "builtin",
+      "availability_status": "unverified",
+      "availability_retryable": true,
+      "config_overrides": [],
+      "max_input_length": 1047576,
+      "max_input_length_configured": false,
+      "generate_kwargs": {},
+      "relay_reasoning": true,
+      "max_output_length": 32768,
+      "max_output_length_source": "catalog",
+      "billing": "paid",
+      "supports_tool_calling": true,
+      "supports_audio": false,
+      "released_at": "2025-04-14",
+      "capability_provenance": {
+        "billing": {
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
+    },
+    {
+      "id": "gpt-4.1-mini",
+      "name": "GPT-4.1 Mini",
+      "supports_image": true,
+      "supports_video": true,
+      "probe_source": "documentation",
+      "is_free": false,
+      "source": "builtin",
+      "availability_status": "unverified",
+      "availability_retryable": true,
+      "config_overrides": [],
+      "max_input_length": 1047576,
+      "max_input_length_configured": false,
+      "generate_kwargs": {},
+      "relay_reasoning": true,
+      "max_output_length": 32768,
+      "max_output_length_source": "catalog",
+      "billing": "paid",
+      "supports_tool_calling": true,
+      "supports_audio": false,
+      "released_at": "2025-04-14",
+      "capability_provenance": {
+        "billing": {
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
+    },
+    {
+      "id": "gpt-4.1-nano",
+      "name": "GPT-4.1 Nano",
+      "supports_image": true,
+      "supports_video": true,
+      "probe_source": "documentation",
+      "is_free": false,
+      "source": "builtin",
+      "availability_status": "unverified",
+      "availability_retryable": true,
+      "config_overrides": [],
+      "max_input_length": 1047576,
+      "max_input_length_configured": false,
+      "generate_kwargs": {},
+      "relay_reasoning": true,
+      "max_output_length": 32768,
+      "max_output_length_source": "catalog",
+      "billing": "paid",
+      "supports_tool_calling": true,
+      "supports_audio": false,
+      "released_at": "2025-04-14",
+      "capability_provenance": {
+        "billing": {
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
+    },
+    {
+      "id": "o3",
+      "name": "o3",
+      "supports_image": true,
+      "supports_video": false,
+      "probe_source": "documentation",
+      "is_free": false,
+      "source": "builtin",
+      "availability_status": "unverified",
+      "availability_retryable": true,
+      "config_overrides": [],
+      "max_input_length": 200000,
+      "max_input_length_configured": false,
+      "generate_kwargs": {},
+      "relay_reasoning": true,
+      "max_output_length": 100000,
+      "max_output_length_source": "catalog",
+      "billing": "paid",
+      "supports_tool_calling": true,
+      "supports_audio": false,
+      "released_at": "2025-04-16",
+      "thinking_control": {
+        "kind": "effort",
+        "efforts": [
+          "low",
+          "medium",
+          "high"
+        ]
+      },
+      "capability_provenance": {
+        "thinking_control": {
+          "source": "catalog",
+          "reference": "https://developers.openai.com/api/docs/guides/reasoning"
+        },
+        "billing": {
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
+    },
+    {
+      "id": "o4-mini",
+      "name": "o4-mini",
+      "supports_image": true,
+      "supports_video": true,
+      "probe_source": "documentation",
+      "is_free": false,
+      "source": "builtin",
+      "availability_status": "unverified",
+      "availability_retryable": true,
+      "config_overrides": [],
+      "max_input_length": 200000,
+      "max_input_length_configured": false,
+      "generate_kwargs": {},
+      "relay_reasoning": true,
+      "max_output_length": 100000,
+      "max_output_length_source": "catalog",
+      "billing": "paid",
+      "supports_tool_calling": true,
+      "supports_audio": false,
+      "released_at": "2025-04-16",
+      "thinking_control": {
+        "kind": "effort",
+        "efforts": [
+          "low",
+          "medium",
+          "high"
+        ]
+      },
+      "capability_provenance": {
+        "thinking_control": {
+          "source": "catalog",
+          "reference": "https://developers.openai.com/api/docs/guides/reasoning"
+        },
+        "billing": {
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
+    },
+    {
+      "id": "gpt-4o",
+      "name": "GPT-4o",
+      "supports_image": true,
+      "supports_video": true,
+      "probe_source": "documentation",
+      "is_free": false,
+      "source": "builtin",
+      "availability_status": "unverified",
+      "availability_retryable": true,
+      "config_overrides": [],
+      "max_input_length": 128000,
+      "max_input_length_configured": false,
+      "generate_kwargs": {},
+      "relay_reasoning": true,
+      "max_output_length": 16384,
+      "max_output_length_source": "catalog",
+      "billing": "paid",
+      "supports_tool_calling": true,
+      "supports_audio": false,
+      "released_at": "2024-05-13",
+      "capability_provenance": {
+        "billing": {
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
+    },
+    {
+      "id": "gpt-4o-mini",
+      "name": "GPT-4o Mini",
+      "supports_image": true,
+      "supports_video": true,
+      "probe_source": "documentation",
+      "is_free": false,
+      "source": "builtin",
+      "availability_status": "unverified",
+      "availability_retryable": true,
+      "config_overrides": [],
+      "max_input_length": 128000,
+      "max_input_length_configured": false,
+      "generate_kwargs": {},
+      "relay_reasoning": true,
+      "max_output_length": 16384,
+      "max_output_length_source": "catalog",
+      "billing": "paid",
+      "supports_tool_calling": true,
+      "supports_audio": false,
+      "released_at": "2024-07-18",
+      "capability_provenance": {
+        "billing": {
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
+    },
+    {
+      "id": "gpt-4o-2024-05-13",
+      "name": "gpt-4o-2024-05-13",
+      "max_input_length": 128000,
+      "max_output_length": 4096,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": true,
+      "supports_audio": false,
+      "supports_video": false,
+      "released_at": "2024-05-13",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/pricing",
+          "updated_at": "2026-09-20",
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
+    },
+    {
+      "id": "gpt-5-pro",
+      "name": "gpt-5-pro",
+      "max_input_length": 400000,
+      "max_output_length": 272000,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": true,
+      "supports_audio": false,
+      "supports_video": false,
+      "released_at": "2025-10-06",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/pricing",
+          "updated_at": "2026-09-20",
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
+    },
+    {
+      "id": "gpt-5.6-sol",
+      "name": "gpt-5.6-sol",
+      "max_input_length": 1050000,
+      "max_output_length": 128000,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": true,
+      "supports_audio": false,
+      "supports_video": false,
+      "released_at": "2026-07-09",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/pricing",
+          "updated_at": "2026-09-20",
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
+    },
+    {
+      "id": "gpt-4o-2024-08-06",
+      "name": "gpt-4o-2024-08-06",
+      "max_input_length": 128000,
+      "max_output_length": 16384,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": true,
+      "supports_audio": false,
+      "supports_video": false,
+      "released_at": "2024-08-06",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/pricing",
+          "updated_at": "2026-09-20",
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
+    },
+    {
+      "id": "gpt-6-astra",
+      "name": "gpt-6-astra",
+      "max_input_length": 1050000,
+      "max_output_length": 128000,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": true,
+      "supports_audio": false,
+      "supports_video": false,
+      "released_at": "2026-09-04",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/pricing",
+          "updated_at": "2026-09-20",
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
+    },
+    {
+      "id": "gpt-5.2-pro",
+      "name": "gpt-5.2-pro",
+      "max_input_length": 400000,
+      "max_output_length": 128000,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": true,
+      "supports_audio": false,
+      "supports_video": false,
+      "released_at": "2025-12-11",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/pricing",
+          "updated_at": "2026-09-20",
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
+    },
+    {
+      "id": "gpt-5.3-codex-spark",
+      "name": "gpt-5.3-codex-spark",
+      "max_input_length": 128000,
+      "max_output_length": 32000,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": true,
+      "supports_audio": false,
+      "supports_video": false,
+      "released_at": "2026-02-05",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/pricing",
+          "updated_at": "2026-09-20",
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
+    },
+    {
+      "id": "gpt-5.4",
+      "name": "gpt-5.4",
+      "max_input_length": 1050000,
+      "max_output_length": 128000,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": true,
+      "supports_audio": false,
+      "supports_video": false,
+      "released_at": "2026-03-05",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/pricing",
+          "updated_at": "2026-09-20",
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
+    },
+    {
+      "id": "gpt-4-turbo",
+      "name": "gpt-4-turbo",
+      "max_input_length": 128000,
+      "max_output_length": 4096,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": true,
+      "supports_audio": false,
+      "supports_video": false,
+      "released_at": "2023-11-06",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/pricing",
+          "updated_at": "2026-09-20",
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
+    },
+    {
+      "id": "gpt-5.1",
+      "name": "gpt-5.1",
+      "max_input_length": 400000,
+      "max_output_length": 128000,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": true,
+      "supports_audio": false,
+      "supports_video": false,
+      "released_at": "2025-11-13",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/pricing",
+          "updated_at": "2026-09-20",
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
+    },
+    {
+      "id": "o1",
+      "name": "o1",
+      "max_input_length": 200000,
+      "max_output_length": 100000,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": true,
+      "supports_audio": false,
+      "supports_video": false,
+      "released_at": "2024-12-05",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/pricing",
+          "updated_at": "2026-09-20",
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
+    },
+    {
+      "id": "gpt-5.6-luna",
+      "name": "gpt-5.6-luna",
+      "max_input_length": 1050000,
+      "max_output_length": 128000,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": true,
+      "supports_audio": false,
+      "supports_video": false,
+      "released_at": "2026-07-09",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/pricing",
+          "updated_at": "2026-09-20",
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
+    },
+    {
+      "id": "gpt-5.3-codex",
+      "name": "gpt-5.3-codex",
+      "max_input_length": 400000,
+      "max_output_length": 128000,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": true,
+      "supports_audio": false,
+      "supports_video": false,
+      "released_at": "2026-02-05",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/pricing",
+          "updated_at": "2026-09-20",
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
+    },
+    {
+      "id": "o1-pro",
+      "name": "o1-pro",
+      "max_input_length": 200000,
+      "max_output_length": 100000,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": true,
+      "supports_audio": false,
+      "supports_video": false,
+      "released_at": "2025-03-19",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/pricing",
+          "updated_at": "2026-09-20",
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
+    },
+    {
+      "id": "text-embedding-ada-002",
+      "name": "text-embedding-ada-002",
+      "max_input_length": 8192,
+      "max_output_length": 1536,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": false,
+      "supports_image": false,
+      "supports_audio": false,
+      "supports_video": false,
+      "released_at": "2022-12-15"
+    },
+    {
+      "id": "gpt-5.4-nano",
+      "name": "gpt-5.4-nano",
+      "max_input_length": 400000,
+      "max_output_length": 128000,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": true,
+      "supports_audio": false,
+      "supports_video": false,
+      "released_at": "2026-03-17",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/pricing",
+          "updated_at": "2026-09-20",
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
+    },
+    {
+      "id": "gpt-5.5-pro",
+      "name": "gpt-5.5-pro",
+      "max_input_length": 1050000,
+      "max_output_length": 128000,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": true,
+      "supports_audio": false,
+      "supports_video": false,
+      "released_at": "2026-04-23",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/pricing",
+          "updated_at": "2026-09-20",
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
+    },
+    {
+      "id": "gpt-5.4-mini",
+      "name": "gpt-5.4-mini",
+      "max_input_length": 400000,
+      "max_output_length": 128000,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": true,
+      "supports_audio": false,
+      "supports_video": false,
+      "released_at": "2026-03-17",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/pricing",
+          "updated_at": "2026-09-20",
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
+    },
+    {
+      "id": "gpt-3.5-turbo",
+      "name": "gpt-3.5-turbo",
+      "max_input_length": 16385,
+      "max_output_length": 4096,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": false,
+      "supports_image": false,
+      "supports_audio": false,
+      "supports_video": false,
+      "released_at": "2023-03-01",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/pricing",
+          "updated_at": "2026-09-20",
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
+    },
+    {
+      "id": "gpt-5.6",
+      "name": "gpt-5.6",
+      "max_input_length": 1050000,
+      "max_output_length": 128000,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": true,
+      "supports_audio": false,
+      "supports_video": false,
+      "released_at": "2026-07-09",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/pricing",
+          "updated_at": "2026-09-20",
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
+    },
+    {
+      "id": "text-embedding-3-small",
+      "name": "text-embedding-3-small",
+      "max_input_length": 8191,
+      "max_output_length": 1536,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": false,
+      "supports_image": false,
+      "supports_audio": false,
+      "supports_video": false,
+      "released_at": "2024-01-25"
+    },
+    {
+      "id": "gpt-5.4-pro",
+      "name": "gpt-5.4-pro",
+      "max_input_length": 1050000,
+      "max_output_length": 128000,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": true,
+      "supports_audio": false,
+      "supports_video": false,
+      "released_at": "2026-03-05",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/pricing",
+          "updated_at": "2026-09-20",
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
+    },
+    {
+      "id": "text-embedding-3-large",
+      "name": "text-embedding-3-large",
+      "max_input_length": 8191,
+      "max_output_length": 3072,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": false,
+      "supports_image": false,
+      "supports_audio": false,
+      "supports_video": false,
+      "released_at": "2024-01-25"
+    },
+    {
+      "id": "gpt-5.6-terra",
+      "name": "gpt-5.6-terra",
+      "max_input_length": 1050000,
+      "max_output_length": 128000,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": true,
+      "supports_audio": false,
+      "supports_video": false,
+      "released_at": "2026-07-09",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/pricing",
+          "updated_at": "2026-09-20",
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
+    },
+    {
+      "id": "gpt-4",
+      "name": "gpt-4",
+      "max_input_length": 8192,
+      "max_output_length": 8192,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": false,
+      "supports_audio": false,
+      "supports_video": false,
+      "released_at": "2023-11-06",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/pricing",
+          "updated_at": "2026-09-20",
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
+    },
+    {
+      "id": "gpt-5.2-chat-latest",
+      "name": "gpt-5.2-chat-latest",
+      "max_input_length": 128000,
+      "max_output_length": 16384,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": true,
+      "supports_audio": false,
+      "supports_video": false,
+      "released_at": "2025-12-11",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/pricing",
+          "updated_at": "2026-09-20",
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
+    },
+    {
+      "id": "gpt-realtime-2.1",
+      "name": "gpt-realtime-2.1",
+      "max_input_length": 128000,
+      "max_output_length": 32000,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": true,
+      "supports_audio": true,
+      "supports_video": false,
+      "released_at": "2026-07-06",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/pricing",
+          "updated_at": "2026-09-20",
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
+    },
+    {
+      "id": "o3-mini",
+      "name": "o3-mini",
+      "max_input_length": 200000,
+      "max_output_length": 100000,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": false,
+      "supports_audio": false,
+      "supports_video": false,
+      "released_at": "2024-12-20",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/pricing",
+          "updated_at": "2026-09-20",
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
+    },
+    {
+      "id": "o3-pro",
+      "name": "o3-pro",
+      "max_input_length": 200000,
+      "max_output_length": 100000,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": true,
+      "supports_audio": false,
+      "supports_video": false,
+      "released_at": "2025-06-10",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/pricing",
+          "updated_at": "2026-09-20",
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
+    },
+    {
+      "id": "gpt-5.3-chat-latest",
+      "name": "gpt-5.3-chat-latest",
+      "max_input_length": 128000,
+      "max_output_length": 16384,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": true,
+      "supports_audio": false,
+      "supports_video": false,
+      "released_at": "2026-03-03",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/pricing",
+          "updated_at": "2026-09-20",
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
+    },
+    {
+      "id": "gpt-5.5",
+      "name": "gpt-5.5",
+      "max_input_length": 1050000,
+      "max_output_length": 128000,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": true,
+      "supports_audio": false,
+      "supports_video": false,
+      "released_at": "2026-04-23",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/pricing",
+          "updated_at": "2026-09-20",
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
+    },
+    {
+      "id": "gpt-4o-2024-11-20",
+      "name": "gpt-4o-2024-11-20",
+      "max_input_length": 128000,
+      "max_output_length": 16384,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": true,
+      "supports_audio": false,
+      "supports_video": false,
+      "released_at": "2024-11-20",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/pricing",
+          "updated_at": "2026-09-20",
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
+    }
+  ]
+}

@@ -6,6 +6,7 @@ import asyncio
 import copy
 import json
 import logging
+import os
 import shutil
 import zipfile
 from pathlib import Path
@@ -235,7 +236,20 @@ def _stage_secrets(zf: zipfile.ZipFile, staged_dirs: list[Path]) -> None:
             bak_path,
         )
     cleanup_stale_restore_artifacts(SECRET_DIR)
-    extract_to_tmp(zf, PREFIX_SECRETS, SECRET_DIR, zip_slip_base=SECRET_DIR)
+    staged_secret_dir = extract_to_tmp(
+        zf,
+        PREFIX_SECRETS,
+        SECRET_DIR,
+        zip_slip_base=SECRET_DIR,
+        dir_mode=0o700,
+    )
+    try:
+        _harden_secret_dir(staged_secret_dir)
+        if SECRET_DIR.exists() and os.name != "nt":
+            os.chmod(SECRET_DIR, 0o700)
+    except BaseException:
+        discard_tmp(SECRET_DIR)
+        raise
     staged_dirs.append(SECRET_DIR)
 
 
@@ -424,6 +438,24 @@ def _stage_all(
         raise
 
     return staged_dirs, staged_config_tmp, dst_map, new_aids
+
+
+def _harden_secret_dir(secret_dir: Path) -> None:
+    """Apply restrictive permissions before committing restored secrets.
+
+    Directories are set to ``0o700`` and files to ``0o600`` so that
+    nested subdirectories (e.g. ``providers/``) are not left
+    world-traversable after a restore replaces ``SECRET_DIR``.
+    """
+    if os.name == "nt":
+        return
+
+    os.chmod(secret_dir, 0o700)
+    for child in secret_dir.rglob("*"):
+        if child.is_dir():
+            os.chmod(child, 0o700)
+        elif child.is_file():
+            os.chmod(child, 0o600)
 
 
 def _commit_and_finalize(

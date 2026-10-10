@@ -175,8 +175,9 @@ def test_openai_oversized_audio_capped() -> None:
 
 
 def test_anthropic_oversized_image_capped() -> None:
-    out = _CappingAnthropicFormatter()._format_image_source(
+    out = _CappingAnthropicFormatter()._format_source(
         _base64_source(MAX_INLINE_MEDIA_BYTES + 4, "image/png"),
+        "image",
     )
     # Anthropic wire format uses {"type": "text", "text": ...}.
     assert out["type"] == "text"
@@ -184,10 +185,32 @@ def test_anthropic_oversized_image_capped() -> None:
 
 
 def test_anthropic_small_image_passthrough() -> None:
-    out = _CappingAnthropicFormatter()._format_image_source(
+    out = _CappingAnthropicFormatter()._format_source(
         _base64_source(2046, "image/png"),
+        "image",
     )
     assert out["type"] == "image"
+    assert out["source"]["type"] == "base64"
+
+
+def test_anthropic_oversized_pdf_capped() -> None:
+    out = _CappingAnthropicFormatter()._format_source(
+        _base64_source(
+            MAX_INLINE_MEDIA_BYTES + 4,
+            "application/pdf",
+        ),
+        "document",
+    )
+    assert out["type"] == "text"
+    assert "omitted" in out["text"]
+
+
+def test_anthropic_small_pdf_passthrough() -> None:
+    out = _CappingAnthropicFormatter()._format_source(
+        _base64_source(2046, "application/pdf"),
+        "document",
+    )
+    assert out["type"] == "document"
     assert out["source"]["type"] == "base64"
 
 

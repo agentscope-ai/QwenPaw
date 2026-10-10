@@ -1,6 +1,6 @@
+import { SettingsDrawer as Drawer } from "@/components/interaction/SettingsDrawer";
 import { useState, useEffect, useCallback } from "react";
 import {
-  Drawer,
   Tabs,
   Table,
   Button,
@@ -11,7 +11,7 @@ import {
   Space,
   Typography,
 } from "antd";
-import { DeleteOutlined, PlusOutlined } from "@ant-design/icons";
+import { Trash2 as DeleteOutlined, Plus as PlusOutlined } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type React from "react";
 import { useAppMessage } from "../../../../hooks/useAppMessage";
@@ -289,7 +289,7 @@ export function AccessControlDrawer({
         tabBarExtraContent={
           <Button
             type="primary"
-            icon={<PlusOutlined />}
+            icon={<PlusOutlined size="1em" />}
             onClick={() => setAddModalOpen(true)}
             disabled={!selectedChannel}
           >
@@ -336,7 +336,7 @@ export function AccessControlDrawer({
             <Button
               danger
               size="small"
-              icon={<DeleteOutlined />}
+              icon={<DeleteOutlined size="1em" />}
               disabled={selectedRowKeys.length === 0}
               loading={batchLoading}
             >

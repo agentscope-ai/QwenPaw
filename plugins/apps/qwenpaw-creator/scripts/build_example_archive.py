@@ -71,6 +71,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -546,6 +547,49 @@ def _repoint_state_etag(staged: Path, old_etag: str, new_etag: str) -> None:
     state_path.write_text(text.replace(old_etag, new_etag), encoding="utf-8")
 
 
+_WINDOWS_UNSAFE_CHARS = re.compile(r'[<>:"\\|?*]')
+
+
+def _sanitize_path_for_windows(path_str: str) -> str:
+    """Replace Windows-reserved characters in archive entry names."""
+
+    parts = path_str.split("/")
+    sanitized = [_WINDOWS_UNSAFE_CHARS.sub("_", part) for part in parts]
+    return "/".join(sanitized)
+
+
+def _sanitize_content_for_windows(staged: Path) -> int:
+    """Rewrite ``source:{id}`` path references in project.json.
+
+    The source analysis service names directories with ``source:{id}``;
+    the ``:`` is illegal on Windows.  This function rewrites the
+    ``relative_uri`` fields in ``project.json`` to match the sanitized
+    directory names.
+    """
+
+    project_path = staged / "project.json"
+    if not project_path.is_file():
+        return 0
+
+    document = json.loads(project_path.read_text(encoding="utf-8"))
+    files = document.get("assets", {}).get("files_by_id", {})
+    rewritten = 0
+    for record in files.values():
+        if not isinstance(record, dict):
+            continue
+        relative_uri = record.get("relative_uri")
+        if isinstance(relative_uri, str) and ":" in relative_uri:
+            record["relative_uri"] = relative_uri.replace(":", "_")
+            rewritten += 1
+
+    if rewritten:
+        project_path.write_text(
+            json.dumps(document, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+    return rewritten
+
+
 def _zip_directory(staged: Path, archive_path: Path) -> None:
     with zipfile.ZipFile(
         archive_path,
@@ -554,10 +598,11 @@ def _zip_directory(staged: Path, archive_path: Path) -> None:
     ) as archive:
         for path in sorted(staged.rglob("*")):
             relative = f"{staged.name}/{path.relative_to(staged).as_posix()}"
+            safe_relative = _sanitize_path_for_windows(relative)
             if path.is_dir():
-                archive.writestr(f"{relative}/", b"")
+                archive.writestr(f"{safe_relative}/", b"")
             elif path.is_file():
-                archive.write(path, relative)
+                archive.write(path, safe_relative)
 
 
 def _update_manifest(
@@ -661,6 +706,10 @@ def build(args: argparse.Namespace) -> Path:
             print(f"converted {converted} text files to simplified Chinese")
         rewritten = _rewrite_text_files(staged, old_id, new_id)
         print(f"rewrote {old_id} -> {new_id} in {rewritten} text files")
+        sanitized_refs = _sanitize_content_for_windows(staged)
+        print(
+            f"sanitized {sanitized_refs} Windows-reserved " f"path references",
+        )
 
         new_project = load_project_json(
             (staged / "project.json").read_bytes(),

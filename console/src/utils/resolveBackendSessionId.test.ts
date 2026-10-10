@@ -27,8 +27,6 @@ describe("resolveBackendSessionId", () => {
     getBackendSessionId.mockClear();
     getRealIdForSession.mockClear();
     sessionApi.lastActiveChatId = "known-last-active";
-    delete (window as unknown as { currentSessionId?: string })
-      .currentSessionId;
   });
 
   it("maps an explicit preferred id through sessionApi", () => {
@@ -36,21 +34,13 @@ describe("resolveBackendSessionId", () => {
     expect(getBackendSessionId).toHaveBeenCalledWith("local-123");
   });
 
-  it("prefers lastActiveChatId over window.currentSessionId", () => {
-    (window as unknown as { currentSessionId?: string }).currentSessionId =
-      "known-win-sid";
+  it("uses lastActiveChatId when no explicit id is supplied", () => {
     expect(resolveBackendSessionId("")).toBe("mapped:known-last-active");
     expect(getBackendSessionId).toHaveBeenCalledWith("known-last-active");
   });
 
-  it("falls back to window only when known in the session list", () => {
+  it("returns empty when no explicit or active id exists", () => {
     sessionApi.lastActiveChatId = null;
-    (window as unknown as { currentSessionId?: string }).currentSessionId =
-      "known-win-sid";
-    expect(resolveBackendSessionId(null)).toBe("mapped:known-win-sid");
-
-    (window as unknown as { currentSessionId?: string }).currentSessionId =
-      "stale-win";
     expect(resolveBackendSessionId(null)).toBe("");
   });
 });

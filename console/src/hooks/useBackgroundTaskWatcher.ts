@@ -1,5 +1,5 @@
 /**
- * Watches offloaded tool calls via ToolStream SSE (+ polling fallback).
+ * Tracks offloaded tool calls with polling and opens output SSE on demand.
  * Updates backgroundTasksStore with liveOutput and final status/result.
  */
 
@@ -18,7 +18,8 @@ const LIVE_OUTPUT_MAX = 80_000;
 
 type AbortFn = () => void;
 
-const activeWatchers = new Map<string, AbortFn>();
+const activeStatusWatchers = new Map<string, AbortFn>();
+const activeOutputStreams = new Map<string, AbortFn>();
 const finalizedIds = new Set<string>();
 
 function chunkToText(payload: unknown): string {
@@ -114,23 +115,28 @@ async function finalizeFromOutput(
   }
 }
 
+async function finishBackgroundTask(
+  sessionId: string,
+  toolCallId: string,
+  cancelled: boolean,
+): Promise<void> {
+  stopBackgroundTaskWatcher(toolCallId);
+  const liveOutput =
+    useBackgroundTasksStore
+      .getState()
+      .tasks.find((task) => task.toolCallId === toolCallId)?.liveOutput || "";
+  await finalizeFromOutput(sessionId, toolCallId, liveOutput, cancelled);
+}
+
 function startPolling(sessionId: string, toolCallId: string): AbortFn {
   let stopped = false;
+  let inFlight = false;
   const timer = setInterval(async () => {
-    if (stopped) return;
+    if (stopped || inFlight) return;
+    inFlight = true;
     const finishPoll = async (cancelled: boolean) => {
       if (stopped) return;
-      stopped = true;
-      clearInterval(timer);
-      const abort = activeWatchers.get(toolCallId);
-      activeWatchers.delete(toolCallId);
-      // Abort stream leg only; poll already stopped
-      abort?.();
-      const live =
-        useBackgroundTasksStore
-          .getState()
-          .tasks.find((t) => t.toolCallId === toolCallId)?.liveOutput || "";
-      await finalizeFromOutput(sessionId, toolCallId, live, cancelled);
+      await finishBackgroundTask(sessionId, toolCallId, cancelled);
     };
     try {
       const info = await toolCallsApi.getInfo(sessionId, toolCallId);
@@ -141,8 +147,21 @@ function startPolling(sessionId: string, toolCallId: string): AbortFn {
         info.end_state === "interrupted" || !!info.force_cancelled;
       await finishPoll(cancelled);
     } catch {
-      // 404 after finalize — treat as completed and try getOutput once
-      await finishPoll(false);
+      // A transient getInfo failure must not orphan a running task. Confirm
+      // absence through the session list before treating it as completed.
+      try {
+        const { items } = await toolCallsApi.list(sessionId);
+        const stillActive = items.some(
+          (item) => item.tool_call_id === toolCallId,
+        );
+        if (!stillActive) {
+          await finishPoll(false);
+        }
+      } catch {
+        // Keep polling while the backend is temporarily unavailable.
+      }
+    } finally {
+      inFlight = false;
     }
   }, POLL_INTERVAL_MS);
 
@@ -153,19 +172,18 @@ function startPolling(sessionId: string, toolCallId: string): AbortFn {
 }
 
 /**
- * Register a task in the background queue and start the SSE/poll watcher.
+ * Register a task in the background queue and start status polling.
  * Idempotent: safe for both manual offload and system auto-offload.
  *
- * sessionId may be empty on the first turn before window.currentSessionId is
- * set — we still enqueue the task (panel shows it) and resolve session later
- * for the watcher from window when possible.
+ * sessionId may be empty on the first turn before the local session resolves.
+ * We still enqueue the task so the panel can display it.
  */
 export function registerBackgroundTask(opts: {
   sessionId: string;
   toolCallId: string;
   toolName: string;
   startTime?: number;
-  /** When true, skip SSE and hydrate /output immediately (fast bg finish). */
+  /** When true, skip polling and hydrate /output immediately. */
   alreadyCompleted?: boolean;
 }): void {
   const {
@@ -237,61 +255,73 @@ export function registerBackgroundTask(opts: {
 }
 
 /**
- * Start watching an offloaded tool call. Idempotent per toolCallId.
+ * Start polling an offloaded tool call status. Idempotent per toolCallId.
  */
 export function startBackgroundTaskWatcher(
   sessionId: string,
   toolCallId: string,
 ): void {
-  if (activeWatchers.has(toolCallId) || finalizedIds.has(toolCallId)) return;
+  if (activeStatusWatchers.has(toolCallId) || finalizedIds.has(toolCallId)) {
+    return;
+  }
+  activeStatusWatchers.set(toolCallId, startPolling(sessionId, toolCallId));
+}
 
-  let settled = false;
-  let pollAbort: AbortFn | null = null;
-  let streamAbort: AbortFn = () => {};
+/** Open live output for a visible task. Idempotent per toolCallId. */
+export function startBackgroundTaskStream(
+  sessionId: string,
+  toolCallId: string,
+): void {
+  if (activeOutputStreams.has(toolCallId) || finalizedIds.has(toolCallId)) {
+    return;
+  }
 
-  const abortAll = () => {
-    streamAbort();
-    pollAbort?.();
+  let active = true;
+  let transportAbort: AbortFn = () => {};
+  const stop = () => {
+    active = false;
+    transportAbort();
   };
 
-  const settle = async (cancelled: boolean) => {
-    if (settled) return;
-    settled = true;
-    activeWatchers.delete(toolCallId);
-    abortAll();
-    const live =
-      useBackgroundTasksStore
-        .getState()
-        .tasks.find((t) => t.toolCallId === toolCallId)?.liveOutput || "";
-    await finalizeFromOutput(sessionId, toolCallId, live, cancelled);
-  };
-
-  streamAbort = subscribeToolCallStream(sessionId, toolCallId, {
+  transportAbort = subscribeToolCallStream(sessionId, toolCallId, {
     onChunk: (payload) => {
+      if (!active) return;
       const text = chunkToText(payload);
       if (text) {
         useBackgroundTasksStore.getState().appendLiveOutput(toolCallId, text);
       }
     },
     onDone: () => {
-      void settle(false);
+      if (!active) return;
+      active = false;
+      activeOutputStreams.delete(toolCallId);
+      void finishBackgroundTask(sessionId, toolCallId, false);
     },
     onError: () => {
-      if (settled || pollAbort) return;
-      pollAbort = startPolling(sessionId, toolCallId);
+      if (!active) return;
+      active = false;
+      activeOutputStreams.delete(toolCallId);
     },
   });
-
-  activeWatchers.set(toolCallId, abortAll);
+  activeOutputStreams.set(toolCallId, stop);
 }
 
-/** Stop watcher without changing task status (e.g. user removed row). */
+/** Stop live output without changing the task or its status polling. */
+export function stopBackgroundTaskStream(toolCallId: string): void {
+  const abort = activeOutputStreams.get(toolCallId);
+  if (!abort) return;
+  activeOutputStreams.delete(toolCallId);
+  abort();
+}
+
+/** Stop all tracking without changing task status (e.g. row removal). */
 export function stopBackgroundTaskWatcher(toolCallId: string): void {
-  const abort = activeWatchers.get(toolCallId);
+  const abort = activeStatusWatchers.get(toolCallId);
   if (abort) {
     abort();
-    activeWatchers.delete(toolCallId);
+    activeStatusWatchers.delete(toolCallId);
   }
+  stopBackgroundTaskStream(toolCallId);
 }
 
 /**
@@ -312,12 +342,16 @@ export async function cancelBackgroundTask(
     );
     throw new Error("Missing backend session id for cancel");
   }
+  const hadOutputStream = activeOutputStreams.has(toolCallId);
   stopBackgroundTaskWatcher(toolCallId);
   try {
     await toolCallsApi.cancel(sid, toolCallId);
   } catch (err) {
     finalizedIds.delete(toolCallId);
     startBackgroundTaskWatcher(sid, toolCallId);
+    if (hadOutputStream) {
+      startBackgroundTaskStream(sid, toolCallId);
+    }
     message.error(
       i18n.t(
         "chat.backgroundTasks.cancelFailed",

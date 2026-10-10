@@ -21,6 +21,7 @@ from .models import (
 )
 from .repo import BaseChatRepository
 from ..channels.schema import DEFAULT_CHANNEL
+from ...providers.thinking import ThinkingPreference
 from ...utils.logging import sanitize_log_value
 
 logger = logging.getLogger(__name__)
@@ -53,9 +54,11 @@ def _ordered_groups(groups: list[ChatGroup]) -> list[ChatGroup]:
         groups,
         key=lambda group: (
             _is_fixed_source_group(group),
-            _source_order(group)
-            if _is_fixed_source_group(group)
-            else (not group.pinned, group.order),
+            (
+                _source_order(group)
+                if _is_fixed_source_group(group)
+                else (not group.pinned, group.order)
+            ),
         ),
     )
 
@@ -401,6 +404,30 @@ class ChatManager:  # pylint: disable=too-many-public-methods
         """Refresh updated_at without rewriting other chat fields."""
         return await self.patch_chat(chat_id, ChatUpdate())
 
+    async def mark_chat_finished(
+        self,
+        chat_id: str,
+        finished_at: datetime,
+    ) -> Optional[ChatSpec]:
+        """Persist the newest task completion marker for one chat."""
+        async with self._lock:
+            existing = await self._repo.get_chat(chat_id)
+            if existing is None:
+                return None
+            if (
+                existing.last_finished_at is not None
+                and existing.last_finished_at >= finished_at
+            ):
+                return existing
+            updated = existing.model_copy(
+                update={
+                    "last_finished_at": finished_at,
+                    "updated_at": max(existing.updated_at, finished_at),
+                },
+            )
+            await self._repo.upsert_chat(updated)
+            return updated
+
     async def set_project_dir(
         self,
         chat_id: str,
@@ -425,6 +452,111 @@ class ChatManager:  # pylint: disable=too-many-public-methods
             updated.updated_at = datetime.now(timezone.utc)
             await self._repo.upsert_chat(updated)
             return updated
+
+    async def set_session_model(self, chat_id: str, model: dict | None):
+        """Persist a model override without changing agent defaults."""
+        async with self._lock:
+            existing = await self._repo.get_chat(chat_id)
+            if existing is None:
+                return None
+            meta = dict(existing.meta or {})
+            runtime = dict(meta.get(f"runtime_context") or {})
+            if model is None:
+                runtime.pop(f"model", None)
+                runtime.pop(f"thinking", None)
+            else:
+                runtime[f"model"] = model
+            meta[f"runtime_context"] = runtime
+            updated = existing.model_copy(update={f"meta": meta})
+            updated.updated_at = datetime.now(timezone.utc)
+            await self._repo.upsert_chat(updated)
+            return updated
+
+    async def set_session_thinking(
+        self,
+        chat_id: str,
+        preference: ThinkingPreference,
+        model_key: str = f"",
+    ) -> Optional[ChatSpec]:
+        """Atomically update thinking without overwriting sibling settings."""
+        async with self._lock:
+            existing = await self._repo.get_chat(chat_id)
+            if existing is None:
+                return None
+            meta = dict(existing.meta or {})
+            runtime = dict(meta.get(f"runtime_context") or {})
+            settings = dict(runtime.get(f"thinking") or {})
+            if preference.level == f"inherit":
+                settings.pop(model_key, None)
+            else:
+                settings[model_key] = preference.model_dump()
+            runtime[f"thinking"] = settings
+            if runtime:
+                meta[f"runtime_context"] = runtime
+            else:
+                meta.pop(f"runtime_context", None)
+            updated = existing.model_copy(update={f"meta": meta})
+            updated.updated_at = datetime.now(timezone.utc)
+            await self._repo.upsert_chat(updated)
+            return updated
+
+    async def set_session_project_dirs(
+        self,
+        chat_id: str,
+        project_dirs: Optional[list[dict]],
+    ) -> Optional[ChatSpec]:
+        """Set or clear this chat's project-directory list override.
+
+        ``project_dirs`` is the whole list, primary first (each entry
+        ``{"path": str, "label": str | None}``); the stored value
+        replaces whatever was there before. Passing ``None`` removes the
+        override so the chat goes back to inheriting the agent default.
+
+        The value lives in the controlled ``meta["runtime_context"]``
+        namespace, and the read-modify-write happens under the manager
+        lock to avoid losing a concurrent update to a sibling key.
+
+        Migration is deliberately **one-way**. Writing the list drops the
+        pre-multi-root scalar ``project_dir``, so a build that only knows
+        the scalar (i.e. before this feature) reads no override at all and
+        falls back to the agent default — the user has to pick the
+        directory again. Reading in the other direction is safe: a chat
+        still holding the scalar is understood as a one-entry list (see
+        ``session_project_dirs_from_meta``). Keep it one-way: writing both
+        keys would leave two sources of truth with no way to tell which
+        one is newer, and the stale list would silently win.
+
+        Returns the updated spec, or ``None`` if the chat does not exist.
+        """
+        async with self._lock:
+            existing = await self._repo.get_chat(chat_id)
+            if existing is None:
+                return None
+
+            meta = dict(existing.meta or {})
+            runtime_context = dict(meta.get("runtime_context") or {})
+            if project_dirs:
+                runtime_context["project_dirs"] = project_dirs
+            else:
+                runtime_context.pop("project_dirs", None)
+            # Legacy single-value chats: the list supersedes the scalar.
+            runtime_context.pop("project_dir", None)
+            # Dropped feature: a chat written by an earlier build may still
+            # carry a display name nothing reads. Clear it rather than
+            # leaving a key that keeps the namespace alive forever.
+            runtime_context.pop("project_name", None)
+
+            if runtime_context:
+                meta["runtime_context"] = runtime_context
+            else:
+                # Drop the namespace entirely once it is empty, so a chat
+                # that never used an override has no leftover scaffolding.
+                meta.pop("runtime_context", None)
+
+            merged = existing.model_copy(update={"meta": meta})
+            merged.updated_at = datetime.now(timezone.utc)
+            await self._repo.upsert_chat(merged)
+            return merged
 
     async def delete_chats(self, chat_ids: list[str]) -> bool:
         """Delete a chat spec.

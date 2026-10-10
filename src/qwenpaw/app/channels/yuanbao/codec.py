@@ -293,7 +293,6 @@ def decode_pb(type_name: str, data: bytes) -> Optional[dict]:
         return json_format.MessageToDict(
             msg,
             preserving_proto_field_name=True,
-            including_default_value_fields=False,
         )
     except Exception:
         return None

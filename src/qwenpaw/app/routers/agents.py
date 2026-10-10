@@ -6,9 +6,12 @@ Provides RESTful API for managing multiple agent instances.
 
 import json
 import logging
+import re
 import shutil
+from copy import deepcopy
 from pathlib import Path
 from typing import Any, Literal
+
 from fastapi import APIRouter, Body, HTTPException, Request
 from fastapi import Path as PathParam
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -17,22 +20,41 @@ from qwenpaw.exceptions import (
     AppBaseException,
 )
 
+from ...agents.memory.reme_embedding import (
+    EmbeddingReindexUnavailableError,
+)
+from ...agents.memory.action_provider import MemoryActionProvider
 from ...agents.utils.file_handling import read_text_file_with_encoding_fallback
+from ..mail.driver_config import (
+    ENTERPRISE_MAIL_PROVIDERS as _ENTERPRISE_MAIL_PROVIDERS,
+    build_qwenpawmail_env as _build_qwenpawmail_env,
+    generate_qwenpawmail_driver_card as _generate_qwenpawmail_driver_card,
+    resolve_qwenpawmail_command as _resolve_qwenpawmail_command,
+    sync_qwenpawmail_driver_card as _sync_qwenpawmail_driver_card,
+)
 from ..utils import safe_join, schedule_agent_reload
 from ...config.config import (
+    AgentMailConfig,
     AgentProfileConfig,
     AgentProfileRef,
+    EmbeddingModelConfig,
     FallbackPolicyConfig,
     ModelSlotConfig,
     load_agent_config,
     mutate_agent_config,
+    save_agent_mail_credentials,
+    save_agent_config,
     update_agent_config_async,
     generate_short_agent_id,
     sanitize_agent_id,
     validate_agent_id,
 )
 from ...config.utils import load_config, mutate_config
-from ...agents.utils import copy_workspace_md_files, normalize_agent_language
+from ...agents.utils import (
+    copy_workspace_md_files,
+    ensure_workspace_md_file,
+    normalize_agent_language,
+)
 from ...agents.skill_system import SkillPoolService, get_workspace_skills_dir
 from ...harnesses.registry import ProviderCatalogItem, get_provider
 from ..agent_startup import AgentStartupStatus
@@ -44,6 +66,14 @@ from ...utils.logging import sanitize_log_value
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/agents", tags=["agents"])
+
+
+@router.get("/memory/backends")
+async def list_memory_backends() -> list[dict[str, Any]]:
+    """Describe memory backends registered by core and preloaded plugins."""
+    from qwenpaw.memory import memory_registry
+
+    return memory_registry.describe()
 
 
 class AgentSummary(BaseModel):
@@ -114,18 +144,28 @@ class BackendSettingsRequest(BaseModel):
 
 
 class AgentModelSettingsPatch(BaseModel):
-    """Model-routing fields editable from the Chat model selector."""
+    """Model-routing fields editable from the model settings page."""
+
+    active_model: ModelSlotConfig | None = None
 
     fallback_models: list[ModelSlotConfig] | None = None
     fallback_policy: FallbackPolicyConfig | None = None
     subagent_model: ModelSlotConfig | None = None
-    thinking_level: Literal[
-        "inherit",
-        "off",
-        "low",
-        "medium",
-        "high",
-    ] | None = None
+    thinking_level: (
+        Literal[
+            "inherit",
+            "off",
+            "minimal",
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max",
+            "budget",
+        ]
+        | None
+    ) = None
+    thinking_budget: int | None = Field(default=None, ge=1)
 
     @model_validator(mode="after")
     def reject_null_non_nullable_fields(self):
@@ -161,10 +201,10 @@ class MemoryWorkerRuntimeStatus(BaseModel):
     tasks_running: int
 
 
-class MemoryCaptureTaskStatus(BaseModel):
-    """One bounded memory-capture record, newest records returned first.
+class AutoMemoryTaskStatus(BaseModel):
+    """One bounded auto-memory record, newest records returned first.
 
-    Records share the summarize queue used by periodic auto-memory and the
+    Records share the auto-memory queue used by periodic auto-memory and the
     user-triggered ``/new`` and ``/compact`` commands.
     """
 
@@ -173,6 +213,7 @@ class MemoryCaptureTaskStatus(BaseModel):
     queued_at: str | None = None
     finished_at: str | None = None
     message_count: int = 0
+    trigger: str = "manual"
     result: str | None = None
     error: str | None = None
 
@@ -195,9 +236,11 @@ class MemoryRuntimeStatus(BaseModel):
 
     worker: MemoryWorkerRuntimeStatus
     auto_memory: AutoMemoryRuntimeStatus
-    tasks: list[MemoryCaptureTaskStatus] = Field(default_factory=list)
+    tasks: list[AutoMemoryTaskStatus] = Field(default_factory=list)
     recent: RecentMemoryRuntimeStatus
     reindexing: bool
+    embedding_reindex_required: bool = False
+    embedding_reindex_undo_available: bool = False
 
 
 class ReMeMemoryStatusResponse(BaseModel):
@@ -224,8 +267,35 @@ class CreateAgentRequest(BaseModel):
     language: str | None = None
     skill_names: list[str] | None = None
     active_model: ModelSlotConfig | None = None
+    fallback_models: list[ModelSlotConfig] = Field(default_factory=list)
+    fallback_policy: FallbackPolicyConfig = Field(
+        default_factory=FallbackPolicyConfig,
+    )
+    subagent_model: ModelSlotConfig | None = None
+    thinking_level: Literal[
+        "inherit",
+        "off",
+        "minimal",
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max",
+        "budget",
+    ] = f"inherit"
+    thinking_budget: int | None = Field(default=None, ge=1)
+    mail: AgentMailConfig | None = None
     backend: str = "qwenpaw"
     backend_settings: dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode=f"after")
+    def validate_thinking_budget(self):
+        """Reject incomplete numeric reasoning preferences at the API edge."""
+        if (self.thinking_level == f"budget") != (
+            self.thinking_budget is not None
+        ):
+            raise ValueError(f"Budget mode requires thinking_budget")
+        return self
 
     @field_validator("id", mode="before")
     @classmethod
@@ -654,6 +724,74 @@ def _generate_unique_id(existing_ids: set[str]) -> str:
     )
 
 
+async def _require_qwenpawmail_driver_card(
+    workspace_dir: Path,
+    mail: AgentMailConfig,
+    operation: str,
+) -> None:
+    """Generate a usable card before an agent create/copy is committed."""
+    try:
+        synced = await run_sync_io(
+            _sync_qwenpawmail_driver_card,
+            workspace_dir,
+            mail,
+            "qwenpaw",
+            force_rewrite=True,
+        )
+    except Exception as exc:  # pylint: disable=broad-except
+        logger.warning(
+            "Failed to prepare qwenpawmail driver during agent %s: %s",
+            sanitize_log_value(operation),
+            sanitize_log_value(exc),
+        )
+        synced = False
+    if not synced:
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                f"Agent {operation} was not committed because the "
+                "qwenpawmail driver card could not be generated. Check "
+                "workspace permissions and retry."
+            ),
+        )
+
+
+async def _rollback_qwenpawmail_update(
+    agent_id: str,
+    previous_config: AgentProfileConfig,
+    workspace_dir: Path,
+) -> tuple[bool, bool]:
+    """Restore the config/card pair after a failed driver publication."""
+    config_restored = True
+    driver_restored = True
+    try:
+        await run_sync_io(save_agent_config, agent_id, previous_config)
+    except Exception:  # pylint: disable=broad-except
+        config_restored = False
+        logger.exception(
+            "Failed to roll back agent config after driver sync failure "
+            "for %s",
+            sanitize_log_value(agent_id),
+        )
+
+    if config_restored:
+        try:
+            driver_restored = await run_sync_io(
+                _sync_qwenpawmail_driver_card,
+                workspace_dir,
+                previous_config.mail,
+                previous_config.backend or "qwenpaw",
+                force_rewrite=previous_config.mail is not None,
+            )
+        except Exception:  # pylint: disable=broad-except
+            driver_restored = False
+            logger.exception(
+                "Failed to restore qwenpawmail driver for agent %s",
+                sanitize_log_value(agent_id),
+            )
+    return config_restored, driver_restored
+
+
 @router.post(
     "",
     response_model=AgentProfileRef,
@@ -671,11 +809,15 @@ async def create_agent(
     (validated for URL-safe characters, length, reserved words, and
     uniqueness).  Otherwise a random short UUID is generated.
     """
+    _validate_mail_backend_compatibility(request.backend, request.mail)
     if request.backend != "qwenpaw":
         _get_available_third_party_provider(request.backend)
 
     config = await run_sync_io(load_config)
     existing_ids = set(config.agents.profiles.keys())
+
+    if request.mail is not None:
+        _validate_mail_config(request.mail)
 
     if request.id:
         try:
@@ -716,18 +858,6 @@ async def create_agent(
     active_model = (
         request.active_model if request.backend == "qwenpaw" else None
     )
-    if request.backend == "qwenpaw" and (
-        not active_model or not active_model.provider_id
-    ):
-        try:
-            from ...providers import ProviderManager
-
-            global_model = ProviderManager.get_instance().get_active_model()
-            if global_model and global_model.provider_id:
-                active_model = global_model
-        except Exception:
-            pass
-
     agent_config = AgentProfileConfig(
         id=new_id,
         name=request.name,
@@ -741,6 +871,12 @@ async def create_agent(
         heartbeat=HeartbeatConfig(),
         tools=ToolsConfig(),
         active_model=active_model,
+        fallback_models=request.fallback_models,
+        fallback_policy=request.fallback_policy,
+        subagent_model=request.subagent_model,
+        thinking_level=request.thinking_level,
+        thinking_budget=request.thinking_budget,
+        mail=request.mail,
     )
 
     await run_sync_io(
@@ -751,6 +887,15 @@ async def create_agent(
         ),
         language=language,
     )
+
+    if request.mail is not None:
+        await _require_qwenpawmail_driver_card(
+            workspace_dir,
+            request.mail,
+            "creation",
+        )
+        await run_sync_io(_ensure_contacts_file, workspace_dir, language)
+        await run_sync_io(_ensure_mail_triage_file, workspace_dir, language)
 
     agent_ref = AgentProfileRef(
         id=new_id,
@@ -792,6 +937,11 @@ def _build_copied_agent_config(
     agent_config.name = new_name
     agent_config.workspace_dir = str(workspace_dir)
     agent_config.channels = ChannelConfig()
+    # Mail is only supported for the qwenpaw backend; silently drop it so
+    # copies of legacy "third-party backend + mail" profiles stay valid
+    # and no qwenpawmail driver card is generated for the new agent.
+    if agent_config.backend != "qwenpaw":
+        agent_config.mail = None
     return agent_config
 
 
@@ -863,6 +1013,8 @@ def _persist_created_agent(
                 detail=f"Agent ID '{agent_id}' already exists",
             )
         agent_path = Path(agent_ref.workspace_dir).expanduser() / "agent.json"
+        if agent_config.mail is not None:
+            save_agent_mail_credentials(agent_path.parent, agent_config.mail)
         write_json_atomic(
             agent_path,
             agent_config.model_dump(exclude_none=True),
@@ -931,6 +1083,15 @@ async def copy_agent(
         language,
     )
 
+    if agent_config.mail is not None:
+        await _require_qwenpawmail_driver_card(
+            workspace_dir,
+            agent_config.mail,
+            "copy",
+        )
+        await run_sync_io(_ensure_contacts_file, workspace_dir, language)
+        await run_sync_io(_ensure_mail_triage_file, workspace_dir, language)
+
     agent_ref = AgentProfileRef(
         id=new_id,
         workspace_dir=str(workspace_dir),
@@ -969,18 +1130,92 @@ async def copy_agent(
     summary="Update agent",
     description="Update agent configuration and trigger reload",
 )
-async def update_agent(
+async def update_agent(  # pylint: disable=too-many-statements
     agentId: str = PathParam(...),
     agent_config: AgentProfileConfig = Body(...),
     request: Request = None,
 ) -> AgentProfileConfig:
     """Update agent configuration."""
+    config = await run_sync_io(load_config)
+
+    if agentId not in config.agents.profiles:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Agent '{agentId}' not found",
+        )
+
+    # The root profile is the canonical workspace location.  Updating an
+    # agent does not move its workspace, so request-body workspace_dir must
+    # never redirect driver-card or template writes to another path.
+    workspace_dir = Path(
+        config.agents.profiles[agentId].workspace_dir,
+    ).expanduser()
+    canonical_workspace_dir = str(workspace_dir)
+
+    existing_config_snap = deepcopy(
+        await run_sync_io(load_agent_config, agentId),
+    )
+    # Older versions allowed the request body to drift from the registered
+    # workspace. Keep rollback snapshots on the canonical path too.
+    existing_config_snap.workspace_dir = canonical_workspace_dir
+
+    effective_backend = (
+        agent_config.backend
+        if "backend" in agent_config.model_fields_set
+        else getattr(existing_config_snap, "backend", "qwenpaw")
+    ) or "qwenpaw"
+    mail_was_set = "mail" in agent_config.model_fields_set
+    existing_mail_snap = getattr(existing_config_snap, "mail", None)
+    effective_mail = (
+        _merge_unchanged_mail_secrets(
+            agent_config.mail,
+            existing_mail_snap,
+        )
+        if mail_was_set and agent_config.mail is not None
+        else (None if mail_was_set else existing_mail_snap)
+    )
+    _validate_mail_backend_compatibility(
+        effective_backend,
+        effective_mail,
+    )
+
+    if effective_mail is not None:
+        _validate_mail_config(effective_mail)
+
     update_data = agent_config.model_dump(exclude_unset=True)
+    previous_config = existing_config_snap
 
     def apply_update(existing_config: AgentProfileConfig) -> None:
+        nonlocal previous_config
+        previous_config = deepcopy(existing_config)
+        previous_config.workspace_dir = canonical_workspace_dir
+
         requested = AgentProfileConfig.model_validate(
             {**existing_config.model_dump(), **update_data},
         )
+        if mail_was_set:
+            requested.mail = (
+                _merge_unchanged_mail_secrets(
+                    agent_config.mail,
+                    existing_config.mail,
+                )
+                if agent_config.mail is not None
+                else None
+            )
+        else:
+            # Secret fields are intentionally excluded from model_dump(), so
+            # restore the authoritative in-memory mail model after validating
+            # the ordinary merged fields.
+            requested.mail = deepcopy(existing_config.mail)
+        # Re-check the backend/mail exclusivity on the merged config
+        # inside the file lock: a concurrent update may have switched
+        # the persisted backend after the unlocked snapshot check.
+        _validate_mail_backend_compatibility(
+            requested.backend,
+            requested.mail,
+        )
+        if requested.mail is not None:
+            _validate_mail_config(requested.mail)
         old_memory = existing_config.running.reme_light_memory_config
         old_embedding = old_memory.embedding_model_config
         requested_running = update_data.get("running")
@@ -997,20 +1232,80 @@ async def update_agent(
                     ),
                 )
         for key in update_data:
-            if key != "id":
+            if key not in {"id", "workspace_dir"}:
                 setattr(existing_config, key, getattr(requested, key))
         existing_config.id = agentId
+        existing_config.workspace_dir = canonical_workspace_dir
 
     try:
-        existing_config = await update_agent_config_async(
+        updated_config = await update_agent_config_async(
             agentId,
             apply_update,
         )
     except (ValueError, AppBaseException) as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    # Keep the secret-free DriverCard and encrypted credential in lockstep with
+    # *persisted* final configuration.  In particular, an explicit mail=null
+    # or a backend switch must revoke the old MCP capability before reload.
+    try:
+        driver_card_synced = await run_sync_io(
+            _sync_qwenpawmail_driver_card,
+            workspace_dir,
+            updated_config.mail,
+            updated_config.backend,
+            force_rewrite=mail_was_set,
+        )
+    except Exception:  # pylint: disable=broad-except
+        logger.warning(
+            "Failed to synchronize qwenpawmail driver for agent %s",
+            sanitize_log_value(agentId),
+            exc_info=True,
+        )
+        driver_card_synced = False
+
+    if not driver_card_synced:
+        # The runtime has not been reloaded yet, so restoring the previous
+        # config keeps its live state coherent. The failed sync already
+        # revokes a card containing superseded credentials; regenerate the
+        # previous card only after the old config is durable again.
+        (
+            rollback_configured,
+            rollback_driver,
+        ) = await _rollback_qwenpawmail_update(
+            agentId,
+            previous_config,
+            workspace_dir,
+        )
+
+        rollback_detail = (
+            "The previous mail configuration was restored."
+            if rollback_configured and rollback_driver
+            else "Rollback was incomplete; the driver was left disabled."
+        )
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                "The qwenpawmail driver card could not be synchronized. "
+                f"{rollback_detail} Check workspace permissions and retry."
+            ),
+        )
+
+    if updated_config.mail is not None and updated_config.backend == "qwenpaw":
+        await run_sync_io(
+            _ensure_contacts_file,
+            workspace_dir,
+            updated_config.language or config.agents.language or "en",
+        )
+        await run_sync_io(
+            _ensure_mail_triage_file,
+            workspace_dir,
+            updated_config.language or config.agents.language or "en",
+        )
+
     schedule_agent_reload(request, agentId)
 
-    return existing_config
+    return updated_config
 
 
 @router.patch(
@@ -1028,6 +1323,12 @@ async def update_agent_model_settings(
     values = {field: getattr(body, field) for field in body.model_fields_set}
 
     def apply_settings(existing_config: AgentProfileConfig) -> None:
+        AgentProfileConfig.model_validate(
+            {
+                **existing_config.model_dump(),
+                **values,
+            },
+        )
         for key, value in values.items():
             setattr(existing_config, key, value)
 
@@ -1037,7 +1338,9 @@ async def update_agent_model_settings(
             agentId,
             apply_settings,
         )
-    except (ValueError, AppBaseException) as exc:
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except AppBaseException as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     schedule_agent_reload(request, agentId)
     return updated
@@ -1050,6 +1353,7 @@ async def update_agent_model_settings(
 )
 async def rebuild_agent_memory_index(
     agentId: str = PathParam(...),
+    scope: Literal["all", "bm25", "embedding"] = "all",
     request: Request = None,
 ) -> dict[str, str]:
     """Run the expensive ReMe reindex job as an explicit maintenance task."""
@@ -1076,8 +1380,15 @@ async def rebuild_agent_memory_index(
             detail="Memory manager is not available",
         )
 
+    if not isinstance(memory_manager, MemoryActionProvider):
+        raise HTTPException(
+            status_code=501,
+            detail="Memory backend does not support actions",
+        )
     try:
-        response = await memory_manager.rebuild_index()
+        response = await memory_manager.run_action("reindex", scope=scope)
+    except EmbeddingReindexUnavailableError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except RuntimeError as exc:
         if str(exc) == "Memory index rebuild is already running":
             raise HTTPException(status_code=409, detail=str(exc)) from exc
@@ -1091,7 +1402,63 @@ async def rebuild_agent_memory_index(
     if not response.success:
         raise HTTPException(status_code=500, detail=str(response.answer))
 
-    return {"status": "completed"}
+    return {"status": "completed", "scope": scope}
+
+
+@router.post(
+    "/{agentId}/memory/reindex/undo",
+    response_model=EmbeddingModelConfig,
+    summary="Undo a pending embedding index rebuild",
+    description="Restore the last indexed embedding configuration",
+)
+async def undo_agent_memory_reindex(
+    agentId: str = PathParam(...),
+    request: Request = None,
+) -> EmbeddingModelConfig:
+    """Restore the provider configuration matching the still-valid vectors."""
+    config = await run_sync_io(load_config)
+    if agentId not in config.agents.profiles:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Agent '{agentId}' not found",
+        )
+
+    agent_config = await run_sync_io(load_agent_config, agentId)
+    if agent_config.running.memory_manager_backend != "remelight":
+        raise HTTPException(
+            status_code=400,
+            detail="Embedding index undo is only supported by ReMe Light",
+        )
+    manager = _get_multi_agent_manager(request)
+    workspace = await manager.get_agent(agentId)
+    memory_manager = workspace.memory_manager
+    if memory_manager is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Memory manager is not available",
+        )
+
+    if not isinstance(memory_manager, MemoryActionProvider):
+        raise HTTPException(
+            status_code=501,
+            detail="Memory backend does not support actions",
+        )
+    try:
+        response = await memory_manager.run_action("undo_reindex")
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        if str(exc) == "Memory index rebuild is already running":
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    if response is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Memory action 'undo_reindex' is unavailable",
+        )
+    if not response.success:
+        raise HTTPException(status_code=500, detail=str(response.answer))
+    return EmbeddingModelConfig.model_validate(response.answer)
 
 
 @router.get(
@@ -1124,10 +1491,18 @@ async def get_agent_memory_runtime_status(
     if workspace is None or workspace.memory_manager is None:
         raise HTTPException(status_code=503, detail="Agent is not running")
     memory_config = agent_config.running.reme_light_memory_config
+    runtime_status = workspace.memory_manager.get_runtime_status(
+        auto_memory_interval=memory_config.auto_memory_interval,
+    )
+    runtime_status["embedding_reindex_required"] = bool(
+        memory_config.needs_reindex,
+    )
+    runtime_status["embedding_reindex_undo_available"] = bool(
+        memory_config.needs_reindex
+        and memory_config.pending_reindex_embedding_config is not None,
+    )
     return MemoryRuntimeStatus.model_validate(
-        workspace.memory_manager.get_runtime_status(
-            auto_memory_interval=memory_config.auto_memory_interval,
-        ),
+        runtime_status,
     )
 
 
@@ -1170,7 +1545,24 @@ async def get_agent_memory_status(
             detail="Memory manager is not available",
         )
 
-    response = await memory_manager.reme_status()
+    if not isinstance(memory_manager, MemoryActionProvider):
+        raise HTTPException(
+            status_code=501,
+            detail="Memory backend does not support actions",
+        )
+    try:
+        response = await memory_manager.run_action("status")
+    except RuntimeError as exc:
+        message = str(exc)
+        if not (
+            message.startswith("Dependency ")
+            and " accessed before start()" in message
+        ):
+            raise
+        raise HTTPException(
+            status_code=503,
+            detail="ReMe is not started or status reporting is unavailable",
+        ) from exc
     if response is None:
         raise HTTPException(
             status_code=503,
@@ -1187,13 +1579,21 @@ async def get_agent_memory_status(
             detail="ReMe returned an invalid memory status payload",
         )
     memory_config = agent_config.running.reme_light_memory_config
+    runtime_status = memory_manager.get_runtime_status(
+        auto_memory_interval=memory_config.auto_memory_interval,
+    )
+    runtime_status["embedding_reindex_required"] = bool(
+        memory_config.needs_reindex,
+    )
+    runtime_status["embedding_reindex_undo_available"] = bool(
+        memory_config.needs_reindex
+        and memory_config.pending_reindex_embedding_config is not None,
+    )
     try:
         return ReMeMemoryStatusResponse.model_validate(
             {
                 **memory,
-                "runtime": memory_manager.get_runtime_status(
-                    auto_memory_interval=memory_config.auto_memory_interval,
-                ),
+                "runtime": runtime_status,
             },
         )
     except ValueError as exc:
@@ -1240,7 +1640,12 @@ async def get_agent_memory_graph(
             detail="Memory manager is not available",
         )
 
-    response = await memory_manager.graph_snapshot()
+    if not isinstance(memory_manager, MemoryActionProvider):
+        raise HTTPException(
+            status_code=501,
+            detail="Memory backend does not support actions",
+        )
+    response = await memory_manager.run_action("graph_snapshot")
     if response is None:
         raise HTTPException(
             status_code=503,
@@ -1462,6 +1867,238 @@ def _install_initial_skills(
                 sanitize_log_value(workspace_dir),
                 sanitize_log_value(e),
             )
+
+
+_ALLOWED_MAIL_DOMAINS = {
+    "163.com",
+    "126.com",
+    "yeah.net",
+    "qq.com",
+    "foxmail.com",
+    "sina.com",
+    "sina.cn",
+    "aliyun.com",
+    "gmail.com",
+    "exmail.qq.com",
+    "qiye.aliyun.com",
+    "qiye.163.com",
+}
+
+# Domains whose authorization codes (or app-specific passwords) are
+# exactly 16 characters.  Other allowed domains use login passwords
+# (or client-specific passwords) of variable length.
+_AUTH_CODE_16_CHAR_DOMAINS = frozenset(
+    {
+        "163.com",
+        "126.com",
+        "yeah.net",
+        "qq.com",
+        "foxmail.com",
+        "sina.com",
+        "sina.cn",
+        "gmail.com",
+    },
+)
+
+# Microsoft disabled basic auth (and app passwords) for personal
+# IMAP/SMTP in September 2024; only OAuth2 works now, which this
+# version does not support.
+_MICROSOFT_MAIL_DOMAINS = {
+    "outlook.com",
+    "hotmail.com",
+    "live.com",
+    "msn.com",
+    "office365.com",
+}
+
+# Basic sanity check for custom enterprise-mail domains coming from
+# free-form frontend input: labels of alnum/hyphen joined by dots.
+_MAIL_DOMAIN_RE = re.compile(
+    r"^(?!-)[A-Za-z0-9-]{1,63}(?<!-)(\.(?!-)[A-Za-z0-9-]{1,63}(?<!-))+$",
+)
+
+
+def _validate_mail_backend_compatibility(
+    backend: str | None,
+    mail: AgentMailConfig | None,
+) -> None:
+    """Reject mailbox configuration on unsupported agent backends."""
+    if mail is not None and (backend or "qwenpaw") != "qwenpaw":
+        raise HTTPException(
+            status_code=400,
+            detail="Mail configuration is only supported for qwenpaw backend",
+        )
+
+
+def _merge_unchanged_mail_secrets(
+    incoming: AgentMailConfig,
+    existing: AgentMailConfig | None,
+) -> AgentMailConfig:
+    """Treat blank edit-form secrets as "keep existing" for one mailbox.
+
+    GET responses omit secret fields, so the Console submits blanks when a
+    user edits unrelated agent settings.  Secrets are inherited only when the
+    mailbox mode and public identity are unchanged; changing the account still
+    requires fresh credentials and is validated normally.
+    """
+    merged = incoming.model_copy(deep=True)
+    if existing is None:
+        return merged
+
+    def identity(mail: AgentMailConfig) -> tuple[bool, str, str, str]:
+        credential = mail.credential
+        return (
+            mail.is_new_account,
+            (credential.name or "").strip().lower(),
+            (credential.domain or "").strip().lower(),
+            (credential.provider or "").strip().lower(),
+        )
+
+    if identity(merged) != identity(existing):
+        return merged
+    for field_name in ("auth_code", "password", "phone_number"):
+        if not getattr(merged.credential, field_name):
+            setattr(
+                merged.credential,
+                field_name,
+                getattr(existing.credential, field_name),
+            )
+    return merged
+
+
+def _validate_mail_config(mail: AgentMailConfig) -> None:
+    # pylint: disable=too-many-branches
+    """Validate the mailbox management configuration.
+
+    Raises HTTPException(400) when validation fails.
+    """
+    credential = mail.credential
+    provider = (credential.provider or "").strip()
+    if provider and provider not in _ENTERPRISE_MAIL_PROVIDERS:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Unsupported mail provider '{provider}', allowed: "
+                f"'' (auto-detect) or "
+                f"{sorted(_ENTERPRISE_MAIL_PROVIDERS)}"
+            ),
+        )
+    domain = (credential.domain or "").strip().lower()
+    if domain in _MICROSOFT_MAIL_DOMAINS:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Mail domain '{domain}' is not supported: since "
+                "September 2024 Microsoft only allows OAuth2 for "
+                "IMAP/SMTP access (basic auth and app passwords are "
+                "both disabled). This version does not support "
+                "OAuth2 — please use another mailbox."
+            ),
+        )
+    if provider:
+        # Well-known domains resolve their IMAP/SMTP hosts automatically;
+        # combining them with an explicit enterprise provider would inject
+        # mismatched host overrides.
+        if domain in _ALLOWED_MAIL_DOMAINS:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Mail domain '{domain}' is a well-known domain and "
+                    "must not be combined with an enterprise mail "
+                    "provider; leave provider empty (auto-detect)"
+                ),
+            )
+        # Enterprise mail with a custom domain: accept any
+        # syntactically valid domain instead of the whitelist.
+        if not domain or not _MAIL_DOMAIN_RE.match(domain):
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Invalid mail domain '{credential.domain}' for "
+                    f"enterprise mail provider '{provider}'"
+                ),
+            )
+    elif domain not in _ALLOWED_MAIL_DOMAINS:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Unsupported mail domain '{credential.domain}', "
+                f"allowed: {sorted(_ALLOWED_MAIL_DOMAINS)}"
+            ),
+        )
+
+    if mail.push is not None:
+        if len(mail.push.rules) > 50:
+            raise HTTPException(
+                status_code=400,
+                detail="push.rules supports at most 50 rules",
+            )
+        for index, rule in enumerate(mail.push.rules):
+            if rule.action == "move" and not rule.param.strip():
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        f"push.rules[{index}]: param (target folder) "
+                        "is required when action is 'move'"
+                    ),
+                )
+
+    if mail.is_new_account:
+        # Registration secrets are entered directly on the provider page and
+        # are no longer part of QwenPaw's dedicated-mailbox form.  A blank
+        # auth_code means registration is still pending; supplying the final
+        # provider credential completes provisioning in the same UI.
+        credential.password = ""
+        credential.phone_number = ""
+        if not credential.auth_code:
+            return
+        mail.is_new_account = False
+
+    if domain in _AUTH_CODE_16_CHAR_DOMAINS:
+        if len(credential.auth_code) != 16:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "auth_code must be exactly 16 characters "
+                    "(authorization code or app-specific password)"
+                ),
+            )
+    elif not credential.auth_code:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "auth_code (login password or client-specific "
+                "password) is required"
+            ),
+        )
+    if not credential.name:
+        raise HTTPException(
+            status_code=400,
+            detail="credential name (mailbox username) is required",
+        )
+
+
+def _ensure_workspace_md_file(
+    workspace_dir: Path,
+    language: str,
+    filename: str,
+) -> None:
+    """Copy a md_files template into the workspace if missing.
+
+    Thin wrapper over :func:`ensure_workspace_md_file`, kept for the
+    router-local call sites.  Idempotent and never raises.
+    """
+    ensure_workspace_md_file(workspace_dir, language, filename)
+
+
+def _ensure_contacts_file(workspace_dir: Path, language: str) -> None:
+    """Copy the CONTACTS.md template into the workspace if missing."""
+    _ensure_workspace_md_file(workspace_dir, language, "CONTACTS.md")
+
+
+def _ensure_mail_triage_file(workspace_dir: Path, language: str) -> None:
+    """Copy the MAIL_TRIAGE.md seed tree into the workspace if missing."""
+    _ensure_workspace_md_file(workspace_dir, language, "MAIL_TRIAGE.md")
 
 
 def _initialize_agent_workspace(

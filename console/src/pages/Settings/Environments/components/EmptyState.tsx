@@ -1,3 +1,4 @@
+import { PackageOpen } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import styles from "../index.module.less";
 
@@ -10,7 +11,9 @@ export function EmptyState({ className }: EmptyStateProps) {
 
   return (
     <div className={`${styles.emptyState} ${className || ""}`}>
-      <span className={styles.emptyIcon}>📦</span>
+      <span className={styles.emptyIcon}>
+        <PackageOpen size={32} aria-hidden="true" />
+      </span>
       <span>{t("environments.noVariables")}</span>
     </div>
   );

@@ -58,6 +58,7 @@ class ProjectCreateRequest(StrictModel):
     aspect_ratio: str = Field("16:9", alias="aspectRatio")
     resolution: str = "720P"
     content_type: str | None = Field(None, alias="contentType")
+    template_id: str | None = Field(None, alias="templateId")
     execution_preauthorization: ExecutionPreauthorizationPolicy | None = Field(
         None,
         alias="executionPreauthorization",

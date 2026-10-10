@@ -1,5 +1,12 @@
 import { Card, Button, Badge, Progress } from "antd";
-import { Zap, BookOpen, Settings, Clock, Trophy } from "lucide-react";
+import {
+  Zap,
+  BookOpen,
+  Settings,
+  Clock,
+  Trophy,
+  Newspaper,
+} from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { HarvestInstance } from "../types";
 import { useHarvestCountdown } from "../hooks/useHarvestCountdown";
@@ -36,7 +43,9 @@ export function HarvestCard({
     >
       <div className={styles.cardHeader}>
         <div className={styles.titleRow}>
-          <span className={styles.emoji}>{harvest.emoji}</span>
+          <span className={styles.emoji}>
+            <Newspaper size={22} aria-hidden="true" />
+          </span>
           <h3 className={styles.title}>{harvest.name}</h3>
         </div>
         <Badge
@@ -51,7 +60,7 @@ export function HarvestCard({
             size={90}
             percent={Math.round(countdown.percentage)}
             format={() => timeText}
-            strokeColor={countdown.isOverdue ? "#FFD700" : "#FF7F16"}
+            strokeColor={countdown.isOverdue ? "#FFD700" : "var(--app-accent)"}
           />
           <div className={styles.countdownInfo}>
             <div className={styles.statusText}>

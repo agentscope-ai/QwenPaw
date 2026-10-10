@@ -10,7 +10,6 @@ import pytest
 import qwenpaw.providers.provider_manager as provider_manager_module
 from qwenpaw.providers.openai_provider import OpenAIProvider
 from qwenpaw.providers.provider_manager import (
-    KIMI_MODELS,
     KIMI_CODINGPLAN_MODELS,
     PROVIDER_KIMI_CN,
     PROVIDER_KIMI_INTL,
@@ -36,18 +35,6 @@ def test_kimi_provider_configs() -> None:
     assert PROVIDER_KIMI_INTL.name == "Kimi (International)"
     assert PROVIDER_KIMI_INTL.base_url == "https://api.moonshot.ai/v1"
     assert PROVIDER_KIMI_INTL.freeze_url is True
-
-
-def test_kimi_models_list() -> None:
-    """Verify Kimi model definitions."""
-    model_ids = [m.id for m in KIMI_MODELS]
-    assert "kimi-k2.5" in model_ids
-    assert "kimi-k2-0905-preview" in model_ids
-    assert "kimi-k2-0711-preview" in model_ids
-    assert "kimi-k2-turbo-preview" in model_ids
-    assert "kimi-k2-thinking" in model_ids
-    assert "kimi-k2-thinking-turbo" in model_ids
-    assert len(KIMI_MODELS) == 6
 
 
 @pytest.fixture
@@ -94,27 +81,6 @@ async def test_kimi_check_connection_success(monkeypatch) -> None:
     assert msg == ""
 
 
-def test_kimi_has_expected_models(isolated_secret_dir) -> None:
-    """Provider manager Kimi providers should include all built-in models."""
-    manager = ProviderManager()
-    provider_cn = manager.get_provider("kimi-cn")
-    provider_intl = manager.get_provider("kimi-intl")
-
-    assert provider_cn is not None
-    assert provider_intl is not None
-
-    for model_id in [
-        "kimi-k2.5",
-        "kimi-k2-0905-preview",
-        "kimi-k2-0711-preview",
-        "kimi-k2-turbo-preview",
-        "kimi-k2-thinking",
-        "kimi-k2-thinking-turbo",
-    ]:
-        assert provider_cn.has_model(model_id)
-        assert provider_intl.has_model(model_id)
-
-
 async def test_kimi_activate_models(
     isolated_secret_dir,
     monkeypatch,
@@ -127,10 +93,10 @@ async def test_kimi_activate_models(
     assert manager.active_model.provider_id == "kimi-cn"
     assert manager.active_model.model == "kimi-k2.5"
 
-    await manager.activate_model("kimi-intl", "kimi-k2-thinking")
+    await manager.activate_model("kimi-intl", "kimi-k3")
     assert manager.active_model is not None
     assert manager.active_model.provider_id == "kimi-intl"
-    assert manager.active_model.model == "kimi-k2-thinking"
+    assert manager.active_model.model == "kimi-k3"
 
 
 def test_kimi_codingplan_provider_config() -> None:

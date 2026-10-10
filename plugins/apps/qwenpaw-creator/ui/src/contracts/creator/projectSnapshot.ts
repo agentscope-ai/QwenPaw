@@ -129,6 +129,7 @@ export interface CharacterVoiceDocument extends ProjectJsonRecord {
   target_model: string;
   preferred_name: string;
   sample_source_version_id: string | null;
+  voice_prompt?: string;
   enrollment_key: string;
   created_at: string;
 }
@@ -191,15 +192,6 @@ export interface GenerationRecipeDocument extends ProjectJsonRecord {
   candidate_count: number;
 }
 
-export interface ShotDocument extends ProjectJsonRecord {
-  shot_id: string;
-  description: string;
-  camera: string | null;
-  framing: string | null;
-  duration_seconds: number | null;
-  dialogue?: string;
-}
-
 export type VideoGenerationMode = "r2v" | "t2v" | "i2v" | "s2v";
 
 export interface R2VCreationDocument extends ProjectJsonRecord {
@@ -212,12 +204,18 @@ export interface R2VCreationDocument extends ProjectJsonRecord {
   prop_refs: string[];
   visual_variant_refs: Record<string, string>;
   cast_lineup_refs?: string[];
-  shots: ProjectEntityCollection<ShotDocument>;
   recipe: GenerationRecipeDocument | null;
   storyboard_prompt: string;
   storyboard_reference_version_ids: string[];
   video_prompt: string;
   video_reference_version_ids: string[];
+  /** Server-owned provenance. Presentation consumes the prompt-sync API. */
+  prompt_sync?: {
+    contract_version: 2;
+    plan_fingerprint: string;
+    storyboard_prompt_fingerprint: string;
+    video_prompt_fingerprint: string;
+  } | null;
 }
 
 export interface T2VCreationDocument extends ProjectJsonRecord {
@@ -309,6 +307,11 @@ export interface MotionClipCreationDocument extends ProjectJsonRecord {
 export interface AudioCreationDocument extends ProjectJsonRecord {
   type: "audio";
   source_asset_version_id: string;
+  /** Mixing role: narration ducks footage audio; bgm is a continuous low bed. */
+  role: "bgm" | "narration" | "sfx";
+  /** Edge fades in seconds; null selects the adaptive role default. */
+  fade_in_seconds?: number | null;
+  fade_out_seconds?: number | null;
   /** TTS narration keeps its script here; uploaded audio leaves it empty. */
   script?: string;
   /** Synthesis speed multiplier (0.5–2.0); CosyVoice family only. */
@@ -420,13 +423,22 @@ export interface EditPlanDocument extends ProjectJsonRecord {
 
 export interface TimelineDocument extends ProjectJsonRecord {
   timeline_id: string;
+  name: string;
+  description: string;
   ticks_per_second: number;
+  /** Narrative-node display title (schema v9; absent on older snapshots). */
+  title?: string;
+  /** Narrative-node synopsis (schema v9; absent on older snapshots). */
+  synopsis?: string;
+  /** Planned duration in seconds (schema v9; absent on older snapshots). */
+  planned_duration_seconds?: number | null;
+  color_grade?: string;
   edit_plan?: EditPlanDocument | null;
   elements_by_id: Record<string, TimelineElementDocument>;
 }
 
 export interface ProjectDocument extends ProjectJsonRecord {
-  schema_version: 4;
+  schema_version: number;
   project_id: string;
   generation: number;
   created_at: string;
@@ -485,6 +497,26 @@ export interface ProjectPatchRequest {
   baseEtag: string;
   blockToken?: string;
   operations: ProjectPatchOperation[];
+}
+
+/** One entry of the authoritative [Image N] reference order (backend view). */
+export interface R2VReferenceOrderItem {
+  index: number;
+  versionId: string;
+  kind: "storyboard" | "source" | "artifact";
+  name: string;
+  available?: boolean;
+}
+
+export interface R2VReferenceOrderResponse {
+  elementId: string;
+  storyboardSelected: boolean;
+  references: R2VReferenceOrderItem[];
+  stage?: "storyboard" | "video";
+  ready?: boolean;
+  referenceLimit?: number | null;
+  invalidMarkerIndices?: number[];
+  budgetDroppedVersionIds?: string[];
 }
 
 export interface ProjectPatchResponse {

@@ -491,7 +491,7 @@ class BaseChannel(ABC):
             payload: Message payload (dict or AgentRequest)
 
         Returns:
-            Chat name (truncated to 50 chars)
+            The complete first text block, suitable for the chat name.
         """
         try:
             if isinstance(payload, dict):
@@ -505,14 +505,14 @@ class BaseChannel(ABC):
                     else:
                         text = str(first)
                     if text:
-                        return text[:50]
+                        return text
                 return "New Chat"
             if hasattr(payload, "input") and payload.input:
                 msg = payload.input[0]
                 if hasattr(msg, "content") and msg.content:
                     content = msg.content[0]
                     if hasattr(content, "text"):
-                        return content.text[:50]
+                        return content.text
             return "New Chat"
         except Exception as e:
             logger.warning(
@@ -569,6 +569,7 @@ class BaseChannel(ABC):
             payload,
             self._stream_with_tracker,
             owner=self._workspace,
+            on_finished=self._workspace.chat_manager.mark_chat_finished,
         )
 
         if is_new:

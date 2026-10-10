@@ -6,11 +6,16 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
 from hashlib import sha256
+import json
 import logging
+import os
 from pathlib import Path
+import shutil
 import threading
+import time
 from typing import Any, Mapping
 
+from services.runtime_files.atomic_store import atomic_replace_path
 from services.runtime_files.field_blocks import FieldBlockStore
 from services.runtime_files import (
     MessageChannel,
@@ -42,10 +47,178 @@ from .store import ProjectSnapshot, ProjectStore
 
 logger = logging.getLogger(__name__)
 
+# Export zips are per-request scratch; anything this old is an orphan from a
+# crashed download.
+_EXPORT_GC_AGE_SECONDS = 24 * 3600.0
+
 
 def _log_safe(value: object) -> str:
     """Neutralise CR/LF so user-provided values cannot forge log lines."""
     return str(value).replace("\r", "\\r").replace("\n", "\\n")
+
+
+def _remove_tree(entry: Path) -> bool:
+    """Delete one directory tree, reporting whether it actually went away."""
+
+    failures: list[BaseException] = []
+
+    def _record(_func, _path, exc_info) -> None:
+        failures.append(exc_info[1])
+
+    # onexc requires 3.12+; runtime still supports 3.11.
+    # pylint: disable-next=deprecated-argument
+    shutil.rmtree(entry, onerror=_record)
+    if failures:
+        logger.warning(
+            "startup GC could not fully remove %s: %s",
+            entry,
+            failures[-1],
+        )
+        return False
+    return True
+
+
+def _remove_file(entry: Path) -> bool:
+    try:
+        entry.unlink(missing_ok=True)
+        return True
+    except OSError as error:
+        logger.warning("startup GC could not remove %s: %s", entry, error)
+        return False
+
+
+def _startup_disk_gc(root: Path) -> None:
+    """Remove crash leftovers that no runtime path ever cleans up.
+
+    Deletion tombstones (``.deleted-*``) and orphaned staging trees
+    (``.staging/*``) can hold gigabytes after a kill -9; export zips are
+    per-request scratch.  Single-process deployment means nothing can be
+    using them at startup.
+    """
+
+    for entry in list(root.glob(".deleted-*")):
+        if _remove_tree(entry):
+            logger.info("startup GC removed deletion tombstone: %s", entry)
+    staging_root = root / ".staging"
+    if staging_root.is_dir():
+        for entry in list(staging_root.iterdir()):
+            removed = (
+                _remove_tree(entry) if entry.is_dir() else _remove_file(entry)
+            )
+            if removed:
+                logger.info("startup GC removed staging orphan: %s", entry)
+    exports_root = root / "exports"
+    if exports_root.is_dir():
+        cutoff = time.time() - _EXPORT_GC_AGE_SECONDS
+        for entry in list(exports_root.glob("*.zip")):
+            try:
+                stale = entry.stat().st_mtime < cutoff
+            except OSError:
+                continue
+            if stale and _remove_file(entry):
+                logger.info("startup GC removed stale export: %s", entry)
+    _sweep_legacy_lock_artifacts(root)
+
+
+def _legacy_lock_scopes(root: Path) -> list[tuple[Path, bool]]:
+    """Directories the flock implementation used, as ``(path, recursive)``.
+
+    Project asset trees are deliberately excluded: a user may legitimately
+    upload files named ``poetry.lock`` or ``Cargo.lock`` as Project assets,
+    and a startup sweep must never delete them.
+    """
+
+    scopes: list[tuple[Path, bool]] = [
+        (root, False),
+        (root / "config", False),
+        (root / ".locks", True),
+    ]
+    try:
+        children = list(root.iterdir())
+    except OSError:
+        children = []
+    for child in children:
+        if child.is_dir() and not child.name.startswith("."):
+            scopes.append((child / "runtime", True))
+    return scopes
+
+
+def _sweep_legacy_lock_artifacts(root: Path) -> None:
+    """Delete flock-era coordination files.
+
+    The in-process lock implementation never reads or writes lock files, so
+    every leftover under the old lock directories is dead weight.
+    """
+
+    removed = 0
+    for scope, recursive in _legacy_lock_scopes(root):
+        if not scope.is_dir():
+            continue
+        walk = scope.rglob if recursive else scope.glob
+        for pattern in ("*.lock", "*.lock.gate"):
+            for entry in list(walk(pattern)):
+                if (entry.is_file() or entry.is_symlink()) and _remove_file(
+                    entry,
+                ):
+                    removed += 1
+        for entry in list(walk("*.lock.readers")):
+            if entry.is_dir() and _remove_tree(entry):
+                removed += 1
+    for locks_dir in (root / ".locks", *root.glob("*/runtime/locks")):
+        try:
+            if locks_dir.is_dir() and not any(locks_dir.iterdir()):
+                locks_dir.rmdir()
+        except OSError:
+            pass
+    if removed:
+        logger.info(
+            "startup GC removed %d legacy lock artifact(s)",
+            removed,
+        )
+
+
+def _warn_on_second_backend(root: Path) -> bool:
+    """Advisory (zero-lock) detection of a second backend on this data root.
+
+    Two processes running Agents against one data root is unsupported: it
+    double-spends reviews and renders.  A pid marker is only a hint — stale
+    after a crash if the pid was reused — so this warns loudly instead of
+    blocking.  Returns whether a live peer was observed, which the caller
+    uses to hold back destructive startup cleanup.
+    """
+
+    marker = root / "runtime-owner.json"
+    try:
+        previous = json.loads(marker.read_text(encoding="utf-8"))
+        pid = int(previous.get("pid") or 0)
+    except (OSError, ValueError, TypeError):
+        pid = 0
+    peer_alive = False
+    if pid and pid != os.getpid():
+        try:
+            os.kill(pid, 0)
+        except OSError:
+            pass
+        else:
+            peer_alive = True
+            logger.error(
+                "another QwenPaw Creator backend (pid=%d) appears to be "
+                "using data root %s; running two backends against one data "
+                "root is unsupported and can double-spend generation and "
+                "review calls",
+                pid,
+                root,
+            )
+    try:
+        payload = json.dumps(
+            {"pid": os.getpid(), "startedAtEpoch": time.time()},
+        )
+        temporary = marker.with_name(f".{marker.name}.{os.getpid()}.tmp")
+        temporary.write_text(payload, encoding="utf-8")
+        atomic_replace_path(temporary, marker)
+    except OSError:
+        logger.warning("failed to write runtime owner marker", exc_info=True)
+    return peer_alive
 
 
 @dataclass(slots=True)
@@ -64,6 +237,17 @@ class CreatorFileServices:
     @classmethod
     def create(cls, root: Path) -> CreatorFileServices:
         projects = ProjectStore(root)
+        if _warn_on_second_backend(projects.root):
+            # A live peer may own the very artifacts this sweep deletes: an
+            # in-flight staging tree, a streaming export, or (for an older
+            # build) lock files it is still using.  Leave the data root alone
+            # and let the warning drive the fix.
+            logger.warning(
+                "skipping startup disk cleanup while another backend "
+                "appears to share this data root",
+            )
+        else:
+            _startup_disk_gc(projects.root)
         recovery = ProjectCommitRecoveryCoordinator(projects)
         startup_recovery = recovery.recover_all()
         reviews = ProjectReviewService(projects)
@@ -163,8 +347,17 @@ class CreatorFileServices:
     async def active_review(self, project_id: str):
         return await asyncio.to_thread(self.reviews.active, project_id)
 
-    async def active_reviews(self, project_id: str) -> list:
-        return await asyncio.to_thread(self.reviews.all_pending, project_id)
+    async def active_reviews(
+        self,
+        project_id: str,
+        *,
+        _lifecycle_lock_held: bool = False,
+    ) -> list:
+        return await asyncio.to_thread(
+            self.reviews.all_pending,
+            project_id,
+            _lifecycle_lock_held=_lifecycle_lock_held,
+        )
 
     async def decide_review(
         self,
@@ -416,15 +609,29 @@ class CreatorFileServices:
         if journal.rejection_feedback is not None:
             return render_rejection_feedback_message(journal)
         accepted_targets = self._accepted_artifact_targets(journal)
-        if not accepted_targets or not all(
+        if not all(
             item.decision == "ACCEPT" for item in journal.decisions
+        ) or (
+            not accepted_targets
+            and journal.review_before.interrupted_run_id is not None
         ):
+            # Interrupted text changes already have a mainline-resume
+            # message queued behind the review; do not duplicate it.
             return None
         # A batch can expose several media Reviews at once. Queue exactly
         # one continuation, after the last pending Review resolves, so a
         # multi-image approval does not fan out into duplicate Agent runs.
         if self.reviews.active(project_id) is not None:
             return None
+        if not accepted_targets:
+            return (
+                "【系统自动消息 · 审阅已通过】\n"
+                "用户已保留本轮创作修改。请回顾原始请求和最近的反馈，"
+                "从因审阅而暂停的下一步继续，不要重复改写已保留内容。"
+                "如果原始请求已经完成，请简短确认；如果还需要生成媒体，"
+                "请继续提交生成请求并遵守现有的生成授权与产物审阅要求，"
+                "不要把保留创作修改当作付费生成的授权。"
+            )
         return self._render_review_approval_message(
             accepted_targets,
             auto_continued=auto_continued or [],
@@ -593,10 +800,11 @@ class CreatorFileServices:
                 "不要重新生成已通过产物，也不要要求用户输入 continue。"
             ),
             (
-                "若通过的产物是某 R2V Element 的分镜图，其视频不会自动开始："
-                "请立即对该 Element 重新委派 R2V 生成 Director 以继续生成视频；"
-                "这不算重新生成已通过产物。其他被暂停的 Specialist 同理，"
-                "需重新委派同一目标才会继续后续步骤。"
+                "若通过的是分镜图，核对该 Element 的视频制作状态："
+                "要求执行授权且视频尚未开始时，用 request_workgraph_execution "
+                "请求该 Element 的 video 阶段；允许自动执行时由调度器继续。"
+                "此前已返回阻塞的请求不会自行恢复，需要在条件满足后重新请求。"
+                "不要用重新委派 Director 代替媒体调度，已在运行的任务不重复请求。"
             ),
             "已通过产物：",
         ]
@@ -608,7 +816,7 @@ class CreatorFileServices:
         if auto_continued:
             lines.append(
                 "以下 Element 的视频已由 Runtime 自动开始生成，"
-                "请勿重新委派这些 Element，继续其他未完成步骤即可：",
+                "请勿重复请求这些 Element，继续其他未完成步骤即可：",
             )
             lines.extend(f"- {target}" for target in auto_continued)
         return "\n".join(lines)

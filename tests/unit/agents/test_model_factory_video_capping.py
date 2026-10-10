@@ -20,7 +20,9 @@ from qwenpaw.agents.model_factory import (
     MAX_INLINE_MEDIA_BYTES,
     _format_anthropic_video_data_block,
     _format_openai_video_block,
+    _promote_tool_result_videos,
     _replace_video_placeholders,
+    _video_oversize_placeholder,
 )
 
 
@@ -35,6 +37,8 @@ async def _format_prepared_local_video(
     formatter: Callable[..., Any],
     block: Any,
     base_formatter_class: type,
+    *,
+    max_bytes: int = MAX_INLINE_MEDIA_BYTES,
     **kwargs: Any,
 ) -> Any:
     """Call a pure formatter helper after async media preparation."""
@@ -55,6 +59,7 @@ async def _format_prepared_local_video(
     await model_factory._prepare_media_sources(
         [msg],
         base_formatter_class,
+        max_bytes=max_bytes,
     )
     prepared = msg.content[0]
     if getattr(prepared, "type", None) == "text":
@@ -369,3 +374,268 @@ def test_replace_placeholders_non_match_untouched() -> None:
     item = _first_content_item(msgs)
     assert item["type"] == "input_text"
     assert item["text"] == "hello"
+
+
+# ---------------------------------------------------------------------
+# _promote_tool_result_videos — Responses API (call_id) + chat (tool_call_id)
+# ---------------------------------------------------------------------
+
+
+def _make_tool_result_video_msg() -> tuple[object, dict]:
+    """Build a Msg whose assistant content holds a tool_call + tool_result
+    whose output carries a video DataBlock (base64 source so it does not
+    depend on a real file), plus the promoted-video block."""
+    import base64
+    import json
+
+    from agentscope.message import (
+        Base64Source,
+        TextBlock,
+        ToolCallBlock,
+        ToolResultBlock,
+    )
+    from agentscope.message import ToolCallState, ToolResultState
+
+    data = base64.b64encode(b"\x00" * 16).decode()
+    video_block = {
+        "source": {
+            "type": "base64",
+            "media_type": "video/mp4",
+            "data": data,
+        },
+    }
+    call_block = ToolCallBlock(
+        id="call_video_1",
+        name="view_video",
+        input=json.dumps({"video_path": "/tmp/sample.mp4"}),
+        state=ToolCallState.FINISHED,
+    )
+    result_block = ToolResultBlock(
+        id="call_video_1",
+        name="view_video",
+        output=[
+            DataBlock(
+                source=Base64Source(
+                    data=data,
+                    media_type="video/mp4",
+                ),
+            ),
+            TextBlock(type="text", text="Video loaded: sample.mp4"),
+        ],
+        state=ToolResultState.SUCCESS,
+    )
+    msg = Msg(
+        name="assistant",
+        role="assistant",
+        content=[call_block, result_block],
+    )
+    return msg, video_block
+
+
+def test_promote_tool_result_videos_response_api_call_id() -> None:
+    """Responses API emits ``call_id``; the promoted user message carrying
+    the video must be inserted after the ``function_call_output`` item."""
+    import json
+
+    msg, _ = _make_tool_result_video_msg()
+    messages: list[dict] = [
+        {"role": "user", "content": [{"type": "input_text", "text": "q"}]},
+        {
+            "type": "function_call",
+            "call_id": "call_video_1",
+            "name": "view_video",
+            "arguments": "{}",
+        },
+        {
+            "type": "function_call_output",
+            "call_id": "call_video_1",
+            "output": "Video loaded: sample.mp4",
+        },
+    ]
+    out = _promote_tool_result_videos([msg], messages, response_api=True)
+    # exactly one promoted user message with an input_video block
+    promoted = [
+        m
+        for m in out
+        if m.get("role") == "user" and "system-info" in json.dumps(m)
+    ]
+    assert len(promoted) == 1
+    s = json.dumps(promoted[0])
+    assert "input_video" in s
+    # promotion must follow the function_call_output (not before it)
+    assert out.index(promoted[0]) > out.index(messages[2])
+
+
+def test_promote_tool_result_videos_skips_function_call() -> None:
+    """The assistant ``function_call`` item also carries ``call_id`` but is
+    NOT a tool result; it must not trigger a duplicate promotion."""
+    import json
+
+    msg, _ = _make_tool_result_video_msg()
+    messages: list[dict] = [
+        {
+            "type": "function_call",
+            "call_id": "call_video_1",
+            "name": "view_video",
+            "arguments": "{}",
+        },
+        {
+            "type": "function_call_output",
+            "call_id": "call_video_1",
+            "output": "Video loaded: sample.mp4",
+        },
+    ]
+    out = _promote_tool_result_videos([msg], messages, response_api=True)
+    promoted = [
+        m
+        for m in out
+        if m.get("role") == "user" and "system-info" in json.dumps(m)
+    ]
+    assert len(promoted) == 1
+
+
+def test_promote_tool_result_videos_chat_tool_call_id() -> None:
+    """OpenAI chat format uses ``tool_call_id``; promotion still works
+    (no regression on the chat path)."""
+    import json
+
+    msg, _ = _make_tool_result_video_msg()
+    messages: list[dict] = [
+        {
+            "role": "assistant",
+            "tool_calls": [
+                {
+                    "id": "call_video_1",
+                    "type": "function",
+                    "function": {"name": "view_video", "arguments": "{}"},
+                },
+            ],
+        },
+        {
+            "role": "tool",
+            "tool_call_id": "call_video_1",
+            "content": "Video loaded: sample.mp4",
+        },
+    ]
+    out = _promote_tool_result_videos([msg], messages, response_api=False)
+    promoted = [
+        m
+        for m in out
+        if m.get("role") == "user" and "system-info" in json.dumps(m)
+    ]
+    assert len(promoted) == 1
+    assert "video_url" in json.dumps(promoted[0])
+
+
+# ------------------------------------------------------- configurable cap
+
+
+@pytest.mark.asyncio
+async def test_openai_url_video_over_default_but_under_custom_cap(
+    tmp_path,
+) -> None:
+    """A 3 MB video exceeds a 2 MB default but fits a 50 MB provider cap."""
+    url = _write_video(tmp_path, "mid.mp4", 3 * 1024 * 1024)
+    block = {"source": {"type": "url", "url": url}}
+
+    # Default 2 MB cap -> placeholder.
+    default_out = await _format_prepared_local_video(
+        _format_openai_video_block,
+        block,
+        model_factory.OpenAIChatFormatter,
+    )
+    assert default_out["type"] == "text"
+    assert "video omitted from model context" in default_out["text"]
+
+    # Provider-raised cap -> inlined (issue #7060).
+    custom_out = await _format_prepared_local_video(
+        _format_openai_video_block,
+        block,
+        model_factory.OpenAIChatFormatter,
+        max_bytes=50 * 1024 * 1024,
+        max_inline_media_bytes=50 * 1024 * 1024,
+    )
+    assert custom_out["type"] == "video_url"
+    assert custom_out["video_url"]["url"].startswith(
+        "data:video/mp4;base64,",
+    )
+
+
+def test_openai_base64_video_honors_custom_cap() -> None:
+    """base64 sources must also respect a configurable cap."""
+    import base64
+
+    data = base64.b64encode(b"\x00" * (3 * 1024 * 1024)).decode()
+    block = {
+        "source": {
+            "type": "base64",
+            "media_type": "video/mp4",
+            "data": data,
+        },
+    }
+
+    default_out = _format_openai_video_block(block)
+    assert default_out["type"] == "text"
+
+    custom_out = _format_openai_video_block(
+        block,
+        max_inline_media_bytes=50 * 1024 * 1024,
+    )
+    assert custom_out["type"] == "video_url"
+
+
+def test_openai_base64_video_zero_cap_disables_capping() -> None:
+    """``max_inline_media_bytes <= 0`` must disable the cap (issue #7060)."""
+    import base64
+
+    data = base64.b64encode(b"\x00" * (3 * 1024 * 1024)).decode()
+    block = {
+        "source": {
+            "type": "base64",
+            "media_type": "video/mp4",
+            "data": data,
+        },
+    }
+
+    # Default cap -> placeholder.
+    assert _format_openai_video_block(block)["type"] == "text"
+
+    # Zero cap -> no capping, video inlined.
+    out = _format_openai_video_block(block, max_inline_media_bytes=0)
+    assert out["type"] == "video_url"
+    assert out["video_url"]["url"].startswith("data:video/mp4;base64,")
+
+
+@pytest.mark.asyncio
+async def test_anthropic_url_video_honors_custom_cap(tmp_path) -> None:
+    """Anthropic path: provider cap must override the hardcoded 2 MB."""
+    url = _write_video(tmp_path, "mid.mp4", 3 * 1024 * 1024)
+    block = DataBlock(source=URLSource(url=url, media_type="video/mp4"))
+
+    default_out = await _format_prepared_local_video(
+        _format_anthropic_video_data_block,
+        block,
+        model_factory.AnthropicChatFormatter,
+    )
+    assert default_out["type"] == "text"
+    assert "video omitted from model context" in default_out["text"]
+
+    custom_out = await _format_prepared_local_video(
+        _format_anthropic_video_data_block,
+        block,
+        model_factory.AnthropicChatFormatter,
+        max_bytes=50 * 1024 * 1024,
+        max_inline_media_bytes=50 * 1024 * 1024,
+    )
+    assert custom_out["type"] == "video"
+    assert custom_out["source"]["type"] == "base64"
+
+
+def test_oversize_placeholder_reports_custom_limit() -> None:
+    """The placeholder text must echo the configurable cap, not 2 MB."""
+    out = _video_oversize_placeholder(
+        3 * 1024 * 1024,
+        max_inline_media_bytes=50 * 1024 * 1024,
+    )
+    assert "52428800 bytes" in out["text"]
+    assert "2097152" not in out["text"]

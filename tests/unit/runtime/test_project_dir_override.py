@@ -12,8 +12,8 @@ import pytest
 
 from qwenpaw.agents.acp.meta import ACP_PROJECT_DIR_META_KEY
 from qwenpaw.config.config import AgentProfileConfig
+from qwenpaw.modes.coding.mixin import CodingModeMixin
 from qwenpaw.runtime.builder import AgentBuilder
-from qwenpaw.runtime.prompt_contributors import CodingModeContributor
 
 
 def test_request_project_override_does_not_enable_coding_tools(tmp_path):
@@ -103,7 +103,10 @@ def test_coding_prompt_prefers_request_project(monkeypatch, tmp_path):
         fail_load_agent_config,
     )
 
-    assert CodingModeContributor._resolve_project_dir(config) == str(tmp_path)
+    # The request-scoped config is read straight off the holder; the disk
+    # reload is only a last resort and must not be reached here.
+    holder = SimpleNamespace(_agent_config=config, name="default")
+    assert CodingModeMixin._get_coding_project_dir(holder) == str(tmp_path)
 
 
 def test_normal_prompt_includes_workspace_fallback_as_project(tmp_path):
@@ -124,7 +127,11 @@ def test_normal_prompt_includes_workspace_fallback_as_project(tmp_path):
 
     assert "Project directory" in prompt
     assert str(tmp_path) in prompt
-    assert "Working directory:" not in prompt
+    # Nothing is configured, so project and workspace are the same path.
+    # The directory block then names it once as the working directory
+    # rather than printing it twice under two labels, which would invite
+    # the model to treat internal QwenPaw state as project content.
+    assert "Working directory:" in prompt
 
 
 def test_normal_prompt_uses_session_project_snapshot(tmp_path):

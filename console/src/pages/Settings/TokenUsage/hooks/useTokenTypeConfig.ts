@@ -1,6 +1,6 @@
 import { useMemo } from "react";
-import dayjs, { type Dayjs } from "dayjs";
-import { formatCompact } from "../../../../utils/formatNumber";
+import { type Dayjs } from "dayjs";
+import { lineChartChrome } from "./lineChartChrome";
 
 interface UseTokenTypeConfigProps {
   byDate: Record<
@@ -75,74 +75,24 @@ export function useTokenTypeConfig({
       });
     });
 
-    const tickCount = Math.min(10, Math.max(3, allDates.length));
-
     return {
       data: chartData,
-      xField: "date",
-      yField: "value",
-      seriesField: "type",
-      colorField: "type",
-      smooth: true,
-      autoFit: true,
-      height: 300,
-      theme: isDarkMode ? "dark" : "light",
-      style: {
-        lineWidth: 3,
-        fillOpacity: 0,
-      },
-      tooltip: {
-        title: "date",
-        items: [
-          (datum: { date: string; value: number; type: string }) => ({
-            name: datum.type,
-            value: formatCompact(datum.value),
-          }),
-        ],
-      },
-      axis: {
-        x: {
-          range: [0, 1],
-          nice: true,
-          tickCount,
-          labelFormatter: (d: string) => {
-            const date = dayjs(d);
-            const crossesYear = startDate.year() !== endDate.year();
-            return crossesYear ? date.format("YY/MM-DD") : date.format("MM-DD");
-          },
-          grid: null,
-        },
-        y: {
-          labelFormatter: (v: number) => {
-            if (v >= 1_000_000) {
-              return `${(v / 1_000_000).toFixed(1)}M`;
-            } else if (v >= 1_000) {
-              return `${(v / 1_000).toFixed(0)}K`;
-            }
-            return v.toString();
-          },
-          grid: {
-            line: {
-              style: {
-                stroke: isDarkMode
-                  ? "rgba(255, 255, 255, 0.05)"
-                  : "rgba(0, 0, 0, 0.04)",
-              },
+      ...lineChartChrome({
+        isDark: isDarkMode,
+        tickCount: Math.min(10, Math.max(3, allDates.length)),
+        startDate,
+        endDate,
+        seriesField: "type",
+        colors,
+        legend: {
+          itemName: {
+            style: {
+              fill: isDarkMode ? "rgba(255, 255, 255, 0.85)" : "#333",
+              fontSize: 12,
             },
           },
         },
-      },
-      legend: {
-        position: "top" as const,
-        itemMarker: "circle",
-        itemName: {
-          style: {
-            fill: isDarkMode ? "rgba(255, 255, 255, 0.85)" : "#333",
-            fontSize: 12,
-          },
-        },
-      },
-      color: colors,
+      }),
     };
   }, [byDate, startDate, endDate, isDark]);
 }

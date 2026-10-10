@@ -42,7 +42,6 @@ from .models import (
     R2VCreation,
     S2VCreation,
     T2VCreation,
-    Shot,
     SourceAssetVersion,
     SourceVersionRenderSource,
     Timeline,
@@ -64,6 +63,7 @@ from .serialization import (
 )
 from .store import (
     DEFAULT_MAX_PROJECT_JSON_BYTES,
+    InvalidProjectId,
     ProjectAlreadyExists,
     ProjectConflict,
     ProjectIntegrityError,
@@ -122,7 +122,6 @@ __all__ = [
     "S2VCreation",
     "T2VCreation",
     "ReadProjectToolInput",
-    "Shot",
     "SourceAssetVersion",
     "SourceVersionRenderSource",
     "Timeline",
@@ -131,6 +130,7 @@ __all__ = [
     "TransitionCreation",
     "OverlayCreation",
     "UnsafeProjectPath",
+    "InvalidProjectId",
     "UnknownAgentProjectTool",
     "agent_project_tool_manifest",
     "canonical_data",

@@ -84,5 +84,6 @@ export function useChannels() {
     isBuiltin,
     loading,
     fetchChannels,
+    setChannels,
   };
 }

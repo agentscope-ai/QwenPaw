@@ -2,6 +2,8 @@
 """Tests for SlashCommandRegistry.advertisable_commands()."""
 from __future__ import annotations
 
+import pytest
+
 from qwenpaw.runtime.slash_command_registry import (
     CommandSpec,
     SlashCommandRegistry,
@@ -129,3 +131,152 @@ class TestAdvertisableCommands:
         )
         names = [name for name, _ in result]
         assert names == ["a"]
+
+
+class TestOwnerAwareRegistration:
+    """Verify plugin ownership, replacement, and cleanup semantics."""
+
+    @pytest.mark.parametrize(
+        ("name", "aliases"),
+        [
+            ("taken", ("new-alias",)),
+            ("new-command", ("taken",)),
+        ],
+    )
+    def test_collision_is_atomic(self, name, aliases) -> None:
+        registry = SlashCommandRegistry()
+        original = CommandSpec(name="taken", handler=_noop_handler)
+        registry.register(original)
+
+        with pytest.raises(ValueError, match="already registered"):
+            registry.register(
+                CommandSpec(
+                    name=name,
+                    aliases=aliases,
+                    handler=_noop_handler,
+                    owner_id="plugin-a",
+                ),
+            )
+
+        assert registry.names() == ["taken"]
+        assert registry.resolve("/taken")[0] is original
+
+    def test_builtin_and_cross_plugin_collisions_are_rejected(self) -> None:
+        registry = SlashCommandRegistry()
+        builtin = CommandSpec(name="builtin", handler=_noop_handler)
+        plugin = CommandSpec(
+            name="plugin",
+            handler=_noop_handler,
+            owner_id="plugin-a",
+        )
+        registry.register(builtin)
+        registry.register(plugin)
+
+        with pytest.raises(ValueError):
+            registry.register(
+                CommandSpec(
+                    name="builtin",
+                    handler=_noop_handler,
+                    owner_id="plugin-a",
+                ),
+            )
+        with pytest.raises(ValueError):
+            registry.register(
+                CommandSpec(
+                    name="plugin",
+                    handler=_noop_handler,
+                    owner_id="plugin-b",
+                ),
+            )
+
+        assert registry.resolve("/builtin")[0] is builtin
+        assert registry.resolve("/plugin")[0] is plugin
+
+    def test_same_owner_replaces_handler_and_removes_stale_aliases(
+        self,
+    ) -> None:
+        registry = SlashCommandRegistry()
+
+        async def old_handler(_ctx, _args):
+            return None
+
+        async def new_handler(_ctx, _args):
+            return None
+
+        registry.register(
+            CommandSpec(
+                name="deploy",
+                aliases=("old", "legacy"),
+                handler=old_handler,
+                owner_id="plugin-a",
+            ),
+        )
+        replacement = CommandSpec(
+            name="deploy",
+            aliases=("new",),
+            handler=new_handler,
+            owner_id="plugin-a",
+        )
+        registry.register(replacement)
+
+        assert registry.names() == ["deploy", "new"]
+        assert registry.resolve("/deploy")[0].handler is new_handler
+        assert registry.resolve("/new")[0] is replacement
+        assert registry.resolve("/old") is None
+        assert registry.resolve("/legacy") is None
+
+    def test_same_owner_alias_collision_does_not_replace_other_command(
+        self,
+    ) -> None:
+        registry = SlashCommandRegistry()
+        original = CommandSpec(
+            name="alpha",
+            aliases=("shared",),
+            handler=_noop_handler,
+            owner_id="plugin-a",
+        )
+        registry.register(original)
+
+        with pytest.raises(ValueError, match="already registered"):
+            registry.register(
+                CommandSpec(
+                    name="beta",
+                    aliases=("shared",),
+                    handler=_noop_handler,
+                    owner_id="plugin-a",
+                ),
+            )
+
+        assert registry.names() == ["alpha", "shared"]
+        assert registry.resolve("/alpha")[0] is original
+        assert registry.resolve("/shared")[0] is original
+        assert registry.resolve("/beta") is None
+
+    def test_unregister_owner_removes_only_owners_mappings(self) -> None:
+        registry = SlashCommandRegistry()
+        builtin = CommandSpec(name="builtin", handler=_noop_handler)
+        other = CommandSpec(
+            name="other",
+            aliases=("other-alias",),
+            handler=_noop_handler,
+            owner_id="plugin-b",
+        )
+        registry.register(builtin)
+        registry.register(
+            CommandSpec(
+                name="owned",
+                aliases=("owned-alias",),
+                handler=_noop_handler,
+                owner_id="plugin-a",
+            ),
+        )
+        registry.register(other)
+
+        assert registry.unregister_owner("plugin-a") == [
+            "owned",
+            "owned-alias",
+        ]
+        assert registry.names() == ["builtin", "other", "other-alias"]
+        assert registry.resolve("/builtin")[0] is builtin
+        assert registry.resolve("/other")[0] is other
+        assert registry.unregister_owner("") == []

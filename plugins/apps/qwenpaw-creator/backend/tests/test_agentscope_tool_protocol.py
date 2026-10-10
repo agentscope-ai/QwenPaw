@@ -34,19 +34,7 @@ def test_native_text_stream_preserves_prose_across_tag_shaped_chunk_boundaries()
     assert "".join(asyncio.run(scenario())) == "正在检查 <普通说明>"
 
 
-@pytest.mark.parametrize(
-    "chunks",
-    [
-        (
-            "<fun",
-            "ction=glob_search><parameter=pattern>x</parameter></function>",
-        ),
-        ("说明\n<tool_", "call><function=glob_search></function></tool_call>"),
-    ],
-)
-def test_native_text_stream_never_publishes_textual_tool_markup(
-    chunks: tuple[str, ...],
-) -> None:
+def test_native_text_stream_never_publishes_textual_tool_markup() -> None:
     async def scenario() -> list[str]:
         observed: list[str] = []
 
@@ -55,8 +43,10 @@ def test_native_text_stream_never_publishes_textual_tool_markup(
 
         stream = NativeToolTextStream(collect)
         with pytest.raises(NonNativeToolMarkupError):
-            for chunk in chunks:
-                await stream.feed(chunk)
+            await stream.feed("说明\n<fun")
+            await stream.feed(
+                "ction=glob_search><parameter=pattern>x</parameter></function>",
+            )
         return observed
 
     observed = asyncio.run(scenario())

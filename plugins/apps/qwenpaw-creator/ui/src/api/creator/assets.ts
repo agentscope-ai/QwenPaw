@@ -20,11 +20,13 @@ export function ingestAssetFile(
   projectId: string,
   file: File,
   postIngestAction: PostIngestAction,
-  clientRequestId = newClientId("asset"),
+  options?: { notifyAgent?: boolean; clientRequestId?: string },
 ): Promise<AssetIngestAccepted> {
+  const clientRequestId = options?.clientRequestId ?? newClientId("asset");
   const form = new FormData();
   form.append("clientRequestId", clientRequestId);
   form.append("postIngestAction", postIngestAction);
+  if (options?.notifyAgent === false) form.append("notifyAgent", "false");
   form.append("file", file, file.name);
   return creatorRequest(assetsPath(projectId), {
     method: "POST",

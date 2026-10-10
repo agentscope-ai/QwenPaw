@@ -1,9 +1,12 @@
+@import (reference) "../../styles/scaledTypography.less";
+
 .inboxPage {
+  .scaled-control-typography();
   height: 100%;
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  background: #fff;
+  background: var(--app-surface);
 }
 
 .pageContent {
@@ -18,8 +21,8 @@
   flex-wrap: wrap;
   gap: 20px;
   margin-bottom: 18px;
-  color: rgba(0, 0, 0, 0.65);
-  font-size: 13px;
+  color: var(--app-text-secondary);
+  font-size: var(--app-font-secondary);
 }
 
 .inboxTabs {
@@ -37,11 +40,11 @@
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  font-size: 15px;
+  font-size: calc(15px * var(--app-font-scale));
 }
 
 .wobbleToggleActive {
-  color: #ff7f16 !important;
+  color: var(--app-accent) !important;
 }
 
 .tabContent {
@@ -71,8 +74,8 @@
 }
 
 .selectedCountText {
-  font-size: 12px;
-  color: rgba(0, 0, 0, 0.55);
+  font-size: var(--app-font-caption);
+  color: var(--app-text-secondary);
 }
 
 .cardList {
@@ -112,8 +115,8 @@
 }
 
 .messageDetailLabel {
-  font-size: 12px;
-  color: rgba(0, 0, 0, 0.55);
+  font-size: var(--app-font-caption);
+  color: var(--app-text-secondary);
 }
 
 .messageDetailContent,
@@ -121,10 +124,57 @@
   margin: 0;
   padding: 10px 12px;
   border-radius: 8px;
-  border: 1px solid rgba(0, 0, 0, 0.08);
-  background: #fafafa;
-  font-size: 12px;
+  border: 1px solid var(--app-border);
+  background: var(--app-surface);
+  font-size: var(--app-font-caption);
   line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.mailBodyBlock {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--app-border);
+  background: var(--app-surface);
+  font-size: var(--app-font-caption);
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 360px;
+  overflow-y: auto;
+}
+
+.mailTraceList {
+  margin: 0;
+  padding: 10px 12px 10px 28px;
+  border-radius: 8px;
+  border: 1px solid var(--app-border);
+  background: var(--app-surface);
+  font-size: var(--app-font-caption);
+  line-height: 1.6;
+  max-height: 360px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.mailTraceItem {
+  word-break: break-word;
+}
+
+.mailTraceTool {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-weight: 600;
+}
+
+.mailTraceSummary {
+  margin: 2px 0 0;
+  font-family: inherit;
   white-space: pre-wrap;
   word-break: break-word;
 }
@@ -133,8 +183,8 @@
 .traceEmpty {
   padding: 12px;
   border-radius: 8px;
-  border: 1px dashed rgba(0, 0, 0, 0.15);
-  color: rgba(0, 0, 0, 0.55);
+  border: 1px dashed var(--app-border-strong);
+  color: var(--app-text-secondary);
   margin: auto;
 }
 
@@ -162,7 +212,7 @@
   transition: background 0.2s ease;
 
   &:hover {
-    background: rgba(0, 0, 0, 0.02);
+    background: var(--app-fill-faint);
   }
 
   :global(.ant-collapse-item) {
@@ -188,7 +238,7 @@
 }
 
 .traceCollapseActive {
-  background: #f6f6f6;
+  background: var(--app-fill-subtle);
 }
 
 .traceFoldHeader {
@@ -202,21 +252,21 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  color: rgba(0, 0, 0, 0.5);
-  font-size: 14px;
+  color: var(--app-text-secondary);
+  font-size: var(--app-font-body);
 }
 
 .traceFoldTitle {
   font-weight: 500;
-  font-size: 13px;
-  color: rgba(0, 0, 0, 0.85);
+  font-size: var(--app-font-secondary);
+  color: var(--app-text);
 }
 
 .traceInlineChevron {
   display: inline-flex;
   align-items: center;
-  color: rgba(0, 0, 0, 0.45);
-  font-size: 12px;
+  color: var(--app-text-tertiary);
+  font-size: var(--app-font-caption);
   opacity: 0;
   transform: rotate(0deg);
   transition:
@@ -235,17 +285,23 @@
 
 .traceFoldTime {
   margin-left: auto;
-  color: rgba(0, 0, 0, 0.42);
-  font-size: 12px;
+  color: var(--app-text-tertiary);
+  font-size: var(--app-font-caption);
 }
 
 .traceAssistantMessage {
-  font-size: 14px;
+  font-size: var(--app-font-body);
   line-height: 1.65;
-  color: rgba(0, 0, 0, 0.88);
+  color: var(--app-text);
   white-space: normal;
   overflow-wrap: anywhere;
   word-break: normal;
+
+  // Match Chat: preserve source newlines within paragraphs, without
+  // preserving the renderer's whitespace between Markdown blocks.
+  :global(p) {
+    white-space: pre-wrap;
+  }
 
   :global(p),
   :global(ul),
@@ -288,13 +344,13 @@
 
 .traceUserMessage {
   max-width: min(82%, 680px);
-  background: var(--color-fill-tertiary, rgba(43, 18, 0, 0.06));
-  color: var(--colorText, rgba(26, 23, 22, 0.88));
+  background: var(--app-fill-subtle);
+  color: var(--app-text);
   border-radius: 14px;
   padding: 10px 12px;
-  font-size: 14px;
+  font-size: var(--app-font-body);
   line-height: 1.6;
-  border: 1px solid var(--colorBorderSecondary, rgba(0, 0, 0, 0.06));
+  border: 1px solid var(--app-border);
   white-space: pre-wrap;
   word-break: break-word;
 }
@@ -314,10 +370,10 @@
   display: flex;
   flex-direction: column;
   gap: 0;
-  border: 1px solid rgba(0, 0, 0, 0.08);
+  border: 1px solid var(--app-border);
   border-radius: 8px;
   overflow: hidden;
-  background: #fff;
+  background: var(--app-surface);
 }
 
 .traceCodeHeader {
@@ -326,36 +382,36 @@
   justify-content: space-between;
   gap: 8px;
   padding: 6px 10px;
-  background: #f5f5f5;
-  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+  background: var(--app-surface-sunken);
+  border-bottom: 1px solid var(--app-border);
 }
 
 .traceCodeTitle {
-  font-size: 12px;
+  font-size: var(--app-font-caption);
   font-weight: 600;
-  color: rgba(0, 0, 0, 0.65);
+  color: var(--app-text-secondary);
 }
 
 .traceCodeCopyBtn {
   border: none;
   background: transparent;
-  color: rgba(0, 0, 0, 0.5);
-  font-size: 12px;
+  color: var(--app-text-secondary);
+  font-size: var(--app-font-caption);
   cursor: pointer;
   line-height: 1;
   padding: 2px;
 
   &:hover {
-    color: rgba(0, 0, 0, 0.8);
+    color: var(--app-text);
   }
 }
 
 .traceJsonBlock {
   margin: 0;
   border-radius: 8px;
-  border: 1px solid rgba(0, 0, 0, 0.08);
+  border: 1px solid var(--app-border);
   padding: 10px 12px;
-  font-size: 12px;
+  font-size: var(--app-font-caption);
   line-height: 1.6;
   white-space: pre-wrap;
   word-break: break-word;
@@ -371,9 +427,9 @@
   margin: 0;
   border-radius: 0;
   border: none;
-  background: #fff;
+  background: var(--app-surface);
   padding: 10px 12px;
-  font-size: 12px;
+  font-size: var(--app-font-caption);
   line-height: 1.6;
   white-space: pre;
   word-break: normal;
@@ -385,7 +441,7 @@
 }
 
 .traceMarkdownBlock {
-  font-size: 13px;
+  font-size: var(--app-font-secondary);
   line-height: 1.75;
 
   :global(.markdown > p),
@@ -401,8 +457,8 @@
     margin: 8px 0;
     padding: 8px 10px;
     border-radius: 6px;
-    background: #fff;
-    border: 1px solid rgba(0, 0, 0, 0.08);
+    background: var(--app-surface);
+    border: 1px solid var(--app-border);
     overflow-x: auto;
   }
 
@@ -433,95 +489,20 @@
 
 /* ─── Dark mode ─────────────────────────────────────────────────────────────── */
 :global(.dark-mode) {
-  .inboxPage {
-    background: #141414;
-  }
-
-  .inboxTabs {
-    background: transparent;
-  }
-
-  .selectedCountText,
-  .messageDetailLabel,
-  .traceLoading,
-  .traceEmpty,
-  .summaryRow {
-    color: rgba(255, 255, 255, 0.55);
-  }
-
-  .messageDetailContent,
-  .messageDetailPayload {
-    background: #1f1f1f;
-    border-color: rgba(255, 255, 255, 0.08);
-    color: rgba(255, 255, 255, 0.82);
-  }
-
-  .traceLoading,
-  .traceEmpty {
-    border-color: rgba(255, 255, 255, 0.18);
-    background: rgba(255, 255, 255, 0.02);
-  }
-
-  .traceCollapse:hover {
-    background: rgba(255, 255, 255, 0.04);
-  }
-
-  .traceCollapseActive {
-    background: rgba(255, 255, 255, 0.06);
-  }
-
-  .traceFoldIcon {
-    color: rgba(255, 255, 255, 0.55);
-  }
-
-  .traceFoldTitle,
-  .traceAssistantMessage {
-    color: rgba(255, 255, 255, 0.85);
-  }
-
-  .traceInlineChevron,
-  .traceFoldTime {
-    color: rgba(255, 255, 255, 0.5);
-  }
-
   .toolSection,
   .traceJsonBlock,
   .traceMarkdownBlock :global(pre) {
-    border-color: #3a3a3a;
-    background: #1a1a1a;
+    border-color: var(--app-border-strong);
+    background: var(--app-surface-subtle);
   }
 
   .traceCodeHeader {
-    background: #242424;
-    border-bottom-color: #3a3a3a;
-  }
-
-  .traceCodeTitle {
-    color: rgba(255, 255, 255, 0.7);
-  }
-
-  .traceCodeCopyBtn {
-    color: rgba(255, 255, 255, 0.55);
-
-    &:hover {
-      color: rgba(255, 255, 255, 0.85);
-    }
-  }
-
-  .traceJsonBlock,
-  .toolCodeBlock,
-  .traceMarkdownBlock {
-    color: rgba(255, 255, 255, 0.82);
+    background: var(--app-surface-raised);
+    border-bottom-color: var(--app-border-strong);
   }
 
   .toolCodeBlock {
-    background: #1a1a1a;
-  }
-
-  .traceUserMessage {
-    background: rgba(255, 255, 255, 0.08);
-    color: rgba(255, 255, 255, 0.9);
-    border-color: rgba(255, 255, 255, 0.15);
+    background: var(--app-surface-subtle);
   }
 }
 
@@ -571,5 +552,57 @@
 
   .paginationWrap {
     justify-content: center;
+  }
+}
+
+// ─── Mail ACL button wobble animation (new pending senders) ─────────────────
+@keyframes mailAclWobble {
+  0%,
+  100% {
+    transform: rotate(0deg);
+  }
+  20% {
+    transform: rotate(3deg);
+  }
+  40% {
+    transform: rotate(-3deg);
+  }
+  60% {
+    transform: rotate(2.5deg);
+  }
+  80% {
+    transform: rotate(-2.5deg);
+  }
+}
+
+.mailAclShake {
+  animation: mailAclWobble 0.6s ease-in-out infinite;
+  transform-origin: center center;
+
+  // Pause immediately on hover as a visual safety net (JS handler
+  // will permanently remove the class on the next React render).
+  &:hover {
+    animation-play-state: paused;
+  }
+}
+.messageDetailModal {
+  :global(.ant-modal-close),
+  :global(.qwenpaw-modal-close) {
+    top: 20px;
+    width: 32px;
+    height: 32px;
+  }
+}
+
+.messageDetailTitle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 32px;
+  padding-right: 28px;
+
+  > button {
+    flex-shrink: 0;
   }
 }

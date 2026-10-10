@@ -2,7 +2,7 @@
 name: cron
 description: Use this skill only for scheduled or recurring tasks. Manage jobs with qwenpaw cron list/create/get/state/update/pause/resume/delete/run, and always pass --agent-id explicitly.
 metadata:
-  builtin_skill_version: "1.7"
+  builtin_skill_version: "1.8"
   qwenpaw:
     emoji: "⏰"
 ---
@@ -32,6 +32,7 @@ Use this skill only when you need to **automatically execute something at a futu
 4. **All cron commands must explicitly include `--agent-id`**
 5. **Do not rely on the default agent, or the task may end up in the default workspace**
 6. **For an agent task that should run without channel output, add `--silent`; execution, session history, trace, and optional Inbox recording still continue**
+7. **Never run or resume an imported job while `requires_review` is set; review and approve it in Console first**
 
 ---
 
@@ -217,6 +218,12 @@ qwenpaw cron create --agent-id <agent_id> -f job_spec.json
 5. Create the task with qwenpaw cron create
 6. Manage tasks afterwards with list / state / pause / resume / delete
 ```
+
+### Reviewing Imported Jobs
+
+Jobs imported by PawPort are disabled and protected by a non-bypassable review gate.
+
+Review and approve imported jobs in the Console Cron Jobs page. Approval records the review but leaves the job disabled. Enable it there separately only if the user explicitly asks.
 
 ---
 

@@ -10,12 +10,11 @@ authorities used here.
 from __future__ import annotations
 
 import asyncio
+import re
 import shutil
-import stat as stat_module
-import zipfile
 from typing import Any, Literal
 from uuid import NAMESPACE_URL, uuid4, uuid5
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 
 from fastapi import (
     APIRouter,
@@ -34,6 +33,7 @@ from starlette.datastructures import UploadFile
 
 from domain.errors import (
     ConflictError,
+    NotFoundError,
     StorageIntegrityError,
     ValidationError,
     BadRequestError,
@@ -48,12 +48,18 @@ from services.file_agent_runtime import (
     notify_creator_agent_runtime,
 )
 from services.project_files.facade import CreatorFileServices
+from services.project_files import archive as project_archive
+from services.project_files.archive import (
+    extract_archive as _extract_archive_sanitized,
+)
+from services.project_files.assets import AssetFileStore
 from services.project_files.models import (
     ExecutionPreauthorization,
     Project,
     ProjectSettings,
 )
 from services.project_files.store import (
+    InvalidProjectId,
     ProjectAlreadyExists,
     ProjectIntegrityError,
     ProjectNotFound,
@@ -63,7 +69,11 @@ from services.project_files.store import (
 from services.runtime_files.errors import RuntimeFileError
 from services.runtime_files.idempotency_store import IdempotencyRecordStore
 from services.runtime_files.locking import CrossProcessFileLock
-from services.runtime_files.session_store import ProjectRuntimeBootstrap
+from services.runtime_files.session_store import (
+    ProjectRuntimeBootstrap,
+    RuntimeSessionNotFound,
+    SessionStoreError,
+)
 from services.storage_root import require_creator_data_root
 from services.project_files.serialization import load_project_json
 from utils.logger import setup_logger
@@ -73,23 +83,15 @@ from .dependencies import (
     resolve_idempotency_key,
 )
 
-
 logger = setup_logger("project_routes")
 
 _CREATE_SCOPE = "POST /projects"
+_COPY_SCOPE = "POST /projects/{project_id}/copy"
 
 
 def _log_safe(value: Any) -> str:
     """Neutralize CR/LF in user-provided values before logging."""
     return str(value).replace("\r", "\\r").replace("\n", "\\n")
-
-
-# Hard limits for project archive imports. The zip cap bounds what a
-# request may write to disk; the extraction caps stop zip bombs before
-# a single member is inflated.
-_IMPORT_MAX_ZIP_BYTES = 2 * 1024 * 1024 * 1024
-_IMPORT_MAX_EXTRACTED_BYTES = 4 * 1024 * 1024 * 1024
-_IMPORT_MAX_MEMBERS = 20000
 
 
 class _RemovedProjectPutRoute(CreatorErrorRoute):
@@ -106,6 +108,11 @@ router = APIRouter(
     prefix="/projects",
     tags=["projects"],
     route_class=_RemovedProjectPutRoute,
+)
+archive_router = APIRouter(
+    prefix="/projects",
+    tags=["projects"],
+    route_class=CreatorErrorRoute,
 )
 
 
@@ -126,6 +133,15 @@ def _request_hash(request: ProjectCreateRequest) -> str:
                 by_alias=True,
                 exclude_none=True,
             ),
+        },
+    )
+
+
+def _copy_request_hash(source_project_id: str) -> str:
+    return IdempotencyRecordStore.request_hash(
+        {
+            "scope": _COPY_SCOPE,
+            "sourceProjectId": source_project_id,
         },
     )
 
@@ -218,6 +234,50 @@ def _existing_bootstrap(
     return response
 
 
+def _existing_copy_receipt(
+    services: CreatorFileServices,
+    *,
+    target_project_id: str,
+    expected_session_id: str,
+    expected_conversation_id: str,
+    client_request_id: str,
+    request_hash: str,
+) -> dict[str, str]:
+    """Validate and replay one atomically published Project copy receipt."""
+
+    services.projects.read(target_project_id)
+    session = services.sessions.get_project_session(target_project_id)
+    conversations = services.sessions.list_conversations(
+        target_project_id,
+        session.session_id,
+    )
+    defaults = [item for item in conversations if item.is_default]
+    if len(defaults) != 1:
+        raise StorageIntegrityError(
+            "复制 Project Runtime 必须且只能有一个默认 Conversation",
+        )
+    receipt = session.metadata.get("projectCopy")
+    if not isinstance(receipt, dict):
+        raise ConflictError("Idempotency-Key 已用于非复制 Project 请求")
+    if (
+        receipt.get("clientRequestId") != client_request_id
+        or receipt.get("requestHash") != request_hash
+    ):
+        raise ConflictError("Idempotency-Key 已用于不同的 Project 复制请求")
+    if (
+        session.session_id != expected_session_id
+        or defaults[0].conversation_id != expected_conversation_id
+        or not isinstance(receipt.get("sourceGeneration"), int)
+        or not isinstance(receipt.get("sourceEtag"), str)
+        or not receipt.get("sourceEtag")
+    ):
+        raise StorageIntegrityError("Project 复制记录与确定性身份不一致")
+    stored_response = receipt.get("response")
+    if stored_response != {"projectId": target_project_id}:
+        raise StorageIntegrityError("Project 复制响应快照损坏")
+    return {"projectId": target_project_id}
+
+
 @router.get("")
 async def list_projects(
     limit: int = Query(100, ge=1, le=500),
@@ -235,24 +295,49 @@ async def list_projects(
     except (ProjectIntegrityError, ProjectStoreError) as exc:
         raise StorageIntegrityError(str(exc)) from exc
     page = records[offset : offset + limit]
+
+    def _build_items() -> list[dict[str, Any]]:
+        items: list[dict[str, Any]] = []
+        for item in page:
+            try:
+                session = services.sessions.get_project_session_snapshot(
+                    item.project_id,
+                )
+                session_status: str | None = session.status.value
+            except RuntimeSessionNotFound:
+                session_status = None
+            except SessionStoreError as exc:
+                # One project's corrupt session record (field run
+                # 2026-08-25: a session claiming another project) must not
+                # take the whole listing down; surface the project without
+                # a status and leave the repair to its own detail view.
+                logger.warning(
+                    "project list: session snapshot failed for %s: %s",
+                    item.project_id,
+                    exc,
+                )
+                session_status = None
+            items.append(
+                {
+                    "projectId": item.project_id,
+                    "name": item.name,
+                    "description": item.description,
+                    "scenario": item.scenario,
+                    "aspectRatio": item.aspect_ratio,
+                    "resolution": item.resolution,
+                    "contentType": item.content_type,
+                    "createdAt": item.created_at,
+                    "updatedAt": item.updated_at,
+                    "coverVersionId": item.cover_version_id,
+                    "coverVersionSource": item.cover_version_source,
+                    "finalVideoVersionId": item.final_video_version_id,
+                    "status": session_status,
+                },
+            )
+        return items
+
     return {
-        "items": [
-            {
-                "projectId": item.project_id,
-                "name": item.name,
-                "description": item.description,
-                "scenario": item.scenario,
-                "aspectRatio": item.aspect_ratio,
-                "resolution": item.resolution,
-                "contentType": item.content_type,
-                "createdAt": item.created_at,
-                "updatedAt": item.updated_at,
-                "coverVersionId": item.cover_version_id,
-                "coverVersionSource": item.cover_version_source,
-                "finalVideoVersionId": item.final_video_version_id,
-            }
-            for item in page
-        ],
+        "items": await asyncio.to_thread(_build_items),
         "limit": limit,
         "offset": offset,
     }
@@ -287,6 +372,56 @@ async def create_project(
         scenario=request.scenario,
         settings=_settings(request),
     )
+    if request.template_id:
+        from services.media_files.video_templates import (
+            apply_video_template_to_project,
+            get_video_template,
+        )
+
+        template = get_video_template(request.template_id)
+        if template is None:
+            from services.media_files.user_templates import (
+                load_user_template,
+            )
+            from services.media_files.video_templates import (
+                VideoTemplate,
+                VideoTemplateDesignFloor,
+            )
+
+            user_tpl = load_user_template(request.template_id)
+            if user_tpl is None:
+                raise ValidationError(
+                    f"未知的视频模板: {request.template_id}",
+                )
+            template = VideoTemplate(
+                template_id=user_tpl.template_id,
+                name=user_tpl.name,
+                description=user_tpl.description,
+                content_type=user_tpl.content_type,
+                scenario=user_tpl.scenario,
+                opening_caption_blueprint=(user_tpl.opening_caption_blueprint),
+                closing_caption_blueprint=(user_tpl.closing_caption_blueprint),
+                default_transition_kind=(user_tpl.default_transition_kind),
+                transition_blend_seconds=(user_tpl.transition_blend_seconds),
+                caption_blueprint_order=tuple(
+                    user_tpl.caption_blueprint_order,
+                ),
+                color_grade=user_tpl.color_grade,
+                energy=user_tpl.energy,
+                density=user_tpl.density,
+                decoration=user_tpl.decoration,
+                design_floor=VideoTemplateDesignFloor(
+                    opening=user_tpl.design_floor_opening,
+                    transitions=user_tpl.design_floor_transitions,
+                    body=user_tpl.design_floor_body,
+                    ending=user_tpl.design_floor_ending,
+                ),
+                decoration_catalog=(),
+                frame_blueprint="",
+                preview_description=user_tpl.preview_description,
+                icon_emoji=user_tpl.icon_emoji,
+            )
+        project = apply_video_template_to_project(project, template)
     initial_response = ProjectCreateResponse(
         projectId=project_id,
         creatorSessionId=session_id,
@@ -296,67 +431,70 @@ async def create_project(
     )
 
     def operation() -> ProjectCreateResponse:
-        # The name-uniqueness check and the create must share one
-        # cross-process lock; per-project lifecycle locks have different
-        # domains for different project ids.
+        # The global name lock only covers the uniqueness check.  The create
+        # itself stages privately and publishes via an atomic rename that
+        # refuses an existing Project id, so holding a global boundary across
+        # the Runtime bootstrap would only serialize unrelated creations.
+        target_name = request.name.strip()
         with CrossProcessFileLock(
             services.projects.root / ".project-names.lock",
         ):
             existing = services.projects.list()
-            target_name = request.name.strip()
             if any(item.name == target_name for item in existing):
-                raise ValidationError(f"项目名称「{target_name}」已存在，请使用其他名称")
+                raise ValidationError(
+                    f"项目名称「{target_name}」已存在，请使用其他名称",
+                )
 
-            holder: list[ProjectRuntimeBootstrap] = []
+        holder: list[ProjectRuntimeBootstrap] = []
 
-            def initialize(staged_project_root) -> None:
-                holder.append(
-                    services.sessions.initialize_staged_project(
-                        staged_project_root,
-                        project_id,
-                        session_id=session_id,
-                        conversation_id=conversation_id,
-                        session_metadata={
-                            "projectCreate": {
-                                "clientRequestId": client_request_id,
-                                "requestHash": request_hash,
-                                "projectSnapshotId": project_snapshot_id,
-                                "response": initial_response.model_dump(
-                                    mode="json",
-                                    by_alias=True,
-                                ),
-                            },
+        def initialize(staged_project_root) -> None:
+            holder.append(
+                services.sessions.initialize_staged_project(
+                    staged_project_root,
+                    project_id,
+                    session_id=session_id,
+                    conversation_id=conversation_id,
+                    session_metadata={
+                        "projectCreate": {
+                            "clientRequestId": client_request_id,
+                            "requestHash": request_hash,
+                            "projectSnapshotId": project_snapshot_id,
+                            "response": initial_response.model_dump(
+                                mode="json",
+                                by_alias=True,
+                            ),
                         },
-                        initial_goal=request.initial_goal,
-                        goal_id=goal_id
-                        if request.initial_goal is not None
-                        else None,
-                        initial_message_id=(
-                            message_id
-                            if request.initial_goal is not None
-                            else None
-                        ),
-                        initial_client_message_id=(
-                            f"initial-goal:{client_request_id}"
-                            if request.initial_goal is not None
-                            else None
-                        ),
+                    },
+                    initial_goal=request.initial_goal,
+                    goal_id=(
+                        goal_id if request.initial_goal is not None else None
                     ),
-                )
+                    initial_message_id=(
+                        message_id
+                        if request.initial_goal is not None
+                        else None
+                    ),
+                    initial_client_message_id=(
+                        f"initial-goal:{client_request_id}"
+                        if request.initial_goal is not None
+                        else None
+                    ),
+                ),
+            )
 
-            try:
-                snapshot = services.projects.create(
-                    project,
-                    initialize_staged_project=initialize,
-                )
-            except ProjectAlreadyExists:
-                return _existing_bootstrap(
-                    services,
-                    project_id=project_id,
-                    expected_session_id=session_id,
-                    expected_conversation_id=conversation_id,
-                    request_hash=request_hash,
-                )
+        try:
+            snapshot = services.projects.create(
+                project,
+                initialize_staged_project=initialize,
+            )
+        except ProjectAlreadyExists:
+            return _existing_bootstrap(
+                services,
+                project_id=project_id,
+                expected_session_id=session_id,
+                expected_conversation_id=conversation_id,
+                request_hash=request_hash,
+            )
         if len(holder) != 1:
             raise StorageIntegrityError("Project Runtime 未随 Project 原子创建")
         services.poller.note_commit(snapshot)
@@ -385,6 +523,11 @@ async def create_project(
 @router.delete("/{project_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_project(
     project_id: str,
+    cascade: bool = Query(
+        True,
+        description="When false, only the project manifest is removed; "
+        "assets and runtime data are preserved on disk.",
+    ),
     idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     services: CreatorFileServices = Depends(project_file_services),
 ) -> Response:
@@ -397,25 +540,232 @@ async def delete_project(
         superseded=False,
         reason="project_deleted",
     )
+    # Signal every detached provider/review/scheduler worker before the
+    # Project id disappears. Cancellation is synchronous; cleanup is not
+    # awaited because deletion itself is the terminal boundary.
+    from api.file_session_routes import _cancel_detached_project_tasks
+
+    _cancel_detached_project_tasks(services, project_id)
     try:
-        await asyncio.to_thread(services.projects.delete, project_id)
+        await asyncio.to_thread(
+            services.projects.delete,
+            project_id,
+            cascade=cascade,
+        )
     except ProjectNotFound:
         pass
     except (ProjectIntegrityError, ProjectStoreError) as exc:
         raise StorageIntegrityError(str(exc)) from exc
     services.poller.close(project_id)
-    try:
-        await asyncio.to_thread(
-            services.poller.poll_once,
-            project_id,
-            force=True,
-        )
-    except ProjectNotFound:
-        pass
+    from utils.logger import close_creator_project_logging
+
+    close_creator_project_logging(project_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
-@router.get("/{project_id}/export")
+@router.get("/{project_id}/recreate-params")
+async def get_recreate_params(
+    project_id: str,
+    services: CreatorFileServices = Depends(project_file_services),
+) -> dict[str, Any]:
+    logger.info(f"fetching recreate params for:{_log_safe(project_id)}")
+
+    def operation() -> dict[str, Any]:
+        snapshot = services.projects.read(project_id)
+        project = snapshot.project
+
+        base_name = re.sub(r" copy$", "", project.name)
+        base_name = re.sub(r"\s+\d+$", "", base_name)
+
+        existing = services.projects.list()
+        max_count = 1
+        pattern = re.compile(rf"^{re.escape(base_name)}\s+(\d+)$")
+        for item in existing:
+            match = pattern.match(item.name)
+            if match:
+                count = int(match.group(1))
+                if count > max_count:
+                    max_count = count
+        next_name = f"{base_name} {max_count + 1}"
+
+        source_urls: list[str] = []
+        for version in project.assets.source_versions_by_id.values():
+            url = version.metadata.get("publicSourceUrl")
+            if url and isinstance(url, str):
+                source_urls.append(url)
+
+        return {
+            "name": next_name,
+            "description": project.description,
+            "scenario": project.scenario,
+            "contentType": project.settings.content_type,
+            "resolution": project.settings.resolution,
+            "aspectRatio": project.settings.aspect_ratio,
+            "sourceUrls": source_urls,
+        }
+
+    try:
+        return await asyncio.to_thread(operation)
+    except ProjectNotFound as exc:
+        raise NotFoundError(str(exc)) from exc
+    except InvalidProjectId as exc:
+        raise BadRequestError(str(exc)) from exc
+    except (ProjectIntegrityError, ProjectStoreError) as exc:
+        raise StorageIntegrityError(str(exc)) from exc
+
+
+# pylint: disable=too-many-statements
+@router.post("/{project_id}/copy", status_code=status.HTTP_201_CREATED)
+async def copy_project(
+    project_id: str,
+    response: Response,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
+    services: CreatorFileServices = Depends(project_file_services),
+) -> dict[str, Any]:
+    logger.info(f"copying project:{_log_safe(project_id)}")
+    client_request_id = resolve_idempotency_key(idempotency_key)
+    request_hash = _copy_request_hash(project_id)
+    copy_identity = f"{_COPY_SCOPE}:{client_request_id}"
+    new_project_id = _stable_id("project", copy_identity)
+    new_session_id = _stable_id("session", copy_identity)
+    new_conversation_id = _stable_id("conversation", copy_identity)
+
+    def operation() -> dict[str, Any]:
+        # The global name lock only covers the replay-receipt check and the
+        # copy-name computation.  The asset tree copy and Runtime bootstrap
+        # run in a private staging directory outside the lock (export learned
+        # this the hard way: holding a global boundary across large-tree I/O
+        # caused routine 10-second lock timeouts) and are published by the
+        # create's atomic rename, which refuses an already-existing Project.
+        with CrossProcessFileLock(
+            services.projects.root / ".project-names.lock",
+        ):
+            try:
+                return _existing_copy_receipt(
+                    services,
+                    target_project_id=new_project_id,
+                    expected_session_id=new_session_id,
+                    expected_conversation_id=new_conversation_id,
+                    client_request_id=client_request_id,
+                    request_hash=request_hash,
+                )
+            except ProjectNotFound:
+                pass
+            source_name = services.projects.read(project_id).project.name
+            copy_name = f"{source_name} copy"
+            existing = services.projects.list()
+            base_name = copy_name
+            suffix = 1
+            while any(item.name == copy_name for item in existing):
+                suffix += 1
+                copy_name = f"{base_name} {suffix}"
+
+        # Freeze the source Project and its asset tree at one revision for
+        # the whole copy. Project commits/deletion take the exclusive side.
+        with services.projects.lifecycle_lock(project_id, shared=True):
+            source_snapshot = services.projects.read(project_id)
+            source = source_snapshot.project
+            source_root = services.projects.project_root(project_id)
+
+            new_project = Project.new(
+                project_id=new_project_id,
+                name=copy_name,
+                description=source.description,
+                scenario=source.scenario,
+                settings=source.settings,
+            )
+            new_project = new_project.model_copy(
+                update={
+                    "strategy": source.strategy,
+                    "visual": source.visual,
+                    "timelines": source.timelines,
+                    "assets": source.assets,
+                },
+            )
+            initial_response = {"projectId": new_project_id}
+            holder: list[ProjectRuntimeBootstrap] = []
+
+            def initialize(staged_root: Path) -> None:
+                assets_src = source_root / "assets"
+                assets_dst = staged_root / "assets"
+                if assets_src.is_dir():
+                    for item in assets_src.iterdir():
+                        dst = assets_dst / item.name
+                        if item.is_dir():
+                            shutil.copytree(
+                                str(item),
+                                str(dst),
+                                dirs_exist_ok=True,
+                            )
+                        else:
+                            shutil.copy2(str(item), str(dst))
+                holder.append(
+                    services.sessions.initialize_staged_project(
+                        staged_root,
+                        new_project_id,
+                        session_id=new_session_id,
+                        conversation_id=new_conversation_id,
+                        session_metadata={
+                            "projectCopy": {
+                                "clientRequestId": client_request_id,
+                                "requestHash": request_hash,
+                                "sourceProjectId": project_id,
+                                "sourceGeneration": source_snapshot.generation,
+                                "sourceEtag": source_snapshot.etag,
+                                "response": initial_response,
+                            },
+                        },
+                    ),
+                )
+
+            try:
+                snapshot = services.projects.create(
+                    new_project,
+                    initialize_staged_project=initialize,
+                )
+            except ProjectAlreadyExists:
+                return _existing_copy_receipt(
+                    services,
+                    target_project_id=new_project_id,
+                    expected_session_id=new_session_id,
+                    expected_conversation_id=new_conversation_id,
+                    client_request_id=client_request_id,
+                    request_hash=request_hash,
+                )
+
+        if len(holder) != 1:
+            raise StorageIntegrityError(
+                "Project Runtime 未随复制 Project 原子创建",
+            )
+        services.poller.note_commit(snapshot)
+        return _existing_copy_receipt(
+            services,
+            target_project_id=new_project_id,
+            expected_session_id=new_session_id,
+            expected_conversation_id=new_conversation_id,
+            client_request_id=client_request_id,
+            request_hash=request_hash,
+        )
+
+    try:
+        result = await asyncio.to_thread(operation)
+    except ProjectNotFound as exc:
+        raise NotFoundError(str(exc)) from exc
+    except InvalidProjectId as exc:
+        raise BadRequestError(str(exc)) from exc
+    except (ConflictError, StorageIntegrityError):
+        raise
+    except (ProjectIntegrityError, ProjectStoreError, RuntimeFileError) as exc:
+        raise StorageIntegrityError(str(exc)) from exc
+    notify_creator_agent_runtime(result["projectId"])
+    response.status_code = status.HTTP_201_CREATED
+    return result
+
+
+# pylint: enable=too-many-statements
+
+
+@archive_router.get("/{project_id}/export")
 async def export_project(
     project_id: str,
     idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
@@ -442,6 +792,15 @@ async def export_project(
                 "Content-Length": str(archive_size),
             },
         )
+    except ProjectNotFound as exc:
+        # A missing Project is a client addressing mistake, not a storage
+        # fault: it must stay a 404 instead of the 503 the generic branch
+        # below would report.
+        raise NotFoundError(str(exc)) from exc
+    except InvalidProjectId as exc:
+        raise BadRequestError(str(exc)) from exc
+    except BadRequestError:
+        raise
     except Exception as e:
         logger.error(
             f"failed to export project {_log_safe(project_id)}",
@@ -453,39 +812,7 @@ async def export_project(
 
 
 def _validate_import_archive(saved_zip: Path) -> None:
-    """Preflight the archive with ZipInfo before anything is inflated."""
-
-    try:
-        with zipfile.ZipFile(saved_zip) as archive:
-            members = archive.infolist()
-            if len(members) > _IMPORT_MAX_MEMBERS:
-                raise BadRequestError(
-                    f"archive holds more than {_IMPORT_MAX_MEMBERS} entries",
-                )
-            total = 0
-            for info in members:
-                member = PurePosixPath(info.filename)
-                if member.is_absolute() or ".." in member.parts:
-                    raise BadRequestError(
-                        f"archive entry escapes the extraction root: "
-                        f"{info.filename!r}",
-                    )
-                mode = (info.external_attr >> 16) & 0o170000
-                if mode == stat_module.S_IFLNK:
-                    raise BadRequestError(
-                        f"archive entry is a symlink: {info.filename!r}",
-                    )
-                total += info.file_size
-                if (
-                    info.file_size > _IMPORT_MAX_EXTRACTED_BYTES
-                    or total > _IMPORT_MAX_EXTRACTED_BYTES
-                ):
-                    raise BadRequestError(
-                        "archive expands beyond the "
-                        f"{_IMPORT_MAX_EXTRACTED_BYTES} byte import limit",
-                    )
-    except zipfile.BadZipFile as e:
-        raise BadRequestError(f"not a valid zip archive: {str(e)}") from e
+    project_archive.validate_archive(saved_zip)
 
 
 async def _save_upload_to(upload, saved_zip: Path) -> None:
@@ -499,10 +826,10 @@ async def _save_upload_to(upload, saved_zip: Path) -> None:
                 if not chunk:
                     break
                 written += len(chunk)
-                if written > _IMPORT_MAX_ZIP_BYTES:
+                if written > project_archive.MAX_ARCHIVE_BYTES:
                     raise BadRequestError(
                         "uploaded archive exceeds the "
-                        f"{_IMPORT_MAX_ZIP_BYTES} byte limit",
+                        f"{project_archive.MAX_ARCHIVE_BYTES} byte limit",
                     )
                 f.write(chunk)
         logger.info(
@@ -558,6 +885,12 @@ def _resolve_extracted_project(extract_dir: Path) -> tuple[Path, str]:
             f"archive folder {dirs[0].name!r} does not match "
             f"project.json project_id {project_id!r}",
         )
+    report = AssetFileStore(dirs[0]).validate_index(project.assets)
+    if not report.valid:
+        raise BadRequestError(
+            "archive contains missing or corrupt indexed media: "
+            + ", ".join(item.file_id for item in report.failures[:5]),
+        )
     return dirs[0], project_id
 
 
@@ -579,10 +912,9 @@ async def _run_import(upload) -> str:
         extract_dir.mkdir(mode=0o700)
         try:
             await asyncio.to_thread(
-                shutil.unpack_archive,
-                str(saved_zip),
-                extract_dir=extract_dir,
-                format="zip",
+                _extract_archive_sanitized,
+                saved_zip,
+                extract_dir,
             )
             logger.info(
                 f"unpacked zip file {_log_safe(saved_zip)} to {extract_dir}",
@@ -592,7 +924,12 @@ async def _run_import(upload) -> str:
                 f"failed to unpack zip file {saved_zip}: {str(e)}",
             ) from e
 
-        project_dir, project_id = _resolve_extracted_project(extract_dir)
+        # Large Project documents must not block the API event loop while
+        # the browser waits for server-side import after upload completes.
+        project_dir, project_id = await asyncio.to_thread(
+            _resolve_extracted_project,
+            extract_dir,
+        )
 
         target_project_dir = Path(data_root, project_dir.name)
         if target_project_dir.exists():
@@ -607,15 +944,15 @@ async def _run_import(upload) -> str:
         )
         return project_id
     finally:
-        saved_zip.unlink(missing_ok=True)
-        shutil.rmtree(extract_dir, ignore_errors=True)
+        await asyncio.to_thread(saved_zip.unlink, missing_ok=True)
+        await asyncio.to_thread(shutil.rmtree, extract_dir, ignore_errors=True)
         logger.info(
             "deleted temporary importing file and folder "
             f"{_log_safe(saved_zip)}, {extract_dir}",
         )
 
 
-@router.post("/import")
+@archive_router.post("/import")
 async def import_project(
     request: Request,
     idempotency_key: str | None = Header(None, alias="Idempotency-Key"),

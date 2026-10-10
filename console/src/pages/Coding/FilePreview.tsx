@@ -14,6 +14,8 @@ import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import remarkMath from "remark-math";
+import rehypeKatex from "rehype-katex";
 import { workspaceApi } from "../../api/modules/workspace";
 import { buildAuthHeaders } from "../../api/authHeaders";
 import { RenderableCodeBlock } from "../../components/RenderableCodeBlock";
@@ -293,6 +295,24 @@ const markdownComponents = {
   },
 };
 
+type MarkdownAstNode = {
+  type?: string;
+  lang?: string;
+  children?: MarkdownAstNode[];
+};
+
+function preserveMathCodeBlocks() {
+  return (tree: MarkdownAstNode) => {
+    const visit = (child: MarkdownAstNode) => {
+      if (child.type === "code" && child.lang === "math") {
+        child.lang = "latex";
+      }
+      for (const nested of child.children ?? []) visit(nested);
+    };
+    for (const child of tree.children ?? []) visit(child);
+  };
+}
+
 function MarkdownPreview({ content }: { content: string }) {
   const { body, entries } = useMemo(
     () => parseMarkdownFrontmatter(content),
@@ -312,7 +332,8 @@ function MarkdownPreview({ content }: { content: string }) {
         </dl>
       )}
       <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
+        remarkPlugins={[remarkGfm, remarkMath, preserveMathCodeBlocks]}
+        rehypePlugins={[rehypeKatex]}
         components={markdownComponents}
       >
         {body}

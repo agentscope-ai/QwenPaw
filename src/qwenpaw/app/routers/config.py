@@ -35,6 +35,7 @@ from ...config.config import (
     HeartbeatConfig,
     SkillScannerConfig,
     SkillScannerWhitelistEntry,
+    ThemeConfig,
 )
 from ...utils.io_utils import run_sync_io
 from ...config.timezone import normalize_tz
@@ -57,6 +58,49 @@ from .schemas_config import (
 )
 
 router = APIRouter(prefix="/config", tags=["config"])
+
+
+@router.get(
+    "/theme",
+    response_model=dict,
+    summary="Get Console theme",
+)
+async def get_theme() -> dict:
+    """Return the sparse user theme, or an empty object for defaults."""
+    config = await run_sync_io(load_config)
+    if config.theme is None:
+        return {}
+    return config.theme.model_dump(exclude_none=True)
+
+
+@router.put(
+    "/theme",
+    response_model=ThemeConfig,
+    response_model_exclude_none=True,
+    summary="Update Console theme",
+)
+async def put_theme(theme: ThemeConfig = Body(...)) -> ThemeConfig:
+    """Replace the sparse user theme without reloading agents."""
+
+    def apply_theme(config: Any) -> None:
+        config.theme = theme if theme.model_dump(exclude_none=True) else None
+
+    result = await run_sync_io(mutate_config, apply_theme)
+    return result.theme or ThemeConfig()
+
+
+@router.delete(
+    "/theme",
+    status_code=204,
+    summary="Reset Console theme",
+)
+async def delete_theme() -> None:
+    """Remove the user theme and restore built-in Console defaults."""
+
+    def clear_theme(config: Any) -> None:
+        config.theme = None
+
+    await run_sync_io(mutate_config, clear_theme)
 
 
 def _channel_config_class(name: str) -> Optional[type[BaseModel]]:
@@ -1018,6 +1062,124 @@ async def put_sandbox_setting(
         effective=effective,
         reason=reason,
     )
+
+
+# ── Security / Sandbox Deny Paths Protection ─────────────────────────
+
+
+class DenyPathsProtectionBody(BaseModel):
+    """Request body for enabling/disabling deny paths protection."""
+
+    enabled: bool = Field(
+        description=(
+            "When True, applies deny ACLs on the current user for "
+            "configured sensitive paths. When False, removes those ACLs."
+        ),
+    )
+
+
+class DenyPathsProtectionResponse(BaseModel):
+    """Response with deny paths protection status."""
+
+    active: bool = Field(
+        description="Whether deny paths protection is currently active.",
+    )
+    protected_paths: List[str] = Field(
+        default_factory=list,
+        description="Paths currently protected with deny ACLs.",
+    )
+    failed_paths: List[str] = Field(
+        default_factory=list,
+        description="Paths that failed to have ACLs applied/removed.",
+    )
+    platform_supported: bool = Field(
+        description="Whether this feature is available on the "
+        "current platform.",
+    )
+    message: Optional[str] = Field(
+        default=None,
+        description="Additional status message.",
+    )
+
+
+@router.get(
+    "/security/sandbox/deny-paths-protection",
+    response_model=DenyPathsProtectionResponse,
+    summary="Get deny paths protection status",
+)
+async def get_deny_paths_protection() -> DenyPathsProtectionResponse:
+    import sys
+
+    if sys.platform != "win32":
+        return DenyPathsProtectionResponse(
+            active=False,
+            protected_paths=[],
+            failed_paths=[],
+            platform_supported=False,
+            message="Deny paths protection via ACLs is only "
+            "available on Windows.",
+        )
+
+    from ...sandbox.windows_unelevated_sandbox import DenyPathsProtection
+
+    protection = DenyPathsProtection()
+    status = protection.status()
+    return DenyPathsProtectionResponse(
+        active=status["active"],
+        protected_paths=status.get("protected_paths", []),
+        failed_paths=[],
+        platform_supported=True,
+    )
+
+
+@router.put(
+    "/security/sandbox/deny-paths-protection",
+    response_model=DenyPathsProtectionResponse,
+    summary="Enable or disable deny paths protection",
+)
+async def put_deny_paths_protection(
+    body: DenyPathsProtectionBody = Body(...),
+) -> DenyPathsProtectionResponse:
+    import sys
+
+    if sys.platform != "win32":
+        return DenyPathsProtectionResponse(
+            active=False,
+            protected_paths=[],
+            failed_paths=[],
+            platform_supported=False,
+            message="Deny paths protection via ACLs is only "
+            "available on Windows.",
+        )
+
+    from ...governance.policy import DEFAULT_SANDBOX_DENY_PATHS
+    from ...sandbox.windows_unelevated_sandbox import DenyPathsProtection
+
+    protection = DenyPathsProtection()
+    lock = protection.get_lock()
+
+    async with lock:  # pylint: disable=not-async-context-manager
+        if body.enabled:
+            result = await asyncio.to_thread(
+                protection.enable,
+                DEFAULT_SANDBOX_DENY_PATHS,
+            )
+            return DenyPathsProtectionResponse(
+                active=result.get("status") == "enabled"
+                or result.get("status") == "already_active",
+                protected_paths=result.get("protected_paths", []),
+                failed_paths=result.get("failed_paths", []),
+                platform_supported=True,
+                message=result.get("message"),
+            )
+        else:
+            result = await asyncio.to_thread(protection.disable)
+            return DenyPathsProtectionResponse(
+                active=False,
+                protected_paths=[],
+                failed_paths=result.get("failed_paths", []),
+                platform_supported=True,
+            )
 
 
 # ── Security / File Guard ────────────────────────────────────────────

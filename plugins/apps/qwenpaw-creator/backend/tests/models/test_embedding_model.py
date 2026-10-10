@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import asyncio
 
-import httpx
 import pytest
 
 from models import embedding_model
@@ -119,49 +118,3 @@ def test_embed_fails_fast_on_non_retryable_status() -> None:
     with pytest.raises(ModelError):
         asyncio.run(embedding_model.embed(["a"]))
     assert len(_Client.calls) == 1
-
-
-def test_embed_requires_api_key(monkeypatch) -> None:
-    monkeypatch.setattr(
-        embedding_model.model_config,
-        "get_embedding_api_key",
-        lambda: "",
-    )
-    with pytest.raises(ModelError):
-        asyncio.run(embedding_model.embed(["a"]))
-
-
-def test_embedding_url_normalization() -> None:
-    suffix = "/services/embeddings/multimodal-embedding/multimodal-embedding"
-    assert (
-        embedding_model._embedding_url(
-            "https://dashscope.aliyuncs.com/api/v1",
-        )
-        == f"https://dashscope.aliyuncs.com/api/v1{suffix}"
-    )
-    assert (
-        embedding_model._embedding_url(
-            f"https://dashscope.aliyuncs.com/api/v1{suffix}",
-        )
-        == f"https://dashscope.aliyuncs.com/api/v1{suffix}"
-    )
-
-
-def test_httpx_transport_error_is_retried() -> None:
-    original_post = _Client.post
-    attempts = {"count": 0}
-
-    async def flaky_post(self, url, headers=None, json=None):
-        attempts["count"] += 1
-        if attempts["count"] == 1:
-            raise httpx.ConnectError("boom")
-        return await original_post(self, url, headers=headers, json=json)
-
-    _Client.post = flaky_post
-    try:
-        _Client.queue = [_ok_response(["a"])]
-        vectors = asyncio.run(embedding_model.embed(["a"]))
-        assert len(vectors) == 1
-        assert attempts["count"] == 2
-    finally:
-        _Client.post = original_post

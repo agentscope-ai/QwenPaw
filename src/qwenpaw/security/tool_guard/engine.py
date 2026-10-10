@@ -18,10 +18,12 @@ Custom guardians can be registered at construction time or later via
 from __future__ import annotations
 
 import logging
+import os
 import time
 from typing import Any
 
 from ...constant import EnvVarLoader
+from ...utils.shell_normalization import normalize_posix_line_continuations
 from .guardians import BaseToolGuardian
 from .guardians.file_guardian import FilePathToolGuardian
 from .guardians.rule_guardian import (
@@ -242,6 +244,19 @@ class ToolGuardEngine:
             params=params,
         )
 
+        # POSIX removes backslash-newline continuations before tokenization.
+        # Give every guardian that same effective command so path and regex
+        # checks cannot be bypassed by splitting a sensitive token across
+        # physical lines.  Keep result.params unchanged for faithful logging.
+        guardian_params = params
+        if tool_name == "execute_shell_command" and os.name != "nt":
+            command = params.get("command")
+            if isinstance(command, str):
+                normalized = normalize_posix_line_continuations(command)
+                if normalized != command:
+                    guardian_params = dict(params)
+                    guardian_params["command"] = normalized
+
         guardians = (
             [g for g in self._guardians if g.always_run]
             if only_always_run
@@ -250,7 +265,7 @@ class ToolGuardEngine:
 
         for guardian in guardians:
             try:
-                findings = guardian.guard(tool_name, params)
+                findings = guardian.guard(tool_name, guardian_params)
                 result.findings.extend(findings)
                 result.guardians_used.append(guardian.name)
             except Exception as exc:

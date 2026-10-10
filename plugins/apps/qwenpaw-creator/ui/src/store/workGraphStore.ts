@@ -18,6 +18,9 @@ interface WorkGraphState {
 // snapshot must never replace a newer one (same latest-wins discipline as
 // creatorTaskViewStore).
 let refreshGeneration = 0;
+// A dispatch can outlive navigation, including leaving and reopening the same
+// project. Ordinary refreshes within a project must not invalidate it.
+let projectGeneration = 0;
 
 export const useWorkGraphStore = create<WorkGraphState>((set, get) => ({
   projectId: null,
@@ -27,6 +30,7 @@ export const useWorkGraphStore = create<WorkGraphState>((set, get) => ({
   dispatching: {},
   refresh: async (projectId) => {
     const generation = ++refreshGeneration;
+    if (get().projectId !== projectId) projectGeneration += 1;
     set((state) =>
       state.projectId === projectId
         ? { loading: true }
@@ -51,26 +55,38 @@ export const useWorkGraphStore = create<WorkGraphState>((set, get) => ({
     }
   },
   dispatchNode: async (projectId, nodeId) => {
+    if (get().projectId !== projectId || get().dispatching[nodeId]) return;
+    const generation = projectGeneration;
+    const isCurrent = () =>
+      generation === projectGeneration && get().projectId === projectId;
     set((state) => ({
       dispatching: { ...state.dispatching, [nodeId]: true },
     }));
     try {
       await dispatchWorkGraphNode(projectId, nodeId);
+    } catch (error) {
+      // Do not surface an obsolete project's failure in the current workspace.
+      if (isCurrent()) throw error;
     } finally {
-      set((state) => {
-        const next = { ...state.dispatching };
-        delete next[nodeId];
-        return { dispatching: next };
-      });
-      void get().refresh(projectId);
+      if (isCurrent()) {
+        set((state) => {
+          const next = { ...state.dispatching };
+          delete next[nodeId];
+          return { dispatching: next };
+        });
+        void get().refresh(projectId);
+      }
     }
   },
-  reset: () =>
+  reset: () => {
+    refreshGeneration += 1;
+    projectGeneration += 1;
     set({
       projectId: null,
       graph: null,
       loading: false,
       error: null,
       dispatching: {},
-    }),
+    });
+  },
 }));

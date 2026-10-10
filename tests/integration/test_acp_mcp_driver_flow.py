@@ -38,6 +38,7 @@ class _AutoApprovalGate:
         self.contexts.append(context)
 
 
+@pytest.mark.p1
 @pytest.mark.asyncio
 async def test_acp_mcp_card_discovers_approves_and_invokes_tool(
     tmp_path: Path,
@@ -108,6 +109,7 @@ async def test_acp_mcp_card_discovers_approves_and_invokes_tool(
     assert await manager.card_store.list_paths() == []
 
 
+@pytest.mark.p1
 @pytest.mark.asyncio
 async def test_acp_mcp_tool_cannot_be_invoked_without_session_scope(
     tmp_path: Path,

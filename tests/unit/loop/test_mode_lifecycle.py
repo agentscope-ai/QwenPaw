@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 # pylint: disable=protected-access
 """Tests for mode-owned handler selection and reset lifecycle."""
+
 from __future__ import annotations
 
 from types import SimpleNamespace
@@ -18,7 +19,7 @@ from qwenpaw.loop.gates.runner import _filter_by_scope
 from qwenpaw.modes.goal.goal_mode import GoalMode, GoalSession
 from qwenpaw.modes.mission import MissionMode
 from qwenpaw.modes.mission.gates import MissionGate
-from qwenpaw.modes.mission.state import write_loop_config
+from qwenpaw.modes.mission.state import write_loop_config, write_prd_json
 from qwenpaw.runtime.runtime import Runtime
 
 
@@ -124,6 +125,23 @@ async def test_mission_turn_start_restores_persisted_session(tmp_path):
     ):
         await mode.on_turn_start(ctx)
         assert mode._is_gate_active()
+
+
+@pytest.mark.asyncio
+async def test_internal_mission_uses_native_prd_gate(tmp_path):
+    mode = MissionMode()
+    write_loop_config(tmp_path, {"current_phase": "execution"})
+    prd = {
+        "userStories": [{"id": "ASSET-1", "title": "plugin", "passes": False}],
+    }
+    write_prd_json(tmp_path, prd)
+
+    mode.start_internal_mission("migration-mission", tmp_path)
+    assert not await mode.check_internal_mission("migration-mission")
+    prd["userStories"][0]["passes"] = True
+    write_prd_json(tmp_path, prd)
+    assert await mode.check_internal_mission("migration-mission")
+    mode.finish_internal_mission("migration-mission")
 
 
 @pytest.mark.asyncio

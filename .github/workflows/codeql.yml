@@ -21,6 +21,10 @@ name: CodeQL
 
 on:
   pull_request:
+    # Default types plus ready_for_review: converting a draft PR to
+    # ready must re-trigger this workflow so the scan really runs
+    # right after the author leaves draft state.
+    types: [opened, synchronize, reopened, ready_for_review]
     branches: [main, master, dev, develop]
     paths:
       - 'src/**'
@@ -46,6 +50,12 @@ concurrency:
 jobs:
   analyze:
     name: CodeQL (${{ matrix.shard }})
+    # Draft PRs skip the scan entirely: CodeQL is not part of the
+    # required-check set, so no placeholder context is needed. The
+    # ready_for_review trigger above re-runs it once the PR is ready.
+    if: |
+      github.event_name != 'pull_request' ||
+      github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:

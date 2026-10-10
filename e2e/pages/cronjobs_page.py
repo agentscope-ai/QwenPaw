@@ -52,7 +52,7 @@ class CronJobsPage(BasePage):
     EXECUTE_NOW_BTN = 'button:has-text("Execute Now"), button:has-text("Run"), button:has-text("立即执行"), button:has-text("执行")'
 
     # Drawer / dialog
-    DRAWER = ".ant-drawer, .qwenpaw-drawer, [class*=drawer]"
+    DRAWER = '[role="dialog"]:visible'
     DRAWER_TITLE = ".ant-drawer-title, .qwenpaw-drawer-title"
     DRAWER_SAVE_BTN = '.ant-drawer .ant-btn-primary:has-text("Save"), .ant-drawer button:has-text("OK"), [class*=drawer] button:has-text("Save"), [class*=drawer] button:has-text("OK"), [class*=drawer] button:has-text("保存"), [class*=drawer] button:has-text("保 存"), [class*=drawer] button:has-text("确定"), [class*=drawer] .qwenpaw-btn-primary'
     DRAWER_CANCEL_BTN = '.ant-drawer .ant-btn:has-text("Cancel"), [class*=drawer] button:has-text("取消"), [class*=drawer] button:has-text("取 消")'

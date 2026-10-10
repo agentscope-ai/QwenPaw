@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import api from "../../../api";
 import { invalidateSkillCache } from "../../../api/modules/skill";
 import type { MarketResult } from "../../../api/modules/market";
+import { notifySkillChange } from "../../../utils/skillChangeEvents";
 
 export type InstallTarget = "pool" | "workspace";
 
@@ -91,6 +92,7 @@ export function useMarketInstall(opts: UseMarketInstallOptions) {
               installedName,
               message: installedName,
             });
+            notifySkillChange(agentId);
             opts.onSuccess?.({ ...item, status: "completed" });
             return;
           }
@@ -238,3 +240,5 @@ export function useMarketInstall(opts: UseMarketInstallOptions) {
 
   return { queue, enqueue, cancel, retry, clearFinished };
 }
+
+export type MarketInstallController = ReturnType<typeof useMarketInstall>;

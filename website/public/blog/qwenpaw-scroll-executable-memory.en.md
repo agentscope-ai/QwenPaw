@@ -3,117 +3,104 @@ title: "Context as an Environment: Programmatic Context Management with QwenPaw 
 date: 2026-08-05
 author: QwenPaw Team
 tags: [Context Engineering, Long-Context Agents, Scroll, CodeAct, Retrieval]
-excerpt: "QwenPaw Scroll is designed for long-context agentic tasks: it externalizes complete interaction trajectories to a durable SQLite/FTS log so agents can continue retrieving, reasoning, and acting over very long histories."
+excerpt: "QwenPaw Scroll applies a CodeAct-style interface to context management: interaction history remains durable outside the window, and the agent uses structured recall or sandboxed Python to construct bounded evidence at query time."
 ---
 
 # Context as an Environment: Programmatic Context Management with QwenPaw Scroll
 
-QwenPaw Scroll is designed for **long-context agentic tasks**. In these workloads, an agent must reason and act over a growing trajectory of user instructions, tool calls, tool results, failed attempts, decisions, and changing environment state. The central question is not only whether the model can recall an isolated fact, but how well it can maintain task state, recover relevant evidence, and continue reasoning and acting over very long contexts.
+QwenPaw Scroll is designed for **long-context agentic tasks**. In these workloads, an agent must reason and act over a growing trajectory of user instructions, tool calls, tool results, failed attempts, decisions, and changing environment state. The central question is not only whether the model can recall an isolated fact, but how it can keep operating over session state that no longer fits inside the context window.
 
 Context management for long-horizon agents is therefore an information-selection problem under a bounded inference budget. A common design injects relevant history directly into the prompt, then truncates or summarizes earlier content as the accumulated history approaches the context-window limit. This controls input size, but it also moves the retention decision to compaction time: the system must predict which details will remain useful before future queries are known.
 
-Durable storage is far less costly than keeping history continuously visible to the model. QwenPaw Scroll therefore defines a different system boundary: the complete interaction history does not remain resident in the model context, but is externalized to durable storage backed by SQLite and full-text search. Structured retrieval tools and a sandboxed Python REPL then let the agent read, join, and compute over that record on demand.
+QwenPaw Scroll uses a **CodeAct-style interface for context management**. Scroll writes interaction history through to durable storage and controls the live context with a recent tail, an eviction index, a continuation summary, and explicit recall. The structured `recall_history` tool runs only system-defined, parameterized read-only operations and therefore remains available without a sandbox. When a sandbox is available, Scroll also provides the more flexible `recall_history_python` environment, where an Agent-authored Python program operates through a pre-bound `ms` (`MemorySpace`) interface.
 
-Conversation history is therefore no longer represented as static text that remains resident in the prompt. It is organized as an **external history environment that can be queried and computed over**. The model context maintains only a bounded working set; the complete history remains outside the window while staying addressable, verifiable, and recomputable.
+`recall_history_python` runs Agent-authored code in a sandboxed environment with a pre-bound `ms` interface. Durable history remains read-only, while a file-backed scratch database can retain derived tables for multi-step analysis. Stable `seq` addresses, `tool_call_id` values, and recovery metadata connect this query interface to history stored in SQLite and oversized tool output saved as files. The program filters and computes over externalized history, then returns only bounded evidence for the next reasoning step. The context window is therefore a working view over durable session history, not its container.
 
-This report describes four parts of that design: how tool descriptions specify an executable retrieval contract, how headlines adjust representation granularity with temporal distance, how the eviction index retains a recoverable history map, and how continuation summaries constrain cumulative update error through layered validation.
+## 1. Interaction History Lives in the Event Log; Context Is a Working Set
 
-## 1. The Context Window Is Working Memory, Not the Record
-
-Live-context compaction, durable interaction history, and semantic memory are distinct system layers.
-
-- **Compaction** controls the size of the model's current input.
-- **Durable interaction history** preserves original events verbatim across turns and exposes them through addressable retrieval interfaces.
-- **Semantic memory** derives entities, relationships, and abstractions from history or external sources for semantic recall and knowledge organization.
+Scroll separates two roles. **The context window is a bounded working set for the current reasoning step. The append-oriented Event Log in `history.db` is the durable source of truth for interaction history.** Oversized tool text can be saved under `tool_results/`, while the corresponding message retains a bounded preview and recovery metadata. Records and saved outputs remain accessible through stable database addresses, file pointers, and recall interfaces; Scroll does not materialize them as a universal Python object hierarchy.
 
 If a summary becomes the only retained representation of historical content, every compaction performs an irreversible information-selection step. A precise error, a rejected implementation, or the date on which a preference changed may appear secondary at compaction time but become decisive evidence in a later session.
 
-Scroll therefore separates the live prompt from the durable record:
+Scroll therefore separates the live prompt from durable history and query-time computation:
 
 ```mermaid
 flowchart LR
-    A[Agent loop] --> W["Bounded live context<br/>summary + eviction index + recent turns"]
-    A -->|write through every turn| H["history.db<br/>SQLite + FTS5<br/>verbatim source of truth"]
-    W -->|ordinary recall| R["recall_history<br/>structured read-only operations"]
-    W -->|custom analysis| P["recall_history_python<br/>sandboxed Python REPL"]
+    A["Agent loop"]
+    C["Live context<br/>recent tail + summary + eviction index"]
+    H["history.db<br/>conversation_history + FTS5"]
+    F["tool_results/*.txt<br/>oversized raw outputs"]
+    R["recall_history<br/>structured read-only operations"]
+    P["recall_history_python<br/>optional sandboxed Python + pre-bound ms"]
+    S["File-backed scratch DB<br/>persistent derived tables"]
+    A <--> C
+    C -->|write through before eviction| H
+    C -->|common reads| R
+    C -->|custom program| P
     R --> H
     P -->|read-only history| H
-    P --> S["persistent scratch tables<br/>derived state"]
-    H -->|selected evidence| W
-    S -->|computed result| W
+    P <--> S
+    H -. recovery metadata .-> F
+    R -->|bounded evidence| C
+    P -->|bounded stdout| C
 ```
 
-### A Simplified `conversation_history` Schema
+### The Event Log as the Historical Spine
 
-Scroll stores different interaction-event types in one `conversation_history` table. The following is the logical view exposed to agent retrieval, rather than the complete SQL DDL:
+Scroll represents the different event types in its append-only log through one `conversation_history` table. The table below shows the logical interface exposed to the Agent rather than the underlying SQL DDL:
 
 | Field group | Key fields                                 | Purpose                                                                    |
 | ----------- | ------------------------------------------ | -------------------------------------------------------------------------- |
 | Addressing  | `seq`                                      | Provides a globally stable address for exact expansion and provenance      |
 | Scope       | `session_id`, `agent_id`                   | Supports cross-session retrieval or explicit agent scoping                 |
 | Event type  | `kind`, `role`, `name`                     | Distinguishes user/model turns from tool results and identifies tool names |
-| Payload     | `content`, `blocks`                        | Preserves raw text and structured message blocks                           |
+| Payload     | `content`, `blocks`                        | Stores inline text, structured blocks, or a bounded view of external data  |
 | Tool state  | `tool_call_id`, `tool_input`, `tool_state` | Restores tool invocations, inputs, and execution state                     |
 | Navigation  | `headline`                                 | Supplies compact retrieval labels to the eviction index                    |
 | Time        | `created_at`                               | Enables date filters, range retrieval, and update resolution               |
-| Recovery    | `metadata`, `dedup_key`                    | Stores artifact pointers, recovery metadata, and idempotency keys          |
+| Recovery    | `metadata`, `dedup_key`                    | Stores payload pointers, recovery metadata, and idempotency keys           |
 
-The `seq` field is the stable address connecting durable history, the eviction index, summary provenance, and exact recall. FTS5 indexes only `content`; scope, event-type, and time fields support structured filtering. The schema retains original events rather than facts selected at ingestion time, allowing the agent to select, join, and compute over historical evidence at query time.
+Small event payloads remain inline in SQLite. Before an oversized textual tool result is truncated for context, `ToolResultPruningMiddleware` saves the full raw output under `tool_results/` as a text file. The structured tool-result block retains a bounded preview together with block-scoped recovery metadata, including the file path and a `read_file` continuation hint. The persisted event therefore records what the model actually saw while preserving a route to the complete output.
 
-The write path is append-oriented and persists across sessions. Keyword queries use FTS5 with BM25 ranking, with a slower `LIKE` fallback when FTS5 is unavailable. Under either retrieval backend, the live context can contract without affecting the integrity of the durable record.
+The `seq` field is the stable address connecting durable history, the eviction index, summary provenance, and exact recall. FTS5 indexes only `content`; scope, event-type, and time fields support structured filtering. The structured `recall_history` tool handles search, span expansion, and exact tool-result recovery. When sandboxed execution is available, `recall_history_python` additionally provides an `ms` (`MemorySpace`) query surface for custom SQL, aggregation, and scratch tables. The schema retains original events rather than facts selected at ingestion time, so the Agent can choose the required view at query time.
 
-## 2. Tool Descriptions as Retrieval Interfaces
+The write path is append-oriented and persists across sessions. Keyword queries use FTS5 with BM25 ranking, with a slower `LIKE` fallback when FTS5 is unavailable. Under either retrieval backend, the live context can contract without affecting the durable event record or saved tool-output files.
 
-Providing a retrieval function alone does not ensure correct use. The model must also know when recall is required, how to select an operation, how to scope a search, and how to interpret absence, pagination, and temporal filters.
+## 2. CodeAct: Constructing Evidence at Query Time
 
-QwenPaw encodes these constraints directly in the **tool description**. The description is not merely a capability label; it is an agent-facing interface specification covering capability boundaries, operation routing, result protocols, and failure semantics.
+The implemented mechanism is **using an Agent-authored program to construct the historical evidence needed by the next reasoning step**. Scroll does not route ordinary tools through this Python environment. Instead, tool calls and tool results produced by the normal agent loop are first recorded in `conversation_history`. If a textual result is oversized, the pruning middleware saves the full raw output to `tool_results/` and retains a preview plus recovery metadata in the message.
 
-The structured `recall_history` description specifies five classes of information:
+When that evidence later falls outside the live context, Scroll provides two recall interfaces. `recall_history` exposes bounded `expand`, `search`, `recall_tool`, and `days_between` operations implemented in advance as parameterized, read-only code, so it can operate even when no sandbox is available. Where sandboxed execution is available, Scroll additionally exposes `recall_history_python`: a more flexible programming environment over the same durable history.
 
-1. **Capability boundary.** The tool reads raw recorded turns, including content removed from the current session's live context and content from earlier sessions.
-2. **Operation routing.** `expand` reads an exact `seq` span; `search` performs keyword and date retrieval; `recall_tool` restores a tool call and result; `days_between` performs deterministic calendar arithmetic. In our experiments, these standardized, high-frequency retrieval operations achieved higher retrieval accuracy through pre-defined structured APIs than through model-generated free-form code, while also reducing variation in argument construction, result parsing, and error handling. QwenPaw therefore uses structured APIs by default and reserves the sandboxed REPL for joins, aggregations, and other queries that cannot be specified effectively in advance.
-3. **Query semantics.** Search uses retrieval terms rather than full questions, terms are conjunctive by default, uppercase `OR` broadens recall, and date filters can run independently of a text query.
-4. **Completeness protocol.** Empty results explicitly indicate that no record satisfies the current conditions. Large results return an opaque cursor; the agent must continue with identical arguments and must not interpret a partial page as complete.
-5. **Execution boundary.** Ordinary recall is bounded, parameterized, and read-only. Arbitrary SQL, cross-result joins, and programmatic analysis move to the advanced sandboxed Python tool.
+### `ms`: A Controlled Interface in the Sandboxed Environment
 
-The system prompt adds retrieval discipline around that interface: recall before guessing when a historical fact is no longer live; search alternate wording for exhaustive requests; deduplicate repeated mentions; and prefer the latest dated user evidence when a fact changed.
+`recall_history_python` pre-binds `ms`, exposing durable history read-only together with a separate writable scratch database. Its capability boundary is fixed and controlled, while the Agent can compose those capabilities with Python control flow, SQL, joins, aggregation, and data transformations:
 
-This creates a clear separation of responsibilities. The system prompt defines **retrieval policy**; the tool description defines the **operational contract**. Keeping interface semantics close to the tool improves capability selection without repeatedly injecting implementation details into unrelated turns.
+| Interface                           | Current role                                                          |
+| ----------------------------------- | --------------------------------------------------------------------- |
+| `ms.expand(lo, hi)`                 | Reads an exact inclusive `seq` span                                   |
+| `ms.search(...)`                    | Searches history and, when needed, saved large tool-output files      |
+| `ms.recall_tool(tool_call_id)`      | Restores a tool call/result and reports any saved full-output file    |
+| `ms.sessions()` / `ms.session(...)` | Discovers and reads session history                                   |
+| `ms.sql_query(sql, params)`         | Runs custom reads over `hist.conversation_history` and scratch tables |
+| `ms.sql_exec(sql, params)`          | Writes derived tables only to the persistent scratch database         |
 
-### Layered retrieval: structured operations and programmable queries
-
-Common historical queries do not require arbitrary code:
-
-```python
-# What happened on a specific source date?
-recall_history(op="search", created_on="2026-05-14", k=20)
-
-# Re-open an evicted interval from the in-context map.
-recall_history(op="expand", lo=180, hi=184)
-
-# Restore one large tool result.
-recall_history(op="recall_tool", tool_call_id="call_abc")
-```
-
-Long-horizon tasks also produce queries that a fixed retriever cannot anticipate: counting every failed attempt before a decision, joining sales events against the lowest historical supplier quote, comparing preference updates across sessions, or computing a reusable derived table from historical records.
-
-For these, QwenPaw exposes `recall_history_python`. The REPL receives an already-defined `ms` memory surface:
+The Agent can search, filter, join, and reduce historical rows within one program, then print only the bounded result needed by the model:
 
 ```python
-sales = ms.search("sale", k=200, include_turn=False)
-quotes = ms.search("price OR quote", k=200, include_turn=False)
-
-# The agent can parse, join, group, rank, or write a bounded custom SQL query.
-# Only printed output returns to the model context.
+events = ms.search("sale OR quote", k=200, include_turn=False)
+selected = sorted(events, key=lambda row: row["seq"])[-20:]
+for row in selected:
+    print(row["seq"], row["content"][:1000])
 ```
 
-History is attached read-only; derived scratch tables are writable and persistent across otherwise stateless Python processes. Model-authored code runs inside QwenPaw's sandbox and fails closed when isolation is unavailable. Only an operator can explicitly enable the unsandboxed fallback for trusted local development.
+Output is bounded and large results are truncated without a cursor, so the program must filter or page before returning evidence. For analysis that spans multiple calls, the Agent can write a derived table through `ms.sql_exec` and read it back later. Model-authored code normally runs only when a sandbox is available; the tool fails closed unless an operator explicitly enables the unsafe local fallback.
 
-The result is a CodeAct-style loop: retrieval is not limited to a pipeline fixed at design time; the agent can generate a retrieval program dynamically at query time.
+The current control loop is therefore: **identify missing historical evidence → run structured recall or a bounded Python recall program → return selected evidence to model context**. CodeAct contributes query-time programmability; Scroll supplies the durable Event Log, navigation, compression, and recovery substrate.
 
 ## 3. Headlines Compress Along the Time Axis
 
-A durable log provides recoverability, but the agent still needs a low-token index for locating historical spans outside the live window. QwenPaw asks the model to append a hidden retrieval headline after each substantive task response:
+The Event Log preserves the interaction sequence, while recovery metadata preserves access to oversized tool output referenced by those events. But if keyword search were the only path after history leaves the live window, the Agent would have to anticipate the original wording and would still lack a compact view of task state and temporal position. Scroll therefore maintains a low-token navigation view over evicted history. A retrieval headline compresses each substantive turn into a semantic checkpoint and is later bound to a stable `seq`. The Agent can use the headline to locate a relevant span, then recover the original evidence by `seq`; full-text search remains a complementary recall path. QwenPaw asks the model to append a hidden retrieval headline after each substantive task response:
 
 ```text
 ⟦ model discovery | in progress: OpenAI done; next: fix DashScope | anchors: AllowlistFilter, registry.py ⟧
@@ -143,7 +130,7 @@ flowchart BT
     T0["Tier 0 · newest evictions<br/>each milestone headline remains visible"]
     T1["Tier 1 · older blocks<br/>each block becomes first ↔ last headline + seq span"]
     T2["Tier 2+ · oldest history<br/>ranges of ranges, progressively coarser"]
-    DB["history.db<br/>all original turns remain verbatim"]
+    DB["Durable history<br/>history.db + saved tool outputs"]
     T0 -->|tier reaches its block cap| T1
     T1 -->|carry repeats| T2
     T0 -. exact seq recall .-> DB
@@ -153,9 +140,9 @@ flowchart BT
 
 Each eviction adds a detailed block to Tier 0. When a tier reaches its cap, its newest block stays detailed while older blocks carry upward in collapsed form. A collapsed block keeps its sequence range and endpoint headlines. Recent history therefore retains finer representation granularity, while granularity decreases progressively with temporal distance.
 
-The resulting loss applies to the **navigation view**, not to storage. An intermediate headline that is no longer displayed remains recoverable by expanding its retained `seq` span or searching the full log. The headline map locates evidence; SQLite restores the original content.
+The resulting loss applies to the **navigation view**, not to storage. An intermediate headline that is no longer displayed remains recoverable by expanding its retained `seq` span or searching the full log. The headline map locates the event; the recall layer restores the original turn or follows its saved-output metadata.
 
-## 4. QwenPaw's Compression Pipeline
+## 4. Externalization and Recovery Pipeline
 
 After the context threshold is reached, QwenPaw applies a graduated pipeline ordered by recovery cost and information risk:
 
@@ -167,12 +154,12 @@ After the context threshold is reached, QwenPaw applies a graduated pipeline ord
 
 The eviction index and continuation summary deliberately have different jobs:
 
-| Layer                | Purpose                         | Failure mode              | Recovery                                          |
-| -------------------- | ------------------------------- | ------------------------- | ------------------------------------------------- |
-| Raw log              | Verbatim evidence               | Storage growth            | Retention policy / archival                       |
-| Eviction index       | Cheap temporal navigation       | Older map becomes coarse  | Expand or search the `seq` span                   |
-| Continuation summary | Current task state              | Summary drift or omission | Validate, retain prior state, recall raw evidence |
-| Recent tail          | Local conversational continuity | Bounded by window         | Evict only completed history                      |
+| Layer                     | Purpose                         | Failure mode              | Recovery                                          |
+| ------------------------- | ------------------------------- | ------------------------- | ------------------------------------------------- |
+| Event log + saved outputs | Verbatim evidence               | Storage growth            | Retention policy / archival                       |
+| Eviction index            | Cheap temporal navigation       | Older map becomes coarse  | Expand or search the `seq` span                   |
+| Continuation summary      | Current task state              | Summary drift or omission | Validate, retain prior state, recall raw evidence |
+| Recent tail               | Local conversational continuity | Bounded by window         | Evict only completed history                      |
 
 ## 5. Preventing Summary Snowballing
 
@@ -181,7 +168,7 @@ Recursive summary updates can accumulate error: an early omission or incorrect s
 Several mechanisms limit drift:
 
 - **Incremental update with conflict rules.** The previous summary is a baseline, but newly archived exact evidence wins when the two conflict; newer evidence wins when a fact changed over time.
-- **Bounded, role-aware evidence.** User text and retrieval headlines receive priority. Tool results enter as limited previews and artifact pointers rather than unbounded payloads.
+- **Bounded, role-aware evidence.** User text and retrieval headlines receive priority. Tool results enter as limited previews and saved-output recovery metadata rather than unbounded payloads.
 - **A fixed state schema.** The generated Markdown must contain `Active Task`, `Current State`, `Constraints`, `Decisions`, and `Open Work`, with one valid task status.
 - **Provenance in code.** Summary items carry durable source spans. QwenPaw verifies that sequence endpoints still exist and that non-sequence pointers appeared in the supplied evidence.
 - **Deterministic local quality checks.** The validator rejects malformed sections, missing sources, duplicate state items, possible secrets, invalid ranges, and identifiers that were not present in the evidence.
@@ -189,7 +176,7 @@ Several mechanisms limit drift:
 - **No unsupported inheritance.** If the previous summary's durable source endpoints have expired, it is not silently reassigned to a newer range; QwenPaw drops that unsupported cache and builds fresh state from durable evidence.
 - **Background-only semantics.** The injected summary explicitly cannot override the current live user request. Exact details must be recalled from history.
 
-These safeguards do not make summarization lossless; they define its epistemic role. The summary maintains task continuity, while the raw log and recovery pointers remain authoritative. A future periodic source-backed rebase can further reduce error propagation across long update chains without changing the underlying architecture.
+These safeguards do not make summarization lossless; they define its epistemic role. The summary maintains task continuity; `history.db` is authoritative for what occurred, and saved tool-output files preserve oversized raw text when pruning is required. A future periodic source-backed rebase can further reduce error propagation across long update chains without changing the underlying architecture.
 
 ## 6. Integrating External Semantic Long-Term Memory
 
@@ -201,39 +188,40 @@ The two memory layers serve different roles:
 | ------------------------ | -------------------------------------------------------------- | ---------------------------------------------------------------- |
 | Primary substrate        | Verbatim interaction events                                    | Derived entities, relations, concepts, and embeddings            |
 | Natural query            | Exact recall, temporal filtering, aggregation, arbitrary joins | Semantic similarity, graph traversal, ontology, hybrid retrieval |
-| When structure is chosen | At query time through agent-authored code                      | During ingestion, indexing, and retrieval routing                |
-| Best role                | Episodic source of truth and unanticipated computation         | Connected knowledge, abstraction, cross-source semantic recall   |
+| When structure is chosen | At query time through structured recall or agent-authored code | During ingestion, indexing, and retrieval routing                |
+| Best role                | Interaction provenance and unanticipated computation           | Connected knowledge, abstraction, cross-source semantic recall   |
 
-The two layers can operate together within one system. Semantic long-term memory supports knowledge abstraction, semantic recall, and relational inference; Scroll supplies the recoverable event substrate and original evidence beneath it. An agent can retrieve an entity, concept, or relationship from the semantic layer, verify the corresponding raw turn in SQLite, and continue computing from that evidence. QwenPaw can therefore support different long-term memory implementations without changing Scroll's durable-history and context-management mechanisms.
+The two layers can operate together within one system. Semantic long-term memory supports knowledge abstraction, semantic recall, and relational inference; Scroll supplies the recoverable event substrate and original evidence beneath it. An agent can retrieve an entity, concept, or relationship from the semantic layer, verify the corresponding Event Log record and, when needed, its saved tool output, then continue computing from that evidence. QwenPaw can therefore support different long-term memory implementations without changing Scroll's durable-history and context-management mechanisms.
 
 ## 7. Evaluation
 
-We evaluate QwenPaw Scroll with **Qwen 3.8 Max** as the backbone and a consistent **ReAct agent scaffold**. Under the corresponding evaluation settings, Scroll achieves state-of-the-art results on two long-context benchmarks:
+We evaluate QwenPaw Scroll with **Qwen 3.8 Max** as the backbone on long-horizon tasks under context explosion. **LongMemEval_S** and **BEAM_10M** test whether information remains retrievable and usable for reasoning as history grows, while **LOCA_256K** tests whether context management can sustain end-to-end task completion as an agent's trajectory expands dynamically.
 
-| Benchmark  |     Score |
-| ---------- | --------: |
-| BEAM_10M   | **68.9%** |
-| LOCA-bench | **57.3%** |
+| Benchmark     |    Score |
+| ------------- | -------: |
+| LongMemEval_S | **94.8** |
+| BEAM_10M      | **73.1** |
+| LOCA_256K     | **86.7** |
 
-BEAM_10M evaluates long-term memory and reasoning over coherent histories of up to 10M tokens. LOCA-bench evaluates models and scaffolds in agentic environments with dynamically growing context, where agents must explore, use tools, and predict subsequent actions reliably. Together, the two results cover memory reasoning over very long histories and reasoning-and-acting performance over dynamic agent trajectories.
+With Qwen 3.8 Max, Scroll reaches **94.8** on **LongMemEval_S**, **73.1** on **BEAM_10M** (**+5.1 over previous SOTA**), and **86.7** on **LOCA_256K** (**+37.4 over previous SOTA**).
 
-More detailed ablation studies, together with reproducible results and analysis, will be released in a future version.
+For implementation details and reproducible results, see the [QwenPaw Scroll Technical Report](https://arxiv.org/pdf/2608.21690).
 
 ## 8. Design Implications
 
-The central change is not a better summary; it is a different system boundary between the model and its memory:
+The current implementation draws an executable boundary between model context and durable history:
 
-- the prompt is a working set;
-- the log is the durable source of truth;
-- the eviction index is a time-compressed map;
-- the continuation summary is a guarded state cache;
-- structured recall handles common reads;
-- the sandboxed REPL turns unusual retrieval into executable computation.
+- Scroll writes interaction history to `history.db` before evicting it from the live context;
+- oversized textual tool results are byte-pruned for context and saved under `tool_results/` with recovery metadata;
+- the recent tail, continuation summary, and eviction index form the bounded working set shown to the model;
+- `recall_history` provides sandbox-independent structured recovery, while sandboxed deployments can additionally expose `recall_history_python` through a pre-bound `ms` surface;
+- derived scratch tables can persist across recall steps, and only bounded results return to model context.
 
-As models improve at generating and inspecting code, the capability ceiling of this interface can rise without replacing the underlying record. History changes from passively injected context into an environment the agent can query and compute over. Scroll ultimately targets more than isolated fact retrieval: it supports a model's ability to reason, decide, and act over very long contexts.
+Context is therefore not a transcript that must remain resident. It is a bounded working view assembled from live turns, compact navigation and task state, and recalled evidence selected at query time. Scroll provides the durable-history and recovery substrate; its CodeAct-style recall interface lets the Agent compute over historical turns and saved tool outputs without expanding the entire record into the prompt. Together these mechanisms target more than isolated fact retrieval: they let an agent continue reasoning and acting as its trajectory grows beyond the current context window.
 
 ### References
 
 - [Recursive Language Models](https://arxiv.org/abs/2512.24601)
+- [LongMemEval](https://arxiv.org/abs/2410.10813)
 - [BEAM](https://arxiv.org/abs/2510.27246)
-- [LOCA-bench](https://arxiv.org/abs/2602.07962)
+- [LOCA-bench (LOCA_256K)](https://arxiv.org/abs/2602.07962)

@@ -1,5 +1,11 @@
-import { describe, it, expect, beforeEach } from "vitest";
-import { getApiUrl, getApiToken, setAuthToken, clearAuthToken } from "./config";
+import { describe, it, expect, beforeEach, vi } from "vitest";
+import {
+  getApiUrl,
+  getApiToken,
+  setAuthToken,
+  clearAuthToken,
+  updateBrowserSession,
+} from "./config";
 
 // VITE_API_BASE_URL / TOKEN are declared globals in config.ts — set via globalThis
 const setViteBase = (v: string) => {
@@ -61,10 +67,21 @@ describe("setAuthToken / clearAuthToken", () => {
     expect(localStorage.getItem("qwenpaw_auth_token")).toBe("my-token");
   });
 
-  it("clearAuthToken removes token from localStorage", () => {
+  it("clearAuthToken clears cross-origin browser grants", async () => {
+    setViteBase("http://localhost:8088");
+    const request = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(new Response());
     localStorage.setItem("qwenpaw_auth_token", "my-token");
     clearAuthToken();
     expect(localStorage.getItem("qwenpaw_auth_token")).toBeNull();
+    await updateBrowserSession(async () => undefined);
+    expect(request).toHaveBeenCalledWith(
+      "http://localhost:8088/api/hub/pawapps/sessions",
+      expect.objectContaining({ method: "DELETE", credentials: "include" }),
+    );
+    request.mockRestore();
+    setViteBase("");
   });
 
   it("getApiToken returns empty string after clearAuthToken", () => {

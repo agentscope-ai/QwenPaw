@@ -16,7 +16,7 @@
   margin: 0;
   font-size: 18px;
   font-weight: 600;
-  color: rgba(20, 20, 19, 0.88);
+  color: var(--app-text);
 }
 
 .detailMeta {
@@ -32,15 +32,15 @@
   padding: 1px 8px;
   border-radius: 4px;
   font-weight: 500;
-  background-color: rgba(239, 240, 243, 0.9);
-  color: #8e8c99;
-  border: 1px solid rgba(0, 0, 0, 0.06);
+  background-color: var(--app-fill);
+  color: var(--app-text-secondary);
+  border: 1px solid var(--app-border-subtle);
   white-space: nowrap;
 }
 
 .detailDescription {
   font-size: 13px;
-  color: rgba(20, 20, 19, 0.85);
+  color: var(--app-text);
   line-height: 1.6;
   margin-bottom: 16px;
   white-space: pre-wrap;
@@ -60,7 +60,7 @@
 
 .detailKey {
   font-size: 12px;
-  color: rgba(20, 20, 19, 0.55);
+  color: var(--app-text-secondary);
   font-weight: normal;
   margin: 0;
   padding-top: 2px;
@@ -68,7 +68,7 @@
 
 .detailValue {
   font-size: 13px;
-  color: rgba(20, 20, 19, 0.88);
+  color: var(--app-text);
   margin: 0;
   word-break: break-all;
 }
@@ -83,38 +83,8 @@
 .mono {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 11px;
-  background: rgba(239, 240, 243, 0.7);
+  background: var(--app-fill-subtle);
   padding: 1px 6px;
   border-radius: 3px;
-  color: rgba(20, 20, 19, 0.88);
-}
-
-/* ─── Dark mode ──────────────────────────────────────────────────────────── */
-:global(.dark-mode) {
-  .detailTitle {
-    color: rgba(255, 255, 255, 0.88);
-  }
-
-  .sourceBadge {
-    background-color: rgba(255, 255, 255, 0.1);
-    color: rgba(255, 255, 255, 0.6);
-    border-color: rgba(255, 255, 255, 0.08);
-  }
-
-  .detailDescription {
-    color: rgba(255, 255, 255, 0.85);
-  }
-
-  .detailKey {
-    color: rgba(255, 255, 255, 0.55);
-  }
-
-  .detailValue {
-    color: rgba(255, 255, 255, 0.88);
-  }
-
-  .mono {
-    background: rgba(255, 255, 255, 0.08);
-    color: rgba(255, 255, 255, 0.88);
-  }
+  color: var(--app-text);
 }

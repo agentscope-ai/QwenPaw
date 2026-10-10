@@ -1,0 +1,175 @@
+.layout {
+  height: 100%;
+  width: 100%;
+  min-height: 0;
+}
+.chat {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.dock {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--app-surface);
+  color: var(--app-text-primary);
+}
+.toolbar {
+  height: 48px;
+  flex: 0 0 48px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+}
+.dock button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 5px 7px;
+  background: transparent;
+  border: 0;
+  border-radius: 5px;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.dock button:hover {
+  background: var(--app-hover-bg, rgba(128, 128, 128, 0.12));
+}
+.dock button:focus-visible {
+  outline: 2px solid var(--app-text-secondary);
+  outline-offset: -2px;
+}
+.dock button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.toolbar > button {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  color: var(--app-text-secondary);
+}
+.collapse {
+  margin-left: auto;
+}
+.tabs {
+  flex: 0 1 auto;
+  min-width: 0;
+  display: flex;
+  gap: 4px;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+.tab {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  border-radius: 12px;
+  height: 34px;
+  padding: 0 5px;
+  color: var(--app-text-secondary);
+}
+.tab .tabLabel {
+  justify-content: flex-start;
+  gap: 10px;
+  min-width: 130px;
+  max-width: 220px;
+  font-size: 13px;
+}
+.tabLabel svg {
+  flex-shrink: 0;
+}
+.tabLabel span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tab input {
+  width: 100px;
+  color: inherit;
+  background: var(--app-surface);
+  border: 1px solid var(--app-border);
+  border-radius: 4px;
+  padding: 3px 6px;
+}
+.tab[data-active="true"] {
+  color: var(--app-text-primary);
+  background: var(--app-hover-bg, rgba(128, 128, 128, 0.12));
+}
+.separator {
+  height: 4px;
+  background: linear-gradient(var(--app-border), var(--app-border)) center /
+    100% 1px no-repeat;
+  cursor: row-resize;
+}
+.separator:hover,
+.separator:focus-visible {
+  background: var(--app-text-secondary);
+}
+.view {
+  --terminal-background: #fafafa;
+  min-height: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  background: var(--terminal-background);
+}
+.view[data-dark="true"] {
+  --terminal-background: #17191c;
+}
+.screen {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  padding: 8px 10px max(12px, env(safe-area-inset-bottom, 0px));
+}
+// FitAddon measures its immediate parent, which must not include padding.
+.terminalHost {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+.screen :global(.xterm) {
+  height: 100%;
+}
+// Whole terminal rows leave a fractional-height gap over the viewport.
+.screen :global(.xterm .xterm-viewport) {
+  background-color: var(--terminal-background);
+}
+.status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-shrink: 0;
+  padding: 4px 10px;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+  background: var(--app-surface);
+  color: var(--app-text-secondary);
+}
+.empty {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  color: var(--app-text-secondary);
+}
+@media (max-width: 600px) {
+  .tab .tabLabel {
+    min-width: 90px;
+    max-width: 150px;
+  }
+  .toolbar {
+    padding-inline: 4px;
+  }
+  .screen {
+    padding-inline: 4px;
+  }
+}

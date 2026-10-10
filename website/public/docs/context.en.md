@@ -55,7 +55,7 @@ Key properties:
 - **Cross-session memory**: history rows include `session_id` and `agent_id`, so recall can search this agent's past sessions and, when explicitly widened, other agents in the same workspace.
 - **Fallback-safe**: if scroll cannot be wired or its recall tools cannot run safely, QwenPaw falls back to native context management instead of evicting history that cannot be recalled.
 
-Index tiers roll up only when they reach their 10-block capacity; pressure does not compact the index early. Scroll enters pre-trimming only when input is **strictly above** the automatic trigger (80% by default); input exactly at or below the trigger stops without folding tool results or evicting dialogue. Above the trigger, Scroll batch-folds every completed-turn tool result over 200 characters except those in the active turn and the five newest results globally, then recounts once. If the context is now at or below the trigger, it stops; otherwise it proceeds with normal eviction. After rebuilding, completed-result folding remains the final pressure valve above `max(trigger, reserve)`. If the input still exceeds the effective hard limit, Scroll batch-folds acknowledged old active-turn results and recounts once. Explicit `/compact` skips the pre-trim stage and performs the requested eviction.
+Index tiers roll up only when they reach their 10-block capacity; pressure does not compact the index early. Scroll enters pre-trimming only when input is **strictly above** the automatic trigger (80% by default); input exactly at or below the trigger stops without folding tool results or evicting dialogue. Above the trigger, Scroll batch-folds eligible completed-turn tool results (long text or acknowledged inline media) except those in the active turn and the five newest results globally, then recounts once. If the context is now at or below the trigger, it stops; otherwise it proceeds with normal eviction. After rebuilding, completed-result folding remains the final pressure valve above `max(trigger, reserve)`. If the input still exceeds the effective hard limit, Scroll batch-folds acknowledged old active-turn results and recounts once. Explicit `/compact` skips the pre-trim stage and performs the requested eviction.
 
 ## Storage Layout
 
@@ -138,9 +138,9 @@ The split uses AgentScope's token accounting and pairing-safe compression helper
 
 A long tool-running turn (a `/heartbeat` cron run, a multi-search task) can exceed the reserve budget by itself, and the token-based split would then evict the **current request** along with old history — leaving the model staring at an old message plus an index, and answering the wrong thing. Scroll therefore relieves automatic pressure in four escalating stages, each engaging only if the previous one wasn't enough:
 
-1. **Pre-trim** — after durable persistence, Scroll batch-replaces every completed-turn tool result over 200 characters with an exact recall pointer, except for the complete active turn and the five newest tool results globally. It applies the whole batch before recounting once. Reaching at most the configured trigger stops the pipeline without dialogue eviction.
+1. **Pre-trim** — after durable persistence, Scroll batch-replaces completed-turn tool results over 200 characters, and acknowledged completed-turn results containing inline media, with exact recall pointers, except for the complete active turn and the five newest tool results globally. It applies the whole batch before recounting once. Reaching at most the configured trigger stops the pipeline without dialogue eviction.
 2. **Evict** — if pre-trimming cannot reach the trigger, finished turns before the active turn fold into the eviction index (the normal archival path). Explicit `/compact` starts here because the user requested eviction.
-3. **Live fold** — still overflowing after eviction, remaining completed-turn tool results over 200 characters may be replaced **in place** with one-line recall stubs. The complete active turn and the five newest tool results remain visible:
+3. **Live fold** — still overflowing after eviction, remaining eligible completed-turn tool results may be replaced **in place** with one-line recall stubs. The complete active turn and the five newest tool results remain visible:
 
    ```text
    [scroll folded] old tool result content cleared; recover with recall_history(op="recall_tool", tool_call_id='call_abc')
@@ -236,11 +236,11 @@ Unsandboxed recall executes arbitrary host Python as the agent user and should o
 
 Tool results are handled by one mechanism:
 
-| Mechanism                     | Default                                                                                   | What it does                                                                                                                                                                                                                                                                     |
-| ----------------------------- | ----------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ToolResultPruningMiddleware` | registered for every context strategy; controlled by `tool_result_pruning_config.enabled` | Prunes current and historical tool results by bytes, saves oversized raw output under `tool_results/`, and records block-scoped recovery metadata plus a `read_file` continuation hint. The background-completion path uses the same pruner when coordinator offload is enabled. |
+| Mechanism                     | Default                                                                                   | What it does                                                                                                                                                                                                                                                                                  |
+| ----------------------------- | ----------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ToolResultPruningMiddleware` | registered for every context strategy; controlled by `tool_result_pruning_config.enabled` | Prunes text in current and historical tool results by bytes, saves oversized raw text output under `tool_results/`, and records block-scoped recovery metadata plus a `read_file` continuation hint. The background-completion path uses the same pruner when coordinator offload is enabled. |
 
-Scroll no longer has a separate token-based tool-result cap. All live previews use `pruning_recent_msg_max_bytes`. At the automatic compression trigger, Scroll batch-replaces every eligible completed-turn result over 200 characters with an exact `recall_history` pointer, while preserving the active turn and five newest results, then recounts once. After eviction it can apply the same recovery-pointer fold to remaining completed results above the pressure target. Legacy tier settings are ignored by Scroll.
+Scroll no longer has a separate token-based tool-result cap. All live previews use `pruning_recent_msg_max_bytes`. At the automatic compression trigger, Scroll batch-replaces eligible completed-turn results (long text or acknowledged inline media) with an exact `recall_history` pointer, while preserving the active turn and five newest results, then recounts once. After eviction it can apply the same recovery-pointer fold to remaining completed results above the pressure target. Legacy tier settings are ignored by Scroll.
 
 When unified pruning is enabled, QwenPaw makes AgentScope's built-in token-based tool-result cap non-binding. This prevents a second truncation pass from replacing the byte-bounded preview and discarding its block-scoped recovery metadata. If unified pruning is disabled, AgentScope's default cap remains active as a safety net.
 
@@ -336,7 +336,9 @@ Existing configurations that already use the AgentScope-native path continue to 
 
 > **Beta feature:** Visual Compact is disabled by default and remains under active development. It can reduce input tokens in long conversations, but model reading of text in images is not completely lossless and may affect answer quality. Try it on non-critical tasks first, then decide whether to keep it enabled based on your results.
 
-Visual Compact turns eligible older, longer context into visual pages before a request is sent to the model. Recent conversation remains as text. Because an image can carry a large amount of dense text, this approach can significantly reduce token usage in long conversations.
+Visual Compact turns older conversation history, including its tool interactions, into images to reduce input tokens. System prompts, tool definitions, Scroll summaries and history indexes, memory reminders, and recent conversation remain as text.
+
+Selected exact values, such as paths and version numbers, are kept in a textual **factsheet**. To check details, the Agent can use `recall_context` to search source text still retained in the current session. It cannot recover content removed from the current context by `/compact`.
 
 It works alongside the existing context strategy and long-term memory. It does not delete chat history, rewrite stored conversations, or save the generated images to local storage.
 
@@ -355,13 +357,13 @@ Use the multimodal capability test in model settings to confirm that the selecte
 3. Turn on **Enable Visual Compact**.
 4. Choose a compression intensity. Start with **Low** unless token pressure is more important than visual readability.
 
-| Intensity  | Behavior                                                                                                 |
-| ---------- | -------------------------------------------------------------------------------------------------------- |
-| **Low**    | Prioritizes readability and compresses less eligible content. Recommended as the default starting point. |
-| **Medium** | Balances visual readability with greater token savings.                                                  |
-| **High**   | Uses the densest pages and prioritizes token savings, with the highest recognition risk.                 |
+| Intensity  | Behavior                                                                              |
+| ---------- | ------------------------------------------------------------------------------------- |
+| **Low**    | Clearer text; prioritizes readability. Recommended starting point.                    |
+| **Medium** | Balances readability with token savings.                                              |
+| **High**   | Fits more text per page and prioritizes token savings, with greater recognition risk. |
 
-Higher intensity does not necessarily produce better answers.
+Higher intensity does not mean better answers. Actual savings also depend on the context and model.
 
 ### Use cases & known drawbacks
 
@@ -379,10 +381,10 @@ Visual Compact is most useful for long-running conversations, tool-heavy tasks, 
 
 - A model may misread small text, numbers, identifiers, formatting, or uncommon characters and return a plausible but incorrect answer.
 - Rendering visual pages consumes local CPU and memory and can add latency, especially the first time a long context is rendered.
-- QwenPaw provides an exact-source recovery tool when visual compression is applied, but the model may not always call it or may search for the wrong evidence.
+- The model may skip source retrieval or search for the wrong evidence.
 
 For tasks that require exact wording, such as checking an ID, hash, or version number, use **Low** intensity or disable Visual Compact.
 
-If an exact value appears incorrect, ask the Agent to use `recover_visual_context` to re-read the original source before answering. If answer quality remains unstable, switch to **Low** intensity or disable the feature.
+If an exact value appears incorrect, ask the Agent to use `recall_context` to re-read the original source before answering. If answer quality remains unstable, switch to **Low** intensity or disable the feature.
 
 > **Acknowledgment:** The engineering implementation of Visual Compact was informed by [pxpipe](https://github.com/teamchong/pxpipe).

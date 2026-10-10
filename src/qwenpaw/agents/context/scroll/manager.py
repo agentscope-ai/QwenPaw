@@ -119,6 +119,13 @@ class ScrollContextManager:
         # recovery fold old results in the active turn without guessing from
         # block order. It is checkpointed with the rest of the manager state.
         self._seen_tool_result_ids: set[str] = set()
+        # Thinking blocks included in a model request that completed
+        # successfully. Under sustained pressure their text may be omitted from
+        # later wire requests without mutating the live Msg or its durable
+        # history row. The separate folded set keeps that request-time choice
+        # stable across subsequent reasoning steps and session checkpoints.
+        self._seen_thinking_block_ids: set[str] = set()
+        self._folded_thinking_block_ids: set[str] = set()
         self._seq_by_tcid: dict[
             str,
             int,
@@ -149,6 +156,7 @@ class ScrollContextManager:
             "pre_folded": 0,
             "live_folded": 0,
             "active_folded": 0,
+            "active_thinking_folded": 0,
             "folded": 0,
         }
         # Warn once per overflow episode, not once per reasoning step.
@@ -272,6 +280,21 @@ class ScrollContextManager:
                 ids.add(str(tcid))
         return ids
 
+    def model_input_thinking_block_ids(self, agent: Any) -> set[str]:
+        """Snapshot active thinking blocks about to be sent to the model.
+
+        Previously folded ids are first applied to the request formatter so
+        resumed sessions keep the same bounded wire representation. Only
+        blocks whose reasoning text is still being relayed are returned for
+        acknowledgement after a successful request.
+        """
+        self._apply_folded_thinking_filter(agent)
+        return {
+            block_id
+            for block_id, _ in self._active_thinking_blocks(agent)
+            if block_id not in self._folded_thinking_block_ids
+        }
+
     def acknowledge_model_input_tool_results(
         self,
         tool_result_ids: set[str],
@@ -279,6 +302,15 @@ class ScrollContextManager:
         """Mark a successfully submitted model input's results as seen."""
         self._seen_tool_result_ids.update(
             str(item) for item in tool_result_ids
+        )
+
+    def acknowledge_model_input_thinking_blocks(
+        self,
+        thinking_block_ids: set[str],
+    ) -> None:
+        """Mark successfully submitted active reasoning as safe to fold."""
+        self._seen_thinking_block_ids.update(
+            str(item) for item in thinking_block_ids
         )
 
     def _persist_guarded(self, agent: Any) -> bool:
@@ -358,6 +390,28 @@ class ScrollContextManager:
             return False
 
         await self.compress(agent, forced_config)
+        # A provider rejection is authoritative even when local visual-token
+        # estimates are below the hard limit. Reuse result folding, without
+        # broadening ordinary active-turn text compaction.
+        candidates = [
+            item
+            for item in self._tool_result_fold_candidates(
+                agent,
+                seen_active_only=True,
+            )
+            if self._tool_result_has_inline_media(item[2])
+        ]
+        if candidates and await self._persist_guarded_async(agent):
+            for _, _, block, text in candidates:
+                self._replace_tool_result_with_pointer(block, text)
+            self.last_compress["active_folded"] = self.last_compress.get(
+                "active_folded",
+                0,
+            ) + len(candidates)
+            self.last_compress["folded"] = self.last_compress.get(
+                "folded",
+                0,
+            ) + len(candidates)
         return bool(
             self.last_compress.get("evicted")
             or self.last_compress.get("folded"),
@@ -391,7 +445,9 @@ class ScrollContextManager:
         7. live-fold   — still under real pressure after finished turns are
                          evicted: replace remaining eligible completed-turn
                          results with recovery pointers.
-        8. active-fold— above the effective hard limit, fold old active-turn
+        8. think-fold — under sustained pressure, omit active-turn reasoning
+                         that a successful model call already read.
+        9. active-fold— if above the hard limit, fold old active-turn
                          results that a successful model call already read.
         """
         cfg = context_config or agent.context_config
@@ -400,8 +456,13 @@ class ScrollContextManager:
             "pre_folded": 0,
             "live_folded": 0,
             "active_folded": 0,
+            "active_thinking_folded": 0,
             "folded": 0,
         }
+        # ``load_state`` restores folded ids before an agent/formatter exists.
+        # Reapply them whenever compression gets a live agent so token counting
+        # sees the same request that the provider will receive.
+        self._apply_folded_thinking_filter(agent)
         hard_limit = int(agent.model.context_size)
         output_reserve = min(
             _MAX_OUTPUT_RESERVE_TOKENS,
@@ -440,7 +501,7 @@ class ScrollContextManager:
             mark("persist")
             kwargs = await as_internals.prepare_model_input(agent)
             mark("prepare_input")
-            tokens = await agent.model.count_tokens(**kwargs)
+            tokens = await self._count_model_input_tokens(agent, kwargs)
             mark("count_tokens")
             if tokens > effective_hard_limit:
                 log_timings("persist_failed_unfit")
@@ -458,7 +519,7 @@ class ScrollContextManager:
         kwargs = await as_internals.prepare_model_input(agent)
         mark("prepare_input")
         trigger = cfg.trigger_ratio * agent.model.context_size
-        tokens = await agent.model.count_tokens(**kwargs)
+        tokens = await self._count_model_input_tokens(agent, kwargs)
         mark("count_tokens")
         if not self.should_compress(tokens, trigger):
             self._overflow_warned = False
@@ -473,8 +534,8 @@ class ScrollContextManager:
         #    intermediate target. This pays at most one prefix-cache reset per
         #    pressure episode and leaves a stable, compact prompt for later
         #    turns. The complete active turn and five newest tool results stay
-        #    verbatim; outputs at or below 200 characters are not worth
-        #    replacing with recovery pointers.
+        #    verbatim; text-only outputs at or below 200 characters are not
+        #    worth replacing with recovery pointers.
         base_cfg = getattr(agent, "context_config", cfg)
         base_trigger_ratio = float(
             getattr(base_cfg, "trigger_ratio", cfg.trigger_ratio),
@@ -603,12 +664,36 @@ class ScrollContextManager:
                     "scroll: pressure-folded %d live tool result(s)",
                     folded,
                 )
-        # 8) A single long tool-running turn can itself exceed the input hard
-        #    limit after every completed turn has been folded/evicted. At this
-        #    final boundary, reclaim only active-turn results proven to have
-        #    appeared in a successful prior model request. The current user
-        #    request, pending/unread results, and the five newest results stay
-        #    verbatim. Fold the whole safe batch, then recount exactly once.
+        # 8) A single long tool-running turn can remain above the pressure
+        #    target after every completed turn has been folded/evicted.
+        #    Reasoning text is cheaper evidence than tool output and is already
+        #    durable, so omit only active ThinkingBlocks proven to have
+        #    appeared in a successful prior request. This is a request-time
+        #    filter: the live Msg and history.db keep the exact original text.
+        #    Running at the pressure target (not merely the hard limit) leaves
+        #    headroom for the next step and provider token-count variance.
+        if tokens > pressure_threshold:
+            (
+                thinking_folded,
+                tokens,
+            ) = await self._batch_fold_seen_active_thinking(
+                agent,
+                tokens=tokens,
+            )
+            mark("active_turn_thinking_fold")
+            if thinking_folded:
+                self.last_compress["active_thinking_folded"] = thinking_folded
+                self.last_compress["folded"] += thinking_folded
+                logger.info(
+                    "scroll: pressure-folded %d seen active-turn thinking "
+                    "block(s)",
+                    thinking_folded,
+                )
+        # 9) If reasoning omission was insufficient, reclaim active-turn tool
+        #    results proven to have appeared in a successful prior request. The
+        #    current user request, pending/unread results, and the five newest
+        #    results stay verbatim. Fold the whole safe batch, then recount
+        #    once.
         if tokens > effective_hard_limit:
             active_folded, tokens = await self._batch_fold_seen_active_results(
                 agent,
@@ -1382,10 +1467,25 @@ class ScrollContextManager:
         self._continuation_summary = updated
         self._summary_update_failed = False
 
+    @staticmethod
+    async def _count_model_input_tokens(agent: Any, kwargs: dict) -> int:
+        """Count the formatter's omission view without altering model input."""
+        get_formatter = getattr(agent, "_get_active_formatter", None)
+        formatter = get_formatter() if callable(get_formatter) else None
+        project = getattr(
+            formatter,
+            "_prepare_messages_for_token_counting",
+            None,
+        )
+        if callable(project):
+            kwargs = {**kwargs, "messages": project(kwargs["messages"])}
+        return await agent.model.count_tokens(**kwargs)
+
     async def _live_tokens(self, agent: Any) -> int:
         """Token count of the live context as the model would receive it."""
-        return await agent.model.count_tokens(
-            **(await as_internals.prepare_model_input(agent)),
+        return await self._count_model_input_tokens(
+            agent,
+            await as_internals.prepare_model_input(agent),
         )
 
     @staticmethod
@@ -1436,6 +1536,35 @@ class ScrollContextManager:
         return total
 
     @staticmethod
+    def _tool_result_has_inline_media(block: Any) -> bool:
+        """Recognize inline media independently of the caption length."""
+        output = (
+            block.get("output")
+            if isinstance(block, dict)
+            else getattr(block, "output", None)
+        )
+        if not isinstance(output, list):
+            return False
+        for item in output:
+            if ScrollContextManager._block_type(item) != "data":
+                continue
+            source = (
+                item.get("source")
+                if isinstance(item, dict)
+                else getattr(item, "source", None)
+            )
+            if isinstance(source, dict):
+                if source.get("type") == "base64" and source.get("data"):
+                    return True
+            elif getattr(source, "type", None) == "base64" and getattr(
+                source,
+                "data",
+                None,
+            ):
+                return True
+        return False
+
+    @staticmethod
     def _replace_tool_result_with_pointer(block: Any, text: str) -> None:
         output = [TextBlock(type="text", text=text)]
         if isinstance(block, dict):
@@ -1455,9 +1584,9 @@ class ScrollContextManager:
         Normally only completed-turn results are returned. For hard-limit
         recovery, ``seen_active_only`` selects only results in the active turn
         that a successful model request already consumed. The five newest
-        results are always protected. A result is eligible only when it has
-        more than 200 visible text characters and its pointer is actually
-        smaller than its output.
+        results are always protected. Text-only results need more than 200
+        characters and a smaller pointer. Inline media bypasses that text
+        gate, but requires a persisted, acknowledged tool result.
         """
         results = self._live_tool_results(agent)
         active_messages = {id(msg) for msg in self._active_turn_tail(agent)}
@@ -1473,7 +1602,11 @@ class ScrollContextManager:
                 continue
             if self._is_folded_stub(block):
                 continue
-            if self._tool_result_text_chars(block) <= _PRE_TRIM_MIN_CHARS:
+            has_media = self._tool_result_has_inline_media(block)
+            if (
+                not has_media
+                and self._tool_result_text_chars(block) <= _PRE_TRIM_MIN_CHARS
+            ):
                 continue
             existing_output = (
                 block.get("output")
@@ -1491,6 +1624,11 @@ class ScrollContextManager:
                 else getattr(block, "id", None)
             )
             tool_call_id = str(tool_call_id or "")
+            if has_media and (
+                tool_call_id not in self._seen_tool_result_ids
+                or tool_call_id not in self._persisted_tcids
+            ):
+                continue
             if seen_active_only:
                 if (
                     not is_active
@@ -1500,7 +1638,7 @@ class ScrollContextManager:
                     continue
             elif is_active:
                 continue
-            if name == "recall_history":
+            if name == "recall_history" and not has_media:
                 text = self._recall_page_stub(
                     block,
                     recall_inputs.get(str(tool_call_id)),
@@ -1511,7 +1649,13 @@ class ScrollContextManager:
             savings = len(str(existing_output).encode("utf-8")) - len(
                 str(replacement).encode("utf-8"),
             )
-            if savings <= 0:
+            if has_media:
+                # Encoded bytes are only an ordering heuristic; a tiny image
+                # can still cost more model tokens than its recovery pointer.
+                # Clamp to a positive ranking value to keep media eligible;
+                # this does not claim a minimum saving of one byte or token.
+                savings = max(1, savings)
+            elif savings <= 0:
                 continue
             candidates.append(
                 (-savings, ordinal, block, text),
@@ -1550,6 +1694,75 @@ class ScrollContextManager:
         if not candidates:
             return 0, tokens
         return len(candidates), await self._live_tokens(agent)
+
+    def _active_thinking_blocks(self, agent: Any) -> list[tuple[str, Any]]:
+        """Return id-bearing ThinkingBlocks in the current active turn."""
+        blocks: list[tuple[str, Any]] = []
+        for msg in self._active_turn_tail(agent):
+            for block in getattr(msg, "content", None) or []:
+                if self._block_type(block) != "thinking":
+                    continue
+                block_id = (
+                    block.get("id")
+                    if isinstance(block, dict)
+                    else getattr(block, "id", None)
+                )
+                thinking = (
+                    block.get("thinking")
+                    if isinstance(block, dict)
+                    else getattr(block, "thinking", None)
+                )
+                if block_id and thinking:
+                    blocks.append((str(block_id), block))
+        return blocks
+
+    def _apply_folded_thinking_filter(self, agent: Any) -> bool:
+        """Apply request-only thinking omissions through QwenPawAgent."""
+        setter = getattr(agent, "_set_formatter_thinking_omit_ids", None)
+        if not callable(setter):
+            return False
+        applied = setter(set(self._folded_thinking_block_ids))
+        # Preserve compatibility with third-party agents implementing the
+        # original setter before it returned an explicit capability result.
+        return applied is not False
+
+    async def _batch_fold_seen_active_thinking(
+        self,
+        agent: Any,
+        *,
+        tokens: int,
+    ) -> tuple[int, int]:
+        """Omit acknowledged active reasoning, then recount exactly once."""
+        candidates = {
+            block_id
+            for block_id, _ in self._active_thinking_blocks(agent)
+            if block_id in self._seen_thinking_block_ids
+            and block_id not in self._folded_thinking_block_ids
+        }
+        if not candidates:
+            return 0, tokens
+        self._folded_thinking_block_ids.update(candidates)
+        if not self._apply_folded_thinking_filter(agent):
+            self._folded_thinking_block_ids.difference_update(candidates)
+            return 0, tokens
+        try:
+            compacted_tokens = await self._live_tokens(agent)
+        except BaseException:
+            # The omission is request-only, so a failed exact recount must not
+            # leave the formatter in a state that was never accepted by the
+            # compression pipeline. This also handles task cancellation.
+            self._folded_thinking_block_ids.difference_update(candidates)
+            self._apply_folded_thinking_filter(agent)
+            raise
+        if compacted_tokens >= tokens:
+            # A formatter with reasoning relay disabled (or a provider-native
+            # counter that already ignores ThinkingBlocks) gains nothing from
+            # this filter. Roll it back so reporting and checkpoints do not
+            # claim a fold that saved no request tokens.
+            self._folded_thinking_block_ids.difference_update(candidates)
+            self._apply_folded_thinking_filter(agent)
+            return 0, tokens
+        return len(candidates), compacted_tokens
 
     async def _fold_tool_results_under_pressure(
         self,
@@ -1849,6 +2062,7 @@ class ScrollContextManager:
         """
         live_msg_ids: set[str] = set()
         live_tool_ids: set[str] = set()
+        live_thinking_ids: set[str] = set()
         for msg in getattr(agent.state, "context", []) or []:
             mid = getattr(msg, "id", None) or str(id(msg))
             live_msg_ids.add(str(mid))
@@ -1858,6 +2072,15 @@ class ScrollContextManager:
                     if isinstance(block, dict)
                     else getattr(block, "type", None)
                 )
+                if btype == "thinking":
+                    block_id = (
+                        block.get("id")
+                        if isinstance(block, dict)
+                        else getattr(block, "id", None)
+                    )
+                    if block_id:
+                        live_thinking_ids.add(str(block_id))
+                    continue
                 if btype not in ("tool_call", "tool_result"):
                     continue
                 tcid = (
@@ -1871,6 +2094,9 @@ class ScrollContextManager:
         self._persisted_ids.intersection_update(live_msg_ids)
         self._persisted_tcids.intersection_update(live_tool_ids)
         self._seen_tool_result_ids.intersection_update(live_tool_ids)
+        self._seen_thinking_block_ids.intersection_update(live_thinking_ids)
+        self._folded_thinking_block_ids.intersection_update(live_thinking_ids)
+        self._apply_folded_thinking_filter(agent)
         self._synthetic_ids.intersection_update(live_msg_ids)
         self._seq_by_id = {
             key: value
@@ -1951,6 +2177,12 @@ class ScrollContextManager:
             "persisted_ids": sorted(self._persisted_ids),
             "persisted_tcids": sorted(self._persisted_tcids),
             "seen_tool_result_ids": sorted(self._seen_tool_result_ids),
+            "seen_thinking_block_ids": sorted(
+                self._seen_thinking_block_ids,
+            ),
+            "folded_thinking_block_ids": sorted(
+                self._folded_thinking_block_ids,
+            ),
             "seq_by_tcid": dict(self._seq_by_tcid),
             "synthetic_ids": sorted(self._synthetic_ids),
             "seq_by_id": {
@@ -1980,6 +2212,12 @@ class ScrollContextManager:
         self._persisted_tcids = set(data.get("persisted_tcids", ()))
         self._seen_tool_result_ids = set(
             data.get("seen_tool_result_ids", ()),
+        )
+        self._seen_thinking_block_ids = set(
+            data.get("seen_thinking_block_ids", ()),
+        )
+        self._folded_thinking_block_ids = set(
+            data.get("folded_thinking_block_ids", ()),
         )
         self._seq_by_tcid = dict(data.get("seq_by_tcid", {}))
         self._synthetic_ids = set(data.get("synthetic_ids", ()))

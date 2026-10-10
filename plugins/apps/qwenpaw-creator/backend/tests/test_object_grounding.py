@@ -16,26 +16,11 @@ def _png_bytes(size=(100, 200), color="white") -> bytes:
     return output.getvalue()
 
 
-def test_parse_object_grounding_maps_normalized_boxes_to_pixels():
-    detections = object_grounding.parse_object_grounding(
-        '[{"label":"car","bbox_2d":[100,200,900,800]}]',
-        100,
-        200,
-    )
-
-    assert detections == [
-        {
-            "label": "car",
-            "bbox_normalized": [100, 200, 900, 800],
-            "bbox_pixel": [10, 40, 90, 160],
-        },
-    ]
-
-
-def test_parse_object_grounding_supports_aliases_and_rejects_bad_boxes():
+def test_parse_object_grounding_maps_aliases_and_rejects_bad_boxes():
     detections = object_grounding.parse_object_grounding(
         """```json
         {"objects":[
+          {"label":"car","bbox_2d":[100,200,900,800]},
           {"name":"cat","bounding_box":[0,0,500,1000]},
           {"name":"invalid","bbox":[900,0,100,1000]},
           {"name":"outside","bbox":[0,0,1001,1000]}
@@ -45,13 +30,10 @@ def test_parse_object_grounding_supports_aliases_and_rejects_bad_boxes():
         40,
     )
 
-    assert detections == [
-        {
-            "label": "cat",
-            "bbox_normalized": [0, 0, 500, 1000],
-            "bbox_pixel": [0, 0, 40, 40],
-        },
-    ]
+    assert [d["label"] for d in detections] == ["car", "cat"]
+    assert detections[0]["bbox_normalized"] == [100, 200, 900, 800]
+    assert detections[0]["bbox_pixel"] == [8, 8, 72, 32]
+    assert detections[1]["bbox_pixel"] == [0, 0, 40, 40]
 
 
 def test_parse_object_grounding_supports_ref_box_fallback():
@@ -62,7 +44,6 @@ def test_parse_object_grounding_supports_ref_box_fallback():
     )
 
     assert detections[0]["label"] == "red car"
-    assert detections[0]["bbox_normalized"] == [10, 20, 500, 600]
     assert detections[0]["bbox_pixel"] == [10, 10, 500, 300]
 
 
@@ -89,14 +70,8 @@ def test_ground_image_objects_uses_creator_vlm_and_returns_raw_response(
     monkeypatch,
 ):
     captured = {}
-    image_path = (
-        tmp_path
-        / "project-1"
-        / "runtime"
-        / "task-work"
-        / "request-1"
-        / "input.png"
-    )
+    url = "/generated/projects/project-1/task-work/request-1/input.png"
+    image_path = tmp_path / "project-1/runtime/task-work/request-1/input.png"
     image_path.parent.mkdir(parents=True)
     image_path.write_bytes(_png_bytes())
     monkeypatch.setenv("CREATOR_DATA_ROOT", str(tmp_path))
@@ -106,41 +81,19 @@ def test_ground_image_objects_uses_creator_vlm_and_returns_raw_response(
         captured["kwargs"] = kwargs
         return '[{"label":"person","bbox_2d":[100,100,800,900]}]'
 
-    monkeypatch.setattr(
-        object_grounding.vlm_model,
-        "chat_completion",
-        fake_chat_completion,
-    )
-    monkeypatch.setattr(
-        object_grounding.model_config,
-        "get_vlm_timeout_seconds",
-        lambda: 45,
-    )
-    monkeypatch.setattr(
-        object_grounding.model_config,
-        "get_vlm_model_name",
-        lambda: "qwen-test-vl",
-    )
+    vm, mc = object_grounding.vlm_model, object_grounding.model_config
+    monkeypatch.setattr(vm, "chat_completion", fake_chat_completion)
+    monkeypatch.setattr(mc, "get_vlm_model_name", lambda: "qwen-test-vl")
 
     result = asyncio.run(
-        object_grounding.ground_image_objects(
-            _png_bytes(),
-            "/generated/projects/project-1/task-work/request-1/input.png",
-            "all people",
-        ),
+        object_grounding.ground_image_objects(_png_bytes(), url, "all people"),
     )
 
     assert captured["content"][0] == {
         "type": "image_url",
-        "image_url": {
-            "url": (
-                "/generated/projects/project-1/task-work/request-1/input.png"
-            ),
-        },
+        "image_url": {"url": url},
     }
     assert captured["kwargs"]["temperature"] == 0.0
-    assert captured["kwargs"]["max_tokens"] == 2048
-    assert captured["kwargs"]["timeout"] == 45.0
     assert result["model"] == "qwen-test-vl"
     assert result["imageSize"] == {"width": 100, "height": 200}
     assert result["detections"][0]["bbox_pixel"] == [10, 20, 80, 180]

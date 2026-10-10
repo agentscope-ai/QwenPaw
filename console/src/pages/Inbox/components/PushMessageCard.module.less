@@ -4,14 +4,15 @@
   cursor: pointer;
 
   :global(.qwenpaw-card-body) {
-    height: 142px !important;
+    height: auto !important;
+    min-height: max(142px, calc(142px * var(--app-font-scale)));
     display: flex;
     flex-direction: column;
   }
 }
 
 .unread {
-  border-color: rgba(255, 127, 22, 0.45);
+  border-color: var(--app-accent-border);
 }
 
 .cardHeader {
@@ -33,8 +34,8 @@
 }
 
 .senderInfo {
-  font-size: 12px;
-  color: rgba(0, 0, 0, 0.5);
+  font-size: var(--app-font-caption);
+  color: var(--app-text-tertiary);
 }
 
 .headerRight {
@@ -47,7 +48,7 @@
   width: 8px;
   height: 8px;
   border-radius: 999px;
-  background: #ff7f16;
+  background: var(--app-accent);
 }
 
 .cardBody {
@@ -57,14 +58,14 @@
 .messageTitle {
   margin-bottom: 4px;
   line-height: 1.35;
-  font-size: 14px;
+  font-size: var(--app-font-body);
 }
 
 .messageContent {
-  color: rgba(0, 0, 0, 0.75);
+  color: color-mix(in srgb, var(--app-text) 90%, transparent);
   margin-bottom: 0;
   line-height: 1.6;
-  font-size: 13px;
+  font-size: var(--app-font-secondary);
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
@@ -102,13 +103,5 @@
 :global(.dark-mode) {
   .messageCard {
     box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
-  }
-
-  .senderInfo {
-    color: rgba(255, 255, 255, 0.55);
-  }
-
-  .messageContent {
-    color: rgba(255, 255, 255, 0.78);
   }
 }

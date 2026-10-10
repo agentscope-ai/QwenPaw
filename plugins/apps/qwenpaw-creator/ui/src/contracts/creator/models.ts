@@ -80,8 +80,23 @@ export interface ModelConfigData {
     sync_enabled: boolean;
     media_enabled: boolean;
     render_enabled: boolean;
+    // Advanced per-operator switches: missing key = auto (能开尽开,
+    // enabled whenever the operator's own dependency is available).
+    operators?: Record<string, boolean>;
     envOverrides?: Record<string, string>;
+    // Resolved operator states (read-only, never persisted).
+    operatorStatus?: ReviewOperatorStatus[];
   };
+}
+
+export interface ReviewOperatorStatus {
+  key: string;
+  tier: number;
+  dependency: "none" | "asr" | "ocr" | "cv2";
+  degrades?: boolean;
+  capability_ok: boolean;
+  enabled: boolean;
+  source: "user" | "auto";
 }
 
 export interface ModelConnectionTestRequest {
@@ -92,6 +107,7 @@ export interface ModelConnectionTestRequest {
   protocol: string;
   provider?: "whisper" | "fun-asr";
   voice?: string;
+  require_api_key?: boolean;
 }
 
 export interface ConnectionTestResponse {

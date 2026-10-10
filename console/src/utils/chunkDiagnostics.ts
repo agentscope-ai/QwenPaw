@@ -1,0 +1,250 @@
+import { getFrontendBuildId } from "./chunkRecovery";
+import type { ChunkReloadDecision, ErrorLike } from "./chunkRecovery";
+import { getLazyImportFailure } from "./lazyImportFailure";
+
+const STORAGE_KEY = "qwenpaw:chunk-diagnostic";
+const BEFORE_RELOAD_KEY = "qwenpaw:chunk-diagnostic-before-reload";
+const RECHECK_TIMEOUT_MS = 2000;
+const URL_PATTERN = /(?:https?:\/\/|\/)[^\s"'<>]+/g;
+
+export type ResourceOutcome =
+  | "missing"
+  | "denied"
+  | "html"
+  | "http-error"
+  | "available"
+  | "request-failed"
+  | "timeout"
+  | "unavailable";
+
+export interface ResourceRecheck {
+  checkedAt: string;
+  outcome: ResourceOutcome;
+  status: number | null;
+  contentType: string | null;
+  bodyBytes: number | null;
+}
+
+export interface ChunkDiagnostic {
+  capturedAt: string;
+  page: string;
+  frontendBuild: string;
+  browser: string;
+  online: boolean;
+  originalError: { name: string; message: string; stack: string };
+  modulePath: string | null;
+  attempts: number | null;
+  resourceUrl: string | null;
+  originalResourceStatus: number | null;
+  recheck: ResourceRecheck | null;
+  automaticReloadAttempted: boolean;
+  automaticReload: ChunkReloadDecision | null;
+  phase?: "startup";
+  startupFailure?: "resource" | "runtime" | "timeout";
+  elapsedMs?: number;
+}
+
+function safeUrl(value: string): string {
+  const url = new URL(value, window.location.href);
+  url.username = "";
+  url.password = "";
+  // Preserve Vite's version hash (v) and HMR timestamp (t) for diagnostics.
+  // This assumes these parameters contain resource versions, not secrets.
+  for (const key of [...url.searchParams.keys()]) {
+    if (key !== "v" && key !== "t") url.searchParams.delete(key);
+  }
+  url.hash = "";
+  return url.toString();
+}
+
+/** Keep URL brackets intact while separating surrounding error punctuation. */
+function splitUrlSuffix(value: string): [string, string] {
+  let url = value.replace(/[.,;]+$/, "");
+  let suffix = value.slice(url.length);
+  while (url) {
+    const close = url.slice(-1);
+    const open = close === ")" ? "(" : close === "]" ? "[" : null;
+    if (!open || url.split(open).length >= url.split(close).length) break;
+    url = url.slice(0, -1);
+    suffix = `${close}${suffix}`;
+  }
+  return [url, suffix];
+}
+
+function safeErrorText(text: string): string {
+  return text.replace(URL_PATTERN, (value) => {
+    const [url, suffix] = splitUrlSuffix(value);
+    try {
+      return `${safeUrl(url)}${suffix}`;
+    } catch {
+      return "[invalid URL]";
+    }
+  });
+}
+
+/** Browsers may omit the failed URL, notably Safari/WebView. */
+export function failedResourceUrl(error: ErrorLike): string | null {
+  for (const value of error.message.match(URL_PATTERN) ?? []) {
+    try {
+      const [resource] = splitUrlSuffix(value);
+      const url = new URL(resource, window.location.href);
+      if (
+        /^https?:$/.test(url.protocol) &&
+        /\.(?:m?js|jsx|tsx?|css)$/i.test(url.pathname)
+      ) {
+        return url.toString();
+      }
+    } catch {
+      // An incomplete browser message does not establish a resource address.
+    }
+  }
+  return null;
+}
+
+export function captureChunkDiagnostic(
+  error: ErrorLike,
+  resourceUrl = failedResourceUrl(error),
+): ChunkDiagnostic {
+  const timing = resourceUrl
+    ? (performance.getEntriesByName(resourceUrl, "resource").slice(-1)[0] as
+        | (PerformanceResourceTiming & { responseStatus?: number })
+        | undefined)
+    : undefined;
+  const failure = getLazyImportFailure(error);
+  return {
+    capturedAt: new Date().toISOString(),
+    page: `${window.location.origin}${window.location.pathname}`,
+    frontendBuild: safeUrl(getFrontendBuildId()),
+    browser: navigator.userAgent,
+    online: navigator.onLine,
+    originalError: {
+      name: typeof error.name === "string" ? error.name : "Error",
+      message: safeErrorText(error.message).slice(0, 4000),
+      stack: safeErrorText(
+        typeof error.stack === "string" ? error.stack : "",
+      ).slice(0, 16000),
+    },
+    modulePath: failure?.modulePath ?? null,
+    attempts: failure?.attempts ?? null,
+    resourceUrl: resourceUrl ? safeUrl(resourceUrl) : null,
+    originalResourceStatus: timing?.responseStatus || null,
+    recheck: null,
+    automaticReloadAttempted: false,
+    automaticReload: null,
+  };
+}
+
+function saveDiagnostic(key: string, report: ChunkDiagnostic): void {
+  try {
+    window.sessionStorage.setItem(key, JSON.stringify(report));
+  } catch {
+    // In-page details and copying remain available when storage is blocked.
+  }
+}
+
+export function saveChunkDiagnostic(report: ChunkDiagnostic): void {
+  const beforeReload = report.automaticReloadAttempted
+    ? report
+    : readChunkDiagnostic();
+  if (beforeReload?.automaticReloadAttempted) {
+    saveDiagnostic(BEFORE_RELOAD_KEY, beforeReload);
+  }
+  saveDiagnostic(STORAGE_KEY, report);
+}
+
+function readDiagnostic(key: string): ChunkDiagnostic | null {
+  try {
+    const report = JSON.parse(window.sessionStorage.getItem(key) ?? "null");
+    return report &&
+      typeof report.capturedAt === "string" &&
+      typeof report.page === "string" &&
+      typeof report.originalError?.message === "string"
+      ? (report as ChunkDiagnostic)
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+export function readChunkDiagnostic(): ChunkDiagnostic | null {
+  return readDiagnostic(STORAGE_KEY);
+}
+
+/** Retain the pre-refresh report independently of subsequent failed boots. */
+export function readBeforeAutomaticReloadDiagnostic(
+  page: string,
+): ChunkDiagnostic | null {
+  const report = readDiagnostic(BEFORE_RELOAD_KEY) ?? readChunkDiagnostic();
+  return report?.automaticReloadAttempted && report.page === page
+    ? report
+    : null;
+}
+
+/** A bounded fresh request observes current availability, not the first failure. */
+export async function recheckChunkResource(
+  resourceUrl: string | null,
+): Promise<ResourceRecheck> {
+  const result: ResourceRecheck = {
+    checkedAt: new Date().toISOString(),
+    outcome: "unavailable",
+    status: null,
+    contentType: null,
+    bodyBytes: null,
+  };
+  if (!resourceUrl) return result;
+  const url = new URL(resourceUrl);
+  if (url.origin !== window.location.origin || !navigator.onLine) return result;
+  const controller = new AbortController();
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  let timedOut = false;
+  try {
+    await Promise.race([
+      (async () => {
+        const response = await fetch(url.toString(), {
+          cache: "no-store",
+          credentials: "omit",
+          signal: controller.signal,
+        });
+        if (timedOut) {
+          void response.body?.cancel().catch(() => undefined);
+          return;
+        }
+        result.status = response.status;
+        result.contentType = response.headers.get("content-type");
+        const outcome =
+          response.status === 404
+            ? "missing"
+            : response.status === 401 || response.status === 403
+            ? "denied"
+            : !response.ok
+            ? "http-error"
+            : /(?:text\/html|application\/xhtml\+xml)/i.test(
+                result.contentType ?? "",
+              )
+            ? "html"
+            : "available";
+        if (outcome === "available") {
+          // Headers can report 200 even when the body fails to download.
+          const body = await response.arrayBuffer();
+          if (timedOut) return;
+          result.bodyBytes = body.byteLength;
+        } else {
+          void response.body?.cancel().catch(() => undefined);
+        }
+        result.outcome = outcome;
+      })(),
+      new Promise<never>((_resolve, reject) => {
+        timeout = setTimeout(() => {
+          timedOut = true;
+          controller.abort();
+          reject(new Error("Resource recheck timed out"));
+        }, RECHECK_TIMEOUT_MS);
+      }),
+    ]);
+  } catch {
+    result.outcome = timedOut ? "timeout" : "request-failed";
+  } finally {
+    clearTimeout(timeout);
+  }
+  return result;
+}

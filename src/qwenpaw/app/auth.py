@@ -27,11 +27,17 @@ import re
 import secrets
 import time
 from typing import Optional
+from urllib.parse import unquote
 
 from fastapi import Request, Response
+from starlette.types import ASGIApp, Receive, Scope, Send
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from ..constant import SECRET_DIR, EnvVarLoader
+from ..plugins.browser_access import (
+    PAWAPP_SCOPE_HEADER,
+    browser_read_allowed,
+)
 from ..security.secret_store import (
     AUTH_SECRET_FIELDS,
     decrypt_dict_fields,
@@ -40,6 +46,20 @@ from ..security.secret_store import (
 )
 
 logger = logging.getLogger(__name__)
+
+_RUNTIME_TOKEN_ENV = "QWENPAW_RUNTIME_INTERNAL_TOKEN"
+_RUNTIME_TOKEN_HEADER = "x-qwenpaw-runtime-token"
+
+
+def runtime_token_matches(expected: str, supplied: str) -> bool:
+    """Compare runtime tokens without accepting malformed or empty values."""
+    return (
+        bool(expected)
+        and expected.isascii()
+        and supplied.isascii()
+        and (hmac.compare_digest(expected, supplied))
+    )
+
 
 AUTH_FILE = SECRET_DIR / "auth.json"
 
@@ -687,6 +707,20 @@ def _resolve_client_ip(request: Request) -> str:
 resolve_client_ip = _resolve_client_ip
 
 
+def is_loopback_ip(value: str) -> bool:
+    """Return whether an address is a loopback IP or localhost."""
+    return value == "localhost" or (_normalize_ip(value) in _LOOPBACK)
+
+
+def is_trusted_proxy(request: Request) -> bool:
+    """Return whether the direct peer is an explicitly trusted proxy."""
+    peer = request.client.host if request.client else ""
+    _cfg, networks = _get_config_cached()
+    return bool(
+        networks and _ip_in_networks(_normalize_ip(peer) or peer, networks),
+    )
+
+
 class AuthMiddleware(BaseHTTPMiddleware):
     """Middleware that checks Bearer token on protected routes."""
 
@@ -721,6 +755,8 @@ class AuthMiddleware(BaseHTTPMiddleware):
             return True
 
         path = request.url.path
+        if path == "/api/config/theme" and request.method == "GET":
+            return True
         if (
             request.method == "OPTIONS"
             or path in _PUBLIC_PATHS
@@ -761,6 +797,50 @@ class AuthMiddleware(BaseHTTPMiddleware):
         if "upgrade" in conn.lower():
             return request.query_params.get("token")
         return request.query_params.get("token") or None
+
+
+class RuntimeBoundaryMiddleware:
+    """Protect every HTTP and WebSocket path of a managed runtime."""
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(
+        self,
+        scope: Scope,
+        receive: Receive,
+        send: Send,
+    ) -> None:
+        runtime_token = os.environ.get(_RUNTIME_TOKEN_ENV, "")
+        if not runtime_token or scope["type"] not in {"http", "websocket"}:
+            await self.app(scope, receive, send)
+            return
+        headers = {
+            key.decode("latin-1").lower(): value.decode("latin-1")
+            for key, value in scope.get("headers", [])
+        }
+        supplied = headers.get(_RUNTIME_TOKEN_HEADER, "")
+        app_id = headers.get(PAWAPP_SCOPE_HEADER.lower())
+        if runtime_token_matches(runtime_token, supplied) and (
+            app_id is None or browser_read_allowed(scope, unquote(app_id))
+        ):
+            await self.app(scope, receive, send)
+            return
+        if scope["type"] == "websocket":
+            await send({"type": "websocket.close", "code": 4401})
+            return
+        body = b'{"detail":"Invalid runtime boundary token"}'
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 401,
+                "headers": [
+                    (b"content-type", b"application/json"),
+                    (b"content-length", str(len(body)).encode("ascii")),
+                ],
+            },
+        )
+        await send({"type": "http.response.body", "body": body})
 
 
 def check_proxy_config_sanity() -> None:

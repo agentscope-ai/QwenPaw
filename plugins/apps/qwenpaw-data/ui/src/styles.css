@@ -1,0 +1,125 @@
+/* Shell styles: the embedded engine console owns everything else. */
+
+:root {
+  --qwenpaw-data-ink: #182033;
+  --qwenpaw-data-muted: #727b8f;
+  --qwenpaw-data-line: #e6e9f0;
+  --qwenpaw-data-soft: #f5f6fa;
+  --qwenpaw-data-purple: #0d76fd; /* aligned with the embedded console BRAND_PRIMARY */
+  --qwenpaw-data-purple-deep: #0a5fd0; /* BRAND_PRIMARY_ACTIVE */
+  --qwenpaw-data-mint: #12a594;
+  --qwenpaw-data-page-gutter: 32px;
+  --qwenpaw-data-page-top: 32px;
+}
+
+.qwenpaw-data-app,
+.qwenpaw-data-app * {
+  box-sizing: border-box;
+}
+
+.qwenpaw-data-app button,
+.qwenpaw-data-app input,
+.qwenpaw-data-app textarea {
+  font: inherit;
+}
+
+.qwenpaw-data-app {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  min-width: 0;
+  height: 100%;
+  min-height: calc(100vh - 56px);
+  overflow: hidden;
+  color: var(--qwenpaw-data-ink);
+  background: #fff;
+  font-family:
+    Inter,
+    ui-sans-serif,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif;
+  /* Adaptive rules track the app's own width (the host console can shrink
+     this area while the viewport stays wide), hence container queries. */
+  container-type: inline-size;
+  container-name: qwenpaw-data-app;
+}
+
+.qwenpaw-data-app button span > svg,
+.qwenpaw-data-app b > svg,
+.qwenpaw-data-app i > svg {
+  display: inline-block;
+  vertical-align: -0.125em;
+  flex-shrink: 0;
+}
+
+.qwenpaw-data-main {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  background: #fff;
+}
+
+.qwenpaw-data-main > div {
+  height: 100%;
+}
+
+.qwenpaw-data-embedded-console {
+  position: relative;
+  height: 100%;
+  min-height: 420px;
+}
+
+.qwenpaw-data-embedded-console iframe {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: #fff;
+}
+
+.qwenpaw-data-embedded-console__loading {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--qwenpaw-data-muted);
+  font-size: 14px;
+  background: #fff;
+}
+
+.qwenpaw-data-embedded-console__empty {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  min-height: 420px;
+  padding: 0 var(--qwenpaw-data-page-gutter);
+  text-align: center;
+}
+
+.qwenpaw-data-embedded-console__empty b {
+  font-size: 15px;
+}
+
+.qwenpaw-data-embedded-console__empty p {
+  max-width: 460px;
+  margin: 0;
+  color: var(--qwenpaw-data-muted);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.qwenpaw-data-embedded-console__empty code {
+  padding: 1px 5px;
+  background: var(--qwenpaw-data-soft);
+  border-radius: 5px;
+  font-size: 14px;
+}
+

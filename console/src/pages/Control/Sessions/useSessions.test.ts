@@ -48,6 +48,28 @@ describe("useSessions", () => {
     );
   });
 
+  it("keeps imported archived chats out of the active tab", async () => {
+    const active = { id: "import-active", name: "Active", archived: false };
+    const archived = {
+      id: "import-archived",
+      name: "Archived",
+      archived: true,
+      archived_at: "2026-09-09T00:00:00Z",
+    };
+    (chatApi.listChats as ReturnType<typeof vi.fn>).mockResolvedValue([
+      active,
+      archived,
+    ]);
+    const { result } = renderHook(() => useSessions());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    expect(result.current.sessions).toEqual([active]);
+    expect(result.current.activeCount).toBe(1);
+    expect(result.current.archivedCount).toBe(1);
+    act(() => result.current.setActiveTab("archived"));
+    expect(result.current.sessions).toEqual([archived]);
+  });
+
   // 1. 初始 loading=true，fetchSessions 成功后 loading=false
   it("初始 loading=true，fetchSessions 成功后 loading=false", async () => {
     const { result } = renderHook(() => useSessions());

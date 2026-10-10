@@ -56,6 +56,14 @@ def feedback_text(
     target_ref: str,
     command: str,
 ) -> str:
+    # Severity-weighted ordering (APE: major=2.0, minor=1.0) is an
+    # internal mechanism only — the agent receives the reasoning entries
+    # (evidence + suggestion), sorted so the most damaging fix comes
+    # first, never a numeric score.
+    ordered_findings = sorted(
+        report.failed_findings(),
+        key=lambda item: 0 if item.severity == "major" else 1,
+    )
     payload = {
         "type": "run_review_feedback",
         "artifact_ref": report.artifact_ref,
@@ -64,16 +72,27 @@ def feedback_text(
         "max_rounds": admission.MAX_MEDIA_REVIEW_ROUNDS,
         "verdict": report.verdict,
         "findings": [
-            item.model_dump(mode="json") for item in report.failed_findings()
+            item.model_dump(mode="json") for item in ordered_findings
         ],
     }
+    confirmed_probes = sorted(
+        report.confirmed_probes(),
+        key=lambda item: 0 if item.severity == "major" else 1,
+    )
+    if confirmed_probes:
+        payload["probe_findings"] = [
+            item.model_dump(mode="json", exclude={"needs_review"})
+            for item in confirmed_probes
+        ]
     label = "生成图像" if report.kind == "image" else "分镜视频"
     return (
         f"【运行审阅反馈 · {label} · 第 {report.round}/"
         f"{admission.MAX_MEDIA_REVIEW_ROUNDS} 轮】\n"
         f"产物 {report.artifact_ref}（{command}）未通过旁路审阅。请针对 "
         f"{target_ref} 仅修复下列结构化审阅发现中列出的问题（重新生成或调整"
-        "提示词），不要扩大改动范围。\n\n"
+        "提示词），不要扩大改动范围。同一反馈目标只允许一次成功修复生成；"
+        "新媒体写入 selected output 后结束本反馈目标，由 Work Scheduler 自动"
+        "重合成，不要为了强制合成再次生成媒体。\n\n"
         + json.dumps(payload, ensure_ascii=False, indent=2)
     )
 

@@ -24,15 +24,15 @@ export default function SourceCacheGate({
     <div
       className={
         compact
-          ? "rounded-lg border border-[#eae9e7] bg-white p-3"
-          : "rounded-xl border border-[#eae9e7] bg-white p-5"
+          ? "rounded-lg border border-[#eae9e7] bg-white p-3 dark:border-[var(--color-border)] dark:bg-[var(--color-bg-card)]"
+          : "rounded-xl border border-[#eae9e7] bg-white p-5 dark:border-[var(--color-border)] dark:bg-[var(--color-bg-card)]"
       }
     >
-      <p className="flex items-center gap-2 text-sm font-medium text-[#474a52]">
+      <p className="flex items-center gap-2 text-sm font-medium text-[#474a52] dark:text-[var(--color-text-primary)]">
         <Download className="h-4 w-4 text-[var(--color-accent)]" />
         {t("sourceCache.title")}
       </p>
-      <p className="mt-1 text-xs leading-5 text-[#808080]">
+      <p className="mt-1 text-xs leading-5 text-[#808080] dark:text-[var(--color-text-tertiary)]">
         {t("sourceCache.description")}
       </p>
       <div className="mt-3 flex flex-col gap-2">
@@ -54,13 +54,13 @@ export default function SourceCacheGate({
           return (
             <div
               key={version.assetVersionId}
-              className="flex items-center gap-3 rounded-lg border border-[#f0efed] px-3 py-2"
+              className="flex items-center gap-3 rounded-lg border border-[#f0efed] px-3 py-2 dark:border-[var(--color-border)]"
             >
               <div className="min-w-0 flex-1">
-                <p className="truncate text-xs font-medium text-[#474a52]">
+                <p className="truncate text-xs font-medium text-[#474a52] dark:text-[var(--color-text-primary)]">
                   {version.name}
                 </p>
-                <p className="text-[11px] text-[#a3a3a3]">
+                <p className="text-[11px] text-[#a3a3a3] dark:text-[var(--color-text-tertiary)]">
                   {version.expectedSizeBytes
                     ? downloading && version.receivedBytes !== undefined
                       ? `${formatBytes(version.receivedBytes)} / ${formatBytes(
@@ -70,7 +70,7 @@ export default function SourceCacheGate({
                     : ""}
                 </p>
                 {downloading && (
-                  <div className="mt-1 h-1 w-full overflow-hidden rounded-full bg-[#eae9e7]">
+                  <div className="mt-1 h-1 w-full overflow-hidden rounded-full bg-[#eae9e7] dark:bg-[var(--color-border)]">
                     <div
                       className="h-full rounded-full bg-[var(--color-accent)] transition-[width] duration-300"
                       style={{ width: `${progress ?? 5}%` }}

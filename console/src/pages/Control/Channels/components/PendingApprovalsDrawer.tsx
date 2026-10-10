@@ -1,6 +1,6 @@
+import { SettingsDrawer as Drawer } from "@/components/interaction/SettingsDrawer";
 import { useState, useEffect, useCallback, useMemo } from "react";
 import {
-  Drawer,
   Table,
   Button,
   Space,
@@ -10,10 +10,10 @@ import {
   Popconfirm,
 } from "antd";
 import {
-  CheckOutlined,
-  CloseOutlined,
-  DeleteOutlined,
-} from "@ant-design/icons";
+  Check as CheckOutlined,
+  X as CloseOutlined,
+  Trash2 as DeleteOutlined,
+} from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useAppMessage } from "../../../../hooks/useAppMessage";
 import {
@@ -343,7 +343,7 @@ export function PendingApprovalsDrawer({
             <Button
               type="primary"
               size="small"
-              icon={<CheckOutlined />}
+              icon={<CheckOutlined size="1em" />}
               disabled={!hasSelection}
               loading={batchLoading}
             >
@@ -359,7 +359,7 @@ export function PendingApprovalsDrawer({
           >
             <Button
               size="small"
-              icon={<CloseOutlined />}
+              icon={<CloseOutlined size="1em" />}
               disabled={!hasSelection}
               loading={batchLoading}
             >
@@ -376,7 +376,7 @@ export function PendingApprovalsDrawer({
             <Button
               danger
               size="small"
-              icon={<DeleteOutlined />}
+              icon={<DeleteOutlined size="1em" />}
               disabled={!hasSelection}
               loading={batchLoading}
             >

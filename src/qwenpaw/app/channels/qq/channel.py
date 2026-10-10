@@ -19,6 +19,7 @@ import os
 import re
 import threading
 import time
+from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
@@ -45,7 +46,12 @@ from ..base import (
     OutgoingContentPart,
     ProcessHandler,
 )
-from ..utils import file_url_to_local_path, split_text
+from ..utils import (
+    file_url_to_local_path,
+    materialize_data_url,
+    parse_data_url_async,
+    split_text,
+)
 
 if TYPE_CHECKING:
     import concurrent.futures
@@ -559,6 +565,7 @@ async def _send_guild_image_file_async(
     path: str,
     file_path: str,
     msg_id: Optional[str] = None,
+    filename: Optional[str] = None,
 ) -> None:
     """Send an image in guild/dm via form-data ``file_image`` upload.
 
@@ -578,7 +585,7 @@ async def _send_guild_image_file_async(
     data.add_field(
         "file_image",
         file_bytes,
-        filename=Path(file_path).name,
+        filename=filename or Path(file_path).name,
     )
     async with session.post(
         api_url,
@@ -697,6 +704,11 @@ class QQChannel(BaseChannel):
             self._media_dir = _DEFAULT_MEDIA_DIR
         self._max_reconnect_attempts = max_reconnect_attempts
         self._ack_message = ack_message
+        # Bounded dedup of platform event ids: the QQ gateway replays
+        # un-acked events after a session resume, so the same event can
+        # arrive more than once. Keep the last N ids and drop repeats
+        # before any side effect (ack, quoted parsing, enqueue).
+        self._seen_event_ids: deque[str] = deque(maxlen=256)
 
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._ws_thread: Optional[threading.Thread] = None
@@ -857,29 +869,122 @@ class QQChannel(BaseChannel):
         guild_id: Optional[str] = None,
     ) -> tuple[str, bool, str]:
         """Return (api_path, use_msg_seq, seq_key)."""
-        if message_type == "dm" and guild_id:
+        if message_type == "dm":
+            if not guild_id:
+                raise ValueError("QQ guild DM route requires guild_id")
             return (
                 f"/dms/{guild_id}/messages",
                 False,
                 "",
             )
-        if message_type == "group" and group_openid:
+        if message_type == "group":
+            if not group_openid:
+                raise ValueError("QQ group route requires group_openid")
             return (
                 f"/v2/groups/{group_openid}/messages",
                 True,
                 "group",
             )
-        if message_type == "guild" and channel_id:
+        if message_type == "guild":
+            if not channel_id:
+                raise ValueError("QQ guild route requires channel_id")
             return (
                 f"/channels/{channel_id}/messages",
                 False,
                 "",
             )
-        # c2c or fallback
+        if message_type == "c2c":
+            if not sender_id:
+                raise ValueError("QQ C2C route requires user_openid")
+            return (
+                f"/v2/users/{sender_id}/messages",
+                True,
+                "c2c",
+            )
+        raise ValueError(f"Unsupported QQ message_type: {message_type}")
+
+    # ------------------------------------------------------------------
+    # Session / route helpers
+    # ------------------------------------------------------------------
+
+    def resolve_session_id(
+        self,
+        sender_id: str,
+        channel_meta: Optional[Dict[str, Any]] = None,
+    ) -> str:
+        """Return a session ID scoped to one QQ conversation."""
+        meta = channel_meta or {}
+        message_type = str(meta.get("message_type") or "c2c")
+        if message_type == "group":
+            group_openid = str(meta.get("group_openid") or "unknown")
+            return f"qq:group:{group_openid}"
+        if message_type == "guild":
+            channel_id = str(meta.get("channel_id") or "unknown")
+            return f"qq:guild:{channel_id}"
+        if message_type == "dm":
+            guild_id = str(meta.get("guild_id") or "unknown")
+            return f"qq:dm:{guild_id}"
+        return f"qq:c2c:{sender_id or 'unknown'}"
+
+    @staticmethod
+    def _route_meta_from_handle(to_handle: str) -> Dict[str, str]:
+        """Decode a QQ session ID or direct handle into routing metadata."""
+        handle = (to_handle or "").strip()
+        routes = (
+            ("qq:c2c:", "c2c", "sender_id"),
+            ("qq:group:", "group", "group_openid"),
+            ("qq:guild:", "guild", "channel_id"),
+            ("qq:dm:", "dm", "guild_id"),
+            ("qq:", "c2c", "sender_id"),
+            ("group:", "group", "group_openid"),
+            ("channel:", "guild", "channel_id"),
+        )
+        for prefix, message_type, target_key in routes:
+            if handle.startswith(prefix):
+                target = handle.removeprefix(prefix)
+                if target == "unknown":
+                    return {"message_type": message_type}
+                return {
+                    "message_type": message_type,
+                    target_key: target,
+                }
+        return {}
+
+    def _normalize_route_meta(
+        self,
+        to_handle: str,
+        meta: Optional[Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        """Merge durable route data encoded in ``to_handle`` into metadata."""
+        route_meta = dict(meta or {})
+        encoded_route = self._route_meta_from_handle(to_handle)
+        if encoded_route:
+            route_meta.update(encoded_route)
+        else:
+            route_meta.setdefault("message_type", "c2c")
+            if to_handle:
+                route_meta.setdefault("sender_id", to_handle)
+        return route_meta
+
+    def to_handle_from_target(self, *, user_id: str, session_id: str) -> str:
+        """Return a durable QQ session handle for proactive sends."""
+        return session_id or f"qq:c2c:{user_id}"
+
+    def get_to_handle_from_request(self, request: Any) -> str:
+        """Return the request session ID so replies retain their route."""
+        session_id = getattr(request, "session_id", "") or ""
+        user_id = getattr(request, "user_id", "") or ""
+        return session_id or f"qq:c2c:{user_id}"
+
+    def get_on_reply_sent_args(
+        self,
+        request: Any,
+        to_handle: str,
+    ) -> tuple:
+        """Report the original QQ user and isolated session to the callback."""
         return (
-            f"/v2/users/{sender_id}/messages",
-            True,
-            "c2c",
+            getattr(request, "user_id", "") or "",
+            getattr(request, "session_id", "") or "",
         )
 
     async def _dispatch_text(
@@ -1093,12 +1198,12 @@ class QQChannel(BaseChannel):
         meta: Optional[Dict[str, Any]] = None,
     ) -> None:
         """Send one text via QQ HTTP API.
-        Routes by meta or to_handle (group:/channel:/openid).
+        Routes by metadata or a conversation-scoped QQ session handle.
         """
         if not self.enabled or not text.strip():
             return
         text = text.strip()
-        meta = meta or {}
+        meta = self._normalize_route_meta(to_handle, meta)
         use_markdown = _as_bool(
             meta.get("markdown_enabled", self._markdown_enabled),
         )
@@ -1108,21 +1213,12 @@ class QQChannel(BaseChannel):
                 logger.info(
                     "qq send: stripped URL content for API compatibility",
                 )
-        message_type = meta.get("message_type")
+        message_type = str(meta.get("message_type") or "c2c")
         msg_id = meta.get("message_id")
         sender_id = meta.get("sender_id") or to_handle
         channel_id = meta.get("channel_id")
         group_openid = meta.get("group_openid")
         guild_id = meta.get("guild_id")
-        if message_type is None:
-            if to_handle.startswith("group:"):
-                message_type = "group"
-                group_openid = to_handle[6:]
-            elif to_handle.startswith("channel:"):
-                message_type = "guild"
-                channel_id = to_handle[8:]
-            else:
-                message_type = "c2c"
         try:
             token = await self._get_access_token_async()
         except Exception:
@@ -1326,14 +1422,19 @@ class QQChannel(BaseChannel):
         if attachments:
             media_parts = self._parse_qq_attachments(attachments)
             content_parts = list(content_parts) + media_parts
-        session_id = self.resolve_session_id(sender_id, meta)
-        return self.build_agent_request_from_user_content(
+        session_id = payload.get("session_id") or self.resolve_session_id(
+            sender_id,
+            meta,
+        )
+        request = self.build_agent_request_from_user_content(
             channel_id=channel_id,
             sender_id=sender_id,
             session_id=session_id,
             content_parts=content_parts,
             channel_meta=meta,
         )
+        request.channel_meta = meta
+        return request
 
     # ------------------------------------------------------------------
     # Instant acknowledgment
@@ -1457,6 +1558,22 @@ class QQChannel(BaseChannel):
 
         return None
 
+    def _is_replayed_event(self, event_id: str) -> bool:
+        """Return True if ``event_id`` was already handled.
+
+        The QQ gateway re-delivers un-acked events after a session
+        resume, so the same event can arrive more than once. Remember
+        the last N ids and drop repeats before any side effect (ack /
+        quoted parsing / enqueue), so a replay cannot double-run the
+        agent or a non-idempotent command.
+        """
+        if not event_id:
+            return False
+        if event_id in self._seen_event_ids:
+            return True
+        self._seen_event_ids.append(event_id)
+        return False
+
     def _handle_msg_event(
         self,
         event_type: str,
@@ -1481,6 +1598,13 @@ class QQChannel(BaseChannel):
             return
 
         msg_id = d.get("id", "")
+        if self._is_replayed_event(msg_id):
+            logger.info(
+                "qq duplicate %s msg_id=%s ignored (replayed event)",
+                spec.message_type,
+                msg_id,
+            )
+            return
         att = d.get("attachments") or []
         is_group = spec.message_type in ("group", "guild")
         meta: Dict[str, Any] = {
@@ -1563,6 +1687,14 @@ class QQChannel(BaseChannel):
 
     def _handle_interaction_event(self, d: Dict[str, Any]) -> None:
         """Handle an INTERACTION_CREATE WebSocket event."""
+        interaction_id = str(d.get("id") or "")
+        if self._is_replayed_event(interaction_id):
+            logger.info(
+                "qq duplicate INTERACTION_CREATE id=%s ignored "
+                "(replayed event)",
+                interaction_id,
+            )
+            return
         self._card_handler.handle_interaction_event(d)
 
     async def on_event_message_completed(
@@ -1573,6 +1705,7 @@ class QQChannel(BaseChannel):
         send_meta: Dict[str, Any],
     ) -> None:
         """Render card-flagged events via the card handler; else default."""
+        send_meta = self._normalize_route_meta(to_handle, send_meta)
         if await self._card_handler.try_send_card_for_event(
             to_handle,
             event,
@@ -1590,7 +1723,7 @@ class QQChannel(BaseChannel):
     # WebSocket: payload dispatch
     # ------------------------------------------------------------------
 
-    def _handle_ws_payload(
+    def _handle_ws_payload(  # pylint: disable=too-many-return-statements
         self,
         payload: Dict[str, Any],
         ws: Any,
@@ -1606,6 +1739,34 @@ class QQChannel(BaseChannel):
         d = payload.get("d")
         s = payload.get("s")
         t = payload.get("t")
+
+        # Drop replayed DISPATCH events. After a session resume the
+        # gateway may re-deliver events it never saw acked. The event
+        # sequence ``s`` is monotonic within a session, so a DISPATCH at
+        # or below the highest sequence already processed is a replay.
+        # This is O(1) memory and covers every dispatch event type
+        # (messages and interactions), unlike a bounded per-id set.
+        #
+        # Division of labour with the per-id guard in
+        # ``_handle_msg_event``: a resume replays events *after* the
+        # submitted seq (i.e. with a higher ``s``), which is the shape
+        # seen in #7946, so the id guard is what catches that one. This
+        # seq guard covers the other shape: the same event delivered
+        # again with an unchanged ``s``. Keep both -- neither alone is
+        # sufficient.
+        if (
+            op == OP_DISPATCH
+            and s is not None
+            and state.last_seq is not None
+            and s <= state.last_seq
+        ):
+            logger.info(
+                "qq duplicate dispatch t=%s seq=%s ignored (replayed event)",
+                t,
+                s,
+            )
+            return None
+
         if s is not None:
             state.last_seq = s
 
@@ -1626,6 +1787,10 @@ class QQChannel(BaseChannel):
                     ),
                 )
             else:
+                # Fresh session: the gateway restarts `s` from 1, so the
+                # previous high-water mark is meaningless and would make
+                # the replay guard drop the upcoming READY.
+                state.last_seq = None
                 intents = INTENT_PUBLIC_GUILD_MESSAGES | INTENT_GUILD_MEMBERS
                 intents |= INTENT_INTERACTION
                 if state.identify_fail_count < 3:
@@ -2041,7 +2206,7 @@ class QQChannel(BaseChannel):
 
         body = "\n".join(text_parts).strip() if text_parts else ""
 
-        meta = meta or {}
+        meta = self._normalize_route_meta(to_handle, meta)
         message_type = meta.get("message_type", "c2c")
         msg_id = meta.get("message_id")
 
@@ -2105,7 +2270,7 @@ class QQChannel(BaseChannel):
         if not self.enabled:
             return
 
-        meta = meta or {}
+        meta = self._normalize_route_meta(to_handle, meta)
         (
             message_type,
             sender_id,
@@ -2159,6 +2324,7 @@ class QQChannel(BaseChannel):
                 message_type,
             )
 
+    # pylint: disable=too-many-return-statements
     async def _send_media_c2c_or_group(
         self,
         *,
@@ -2211,6 +2377,20 @@ class QQChannel(BaseChannel):
                     local_path,
                 )
                 return
+        elif url and url.startswith("data:"):
+            try:
+                data_media = await parse_data_url_async(url)
+            except ValueError as exc:
+                logger.warning(f"qq: invalid media data URL: {exc}")
+                return
+            if data_media is None:
+                return
+            encoded = await asyncio.to_thread(
+                base64.b64encode,
+                data_media.data,
+            )
+            file_data = await asyncio.to_thread(encoded.decode, "ascii")
+            display_filename = f"file{data_media.suffix}"
         elif url:
             display_filename = Path(url.split("?")[0]).name
 
@@ -2289,7 +2469,23 @@ class QQChannel(BaseChannel):
             return
 
         try:
-            if url:
+            if url and url.startswith("data:"):
+                async with materialize_data_url(
+                    url,
+                    self._media_dir,
+                    filename_hint="image",
+                ) as media:
+                    if media is None:
+                        return
+                    await _send_guild_image_file_async(
+                        self._http,
+                        token,
+                        path,
+                        media.path,
+                        msg_id,
+                        filename=media.filename,
+                    )
+            elif url:
                 await _send_guild_image_async(
                     self._http,
                     token,

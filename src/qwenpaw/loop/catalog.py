@@ -217,7 +217,11 @@ def _entries() -> list[GateCatalogEntry]:
             description="Detect repeated tool calls and change strategy.",
             category="safety",
             params_model=DoomLoopParams,
-            factory=lambda params: DoomLoopGate(**_dump(params)),
+            factory=lambda params: DoomLoopGate(
+                window_size=params.window_size,
+                similarity_threshold=params.similarity_threshold,
+                stages=params.stages,
+            ),
         ),
         GateCatalogEntry(
             type="token_budget",

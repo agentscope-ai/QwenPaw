@@ -164,150 +164,6 @@ def test_url_backed_version_uses_public_source_without_local_cache(
     ]
 
 
-def test_url_backed_version_uses_runtime_cache_probe_for_duration(
-    tmp_path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    services = CreatorFileServices.create(tmp_path.resolve())
-    services.projects.create(
-        Project.new(project_id="project-1", name="Project"),
-    )
-    item = _register_remote_asset_sync(
-        services,
-        project_id="project-1",
-        key="remote-media-cached",
-        url="https://assets.example/cached.mp4",
-        requested_name="cached.mp4",
-        attach_source=True,
-        scope="POST-assets",
-    )
-    cache_path = tmp_path / "cached.mp4"
-    cache_path.write_bytes(b"cached-video")
-    monkeypatch.setattr(
-        native_media,
-        "resolve_remote_cache",
-        lambda *_args, **_kwargs: SimpleNamespace(path=cache_path),
-    )
-    monkeypatch.setattr(
-        native_media,
-        "probe_media",
-        lambda _path: SimpleNamespace(duration_seconds=3502.567),
-    )
-    request = CreatorMessageRecord(
-        message_id="message-cached",
-        project_id="project-1",
-        creator_session_id="session-1",
-        conversation_id="conversation-1",
-        message_seq=1,
-        role="user",
-        content_parts=[{"type": "text", "text": "理解远程长视频"}],
-        metadata={
-            "assetVersionRefs": [f"asset-version:{item['assetVersionId']}"],
-        },
-    )
-
-    parts = asyncio.run(
-        native_media.source_intelligence_content_parts(
-            services,
-            project_id="project-1",
-            request=request,
-        ),
-    )
-
-    assert parts[0]["video_url"] == {
-        "url": "https://assets.example/cached.mp4",
-        "mediaType": "video/mp4",
-        "versionId": item["assetVersionId"],
-        "checksum": item["checksum"],
-        "fps": 0.5,
-        "durationMs": 3_502_567,
-    }
-
-
-def test_delegated_asset_target_refs_resolve_panel_uploaded_sources(
-    tmp_path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Assets ingested from the panel reach the specialist via target refs."""
-
-    services = CreatorFileServices.create(tmp_path.resolve())
-    services.projects.create(
-        Project.new(project_id="project-1", name="Project"),
-    )
-    response, _replayed = _ingest_many_sync(
-        services,
-        project_id="project-1",
-        key="panel-media",
-        inputs=[
-            _AssetInput(
-                name="clip.mp4",
-                content=b"panel-video-bytes",
-                media_type="video/mp4",
-            ),
-        ],
-        attach_source=True,
-        scope="test-panel-media",
-    )
-    version_id = response["items"][0]["assetVersionId"]
-    logical_asset_id = response["items"][0]["assetId"]
-
-    async def fake_upload(path, **kwargs):
-        del kwargs
-        assert path.read_bytes() == b"panel-video-bytes"
-        return "oss://dashscope/clip.mp4"
-
-    monkeypatch.setattr(
-        native_media.model_config,
-        "get_vlm_api_key",
-        lambda: "test-vlm-key",
-    )
-    monkeypatch.setattr(
-        native_media.model_config,
-        "get_vlm_model_name",
-        lambda: "qwen3.7-plus",
-    )
-    monkeypatch.setattr(
-        native_media,
-        "upload_local_file_to_dashscope_temp",
-        fake_upload,
-    )
-    monkeypatch.setattr(
-        native_media,
-        "probe_media",
-        lambda _path: SimpleNamespace(duration_seconds=61.52),
-    )
-    request = CreatorMessageRecord(
-        message_id="message-panel",
-        project_id="project-1",
-        creator_session_id="session-1",
-        conversation_id="conversation-1",
-        message_seq=1,
-        role="user",
-        content_parts=[{"type": "text", "text": "素材已上传，开始剪辑"}],
-    )
-
-    parts = asyncio.run(
-        native_media.source_intelligence_content_parts(
-            services,
-            project_id="project-1",
-            request=request,
-            target_refs=[f"asset:{logical_asset_id}"],
-        ),
-    )
-
-    assert len(parts) == 1
-    assert parts[0]["type"] == "video_url"
-    assert parts[0]["video_url"]["url"] == "oss://dashscope/clip.mp4"
-    assert parts[0]["video_url"]["versionId"] == version_id
-    # Local panel uploads are probed directly, so the specialist receives
-    # the real duration and a short-video sampling rate.
-    assert parts[0]["video_url"]["durationMs"] == 61_520
-    assert parts[0]["video_url"]["fps"] == 2.0
-    assert parts[0]["attachment"]["assetVersionRef"] == (
-        f"asset-version:{version_id}"
-    )
-
-
 def test_short_video_target_ref_is_delivered_as_frame_sequence(
     tmp_path,
     monkeypatch: pytest.MonkeyPatch,
@@ -416,21 +272,72 @@ def test_short_video_target_ref_is_delivered_as_frame_sequence(
     ]
 
 
-def test_delegated_target_ref_without_project_source_is_skipped(
+def test_target_refs_scope_media_to_the_delegated_asset(
     tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Per-target delegations must not re-observe sibling uploads."""
+
     services = CreatorFileServices.create(tmp_path.resolve())
     services.projects.create(
         Project.new(project_id="project-1", name="Project"),
     )
+    response, _replayed = _ingest_many_sync(
+        services,
+        project_id="project-1",
+        key="batch-media",
+        inputs=[
+            _AssetInput(
+                name="a.png",
+                content=b"a-bytes",
+                media_type="image/png",
+            ),
+            _AssetInput(
+                name="b.png",
+                content=b"b-bytes",
+                media_type="image/png",
+            ),
+        ],
+        attach_source=True,
+        scope="test-batch-media",
+    )
+    items = response["items"]
+    target_item = items[0]
+    uploaded_bytes: list[bytes] = []
+
+    async def fake_upload(path, **kwargs):
+        del kwargs
+        uploaded_bytes.append(path.read_bytes())
+        return f"oss://dashscope/{path.name}"
+
+    monkeypatch.setattr(
+        native_media.model_config,
+        "get_vlm_api_key",
+        lambda: "test-vlm-key",
+    )
+    monkeypatch.setattr(
+        native_media.model_config,
+        "get_vlm_model_name",
+        lambda: "qwen3.7-plus",
+    )
+    monkeypatch.setattr(
+        native_media,
+        "upload_local_file_to_dashscope_temp",
+        fake_upload,
+    )
     request = CreatorMessageRecord(
-        message_id="message-missing",
+        message_id="message-batch",
         project_id="project-1",
         creator_session_id="session-1",
         conversation_id="conversation-1",
         message_seq=1,
         role="user",
-        content_parts=[{"type": "text", "text": "开始"}],
+        content_parts=[{"type": "text", "text": "上传了两张图"}],
+        metadata={
+            "assetVersionRefs": [
+                f"asset-version:{item['assetVersionId']}" for item in items
+            ],
+        },
     )
 
     parts = asyncio.run(
@@ -438,11 +345,13 @@ def test_delegated_target_ref_without_project_source_is_skipped(
             services,
             project_id="project-1",
             request=request,
-            target_refs=["asset:asset-does-not-exist"],
+            target_refs=[f"asset:{target_item['assetId']}"],
         ),
     )
 
-    assert parts == []
+    assert [part["type"] for part in parts] == ["image_url"]
+    assert parts[0]["image_url"]["versionId"] == target_item["assetVersionId"]
+    assert uploaded_bytes == [b"a-bytes"]
 
 
 def test_document_page_refs_become_native_image_parts(

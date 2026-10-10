@@ -26,11 +26,7 @@ from agentscope.message import TextBlock
 from agentscope.tool import ToolChunk
 from agentscope.message import ToolResultState
 
-from ...config.context import (
-    get_current_project_dir,
-    get_current_workspace_dir,
-)
-from ...constant import WORKING_DIR
+from ...config.context import get_tool_base_dir
 from ...runtime.tool_registry import tool_descriptor
 from .file_io import _resolve_file_path
 
@@ -85,39 +81,32 @@ def is_ast_grep_available() -> bool:
 
 
 def _resolve_root() -> Path:
-    """Resolve the search base directory."""
-    workspace = get_current_project_dir() or get_current_workspace_dir()
-    if workspace is not None:
-        return workspace
-    return WORKING_DIR
+    """Resolve the search base directory (the PRIMARY project dir)."""
+    return get_tool_base_dir()
 
 
 def _resolve_search_path(
     path: str,
     root: Path,
 ) -> "Path | ToolChunk":
-    """Resolve and validate the ``path`` argument.
+    """Resolve the ``path`` argument.
 
     Empty string  → return ``root`` (search whole project).
-    Anything else → must resolve **inside** ``root`` (anti-escape).
+    Anything else → resolved by the shared tool-layer policy: relative
+    paths join onto the primary project dir, absolute paths are used as
+    given.
+
+    Containment is deliberately NOT enforced here: with several granted
+    roots, a path outside the primary is legitimate, and access is gated
+    by the governance rules and the guard chain. The ``ValueError`` guard
+    only covers input ``Path`` itself rejects (e.g. an embedded NUL).
     """
     if not path:
         return root
-    candidate = Path(_resolve_file_path(path)).expanduser()
     try:
-        candidate_resolved = candidate.resolve()
-    except OSError as exc:
-        return _make_response(
-            f"Error: cannot resolve path {candidate} — {exc}",
-        )
-    root_resolved = root.resolve()
-    try:
-        candidate_resolved.relative_to(root_resolved)
-    except ValueError:
-        return _make_response(
-            f"Error: path {path} is outside the project root "
-            f"{root_resolved}.",
-        )
+        candidate_resolved = Path(_resolve_file_path(path))
+    except ValueError as e:
+        return _make_response(f"Error: {e}")
     if not candidate_resolved.exists():
         return _make_response(
             f"Error: path {candidate_resolved} does not exist.",

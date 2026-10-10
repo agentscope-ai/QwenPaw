@@ -1,9 +1,10 @@
 # -*- coding: utf-8 -*-
 """Approval service for sensitive tool execution.
 
-The ``ApprovalService`` is the single central store for pending /
-completed approval records.  Approval is granted exclusively via
-the ``/daemon approve`` command in the chat interface.
+The ``ApprovalService`` is the single central store for pending and completed
+approval records. Decisions can arrive from chat control commands, the
+authenticated Console API, or ACP permission prompts; identity policy is
+enforced here so every resolution surface shares the same boundary.
 """
 
 from __future__ import annotations
@@ -13,6 +14,7 @@ import logging
 import time
 import uuid
 from dataclasses import dataclass, field
+from enum import Enum
 from typing import TYPE_CHECKING, Any
 
 from ...constant import TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS
@@ -28,6 +30,34 @@ _GC_MAX_AGE_SECONDS = 3600.0
 _GC_MAX_COMPLETED = 500
 _GC_PENDING_MAX_AGE_SECONDS = 1800.0
 _GC_MAX_PENDING = 200
+
+
+class ApprovalIdentityPolicy(str, Enum):
+    """Identity boundary applied when an approval is resolved.
+
+    ``AGENT`` preserves the established tool/subagent delegation model.
+    ``EXACT_REQUESTER`` is for user-triggered side effects: the resolver must
+    match every request identity field, unless it is explicitly an admin.
+    """
+
+    AGENT = "agent"
+    EXACT_REQUESTER = "exact_requester"
+
+
+@dataclass(frozen=True)
+class ApprovalActor:
+    """Identity of the caller attempting to resolve an approval."""
+
+    session_id: str
+    root_session_id: str
+    user_id: str
+    channel: str
+    agent_id: str
+    is_admin: bool = False
+
+
+class ApprovalIdentityMismatchError(PermissionError):
+    """Raised when a caller crosses an approval's identity boundary."""
 
 
 # ------------------------------------------------------------------
@@ -56,6 +86,9 @@ class PendingApproval:
     findings_count: int = 0
     severity: str = "medium"  # For frontend display
     extra: dict[str, Any] = field(default_factory=dict)
+    # Resolution authorization. Most existing tool approvals are agent-scoped;
+    # direct user-triggered side effects can opt into exact requester matching.
+    identity_policy: ApprovalIdentityPolicy = ApprovalIdentityPolicy.AGENT
     # How widely the approved call should be remembered (EXACT vs SIMILAR).
     # Set by ``resolve_request`` from the approve path; ``None`` means the
     # caller didn't choose (IM channels, CLI, non-governance paths) and is
@@ -82,8 +115,8 @@ def _is_spawn_child_approval(pending: PendingApproval) -> bool:
 class ApprovalService:
     """Global singleton approval service.
 
-    Manages all tool approval requests across sessions and agents.
-    Approval is resolved via ``/approval`` control command.
+    Manages approval requests across sessions and agents and applies their
+    identity policy atomically when any supported surface resolves them.
     """
 
     def __init__(self) -> None:
@@ -158,6 +191,7 @@ class ApprovalService:
         result: "ToolGuardResult",
         timeout_seconds: float = TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS,
         extra: dict[str, Any] | None = None,
+        identity_policy: ApprovalIdentityPolicy = ApprovalIdentityPolicy.AGENT,
     ) -> PendingApproval:
         """Create a pending approval record and return it."""
         from ...security.tool_guard.approval import (
@@ -184,6 +218,7 @@ class ApprovalService:
             findings_count=result.findings_count,
             severity=result.max_severity.value,
             extra=dict(extra or {}),
+            identity_policy=identity_policy,
         )
 
         async with self._lock:
@@ -229,6 +264,7 @@ class ApprovalService:
         summary: ApprovalRequestSummary,
         timeout_seconds: float = TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS,
         extra: dict[str, Any] | None = None,
+        identity_policy: ApprovalIdentityPolicy = ApprovalIdentityPolicy.AGENT,
     ) -> PendingApproval:
         """Create a pending approval from a generic summary."""
         request_id = str(uuid.uuid4())
@@ -254,6 +290,7 @@ class ApprovalService:
             findings_count=summary.findings_count,
             severity=summary.severity,
             extra=merged_extra,
+            identity_policy=identity_policy,
         )
         async with self._lock:
             self._pending[request_id] = pending
@@ -289,6 +326,8 @@ class ApprovalService:
         request_id: str,
         decision: ApprovalDecision,
         scope: ApprovalScope | None = None,
+        *,
+        actor: ApprovalActor | None = None,
     ) -> PendingApproval | None:
         """Resolve pending approval by setting Future result.
 
@@ -297,9 +336,12 @@ class ApprovalService:
                 (EXACT vs SIMILAR). Stashed on ``pending.scope`` so the
                 governance consumer can pick the rule target. ``None`` is
                 treated as EXACT. Ignored for non-APPROVED decisions.
+            actor: caller identity used by policies stricter than ``AGENT``.
+                Exact-requester approvals reject missing or mismatched actors.
+                Automatic timeout resolution is the only actor-free exception.
         """
         async with self._lock:
-            pending = self._pending.pop(request_id, None)
+            pending = self._pending.get(request_id)
             if pending is None:
                 logger.warning(
                     "Approval request %s not found (already resolved?)",
@@ -307,6 +349,17 @@ class ApprovalService:
                 )
                 return None
 
+            if (
+                pending.identity_policy
+                == ApprovalIdentityPolicy.EXACT_REQUESTER
+                and decision != ApprovalDecision.TIMEOUT
+                and not self.actor_can_resolve(pending, actor)
+            ):
+                raise ApprovalIdentityMismatchError(
+                    "approval caller does not match the original requester",
+                )
+
+            self._pending.pop(request_id)
             pending.status = decision.value
             pending.resolved_at = time.time()
             pending.scope = scope
@@ -324,6 +377,31 @@ class ApprovalService:
         )
 
         return pending
+
+    @staticmethod
+    def actor_can_resolve(
+        pending: PendingApproval,
+        actor: ApprovalActor | None,
+    ) -> bool:
+        """Return whether ``actor`` may resolve ``pending``.
+
+        Agent-scoped approvals retain their existing resolver behavior. Exact
+        approvals require the original request identity unless an admin is
+        represented explicitly.
+        """
+        if pending.identity_policy == ApprovalIdentityPolicy.AGENT:
+            return actor is None or actor.agent_id == pending.agent_id
+        if actor is None:
+            return False
+        if actor.is_admin:
+            return True
+        return (
+            actor.agent_id == pending.agent_id
+            and actor.user_id == pending.user_id
+            and actor.channel == pending.channel
+            and actor.session_id == pending.session_id
+            and actor.root_session_id == pending.root_session_id
+        )
 
     async def get_request(self, request_id: str) -> PendingApproval | None:
         """Get a pending request by id."""

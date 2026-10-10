@@ -1,11 +1,15 @@
 # -*- coding: utf-8 -*-
+# pylint: disable=protected-access
 from __future__ import annotations
 
-from datetime import datetime
+import sys
+import time
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import patch
 from zoneinfo import ZoneInfo
 
+import pytest
 from agentscope.message import Msg
 
 from qwenpaw.app.chats.utils import (
@@ -264,17 +268,16 @@ def test_msg_to_message_omits_synthetic_user_stubs():
 
 def test_msg_to_message_omits_visual_compression_placeholders():
     """Visual-compression collapse rewrites history into user-role
-    ``visual_history`` / ``visual_context`` messages. They are model-only
+    ``visual_history`` messages. They are model-only
     reconstructions, never the user's transcript."""
-    for name in ("visual_history", "visual_context"):
-        collapsed = Msg(
-            name=name,
-            role="user",
-            content=[
-                {"type": "text", "text": "[pages 1-3 of prior history]"},
-            ],
-        )
-        assert not agentscope_msg_to_message(collapsed), name
+    collapsed = Msg(
+        name="visual_history",
+        role="user",
+        content=[
+            {"type": "text", "text": "[pages 1-3 of prior history]"},
+        ],
+    )
+    assert not agentscope_msg_to_message(collapsed)
 
 
 def test_msg_to_message_keeps_user_message_with_unknown_tag():
@@ -432,9 +435,208 @@ def test_agentscope_msg_to_message_timestamp_uses_process_local_tz():
     assert converted.tzinfo is not None
 
 
+def _simulate_host_in(monkeypatch, chats_utils, zone_name):
+    """Make the consistency check see a host running in *zone_name*."""
+    zone = ZoneInfo(zone_name)
+    offset = zone.utcoffset(datetime.now()) or timedelta(0)
+    monkeypatch.setattr(
+        chats_utils,
+        "detect_system_timezone",
+        lambda: zone_name,
+    )
+    monkeypatch.setattr(
+        chats_utils,
+        "_fixed_local_tz",
+        lambda: timezone(offset),
+    )
+    chats_utils._process_local_tz.cache_clear()
+
+
+def test_process_local_tz_carries_dst_rule(monkeypatch):
+    """Regression #8046: the process zone must answer for the timestamp's
+    own date, not freeze the offset in effect right now."""
+    import qwenpaw.app.chats.utils as chats_utils
+
+    _simulate_host_in(monkeypatch, chats_utils, "America/New_York")
+    try:
+        tz = chats_utils._process_local_tz()
+        assert tz.utcoffset(datetime(2026, 7, 15, 12)) != tz.utcoffset(
+            datetime(2026, 1, 15, 12),
+        )
+    finally:
+        chats_utils._process_local_tz.cache_clear()
+
+
+def test_process_local_tz_falls_back_when_zone_unresolvable(monkeypatch):
+    """An unresolvable IANA name must not raise — fall back to a tzinfo.
+
+    ``detect_system_timezone()`` never actually returns such a name
+    (``normalize_tz`` validates every candidate and bottoms out at
+    ``"UTC"``), so this pins the defensive branch only.
+    """
+    import qwenpaw.app.chats.utils as chats_utils
+
+    chats_utils._process_local_tz.cache_clear()
+    monkeypatch.setattr(
+        chats_utils,
+        "detect_system_timezone",
+        lambda: "Mars/Phobos",
+    )
+    try:
+        assert chats_utils._process_local_tz() is not None
+    finally:
+        chats_utils._process_local_tz.cache_clear()
+
+
+def test_process_local_tz_rejects_zone_that_contradicts_the_clock(monkeypatch):
+    """Regression #8046 (Windows fallback): a zone that disagrees with the
+    process's own offset must be rejected, not trusted.
+
+    ``detect_system_timezone()`` cannot report failure — an unmapped
+    Windows registry name silently yields ``"UTC"`` — so trusting it
+    stamps naive timestamps with the wrong offset (here +00:00 instead of
+    +08:00).  The check must keep the previous fixed offset instead.
+    """
+    import qwenpaw.app.chats.utils as chats_utils
+
+    # Windows host whose registry name is unmapped: the process clock is
+    # +08:00 while detect_system_timezone() silently says "UTC".
+    _simulate_host_in(monkeypatch, chats_utils, "Asia/Shanghai")
+    monkeypatch.setattr(chats_utils, "detect_system_timezone", lambda: "UTC")
+    try:
+        tz = chats_utils._process_local_tz()
+        # The bogus "UTC" zone does not explain the process offset, so the
+        # previous fixed offset is kept instead of stamping +00:00.
+        assert tz.utcoffset(datetime(2026, 1, 15, 9)) == timedelta(hours=8)
+        assert tz.utcoffset(datetime(2026, 7, 15, 9)) == timedelta(hours=8)
+    finally:
+        chats_utils._process_local_tz.cache_clear()
+
+
+def test_process_local_tz_accepts_zone_that_matches_the_clock(monkeypatch):
+    """A zone that does explain the current offset is kept (DST rules)."""
+    import qwenpaw.app.chats.utils as chats_utils
+
+    _simulate_host_in(monkeypatch, chats_utils, "Asia/Shanghai")
+    try:
+        tz = chats_utils._process_local_tz()
+        assert tz.key == "Asia/Shanghai"
+    finally:
+        chats_utils._process_local_tz.cache_clear()
+
+
+def test_normalize_msg_timestamp_other_dst_half_year():
+    """Regression #8046: a naive timestamp from the other DST half-year
+    keeps its instant — 09:00 EST (-05:00) == 22:00 +08:00."""
+    shanghai = ZoneInfo("Asia/Shanghai")
+    with patch(
+        "qwenpaw.app.chats.utils._process_local_tz",
+        return_value=ZoneInfo("America/New_York"),
+    ):
+        assert (
+            _normalize_msg_timestamp("2026-01-15T09:00:00", shanghai)
+            == "2026-01-15T22:00:00+08:00"
+        )
+
+
+def test_normalize_msg_timestamp_keeps_offset_when_zone_contradicts_clock(
+    monkeypatch,
+):
+    """The Windows fallback must not shift a naive timestamp by the whole
+    UTC offset: with the process at +08:00 and ``detect_system_timezone()``
+    wrongly returning ``"UTC"``, 09:00 local stays 09:00 +08:00."""
+    import qwenpaw.app.chats.utils as chats_utils
+
+    # Same unmapped-Windows-name scenario, driven through the real
+    # normalization path.
+    _simulate_host_in(monkeypatch, chats_utils, "Asia/Shanghai")
+    monkeypatch.setattr(chats_utils, "detect_system_timezone", lambda: "UTC")
+    try:
+        assert (
+            _normalize_msg_timestamp(
+                "2026-01-15T09:00:00",
+                ZoneInfo("Asia/Shanghai"),
+            )
+            == "2026-01-15T09:00:00+08:00"
+        )
+    finally:
+        chats_utils._process_local_tz.cache_clear()
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="tzset() is POSIX-only")
+def test_process_local_tz_dst_rule_via_tz_env(monkeypatch):
+    """Mirror the issue repro: with ``TZ=America/New_York`` the process
+    zone reports EST in January and EDT in July."""
+    import qwenpaw.app.chats.utils as chats_utils
+
+    monkeypatch.setenv("TZ", "America/New_York")
+    time.tzset()
+    chats_utils._process_local_tz.cache_clear()
+    try:
+        tz = chats_utils._process_local_tz()
+        assert tz.utcoffset(datetime(2026, 1, 15, 12)) == timedelta(hours=-5)
+        assert tz.utcoffset(datetime(2026, 7, 15, 12)) == timedelta(hours=-4)
+    finally:
+        chats_utils._process_local_tz.cache_clear()
+        monkeypatch.delenv("TZ", raising=False)
+        time.tzset()
+
+
 # ---------------------------------------------------------------------------
 # _clean_title
 # ---------------------------------------------------------------------------
+
+
+def test_agentscope_msg_to_message_exposes_finished_at():
+    """Issue #6826: the API must expose the real reply-end time so the
+    frontend can display it instead of the created_at alias."""
+    msg = Msg(
+        name="assistant",
+        role="assistant",
+        content=[{"type": "text", "text": "done"}],
+        created_at="2026-08-10T12:52:57.000000",
+        finished_at="2026-08-10T12:54:03.000000",
+    )
+    shanghai = ZoneInfo("Asia/Shanghai")
+    with (
+        patch(
+            "qwenpaw.app.chats.utils.load_config",
+            return_value=SimpleNamespace(user_timezone="Asia/Shanghai"),
+        ),
+        patch(
+            "qwenpaw.app.chats.utils._process_local_tz",
+            return_value=shanghai,
+        ),
+    ):
+        [message] = agentscope_msg_to_message(msg)
+
+    assert message.metadata["finished_at"] == "2026-08-10T12:54:03+08:00"
+    # timestamp (created_at alias) keeps its existing behaviour.
+    assert message.metadata["timestamp"] == "2026-08-10T12:52:57+08:00"
+
+
+def test_agentscope_msg_to_message_finished_at_none_when_absent():
+    """Legacy sessions without the stamp fall back to timestamp."""
+    msg = Msg(
+        name="assistant",
+        role="assistant",
+        content=[{"type": "text", "text": "legacy"}],
+        created_at="2026-08-10T12:52:57.000000",
+    )
+    shanghai = ZoneInfo("Asia/Shanghai")
+    with (
+        patch(
+            "qwenpaw.app.chats.utils.load_config",
+            return_value=SimpleNamespace(user_timezone="Asia/Shanghai"),
+        ),
+        patch(
+            "qwenpaw.app.chats.utils._process_local_tz",
+            return_value=shanghai,
+        ),
+    ):
+        [message] = agentscope_msg_to_message(msg)
+
+    assert message.metadata["finished_at"] is None
 
 
 def test_clean_title_strips_quotes_and_punctuation():
@@ -450,7 +652,7 @@ def test_clean_title_empty_returns_empty():
     assert _clean_title("   ") == ""
 
 
-def test_clean_title_truncates_long_title():
+def test_clean_title_keeps_long_title():
     long_title = "x" * 200
     result = _clean_title(long_title)
-    assert len(result) <= 80
+    assert result == long_title

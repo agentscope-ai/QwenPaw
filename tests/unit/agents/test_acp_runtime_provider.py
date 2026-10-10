@@ -131,7 +131,7 @@ def test_runtime_provider_applies_model_info():
     assert config.max_output_tokens == 4096
     assert model.max_input_length == 32768
     assert model.max_input_length_configured is True
-    assert model.max_tokens == 4096
+    assert model.generate_kwargs["max_tokens"] == 4096
     assert provider.get_context_size("policy") == 32768
     assert (
         provider.get_effective_generate_kwargs("policy")["max_tokens"] == 4096
@@ -386,3 +386,26 @@ async def test_cancel_stops_active_prompt(monkeypatch):
 
     assert cancelled.is_set()
     assert result.stop_reason == "cancelled"
+
+
+@pytest.mark.parametrize(f"protocol", [f"chat", f"responses", f"anthropic"])
+def test_acp_protocol_and_overrides_are_private(protocol):
+    config = OpenAIRuntimeProviderConfig(
+        base_url=f"https://custom.example/v1",
+        api_key=f"test",
+        model=f"deployment",
+        protocol=protocol,
+        max_output_tokens=128,
+        model_overrides={
+            f"template_id": f"openai/gpt-5.6",
+            f"supports_image": False,
+            f"generate_kwargs": {f"temperature": 0.2},
+        },
+    )
+    first = config.build_provider()
+    second = config.build_provider()
+    assert first.wire_protocol == protocol
+    assert first.resolve_model_info(f"deployment").supports_image is False
+    assert config.model_overrides[f"generate_kwargs"] == {f"temperature": 0.2}
+    first.models[0].generate_kwargs[f"temperature"] = 0.9
+    assert second.models[0].generate_kwargs[f"temperature"] == 0.2

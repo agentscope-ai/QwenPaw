@@ -107,6 +107,8 @@ export interface ConversationPage {
 export interface MessagePage {
   items: CreatorMessage[];
   nextAfter?: number | null;
+  /** Backward cursor: smallest seq of this page when older history exists. */
+  nextBefore?: number | null;
 }
 
 export interface CreatorSessionResponse {

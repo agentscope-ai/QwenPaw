@@ -91,7 +91,7 @@ export default function InspirationExamples() {
   if (examples.length === 0) return null;
   return (
     <div className="w-full">
-      <p className="mb-2 text-sm leading-6 tracking-[0.4px] text-[#808080]">
+      <p className="mb-2 text-sm leading-6 tracking-[0.4px] text-[#808080] dark:text-[var(--color-text-tertiary)]">
         {t("inspiration.title")}
       </p>
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
@@ -103,7 +103,7 @@ export default function InspirationExamples() {
               type="button"
               disabled={openingId !== null}
               onClick={() => void handleOpen(example)}
-              className="relative cursor-pointer overflow-hidden rounded-lg border border-[#eae9e7] bg-white p-4 text-left backdrop-blur-[10px] transition-colors hover:border-[var(--color-accent)] disabled:cursor-default disabled:opacity-70"
+              className="relative cursor-pointer overflow-hidden rounded-lg border border-[#eae9e7] bg-white p-4 text-left backdrop-blur-[10px] transition-colors hover:border-[var(--color-accent)] disabled:cursor-default disabled:opacity-70 dark:border-[var(--color-border)] dark:bg-[var(--color-bg-card)]"
             >
               {/* Rotated collage art from the design, clipped by the card; the
                   left edge fades out so the raster never shows a seam. */}
@@ -113,7 +113,7 @@ export default function InspirationExamples() {
                 aria-hidden
                 className="pointer-events-none absolute right-0 top-0 h-full w-auto max-w-none select-none [mask-image:linear-gradient(to_right,transparent,black_35%)]"
               />
-              <p className="relative z-10 flex items-center gap-2 text-sm font-medium leading-6 tracking-[0.4px] text-[#474a52]">
+              <p className="relative z-10 flex items-center gap-2 text-sm font-medium leading-6 tracking-[0.4px] text-[#474a52] dark:text-[var(--color-text-primary)]">
                 {example.title}
                 {isOpening && (
                   <Loader2 className="h-3.5 w-3.5 animate-spin text-[var(--color-accent)]" />
@@ -121,12 +121,12 @@ export default function InspirationExamples() {
               </p>
               {isOpening ? (
                 <div className="relative z-10 mt-2 max-w-[80%]">
-                  <p className="text-xs leading-[17px] text-[#808080]">
+                  <p className="text-xs leading-[17px] text-[#808080] dark:text-[var(--color-text-tertiary)]">
                     {progress
                       ? t("inspiration.downloadingHint")
                       : t("inspiration.preparingHint")}
                   </p>
-                  <div className="mt-1.5 h-1 w-full overflow-hidden rounded-full bg-[#eae9e7]">
+                  <div className="mt-1.5 h-1 w-full overflow-hidden rounded-full bg-[#eae9e7] dark:bg-[var(--color-border)]">
                     <div
                       className="h-full rounded-full bg-[var(--color-accent)] transition-[width] duration-300"
                       style={{
@@ -147,7 +147,7 @@ export default function InspirationExamples() {
                     />
                   </div>
                   {progress && (
-                    <p className="mt-1 text-[11px] leading-4 text-[#a3a3a3]">
+                    <p className="mt-1 text-[11px] leading-4 text-[#a3a3a3] dark:text-[var(--color-text-tertiary)]">
                       {progress.totalBytes && progress.totalBytes > 0
                         ? `${formatBytes(
                             progress.receivedBytes,
@@ -157,7 +157,7 @@ export default function InspirationExamples() {
                   )}
                 </div>
               ) : (
-                <p className="relative z-10 mt-2 line-clamp-2 max-w-[62%] text-xs leading-[17px] text-[#808080]">
+                <p className="relative z-10 mt-2 line-clamp-2 max-w-[62%] text-xs leading-[17px] text-[#808080] dark:text-[var(--color-text-tertiary)]">
                   {example.description}
                 </p>
               )}

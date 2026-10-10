@@ -12,6 +12,8 @@ import tempfile
 import threading
 import time
 import uuid
+from contextlib import ExitStack
+from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 from typing import Any
@@ -33,7 +35,8 @@ from ...agents.skill_system import (
     SkillConflictError,
     SkillPoolService,
     SkillService,
-    run_pool_auto_update_sync,
+    refresh_pool_automation,
+    run_pool_auto_sync,
 )
 from ...agents.skill_system.registry import (
     BUILTIN_SKILL_LANGUAGES,
@@ -42,19 +45,19 @@ from ...agents.skill_system.registry import (
     import_builtin_skills,
     list_builtin_import_candidates,
     list_workspaces,
-    reconcile_pool_manifest,
     reconcile_workspace_manifest,
     update_single_builtin,
 )
+from ...agents.skill_system.models import SkillRequirements
 from ...agents.skill_system.store import (
     build_skill_metadata,
-    default_pool_manifest,
     default_workspace_manifest,
-    get_pool_skill_manifest_path,
     get_workspace_skill_manifest_path,
     get_workspace_skills_dir,
     mutate_json,
+    mutate_pool_manifest,
     normalize_skill_manifest_entry,
+    read_pool_skill_automation,
     read_skill_content_and_metadata_from_dir,
     read_skill_manifest,
     read_skill_pool_manifest,
@@ -72,78 +75,133 @@ router = APIRouter(prefix="/skills", tags=["skills"])
 
 MAX_TAGS = 8
 MAX_TAG_LENGTH = 16
+# Existing Inbox filters use this released source value.
+SKILL_AUTOMATION_INBOX_SOURCE = "skill_autoupdate"
 
-# Source type for skill auto-update inbox events.
-AUTO_UPDATE_INBOX_SOURCE = "skill_autoupdate"
+
+async def _append_automation_event(
+    *,
+    event_type: str,
+    status: str,
+    severity: str,
+    title: str,
+    body: str,
+    payload: dict[str, Any],
+) -> bool:
+    try:
+        await append_inbox_event(
+            agent_id="default",
+            source_type=SKILL_AUTOMATION_INBOX_SOURCE,
+            source_id="",
+            event_type=event_type,
+            status=status,
+            severity=severity,
+            title=title,
+            body=body,
+            payload=payload,
+        )
+        return True
+    except Exception:  # pylint: disable=broad-except
+        logger.exception("Failed to append Skill Pool automation event")
+        return False
 
 
-async def post_auto_update_inbox(
-    result: dict[str, Any] | None,
-) -> None:
-    """Post one inbox notification summarising an auto-update run.
-
-    A single sync run (startup / refresh / enable) becomes one event listing
-    the synced skills plus any failures. Severity is ``error`` when any skill
-    failed, otherwise ``info``. Nothing is posted when no skill propagated.
-    """
+async def post_auto_sync_inbox(result: dict[str, Any] | None) -> bool:
     if not result:
-        return
+        return False
     synced = [
         item for item in (result.get("synced") or []) if item.get("agents")
     ]
     failed = result.get("failed") or []
     if not synced and not failed:
-        return
+        return False
 
-    synced_names = [str(item["skill"]) for item in synced]
-    failed_names = [str(item["skill"]) for item in failed]
-    has_failure = bool(failed_names)
-
-    lines: list[str] = []
-    for item in synced:
-        agents = ", ".join(item.get("agents") or [])
-        lines.append(f"{item['skill']} → {agents}")
-    for item in failed:
-        agents = ", ".join(item.get("agents") or []) or "unknown"
-        lines.append(f"{item['skill']} (failed) → {agents}")
-
-    if has_failure:
-        title = (
-            f"Auto-update: {len(synced_names)} updated, "
-            f"{len(failed_names)} failed"
-        )
-    else:
-        title = f"Auto-update: {len(synced_names)} skill(s) updated"
-
-    await append_inbox_event(
-        agent_id="default",
-        source_type=AUTO_UPDATE_INBOX_SOURCE,
-        source_id="",
-        event_type="auto_update",
-        status="error" if has_failure else "success",
-        severity="error" if has_failure else "info",
+    lines = [
+        f"{item['skill']} → {', '.join(item.get('agents') or [])}"
+        for item in synced
+    ]
+    lines.extend(
+        f"{item['skill']} (failed) → "
+        f"{', '.join(item.get('agents') or []) or 'unknown'}"
+        for item in failed
+    )
+    failure_count = len(failed)
+    title = (
+        f"Auto Sync: {len(synced)} synced, {failure_count} failed"
+        if failure_count
+        else f"Auto Sync: {len(synced)} skill(s) synced"
+    )
+    return await _append_automation_event(
+        event_type="auto_sync",
+        status="error" if failure_count else "success",
+        severity="error" if failure_count else "info",
         title=title,
         body="; ".join(lines),
         payload={"synced": synced, "failed": failed},
     )
 
 
-async def _follow_auto_update(skill_name: str | None = None) -> None:
-    """Propagate + notify after any pool-content change.
+async def post_pool_automation_inbox(
+    result: dict[str, Any] | None,
+) -> bool:
+    if not result:
+        return False
+    pool_updated = result.get("pool_updated") or []
+    pool_failed = result.get("pool_failed") or []
+    synced = result.get("synced") or []
+    sync_failed = result.get("sync_failed") or []
+    if not pool_updated and not pool_failed:
+        return await post_auto_sync_inbox(
+            {"synced": synced, "failed": sync_failed},
+        )
 
-    Called by the content-mutating endpoints (edit / rename / builtin update /
-    builtin import) so auto-update skills sync to their workspaces immediately
-    instead of waiting for the next refresh or startup. The hash gate means
-    only skills that actually changed are propagated.
-    """
+    lines = [
+        f"{item['skill']}: {item.get('from_version') or '-'} → "
+        f"{item.get('to_version') or '-'}"
+        for item in pool_updated
+    ]
+    lines.extend(
+        f"{item.get('skill', 'unknown')} (pool update failed)"
+        for item in pool_failed
+    )
+    lines.extend(
+        f"{item['skill']} → {', '.join(item.get('agents') or [])}"
+        for item in synced
+        if item.get("agents")
+    )
+    lines.extend(
+        f"{item['skill']} (sync failed) → "
+        f"{', '.join(item.get('agents') or []) or 'unknown'}"
+        for item in sync_failed
+    )
+    failure_count = len(pool_failed) + len(sync_failed)
+    return await _append_automation_event(
+        event_type="auto_update",
+        status="error" if failure_count else "success",
+        severity="error" if failure_count else "info",
+        title=(
+            f"Auto Update: {len(pool_updated)} updated, "
+            f"{failure_count} failed"
+        ),
+        body="; ".join(lines),
+        payload={
+            "pool_updated": pool_updated,
+            "pool_failed": pool_failed,
+            "synced": synced,
+            "sync_failed": sync_failed,
+        },
+    )
+
+
+async def _follow_auto_sync(skill_name: str | None = None) -> None:
     try:
         result = await asyncio.to_thread(
-            run_pool_auto_update_sync,
+            run_pool_auto_sync,
             skill_name=skill_name,
         )
-        await post_auto_update_inbox(result)
+        await post_auto_sync_inbox(result)
     except Exception:
-        logger.warning("auto-update follow-up failed", exc_info=True)
+        logger.warning("Auto Sync follow-up failed", exc_info=True)
 
 
 def _scan_error_payload(exc: SkillScanError) -> dict[str, Any]:
@@ -194,10 +252,12 @@ class SkillSpec(BaseModel):
 
     name: str
     description: str = ""
+    version_text: str = ""
     source: str
     emoji: str = ""
     enabled: bool = False
     channels: list[str] = Field(default_factory=lambda: ["all"])
+    preload: bool = False
     tags: list[str] = Field(default_factory=list)
     last_updated: str = ""
 
@@ -208,6 +268,7 @@ class SkillDetail(SkillSpec):
     content: str
     config: dict[str, Any] = Field(default_factory=dict)
     installed_from: str = ""
+    requirements: SkillRequirements = Field(default_factory=SkillRequirements)
 
 
 class PoolSkillSpec(BaseModel):
@@ -215,6 +276,7 @@ class PoolSkillSpec(BaseModel):
 
     name: str
     description: str = ""
+    version_text: str = ""
     source: str
     emoji: str = ""
     external: bool = False
@@ -222,6 +284,7 @@ class PoolSkillSpec(BaseModel):
     sync_status: str = ""
     tags: list[str] = Field(default_factory=list)
     last_updated: str = ""
+    auto_sync: bool = False
     auto_update: bool = False
 
 
@@ -231,9 +294,10 @@ class PoolSkillDetail(PoolSkillSpec):
     content: str
     config: dict[str, Any] = Field(default_factory=dict)
     installed_from: str = ""
+    requirements: SkillRequirements = Field(default_factory=SkillRequirements)
     builtin_language: str = ""
     available_builtin_languages: list[str] = Field(default_factory=list)
-    auto_update_targets: list[str] | None = None
+    auto_sync_targets: list[str] | None = None
 
 
 class WorkspaceSkillSummary(BaseModel):
@@ -331,9 +395,14 @@ class SkillConfigRequest(BaseModel):
     config: dict[str, Any] = Field(default_factory=dict)
 
 
-class AutoUpdateRequest(BaseModel):
+class AutoSyncRequest(BaseModel):
     enabled: bool
     targets: list[str] | None = None
+
+
+class SkillAutomationRequest(BaseModel):
+    auto_update: bool | None = None
+    auto_sync: AutoSyncRequest | None = None
 
 
 class SavePoolSkillRequest(BaseModel):
@@ -399,6 +468,79 @@ _ALLOWED_ZIP_TYPES = {
     "application/x-zip-compressed",
     "application/octet-stream",
 }
+
+# ``POST /pool/download`` runs its blocking body in a worker thread. Before
+# that change a copy held the event loop for its whole run, so two downloads
+# could never overlap; offloading the copy opens that door. Preflight +
+# install is a check-then-write over a workspace, so two overlapping requests
+# could both pass preflight and then one request's rollback would restore a
+# snapshot taken before the other had installed. Serialize the whole
+# check-and-install per workspace, so the second request re-preflights against
+# whatever the first one left behind.
+_pool_download_locks_guard = threading.Lock()
+_pool_download_locks: dict[str, threading.Lock] = {}
+
+
+def _pool_download_lock(workspace_id: str) -> threading.Lock:
+    with _pool_download_locks_guard:
+        lock = _pool_download_locks.get(workspace_id)
+        if lock is None:
+            lock = threading.Lock()
+            _pool_download_locks[workspace_id] = lock
+        return lock
+
+
+@dataclass(frozen=True)
+class _ResolvedDownloadTarget:
+    """One workspace a download will write to, with its directory pinned.
+
+    Resolved once per request and then reused for locking, preflight and
+    execution. Resolving ``all_workspaces`` a second time would let a
+    workspace appear in between and enter the execution plan without its
+    lock held.
+    """
+
+    workspace_id: str
+    workspace_dir: Path
+
+
+def _resolve_download_targets(
+    body: DownloadFromPoolRequest,
+) -> list[_ResolvedDownloadTarget]:
+    """Resolve every workspace a download request writes to — exactly once.
+
+    An explicit target set is taken as-is; ``all_workspaces`` is expanded
+    here so the expansion and the locks below cannot disagree.
+    """
+    if body.all_workspaces:
+        return [
+            _ResolvedDownloadTarget(
+                str(workspace["agent_id"]),
+                Path(workspace["workspace_dir"]),
+            )
+            for workspace in list_workspaces()
+        ]
+    return [
+        _ResolvedDownloadTarget(
+            target.workspace_id,
+            _workspace_dir_for_agent(target.workspace_id),
+        )
+        for target in body.targets
+    ]
+
+
+def _pool_download_lock_keys(
+    targets: list[_ResolvedDownloadTarget],
+) -> list[str]:
+    """Workspace ids to lock, in a stable order.
+
+    Sorted so two requests that touch the same set of workspaces always take
+    their locks in the same order and cannot deadlock. Derived from the
+    resolved targets rather than from the request: preflight has to run
+    inside the locks, so it cannot be what picks the keys, and resolving the
+    list again here would lock a different set than the one executed.
+    """
+    return sorted({target.workspace_id for target in targets})
 
 
 def _workspace_dir_for_agent(agent_id: str) -> Path:
@@ -675,10 +817,12 @@ def _build_workspace_skill_specs(workspace_dir: Path) -> list[SkillSpec]:
                 SkillSpec(
                     name=skill_name,
                     description=str(metadata.get("description", "") or ""),
+                    version_text=metadata["version_text"],
                     source=source,
                     emoji=str(metadata.get("emoji", "") or ""),
                     enabled=entry.get("enabled", False),
                     channels=entry.get("channels") or ["all"],
+                    preload=entry.get("preload") is True,
                     tags=entry.get("tags") or [],
                     last_updated=str(metadata.get("updated_at", "") or ""),
                 ),
@@ -716,10 +860,12 @@ def _build_pool_skill_specs() -> list[PoolSkillSpec]:
             )
             info = sync_info.get(skill_name, {})
             is_external = bool(entry.get("external", False))
+            automation = read_pool_skill_automation(entry)
             specs.append(
                 PoolSkillSpec(
                     name=skill_name,
                     description=str(metadata.get("description", "") or ""),
+                    version_text=metadata["version_text"],
                     source=source,
                     emoji=str(metadata.get("emoji", "") or ""),
                     external=is_external,
@@ -727,7 +873,10 @@ def _build_pool_skill_specs() -> list[PoolSkillSpec]:
                     sync_status=str(info.get("sync_status", "") or ""),
                     tags=entry.get("tags") or [],
                     last_updated=str(metadata.get("updated_at", "") or ""),
-                    auto_update=bool(entry.get("auto_update", False)),
+                    auto_sync=automation.auto_sync,
+                    auto_update=(
+                        source == "builtin" and automation.auto_update
+                    ),
                 ),
             )
         except Exception:
@@ -767,10 +916,13 @@ def _build_workspace_skill_detail(
     return SkillDetail(
         name=skill_name,
         description=str(metadata.get("description", "") or ""),
+        version_text=metadata["version_text"],
+        requirements=SkillRequirements(**metadata["requirements"]),
         source=source,
         emoji=str(metadata.get("emoji", "") or ""),
         enabled=bool(entry.get("enabled", False)),
         channels=entry.get("channels") or ["all"],
+        preload=entry.get("preload") is True,
         tags=entry.get("tags") or [],
         last_updated=str(metadata.get("updated_at", "") or ""),
         content=content,
@@ -803,9 +955,12 @@ def _build_pool_skill_detail(skill_name: str) -> PoolSkillDetail | None:
         {},
     )
     is_external = bool(entry.get("external", False))
+    automation = read_pool_skill_automation(entry)
     return PoolSkillDetail(
         name=skill_name,
         description=str(metadata.get("description", "") or ""),
+        version_text=metadata["version_text"],
+        requirements=SkillRequirements(**metadata["requirements"]),
         source=source,
         emoji=str(metadata.get("emoji", "") or ""),
         external=is_external,
@@ -813,7 +968,8 @@ def _build_pool_skill_detail(skill_name: str) -> PoolSkillDetail | None:
         sync_status=str(info.get("sync_status", "") or ""),
         tags=entry.get("tags") or [],
         last_updated=str(metadata.get("updated_at", "") or ""),
-        auto_update=bool(entry.get("auto_update", False)),
+        auto_sync=automation.auto_sync,
+        auto_update=(source == "builtin" and automation.auto_update),
         content=content,
         config=entry.get("config") or {},
         installed_from=str(entry.get("installed_from", "") or ""),
@@ -827,9 +983,9 @@ def _build_pool_skill_detail(skill_name: str) -> PoolSkillDetail | None:
             )
             if str(language)
         ],
-        auto_update_targets=(
-            list(entry["auto_update_targets"])
-            if isinstance(entry.get("auto_update_targets"), list)
+        auto_sync_targets=(
+            list(automation.auto_sync_targets)
+            if automation.auto_sync_targets
             else None
         ),
     )
@@ -964,8 +1120,8 @@ async def list_pool_skills() -> list[PoolSkillSpec]:
 @router.post("/pool/refresh")
 async def refresh_pool_skills() -> list[PoolSkillSpec]:
     """Force reconcile and return updated pool skill list."""
-    reconcile_pool_manifest()
-    await _follow_auto_update()
+    result = await asyncio.to_thread(refresh_pool_automation)
+    await post_pool_automation_inbox(result)
     return _build_pool_skill_specs()
 
 
@@ -1131,7 +1287,7 @@ async def save_pool_skill(body: SavePoolSkillRequest) -> dict[str, Any]:
         reason = result.get("reason")
         status = 404 if reason == "not_found" else 409
         raise HTTPException(status_code=status, detail=result)
-    await _follow_auto_update(result.get("name"))
+    await _follow_auto_sync(result.get("name"))
     return result
 
 
@@ -1169,7 +1325,7 @@ async def upload_skill_pool_zip(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     if result.get("conflicts"):
         raise HTTPException(status_code=409, detail=result)
-    await _follow_auto_update()
+    await _follow_auto_sync()
     return result
 
 
@@ -1191,7 +1347,7 @@ async def import_skill_pool_from_hub(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except RuntimeError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
-    await _follow_auto_update(result.name)
+    await _follow_auto_sync(result.name)
     return {
         "installed": True,
         "name": result.name,
@@ -1221,23 +1377,22 @@ async def upload_workspace_skill_to_pool(
         status = 404 if result.get("reason") == "not_found" else 409
         raise HTTPException(status_code=status, detail=result)
     if not body.preview_only:
-        await _follow_auto_update(result.get("name"))
+        await _follow_auto_sync(result.get("name"))
     return result
 
 
 def _preflight_download_conflicts(
     hub_service: SkillPoolService,
-    targets: list[PoolDownloadTarget],
+    targets: list[_ResolvedDownloadTarget],
     skill_name: str,
     overwrite: bool,
 ) -> list[dict[str, Any]]:
     """Check all targets for conflicts before downloading."""
     conflicts: list[dict[str, Any]] = []
     for target in targets:
-        workspace_dir = _workspace_dir_for_agent(target.workspace_id)
         result = hub_service.preflight_download_to_workspace(
             skill_name=skill_name,
-            workspace_dir=workspace_dir,
+            workspace_dir=target.workspace_dir,
             overwrite=overwrite,
         )
         if not result.get("success"):
@@ -1247,21 +1402,11 @@ def _preflight_download_conflicts(
     return conflicts
 
 
-def _resolve_and_preflight(
+def _preflight_download(
     body: DownloadFromPoolRequest,
-) -> tuple[list[PoolDownloadTarget], SkillPoolService]:
-    """Resolve targets and reject if any conflicts exist."""
-    targets = list(body.targets)
-    if body.all_workspaces:
-        targets = [
-            PoolDownloadTarget(workspace_id=workspace["agent_id"])
-            for workspace in list_workspaces()
-        ]
-    if not targets:
-        raise HTTPException(
-            status_code=400,
-            detail="No workspace targets provided",
-        )
+    targets: list[_ResolvedDownloadTarget],
+) -> SkillPoolService:
+    """Reject the request if any already-resolved target conflicts."""
     hub_service = SkillPoolService()
     try:
         conflicts = _preflight_download_conflicts(
@@ -1283,25 +1428,24 @@ def _resolve_and_preflight(
                 "conflicts": conflicts,
             },
         )
-    return targets, hub_service
+    return hub_service
 
 
 def _build_download_plan(
-    targets: list[PoolDownloadTarget],
+    targets: list[_ResolvedDownloadTarget],
     skill_name: str,
 ) -> list[dict[str, Any]]:
     """Build execution plan with rollback snapshots."""
     plan: list[dict[str, Any]] = []
     for target in targets:
-        workspace_dir = _workspace_dir_for_agent(target.workspace_id)
         snapshot = _snapshot_workspace_skill(
-            workspace_dir,
+            target.workspace_dir,
             str(skill_name),
         )
         plan.append(
             {
                 "workspace_id": target.workspace_id,
-                "workspace_dir": workspace_dir,
+                "workspace_dir": target.workspace_dir,
                 "snapshot": snapshot,
             },
         )
@@ -1349,8 +1493,46 @@ async def download_pool_skill_to_workspaces(
     """Download one pool skill into one or more workspaces.
 
     All-or-nothing: if any target conflicts, reject everything.
+
+    A large skill means thousands of file operations, so the blocking work runs
+    in a worker thread: doing it inline would freeze the event loop and every
+    other API for the whole copy.
+
+    Concurrent downloads into the same workspace are serialized end to end
+    (preflight included), so a second request cannot slip in behind a first
+    request's successful install and then undo it on rollback.
     """
-    targets, hub_service = _resolve_and_preflight(body)
+    return await asyncio.to_thread(_download_pool_skill, body)
+
+
+def _download_pool_skill(body: DownloadFromPoolRequest) -> dict[str, Any]:
+    """Blocking body of ``POST /pool/download``; see the route docstring.
+
+    The target list is resolved once and then drives everything: the lock
+    keys, preflight and the execution plan. The whole check-then-install runs
+    under those locks — preflight has to be inside them, or two overlapping
+    requests would both pass against the same untouched workspace and then
+    fight over it.
+    """
+    targets = _resolve_download_targets(body)
+    if not targets:
+        raise HTTPException(
+            status_code=400,
+            detail="No workspace targets provided",
+        )
+    with ExitStack() as stack:
+        for key in _pool_download_lock_keys(targets):
+            stack.enter_context(_pool_download_lock(key))
+        result = _download_pool_skill_locked(body, targets)
+    return result
+
+
+def _download_pool_skill_locked(
+    body: DownloadFromPoolRequest,
+    targets: list[_ResolvedDownloadTarget],
+) -> dict[str, Any]:
+    """Install a pool skill; caller holds the per-workspace lock(s)."""
+    hub_service = _preflight_download(body, targets)
     if body.preview_only:
         return {"downloaded": []}
 
@@ -1396,13 +1578,14 @@ async def import_pool_builtins(
         if body.imports
         else [{"skill_name": skill_name} for skill_name in body.skill_names]
     )
-    result = import_builtin_skills(
+    result = await asyncio.to_thread(
+        import_builtin_skills,
         imports,
         overwrite_conflicts=body.overwrite_conflicts,
     )
     if result.get("conflicts") and not body.overwrite_conflicts:
         raise HTTPException(status_code=409, detail=result)
-    await _follow_auto_update()
+    await _follow_auto_sync()
     return result
 
 
@@ -1419,10 +1602,14 @@ async def update_pool_builtin(
             f"must be one of {BUILTIN_SKILL_LANGUAGES}",
         )
     try:
-        result = update_single_builtin(skill_name, language=language or None)
+        result = await asyncio.to_thread(
+            update_single_builtin,
+            skill_name,
+            language=language or None,
+        )
     except (ValueError, AppBaseException) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    await _follow_auto_update()
+    await _follow_auto_sync()
     return result
 
 
@@ -1459,8 +1646,6 @@ async def update_pool_skill_config(
     skill_name: str,
     body: SkillConfigRequest,
 ) -> dict[str, Any]:
-    manifest_path = get_pool_skill_manifest_path()
-
     def _update(payload: dict[str, Any]) -> bool:
         entry = payload.get("skills", {}).get(skill_name)
         if entry is None:
@@ -1468,7 +1653,7 @@ async def update_pool_skill_config(
         entry["config"] = dict(body.config)
         return True
 
-    updated = mutate_json(manifest_path, default_pool_manifest(), _update)
+    updated = mutate_pool_manifest(_update)
     if not updated:
         raise HTTPException(status_code=404, detail="Pool skill not found")
     return {"updated": True}
@@ -1476,8 +1661,6 @@ async def update_pool_skill_config(
 
 @router.delete("/pool/{skill_name}/config")
 async def delete_pool_skill_config(skill_name: str) -> dict[str, Any]:
-    manifest_path = get_pool_skill_manifest_path()
-
     def _update(payload: dict[str, Any]) -> bool:
         entry = payload.get("skills", {}).get(skill_name)
         if entry is None:
@@ -1485,7 +1668,7 @@ async def delete_pool_skill_config(skill_name: str) -> dict[str, Any]:
         entry.pop("config", None)
         return True
 
-    updated = mutate_json(manifest_path, default_pool_manifest(), _update)
+    updated = mutate_pool_manifest(_update)
     if not updated:
         raise HTTPException(status_code=404, detail="Pool skill not found")
     return {"cleared": True}
@@ -1520,16 +1703,18 @@ async def update_pool_skill_tags(
     return {"updated": True, "tags": tags}
 
 
-@router.put("/pool/{skill_name}/auto-update")
-async def update_pool_skill_auto_update(
+@router.put("/pool/{skill_name}/auto-update", deprecated=True)
+@router.put("/pool/{skill_name}/auto-sync")
+async def update_pool_skill_auto_sync(
     skill_name: str,
-    body: AutoUpdateRequest,
+    body: AutoSyncRequest,
 ) -> dict[str, Any]:
-    """Toggle auto-update for a pool skill and persist its target agents.
+    """Toggle Auto Sync and persist its target agents.
 
-    Enabling triggers an immediate sync of the configured workspaces.
+    The deprecated auto-update path retains its historical Auto Sync meaning.
     """
-    result = SkillPoolService().set_skill_auto_update(
+    result = await asyncio.to_thread(
+        SkillPoolService().set_skill_auto_sync,
         skill_name,
         enabled=body.enabled,
         targets=body.targets,
@@ -1539,11 +1724,70 @@ async def update_pool_skill_auto_update(
             status_code=404,
             detail="Pool skill not found",
         )
-    await post_auto_update_inbox(result)
+    await post_auto_sync_inbox(result)
     return {
         "updated": True,
         "enabled": body.enabled,
         "targets": body.targets,
+    }
+
+
+@router.put("/pool/{skill_name}/automation")
+async def update_pool_skill_automation(
+    skill_name: str,
+    body: SkillAutomationRequest,
+) -> dict[str, Any]:
+    """Atomically configure builtin Auto Update and workspace Auto Sync."""
+    builtin_field_set = "auto_update" in body.model_fields_set
+    if builtin_field_set and body.auto_update is None:
+        raise HTTPException(
+            status_code=422,
+            detail="auto_update must be true or false",
+        )
+    if not builtin_field_set and body.auto_sync is None:
+        raise HTTPException(
+            status_code=422,
+            detail="At least one automation setting is required",
+        )
+
+    auto_sync_targets_provided = bool(
+        body.auto_sync is not None
+        and "targets" in body.auto_sync.model_fields_set,
+    )
+    service = SkillPoolService()
+    result = await asyncio.to_thread(
+        service.set_skill_automation,
+        skill_name,
+        auto_update=(body.auto_update if builtin_field_set else None),
+        auto_sync_enabled=(
+            body.auto_sync.enabled if body.auto_sync is not None else None
+        ),
+        **(
+            {"auto_sync_targets": body.auto_sync.targets}
+            if auto_sync_targets_provided and body.auto_sync is not None
+            else {}
+        ),
+    )
+    if not result.get("success"):
+        reason = result.get("reason")
+        if reason == "not_found":
+            raise HTTPException(
+                status_code=404,
+                detail="Pool skill not found",
+            )
+        if reason == "not_builtin":
+            raise HTTPException(
+                status_code=400,
+                detail="Auto Update is only supported for builtin skills",
+            )
+        raise HTTPException(status_code=400, detail="Invalid automation")
+
+    await post_pool_automation_inbox(result.get("automation"))
+    return {
+        "updated": True,
+        "auto_update": bool(result.get("auto_update")),
+        "auto_sync": result.get("auto_sync") or {},
+        "automation": result.get("automation") or {},
     }
 
 
@@ -1774,6 +2018,26 @@ async def update_skill_channels_endpoint(
         raise HTTPException(status_code=404, detail="Skill not found")
     schedule_agent_reload(request, workspace.agent_id)
     return {"updated": True, "channels": channels}
+
+
+@router.put("/{skill_name}/preload")
+async def update_skill_preload_endpoint(
+    request: Request,
+    skill_name: str,
+    preload: bool = Body(..., embed=True),
+) -> dict[str, Any]:
+    from ..agent_context import get_agent_for_request
+
+    workspace = await get_agent_for_request(request)
+    workspace_dir = Path(workspace.workspace_dir)
+    updated = SkillService(workspace_dir).set_skill_preload(
+        skill_name,
+        preload,
+    )
+    if not updated:
+        raise HTTPException(status_code=404, detail="Skill not found")
+    schedule_agent_reload(request, workspace.agent_id)
+    return {"updated": True, "preload": preload}
 
 
 @router.put("/{skill_name}/tags")

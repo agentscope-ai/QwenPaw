@@ -5,6 +5,7 @@ import { routeRegistry } from "./registry/store";
 import {
   loadAllPlugins,
   loadPawApp,
+  reloadPawApp,
   resetPawAppLoaderForTests,
 } from "./usePluginLoader";
 
@@ -113,5 +114,40 @@ describe("frontend plugin loader", () => {
       });
 
     await expect(loadPawApp("notes")).resolves.toBeUndefined();
+  });
+
+  it("force reloads an already registered PawApp route", async () => {
+    const oldComponent = () => null;
+    const newComponent = () => null;
+    routeRegistry.add("notes", {
+      id: "notes.page",
+      path: "/apps/notes",
+      component: oldComponent,
+    });
+    const runtimeGlobal = globalThis as typeof globalThis & {
+      __registerUpdatedNotes?: () => void;
+    };
+    runtimeGlobal.__registerUpdatedNotes = () => {
+      routeRegistry.add("notes", {
+        id: "notes.page",
+        path: "/apps/notes",
+        component: newComponent,
+      });
+    };
+    URL.createObjectURL = vi.fn(
+      () =>
+        `data:text/javascript,${encodeURIComponent(
+          "globalThis.__registerUpdatedNotes()",
+        )}`,
+    );
+    const fetchMock = vi.spyOn(globalThis, "fetch");
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse([plugin("notes", "app")]))
+      .mockResolvedValueOnce(new Response("updated"));
+
+    await expect(reloadPawApp("notes")).resolves.toBeUndefined();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(routeRegistry.snapshot()[0].Component).toBe(newComponent);
+    expect(routeRegistry.snapshot()[0].Component).not.toBe(oldComponent);
   });
 });

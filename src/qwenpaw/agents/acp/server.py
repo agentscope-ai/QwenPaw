@@ -426,9 +426,9 @@ class QwenPawACPAgent(Agent):
 
         return WorkspaceBootstrapFactory.build_bootstrap_kwargs(
             app_services,
-            extra_command_specs=extra_command_specs
-            if extra_command_specs
-            else None,
+            extra_command_specs=(
+                extra_command_specs if extra_command_specs else None
+            ),
         )
 
     async def _ensure_workspace(self) -> Any:
@@ -971,13 +971,23 @@ class QwenPawACPAgent(Agent):
         pending: Any,
     ) -> None:
         """Ask the ACP client to approve/deny a QwenPaw pending approval."""
-        from ...app.approvals import get_approval_service
+        from ...app.approvals import ApprovalActor, get_approval_service
         from ...security.tool_guard.approval import (
             ApprovalDecision,
             ApprovalScope,
         )
 
         svc = get_approval_service()
+        # The bridge only receives approvals discovered under this ACP
+        # session. Preserve the pending requester's full identity when the
+        # client's permission response is resolved by the shared service.
+        actor = ApprovalActor(
+            session_id=pending.session_id,
+            root_session_id=pending.root_session_id,
+            user_id=pending.user_id,
+            channel=pending.channel,
+            agent_id=pending.agent_id,
+        )
         try:
             permission_task = asyncio.create_task(
                 self._conn.request_permission(
@@ -1027,6 +1037,7 @@ class QwenPawACPAgent(Agent):
             await svc.resolve_request(
                 pending.request_id,
                 ApprovalDecision.DENIED,
+                actor=actor,
             )
             return
 
@@ -1040,7 +1051,12 @@ class QwenPawACPAgent(Agent):
         else:
             decision = ApprovalDecision.DENIED
             scope = None
-        await svc.resolve_request(pending.request_id, decision, scope=scope)
+        await svc.resolve_request(
+            pending.request_id,
+            decision,
+            scope=scope,
+            actor=actor,
+        )
 
     @staticmethod
     def _pending_cancel_reason(pending_future: asyncio.Future) -> str:
@@ -1316,7 +1332,9 @@ class QwenPawACPAgent(Agent):
                     current_model_id=model_id,
                 )
 
-            manager = ProviderManager.get_instance()
+            manager = await run_sync_io(ProviderManager.get_instance)
+            agent_id = self._resolve_agent_id()
+            agent_config = await run_sync_io(load_agent_config, agent_id)
             provider_infos = await manager.list_provider_info()
 
             available_models: list[ACPModelInfo] = []
@@ -1329,8 +1347,6 @@ class QwenPawACPAgent(Agent):
                         ),
                     )
 
-            agent_id = self._resolve_agent_id()
-            agent_config = load_agent_config(agent_id)
             active = agent_config.active_model
             if active and active.provider_id and active.model:
                 current_model_id = f"{active.provider_id}:{active.model}"
@@ -1513,7 +1529,7 @@ class QwenPawACPAgent(Agent):
         manager = ProviderManager.get_instance()
 
         if provider_id:
-            provider = manager.get_provider(provider_id)
+            provider = await run_sync_io(manager.get_provider, provider_id)
             if not provider:
                 raise ValueError(
                     f"Provider {provider_id!r} not found",

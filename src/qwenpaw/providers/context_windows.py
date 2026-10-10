@@ -50,6 +50,7 @@ _KNOWN_CONTEXT_WINDOWS: tuple[tuple[str, int], ...] = (
     ("qwen-flash", 1_000_000),
     ("qwen-turbo-latest", 1_000_000),
     ("qwen-turbo", 131_072),  # stable alias: snapshot windows vary
+    ("qwen3.8", 1_000_000),
     ("qwen3.7-max", 1_000_000),
     ("qwen3.7-plus", 1_000_000),
     ("qwen3.6-plus", 1_000_000),
@@ -77,6 +78,7 @@ _KNOWN_CONTEXT_WINDOWS: tuple[tuple[str, int], ...] = (
     ("minimax-m3", 1_000_000),
     ("minimax-m2.7", 204_800),
     # --- Others -------------------------------------------------------------
+    ("kimi-k3", 1_000_000),
     ("kimi-k2", 262_144),
     ("glm-5.2", 1_000_000),
     ("glm-4.6", 200_000),

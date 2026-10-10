@@ -8,15 +8,21 @@ Administrator privileges are required for elevated sandbox cleanup (user
 accounts, firewall rules, profile directories).  Unelevated and AppContainer
 sandbox cleanup works without admin.
 
-This script performs cleanup for all three sandbox backends:
+This script performs cleanup for all three sandbox backends plus deny paths:
 
-  A. AppContainer sandboxes (no admin required):
+  A. Deny paths protection (no admin required, done first):
+     Reads ~/.qwenpaw/deny_paths_protection.json state file:
+        1. Removes DENY ACEs for the current user from protected paths
+           - Falls back to DACL reset if access denied (can't read DACL)
+        2. Deletes the state JSON file
+
+  B. AppContainer sandboxes (no admin required):
      For each metadata file in ~/.qwenpaw/containers/*.json:
         1. Removes ACLs (Win32 API) from paths in acl_manifest
         2. Deletes the AppContainer profile via userenv.dll
         3. Deletes the metadata JSON file
 
-  B. Elevated sandboxes (requires admin):
+  C. Elevated sandboxes (requires admin):
      For each metadata file in ~/.qwenpaw/sandboxes/*.json:
         1. Removes ACLs for cap_sid and user_sid from acl_entries
            - Regular ACEs via Win32 SetNamedSecurityInfoW
@@ -26,9 +32,10 @@ This script performs cleanup for all three sandbox backends:
         4. Removes the user profile directory (reg unload + rd /s /q)
         5. Deletes the metadata JSON file
 
-  C. Unelevated sandboxes (no admin required):
+  D. Unelevated sandboxes (no admin required):
      For each metadata file in ~/.qwenpaw/unelevated_sandboxes/*.json:
         1. Removes ACLs for cap_sid via Win32 API
+           - Falls back to DACL reset if access denied
         2. Deletes the metadata JSON file
      Also migrates the legacy single state file if present.
 
@@ -59,7 +66,9 @@ from typing import List, Optional
 # Constants
 SE_FILE_OBJECT = 1
 DACL_SECURITY_INFORMATION = 0x00000004
+UNPROTECTED_DACL_SECURITY_INFORMATION = 0x20000000
 ERROR_SUCCESS = 0
+ERROR_ACCESS_DENIED = 5
 
 
 def _is_admin() -> bool:
@@ -78,14 +87,61 @@ def _get_state_dir() -> Path:
     )
 
 
-def _remove_ace_by_sid_api(  # pylint: disable=R0911,R0912
+def _reset_dacl_to_inherited(path: str) -> bool:
+    """Resets a path's DACL to inherit from parent, removing all explicit ACEs.
+
+    This is the fallback when we cannot read the DACL (e.g. because a
+    deny ACE blocks READ_CONTROL). The owner always has implicit WRITE_DAC,
+    so SetNamedSecurityInfoW with a NULL DACL should succeed even when
+    the DACL cannot be read.
+
+    Setting DACL to None with UNPROTECTED_DACL_SECURITY_INFORMATION causes
+    Windows to replace the DACL with inheritable ACEs from the parent.
+
+    Returns True if the DACL was reset successfully.
+    """
+    try:
+        advapi32 = ctypes.WinDLL("advapi32.dll", use_last_error=True)
+    except OSError:
+        return False
+
+    info_flags = (
+        DACL_SECURITY_INFORMATION | UNPROTECTED_DACL_SECURITY_INFORMATION
+    )
+
+    rc = advapi32.SetNamedSecurityInfoW(
+        ctypes.c_wchar_p(path),
+        SE_FILE_OBJECT,
+        info_flags,
+        None,
+        None,
+        None,  # NULL DACL = inherit from parent
+        None,
+    )
+    if rc != ERROR_SUCCESS:
+        print(
+            f"    WARNING: DACL reset failed for {path}: rc={rc}",
+        )
+        return False
+
+    print(f"    DACL reset to inherited for {path}")
+    return True
+
+
+# pylint: disable-next=too-many-branches,too-many-return-statements
+def _remove_ace_by_sid_api(
     path: str,
     sid_string: str,
 ) -> bool:
     """Removes all ACEs matching a SID from a path's DACL using Win32 API.
 
     This matches the sandbox code's direct DACL manipulation approach:
-    GetNamedSecurityInfoW -> enumerate ACEs -> DeleteAce -> SetNamedSecurityInfoW.
+    GetNamedSecurityInfoW -> enumerate ACEs -> DeleteAce ->
+    SetNamedSecurityInfoW.
+
+    If the DACL cannot be read (ERROR_ACCESS_DENIED), falls back to
+    resetting the DACL to inherit from the parent directory — effectively
+    removing all explicit ACEs.
 
     Returns True if no matching ACEs remain (success or already clean).
     Returns False on API failure.
@@ -118,6 +174,11 @@ def _remove_ace_by_sid_api(  # pylint: disable=R0911,R0912
             ctypes.byref(p_sd),
         )
         if err != ERROR_SUCCESS:
+            # ERROR_ACCESS_DENIED: deny ACE blocks READ_CONTROL so we
+            # cannot read the DACL. Fall back to resetting the DACL to
+            # inherit from parent (removes ALL explicit ACEs).
+            if err == ERROR_ACCESS_DENIED:
+                return _reset_dacl_to_inherited(path)
             return False
 
         try:
@@ -143,7 +204,7 @@ def _remove_ace_by_sid_api(  # pylint: disable=R0911,R0912
             ):
                 return False
 
-            # Find and collect indices of matching ACEs (reverse order)
+            # Find and collect indices of matching ACEs
             indices_to_delete: List[int] = []
             for i in range(acl_info.AceCount):
                 ace_ptr = ctypes.c_void_p()
@@ -152,10 +213,23 @@ def _remove_ace_by_sid_api(  # pylint: disable=R0911,R0912
                 if ace_ptr.value is None:
                     continue
 
-                # ACE header is 4 bytes (type, flags, size)
-                # SID starts at offset 8 for ACCESS_ALLOWED_ACE / ACCESS_DENIED_ACE
+                # ACE: AceType(1) AceFlags(1) AceSize(2) Mask(4) SID
+                ace_type = ctypes.cast(
+                    ace_ptr,
+                    ctypes.POINTER(ctypes.c_ubyte),
+                )[0]
+                # ACCESS_ALLOWED_ACE_TYPE=0, ACCESS_DENIED_ACE_TYPE=1
+                if ace_type > 1:
+                    continue
+
+                # SID starts at offset 8
                 ace_sid_ptr = ctypes.c_void_p(ace_ptr.value + 8)
-                if advapi32.EqualSid(ace_sid_ptr, target_psid):
+                if advapi32.IsValidSid(
+                    ace_sid_ptr,
+                ) and advapi32.EqualSid(
+                    ace_sid_ptr,
+                    target_psid,
+                ):
                     indices_to_delete.append(i)
 
             if not indices_to_delete:
@@ -776,6 +850,140 @@ def _migrate_legacy_state_file(state_dir: Path) -> None:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
+# Deny Paths Protection cleanup (no admin required)
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+def _get_current_user_sid_string() -> Optional[str]:
+    """Gets the current user's SID string."""
+    try:
+        advapi32 = ctypes.WinDLL("advapi32.dll", use_last_error=True)
+        kernel32 = ctypes.WinDLL("kernel32.dll", use_last_error=True)
+    except OSError:
+        return None
+
+    # OpenProcessToken
+    token = ctypes.c_void_p()
+    TOKEN_QUERY = 0x0008
+    if not advapi32.OpenProcessToken(
+        kernel32.GetCurrentProcess(),
+        TOKEN_QUERY,
+        ctypes.byref(token),
+    ):
+        return None
+
+    try:
+        # GetTokenInformation for TokenUser
+        TokenUser = 1
+        buf_size = ctypes.wintypes.DWORD(0)
+        advapi32.GetTokenInformation(
+            token,
+            TokenUser,
+            None,
+            0,
+            ctypes.byref(buf_size),
+        )
+        buf = (ctypes.c_byte * buf_size.value)()
+        if not advapi32.GetTokenInformation(
+            token,
+            TokenUser,
+            ctypes.byref(buf),
+            buf_size.value,
+            ctypes.byref(buf_size),
+        ):
+            return None
+
+        # TOKEN_USER structure: first field is PSID
+        psid = ctypes.cast(buf, ctypes.POINTER(ctypes.c_void_p))[0]
+
+        # ConvertSidToStringSidW
+        sid_str_ptr = ctypes.c_wchar_p()
+        if not advapi32.ConvertSidToStringSidW(
+            ctypes.c_void_p(psid),
+            ctypes.byref(sid_str_ptr),
+        ):
+            return None
+
+        try:
+            return sid_str_ptr.value
+        finally:
+            kernel32.LocalFree(sid_str_ptr)
+    finally:
+        kernel32.CloseHandle(token)
+
+
+def _cleanup_deny_paths_protection(  # pylint: disable=R0912
+    state_dir: Path,
+) -> None:
+    """Cleans up deny paths protection ACLs and state file.
+
+    Reads the deny_paths_protection.json state file and removes any
+    DENY ACEs that were set on the current user for protected paths.
+    This matches the DenyPathsProtection.disable() + cleanup_orphaned()
+    logic in the sandbox code.
+    """
+    state_file = state_dir / "deny_paths_protection.json"
+    if not state_file.exists():
+        print("    No deny paths state file found.")
+        return
+
+    try:
+        state = json.loads(state_file.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError) as e:
+        print(f"    WARNING: Cannot read deny paths state: {e}")
+        try:
+            state_file.unlink(missing_ok=True)
+        except OSError:
+            pass
+        return
+
+    if not state.get("active"):
+        print("    Deny paths protection is not active.")
+        try:
+            state_file.unlink(missing_ok=True)
+        except OSError:
+            pass
+        return
+
+    user_sid = state.get("user_sid", "")
+    paths = state.get("protected_paths", [])
+
+    if not user_sid:
+        # Try to get current user SID as fallback
+        user_sid = _get_current_user_sid_string() or ""
+
+    if not user_sid:
+        print("    WARNING: Cannot determine user SID for cleanup.")
+        return
+
+    print(f"    User SID: {user_sid}")
+    print(f"    Protected paths: {len(paths)}")
+
+    succeeded = 0
+    failed = 0
+    for path in paths:
+        if not os.path.exists(path):
+            succeeded += 1
+            continue
+        if _remove_acl_with_retry(path, user_sid):
+            succeeded += 1
+            print(f"    Removed deny ACL from: {path}")
+        else:
+            failed += 1
+            print(f"    FAILED to remove deny ACL from: {path}")
+
+    if succeeded or failed:
+        print(f"    Results: {succeeded} cleaned, {failed} failed")
+
+    # Remove state file
+    try:
+        state_file.unlink(missing_ok=True)
+        print("    State file: deleted")
+    except OSError as e:
+        print(f"    WARNING: Failed to delete state file: {e}")
+
+
+# ═══════════════════════════════════════════════════════════════════════════
 # QwenpawUsers group cleanup (elevated only)
 # ═══════════════════════════════════════════════════════════════════════════
 
@@ -879,6 +1087,7 @@ def _confirm_cleanup(
     appcontainer_count: int,
     elevated_count: int,
     unelevated_count: int,
+    deny_paths_active: bool,
 ) -> None:
     """Print summary and prompt user for confirmation."""
     print("=" * 60)
@@ -888,6 +1097,10 @@ def _confirm_cleanup(
     print(f"  AppContainer sandboxes:    {appcontainer_count}")
     print(f"  Elevated sandboxes:        {elevated_count}")
     print(f"  Unelevated sandboxes:      {unelevated_count}")
+    print(
+        f"  Deny paths protection:     "
+        f"{'ACTIVE' if deny_paths_active else 'inactive'}",
+    )
     if not is_admin and elevated_count:
         print()
         print(
@@ -907,6 +1120,8 @@ def _confirm_cleanup(
         print("  - Remove QwenpawUsers group (if empty)")
     else:
         print("  - Delete AppContainer profiles")
+    if deny_paths_active:
+        print("  - Remove deny path ACLs (current user DENY ACEs)")
     print("  - Delete sandbox metadata files")
     print()
     print("Please make sure no sandbox is currently in use.")
@@ -975,16 +1190,37 @@ def main() -> None:  # pylint: disable=R0912,R0915
     containers_dir = state_dir / "containers"
     sandboxes_dir = state_dir / "sandboxes"
     unelevated_dir = state_dir / "unelevated_sandboxes"
+    deny_paths_state = state_dir / "deny_paths_protection.json"
 
     appcontainer_count = _count_json(containers_dir)
     elevated_count = _count_json(sandboxes_dir)
     unelevated_count = _count_json(unelevated_dir)
 
-    if not appcontainer_count and not elevated_count and not unelevated_count:
+    # Check deny paths protection state
+    deny_paths_active = False
+    if deny_paths_state.exists():
+        try:
+            dp_state = json.loads(
+                deny_paths_state.read_text(encoding="utf-8"),
+            )
+            deny_paths_active = dp_state.get("active", False)
+        except (json.JSONDecodeError, OSError):
+            pass
+
+    has_work = (
+        appcontainer_count
+        or elevated_count
+        or unelevated_count
+        or deny_paths_active
+        or deny_paths_state.exists()
+    )
+    if not has_work:
         # Check for legacy state file
         legacy = state_dir / "unelevated_sandbox_state.json"
         if not legacy.exists():
-            print("No QwenPaw sandbox metadata found. Nothing to clean up.")
+            print(
+                "No QwenPaw sandbox metadata found. Nothing to clean up.",
+            )
             sys.exit(0)
 
     _confirm_cleanup(
@@ -992,6 +1228,7 @@ def main() -> None:  # pylint: disable=R0912,R0915
         appcontainer_count,
         elevated_count,
         unelevated_count,
+        deny_paths_active,
     )
 
     print("=" * 60)
@@ -1002,16 +1239,21 @@ def main() -> None:  # pylint: disable=R0912,R0915
         print("  Running without admin — elevated sandbox cleanup skipped")
     print()
 
-    # Step 1: AppContainer sandboxes (no admin required)
-    print(f"[1] AppContainer sandboxes ({appcontainer_count} found)")
+    # Step 1: Deny paths protection (no admin required, do first so
+    # files are accessible for subsequent steps)
+    print("[1] Deny paths protection")
+    _cleanup_deny_paths_protection(state_dir)
+
+    # Step 2: AppContainer sandboxes (no admin required)
+    print(f"\n[2] AppContainer sandboxes ({appcontainer_count} found)")
     if containers_dir.is_dir():
         for meta_file in sorted(containers_dir.glob("*.json")):
             _cleanup_single_container(meta_file)
     if not appcontainer_count:
         print("    Nothing to clean.")
 
-    # Step 2: Elevated sandboxes (admin required)
-    print(f"\n[2] Elevated sandboxes ({elevated_count} found)")
+    # Step 3: Elevated sandboxes (admin required)
+    print(f"\n[3] Elevated sandboxes ({elevated_count} found)")
     if is_admin:
         if sandboxes_dir.is_dir():
             for meta_file in sorted(sandboxes_dir.glob("*.json")):
@@ -1027,8 +1269,8 @@ def main() -> None:  # pylint: disable=R0912,R0915
         else:
             print("    Nothing to clean.")
 
-    # Step 3: Unelevated sandboxes (no admin required)
-    print(f"\n[3] Unelevated sandboxes ({unelevated_count} found)")
+    # Step 4: Unelevated sandboxes (no admin required)
+    print(f"\n[4] Unelevated sandboxes ({unelevated_count} found)")
     _migrate_legacy_state_file(state_dir)
     if unelevated_dir.is_dir():
         for meta_file in sorted(unelevated_dir.glob("*.json")):
@@ -1036,8 +1278,8 @@ def main() -> None:  # pylint: disable=R0912,R0915
     if not unelevated_count:
         print("    Nothing to clean.")
 
-    # Step 4: Clean up empty directories
-    print("\n[4] Cleaning up state directories...")
+    # Step 5: Clean up empty directories
+    print("\n[5] Cleaning up state directories...")
     _cleanup_state_dirs(state_dir, is_admin=is_admin)
 
     print("\n" + "=" * 60)

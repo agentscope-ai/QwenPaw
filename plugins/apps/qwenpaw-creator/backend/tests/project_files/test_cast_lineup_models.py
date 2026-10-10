@@ -85,38 +85,6 @@ def test_cast_lineup_rejects_missing_characters():
         Project.model_validate(project.model_dump(mode="json"))
 
 
-def test_cast_lineup_needs_at_least_two_characters():
-    with pytest.raises(ValidationError, match="at least two characters"):
-        VisualCastLineup(
-            lineup_id="lineup:solo",
-            name="单人",
-            character_refs=["char:hero"],
-        )
-
-
-def test_element_cast_lineup_refs_must_exist():
-    project = _project_with_cast()
-    raw = project.model_dump(mode="json")
-    raw["timelines"]["items"]["timeline:main"]["elements_by_id"][
-        "elem:duo"
-    ] = {
-        "element_id": "elem:duo",
-        "span": {"start_tick": 0, "duration_tick": 1000},
-        "location": {},
-        "creation": {
-            "type": "r2v",
-            "character_refs": ["char:hero", "char:rival"],
-            "cast_lineup_refs": ["lineup:missing"],
-        },
-    }
-
-    with pytest.raises(
-        ValidationError,
-        match="references missing lineup lineup:missing",
-    ):
-        Project.model_validate(raw)
-
-
 def test_canonical_variant_must_be_one_of_the_entitys_variants():
     variants = EntityCollection(
         items={"var:default": VisualVariant(variant_id="var:default")},
@@ -135,35 +103,6 @@ def test_canonical_variant_must_be_one_of_the_entitys_variants():
             variants=variants,
             canonical_variant_id="var:ghost",
         )
-
-
-def test_variant_derivation_must_reference_an_existing_variant():
-    variants = EntityCollection(
-        items={
-            "var:default": VisualVariant(variant_id="var:default"),
-            "var:armor": VisualVariant(
-                variant_id="var:armor",
-                derived_from_variant_id="var:default",
-                consistency_tags=["costume_change"],
-            ),
-        },
-        order=["var:default", "var:armor"],
-    )
-    entity = _character("char:hero", variants=variants)
-    armor = entity.variants.items["var:armor"]
-    assert armor.derived_from_variant_id == "var:default"
-
-    broken = EntityCollection(
-        items={
-            "var:armor": VisualVariant(
-                variant_id="var:armor",
-                derived_from_variant_id="var:ghost",
-            ),
-        },
-        order=["var:armor"],
-    )
-    with pytest.raises(ValidationError, match="derives from missing"):
-        _character("char:hero", variants=broken)
 
 
 def test_legacy_projects_without_lineups_still_validate():

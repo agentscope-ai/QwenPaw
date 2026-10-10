@@ -2,6 +2,7 @@
 """Tests for provider initialization during application startup."""
 
 import importlib
+import inspect
 import threading
 from unittest.mock import AsyncMock
 
@@ -9,6 +10,7 @@ import pytest
 from fastapi import FastAPI
 
 import qwenpaw.backup._utils.safe_swap as safe_swap_module
+from qwenpaw.app import _app as app_module_for_source
 
 
 @pytest.mark.asyncio
@@ -165,6 +167,13 @@ async def test_lifespan_initializes_local_model_manager_in_worker_thread(
 
     assert len(initialization_threads) == 1
     assert initialization_threads[0] != caller_thread
+
+
+def test_lifespan_does_not_preload_managed_chromium() -> None:
+    """Startup must not call managed Chromium download (#7023)."""
+    source = inspect.getsource(app_module_for_source)
+    assert "start_managed_chromium_download" not in source
+    assert "ensure_managed_chromium" not in source
 
 
 class _nullcontext:

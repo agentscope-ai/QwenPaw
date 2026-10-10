@@ -47,7 +47,7 @@ from .shell import execute_shell_command  # noqa: E402
 from .send_file import send_file_to_user  # noqa: E402
 from .web_search import web_search, web_fetch  # noqa: E402
 from .desktop_screenshot import desktop_screenshot  # noqa: E402
-from .view_media import view_image, view_video  # noqa: E402
+from .view_media import view_image, view_video, view_audio  # noqa: E402
 from .get_current_time import get_current_time, set_user_timezone  # noqa: E402
 from .get_token_usage import get_token_usage  # noqa: E402
 from .agent_management import (  # noqa: E402
@@ -58,9 +58,16 @@ from .agent_management import (  # noqa: E402
     spawn_subagent,
 )  # noqa: E402
 from .delegate_external_agent import delegate_external_agent  # noqa: E402
-from .make_skill_tools import materialize_skill  # noqa: E402
+from .migration_compatibility import (  # noqa: E402
+    migration_compat_finalize,
+    migration_compat_inspect,
+    migration_compat_read_file,
+    migration_compat_update,
+    migration_compat_write_file,
+)
 from .ast_tool import ast_search  # noqa: E402
 from .run_tool_batch import run_tool_batch  # noqa: E402
+from .mail_f1_tool import activate_f1_exploration_mode  # noqa: E402
 
 _BETA_NOTICE_LOGGED = False
 

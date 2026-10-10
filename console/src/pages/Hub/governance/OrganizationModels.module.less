@@ -1,0 +1,141 @@
+@import (reference) "../../../styles/modelSurfaces.less";
+
+.surface {
+  .model-surface-tokens();
+  gap: 24px;
+  padding: 24px;
+  border-radius: 28px;
+  background: var(--model-canvas);
+  h1 {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  :global(.ant-btn),
+  :global(.qwenpaw-btn) {
+    border-radius: 10px;
+  }
+}
+.providerCard {
+  padding: 24px;
+  border: 0;
+  border-radius: 20px;
+  background: var(--model-card);
+  box-shadow: var(--model-shadow);
+  h3 {
+    font-size: 17px;
+    font-weight: 600;
+  }
+}
+.defaults {
+  :global(.ant-form),
+  :global(.qwenpaw-form) {
+    border: 0;
+    background: transparent;
+    padding: 0;
+  }
+  padding: 16px;
+  border-radius: 16px;
+  background: var(--model-card);
+  box-shadow: 0 1px 3px rgb(0 0 0 / 3%);
+}
+.tabs {
+  :global(.ant-tabs-nav)::before,
+  :global(.qwenpaw-tabs-nav)::before {
+    border: 0;
+  }
+  :global(.ant-tabs-nav-list),
+  :global(.qwenpaw-tabs-nav-list) {
+    background: var(--model-inset);
+    border-radius: 12px;
+    padding: 4px;
+    gap: 4px;
+  }
+  :global(.ant-tabs-tab),
+  :global(.qwenpaw-tabs-tab) {
+    padding: 8px 16px;
+    margin: 0 !important;
+    border-radius: 9px;
+    font-size: 13px;
+  }
+  :global(.ant-tabs-tab-active),
+  :global(.qwenpaw-tabs-tab-active) {
+    background: var(--model-card);
+    box-shadow: 0 1px 4px rgb(0 0 0 / 6%);
+  }
+  :global(.ant-tabs-ink-bar),
+  :global(.qwenpaw-tabs-ink-bar) {
+    display: none;
+  }
+}
+.modal {
+  .model-surface-tokens();
+  :global(.ant-modal-content),
+  :global(.qwenpaw-modal-content) {
+    padding: 24px;
+    border-radius: 24px;
+    background: var(--model-card);
+    box-shadow: var(--model-overlay-shadow);
+  }
+  :global(.ant-modal-body),
+  :global(.qwenpaw-modal-body) {
+    max-height: min(640px, calc(100dvh - 200px));
+    overflow-y: auto;
+    scrollbar-gutter: stable;
+    padding: 16px 4px 0;
+  }
+  :global(.ant-form-item),
+  :global(.qwenpaw-form-item) {
+    margin-bottom: 16px;
+  }
+  :global(.ant-input),
+  :global(.qwenpaw-input),
+  :global(.ant-select-selector),
+  :global(.qwenpaw-select-selector),
+  :global(.ant-input-number),
+  :global(.qwenpaw-input-number) {
+    border-radius: 10px;
+  }
+}
+@media (max-width: 700px) {
+  .surface {
+    padding: 16px;
+    border-radius: 20px;
+    gap: 16px;
+  }
+  .providerCard {
+    padding: 16px;
+  }
+  .tabs :global(.ant-tabs-tab),
+  .tabs :global(.qwenpaw-tabs-tab) {
+    padding: 8px 12px;
+  }
+  .modal :global(.ant-modal-content),
+  .modal :global(.qwenpaw-modal-content) {
+    padding: 16px;
+  }
+}
+
+.surface,
+.tabs,
+.defaults {
+  min-width: 0;
+  max-width: 100%;
+}
+.tabs :global(.ant-tabs-content-holder),
+.tabs :global(.qwenpaw-tabs-content-holder),
+.tabs :global(.ant-tabs-tabpane),
+.tabs :global(.qwenpaw-tabs-tabpane) {
+  min-width: 0;
+}
+.defaults :global(.ant-form-item),
+.defaults :global(.qwenpaw-form-item) {
+  min-width: 0;
+  max-width: 100%;
+}
+@media (max-width: 700px) {
+  .defaults :global(.ant-select),
+  .defaults :global(.qwenpaw-select) {
+    width: 100%;
+  }
+}

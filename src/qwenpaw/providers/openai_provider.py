@@ -9,7 +9,7 @@ import logging
 import os
 import re
 import time
-from typing import TYPE_CHECKING, Any, List
+from typing import TYPE_CHECKING, Any, ClassVar, List
 from urllib.parse import urlparse
 
 import httpx
@@ -24,6 +24,10 @@ from qwenpaw.providers.provider import (
     Provider,
 )
 
+from .adapters.request_context import with_session_header
+from .model_info import release_date
+from ..utils.io_utils import run_sync_io
+from .model_catalog import catalog_documents
 from .multimodal_prober import evaluate_video_probe_answer
 from ..utils.logging import sanitize_log_value
 from .capping_formatter import MAX_INLINE_MEDIA_BYTES, _CappingOpenAIFormatter
@@ -111,14 +115,17 @@ def _http_error_detail(resp: httpx.Response) -> str:
 def _uses_max_completion_tokens(model_id: str) -> bool:
     """Return whether an OpenAI model requires max_completion_tokens."""
     model_name = model_id.strip().lower().rsplit("/", maxsplit=1)[-1]
-    return model_name.startswith("gpt-5") or (
+    gpt_version = re.match(r"gpt-([0-9]+)", model_name)
+    if gpt_version and int(gpt_version.group(1)) >= 5:
+        return True
+    return (
         len(model_name) > 1
         and model_name[0] == "o"
         and model_name[1].isdigit()
     )
 
 
-def _token_limit_kwargs(model_id: str, limit: int) -> dict[str, int]:
+def token_limit_kwargs(model_id: str, limit: int) -> dict[str, int]:
     """Build the model-specific output token limit argument."""
     if _uses_max_completion_tokens(model_id):
         return {"max_completion_tokens": limit}
@@ -153,8 +160,25 @@ class OpenAIProvider(Provider):
         ),
     )
 
+    def cache_capabilities(self, model_id: str) -> frozenset[str]:
+        """Enable OpenAI cache controls only on the documented service."""
+        if urlparse(self.base_url).hostname == f"api.openai.com":
+            modes = {f"implicit", f"openai"}
+            if model_id == f"gpt-5.6" or model_id.startswith(f"gpt-5.6-"):
+                modes.add(f"openai_explicit")
+            return frozenset(modes)
+        return super().cache_capabilities(model_id)
+
+    def request_headers(self) -> dict:
+        """Return provider headers for an externally owned HTTP transport."""
+        return self._build_default_headers()
+
     def _build_default_headers(self) -> dict:
-        return dict(self.custom_headers) if self.custom_headers else {}
+        return with_session_header(
+            dict(self.custom_headers) if self.custom_headers else {},
+            self.session_header_name,
+            self._request_session,
+        )
 
     def _client(self, timeout: float = 5) -> AsyncOpenAI:
         kwargs: dict = {
@@ -174,8 +198,8 @@ class OpenAIProvider(Provider):
         if close is not None:
             await close()
 
-    @staticmethod
-    def _normalize_models_payload(payload: Any) -> List[ModelInfo]:
+    @classmethod
+    def _normalize_models_payload(cls, payload: Any) -> List[ModelInfo]:
         models: List[ModelInfo] = []
         rows = getattr(payload, "data", [])
         for row in rows or []:
@@ -185,11 +209,15 @@ class OpenAIProvider(Provider):
             model_name = (
                 str(getattr(row, "name", "") or model_id).strip() or model_id
             )
-            metadata: dict[str, Any] = {}
+            metadata: dict[str, Any] = {
+                **cls.parse_model_pricing(row),
+                f"released_at": release_date(getattr(row, f"created", None)),
+            }
             for field in (
                 "context_length",
                 "max_model_len",
                 "max_context_length",
+                f"context_window",
             ):
                 value = getattr(row, field, None)
                 if isinstance(value, (int, float)) and value >= 1000:
@@ -197,7 +225,8 @@ class OpenAIProvider(Provider):
                     break
             output_limit = getattr(row, "max_output_tokens", None)
             if isinstance(output_limit, (int, float)) and output_limit > 0:
-                metadata["max_tokens"] = int(output_limit)
+                metadata["max_output_length"] = int(output_limit)
+                metadata[f"max_output_length_source"] = f"api"
             models.append(
                 ModelInfo(id=model_id, name=model_name, **metadata),
             )
@@ -213,7 +242,7 @@ class OpenAIProvider(Provider):
 
     async def check_connection(self, timeout: float = 5) -> tuple[bool, str]:
         """Check if OpenAI provider is reachable with current configuration."""
-        client = self._client(timeout=timeout)
+        client = await run_sync_io(self._client, timeout=timeout)
         try:
             await client.models.list(timeout=timeout)
             return True, ""
@@ -236,15 +265,11 @@ class OpenAIProvider(Provider):
 
     async def fetch_models(self, timeout: float = 5) -> List[ModelInfo]:
         """Fetch available models."""
-        client = self._client(timeout=timeout)
+        client = await run_sync_io(self._client, timeout=timeout)
         try:
             payload = await client.models.list(timeout=timeout)
             models = self._normalize_models_payload(payload)
             return models
-        except APIError:
-            return []
-        except Exception:
-            return []
         finally:
             await self._close_client(client)
 
@@ -267,13 +292,13 @@ class OpenAIProvider(Provider):
                 timeout,
             )
 
-        client = self._client(timeout=timeout)
+        client = await run_sync_io(self._client, timeout=timeout)
         try:
             common_kwargs = {
                 "model": model_id,
                 "timeout": timeout,
                 "stream": True,
-                **_token_limit_kwargs(model_id, 20),
+                **token_limit_kwargs(model_id, 20),
             }
             res = await client.chat.completions.create(
                 messages=[
@@ -532,6 +557,9 @@ class OpenAIProvider(Provider):
         return OpenAIChatModelCompat(
             credential=credential,
             provider_id=self.id,
+            usage_guard=lambda: self.check_model_billing(model_id),
+            request_policy=self.prepare_request,
+            capture_cache_status=self.capture_cache_headers,
             model=model_id,
             parameters=parameters,
             stream=True,
@@ -545,6 +573,12 @@ class OpenAIProvider(Provider):
             context_size=self._get_context_size(model_id),
             formatter=_CappingOpenAIFormatter(
                 max_bytes=self.max_inline_media_bytes,
+                enable_prompt_cache_breakpoint=bool(
+                    gen_kwargs.get(
+                        f"enable_prompt_cache_breakpoint",
+                        False,
+                    ),
+                ),
                 relay_reasoning_content=self._get_relay_reasoning(model_id),
             ),
         )
@@ -568,8 +602,8 @@ class OpenAIProvider(Provider):
         # guess the correct color keyword, causing false positives.
         if not img_ok:
             return ProbeResult(
-                supports_image=False,
-                supports_video=False,
+                supports_image=img_ok,
+                supports_video=None,
                 image_message=img_msg,
                 video_message="Skipped: image probe failed",
             )
@@ -595,7 +629,7 @@ class OpenAIProvider(Provider):
         self,
         model_id: str,
         timeout: float = 15,
-    ) -> tuple[bool, str]:
+    ) -> tuple[bool | None, str]:
         """Probe image support by sending a solid-red 16x16 PNG.
 
         Uses a two-stage check:
@@ -628,7 +662,7 @@ class OpenAIProvider(Provider):
             self.base_url,
         )
         start_time = time.monotonic()
-        client = self._client(timeout=timeout)
+        client = await run_sync_io(self._client, timeout=timeout)
         try:
             res = await client.chat.completions.create(
                 model=model_id,
@@ -653,7 +687,7 @@ class OpenAIProvider(Provider):
                     },
                 ],
                 timeout=timeout,
-                **_token_limit_kwargs(model_id, 200),
+                **token_limit_kwargs(model_id, 200),
             )
             answer = (res.choices[0].message.content or "").lower().strip()
             reasoning = ""
@@ -679,9 +713,9 @@ class OpenAIProvider(Provider):
             # Other API errors are inconclusive (could be transient).
             # Use getattr because APITimeoutError lacks status_code.
             status = getattr(e, "status_code", None)
-            if status == 400 or _is_media_keyword_error(e):
+            if status in {400, 422} and _is_media_keyword_error(e):
                 return False, f"Image not supported: {e}"
-            return False, f"Probe inconclusive: {e}"
+            return None, f"Probe inconclusive: {e}"
         except Exception as e:
             elapsed = time.monotonic() - start_time
             logger.warning(
@@ -691,7 +725,7 @@ class OpenAIProvider(Provider):
                 sanitize_log_value(e),
                 elapsed,
             )
-            return False, f"Probe failed: {e}"
+            return None, f"Probe failed: {e}"
         finally:
             await self._close_client(client)
 
@@ -699,7 +733,7 @@ class OpenAIProvider(Provider):
         self,
         model_id: str,
         timeout: float = 30,
-    ) -> tuple[bool, str]:
+    ) -> tuple[bool | None, str]:
         """Probe video support with automatic format fallback."""
         from .multimodal_prober import _PROBE_VIDEO_B64, _PROBE_VIDEO_URL
 
@@ -740,7 +774,7 @@ class OpenAIProvider(Provider):
         timeout: float,
         *,
         start_time: float,
-    ) -> tuple[bool, str] | None:
+    ) -> tuple[bool | None, str] | None:
         """Try a single video URL format. Return None to try next."""
         from .multimodal_prober import (
             _PROBE_VIDEO_URL,
@@ -774,7 +808,7 @@ class OpenAIProvider(Provider):
                     },
                 ],
                 timeout=req_timeout,
-                **_token_limit_kwargs(model_id, 200),
+                **token_limit_kwargs(model_id, 200),
             )
             return self._evaluate_video_response(
                 res,
@@ -796,7 +830,10 @@ class OpenAIProvider(Provider):
             elapsed = time.monotonic() - start_time
             # If the error message contains media-related keywords
             # (e.g. "video", "vision"), it's a definitive rejection.
-            is_kw = _is_media_keyword_error(e)
+            is_kw = getattr(e, f"status_code", None) in {
+                400,
+                422,
+            } and _is_media_keyword_error(e)
             label = "not supported" if is_kw else "inconclusive"
             logger.warning(
                 "Video probe error: model=%s type=%s msg=%s %.2fs",
@@ -805,7 +842,7 @@ class OpenAIProvider(Provider):
                 sanitize_log_value(e),
                 elapsed,
             )
-            return False, f"Video {label}: {e}"
+            return (False if is_kw else None), f"Video {label}: {e}"
         except Exception as e:
             elapsed = time.monotonic() - start_time
             logger.warning(
@@ -815,7 +852,7 @@ class OpenAIProvider(Provider):
                 sanitize_log_value(e),
                 elapsed,
             )
-            return False, f"Probe failed: {e}"
+            return None, f"Probe failed: {e}"
         finally:
             await self._close_client(client)
 
@@ -848,20 +885,18 @@ class OpenAIProvider(Provider):
 
 
 class _FreeSuffixProviderMixin:
-    """Mixin for providers that mark models as free by suffix."""
+    """Mixin for providers with API or suffix-based free model flags."""
 
-    _FREE_SUFFIX = "-free"
+    _FREE_SUFFIX: ClassVar[str] = "-free"
 
     async def fetch_models(
         self,
         timeout: float = 5,
     ) -> List[ModelInfo]:
-        """Fetch models and mark free ones by suffix."""
-        client = self._client(timeout=timeout)
+        """Fetch models and resolve free status from API data or suffix."""
+        client = await run_sync_io(self._client, timeout=timeout)
         try:
             payload = await client.models.list(timeout=timeout)
-        except Exception:
-            return []
         finally:
             await self._close_client(client)
 
@@ -875,7 +910,7 @@ class _FreeSuffixProviderMixin:
             if not model_id or model_id in seen:
                 continue
             seen.add(model_id)
-            is_free = model_id.endswith(suffix)
+            price = self.parse_model_pricing(row)
             display_name = (
                 model_id.removesuffix(suffix)
                 .replace("-", " ")
@@ -886,7 +921,7 @@ class _FreeSuffixProviderMixin:
                 ModelInfo(
                     id=model_id,
                     name=display_name,
-                    is_free=is_free,
+                    **price,
                 ),
             )
         return models
@@ -895,77 +930,99 @@ class _FreeSuffixProviderMixin:
 class OpenCodeProvider(_FreeSuffixProviderMixin, OpenAIProvider):
     """OpenCode provider with dynamic free model detection."""
 
-    _FREE_SUFFIX = "-free"
+    @classmethod
+    def parse_model_pricing(cls, row: Any) -> dict[str, Any]:
+        """Prefer explicit prices over the service's free-route convention."""
+        price = super().parse_model_pricing(row)
+        model_id = f"{getattr(row, 'id', '')}"
+        if (
+            price[f"billing"] == f"unknown"
+            and not price[f"pricing"]
+            and model_id.endswith(cls._FREE_SUFFIX)
+        ):
+            price.update(billing=f"free", is_free=True)
+        return price
+
+    _FREE_SUFFIX: ClassVar[str] = "-free"
+    session_header_name: ClassVar[str | None] = f"x-opencode-session"
+    cache_modes: ClassVar[frozenset[str]] = frozenset({f"implicit"})
+    cache_documentation: ClassVar[str | None] = f"https://opencode.ai/docs/go/"
+
+    def model_protocol(self, model_id: str) -> str:
+        """Use reviewed model-specific routing instead of guessing names."""
+        for document, _ in reversed(catalog_documents((f"opencode",))):
+            provider = document.providers.get(f"opencode")
+            if provider and model_id in provider.protocols:
+                return provider.protocols[model_id]
+        return f"chat"
+
+    def cache_capabilities(self, model_id: str) -> frozenset[str]:
+        """Match cache syntax to the same routing used by inference."""
+        if self.model_protocol(model_id) == f"anthropic":
+            return frozenset({f"anthropic"})
+        return self.cache_modes
+
+    def _protocol_provider(self, model_id: str):
+        """Construct the native implementation with isolated service state."""
+        # Deferred to avoid the protocol subclasses' base-class import cycle.
+        from .services.opencode_protocols import protocol_provider
+
+        return protocol_provider(self, self.model_protocol(model_id))
+
+    def get_chat_model_instance(self, model_id: str) -> ChatModelBase:
+        """Reuse the native AgentScope protocol subclass for each offering."""
+        provider = self._protocol_provider(model_id)
+        if provider is self:
+            return super().get_chat_model_instance(model_id)
+        return provider.get_chat_model_instance(model_id)
+
+    async def check_model_connection(self, model_id: str, timeout: float = 5):
+        """Probe the same protocol that inference will use."""
+        provider = self._protocol_provider(model_id)
+        if provider is self:
+            return await super().check_model_connection(model_id, timeout)
+        return await provider.check_model_connection(model_id, timeout)
+
+    async def probe_model_multimodal(
+        self,
+        model_id: str,
+        timeout: float = 10,
+        image_only: bool = False,
+    ):
+        """Keep capability probes on the model's native protocol."""
+        provider = self._protocol_provider(model_id)
+        if provider is self:
+            return await super().probe_model_multimodal(
+                model_id,
+                timeout,
+                image_only,
+            )
+        return await provider.probe_model_multimodal(
+            model_id,
+            timeout,
+            image_only,
+        )
 
 
 class KiloProvider(_FreeSuffixProviderMixin, OpenAIProvider):
     """Kilo Code provider with dynamic free model detection."""
 
-    _FREE_SUFFIX = ":free"
+    @classmethod
+    def parse_model_pricing(cls, row: Any) -> dict[str, Any]:
+        """Prefer explicit prices over the service's free-route convention."""
+        price = super().parse_model_pricing(row)
+        model_id = f"{getattr(row, 'id', '')}"
+        if (
+            price[f"billing"] == f"unknown"
+            and not price[f"pricing"]
+            and model_id.endswith(cls._FREE_SUFFIX)
+        ):
+            price.update(billing=f"free", is_free=True)
+        return price
 
-
-class GitHubModelsProvider(OpenAIProvider):
-    """GitHub Models provider.
-
-    GitHub Models exposes an OpenAI-compatible chat completions endpoint at
-    ``https://models.github.ai/inference``.  Unlike many OpenAI-compatible
-    providers it does **not** implement the ``/models`` listing endpoint, so
-    the generic ``OpenAIProvider.check_connection`` (which calls
-    ``client.models.list()``) receives a 404 response.  This override checks
-    connectivity by issuing a minimal chat completion request instead.
-    """
-
-    async def check_connection(self, timeout: float = 5) -> tuple[bool, str]:
-        """Check connectivity via a tiny chat completion request."""
-        # Prefer a built-in model; fall back to a well-known GitHub Models id.
-        model_id = ""
-        for candidate in ("openai/gpt-4o-mini", "gpt-4o-mini"):
-            if any(m.id == candidate for m in self.models):
-                model_id = candidate
-                break
-        if not model_id:
-            model_id = (
-                self.models[0].id if self.models else "openai/gpt-4o-mini"
-            )
-
-        client = self._client(timeout=timeout)
-        try:
-            res = await client.chat.completions.create(
-                model=model_id,
-                messages=[
-                    {
-                        "role": "user",
-                        "content": [
-                            {
-                                "type": "text",
-                                "text": "ping",
-                            },
-                        ],
-                    },
-                ],
-                timeout=timeout,
-                stream=True,
-                **_token_limit_kwargs(model_id, 5),
-            )
-            try:
-                async for _ in res:
-                    break
-            finally:
-                await res.response.aclose()
-            return True, ""
-        except APIError as exc:
-            detail = self.connection_error_message(exc)
-            status = getattr(exc, "status_code", "unknown")
-            return (
-                False,
-                f"API error when connecting to `{self.base_url}` "
-                f"(status={status}): {detail}",
-            )
-        except Exception as exc:
-            return (
-                False,
-                f"Unknown exception when connecting to `{self.base_url}`: "
-                f"{self.connection_error_message(exc)}",
-            )
-        finally:
-            await self._close_client(client)
+    _FREE_SUFFIX: ClassVar[str] = ":free"
+    session_header_name: ClassVar[str | None] = f"X-KiloCode-TaskId"
+    cache_modes: ClassVar[frozenset[str]] = frozenset({f"implicit"})
+    cache_documentation: ClassVar[
+        str | None
+    ] = f"https://kilo.ai/docs/gateway/authentication"

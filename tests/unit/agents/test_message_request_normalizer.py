@@ -19,6 +19,8 @@ from qwenpaw.agents.utils.message_request_normalizer import (
     _clean_provider_specific_fields,
     _clone_msg,
     _clone_messages,
+    _is_document_block,
+    _is_media_block,
     _strip_media_blocks_in_place,
     normalize_messages_for_model_request,
 )
@@ -34,7 +36,7 @@ def _data_block(media_type: str, url: str = "file:///tmp/test") -> DataBlock:
     return DataBlock(source=URLSource(url=url, media_type=media_type))
 
 
-def _is_media_block(block) -> bool:
+def _is_data_block(block) -> bool:
     return getattr(block, "type", None) == "data"
 
 
@@ -211,6 +213,28 @@ def test_strip_media_blocks_preserves_non_media_content(text_message):
     assert msgs[0].content == text_message.content
 
 
+@pytest.mark.parametrize(
+    "block",
+    [
+        _data_block("application/pdf", "file:///tmp/report.pdf"),
+        {
+            "type": "data",
+            "source": {
+                "type": "url",
+                "url": "file:///tmp/report.pdf",
+                "media_type": "application/pdf",
+            },
+        },
+    ],
+)
+def test_is_media_block_recognizes_pdf_data_blocks(block):
+    assert _is_media_block(block) is True
+
+
+def test_is_media_block_preserves_plain_text_data_block():
+    assert _is_media_block(_data_block("text/plain")) is False
+
+
 def test_strip_media_blocks_handles_empty_content():
     msg = Msg(name="user", role="user", content=[])
     msgs = [msg]
@@ -256,6 +280,121 @@ def test_normalize_without_multimodal_support_strips_media(image_message):
     assert msgs[0].content[0].type == "data"
     assert normalized[0].content[0].type == "text"
     assert normalized[0].content[0].text == MEDIA_UNSUPPORTED_PLACEHOLDER
+
+
+def test_normalize_without_multimodal_support_strips_pdf():
+    msg = Msg(
+        name="user",
+        role="user",
+        content=[_data_block("application/pdf", "file:///tmp/report.pdf")],
+    )
+
+    normalized = normalize_messages_for_model_request(
+        [msg],
+        supports_multimodal=False,
+    )
+
+    assert _is_data_block(msg.content[0])
+    assert len(normalized[0].content) == 1
+    assert normalized[0].content[0].type == "text"
+    assert normalized[0].content[0].text == MEDIA_UNSUPPORTED_PLACEHOLDER
+
+
+def test_normalize_keeps_user_pdf_for_openai_multimodal_model():
+    # User-supplied documents keep the upstream formatting path: the
+    # formatter serializes them as ``file`` parts, which first-party
+    # OpenAI chat-completions endpoints accept. Only tool-returned
+    # documents are stripped (see the next test).
+    msg = Msg(
+        name="user",
+        role="user",
+        content=[_data_block("application/pdf", "file:///tmp/report.pdf")],
+    )
+
+    normalized = normalize_messages_for_model_request(
+        [msg],
+        supports_multimodal=True,
+    )
+
+    assert len(normalized[0].content) == 1
+    assert _is_data_block(normalized[0].content[0])
+
+
+def test_normalize_strips_tool_pdf_for_openai_multimodal_model():
+    """Tool-returned PDFs are stripped for the OpenAI chat-completions
+    family regardless of multimodal support (Fixes #7597)."""
+    msg = Msg(
+        name="assistant",
+        role="assistant",
+        content=[
+            ToolCallBlock(
+                type="tool_call",
+                id="call_read",
+                name="read_document",
+                input='{"path":"/tmp/report.pdf"}',
+            ),
+            ToolResultBlock(
+                type="tool_result",
+                id="call_read",
+                name="read_document",
+                output=[
+                    _data_block(
+                        "application/pdf",
+                        "file:///tmp/report.pdf",
+                    ),
+                ],
+            ),
+        ],
+    )
+
+    normalized = normalize_messages_for_model_request(
+        [msg],
+        supports_multimodal=True,
+    )
+
+    assert normalized[0].content[1].output == MEDIA_UNSUPPORTED_PLACEHOLDER
+
+
+def test_normalize_keeps_image_for_openai_multimodal_model():
+    msg = Msg(
+        name="user",
+        role="user",
+        content=[_data_block("image/png", "file:///tmp/photo.png")],
+    )
+
+    normalized = normalize_messages_for_model_request(
+        [msg],
+        supports_multimodal=True,
+        target_family="openai",
+    )
+
+    assert len(normalized[0].content) == 1
+    assert _is_data_block(normalized[0].content[0])
+
+
+def test_normalize_keeps_pdf_for_anthropic_multimodal_model():
+    msg = Msg(
+        name="user",
+        role="user",
+        content=[_data_block("application/pdf", "file:///tmp/report.pdf")],
+    )
+
+    normalized = normalize_messages_for_model_request(
+        [msg],
+        supports_multimodal=True,
+        target_family="anthropic",
+    )
+
+    assert len(normalized[0].content) == 1
+    assert _is_data_block(normalized[0].content[0])
+
+
+def test_is_document_block_recognizes_pdf():
+    assert _is_document_block(_data_block("application/pdf")) is True
+
+
+def test_is_document_block_ignores_images():
+    assert _is_document_block(_data_block("image/png")) is False
 
 
 def test_normalize_preserves_original_messages(mixed_content_message):

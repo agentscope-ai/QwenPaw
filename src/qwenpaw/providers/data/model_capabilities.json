@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "catalog_version": "2026.07.29",
-  "published_at": "2026-07-29T00:00:00Z",
+  "catalog_version": "2026.08.25",
+  "published_at": "2026-08-25T00:00:00Z",
   "capabilities": [
     {
       "provider_id": "modelscope",
@@ -42,6 +42,14 @@
       "expected_video": false,
       "doc_url": "https://help.aliyun.com/zh/model-studio/getting-started/models",
       "note": "DeepSeek V3 series is text-only"
+    },
+    {
+      "provider_id": "aliyun-codingplan",
+      "model_id": "qwen3.7-plus",
+      "expected_image": true,
+      "expected_video": true,
+      "doc_url": "https://help.aliyun.com/zh/model-studio/coding-plan",
+      "note": "Qwen3.7-Plus is a vision-capable recommended model"
     },
     {
       "provider_id": "aliyun-codingplan",
@@ -114,6 +122,38 @@
       "expected_video": false,
       "doc_url": "https://help.aliyun.com/zh/model-studio/developer-reference/compatibility-of-openai-with-dashscope",
       "note": "Qwen3 Coder series is code-only text model"
+    },
+    {
+      "provider_id": "aliyun-tokenplan",
+      "model_id": "qwen3.8-max",
+      "expected_image": true,
+      "expected_video": true,
+      "doc_url": "https://help.aliyun.com/zh/model-studio/qwen3-8-max",
+      "note": "Qwen3.8-Max supports image and video input"
+    },
+    {
+      "provider_id": "aliyun-tokenplan-intl",
+      "model_id": "qwen3.8-max",
+      "expected_image": true,
+      "expected_video": true,
+      "doc_url": "https://help.aliyun.com/en/model-studio/qwen3-8-max",
+      "note": "Qwen3.8-Max supports image and video input"
+    },
+    {
+      "provider_id": "aliyun-tokenplan",
+      "model_id": "kimi-k2.7-code",
+      "expected_image": true,
+      "expected_video": true,
+      "doc_url": "https://help.aliyun.com/zh/model-studio/token-plan-team-overview",
+      "note": "Kimi K2.7 Code supports vision input"
+    },
+    {
+      "provider_id": "aliyun-tokenplan-intl",
+      "model_id": "kimi-k2.7-code",
+      "expected_image": true,
+      "expected_video": true,
+      "doc_url": "https://help.aliyun.com/en/model-studio/token-plan-team-overview",
+      "note": "Kimi K2.7 Code supports vision input"
     },
     {
       "provider_id": "aliyun-tokenplan",
@@ -437,6 +477,38 @@
     },
     {
       "provider_id": "kimi-cn",
+      "model_id": "kimi-k3",
+      "expected_image": true,
+      "expected_video": true,
+      "doc_url": "https://platform.kimi.com/docs/models",
+      "note": "Kimi K3 supports image and video input"
+    },
+    {
+      "provider_id": "kimi-cn",
+      "model_id": "kimi-k2.7-code",
+      "expected_image": true,
+      "expected_video": true,
+      "doc_url": "https://platform.kimi.com/docs/guide/kimi-k2-7-code-quickstart",
+      "note": "Kimi K2.7 Code supports image and video input"
+    },
+    {
+      "provider_id": "kimi-cn",
+      "model_id": "kimi-k2.7-code-highspeed",
+      "expected_image": true,
+      "expected_video": true,
+      "doc_url": "https://platform.kimi.com/docs/guide/kimi-k2-7-code-quickstart",
+      "note": "Kimi K2.7 Code Highspeed supports image and video input"
+    },
+    {
+      "provider_id": "kimi-cn",
+      "model_id": "kimi-k2.6",
+      "expected_image": true,
+      "expected_video": true,
+      "doc_url": "https://platform.kimi.com/docs/models",
+      "note": "Kimi K2.6 supports image and video input"
+    },
+    {
+      "provider_id": "kimi-cn",
       "model_id": "kimi-k2.5",
       "expected_image": true,
       "expected_video": true,
@@ -444,44 +516,36 @@
       "note": "Kimi K2.5 supports image and video input"
     },
     {
-      "provider_id": "kimi-cn",
-      "model_id": "kimi-k2-0905-preview",
-      "expected_image": false,
-      "expected_video": false,
-      "doc_url": "https://platform.moonshot.cn/docs/intro",
-      "note": "K2 series (non-K2.5) is text-only"
+      "provider_id": "kimi-intl",
+      "model_id": "kimi-k3",
+      "expected_image": true,
+      "expected_video": true,
+      "doc_url": "https://platform.kimi.ai/docs/models",
+      "note": "Kimi K3 supports image and video input"
     },
     {
-      "provider_id": "kimi-cn",
-      "model_id": "kimi-k2-0711-preview",
-      "expected_image": false,
-      "expected_video": false,
-      "doc_url": "https://platform.moonshot.cn/docs/intro",
-      "note": "K2 series (non-K2.5) is text-only"
+      "provider_id": "kimi-intl",
+      "model_id": "kimi-k2.7-code",
+      "expected_image": true,
+      "expected_video": true,
+      "doc_url": "https://platform.kimi.ai/docs/guide/kimi-k2-7-code-quickstart",
+      "note": "Kimi K2.7 Code supports image and video input"
     },
     {
-      "provider_id": "kimi-cn",
-      "model_id": "kimi-k2-turbo-preview",
-      "expected_image": false,
-      "expected_video": false,
-      "doc_url": "https://platform.moonshot.cn/docs/intro",
-      "note": "K2 series (non-K2.5) is text-only"
+      "provider_id": "kimi-intl",
+      "model_id": "kimi-k2.7-code-highspeed",
+      "expected_image": true,
+      "expected_video": true,
+      "doc_url": "https://platform.kimi.ai/docs/guide/kimi-k2-7-code-quickstart",
+      "note": "Kimi K2.7 Code Highspeed supports image and video input"
     },
     {
-      "provider_id": "kimi-cn",
-      "model_id": "kimi-k2-thinking",
-      "expected_image": false,
-      "expected_video": false,
-      "doc_url": "https://platform.moonshot.cn/docs/intro",
-      "note": "K2 series (non-K2.5) is text-only"
-    },
-    {
-      "provider_id": "kimi-cn",
-      "model_id": "kimi-k2-thinking-turbo",
-      "expected_image": false,
-      "expected_video": false,
-      "doc_url": "https://platform.moonshot.cn/docs/intro",
-      "note": "K2 series (non-K2.5) is text-only"
+      "provider_id": "kimi-intl",
+      "model_id": "kimi-k2.6",
+      "expected_image": true,
+      "expected_video": true,
+      "doc_url": "https://platform.kimi.ai/docs/models",
+      "note": "Kimi K2.6 supports image and video input"
     },
     {
       "provider_id": "kimi-intl",
@@ -490,46 +554,6 @@
       "expected_video": true,
       "doc_url": "https://platform.moonshot.ai/docs/intro",
       "note": "Kimi K2.5 supports image and video input"
-    },
-    {
-      "provider_id": "kimi-intl",
-      "model_id": "kimi-k2-0905-preview",
-      "expected_image": false,
-      "expected_video": false,
-      "doc_url": "https://platform.moonshot.ai/docs/intro",
-      "note": "K2 series (non-K2.5) is text-only"
-    },
-    {
-      "provider_id": "kimi-intl",
-      "model_id": "kimi-k2-0711-preview",
-      "expected_image": false,
-      "expected_video": false,
-      "doc_url": "https://platform.moonshot.ai/docs/intro",
-      "note": "K2 series (non-K2.5) is text-only"
-    },
-    {
-      "provider_id": "kimi-intl",
-      "model_id": "kimi-k2-turbo-preview",
-      "expected_image": false,
-      "expected_video": false,
-      "doc_url": "https://platform.moonshot.ai/docs/intro",
-      "note": "K2 series (non-K2.5) is text-only"
-    },
-    {
-      "provider_id": "kimi-intl",
-      "model_id": "kimi-k2-thinking",
-      "expected_image": false,
-      "expected_video": false,
-      "doc_url": "https://platform.moonshot.ai/docs/intro",
-      "note": "K2 series (non-K2.5) is text-only"
-    },
-    {
-      "provider_id": "kimi-intl",
-      "model_id": "kimi-k2-thinking-turbo",
-      "expected_image": false,
-      "expected_video": false,
-      "doc_url": "https://platform.moonshot.ai/docs/intro",
-      "note": "K2 series (non-K2.5) is text-only"
     },
     {
       "provider_id": "kimi-codingplan",

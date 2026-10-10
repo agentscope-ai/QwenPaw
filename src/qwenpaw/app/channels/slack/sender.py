@@ -31,6 +31,7 @@ from .constants import (
 )
 from .format import chunk_slack_text, markdown_to_slack_mrkdwn
 from .utils import is_slack_host, with_retry
+from ..utils import materialize_data_url
 
 if TYPE_CHECKING:
     from slack_sdk.web.async_client import AsyncWebClient
@@ -253,7 +254,10 @@ class SlackSender:
     ) -> Optional[str]:
         """Upload an image via ``files.uploadV2``."""
         url: Optional[str] = getattr(part, "image_url", None)
-        filename = getattr(part, "filename", None) or "image.png"
+        default_name = (
+            "image" if url and url.startswith("data:") else "image.png"
+        )
+        filename = getattr(part, "filename", None) or default_name
 
         if not url:
             logger.warning("slack send: image has no url")
@@ -283,7 +287,7 @@ class SlackSender:
             or getattr(part, "video_url", None)
         )
         filename = getattr(part, "filename", None)
-        if not filename and url:
+        if not filename and url and not url.startswith("data:"):
             filename = os.path.basename(url) or "file"
         filename = filename or "file"
 
@@ -318,6 +322,25 @@ class SlackSender:
         * Remote URL on Slack's domain → ``files.uploadV2``.
         * Other remote URL → blocked (SSRF).
         """
+        if url.startswith("data:"):
+            async with materialize_data_url(
+                url,
+                self._channel.media_dir,
+                filename_hint=filename,
+            ) as media:
+                if media is None:
+                    return None
+                return await self._upload_file_external(
+                    client,
+                    channel_id,
+                    media.path,
+                    media.filename or filename,
+                    title=(media.filename or filename)
+                    if title == filename
+                    else title,
+                    thread_ts=thread_ts,
+                )
+
         local_path = _resolve_local_file_path(url)
         if local_path:
             return await self._upload_file_external(

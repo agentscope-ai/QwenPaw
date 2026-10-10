@@ -152,7 +152,7 @@ export default function MissionControl() {
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "center",
-                    background: `${def.accent}22`,
+                    background: `color-mix(in srgb, ${def.accent} 13.33%, transparent)`,
                     color: def.accent,
                   }}
                 >

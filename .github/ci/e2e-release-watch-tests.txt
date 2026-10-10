@@ -1,0 +1,7 @@
+tests/test_acp.py::TestCreateACPDrawerForm::test_create_acp_drawer_form
+tests/test_agent_stats.py::TestAgentStatsCharts::test_chart_area_display
+tests/test_chat.py::TestSessionManagement::test_session_rename_pin_delete_switch
+tests/test_environments.py::TestAddEnvironment::test_add_environment_success
+tests/test_environments.py::TestDeleteEnvironment::test_delete_environment
+tests/test_environments.py::TestEditEnvironment::test_edit_environment
+tests/test_environments.py::TestEnvironmentListDisplay::test_environment_list_display

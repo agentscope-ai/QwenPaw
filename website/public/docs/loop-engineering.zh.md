@@ -295,10 +295,10 @@ class TimeoutGate(StopGate):
 
 ```python
 from qwenpaw.loop.gates import StopHandler
-from qwenpaw.plugins.api import PluginAPI
+from qwenpaw.plugins.api import PluginApi
 
 
-class MyLoopPlugin(PluginAPI):
+class MyLoopPlugin(PluginApi):
     def on_load(self):
         handler = StopHandler()
         handler.register(TimeoutGate(max_minutes=30))

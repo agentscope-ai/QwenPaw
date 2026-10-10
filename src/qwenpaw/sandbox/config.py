@@ -42,12 +42,15 @@ from __future__ import annotations
 
 import functools
 import logging
+import os
 import shutil
 import subprocess
 import sys
 from dataclasses import dataclass, field, replace
 from enum import Enum
 from typing import Any, Dict, List, Optional
+
+from .runtime_boundary import has_runtime_boundary
 
 logger = logging.getLogger(__name__)
 
@@ -287,6 +290,38 @@ def _requested_constraints(config: SandboxConfig) -> Dict[str, str]:
     return requested
 
 
+def _report_missing_mount_paths(
+    config: SandboxConfig,
+    backend: str,
+    enforced: frozenset,
+) -> None:
+    """Log declared mounts whose path is absent from disk.
+
+    A backend binds a mount only if the path exists when the sandbox
+    starts, and skips it otherwise. Without this the operator sees a clean
+    log while the path they granted was never bound -- the same silent gap
+    the field-level report exists to close.
+
+    Not an error: a tool cache such as ``~/.cache/uv`` legitimately does
+    not exist until its tool first runs, so the sandbox still starts.
+
+    Only reported where ``mounts`` is actually enforced; a backend that
+    ignores the field wholesale already says so at field level.
+    """
+    if "mounts" not in enforced:
+        return
+    missing = [m.path for m in config.mounts if not os.path.exists(m.path)]
+    if not missing:
+        return
+    logger.warning(
+        "%s: mount path(s) absent and therefore NOT bound: %s. "
+        "A path is bound only if it exists when the sandbox starts; "
+        "create it first if the sandboxed command must write there.",
+        backend,
+        ", ".join(missing),
+    )
+
+
 def report_unenforced_config(
     config: SandboxConfig,
     backend: str,
@@ -325,6 +360,9 @@ def report_unenforced_config(
             value,
             f" {hint}" if hint else "",
         )
+    # A field can be enforced in principle and still be dropped in
+    # practice, which the loop above cannot see.
+    _report_missing_mount_paths(config, backend, enforced)
 
 
 def _probe_linux_landlock() -> (  # pylint: disable=too-many-return-statements
@@ -342,7 +380,6 @@ def _probe_linux_landlock() -> (  # pylint: disable=too-many-return-statements
     """
     import ctypes
     import ctypes.util
-    import os
 
     # Step 1: Check kernel version
     try:
@@ -611,6 +648,16 @@ def _probe_linux_bubblewrap() -> SandboxCapability:
         )
 
 
+def _inherits_runtime_boundary() -> bool:
+    """Identify descendants of a Hub-launched, isolated Local runtime."""
+    return bool(
+        os.environ.get("QWENPAW_RUNTIME_PROVISIONER") == "local"
+        and os.environ.get("QWENPAW_RUNTIME_ID")
+        and os.environ.get("QWENPAW_RUNTIME_INTERNAL_TOKEN")
+        and has_runtime_boundary(os.environ["QWENPAW_RUNTIME_ID"]),
+    )
+
+
 @functools.lru_cache(maxsize=1)
 def probe_sandbox_support() -> SandboxCapability:
     """Probes current platform sandbox support.
@@ -624,6 +671,17 @@ def probe_sandbox_support() -> SandboxCapability:
     Returns:
         ``SandboxCapability`` describing available isolation.
     """
+    if _inherits_runtime_boundary():
+        modes = {
+            "darwin": SandboxMode.SEATBELT,
+            "linux": SandboxMode.BUBBLEWRAP,
+            "win32": SandboxMode.WINDOWS,
+        }
+        return SandboxCapability(
+            supported=True,
+            mode=modes[sys.platform],
+            reason="OS sandbox inherited from the Local runtime",
+        )
     if sys.platform == "darwin":
         return _probe_macos_seatbelt()
     elif sys.platform == "linux":
@@ -679,6 +737,14 @@ def create_sandbox(  # pylint: disable=too-many-return-statements
     Raises:
         ValueError: If ``config.mode`` is unknown.
     """
+    if _inherits_runtime_boundary():
+        from .local_sandbox import NoneSandbox
+
+        # Hub has already established the user boundary before launching
+        # this process. Children inherit it; do not nest native sandboxes.
+        logger.debug("Using the inherited Local runtime OS sandbox")
+        return NoneSandbox(config)
+
     # Platform compatibility guard: downgrade incompatible modes to the
     # platform default to prevent crashes from missing OS-specific APIs.
     _PLATFORM_MODE_REQUIREMENTS = {

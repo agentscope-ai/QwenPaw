@@ -16,6 +16,7 @@ from .api.routes import (
     configure_nm_bridge,
     get_extension_status,
 )
+from .extension_setup import recover_windows_native_host_launcher
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +25,15 @@ class ChromePlugin:
     """Register Chrome plugin capabilities."""
 
     def startup(self) -> None:
-        """Write the single Native Messaging backend configuration."""
+        """Recover the launcher and write the Native Messaging config."""
+        try:
+            if recover_windows_native_host_launcher():
+                logger.info("Recovered the Native Messaging launcher")
+        except OSError:
+            logger.warning(
+                "Could not recover the Native Messaging launcher",
+                exc_info=True,
+            )
         configure_nm_bridge()
 
     async def shutdown(self) -> None:

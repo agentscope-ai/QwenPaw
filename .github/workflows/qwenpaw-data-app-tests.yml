@@ -1,0 +1,54 @@
+name: QwenPaw Data App Tests
+
+on:
+  push:
+    branches: [main, master, dev, develop, "dev/**"]
+    paths:
+      - "plugins/apps/qwenpaw-data/ui/**"
+      - ".github/workflows/qwenpaw-data-app-tests.yml"
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    branches: [main, master, dev, develop, "dev/**"]
+    paths:
+      - "plugins/apps/qwenpaw-data/ui/**"
+      - ".github/workflows/qwenpaw-data-app-tests.yml"
+
+jobs:
+  spam-gate:
+    name: PR Spam Gate
+    if: github.event_name == 'pull_request'
+    uses: ./.github/workflows/pr-spam-gate.yml
+    with:
+      author: ${{ github.event.pull_request.user.login }}
+
+  ui-tests:
+    name: QwenPaw Data UI Build & Tests
+    needs: [spam-gate]
+    if: |
+      always() &&
+      (needs.spam-gate.result == 'skipped' || needs.spam-gate.outputs.blocked != 'true') &&
+      (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: plugins/apps/qwenpaw-data/ui
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: plugins/apps/qwenpaw-data/ui/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Type check
+        run: npm run typecheck
+
+      - name: Run unit tests
+        run: npm test
+
+      - name: Build plugin frontend
+        run: npm run build

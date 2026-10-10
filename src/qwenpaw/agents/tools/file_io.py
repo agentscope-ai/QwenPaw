@@ -16,11 +16,10 @@ from .utils import (
     TRUNCATION_METADATA_KEY,
 )
 from ...config.context import (
-    get_current_project_dir,
+    get_all_project_dir_paths,
     get_current_recent_max_bytes,
-    get_current_workspace_dir,
+    get_tool_base_dir,
 )
-from ...constant import WORKING_DIR
 from ...runtime.tool_registry import tool_descriptor
 from ...utils.io_utils import (
     append_text_async,
@@ -50,9 +49,30 @@ def _path_to_file_url(path: str) -> str:
     return f"file://{abs_path}"
 
 
+def _effective_project_roots() -> list[Path]:
+    """Return the granted project roots for this turn, primary first.
+
+    Falls back to the tool base dir (project → workspace → WORKING_DIR)
+    when the per-turn list was never populated.
+    """
+    roots = get_all_project_dir_paths()
+    if roots:
+        return roots
+    return [get_tool_base_dir()]
+
+
 def _resolve_file_path(file_path: str) -> str:
-    """Resolve file path: use absolute path as-is,
-    resolve relative path from current workspace or WORKING_DIR.
+    """Resolve a tool-supplied file path against the project roots.
+
+    Relative paths resolve from the PRIMARY project directory (never an
+    extra root). Absolute paths are used as given.
+
+    Deliberately NOT a permission boundary: the tool layer only decides
+    what a path *means*, and a path outside the bound directories is not
+    an error here. Access is gated by the governance rules and the guard
+    chain (and, when enabled, the OS sandbox), which is where the user's
+    approval prompts come from. Enforcing containment here as well made
+    ordinary absolute-path edits fail that had always worked.
 
     Args:
         file_path: The input file path (absolute or relative).
@@ -63,13 +83,7 @@ def _resolve_file_path(file_path: str) -> str:
     path = Path(file_path).expanduser()
     if path.is_absolute():
         return str(path)
-    else:
-        project_dir = (
-            get_current_project_dir()
-            or get_current_workspace_dir()
-            or WORKING_DIR
-        )
-        return str(project_dir / file_path)
+    return str(_effective_project_roots()[0] / file_path)
 
 
 def _get_encoding_for_file(file_path: str) -> str:
@@ -114,7 +128,7 @@ async def read_file(  # pylint: disable=too-many-return-statements
     start_line: Optional[int | str] = None,
     end_line: Optional[int | str] = None,
 ) -> ToolChunk:
-    """Read a text file. Relative paths resolve from WORKING_DIR.
+    """Read a text file. Relative paths resolve from the project directory.
 
     Use start_line/end_line to read a specific line range (output includes
     line numbers). Omit both to read from the start. If output is truncated,
@@ -284,7 +298,8 @@ async def write_file(
     file_path: str,
     content: str,
 ) -> ToolChunk:
-    """Create or overwrite a file. Relative paths resolve from WORKING_DIR.
+    """Create or overwrite a file. Relative paths resolve from the
+    project directory.
 
     Args:
         file_path (`str`):
@@ -355,7 +370,8 @@ async def edit_file(
     new_text: str,
 ) -> ToolChunk:
     """Find-and-replace text in a file. All occurrences of old_text are
-    replaced with new_text. Relative paths resolve from WORKING_DIR.
+    replaced with new_text. Relative paths resolve from the project
+    directory.
 
     Args:
         file_path (`str`):

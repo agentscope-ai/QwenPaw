@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal
+from typing import get_args, Literal
 
 from .provider import Provider
 
@@ -17,6 +17,11 @@ DiscoveryStrategy = Literal[
     "unsupported",
 ]
 ModelSyncMode = Literal["startup", "manual", "disabled"]
+CustomChatModelName = Literal[
+    "OpenAIChatModel",
+    "OpenAIResponseModel",
+    "AnthropicChatModel",
+]
 
 
 @dataclass(frozen=True, slots=True)
@@ -24,7 +29,7 @@ class ProviderDiscoveryPolicy:
     """One provider's model catalog acquisition policy."""
 
     strategy: DiscoveryStrategy
-    sync_mode: ModelSyncMode = "manual"
+    sync_mode: ModelSyncMode = f"startup"
     requires_auth: bool = True
     reason: str = ""
 
@@ -37,6 +42,7 @@ _OPENAI_FREE = ProviderDiscoveryPolicy(
 )
 _CATALOG_PLAN = ProviderDiscoveryPolicy(
     "catalog_only",
+    sync_mode=f"manual",
     reason="The service does not expose a stable model-list API.",
 )
 
@@ -60,8 +66,8 @@ BUILTIN_DISCOVERY_POLICIES: dict[str, ProviderDiscoveryPolicy] = {
     "openrouter": ProviderDiscoveryPolicy(
         "provider_specific",
         sync_mode="startup",
+        requires_auth=False,
     ),
-    "github-models": _CATALOG_PLAN,
     "modelscope": ProviderDiscoveryPolicy("provider_specific"),
     "dashscope": ProviderDiscoveryPolicy("provider_specific"),
     "aliyun-codingplan": _CATALOG_PLAN,
@@ -71,9 +77,11 @@ BUILTIN_DISCOVERY_POLICIES: dict[str, ProviderDiscoveryPolicy] = {
     "opencode": _OPENAI_FREE,
     "kilo": _OPENAI_FREE,
     "openai": _OPENAI_DYNAMIC,
+    f"agentscope-platform": _OPENAI_DYNAMIC,
     "openai-response": _OPENAI_DYNAMIC,
     "azure-openai": ProviderDiscoveryPolicy(
         "catalog_only",
+        sync_mode=f"manual",
         reason="Azure deployment discovery requires Azure Resource Manager.",
     ),
     "anthropic": ProviderDiscoveryPolicy("anthropic_models"),
@@ -101,13 +109,46 @@ BUILTIN_DISCOVERY_POLICIES: dict[str, ProviderDiscoveryPolicy] = {
     ),
     "volcengine-cn": _OPENAI_DYNAMIC,
     "volcengine-cn-codingplan": _CATALOG_PLAN,
+    "volcengine-cn-agentplan": _CATALOG_PLAN,
     "mimo-tokenplan": _CATALOG_PLAN,
+    "mimo": _OPENAI_DYNAMIC,
 }
+
+CUSTOM_DISCOVERY_POLICIES: dict[str, ProviderDiscoveryPolicy] = {
+    "OpenAIChatModel": ProviderDiscoveryPolicy("openai_models"),
+    "OpenAIResponseModel": ProviderDiscoveryPolicy("openai_models"),
+    "AnthropicChatModel": ProviderDiscoveryPolicy("anthropic_models"),
+}
+CUSTOM_CHAT_MODEL_NAMES = frozenset(get_args(CustomChatModelName))
 
 
 def apply_discovery_policy(provider: Provider) -> None:
     """Apply the declared built-in policy to one provider instance."""
     policy = BUILTIN_DISCOVERY_POLICIES[provider.id]
+    provider.discovery_strategy = policy.strategy
+    provider.discovery_support_reason = policy.reason
+    provider.discovery_requires_auth = policy.requires_auth
+    provider.model_sync_mode = policy.sync_mode
+    provider.support_model_discovery = policy.strategy not in {
+        "catalog_only",
+        "unsupported",
+    }
+
+
+def apply_custom_discovery_policy(provider: Provider) -> None:
+    """Normalize discovery metadata for a custom provider protocol."""
+    if not provider.is_custom:
+        return
+    policy = CUSTOM_DISCOVERY_POLICIES.get(provider.chat_model)
+    if policy is None:
+        policy = ProviderDiscoveryPolicy(
+            "unsupported",
+            sync_mode=f"disabled",
+            reason=(
+                "This chat protocol does not expose a supported model "
+                "listing strategy."
+            ),
+        )
     provider.discovery_strategy = policy.strategy
     provider.discovery_support_reason = policy.reason
     provider.discovery_requires_auth = policy.requires_auth

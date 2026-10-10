@@ -187,7 +187,7 @@ Inbox 只负责展示后台运行结果。真正可编辑、可复用的记忆�
 
 有价值的信息不只来自聊天。
 
-Auto Resource 是 Beta 阶段的外部资料管线总称。QwenPaw 目前已经提供的内置入口是 Daily Paper，其他类型仍在持续扩展。
+Auto Resource 是 Beta 阶段的外部资料管线总称。QwenPaw 目前已经提供 Daily Paper 和 Auto Fin 两个内置入口，其他类型仍在持续扩展。
 
 启用 Daily Paper 后，它会从 Hugging Face Papers 的周榜和月榜收集候选论文，筛选内容、保存原始 PDF，并生成三篇论文精读和一份每日简报。这些 Markdown 阅读记录随后会和对话记忆一样进入索引，也可以继续参与 Auto Dream 的长期整理。
 
@@ -195,11 +195,13 @@ Auto Resource 是 Beta 阶段的外部资料管线总称。QwenPaw 目前已经�
 
 例如，如果一篇论文讨论了电池寿命预测或储能技术，以后你评估动力电池企业的技术竞争力时，这份阅读记录就可能成为回答的依据。
 
+Auto Fin 则面向财经研究。它默认回看最近 24 小时的财联社电报，按关注主题筛选相关新闻，再搜索已有 ReMe 记忆补充历史背景，最终把一份带有效 Wikilink 的中文报告写入当天的记忆目录。当前新闻与中间筛选结果不会持久化；没有相关新闻时任务会正常跳过。同日再次运行会参考已有报告并原子覆盖为修订结果。
+
+Auto Fin 不具备可靠行情数据，不计算收益、目标价或买卖点，也不提供投资建议。
+
 ![Daily Paper 的调度与主题配置](https://img.alicdn.com/imgextra/i4/O1CN01P4HuDOo3HjE3MD24_!!6000000007223-0-tps-1654-670.jpg)
 
-![ReMe Auto Resource 将来源资料变成可追溯记忆；QwenPaw 目前通过 Daily Paper 接入这条链路](https://img.alicdn.com/imgextra/i2/O1CN015ankve1aJ7LTl8Cxa_!!6000000003308-55-tps-1200-640.svg)
-
-当前仅把任意文件放入 `resource/`，并不会让 QwenPaw 自动处理它；自动抓取财经新闻并沉淀到知识库也仍在规划中。因此，现阶段不应把 Auto Resource 理解成通用文件导入器。
+当前仅把任意文件放入 `resource/`，仍不会让 QwenPaw 自动处理它。因此，现阶段不应把 Auto Resource 理解成通用文件导入器。
 
 ## Auto Dream：让零散日记长成长期经验
 
@@ -291,7 +293,7 @@ BM25 擅长“宁德时代”“CATL”“碳酸锂”这类明确名称；向�
 2. Auto Memory 把当天关于宁德时代与锂价的 session 总结成一条日期子目录笔记，并刷新当天索引页；
 3. 如果启用了 Daily Paper，相关论文精读会进入同一个每日记忆与索引体系；
 4. 后台索引持续更新 Markdown 片段、BM25、可选向量索引与 Wikilink 文件图谱；
-5. 你主动运行 `/dream`，或启用定时任务后，Auto Dream 把多天记录整理为 `personal`、`procedure` 和 `wiki` 长期节点；
+5. 你主动运行 `/reme auto_dream`，或启用定时任务后，Auto Dream 把多天记录整理为 `personal`、`procedure` 和 `wiki` 长期节点；
 6. 下一次写研报时，`memory_search` 先返回最相关的片段，再沿出边、入边和文件路径读取必要的上下文；
 7. 你可以随时打开、检查和修正这些 Markdown，修正后的内容会继续成为后续协作的依据。
 

@@ -3,8 +3,7 @@
 
 from __future__ import annotations
 
-from decimal import Decimal, InvalidOperation
-from typing import Any, List, Optional
+from typing import ClassVar, Any, List, Optional
 
 from agentscope.model import ChatModelBase
 from openai import APIError, AsyncOpenAI
@@ -17,6 +16,9 @@ from qwenpaw.providers.provider import (
     ExtendedModelInfo,
     ModelInfo,
 )
+from .model_billing import classify_pricing, normalize_pricing
+from .model_info import release_date
+from ..utils.io_utils import run_sync_io
 from .capping_formatter import _CappingOpenAIFormatter
 from .capping_formatter import MAX_INLINE_MEDIA_BYTES
 from .multimodal_prober import ProbeResult
@@ -45,6 +47,23 @@ class OpenRouterProvider(Provider):
         "X-OpenRouter-Categories": _OPENROUTER_CATEGORIES,
         "User-Agent": "QwenPaw/1.1",
     }
+
+    session_header_name: ClassVar[str] = f"x-session-id"
+    cache_documentation: ClassVar[
+        str
+    ] = f"https://openrouter.ai/docs/guides/best-practices/prompt-caching"
+
+    def cache_capabilities(self, model_id: str) -> frozenset[str]:
+        """Use the routed model vendor's documented cache syntax."""
+        if model_id.startswith((f"anthropic/", f"qwen/")):
+            return frozenset({f"implicit", f"anthropic"})
+        if model_id.startswith(f"openai/"):
+            return frozenset({f"implicit", f"openai"})
+        return frozenset({f"implicit"})
+
+    def request_headers(self) -> dict:
+        """Return provider headers for an externally owned HTTP transport."""
+        return self._build_default_headers()
 
     def _build_default_headers(self) -> dict:
         # Required OpenRouter headers come first; user custom_headers can
@@ -94,39 +113,33 @@ class OpenRouterProvider(Provider):
             return model_id.split("/")[-1]
         return model_id
 
+    @classmethod
+    def parse_model_pricing(cls, row: Any) -> dict[str, Any]:
+        """OpenRouter prices include request and modality charges."""
+        pricing = normalize_pricing(getattr(row, f"pricing", None))
+        billing = classify_pricing(pricing)
+        return {
+            f"pricing": pricing,
+            f"billing": billing,
+            f"is_free": billing == f"free",
+            f"billing_source": f"api",
+        }
+
     @staticmethod
     def _normalize_pricing(
         pricing: dict[str, Any] | None,
     ) -> dict[str, str]:
         """Normalize OpenRouter pricing dicts for downstream checks."""
-        if not pricing:
-            return {}
-
-        return {
-            str(key): str(value)
-            for key, value in pricing.items()
-            if value is not None
-        }
+        return normalize_pricing(pricing)
 
     @staticmethod
     def _is_free_model(pricing: dict[str, str]) -> bool:
         """Determine whether a model is free based on pricing fields."""
-        numeric_values: list[Decimal] = []
-        for value in pricing.values():
-            text = str(value).strip()
-            if not text:
-                continue
-            try:
-                numeric_values.append(Decimal(text))
-            except InvalidOperation:
-                continue
+        return classify_pricing(pricing) == f"free"
 
-        return bool(numeric_values) and all(
-            value == 0 for value in numeric_values
-        )
-
-    @staticmethod
+    @classmethod
     def _normalize_models_payload(
+        cls,
         payload: Any,
         include_extended: bool = False,
     ) -> List[ModelInfo] | List[ExtendedModelInfo]:
@@ -165,10 +178,15 @@ class OpenRouterProvider(Provider):
                     getattr(row, "pricing", None),
                 )
                 is_free = OpenRouterProvider._is_free_model(pricing_dict)
+                billing = cls.parse_model_pricing(row)[f"billing"]
                 # OpenRouter's /models reports authoritative context metadata.
                 # Store it as auto-detected so it wins over catalog and static
                 # values without becoming an explicit user override.
-                window_kwargs: dict[str, int] = {}
+                window_kwargs: dict[str, Any] = {
+                    f"released_at": release_date(
+                        getattr(row, f"created", None),
+                    ),
+                }
                 try:
                     context_length = int(
                         getattr(row, "context_length", 0) or 0,
@@ -183,45 +201,49 @@ class OpenRouterProvider(Provider):
                         "max_input_length_auto_detected"
                     ] = context_length
 
+                top_provider = getattr(row, f"top_provider", None) or {}
+                output_limit = top_provider.get(f"max_completion_tokens")
+                if type(output_limit) is int and output_limit > 0:
+                    window_kwargs[f"max_output_length"] = output_limit
+
+                architecture = getattr(row, f"architecture", None) or {}
+                input_modalities = architecture.get(f"input_modalities")
+                output_modalities = architecture.get(f"output_modalities")
+                capabilities: dict[str, Any] = {}
+                if isinstance(input_modalities, list) and input_modalities:
+                    for modality in (f"image", f"audio", f"video"):
+                        capabilities[f"supports_{modality}"] = (
+                            modality in input_modalities
+                        )
+                    capabilities[f"supports_multimodal"] = any(
+                        modality in input_modalities
+                        for modality in (f"image", f"audio", f"video")
+                    )
+                    capabilities[f"probe_source"] = f"api"
+                parameters = getattr(row, f"supported_parameters", None)
+                if isinstance(parameters, list):
+                    capabilities[f"supports_tool_calling"] = (
+                        f"tools" in parameters
+                    )
+                common = {
+                    f"id": model_id,
+                    f"name": model_name,
+                    f"is_free": is_free,
+                    f"billing": billing,
+                    f"billing_source": f"api",
+                    f"pricing": pricing_dict,
+                    **capabilities,
+                    **window_kwargs,
+                }
                 if include_extended:
-                    # Get architecture and pricing from the API response
-                    # These are dict attributes of the Model object
-                    architecture = getattr(row, "architecture", None) or {}
-
-                    # Extract modalities from architecture dict
-                    arch_input = architecture.get("input_modalities", [])
-                    arch_output = architecture.get("output_modalities", [])
-                    input_modalities = list(arch_input) if arch_input else []
-                    output_modalities = (
-                        list(arch_output) if arch_output else []
-                    )
-                    supports_image = "image" in input_modalities
-                    supports_video = "video" in input_modalities
-                    supports_multimodal = any(
-                        modality != "text" for modality in input_modalities
-                    )
-
                     models[model_id] = ExtendedModelInfo(
-                        id=model_id,
-                        name=model_name,
-                        supports_multimodal=supports_multimodal,
-                        supports_image=supports_image,
-                        supports_video=supports_video,
-                        probe_source="documentation",
-                        is_free=is_free,
+                        **common,
                         provider=provider,
-                        input_modalities=input_modalities,
-                        output_modalities=output_modalities,
-                        pricing=pricing_dict,
-                        **window_kwargs,
+                        input_modalities=input_modalities or [],
+                        output_modalities=output_modalities or [],
                     )
                 else:
-                    models[model_id] = ModelInfo(
-                        id=model_id,
-                        name=model_name,
-                        is_free=is_free,
-                        **window_kwargs,
-                    )
+                    models[model_id] = ModelInfo(**common)
 
         return list(models.values())
 
@@ -251,7 +273,7 @@ class OpenRouterProvider(Provider):
         Returns:
             List of ModelInfo (or ExtendedModelInfo if include_extended=True)
         """
-        client = self._client(timeout=timeout)
+        client = await run_sync_io(self._client, timeout=timeout)
         try:
             payload = await client.models.list(timeout=timeout)
             models = self._normalize_models_payload(
@@ -259,8 +281,6 @@ class OpenRouterProvider(Provider):
                 include_extended=include_extended,
             )
             return models
-        except APIError:
-            return []
         finally:
             await self._close_client(client)
 
@@ -299,7 +319,7 @@ class OpenRouterProvider(Provider):
         flags over previously known values.
         """
         try:
-            client = self._client(timeout=timeout)
+            client = await run_sync_io(self._client, timeout=timeout)
             payload = await client.models.list(timeout=timeout)
         except APIError as exc:
             raise ProviderError(
@@ -450,15 +470,25 @@ class OpenRouterProvider(Provider):
             api_key=self.api_key,
             base_url=self.base_url,
         )
+        gen_kwargs = self.get_effective_generate_kwargs(model_id)
         return OpenAIChatModelCompat(
             credential=credential,
             provider_id=self.id,
+            usage_guard=lambda: self.check_model_billing(model_id),
+            request_policy=self.prepare_request,
             model=model_id,
             stream=True,
+            extra_generate_kwargs=gen_kwargs,
             default_headers=self._build_default_headers() or None,
             context_size=self._get_context_size(model_id),
             formatter=_CappingOpenAIFormatter(
                 max_bytes=self.max_inline_media_bytes,
+                enable_prompt_cache_breakpoint=bool(
+                    gen_kwargs.get(
+                        f"enable_prompt_cache_breakpoint",
+                        False,
+                    ),
+                ),
                 relay_reasoning_content=self._get_relay_reasoning(model_id),
             ),
         )

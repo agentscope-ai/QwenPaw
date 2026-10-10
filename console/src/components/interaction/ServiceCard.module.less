@@ -1,0 +1,67 @@
+.card {
+  cursor: pointer;
+  padding: 20px;
+  height: 100%;
+  border: 1px solid var(--app-border-subtle);
+  border-radius: 20px;
+  background: var(--app-surface);
+  --reflection-highlight: var(--app-accent-faint);
+  --reflection-silver: transparent;
+  --reflection-shadow: transparent;
+}
+.heading {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  h3 {
+    flex: 1;
+    min-width: 0;
+    margin: 0;
+    font-size: 16px;
+    font-weight: 600;
+  }
+  h3 button {
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--app-text);
+    text-align: start;
+    font: inherit;
+    overflow-wrap: anywhere;
+    cursor: pointer;
+  }
+  button:focus-visible {
+    outline: 2px solid var(--app-focus-ring);
+    outline-offset: 4px;
+    border-radius: 4px;
+  }
+}
+.metadata {
+  min-height: 40px;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 12px 0 16px;
+  font-size: 12px;
+  color: var(--app-text-secondary);
+  overflow-wrap: anywhere;
+}
+.actions {
+  border-top: 1px solid var(--app-border-subtle);
+  padding-top: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  > button {
+    margin-left: -8px;
+  }
+}
+.trailing {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}

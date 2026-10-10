@@ -213,6 +213,7 @@ class NoneSandbox(LocalSandbox):
         try:
             self._process = await asyncio.create_subprocess_exec(
                 *_shell_argv(shell, cmd),
+                stdin=asyncio.subprocess.DEVNULL,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=cwd,

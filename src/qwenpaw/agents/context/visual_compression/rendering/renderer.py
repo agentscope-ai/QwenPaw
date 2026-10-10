@@ -75,9 +75,9 @@ def _profile_for_preset(preset: EffortPreset) -> _RenderProfile:
 
 _ASSET_ROOT = Path(__file__).resolve().parent.parent / "assets"
 _DENSE_ATLAS_PROFILES = {
-    "low": (_ASSET_ROOT / "atlas-gray.ts", 5, 8),
-    "medium": (_ASSET_ROOT / "atlas-gray-medium.ts", 4, 7),
-    "high": (_ASSET_ROOT / "atlas-gray-high.ts", 3, 6),
+    "low": (_ASSET_ROOT / "atlas-gray-native.ts", 8, 16),
+    "medium": (_ASSET_ROOT / "atlas-gray-readable.ts", 6, 13),
+    "high": (_ASSET_ROOT / "atlas-gray.ts", 5, 8),
 }
 _INVERT_BYTES = bytes.maketrans(bytes(range(256)), bytes(reversed(range(256))))
 _COVERAGE_TO_ROLE_1 = bytes(
@@ -352,8 +352,9 @@ def _split_visual_pages(
     lines: list[str],
     max_lines: int,
     max_chars: int,
+    min_page_rows: int = 0,
 ) -> list[list[str]]:
-    """Apply the joint row-count and serialized-character page bounds."""
+    """Enforce capacity and minimum page rows, balancing a short last page."""
     pages: list[list[str]] = []
     current: list[str] = []
     current_chars = 0
@@ -372,6 +373,37 @@ def _split_visual_pages(
         current_chars += len(line) + int(len(current) > 1)
     if current:
         pages.append(current)
+    if min_page_rows > 0:
+        if not pages or (len(pages) == 1 and len(pages[0]) < min_page_rows):
+            return []
+        if len(pages) > 1 and len(pages[-1]) < min_page_rows:
+            # Redistribute only the last two pages of this immutable batch.
+            # Prefix lengths allow checking both character and row limits.
+            pair = pages[-2] + pages[-1]
+            total = len(pair)
+            prefix_chars = [0]
+            for line in pair:
+                prefix_chars.append(prefix_chars[-1] + len(line))
+            cuts = [
+                cut
+                for cut in range(
+                    max(min_page_rows, total - line_limit),
+                    min(line_limit, total - min_page_rows) + 1,
+                )
+                if prefix_chars[cut] + cut - 1 <= char_limit
+                and prefix_chars[-1] - prefix_chars[cut] + total - cut - 1
+                <= char_limit
+            ]
+            if not cuts:
+                return []
+            cut = min(cuts, key=lambda value: (abs(2 * value - total), -value))
+            pages[-2:] = [pair[:cut], pair[cut:]]
+        if any(
+            len(page) < min_page_rows
+            or sum(map(len, page)) + len(page) - 1 > char_limit
+            for page in pages
+        ):
+            return []
     return pages or [[]]
 
 
@@ -413,23 +445,24 @@ def prepare_render_text(text: str) -> str:
     return reflow_for_render(text)
 
 
+def count_render_cells(text: str) -> int:
+    """Count displayed cells in a single line from prepare_render_text."""
+    return sum(_char_cells(char) for char in _escape_missing_glyphs(text))
+
+
 def page_count_for_text(
     text: str,
     preset: EffortPreset = LOW_EFFORT_PRESET,
     *,
     columns: int | None = None,
+    min_page_rows: int = 0,
 ) -> int:
-    profile = _profile_for_preset(preset)
-    profile, actual_columns = _profile_with_columns(profile, columns)
-    per_page = render_rows_per_page(
-        preset,
-        actual_columns,
-    )
     return len(
-        _split_visual_pages(
-            _visual_lines(text, profile, actual_columns),
-            per_page,
-            preset.readable_chars_per_image,
+        estimate_text_pages(
+            text,
+            preset,
+            columns=columns,
+            min_page_rows=min_page_rows,
         ),
     )
 
@@ -439,8 +472,9 @@ def estimate_text_pages(
     preset: EffortPreset = LOW_EFFORT_PRESET,
     *,
     columns: int | None = None,
+    min_page_rows: int = 0,
 ) -> list[RenderedPage]:
-    """Return geometry-only pages for a gate without rasterizing PNG bytes."""
+    """Estimate PNG geometry; an unsatisfied minimum returns no pages."""
     profile = _profile_for_preset(preset)
     profile, actual_columns = _profile_with_columns(profile, columns)
     lines = _visual_lines(text, profile, actual_columns)
@@ -453,6 +487,7 @@ def estimate_text_pages(
         lines,
         per_page,
         preset.readable_chars_per_image,
+        min_page_rows=min_page_rows,
     ):
         rendered_lines = _page_render_lines(
             page_lines,
@@ -461,6 +496,8 @@ def estimate_text_pages(
             per_page,
         )
         count = len(rendered_lines)
+        if count < min_page_rows:
+            return []
         height = max(
             profile.padding * 2 + profile.line_height,
             profile.padding * 2 + count * profile.line_height,
@@ -679,8 +716,9 @@ def _render_text_pages_uncached(  # pylint: disable=R0912
     max_pages: int | None = None,
     slot_text: str | None = None,
     columns: int | None = None,
+    min_page_rows: int = 0,
 ) -> list[RenderedPage]:
-    """Render text into deterministic, content-height PNG pages."""
+    """Render complete content, returning no pages if limits cannot be met."""
     profile = _profile_for_preset(preset)
     profile, actual_columns = _profile_with_columns(profile, columns)
     lines = _visual_lines(text, profile, actual_columns)
@@ -704,6 +742,7 @@ def _render_text_pages_uncached(  # pylint: disable=R0912
         lines,
         per_page,
         preset.readable_chars_per_image,
+        min_page_rows=min_page_rows,
     )
     page_count = len(laid_out_pages)
     if max_pages is not None:
@@ -726,6 +765,8 @@ def _render_text_pages_uncached(  # pylint: disable=R0912
             actual_columns,
             per_page,
         )
+        if len(render_lines) < min_page_rows:
+            return []
         slot_chunk = (
             _page_render_lines(
                 initial_slot_chunk,
@@ -782,6 +823,7 @@ def _cached_render_text_pages(
     max_pages: int | None,
     slot_text: str | None,
     columns: int | None,
+    min_page_rows: int,
 ) -> tuple[RenderedPage, ...]:
     return tuple(
         _render_text_pages_uncached(
@@ -790,6 +832,7 @@ def _cached_render_text_pages(
             max_pages,
             slot_text,
             columns,
+            min_page_rows,
         ),
     )
 
@@ -801,8 +844,9 @@ def render_text_pages(
     slot_text: str | None = None,
     *,
     columns: int | None = None,
+    min_page_rows: int = 0,
 ) -> list[RenderedPage]:
-    """Render through a bounded cross-request cache of immutable PNG pages."""
+    """Reuse complete renders, including layout, through a bounded cache."""
     return list(
         _cached_render_text_pages(
             text,
@@ -810,11 +854,12 @@ def render_text_pages(
             max_pages,
             slot_text,
             columns,
+            min_page_rows,
         ),
     )
 
 
 def render_cache_info() -> Any:
-    """Return the process-local rendered-page cache counters."""
+    """Return process-local cache counters measured in complete renders."""
     # Pylint mistakes the lru wrapper helper for the wrapped render function.
     return _cached_render_text_pages.cache_info()  # pylint: disable=E1120

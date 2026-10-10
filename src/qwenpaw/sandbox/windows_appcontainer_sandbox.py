@@ -20,9 +20,10 @@ import hashlib
 import json
 import logging
 import os
+import subprocess
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import IO, Any, Dict, List, Optional, Sequence, Tuple
 
 from .config import ExecutionResult, SandboxConfig
 from .windows_unelevated_sandbox import (
@@ -37,12 +38,15 @@ from .windows_unelevated_sandbox import (
     _get_python_install_dir,
     _is_admin,
     _is_pid_alive,
+    _create_job_object,
     _read_pipe,
     _remove_acl_with_verify_sync,
     _set_path_ace,
     _sid_to_string,
     _string_to_sid,
 )
+
+from ._cleanup_logging import cleanup_errors, cleanup_logging
 
 logger = logging.getLogger(__name__)
 
@@ -65,6 +69,8 @@ _CAPABILITY_SIDS: Dict[str, str] = {
 # Win32 constants (AppContainer-specific only; shared ones via _WC)
 _EXTENDED_STARTUPINFO_PRESENT = 0x00080000
 _PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES = 0x00020009
+_WAIT_OBJECT_0 = 0
+_INFINITE = 0xFFFFFFFF
 _HRESULT_ERROR_ALREADY_EXISTS = (
     0x800700B7  # HRESULT_FROM_WIN32(ERROR_ALREADY_EXISTS=183)
 )
@@ -157,6 +163,8 @@ def _create_appcontainer_profile(
     finally:
         ctypes.windll.ole32.CoTaskMemFree(psid)
 
+    if sid_str is None:
+        raise OSError("Unable to convert the AppContainer SID")
     return sid_str
 
 
@@ -354,7 +362,7 @@ def _setup_security_capabilities(
     kernel32: Any,
     container_sid: str,
     capabilities: List[str],
-) -> Tuple[ctypes.c_void_p, List[ctypes.c_void_p], Any, Any]:
+) -> Tuple[ctypes.c_void_p, List[ctypes.c_void_p], Any, Any, Any]:
     """Builds SECURITY_CAPABILITIES and a proc-thread attribute list.
 
     Args:
@@ -364,7 +372,8 @@ def _setup_security_capabilities(
 
     Returns:
         Tuple of ``(app_container_psid, cap_psids, sec_cap,
-        attr_list)``. All PSIDs must be freed by the caller.
+        attr_list, attr_list_buffer)``. All PSIDs must be freed by the
+        caller. The buffer must remain alive until process creation ends.
 
     Raises:
         OSError: If attribute list initialization or update fails.
@@ -426,7 +435,7 @@ def _setup_security_capabilities(
             f"error={ctypes.get_last_error()}",
         )
 
-    return app_container_psid, cap_psids, sec_cap, attr_list
+    return app_container_psid, cap_psids, sec_cap, attr_list, attr_list_buf
 
 
 def _create_process_in_appcontainer(
@@ -468,6 +477,7 @@ def _create_process_in_appcontainer(
         cap_psids,
         _sec_cap,
         attr_list,
+        _attr_list_buffer,
     ) = _setup_security_capabilities(kernel32, container_sid, capabilities)
 
     si_ex = _STARTUPINFOEXW()
@@ -527,6 +537,187 @@ def _create_process_in_appcontainer(
         kernel32.LocalFree(psid)
 
     return (pi.dwProcessId, pi.hProcess, stdout_read, stderr_read)
+
+
+class WindowsAppContainerProcess:
+    """Long-running AppContainer process owned by a Windows Job Object."""
+
+    def __init__(
+        self,
+        pid: int,
+        process_handle: ctypes.wintypes.HANDLE,
+        job_handle: ctypes.wintypes.HANDLE,
+    ) -> None:
+        self.pid = pid
+        self._process_handle = process_handle
+        self._job_handle = job_handle
+        self.returncode: int | None = None
+
+    def poll(self) -> int | None:
+        """Return the process exit code without blocking."""
+        if self.returncode is not None:
+            return self.returncode
+        kernel32 = _get_kernel32()
+        result = kernel32.WaitForSingleObject(self._process_handle, 0)
+        if result == _WC.WAIT_TIMEOUT:
+            return None
+        if result != _WAIT_OBJECT_0:
+            raise OSError(
+                f"WaitForSingleObject failed: error={ctypes.get_last_error()}",
+            )
+        return self._finish()
+
+    def terminate(self) -> None:
+        """Terminate the complete AppContainer process tree."""
+        if self.poll() is not None:
+            return
+        kernel32 = _get_kernel32()
+        if not kernel32.TerminateJobObject(self._job_handle, 1):
+            raise OSError(
+                f"TerminateJobObject failed: error={ctypes.get_last_error()}",
+            )
+
+    def kill(self) -> None:
+        """Force termination through the owning Job Object."""
+        self.terminate()
+
+    def wait(self, timeout: float | None = None) -> int:
+        """Wait for the root process and close retained Win32 handles."""
+        if self.returncode is not None:
+            return self.returncode
+        timeout_ms = (
+            _INFINITE
+            if timeout is None
+            else max(0, min(int(timeout * 1000), _INFINITE - 1))
+        )
+        kernel32 = _get_kernel32()
+        result = kernel32.WaitForSingleObject(
+            self._process_handle,
+            timeout_ms,
+        )
+        if result == _WC.WAIT_TIMEOUT:
+            raise subprocess.TimeoutExpired(
+                cmd=f"AppContainer process {self.pid}",
+                timeout=timeout or 0,
+            )
+        if result != _WAIT_OBJECT_0:
+            raise OSError(
+                f"WaitForSingleObject failed: error={ctypes.get_last_error()}",
+            )
+        return self._finish()
+
+    def _finish(self) -> int:
+        kernel32 = _get_kernel32()
+        exit_code = ctypes.wintypes.DWORD(0)
+        if not kernel32.GetExitCodeProcess(
+            self._process_handle,
+            ctypes.byref(exit_code),
+        ):
+            raise OSError(
+                f"GetExitCodeProcess failed: error={ctypes.get_last_error()}",
+            )
+        self.returncode = int(exit_code.value)
+        kernel32.CloseHandle(self._job_handle)
+        kernel32.CloseHandle(self._process_handle)
+        self._job_handle = None
+        self._process_handle = None
+        return self.returncode
+
+
+def _spawn_managed_process_in_appcontainer(
+    command: Sequence[str],
+    container_sid: str,
+    capabilities: List[str],
+    cwd: str,
+    env: Dict[str, str],
+    log_handle: IO[str],
+) -> WindowsAppContainerProcess:
+    """Create a suspended AppContainer process inside a kill-on-close job."""
+    import msvcrt
+
+    kernel32 = _get_kernel32()
+    (
+        app_container_psid,
+        cap_psids,
+        _sec_cap,
+        attr_list,
+        _attr_list_buffer,
+    ) = _setup_security_capabilities(kernel32, container_sid, capabilities)
+    windows_log_handle = msvcrt.get_osfhandle(log_handle.fileno())
+    os.set_handle_inheritable(windows_log_handle, True)
+    si_ex = _STARTUPINFOEXW()
+    si_ex.StartupInfo.cb = ctypes.sizeof(si_ex)
+    si_ex.StartupInfo.dwFlags = _WC.STARTF_USESTDHANDLES
+    si_ex.StartupInfo.hStdInput = None
+    si_ex.StartupInfo.hStdOutput = windows_log_handle
+    si_ex.StartupInfo.hStdError = windows_log_handle
+    si_ex.lpAttributeList = attr_list
+    environment = "\x00".join(
+        f"{key}={value}" for key, value in sorted(env.items())
+    )
+    env_block = ctypes.create_unicode_buffer(f"{environment}\x00\x00")
+    command_line = ctypes.create_unicode_buffer(
+        subprocess.list2cmdline(list(command)),
+    )
+    process_info = _PROCESS_INFORMATION()
+    flags = (
+        _EXTENDED_STARTUPINFO_PRESENT
+        | _WC.CREATE_UNICODE_ENVIRONMENT
+        | _WC.CREATE_NO_WINDOW
+        | _WC.CREATE_SUSPENDED
+    )
+    try:
+        created = kernel32.CreateProcessW(
+            None,
+            command_line,
+            None,
+            None,
+            True,
+            flags,
+            ctypes.cast(env_block, ctypes.c_void_p),
+            ctypes.c_wchar_p(cwd),
+            ctypes.byref(si_ex),
+            ctypes.byref(process_info),
+        )
+    finally:
+        os.set_handle_inheritable(windows_log_handle, False)
+        kernel32.DeleteProcThreadAttributeList(attr_list)
+        kernel32.LocalFree(app_container_psid)
+        for psid in cap_psids:
+            kernel32.LocalFree(psid)
+    if not created:
+        raise OSError(
+            f"CreateProcessW failed: error={ctypes.get_last_error()}",
+        )
+    job_handle = _create_job_object()
+    if not job_handle:
+        kernel32.TerminateProcess(process_info.hProcess, 1)
+        kernel32.CloseHandle(process_info.hThread)
+        kernel32.CloseHandle(process_info.hProcess)
+        raise OSError("Unable to create a kill-on-close Windows Job Object")
+    if not kernel32.AssignProcessToJobObject(
+        job_handle,
+        process_info.hProcess,
+    ):
+        error = ctypes.get_last_error()
+        kernel32.TerminateProcess(process_info.hProcess, 1)
+        kernel32.CloseHandle(job_handle)
+        kernel32.CloseHandle(process_info.hThread)
+        kernel32.CloseHandle(process_info.hProcess)
+        raise OSError(f"AssignProcessToJobObject failed: error={error}")
+    if kernel32.ResumeThread(process_info.hThread) == 0xFFFFFFFF:
+        error = ctypes.get_last_error()
+        kernel32.TerminateJobObject(job_handle, 1)
+        kernel32.CloseHandle(job_handle)
+        kernel32.CloseHandle(process_info.hThread)
+        kernel32.CloseHandle(process_info.hProcess)
+        raise OSError(f"ResumeThread failed: error={error}")
+    kernel32.CloseHandle(process_info.hThread)
+    return WindowsAppContainerProcess(
+        int(process_info.dwProcessId),
+        process_info.hProcess,
+        job_handle,
+    )
 
 
 async def _wait_and_read_process(
@@ -859,6 +1050,40 @@ class WindowsAppContainerSandbox(WindowsSandboxBase):
                 duration_ms=duration_ms,
             )
 
+    @property
+    def container_name(self) -> str:
+        """Return the initialized AppContainer profile name."""
+        if self._container_name is None:
+            raise RuntimeError("AppContainer sandbox is not initialized")
+        return self._container_name
+
+    @property
+    def container_sid(self) -> str:
+        """Return the initialized AppContainer profile SID."""
+        if self._container_sid is None:
+            raise RuntimeError("AppContainer sandbox is not initialized")
+        return self._container_sid
+
+    def spawn_process(
+        self,
+        command: Sequence[str],
+        *,
+        cwd: str,
+        env: Dict[str, str],
+        log_handle: IO[str],
+    ) -> WindowsAppContainerProcess:
+        """Start a long-running process in a kill-on-close Job Object."""
+        if self._container_sid is None:
+            raise RuntimeError("AppContainer sandbox is not initialized")
+        return _spawn_managed_process_in_appcontainer(
+            command,
+            self._container_sid,
+            _compute_network_capabilities(self._config),
+            cwd,
+            env,
+            log_handle,
+        )
+
     async def stop(self) -> None:
         """Terminates any running child process.
 
@@ -979,7 +1204,19 @@ def _cleanup_single_container(  # pylint: disable=R0912
             pass
 
 
-def shutdown_cleanup() -> None:
+def shutdown_cleanup(*, log_progress: bool = True) -> None:
+    """Clean containers, silencing the entire sandbox call chain at exit."""
+    with (
+        cleanup_logging(log_progress),
+        cleanup_errors(
+            logger,
+            "Unexpected sandbox shutdown failure",
+        ),
+    ):
+        _shutdown_cleanup(log_progress=log_progress)
+
+
+def _shutdown_cleanup(*, log_progress: bool) -> None:
     """Destroys AppContainer sandboxes owned by this process or orphaned.
 
     Iterates metadata files under ``~/.qwenpaw/containers/``, skips
@@ -993,26 +1230,33 @@ def shutdown_cleanup() -> None:
     my_pid = os.getpid()
 
     for meta_file in containers_dir.glob("*.json"):
-        try:
+        with cleanup_errors(logger, "Failed to clean metadata %s", meta_file):
             meta = json.loads(meta_file.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError):
-            continue
+            if not isinstance(meta, dict):
+                raise ValueError("Sandbox metadata must be an object")
+            owner_pid = meta.get("owner_pid")
+            if owner_pid is not None and (
+                not isinstance(owner_pid, int)
+                or isinstance(owner_pid, bool)
+                or owner_pid <= 0
+            ):
+                raise ValueError("Invalid sandbox owner PID")
 
-        owner_pid = meta.get("owner_pid")
+            if owner_pid is not None and owner_pid != my_pid:
+                if _is_pid_alive(owner_pid):
+                    if log_progress:
+                        logger.debug(
+                            "Skipping container %s — owner pid %d still alive",
+                            meta.get("container_name", "?"),
+                            owner_pid,
+                        )
+                    continue
 
-        if owner_pid is not None and owner_pid != my_pid:
-            if _is_pid_alive(owner_pid):
-                logger.debug(
-                    "Skipping container %s — owner pid %d still alive",
-                    meta.get("container_name", "?"),
-                    owner_pid,
-                )
-                continue
-
-        container_name = meta.get("container_name", "")
-        if container_name:
-            logger.info("Cleaning AppContainer: %s", container_name)
-            _cleanup_single_container(meta, meta_file)
+            container_name = meta.get("container_name", "")
+            if container_name:
+                if log_progress:
+                    logger.info("Cleaning AppContainer: %s", container_name)
+                _cleanup_single_container(meta, meta_file)
 
     if containers_dir.exists() and not list(containers_dir.glob("*.json")):
         try:
@@ -1021,4 +1265,6 @@ def shutdown_cleanup() -> None:
             pass
 
 
-atexit.register(shutdown_cleanup)
+# Logging streams (including pytest capture) may already be closed at exit.
+# Keep cleanup active, but omit routine progress messages from this callback.
+atexit.register(shutdown_cleanup, log_progress=False)

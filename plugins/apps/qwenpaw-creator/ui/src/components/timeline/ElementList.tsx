@@ -200,7 +200,7 @@ export default function ElementList({
                   className={`relative w-full overflow-hidden rounded-xl border p-3 text-left transition ${
                     selected
                       ? "border-[var(--color-accent)] bg-[var(--color-accent-soft)]/45 shadow-sm ring-2 ring-[var(--color-accent)]/10"
-                      : "border-[var(--color-border)] bg-white hover:border-[var(--color-border-strong)] hover:shadow-sm"
+                      : "border-[var(--color-border)] bg-white hover:border-[var(--color-border-strong)] hover:shadow-sm dark:bg-[var(--color-bg-card)]"
                   } ${element.enabled ? "" : "opacity-60"}`}
                 >
                   <i

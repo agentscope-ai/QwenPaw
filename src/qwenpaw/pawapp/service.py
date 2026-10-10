@@ -18,7 +18,7 @@ import urllib.request
 from collections import deque
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Mapping, Sequence
+from typing import Awaitable, Callable, Mapping, Optional, Sequence
 from urllib.parse import urlsplit
 
 logger = logging.getLogger(__name__)
@@ -112,6 +112,7 @@ class ManagedServiceSpec:
     env: Mapping[str, str] = field(default_factory=dict)
     external_url_env: str | None = None
     mode_env: str | None = None
+    on_before_start: Optional[Callable[[], Awaitable[None]]] = None
 
 
 class ManagedService:
@@ -196,6 +197,9 @@ class ManagedService:
     async def start(self) -> None:
         if self.is_ready:
             return
+
+        if self.spec.on_before_start is not None:
+            await self.spec.on_before_start()
 
         mode = (
             os.getenv(self.spec.mode_env, "managed").strip().lower()

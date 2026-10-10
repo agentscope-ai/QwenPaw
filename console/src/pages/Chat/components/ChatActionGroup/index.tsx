@@ -1,84 +1,70 @@
 import React from "react";
 
 import { IconButton } from "@agentscope-ai/design";
-import { SparkHistoryLine, SparkNewChatFill } from "@agentscope-ai/icons";
-import {
-  ExpandAltOutlined,
-  CompressOutlined,
-  MoreOutlined,
-} from "@ant-design/icons";
 import { useTranslation } from "react-i18next";
-import { Dropdown, Flex, Tooltip } from "antd";
-import { Files } from "lucide-react";
-import type { MenuProps } from "antd";
-import { useCreateNewSession } from "../../hooks/useCreateNewSession";
-import { useIsMobile } from "../../../../hooks/useIsMobile";
+import { Flex, Tooltip, message } from "antd";
+import { Files, Terminal } from "lucide-react";
 import styles from "./ChatActionGroup.module.less";
 
 interface ChatActionGroupProps {
-  /** Callback to toggle the right-side history panel */
-  onToggleHistory?: () => void;
-  /** Whether the history panel is currently visible */
-  historyOpen?: boolean;
+  onToggleTerminal?: () => void;
+  terminalOpen?: boolean;
+  terminalEnabled?: boolean;
+  terminalDisabledReason?: string;
   onToggleWorkspace?: () => void;
   workspaceOpen?: boolean;
-  isWideMode?: boolean;
-  onToggleWideMode?: () => void;
 }
 
 const ChatActionGroup: React.FC<ChatActionGroupProps> = ({
-  onToggleHistory,
-  historyOpen = false,
+  onToggleTerminal,
+  terminalOpen = false,
+  terminalEnabled = false,
+  terminalDisabledReason = "",
   onToggleWorkspace,
   workspaceOpen = false,
-  isWideMode = false,
-  onToggleWideMode,
 }) => {
   const { t } = useTranslation();
 
-  const createNewSession = useCreateNewSession();
-
-  // Compact mode follows the viewport: collapse secondary actions only on
-  // mobile. This saves space on phones while keeping actions visible on desktop.
-  const isCompact = useIsMobile();
-
-  // Build "more" dropdown items for compact mode: History, WideMode.
-  const moreItems: MenuProps["items"] = [];
-  if (onToggleHistory) {
-    moreItems.push({
-      key: "history",
-      icon: <SparkHistoryLine />,
-      label: (
-        <div style={{ textAlign: "center" }}>
-          {t("chat.chatHistoryTooltip")}
-        </div>
-      ),
-      onClick: () => onToggleHistory(),
-    });
-  }
-  if (onToggleWideMode) {
-    moreItems.push({
-      key: "wideMode",
-      icon: isWideMode ? <CompressOutlined /> : <ExpandAltOutlined />,
-      label: (
-        <div style={{ textAlign: "center" }}>
-          {isWideMode ? t("chat.normalModeTooltip") : t("chat.wideModeTooltip")}
-        </div>
-      ),
-      onClick: () => onToggleWideMode(),
-    });
-  }
-
   return (
-    <Flex gap={8} align="center">
-      {/* Essential actions always visible */}
-      <Tooltip title={t("chat.newChatTooltip")} mouseEnterDelay={0.5}>
-        <IconButton
-          bordered={false}
-          icon={<SparkNewChatFill />}
-          onClick={createNewSession}
-        />
-      </Tooltip>
+    <Flex className={styles.actionGroup} gap={8} align="center">
+      {onToggleTerminal && (
+        <Tooltip title={t("terminal.title")} mouseEnterDelay={0.5}>
+          <IconButton
+            className={styles.workspaceButton}
+            bordered={false}
+            aria-label={t("terminal.title")}
+            aria-expanded={terminalOpen}
+            icon={
+              <Terminal
+                size={17}
+                strokeWidth={1.8}
+                style={{ width: 17, height: 17 }}
+              />
+            }
+            style={{
+              width: 32,
+              height: 32,
+              padding: 0,
+              ...(terminalOpen ? { color: "var(--app-accent)" } : {}),
+            }}
+            onClick={() => {
+              if (!terminalEnabled) {
+                void message.info(
+                  t(
+                    terminalDisabledReason === "dependency_missing"
+                      ? "terminal.dependencyMissing"
+                      : terminalDisabledReason
+                      ? "terminal.unavailable"
+                      : "terminal.authRequired",
+                  ),
+                );
+                return;
+              }
+              onToggleTerminal();
+            }}
+          />
+        </Tooltip>
+      )}
       {onToggleWorkspace && (
         <Tooltip
           title={t(
@@ -95,63 +81,20 @@ const ChatActionGroup: React.FC<ChatActionGroupProps> = ({
             aria-pressed={workspaceOpen}
             icon={
               <Files
-                size={16}
+                size={17}
                 strokeWidth={2}
-                style={{ width: 16, height: 16 }}
+                style={{ width: 17, height: 17 }}
               />
             }
             style={{
               width: 32,
               height: 32,
               padding: 0,
-              ...(workspaceOpen
-                ? { color: "var(--color-primary, #ff9d4d)" }
-                : {}),
+              ...(workspaceOpen ? { color: "var(--app-accent)" } : {}),
             }}
             onClick={onToggleWorkspace}
           />
         </Tooltip>
-      )}
-
-      {/* History + WideMode: inline when NOT compact */}
-      {!isCompact && onToggleHistory && (
-        <Tooltip title={t("chat.chatHistoryTooltip")} mouseEnterDelay={0.5}>
-          <IconButton
-            bordered={false}
-            icon={<SparkHistoryLine />}
-            style={
-              historyOpen
-                ? { color: "var(--color-primary, #ff9d4d)" }
-                : undefined
-            }
-            onClick={onToggleHistory}
-          />
-        </Tooltip>
-      )}
-      {!isCompact && onToggleWideMode && (
-        <Tooltip
-          title={
-            isWideMode ? t("chat.normalModeTooltip") : t("chat.wideModeTooltip")
-          }
-          mouseEnterDelay={0.5}
-        >
-          <IconButton
-            bordered={false}
-            icon={isWideMode ? <CompressOutlined /> : <ExpandAltOutlined />}
-            onClick={onToggleWideMode}
-          />
-        </Tooltip>
-      )}
-
-      {/* Compact mode: collapse History/WideMode into more dropdown */}
-      {isCompact && moreItems.length > 0 && (
-        <Dropdown
-          menu={{ items: moreItems }}
-          trigger={["click"]}
-          placement="bottomRight"
-        >
-          <IconButton bordered={false} icon={<MoreOutlined />} />
-        </Dropdown>
       )}
     </Flex>
   );

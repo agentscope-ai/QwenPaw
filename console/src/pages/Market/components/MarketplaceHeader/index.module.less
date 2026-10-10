@@ -1,0 +1,39 @@
+.sectionSwitch {
+  margin-bottom: 0 !important;
+  align-self: center !important;
+}
+
+@media (max-width: 768px) {
+  .sectionSwitch {
+    width: 100%;
+
+    :global(.ant-segmented-group),
+    :global(.qwenpaw-segmented-group) {
+      width: 100%;
+    }
+
+    :global(.ant-segmented-item),
+    :global(.qwenpaw-segmented-item) {
+      min-width: 0;
+      flex: 1;
+      text-align: center;
+    }
+  }
+}
+
+.sectionSwitch {
+  min-width: 0;
+  :global(.qwenpaw-tabs-nav),
+  :global(.ant-tabs-nav) {
+    margin-bottom: 0;
+  }
+  :global(.qwenpaw-segmented-item-label),
+  :global(.ant-segmented-item-label) {
+    min-height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    white-space: normal;
+    line-height: 1.4;
+  }
+}

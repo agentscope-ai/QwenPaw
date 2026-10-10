@@ -3,12 +3,14 @@ import json
 import logging
 import platform
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timezone, tzinfo
+from functools import lru_cache
 from typing import List, Optional, Union
 from urllib.parse import unquote, urlparse
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from agentscope.message import Msg
+from pydantic import ValidationError
 from qwenpaw.agents.context.scroll.serialize import strip_headline
 from qwenpaw.schemas import (
     Message,
@@ -21,14 +23,17 @@ from qwenpaw.schemas import (
     FunctionCall,
     FunctionCallOutput,
     MessageType,
+    ContentType,
 )
 from qwenpaw.exceptions import (
     AgentRuntimeErrorException,
 )
 
 from ...config import load_config
+from ...config.timezone import detect_system_timezone
 from ...constant import (
     QWENPAW_MESSAGE_TAG_KEY,
+    QWENPAW_USER_CONTENT_KEY,
     SCROLL_MEMORY_MESSAGE_TAG,
     SYNTHETIC_USER_MESSAGE_TAGS,
 )
@@ -36,9 +41,54 @@ from ...constant import (
 logger = logging.getLogger(__name__)
 
 
-def _process_local_tz():
-    """Return the process-local timezone used by ``datetime.now()``."""
+def _fixed_local_tz() -> tzinfo:
+    """The process's current fixed offset, as ``datetime.now()`` sees it."""
     return datetime.now().astimezone().tzinfo or timezone.utc
+
+
+def _resolve_process_zone() -> Optional[ZoneInfo]:
+    """Return the host's IANA zone, or ``None`` when none can be resolved."""
+    try:
+        return ZoneInfo(detect_system_timezone())
+    except (ZoneInfoNotFoundError, KeyError, ValueError):
+        return None
+
+
+def _zone_explains_offset(zone: ZoneInfo, fixed: tzinfo) -> bool:
+    """Whether *zone* puts the current wall clock at *fixed*'s offset.
+
+    ``detect_system_timezone()`` cannot report failure — it falls back to
+    ``"UTC"`` — so a resolved zone is only trustworthy when it agrees with
+    the offset the process is actually running at.  Otherwise a host whose
+    zone cannot be resolved would be stamped ``+00:00`` — off by the whole
+    UTC offset, not by the DST delta.
+    """
+    now = datetime.now()
+    return (
+        now.replace(tzinfo=zone).utcoffset()
+        == now.replace(
+            tzinfo=fixed,
+        ).utcoffset()
+    )
+
+
+@lru_cache(maxsize=1)
+def _process_local_tz():
+    """Return the process-local timezone used by ``datetime.now()``.
+
+    Resolve the host's IANA zone so the returned ``tzinfo`` carries DST
+    rules.  ``datetime.now().astimezone().tzinfo`` only ever describes the
+    *current* offset (a fixed ``datetime.timezone``), so attaching it to a
+    naive timestamp recorded in the opposite DST half-year silently shifts
+    the value by the DST delta.  The resolved zone is kept only when it
+    explains the process's current offset; otherwise it falls back to the
+    previous behaviour and uses the fixed offset.
+    """
+    fixed = _fixed_local_tz()
+    zone = _resolve_process_zone()
+    if zone is not None and _zone_explains_offset(zone, fixed):
+        return zone
+    return fixed
 
 
 def _normalize_msg_timestamp(ts_value: str, user_tz: ZoneInfo) -> str:
@@ -82,26 +132,19 @@ def _is_scroll_memory_placeholder(msg: Msg) -> bool:
     )
 
 
-# Visual compression collapses history/context ranges into user-role
-# messages with these names. They are model-only reconstructions.
-_VISUAL_PLACEHOLDER_NAMES = frozenset(
-    {"visual_context", "visual_history"},
-)
-
-
 def _is_synthetic_user_message(msg: Msg) -> bool:
     """Return whether *msg* is a runtime-injected user-role message.
 
     Loop gates, stop handlers, and rubric evaluation append tagged
     ``role="user"`` stubs to keep a turn going; visual compression
-    collapses history into ``visual_history`` / ``visual_context``
+    collapses history into ``visual_history``
     user messages. None of them is user transcript — rendering them as
     user cards made the original instruction appear rewritten after a
     session switch.
     """
     if msg.role != "user":
         return False
-    if msg.name in _VISUAL_PLACEHOLDER_NAMES:
+    if msg.name == "visual_history":
         return True
     metadata = getattr(msg, "metadata", None)
     return (
@@ -145,10 +188,10 @@ def build_env_context(
     user_name: Optional[str] = None,
     channel: Optional[str] = None,
     working_dir: Optional[str] = None,
-    add_hint: bool = True,
     default_shell: Optional[str] = None,
     project_dir: Optional[str] = None,
     active_model_name: Optional[str] = None,
+    agent_id: Optional[str] = None,
 ) -> str:
     """
     Build environment context with current request context prepended.
@@ -160,7 +203,6 @@ def build_env_context(
             Only rendered when provided by the channel via channel_meta.
         channel: Current channel name
         working_dir: Working directory path
-        add_hint: Whether to add hint context
         default_shell: Shell executable used by execute_shell_command.
             When provided, included in the context so the LLM can
             generate syntax appropriate for that shell.
@@ -170,6 +212,7 @@ def build_env_context(
             so the LLM stops treating the workspace as home.
         active_model_name: Current active model name for runtime
             identity (e.g. "qwen-max", "gpt-4o").
+        agent_id: Current agent identifier.
 
     Returns:
         Formatted environment context string
@@ -189,23 +232,6 @@ def build_env_context(
     parts.append(
         "- Docs: https://qwenpaw.agentscope.io/",
     )
-    user_tz = load_config().user_timezone or "UTC"
-    try:
-        now = datetime.now(ZoneInfo(user_tz))
-    except (ZoneInfoNotFoundError, KeyError):
-        logger.warning("Invalid timezone %r, falling back to UTC", user_tz)
-        now = datetime.now(timezone.utc)
-        user_tz = "UTC"
-
-    if session_id is not None:
-        parts.append(f"- Session ID: {session_id}")
-    if user_id is not None:
-        parts.append(f"- User ID: {user_id}")
-    if user_name:
-        parts.append(f"- User Name: {user_name}")
-    if channel is not None:
-        parts.append(f"- Channel: {channel}")
-
     parts.append(
         f"- OS: {platform.system()} {platform.release()} "
         f"({platform.machine()})",
@@ -226,25 +252,35 @@ def build_env_context(
             )
     elif working_dir is not None:
         parts.append(f"- Working directory: {working_dir}")
+
+    if agent_id:
+        parts.append(
+            f"- Agent Identity: Your agent id is "
+            f"{json.dumps(str(agent_id))}. "
+            f"This is your unique identifier in the multi-agent system.",
+        )
+
+    # Keep request-specific values after the reusable environment prefix.
+    if channel is not None:
+        parts.append(f"- Channel: {channel}")
+    if user_name:
+        parts.append(f"- User Name: {user_name}")
+    if user_id is not None:
+        parts.append(f"- User ID: {user_id}")
+    if session_id is not None:
+        parts.append(f"- Session ID: {session_id}")
+
+    user_tz = load_config().user_timezone or "UTC"
+    try:
+        now = datetime.now(ZoneInfo(user_tz))
+    except (ZoneInfoNotFoundError, KeyError):
+        logger.warning("Invalid timezone %r, falling back to UTC", user_tz)
+        now = datetime.now(timezone.utc)
+        user_tz = "UTC"
     parts.append(
         f"- Current date: {now.strftime('%Y-%m-%d')} "
         f"{user_tz} ({now.strftime('%A')})",
     )
-
-    if add_hint:
-        parts.append(
-            "- Important:\n"
-            "  1. Prefer using skills when completing tasks "
-            "(e.g. use the cron skill for scheduled tasks). "
-            "Consult the relevant skill documentation if unsure.\n"
-            "  2. When using write_file, if you want to avoid overwriting "
-            "existing content, use read_file first to inspect the file, "
-            "then use edit_file for partial updates or appending.\n"
-            "  3. Use tool calls to perform actions. A response without a "
-            "tool call indicates the task is complete. To continue a task, "
-            "you must generate a tool call or provide useful feedback if "
-            "you are blocked.\n",
-        )
 
     return (
         "====================\n" + "\n".join(parts) + "\n===================="
@@ -510,6 +546,36 @@ def clean_display_text(text: str, role: str) -> str:
     return strip_injected_skill_block(strip_headline(text) or "", role)
 
 
+def _original_user_message(msg: Msg, metadata: dict) -> Message | None:
+    """Restore attachment input without exposing model-only file hints."""
+    if msg.role != "user" or not isinstance(msg.metadata, dict):
+        return None
+    content = msg.metadata.get(QWENPAW_USER_CONTENT_KEY)
+    if not isinstance(content, list) or not content:
+        return None
+    try:
+        message = Message(
+            type=MessageType.MESSAGE,
+            role=msg.role,
+            content=content,
+            metadata=metadata,
+        ).completed()
+    except ValidationError:
+        logger.debug("Invalid original user content for message %s", msg.id)
+        return None
+    if not all(
+        isinstance(getattr(part, "type", None), ContentType)
+        for part in message.content
+    ):
+        return None
+    message.content = [
+        part
+        for part in message.content
+        if not (isinstance(part, TextContent) and not part.text)
+    ]
+    return message
+
+
 # pylint: disable=too-many-branches,too-many-statements, too-many-nested-blocks
 def agentscope_msg_to_message(
     messages: Union[Msg, List[Msg]],
@@ -554,12 +620,33 @@ def agentscope_msg_to_message(
         if ts_value:
             ts_value = _normalize_msg_timestamp(ts_value, user_tz)
 
+        # ``finished_at`` marks when the reply actually completed (stamped
+        # on REPLY_END by the runtime executor).  ``timestamp`` is the
+        # created_at alias — the first-segment save time — which can be
+        # far earlier for turns with long tool calls.  Expose both so the
+        # frontend can display the true completion time; ``finished_at``
+        # stays None for messages that never received a stamp (e.g. legacy
+        # sessions), letting consumers fall back to ``timestamp``.
+        finished_value = getattr(msg, "finished_at", None)
+        if finished_value:
+            finished_value = _normalize_msg_timestamp(finished_value, user_tz)
+
         metadata = {
             "original_id": msg.id,
             "original_name": msg.name,
-            "metadata": msg.metadata,
+            "metadata": {
+                key: value
+                for key, value in (msg.metadata or {}).items()
+                if key != QWENPAW_USER_CONTENT_KEY
+            },
             "timestamp": ts_value,
+            "finished_at": finished_value or None,
         }
+
+        original_message = _original_user_message(msg, metadata)
+        if original_message is not None:
+            results.append(original_message)
+            continue
 
         if isinstance(msg.content, str):
             message = Message(type=MessageType.MESSAGE, role=role)

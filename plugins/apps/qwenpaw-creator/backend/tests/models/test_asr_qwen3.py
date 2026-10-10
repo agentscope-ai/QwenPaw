@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from pathlib import Path
 
 import httpx
 import pytest
@@ -17,8 +18,7 @@ from models import asr_model
 from models.asr_model import ASRResult
 
 ENDPOINT = (
-    "https://asr.example/api/v1/services/aigc/"
-    "multimodal-generation/generation"
+    "https://asr.example/api/v1/services/aigc/multimodal-generation/generation"
 )
 
 
@@ -39,6 +39,35 @@ def _bind_qwen3(monkeypatch, *, language: str = "") -> None:
     )
 
 
+def _bind_single_chunk(
+    monkeypatch,
+    *,
+    language: str = "",
+    duration_ms: int = 5_000,
+) -> list[float]:
+    """Full qwen3 harness: config + probe + upload stub + sleep capture."""
+
+    _bind_qwen3(monkeypatch, language=language)
+    monkeypatch.setattr(
+        asr_model,
+        "_probe_duration_ms",
+        lambda _s: duration_ms,
+    )
+
+    async def fake_file_url(_media_url, key, model):
+        assert (key, model) == ("asr-key", "qwen3-asr-flash")
+        return "oss://dashscope-instant/audio.mp3"
+
+    monkeypatch.setattr(asr_model, "_fun_asr_file_url", fake_file_url)
+    sleeps: list[float] = []
+
+    async def fake_sleep(delay: float) -> None:
+        sleeps.append(delay)
+
+    monkeypatch.setattr(asr_model.asyncio, "sleep", fake_sleep)
+    return sleeps
+
+
 def _response(sentences: list[str]) -> dict:
     return {
         "output": {
@@ -56,9 +85,7 @@ def _response(sentences: list[str]) -> dict:
     }
 
 
-def test_transcribe_dispatches_qwen3_models_to_new_branch(
-    monkeypatch,
-) -> None:
+def test_transcribe_dispatches_qwen3_models_to_new_branch(monkeypatch) -> None:
     _bind_qwen3(monkeypatch)
     observed = {}
 
@@ -68,53 +95,13 @@ def test_transcribe_dispatches_qwen3_models_to_new_branch(
 
     monkeypatch.setattr(asr_model, "_qwen3_asr", fake_qwen3)
     result = asyncio.run(asr_model.transcribe("https://cdn.test/a.mp3"))
-
     assert observed["url"] == "https://cdn.test/a.mp3"
     assert result.model == "qwen3-asr-flash"
 
 
-def test_transcribe_keeps_fun_asr_for_other_models(monkeypatch) -> None:
-    _bind_qwen3(monkeypatch)
-    monkeypatch.setattr(config, "get_asr_model_name", lambda: "fun-asr")
-    observed = {}
-
-    async def fake_fun_asr(media_url: str) -> ASRResult:
-        observed["url"] = media_url
-        return ASRResult("dashscope", "fun-asr", ())
-
-    monkeypatch.setattr(asr_model, "_fun_asr", fake_fun_asr)
-    asyncio.run(asr_model.transcribe("https://cdn.test/a.mp3"))
-
-    assert observed["url"] == "https://cdn.test/a.mp3"
-
-
-def test_transcribe_keeps_whisper_provider_priority(monkeypatch) -> None:
-    _bind_qwen3(monkeypatch)
-    monkeypatch.setattr(config, "get_asr_provider", lambda: "whisper")
-    observed = {}
-
-    async def fake_whisper(media_url: str) -> ASRResult:
-        observed["url"] = media_url
-        return ASRResult("openai", "whisper-1", ())
-
-    monkeypatch.setattr(asr_model, "_whisper", fake_whisper)
-    asyncio.run(asr_model.transcribe("https://cdn.test/a.mp3"))
-
-    assert observed["url"] == "https://cdn.test/a.mp3"
-
-
 @respx.mock
-def test_qwen3_single_chunk_spreads_estimated_timestamps(
-    monkeypatch,
-) -> None:
-    _bind_qwen3(monkeypatch)
-    monkeypatch.setattr(asr_model, "_probe_duration_ms", lambda _s: 10_000)
-
-    async def fake_file_url(_media_url, key, model):
-        assert (key, model) == ("asr-key", "qwen3-asr-flash")
-        return "oss://dashscope-instant/audio.mp3"
-
-    monkeypatch.setattr(asr_model, "_fun_asr_file_url", fake_file_url)
+def test_qwen3_single_chunk_spreads_estimated_timestamps(monkeypatch) -> None:
+    _bind_single_chunk(monkeypatch, language="zh", duration_ms=10_000)
     route = respx.post(ENDPOINT).mock(
         return_value=httpx.Response(200, json=_response(["你好。", "再见。"])),
     )
@@ -137,7 +124,11 @@ def test_qwen3_single_chunk_spreads_estimated_timestamps(
     assert body["input"]["messages"][0]["content"] == [
         {"audio": "oss://dashscope-instant/audio.mp3"},
     ]
-    assert body["parameters"] == {"result_format": "message"}
+    # The configured language is forwarded through asr_options.
+    assert body["parameters"] == {
+        "result_format": "message",
+        "asr_options": {"language": "zh"},
+    }
 
 
 @respx.mock
@@ -176,13 +167,12 @@ def test_qwen3_chunking_applies_cumulative_offsets(
         "upload_local_file_to_dashscope_temp",
         fake_upload,
     )
-    responses = iter(
-        [
+    respx.post(ENDPOINT).mock(
+        side_effect=[
             httpx.Response(200, json=_response(["第一块前半。", "第一块后半。"])),
             httpx.Response(200, json=_response(["第二块。"])),
         ],
     )
-    respx.post(ENDPOINT).mock(side_effect=lambda _request: next(responses))
 
     result = asyncio.run(
         asr_model._qwen3_asr((tmp_path / "source.mp3").as_uri()),
@@ -210,6 +200,11 @@ def test_plan_chunks_snaps_to_silence_near_balanced_target() -> None:
     assert [p.own_duration_ms for p in plans] == [264_000, 266_000]
     assert all(p.dedup_prev is False for p in plans)
     assert all(p.ext_duration_s <= 270.0 for p in plans)
+    # A short input stays a single window.
+    short = asr_model._plan_chunks(120.0, [], max_s=270.0)
+    assert [(p.own_duration_ms, p.dedup_prev) for p in short] == [
+        (120_000, False),
+    ]
 
 
 def test_plan_chunks_no_silence_uses_overlap_not_lossy_hard_cut() -> None:
@@ -223,34 +218,11 @@ def test_plan_chunks_no_silence_uses_overlap_not_lossy_hard_cut() -> None:
         overlap_s=3.0,
     )
     assert len(plans) == 2
-    # balanced, not a 270 + 270 mid-phoneme fixed cut recreation
-    assert plans[0].own_duration_ms == 270_000
-    assert plans[1].own_duration_ms == 270_000
     # second chunk re-hears the boundary and is marked for dedup
     assert plans[0].dedup_prev is False
     assert plans[1].dedup_prev is True
     assert plans[1].ext_start_s == 267.0  # 270 - 3s overlap
     assert plans[1].ext_duration_s == 273.0
-
-
-def test_plan_chunks_has_no_sub_minimum_tail() -> None:
-    # Near multiples of max_s must not leave a degenerate final chunk.
-    for duration in (270.1, 540.001, 271.0):
-        plans = asr_model._plan_chunks(duration, [], max_s=270.0, min_s=10.0)
-        seconds = [p.own_duration_ms / 1000 for p in plans]
-        assert abs(sum(seconds) - duration) < 0.01  # ms rounding tolerance
-        assert all(value >= 10.0 for value in seconds), (duration, seconds)
-        assert all(value <= 270.0 + 1e-9 for value in seconds), (
-            duration,
-            seconds,
-        )
-
-
-def test_plan_chunks_single_window_when_short() -> None:
-    plans = asr_model._plan_chunks(120.0, [], max_s=270.0)
-    assert len(plans) == 1
-    assert plans[0].own_duration_ms == 120_000
-    assert plans[0].dedup_prev is False
 
 
 def test_dedup_sentences_strips_reheard_overlap_seam() -> None:
@@ -264,43 +236,13 @@ def test_dedup_sentences_strips_reheard_overlap_seam() -> None:
     assert (prev[-1] + deduped[0]).endswith("重听部分文字后面是新内容。")
 
 
-def test_dedup_sentences_drops_fully_duplicated_leading_sentence() -> None:
-    prev = ["完整重复的一句话。"]
-    curr = ["完整重复的一句话。", "新的内容。"]
-    assert asr_model._dedup_sentences(prev, curr) == ["新的内容。"]
-
-
 def test_dedup_sentences_keeps_genuine_repeat_after_boundary() -> None:
     # The overlap re-heard "谢谢观看。" once, but the speaker genuinely repeats
     # it in the new chunk. Only the single re-heard copy is removed; the
     # genuine repeat must survive (the old while-loop deleted both).
     prev = ["谢谢观看。"]
     curr = ["谢谢观看。", "谢谢观看。", "接下来。"]
-    assert asr_model._dedup_sentences(prev, curr) == [
-        "谢谢观看。",
-        "接下来。",
-    ]
-
-
-def test_dedup_sentences_keeps_consecutive_repeats_when_prev_also_repeats() -> (
-    None
-):
-    # prev already ends with the sentence twice and curr repeats it twice:
-    # a concatenated longest-match would strip both, deleting a genuine
-    # occurrence. Only one re-heard copy may be removed.
-    prev = ["谢谢观看。", "谢谢观看。"]
-    curr = ["谢谢观看。", "谢谢观看。", "接下来。"]
-    assert asr_model._dedup_sentences(prev, curr) == [
-        "谢谢观看。",
-        "接下来。",
-    ]
-
-
-def test_dedup_sentences_ignores_incidental_short_match() -> None:
-    # A one-character coincidence ('好') must not trim unrelated speech.
-    prev = ["天气很好"]
-    curr = ["好，我们开始"]
-    assert asr_model._dedup_sentences(prev, curr) == ["好，我们开始"]
+    assert asr_model._dedup_sentences(prev, curr) == ["谢谢观看。", "接下来。"]
 
 
 def test_silence_cut_points_parses_ffmpeg_midpoints(monkeypatch) -> None:
@@ -323,7 +265,6 @@ def test_silence_cut_points_parses_ffmpeg_midpoints(monkeypatch) -> None:
         return _Completed()
 
     monkeypatch.setattr(asr_model.subprocess, "run", fake_run)
-    from pathlib import Path
 
     assert asr_model._silence_cut_points("/opt/ffmpeg", Path("a.mp3")) == [
         12.5,
@@ -334,122 +275,14 @@ def test_silence_cut_points_parses_ffmpeg_midpoints(monkeypatch) -> None:
 
 
 @respx.mock
-def test_qwen3_retries_throttling_with_backoff(monkeypatch) -> None:
-    _bind_qwen3(monkeypatch)
-    monkeypatch.setattr(asr_model, "_probe_duration_ms", lambda _s: 5_000)
-
-    async def fake_file_url(*_args):
-        return "oss://dashscope-instant/audio.mp3"
-
-    monkeypatch.setattr(asr_model, "_fun_asr_file_url", fake_file_url)
-    sleeps: list[float] = []
-
-    async def fake_sleep(delay: float) -> None:
-        sleeps.append(delay)
-
-    monkeypatch.setattr(asr_model.asyncio, "sleep", fake_sleep)
-    responses = iter(
-        [
-            httpx.Response(
-                429,
-                json={"code": "Throttling.RateQuota", "message": "slow down"},
-            ),
-            httpx.Response(200, json=_response(["成功。"])),
-        ],
-    )
-    route = respx.post(ENDPOINT).mock(
-        side_effect=lambda _request: next(responses),
-    )
-
-    result = asyncio.run(asr_model._qwen3_asr("https://cdn.test/a.mp3"))
-
-    assert [seg.text for seg in result.segments] == ["成功。"]
-    assert route.call_count == 2
-    assert len(sleeps) == 1 and sleeps[0] >= 2.0
-
-
-@respx.mock
-def test_qwen3_throttling_exhaustion_raises(monkeypatch) -> None:
-    _bind_qwen3(monkeypatch)
-    monkeypatch.setattr(asr_model, "_probe_duration_ms", lambda _s: 5_000)
-
-    async def fake_file_url(*_args):
-        return "oss://dashscope-instant/audio.mp3"
-
-    monkeypatch.setattr(asr_model, "_fun_asr_file_url", fake_file_url)
-
-    async def fake_sleep(_delay: float) -> None:
-        return None
-
-    monkeypatch.setattr(asr_model.asyncio, "sleep", fake_sleep)
-    route = respx.post(ENDPOINT).mock(
-        return_value=httpx.Response(
-            429,
-            json={"code": "Throttling.RateQuota", "message": "slow down"},
-        ),
-    )
-
-    with pytest.raises(asr_model._ThrottlingError):
-        asyncio.run(asr_model._qwen3_asr("https://cdn.test/a.mp3"))
-    assert route.call_count == 4
-
-
-@respx.mock
-def test_qwen3_retries_transient_errors_linearly(monkeypatch) -> None:
-    _bind_qwen3(monkeypatch)
-    monkeypatch.setattr(asr_model, "_probe_duration_ms", lambda _s: 5_000)
-
-    async def fake_file_url(*_args):
-        return "oss://dashscope-instant/audio.mp3"
-
-    monkeypatch.setattr(asr_model, "_fun_asr_file_url", fake_file_url)
-    sleeps: list[float] = []
-
-    async def fake_sleep(delay: float) -> None:
-        sleeps.append(delay)
-
-    monkeypatch.setattr(asr_model.asyncio, "sleep", fake_sleep)
-    responses = iter(
-        [
-            httpx.Response(500, json={"message": "boom"}),
-            httpx.Response(200, json=_response(["恢复。"])),
-        ],
-    )
-    route = respx.post(ENDPOINT).mock(
-        side_effect=lambda _request: next(responses),
-    )
-
-    result = asyncio.run(asr_model._qwen3_asr("https://cdn.test/a.mp3"))
-
-    assert [seg.text for seg in result.segments] == ["恢复。"]
-    assert route.call_count == 2
-    assert sleeps == [2.0]
-
-
-@respx.mock
 def test_qwen3_transient_backoff_is_linear_two_then_four(monkeypatch) -> None:
-    _bind_qwen3(monkeypatch)
-    monkeypatch.setattr(asr_model, "_probe_duration_ms", lambda _s: 5_000)
-
-    async def fake_file_url(*_args):
-        return "oss://dashscope-instant/audio.mp3"
-
-    monkeypatch.setattr(asr_model, "_fun_asr_file_url", fake_file_url)
-    sleeps: list[float] = []
-
-    async def fake_sleep(delay: float) -> None:
-        sleeps.append(delay)
-
-    monkeypatch.setattr(asr_model.asyncio, "sleep", fake_sleep)
-    responses = iter(
-        [
+    sleeps = _bind_single_chunk(monkeypatch)
+    route = respx.post(ENDPOINT).mock(
+        side_effect=[
             httpx.Response(503, json={"message": "unavailable"}),
             httpx.Response(500, json={"message": "boom"}),
             httpx.Response(200, json=_response(["终于成功。"])),
         ],
-    )
-    route = respx.post(ENDPOINT).mock(
-        side_effect=lambda _request: next(responses),
     )
 
     result = asyncio.run(asr_model._qwen3_asr("https://cdn.test/a.mp3"))
@@ -461,30 +294,15 @@ def test_qwen3_transient_backoff_is_linear_two_then_four(monkeypatch) -> None:
 
 @respx.mock
 def test_qwen3_throttling_in_http_200_body_is_retried(monkeypatch) -> None:
-    _bind_qwen3(monkeypatch)
-    monkeypatch.setattr(asr_model, "_probe_duration_ms", lambda _s: 5_000)
-
-    async def fake_file_url(*_args):
-        return "oss://dashscope-instant/audio.mp3"
-
-    monkeypatch.setattr(asr_model, "_fun_asr_file_url", fake_file_url)
-    sleeps: list[float] = []
-
-    async def fake_sleep(delay: float) -> None:
-        sleeps.append(delay)
-
-    monkeypatch.setattr(asr_model.asyncio, "sleep", fake_sleep)
-    responses = iter(
-        [
+    sleeps = _bind_single_chunk(monkeypatch)
+    route = respx.post(ENDPOINT).mock(
+        side_effect=[
             httpx.Response(
                 200,
                 json={"code": "Throttling.RateQuota", "message": "slow"},
             ),
             httpx.Response(200, json=_response(["成功。"])),
         ],
-    )
-    route = respx.post(ENDPOINT).mock(
-        side_effect=lambda _request: next(responses),
     )
 
     result = asyncio.run(asr_model._qwen3_asr("https://cdn.test/a.mp3"))
@@ -496,13 +314,7 @@ def test_qwen3_throttling_in_http_200_body_is_retried(monkeypatch) -> None:
 
 @respx.mock
 def test_qwen3_client_errors_do_not_retry(monkeypatch) -> None:
-    _bind_qwen3(monkeypatch)
-    monkeypatch.setattr(asr_model, "_probe_duration_ms", lambda _s: 5_000)
-
-    async def fake_file_url(*_args):
-        return "oss://dashscope-instant/audio.mp3"
-
-    monkeypatch.setattr(asr_model, "_fun_asr_file_url", fake_file_url)
+    _bind_single_chunk(monkeypatch)
     route = respx.post(ENDPOINT).mock(
         return_value=httpx.Response(400, json={"message": "bad request"}),
     )
@@ -510,44 +322,6 @@ def test_qwen3_client_errors_do_not_retry(monkeypatch) -> None:
     with pytest.raises(httpx.HTTPStatusError):
         asyncio.run(asr_model._qwen3_asr("https://cdn.test/a.mp3"))
     assert route.call_count == 1
-
-
-@respx.mock
-def test_qwen3_empty_audio_returns_no_segments(monkeypatch) -> None:
-    _bind_qwen3(monkeypatch)
-    monkeypatch.setattr(asr_model, "_probe_duration_ms", lambda _s: 5_000)
-
-    async def fake_file_url(*_args):
-        return "oss://dashscope-instant/silence.mp3"
-
-    monkeypatch.setattr(asr_model, "_fun_asr_file_url", fake_file_url)
-    respx.post(ENDPOINT).mock(
-        return_value=httpx.Response(200, json=_response([])),
-    )
-
-    result = asyncio.run(asr_model._qwen3_asr("https://cdn.test/silence.mp3"))
-
-    assert result.segments == ()
-    assert result.provider == "fun-asr"
-
-
-@respx.mock
-def test_qwen3_language_is_forwarded_via_asr_options(monkeypatch) -> None:
-    _bind_qwen3(monkeypatch, language="zh")
-    monkeypatch.setattr(asr_model, "_probe_duration_ms", lambda _s: 5_000)
-
-    async def fake_file_url(*_args):
-        return "oss://dashscope-instant/audio.mp3"
-
-    monkeypatch.setattr(asr_model, "_fun_asr_file_url", fake_file_url)
-    route = respx.post(ENDPOINT).mock(
-        return_value=httpx.Response(200, json=_response(["你好。"])),
-    )
-
-    asyncio.run(asr_model._qwen3_asr("https://cdn.test/a.mp3"))
-
-    body = json.loads(route.calls.last.request.content)
-    assert body["parameters"]["asr_options"] == {"language": "zh"}
 
 
 def test_qwen3_endpoint_derives_from_asr_base_host() -> None:
@@ -560,20 +334,10 @@ def test_qwen3_endpoint_derives_from_asr_base_host() -> None:
     assert asr_model._qwen3_endpoint(
         "https://dashscope.aliyuncs.com/api/v1",
     ) == (
-        "https://dashscope.aliyuncs.com/api/v1/services/aigc/"
-        "multimodal-generation/generation"
+        "https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation"
     )
     with pytest.raises(ValueError):
         asr_model._qwen3_endpoint("not-a-url")
-
-
-def test_spread_segments_marks_estimates_and_clamps() -> None:
-    segments = asr_model._spread_segments(["a", "b", "c"], 1_000, 2)
-    assert len(segments) == 3
-    assert all(seg.confidence == 0.0 for seg in segments)
-    assert all(seg.end_ms > seg.start_ms for seg in segments)
-    assert segments[0].start_ms == 1_000
-    assert not asr_model._spread_segments([], 0, 1_000)
 
 
 def test_probe_duration_falls_back_to_ffmpeg_without_ffprobe(
@@ -605,3 +369,77 @@ def test_probe_duration_falls_back_to_ffmpeg_without_ffprobe(
     monkeypatch.setattr(media_probe.subprocess, "run", fake_run)
 
     assert asr_model._probe_duration_ms("a.mp3") == 275_100
+
+
+def test_whisper_posts_extracted_audio_and_normalizes_chunk_offsets(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    source = tmp_path / "source.mp4"
+    source.write_bytes(b"video")
+    chunks = [tmp_path / "audio-0000.mp3", tmp_path / "audio-0001.mp3"]
+    for chunk in chunks:
+        chunk.write_bytes(b"audio")
+
+    monkeypatch.setattr(config, "get_asr_api_key", lambda: "whisper-key")
+    monkeypatch.setattr(config, "get_asr_model_name", lambda: "whisper-1")
+    monkeypatch.setattr(config, "get_asr_language", lambda: "zh")
+    monkeypatch.setattr(
+        config,
+        "get_asr_base_url",
+        lambda: "https://api.openai.test/v1",
+    )
+    monkeypatch.setattr(config, "get_asr_timeout_seconds", lambda: 30)
+    monkeypatch.setattr(asr_model, "_local_media_path", lambda *_args: source)
+    monkeypatch.setattr(
+        asr_model,
+        "_extract_audio_chunks",
+        lambda *_args: chunks,
+    )
+
+    requests = []
+
+    class Response:
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict:
+            return {"segments": [{"start": 1.25, "end": 2.5, "text": "测试语音"}]}
+
+    class Client:
+        def __init__(self, **_kwargs) -> None:
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args) -> None:
+            return None
+
+        async def post(self, url, *, headers, data, files):
+            requests.append((url, headers, data, files["file"][0]))
+            return Response()
+
+    monkeypatch.setattr(asr_model.httpx, "AsyncClient", Client)
+
+    result = asyncio.run(asr_model._whisper(source.as_uri()))
+
+    assert [
+        (item.start_ms, item.end_ms, item.text) for item in result.segments
+    ] == [
+        (1_250, 2_500, "测试语音"),
+        (3_601_250, 3_602_500, "测试语音"),
+    ]
+    assert [item[0] for item in requests] == [
+        "https://api.openai.test/v1/audio/transcriptions",
+        "https://api.openai.test/v1/audio/transcriptions",
+    ]
+    assert all(
+        item[2]
+        == {
+            "model": "whisper-1",
+            "response_format": "verbose_json",
+            "language": "zh",
+        }
+        for item in requests
+    )

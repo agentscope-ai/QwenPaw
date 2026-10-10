@@ -98,7 +98,6 @@ export function usePluginColumns({
           <Button
             type="text"
             danger
-            size="small"
             icon={<Trash2 size={14} />}
             loading={uninstallingId === record.id}
             onClick={() => onUninstall(record)}

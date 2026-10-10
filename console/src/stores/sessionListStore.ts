@@ -21,6 +21,7 @@ export interface ExtendedSession extends IAgentScopeRuntimeWebUISession {
   channel?: string;
   createdAt?: string | null;
   updatedAt?: string | null;
+  lastFinishedAt?: string | null;
   meta?: Record<string, unknown>;
   status?: string;
   generating?: boolean;
@@ -49,7 +50,7 @@ interface SessionListStore {
     setLibrarySessions: (s: ExtendedSession[]) => void,
   ) => void;
 
-  /** Called by anyone (sidebar, drawer) after a CRUD operation */
+  /** Called after a session CRUD operation to refresh the sidebar. */
   syncSessions: (sessions: ExtendedSession[]) => void;
 }
 

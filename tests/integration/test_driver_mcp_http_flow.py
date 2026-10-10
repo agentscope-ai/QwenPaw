@@ -71,3 +71,70 @@ async def test_driver_mcp_http_header_secret_flow(
         FakeHttpClient.instances[0].kwargs["headers"]
         == result.value["headers"]
     )
+
+
+@pytest.mark.asyncio
+@pytest.mark.integration
+@pytest.mark.p1
+async def test_driver_mcp_anysearch_default_config_shape(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test purpose:
+    - Verify the default MCP config ships an anysearch streamable_http
+      template that migrates to a buildable DriverCard.
+
+    Test flow:
+    1. Build MCPConfig() and grab the anysearch client entry.
+    2. Convert it to a DriverCard via the legacy migration helper.
+    3. Register the card and build the driver handler (HTTP faked).
+    4. Assert the exposed tool names match AnySearch's server.
+
+    API endpoints:
+    - none (driver layer, no app subprocess).
+    """
+    from qwenpaw.config.config import MCPConfig
+    from qwenpaw.drivers.adapters.mcp_legacy_config import (
+        legacy_mcp_client_to_driver,
+    )
+
+    patch_mcp_runtime_clients(monkeypatch)
+
+    cfg = MCPConfig()
+    assert "anysearch" in cfg.clients
+    client = cfg.clients["anysearch"]
+    assert client.enabled is False
+    assert client.transport == "streamable_http"
+    assert client.url == "https://api.anysearch.com/mcp"
+    assert client.headers == {
+        "Authorization": "Bearer ${ANYSEARCH_API_KEY}",
+    }
+
+    card, credential = legacy_mcp_client_to_driver("anysearch", client)
+    assert card.protocol == "mcp"
+    assert card.endpoint["transport"] == "streamable_http"
+    assert card.endpoint["url"] == "https://api.anysearch.com/mcp"
+    assert card.enabled is False
+    assert card.policy.rules[0].effect == "ask"
+
+    store = AsyncCredentialStore(tmp_path / "credentials.yaml")
+    if credential is not None:
+        await store.put(credential)
+    card.enabled = True
+    dump_card(
+        card,
+        card_path(tmp_path / "drivers", "anysearch", protocol="mcp"),
+    )
+    manager = DriverManager(tmp_path / "drivers", store)
+    manager.register_handler_type("mcp", MCPDriverHandler)
+
+    await manager.build_drivers()
+    names = sorted(
+        item.name for item in await manager.list_capabilities(kind="tool")
+    )
+    assert names == [
+        "echo_http",
+        "inspect_headers",
+        "oauth_echo",
+    ]
+    assert "tavily_search" not in cfg.clients

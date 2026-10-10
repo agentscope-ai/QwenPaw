@@ -36,7 +36,9 @@ export interface DingTalkConfig extends BaseChannelConfig {
   card_template_key: string;
   robot_code: string;
   at_sender_on_reply?: boolean;
+  card_auto_layout?: boolean;
   streaming_enabled?: boolean;
+  share_session_in_group?: boolean;
   endpoint?: string;
 }
 
@@ -49,6 +51,7 @@ export interface FeishuConfig extends BaseChannelConfig {
   domain?: "feishu" | "lark";
   streaming_enabled?: boolean;
   share_session_in_group?: boolean;
+  auto_collapse_thinking?: boolean;
 }
 
 export interface QQConfig extends BaseChannelConfig {
@@ -94,6 +97,7 @@ export interface MatrixConfig extends BaseChannelConfig {
   homeserver: string;
   user_id: string;
   access_token: string;
+  share_session_in_group?: boolean;
   streaming_enabled?: boolean;
 }
 

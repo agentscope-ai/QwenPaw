@@ -9,7 +9,28 @@ from types import SimpleNamespace
 import pytest
 
 import qwenpaw.agents.context as context_mod
-from qwenpaw.runtime.builder import AgentBuilder
+from qwenpaw.runtime.builder import AgentBuilder, _resolve_react_iterations
+
+
+def test_only_internal_migration_can_raise_react_iterations():
+    assert _resolve_react_iterations(100, {}) == 100
+    assert (
+        _resolve_react_iterations(
+            100,
+            {"source": "portability_adaptation", "max_react_iterations": 800},
+        )
+        == 800
+    )
+    assert (
+        _resolve_react_iterations(
+            100,
+            {
+                "source": "portability_adaptation",
+                "max_react_iterations": 99_999,
+            },
+        )
+        == 4_000
+    )
 
 
 @pytest.mark.asyncio

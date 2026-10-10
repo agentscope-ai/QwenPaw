@@ -17,10 +17,18 @@ import {
   checkScanWarnings as checkScanWarningsShared,
   showScanErrorModal,
 } from "../../../utils/scanError";
+import { subscribeToSkillChanges } from "../../../utils/skillChangeEvents";
 
 type SkillActionResult =
   | { success: true; name?: string; imported?: string[] }
-  | { success: false; conflict?: Record<string, any> };
+  | {
+      success: false;
+      conflict?: {
+        suggested_name?: string;
+        skill_name?: string;
+        conflicts?: { suggested_name?: string; skill_name?: string }[];
+      };
+    };
 
 export function useSkills() {
   const { t } = useTranslation();
@@ -50,7 +58,7 @@ export function useSkills() {
       message.error(msg);
       return false;
     },
-    [t],
+    [message, t],
   );
 
   const checkScanWarnings = useCallback(
@@ -115,6 +123,16 @@ export function useSkills() {
     invalidateSkillCache({ agentId: selectedAgent });
     void fetchSkills();
   }, [selectedAgent, fetchSkills]);
+
+  useEffect(
+    () =>
+      subscribeToSkillChanges((change) => {
+        if (change.agentId !== selectedAgent) return;
+        invalidateSkillCache({ agentId: selectedAgent });
+        void fetchSkills();
+      }),
+    [fetchSkills, selectedAgent],
+  );
 
   const createSkill = async (
     name: string,

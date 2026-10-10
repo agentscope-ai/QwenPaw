@@ -66,9 +66,19 @@ def _option_parts(option: Any) -> Optional[Tuple[str, str]]:
     return title, option_id
 
 
+def render_assistant_text(text: str) -> Optional[str]:
+    """Render accumulated assistant text as a single stream item.
+
+    Callers coalesce the runner's text deltas first: a delta is a fragment of
+    one assistant message, not a message of its own, so rendering each delta
+    separately repeats the ``[assistant]`` marker once per fragment.
+    """
+    cleaned = _string(text)
+    return f"[assistant]\n{cleaned}" if cleaned else None
+
+
 def _render_text_event(event: dict[str, Any]) -> Optional[str]:
-    text = _string(event.get("text"))
-    return f"[assistant]\n{text}" if text else None
+    return render_assistant_text(_string(event.get("text")))
 
 
 def _render_tool_event(event: dict[str, Any]) -> Optional[str]:
@@ -152,7 +162,18 @@ def format_final_assistant_response(
     runner_name: str,
     execution_cwd: Path,
     final_event: Optional[dict[str, Any]],
+    suppress_body: bool = False,
 ) -> ToolChunk:
+    header = _text_block(
+        _header_text(
+            runner_name=runner_name,
+            execution_cwd=execution_cwd,
+        ),
+    )
+    if suppress_body:
+        # The assistant text was already streamed to the caller; repeating it
+        # here would deliver the same answer twice.
+        return response_blocks([header], is_last=True)
     text = None
     if final_event is not None:
         text = render_event_text(final_event or {})
@@ -161,18 +182,7 @@ def format_final_assistant_response(
         body = "completed without text output"
     if body is None:
         body = "completed"
-    return response_blocks(
-        [
-            _text_block(
-                _header_text(
-                    runner_name=runner_name,
-                    execution_cwd=execution_cwd,
-                ),
-            ),
-            _text_block(body),
-        ],
-        is_last=True,
-    )
+    return response_blocks([header, _text_block(body)], is_last=True)
 
 
 def format_permission_suspended_response(

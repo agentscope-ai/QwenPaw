@@ -1,11 +1,56 @@
+@import (reference) "../../../styles/scaledTypography.less";
+
 .skillsPage {
+  .scaled-control-typography();
   padding: 0;
+  font-size: var(--app-font-body);
   display: flex;
   flex-direction: column;
   height: 100%;
   min-height: 0;
   overflow-x: hidden;
   overflow-y: auto;
+
+  /* Provider-managed skills intentionally keep their warm visual identity. */
+  --skills-warm-banner-border: #f0dfd2;
+  --skills-warm-banner-bg: #fffaf5;
+  --skills-warm-accent: var(--app-accent);
+  --skills-warm-accent-text: var(--app-accent-text);
+  --skills-warm-accent-bg: var(--app-accent-soft);
+  --skills-warm-heading: #2d231d;
+  --skills-warm-muted: #7b716a;
+  --skills-warm-card: #fffdfa;
+  --skills-warm-border: #eadfd6;
+  --skills-warm-section-border: #e9ded5;
+  --skills-warm-border-hover: #e7b58f;
+  --skills-warm-body: #756a62;
+  --skills-warm-meta-text: #766a61;
+  --skills-warm-meta-bg: #faf6f2;
+  --skills-warm-enabled: #357544;
+  --skills-warm-disabled: #8b8179;
+  --skills-warm-shadow-hover: 0 8px 22px rgba(104, 65, 35, 0.08);
+  --skills-warm-outline: var(--app-accent-border);
+  --skills-selected-ring: 0 0 0 1px var(--app-accent-ring);
+
+  --skills-empty-from: var(--app-surface);
+  --skills-empty-to: var(--app-surface-subtle);
+  --skills-panel-bg: var(--app-surface);
+  --skills-panel-border: var(--app-border);
+  --skills-panel-dashed-border: var(--app-border-subtle);
+  --skills-list-hover: var(--app-fill-faint);
+  --skills-disabled-item-bg: var(--app-surface-subtle);
+  --skills-disabled-item-border: var(--app-border-subtle);
+  --skills-disabled-item-hover: var(--app-surface);
+  --skills-panel-success: var(--app-success);
+  --skills-panel-success-text: var(--app-success-text);
+  --skills-action-bg: var(--app-surface);
+  --skills-action-text: var(--app-text);
+  --skills-action-border: var(--app-border-strong);
+  --skills-action-hover-bg: var(--app-fill-subtle);
+  --skills-action-hover-border: var(--app-border-hover);
+  --skills-danger-text: var(--app-error-text);
+  --skills-danger-hover-bg: var(--app-error-bg);
+  --skills-danger-hover-border: var(--app-error-border);
 }
 
 .pageHeader {
@@ -14,7 +59,7 @@
   align-items: center;
   position: relative;
   padding: 20px;
-  border-bottom: 1px solid #eae9e7;
+  border-bottom: 1px solid var(--app-border);
   flex-shrink: 0;
 }
 
@@ -22,24 +67,24 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 16px;
+  font-size: var(--app-font-subtitle);
   flex: 1;
 }
 
 .breadcrumbParent {
-  color: #999;
+  color: var(--app-text-secondary);
   font-weight: 400;
 }
 
 .breadcrumbSeparator {
-  color: #ccc;
+  color: var(--app-text-quaternary);
   margin: 0 4px;
 }
 
 .breadcrumbCurrent {
-  color: #333;
+  color: var(--app-text);
   font-weight: 600;
-  font-size: 20px;
+  font-size: var(--app-font-title);
 }
 
 .headerRight {
@@ -66,9 +111,9 @@
 
 .creationActionButton {
   min-width: 108px;
-  background: #fff;
-  border-color: #d0d7e2;
-  color: #1f2937;
+  background: var(--app-surface);
+  border-color: var(--app-border-strong);
+  color: var(--app-text);
 }
 
 .primaryActionButton {
@@ -81,7 +126,7 @@
 }
 
 .loadingText {
-  color: #999;
+  color: var(--app-text-tertiary);
 }
 
 .noSearchResults {
@@ -91,7 +136,7 @@
   justify-content: center;
   gap: 12px;
   padding: 80px 24px;
-  color: rgba(20, 20, 19, 0.45);
+  color: var(--app-text-tertiary);
 }
 
 .noSearchResultsIcon {
@@ -100,7 +145,7 @@
 }
 
 .noSearchResultsText {
-  font-size: 14px;
+  font-size: var(--app-font-body);
 }
 
 .skillsGrid {
@@ -119,11 +164,11 @@
 }
 
 .selectedCard {
-  box-shadow: 0 0 0 1px rgba(255, 127, 22, 0.2) !important;
+  box-shadow: var(--skills-selected-ring) !important;
 }
 
 .selectedListItem {
-  background: rgba(255, 127, 22, 0.02);
+  background: var(--app-accent-faint);
 }
 
 /* ─── Batch Mode Header ──────────────────────────────────────────────────── */
@@ -134,23 +179,29 @@
 }
 
 .batchCount {
-  font-size: 13px;
-  color: #666;
+  font-size: var(--app-font-secondary);
+  color: var(--app-text-secondary);
   margin-right: 4px;
 }
 
 /* ─── Skill Card ──────────────────────────────────────────────────────────── */
 .skillCard {
-  min-height: 180px;
+  min-height: max(180px, calc(180px * var(--app-font-scale)));
   height: auto;
   display: flex;
   flex-direction: column;
   gap: 0;
   border-radius: var(--border-radius, 12px);
-  background: var(--color-bg-base, #ffffff);
-  border: 1px solid var(--color-border-secondary, #eae8e7);
+  background: var(--app-surface);
+  border: 1px solid var(--app-border);
   box-sizing: border-box;
-  transition: all 0.2s ease-in-out;
+  transition:
+    background-color 0.2s ease-in-out,
+    color 0.2s ease-in-out,
+    border-color 0.2s ease-in-out,
+    box-shadow 0.2s ease-in-out,
+    opacity 0.2s ease-in-out,
+    transform 0.2s ease-in-out;
   position: relative;
   overflow: hidden;
 
@@ -164,8 +215,8 @@
     }
   }
   &:hover {
-    border-color: var(--color-border, #d9d9d9);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+    border-color: var(--app-border-hover);
+    box-shadow: var(--app-shadow-md);
   }
 }
 
@@ -189,23 +240,23 @@
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  font-size: 13px;
+  font-size: var(--app-font-secondary);
   font-weight: 500;
   white-space: nowrap;
 
   &.status_enabled {
-    color: #17b26a;
+    color: var(--app-success-text);
 
     .statusDot {
-      background-color: #17b26a;
+      background-color: var(--app-success);
     }
   }
 
   &.status_disabled {
-    color: rgba(20, 20, 19, 0.45);
+    color: var(--app-text-tertiary);
 
     .statusDot {
-      background-color: rgba(20, 20, 19, 0.25);
+      background-color: var(--app-text-quaternary);
     }
   }
 }
@@ -243,12 +294,12 @@
       display: flex;
       align-items: center;
       gap: 4px;
-      font-size: 11px;
-      color: rgba(20, 20, 19, 0.45);
+      font-size: var(--app-font-caption);
+      color: var(--app-text-tertiary);
       margin-top: -2px;
 
       .calendarIcon {
-        font-size: 10px;
+        font-size: var(--app-icon-xs);
       }
     }
 
@@ -262,26 +313,26 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 12px;
+  font-size: var(--app-font-caption);
   margin-top: 8px;
 
   .channelIcon {
-    font-size: 12px;
-    color: rgba(26, 23, 22, 0.45);
+    font-size: var(--app-icon-xs);
+    color: var(--app-text-tertiary);
     flex-shrink: 0;
   }
 
   .channelLabel {
-    color: rgba(26, 23, 22, 0.65);
+    color: var(--app-text-secondary);
     flex-shrink: 0;
   }
 
   .channelValue {
-    color: rgba(20, 20, 19, 0.88);
+    color: var(--app-text);
     font-weight: 500;
     padding: 2px 8px;
     border-radius: 4px;
-    background-color: rgba(239, 240, 243, 0.5);
+    background-color: var(--app-fill-subtle);
   }
 }
 
@@ -289,7 +340,7 @@
   width: 40px;
   height: 40px;
   border-radius: 8px;
-  background: #f7f5f3;
+  background: var(--app-surface-subtle);
   font-size: 26px;
   display: flex;
   align-items: center;
@@ -301,7 +352,7 @@
   width: 40px;
   height: 40px;
   border-radius: 8px;
-  background: #f7f5f3;
+  background: var(--app-surface-subtle);
   font-size: 28px;
   line-height: 1;
   display: inline-flex;
@@ -319,10 +370,10 @@
 
 .skillTitle {
   margin: 0;
-  font-size: 15px;
+  font-size: var(--app-font-subtitle);
   font-weight: 600;
-  color: rgba(20, 20, 19, 0.88);
-  line-height: 22px;
+  color: var(--app-text);
+  line-height: 1.4;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -333,19 +384,19 @@
 .statusValue {
   padding: 2px 6px;
   border-radius: 4px;
-  font-size: 11px;
+  font-size: var(--app-font-caption);
   font-weight: 500;
   flex-shrink: 0;
   white-space: nowrap;
 
   &.enabled {
-    background-color: rgba(82, 196, 26, 0.12);
-    color: #389e0d;
+    background-color: var(--app-success-faint);
+    color: var(--app-success-text);
   }
 
   &.disabled {
-    background-color: rgba(239, 240, 243, 0.8);
-    color: rgba(20, 20, 19, 0.65);
+    background-color: var(--app-fill);
+    color: var(--app-text-secondary);
   }
 }
 
@@ -355,21 +406,21 @@
 
 .descriptionLabel {
   margin: 0 0 4px 0;
-  font-size: 12px;
-  color: rgba(26, 23, 22, 0.65);
+  font-size: var(--app-font-caption);
+  color: var(--app-text-secondary);
   font-weight: normal;
 }
 
 .descriptionText {
   border-radius: 4px;
-  background: rgba(43, 18, 0, 0.02);
+  background: var(--app-fill-faint);
   box-sizing: border-box;
-  border: 1px solid #f3f1f0;
+  border: 1px solid var(--app-border-subtle);
   padding: 2px 4px;
-  line-height: 18px;
+  line-height: 1.5;
   margin: 0;
-  font-size: 12px;
-  color: rgba(20, 20, 19, 0.55);
+  font-size: var(--app-font-caption);
+  color: var(--app-text-secondary);
   overflow: hidden;
   text-overflow: ellipsis;
   display: -webkit-box;
@@ -388,12 +439,12 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 12px;
+  font-size: var(--app-font-caption);
   margin-bottom: 4px;
 }
 
 .metaInfoLabel {
-  color: rgba(20, 20, 19, 0.45);
+  color: var(--app-text-tertiary);
   min-width: 60px;
   flex-shrink: 0;
 }
@@ -402,18 +453,18 @@
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  color: rgba(20, 20, 19, 0.75);
+  color: var(--app-text-secondary);
   font-weight: 500;
   padding: 0 6px;
   border-radius: 3px;
-  background-color: rgba(239, 240, 243, 0.5);
-  font-size: 12px;
-  line-height: 20px;
+  background-color: var(--app-fill-subtle);
+  font-size: var(--app-font-caption);
+  line-height: 1.6;
 }
 
 .calendarIcon {
-  font-size: 11px;
-  color: rgba(26, 23, 22, 0.45);
+  font-size: var(--app-font-caption);
+  color: var(--app-text-tertiary);
 }
 
 .metaContainer {
@@ -430,24 +481,24 @@
 }
 
 .metaLabel {
-  font-size: 12px;
-  color: rgba(26, 23, 22, 0.65);
+  font-size: var(--app-font-caption);
+  color: var(--app-text-secondary);
   min-width: 80px;
   flex-shrink: 0;
 }
 
 .channelValue {
-  font-size: 12px;
-  color: rgba(20, 20, 19, 0.88);
+  font-size: var(--app-font-caption);
+  color: var(--app-text);
   font-weight: 500;
   padding: 2px 8px;
   border-radius: 4px;
-  background-color: rgba(239, 240, 243, 0.5);
+  background-color: var(--app-fill-subtle);
 }
 
 .metaValue {
-  font-size: 12px;
-  color: rgba(20, 20, 19, 0.88);
+  font-size: var(--app-font-caption);
+  color: var(--app-text);
   font-weight: 500;
   padding: 2px 8px;
   border-radius: 4px;
@@ -455,27 +506,39 @@
 
 /* Built-in / Custom tags */
 .builtinTag {
-  font-size: 11px;
+  font-size: var(--app-font-caption);
   padding: 1px 8px;
   border-radius: 4px;
   font-weight: 500;
-  background-color: rgba(239, 240, 243, 0.9);
-  color: #8e8c99;
+  background-color: var(--app-fill);
+  color: var(--app-text-secondary);
   flex-shrink: 0;
   white-space: nowrap;
-  border: 1px solid rgba(0, 0, 0, 0.06);
+  border: 1px solid var(--app-border-subtle);
 }
 
 .customTag {
-  font-size: 11px;
+  font-size: var(--app-font-caption);
   padding: 1px 8px;
   border-radius: 4px;
   font-weight: 500;
-  background-color: rgba(255, 247, 230, 0.9);
-  color: #d48806;
+  background-color: var(--app-warning-bg);
+  color: var(--app-warning-text);
   flex-shrink: 0;
   white-space: nowrap;
-  border: 1px solid rgba(250, 173, 20, 0.2);
+  border: 1px solid var(--app-warning-border);
+}
+
+.preloadTag {
+  font-size: var(--app-font-caption);
+  padding: 1px 8px;
+  border-radius: 4px;
+  font-weight: 500;
+  background-color: rgba(82, 196, 26, 0.12);
+  color: #389e0d;
+  flex-shrink: 0;
+  white-space: nowrap;
+  border: 1px solid rgba(82, 196, 26, 0.2);
 }
 
 /* ─── Tags ────────────────────────────────────────────────────────────────── */
@@ -493,7 +556,7 @@
 }
 
 .metaIcon {
-  font-size: 12px;
+  font-size: var(--app-icon-xs);
   flex-shrink: 0;
   display: inline-flex;
   align-items: center;
@@ -516,13 +579,13 @@
 .tagChip {
   display: inline-flex;
   align-items: center;
-  font-size: 13px;
-  line-height: 16px;
+  font-size: var(--app-font-caption);
+  line-height: 1.6;
   padding: 1px 8px;
   border-radius: 4px;
   font-weight: 500;
-  background-color: rgba(239, 240, 243, 0.6);
-  color: rgba(20, 20, 19, 0.88);
+  background-color: var(--app-fill);
+  color: var(--app-text-secondary);
   white-space: nowrap;
 }
 
@@ -537,34 +600,56 @@
   align-items: center;
   gap: 8px;
   padding: 12px 16px;
-  background: #fff;
+  background: var(--app-surface);
 }
 
 .actionButton {
   flex: 1;
-  height: 34px;
-  font-size: 14px;
+  height: auto;
+  min-height: max(34px, calc(34px * var(--app-font-scale)));
+  font-size: var(--app-font-body);
   border-radius: 8px;
+  background-color: var(--skills-action-bg) !important;
+  color: var(--skills-action-text) !important;
+  border-color: var(--skills-action-border) !important;
+
+  &:hover {
+    background-color: var(--skills-action-hover-bg) !important;
+    border-color: var(--skills-action-hover-border) !important;
+  }
 }
 
 .deleteButton {
   flex: 1;
-  height: 34px;
-  font-size: 14px;
+  height: auto;
+  min-height: max(34px, calc(34px * var(--app-font-scale)));
+  font-size: var(--app-font-body);
   border-radius: 8px;
+  background-color: var(--skills-action-bg) !important;
+  color: var(--skills-danger-text) !important;
+  border-color: var(--skills-action-border) !important;
+
+  &:hover {
+    background-color: var(--skills-danger-hover-bg) !important;
+    border-color: var(--skills-danger-hover-border) !important;
+  }
 }
 
 .emptyState {
   margin: 24px;
   padding: 32px;
-  border: 1px solid #e7ebf3;
+  border: 1px solid var(--app-border);
   border-radius: 20px;
   background: radial-gradient(
       circle at top left,
-      rgba(97, 92, 237, 0.08),
+      var(--app-accent-soft),
       transparent 34%
     ),
-    linear-gradient(180deg, #ffffff 0%, #f8faff 100%);
+    linear-gradient(
+      180deg,
+      var(--skills-empty-from) 0%,
+      var(--skills-empty-to) 100%
+    );
   text-align: center;
 }
 
@@ -578,12 +663,12 @@
 
   .emptyStateTitle {
     margin-bottom: 6px;
-    font-size: 21px;
+    font-size: var(--app-font-title);
   }
 
   .emptyStateText {
     max-width: 720px;
-    font-size: 14px;
+    font-size: var(--app-font-body);
     line-height: 1.55;
   }
 
@@ -599,24 +684,24 @@
   margin-bottom: 12px;
   padding: 6px 12px;
   border-radius: 999px;
-  background: #eef2ff;
-  color: #4f46e5;
-  font-size: 12px;
+  background: var(--app-accent-soft);
+  color: var(--app-accent-text);
+  font-size: var(--app-font-caption);
   font-weight: 600;
 }
 
 .emptyStateTitle {
   margin: 0 0 10px;
-  font-size: 24px;
+  font-size: var(--app-font-title);
   font-weight: 600;
-  color: #111827;
+  color: var(--app-text);
 }
 
 .emptyStateText {
   max-width: 640px;
   margin: 0 auto;
-  color: #4b5563;
-  font-size: 15px;
+  color: var(--app-text-secondary);
+  font-size: var(--app-font-body);
   line-height: 1.65;
 }
 
@@ -731,11 +816,11 @@
   }
 
   .emptyStateTitle {
-    font-size: 20px;
+    font-size: var(--app-font-title);
   }
 
   .emptyStateText {
-    font-size: 14px;
+    font-size: var(--app-font-body);
   }
 }
 
@@ -775,7 +860,7 @@
 }
 
 .bulkActionButton {
-  font-size: 13px;
+  font-size: var(--app-font-secondary);
 }
 
 .bulkActions {
@@ -786,9 +871,9 @@
 
 /* ─── Card Picker (pool transfer modals) ──────────────────────────────────── */
 .pickerLabel {
-  font-size: 13px;
+  font-size: var(--app-font-secondary);
   font-weight: 500;
-  color: #525866;
+  color: var(--app-text-secondary);
   margin-bottom: 8px;
 }
 
@@ -796,8 +881,8 @@
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  font-size: 13px;
-  color: #615ced;
+  font-size: var(--app-font-secondary);
+  color: var(--app-accent-text);
   cursor: pointer;
   margin-bottom: 8px;
 
@@ -819,23 +904,29 @@
 .pickerCard {
   position: relative;
   padding: 6px;
-  border: 1px solid #e8e8e8;
+  border: 1px solid var(--app-border);
   border-radius: 4px;
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease,
+    border-color 0.15s ease,
+    box-shadow 0.15s ease,
+    opacity 0.15s ease,
+    transform 0.15s ease;
   min-width: 0;
 
   &:hover {
-    border-color: #ff7f16;
+    border-color: var(--app-accent);
   }
 
   &.pickerAllCard {
     text-align: center;
-    background: rgba(97, 92, 237, 0.03);
+    background: var(--app-accent-faint);
     border-style: dashed;
 
     &.pickerCardSelected {
-      background: rgba(97, 92, 237, 0.06);
+      background: var(--app-accent-soft);
     }
   }
 }
@@ -844,23 +935,23 @@
   position: absolute;
   top: 8px;
   right: 8px;
-  width: 18px;
-  height: 18px;
+  width: max(18px, var(--app-icon-md));
+  height: max(18px, var(--app-icon-md));
   border-radius: 50%;
-  background: #ff7f16;
-  color: #fff;
+  background: var(--app-accent);
+  color: var(--app-text-inverse);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 10px;
+  font-size: var(--app-icon-xs);
 }
 
 .pickerCardTitle {
   display: block;
   width: 100%;
-  font-size: 14px;
+  font-size: var(--app-font-body);
   font-weight: 500;
-  color: #1a1a1a;
+  color: var(--app-text);
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -868,8 +959,8 @@
 }
 
 .pickerCardMeta {
-  font-size: 12px;
-  color: #999;
+  font-size: var(--app-font-caption);
+  color: var(--app-text-tertiary);
   margin-top: 4px;
 }
 
@@ -890,13 +981,13 @@
 .compactPickerCheck {
   top: 6px;
   right: 6px;
-  width: 16px;
-  height: 16px;
-  font-size: 9px;
+  width: max(16px, var(--app-icon-sm));
+  height: max(16px, var(--app-icon-sm));
+  font-size: var(--app-icon-xs);
 }
 
 .compactPickerTitle {
-  font-size: 12px;
+  font-size: var(--app-font-caption);
   line-height: 1.25;
   width: 100%;
   padding-right: 18px;
@@ -922,22 +1013,23 @@
 .searchInput {
   flex: 1;
   min-width: 0;
-  height: 36px;
+  height: auto;
+  min-height: max(36px, calc(36px * var(--app-font-scale)));
   padding: 0 12px;
-  border: 1px solid var(--color-border-secondary, #d9d9d9);
+  border: 1px solid var(--app-border);
   border-radius: 6px;
-  font-size: 14px;
-  color: rgba(20, 20, 19, 0.88);
-  background: var(--color-bg-base, #ffffff);
+  font-size: var(--app-font-body);
+  color: var(--app-text);
+  background: var(--app-surface);
   outline: none;
   transition: border-color 0.2s;
 
   &::placeholder {
-    color: rgba(20, 20, 19, 0.25);
+    color: var(--app-text-quaternary);
   }
 
   &:focus {
-    border-color: #ff7f16;
+    border-color: var(--app-accent);
   }
 }
 
@@ -947,9 +1039,11 @@
 
   :global {
     .ant-select-selector {
-      height: 36px !important;
-      min-height: 36px;
+      height: auto !important;
+      min-height: max(36px, calc(36px * var(--app-font-scale)));
       padding: 2px 4px;
+      background: var(--app-surface-raised);
+      border-color: var(--app-border-strong);
     }
 
     .ant-select-selection-search {
@@ -957,13 +1051,17 @@
     }
 
     .ant-select-selection-item {
-      background: rgba(22, 119, 255, 0.08);
-      border: 1px solid rgba(22, 119, 255, 0.18);
-      color: #1677ff;
+      background: var(--app-info-bg);
+      border: 1px solid var(--app-info-border);
+      color: var(--app-info-text);
       border-radius: 4px;
       padding: 0 8px;
       margin: 2px 4px 2px 0;
-      font-size: 12px;
+      font-size: var(--app-font-caption);
+    }
+
+    .ant-select-selection-placeholder {
+      color: var(--app-text-quaternary);
     }
   }
 }
@@ -971,13 +1069,13 @@
 .tagSelectEmpty {
   padding: 24px 16px;
   text-align: center;
-  color: rgba(20, 20, 19, 0.35);
-  font-size: 13px;
+  color: var(--app-text-tertiary);
+  font-size: var(--app-font-secondary);
 }
 
 .filterGroup {
   padding: 8px 0;
-  border-bottom: 1px solid #f0f0f0;
+  border-bottom: 1px solid var(--app-border-subtle);
 
   &:last-child {
     border-bottom: none;
@@ -986,9 +1084,9 @@
 
 .filterGroupTitle {
   padding: 4px 12px;
-  font-size: 12px;
+  font-size: var(--app-font-caption);
   font-weight: 500;
-  color: rgba(0, 0, 0, 0.45);
+  color: var(--app-text-tertiary);
 }
 
 .filterOptions {
@@ -1002,22 +1100,28 @@
   display: inline-flex;
   align-items: center;
   padding: 2px 8px;
-  font-size: 12px;
+  font-size: var(--app-font-caption);
   border-radius: 4px;
-  background: rgba(0, 0, 0, 0.04);
-  color: rgba(0, 0, 0, 0.65);
+  background: var(--app-fill-subtle);
+  color: var(--app-text-secondary);
   cursor: pointer;
-  transition: all 0.2s;
+  transition:
+    background-color 0.2s,
+    color 0.2s,
+    border-color 0.2s,
+    box-shadow 0.2s,
+    opacity 0.2s,
+    transform 0.2s;
 
   &:hover {
-    background: rgba(22, 119, 255, 0.08);
-    color: #1677ff;
+    background: var(--app-info-bg);
+    color: var(--app-info-text);
   }
 }
 
 .filterOptionActive {
-  background: rgba(22, 119, 255, 0.12);
-  color: #1677ff;
+  background: var(--app-info-bg-hover);
+  color: var(--app-info-text);
   font-weight: 500;
 }
 
@@ -1037,24 +1141,30 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
+  width: var(--app-icon-button);
+  height: var(--app-icon-button);
   border: none;
   background: transparent;
-  color: rgba(20, 20, 19, 0.45);
+  color: var(--app-text-tertiary);
   cursor: pointer;
   border-radius: 4px;
-  font-size: 16px;
-  transition: all 0.2s;
+  font-size: var(--app-icon-md);
+  transition:
+    background-color 0.2s,
+    color 0.2s,
+    border-color 0.2s,
+    box-shadow 0.2s,
+    opacity 0.2s,
+    transform 0.2s;
 
   &:hover {
-    color: rgba(20, 20, 19, 0.88);
-    background: rgba(0, 0, 0, 0.04);
+    color: var(--app-text);
+    background: var(--app-fill-subtle);
   }
 
   &.viewToggleBtnActive {
-    color: rgba(20, 20, 19, 0.88);
-    background: rgba(0, 0, 0, 0.06);
+    color: var(--app-text);
+    background: var(--app-fill);
   }
 }
 
@@ -1062,8 +1172,8 @@
 .panelSection {
   margin: 16px;
   padding: 20px;
-  background: var(--color-bg-base, #ffffff);
-  border: 1px solid var(--color-border-secondary, #eae8e7);
+  background: var(--skills-panel-bg);
+  border: 1px solid var(--skills-panel-border);
   border-radius: 12px;
 }
 
@@ -1071,7 +1181,7 @@
   margin: 16px;
   padding: 20px;
   background: transparent;
-  border: 1px dashed var(--color-border-secondary, #d9d9d9);
+  border: 1px dashed var(--skills-panel-dashed-border);
   border-radius: 12px;
 }
 
@@ -1080,30 +1190,30 @@
   align-items: center;
   gap: 8px;
   margin-bottom: 16px;
-  font-size: 14px;
+  font-size: var(--app-font-body);
   font-weight: 500;
-  color: rgba(20, 20, 19, 0.65);
+  color: var(--app-text-secondary);
 }
 
 .panelDotGreen {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: #52c41a;
+  background: var(--skills-panel-success);
 }
 
 .panelDotGray {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: rgba(20, 20, 19, 0.25);
+  background: var(--app-text-quaternary);
 }
 
 .panelCount {
   margin-left: auto;
-  font-size: 13px;
+  font-size: var(--app-font-secondary);
   font-weight: 400;
-  color: #52c41a;
+  color: var(--skills-panel-success-text);
 }
 
 /* ─── Disabled Skills Compact List (list mode) ──────────────────────────── */
@@ -1125,16 +1235,22 @@
   align-items: center;
   gap: 10px;
   padding: 10px 14px;
-  border: 1px solid #f3f4f6;
+  border: 1px solid var(--skills-disabled-item-border);
   border-radius: 8px;
-  background: #fafafa;
+  background: var(--skills-disabled-item-bg);
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease,
+    border-color 0.15s ease,
+    box-shadow 0.15s ease,
+    opacity 0.15s ease,
+    transform 0.15s ease;
 
   &:hover {
-    background: #fff;
-    border-color: #6366f1;
-    box-shadow: 0 2px 8px rgba(99, 102, 241, 0.1);
+    background: var(--skills-disabled-item-hover);
+    border-color: var(--app-accent);
+    box-shadow: 0 2px 8px var(--app-accent-ring);
   }
 }
 
@@ -1142,29 +1258,29 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 20px;
+  font-size: var(--app-icon-lg);
   flex-shrink: 0;
 
   .skillEmoji {
     width: 28px;
     height: 28px;
-    font-size: 16px;
+    font-size: var(--app-icon-md);
   }
 }
 
 .disabledSkillGridName {
-  font-size: 13px;
+  font-size: var(--app-font-secondary);
   font-weight: 500;
   flex: 1;
-  color: #1a1a1a;
+  color: var(--app-text);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .disabledSkillGridAction {
-  font-size: 11px;
-  color: #6366f1;
+  font-size: var(--app-font-caption);
+  color: var(--app-accent-text);
   font-weight: 500;
   white-space: nowrap;
   cursor: pointer;
@@ -1187,9 +1303,9 @@
   align-items: center;
   justify-content: space-between;
   padding: 16px;
-  border: 1px solid var(--color-border-secondary, #eae8e7);
+  border: 1px solid var(--app-border);
   border-bottom: none;
-  background: var(--color-bg-base, #ffffff);
+  background: var(--app-surface);
   cursor: pointer;
   transition: background 0.15s ease;
   gap: 8px;
@@ -1199,17 +1315,17 @@
   }
 
   &:last-child {
-    border-bottom: 1px solid var(--color-border-secondary, #eae8e7);
+    border-bottom: 1px solid var(--app-border);
     border-radius: 0 0 8px 8px;
   }
 
   &:only-child {
     border-radius: 8px;
-    border-bottom: 1px solid var(--color-border-secondary, #eae8e7);
+    border-bottom: 1px solid var(--app-border);
   }
 
   &:hover {
-    background: rgba(0, 0, 0, 0.02);
+    background: var(--skills-list-hover);
   }
 }
 
@@ -1241,33 +1357,45 @@
 .typeBadge {
   display: inline-flex;
   align-items: center;
-  font-size: 12px;
+  font-size: var(--app-font-caption);
   font-weight: 500;
   padding: 1px 8px;
   border-radius: 4px;
   white-space: nowrap;
-  background-color: rgba(239, 240, 243, 0.9);
-  color: rgba(20, 20, 19, 0.65);
+  background-color: var(--app-fill);
+  color: var(--app-text-secondary);
+}
+
+.preloadListTag {
+  display: inline-flex;
+  align-items: center;
+  font-size: var(--app-font-caption);
+  font-weight: 500;
+  padding: 1px 8px;
+  border-radius: 4px;
+  white-space: nowrap;
+  background-color: rgba(82, 196, 26, 0.12);
+  color: #389e0d;
 }
 
 .channelBadge {
-  font-size: 12px;
+  font-size: var(--app-font-caption);
   padding: 1px 8px;
   border-radius: 4px;
   font-weight: 500;
-  background-color: rgba(239, 240, 243, 0.8);
-  color: #8e8c99;
+  background-color: var(--app-fill);
+  color: var(--app-text-secondary);
 }
 
 .listItemTime {
-  font-size: 12px;
-  color: rgba(20, 20, 19, 0.45);
+  font-size: var(--app-font-caption);
+  color: var(--app-text-tertiary);
 }
 
 .listItemDesc {
   margin: 4px 0 0;
-  font-size: 13px;
-  color: rgba(20, 20, 19, 0.65);
+  font-size: var(--app-font-secondary);
+  color: var(--app-text-secondary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1291,13 +1419,19 @@
 .managementBanner {
   display: flex;
   align-items: center;
+
+  > svg {
+    width: var(--app-icon-md);
+    height: var(--app-icon-md);
+    flex-shrink: 0;
+  }
   gap: 10px;
   margin: 0 20px 14px;
   padding: 11px 13px;
-  border: 1px solid #f0dfd2;
+  border: 1px solid var(--skills-warm-banner-border);
   border-radius: 12px;
-  color: #d45f00;
-  background: #fffaf5;
+  color: var(--skills-warm-accent);
+  background: var(--skills-warm-banner-bg);
 
   > div {
     display: grid;
@@ -1305,20 +1439,20 @@
   }
 
   strong {
-    color: #2d231d;
-    font-size: 13px;
+    color: var(--skills-warm-heading);
+    font-size: var(--app-font-secondary);
   }
 
   span {
-    color: #7b716a;
-    font-size: 11px;
+    color: var(--skills-warm-muted);
+    font-size: var(--app-font-caption);
   }
 }
 
 .providerSkillsSection {
   margin: 12px 20px 28px;
   padding-top: 20px;
-  border-top: 1px solid #e9ded5;
+  border-top: 1px solid var(--skills-warm-section-border);
 }
 
 .providerSkillsHeading {
@@ -1330,8 +1464,8 @@
 
   p {
     margin: 5px 0 0;
-    color: #7b716a;
-    font-size: 12px;
+    color: var(--skills-warm-muted);
+    font-size: var(--app-font-caption);
   }
 }
 
@@ -1339,8 +1473,14 @@
   display: inline-flex;
   align-items: center;
   gap: 7px;
-  color: #2d231d;
-  font-size: 14px;
+
+  > svg {
+    width: var(--app-icon-md);
+    height: var(--app-icon-md);
+    flex-shrink: 0;
+  }
+  color: var(--skills-warm-heading);
+  font-size: var(--app-font-body);
   font-weight: 650;
 }
 
@@ -1348,9 +1488,9 @@
   min-width: 28px;
   padding: 3px 8px;
   border-radius: 999px;
-  color: #b54e00;
-  background: #fff0e3;
-  font-size: 12px;
+  color: var(--skills-warm-accent-text);
+  background: var(--skills-warm-accent-bg);
+  font-size: var(--app-font-caption);
   text-align: center;
 }
 
@@ -1366,9 +1506,9 @@
   min-width: 0;
   min-height: 164px;
   padding: 15px;
-  border: 1px solid #eadfd6;
+  border: 1px solid var(--skills-warm-border);
   border-radius: 12px;
-  background: #fffdfa;
+  background: var(--skills-warm-card);
   color: inherit;
   font: inherit;
   text-align: left;
@@ -1379,13 +1519,13 @@
     transform 0.18s ease;
 
   &:hover {
-    border-color: #e7b58f;
-    box-shadow: 0 8px 22px rgba(104, 65, 35, 0.08);
+    border-color: var(--skills-warm-border-hover);
+    box-shadow: var(--skills-warm-shadow-hover);
     transform: translateY(-1px);
   }
 
   &:focus-visible {
-    outline: 2px solid rgba(255, 127, 22, 0.42);
+    outline: 2px solid var(--skills-warm-outline);
     outline-offset: 2px;
   }
 
@@ -1393,8 +1533,8 @@
     display: block;
     margin: 11px 0 5px;
     overflow: hidden;
-    color: #2d231d;
-    font-size: 13px;
+    color: var(--skills-warm-heading);
+    font-size: var(--app-font-secondary);
     text-overflow: ellipsis;
     white-space: nowrap;
   }
@@ -1404,8 +1544,8 @@
     min-height: 38px;
     margin: 0;
     overflow: hidden;
-    color: #756a62;
-    font-size: 12px;
+    color: var(--skills-warm-body);
+    font-size: var(--app-font-caption);
     line-height: 1.55;
     -webkit-box-orient: vertical;
     -webkit-line-clamp: 2;
@@ -1420,27 +1560,32 @@
 
 .providerSkillIcon {
   display: inline-flex;
-  width: 30px;
-  height: 30px;
+  width: max(30px, var(--app-icon-box));
+  height: max(30px, var(--app-icon-box));
   align-items: center;
   justify-content: center;
   border-radius: 9px;
-  color: #d45f00;
-  background: #fff0e3;
+  color: var(--skills-warm-accent);
+  background: var(--skills-warm-accent-bg);
+
+  > svg {
+    width: var(--app-icon-md);
+    height: var(--app-icon-md);
+  }
 }
 
 .providerSkillEnabled,
 .providerSkillDisabled {
-  font-size: 11px;
+  font-size: var(--app-font-caption);
   font-weight: 600;
 }
 
 .providerSkillEnabled {
-  color: #357544;
+  color: var(--skills-warm-enabled);
 }
 
 .providerSkillDisabled {
-  color: #8b8179;
+  color: var(--skills-warm-disabled);
 }
 
 .providerSkillMeta {
@@ -1451,11 +1596,11 @@
 
   span {
     padding: 2px 7px;
-    border: 1px solid #eadfd6;
+    border: 1px solid var(--skills-warm-border);
     border-radius: 999px;
-    color: #766a61;
-    background: #faf6f2;
-    font-size: 10px;
+    color: var(--skills-warm-meta-text);
+    background: var(--skills-warm-meta-bg);
+    font-size: var(--app-font-caption);
   }
 }
 
@@ -1486,481 +1631,394 @@
   }
 }
 
-/* ─── Dark mode ─────────────────────────────────────────────────────────────── */
-:global(.dark-mode) {
-  .managementBanner {
-    border-color: #42372f;
-    color: #ff9a47;
-    background: rgba(255, 127, 22, 0.07);
+/* --- Dark mode palette overrides --- */
+:global(.dark-mode) .skillsPage {
+  --skills-warm-banner-border: #42372f;
+  --skills-warm-banner-bg: var(--app-accent-faint);
+  --skills-warm-accent: var(--app-accent);
+  --skills-warm-accent-text: var(--app-accent-text);
+  --skills-warm-accent-bg: var(--app-accent-soft);
+  --skills-warm-heading: #f5eee8;
+  --skills-warm-muted: #a99d94;
+  --skills-warm-card: #211e1b;
+  --skills-warm-border: #423a34;
+  --skills-warm-section-border: #423a34;
+  --skills-warm-border-hover: #6a4b35;
+  --skills-warm-body: #b5aaa2;
+  --skills-warm-meta-text: #b9ada4;
+  --skills-warm-meta-bg: rgba(255, 255, 255, 0.035);
+  --skills-warm-enabled: #357544;
+  --skills-warm-disabled: #8b8179;
+  --skills-warm-shadow-hover: 0 8px 22px rgba(0, 0, 0, 0.18);
+  --skills-warm-outline: var(--app-accent-border);
+  --skills-selected-ring: 0 0 0 1px var(--app-accent-border);
 
-    strong {
-      color: #f5eee8;
-    }
+  --skills-empty-from: #17191f;
+  --skills-empty-to: #111318;
+  --skills-panel-bg: rgba(255, 255, 255, 0.03);
+  --skills-panel-border: rgba(255, 255, 255, 0.06);
+  --skills-panel-dashed-border: rgba(255, 255, 255, 0.1);
+  --skills-list-hover: #2a2a2a;
+  --skills-disabled-item-bg: #2a2a2a;
+  --skills-disabled-item-border: rgba(255, 255, 255, 0.1);
+  --skills-disabled-item-hover: #333;
+  --skills-panel-success: #34d399;
+  --skills-panel-success-text: #34d399;
+  --skills-action-bg: #4a4a4a;
+  --skills-action-text: #fff;
+  --skills-action-border: #5a5a5a;
+  --skills-action-hover-bg: #555;
+  --skills-action-hover-border: #777;
+  --skills-danger-text: rgba(255, 100, 100, 0.85);
+  --skills-danger-hover-bg: rgba(255, 77, 79, 0.15);
+  --skills-danger-hover-border: rgba(255, 77, 79, 0.4);
+}
 
-    span {
-      color: #a99d94;
-    }
-  }
+:global(.dark-mode) .skillsPage .selectedCard {
+  border-color: var(--app-accent) !important;
+  box-shadow: var(--skills-selected-ring) !important;
+}
 
+/* Page-specific settings refinement. */
+
+.panelSection,
+.panelSectionDashed {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  margin: 16px;
+}
+.skillsGrid {
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr));
+  gap: 16px;
+}
+.skillsList {
+  border-radius: 18px;
+  overflow: hidden;
+  border: 1px solid var(--app-border-subtle);
+}
+.toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--app-surface);
+  border-radius: 16px;
+  border: 1px solid var(--app-border-subtle);
+}
+.providerSkillsSection {
+  margin: 16px;
+  border-radius: 20px;
+}
+.disabledSkillsGrid {
+  gap: 12px;
+}
+@media (max-width: 600px) {
+  .panelSection,
+  .panelSectionDashed,
   .providerSkillsSection {
-    border-color: #423a34;
+    margin-inline: 0;
+  }
+  .skillsGrid {
+    grid-template-columns: 1fr;
+  }
+}
+.skillSummaryMeta {
+  display: flex;
+  gap: 12px;
+  font-size: 12px;
+  color: var(--app-text-tertiary);
+  margin: 8px 0 12px;
+}
+.skillActions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 16px;
+  border-top: 1px solid var(--app-border-subtle);
+  padding-top: 8px;
+}
+.skillUpdated {
+  flex: 1;
+  font-size: 12px;
+  color: var(--app-text-tertiary);
+}
+.skillCard {
+  height: 100%;
+  .descriptionSection {
+    background: transparent;
+    border: 0;
+    padding: 0;
+  }
+  .descriptionText {
+    min-height: 40px;
+    -webkit-line-clamp: 2;
+  }
+  .skillTitle {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+.skillsPage,
+:global(.dark-mode) .skillsPage {
+  --skills-warm-banner-border: var(--app-border);
+  --skills-warm-banner-bg: var(--app-surface-subtle);
+  --skills-warm-heading: var(--app-text);
+  --skills-warm-muted: var(--app-text-secondary);
+  --skills-warm-card: var(--app-surface);
+  --skills-warm-border: var(--app-border);
+  --skills-warm-section-border: var(--app-border-subtle);
+  --skills-warm-border-hover: var(--app-accent-border);
+  --skills-warm-body: var(--app-text-secondary);
+  --skills-warm-meta-text: var(--app-text-secondary);
+  --skills-warm-meta-bg: var(--app-fill-subtle);
+  --skills-warm-enabled: var(--app-success-text);
+  --skills-warm-disabled: var(--app-text-tertiary);
+}
+.skillsPage .skillSurface {
+  width: 100%;
+  height: 100%;
+  border-radius: 20px;
+  --reflection-highlight: var(--app-accent-faint);
+  --reflection-silver: transparent;
+  --reflection-edge: var(--app-accent-border);
+  --reflection-shadow: transparent;
+}
+.skillsGrid {
+  padding: 4px;
+  gap: 20px;
+}
+.skillCard {
+  min-height: 248px;
+  :global(.qwenpaw-card-body),
+  :global(.ant-card-body) {
+    display: flex;
+    flex-direction: column;
+    padding: 20px !important;
+    height: 100%;
+  }
+  :global(.qwenpaw-spark-card-wrapper) {
+    padding: 0 !important;
+  }
+  &:hover {
+    box-shadow: var(--app-shadow-sm);
+  }
+  .titleRow {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+    margin-top: 12px;
+  }
+  .skillTitle {
+    width: 100%;
+    margin: 0;
+    white-space: normal;
+  }
+  .descriptionText {
+    font-size: 14px;
+    line-height: 1.6;
+    min-height: 44px;
+    margin-bottom: 16px;
+  }
+}
+.skillNameButton {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  color: var(--app-text);
+  font: inherit;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.45;
+  text-align: start;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+  &:hover {
+    color: var(--app-accent-text);
+  }
+  &:focus-visible {
+    outline: 2px solid var(--app-focus-ring);
+    outline-offset: 3px;
+    border-radius: 4px;
+  }
+}
+.skillSummaryMeta {
+  flex-wrap: wrap;
+  overflow-wrap: anywhere;
+}
+.skillActions {
+  margin-top: auto;
+  padding-top: 12px;
+  gap: 12px;
+}
+.fileIcon {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  background: var(--app-accent-faint);
+  font-size: 22px;
+}
+.preloadTag,
+.preloadListTag {
+  background: var(--app-success-bg);
+  color: var(--app-success-text);
+  border-radius: 6px;
+  margin: 0;
+}
+.toolbar {
+  position: relative;
+  top: auto;
+  margin: 0 16px 8px;
+  padding: 12px;
+  border-radius: 16px;
+  gap: 16px;
+}
+.searchContainer {
+  max-width: none;
+  min-width: 0;
+}
+.searchInput {
+  min-height: 40px;
+  border-radius: 10px;
+}
+.tagSelect {
+  min-width: 180px;
+  height: 40px;
+
+  :global(.ant-select-selector),
+  :global(.qwenpaw-select-selector) {
+    min-height: 40px;
+    height: 40px !important;
+    border-radius: 10px;
+  }
+}
+.viewToggle {
+  padding: 3px;
+  border-radius: 12px;
+  background: var(--app-fill-subtle);
+}
+.viewToggleBtn {
+  width: 40px;
+  height: 40px;
+  border-radius: 9px;
+  font-size: 18px;
+}
+.filterOption {
+  min-height: 32px;
+  border: 1px solid var(--app-border);
+  border-radius: 8px;
+  font: inherit;
+  font-size: 13px;
+}
+.filterOption:hover,
+.filterOptionActive {
+  color: var(--app-accent-text);
+  background: var(--app-accent-soft);
+  border-color: var(--app-accent-border);
+}
+.skillsList {
+  padding: 0;
+}
+.listItemDesc {
+  white-space: normal;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  line-height: 1.6;
+}
+.listItemHeader {
+  min-width: 0;
+}
+.listItemRight {
+  margin-left: 8px;
+}
+.providerSkillCard {
+  border-radius: 16px;
+}
+@media (max-width: 600px) {
+  .toolbar {
+    margin-inline: 0;
+  }
+  .searchContainer {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .tagSelect {
+    max-width: none;
+    width: 100%;
+  }
+  .searchInput :global(input) {
+    text-align: start;
+  }
+  .skillListItem {
+    flex-wrap: wrap;
+    gap: 16px;
+  }
+  .listItemLeft {
+    flex-basis: 100%;
+  }
+  .listItemRight {
+    margin-left: auto;
+  }
+  .toolbarRight {
+    justify-content: flex-end;
+  }
+}
+@media (pointer: coarse) {
+  .viewToggleBtn {
+    width: 44px;
+    height: 44px;
+  }
+}
+
+.skillsPage .skillCard {
+  box-shadow: var(--app-shadow-sm);
+  .titleRow {
+    min-height: 48px;
+    align-items: flex-start;
+  }
+  .descriptionText {
+    background: transparent;
+    border: 0;
+    padding: 0;
+  }
+  :global(.qwenpaw-spark-card-wrapper) {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+  }
+}
+
+// A skill is identified by its name; repeated document icons add no information.
+.skillsPage .skillCard {
+  min-height: 0;
+
+  :global(.qwenpaw-spark-content) {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-width: 0;
   }
 
-  .providerSkillsHeading p {
-    color: #a99d94;
-  }
-
-  .providerSkillsTitle {
-    color: #f5eee8;
-  }
-
-  .providerSkillsCount,
-  .providerSkillIcon {
-    color: #ff9a47;
-    background: rgba(255, 127, 22, 0.13);
-  }
-
-  .providerSkillCard {
-    border-color: #423a34;
-    background: #211e1b;
-
-    &:hover {
-      border-color: #6a4b35;
-      box-shadow: 0 8px 22px rgba(0, 0, 0, 0.18);
-    }
-
-    > strong {
-      color: #f5eee8;
-    }
-
-    > p {
-      color: #b5aaa2;
-    }
-  }
-
-  .providerSkillMeta span {
-    border-color: #4b4038;
-    color: #b9ada4;
-    background: rgba(255, 255, 255, 0.035);
-  }
-
-  .fileIcon {
-    background: rgba(26, 23, 22, 0.88);
-  }
-
-  .skillEmoji {
-    background: rgba(26, 23, 22, 0.88);
-  }
-
-  .pageHeader {
-    border-bottom-color: rgba(255, 255, 255, 0.2);
-  }
-
-  .breadcrumbParent {
-    color: rgba(255, 255, 255, 0.7);
-  }
-
-  .breadcrumbSeparator {
-    color: rgba(255, 255, 255, 0.5);
-  }
-
-  .breadcrumbCurrent {
-    color: rgba(255, 255, 255, 1);
-  }
-
-  .description {
-    color: rgba(255, 255, 255, 0.35);
-  }
-
-  .emptyState {
-    border-color: rgba(255, 255, 255, 0.1);
-    background: radial-gradient(
-        circle at top left,
-        rgba(97, 92, 237, 0.18),
-        transparent 34%
-      ),
-      linear-gradient(180deg, #17191f 0%, #111318 100%);
-  }
-
-  .emptyStateBadge {
-    background: rgba(97, 92, 237, 0.18);
-    color: #c7d2fe;
-  }
-
-  .emptyStateTitle {
-    color: rgba(255, 255, 255, 0.92);
-  }
-
-  .emptyStateText {
-    color: rgba(255, 255, 255, 0.62);
-  }
-
-  .loadingText {
-    color: rgba(255, 255, 255, 0.35);
-  }
-
-  .noSearchResults {
-    color: rgba(255, 255, 255, 0.45);
-  }
-
-  .tagSelectEmpty {
-    color: rgba(255, 255, 255, 0.35);
-  }
-
-  /* Skill card */
-  .skillCard {
-    background: #1f1f1f;
-    border-color: rgba(255, 255, 255, 0.15);
-
-    &:hover {
-      border-color: rgba(255, 255, 255, 0.3);
-      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
-    }
-  }
-
-  .statusBadge {
-    &.status_enabled {
-      color: #4ade80;
-
-      .statusDot {
-        background-color: #4ade80;
-      }
-    }
-
-    &.status_disabled {
-      color: rgba(255, 255, 255, 0.45);
-
-      .statusDot {
-        background-color: rgba(255, 255, 255, 0.3);
-      }
-    }
-  }
-
-  .cardFooter {
-    background: #1f1f1f;
+  .titleRow {
+    flex-wrap: nowrap;
+    align-items: flex-start;
+    min-height: 28px;
+    margin-top: 0;
   }
 
   .skillTitle {
-    color: rgba(255, 255, 255, 1);
+    flex: 1;
+    min-width: 0;
+    width: auto;
   }
 
-  .updatedTime {
-    color: rgba(255, 255, 255, 0.45);
-  }
-
-  .channelIcon {
-    color: rgba(255, 255, 255, 0.45);
-  }
-
-  .channelLabel {
-    color: rgba(255, 255, 255, 0.7);
-  }
-
-  .channelValue {
-    color: rgba(255, 255, 255, 0.88);
-    background-color: rgba(255, 255, 255, 0.1);
-  }
-
-  .typeBadge {
-    background-color: rgba(255, 255, 255, 0.15);
-    color: rgba(255, 255, 255, 0.8);
-  }
-
-  .statusDot.disabled {
-    background-color: rgba(255, 255, 255, 0.35);
-  }
-
-  .statusText.disabled {
-    color: rgba(255, 255, 255, 0.6);
-  }
-
-  .descriptionLabel {
-    color: rgba(255, 255, 255, 0.7);
-  }
-
-  .descriptionText {
-    color: rgba(255, 255, 255, 0.85);
-    background: rgba(255, 255, 255, 0.08);
-    border-color: rgba(255, 255, 255, 0.15);
-  }
-
-  .metaLabel {
-    color: rgba(255, 255, 255, 0.7);
-  }
-
-  .channelValue {
-    color: rgba(255, 255, 255, 0.88);
-    background-color: rgba(255, 255, 255, 0.1);
-  }
-
-  .metaValue {
-    color: rgba(255, 255, 255, 0.88);
-  }
-
-  /* Meta info rows - dark mode */
-  .metaInfoLabel {
-    color: rgba(255, 255, 255, 0.55);
-  }
-
-  .metaInfoValue {
-    background-color: rgba(255, 255, 255, 0.1);
-    color: rgba(255, 255, 255, 0.88);
-  }
-
-  .calendarIcon {
-    color: rgba(255, 255, 255, 0.45);
-  }
-
-  .builtinTag {
-    background-color: rgba(255, 255, 255, 0.15);
-    color: rgba(255, 255, 255, 0.8);
-  }
-
-  .customTag {
-    background-color: rgba(255, 247, 230, 0.2);
-    color: #ffcc66;
-  }
-
-  /* Tags - dark mode */
-  .tagChip {
-    background-color: rgba(255, 255, 255, 0.1);
-    color: rgba(255, 255, 255, 0.88);
-  }
-
-  /* Search input - dark mode */
-  .searchInput {
-    background: #2a2a2a;
-    border-color: rgba(255, 255, 255, 0.15);
-    color: rgba(255, 255, 255, 0.88);
-
-    &::placeholder {
-      color: rgba(255, 255, 255, 0.25);
-    }
-
-    &:focus {
-      border-color: #ff7f16;
-    }
-  }
-
-  /* Tag select - dark mode */
-  .tagSelect {
-    :global {
-      .ant-select-selector {
-        background: #2a2a2a;
-        border-color: rgba(255, 255, 255, 0.15);
-      }
-
-      .ant-select-selection-item {
-        background: rgba(22, 119, 255, 0.15);
-        border-color: rgba(22, 119, 255, 0.3);
-        color: #4da3ff;
-      }
-
-      .ant-select-selection-placeholder {
-        color: rgba(255, 255, 255, 0.25);
-      }
-    }
-  }
-
-  .filterGroup {
-    border-bottom-color: rgba(255, 255, 255, 0.1);
-  }
-
-  .filterGroupTitle {
-    color: rgba(255, 255, 255, 0.45);
-  }
-
-  .filterOption {
-    background: rgba(255, 255, 255, 0.08);
-    color: rgba(255, 255, 255, 0.65);
-
-    &:hover {
-      background: rgba(22, 119, 255, 0.15);
-      color: #4da3ff;
-    }
-  }
-
-  .filterOptionActive {
-    background: rgba(22, 119, 255, 0.2);
-    color: #4da3ff;
-  }
-
-  /* Action button */
-  .actionButton {
-    background-color: #4a4a4a !important;
-    color: #fff !important;
-    border-color: #5a5a5a !important;
-
-    &:hover {
-      border-color: #777 !important;
-      background-color: #555 !important;
-    }
-  }
-
-  .deleteButton {
-    background-color: #4a4a4a !important;
-    color: rgba(255, 100, 100, 0.85) !important;
-    border-color: #5a5a5a !important;
-
-    &:hover {
-      background-color: rgba(255, 77, 79, 0.15) !important;
-      border-color: rgba(255, 77, 79, 0.4) !important;
-      color: #ff4d4f !important;
-    }
-  }
-
-  .selectedCard {
-    border-color: #ff7f16 !important;
-    box-shadow: 0 0 0 1px rgba(255, 127, 22, 0.3) !important;
-  }
-
-  .batchCount {
-    color: rgba(255, 255, 255, 0.65);
-  }
-
-  /* Card picker */
-  .pickerCard {
-    border-color: rgba(255, 255, 255, 0.12);
-
-    &:hover {
-      background: rgba(97, 92, 237, 0.08);
-    }
-
-    &.pickerCardSelected {
-      background: rgba(97, 92, 237, 0.12);
-    }
-
-    &.pickerAllCard {
-      background: rgba(97, 92, 237, 0.05);
-    }
-  }
-
-  .pickerCardTitle {
-    color: rgba(255, 255, 255, 0.85);
-  }
-
-  .pickerCardMeta {
-    color: rgba(255, 255, 255, 0.35);
-  }
-
-  /* Pool Transfer Modal - dark mode */
-  .poolTransferModal {
-    :global {
-      .ant-modal-body {
-        background: #2d2d2d;
-      }
-    }
-  }
-
-  /* View toggle buttons - dark mode */
-  .viewToggleBtn {
-    color: rgba(255, 255, 255, 0.45);
-
-    &:hover {
-      color: rgba(255, 255, 255, 0.85);
-      background: rgba(255, 255, 255, 0.08);
-    }
-
-    &.viewToggleBtnActive {
-      color: rgba(255, 255, 255, 0.85);
-      background: rgba(255, 255, 255, 0.12);
-    }
-  }
-
-  /* List mode - dark mode */
-  .panelSection {
-    background: rgba(255, 255, 255, 0.03);
-    border-color: rgba(255, 255, 255, 0.06);
-  }
-
-  .panelSectionDashed {
-    background: transparent;
-    border-color: rgba(255, 255, 255, 0.1);
-  }
-
-  .panelTitle {
-    color: rgba(255, 255, 255, 0.5);
-  }
-
-  .panelDotGreen {
-    background: #34d399;
-  }
-
-  .panelDotGray {
-    background: rgba(255, 255, 255, 0.2);
-  }
-
-  .panelCount {
-    color: #34d399;
-  }
-
-  .disabledSkillGridItem {
-    background: #2a2a2a;
-    border-color: rgba(255, 255, 255, 0.1);
-
-    &:hover {
-      background: #333;
-      border-color: rgba(99, 102, 241, 0.4);
-    }
-  }
-
-  .disabledSkillGridName {
-    color: rgba(255, 255, 255, 0.85);
-  }
-
-  .disabledSkillGridAction {
-    color: #4da3ff;
-  }
-
-  .skillListItem {
-    background: #1f1f1f;
-    border-color: rgba(255, 255, 255, 0.15);
-
-    &:hover {
-      background: #2a2a2a;
-    }
-  }
-
-  .listItemTime {
-    color: rgba(255, 255, 255, 0.45);
-  }
-
-  .listItemDesc {
-    color: rgba(255, 255, 255, 0.65);
-  }
-
-  .channelBadge {
-    background-color: rgba(255, 255, 255, 0.15);
-    color: rgba(255, 255, 255, 0.8);
-  }
-
-  .statusValue {
-    &.enabled {
-      background-color: rgba(82, 196, 26, 0.15);
-      color: #67cf22;
-    }
-
-    &.disabled {
-      background-color: rgba(255, 255, 255, 0.08);
-      color: rgba(255, 255, 255, 0.65);
-    }
-  }
-
-  .descriptionText {
-    background: rgba(255, 255, 255, 0.04);
-    border-color: rgba(255, 255, 255, 0.1);
-    color: rgba(255, 255, 255, 0.65);
-  }
-
-  .leftSection {
-    .titleInfoContainer {
-      .updatedTime {
-        color: rgba(255, 255, 255, 0.45);
-
-        .calendarIcon {
-          color: rgba(255, 255, 255, 0.45);
-        }
-      }
-    }
+  .skillSummaryMeta {
+    gap: 8px;
+    margin: 8px 0 12px;
   }
 }

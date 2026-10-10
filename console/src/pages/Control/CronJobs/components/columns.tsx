@@ -1,10 +1,12 @@
-import { Button, Tooltip, Dropdown } from "@agentscope-ai/design";
+import { Button, Popover, Dropdown, Tag, Switch } from "@agentscope-ai/design";
 import type { ColumnsType } from "antd/es/table";
 import type { MenuProps } from "antd";
-import type { CronJobSpecOutput } from "../../../../api/types";
-import { CopyOutlined, MoreOutlined } from "@ant-design/icons";
+import {
+  requiresCronImportReview,
+  type CronJobSpecOutput,
+} from "../../../../api/types";
+import { Ellipsis as MoreOutlined, Play, History } from "lucide-react";
 import dayjs from "dayjs";
-import { useAppMessage } from "../../../../hooks/useAppMessage";
 import { TFunction } from "i18next";
 import { parseCron } from "./parseCron";
 import styles from "../index.module.less";
@@ -14,98 +16,68 @@ type CronJob = CronJobSpecOutput;
 interface ColumnHandlers {
   onToggleEnabled: (job: CronJob) => void;
   onExecuteNow: (job: CronJob) => void;
+  onPromoteImported: (job: CronJob) => void;
   onViewHistory: (job: CronJob) => void;
   onEdit: (job: CronJob) => void;
   onDelete: (jobId: string) => void;
+  promotingJobIds: Set<string>;
   t: TFunction;
 }
-
-const createCopyToClipboard = (t: TFunction) => async (text: string) => {
-  const { message } = useAppMessage();
-  try {
-    if (navigator.clipboard && window.isSecureContext) {
-      await navigator.clipboard.writeText(text);
-      message.success(t("common.copied"));
-    } else {
-      const textArea = document.createElement("textarea");
-      textArea.value = text;
-      textArea.style.position = "fixed";
-      textArea.style.left = "-999999px";
-      textArea.style.top = "-999999px";
-      document.body.appendChild(textArea);
-      textArea.focus();
-      textArea.select();
-      document.execCommand("copy");
-      textArea.remove();
-      message.success(t("common.copied"));
-    }
-  } catch (err) {
-    console.error("Failed to copy text: ", err);
-    message.error(t("common.copyFailed"));
-  }
-};
 
 export const createColumns = (
   handlers: ColumnHandlers,
 ): ColumnsType<CronJob> => {
-  const copyToClipboard = createCopyToClipboard(handlers.t);
-
   return [
     {
-      title: handlers.t("cronJobs.id"),
-      dataIndex: "id",
-      key: "id",
-      width: 250,
-      fixed: "left",
-    },
-    {
       title: handlers.t("cronJobs.name"),
-      dataIndex: "name",
       key: "name",
-      width: 250,
+      width: 280,
+      render: (_: unknown, record: CronJob) => (
+        <button
+          type="button"
+          className={styles.taskName}
+          onClick={() => handlers.onEdit(record)}
+        >
+          <strong>{record.name}</strong>
+          <span>
+            {record.dispatch.channel}
+            {record.text ? ` · ${record.text}` : ""}
+          </span>
+        </button>
+      ),
     },
     {
       title: handlers.t("cronJobs.enabled"),
       dataIndex: "enabled",
       key: "enabled",
       width: 100,
-      render: (enabled: boolean) => (
-        <span className={styles.statusIndicator}>
-          <span
-            className={`${styles.statusDot} ${
-              enabled ? styles.enabled : styles.disabled
-            }`}
+      render: (enabled: boolean, record: CronJob) =>
+        requiresCronImportReview(record) ? (
+          <Tag color="orange">{handlers.t("cronJobs.importReviewBadge")}</Tag>
+        ) : (
+          <Switch
+            checked={enabled}
+            aria-label={`${record.name} ${handlers.t("cronJobs.enabled")}`}
+            onChange={() => handlers.onToggleEnabled(record)}
           />
-          {enabled
-            ? handlers.t("common.enabled")
-            : handlers.t("common.disabled")}
-        </span>
-      ),
-    },
-    {
-      title: handlers.t("cronJobs.scheduleType"),
-      dataIndex: ["schedule", "type"],
-      key: "schedule_type",
-      width: 140,
-      render: (type: string) =>
-        type === "once"
-          ? handlers.t("cronJobs.scheduleTypeOnce")
-          : handlers.t("cronJobs.scheduleTypeRecurring"),
+        ),
     },
     {
       title: handlers.t("cronJobs.scheduleCron"),
       dataIndex: "schedule",
       key: "cron",
       width: 180,
-      render: (schedule: any) => {
+      render: (schedule: CronJob["schedule"]) => {
         if (schedule?.type === "once") {
           const displayText = schedule?.run_at
             ? dayjs(schedule.run_at).format("YYYY-MM-DD HH:mm")
             : "-";
           return (
-            <Tooltip title={schedule?.run_at || displayText}>
-              <span className={styles.cronText}>{displayText}</span>
-            </Tooltip>
+            <Popover trigger="click" content={schedule?.run_at || displayText}>
+              <button type="button" className={styles.cronText}>
+                {displayText}
+              </button>
+            </Popover>
           );
         }
         const cron = schedule?.cron || "0 9 * * *";
@@ -114,6 +86,18 @@ export const createColumns = (
         let displayText = "";
 
         switch (cronParts.type) {
+          case "minutes":
+            displayText = handlers.t("cronJobs.everyMinutes", {
+              count: cronParts.intervalMinutes,
+            });
+            break;
+          case "monthly":
+            displayText = `${handlers.t("cronJobs.cronTypeMonthly")} · ${
+              cronParts.dayOfMonth
+            } · ${String(cronParts.hour).padStart(2, "0")}:${String(
+              cronParts.minute,
+            ).padStart(2, "0")}`;
+            break;
           case "hourly":
             displayText = handlers.t("cronJobs.cronTypeHourly");
             break;
@@ -150,161 +134,36 @@ export const createColumns = (
         }
 
         return (
-          <Tooltip
-            title={
+          <Popover
+            trigger="click"
+            content={
               <div>
-                <div>Cron 表达式：{cron}</div>
+                <div>
+                  {handlers.t("cronJobs.cronExpression")}: {cron}
+                </div>
                 <div
                   className={styles.tableText}
                   style={{ opacity: 0.8, marginTop: 4 }}
                 >
-                  格式：分钟 小时 日 月 星期
+                  {handlers.t("cronJobs.cronFormatHint")}
                 </div>
               </div>
             }
           >
-            <span className={styles.cronText}>{displayText}</span>
-          </Tooltip>
+            <button type="button" className={styles.cronText}>
+              {displayText}
+            </button>
+          </Popover>
         );
       },
-    },
-    {
-      title: handlers.t("cronJobs.scheduleTimezone"),
-      dataIndex: ["schedule", "timezone"],
-      key: "timezone",
-      width: 170,
-    },
-    {
-      title: "TaskType",
-      dataIndex: "task_type",
-      key: "task_type",
-      width: 140,
-    },
-    {
-      title: handlers.t("cronJobs.text"),
-      dataIndex: "text",
-      key: "text",
-      width: 200,
-      ellipsis: {
-        showTitle: true,
-      },
-      render: (text: string) => {
-        if (!text) return "-";
-        return (
-          <Tooltip title={text}>
-            <span className={styles.tableText}>{text}</span>
-          </Tooltip>
-        );
-      },
-    },
-    {
-      title: handlers.t("cronJobs.requestInput"),
-      dataIndex: ["request", "input"],
-      key: "request_input",
-      width: 350,
-      ellipsis: true,
-      render: (input: unknown) => {
-        if (!input) return "-";
-
-        let displayText: string;
-        let fullText: string;
-
-        try {
-          fullText = JSON.stringify(input, null, 2);
-          displayText = JSON.stringify(input);
-        } catch {
-          fullText = String(input);
-          displayText = fullText;
-        }
-
-        if (displayText.length <= 50) {
-          return <code className={styles.codeText}>{displayText}</code>;
-        }
-
-        const truncatedText =
-          displayText.length > 50
-            ? displayText.substring(0, 50) + "..."
-            : displayText;
-
-        return (
-          <Tooltip
-            title={
-              <div className={styles.tooltipContent}>
-                <div className={styles.tooltipJsonContent}>{fullText}</div>
-                <Button
-                  type="text"
-                  icon={<CopyOutlined />}
-                  size="small"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    copyToClipboard(fullText);
-                  }}
-                  className={styles.copyButton}
-                />
-              </div>
-            }
-            placement="topLeft"
-            overlayInnerStyle={{ maxWidth: 400 }}
-          >
-            <code className={styles.codeLink}>{truncatedText}</code>
-          </Tooltip>
-        );
-      },
-    },
-    {
-      title: "DispatchType",
-      dataIndex: ["dispatch", "type"],
-      key: "dispatch_type",
-      width: 140,
-    },
-    {
-      title: "DispatchChannel",
-      dataIndex: ["dispatch", "channel"],
-      key: "channel",
-      width: 150,
-    },
-    {
-      title: "DispatchTargetUserID",
-      dataIndex: ["dispatch", "target", "user_id"],
-      key: "target_user_id",
-      width: 190,
-    },
-    {
-      title: "DispatchTargetSessionID",
-      dataIndex: ["dispatch", "target", "session_id"],
-      key: "target_session_id",
-      width: 210,
-    },
-    {
-      title: "DispatchMode",
-      dataIndex: ["dispatch", "mode"],
-      key: "mode",
-      width: 140,
-    },
-    {
-      title: "RuntimeMaxConcurrency",
-      dataIndex: ["runtime", "max_concurrency"],
-      key: "max_concurrency",
-      width: 210,
-    },
-    {
-      title: "RuntimeTimeoutSeconds",
-      dataIndex: ["runtime", "timeout_seconds"],
-      key: "timeout_seconds",
-      width: 210,
-    },
-    {
-      title: "RuntimeMisfireGraceSeconds",
-      dataIndex: ["runtime", "misfire_grace_seconds"],
-      key: "misfire_grace_seconds",
-      width: 240,
     },
     {
       title: handlers.t("cronJobs.action"),
       key: "action",
-      width: 320,
-      fixed: "right",
+      width: 148,
+
       render: (_: unknown, record: CronJob) => {
+        const reviewRequired = requiresCronImportReview(record);
         const menuItems: MenuProps["items"] = [
           {
             key: "edit",
@@ -321,31 +180,40 @@ export const createColumns = (
 
         return (
           <div className={styles.actionColumn}>
+            {reviewRequired && (
+              <Button
+                type="text"
+                size="small"
+                loading={handlers.promotingJobIds.has(record.id)}
+                onClick={() => handlers.onPromoteImported(record)}
+              >
+                {handlers.t("cronJobs.importReviewApprove")}
+              </Button>
+            )}
             <Button
-              type="link"
+              type="text"
               size="small"
-              onClick={() => handlers.onToggleEnabled(record)}
-            >
-              {record.enabled
-                ? handlers.t("cronJobs.disable")
-                : handlers.t("common.enable")}
-            </Button>
-            <Button
-              type="link"
-              size="small"
+              disabled={reviewRequired}
               onClick={() => handlers.onExecuteNow(record)}
-            >
-              {handlers.t("cronJobs.executeNow")}
-            </Button>
+              aria-label={handlers.t("cronJobs.executeNow")}
+              title={handlers.t("cronJobs.executeNow")}
+              icon={<Play size={16} />}
+            />
             <Button
-              type="link"
+              type="text"
               size="small"
               onClick={() => handlers.onViewHistory(record)}
-            >
-              {handlers.t("cronJobs.executionHistory")}
-            </Button>
+              aria-label={handlers.t("cronJobs.executionHistory")}
+              title={handlers.t("cronJobs.executionHistory")}
+              icon={<History size={16} />}
+            />
             <Dropdown menu={{ items: menuItems }} placement="bottomRight">
-              <Button type="text" size="small" icon={<MoreOutlined />} />
+              <Button
+                type="text"
+                size="small"
+                aria-label={handlers.t("cronJobs.action")}
+                icon={<MoreOutlined size="1em" />}
+              />
             </Dropdown>
           </div>
         );

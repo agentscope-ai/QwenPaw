@@ -1,0 +1,315 @@
+{
+  "api_urls": [
+    "https://coding-intl.dashscope.aliyuncs.com/v1"
+  ],
+  "remote_id": "alibaba-coding-plan",
+  "template_owner": false,
+  "default_model_ids": [
+    "qwen3.7-plus",
+    "qwen3.6-plus",
+    "qwen3.5-plus",
+    "glm-5",
+    "glm-4.7",
+    "MiniMax-M2.5",
+    "kimi-k2.5",
+    "qwen3-max-2026-01-23",
+    "qwen3-coder-next",
+    "qwen3-coder-plus"
+  ],
+  "models": [
+    {
+      "id": "qwen3.7-plus",
+      "name": "Qwen3.7 Plus",
+      "supports_image": true,
+      "supports_video": true,
+      "probe_source": "documentation",
+      "is_free": false,
+      "source": "builtin",
+      "availability_status": "unverified",
+      "availability_retryable": true,
+      "config_overrides": [],
+      "max_input_length": 1000000,
+      "max_input_length_configured": false,
+      "generate_kwargs": {},
+      "relay_reasoning": true,
+      "max_output_length": 64000,
+      "max_output_length_source": "catalog",
+      "billing": "paid",
+      "supports_tool_calling": true,
+      "supports_audio": false,
+      "released_at": "2026-06-02",
+      "capability_provenance": {
+        "billing": {
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
+    },
+    {
+      "id": "qwen3.6-plus",
+      "name": "Qwen3.6 Plus",
+      "supports_image": true,
+      "supports_video": true,
+      "probe_source": "documentation",
+      "is_free": false,
+      "source": "builtin",
+      "availability_status": "unverified",
+      "availability_retryable": true,
+      "config_overrides": [],
+      "max_input_length": 1000000,
+      "max_input_length_configured": false,
+      "generate_kwargs": {},
+      "relay_reasoning": true,
+      "max_output_length": 65536,
+      "max_output_length_source": "catalog",
+      "billing": "paid",
+      "supports_tool_calling": true,
+      "supports_audio": false,
+      "released_at": "2026-04-02",
+      "capability_provenance": {
+        "billing": {
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
+    },
+    {
+      "id": "qwen3.5-plus",
+      "name": "Qwen3.5 Plus",
+      "supports_image": true,
+      "supports_video": true,
+      "probe_source": "documentation",
+      "is_free": false,
+      "source": "builtin",
+      "availability_status": "unverified",
+      "availability_retryable": true,
+      "config_overrides": [],
+      "max_input_length": 1000000,
+      "max_input_length_configured": false,
+      "generate_kwargs": {},
+      "relay_reasoning": true,
+      "max_output_length": 65536,
+      "max_output_length_source": "catalog",
+      "billing": "paid",
+      "supports_tool_calling": true,
+      "supports_audio": false,
+      "released_at": "2026-02-16",
+      "capability_provenance": {
+        "billing": {
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
+    },
+    {
+      "id": "glm-5",
+      "name": "GLM-5",
+      "supports_image": false,
+      "supports_video": false,
+      "probe_source": "documentation",
+      "is_free": false,
+      "source": "builtin",
+      "availability_status": "unverified",
+      "availability_retryable": true,
+      "config_overrides": [],
+      "max_input_length": 202752,
+      "max_input_length_configured": false,
+      "generate_kwargs": {},
+      "relay_reasoning": true,
+      "max_output_length": 16384,
+      "max_output_length_source": "catalog",
+      "billing": "paid",
+      "supports_tool_calling": true,
+      "supports_audio": false,
+      "released_at": "2026-02-11",
+      "capability_provenance": {
+        "billing": {
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
+    },
+    {
+      "id": "glm-4.7",
+      "name": "GLM-4.7",
+      "supports_image": false,
+      "supports_video": false,
+      "probe_source": "documentation",
+      "is_free": false,
+      "source": "builtin",
+      "availability_status": "unverified",
+      "availability_retryable": true,
+      "config_overrides": [],
+      "max_input_length": 202752,
+      "max_input_length_configured": false,
+      "generate_kwargs": {},
+      "relay_reasoning": true,
+      "max_output_length": 16384,
+      "max_output_length_source": "catalog",
+      "billing": "paid",
+      "supports_tool_calling": true,
+      "supports_audio": false,
+      "released_at": "2025-12-22",
+      "capability_provenance": {
+        "billing": {
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
+    },
+    {
+      "id": "MiniMax-M2.5",
+      "name": "MiniMax M2.5",
+      "supports_image": false,
+      "supports_video": false,
+      "probe_source": "documentation",
+      "is_free": false,
+      "source": "builtin",
+      "availability_status": "unverified",
+      "availability_retryable": true,
+      "config_overrides": [],
+      "max_input_length": 196608,
+      "max_input_length_configured": false,
+      "generate_kwargs": {},
+      "relay_reasoning": true,
+      "max_output_length": 24576,
+      "max_output_length_source": "catalog",
+      "billing": "paid",
+      "supports_tool_calling": true,
+      "supports_audio": false,
+      "released_at": "2026-02-12",
+      "capability_provenance": {
+        "billing": {
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
+    },
+    {
+      "id": "kimi-k2.5",
+      "name": "Kimi K2.5",
+      "supports_image": true,
+      "supports_video": true,
+      "probe_source": "documentation",
+      "is_free": false,
+      "source": "builtin",
+      "availability_status": "unverified",
+      "availability_retryable": true,
+      "config_overrides": [],
+      "max_input_length": 262144,
+      "max_input_length_configured": false,
+      "generate_kwargs": {},
+      "relay_reasoning": true,
+      "max_output_length": 32768,
+      "max_output_length_source": "catalog",
+      "billing": "paid",
+      "supports_tool_calling": true,
+      "supports_audio": false,
+      "released_at": "2026-01-27",
+      "capability_provenance": {
+        "billing": {
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
+    },
+    {
+      "id": "qwen3-max-2026-01-23",
+      "name": "Qwen3 Max 2026-01-23",
+      "supports_image": false,
+      "supports_video": false,
+      "probe_source": "documentation",
+      "is_free": false,
+      "source": "builtin",
+      "availability_status": "unverified",
+      "availability_retryable": true,
+      "config_overrides": [],
+      "max_input_length": 262144,
+      "max_input_length_configured": false,
+      "generate_kwargs": {},
+      "relay_reasoning": true,
+      "max_output_length": 32768,
+      "max_output_length_source": "catalog",
+      "billing": "paid",
+      "supports_tool_calling": true,
+      "supports_audio": false,
+      "released_at": "2026-01-23",
+      "capability_provenance": {
+        "billing": {
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
+    },
+    {
+      "id": "qwen3-coder-next",
+      "name": "Qwen3 Coder Next",
+      "supports_image": false,
+      "supports_video": false,
+      "probe_source": "documentation",
+      "is_free": false,
+      "source": "builtin",
+      "availability_status": "unverified",
+      "availability_retryable": true,
+      "config_overrides": [],
+      "max_input_length": 262144,
+      "max_input_length_configured": false,
+      "generate_kwargs": {},
+      "relay_reasoning": true,
+      "max_output_length": 65536,
+      "max_output_length_source": "catalog",
+      "billing": "paid",
+      "supports_tool_calling": true,
+      "supports_audio": false,
+      "released_at": "2026-02-03",
+      "capability_provenance": {
+        "billing": {
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
+    },
+    {
+      "id": "qwen3-coder-plus",
+      "name": "Qwen3 Coder Plus",
+      "supports_image": false,
+      "supports_video": false,
+      "probe_source": "documentation",
+      "is_free": false,
+      "source": "builtin",
+      "availability_status": "unverified",
+      "availability_retryable": true,
+      "config_overrides": [],
+      "max_input_length": 1000000,
+      "max_input_length_configured": false,
+      "generate_kwargs": {},
+      "relay_reasoning": true,
+      "max_output_length": 65536,
+      "max_output_length_source": "catalog",
+      "billing": "paid",
+      "supports_tool_calling": true,
+      "supports_audio": false,
+      "released_at": "2025-07-23",
+      "capability_provenance": {
+        "billing": {
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
+    },
+    {
+      "id": "qwen3.7-max",
+      "name": "qwen3.7-max",
+      "max_input_length": 1000000,
+      "max_output_length": 65536,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": false,
+      "supports_audio": false,
+      "supports_video": false,
+      "released_at": "2026-05-21"
+    },
+    {
+      "id": "qwen3.6-flash",
+      "name": "qwen3.6-flash",
+      "max_input_length": 1000000,
+      "max_output_length": 65536,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": true,
+      "supports_audio": false,
+      "supports_video": true,
+      "released_at": "2026-04-27"
+    }
+  ]
+}

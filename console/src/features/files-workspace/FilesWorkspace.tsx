@@ -2,9 +2,9 @@ import { FileWarning, Files, GitBranch } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { buildAuthHeaders } from "../../api/authHeaders";
-import { chatProjectDirectoryApi } from "../../api/modules/chatProjectDirectory";
 import { projectDirectoryApi } from "../../api/modules/projectDirectory";
 import { getPendingProjectDirectory } from "../project-directory/pendingProjectDirectory";
+import { loadSessionProjectDirs } from "../project-directory/loadSessionProjectDirs";
 import { listenForProjectDirectoryChanges } from "../project-directory/projectDirectoryChangeEvent";
 import { workspaceApi } from "../../api/modules/workspace";
 import GitPanel from "../../pages/Coding/GitPanel";
@@ -13,12 +13,14 @@ import {
   useCodingTabsStore,
   useActiveTabPathForScope,
   useTabsForScope,
+  type EditorTab,
+  type PendingDiff,
 } from "../../stores/codingTabsStore";
 import { useCodingMode } from "../../stores/codingModeStore";
 import { downloadFileFromUrl } from "../../utils/downloadFileFromUrl";
 import FilesNavigator from "./FilesNavigator";
 import MemoryGraphView from "./MemoryGraphView";
-import { directoriesMatch } from "./directorySources";
+import { projectRootPath, workspaceRoots } from "./directorySources";
 import {
   filesWorkspaceScopeKey,
   type FilesWorkspaceScope,
@@ -64,6 +66,12 @@ export default function FilesWorkspace({
   const { codingMode } = useCodingMode();
   const scopeKey = filesWorkspaceScopeKey(scope);
   const chatId = scope.kind === "session" ? scope.chatId : undefined;
+  // Primitives rather than `scope`: the object is rebuilt by the parent on
+  // every render, and callbacks keyed on it feed effects that would then
+  // refetch and re-activate the initial tab on unrelated re-renders.
+  const scopeKind = scope.kind;
+  const agentId = scope.agentId;
+  const sessionId = scope.kind === "session" ? scope.sessionId : "";
   const projectDirOverride =
     scope.kind === "session" && !scope.chatId
       ? getPendingProjectDirectory(scope.agentId, scope.sessionId) ??
@@ -78,12 +86,18 @@ export default function FilesWorkspace({
     clearProjectTabs,
     closeTab,
     openTab,
+    refreshTab,
     setActiveTab,
     setTabContent,
     setTabDirty,
     setTabEtag,
   } = useCodingTabsStore();
   const hydratedTabs = useRef(new Set<string>());
+  const revalidatedScope = useRef("");
+  const revalidationSequence = useRef(new Map<string, number>());
+  const mountedRef = useRef(false);
+  const scopeKeyRef = useRef(scopeKey);
+  scopeKeyRef.current = scopeKey;
   const tabsRef = useRef(tabs);
   tabsRef.current = tabs;
   const targetsByTab = useRef(new Map<string, FileTarget>());
@@ -100,6 +114,13 @@ export default function FilesWorkspace({
     column?: number;
     sequence: number;
   } | null>(null);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   useEffect(
     () =>
@@ -119,15 +140,22 @@ export default function FilesWorkspace({
       }
       try {
         const agentInfo = await projectDirectoryApi.get();
-        const projectDirectory = chatId
-          ? (await chatProjectDirectoryApi.get(chatId)).project_dir
-          : agentInfo.path;
         const workspaceDirectory = agentInfo.workspace_dir ?? agentInfo.path;
+        // An attachment can live under any directory the session is bound to,
+        // so every one is a candidate — checking only the primary would leave
+        // a file in an extra root stuck as a read-only historical artifact.
+        const boundDirs =
+          scopeKind === "session"
+            ? (await loadSessionProjectDirs(agentId, sessionId, chatId)).dirs
+            : [
+                {
+                  path: agentInfo.path,
+                  label: null,
+                  exists: true,
+                  nested_with: null,
+                },
+              ];
         const directPath = toProjectRelativePath(target.path);
-        const sameDirectory = directoriesMatch(
-          projectDirectory,
-          workspaceDirectory,
-        );
         const candidates: Array<{
           path: string;
           root: WorkspaceRoot;
@@ -141,23 +169,16 @@ export default function FilesWorkspace({
           }
         };
 
-        if (sameDirectory) {
+        workspaceRoots(boundDirs).forEach((root) => {
+          const directory =
+            root === "workspace"
+              ? workspaceDirectory
+              : projectRootPath(root) ?? boundDirs[0]?.path ?? "";
           addCandidate(
-            directPath ??
-              toProjectRelativePath(target.path, workspaceDirectory),
-            "workspace",
+            directPath ?? toProjectRelativePath(target.path, directory),
+            root,
           );
-        } else {
-          addCandidate(
-            directPath ?? toProjectRelativePath(target.path, projectDirectory),
-            "project",
-          );
-          addCandidate(
-            directPath ??
-              toProjectRelativePath(target.path, workspaceDirectory),
-            "workspace",
-          );
-        }
+        });
 
         for (const candidate of candidates) {
           try {
@@ -174,7 +195,7 @@ export default function FilesWorkspace({
               root: candidate.root,
             };
           } catch {
-            // Try the other visible directory root.
+            // Try the next visible directory root.
           }
         }
       } catch {
@@ -182,14 +203,14 @@ export default function FilesWorkspace({
       }
       return target;
     },
-    [chatId, projectDirOverride],
+    [agentId, chatId, projectDirOverride, scopeKind, sessionId],
   );
 
   const loadTarget = useCallback(
     async (target: FileTarget) => {
       if (target.source === "profile") {
         return {
-          content: (await workspaceApi.loadFile(target.path)).content,
+          content: (await workspaceApi.loadFile(target.path, agentId)).content,
           previewKind: "text" as const,
           readOnly: false,
           etag: "",
@@ -260,10 +281,10 @@ export default function FilesWorkspace({
         etag: response.headers.get("ETag") ?? "",
       };
     },
-    [chatId, projectDirOverride],
+    [agentId, chatId, projectDirOverride],
   );
 
-  const loadTabContent = useCallback(
+  const loadTab = useCallback(
     async (tabPath: string) => {
       const tab = tabsRef.current.find((item) => item.path === tabPath);
       const separator = tabPath.indexOf("::");
@@ -279,20 +300,120 @@ export default function FilesWorkspace({
           root: tab?.workspaceRoot,
           artifactUrl: tab?.artifactUrl,
         } satisfies FileTarget);
-      const loaded = await loadTarget(target);
-      setTabEtag(scopeKey, tabPath, loaded.etag);
+      return loadTarget(target);
+    },
+    [loadTarget],
+  );
+
+  const getLiveTab = useCallback(
+    (tabPath: string) =>
+      useCodingTabsStore
+        .getState()
+        .tabsByAgent[scopeKey]?.find((item) => item.path === tabPath),
+    [scopeKey],
+  );
+
+  const isTabSnapshotCurrent = useCallback(
+    (
+      tabPath: string,
+      snapshot: EditorTab | undefined,
+      diffSnapshot: PendingDiff | undefined,
+    ) => {
+      if (!mountedRef.current || !snapshot) return false;
+      const currentTab = getLiveTab(tabPath);
+      const currentDiff =
+        useCodingTabsStore.getState().diffsByAgent[scopeKey]?.[tabPath];
+      // Diffs can change independently, including individual hunk decisions.
+      return (
+        scopeKeyRef.current === scopeKey &&
+        currentTab === snapshot &&
+        !currentTab.dirty &&
+        currentDiff === diffSnapshot
+      );
+    },
+    [getLiveTab, scopeKey],
+  );
+
+  const loadTabContent = useCallback(
+    async (tabPath: string) => {
+      const snapshot = getLiveTab(tabPath);
+      const diffSnapshot =
+        useCodingTabsStore.getState().diffsByAgent[scopeKey]?.[tabPath];
+      const loaded = await loadTab(tabPath);
+      if (!isTabSnapshotCurrent(tabPath, snapshot, diffSnapshot)) {
+        throw new Error("File state changed while loading");
+      }
+      refreshTab(scopeKey, tabPath, loaded.content, loaded.etag);
       return loaded.content;
     },
-    [loadTarget, scopeKey, setTabEtag],
+    [getLiveTab, isTabSnapshotCurrent, loadTab, refreshTab, scopeKey],
+  );
+
+  const revalidateTab = useCallback(
+    async (tabPath: string) => {
+      const tab = getLiveTab(tabPath);
+      const diffSnapshot =
+        useCodingTabsStore.getState().diffsByAgent[scopeKey]?.[tabPath];
+      const previewKind =
+        tab?.previewKind ??
+        inferPreviewKind(tab?.displayPath ?? tab?.path ?? tabPath);
+      if (
+        !tab ||
+        tab.dirty ||
+        (previewKind !== "text" && previewKind !== "csv")
+      ) {
+        return;
+      }
+
+      const sequence = (revalidationSequence.current.get(tabPath) ?? 0) + 1;
+      revalidationSequence.current.set(tabPath, sequence);
+      try {
+        const loaded = await loadTab(tabPath);
+        if (
+          scopeKeyRef.current !== scopeKey ||
+          revalidationSequence.current.get(tabPath) !== sequence ||
+          !isTabSnapshotCurrent(tabPath, tab, diffSnapshot)
+        ) {
+          return;
+        }
+        refreshTab(scopeKey, tabPath, loaded.content, loaded.etag);
+      } catch {
+        if (
+          mountedRef.current &&
+          scopeKeyRef.current === scopeKey &&
+          revalidationSequence.current.get(tabPath) === sequence &&
+          isTabSnapshotCurrent(tabPath, tab, diffSnapshot)
+        ) {
+          setLoadError(t("files.loadFailed"));
+        }
+      }
+    },
+    [getLiveTab, isTabSnapshotCurrent, loadTab, refreshTab, scopeKey, t],
+  );
+
+  const activateTab = useCallback(
+    (tabPath: string) => {
+      revalidatedScope.current = scopeKey;
+      setLoadError("");
+      setActiveTab(scopeKey, tabPath);
+      void revalidateTab(tabPath);
+    },
+    [revalidateTab, scopeKey, setActiveTab],
   );
 
   const openTarget = useCallback(
     async (target: FileTarget) => {
       const resolvedTarget = await resolveEditableTarget(target);
+      // Tab identity has to include the root: the same relative path exists in
+      // more than one bound directory, and a bare path would make two different
+      // files share one tab (and one dirty buffer). The primary keeps its bare
+      // path so previously persisted tabs still match.
       const tabPath =
         resolvedTarget.source === "workspace"
           ? resolvedTarget.root === "workspace"
             ? `workspace-root::${resolvedTarget.path}`
+            : resolvedTarget.root && resolvedTarget.root !== "project"
+            ? `${resolvedTarget.root}::${resolvedTarget.path}`
             : resolvedTarget.path
           : `${resolvedTarget.source}::${resolvedTarget.path}`;
       targetsByTab.current.set(tabPath, resolvedTarget);
@@ -308,8 +429,7 @@ export default function FilesWorkspace({
       }
       const existing = tabsRef.current.find((tab) => tab.path === tabPath);
       if (existing) {
-        setLoadError("");
-        setActiveTab(scopeKey, tabPath);
+        activateTab(tabPath);
         return;
       }
       try {
@@ -327,16 +447,26 @@ export default function FilesWorkspace({
           readOnly: loaded.readOnly,
           etag: loaded.etag,
         });
+        revalidatedScope.current = scopeKey;
         setActiveTab(scopeKey, tabPath);
       } catch {
         setLoadError(t("files.loadFailed"));
       }
     },
-    [loadTarget, openTab, resolveEditableTarget, scopeKey, setActiveTab, t],
+    [
+      activateTab,
+      loadTarget,
+      openTab,
+      resolveEditableTarget,
+      scopeKey,
+      setActiveTab,
+      t,
+    ],
   );
 
   useEffect(() => {
     hydratedTabs.current.clear();
+    revalidationSequence.current.clear();
   }, [scopeKey]);
 
   useEffect(() => {
@@ -351,27 +481,40 @@ export default function FilesWorkspace({
         return;
       }
       hydratedTabs.current.add(tab.path);
-      void loadTabContent(tab.path)
-        .then((content) => setTabContent(scopeKey, tab.path, content))
+      const diffSnapshot =
+        useCodingTabsStore.getState().diffsByAgent[scopeKey]?.[tab.path];
+      void loadTab(tab.path)
+        .then((loaded) => {
+          if (!isTabSnapshotCurrent(tab.path, tab, diffSnapshot)) return;
+          refreshTab(scopeKey, tab.path, loaded.content, loaded.etag);
+        })
         .catch(() => {
+          if (!isTabSnapshotCurrent(tab.path, tab, diffSnapshot)) return;
           closeTab(scopeKey, tab.path);
           setLoadError(t("files.loadFailed"));
         });
     });
-  }, [closeTab, loadTabContent, scopeKey, setTabContent, t, tabs]);
+  }, [closeTab, isTabSnapshotCurrent, loadTab, refreshTab, scopeKey, t, tabs]);
 
   useEffect(() => {
     if (initialTarget) void openTarget(initialTarget);
   }, [initialTarget, openTarget]);
 
+  useEffect(() => {
+    if (!activeTabPath || revalidatedScope.current === scopeKey) return;
+    revalidatedScope.current = scopeKey;
+    const activeTab = tabsRef.current.find((tab) => tab.path === activeTabPath);
+    // Empty restored tabs are already handled by the hydration effect above.
+    if (activeTab?.content) void revalidateTab(activeTabPath);
+  }, [activeTabPath, revalidateTab, scopeKey]);
+
   const handleClose = (path: string) => {
     const index = tabs.findIndex((tab) => tab.path === path);
     closeTab(scopeKey, path);
     if (activeTabPath === path) {
-      setActiveTab(
-        scopeKey,
-        tabs[index + 1]?.path ?? tabs[index - 1]?.path ?? "",
-      );
+      const nextPath = tabs[index + 1]?.path ?? tabs[index - 1]?.path ?? "";
+      if (nextPath) activateTab(nextPath);
+      else setActiveTab(scopeKey, "");
     }
   };
 
@@ -379,7 +522,7 @@ export default function FilesWorkspace({
     tabs.forEach((tab) => {
       if (tab.path !== path) closeTab(scopeKey, tab.path);
     });
-    setActiveTab(scopeKey, path);
+    activateTab(path);
   };
 
   return (
@@ -457,7 +600,7 @@ export default function FilesWorkspace({
             tabs={tabs}
             activeTabPath={activeTabPath}
             scopeKey={scopeKey}
-            onTabSelect={(path) => setActiveTab(scopeKey, path)}
+            onTabSelect={activateTab}
             onTabClose={handleClose}
             onCloseOtherTabs={handleCloseOthers}
             onTabDirtyChange={(path, dirty) =>
@@ -534,7 +677,7 @@ export default function FilesWorkspace({
               const source = path.slice(0, separator);
               const sourcePath = path.slice(separator + 2);
               if (source === "profile") {
-                await workspaceApi.saveFile(sourcePath, content);
+                await workspaceApi.saveFile(sourcePath, content, agentId);
               } else if (source === "daily" || source === "digest") {
                 await workspaceApi.saveMemoryFile(sourcePath, content, source);
               } else if (source === "memory") {

@@ -1,13 +1,15 @@
 /**
- * Pure helper that converts raw SSE backup progress events into UI state
+ * Pure helper that converts backup job snapshots into UI state
  * (percent + status message). Kept separate from the React component so any
  * hook can consume it without importing a component tree.
  */
-import type { BackupProgressEvent } from "@/api/types/backup";
+import type {
+  BackupJobSnapshot,
+  BackupProgressEvent,
+} from "@/api/types/backup";
 
 /**
- * Maps a single SSE event to { progress (0-100), msg }.
- * Called by useBackupRunner on every streamed chunk.
+ * Maps one legacy SSE event to { progress (0-100), msg }.
  */
 export function handleBackupProgressEvent(
   event: BackupProgressEvent,
@@ -31,4 +33,32 @@ export function handleBackupProgressEvent(
     default:
       return { progress: 0, msg: "" };
   }
+}
+
+/**
+ * Maps one current job snapshot to { progress (0-100), msg }.
+ */
+export function handleBackupJobSnapshot(
+  snapshot: BackupJobSnapshot,
+  t: (key: string, params?: Record<string, unknown>) => string,
+): { progress: number; msg: string } {
+  if (snapshot.status === "completed") {
+    return { progress: 100, msg: t("backup.progressDone") };
+  }
+  if (snapshot.phase === "finalizing") {
+    return {
+      progress: snapshot.percent,
+      msg: t("backup.progressSaving"),
+    };
+  }
+  if (snapshot.current_agent) {
+    return {
+      progress: snapshot.percent,
+      msg: t("backup.progressAgent", {
+        index: snapshot.agent_index + 1,
+        total: snapshot.total_agents,
+      }),
+    };
+  }
+  return { progress: snapshot.percent, msg: t("backup.progressStarting") };
 }

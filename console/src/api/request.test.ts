@@ -277,6 +277,31 @@ describe("request", () => {
     vi.useRealTimers();
   });
 
+  it("retries once for a transient network error", async () => {
+    vi.useFakeTimers();
+    const response = {
+      ok: true,
+      status: 200,
+      statusText: "OK",
+      headers: { get: () => "application/json" },
+      json: () => Promise.resolve({ data: "ok" }),
+    } as unknown as Response;
+    global.fetch = vi
+      .fn()
+      .mockRejectedValueOnce(new TypeError("network unavailable"))
+      .mockResolvedValueOnce(response);
+
+    const requestPromise = request("/flaky-endpoint", {
+      retries: 1,
+      retryDelay: 100,
+    });
+    await vi.advanceTimersByTimeAsync(100);
+
+    await expect(requestPromise).resolves.toEqual({ data: "ok" });
+    expect(fetch).toHaveBeenCalledTimes(2);
+    vi.useRealTimers();
+  });
+
   it("succeeds on retry after initial timeout", async () => {
     vi.useFakeTimers();
     let attemptCount = 0;
@@ -369,6 +394,43 @@ describe("request", () => {
     expect(attemptCount).toBe(1); // no retries for external abort
   });
 
+  it.each(["network", "timeout"])(
+    "cancels during %s backoff without another fetch",
+    async (failure) => {
+      vi.useFakeTimers();
+      try {
+        const controller = new AbortController();
+        global.fetch = vi.fn().mockImplementation((_url, options) => {
+          if (failure === "network") {
+            return Promise.reject(new TypeError("Failed to fetch"));
+          }
+          return new Promise((_resolve, reject) => {
+            options.signal.addEventListener("abort", () => {
+              reject(new DOMException("aborted", "AbortError"));
+            });
+          });
+        });
+        const pending = request("/skills", {
+          signal: controller.signal,
+          timeout: 100,
+          retries: 2,
+          retryDelay: 1000,
+        });
+        const rejected = expect(pending).rejects.toMatchObject({
+          name: "AbortError",
+        });
+        await vi.advanceTimersByTimeAsync(150);
+        controller.abort();
+        await rejected;
+        expect(vi.getTimerCount()).toBe(0);
+        await vi.advanceTimersByTimeAsync(3000);
+        expect(fetch).toHaveBeenCalledTimes(1);
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
+
   it("cleans up abort listener on caller signal after successful request", async () => {
     mockFetch(200, { data: "ok" });
 
@@ -379,5 +441,43 @@ describe("request", () => {
 
     expect(removeSpy).toHaveBeenCalledWith("abort", expect.any(Function));
     removeSpy.mockRestore();
+  });
+
+  // ---------------------------------------------------------------------------
+  // 429 error message — regression for A#83794374
+  // When the 429 response body has no usable error detail (empty object,
+  // null fields, or empty body), the thrown Error.message must never contain
+  // the literal string "undefined". It should either include the raw body or
+  // fall back to "Request failed: 429 Too Many Requests".
+  // ---------------------------------------------------------------------------
+
+  function mock429Fetch(body: string, contentType = "application/json") {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 429,
+      statusText: "Too Many Requests",
+      headers: { get: () => contentType },
+      text: () => Promise.resolve(body),
+    } as unknown as Response);
+  }
+
+  it("429 with empty JSON body does not produce 'undefined' in error message (A#83794374)", async () => {
+    mock429Fetch("{}");
+    const error = await request("/models").catch((e) => e);
+    expect((error as Error).message).not.toContain("undefined");
+  });
+
+  it("429 with null detail and message does not produce 'undefined' (A#83794374)", async () => {
+    mock429Fetch(JSON.stringify({ detail: null, message: null }));
+    const error = await request("/models").catch((e) => e);
+    expect((error as Error).message).not.toContain("undefined");
+  });
+
+  it("429 with empty body falls back to 'Request failed: 429 Too Many Requests' (A#83794374)", async () => {
+    mock429Fetch("");
+    const error = await request("/models").catch((e) => e);
+    expect((error as Error).message).toBe(
+      "Request failed: 429 Too Many Requests",
+    );
   });
 });

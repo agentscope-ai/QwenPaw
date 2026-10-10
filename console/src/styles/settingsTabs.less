@@ -1,0 +1,44 @@
+.settings-tabs() {
+  min-width: 0;
+  > :global(.qwenpaw-tabs-nav),
+  > :global(.ant-tabs-nav) {
+    position: sticky;
+    top: 0;
+    z-index: 3;
+    margin-bottom: 20px;
+    padding: 0 16px !important;
+    border: 1px solid var(--app-border-subtle);
+    border-radius: 12px;
+    background: var(--app-surface);
+
+    &::before {
+      border-bottom: 0;
+    }
+  }
+
+  :global(.qwenpaw-tabs-tab),
+  :global(.ant-tabs-tab) {
+    min-height: 44px;
+    padding: 10px 4px;
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--app-text-secondary) !important;
+
+    &:hover {
+      color: var(--app-accent-text) !important;
+    }
+  }
+
+  :global(.qwenpaw-tabs-tab-active .qwenpaw-tabs-tab-btn),
+  :global(.ant-tabs-tab-active .ant-tabs-tab-btn) {
+    color: var(--app-accent-text) !important;
+    font-weight: 600;
+  }
+
+  :global(.qwenpaw-tabs-ink-bar),
+  :global(.ant-tabs-ink-bar) {
+    background: var(--app-accent) !important;
+    height: 3px;
+    border-radius: 2px 2px 0 0;
+  }
+}

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from unittest.mock import patch
 
@@ -11,7 +12,7 @@ import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
-from qwenpaw.app.routers.settings import router
+from qwenpaw.app.routers.settings import _VALID_LANGUAGES, router
 
 app = FastAPI()
 app.include_router(router, prefix="/api")
@@ -55,7 +56,10 @@ async def test_get_language_persisted(api_client, _use_tmp_settings):
 # ── PUT /settings/language ───────────────────────────────────────────
 
 
-@pytest.mark.parametrize("lang", ["en", "zh", "ja", "ru", "pt-BR", "id"])
+@pytest.mark.parametrize(
+    "lang",
+    ["en", "zh", "ja", "ru", "pt-BR", "id", "vi"],
+)
 async def test_put_language_valid(
     api_client,
     lang,
@@ -162,3 +166,31 @@ async def test_concurrent_language_and_offload_policy_updates(
     data = json.loads(_use_tmp_settings.read_text("utf-8"))
     assert data["language"] == "zh"
     assert data["offload_policy"] == "offload"
+
+
+# ── language list single source of truth ──────────────────────
+
+_REPO = Path(__file__).resolve().parents[3]
+_CONSOLE_LANGUAGE_LIST = (
+    _REPO / "console" / "src" / "constants" / "languageList.tsx"
+)
+
+
+def _console_language_keys() -> set[str]:
+    """Extract the language keys the console offers in its selectors."""
+    source = _CONSOLE_LANGUAGE_LIST.read_text(encoding="utf-8")
+    return set(re.findall(r'\{\s*key:\s*"([^"]+)"', source))
+
+
+def test_valid_languages_matches_console_language_list():
+    """The PUT whitelist must equal the console's LANGUAGE_LIST keys.
+
+    The console renders every ``LANGUAGE_LIST`` entry as a selectable
+    option in both the header dropdown and the sidebar settings
+    panel.  A language present there but absent from
+    ``_VALID_LANGUAGES`` is rejected with HTTP 400 on PUT, and the
+    callers swallow that failure, so the user's preference is lost
+    with no feedback at all.  Keeping the two sets equal is what
+    makes the language list a single source of truth.
+    """
+    assert _VALID_LANGUAGES == _console_language_keys()

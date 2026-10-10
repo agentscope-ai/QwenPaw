@@ -1,3 +1,4 @@
+import { SettingsField } from "@/components/interaction/SettingsField";
 import { useEffect } from "react";
 import { Modal, Form, Input, Select } from "@agentscope-ai/design";
 import type { FormInstance } from "antd";
@@ -97,7 +98,7 @@ export function RuleModal({
       destroyOnHidden
     >
       <Form form={form} layout="vertical" style={{ marginTop: 16 }}>
-        <Form.Item
+        <SettingsField
           label={t("security.rules.ruleId")}
           name="id"
           rules={[
@@ -116,36 +117,42 @@ export function RuleModal({
           ]}
         >
           <Input placeholder="TOOL_CMD_CUSTOM_RULE" disabled={!!editingRule} />
-        </Form.Item>
-        <Form.Item label={t("security.rules.tools")} name="tools">
+        </SettingsField>
+        <SettingsField label={t("security.rules.tools")} name="tools">
           <Select
             mode="tags"
             options={toolOptions}
             placeholder={t("security.rules.toolsPlaceholder")}
             allowClear
           />
-        </Form.Item>
-        <Form.Item label={t("security.rules.params")} name="params">
+        </SettingsField>
+        <SettingsField label={t("security.rules.params")} name="params">
           <Select
             mode="tags"
             placeholder={t("security.rules.paramsPlaceholder")}
             allowClear
           />
-        </Form.Item>
-        <Form.Item label={t("security.rules.severityLabel")} name="severity">
+        </SettingsField>
+        <SettingsField
+          label={t("security.rules.severityLabel")}
+          name="severity"
+        >
           <Select
             options={SEVERITY_OPTIONS.map((s) => ({ label: s, value: s }))}
           />
-        </Form.Item>
-        <Form.Item label={t("security.rules.categoryLabel")} name="category">
+        </SettingsField>
+        <SettingsField
+          label={t("security.rules.categoryLabel")}
+          name="category"
+        >
           <Select
             options={CATEGORY_OPTIONS.map((c) => ({
               label: t(`security.rules.categories.${c}`, { defaultValue: c }),
               value: c,
             }))}
           />
-        </Form.Item>
-        <Form.Item
+        </SettingsField>
+        <SettingsField
           label={t("security.rules.patterns")}
           name="patterns"
           rules={[
@@ -158,8 +165,8 @@ export function RuleModal({
             placeholder={"\\brm\\b\\n\\bmv\\b"}
             style={{ fontFamily: "monospace" }}
           />
-        </Form.Item>
-        <Form.Item
+        </SettingsField>
+        <SettingsField
           label={t("security.rules.excludePatterns")}
           name="exclude_patterns"
           tooltip={t("security.rules.excludePatternsTooltip")}
@@ -169,19 +176,19 @@ export function RuleModal({
             placeholder={"^#"}
             style={{ fontFamily: "monospace" }}
           />
-        </Form.Item>
-        <Form.Item
+        </SettingsField>
+        <SettingsField
           label={t("security.rules.descriptionLabel")}
           name="description"
         >
           <Input placeholder={t("security.rules.descriptionPlaceholder")} />
-        </Form.Item>
-        <Form.Item
+        </SettingsField>
+        <SettingsField
           label={t("security.rules.remediationLabel")}
           name="remediation"
         >
           <Input placeholder={t("security.rules.remediationPlaceholder")} />
-        </Form.Item>
+        </SettingsField>
       </Form>
     </Modal>
   );

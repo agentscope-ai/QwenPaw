@@ -9,11 +9,16 @@ export interface MemoryMaintenanceState {
   setNeedsReindex: (value: boolean) => void;
   reindexing: boolean;
   setReindexing: (value: boolean) => void;
+  persistedEmbeddingFingerprint?: string;
+  setPersistedEmbeddingFingerprint?: (value: string) => void;
   openMemorySettings: () => void;
   runtimeStatus: ReMeRuntimeStatus;
   diagnosticsStatus: ReMeDiagnosticsStatus;
   checkMemoryStatus: (includeDiagnostics?: boolean) => Promise<void>;
-  configRevision: number;
+  rerankerExpanded: boolean;
+  setRerankerExpanded: (value: boolean) => void;
+  /** Increments after every successful config load, including Reset. */
+  configLoadRevision: number;
 }
 
 export const MemoryMaintenanceContext = createContext<MemoryMaintenanceState>({
@@ -21,11 +26,15 @@ export const MemoryMaintenanceContext = createContext<MemoryMaintenanceState>({
   setNeedsReindex: () => {},
   reindexing: false,
   setReindexing: () => {},
+  persistedEmbeddingFingerprint: undefined,
+  setPersistedEmbeddingFingerprint: () => {},
   openMemorySettings: () => {},
   runtimeStatus: { type: "unknown" },
   diagnosticsStatus: { type: "unknown" },
   checkMemoryStatus: async () => {},
-  configRevision: 0,
+  rerankerExpanded: false,
+  setRerankerExpanded: () => {},
+  configLoadRevision: 0,
 });
 
 export function useMemoryMaintenance() {

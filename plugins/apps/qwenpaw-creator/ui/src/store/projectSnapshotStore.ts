@@ -291,7 +291,9 @@ export const useProjectSnapshotStore = create<ProjectSnapshotState>(
           });
         } catch (error) {
           const projectDeleted =
-            error instanceof CreatorHttpError && error.status === 404;
+            error instanceof CreatorHttpError &&
+            error.status === 404 &&
+            error.code === "NOT_FOUND";
           set((state) => {
             if (
               token.epoch !== projectEpoch ||
@@ -324,9 +326,8 @@ export const useProjectSnapshotStore = create<ProjectSnapshotState>(
             token.epoch === projectEpoch &&
             get().projectId === token.projectId
           ) {
-            // A 404 is a lifecycle result, not a transient sync failure. Stop
-            // retaining/polling the deleted authority until the route remounts
-            // or a caller explicitly starts a new Project scope.
+            // Only the API's explicit missing-project response is final.
+            // Generic 404s during plugin startup retain last-good data and retry.
             stopController(projectId);
           }
         }

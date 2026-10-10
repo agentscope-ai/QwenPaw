@@ -49,6 +49,21 @@ def _resolve_driver_execution_level(
     """Resolve runtime approval level for Driver invocation."""
     from ..security.tool_guard.execution_level import ToolExecutionLevel
 
+    # Mail F1 exploration mode: force STRICT for every tool while active.
+    # Registered per-session by the activate_f1_exploration_mode tool
+    # (module-level registry — per-tool asyncio tasks isolate ContextVar
+    # writes); overrides session/agent approval_level (including OFF).
+    from ..config.context import (
+        get_current_session_id,
+        is_f1_active_for_session,
+    )
+
+    _f1_session_id = (
+        request_context.get("session_id") or get_current_session_id()
+    )
+    if is_f1_active_for_session(_f1_session_id):
+        return ToolExecutionLevel.STRICT
+
     raw = request_context.get("approval_level")
     if raw:
         return ToolExecutionLevel.from_config(str(raw))

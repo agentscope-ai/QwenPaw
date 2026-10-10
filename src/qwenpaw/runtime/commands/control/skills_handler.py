@@ -1,21 +1,16 @@
 # -*- coding: utf-8 -*-
 """Handler for /skills command.
 
-Lists enabled skills for the current channel in a compact format.
+Lists available skills for the current channel in a compact format.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
 
-import frontmatter as fm
-
 from ....agents.skill_system import (
-    get_workspace_skills_dir,
     reconcile_workspace_manifest,
-)
-from ....agents.utils.file_handling import (
-    read_text_file_with_encoding_fallback,
+    resolve_effective_skills,
 )
 
 from .base import BaseControlCommandHandler, ControlContext
@@ -25,7 +20,7 @@ class SkillsCommandHandler(BaseControlCommandHandler):
     """Handler for /skills command.
 
     Usage:
-        /skills    # List enabled skills for this channel
+        /skills    # List available skills for this channel
     """
 
     command_name = "/skills"
@@ -56,41 +51,21 @@ class SkillsCommandHandler(BaseControlCommandHandler):
 
         channel_id = context.channel.channel
         manifest = reconcile_workspace_manifest(workspace_dir)
-        skills_dir = get_workspace_skills_dir(workspace_dir)
-
         lines = []
-        found = False
-        for folder_name, entry in sorted(
-            manifest.get("skills", {}).items(),
-        ):
-            if not entry.get("enabled", False):
-                continue
-            channels = entry.get("channels") or ["all"]
-            if "all" not in channels and channel_id not in channels:
-                continue
-            skill_dir = skills_dir / folder_name
-            if not skill_dir.exists():
-                continue
-            found = True
-
-            # Read frontmatter for display name.
-            skill_md = skill_dir / "SKILL.md"
+        for folder_name in resolve_effective_skills(workspace_dir, channel_id):
+            entry = manifest.get("skills", {}).get(folder_name, {})
             description = (
                 entry.get("metadata", {}).get("description")
                 or "No description."
             )
-            if skill_md.exists():
-                raw = read_text_file_with_encoding_fallback(skill_md)
-                post = fm.loads(raw)
-                description = post.get("description") or description
 
             lines.append(
                 f"**{folder_name}**: "
                 f"{self._truncate_description(description)}",
             )
 
-        if not found:
-            return "No skills are currently enabled for this channel."
+        if not lines:
+            return "No skills are currently available for this channel."
         lines.append(
             "\n---\n"
             "*Use `/<skill_name>` for details, "

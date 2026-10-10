@@ -5,24 +5,38 @@ import React, {
   useRef,
   useState,
 } from "react";
-import { Input, Modal, Spin } from "antd";
+import { Input, Modal, Spin, Tooltip } from "antd";
+import type { InputRef } from "antd";
 import { VariableSizeList, type ListChildComponentProps } from "react-window";
 import { useTranslation } from "react-i18next";
 import { useLocation } from "react-router-dom";
-import { ChevronDown, FolderPlus, Plus } from "lucide-react";
-import { getChannelLabel } from "../pages/Control/Channels/components";
+import {
+  CalendarDays,
+  ChevronDown,
+  FolderPlus,
+  FolderTree,
+  List,
+} from "lucide-react";
+import { SquarePen as SparkNewChatLine } from "lucide-react";
+import { getChannelLabel } from "../utils/channel";
 import {
   getBackendId,
   useSessionListData,
   type ExtendedChatSession,
-} from "../pages/Chat/components/ChatSessionDrawer/useSessionListData";
+} from "./useSidebarSessionListData";
 import { getSessionIdFromPath } from "../utils/sessionRoute";
 import {
   useSessionListStore,
   syncSessionsGlobal,
   type ExtendedSession,
 } from "../stores/sessionListStore";
-import { findSessionRowIndex } from "../utils/sessionGrouping";
+import { findSessionRowIndex, getDateGroup } from "../utils/sessionGrouping";
+import {
+  getSessionGroupModePreference,
+  setSessionGroupModePreference,
+  SESSION_GROUP_MODE_CHANGE_EVENT,
+  type SessionGroupMode,
+} from "../utils/sessionGroupModePreference";
 import {
   groupChats,
   groupChatsByDate,
@@ -32,6 +46,7 @@ import {
   type ChatDateGroup,
 } from "../utils/chatGroups";
 import { useCollapsedChatGroups } from "../hooks/useCollapsedChatGroups";
+import { useCollapsedDateGroups } from "../hooks/useCollapsedDateGroups";
 import { useRevealActiveChatGroup } from "../hooks/useRevealActiveChatGroup";
 import { useChatGroups } from "../hooks/useChatGroups";
 import SessionItem from "../components/SessionItem";
@@ -45,15 +60,22 @@ import {
 import { chatApi } from "../api/modules/chat";
 import type { ChatGroup } from "../api/types/chat";
 import { useAppMessage } from "../hooks/useAppMessage";
+import { useSessionAttention } from "../hooks/useSessionAttention";
+import { useAgentStore } from "../stores/agentStore";
 import styles from "./sidebarSessionList.module.less";
 
-/** Fixed height of each session item row */
-const SESSION_ROW_HEIGHT = 42;
-/** Fixed height of each group header row */
-const GROUP_HEADER_HEIGHT = 42;
-const DATE_HEADER_HEIGHT = 24;
+/**
+ * Fixed row metrics of the virtualized session list. The CSS in
+ * sessionItem / SessionGroupHeader / SessionDateHeader must render
+ * exactly these outer heights (row = padding + line-height + margin),
+ * otherwise the row margin collapses into the next row and adjacent
+ * hover/active backgrounds touch.
+ */
+const SESSION_ROW_HEIGHT = 38;
+const GROUP_HEADER_HEIGHT = 36;
+const DATE_HEADER_HEIGHT = 36;
 
-/** A flattened row: either a group header or a session item */
+/** A flattened row rendered by the virtualized session list. */
 type FlatRow =
   | {
       kind: "groupHeader";
@@ -63,17 +85,32 @@ type FlatRow =
     }
   | {
       kind: "dateHeader";
-      groupId: string;
       dateGroup: ChatDateGroup;
       label: string;
+      count: number;
+      collapsed: boolean;
     }
   | { kind: "session"; session: ExtendedChatSession; groupId: string };
+
+/**
+ * A header-delimited section of the session list: date buckets in
+ * date mode, chat groups in source mode, one flat recency list in
+ * none mode, and the flat match list while searching.
+ */
+interface ListSection {
+  header: FlatRow | null;
+  sessions: ExtendedChatSession[];
+  /** Group id stamped on session rows; null resolves per session. */
+  groupId: string | null;
+  collapsed: boolean;
+}
 
 // ── Component ─────────────────────────────────────────────────────────────
 
 /** Data passed to each virtual row */
 interface VirtualRowData {
   flatRows: FlatRow[];
+  unseenSessionIds: ReadonlySet<string>;
   currentSessionId: string | undefined;
   editingSessionId: string | null;
   editValue: string;
@@ -89,6 +126,7 @@ interface VirtualRowData {
   handleEditCancel: () => void;
   groups: ChatGroup[];
   toggleGroup: (key: string) => void;
+  toggleDateGroup: (key: string) => void;
   renameGroup: (groupId: string, name: string) => void;
   pinGroup: (groupId: string, pinned: boolean) => void;
   deleteGroup: (groupId: string) => void;
@@ -152,14 +190,18 @@ const VirtualRow = React.memo(function VirtualRow({
   }
 
   if (row.kind === "dateHeader") {
+    // Date headers carry no group semantics, so they are not
+    // drag-and-drop targets.
     return (
-      <SessionDropZone
-        id={`date:${row.groupId}:${row.dateGroup}`}
-        groupId={row.groupId}
-        style={style}
-      >
-        <SessionDateHeader dateGroup={row.dateGroup} label={row.label} />
-      </SessionDropZone>
+      <div style={style}>
+        <SessionDateHeader
+          dateGroup={row.dateGroup}
+          label={row.label}
+          count={row.count}
+          collapsed={row.collapsed}
+          onToggle={() => data.toggleDateGroup(row.dateGroup)}
+        />
+      </div>
     );
   }
 
@@ -182,13 +224,14 @@ const VirtualRow = React.memo(function VirtualRow({
         label={session.name || "New Chat"}
       >
         <SessionItem
-          variant="sidebar"
           sessionId={session.id!}
           name={session.name || "New Chat"}
+          updatedAt={session.updatedAt ?? session.createdAt}
           channelKey={channelKey || undefined}
           channelLabel={channelLabel}
           chatStatus={session.status}
           generating={session.generating}
+          unseenResult={data.unseenSessionIds.has(session.id)}
           archived={session.archived}
           pinned={session.pinned}
           source={session.source}
@@ -218,6 +261,8 @@ const VirtualRow = React.memo(function VirtualRow({
 });
 
 export interface SidebarSessionListProps {
+  defaultSearchOpen?: boolean;
+  hideNewTask?: boolean;
   /** Called when user clicks "New Chat". Provided by parent (Sidebar) which has navigate(). */
   onNewChat?: () => void;
   /** Called when user clicks a session. Provided by parent for direct navigation. */
@@ -225,20 +270,52 @@ export interface SidebarSessionListProps {
 }
 
 export default function SidebarSessionList({
+  defaultSearchOpen = false,
+  hideNewTask = false,
   onNewChat,
   onSessionClick: onSessionClickProp,
 }: SidebarSessionListProps = {}) {
   const { t } = useTranslation();
   const { message } = useAppMessage();
+  const selectedAgent = useAgentStore((state) => state.selectedAgent);
   const location = useLocation();
   const currentSessionId = getSessionIdFromPath(location.pathname) ?? undefined;
 
   const [searchQuery, setSearchQuery] = useState("");
   const [historyCollapsed, setHistoryCollapsed] = useState(false);
   const [isSessionDragging, setIsSessionDragging] = useState(false);
+  /** Sectioning mode — persisted and synced across mounted lists. */
+  const [groupMode, setGroupMode] = useState<SessionGroupMode>(
+    getSessionGroupModePreference,
+  );
+
+  useEffect(() => {
+    const syncGroupMode = () => {
+      setGroupMode(getSessionGroupModePreference());
+    };
+
+    window.addEventListener(SESSION_GROUP_MODE_CHANGE_EVENT, syncGroupMode);
+    return () => {
+      window.removeEventListener(
+        SESSION_GROUP_MODE_CHANGE_EVENT,
+        syncGroupMode,
+      );
+    };
+  }, []);
+
+  const handleGroupModeChange = useCallback((mode: SessionGroupMode) => {
+    setGroupMode(mode);
+    setSessionGroupModePreference(mode);
+  }, []);
   /** Collapsed chat groups — persisted so remounts keep the user's state */
-  const { collapsedGroups, toggleGroup, expandGroup } =
-    useCollapsedChatGroups();
+  const {
+    collapsedGroups,
+    toggleGroup,
+    expandGroup,
+    initializeCollapsedGroups,
+  } = useCollapsedChatGroups();
+  const { collapsedDateGroups, toggleDateGroup, expandDateGroup } =
+    useCollapsedDateGroups();
   const {
     groups: chatGroups,
     createGroup,
@@ -249,6 +326,8 @@ export default function SidebarSessionList({
   } = useChatGroups(true);
   const [creatingGroup, setCreatingGroup] = useState(false);
   const [newGroupName, setNewGroupName] = useState("");
+  const searchInputRef = useRef<InputRef>(null);
+  const groupInputRef = useRef<InputRef>(null);
   const visibleChatGroups = useMemo(
     () =>
       localizeSystemGroups(chatGroups, {
@@ -304,6 +383,12 @@ export default function SidebarSessionList({
     currentSessionId,
     onSessionClick,
   });
+
+  const unseenSessionIds = useSessionAttention(
+    selectedAgent,
+    sortedSessions,
+    currentSessionId,
+  );
 
   const handleMove = useCallback(
     async (sessionId: string, groupId: string, expandTarget = true) => {
@@ -407,6 +492,13 @@ export default function SidebarSessionList({
     }
   }, [onNewChat]);
 
+  const handleOpenCreateGroup = useCallback(() => {
+    setHistoryCollapsed(false);
+    setSearchQuery("");
+    setCreatingGroup(true);
+    window.setTimeout(() => groupInputRef.current?.focus(), 0);
+  }, []);
+
   // Filter sessions by search query
   const filteredSessions = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
@@ -422,55 +514,203 @@ export default function SidebarSessionList({
     [sortedSessions, searchQuery, visibleChatGroups],
   );
 
-  useRevealActiveChatGroup(currentSessionId, sortedSessions, expandGroup);
-
-  /** Flatten groups into a single array of rows for virtual list */
-  const flatRows = useMemo<FlatRow[]>(() => {
+  /**
+   * Sections drive the virtual list: one per date bucket (date mode),
+   * one per chat group (source mode), or a single flat section (none
+   * mode). Every session renders — the virtualized list keeps large
+   * histories cheap.
+   */
+  const sections = useMemo<ListSection[]>(() => {
     if (searchQuery.trim()) {
-      return filteredSessions.map((s) => ({
-        kind: "session",
-        session: s,
-        groupId: resolveChatGroupId(s),
-      }));
+      if (filteredSessions.length === 0) return [];
+      return [
+        {
+          header: null,
+          sessions: filteredSessions,
+          groupId: null,
+          collapsed: false,
+        },
+      ];
+    }
+    if (groupMode === "date") {
+      // Three tiers (today / this week / earlier); pinned conversations
+      // float to the top of their tier. Empty tiers render nothing.
+      const tierOfSession = (session: ExtendedChatSession): ChatDateGroup => {
+        const group = getDateGroup(session.updatedAt ?? session.createdAt);
+        return group === "today" || group === "week" ? group : "older";
+      };
+      const ordered = [
+        ...sortedSessions.filter((session) => session.pinned),
+        ...sortedSessions.filter((session) => !session.pinned),
+      ];
+      return (["today", "week", "older"] as const)
+        .map((tier): ListSection | null => {
+          const sessions = ordered.filter(
+            (session) => tierOfSession(session) === tier,
+          );
+          if (sessions.length === 0) return null;
+          const collapsed = isSessionDragging || collapsedDateGroups.has(tier);
+          return {
+            header: {
+              kind: "dateHeader" as const,
+              dateGroup: tier,
+              label: t(`chat.group.${tier}`),
+              count: sessions.length,
+              collapsed,
+            },
+            sessions,
+            groupId: null,
+            collapsed,
+          };
+        })
+        .filter((section): section is ListSection => section !== null);
+    }
+    if (groupMode === "none") {
+      const ordered = groupChatsByDate(sortedSessions).flatMap(
+        (dateGroup) => dateGroup.sessions,
+      );
+      if (ordered.length === 0) return [];
+      return [
+        {
+          header: null,
+          sessions: ordered,
+          groupId: null,
+          collapsed: false,
+        },
+      ];
     }
     if (!groups) return [];
-    const rows: FlatRow[] = [];
-    for (const group of groups) {
-      const collapsed =
-        isSessionDragging || collapsedGroups.has(group.group.id);
-      rows.push({
-        kind: "groupHeader",
-        group: group.group,
-        count: group.sessions.length,
+    // Source mode lists every group, empty ones included: an empty
+    // group is still a drop target and a place to move conversations.
+    return groups.map(({ group, sessions }) => {
+      const collapsed = isSessionDragging || collapsedGroups.has(group.id);
+      return {
+        header: {
+          kind: "groupHeader" as const,
+          group,
+          count: sessions.length,
+          collapsed,
+        },
+        // Keep the pinned-first, recency-second order the nested date
+        // headers used to provide, without rendering the date rows.
+        sessions: groupChatsByDate(sessions).flatMap(
+          (dateGroup) => dateGroup.sessions,
+        ),
+        groupId: group.id,
         collapsed,
-      });
-      if (!collapsed) {
-        for (const dateGroup of groupChatsByDate(group.sessions)) {
-          rows.push({
-            kind: "dateHeader",
-            groupId: group.group.id,
-            dateGroup: dateGroup.key,
-            label: t(`chat.group.${dateGroup.key}`),
-          });
-          for (const session of dateGroup.sessions) {
-            rows.push({
-              kind: "session",
-              session,
-              groupId: group.group.id,
-            });
-          }
-        }
+      };
+    });
+  }, [
+    collapsedDateGroups,
+    collapsedGroups,
+    filteredSessions,
+    groupMode,
+    groups,
+    isSessionDragging,
+    searchQuery,
+    sortedSessions,
+    t,
+  ]);
+
+  /**
+   * Group that owns the active session, resolved through `groupChats`
+   * so sessions in deleted groups fall back to their source bucket.
+   * Mode-independent: it keeps source-mode collapse defaults stable
+   * while the list is displayed in none mode.
+   */
+  const activeGroupId = useMemo(() => {
+    if (!currentSessionId || !groups) return null;
+    const activeGroup = groups.find(({ sessions }) =>
+      sessions.some(
+        (session) =>
+          session.id === currentSessionId ||
+          session.realId === currentSessionId,
+      ),
+    );
+    return activeGroup?.group.id ?? null;
+  }, [currentSessionId, groups]);
+
+  const defaultCollapsedGroupIds = useMemo(() => {
+    if (!groups) return new Set<string>();
+
+    const expandableGroupIds = new Set(
+      groups
+        .filter(
+          ({ group }) => group.kind !== "cron" && group.kind !== "subagents",
+        )
+        .map(({ group }) => group.id),
+    );
+    const recentGroupIds = new Set<string>();
+    for (const session of sortedSessions) {
+      const groupId = resolveChatGroupId(session);
+      if (!expandableGroupIds.has(groupId)) continue;
+      recentGroupIds.add(groupId);
+      if (recentGroupIds.size === 2) break;
+    }
+    if (activeGroupId) {
+      recentGroupIds.add(activeGroupId);
+    }
+
+    // If there are no conversations yet, keep the first two user groups
+    // discoverable while leaving fixed system groups collapsed.
+    if (recentGroupIds.size === 0) {
+      groups
+        .filter(
+          ({ group }) => group.kind !== "cron" && group.kind !== "subagents",
+        )
+        .slice(0, 2)
+        .forEach(({ group }) => recentGroupIds.add(group.id));
+    }
+
+    return new Set(
+      groups
+        .filter(
+          ({ group }) =>
+            !recentGroupIds.has(group.id) &&
+            (group.kind === "cron" ||
+              group.kind === "subagents" ||
+              !group.pinned),
+        )
+        .map(({ group }) => group.id),
+    );
+  }, [activeGroupId, groups, sortedSessions]);
+
+  useEffect(() => {
+    if (loading) return;
+    initializeCollapsedGroups(defaultCollapsedGroupIds);
+  }, [defaultCollapsedGroupIds, initializeCollapsedGroups, loading]);
+
+  useRevealActiveChatGroup(currentSessionId, sortedSessions, expandGroup);
+
+  // Keep the date section holding the active conversation open.
+  useEffect(() => {
+    if (!currentSessionId) return;
+    const session = sortedSessions.find(
+      (item) =>
+        item.id === currentSessionId || item.realId === currentSessionId,
+    );
+    if (!session) return;
+    const group = getDateGroup(session.updatedAt ?? session.createdAt);
+    const tier = group === "today" || group === "week" ? group : "older";
+    expandDateGroup(tier);
+  }, [currentSessionId, expandDateGroup, sortedSessions]);
+
+  /** Flatten sections into a single array of rows for virtual list */
+  const flatRows = useMemo<FlatRow[]>(() => {
+    const rows: FlatRow[] = [];
+    for (const section of sections) {
+      if (section.header) rows.push(section.header);
+      if (section.collapsed) continue;
+      for (const session of section.sessions) {
+        rows.push({
+          kind: "session",
+          session,
+          groupId: section.groupId ?? resolveChatGroupId(session),
+        });
       }
     }
     return rows;
-  }, [
-    groups,
-    collapsedGroups,
-    isSessionDragging,
-    searchQuery,
-    filteredSessions,
-    t,
-  ]);
+  }, [sections]);
 
   /** Row height calculator for VariableSizeList */
   const getRowHeight = useCallback(
@@ -537,6 +777,7 @@ export default function SidebarSessionList({
   const virtualListData = useMemo(
     () => ({
       flatRows,
+      unseenSessionIds,
       currentSessionId,
       editingSessionId,
       editValue,
@@ -551,6 +792,7 @@ export default function SidebarSessionList({
       handleEditSubmit,
       handleEditCancel,
       toggleGroup,
+      toggleDateGroup,
       groups: visibleChatGroups,
       renameGroup,
       pinGroup,
@@ -559,6 +801,7 @@ export default function SidebarSessionList({
     }),
     [
       flatRows,
+      unseenSessionIds,
       currentSessionId,
       editingSessionId,
       editValue,
@@ -588,50 +831,130 @@ export default function SidebarSessionList({
   }, [flatRows, isSessionDragging, searchQuery, visibleStartIndex]);
 
   return (
-    <div className={styles.sessionList}>
-      {/* Sticky header: new chat + history title + search */}
+    <div
+      className={`${styles.sessionList} ${
+        defaultSearchOpen ? styles.primarySidebar : ""
+      }`}
+    >
+      {/* Sticky history header and compact actions. */}
       <div className={styles.sessionListHeader}>
-        {/* New Chat button */}
-        <button className={styles.newChatBtn} onClick={handleNewChat}>
-          <Plus size={14} />
-          <span>{t("chat.newChatTooltip")}</span>
-        </button>
-
-        {/* Conversation history header (collapsible) */}
-        <button
-          className={styles.historyHeader}
-          onClick={() => setHistoryCollapsed((c) => !c)}
-        >
-          <span className={styles.historyLabel}>
-            {t("chat.conversationHistory", "Conversation History")}
-          </span>
-          <span
-            className={styles.historyChevron}
-            style={{
-              transform: historyCollapsed ? "rotate(-90deg)" : "rotate(0deg)",
-            }}
+        <div className={styles.historyHeaderRow}>
+          <button
+            className={styles.historyHeader}
+            type="button"
+            aria-expanded={!historyCollapsed}
+            onClick={() => setHistoryCollapsed((c) => !c)}
           >
-            <ChevronDown size={12} />
-          </span>
-        </button>
+            <span className={styles.historyLabel}>
+              {t("chat.conversationHistory", "Conversation History")}
+            </span>
+            <span
+              className={styles.historyChevron}
+              style={{
+                transform: historyCollapsed ? "rotate(-90deg)" : "rotate(0deg)",
+              }}
+            >
+              <ChevronDown size={12} />
+            </span>
+          </button>
+          <div className={styles.historyActions}>
+            {!hideNewTask && (
+              <Tooltip title={t("chat.newTask", "New task")}>
+                <button
+                  type="button"
+                  className={styles.historyAction}
+                  aria-label={t("chat.newTask", "New task")}
+                  onClick={handleNewChat}
+                >
+                  <SparkNewChatLine size={18} />
+                </button>
+              </Tooltip>
+            )}
+            {groupMode === "source" && (
+              <button
+                type="button"
+                className={styles.historyAction}
+                data-press
+                aria-label={t("chat.groups.create", "New group")}
+                title={t("chat.groups.create", "New group")}
+                onClick={handleOpenCreateGroup}
+              >
+                <FolderPlus size={16} />
+              </button>
+            )}
+            <button
+              type="button"
+              className={styles.historyAction}
+              data-press
+              data-group-mode={groupMode}
+              aria-label={t(
+                `chat.sessionPanel.${
+                  groupMode === "date"
+                    ? "groupByTime"
+                    : groupMode === "source"
+                    ? "groupBySource"
+                    : "groupByNone"
+                }`,
+                groupMode === "date"
+                  ? "By time"
+                  : groupMode === "source"
+                  ? "By source"
+                  : "No grouping",
+              )}
+              title={t(
+                `chat.sessionPanel.${
+                  groupMode === "date"
+                    ? "groupByTime"
+                    : groupMode === "source"
+                    ? "groupBySource"
+                    : "groupByNone"
+                }`,
+                groupMode === "date"
+                  ? "By time"
+                  : groupMode === "source"
+                  ? "By source"
+                  : "No grouping",
+              )}
+              onClick={() =>
+                handleGroupModeChange(
+                  groupMode === "date"
+                    ? "source"
+                    : groupMode === "source"
+                    ? "none"
+                    : "date",
+                )
+              }
+            >
+              {groupMode === "date" ? (
+                <CalendarDays size={16} />
+              ) : groupMode === "source" ? (
+                <FolderTree size={16} />
+              ) : (
+                <List size={16} />
+              )}
+            </button>
+          </div>
+        </div>
 
-        {/* Search bar */}
         {!historyCollapsed && (
           <div className={styles.searchContainer}>
-            <Input
-              size="small"
-              allowClear
-              placeholder={t(
-                "chat.sessionPanel.searchConversations",
-                "Search…",
-              )}
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className={styles.searchInput}
-            />
-            {creatingGroup ? (
+            {!creatingGroup && (
               <Input
-                autoFocus
+                ref={searchInputRef}
+                size="small"
+                allowClear
+                placeholder={t(
+                  "chat.sessionPanel.searchConversations",
+                  "Search…",
+                )}
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className={styles.searchInput}
+              />
+            )}
+            {creatingGroup && (
+              <Input
+                ref={groupInputRef}
                 size="small"
                 className={styles.groupInput}
                 placeholder={t("chat.groups.namePlaceholder", "Group name")}
@@ -642,14 +965,6 @@ export default function SidebarSessionList({
                   if (!newGroupName.trim()) setCreatingGroup(false);
                 }}
               />
-            ) : (
-              <button
-                className={styles.createGroupBtn}
-                onClick={() => setCreatingGroup(true)}
-              >
-                <FolderPlus size={13} />
-                <span>{t("chat.groups.create", "New group")}</span>
-              </button>
             )}
           </div>
         )}
@@ -668,8 +983,16 @@ export default function SidebarSessionList({
               {t("chat.sessionPanel.noConversations", "No conversations")}
             </div>
           )}
+          {!loading && sortedSessions.length > 0 && flatRows.length === 0 && (
+            <div className={styles.emptyState}>
+              {t(
+                "chat.sessionPanel.noMatchingConversations",
+                "No matching conversations",
+              )}
+            </div>
+          )}
 
-          {sortedSessions.length > 0 && listHeight > 0 && (
+          {flatRows.length > 0 && listHeight > 0 && (
             <SessionGroupDndProvider
               onMove={handleDragMove}
               onDragStateChange={setIsSessionDragging}
@@ -689,7 +1012,6 @@ export default function SidebarSessionList({
                 itemCount={flatRows.length}
                 itemSize={getRowHeight}
                 itemData={virtualListData}
-                className={styles.list}
                 overscanCount={10}
                 onItemsRendered={({ visibleStartIndex: nextIndex }) =>
                   setVisibleStartIndex(nextIndex)

@@ -71,6 +71,10 @@ const createdTabs = new Set();
 const tabMetadata = new Map();
 const commandInflight = new Map();
 const popupEventCounts = new Map();
+// Serialise group assignment per browser session. Without this guard two
+// concurrent tab.create requests can both observe that no group exists and
+// create separate groups for the same session.
+const groupLocks = new Map();
 const MAX_POPUP_EVENTS_PER_SOURCE = 8;
 
 async function persistManagedTabs() {
@@ -448,7 +452,42 @@ async function listTabs(queryInfo) {
   );
 }
 
-async function groupControlTab(tab) {
+async function findSessionGroupId(tab, ownerId, workspaceId) {
+  if (
+    !tab ||
+    tab.windowId === undefined ||
+    !chrome.tabs.query ||
+    !ownerId ||
+    !workspaceId
+  ) {
+    return null;
+  }
+
+  let tabs;
+  try {
+    tabs = await chrome.tabs.query({ windowId: tab.windowId });
+  } catch (error) {
+    return null;
+  }
+  for (const candidate of tabs || []) {
+    if (!candidate || candidate.id === tab.id) {
+      continue;
+    }
+    const metadata = tabMetadata.get(Number(candidate.id));
+    if (
+      metadata &&
+      metadata.ownerId === ownerId &&
+      metadata.workspaceId === workspaceId &&
+      Number.isInteger(candidate.groupId) &&
+      candidate.groupId >= 0
+    ) {
+      return candidate.groupId;
+    }
+  }
+  return null;
+}
+
+async function groupControlTab(tab, ownerId, workspaceId) {
   if (!tab || tab.id === undefined) {
     return tab;
   }
@@ -456,14 +495,40 @@ async function groupControlTab(tab) {
     return tab;
   }
 
+  const lockKey = `${workspaceId}\u0000${ownerId}`;
+  const previous = groupLocks.get(lockKey) || Promise.resolve();
+  let release;
+  const current = new Promise((resolve) => {
+    release = resolve;
+  });
+  groupLocks.set(lockKey, current);
+  await previous;
+
   try {
-    const groupId = await chrome.tabs.group({ tabIds: tab.id });
+    let groupId = await findSessionGroupId(tab, ownerId, workspaceId);
+    if (groupId !== null) {
+      try {
+        await chrome.tabs.group({ tabIds: [tab.id], groupId });
+      } catch (error) {
+        // The previously observed group may have been closed between query
+        // and assignment; fall back to creating a new group below.
+        groupId = null;
+      }
+    }
+    if (groupId === null) {
+      groupId = await chrome.tabs.group({ tabIds: [tab.id] });
+    }
     await chrome.tabGroups.update(groupId, {
       title: CONTROL_TAB_GROUP_TITLE,
       color: CONTROL_TAB_GROUP_COLOR,
     });
   } catch (error) {
     console.warn("Failed to group control tab", error);
+  } finally {
+    release();
+    if (groupLocks.get(lockKey) === current) {
+      groupLocks.delete(lockKey);
+    }
   }
 
   return tab;
@@ -483,16 +548,20 @@ async function createTab(params) {
     active:
       params && params.active !== undefined ? Boolean(params.active) : false,
   });
-  const controlTab = await groupControlTab(tab);
-  if (controlTab && controlTab.id !== undefined) {
-    createdTabs.add(controlTab.id);
-    await storeTabProtocolMetadata(controlTab.id, {
+  if (tab && tab.id !== undefined) {
+    // Register ownership before grouping so a concurrent create request can
+    // discover this tab while waiting on the per-session group lock.
+    await storeTabProtocolMetadata(tab.id, {
       protocolVersion,
       ownerId,
       workspaceId,
       ownershipState: TAB_OWNERSHIP_PENDING_CLAIM,
       createdByQwenPaw: true,
     });
+  }
+  const controlTab = await groupControlTab(tab, ownerId, workspaceId);
+  if (controlTab && controlTab.id !== undefined) {
+    createdTabs.add(controlTab.id);
     await persistManagedTabs();
   }
   return {

@@ -52,6 +52,7 @@ _TASK_PRESENTATION: dict[TaskKind, tuple[str, str]] = {
     TaskKind.R2V_GENERATION: ("timeline_render", "视频生成"),
     TaskKind.AI_EDIT_EXECUTE: ("timeline_edit", "AI 剪辑执行"),
     TaskKind.COMPOSE: ("timeline_render", "视频合成"),
+    TaskKind.SCRIPT_DRAFT: ("creative_strategy", "剧本起草"),
 }
 
 _RUN_PRESENTATION: dict[SpecialistRole, tuple[str, str]] = {

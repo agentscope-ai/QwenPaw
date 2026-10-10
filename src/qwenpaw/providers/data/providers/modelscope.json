@@ -1,0 +1,141 @@
+{
+  "api_urls": [
+    "https://api-inference.modelscope.cn/v1"
+  ],
+  "remote_id": "modelscope",
+  "template_owner": false,
+  "default_model_ids": [
+    "Qwen/Qwen3.5-122B-A10B",
+    "ZhipuAI/GLM-5"
+  ],
+  "models": [
+    {
+      "id": "Qwen/Qwen3.5-122B-A10B",
+      "name": "Qwen3.5-122B-A10B",
+      "supports_image": true,
+      "supports_video": true,
+      "probe_source": "documentation",
+      "is_free": false,
+      "source": "builtin",
+      "availability_status": "unverified",
+      "availability_retryable": true,
+      "config_overrides": [],
+      "max_input_length": 131072,
+      "max_input_length_configured": false,
+      "generate_kwargs": {},
+      "relay_reasoning": true,
+      "billing": "paid",
+      "capability_provenance": {
+        "billing": {
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
+    },
+    {
+      "id": "ZhipuAI/GLM-5",
+      "name": "GLM-5",
+      "supports_image": false,
+      "supports_video": false,
+      "probe_source": "documentation",
+      "is_free": false,
+      "source": "builtin",
+      "availability_status": "unverified",
+      "availability_retryable": true,
+      "config_overrides": [],
+      "max_input_length": 131072,
+      "max_input_length_configured": false,
+      "generate_kwargs": {},
+      "relay_reasoning": true,
+      "billing": "paid",
+      "capability_provenance": {
+        "billing": {
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
+    },
+    {
+      "id": "ZhipuAI/GLM-4.5",
+      "name": "ZhipuAI/GLM-4.5",
+      "max_input_length": 131072,
+      "max_output_length": 98304,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": false,
+      "supports_audio": false,
+      "supports_video": false,
+      "released_at": "2025-07-28"
+    },
+    {
+      "id": "ZhipuAI/GLM-4.6",
+      "name": "ZhipuAI/GLM-4.6",
+      "max_input_length": 202752,
+      "max_output_length": 98304,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": false,
+      "supports_audio": false,
+      "supports_video": false,
+      "released_at": "2025-09-30"
+    },
+    {
+      "id": "Qwen/Qwen3-30B-A3B-Instruct-2507",
+      "name": "Qwen/Qwen3-30B-A3B-Instruct-2507",
+      "max_input_length": 262144,
+      "max_output_length": 16384,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": false,
+      "supports_audio": false,
+      "supports_video": false,
+      "released_at": "2025-07-30"
+    },
+    {
+      "id": "Qwen/Qwen3-Coder-30B-A3B-Instruct",
+      "name": "Qwen/Qwen3-Coder-30B-A3B-Instruct",
+      "max_input_length": 262144,
+      "max_output_length": 65536,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": false,
+      "supports_audio": false,
+      "supports_video": false,
+      "released_at": "2025-07-31"
+    },
+    {
+      "id": "Qwen/Qwen3-235B-A22B-Instruct-2507",
+      "name": "Qwen/Qwen3-235B-A22B-Instruct-2507",
+      "max_input_length": 262144,
+      "max_output_length": 131072,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": false,
+      "supports_audio": false,
+      "supports_video": false,
+      "released_at": "2025-04-28"
+    },
+    {
+      "id": "Qwen/Qwen3-235B-A22B-Thinking-2507",
+      "name": "Qwen/Qwen3-235B-A22B-Thinking-2507",
+      "max_input_length": 262144,
+      "max_output_length": 131072,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": false,
+      "supports_audio": false,
+      "supports_video": false,
+      "released_at": "2025-07-25"
+    },
+    {
+      "id": "Qwen/Qwen3-30B-A3B-Thinking-2507",
+      "name": "Qwen/Qwen3-30B-A3B-Thinking-2507",
+      "max_input_length": 262144,
+      "max_output_length": 32768,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": false,
+      "supports_audio": false,
+      "supports_video": false,
+      "released_at": "2025-07-30"
+    }
+  ]
+}

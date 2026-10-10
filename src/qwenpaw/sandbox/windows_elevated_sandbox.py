@@ -64,6 +64,8 @@ from .windows_unelevated_sandbox import (
     _get_kernel32 as _get_shared_kernel32,
 )
 
+from ._cleanup_logging import cleanup_errors, cleanup_logging
+
 logger = logging.getLogger(__name__)
 
 
@@ -2692,7 +2694,19 @@ def _remove_acl_with_verify_sync_local(  # pylint: disable=unused-argument
     return False
 
 
-def shutdown_cleanup() -> None:
+def shutdown_cleanup(*, log_progress: bool = True) -> None:
+    """Clean sandbox state, optionally silencing the whole cleanup chain."""
+    with (
+        cleanup_logging(log_progress),
+        cleanup_errors(
+            logger,
+            "Unexpected sandbox shutdown failure",
+        ),
+    ):
+        _shutdown_cleanup()
+
+
+def _shutdown_cleanup() -> None:
     """Cleans up elevated sandbox instances owned by this process or orphaned.
 
     Removes ACLs, firewall rules, local user accounts, and profile
@@ -2720,10 +2734,11 @@ def shutdown_cleanup() -> None:
     )
 
     for meta_file, meta in orphaned:
-        username = meta.get("username", "")
-        if username:
-            logger.info("Cleaning sandbox metadata: %s", username)
-            _cleanup_from_metadata(meta, meta_file)
+        with cleanup_errors(logger, "Failed to clean metadata %s", meta_file):
+            username = meta.get("username", "")
+            if username:
+                logger.info("Cleaning sandbox metadata: %s", username)
+                _cleanup_from_metadata(meta, meta_file)
 
     if sb_dir.exists() and not list(sb_dir.glob("*.json")):
         try:
@@ -2925,4 +2940,4 @@ def _cleanup_from_metadata(  # pylint: disable=R0912
     )
 
 
-atexit.register(shutdown_cleanup)
+atexit.register(shutdown_cleanup, log_progress=False)

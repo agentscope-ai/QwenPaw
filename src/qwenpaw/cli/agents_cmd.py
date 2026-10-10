@@ -123,6 +123,11 @@ def _submit_background_task(
             task_timeout=task_timeout,
         )
 
+        error = result.get("error")
+        if error:
+            click.echo(f"ERROR: {error}", err=True)
+            return
+
         task_id = result.get("task_id")
         if not task_id:
             click.echo("ERROR: No task_id returned from server", err=True)

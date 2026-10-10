@@ -1,0 +1,169 @@
+@import (reference) "../../../styles/modelSurfaces.less";
+.section {
+  margin-bottom: 24px;
+  h3 {
+    margin: 0 0 12px;
+    font-size: calc(15px * var(--app-font-scale));
+    font-weight: 600;
+  }
+}
+.row {
+  border-bottom: 1px solid var(--app-border-subtle);
+}
+.heading {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 16px;
+  background: transparent;
+  border: 0;
+  padding: 14px 4px;
+  color: var(--app-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.model {
+  margin-left: auto;
+  color: var(--app-text-secondary);
+  font-size: var(--app-font-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.editor {
+  padding: 8px 0 16px;
+  max-width: 640px;
+}
+.choice {
+  display: flex;
+  gap: 8px;
+  :global(.ant-select),
+  :global(.qwenpaw-select) {
+    flex: 1;
+    min-width: 0;
+  }
+  > button {
+    width: 36px;
+    border: 0;
+    background: transparent;
+    border-radius: 8px;
+    color: var(--app-text-secondary);
+    cursor: pointer;
+    &:hover {
+      background: var(--app-fill);
+    }
+  }
+}
+
+.section {
+  .model-surface-tokens();
+  margin: 16px 0 0;
+  padding: 20px;
+  border: 1px solid var(--model-hairline);
+  border-radius: 20px;
+  background: var(--model-card);
+  max-width: 760px;
+}
+.row {
+  border: 0;
+}
+.heading {
+  padding: 8px 0;
+}
+.editor {
+  max-width: none;
+  padding-bottom: 0;
+}
+@media (max-width: 600px) {
+  .section {
+    margin-inline: 0;
+    padding: 16px;
+  }
+}
+
+.section {
+  max-width: 640px;
+  margin: 24px;
+  padding: 20px;
+}
+.choice {
+  align-items: center;
+}
+.choice > span {
+  font-size: var(--app-font-secondary);
+  flex-shrink: 0;
+}
+.choice > button {
+  width: auto;
+}
+
+.choice > span:has(button) {
+  margin-left: auto;
+  min-width: 0;
+  flex-shrink: 1;
+}
+
+/* Match the settings cards with the quieter interaction language. */
+.section {
+  --reflection-highlight: var(--app-accent-faint);
+  --reflection-silver: transparent;
+  --reflection-edge: var(--app-accent-border);
+  --reflection-shadow: var(--app-border-subtle);
+
+  max-width: 760px;
+  border-color: var(--app-border);
+  border-radius: 16px;
+  background: var(--app-surface);
+  box-shadow: none;
+}
+
+.choice {
+  min-height: 52px;
+  padding: 6px 8px 6px 12px;
+  border: 1px solid var(--app-border-subtle);
+  border-radius: 12px;
+  background: var(--app-surface-subtle);
+  transition:
+    border-color 150ms ease,
+    background-color 150ms ease;
+}
+
+.choice:hover,
+.choice:focus-within {
+  border-color: var(--app-accent-border);
+  background: var(--app-accent-soft);
+}
+
+.choice > span:first-child {
+  color: var(--app-text-secondary);
+  font-weight: 600;
+}
+
+.choice > button {
+  min-width: 36px;
+  min-height: 36px;
+  padding: 0;
+}
+
+@media (max-width: 600px) {
+  .section {
+    margin: 12px;
+    padding: 14px;
+  }
+
+  .choice {
+    align-items: stretch;
+    flex-wrap: wrap;
+  }
+
+  .choice > span:first-child {
+    width: 100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .choice {
+    transition: none;
+  }
+}

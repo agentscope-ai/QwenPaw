@@ -1,0 +1,238 @@
+.page {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.content {
+  width: min(960px, 100%);
+  margin: 0 auto;
+  padding: 28px 32px 48px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.intro,
+.resultHeader {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+
+  h2,
+  h3,
+  p {
+    margin: 0;
+  }
+
+  p {
+    margin-top: 6px;
+    color: var(--color-text-secondary);
+  }
+}
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.sectionHeading {
+  h3,
+  p {
+    margin: 0;
+  }
+
+  p {
+    margin-top: 4px;
+    color: var(--color-text-secondary);
+  }
+}
+
+.sourceGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.sourceCard :global(.ant-card-body),
+.sourceCard :global(.qwenpaw-card-body) {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.row,
+.assetRow {
+  min-height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  border-bottom: 1px solid var(--color-border-secondary);
+}
+
+.assetRow:last-child {
+  border-bottom: 0;
+}
+
+.groups {
+  margin-top: 12px;
+}
+
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.center {
+  min-height: 180px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 12px;
+  color: var(--color-text-secondary);
+}
+
+.logs {
+  max-height: 220px;
+  margin: 0;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 12px;
+}
+
+@media (max-width: 639px) {
+  .content {
+    padding: 20px 16px 32px;
+  }
+
+  .sourceGrid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Page-specific settings refinement. */
+
+.content {
+  padding: 16px 16px 32px;
+  gap: 28px;
+}
+.intro {
+  padding: 20px;
+  border-radius: 20px;
+  background: var(--app-accent-faint);
+  border: 1px solid var(--app-accent-border);
+}
+.intro p,
+.sectionHeading p {
+  max-width: 65ch;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--app-text-secondary);
+}
+.sourceGrid {
+  gap: 16px;
+}
+.sourceCard {
+  border-radius: 20px;
+}
+.sourceCard :global(.ant-card-body),
+.sourceCard :global(.qwenpaw-card-body) {
+  gap: 16px;
+  padding: 20px;
+}
+.assetRow {
+  padding: 10px 0;
+  min-height: 52px;
+}
+.logs {
+  border-radius: 14px;
+  padding: 16px;
+  background: var(--app-fill-faint);
+  border: 1px solid var(--app-border-subtle);
+}
+@media (max-width: 600px) {
+  .content {
+    padding-inline: 0;
+  }
+  .actions {
+    flex-wrap: wrap;
+  }
+  .row,
+  .assetRow {
+    flex-wrap: wrap;
+  }
+}
+
+.sectionHeading h3 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.sourceCard {
+  box-shadow: none;
+}
+.sourceCard:has(input:checked) {
+  border-color: var(--app-accent-border);
+  background: var(--app-accent-faint);
+}
+.actions {
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.route {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 20px;
+  padding: 16px 0;
+  border-block: 1px solid var(--app-border-subtle);
+  > svg {
+    color: var(--app-text-tertiary);
+  }
+}
+.routeSources {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.routeSource {
+  padding: 6px 12px;
+  border: 1px solid var(--app-border-subtle);
+  border-radius: 8px;
+  background: var(--app-surface);
+  color: var(--app-text);
+  font-size: 13px;
+}
+.routeTarget {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  strong {
+    font-size: 14px;
+    font-weight: 600;
+  }
+  span {
+    font-size: 12px;
+    color: var(--app-text-secondary);
+  }
+}
+.routeEmpty {
+  font-size: 13px;
+  color: var(--app-text-secondary);
+}
+@media (max-width: 600px) {
+  .route {
+    gap: 12px;
+  }
+}

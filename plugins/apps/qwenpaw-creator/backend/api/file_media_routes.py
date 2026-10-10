@@ -33,13 +33,20 @@ from services.project_files.assets import AssetFileError, AssetFileStore
 from services.project_files.facade import CreatorFileServices
 from services.project_files.models import IndexedFile
 from services.project_files.remote_cache import resolve_remote_cache
-from services.project_files.store import ProjectNotFound, ProjectStoreError
+from services.project_files.store import (
+    ProjectIntegrityError,
+    ProjectNotFound,
+    ProjectStoreError,
+)
 from services.runtime_files.execution_store import ProjectExecutionStore
+from utils.logger import setup_logger
 from utils.paths import media_path_from_url
 
 from .content_disposition import inline_content_disposition
 from .dependencies import CreatorErrorRoute, project_file_services
 
+
+logger = setup_logger("file_media_routes")
 
 router = APIRouter(tags=["media-files"], route_class=CreatorErrorRoute)
 
@@ -208,11 +215,26 @@ def _version_in_project(
     version_id: str,
     kind: Literal["source", "artifact"],
 ) -> tuple[Path, IndexedFile | None, Any, str] | None:
-    # Only a genuinely missing Project means "no match here"; integrity,
-    # permission and I/O failures must propagate instead of becoming 404.
+    # A genuinely missing Project means "no match here". So does a Project
+    # that cannot even be loaded (corrupt or unmigratable project.json):
+    # it cannot serve the version anyway, and propagating its integrity
+    # error would take media streaming down for every healthy project
+    # (field run 2026-08-25: legacy corrupt projects 500'd all previews).
+    # Integrity failures AFTER a match — broken files behind a matched
+    # version — still propagate below instead of becoming 404.
     try:
         snapshot = services.projects.read(project_id)
     except ProjectNotFound:
+        return None
+    except ProjectIntegrityError as error:
+        # Only corruption counts as "no match here": transient I/O or
+        # permission failures must propagate, or a healthy project's real
+        # fault would masquerade as a 404 and get cached as missing.
+        logger.warning(
+            "media scan: skipping unloadable project %s: %s",
+            project_id,
+            error,
+        )
         return None
     if kind == "source":
         version: Any = snapshot.project.assets.source_versions_by_id.get(

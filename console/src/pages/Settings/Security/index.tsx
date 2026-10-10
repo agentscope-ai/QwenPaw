@@ -1,3 +1,4 @@
+import InlineHelp from "@/components/InlineHelp";
 import { Button, Tabs } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
 import { useSecurityPage } from "./useSecurityPage";
@@ -25,10 +26,14 @@ function SecurityPage() {
     sandboxEnabled,
     setSandboxEnabled,
     sandboxReason,
+    denyPathsActive,
+    denyPathsLoading,
+    denyPathsProtectedPaths,
+    denyPathsPlatformSupported,
+    toggleDenyPaths,
     toolOptions,
-    saving,
-    handleSave,
-    handleReset,
+    scheduleSave,
+    flushSave,
     mergedRules,
     builtinRules,
     customRules,
@@ -82,16 +87,37 @@ function SecurityPage() {
 
   return (
     <div className={styles.securityPage}>
-      <PageHeader
-        parent={t("security.parent")}
-        current={t("security.security")}
-      />
+      <PageHeader current={t("security.security")} />
 
       <div className={styles.content}>
         <Tabs
           className={styles.mainTabs}
           activeKey={activeTab}
-          onChange={setActiveTab}
+          tabBarExtraContent={
+            activeTab !== "allowNoAuthHosts" ? (
+              <InlineHelp
+                subject={t(
+                  activeTab === "toolGuard"
+                    ? "security.toolGuardTitle"
+                    : `security.${activeTab}.title`,
+                )}
+              >
+                {t(
+                  activeTab === "toolGuard"
+                    ? "security.toolGuardDescription"
+                    : `security.${activeTab}.description`,
+                )}
+              </InlineHelp>
+            ) : undefined
+          }
+          onChange={(value) => {
+            void (activeTab === "toolGuard"
+              ? flushSave()
+              : activeTab === "fileGuard"
+              ? fileGuardHandlers?.save()
+              : allowNoAuthHostsHandlers?.save());
+            setActiveTab(value);
+          }}
           items={[
             {
               key: "toolGuard",
@@ -102,6 +128,7 @@ function SecurityPage() {
               ),
               children: (
                 <ToolGuardTab
+                  onValuesChange={scheduleSave}
                   form={form}
                   config={config}
                   enabled={enabled}
@@ -132,10 +159,16 @@ function SecurityPage() {
               children: (
                 <div className={styles.tabContent}>
                   <div className={styles.sectionFileGuardContainer}>
-                    <p className={styles.tabDescription}>
-                      {t("security.fileGuard.description")}
-                    </p>
-                    <FileGuardSection onSave={onFileGuardHandlersReady} />
+                    <FileGuardSection
+                      onSave={onFileGuardHandlersReady}
+                      denyPathsActive={denyPathsActive}
+                      denyPathsLoading={denyPathsLoading}
+                      denyPathsProtectedPaths={denyPathsProtectedPaths}
+                      denyPathsPlatformSupported={denyPathsPlatformSupported}
+                      sandboxEnabled={sandboxEnabled}
+                      sandboxReason={sandboxReason}
+                      toggleDenyPaths={toggleDenyPaths}
+                    />
                   </div>
                 </div>
               ),
@@ -150,9 +183,6 @@ function SecurityPage() {
               children: (
                 <div className={styles.tabContent}>
                   <div className={styles.sectionSkillScannerContainer}>
-                    <p className={styles.tabDescription}>
-                      {t("security.skillScanner.description")}
-                    </p>
                     <SkillScannerSection />
                   </div>
                 </div>
@@ -172,59 +202,6 @@ function SecurityPage() {
           ]}
         />
       </div>
-
-      {activeTab === "toolGuard" && (
-        <div className={styles.footerButtons}>
-          <Button
-            onClick={handleReset}
-            disabled={saving}
-            style={{ marginRight: 8 }}
-          >
-            {t("common.reset")}
-          </Button>
-          <Button type="primary" onClick={handleSave} loading={saving}>
-            {t("common.save")}
-          </Button>
-        </div>
-      )}
-
-      {activeTab === "fileGuard" && fileGuardHandlers && (
-        <div className={styles.footerButtons}>
-          <Button
-            onClick={fileGuardHandlers.reset}
-            disabled={fileGuardHandlers.saving}
-            style={{ marginRight: 8 }}
-          >
-            {t("common.reset")}
-          </Button>
-          <Button
-            type="primary"
-            onClick={fileGuardHandlers.save}
-            loading={fileGuardHandlers.saving}
-          >
-            {t("common.save")}
-          </Button>
-        </div>
-      )}
-
-      {activeTab === "allowNoAuthHosts" && allowNoAuthHostsHandlers && (
-        <div className={styles.footerButtons}>
-          <Button
-            onClick={allowNoAuthHostsHandlers.reset}
-            disabled={allowNoAuthHostsHandlers.saving}
-            style={{ marginRight: 8 }}
-          >
-            {t("common.reset")}
-          </Button>
-          <Button
-            type="primary"
-            onClick={allowNoAuthHostsHandlers.save}
-            loading={allowNoAuthHostsHandlers.saving}
-          >
-            {t("common.save")}
-          </Button>
-        </div>
-      )}
 
       <RuleModal
         open={editModal}

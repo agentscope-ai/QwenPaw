@@ -7,12 +7,12 @@
  */
 import { useCallback, useEffect, useState } from "react";
 import { Button, Spin } from "antd";
-import { PlusOutlined } from "@ant-design/icons";
+import { Plus as PlusOutlined } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import api, { agentsApi } from "@/api";
 import { PageHeader } from "@/components/PageHeader";
 import { useAppMessage } from "@/hooks/useAppMessage";
-import type { BackupMeta } from "@/api/types/backup";
+import type { BackupJobSnapshot, BackupMeta } from "@/api/types/backup";
 import type { AgentSummary } from "@/api/types/agents";
 
 import BackupTable from "./list/BackupTable";
@@ -36,17 +36,21 @@ export default function BackupsPage() {
   const [agents, setAgents] = useState<AgentSummary[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [createOpen, setCreateOpen] = useState(false);
+  const [resumeJob, setResumeJob] = useState<BackupJobSnapshot | null>(null);
 
   /** Fetches backups and agents in parallel; both are needed before rendering the table. */
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const [backupRes, agentRes] = await Promise.all([
+      const [backupRes, agentRes, activeJob] = await Promise.all([
         api.listBackups(),
         agentsApi.listAgents(),
+        api.getActiveBackupJob(),
       ]);
       setBackups(backupRes);
       setAgents(agentRes.agents);
+      setResumeJob(activeJob);
+      if (activeJob) setCreateOpen(true);
     } catch {
       message.error(t("backup.loadFailed"));
     } finally {
@@ -75,15 +79,17 @@ export default function BackupsPage() {
     <div className={styles.page}>
       <PageHeader
         className={styles.pageHeader}
-        parent={t("nav.settings")}
         current={t("backup.title")}
         extra={
           <div className={styles.headerRight}>
             <ImportButton onPick={importFlow.handleImport} />
             <Button
               type="primary"
-              icon={<PlusOutlined />}
-              onClick={() => setCreateOpen(true)}
+              icon={<PlusOutlined size="1em" />}
+              onClick={() => {
+                setResumeJob(null);
+                setCreateOpen(true);
+              }}
             >
               {t("backup.create")}
             </Button>
@@ -123,7 +129,11 @@ export default function BackupsPage() {
       <CreateBackupModal
         open={createOpen}
         agents={agents}
-        onClose={() => setCreateOpen(false)}
+        resumeJob={resumeJob}
+        onClose={() => {
+          setCreateOpen(false);
+          setResumeJob(null);
+        }}
         onSuccess={fetchData}
       />
 

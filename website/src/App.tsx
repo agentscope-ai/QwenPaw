@@ -14,6 +14,7 @@ const Blog = lazy(() => import("@/pages/Blog"));
 const BlogPost = lazy(() => import("@/pages/Blog/Post"));
 const ReleaseNotes = lazy(() => import("@/pages/ReleaseNotes"));
 const Downloads = lazy(() => import("@/pages/Downloads"));
+const UsagePolicy = lazy(() => import("@/pages/UsagePolicy"));
 
 /**
  * Initial loading fallback component
@@ -75,6 +76,7 @@ export default function App() {
         <Route element={<SiteLayout showFooter />}>
           <Route path="/" element={<Home />} />
           <Route path="/downloads" element={<Downloads />} />
+          <Route path="/usage-policy" element={<UsagePolicy />} />
           <Route path="/blog" element={<Blog />} />
           <Route path="/blog/:slug" element={<BlogPost />} />
         </Route>

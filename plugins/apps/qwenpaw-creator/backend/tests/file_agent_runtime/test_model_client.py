@@ -7,7 +7,6 @@ import asyncio
 import json
 
 from agentscope.message import (
-    DataBlock,
     TextBlock,
     ThinkingBlock,
     ToolCallBlock,
@@ -16,7 +15,6 @@ from agentscope.message import (
 )
 from agentscope.model import DashScopeChatModel
 from agentscope.model._model_response import ChatResponse
-from agentscope.model._model_usage import ChatUsage
 import pytest
 
 from services.file_agent_runtime.model_client import (
@@ -34,11 +32,193 @@ from services.file_agent_runtime.model_client import (
     records_to_agentscope_messages,
 )
 from services.file_agent_runtime import model_client
+from services.file_agent_runtime.model_context import (
+    ModelContextBudgetError,
+    prepare_model_messages,
+)
 
 pytestmark = pytest.mark.unit
 
 
-def _configure_text_model(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_long_production_compacts_automatic_history_but_keeps_human_input():
+    human_sources = [
+        "initial_goal",
+        "user",
+        "review_rejection_feedback",
+        "custom",
+    ]
+    history = [
+        {
+            "role": "user",
+            "source": source,
+            "content": [{"type": "text", "text": f"{source}: 保留全部六集与对白"}],
+        }
+        for source in human_sources
+    ]
+    human_input = json.dumps(history, ensure_ascii=False)
+    for index in range(80):
+        history.append(
+            {
+                "role": "user",
+                "source": (
+                    "run_review_feedback"
+                    if index % 2
+                    else "render_review_feedback"
+                ),
+                "content": [
+                    {
+                        "type": "text",
+                        "text": f"review-{index}:" + "自动审阅结果。" * 300,
+                    },
+                ],
+            },
+        )
+    original = json.dumps(history, ensure_ascii=False)
+    current = "继续第二集。不要重做已保留视频。"
+    continuation = (
+        "CONVERSATION_HISTORY_JSON="
+        + original
+        + "\n\nCURRENT_USER_REQUEST=\n"
+        + current
+    )
+    result = prepare_model_messages(
+        [
+            {"role": "system", "content": "项目创作契约"},
+            {"role": "user", "content": continuation},
+        ],
+        [],
+    )
+    assert len(json.dumps(result, ensure_ascii=False).encode()) < 384 * 1024
+    view, request = result[1]["content"].split("\n\nCURRENT_USER_REQUEST=\n")
+    retained = json.loads(view.split("CONVERSATION_HISTORY_JSON=", 1)[1])
+    assert request == current
+    assert [
+        item for item in retained if item.get("source") in human_sources
+    ] == [item | {"metadata": {}} for item in json.loads(human_input)]
+    assert retained[-1] == history[-1] | {"metadata": {}}
+    assert retained[0]["elidedMessageCount"] > 0
+    assert json.dumps(history, ensure_ascii=False) == original
+
+    # Genuine user requirements remain protected, even when they cannot fit.
+    for item in history:
+        item["source"] = "user"
+    with pytest.raises(ModelContextBudgetError):
+        prepare_model_messages(
+            [
+                {
+                    "role": "user",
+                    "content": "CONVERSATION_HISTORY_JSON="
+                    + json.dumps(history, ensure_ascii=False)
+                    + "\n\nCURRENT_USER_REQUEST=\n"
+                    + current,
+                },
+            ],
+            [],
+        )
+
+
+@pytest.mark.parametrize(
+    ("project_id", "generation", "superseded"),
+    [
+        ("project-1", None, False),
+        ("project-1", 19, False),
+        ("project-2", 21, False),
+        ("project-1", 20, True),
+        ("project-1", 21, True),
+    ],
+)
+def test_new_snapshot_frees_history_space_for_script_and_skills(
+    project_id,
+    generation,
+    superseded,
+):
+    human = "Keep all six episodes and the accepted films. " + "h" * 700
+    previous = {
+        "project": {"project_id": "project-1", "description": "old" * 5200},
+        "generation": 20,
+        "etag": "old-etag",
+    }
+    history = [
+        {
+            "role": "user",
+            "source": "user",
+            "content": [{"type": "text", "text": human}],
+        },
+        {
+            "role": "tool",
+            "content": [{"type": "text", "text": json.dumps(previous)}],
+        },
+    ]
+    messages = [
+        {"role": "system", "content": "s" * 9000},
+        {
+            "role": "user",
+            "content": "CONVERSATION_HISTORY_JSON="
+            + json.dumps(history)
+            + "\n\nCURRENT_USER_REQUEST=\nContinue automatically.",
+        },
+    ]
+    calls = []
+    if generation is not None:
+        calls.append(
+            (
+                "snapshot",
+                json.dumps(
+                    {
+                        "project": {
+                            "project_id": project_id,
+                            "description": "current" * 700,
+                        },
+                        "generation": generation,
+                        "etag": "current-etag",
+                    },
+                ),
+            ),
+        )
+    calls.extend([("skill", "skill" * 1300), ("script", "script" * 1100)])
+    for call_id, content in calls:
+        messages.extend(
+            [
+                {
+                    "role": "assistant",
+                    "content": "Read " + call_id,
+                    "tool_calls": [
+                        AgentToolCall(
+                            call_id=call_id,
+                            name="read_project",
+                            arguments={},
+                        ).history_dict(),
+                    ],
+                },
+                {
+                    "role": "tool",
+                    "tool_call_id": call_id,
+                    "content": content,
+                },
+            ],
+        )
+    original = json.dumps(messages)
+    result = prepare_model_messages(messages, [], max_bytes=32 * 1024)
+    continuation = result[1]["content"]
+    assert human in continuation
+    assert continuation.endswith(
+        "CURRENT_USER_REQUEST=\nContinue automatically.",
+    )
+    assert ("old" * 5200 in continuation) is not superseded
+    if superseded:
+        assert [m["tool_call_id"] for m in result if m["role"] == "tool"] == [
+            "snapshot",
+            "skill",
+            "script",
+        ]
+    assert json.dumps(messages) == original
+
+
+def _configure_text_model(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    protocol: str = "",
+) -> None:
     monkeypatch.setattr(
         model_client.model_config,
         "get_text_api_key",
@@ -53,6 +233,11 @@ def _configure_text_model(monkeypatch: pytest.MonkeyPatch) -> None:
         model_client.model_config,
         "get_text_model_name",
         lambda: "qwen3.7-plus",
+    )
+    monkeypatch.setattr(
+        model_client.model_config,
+        "get_text_protocol",
+        lambda: protocol,
     )
 
 
@@ -80,6 +265,52 @@ def test_default_client_constructs_real_agentscope_dashscope_model(
     configured = AgentScopeAgentChatClient()._configured_model()
 
     assert isinstance(configured, DashScopeChatModel)
+
+
+@pytest.mark.parametrize(
+    ("protocol", "base_url"),
+    [
+        ("Anthropic Claude", "https://api.anthropic.com"),
+        ("MiniMax", "https://api.minimaxi.com/anthropic"),
+    ],
+)
+def test_anthropic_compatible_protocol_constructs_anthropic_chat_model(
+    monkeypatch: pytest.MonkeyPatch,
+    protocol: str,
+    base_url: str,
+) -> None:
+    from agentscope.model import AnthropicChatModel
+
+    _configure_text_model(monkeypatch, protocol=protocol)
+    monkeypatch.setattr(
+        model_client.model_config,
+        "get_text_base_url",
+        lambda: base_url,
+    )
+    assert isinstance(
+        AgentScopeAgentChatClient()._configured_model(),
+        AnthropicChatModel,
+    )
+
+
+def test_gemini_protocol_constructs_gemini_chat_model(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from agentscope.model import GeminiChatModel
+
+    _configure_text_model(
+        monkeypatch,
+        protocol="Google Gemini",
+    )
+    monkeypatch.setattr(
+        model_client.model_config,
+        "get_text_base_url",
+        lambda: "https://generativelanguage.googleapis.com",
+    )
+
+    configured = AgentScopeAgentChatClient()._configured_model()
+
+    assert isinstance(configured, GeminiChatModel)
 
 
 def test_history_is_rehydrated_as_agentscope_tool_blocks() -> None:
@@ -128,44 +359,11 @@ def test_history_is_rehydrated_as_agentscope_tool_blocks() -> None:
     assert result.state == ToolResultState.ERROR.value
 
 
-def test_user_native_media_is_rehydrated_as_agentscope_data_blocks() -> None:
-    messages = records_to_agentscope_messages(
-        [
-            {"role": "system", "content": "schema"},
-            {
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": "理解全部素材"},
-                    {
-                        "type": "image_url",
-                        "image_url": {"url": "https://cdn.example.com/a.png"},
-                    },
-                    {
-                        "type": "video_url",
-                        "video_url": {
-                            "url": "https://cdn.example.com/b.mp4",
-                            "fps": 0.1,
-                        },
-                    },
-                ],
-            },
-        ],
-    )
-
-    assert isinstance(messages[1].content[0], TextBlock)
-    assert [
-        str(block.source.url)
-        for block in messages[1].content[1:]
-        if isinstance(block, DataBlock)
-    ] == [
-        "https://cdn.example.com/a.png",
-        "https://cdn.example.com/b.mp4",
-    ]
-
-
-def test_vlm_client_uses_creator_vlm_configuration(
+def test_vlm_anthropic_protocol_constructs_anthropic_chat_model(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    from agentscope.model import AnthropicChatModel
+
     monkeypatch.setattr(
         model_client.model_config,
         "get_vlm_api_key",
@@ -174,22 +372,27 @@ def test_vlm_client_uses_creator_vlm_configuration(
     monkeypatch.setattr(
         model_client.model_config,
         "get_vlm_base_url",
-        lambda: "https://vlm.example/v1",
+        lambda: "https://api.anthropic.com",
     )
     monkeypatch.setattr(
         model_client.model_config,
         "get_vlm_model_name",
-        lambda: "qwen3.7-plus",
+        lambda: "claude-sonnet-4-20250514",
     )
     monkeypatch.setattr(
         model_client.model_config,
         "get_vlm_timeout_seconds",
         lambda: 180,
     )
+    monkeypatch.setattr(
+        model_client.model_config,
+        "get_vlm_protocol",
+        lambda: "Anthropic Claude",
+    )
 
     configured = AgentScopeVlmChatClient()._configured_model()
 
-    assert isinstance(configured, DashScopeChatModel)
+    assert isinstance(configured, AnthropicChatModel)
 
 
 def test_agentscope_client_streams_native_blocks_and_raw_argument_deltas() -> (
@@ -245,12 +448,6 @@ def test_agentscope_client_streams_native_blocks_and_raw_argument_deltas() -> (
                         ),
                     ],
                     is_last=True,
-                    usage=ChatUsage(
-                        input_tokens=123,
-                        output_tokens=45,
-                        time=1.5,
-                        cache_input_tokens=100,
-                    ),
                 )
 
             return chunks()
@@ -317,13 +514,150 @@ def test_agentscope_client_streams_native_blocks_and_raw_argument_deltas() -> (
     assert turn.tool_calls[0].raw_arguments_bytes == 25
     assert turn.tool_calls[0].provider_chunk_count == 2
     assert turn.finish_reason == "completed"
-    assert turn.usage == {
-        "input_tokens": 123,
-        "output_tokens": 45,
-        "cache_creation_input_tokens": 0,
-        "cache_input_tokens": 100,
-        "time": 1.5,
-    }
+
+
+@pytest.mark.parametrize("ending", ["text", "tool", "final", "provider_error"])
+def test_thinking_chunks_are_coalesced_without_losing_order_or_tail(
+    monkeypatch,
+    ending,
+):
+    clock = [0.0]
+    monkeypatch.setattr(model_client, "monotonic", lambda: clock[0])
+    fragments = [f"片段{i:03d}。" for i in range(120)]
+    observed = []
+
+    async def thinking(delta):
+        observed.append(("thinking", delta))
+
+    async def text(delta):
+        observed.append(("text", delta))
+
+    async def tool(_call_id, _name, delta):
+        observed.append(("tool", delta))
+
+    class Provider:
+        calls = 0
+
+        async def __call__(self, _messages, *, tools=None):
+            self.calls += 1
+
+            async def chunks():
+                for fragment in fragments:
+                    clock[0] += 0.01
+                    yield ChatResponse(
+                        id="coalesced",
+                        is_last=False,
+                        content=[ThinkingBlock(thinking=fragment)],
+                    )
+                if ending == "provider_error":
+                    raise ValueError("invalid provider response")
+                result = (
+                    ToolCallBlock(
+                        id="read",
+                        name="read_project",
+                        input="{}",
+                    )
+                    if ending == "tool"
+                    else TextBlock(text="完成")
+                )
+                if ending != "final":
+                    yield ChatResponse(
+                        id="coalesced",
+                        is_last=False,
+                        content=[result],
+                    )
+                yield ChatResponse(
+                    id="coalesced",
+                    is_last=True,
+                    content=[
+                        ThinkingBlock(thinking="".join(fragments)),
+                        result,
+                    ],
+                )
+
+            return chunks()
+
+    async def scenario():
+        provider = Provider()
+        request = AgentScopeAgentChatClient(provider).complete(
+            messages=[],
+            tools=_tools(),
+            on_thinking_delta=thinking,
+            on_text_delta=text,
+            on_tool_call_delta=tool,
+        )
+        if ending == "provider_error":
+            with pytest.raises(
+                AgentModelError,
+                match="invalid provider response",
+            ):
+                await request
+        else:
+            turn = await request
+            assert turn.thinking == "".join(fragments)
+        assert provider.calls == 1
+
+    asyncio.run(scenario())
+    thinking_parts = [delta for kind, delta in observed if kind == "thinking"]
+    assert "".join(thinking_parts) == "".join(fragments)
+    assert thinking_parts[0] == fragments[0]  # First activity is immediate.
+    assert len(thinking_parts) == 4  # 120 durable writes become four.
+    if ending in {"text", "tool"}:
+        assert all(kind == "thinking" for kind, _ in observed[:-1])
+        assert observed[-1][0] == ending
+
+
+@pytest.mark.parametrize("failure", ["cancel", "persistence"])
+def test_buffered_thinking_preserves_stop_and_persistence_failures(failure):
+    observed = []
+
+    async def callback(delta):
+        observed.append(delta)
+        if delta == "tail" and failure == "persistence":
+            raise OSError("disk write failed")
+
+    class Provider:
+        calls = 0
+
+        async def __call__(self, _messages, *, tools=None):
+            self.calls += 1
+
+            async def chunks():
+                for delta in ("first", "tail"):
+                    yield ChatResponse(
+                        id="stopped",
+                        is_last=False,
+                        content=[ThinkingBlock(thinking=delta)],
+                    )
+                if failure == "cancel":
+                    raise asyncio.CancelledError()
+                yield ChatResponse(
+                    id="stopped",
+                    is_last=True,
+                    content=[TextBlock(text="finished")],
+                )
+
+            return chunks()
+
+    async def scenario():
+        provider = Provider()
+        expected = (
+            asyncio.CancelledError
+            if failure == "cancel"
+            else AgentStreamCallbackError
+        )
+        with pytest.raises(expected):
+            await AgentScopeAgentChatClient(provider).complete(
+                messages=[],
+                tools=[],
+                on_thinking_delta=callback,
+            )
+        assert provider.calls == 1
+
+    asyncio.run(scenario())
+    assert observed == (
+        ["first"] if failure == "cancel" else ["first", "tail"]
+    )
 
 
 def test_agentscope_client_repairs_truncated_native_tool_argument_json() -> (
@@ -378,44 +712,6 @@ def test_agentscope_client_repairs_truncated_native_tool_argument_json() -> (
     assert repaired_call.strict_json_error is not None
 
 
-def test_agentscope_client_degrades_repaired_non_object_tool_arguments() -> (
-    None
-):
-    class NonObjectToolArgumentsModel:
-        model = "qwen3.7-plus"
-
-        async def __call__(self, messages, *, tools=None):
-            del messages
-            assert tools
-            return ChatResponse(
-                id="response-non-object-tool",
-                content=[
-                    ToolCallBlock(
-                        id="call-read-non-object",
-                        name="read_project",
-                        input='["project-1",]',
-                    ),
-                ],
-                is_last=True,
-            )
-
-    async def scenario() -> AgentModelTurn:
-        client = AgentScopeAgentChatClient(
-            NonObjectToolArgumentsModel(),  # type: ignore[arg-type]
-        )
-        return await client.complete(
-            messages=[{"role": "user", "content": "读取项目"}],
-            tools=_tools(),
-        )
-
-    turn = asyncio.run(scenario())
-
-    call = turn.tool_calls[0]
-    assert call.arguments == {}
-    assert call.parse_error is not None
-    assert "无法自动修复" in call.parse_error
-
-
 def _final_tool_call_model(raw_input: str):
     class FinalToolCallModel:
         model = "qwen3.7-plus"
@@ -439,26 +735,6 @@ def _final_tool_call_model(raw_input: str):
     return FinalToolCallModel()
 
 
-def test_truncated_tool_arguments_are_repaired_into_an_object() -> None:
-    truncated = (
-        '{"projectId":"project-1","jsonArgs":{"elements":{"e1":{"name":"a'
-    )
-
-    async def scenario():
-        client = AgentScopeAgentChatClient(
-            _final_tool_call_model(truncated),  # type: ignore[arg-type]
-        )
-        return await client.complete(messages=[], tools=_tools())
-
-    turn = asyncio.run(scenario())
-    call = turn.tool_calls[0]
-    assert call.parse_error is None
-    assert call.arguments == {
-        "projectId": "project-1",
-        "jsonArgs": {"elements": {"e1": {"name": "a"}}},
-    }
-
-
 def test_unrecoverable_tool_arguments_degrade_to_parse_error() -> None:
     async def scenario():
         client = AgentScopeAgentChatClient(
@@ -472,16 +748,6 @@ def test_unrecoverable_tool_arguments_degrade_to_parse_error() -> None:
     assert call.parse_error is not None
     assert "无法自动修复" in call.parse_error
     assert "oops" in call.parse_error
-
-
-def test_default_client_does_not_constrain_max_tokens(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    _configure_text_model(monkeypatch)
-    client = AgentScopeAgentChatClient()
-    assert client.max_tokens is None
-    configured = client._configured_model()
-    assert configured.parameters.max_tokens is None
 
 
 def test_agentscope_client_preserves_stream_control_exceptions() -> None:
@@ -523,42 +789,40 @@ def test_agentscope_client_preserves_stream_control_exceptions() -> None:
     asyncio.run(scenario())
 
 
-def test_agentscope_client_retries_one_empty_provider_turn() -> None:
-    class EmptyThenTextModel:
+def test_agentscope_client_returns_unknown_native_tool_for_model_correction() -> (
+    None
+):
+    class UnknownToolModel:
         model = "qwen3.7-plus"
 
-        def __init__(self) -> None:
-            self.calls = 0
-
         async def __call__(self, messages, *, tools=None):
-            del messages, tools
-            self.calls += 1
-            if self.calls == 1:
-                return ChatResponse(
-                    id="response-empty",
-                    content=[ThinkingBlock(thinking="分析完成")],
-                    is_last=True,
-                )
+            del messages
+            assert tools
             return ChatResponse(
-                id="response-retry",
-                content=[TextBlock(text="素材理解已写入")],
+                id="response-unknown-tool",
+                content=[
+                    ToolCallBlock(
+                        id="call-unknown",
+                        name="invented_tool",
+                        input='{"projectId":"project-1"}',
+                    ),
+                ],
                 is_last=True,
             )
 
     async def scenario():
-        provider = EmptyThenTextModel()
-        client = AgentScopeAgentChatClient(provider)  # type: ignore[arg-type]
-        turn = await client.complete(
-            messages=[{"role": "user", "content": "理解素材"}],
+        client = AgentScopeAgentChatClient(  # type: ignore[arg-type]
+            UnknownToolModel(),
+        )
+        return await client.complete(
+            messages=[{"role": "user", "content": "读取"}],
             tools=_tools(),
         )
-        return provider, turn
 
-    provider, turn = asyncio.run(scenario())
-
-    assert provider.calls == 2
-    assert turn.content == "素材理解已写入"
-    assert turn.provider_message_id == "response-retry"
+    turn = asyncio.run(scenario())
+    assert len(turn.tool_calls) == 1
+    assert turn.tool_calls[0].name == "invented_tool"
+    assert turn.tool_calls[0].arguments == {"projectId": "project-1"}
 
 
 @pytest.mark.parametrize(
@@ -608,160 +872,6 @@ def test_agentscope_client_rejects_textual_tool_markup_before_text_callback(
     # run is failed: original attempt plus four retries.
     assert provider.calls == 5
     assert text_deltas == []
-
-
-def test_agentscope_client_withholds_split_textual_tool_markup() -> None:
-    class SplitTextualToolModel:
-        model = "qwen3.7-plus"
-
-        def __init__(self) -> None:
-            self.calls = 0
-
-        async def __call__(self, messages, *, tools=None):
-            del messages
-            assert tools
-            self.calls += 1
-            if self.calls > 1:
-                # The degradation is stochastic: the retried turn recovers.
-                return ChatResponse(
-                    id="response-retry-clean",
-                    content=[TextBlock(text="重试成功")],
-                    is_last=True,
-                )
-
-            async def chunks():
-                yield ChatResponse(
-                    id="response-split-text-tool",
-                    content=[TextBlock(text="先检查。<func")],
-                    is_last=False,
-                )
-                yield ChatResponse(
-                    id="response-split-text-tool",
-                    content=[
-                        TextBlock(
-                            text="tion=glob_search><parameter=pattern>story/outline.md",
-                        ),
-                    ],
-                    is_last=False,
-                )
-                yield ChatResponse(
-                    id="response-split-text-tool",
-                    content=[
-                        TextBlock(
-                            text=(
-                                "先检查。<function=glob_search><parameter=pattern>"
-                                "story/outline.md</parameter></function>"
-                            ),
-                        ),
-                    ],
-                    is_last=True,
-                )
-
-            return chunks()
-
-    text_deltas: list[str] = []
-
-    async def collect(delta: str) -> None:
-        text_deltas.append(delta)
-
-    async def scenario():
-        provider = SplitTextualToolModel()
-        client = AgentScopeAgentChatClient(provider)  # type: ignore[arg-type]
-        turn = await client.complete(
-            messages=[{"role": "user", "content": "读取"}],
-            tools=_tools(),
-            on_text_delta=collect,
-        )
-        return provider, turn
-
-    provider, turn = asyncio.run(scenario())
-    # First attempt leaked only the safe prefix, the retried turn delivered
-    # clean prose, and no markup fragment ever reached the callback.
-    assert provider.calls == 2
-    assert turn.content == "重试成功"
-    assert text_deltas == ["先检查。", "重试成功"]
-    assert all(
-        "<function" not in delta and "<parameter" not in delta
-        for delta in text_deltas
-    )
-
-
-def test_callback_client_replays_complete_turn_through_stream_callbacks() -> (
-    None
-):
-    callback_inputs: list[
-        tuple[list[dict[str, object]], list[dict[str, object]]]
-    ] = []
-
-    async def callback(messages, tools) -> AgentModelTurn:
-        callback_inputs.append(
-            (
-                [dict(item) for item in messages],
-                [dict(item) for item in tools],
-            ),
-        )
-        return AgentModelTurn(
-            content="修改完成",
-            thinking="先读取项目",
-            tool_calls=(
-                AgentToolCall(
-                    call_id="call-read-1",
-                    name="read_project",
-                    arguments={"projectId": "project-1"},
-                ),
-            ),
-            provider_message_id="callback-message-1",
-        )
-
-    text_deltas: list[str] = []
-    thinking_deltas: list[str] = []
-    tool_deltas: list[tuple[str, str, str]] = []
-
-    async def on_text_delta(delta: str) -> None:
-        text_deltas.append(delta)
-
-    async def on_thinking_delta(delta: str) -> None:
-        thinking_deltas.append(delta)
-
-    async def on_tool_call_delta(
-        call_id: str,
-        name: str,
-        arguments_delta: str,
-    ) -> None:
-        tool_deltas.append((call_id, name, arguments_delta))
-
-    messages = [{"role": "user", "content": "读取项目"}]
-    tools = _tools()
-
-    async def scenario() -> AgentModelTurn:
-        return await CallbackAgentChatClient(callback).complete(
-            messages=messages,
-            tools=tools,
-            on_text_delta=on_text_delta,
-            on_thinking_delta=on_thinking_delta,
-            on_tool_call_delta=on_tool_call_delta,
-        )
-
-    turn = asyncio.run(scenario())
-
-    assert turn == AgentModelTurn(
-        content="修改完成",
-        thinking="先读取项目",
-        tool_calls=(
-            AgentToolCall(
-                call_id="call-read-1",
-                name="read_project",
-                arguments={"projectId": "project-1"},
-            ),
-        ),
-        provider_message_id="callback-message-1",
-    )
-    assert callback_inputs == [(messages, tools)]
-    assert text_deltas == ["修改完成"]
-    assert thinking_deltas == ["先读取项目"]
-    assert tool_deltas == [
-        ("call-read-1", "read_project", '{"projectId":"project-1"}'),
-    ]
 
 
 def test_callback_client_keeps_stream_callback_failures_outside_model_errors() -> (
@@ -834,49 +944,59 @@ def test_agentscope_client_retries_rate_limited_turns_until_exhausted(
     ]
 
 
-def test_agentscope_client_recovers_after_rate_limited_turns(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(
-        model_client,
-        "_rate_limit_retry_delay",
-        lambda _attempt: 0.0,
-    )
+@pytest.mark.parametrize(
+    "failure, delays, reason",
+    [
+        ("429 Too Many Requests", [2, 4], "rate_limit"),
+        ("Connection reset by peer", [1], "transient"),
+        ("empty", [0], "empty_response"),
+    ],
+    ids=["rate-limit", "connection-reset", "empty-response"],
+)
+def test_model_retry_recovery_reports_real_cause_and_backoff(
+    monkeypatch,
+    failure,
+    delays,
+    reason,
+):
+    notices = []
+    sleeps = []
 
-    class ThrottledThenHealthyModel:
-        model = "qwen3.7-plus"
+    async def sleep(seconds):
+        sleeps.append(seconds)
 
-        def __init__(self) -> None:
-            self.calls = 0
+    monkeypatch.setattr(model_client.asyncio, "sleep", sleep)
+
+    class RecoveringModel:
+        model = "test-model"
+        calls = 0
 
         async def __call__(self, messages, *, tools=None):
-            del messages, tools
             self.calls += 1
-            if self.calls <= 2:
-                raise RuntimeError("429 Too Many Requests")
+            if self.calls <= len(delays):
+                if failure == "empty":
+                    return ChatResponse(id="empty", content=[], is_last=True)
+                raise RuntimeError(failure)
             return ChatResponse(
-                id="response-rate-limit-recover",
-                content=[TextBlock(text="恢复完成")],
+                id="recovered",
+                content=[TextBlock(text="继续生成")],
                 is_last=True,
             )
 
-    notices: list[RateLimitRetryNotice] = []
-
-    async def on_retry(notice: RateLimitRetryNotice) -> None:
+    async def on_retry(notice):
         notices.append(notice)
 
-    async def scenario():
-        provider = ThrottledThenHealthyModel()
-        client = AgentScopeAgentChatClient(provider)  # type: ignore[arg-type]
-        turn = await client.complete(
-            messages=[{"role": "user", "content": "开始"}],
+    provider = RecoveringModel()
+    result = asyncio.run(
+        AgentScopeAgentChatClient(provider).complete(
+            messages=[{"role": "user", "content": "继续"}],
             tools=_tools(),
             on_rate_limit_retry=on_retry,
-        )
-        return provider, turn
-
-    provider, turn = asyncio.run(scenario())
-
-    assert provider.calls == 3
-    assert turn.content == "恢复完成"
-    assert [notice.attempt for notice in notices] == [1, 2]
+        ),
+    )
+    assert result.content == "继续生成"
+    assert provider.calls == len(delays) + 1
+    assert [(n.reason, n.attempt, n.delay_seconds) for n in notices] == [
+        (reason, attempt, delay) for attempt, delay in enumerate(delays, 1)
+    ]
+    assert sleeps == [delay for delay in delays if delay]

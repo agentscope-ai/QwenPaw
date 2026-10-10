@@ -17,8 +17,7 @@ function mapIfKnown(raw: string, requireKnownInList: boolean): string {
  *
  * Align with Chat hydration / getSessionIdentity:
  * 1. explicit preferred id (tool card / caller)
- * 2. lastActiveChatId (intentional selection; do not prefer window)
- * 3. window.currentSessionId only when it still resolves in the session list
+ * 2. lastActiveChatId (intentional selection)
  *
  * Always map through sessionApi so local-timestamp library ids become the
  * coordinator's session_id.
@@ -42,7 +41,5 @@ export function resolveBackendSessionId(preferred?: string | null): string {
     return sessionApi.getBackendSessionId(activeRaw);
   }
 
-  const windowSid =
-    (window as unknown as { currentSessionId?: string }).currentSessionId ?? "";
-  return mapIfKnown(windowSid, true);
+  return "";
 }

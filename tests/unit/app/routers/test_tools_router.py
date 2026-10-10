@@ -9,6 +9,8 @@ import time
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
+from fastapi import HTTPException
+from pydantic import BaseModel, ValidationError
 import pytest
 
 import qwenpaw.app.agent_context as agent_context_module
@@ -215,3 +217,171 @@ async def test_get_tool_config_reads_off_event_loop(monkeypatch) -> None:
     assert read_task.done() is False
     assert await read_task == {"region": "test"}
     assert read_threads and read_threads[0] != loop_thread
+
+
+@pytest.mark.asyncio
+async def test_update_tool_config_unknown_tool_returns_404(
+    monkeypatch,
+) -> None:
+    """A missing tool name is a client 404, not an internal 500."""
+    _patch_workspace(monkeypatch)
+    agent_config = _agent_config("read_file", {})
+    registry = SimpleNamespace(
+        get_plugin_id_for_tool=lambda _tool_name: None,
+    )
+
+    async def update_config(_agent_id, updater):
+        def update_sync():
+            updater(agent_config)
+            return agent_config
+
+        return await run_sync_io(update_sync)
+
+    monkeypatch.setattr(registry_module, "PluginRegistry", lambda: registry)
+    monkeypatch.setattr(
+        tools_router_module,
+        "update_agent_config_async",
+        update_config,
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        await update_tool_config(
+            tool_name="integ-unknown-xyz",
+            body=ToolConfigUpdate(config={}),
+            request=SimpleNamespace(),
+        )
+
+    assert exc_info.value.status_code == 404
+    assert exc_info.value.detail == "Tool 'integ-unknown-xyz' not found"
+
+
+@pytest.mark.asyncio
+async def test_update_tool_config_transaction_value_error_stays_500(
+    monkeypatch,
+) -> None:
+    """Load/save ValueError is an internal failure, not a missing tool."""
+    _patch_workspace(monkeypatch)
+    registry = SimpleNamespace(
+        get_plugin_id_for_tool=lambda _tool_name: None,
+    )
+
+    async def update_config(_agent_id, _updater):
+        raise ValueError("invalid cron expression")
+
+    monkeypatch.setattr(registry_module, "PluginRegistry", lambda: registry)
+    monkeypatch.setattr(
+        tools_router_module,
+        "update_agent_config_async",
+        update_config,
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        await update_tool_config(
+            tool_name="read_file",
+            body=ToolConfigUpdate(config={}),
+            request=SimpleNamespace(),
+        )
+
+    assert exc_info.value.status_code == 500
+    assert "invalid cron expression" in str(exc_info.value.detail)
+
+
+@pytest.mark.asyncio
+async def test_update_tool_config_validation_error_stays_500(
+    monkeypatch,
+) -> None:
+    """Pydantic ValidationError subclasses ValueError and must stay 500."""
+
+    class _ProfileStub(BaseModel):
+        timeout: int
+
+    with pytest.raises(ValidationError) as verr:
+        _ProfileStub.model_validate({"timeout": "broken"})
+    validation_error = verr.value
+
+    _patch_workspace(monkeypatch)
+    registry = SimpleNamespace(
+        get_plugin_id_for_tool=lambda _tool_name: None,
+    )
+
+    async def update_config(_agent_id, _updater):
+        raise validation_error
+
+    monkeypatch.setattr(registry_module, "PluginRegistry", lambda: registry)
+    monkeypatch.setattr(
+        tools_router_module,
+        "update_agent_config_async",
+        update_config,
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        await update_tool_config(
+            tool_name="read_file",
+            body=ToolConfigUpdate(config={}),
+            request=SimpleNamespace(),
+        )
+
+    assert exc_info.value.status_code == 500
+    assert isinstance(validation_error, ValueError)
+
+
+@pytest.mark.parametrize(f"category", [None, f"media", f"unknown", 123])
+def test_plugin_tool_metadata(monkeypatch, category) -> None:
+    """Only explicit per-tool categories are exposed; text stays original."""
+    tool = SimpleNamespace(
+        name=f"generate_image_qwen",
+        enabled=True,
+        description=f"Plugin original description",
+        async_execution=False,
+        icon=f"",
+        config={},
+    )
+    manifest = {
+        f"name": f"Image plugin",
+        f"meta": {
+            f"category": f"web",
+            f"tools": [{f"name": tool.name, f"category": category}],
+        },
+    }
+    registry = SimpleNamespace(
+        get_plugin_id_for_tool=lambda name: f"image-plugin",
+        get_plugin_manifest=lambda plugin_id: manifest,
+    )
+    monkeypatch.setattr(registry_module, f"PluginRegistry", lambda: registry)
+    monkeypatch.setattr(
+        tools_router_module,
+        f"DEFAULT_REGISTRY",
+        SimpleNamespace(get_owner=lambda name: None),
+    )
+    # pylint: disable-next=protected-access
+    result = tools_router_module._build_tool_info(tool, tool.name)
+    assert result.source_plugin_id == f"image-plugin"
+    assert result.source_plugin_name == f"Image plugin"
+    assert result.description == tool.description
+    assert result.category == (category if isinstance(category, str) else None)
+
+
+def test_dynamic_plugin_tool_source(monkeypatch) -> None:
+    """Runtime ownership identifies tools absent from manifest declarations."""
+    tool = SimpleNamespace(
+        name=f"dynamic_tool",
+        enabled=True,
+        description=f"Original",
+        async_execution=False,
+        icon=f"",
+        config={},
+    )
+    registry = SimpleNamespace(
+        get_plugin_id_for_tool=lambda name: None,
+        get_plugin_manifest=lambda plugin_id: None,
+    )
+    monkeypatch.setattr(registry_module, f"PluginRegistry", lambda: registry)
+    monkeypatch.setattr(
+        tools_router_module,
+        f"DEFAULT_REGISTRY",
+        SimpleNamespace(get_owner=lambda name: f"dynamic-plugin"),
+    )
+    # pylint: disable-next=protected-access
+    result = tools_router_module._build_tool_info(tool, tool.name)
+    assert result.source_plugin_id == f"dynamic-plugin"
+    assert result.category is None

@@ -1,96 +1,191 @@
+import { Tooltip } from "antd";
 import { Tag } from "@agentscope-ai/design";
-import { Boxes, CircleHelp, Eye, FileText, Video } from "lucide-react";
+import {
+  AudioLines,
+  Wrench,
+  Gift,
+  CreditCard,
+  type LucideIcon,
+  Boxes,
+  CircleHelp,
+  Eye,
+  FileText,
+  Video,
+} from "lucide-react";
 import type { ModelInfo } from "../../../../../api/types";
 import { useTranslation } from "react-i18next";
 
-export const tagColors = (isDark: boolean) => ({
+const tagColors = () => ({
   multimodal: {
-    backgroundColor: isDark ? "rgba(24,144,255,0.15)" : "#e6f7ff",
-    color: "#1890ff",
-    borderColor: isDark ? "rgba(24,144,255,0.3)" : "#91d5ff",
+    backgroundColor: "var(--app-info-bg)",
+    color: "var(--app-info-text)",
+    borderColor: "var(--app-info-border)",
   },
   vision: {
-    backgroundColor: isDark ? "rgba(19,194,194,0.15)" : "#e6fffb",
-    color: "#13c2c2",
-    borderColor: isDark ? "rgba(19,194,194,0.3)" : "#87e8de",
+    backgroundColor: "var(--app-info-bg)",
+    color: "var(--app-info-text)",
+    borderColor: "var(--app-info-border)",
   },
   video: {
-    backgroundColor: isDark ? "rgba(114,46,211,0.15)" : "#f9f0ff",
-    color: "#722ed1",
-    borderColor: isDark ? "rgba(114,46,211,0.3)" : "#d3adf7",
+    backgroundColor: "var(--app-accent-soft)",
+    color: "var(--app-accent-text)",
+    borderColor: "var(--app-accent-border)",
   },
   text: {
-    backgroundColor: isDark ? "rgba(255,255,255,0.1)" : "#f5f5f5",
-    color: isDark ? "rgba(255,255,255,0.65)" : "#595959",
-    borderColor: isDark ? "rgba(255,255,255,0.15)" : "#d9d9d9",
+    backgroundColor: "var(--app-fill-subtle)",
+    color: "var(--app-text-secondary)",
+    borderColor: "var(--app-border-strong)",
   },
   notProbed: {
-    backgroundColor: isDark ? "rgba(255,255,255,0.1)" : "#f5f5f5",
-    color: isDark ? "rgba(255,255,255,0.65)" : "#8c8c8c",
-    borderColor: isDark ? "rgba(255,255,255,0.15)" : "#d9d9d9",
+    backgroundColor: "var(--app-fill-subtle)",
+    color: "var(--app-text-tertiary)",
+    borderColor: "var(--app-border-strong)",
   },
   builtin: {
-    backgroundColor: isDark ? "rgba(82,196,26,0.15)" : "#f6ffed",
-    color: "#52c41a",
-    borderColor: isDark ? "rgba(82,196,26,0.3)" : "#b7eb8f",
+    backgroundColor: "var(--app-success-bg)",
+    color: "var(--app-success-text)",
+    borderColor: "var(--app-success-border)",
   },
   free: {
-    backgroundColor: isDark ? "rgba(82,196,26,0.15)" : "#f6ffed",
-    color: "#52c41a",
-    borderColor: isDark ? "rgba(82,196,26,0.3)" : "#b7eb8f",
+    backgroundColor: "var(--app-success-bg)",
+    color: "var(--app-success-text)",
+    borderColor: "var(--app-success-border)",
   },
   userAdded: {
-    backgroundColor: isDark ? "rgba(24,144,255,0.15)" : "#e6f7ff",
-    color: "#1890ff",
-    borderColor: isDark ? "rgba(24,144,255,0.3)" : "#91d5ff",
+    backgroundColor: "var(--app-info-bg)",
+    color: "var(--app-info-text)",
+    borderColor: "var(--app-info-border)",
   },
 });
 
+function CapabilityTag({
+  icon: Icon,
+  children,
+  tone = "info",
+  iconOnly = false,
+}: {
+  icon: LucideIcon;
+  iconOnly?: boolean;
+  children: React.ReactNode;
+  tone?: "info" | "neutral" | "free";
+}) {
+  const colors = tagColors();
+  const tag = (
+    <Tag
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 4,
+        minHeight: 24,
+        padding: iconOnly ? "1px 4px" : "1px 6px",
+        borderRadius: 4,
+        fontSize: "var(--app-font-caption)",
+        fontWeight: 500,
+        lineHeight: "20px",
+        borderWidth: 1,
+        borderStyle: "solid",
+        margin: 0,
+        ...(tone === "free"
+          ? colors.free
+          : tone === "neutral"
+          ? colors.text
+          : colors.multimodal),
+      }}
+    >
+      <Icon size={14} strokeWidth={1.8} aria-hidden />
+      {!iconOnly && children}
+    </Tag>
+  );
+  return iconOnly ? (
+    <Tooltip title={children}>
+      <span
+        tabIndex={0}
+        role="img"
+        aria-label={typeof children === "string" ? children : undefined}
+        style={{ display: "inline-flex" }}
+      >
+        {tag}
+      </span>
+    </Tooltip>
+  ) : (
+    tag
+  );
+}
+
 export function CapabilityTags({
   model,
-  isDark,
+  iconOnly = false,
 }: {
   model: ModelInfo;
-  isDark: boolean;
+  iconOnly?: boolean;
 }) {
   const { t } = useTranslation();
-  const c = tagColors(isDark);
-  if (model.supports_image && model.supports_video) {
-    return (
-      <Tag style={{ fontSize: 11, marginRight: 4, ...c.multimodal }}>
-        <Boxes size={11} style={{ marginRight: 3, verticalAlign: "-2px" }} />
-        {t("models.tagMultimodal", "多模态")}
-      </Tag>
-    );
-  }
-  if (model.supports_image) {
-    return (
-      <Tag style={{ fontSize: 11, marginRight: 4, ...c.vision }}>
-        <Eye size={11} style={{ marginRight: 3, verticalAlign: "-2px" }} />
-        {t("models.tagVision", "视觉")}
-      </Tag>
-    );
-  }
-  if (model.supports_video) {
-    return (
-      <Tag style={{ fontSize: 11, marginRight: 4, ...c.video }}>
-        <Video size={11} style={{ marginRight: 3, verticalAlign: "-2px" }} />
-        {t("models.tagVideo", "视频")}
-      </Tag>
-    );
-  }
-  if (model.supports_multimodal === false) {
-    return (
-      <Tag style={{ fontSize: 11, marginRight: 4, ...c.text }}>
-        <FileText size={11} style={{ marginRight: 3, verticalAlign: "-2px" }} />
-        {t("models.tagText", "文本")}
-      </Tag>
-    );
-  }
+  const modalities = [
+    model.supports_image,
+    model.supports_audio,
+    model.supports_video,
+  ];
+  const multiple = modalities.filter(Boolean).length > 1;
+  const icon = multiple
+    ? Boxes
+    : model.supports_image
+    ? Eye
+    : model.supports_video
+    ? Video
+    : model.supports_audio
+    ? AudioLines
+    : model.supports_multimodal === false
+    ? FileText
+    : CircleHelp;
+  const label = multiple
+    ? "models.tagMultimodal"
+    : model.supports_image
+    ? "models.tagVision"
+    : model.supports_video
+    ? "models.tagVideo"
+    : model.supports_audio
+    ? "models.pool.capabilityOptions.audio"
+    : model.supports_multimodal === false
+    ? "models.tagText"
+    : "models.tagNotProbed";
   return (
-    <Tag style={{ fontSize: 11, marginRight: 4, ...c.notProbed }}>
-      <CircleHelp size={11} style={{ marginRight: 3, verticalAlign: "-2px" }} />
-      {t("models.tagNotProbed", "未检测")}
-    </Tag>
+    <>
+      {(!iconOnly || modalities.some(Boolean)) && (
+        <CapabilityTag
+          icon={icon}
+          iconOnly={iconOnly}
+          tone={modalities.some(Boolean) ? "info" : "neutral"}
+        >
+          {t(label)}
+        </CapabilityTag>
+      )}
+      {model.supports_tool_calling === true && (
+        <CapabilityTag icon={Wrench} iconOnly={iconOnly}>
+          {t("models.pool.capabilityOptions.tool_calling")}
+        </CapabilityTag>
+      )}
+    </>
+  );
+}
+
+export function BillingTag({
+  model,
+  iconOnly = false,
+}: {
+  model: ModelInfo;
+  iconOnly?: boolean;
+}) {
+  const { t } = useTranslation();
+  const billing = model.billing ?? (model.is_free ? "free" : "unknown");
+  return (
+    <CapabilityTag
+      iconOnly={iconOnly}
+      icon={
+        billing === "free" ? Gift : billing === "paid" ? CreditCard : CircleHelp
+      }
+      tone={billing === "free" ? "free" : "neutral"}
+    >
+      {t(`models.billing.${billing}`)}
+    </CapabilityTag>
   );
 }

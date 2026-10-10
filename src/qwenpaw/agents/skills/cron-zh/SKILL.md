@@ -2,7 +2,7 @@
 name: cron
 description: 仅在需要未来定时执行或周期执行任务时，使用本 skill。使用 qwenpaw cron list/create/get/state/update/pause/resume/delete/run 管理任务，并始终显式传入 --agent-id。
 metadata:
-  builtin_skill_version: "1.7"
+  builtin_skill_version: "1.8"
   qwenpaw:
     emoji: "⏰"
 ---
@@ -32,6 +32,7 @@ metadata:
 4. **所有 cron 命令都必须显式传 `--agent-id`**
 5. **不要依赖默认 agent，否则任务可能落到 default workspace**
 6. **如果 agent 任务只需后台执行、不向渠道输出，添加 `--silent`；执行、会话历史、追踪和可选收件箱记录仍会继续**
+7. **迁入任务的 `requires_review` 未清除时，不得运行或恢复；必须先在 Console 中完成人工复核和批准**
 
 ---
 
@@ -216,6 +217,12 @@ qwenpaw cron create --agent-id <agent_id> -f job_spec.json
 5. qwenpaw cron create 创建任务
 6. 后续用 list / state / pause / resume / delete 管理
 ```
+
+### 迁入任务的复核流程
+
+通过 PawPort 导入的定时任务默认禁用，并带有不可绕过的审核门。
+
+请在 Console 的定时任务页面中检查并批准迁入任务。批准只记录审核结果，任务仍保持禁用；仅在用户明确要求时，再在该页面中单独启用。
 
 ---
 

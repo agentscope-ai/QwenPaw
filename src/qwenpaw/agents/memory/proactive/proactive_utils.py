@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, List, Optional, Any
 
 from agentscope.agent import Agent
 from agentscope.message import Msg, TextBlock
+from ....utils.io_utils import run_sync_io
 
 if TYPE_CHECKING:
     from ....app.workspace import Workspace
@@ -50,7 +51,7 @@ async def build_proactive_memory_context(
     combined_context = ""
 
     # Capture screen if supported
-    if agent and get_active_model_supports_multimodal():
+    if agent and (await run_sync_io(get_active_model_supports_multimodal)):
         try:
             screen_analysis = await _analyze_screen_activity(agent)
             if screen_analysis:

@@ -20,7 +20,10 @@ from urllib.parse import urlsplit
 
 from domain.enums import TaskKind, TaskStatus
 from domain.errors import StorageIntegrityError
-from services.runtime_files.atomic_store import fsync_directory
+from services.runtime_files.atomic_store import (
+    atomic_replace_path,
+    fsync_directory,
+)
 from services.runtime_files.execution_models import TaskRecord
 
 from .assets import StagedAsset
@@ -121,7 +124,7 @@ def publish_remote_cache(
         value = target.lstat()
     except FileNotFoundError:
         os.chmod(staged.path, 0o600)
-        os.replace(staged.path, target)
+        atomic_replace_path(staged.path, target)
         fsync_directory(cache_root)
     else:
         if stat.S_ISLNK(value.st_mode) or not stat.S_ISREG(value.st_mode):

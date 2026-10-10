@@ -1,21 +1,23 @@
 /**
- * pages/Chat/HostBubbles.tsx — host-side wrappers around the vendor's
- * AgentScopeRuntime{Request,Response}Card components.
+ * pages/Chat/HostBubbles.tsx — host-side response renderer for CoPaw-specific
+ * Markdown, media download, artifact, and plugin behavior.
  *
  * Why wrappers:
- * - Plugin extensions (chat.request.render / prepend / append and the
- *   response equivalents) need a render seam SDK doesn't expose.
- * - We register HostRequestCard / HostResponseCard into options.cards so the
- *   SDK Cards dispatcher invokes them instead of the vendor defaults.
+ * - We register HostResponseCard into options.cards so the SDK Cards
+ *   dispatcher invokes it instead of the vendor default.
  * - The wrapper itself subscribes to the chat extension registry via hooks,
  *   so it re-renders when plugins register/dispose — no need to rebuild the
  *   parent useMemo (and avoid re-mounting bubbles on every plugin change).
  *
- * Vendor response primitives are deep-imported because the SDK does not expose
- * a message-renderer seam. If their paths change, update the imports below.
+ * SDK 1.2 integrations use the public request.render/prepend/append seam.
+ * HostRequestCard retains the original vendor-card wrapper for callers that
+ * register it directly; do not also configure the same public request slots.
+ * Vendor response primitives remain private dependencies because CoPaw
+ * replaces individual Markdown/media/tool rendering rather than only framing
+ * the default response bubble.
  */
-import React, { useMemo } from "react";
-import VendorRequestCardOriginal from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/AgentScopeRuntime/Request/Card";
+import React, { useDeferredValue, useMemo, useSyncExternalStore } from "react";
+import VendorRequestCard from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/AgentScopeRuntime/Request/Card";
 import AgentScopeRuntimeResponseBuilder from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/AgentScopeRuntime/Response/Builder";
 import ResponseActions from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/AgentScopeRuntime/Response/Actions";
 import ResponseError from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/AgentScopeRuntime/Response/Error";
@@ -25,19 +27,17 @@ import {
   AgentScopeRuntimeContentType,
   AgentScopeRuntimeMessageType,
   AgentScopeRuntimeRunStatus,
+  Bubble,
+  DefaultCards,
+  Markdown,
   type IAgentScopeRuntimeMessage,
   type IAgentScopeRuntimeResponse,
-} from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/AgentScopeRuntime/types";
+} from "@agentscope-ai/chat";
 import { useChatAnywhereOptions } from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/Context/ChatAnywhereOptionsContext";
-import Images from "@agentscope-ai/chat/lib/DefaultCards/Images";
-import Videos from "@agentscope-ai/chat/lib/DefaultCards/Videos";
-import Files from "@agentscope-ai/chat/lib/DefaultCards/Files";
-import { Bubble, Markdown } from "@agentscope-ai/chat";
 import { Avatar, Flex } from "antd";
+import { useTranslation } from "react-i18next";
 import { renderableCodeComponents } from "../../components/RenderableCodeBlock";
-// Vendor `.d.ts` doesn't yet describe the request content slots.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const VendorRequestCard = VendorRequestCardOriginal as React.ComponentType<any>;
+import { useEffectiveFontSize } from "@/contexts/FontSizeContext";
 import {
   useChatScalarSnapshot,
   useChatListSnapshot,
@@ -49,6 +49,28 @@ import type {
   ChatResponseData,
 } from "../../plugins/registry/types";
 import { DownloadableAudios } from "../../components/Chat/MediaDownload";
+import { ToolCallTurnBoundary } from "./turnEndedProvider";
+import ResponseArtifactList from "../../features/files-workspace/ResponseArtifactList";
+import { isToolLikeResponseMessageType } from "./responseMessageTypes";
+import {
+  countCollapsedSteps,
+  filterThinkingMessages,
+  findActiveStepBlockIndex,
+  findLastStepBlockIndex,
+  getCollapsedGroupStatus,
+  getCollapsedStepPresentation,
+  getCollapsedStepRenderKey,
+  getResponseMessageDisplayMode,
+  groupResponseMessages,
+} from "./messageDisplay";
+import styles from "./HostBubbles.module.less";
+import LazyAccordion from "./LazyAccordion";
+import {
+  getAssistantMessageDisplayPreference,
+  getShowThinkingPreference,
+  subscribeChatDisplayPreference,
+  type AssistantMessageDisplayPreference,
+} from "../../utils/chatDisplayPreference";
 
 function sortByOrder<T extends { item: { order?: number } }>(arr: T[]): T[] {
   return arr
@@ -56,10 +78,34 @@ function sortByOrder<T extends { item: { order?: number } }>(arr: T[]): T[] {
     .sort((a, b) => (a.item.order ?? 100) - (b.item.order ?? 100));
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type AnyCardProps = any;
+function DeferredMarkdown({
+  content,
+  cursor,
+}: {
+  content: string;
+  cursor: boolean;
+}) {
+  // Parsing Markdown, code fences, and diagrams is substantially more
+  // expensive than appending stream text. A deferred value lets React skip
+  // obsolete intermediate parses while keeping input and scrolling responsive.
+  const deferredContent = useDeferredValue(content);
+  const baseFontSize = useEffectiveFontSize();
 
-function HostMessage({ data }: { data: IAgentScopeRuntimeMessage }) {
+  return (
+    <Markdown
+      baseFontSize={baseFontSize}
+      components={renderableCodeComponents}
+      content={deferredContent}
+      cursor={cursor}
+    />
+  );
+}
+
+const HostMessage = React.memo(function HostMessage({
+  data,
+}: {
+  data: IAgentScopeRuntimeMessage;
+}) {
   const replaceMediaURL = useChatAnywhereOptions(
     (options) => options.api?.replaceMediaURL,
   );
@@ -68,6 +114,7 @@ function HostMessage({ data }: { data: IAgentScopeRuntimeMessage }) {
   );
   const formatMediaURL = (url?: string) =>
     url ? replaceMediaURL?.(url) || url : url;
+  const baseFontSize = useEffectiveFontSize();
 
   if (!data.content?.length) return null;
 
@@ -77,25 +124,31 @@ function HostMessage({ data }: { data: IAgentScopeRuntimeMessage }) {
         switch (item.type) {
           case AgentScopeRuntimeContentType.TEXT:
             return (
-              <Markdown
+              <DeferredMarkdown
                 key={index}
-                components={renderableCodeComponents}
                 content={item.text}
                 cursor={item.status === AgentScopeRuntimeRunStatus.InProgress}
               />
             );
           case AgentScopeRuntimeContentType.REFUSAL:
-            return <Markdown key={index} content={item.refusal} raw />;
+            return (
+              <Markdown
+                key={index}
+                content={item.refusal}
+                raw
+                baseFontSize={baseFontSize}
+              />
+            );
           case AgentScopeRuntimeContentType.IMAGE:
             return (
-              <Images
+              <DefaultCards.Images
                 key={index}
                 data={[{ url: formatMediaURL(item.image_url) }]}
               />
             );
           case AgentScopeRuntimeContentType.VIDEO:
             return (
-              <Videos
+              <DefaultCards.Videos
                 key={index}
                 data={[
                   {
@@ -107,7 +160,7 @@ function HostMessage({ data }: { data: IAgentScopeRuntimeMessage }) {
             );
           case AgentScopeRuntimeContentType.FILE:
             return (
-              <Files
+              <DefaultCards.Files
                 key={index}
                 data={[
                   {
@@ -134,25 +187,79 @@ function HostMessage({ data }: { data: IAgentScopeRuntimeMessage }) {
       })}
     </>
   );
+});
+
+function renderResponseMessage(item: IAgentScopeRuntimeMessage) {
+  if (isToolLikeResponseMessageType(item.type)) {
+    return <ResponseTool key={item.id} data={item} />;
+  }
+  switch (item.type) {
+    case AgentScopeRuntimeMessageType.MESSAGE:
+      return <HostMessage key={item.id} data={item} />;
+    case AgentScopeRuntimeMessageType.MCP_APPROVAL_REQUEST:
+      return <ResponseTool key={item.id} data={item} isApproval />;
+    case AgentScopeRuntimeMessageType.REASONING:
+      return <ResponseReasoning key={item.id} data={item} />;
+    case AgentScopeRuntimeMessageType.ERROR:
+      return <ResponseError key={item.id} data={item} />;
+    case AgentScopeRuntimeMessageType.HEARTBEAT:
+      return null;
+    default:
+      console.warn(`[WIP] Unknown message type: ${item.type}`);
+      return null;
+  }
 }
 
 function DefaultHostResponseCard({
   data,
+  messageId,
   isLast,
   contentPrepend,
   contentAppend,
 }: {
   data: IAgentScopeRuntimeResponse;
+  messageId: string;
   isLast?: boolean;
   contentPrepend?: React.ReactNode;
   contentAppend?: React.ReactNode;
 }) {
+  const { t } = useTranslation();
   const avatar = useChatAnywhereOptions((options) => options.welcome?.avatar);
   const nick = useChatAnywhereOptions((options) => options.welcome?.nick);
-  const messages = useMemo(
+  const nickNode =
+    typeof nick === "string" || React.isValidElement(nick) ? nick : null;
+  const mergedMessages = useMemo(
     () => AgentScopeRuntimeResponseBuilder.mergeToolMessages(data.output),
     [data.output],
   );
+  const showThinking = useSyncExternalStore(
+    subscribeChatDisplayPreference,
+    getShowThinkingPreference,
+    () => true,
+  );
+  const messages = useMemo(
+    () => filterThinkingMessages(mergedMessages, showThinking),
+    [mergedMessages, showThinking],
+  );
+  const assistantDisplayPreference =
+    useSyncExternalStore<AssistantMessageDisplayPreference>(
+      subscribeChatDisplayPreference,
+      getAssistantMessageDisplayPreference,
+      () => "result-collapsed",
+    );
+  const messageDisplayMode = getResponseMessageDisplayMode(
+    data.status,
+    assistantDisplayPreference,
+  );
+  const messageBlocks = useMemo(
+    () => groupResponseMessages(messages, messageDisplayMode),
+    [messageDisplayMode, messages],
+  );
+  const activeStepBlockIndex = findActiveStepBlockIndex(messageBlocks);
+  const statusStepBlockIndex =
+    messageDisplayMode === "text-only"
+      ? activeStepBlockIndex
+      : findLastStepBlockIndex(messageBlocks);
 
   if (
     !messages.length &&
@@ -166,42 +273,62 @@ function DefaultHostResponseCard({
       {avatar ? (
         <Flex align="center" gap={8} style={{ marginBottom: 8 }}>
           <Avatar src={avatar} />
-          {nick ? <span>{nick}</span> : null}
+          {nickNode ? <span>{nickNode}</span> : null}
         </Flex>
       ) : null}
       {contentPrepend}
-      {messages.map((item) => {
-        switch (item.type) {
-          case AgentScopeRuntimeMessageType.MESSAGE:
-            return <HostMessage key={item.id} data={item} />;
-          case AgentScopeRuntimeMessageType.PLUGIN_CALL:
-          case AgentScopeRuntimeMessageType.PLUGIN_CALL_OUTPUT:
-          case AgentScopeRuntimeMessageType.TOOL_CALL:
-          case AgentScopeRuntimeMessageType.TOOL_CALL_OUTPUT:
-          case AgentScopeRuntimeMessageType.MCP_CALL:
-          case AgentScopeRuntimeMessageType.MCP_CALL_OUTPUT:
-            return <ResponseTool key={item.id} data={item} />;
-          case AgentScopeRuntimeMessageType.MCP_APPROVAL_REQUEST:
-            return <ResponseTool key={item.id} data={item} isApproval />;
-          case AgentScopeRuntimeMessageType.REASONING:
-            return <ResponseReasoning key={item.id} data={item} />;
-          case AgentScopeRuntimeMessageType.ERROR:
-            return <ResponseError key={item.id} data={item} />;
-          case AgentScopeRuntimeMessageType.HEARTBEAT:
-            return null;
-          default:
-            console.warn(`[WIP] Unknown message type: ${item.type}`);
-            return null;
+      {messageBlocks.map((block, index) => {
+        if (block.kind === "message") {
+          return renderResponseMessage(block.message);
         }
+
+        const groupStatus = getCollapsedGroupStatus(
+          data.status,
+          index === statusStepBlockIndex,
+        );
+        const presentation = getCollapsedStepPresentation(groupStatus);
+        const firstId = block.messages[0]?.id ?? index;
+        const stepCount = countCollapsedSteps(block.messages);
+        if (stepCount === 0) {
+          return (
+            <React.Fragment key={`messages-${firstId}`}>
+              {block.messages.map(renderResponseMessage)}
+            </React.Fragment>
+          );
+        }
+        return (
+          <LazyAccordion
+            className={styles.collapsedSteps}
+            key={getCollapsedStepRenderKey(
+              firstId,
+              messageDisplayMode,
+              presentation.status,
+            )}
+            status={presentation.status}
+            title={t(presentation.titleKey, {
+              count: stepCount,
+            })}
+            defaultOpen={presentation.defaultOpen}
+            renderChildren={() => (
+              <>{block.messages.map(renderResponseMessage)}</>
+            )}
+          />
+        );
       })}
       {data.error ? <ResponseError data={data.error} /> : null}
+      {!messages.length && data.status === "canceled" ? (
+        <Bubble.Interrupted title={t("chat.turnCanceled")} />
+      ) : null}
       {contentAppend}
-      <ResponseActions data={data} isLast={isLast} />
+      {AgentScopeRuntimeResponseBuilder.maybeDone(data) ? (
+        <ResponseArtifactList messages={messages} />
+      ) : null}
+      <ResponseActions data={data} messageId={messageId} isLast={isLast} />
     </>
   );
 }
 
-export function HostRequestCard(props: { data: ChatRequestData }) {
+function HostRequestCardContent(props: { data: ChatRequestData }) {
   const extScalar = useChatScalarSnapshot();
   const extLists = useChatListSnapshot();
 
@@ -243,9 +370,13 @@ export function HostRequestCard(props: { data: ChatRequestData }) {
 
   const fallback = () => (
     <VendorRequestCard
-      data={props.data as AnyCardProps}
-      contentPrepend={contentPrepend as AnyCardProps}
-      contentAppend={contentAppend as AnyCardProps}
+      data={
+        props.data as unknown as React.ComponentProps<
+          typeof VendorRequestCard
+        >["data"]
+      }
+      contentPrepend={contentPrepend}
+      contentAppend={contentAppend}
     />
   );
 
@@ -263,7 +394,14 @@ export function HostRequestCard(props: { data: ChatRequestData }) {
   return fallback();
 }
 
-export function HostResponseCard(props: {
+const MemoizedHostRequestCard = React.memo(HostRequestCardContent);
+
+export function HostRequestCard(props: { data: ChatRequestData }) {
+  return <MemoizedHostRequestCard {...props} />;
+}
+
+function HostResponseCardContent(props: {
+  id: string;
   data: ChatResponseData;
   isLast?: boolean;
 }) {
@@ -311,6 +449,7 @@ export function HostResponseCard(props: {
   const fallback = () => (
     <DefaultHostResponseCard
       data={props.data as unknown as IAgentScopeRuntimeResponse}
+      messageId={props.id}
       isLast={props.isLast}
       contentPrepend={contentPrepend}
       contentAppend={contentAppend}
@@ -333,4 +472,24 @@ export function HostResponseCard(props: {
     );
   }
   return fallback();
+}
+
+const MemoizedHostResponseCard = React.memo(HostResponseCardContent);
+
+export function HostResponseCard(props: {
+  id: string;
+  data: ChatResponseData;
+  isLast?: boolean;
+}) {
+  // Tool cards cannot tell a running call from one whose turn was interrupted
+  // because both lack a result message. Wrapping the whole card publishes the
+  // turn state without re-rendering its body: the memoized content bails out
+  // on unchanged props.
+  return (
+    <ToolCallTurnBoundary
+      data={props.data as unknown as IAgentScopeRuntimeResponse}
+    >
+      <MemoizedHostResponseCard {...props} />
+    </ToolCallTurnBoundary>
+  );
 }

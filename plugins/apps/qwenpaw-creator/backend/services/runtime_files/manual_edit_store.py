@@ -275,9 +275,10 @@ class ManualEditBufferStore:
             return updated
 
     def read(self, project_id: str) -> ManualEditBuffer | None:
+        # Lock-free read: the Buffer record is atomically replaced.
         project_id = self._safe_project_id(project_id)
-        with self._lock(project_id):
-            return self._read_unlocked(project_id)
+        self._require_project(project_id)
+        return self._read_unlocked(project_id)
 
     def consume(
         self,
@@ -401,9 +402,11 @@ class ManualEditBufferStore:
         self,
         project_id: str,
     ) -> AtomicJsonRecordStore[ManualEditBuffer]:
+        # Writers all hold the exclusive manual-edit-buffer domain lock.
         return AtomicJsonRecordStore(
             self._buffer_path(project_id),
             ManualEditBuffer,
+            locked=False,
         )
 
     @contextmanager
@@ -420,6 +423,7 @@ class ManualEditBufferStore:
         with CrossProcessFileLock(
             self.data_root / ".locks" / f"project-{project_id}.lock",
             timeout_seconds=self.lock_timeout_seconds,
+            shared=True,
         ):
             self._require_project(project_id)
             with CrossProcessFileLock(

@@ -27,7 +27,7 @@ from ....exceptions import ChannelError
 from ....constant import DEFAULT_MEDIA_DIR
 from ....config.config import DiscordConfig as DiscordChannelConfig
 
-from ..utils import file_url_to_local_path
+from ..utils import file_url_to_local_path, materialize_data_url
 from ..renderer import ChannelDisplayConfig
 from ..base import (
     BaseChannel,
@@ -638,7 +638,7 @@ class DiscordChannel(BaseChannel):
         for m in media_parts:
             await self.send_media(to_handle, m, meta)
 
-    async def send_media(
+    async def send_media(  # pylint: disable=too-many-return-statements
         self,
         to_handle: str,
         part: OutgoingContentPart,
@@ -663,6 +663,24 @@ class DiscordChannel(BaseChannel):
             logger.warning(
                 "discord send_media: cannot resolve target",
             )
+            return
+
+        if url.startswith("data:"):
+            async with materialize_data_url(
+                url,
+                self._media_dir,
+                filename_hint=getattr(part, "filename", "image"),
+            ) as media:
+                if media is None:
+                    return
+                attachment = discord.File(
+                    media.path,
+                    filename=media.filename,
+                )
+                try:
+                    await target.send(file=attachment)
+                finally:
+                    attachment.close()
             return
 
         temp_path = None

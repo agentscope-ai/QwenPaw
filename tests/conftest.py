@@ -104,6 +104,7 @@ def temp_copaw_home(
 
     # Set isolated environment
     monkeypatch.setenv("HOME", temp_dir)
+    monkeypatch.setenv("USERPROFILE", temp_dir)
     monkeypatch.setenv("COPAW_HOME", str(temp_path / ".copaw"))
 
     # Clear sensitive tokens to prevent accidental API calls
@@ -412,10 +413,10 @@ def mock_provider_factory():
 
 
 def pytest_configure(config: pytest.Config) -> None:
-    """Configure pytest with custom markers."""
-    # Markers are already defined in pyproject.toml, but we can add
-    # additional configuration here if needed
-    pass
+    """Disable telemetry in tests and the real app subprocesses they spawn."""
+    patch = pytest.MonkeyPatch()
+    patch.setenv("QWENPAW_TELEMETRY_DISABLED", "1")
+    config.add_cleanup(patch.undo)
 
 
 def pytest_collection_modifyitems(

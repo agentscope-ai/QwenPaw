@@ -36,6 +36,7 @@ def bridge_config(
     return config_path
 
 
+@pytest.mark.p1
 def test_rotation_recovers(bridge_config: Path) -> None:
     _write_config(bridge_config, "token-a")
     assert ws_handler._expected_token() == "token-a"
@@ -43,6 +44,7 @@ def test_rotation_recovers(bridge_config: Path) -> None:
     assert ws_handler._expected_token() == "token-b"
 
 
+@pytest.mark.p1
 def test_missing_file_falls_back_to_cache(bridge_config: Path) -> None:
     _write_config(bridge_config, "token-a")
     assert ws_handler._expected_token() == "token-a"
@@ -51,6 +53,7 @@ def test_missing_file_falls_back_to_cache(bridge_config: Path) -> None:
     assert not bridge_config.exists()  # fallback must not rewrite or rotate
 
 
+@pytest.mark.p1
 def test_bootstrap_generates_once(bridge_config: Path) -> None:
     token = ws_handler._expected_token()
     assert token
@@ -72,6 +75,7 @@ def websocket_client(
     return TestClient(app)
 
 
+@pytest.mark.p1
 def test_ws_handshake_after_rotation(
     websocket_client: TestClient,
     bridge_config: Path,

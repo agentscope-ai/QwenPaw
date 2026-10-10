@@ -3,7 +3,8 @@ import { Button, Card, Tooltip } from "@agentscope-ai/design";
 import { Download, Eye, Heart, Star } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { MarketResult } from "../../../../api/modules/market";
-import { SkillIcon, sourceLabel } from "./SkillIcon";
+import { SkillIcon } from "./SkillIcon";
+import { sourceLabel } from "./skillSources";
 import styles from "./ResultCard.module.less";
 
 interface ResultCardProps {

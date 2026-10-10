@@ -27,7 +27,7 @@ export function useReMeRuntimeStatus(enabled: boolean) {
   const requestRef = useRef<AbortController | null>(null);
 
   const checkMemoryStatus = useCallback(
-    async (includeDiagnostics = false) => {
+    async (includeDiagnostics = false, silent = false) => {
       if (!enabled) {
         setRuntimeStatus({ type: "unknown" });
         setDiagnosticsStatus({ type: "unknown" });
@@ -36,8 +36,10 @@ export function useReMeRuntimeStatus(enabled: boolean) {
       requestRef.current?.abort();
       const controller = new AbortController();
       requestRef.current = controller;
-      setRuntimeStatus({ type: "checking" });
-      if (includeDiagnostics) setDiagnosticsStatus({ type: "checking" });
+      if (!silent) setRuntimeStatus({ type: "checking" });
+      if (includeDiagnostics && !silent) {
+        setDiagnosticsStatus({ type: "checking" });
+      }
       let runtimeLoaded = false;
       try {
         const currentStatus = await agentsApi.getMemoryRuntimeStatus(
@@ -62,7 +64,7 @@ export function useReMeRuntimeStatus(enabled: boolean) {
           }
         }
       } catch (error) {
-        if (!controller.signal.aborted) {
+        if (!controller.signal.aborted && !silent) {
           const failure = {
             type: "error",
             message: error instanceof Error ? error.message : String(error),
@@ -86,6 +88,16 @@ export function useReMeRuntimeStatus(enabled: boolean) {
     void checkMemoryStatus(true);
     return () => requestRef.current?.abort();
   }, [checkMemoryStatus]);
+
+  useEffect(() => {
+    if (!enabled) return;
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === "visible" && !requestRef.current) {
+        void checkMemoryStatus(false, true);
+      }
+    }, 3000);
+    return () => window.clearInterval(timer);
+  }, [checkMemoryStatus, enabled]);
 
   return { runtimeStatus, diagnosticsStatus, checkMemoryStatus };
 }

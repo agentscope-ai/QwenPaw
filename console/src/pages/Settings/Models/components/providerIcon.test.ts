@@ -50,10 +50,11 @@ describe("providerIcon", () => {
       "openrouter",
       "opencode",
       "kilo",
-      "github-models",
       "volcengine-cn",
       "volcengine-cn-codingplan",
+      "volcengine-cn-agentplan",
       "mimo-tokenplan",
+      "mimo",
     ];
     for (const p of known) {
       const url = providerIcon(p);

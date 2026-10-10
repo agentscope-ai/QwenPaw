@@ -15,10 +15,6 @@ vi.mock("../pages/Agent/Config/components/LightContextCard", () => ({
 vi.mock("../pages/Agent/Config/components/ReMeLightMemoryCard", () => ({
   ReMeLightMemoryCard: () => null,
 }));
-vi.mock("../pages/Agent/Config/components/ADBPGConfigCard", () => ({
-  ADBPGConfigCard: () => null,
-}));
-
 import {
   CONTEXT_MANAGER_BACKEND_MAPPINGS,
   MEMORY_MANAGER_BACKEND_MAPPINGS,
@@ -46,9 +42,8 @@ describe("CONTEXT_MANAGER_BACKEND_MAPPINGS", () => {
 });
 
 describe("MEMORY_MANAGER_BACKEND_MAPPINGS", () => {
-  it("has expected keys", () => {
-    expect(Object.keys(MEMORY_MANAGER_BACKEND_MAPPINGS)).toContain("remelight");
-    expect(Object.keys(MEMORY_MANAGER_BACKEND_MAPPINGS)).toContain("adbpg");
+  it("only contains core-owned backends", () => {
+    expect(Object.keys(MEMORY_MANAGER_BACKEND_MAPPINGS)).toEqual(["remelight"]);
   });
 
   it("each mapping has configField, label, and tabKey", () => {

@@ -42,24 +42,31 @@ class AgentsPage(BasePage):
     PAGE_HEADER = 'button:has-text("Create Agent"), span[class*="breadcrumbCurrent"]:has-text("智能体")'
     BREADCRUMB = 'span[class*="breadcrumbCurrent"]:has-text("智能体")'
 
-    # Agent list (table structure)
-    AGENT_TABLE = '.qwenpaw-table'
-    AGENT_LIST = '.qwenpaw-table-tbody'
-    AGENT_ITEM = '.qwenpaw-table-tbody tr.qwenpaw-table-row'
-    # Table column order: drag handle (1) | Name (2) | ID (3) | Description (4) | Workspace (5) | Model (6) | Actions (7)
-    AGENT_NAME_CELL = 'td.qwenpaw-table-cell:nth-child(2)'
-    AGENT_ID_CELL = 'td.qwenpaw-table-cell:nth-child(3)'
-    AGENT_DESC_CELL = 'td.qwenpaw-table-cell:nth-child(4)'
-    AGENT_WORKSPACE_CELL = 'td.qwenpaw-table-cell:nth-child(5)'
-    AGENT_MODEL_CELL = 'td.qwenpaw-table-cell:nth-child(6)'
-    AGENT_ACTIONS_CELL = 'td.qwenpaw-table-cell:nth-child(7)'
+    # Agent gallery. The settings redesign replaced the table with cards.
+    AGENT_TABLE = 'div[class*="grid"]'
+    AGENT_LIST = AGENT_TABLE
+    AGENT_ITEM = 'div[class*="grid"] article[class*="card"]'
+    # Column order: drag handle (1) | Name (2) | ID (3) | Backend (4) |
+    # Description (5) | Workspace (6) | Model (7) | Actions (8). Upstream
+    # #6397 inserted the Backend column after ID, shifting everything to
+    # its right. Actions is declared ``fixed: "right"``, so anchor it on
+    # the fixed-column class instead of a position that keeps drifting.
+    AGENT_NAME_CELL = 'button[class*="open"] strong'
+    AGENT_ID_CELL = 'span[class*="identity"] code'
+    AGENT_DESC_CELL = 'div[class*="description"]'
+    AGENT_WORKSPACE_CELL = 'span[class*="identity"]'
+    AGENT_MODEL_CELL = 'button[class*="open"] > span:not([class])'
+    AGENT_ACTIONS_CELL = 'div[class*="quickActions"]'
     # Post-#6198 the name cell shows an AgentStatusIndicator dot exposing a
     # ``data-status`` attribute (disabled/pending/starting/running/failed)
     # instead of a "Disabled" Tag.
     AGENT_STATUS = '[data-status]'
 
     # Action buttons
-    CREATE_AGENT_BTN = 'button:has-text("创建智能体"), button:has-text("Create Agent"), .qwenpaw-btn-primary'
+    CREATE_AGENT_BTN = (
+        'button:has-text("创建智能体"), '
+        'button:has-text("Create Agent")'
+    )
     # Inline action buttons in a table row. Post v2.0.1 (#6262 added a Copy
     # button at position 3) the actions are 5 icon buttons in order:
     # Pin | Edit | Copy | Toggle | Delete. Anchor on icon semantics only —
@@ -69,10 +76,13 @@ class AgentsPage(BasePage):
     #   Copy   = antd CopyOutlined    -> .anticon-copy   (do not match)
     #   Toggle = lucide Eye/EyeOff    -> svg.lucide-eye / svg.lucide-eye-off
     #   Delete = antd DeleteOutlined  -> .anticon-delete (danger button)
-    EDIT_BTN = 'button:has(.anticon-edit)'
-    TOGGLE_BTN = 'button:has(svg.lucide-eye-off), button:has(svg.lucide-eye)'
-    DELETE_BTN = 'button.qwenpaw-btn-dangerous, button:has(.anticon-delete)'
-    ENABLE_TOGGLE = 'button:has(svg.lucide-eye-off), button:has(svg.lucide-eye)'
+    EDIT_BTN = 'button[aria-label="Edit"], button[aria-label="编辑"]'
+    TOGGLE_BTN = (
+        'button[aria-label="Enable"], button[aria-label="Disable"], '
+        'button[aria-label="启用"], button[aria-label="禁用"]'
+    )
+    DELETE_BTN = 'button:has-text("Delete"), button:has-text("删除")'
+    ENABLE_TOGGLE = TOGGLE_BTN
     REFRESH_BTN = 'button:has(.anticon-reload), button:has(.spark-icon-spark-refresh-line)'
 
     # Create/edit form
@@ -146,7 +156,7 @@ class AgentsPage(BasePage):
                 name_text = name_cell.inner_text() if name_cell.is_visible() else ""
                 # Post-#6198 status is an AgentStatusIndicator dot exposing a
                 # ``data-status`` attribute (no visible text) — read the attribute.
-                status_dot = name_cell.locator(self.AGENT_STATUS).first
+                status_dot = row.locator(self.AGENT_STATUS).first
                 status = (
                     (status_dot.get_attribute("data-status") or "").strip()
                     if status_dot.count() > 0 else ""
@@ -157,7 +167,11 @@ class AgentsPage(BasePage):
                 agent_id = id_cell.inner_text().strip() if id_cell.is_visible() else ""
 
                 desc_cell = row.locator(self.AGENT_DESC_CELL).first
-                desc = desc_cell.inner_text().strip() if desc_cell.is_visible() else ""
+                desc = (
+                    desc_cell.inner_text().strip()
+                    if desc_cell.count() > 0 and desc_cell.is_visible()
+                    else ""
+                )
 
                 agents.append({
                     "name": clean_name,
@@ -336,8 +350,10 @@ class AgentsPage(BasePage):
         logger.info(f"Clicking delete for agent: {agent_name}")
         agent_row = self.find_agent_by_name(agent_name)
         if agent_row:
-            actions_cell = agent_row.locator(self.AGENT_ACTIONS_CELL).first
-            delete_btn = actions_cell.locator(self.DELETE_BTN).first
+            agent_row.locator('button[class*="open"]').first.click()
+            detail = self.page.locator('.qwenpaw-modal:visible').first
+            expect(detail).to_be_visible(timeout=5000)
+            delete_btn = detail.locator(self.DELETE_BTN).first
             delete_btn.click()
             self.wait(500)
         else:
@@ -434,8 +450,7 @@ class AgentsPage(BasePage):
         """
         agent_row = self.find_agent_by_name(agent_name)
         if agent_row:
-            name_cell = agent_row.locator(self.AGENT_NAME_CELL).first
-            status_dot = name_cell.locator(self.AGENT_STATUS).first
+            status_dot = agent_row.locator(self.AGENT_STATUS).first
             if status_dot.count() > 0:
                 return (status_dot.get_attribute("data-status") or "").strip()
         return ""

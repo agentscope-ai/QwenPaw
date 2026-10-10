@@ -18,7 +18,7 @@ const hoisted = vi.hoisted(() => {
     updateToolConfig: vi.fn(),
   };
   const stableT = (k: string) => k;
-  return { messageMock, apiMocks, stableT };
+  return { messageMock, apiMocks, stableT, selectedAgent: "agent-1" };
 });
 
 vi.mock("../../../api", () => ({
@@ -27,7 +27,7 @@ vi.mock("../../../api", () => ({
 }));
 
 vi.mock("../../../stores/agentStore", () => ({
-  useAgentStore: () => ({ selectedAgent: "agent-1" }),
+  useAgentStore: () => ({ selectedAgent: hoisted.selectedAgent }),
 }));
 
 vi.mock("../../../hooks/useAppMessage", () => ({
@@ -203,7 +203,7 @@ describe("useTools", () => {
     expect(result.current.tools.every((t) => t.enabled)).toBe(true);
   });
 
-  it("saveToolConfig success shows message.success('tools.configSaved')", async () => {
+  it("saveToolConfig succeeds silently for autosave", async () => {
     apiMocks.updateToolConfig.mockResolvedValue({
       status: "ok",
       message: "saved",
@@ -218,10 +218,47 @@ describe("useTools", () => {
       await result.current.saveToolConfig("a", { key: "value" });
     });
 
-    expect(apiMocks.updateToolConfig).toHaveBeenCalledWith("a", {
-      key: "value",
+    expect(apiMocks.updateToolConfig).toHaveBeenCalledWith(
+      "a",
+      {
+        key: "value",
+      },
+      "agent-1",
+    );
+    expect(messageMock.success).not.toHaveBeenCalled();
+  });
+
+  it("keeps an in-flight edit bound to its original agent", async () => {
+    const { result, rerender } = renderToolsHook();
+    const saveOriginal = result.current.saveToolConfig;
+    let finishValidation!: () => void;
+    const validation = new Promise<void>((resolve) => {
+      finishValidation = resolve;
     });
-    expect(messageMock.success).toHaveBeenCalledWith("tools.configSaved");
+    const pendingSave = (async () => {
+      await validation;
+      await saveOriginal("a", { key: "draft-a" });
+    })();
+    hoisted.selectedAgent = "agent-2";
+    rerender();
+    await act(async () => {
+      finishValidation();
+      await pendingSave;
+    });
+    expect(apiMocks.updateToolConfig).toHaveBeenLastCalledWith(
+      "a",
+      { key: "draft-a" },
+      "agent-1",
+    );
+    await act(async () => {
+      await result.current.saveToolConfig("a", { key: "draft-a" }, "agent-1");
+    });
+    expect(apiMocks.updateToolConfig).toHaveBeenLastCalledWith(
+      "a",
+      { key: "draft-a" },
+      "agent-1",
+    );
+    hoisted.selectedAgent = "agent-1";
   });
 
   it("saveToolConfig failure shows message.error('tools.configSaveError') and rethrows", async () => {

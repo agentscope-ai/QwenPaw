@@ -1,8 +1,9 @@
+import { LayoutGroup } from "motion/react";
+import { Search } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { useSearchParams } from "react-router-dom";
-import { ArrowLeftOutlined, PlusOutlined } from "@ant-design/icons";
+import { useNavigate } from "react-router-dom";
+import { Plus as PlusOutlined } from "lucide-react";
 import { Button } from "@agentscope-ai/design";
-import { MarketPanel } from "../../Settings/Market/MarketPanel";
 import {
   SkillCard,
   SkillDrawer,
@@ -12,7 +13,6 @@ import {
   SkillsToolbar,
   SkillListItem,
   ProviderSkillDrawer,
-  getSkillVisual,
 } from "./components";
 import type { SkillSpec } from "../../../api/types";
 import type { HarnessDiscoveredSkill } from "../../../api/modules/harness";
@@ -25,6 +25,8 @@ import { LockKeyhole, Sparkles } from "lucide-react";
 function SkillsPage() {
   const { t } = useTranslation();
   const {
+    channelOptions,
+    getChannelName,
     skills,
     providerSkills,
     visibleSkills,
@@ -78,35 +80,20 @@ function SkillsPage() {
     clearSelection,
     toggleBatchMode,
     toggleEnabled,
-    refreshSkills,
     hardRefresh,
     cancelImport,
   } = useSkillsPage();
 
-  const [searchParams, setSearchParams] = useSearchParams();
+  const navigate = useNavigate();
   const [selectedProviderSkill, setSelectedProviderSkill] =
     useState<HarnessDiscoveredSkill | null>(null);
-  const marketView = searchParams.get("view") === "market";
 
   const openMarket = useCallback(() => {
-    setSearchParams((prev) => {
-      const next = new URLSearchParams(prev);
-      next.set("view", "market");
-      return next;
-    });
-  }, [setSearchParams]);
-
-  const closeMarket = useCallback(() => {
-    setSearchParams((prev) => {
-      const next = new URLSearchParams(prev);
-      next.delete("view");
-      return next;
-    });
-  }, [setSearchParams]);
-
-  const handleMarketInstalled = useCallback(() => {
-    void refreshSkills();
-  }, [refreshSkills]);
+    // Keep the install destination when the shared market page is opened from
+    // the workspace skills view. The skill pool uses the same page but a
+    // different destination.
+    navigate("/market?tab=skills&target=workspace");
+  }, [navigate]);
 
   // Split skills into enabled and disabled groups
   const { enabledSkills, disabledSkills } = useMemo(() => {
@@ -125,55 +112,32 @@ function SkillsPage() {
       <SkillListItem
         key={skill.name}
         skill={skill}
+        getChannelName={getChannelName}
         batchModeEnabled={batchModeEnabled}
         isSelected={selectedSkills.has(skill.name)}
         onSelect={() => toggleSelect(skill.name)}
         onClick={() => handleEdit(skill)}
         onToggleEnabled={async () => {
           await toggleEnabled(skill);
-          await refreshSkills();
         }}
         onDelete={() => handleDelete(skill)}
       />
     ),
     [
+      getChannelName,
       batchModeEnabled,
       selectedSkills,
       toggleSelect,
       handleEdit,
       toggleEnabled,
-      refreshSkills,
       handleDelete,
     ],
   );
 
-  if (marketView) {
-    return (
-      <div className={styles.skillsPage}>
-        <PageHeader
-          items={[
-            { title: t("nav.agent") },
-            { title: t("skills.title") },
-            { title: t("nav.market") },
-          ]}
-          extra={
-            <Button icon={<ArrowLeftOutlined />} onClick={closeMarket}>
-              {t("common.back")}
-            </Button>
-          }
-        />
-        <MarketPanel
-          installTarget="workspace"
-          onInstalled={handleMarketInstalled}
-        />
-      </div>
-    );
-  }
-
   return (
     <div className={styles.skillsPage}>
       <PageHeader
-        items={[{ title: t("nav.agent") }, { title: t("skills.title") }]}
+        items={[{ title: t("skills.title") }]}
         extra={
           <HeaderActions
             batchModeEnabled={batchModeEnabled}
@@ -255,7 +219,7 @@ function SkillsPage() {
               type="primary"
               className={styles.primaryActionButton}
               onClick={handleCreate}
-              icon={<PlusOutlined />}
+              icon={<PlusOutlined size="1em" />}
             >
               {t("skills.emptyStateCreate")}
             </Button>
@@ -263,13 +227,15 @@ function SkillsPage() {
         </div>
       ) : sortedSkills.length === 0 ? (
         <div className={styles.noSearchResults}>
-          <span className={styles.noSearchResultsIcon}>🔍</span>
+          <span className={styles.noSearchResultsIcon}>
+            <Search size={28} aria-hidden="true" />
+          </span>
           <span className={styles.noSearchResultsText}>
             {t("skills.noSearchResults")}
           </span>
         </div>
       ) : (
-        <>
+        <LayoutGroup>
           {/* Enabled Skills Section */}
           {enabledSkills.length > 0 && (
             <div className={styles.panelSection}>
@@ -287,6 +253,7 @@ function SkillsPage() {
                     <SkillCard
                       key={skill.name}
                       skill={skill}
+                      getChannelName={getChannelName}
                       selected={
                         batchModeEnabled
                           ? selectedSkills.has(skill.name)
@@ -317,29 +284,24 @@ function SkillsPage() {
                 {t("skills.disabledSkills")}
               </div>
               {viewMode === "card" ? (
-                <div className={styles.disabledSkillsGrid}>
+                <div className={styles.skillsGrid}>
                   {disabledSkills.map((skill) => (
-                    <div
+                    <SkillCard
                       key={skill.name}
-                      className={styles.disabledSkillGridItem}
+                      skill={skill}
+                      getChannelName={getChannelName}
+                      selected={
+                        batchModeEnabled
+                          ? selectedSkills.has(skill.name)
+                          : undefined
+                      }
+                      onSelect={() => toggleSelect(skill.name)}
                       onClick={() => handleEdit(skill)}
-                    >
-                      <span className={styles.disabledSkillGridIcon}>
-                        {getSkillVisual(skill.name, skill.emoji)}
-                      </span>
-                      <span className={styles.disabledSkillGridName}>
-                        {skill.name}
-                      </span>
-                      <span
-                        className={styles.disabledSkillGridAction}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleToggleEnabled(skill, e);
-                        }}
-                      >
-                        {t("common.enable")}
-                      </span>
-                    </div>
+                      onToggleEnabled={(event) =>
+                        handleToggleEnabled(skill, event)
+                      }
+                      onDelete={(event) => handleDelete(skill, event)}
+                    />
                   ))}
                 </div>
               ) : (
@@ -356,7 +318,7 @@ function SkillsPage() {
               style={{ height: 1, minHeight: 1, flexShrink: 0 }}
             />
           )}
-        </>
+        </LayoutGroup>
       )}
 
       {providerSkills.length > 0 && (
@@ -428,6 +390,7 @@ function SkillsPage() {
       {conflictRenameModal}
 
       <SkillDrawer
+        channelOptions={channelOptions}
         open={drawerOpen}
         editing={drawerLoading || editingSkill !== null}
         editingName={editingSkillName}

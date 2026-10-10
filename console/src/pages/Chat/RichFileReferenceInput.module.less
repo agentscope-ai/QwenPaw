@@ -65,12 +65,12 @@
   margin: 0 3px;
   padding: 2px 8px 2px 6px;
   gap: 4px;
-  color: #1677ff;
+  color: var(--app-info-text);
   font: inherit;
   line-height: 1.45;
   vertical-align: baseline;
-  background: rgba(22, 119, 255, 0.08);
-  border: 1px solid rgba(22, 119, 255, 0.14);
+  background: var(--app-info-bg);
+  border: 1px solid var(--app-info-border);
   border-radius: 7px;
   cursor: pointer;
 
@@ -86,8 +86,8 @@
   }
 
   &:hover {
-    color: #0958d9;
-    background: rgba(22, 119, 255, 0.13);
+    color: var(--app-info-text);
+    background: var(--app-info-bg-hover);
   }
 }
 
@@ -96,10 +96,10 @@
 }
 
 .codeChip {
-  color: #315f93;
+  color: var(--app-info-text);
   font-family: var(--ant-font-family-code);
-  background: rgba(49, 95, 147, 0.08);
-  border-color: rgba(49, 95, 147, 0.16);
+  background: var(--app-info-bg);
+  border-color: var(--app-info-border);
 }
 
 .codePopover {
@@ -117,21 +117,21 @@
   pre {
     margin: 0;
     padding: 14px 16px 16px;
-    color: var(--ant-color-text);
+    color: var(--app-text);
     font-family: var(--ant-font-family-code);
     font-size: 13px;
     line-height: 1.6;
     white-space: pre-wrap;
     overflow-wrap: anywhere;
-    background: var(--ant-color-fill-quaternary);
+    background: var(--app-fill-faint);
   }
 }
 
 .codePreviewHeader {
   padding: 9px 16px;
-  color: var(--ant-color-text-secondary);
+  color: var(--app-text-secondary);
   font-size: 12px;
-  border-bottom: 1px solid var(--ant-color-border-secondary);
+  border-bottom: 1px solid var(--app-border);
 }
 
 .richInputRoot[data-disabled] {
@@ -139,23 +139,5 @@
 
   .richEditor {
     cursor: not-allowed;
-  }
-}
-
-:global(.dark-mode) {
-  .atomicChip {
-    color: #69b1ff;
-    background: rgba(64, 150, 255, 0.14);
-    border-color: rgba(105, 177, 255, 0.24);
-
-    &:hover {
-      color: #91caff;
-      background: rgba(64, 150, 255, 0.2);
-    }
-  }
-
-  .codeChip {
-    color: #91caff;
-    background: rgba(64, 150, 255, 0.12);
   }
 }

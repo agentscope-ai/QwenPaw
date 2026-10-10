@@ -14,6 +14,7 @@ const hoisted = vi.hoisted(() => {
     setFieldsValue: mockFormSetFieldsValue,
   };
   const messageMock = {
+    destroy: vi.fn(),
     success: vi.fn(),
     error: vi.fn(),
   };

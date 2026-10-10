@@ -24,7 +24,11 @@ router = APIRouter(prefix="/settings", tags=["settings"])
 
 _SETTINGS_FILE = WORKING_DIR / "settings.json"
 
-_VALID_LANGUAGES = {"en", "zh", "ja", "ru", "pt-BR", "id"}
+# Must stay in sync with LANGUAGE_LIST in
+# console/src/constants/languageList.tsx — the console renders every
+# entry there as a selectable option, so a language missing here is
+# silently rejected on PUT and the user's preference is lost.
+_VALID_LANGUAGES = {"en", "zh", "ja", "ru", "pt-BR", "id", "vi"}
 
 
 async def _load() -> dict:

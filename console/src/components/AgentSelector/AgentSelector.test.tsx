@@ -102,6 +102,41 @@ describe("AgentSelector", () => {
     expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
   });
 
+  it("switches agents from the collapsed menu and closes it", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<AgentSelector collapsed />);
+    const trigger = screen.getByRole("button", { name: "agent.selectAgent" });
+
+    await user.click(trigger);
+    expect(trigger).toHaveAttribute("aria-expanded", "true");
+    await user.click(await screen.findByRole("option", { name: /Agent One/ }));
+
+    expect(mocks.setSelectedAgent).toHaveBeenCalledWith("agent-1");
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
+    expect(mocks.navigate).not.toHaveBeenCalled();
+  });
+
+  it("prevents selecting disabled agents and dismisses with Escape", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<AgentSelector collapsed />);
+    const trigger = screen.getByRole("button", { name: "agent.selectAgent" });
+    await user.click(trigger);
+
+    await user.click(
+      screen.getByRole("button", { name: "agent.disabledAgents" }),
+    );
+    const disabled = await screen.findByText("Agent Two");
+    await user.click(disabled);
+    expect(mocks.setSelectedAgent).not.toHaveBeenCalled();
+    expect(trigger).toHaveAttribute("aria-expanded", "true");
+
+    screen.getByRole("option", { name: /Agent One/ }).focus();
+    await user.keyboard("{Escape}");
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
+    expect(trigger).toHaveFocus();
+  });
+
   it("shows disabled agents only after expanding the footer", async () => {
     const user = userEvent.setup();
     renderWithProviders(<AgentSelector />);

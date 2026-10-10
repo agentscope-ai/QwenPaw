@@ -41,18 +41,21 @@ import type {
 } from "../../api/modules/git";
 import styles from "./GitPanel.module.less";
 
-const STATUS_LABELS: Record<string, { label: string; color: string }> = {
-  M: { label: "M", color: "#f0ad4e" },
-  A: { label: "A", color: "#5cb85c" },
-  D: { label: "D", color: "#d9534f" },
-  R: { label: "R", color: "#5bc0de" },
-  "?": { label: "U", color: "#aaa" },
+const STATUS_LABELS: Record<string, { label: string; className: string }> = {
+  M: { label: "M", className: styles.statusModified },
+  A: { label: "A", className: styles.statusAdded },
+  D: { label: "D", className: styles.statusDeleted },
+  R: { label: "R", className: styles.statusRenamed },
+  "?": { label: "U", className: styles.statusUntracked },
 };
 
 function StatusBadge({ status }: { status: string }) {
-  const info = STATUS_LABELS[status] ?? { label: status, color: "#aaa" };
+  const info = STATUS_LABELS[status] ?? {
+    label: status,
+    className: styles.statusUntracked,
+  };
   return (
-    <span className={styles.statusBadge} style={{ color: info.color }}>
+    <span className={`${styles.statusBadge} ${info.className}`}>
       {info.label}
     </span>
   );

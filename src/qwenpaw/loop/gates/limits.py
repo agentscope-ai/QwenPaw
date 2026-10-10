@@ -49,7 +49,7 @@ class TokenBudgetGate(LoopGate):
         return 20
 
     def reset_turn(self) -> None:
-        """Start a fresh per-turn usage accumulator."""
+        """Reset the cached snapshot without resetting recorded usage."""
         self.activate(_TokenBudgetState())
 
     async def check(self, ctx: Any) -> StopHandlerResult:
@@ -62,8 +62,10 @@ class TokenBudgetGate(LoopGate):
         iteration = int(ctx.get("iteration", 0))
         if state.last_iteration != iteration:
             usage = self._current_usage()
-            state.prompt_tokens += int(usage.get("prompt_tokens", 0))
-            state.completion_tokens += int(
+            # Usage accumulates for the entire user turn, including rubric
+            # continuations, and is cleared by the channel at turn boundaries.
+            state.prompt_tokens = int(usage.get("prompt_tokens", 0))
+            state.completion_tokens = int(
                 usage.get("completion_tokens", 0),
             )
             state.last_iteration = iteration

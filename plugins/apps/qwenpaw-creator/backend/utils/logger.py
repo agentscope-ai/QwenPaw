@@ -7,6 +7,7 @@ from __future__ import annotations
 import logging
 import os
 import sys
+import threading
 from collections.abc import Callable
 from logging.handlers import TimedRotatingFileHandler
 from pathlib import Path
@@ -36,6 +37,7 @@ class _CreatorRoutingFileHandler(logging.Handler):
         self.data_root = data_root.resolve(strict=False)
         self.system_path = creator_log_path(self.data_root)
         self._targets: dict[Path, _SecureTimedRotatingFileHandler] = {}
+        self._targets_lock = threading.RLock()
         self._handler_for(self.system_path)
 
     def _handler_for(self, path: Path) -> _SecureTimedRotatingFileHandler:
@@ -74,19 +76,44 @@ class _CreatorRoutingFileHandler(logging.Handler):
 
     def emit(self, record: logging.LogRecord) -> None:
         try:
-            self._handler_for(self._path_for(record)).emit(record)
+            with self._targets_lock:
+                self._handler_for(self._path_for(record)).emit(record)
         except Exception:
             self.handleError(record)
 
     def flush(self) -> None:
-        for handler in self._targets.values():
-            handler.flush()
+        with self._targets_lock:
+            for handler in self._targets.values():
+                handler.flush()
 
     def close(self) -> None:
-        for handler in self._targets.values():
-            handler.close()
-        self._targets.clear()
+        with self._targets_lock:
+            for handler in self._targets.values():
+                handler.close()
+            self._targets.clear()
         super().close()
+
+    def close_project(self, project_id: str) -> None:
+        """Close and forget one Project target before its tree is deleted."""
+
+        # The id arrives from API path parameters; strip any directory
+        # components before composing the log path so a crafted id can
+        # never point the handler lookup outside the data root.
+        safe_id = os.path.basename(project_id)
+        if not safe_id or safe_id in {".", ".."}:
+            return
+        try:
+            project_root = (self.data_root / safe_id).resolve(strict=False)
+            if project_root.parent != self.data_root:
+                return
+            path = project_root / "observability" / "logs" / "creator.log"
+        except (OSError, RuntimeError):
+            return
+        with self._targets_lock:
+            handler = self._targets.pop(path, None)
+            if handler is not None:
+                handler.flush()
+                handler.close()
 
 
 def _formatter() -> logging.Formatter:
@@ -202,6 +229,13 @@ def shutdown_creator_file_logging() -> None:
     _FILE_PATH = None
 
 
+def close_creator_project_logging(project_id: str) -> None:
+    """Release a deleted Project's rotating log descriptor immediately."""
+
+    if _FILE_HANDLER is not None:
+        _FILE_HANDLER.close_project(project_id)
+
+
 def setup_logger(
     name: str = "app",
     logging_level: str = "INFO",
@@ -236,6 +270,7 @@ logger = setup_logger()
 
 __all__ = [
     "configure_creator_file_logging",
+    "close_creator_project_logging",
     "creator_log_path",
     "logger",
     "register_creator_log_project_resolver",

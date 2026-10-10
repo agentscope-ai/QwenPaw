@@ -23,8 +23,8 @@ export function PreviewModal({ rule, onClose }: PreviewModalProps) {
   if (!rule) return null;
 
   const preStyle: React.CSSProperties = {
-    background: isDark ? "#1a1a1a" : "#f5f5f5",
-    color: isDark ? "rgba(255,255,255,0.85)" : "#333",
+    background: isDark ? "var(--app-surface-subtle)" : "#f5f5f5",
+    color: isDark ? "var(--app-text)" : "#333",
     padding: 12,
     borderRadius: 6,
     fontSize: 13,

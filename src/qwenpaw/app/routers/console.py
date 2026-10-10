@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """Console APIs: push messages, chat, and file upload for chat."""
+
 from __future__ import annotations
 
 import asyncio
@@ -27,13 +28,21 @@ from qwenpaw.schemas import (
     AgentRequest,
     _coerce_content_item,
 )
+from qwenpaw.tool_calls import CancelReason
 from qwenpaw.utils.timeout import resolve_stream_task_timeout
+from ...providers.thinking import ThinkingPreference
+from ...services.session_thinking import (
+    session_model,
+    session_preference,
+    thinking_view,
+)
+from ...config.config import ModelSlotConfig
 from ...utils.logging import LOG_FILE_PATH, sanitize_log_value
 from ..agent_context import get_agent_for_request
 from ..approvals.display import approval_display_fields
+from ..chats.models import ChatUpdate
 from ..chats.title_generator import generate_and_update_title
 from ..utils import check_upload_size
-
 
 logger = logging.getLogger(__name__)
 
@@ -123,40 +132,143 @@ def _extract_placeholder_name(content_parts: list) -> tuple[str, str]:
         first_text = ""
     if not first_text:
         return "Media Message", ""
-    return first_text[:10], first_text
+    return first_text, first_text
 
 
-async def _apply_session_project_dir(
+async def _persist_pending_model_settings(workspace, chat, request_context):
+    """Bind first-turn model and reasoning before building the runtime."""
+    pending_model = request_context.pop(f"session_model", None)
+    if pending_model is not None and session_model(chat.meta) is None:
+        try:
+            selected = ModelSlotConfig.model_validate(pending_model)
+        except ValueError as exc:
+            raise HTTPException(422, f"Invalid session model") from exc
+        view = await thinking_view(workspace, model_override=selected)
+        if view[f"model"] is None:
+            raise HTTPException(422, f"Model provider is unavailable")
+        chat = await workspace.chat_manager.set_session_model(
+            chat.id,
+            selected.model_dump(),
+        )
+        if chat is None:
+            raise HTTPException(409, f"Session disappeared before saving")
+
+    pending_thinking = request_context.pop(f"session_thinking", None)
+    if pending_thinking is not None:
+        try:
+            preference = ThinkingPreference.model_validate(pending_thinking)
+        except ValueError as exc:
+            raise HTTPException(422, f"Invalid thinking preference") from exc
+        view = await thinking_view(
+            workspace,
+            preference,
+            session_model(chat.meta),
+        )
+        if preference.level != f"inherit" and view[f"reason"] is not None:
+            raise HTTPException(422, f"Invalid session thinking setting")
+        if session_preference(chat.meta, view[f"model_key"]) is None:
+            updated = await workspace.chat_manager.set_session_thinking(
+                chat.id,
+                preference,
+                view[f"model_key"],
+            )
+            if updated is None:
+                raise HTTPException(409, f"Session disappeared before saving")
+            chat = updated
+
+    return chat
+
+
+async def _persist_pending_project_dirs(
     workspace,
     chat,
     native_payload: dict[str, Any],
 ):
-    """Persist a Session project selection before dispatch."""
+    """Bind pending project dirs sent with a new chat's first message.
+
+    The console can only offer a directory picker *before* a chat
+    exists, so the choice arrives in ``request_context`` as
+    ``session_project_dirs`` (ordered list, primary first; the legacy
+    singular ``session_project_dir`` is still honoured). Entries are
+    validated here rather than trusted: they come from a client, and a
+    bad value would otherwise be written into the chat and silently
+    steer every later turn.
+
+    Never overwrites an existing session override — a chat that already
+    has one is not a new chat, and clobbering it would lose the user's
+    setting.
+
+    The keys are popped once they have been **consumed** — persisted onto
+    the chat, where every later turn reads them from. If persistence does
+    not happen (the chat vanished), they are put back so that
+    ``ContextVarsSetupHook`` can still honour the user's pick for this
+    first turn instead of silently falling back to the agent default.
+    """
     request_context = native_payload["meta"].get("request_context")
     if not isinstance(request_context, dict):
         return chat
-    raw_value = request_context.pop("session_project_dir", None)
-    if not isinstance(raw_value, str) or not raw_value.strip():
+
+    chat = await _persist_pending_model_settings(
+        workspace,
+        chat,
+        request_context,
+    )
+
+    raw_list = request_context.pop("session_project_dirs", None)
+    raw_single = request_context.pop("session_project_dir", None)
+
+    def _leave_for_hook() -> None:
+        """Restore the unconsumed keys for ContextVarsSetupHook."""
+        if raw_list is not None:
+            request_context["session_project_dirs"] = raw_list
+        if raw_single is not None:
+            request_context["session_project_dir"] = raw_single
+
+    pending: list | None = None
+    if isinstance(raw_list, list) and raw_list:
+        pending = raw_list
+    elif isinstance(raw_single, str) and raw_single.strip():
+        pending = [raw_single]
+    if pending is None:
         return chat
 
-    def _resolve_target() -> Path:
-        target = Path(raw_value).expanduser().resolve()
-        if not target.is_dir():
-            raise NotADirectoryError(str(target))
-        return target
-
-    try:
-        target = await asyncio.to_thread(_resolve_target)
-    except NotADirectoryError as exc:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Project directory is unavailable: {exc}",
-        ) from exc
-    updated = await workspace.chat_manager.set_project_dir(
-        chat.id,
-        str(target),
+    from ...services.project_directory import (
+        normalize_project_dir_list,
+        session_project_dirs_raw_from_meta,
     )
-    return updated or chat
+
+    if session_project_dirs_raw_from_meta(getattr(chat, "meta", None)):
+        return chat
+
+    def _validate() -> list[dict]:
+        entries = []
+        for path, label in normalize_project_dir_list(pending):
+            if not path.is_dir():
+                logger.warning(
+                    "Ignoring pending project dir that is not a "
+                    "directory: %s",
+                    path,
+                )
+                continue
+            entries.append({"path": str(path), "label": label})
+        return entries
+
+    entries = await asyncio.to_thread(_validate)
+    if not entries:
+        return chat
+
+    updated = await workspace.chat_manager.set_session_project_dirs(
+        chat.id,
+        entries,
+    )
+    if updated is None:
+        # The chat could not be updated, so nothing persisted the pick.
+        # Hand it to the hook rather than dropping it: this turn would
+        # otherwise run in the agent default while the console shows the
+        # directory the user chose.
+        _leave_for_hook()
+        return chat
+    return updated
 
 
 def _extract_session_and_payload(request_data: Union[AgentRequest, dict]):
@@ -359,33 +471,46 @@ async def post_console_chat(
             # history. Returning a JSON null here left the chat blank.
             return _empty_sse_response()
     else:
-        chat = await _apply_session_project_dir(
+        # The web UI allocates a Chat UUID before its first message. Give
+        # that explicit placeholder the same first-turn naming behavior as
+        # get_or_create_chat, without overwriting a user's renamed Chat.
+        if (
+            first_text
+            and not chat.last_finished_at
+            and chat.meta.get("console_placeholder_name") == chat.name
+        ):
+            renamed = await workspace.chat_manager.patch_chat_if_name_matches(
+                chat.id,
+                chat.name,
+                ChatUpdate(name=name),
+            )
+            if renamed is not None:
+                chat = renamed
+        chat = await _persist_pending_project_dirs(
             workspace,
             chat,
             native_payload,
         )
-        from ...config.config import load_agent_config
-        from ...services.project_directory import (
-            resolve_effective_project_dir,
-            session_project_dir,
-        )
+        # Project directories are resolved exactly once, inside
+        # ContextVarsSetupHook (from the chat meta persisted above);
+        # the router no longer pre-resolves or injects them.
 
-        agent_config = await asyncio.to_thread(
-            load_agent_config,
-            workspace.agent_id,
+        queue, is_new_run = await tracker.attach_or_start(
+            chat.id,
+            native_payload,
+            console_channel.stream_one,
+            owner=workspace,
+            on_finished=workspace.chat_manager.mark_chat_finished,
         )
-        project_dir, project_source = await asyncio.to_thread(
-            resolve_effective_project_dir,
-            workspace.workspace_dir,
-            agent_config.project_dir,
-            session_project_dir(chat.meta),
-        )
-        request_context = dict(
-            native_payload["meta"].get("request_context") or {},
-        )
-        request_context["project_dir"] = str(project_dir)
-        request_context["project_dir_source"] = project_source
-        native_payload["meta"]["request_context"] = request_context
+        if not is_new_run:
+            await tracker.detach_subscriber(chat.id, queue)
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "A task is already running for this chat. Wait for it "
+                    "to finish or use a different session_id."
+                ),
+            )
 
         # Title generation is only needed when starting a new run.
         if first_text and chat.name == name:
@@ -397,12 +522,6 @@ async def post_console_chat(
                     placeholder_name=name,
                 ),
             )
-        queue, _ = await tracker.attach_or_start(
-            chat.id,
-            native_payload,
-            console_channel.stream_one,
-            owner=workspace,
-        )
 
     async def event_generator() -> AsyncGenerator[str, None]:
         # Hold iterator so finally can aclose(); guarantees stream_from_queue's
@@ -437,42 +556,60 @@ async def post_console_chat_stop(
     request: Request,
     chat_id: str = Query(..., description="Chat id (ChatSpec.id) to stop"),
 ) -> dict:
-    """Stop the running chat. Only stops when called."""
+    """Stop the running chat and its foreground tool calls."""
     logger.debug("[STOP API] Received stop request for chat_id=%s", chat_id)
     workspace = await get_agent_for_request(request)
 
-    # Try to stop with the provided chat_id first
-    logger.debug(
-        "[STOP API] Got workspace, calling task_tracker.request_stop...",
-    )
-    stopped = await workspace.task_tracker.request_stop(chat_id)
-
-    # If not found, the chat_id might be a session_id (timestamp)
-    # Try to resolve it to the actual chat UUID
-    if not stopped:
-        logger.debug(
-            "[STOP API] chat_id not found in tracker, trying to resolve "
-            "from session_id...",
-        )
-        chat_manager = workspace.chat_manager
-        if chat_manager:
-            resolved_chat_id = await chat_manager.get_chat_id_by_session(
+    resolved_chat_id = chat_id
+    runtime_session_id: str | None = None
+    chat_manager = workspace.chat_manager
+    if chat_manager:
+        chat = await chat_manager.get_chat(chat_id)
+        if chat is None:
+            candidate = await chat_manager.get_chat_id_by_session(
                 session_id=chat_id,
                 channel="console",
             )
-            if resolved_chat_id:
+            if candidate:
+                resolved_chat_id = candidate
+                chat = await chat_manager.get_chat(candidate)
                 logger.debug(
                     "[STOP API] Resolved session_id=%s to chat_id=%s",
                     chat_id[:12] if len(chat_id) >= 12 else chat_id,
-                    resolved_chat_id,
+                    candidate,
                 )
-                stopped = await workspace.task_tracker.request_stop(
-                    resolved_chat_id,
-                )
+        if chat is not None:
+            runtime_session_id = chat.session_id
+
+    tool_cancelled = 0
+    app_services = getattr(request.app.state, "app_services", None)
+    coordinator = getattr(app_services, "tool_coordinator", None)
+    cancel_session = getattr(
+        coordinator,
+        "cancel_running_for_session",
+        None,
+    )
+    if runtime_session_id and callable(cancel_session):
+        # Tool calls have their own task owner. Cancel them before cancelling
+        # the producer so subprocess bridges can observe cancel_event and tear
+        # down the process tree deterministically.
+        tool_cancelled = await cancel_session(
+            runtime_session_id,
+            agent_id=workspace.agent_id,
+            reason=CancelReason.USER,
+        )
 
     logger.debug(
-        "[STOP API] task_tracker.request_stop returned: stopped=%s",
+        "[STOP API] Got workspace, calling task_tracker.request_stop...",
+    )
+    run_stopped = await workspace.task_tracker.request_stop(resolved_chat_id)
+    stopped = run_stopped or tool_cancelled > 0
+
+    logger.debug(
+        "[STOP API] stop completed: stopped=%s run_stopped=%s tools=%s",
         stopped,
+        run_stopped,
+        tool_cancelled,
     )
     return {"stopped": stopped}
 
@@ -496,6 +633,38 @@ async def post_console_upload(
     data = await file.read()
     check_upload_size(data)
     safe_name = _safe_filename(file.filename or "file")
+    if file.content_type in {
+        "image/png",
+        "image/jpeg",
+        "image/gif",
+        "image/webp",
+        "image/bmp",
+        "image/tiff",
+    } or Path(
+        safe_name,
+    ).suffix.lower() in {
+        ".png",
+        ".jpg",
+        ".jpeg",
+        ".gif",
+        ".webp",
+        ".bmp",
+        ".tiff",
+    }:
+        from io import BytesIO
+        from PIL import Image
+
+        try:
+            with Image.open(BytesIO(data)) as image:
+                image.verify()
+        except (OSError, SyntaxError, ValueError) as exc:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "The image is damaged or unsupported. "
+                    "Please upload it again."
+                ),
+            ) from exc
     stored_name = f"{uuid.uuid4().hex}_{safe_name}"
 
     path = (media_dir / stored_name).resolve()
@@ -590,6 +759,7 @@ async def get_push_messages(
             "tool_params": p.extra.get("tool_call", {}).get("input", {}),
             "source_type": p.extra.get("source_type", "tool_guard"),
             "driver": p.extra.get("driver"),
+            "reasoning": p.extra.get("reasoning", ""),
             "created_at": p.created_at,
             "timeout_seconds": p.timeout_seconds,
         }
@@ -764,7 +934,8 @@ async def _mark_background_fork_failed(
     status_code=200,
     summary="Submit a background chat task",
 )
-async def post_console_chat_task(  # pylint: disable=too-many-statements
+# pylint: disable-next=too-many-statements
+async def post_console_chat_task(
     request_data: dict,
     request: Request,
 ) -> dict:
@@ -808,7 +979,7 @@ async def post_console_chat_task(  # pylint: disable=too-many-statements
         name=name,
         **_chat_registration_fields(native_payload),
     )
-    chat = await _apply_session_project_dir(
+    chat = await _persist_pending_project_dirs(
         workspace,
         chat,
         native_payload,
@@ -825,48 +996,71 @@ async def post_console_chat_task(  # pylint: disable=too-many-statements
         )
         fork_scope_id = str(rc.get("fork_scope_id") or "")
 
-    from ...config.config import load_agent_config
-    from ...services.project_directory import (
-        resolve_effective_project_dir,
-        session_project_dir,
-    )
-
-    agent_config = await asyncio.to_thread(
-        load_agent_config,
-        workspace.agent_id,
-    )
-    project_dir, project_source = await asyncio.to_thread(
-        resolve_effective_project_dir,
-        workspace.workspace_dir,
-        agent_config.project_dir,
-        session_project_dir(chat.meta),
-        None,
-        None,
-        fork_project_dir or None,
-    )
-    request_context = dict(
-        native_payload["meta"].get("request_context") or {},
-    )
-    request_context["project_dir"] = str(project_dir)
-    request_context["project_dir_source"] = project_source
-    native_payload["meta"]["request_context"] = request_context
+    # Project directories are resolved exactly once, inside
+    # ContextVarsSetupHook (fork override included); the router no
+    # longer pre-resolves or injects them.
 
     bg = _BackgroundTask(
         status="running",
         started_at=time.time(),
     )
     timed_out = False
+    producer_error: Exception | None = None
+    producer_cancelled = False
+    tracker = workspace.task_tracker
 
+    async def _tracked_stream(payload: dict) -> AsyncGenerator[str, None]:
+        """Expose the background run to TaskTracker without hiding failures."""
+        nonlocal producer_cancelled, producer_error
+        try:
+            async for sse_line in console_channel.stream_one(payload):
+                yield sse_line
+        except asyncio.CancelledError:
+            producer_cancelled = True
+            raise
+        except Exception as exc:
+            producer_error = exc
+            raise
+
+    queue, is_new_run = await tracker.attach_or_start(
+        chat.id,
+        native_payload,
+        _tracked_stream,
+        owner=workspace,
+        on_finished=workspace.chat_manager.mark_chat_finished,
+    )
+    if not is_new_run:
+        await tracker.detach_subscriber(chat.id, queue)
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "A task is already running for this chat. Wait for it to "
+                "finish or use a different session_id."
+            ),
+        )
+
+    # pylint: disable-next=too-many-branches
     async def _run() -> None:
         last_response: Optional[Dict[str, Any]] = None
         finalize_started = False
         try:
-            async for sse_line in console_channel.stream_one(
-                native_payload,
-            ):
+            async for sse_line in tracker.stream_from_queue(queue, chat.id):
                 parsed = _parse_sse_payload(sse_line)
                 if parsed and parsed.get("type") != "turn_usage":
                     last_response = parsed
+
+            # ``stream_from_queue`` intentionally consumes cancellation so an
+            # aborted SSE client does not leak it.  This background consumer,
+            # however, owns the tracked run and must preserve task
+            # cancellation.
+            current_task = asyncio.current_task()
+            if current_task is not None and current_task.cancelling():
+                raise asyncio.CancelledError
+
+            if producer_cancelled:
+                raise asyncio.CancelledError
+            if producer_error is not None:
+                raise producer_error
 
             # Fork subagents: commit dirty worktree so branch tips are
             # mergeable before exposing a completed task result.
@@ -904,6 +1098,8 @@ async def post_console_chat_task(  # pylint: disable=too-many-statements
                     }
                     return
         except asyncio.CancelledError:
+            if is_new_run:
+                await tracker.request_stop(chat.id)
             cancel_error = _background_task_cancel_error(
                 timed_out=timed_out,
                 timeout_seconds=effective_timeout,

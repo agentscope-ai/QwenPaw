@@ -71,6 +71,29 @@ const DEFAULT_TIMEOUT_MS = 30000;
 const DEFAULT_RETRIES = 0;
 const DEFAULT_RETRY_DELAY_MS = 1000;
 
+function isRetryableNetworkError(error: unknown): boolean {
+  return error instanceof TypeError;
+}
+
+function waitForRetry(
+  delay: number,
+  signal?: AbortSignal | null,
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const onAbort = () => {
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", onAbort);
+      reject(new DOMException("The operation was aborted", "AbortError"));
+    };
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, delay);
+    signal?.addEventListener("abort", onAbort, { once: true });
+    if (signal?.aborted) onAbort();
+  });
+}
+
 export async function request<T = unknown>(
   path: string,
   options: RequestOptions = {},
@@ -94,6 +117,9 @@ export async function request<T = unknown>(
   let lastError: Error | null = null;
 
   for (let attempt = 0; attempt <= retries; attempt++) {
+    if (callerSignal?.aborted) {
+      throw new DOMException("The operation was aborted", "AbortError");
+    }
     // Create AbortController for timeout handling
     const controller = new AbortController();
     let timedOut = false;
@@ -152,6 +178,9 @@ export async function request<T = unknown>(
 
       return (await response.json()) as T;
     } catch (error) {
+      if (callerSignal?.aborted) {
+        throw new DOMException("The operation was aborted", "AbortError");
+      }
       if (
         error instanceof DOMException &&
         error.name === "AbortError" &&
@@ -169,11 +198,13 @@ export async function request<T = unknown>(
 
         // Retry if we have attempts remaining
         if (attempt < retries) {
-          await new Promise((resolve) => setTimeout(resolve, retryDelay));
+          await waitForRetry(retryDelay, callerSignal);
           continue;
         }
+      } else if (isRetryableNetworkError(error) && attempt < retries) {
+        await waitForRetry(retryDelay, callerSignal);
+        continue;
       } else {
-        // Non-timeout errors should not retry
         throw error;
       }
     } finally {
