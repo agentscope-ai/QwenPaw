@@ -99,6 +99,8 @@ def classify_model_error(exc: Exception) -> ModelErrorDecision:
             "content safety",
             "safety_filter",
             "moderation",
+            "data_inspection_failed",
+            "inappropriate content",
         )
     ):
         kind = "content_safety"
@@ -107,7 +109,10 @@ def classify_model_error(exc: Exception) -> ModelErrorDecision:
     else:
         kind = "unknown"
     retryable = kind in {"rate_limited", "transient"}
-    fallback_eligible = retryable or kind == "model_not_found"
+    fallback_eligible = retryable or kind in {
+        "model_not_found",
+        "content_safety",
+    }
     return ModelErrorDecision(
         kind=kind,
         status_code=status,
