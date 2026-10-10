@@ -1,4 +1,22 @@
 {
+  "terminal": {
+    "authRequired": "To use the terminal, set QWENPAW_AUTH_ENABLED=true, restart the service, and sign in.",
+    "dependencyMissing": "Terminal unavailable: install pywinpty in the backend Python environment and restart the service.",
+    "unavailable": "Terminal unavailable. Check the backend service and try again.",
+    "closeOthers": "Close other terminals",
+    "closeAll": "Close all terminals",
+    "hide": "Hide terminal panel",
+    "title": "Terminal",
+    "tabs": "Terminal tabs",
+    "new": "New terminal",
+    "close": "Close terminal",
+    "restart": "Restart terminal",
+    "rename": "Rename terminal",
+    "resize": "Resize terminal",
+    "reconnect": "Reconnect",
+    "exited": "Process exited",
+    "inputTooLarge": "Input is too large; reconnect to continue."
+  },
   "common": {
     "save": "Save",
     "reset": "Reset",
@@ -36,7 +54,13 @@
     "paste": "Paste",
     "yes": "Yes",
     "no": "No",
-    "advancedSettings": "Advanced"
+    "advancedSettings": "Advanced",
+    "done": "Done",
+    "autoSaveFailed": "Could not save changes",
+    "configure": "Configure",
+    "all": "All",
+    "decrease": "Decrease",
+    "increase": "Increase"
   },
   "desktop": {
     "closeWindow": {
@@ -51,12 +75,34 @@
     }
   },
   "chunkError": {
+    "startup": {
+      "title": "Unable to start the console",
+      "resource": "Resources required to start the application failed to load.",
+      "runtime": "An error occurred while initializing the application.",
+      "timeout": "The application has not finished starting. Reload or copy the error details to investigate."
+    },
     "title": "Failed to load page",
     "subTitle": "This may be caused by a network issue or an application update.",
     "genericTitle": "Something went wrong",
     "genericSubTitle": "An unexpected error occurred while rendering this page.",
     "reload": "Reload",
-    "retry": "Try again"
+    "retry": "Try again",
+    "details": "View error details",
+    "copy": "Copy error information",
+    "copied": "Error information copied",
+    "copyFailed": "Copy failed. Expand the details and copy them manually.",
+    "checking": "Rechecking the failed resource…",
+    "recheckNote": "originalError is the initial exception; recheck is a later resource check, not the original response. Unknown values remain null. The recheck cannot distinguish DNS, TLS, CORS, or proxy failures.",
+    "observations": {
+      "missing": "Resource recheck: the resource is currently missing (404).",
+      "denied": "Resource recheck: the request without login credentials was denied.",
+      "html": "Resource recheck: the module URL returned a web page.",
+      "http-error": "Resource recheck: the server returned an error status. See diagnostics.",
+      "available": "Resource recheck succeeded; the original failure remains unexplained.",
+      "request-failed": "Resource recheck failed; the specific cause is unknown.",
+      "timeout": "Resource recheck timed out; the specific cause is unknown.",
+      "unavailable": "The resource cannot be rechecked; the original cause is unknown."
+    }
   },
   "appCenter": {
     "backToList": "Back",
@@ -123,7 +169,7 @@
   "portabilityImport": {
     "qwenpawOnly": "Import is only available for agents using the QwenPaw backend. Select a QwenPaw agent to continue.",
     "title": "Import",
-    "description": "Bring conversations and tool settings from other AI applications into QwenPaw.",
+    "description": "Import data from other AI applications into QwenPaw. Choose a source, then preview and select its content. QwenPaw is updated only when you start the import.",
     "steps": {
       "sources": "Applications",
       "inventory": "Choose content",
@@ -292,6 +338,29 @@
     "windows": "windows"
   },
   "sidebar": {
+    "avatarLoadFailed": "Could not load avatars. Please retry.",
+    "toolsCompact": "Show compact menu",
+    "toolsDetailed": "Show detailed menu",
+    "changeAvatar": "Avatar manager",
+    "uploadAvatar": "Choose image",
+    "avatarHistory": "Recent avatars · Last 12",
+    "defaultAvatar": "Restore default avatar",
+    "historyAvatar": "Previous avatar {{number}}",
+    "avatarInvalid": "Choose PNG, JPG or WebP under 10 MB, or GIF under 2 MB",
+    "avatarSaveFailed": "Could not save avatar. Check your connection and retry.",
+    "localWorkspace": "Local workspace",
+    "localMode": "This device",
+    "consoleAccount": "Console account",
+    "weeklyUsage": "Last 7 days",
+    "noUsage": "No usage yet",
+    "closeMobile": "Close navigation",
+    "tools": "Agent and shortcuts",
+    "pinTools": "Pin tools",
+    "unpinTools": "Unpin tools",
+    "foldTools": "Collapse menu",
+    "expandTools": "Expand menu",
+    "dragHandle": "Drag sidebar to float; Enter to toggle docking",
+    "dock": "Return sidebar to left edge",
     "newVersion": "New version available: v{{version}}, click to upgrade",
     "updateModal": {
       "title": "New version available: v{{version}}",
@@ -337,7 +406,10 @@
     "collapse": "Collapse sidebar",
     "expand": "Expand sidebar",
     "more": "More",
-    "toggleAgentNavigation": "Expand or collapse agent navigation"
+    "toggleAgentNavigation": "Expand or collapse agent navigation",
+    "usageModel": "Select model",
+    "allModels": "All models",
+    "usageDetails": "Usage details"
   },
   "settingsCenter": {
     "backToApp": "Back to app",
@@ -379,6 +451,8 @@
     "desktopApplication": "Desktop app",
     "languageHint": "Changes the interface language on this device.",
     "themeHint": "Use a light, dark or system-matched appearance.",
+    "uiFontSize": "Console font size",
+    "uiFontSizeHint": "Set the base font size for the console and login pages.",
     "customTheme": "Custom theme",
     "customThemeHint": "Choose a color palette or fine-tune the colors and corner radius.",
     "themePalette": "Theme palette",
@@ -418,7 +492,20 @@
       "global": "Global settings",
       "plugins": "Plugin features"
     },
-    "alwaysVisible": "Always visible"
+    "alwaysVisible": "Always visible",
+    "moveEntry": "Move {{name}}",
+    "removeEntry": "Remove {{name}}",
+    "addEntry": "Add {{name}}",
+    "dragHint": "Drag to reorder, or move into the library.",
+    "mirrorHint": "Keep your everyday tools close.",
+    "sidebarPreview": "Visible entries",
+    "preview": "Preview",
+    "dropHere": "Drag shortcuts here",
+    "previewCaption": "Changes save automatically",
+    "availableEntries": "Available entries",
+    "allAdded": "All added",
+    "sidebarEditHelp": "Drag the handle to reorder. With a keyboard, press Space to pick up, arrow keys to move, and Space to drop. Use + or − to add or remove entries. Changes save automatically.",
+    "fixedEntry": "Always visible"
   },
   "debug": {
     "title": "Debug",
@@ -435,7 +522,9 @@
       "notFound": "Backend log file was not found yet.",
       "placeholder": "Backend log output will appear here.",
       "loadFailed": "Failed to load backend logs",
-      "searchPlaceholder": "Search backend logs..."
+      "searchPlaceholder": "Search backend logs...",
+      "newLogsAvailable": "New logs · Return to latest",
+      "returnLatest": "Return to latest logs"
     },
     "actions": {
       "refreshBackend": "Refresh backend logs",
@@ -582,18 +671,18 @@
     "required": " (required)"
   },
   "acp": {
-    "title": "ACP",
+    "title": "ACP integrations",
     "loading": "Loading ACP configuration...",
-    "builtin": "Built-in",
+    "builtin": "Presets",
     "custom": "Custom",
-    "create": "Add Custom Agent",
-    "createTitle": "Create ACP Agent",
-    "createSuccess": "ACP agent created",
+    "create": "Add ACP integration",
+    "createTitle": "New ACP integration",
+    "createSuccess": "ACP integration added",
     "editTitle": "Edit ACP Configuration",
-    "agentKey": "Agent Key",
-    "agentKeyRequired": "Please enter an agent key",
-    "agentKeyInvalid": "Agent key can only contain letters, numbers, underscores, and hyphens",
-    "agentKeyExists": "This agent key already exists",
+    "agentKey": "Integration ID",
+    "agentKeyRequired": "Enter an integration ID",
+    "agentKeyInvalid": "Integration ID can only contain letters, numbers, underscores, and hyphens",
+    "agentKeyExists": "This integration ID already exists",
     "enabled": "Enabled",
     "command": "Command",
     "commandRequired": "Please enter a command",
@@ -615,10 +704,10 @@
     "configSaved": "ACP configuration saved",
     "configFailed": "Failed to save ACP configuration",
     "deleteTitle": "Delete {{name}}",
-    "deleteConfirm": "Delete this ACP agent? This action cannot be undone.",
-    "deleteSuccess": "ACP agent deleted",
-    "deleteFailed": "Failed to delete ACP agent",
-    "nodeSettings": "Node Settings",
+    "deleteConfirm": "Delete this ACP integration? This cannot be undone.",
+    "deleteSuccess": "ACP integration deleted",
+    "deleteFailed": "Failed to delete ACP integration",
+    "nodeSettings": "Runtime environment",
     "nodePath": "Node path",
     "chooseOtherNode": "Choose another Node...",
     "selectNodePath": "Select Node path",
@@ -637,6 +726,18 @@
       "npxMissing": "npx was not found",
       "versionCheckFailed": "Version check failed",
       "unavailable": "Unavailable"
+    },
+    "intro": "Connect tools through ACP for the current agent to call.",
+    "protocolHelp": "Manage ACP tool integrations here. Third-party backends in Agent Management use their own built-in protocols and are configured separately.",
+    "currentAgent": "Current agent",
+    "callableTools": "Callable tools",
+    "enabledIntegrations": "Enabled integrations",
+    "search": "Search ACP integrations",
+    "trustedHelp": "Automatically approve permission requests from this integration. Hard security blocks still apply. Turn off to handle requests through approval.",
+    "toolParseModes": {
+      "call_title": "Call titles",
+      "update_detail": "Progress details",
+      "call_detail": "Call details"
     }
   },
   "voiceTranscription": {
@@ -707,7 +808,7 @@
     "securityNotice": "This backup may contain sensitive credentials. Agent workspaces include channel credentials (bot tokens, app secrets, etc.), and model provider secrets include API keys. Do not share backup files with others.",
     "searchPlaceholder": "Search backups by name or ID...",
     "total": "Total {{count}}",
-    "agentsPlaceholder": "Select agent workspaces (leave empty for all)",
+    "agentsPlaceholder": "Choose agent workspaces to back up",
     "selectAll": "Select All",
     "deselectAll": "Deselect All",
     "createSuccess": "Backup created successfully",
@@ -1161,6 +1262,7 @@
     "mailPushWakeOptionSummary": "Summarize key points into the inbox"
   },
   "skills": {
+    "settingsDetails": "Scope & advanced settings",
     "title": "Skills",
     "description": "Manage agent skills and capabilities.",
     "preload": "Preload",
@@ -1305,7 +1407,8 @@
     "noTags": "No tags available",
     "enabledSkills": "Enabled Skills",
     "disabledSkills": "Disabled Skills",
-    "active": "active"
+    "active": "active",
+    "name": "Skill name"
   },
   "skillPool": {
     "description": "Shared local skill pool for built-in skills and workspace uploads. External hub imports such as ClawHub or LobeHub are separate.",
@@ -1559,9 +1662,13 @@
       "authEndpoint": "Authorization Endpoint (override)",
       "tokenEndpoint": "Token Endpoint (override)",
       "endpointHint": "Leave empty to auto-discover from the MCP server. Fill in to skip discovery."
-    }
+    },
+    "local": "Local",
+    "remote": "Remote",
+    "invalidJson": "Enter valid JSON containing at least one MCP server."
   },
   "heartbeat": {
+    "customInterval": "Custom interval",
     "title": "Heartbeat",
     "description": "Run HEARTBEAT.md at a fixed interval for self-checks. By default runs silently without affecting current conversations, or optionally send replies to the last chat channel.",
     "enabled": "Enable heartbeat",
@@ -1586,7 +1693,10 @@
     "saveFailed": "Failed to save heartbeat config",
     "runNow": "Run Now",
     "runNowSuccess": "Heartbeat triggered. Check Inbox or target channel shortly.",
-    "runNowFailed": "Failed to trigger heartbeat run"
+    "runNowFailed": "Failed to trigger heartbeat run",
+    "intervalRange": "Choose an interval of at least 1 minute",
+    "instructionsTitle": "Heartbeat instructions",
+    "instructionsLoadFailed": "Instructions could not be loaded. Retry to continue."
   },
   "cronJobs": {
     "executionModel": "Execution model",
@@ -1621,7 +1731,7 @@
     "scheduleTypeRecurring": "Recurring",
     "scheduleTypeOnce": "Scheduled",
     "scheduleCron": "Schedule (Cron)",
-    "scheduleCronLabel": "Schedule (Cron)",
+    "scheduleCronLabel": "Scheduled time",
     "onceRunAt": "Run At",
     "repeatEnabled": "Repeat",
     "repeatEnabledTooltip": "Enable recurring schedule from this start time",
@@ -1721,7 +1831,7 @@
     "idTooltip": "System-generated, non-editable, unique UUID assigned at task creation.",
     "nameTooltip": "A friendly name to help you identify this job.",
     "cronTooltip": "Define when the task should run",
-    "cronExample": "Common examples: '0 9 * * *' = 9 AM daily | '*/30 * * * *' = every 30 min | '0 */2 * * *' = every 2 hours | '0 0 * * 0' = Sunday midnight",
+    "cronExample": "Common examples: '0 9 * * *' = 9 AM daily | '*/30 * * * *' = every 30 min | '0 */2 * * *' = every 2 hours | '0 0 * * sun' = Sunday midnight",
     "cronHelper": "New to Cron expressions?",
     "cronHelperLink": "Use online generator",
     "timezoneTooltip": "Timezone for the cron schedule. Default: UTC",
@@ -1819,9 +1929,28 @@
         "description": "Before each weekly meeting, summarize the last week's memory.",
         "frequency": "First run: 2026-01-02 08:30 | Every 7 days | Until 2026-03-01"
       }
-    }
+    },
+    "calendarScope": "Scheduled jobs only",
+    "viewMode": "View",
+    "emptyList": "No tasks in this view",
+    "previousMonth": "Previous month",
+    "nextMonth": "Next month",
+    "cronExpression": "Cron expression",
+    "cronFormatHint": "Format: minute hour day month weekday",
+    "frequency": "Frequency",
+    "cronTypeMinutes": "Minutes",
+    "cronTypeMonthly": "Monthly",
+    "intervalMinutes": "Repeat every",
+    "everyMinutes": "Every {{count}} min",
+    "monthDay": "Day of month",
+    "shortMonthHint": "Months without this date are skipped.",
+    "selectAtLeastOneDay": "Select at least one day."
   },
   "channels": {
+    "manualCredentials": "Manual credentials",
+    "deliverySettings": "Delivery options",
+    "presentationSettings": "Message presentation",
+    "advancedSettings": "Advanced settings",
     "title": "Channels",
     "description": "Manage and configure message channels",
     "loading": "Loading channels...",
@@ -2050,7 +2179,65 @@
     "availableSection": "Available",
     "enableAction": "Enable",
     "noEnabledChannels": "No enabled channels",
-    "goEnableChannels": "Enable channels"
+    "goEnableChannels": "Enable channels",
+    "configureAction": "Configure",
+    "fieldHomeserverURL": "Homeserver URL",
+    "fieldAuthMethod": "Auth Method",
+    "fieldAccessToken": "Access Token",
+    "fieldPassword": "Password",
+    "fieldEnableEndtoEndEncryption": "Enable End-to-End Encryption",
+    "fieldDeviceName": "Device Name",
+    "fieldDBPath": "DB Path",
+    "fieldPollIntervalsec": "Poll Interval (sec)",
+    "fieldHTTPProxy": "HTTP Proxy",
+    "fieldHTTPProxyAuth": "HTTP Proxy Auth",
+    "fieldClientID": "Client ID",
+    "fieldClientSecret": "Client Secret",
+    "fieldMessageType": "Message Type",
+    "fieldCronMessageType": "Cron Message Type",
+    "fieldCardTemplateID": "Card Template ID",
+    "fieldCardTemplateKey": "Card Template Key",
+    "fieldRobotCode": "Robot Code",
+    "fieldAppID": "App ID",
+    "fieldAppSecret": "App Secret",
+    "fieldEncryptKey": "Encrypt Key",
+    "fieldVerificationToken": "Verification Token",
+    "fieldAPIBaseURL": "API Base URL",
+    "fieldShowTyping": "Show Typing",
+    "fieldMQTTHost": "MQTT Host",
+    "fieldMQTTPort": "MQTT Port",
+    "fieldCleanSession": "Clean Session",
+    "fieldQoS": "QoS",
+    "fieldMQTTUsername": "MQTT Username",
+    "fieldMQTTPassword": "MQTT Password",
+    "fieldSubscribeTopic": "Subscribe Topic",
+    "fieldPublishTopic": "Publish Topic",
+    "fieldTLSEnabled": "TLS Enabled",
+    "fieldTLSCACerts": "TLS CA Certs",
+    "fieldTLSCertfile": "TLS Certfile",
+    "fieldTLSKeyfile": "TLS Keyfile",
+    "fieldMattermostURL": "Mattermost URL",
+    "fieldThreadFollowWithoutMention": "Thread Follow Without Mention",
+    "fieldBotID": "Bot ID",
+    "fieldSecret": "Secret",
+    "fieldAccessKeyAK": "Access Key (AK)",
+    "fieldSecretKeySK": "Secret Key (SK)",
+    "fieldAgentID": "Agent ID",
+    "fieldAPIDomain": "API Domain",
+    "fieldWebSocketHost": "WebSocket Host",
+    "fieldWebSocketPort": "WebSocket Port",
+    "matrixUserHelp": "Accepts a full MXID (e.g. @bot:matrix.org) or just the localpart (e.g. bot).",
+    "matrixEncryptionHelp": "After enabling, you must verify the device in a Matrix client (e.g. Element). E2EE requires manually installing matrix-nio[e2e] (pip install matrix-nio[e2e]).",
+    "matrixDeviceHelp": "A stable device identity for the Matrix client. Defaults to 'qwenpaw-worker' if left empty.",
+    "messageTypeHelp": "markdown: regular messages; card: AI interactive card",
+    "scheduledMessageTypeHelp": "Message type for cron/scheduled task sends. Independent from the chat message type above.",
+    "cardVariableHelp": "Must exactly match the template variable name",
+    "robotCodeHelp": "Recommended to configure explicitly for group chats",
+    "apiDomainHelp": "REST API domain for sign-token auth (default: bot.yuanbao.tencent.com)",
+    "requiredField": "Enter {{field}}",
+    "portRange": "Port must be between 1 and 65535",
+    "developmentMode": "Development (pyVoIP)",
+    "productionMode": "Production (LiveKit)"
   },
   "sessions": {
     "title": "Sessions",
@@ -2173,9 +2360,12 @@
       "user": "QwenPaw",
       "system": "System",
       "default": "Default"
-    }
+    },
+    "emptyValue": "Empty string"
   },
   "modelSelector": {
+    "chooseProvider": "Choose provider",
+    "configureProviderHint": "Connect a provider and choose a model to get started.",
     "manageModels": "Manage models",
     "addModels": "Add models",
     "noProviders": "No providers yet",
@@ -2253,6 +2443,8 @@
     "searchCandidates": "Search candidate models..."
   },
   "tokenUsage": {
+    "year": "Year",
+    "futureDate": "Future date",
     "title": "Token Usage",
     "totalTokens": "Total Tokens",
     "totalCalls": "LLM Calls",
@@ -2280,7 +2472,17 @@
     "allSelected": "All",
     "itemsSelected": "{{count}} selected",
     "selectModels": "Select models",
-    "selectTokenTypes": "Select token types"
+    "selectTokenTypes": "Select token types",
+    "activity": "Activity",
+    "activityHint": "Select a day to inspect usage",
+    "modelRanking": "Model ranking",
+    "less": "Less",
+    "more": "More",
+    "trends": "Trends",
+    "lastDays": "Last {{count}} days",
+    "activeDays": "Active days",
+    "dailyAverage": "Daily average",
+    "peakDay": "Peak day"
   },
   "agentStats": {
     "title": "Agent Statistics",
@@ -2319,6 +2521,7 @@
     "retry": "Retry"
   },
   "models": {
+    "connectProviderTitle": "Connect your first model",
     "cardStatus": {
       "configured": "Configured",
       "configuredCount": "{{count}} configured",
@@ -2409,6 +2612,7 @@
     "optionalSelfHosted": "Optional for self-hosted services",
     "leaveBlankKeep": "Leave blank to keep current key",
     "enterApiKey": "Enter API key ({{prefix}}...)",
+    "enterApiKeyRequired": "Enter API key",
     "enterApiKeyOptional": "Enter API key (optional)",
     "openAIEndpoint": "OpenAI endpoint, e.g. https://api.openai.com/v1",
     "openAICompatibleEndpoint": "OpenAI-compatible endpoint, e.g. https://api.example.com (append /v1 only if your provider requires it)",
@@ -2469,7 +2673,7 @@
     "goConfigureBtn": "Configure a Provider",
     "availableGroup": "Available Providers",
     "clickToConfigure": "Click to configure",
-    "configureAction": "Configure →",
+    "configureAction": "Configure",
     "endpointCount": "{{count}} endpoints",
     "connect": "OAuth",
     "saveApiKey": "Save",
@@ -2814,6 +3018,7 @@
     "changeDirectoryTitle": "Change project directory?",
     "changeDirectoryWarning": "Unsaved edits or pending diffs are open in this project. Changing directories will discard them.",
     "sourceEmpty": "No files are available in this source yet.",
+    "listFailed": "Failed to load the directory listing. Please retry.",
     "loadMore": "Load next 200",
     "upload": "Upload files",
     "conflictPolicy": "Upload conflict policy",
@@ -2903,9 +3108,11 @@
     "alreadyBound": "Already bound",
     "tooMany": "At most {{max}} directories can be bound.",
     "countTitle": "Number of bound directories",
-    "syncAsAgentDefault": "Use this workspace setup for future tasks"
+    "syncAsAgentDefault": "Use this workspace setup for future tasks",
+    "openDirectory": "Open {{name}}"
   },
   "agentConfig": {
+    "advancedRuntime": "Advanced runtime",
     "title": "Configuration",
     "projectDirectoryTitle": "Default Agent workspace",
     "projectDirectoryDescription": "The default Agent workspace used for files and commands.",
@@ -2979,7 +3186,7 @@
       "builtInNote": "Pipeline locked · Values editable",
       "templateSectionTitle": "Loop templates",
       "templateSectionDescription": "Choose a built-in template or add your own.",
-      "defaultTab": "Default",
+      "defaultTab": "Standard",
       "goalTab": "Goal",
       "missionTab": "Mission",
       "defaultDescription": "The standard guarded ReAct loop used outside an explicit mode.",
@@ -3586,14 +3793,16 @@
     "contextStrategyNative": "Native"
   },
   "tools": {
-    "title": "Built-in Tools",
+    "search": "Search tools",
+    "noSearchResults": "No matching tools",
+    "title": "Tools",
     "description": "Manage built-in tools and their enabled status. Disabled tools will not be available to the agent.",
     "emptyState": "No tools configured",
     "loadError": "Failed to load tools",
     "enableSuccess": "Tool enabled successfully",
     "disableSuccess": "Tool disabled successfully",
     "toggleError": "Failed to toggle tool status",
-    "enableAllConfirm": "Enable all {{count}} models?",
+    "enableAllConfirm": "Enable all {{count}} tools?",
     "enableAll": "Enable All",
     "disableAll": "Disable All",
     "enableAllSuccess": "All tools enabled",
@@ -3624,7 +3833,154 @@
     "noEnabled": "No tools enabled",
     "goEnableBtn": "Go enable",
     "configureAction": "Configure →",
-    "enableAction": "Enable →"
+    "enableAction": "Enable →",
+    "catalog": {
+      "execute_shell_command": {
+        "name": "Run commands",
+        "description": "Run terminal commands and scripts."
+      },
+      "read_file": {
+        "name": "Read files",
+        "description": "Read text files or selected lines."
+      },
+      "write_file": {
+        "name": "Write files",
+        "description": "Create files or write new content."
+      },
+      "edit_file": {
+        "name": "Edit files",
+        "description": "Find and replace specific file content."
+      },
+      "append_file": {
+        "name": "Append to files",
+        "description": "Add text to a file without replacing its content."
+      },
+      "grep_search": {
+        "name": "Search file content",
+        "description": "Find text in files by keyword or pattern."
+      },
+      "glob_search": {
+        "name": "Find files",
+        "description": "Locate files by name or path pattern."
+      },
+      "ast_search": {
+        "name": "Search code structure",
+        "description": "Find code patterns using syntax-aware search."
+      },
+      "desktop_screenshot": {
+        "name": "Capture desktop",
+        "description": "Take a desktop screenshot for the agent to inspect."
+      },
+      "view_image": {
+        "name": "View images",
+        "description": "Load images for the model to understand."
+      },
+      "view_video": {
+        "name": "View videos",
+        "description": "Load videos for the model to analyze."
+      },
+      "enhance_and_generate_image": {
+        "name": "Enhance and generate images",
+        "description": "Refine an image prompt and generate the result."
+      },
+      "web_search": {
+        "name": "Search the web",
+        "description": "Find current information and sources online."
+      },
+      "web_fetch": {
+        "name": "Read web pages",
+        "description": "Retrieve page content for reading and analysis."
+      },
+      "browser": {
+        "name": "Use the browser",
+        "description": "Browse pages and interact with web content."
+      },
+      "list_agents": {
+        "name": "List agents",
+        "description": "Find available agents for collaboration."
+      },
+      "chat_with_agent": {
+        "name": "Chat with an agent",
+        "description": "Send a message to another agent and get a reply."
+      },
+      "submit_to_agent": {
+        "name": "Delegate a task",
+        "description": "Submit a background task to another agent."
+      },
+      "check_agent_task": {
+        "name": "Check task progress",
+        "description": "Check the status and result of a delegated task."
+      },
+      "spawn_subagent": {
+        "name": "Spawn a subagent",
+        "description": "Start a temporary agent for a separate task."
+      },
+      "delegate_external_agent": {
+        "name": "Delegate to an external agent",
+        "description": "Hand work to a configured external agent."
+      },
+      "send_file_to_user": {
+        "name": "Send files",
+        "description": "Send a file to the user in the current conversation."
+      },
+      "get_current_time": {
+        "name": "Get current time",
+        "description": "Read the current date and time."
+      },
+      "set_user_timezone": {
+        "name": "Set timezone",
+        "description": "Set the user timezone for time-based tasks."
+      },
+      "get_token_usage": {
+        "name": "Check token usage",
+        "description": "Inspect token usage for model calls."
+      },
+      "materialize_skill": {
+        "name": "Materialize a skill",
+        "description": "Write a skill definition into the workspace."
+      },
+      "run_tool_batch": {
+        "name": "Run a tool batch",
+        "description": "Execute tool calls defined in a JSON file."
+      },
+      "activate_f1_exploration_mode": {
+        "name": "Explore mail approvals",
+        "description": "Enter the guided mail approval exploration mode."
+      },
+      "migration_compat_inspect": {
+        "name": "Inspect migration assets",
+        "description": "Inspect a staged asset and current QwenPaw capabilities."
+      },
+      "migration_compat_read_file": {
+        "name": "Read migration files",
+        "description": "Read a staged asset file in pages."
+      },
+      "migration_compat_write_file": {
+        "name": "Write migration files",
+        "description": "Create or overwrite text files in a repair asset."
+      },
+      "migration_compat_update": {
+        "name": "Update migration settings",
+        "description": "Update allowed MCP or scheduled-task fields."
+      },
+      "migration_compat_finalize": {
+        "name": "Validate and finish migration",
+        "description": "Run final tests and promote the repaired asset on success."
+      }
+    },
+    "groups": {
+      "files": "Files & code",
+      "web": "Web & browser",
+      "media": "Images & video",
+      "agents": "Agent collaboration",
+      "runtime": "Runtime & automation",
+      "migration": "App migration",
+      "other": "Uncategorized"
+    },
+    "filterAll": "All tools",
+    "filterEnabled": "Enabled",
+    "filterDisabled": "Disabled",
+    "enabledCount": "{{enabled}} / {{total}} enabled"
   },
   "modelConfig": {
     "promptTitle": "LLM Model Required — Select in Chat After Configuration",
@@ -3652,6 +4008,15 @@
     "system": "System"
   },
   "chat": {
+    "longTextPaste": {
+      "title": "Paste long text",
+      "asText": "Paste as text",
+      "asFile": "Attach as file",
+      "characters": "{{count}} characters"
+    },
+    "historyLoadFailed": "Could not load this conversation. Please reopen it.",
+    "switchSession": "Switch conversation",
+    "lastActive": "Last active · {{time}}",
     "fileReference": {
       "codeSnippet_one": "Code snippet · {{count}} line",
       "codeSnippet_other": "Code snippet · {{count}} lines"
@@ -3675,7 +4040,6 @@
     "prompt1": "Let's start a new journey!",
     "prompt2": "Can you tell me what skills you have?",
     "inputPlaceholder": "\"↑↓\" for message navigation · \"/\" for quick commands",
-    "longTextUploadPrompt": "Please read the uploaded prompt file and answer it.",
     "emptyOutputError": "The assistant returned an empty response.",
     "commands": {
       "clear": {
@@ -3794,6 +4158,7 @@
       "otherTabOwner": "This tab queues only; sending is handled by another tab"
     },
     "group": {
+      "noGroups": "No groups yet",
       "pinned": "Pinned",
       "today": "Today",
       "week": "Within 7 days",
@@ -5231,6 +5596,7 @@
     }
   },
   "thinkingControl": {
+    "default": "Default",
     "resetModel": "Restore default model",
     "title": "Thinking intensity",
     "reset": "Restore defaults",
@@ -5247,13 +5613,13 @@
     "deep": "Deep",
     "intensive": "Intensive",
     "budget": "Thinking budget",
-    "unsupported": "This model does not support adjusting thinking.",
+    "unsupported": "Thinking depth cannot be adjusted",
     "budgetHint": "Adjust the exact thinking token limit. Labels indicate intensity, not fixed presets.",
     "effortHint": "Only levels supported by this model are shown.",
     "sessionHint": "Applies to this conversation, starting with the next request.",
     "adapted": "The saved preference was adjusted to this model’s capabilities.",
     "saveFailed": "Could not save thinking settings",
-    "unknown": "Thinking settings unconfirmed",
+    "unknown": "Thinking depth cannot be adjusted",
     "declaration": "Thinking capabilities (advanced)",
     "declarationHint": "Declare capabilities for models without a card. Confirm levels and limits against your endpoint documentation; initial values are examples. Automatic uses catalog or plugin metadata.",
     "controlType": "Control type",
@@ -5281,6 +5647,80 @@
       "session": "Conversation model",
       "agent": "Agent default",
       "global": "Default LLM"
+    }
+  },
+  "runtimeDesign": {
+    "title": "Runtime studio",
+    "subtitle": "Make your agent work your way.",
+    "workspace": "Workspace",
+    "workspaceHint": "Language, time zone and workspace",
+    "execution": "Execution",
+    "executionHint": "Task loops and tool approvals",
+    "recovery": "Recovery",
+    "recoveryHint": "Retry rhythm and concurrency",
+    "context": "Context budget",
+    "contextHint": "Compression, retention and tool results",
+    "memory": "Memory",
+    "memoryHint": "Capture, organize and retrieve",
+    "deviceTimezone": "Use device time zone",
+    "localTime": "Local time",
+    "mapHint": "Click the map to set a fixed UTC time zone. For regions with daylight saving, choose the regional time zone above.",
+    "zoomIn": "Zoom in",
+    "zoomOut": "Zoom out",
+    "retryPreview": "Waiting time preview",
+    "retryHint": "Base wait before each retry; server responses and rate limits may add time.",
+    "retryAttempt": "Retry {{count}}",
+    "totalWait": "Total wait",
+    "budgetTitle": "Context budget",
+    "budgetHint": "Configured model capacity, not live usage.",
+    "trigger": "Compression trigger",
+    "retained": "Retained context",
+    "advanced": "Advanced settings",
+    "seconds": "seconds",
+    "allSettings": "All settings",
+    "cities": {
+      "America_Los_Angeles": "Los Angeles",
+      "America_New_York": "New York",
+      "America_Sao_Paulo": "São Paulo",
+      "Europe_London": "London",
+      "Europe_Moscow": "Moscow",
+      "Africa_Cairo": "Cairo",
+      "Africa_Johannesburg": "Johannesburg",
+      "Asia_Dubai": "Dubai",
+      "Asia_Kolkata": "Kolkata",
+      "Asia_Shanghai": "Shanghai",
+      "Asia_Tokyo": "Tokyo",
+      "Asia_Singapore": "Singapore",
+      "Australia_Sydney": "Sydney",
+      "Pacific_Auckland": "Auckland"
+    },
+    "beijingTime": "Beijing Time",
+    "mapPlaces": {
+      "-12": "Baker Island",
+      "-11": "Pago Pago",
+      "-10": "Honolulu",
+      "-9": "Anchorage",
+      "-8": "Los Angeles",
+      "-7": "Denver",
+      "-6": "Mexico City",
+      "-5": "New York",
+      "-4": "San Juan",
+      "-3": "Buenos Aires",
+      "-2": "South Georgia",
+      "-1": "Praia",
+      "0": "London",
+      "1": "Paris",
+      "2": "Cairo",
+      "3": "Moscow",
+      "4": "Dubai",
+      "5": "Karachi",
+      "6": "Dhaka",
+      "7": "Bangkok",
+      "8": "Beijing",
+      "9": "Tokyo",
+      "10": "Sydney",
+      "11": "Nouméa",
+      "12": "Suva"
     }
   }
 }
