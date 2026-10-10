@@ -4,14 +4,14 @@
 import os
 import mimetypes
 import unicodedata
-from urllib.parse import unquote
+from pathlib import Path
 
 from agentscope.tool import ToolChunk
 from agentscope.message import ToolResultState
 from agentscope.message import TextBlock, DataBlock, URLSource
 
 from ...runtime.tool_registry import tool_descriptor
-from .file_io import _resolve_file_path, _path_to_file_url
+from .file_io import _resolve_file_path
 
 
 @tool_descriptor(
@@ -39,9 +39,8 @@ async def send_file_to_user(
             The tool response containing the file or an error message.
     """
 
-    # Decode percent-encoded chars (model may pass URL-encoded paths from context)
-    # then normalize Unicode (macOS NFD vs NFC).
-    file_path = unquote(file_path)
+    # This argument is a filesystem path, not a URL. Preserve literal escapes.
+    # Normalize Unicode (macOS NFD vs NFC).
     file_path = os.path.expanduser(unicodedata.normalize("NFC", file_path))
 
     # Join a relative path onto the primary project dir. NOT a containment
@@ -86,7 +85,7 @@ async def send_file_to_user(
         mime_type = "application/octet-stream"
 
     try:
-        file_url = _path_to_file_url(file_path)
+        file_url = Path(file_path).as_uri()
 
         return ToolChunk(
             is_last=True,

@@ -336,6 +336,8 @@ docker run -p 127.0.0.1:8088:8088 \
 - [配置 Cron](https://qwenpaw.agentscope.io/docs/cron) 实现定时任务与自动化
 - 查看完整 [快速开始指南](https://qwenpaw.agentscope.io/docs/quickstart) 了解所有选项与验证步骤
 
+在 Console 中发送本地文件时，请使用包含字面 `%` 等字符的实际文件名，详见 [控制台指南](https://qwenpaw.agentscope.io/docs/console)。
+
 ---
 
 ## 终端界面（TUI）

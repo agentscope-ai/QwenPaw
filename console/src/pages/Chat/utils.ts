@@ -190,7 +190,14 @@ export function toDisplayUrl(url: string | undefined): string {
   // them through filePreviewUrl would corrupt the URL and break rendering
   // of historical messages on session reload.
   if (url.startsWith("data:")) return url;
-  if (url.startsWith("file://")) url = url.replace("file://", "");
+  if (url.startsWith("file://")) {
+    url = url.slice(7);
+    try {
+      url = decodeURIComponent(url);
+    } catch {
+      // Keep legacy file URLs containing malformed percent escapes usable.
+    }
+  }
   return chatApi.filePreviewUrl(url.startsWith("/") ? url : `/${url}`);
 }
 
