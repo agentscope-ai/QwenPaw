@@ -4,6 +4,8 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 
 import qwenpaw.browser.control_link.playwright.adapter as adapter_module
@@ -132,3 +134,84 @@ async def test_managed_cache_not_ready_raises_retryable(
     finally:
         if link in adapter_module._LIVE:
             adapter_module._LIVE.remove(link)
+
+
+# ---------------------------------------------------------------------------
+# ignore_default_args passthrough
+# ---------------------------------------------------------------------------
+
+
+def test_launch_kwargs_omit_ignore_default_args_by_default():
+    launch, _context = adapter_module._build_launch_kwargs(_owner_params())
+    assert "ignore_default_args" not in launch
+
+
+def test_launch_kwargs_forward_ignore_default_args():
+    launch, _context = adapter_module._build_launch_kwargs(
+        _owner_params(ignore_default_args=["--disable-extensions"]),
+    )
+    assert launch["ignore_default_args"] == ["--disable-extensions"]
+
+
+def test_launch_kwargs_copy_ignore_default_args():
+    switches = ["--disable-extensions"]
+    launch, _context = adapter_module._build_launch_kwargs(
+        _owner_params(ignore_default_args=switches),
+    )
+
+    launch["ignore_default_args"].append("--disable-sync")
+
+    assert switches == ["--disable-extensions"]
+
+
+def test_launch_kwargs_ignore_empty_ignore_default_args():
+    launch, _context = adapter_module._build_launch_kwargs(
+        _owner_params(ignore_default_args=[]),
+    )
+    assert "ignore_default_args" not in launch
+
+
+@pytest.mark.asyncio
+async def test_open_session_reaches_playwright_with_ignore_default_args(
+    monkeypatch,
+):
+    """The switch must survive open_session and reach the launch call."""
+    captured = {}
+
+    class _FakeBrowser:
+        async def new_context(self, **_kwargs):
+            return object()
+
+        async def close(self):
+            return None
+
+    async def fake_launch(**kwargs):
+        captured.update(kwargs)
+        return _FakeBrowser()
+
+    monkeypatch.setattr(
+        adapter_module,
+        "ensure_managed_chromium",
+        lambda *_a, **_k: (True, "", 0.0),
+    )
+    link = PlaywrightControlLink()
+    link._pw = SimpleNamespace(
+        chromium=SimpleNamespace(launch=fake_launch),
+    )
+    try:
+        await link._m_open_session(
+            _owner_params(
+                executable_path="/usr/bin/chromium",
+                ignore_default_args=["--disable-extensions"],
+            ),
+        )
+    finally:
+        if link in adapter_module._LIVE:
+            adapter_module._LIVE.remove(link)
+        for proc in list(link._procs.values()):
+            close = getattr(proc.get("browser"), "close", None)
+            if close is not None:
+                await close()
+
+    assert captured.get("ignore_default_args") == ["--disable-extensions"]
+    assert captured.get("executable_path") == "/usr/bin/chromium"
