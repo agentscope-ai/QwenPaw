@@ -13,6 +13,7 @@ from __future__ import annotations
 import io
 import json
 import os
+import shutil
 import tempfile
 import time
 import zipfile
@@ -41,6 +42,7 @@ from qwenpaw.agents.skill_system.store import (
     read_skill_frontmatter_from_dir,
     render_skill_md,
     safe_skill_dir,
+    staged_skill_dir,
     suggest_conflict_name,
     validate_skill_content,
     workspace_skill_name_conflict,
@@ -677,8 +679,6 @@ class TestExtractZipSkills:
             assert len(found) == 1
             assert found[0][1] == "demo"
         finally:
-            import shutil
-
             shutil.rmtree(extracted_dir, ignore_errors=True)
 
     def test_multi_skill_dirs(self, tmp_path):
@@ -696,8 +696,6 @@ class TestExtractZipSkills:
             assert len(found) == 2
             assert {"demo", "other"} == names
         finally:
-            import shutil
-
             shutil.rmtree(extracted_dir, ignore_errors=True)
 
     def test_non_zip_raises(self):
@@ -784,3 +782,83 @@ def test_cleanup_orphan_skill_stages_checks_newest_entry_mtime(
 
     assert cleanup_orphan_skill_stages() == 0
     assert stale.is_dir()
+
+
+# ---------------------------------------------------------------------------
+# staged_skill_dir / import_skill_dir path sanitization
+# ---------------------------------------------------------------------------
+
+
+class TestStagedSkillDirPathSanitization:
+    """A caller-supplied skill name must never escape the staging temp root."""
+
+    def test_stage_dir_sits_inside_a_fixed_prefix_temp_root(self):
+        with staged_skill_dir("demo") as stage_dir:
+            assert stage_dir.name == "demo"
+            temp_root = stage_dir.parent
+            assert temp_root.name.startswith("qwenpaw_skill_stage_")
+            # The skill name must not leak into the temp dir name.
+            assert "demo" not in temp_root.name
+
+    @pytest.mark.parametrize("bad", ["../escape", "a/b", "a\\b", "..", "."])
+    def test_rejects_traversal_name(self, bad):
+        with pytest.raises(SkillsError):
+            with staged_skill_dir(bad):
+                pass
+
+    def test_traversal_name_creates_nothing_outside_and_leaves_no_temp(
+        self,
+        tmp_path,
+        monkeypatch,
+    ):
+        monkeypatch.setattr(tempfile, "gettempdir", lambda: str(tmp_path))
+        with pytest.raises(SkillsError):
+            with staged_skill_dir("../escaped") as stage_dir:
+                (stage_dir / "pwned").write_text("x", encoding="utf-8")
+        assert not (tmp_path.parent / "escaped").exists()
+        # the temp root is still swept even though the name was rejected
+        assert list(tmp_path.glob("qwenpaw_skill_stage_*")) == []
+
+
+class TestImportSkillDirPathSanitization:
+    """``import_skill_dir`` must reject names that would escape its root."""
+
+    @staticmethod
+    def _make_src(tmp_path):
+        src = tmp_path / "src" / "demo"
+        src.mkdir(parents=True)
+        (src / "SKILL.md").write_text(SKILL_MD, encoding="utf-8")
+        return src
+
+    @pytest.mark.parametrize("bad", ["../escape", "a/b", "a\\b"])
+    def test_rejects_traversal_name(self, tmp_path, bad):
+        src = self._make_src(tmp_path)
+        target_root = tmp_path / "target"
+        target_root.mkdir()
+
+        with pytest.raises(SkillsError):
+            import_skill_dir(src, target_root, bad)
+
+        assert not (tmp_path / "escape").exists()
+
+    def test_import_stage_dir_uses_a_fixed_prefix(
+        self,
+        tmp_path,
+        monkeypatch,
+    ):
+        src = self._make_src(tmp_path)
+        target_root = tmp_path / "target"
+        target_root.mkdir()
+
+        seen = {}
+        real_copytree = shutil.copytree
+
+        def spy(src_dir, dst_dir, **kwargs):
+            seen["stage"] = dst_dir
+            return real_copytree(src_dir, dst_dir, **kwargs)
+
+        monkeypatch.setattr(shutil, "copytree", spy)
+        assert import_skill_dir(src, target_root, "demo") is True
+        assert seen["stage"].name == "demo"
+        assert seen["stage"].parent.name.startswith(".skill-import-")
+        assert "demo" not in seen["stage"].parent.name
