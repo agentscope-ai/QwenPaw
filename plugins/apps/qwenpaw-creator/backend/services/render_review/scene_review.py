@@ -59,7 +59,6 @@ MAX_SCENE_FRAMES = 8
 FRAMES_PER_ELEMENT = 3
 _FRAME_FRACTIONS = (0.15, 0.5, 0.85)
 _KEYFRAME_WIDTH = 960
-SCENE_REVIEW_MAX_TOKENS = 4096
 
 
 # Checks that only make sense on the composed render; the scene pass
@@ -405,7 +404,6 @@ async def _evaluate_scene(
         content,
         system_prompt=_SYSTEM_PROMPT,
         temperature=0.2,
-        max_tokens=SCENE_REVIEW_MAX_TOKENS,
     )
     checks, impression = _parse_checks(str(response or ""))
     failed = [

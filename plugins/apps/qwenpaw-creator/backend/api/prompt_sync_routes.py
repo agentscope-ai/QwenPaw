@@ -81,6 +81,7 @@ async def confirm_current_prompts(
     project_id: str,
     timeline_id: str,
     element_id: str,
+    stage: Literal["storyboard", "video"] | None = None,
     services=Depends(project_file_services),
 ):
     # Keep the existing plan/prompts and only re-stamp the sync baseline, so a
@@ -89,4 +90,5 @@ async def confirm_current_prompts(
         project_id,
         timeline_id,
         element_id,
+        stage=stage,
     )

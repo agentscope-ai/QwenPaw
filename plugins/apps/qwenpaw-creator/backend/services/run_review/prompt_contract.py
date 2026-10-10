@@ -9,7 +9,7 @@ coverage and provider-specific storyboard reference syntax.
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 import re
 from typing import Any
 
@@ -97,9 +97,152 @@ def _finding(
     }
 
 
+def _canonical_type_roles(creation: Mapping[str, Any]) -> list[str]:
+    """Reference roles in the automatic-chain order.
+
+    With no authored ``video_reference_version_ids`` the runtime falls back to
+    the canonical chain (storyboard → lineup → character → scene → prop), so
+    counting each bound reference type reconstructs the real ``[Image N]``
+    order exactly.
+    """
+
+    roles = ["storyboard"]
+    roles.extend("lineup" for _ in (creation.get("cast_lineup_refs") or []))
+    roles.extend("character" for _ in (creation.get("character_refs") or []))
+    if creation.get("scene_ref"):
+        roles.append("scene")
+    roles.extend("prop" for _ in (creation.get("prop_refs") or []))
+    return roles
+
+
+def _bound_entity_roles(creation: Mapping[str, Any]) -> dict[str, str]:
+    """Map bound asset/lineup owner references to semantic reference roles."""
+
+    roles: dict[str, str] = {}
+    for ref in creation.get("cast_lineup_refs") or []:
+        roles[f"lineup:{ref}"] = "lineup"
+    for ref in creation.get("character_refs") or []:
+        roles[f"asset:{ref}"] = "character"
+    scene_ref = creation.get("scene_ref")
+    if scene_ref:
+        roles[f"asset:{scene_ref}"] = "scene"
+    for ref in creation.get("prop_refs") or []:
+        roles[f"asset:{ref}"] = "prop"
+    return roles
+
+
+def _version_owner_entities(project_json: Mapping[str, Any]) -> dict[str, str]:
+    """Map version IDs to qualified asset/lineup owner references."""
+
+    assets = project_json.get("assets")
+    assets = assets if isinstance(assets, Mapping) else {}
+    owners: dict[str, str] = {}
+    for registry in ("artifact_versions_by_id", "source_versions_by_id"):
+        table = assets.get(registry)
+        if not isinstance(table, Mapping):
+            continue
+        for version_id, version in table.items():
+            if not isinstance(version, Mapping):
+                continue
+            owner = version.get("owner_ref")
+            if isinstance(owner, str) and owner.startswith(
+                ("asset:", "lineup:"),
+            ):
+                owners[str(version_id)] = owner
+    return owners
+
+
+def _expected_reference_roles(
+    project_json: Mapping[str, Any],
+    element: Mapping[str, Any],
+    creation: Mapping[str, Any],
+    element_id: str,
+    load_project: Callable[[], Any],
+) -> list[str | None]:
+    """Resolve the role actually bound to each runtime ``[Image N]`` slot.
+
+    An explicit ``video_reference_version_ids`` list preserves authored order,
+    with this Element's storyboard reserved first even before generation and
+    its own storyboard versions dropped. The canonical type order therefore
+    no longer predicts the positions. Label each slot from its bound owner;
+    a slot whose owner cannot be resolved stays ``None`` and is never gated,
+    because a false block on a paid call is worse than a missed label.
+    """
+
+    explicit = list(
+        dict.fromkeys(
+            str(version_id)
+            for version_id in (
+                creation.get("video_reference_version_ids") or []
+            )
+        ),
+    )
+    if not explicit:
+        from pydantic import ValidationError as SchemaValidationError
+        from domain.errors import ValidationError
+        from services.project_files.models import R2VCreation
+        from services.media_files.visual_reference_resolution import (
+            resolve_r2v_visual_reference_version_ids,
+        )
+
+        project = load_project()
+        if project is None:
+            # Partial text-review fixtures have no materialized selections.
+            # Actual Projects always use the same resolver as the executor.
+            return _canonical_type_roles(creation)
+        try:
+            live_creation = R2VCreation.model_validate(creation)
+            explicit = list(
+                resolve_r2v_visual_reference_version_ids(
+                    project,
+                    live_creation,
+                    (),
+                ),
+            )
+        except SchemaValidationError:
+            return _canonical_type_roles(creation)
+        except ValidationError:
+            # Dependency validation supplies the actionable missing-input
+            # error. Do not invent shifted role slots for unresolved inputs.
+            return ["storyboard"]
+
+    assets = project_json.get("assets")
+    assets = assets if isinstance(assets, Mapping) else {}
+    slots = assets.get("artifact_slots_by_id")
+    slots = slots if isinstance(slots, Mapping) else {}
+    outputs = element.get("outputs")
+    outputs = outputs if isinstance(outputs, Mapping) else {}
+    storyboard_output = outputs.get("storyboard")
+    storyboard_output = (
+        storyboard_output if isinstance(storyboard_output, Mapping) else {}
+    )
+    slot_id = str(
+        storyboard_output.get("slot_id") or f"element:{element_id}:storyboard",
+    )
+    slot = slots.get(slot_id)
+    slot = slot if isinstance(slot, Mapping) else {}
+    selected = slot.get("selected_version_id")
+    storyboard_id = str(selected) if selected else None
+    own_versions = {
+        str(version_id) for version_id in (slot.get("version_ids") or ())
+    }
+    if storyboard_id:
+        own_versions.add(storyboard_id)
+
+    entity_roles = _bound_entity_roles(creation)
+    version_owners = _version_owner_entities(project_json)
+    roles: list[str | None] = ["storyboard"]
+    for version_id in explicit:
+        if version_id in own_versions:
+            continue
+        entity = version_owners.get(version_id)
+        roles.append(entity_roles.get(entity) if entity else None)
+    return roles
+
+
 def _reference_role_mismatches(
     prompt: str,
-    creation: Mapping[str, Any],
+    expected_roles: Sequence[str | None],
     *,
     model_name: str,
     protocol_backend: str,
@@ -108,20 +251,11 @@ def _reference_role_mismatches(
     """Find explicit numbered-reference role declarations that are swapped.
 
     Natural-language prompts are allowed to omit role labels. When the author
-    does label a mapping, however, a declared prop in the Runtime's scene slot
-    is provably wrong and must not reach a paid call.
+    does label a mapping, however, a declared prop in the Runtime's scene
+    slot is provably wrong and must not reach a paid call. ``expected_roles``
+    carries the role bound to each real ``[Image N]`` slot; an unresolved
+    (``None``) slot is skipped rather than guessed.
     """
-
-    expected_roles = ["storyboard"]
-    expected_roles.extend(
-        "lineup" for _ in (creation.get("cast_lineup_refs") or [])
-    )
-    expected_roles.extend(
-        "character" for _ in (creation.get("character_refs") or [])
-    )
-    if creation.get("scene_ref"):
-        expected_roles.append("scene")
-    expected_roles.extend("prop" for _ in (creation.get("prop_refs") or []))
 
     # Prompts are authored canonically now and rendered per provider at
     # submit, so review sees [Image N]. Legacy prompts still hold the
@@ -147,6 +281,9 @@ def _reference_role_mismatches(
         first_markers.setdefault(index, (offset, literal))
     mismatches: list[tuple[str, str, str]] = []
     for index, expected in enumerate(expected_roles, start=1):
+        if expected is None:
+            # Unresolved owner: never guess a role for a paid-call gate.
+            continue
         marker = first_markers.get(index)
         if marker is None:
             continue
@@ -195,6 +332,19 @@ def check_changed_r2v_prompt_contracts(
     )
 
     findings: list[dict[str, str]] = []
+    validated_project: list[Any] = []
+
+    def load_project() -> Any:
+        if not validated_project:
+            from pydantic import ValidationError as SchemaValidationError
+            from services.project_files.models import Project
+
+            try:
+                validated_project.append(Project.model_validate(project_json))
+            except SchemaValidationError:
+                validated_project.append(None)
+        return validated_project[0]
+
     checked_elements: list[str] = []
     reviewed_pointers: list[str] = []
     for timeline_id, timeline in timeline_items.items():
@@ -344,9 +494,16 @@ def check_changed_r2v_prompt_contracts(
                             ),
                         ),
                     )
+                expected_roles = _expected_reference_roles(
+                    project_json,
+                    element,
+                    creation,
+                    str(element_id),
+                    load_project,
+                )
                 for literal, expected, actual in _reference_role_mismatches(
                     video_prompt,
-                    creation,
+                    expected_roles,
                     model_name=video_model,
                     protocol_backend=video_backend,
                     language=language,

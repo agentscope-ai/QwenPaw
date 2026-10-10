@@ -1316,6 +1316,7 @@ export default function AgentDock({
   const stickBottom = useRef(true);
   const previousPendingAuthorizationCount = useRef(0);
   const lastOpenedFileReviewToken = useRef<string | null>(null);
+  const lastOpenedExecutionPause = useRef<string | null>(null);
   const resizeRef = useRef<{
     startX: number;
     startY: number;
@@ -1582,6 +1583,21 @@ export default function AgentDock({
     // pending badge and tray summary are visible without navigation.
     setOpen(true);
   }, [fileReviews, pendingFileReviewCount, setOpen]);
+
+  useEffect(() => {
+    const notice = messages.at(-1);
+    if (
+      session?.projectId !== projectId ||
+      notice?.source !== "creator_execution_notice" ||
+      !notice.metadata.executionPause
+    )
+      return;
+    const token = `${projectId}:${notice.messageId}`;
+    if (lastOpenedExecutionPause.current === token) return;
+    lastOpenedExecutionPause.current = token;
+    stickBottom.current = true;
+    setOpen(true);
+  }, [messages, projectId, session?.projectId, setOpen]);
 
   useEffect(() => {
     const stored = loadDockSize(sidebar);

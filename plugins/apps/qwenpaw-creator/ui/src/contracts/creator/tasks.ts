@@ -97,4 +97,6 @@ export interface ExecutionAuthorizationApproval
   model: string;
   maxCost: number;
   maxCandidates: number;
+  projectEtag?: string;
+  promptPointer?: string;
 }

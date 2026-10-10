@@ -25,13 +25,19 @@ jobs:
       author: ${{ github.event.pull_request.user.login }}
 
   backend-tests:
-    name: Creator Backend Tests
+    name: ${{ matrix.os == 'windows-latest' && 'Creator Backend Tests (Windows)' || 'Creator Backend Tests' }}
     needs: [spam-gate]
     if: |
       always() &&
       (needs.spam-gate.result == 'skipped' || needs.spam-gate.outputs.blocked != 'true') &&
       (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    env:
+      PYTHONUTF8: "1"
     steps:
       - uses: actions/checkout@v4
 
@@ -49,6 +55,20 @@ jobs:
           # Creator-specific extras (oss2, imageio-ffmpeg).
           pip install -e ".[test]"
           pip install -r plugins/apps/qwenpaw-creator/requirements.txt
+
+      - name: Install Windows media tools
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          choco install ffmpeg --no-progress --yes
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -m playwright install chromium
+
+      - name: Install Linux caption renderer
+        if: runner.os == 'Linux'
+        run: |
+          python -m playwright install --with-deps chromium
+          sudo apt-get install --yes fonts-noto-cjk
 
       - name: Run Creator backend tests
         working-directory: plugins/apps/qwenpaw-creator/backend

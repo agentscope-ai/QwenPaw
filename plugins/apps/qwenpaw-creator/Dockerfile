@@ -29,6 +29,7 @@ ARG PYPI_INDEX_URL=https://mirrors.aliyun.com/pypi/simple/
 FROM --platform=$BUILDPLATFORM ${NODE_IMAGE} AS creator-ui-builder
 WORKDIR /app
 COPY plugins/apps/qwenpaw-creator/ui /app/creator-ui
+COPY plugins/apps/qwenpaw-creator/templates /app/templates
 RUN cd /app/creator-ui && npm ci --include=dev && npm run build
 
 # -----------------------------------------------------------------------------

@@ -29,7 +29,7 @@ from .model_routes import bind_creator_tool_config
 from .model_routes import router as model_router
 from .observability_routes import router as observability_router
 from .project_file_routes import router as project_files_router
-from .project_routes import archive_router
+from .project_routes import storage_router
 from .project_routes import router as projects_router
 from .video_template_routes import router as video_templates_router
 from .voice_routes import router as voice_router
@@ -45,10 +45,8 @@ router = APIRouter(
     dependencies=[Depends(bind_creator_trace_request)],
     route_class=CreatorErrorRoute,
 )
-# Archives transfer existing project data and media. They require no model
-# connection; an incompatible local model config must not prevent restoring
-# or backing up a Project created with different settings.
-router.include_router(archive_router)
+# Listing and archive transfer must remain available with invalid model settings.
+router.include_router(storage_router)
 configured_router = APIRouter(
     dependencies=[Depends(bind_creator_tool_config)],
     route_class=CreatorErrorRoute,

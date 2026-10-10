@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """script_draft 执行服务：文本模型起草剧本并写回 timeline_script 版本。"""
+
 from __future__ import annotations
 
 import asyncio

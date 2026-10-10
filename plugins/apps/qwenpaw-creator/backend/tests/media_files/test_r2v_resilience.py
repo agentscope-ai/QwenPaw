@@ -11,7 +11,7 @@ from types import SimpleNamespace
 import httpx
 import pytest
 
-from domain.errors import ConflictError
+from domain.errors import ConflictError, ValidationError
 from services.media_files import r2v_execution
 from services.media_files.secure_video_stream import PeerAddressMismatchError
 from services.media_files.image_execution import FileImageExecutionService
@@ -138,6 +138,122 @@ def _dispatch(services, key="video-retry-key"):
             await worker.shutdown()
 
     return asyncio.run(scenario())
+
+
+def test_paused_unsubmitted_video_discards_frozen_old_storyboard(
+    tmp_path,
+    monkeypatch,
+):
+    from services.file_agent_runtime.manual_regeneration_hold import (
+        ManualRegenerationHoldStore,
+        automatic_node,
+    )
+    from services.file_agent_runtime.work_graph import derive_work_graph
+
+    services = _services(tmp_path, monkeypatch)
+    worker = FileR2VExecutionService(services, provider=object())
+    holds = ManualRegenerationHoldStore(services.root)
+
+    async def scenario():
+        with automatic_node(services.root, PROJECT_ID, f"video:{ELEMENT_ID}"):
+            dispatched = await worker.dispatch(
+                project_id=PROJECT_ID,
+                target_ref=f"element:{ELEMENT_ID}",
+                arguments={},
+                idempotency_key="old-video",
+                start=False,
+            )
+        task = worker.executions.get_task(PROJECT_ID, dispatched.task_id)
+        state = worker._read_state_sync(PROJECT_ID, task.task_id)
+        old_references = state.request["referenceVersionIds"]
+        graph = derive_work_graph(
+            services.projects.read(PROJECT_ID).project,
+            tasks=worker.executions.list_tasks(PROJECT_ID),
+        )
+        operation = holds.begin(
+            PROJECT_ID,
+            graph.by_id[f"storyboard:{ELEMENT_ID}"],
+            graph.nodes,
+        )
+        holds.admitted(operation)
+        assert await worker._submit(task, state) is False
+        assert (
+            worker.executions.get_task(PROJECT_ID, task.task_id).status.value
+            == "FAILED"
+        )
+        assert (
+            derive_work_graph(
+                services.projects.read(PROJECT_ID).project,
+                tasks=worker.executions.list_tasks(PROJECT_ID),
+            )
+            .by_id[f"video:{ELEMENT_ID}"]
+            .status.value
+            != "running"
+        )
+        await FileImageExecutionService(
+            services,
+            provider=_ImageProvider(),
+        ).execute(
+            project_id=PROJECT_ID,
+            target_ref=f"element:{ELEMENT_ID}",
+            command="GENERATE_STORYBOARD_IMAGE",
+            arguments={},
+            idempotency_key="replacement-storyboard",
+        )
+        accept_pending_reviews(services, PROJECT_ID)
+        holds.resume(PROJECT_ID, holds.read(PROJECT_ID).revision)
+        assert await worker._submit(task, state) is False
+        fresh = await worker.dispatch(
+            project_id=PROJECT_ID,
+            target_ref=f"element:{ELEMENT_ID}",
+            arguments={},
+            idempotency_key="new-video",
+            start=False,
+        )
+        assert (
+            worker._read_state_sync(
+                PROJECT_ID,
+                fresh.task_id,
+            ).request["referenceVersionIds"]
+            != old_references
+        )
+
+    asyncio.run(scenario())
+
+
+def test_unsubmitted_video_rechecks_inputs_even_after_hold_is_cleared(
+    tmp_path,
+    monkeypatch,
+):
+    services = _services(tmp_path, monkeypatch)
+    worker = FileR2VExecutionService(services, provider=object())
+
+    async def scenario():
+        dispatched = await worker.dispatch(
+            project_id=PROJECT_ID,
+            target_ref=f"element:{ELEMENT_ID}",
+            arguments={},
+            idempotency_key="unsubmitted",
+            start=False,
+        )
+        task = worker.executions.get_task(PROJECT_ID, dispatched.task_id)
+        state = worker._read_state_sync(PROJECT_ID, task.task_id)
+        base = services.projects.read(PROJECT_ID)
+        candidate = base.project.model_dump(mode="json")
+        candidate["timelines"]["items"]["timeline:main"]["elements_by_id"][
+            ELEMENT_ID
+        ]["creation"]["video_prompt"] += "镜头向右移动。"
+        services.commits.commit(
+            base=base,
+            candidate=candidate,
+            origin="frontend_edit",
+        )
+        assert await worker._submit(task, state) is False
+        latest = worker.executions.get_task(PROJECT_ID, task.task_id)
+        assert latest.status.value == "FAILED"
+        assert latest.error["code"] == "R2V_INPUTS_CHANGED"
+
+    asyncio.run(scenario())
 
 
 def _fail_task(services, task_id: str, message: str) -> None:
@@ -278,13 +394,25 @@ def _run_materialize(worker, monkeypatch, stub, provider_result=None):
     return asyncio.run(scenario())
 
 
-def test_transient_download_failures_are_retried(tmp_path, monkeypatch):
+@pytest.mark.parametrize("dns_failure", [False, True])
+def test_transient_download_failures_are_retried(
+    tmp_path,
+    monkeypatch,
+    dns_failure,
+):
     sentinel = object()
     calls = []
 
     async def stub(*_args, **_kwargs):
         calls.append(1)
         if len(calls) < 3:
+            if dns_failure:
+                import socket
+
+                raise ValidationError("远程视频主机无法解析") from socket.gaierror(
+                    socket.EAI_AGAIN,
+                    "temporary DNS failure",
+                )
             raise httpx.ConnectError("All connection attempts failed")
         return sentinel
 
@@ -542,7 +670,7 @@ def test_local_contention_preserves_the_same_provider_task(
                 raise LockTimeoutError(tmp_path / "project.lock", 10.0)
             return get_task(*args, **kwargs)
 
-        def update(project_id, task_id, change):
+        def update(project_id, task_id, change, **kwargs):
             nonlocal blocked
             target = {"polled": "success", "heartbeat": "heartbeat"}.get(
                 phase,
@@ -554,7 +682,7 @@ def test_local_contention_preserves_the_same_provider_task(
             ):
                 blocked = True
                 raise LockTimeoutError(tmp_path / "project.lock", 10.0)
-            return update_state(project_id, task_id, change)
+            return update_state(project_id, task_id, change, **kwargs)
 
         monkeypatch.setattr(worker.executions, "get_task", read)
         monkeypatch.setattr(worker, "_update_state_sync", update)

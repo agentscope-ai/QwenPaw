@@ -19,6 +19,7 @@ import httpx
 
 from models import config as model_config
 from models.concurrency import model_slot
+from models.output_budget import anthropic_output_limit
 from utils.exceptions import ModelError, redact_url, upstream_status_hint
 
 
@@ -77,14 +78,12 @@ async def _call_openai(
     api_key: str,
     model_name: str,
     temperature: float,
-    max_tokens: int,
     timeout: float,
 ) -> str:
     body = {
         "model": model_name,
         "messages": messages,
         "temperature": temperature,
-        "max_tokens": max_tokens,
     }
     # Free-tier gateways (e.g. OpenCode Zen ``*-free``) accept requests
     # without an Authorization header; an empty Bearer value would be
@@ -115,7 +114,20 @@ async def _call_openai(
         else None
     )
     if not isinstance(content, str) or not content.strip():
-        raise ModelError("Text model 返回空内容", model_name=model_name)
+        choice = choices[0] if choices and isinstance(choices[0], dict) else {}
+        finish_reason = choice.get("finish_reason") or "unknown"
+        usage = payload.get("usage") or {}
+        completion_tokens = usage.get("completion_tokens", "unknown")
+        reasoning = (choice.get("message") or {}).get("reasoning_content")
+        detail = (
+            f"Text model 返回空内容（模型：{model_name}，"
+            f"结束原因：{finish_reason}，输出 token：{completion_tokens}）"
+        )
+        if isinstance(reasoning, str) and reasoning.strip():
+            detail += "；模型仅返回了推理内容，没有最终结果"
+        if finish_reason == "length":
+            detail += "。上游达到输出长度限制，请检查模型或服务的默认输出预算后重试"
+        raise ModelError(detail, model_name=model_name)
     return content.strip()
 
 
@@ -125,7 +137,6 @@ async def _call_anthropic(
     api_key: str,
     model_name: str,
     temperature: float,
-    max_tokens: int,
     timeout: float,
 ) -> str:
     # Anthropic does not support a ``system`` role in ``messages``; it uses
@@ -139,8 +150,12 @@ async def _call_anthropic(
             filtered.append(msg)
     body: dict = {
         "model": model_name,
-        "max_tokens": max_tokens,
         "messages": filtered,
+        "max_tokens": await anthropic_output_limit(
+            model_name,
+            base_url=model_config.get_text_base_url(),
+            api_key=api_key,
+        ),
     }
     if system_text.strip():
         body["system"] = system_text.strip()
@@ -186,7 +201,6 @@ async def _call_gemini(
     api_key: str,
     model_name: str,
     temperature: float,
-    max_tokens: int,
     timeout: float,
 ) -> str:
     # Gemini uses a ``contents`` array with ``parts``; system instructions
@@ -204,7 +218,7 @@ async def _call_gemini(
             contents.append({"role": "model", "parts": [{"text": text}]})
     body: dict = {
         "contents": contents,
-        "generationConfig": {"maxOutputTokens": max_tokens},
+        "generationConfig": {},
     }
     if system_text.strip():
         body["systemInstruction"] = {"parts": [{"text": system_text.strip()}]}
@@ -251,7 +265,6 @@ async def chat_completion(
     *,
     system_prompt: str = "",
     temperature: float = 0.2,
-    max_tokens: int = 6000,
     timeout: float = 180.0,
 ) -> str:
     """Call the configured text model without accepting any media content parts."""
@@ -284,7 +297,6 @@ async def chat_completion(
                 api_key=api_key,
                 model_name=model_name,
                 temperature=temperature,
-                max_tokens=max_tokens,
                 timeout=timeout,
             )
         if model_config.is_gemini_protocol(protocol):
@@ -293,7 +305,6 @@ async def chat_completion(
                 api_key=api_key,
                 model_name=model_name,
                 temperature=temperature,
-                max_tokens=max_tokens,
                 timeout=timeout,
             )
         return await _call_openai(
@@ -301,7 +312,6 @@ async def chat_completion(
             api_key=api_key,
             model_name=model_name,
             temperature=temperature,
-            max_tokens=max_tokens,
             timeout=timeout,
         )
     except ModelError:

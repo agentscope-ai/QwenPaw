@@ -30,6 +30,7 @@ from services.runtime_files.atomic_store import (
 )
 from services.runtime_files.errors import RecordNotFoundError
 from services.runtime_files.locking import CrossProcessFileLock
+from services.runtime_files.path_safety import is_link_stat, is_link_path
 from services.runtime_files.models import (
     ChangeOrigin,
     ChangeRoundRecord,
@@ -208,7 +209,7 @@ class ProjectCommitRecoveryCoordinator:
         transactions_root = runtime_root / "transactions"
         if not transactions_root.exists():
             return ProjectRecoveryReport(project_id=project_id, outcomes=())
-        if transactions_root.is_symlink() or not transactions_root.is_dir():
+        if is_link_path(transactions_root) or not transactions_root.is_dir():
             outcome = TransactionRecoveryOutcome(
                 transaction_id="<transactions-root>",
                 action=RecoveryAction.INTEGRITY_ERROR,
@@ -291,7 +292,7 @@ class ProjectCommitRecoveryCoordinator:
         state_before: CommitJournalState | None = None
         try:
             entry_stat = transaction_root.lstat()
-            if stat.S_ISLNK(entry_stat.st_mode) or not stat.S_ISDIR(
+            if is_link_stat(entry_stat) or not stat.S_ISDIR(
                 entry_stat.st_mode,
             ):
                 raise _IntegrityProblem(
@@ -304,7 +305,7 @@ class ProjectCommitRecoveryCoordinator:
                 raise _IntegrityProblem(
                     "transaction directory has no journal.json",
                 ) from exc
-            if stat.S_ISLNK(journal_stat.st_mode) or not stat.S_ISREG(
+            if is_link_stat(journal_stat) or not stat.S_ISREG(
                 journal_stat.st_mode,
             ):
                 raise _IntegrityProblem(

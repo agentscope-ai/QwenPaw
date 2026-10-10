@@ -456,6 +456,13 @@ class CreatorFileServices:
         snapshot = await asyncio.to_thread(self.projects.read, project_id)
         project = snapshot.project
         continued: list[str] = []
+        from services.media_files.r2v_execution import (
+            execute_file_r2v_command,
+        )
+        from services.file_agent_runtime import (
+            manual_regeneration_hold as hold,
+        )
+
         for item in targets:
             target_ref = str(item.get("target_ref") or "")
             version_id = str(item.get("artifact_version_id") or "")
@@ -477,17 +484,25 @@ class CreatorFileServices:
                 f"{target_ref}".encode("utf-8"),
             ).hexdigest()
             try:
-                from services.media_files.r2v_execution import (
-                    execute_file_r2v_command,
-                )
-
-                await execute_file_r2v_command(
-                    self,
-                    project_id=project_id,
-                    target_ref=target_ref,
-                    arguments={},
-                    idempotency_key=f"review-auto-continue-{digest}",
-                )
+                with hold.automatic_node(
+                    self.root,
+                    project_id,
+                    f"video:{element_id}",
+                ):
+                    await asyncio.to_thread(
+                        hold.check_automatic,
+                        self.root,
+                        project_id,
+                    )
+                    await execute_file_r2v_command(
+                        self,
+                        project_id=project_id,
+                        target_ref=target_ref,
+                        arguments={},
+                        idempotency_key=f"review-auto-continue-{digest}",
+                    )
+            except hold.ManualHoldConflict:
+                continue
             except Exception:
                 logger.exception(
                     "auto-continue video failed for %s in Project %s",

@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """Video template listing, save, and delete endpoints."""
+
 from __future__ import annotations
 
 from typing import Any
@@ -15,7 +16,10 @@ from services.media_files.user_templates import (
     list_user_templates,
     save_user_template,
 )
-from services.media_files.video_templates import list_video_templates
+from services.media_files.video_templates import (
+    LEGACY_TEMPLATE_IDS,
+    list_video_templates,
+)
 from services.project_files.facade import CreatorFileServices
 
 router = APIRouter(prefix="/video-templates", tags=["video-templates"])
@@ -64,7 +68,11 @@ async def list_templates() -> dict[str, Any]:
     builtins = [
         _builtin_item(t, source="builtin") for t in list_video_templates()
     ]
-    user_templates = [_user_item(t) for t in list_user_templates()]
+    user_templates = [
+        _user_item(t)
+        for t in list_user_templates()
+        if t.template_id not in LEGACY_TEMPLATE_IDS
+    ]
     return {"items": builtins + user_templates}
 
 

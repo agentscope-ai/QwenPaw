@@ -449,8 +449,9 @@ export function buildAgentProgressModel(input: AgentProgressInput): {
     const outdatedCompose =
       !projectedTask &&
       composeNeedsUpdate(node, project, input.graph?.generation ?? -1);
-    const status =
-      projectedTask?.status ?? (outdatedCompose ? "stale" : node.status);
+    const status = node.manuallyHeld
+      ? "manual_hold"
+      : projectedTask?.status ?? (outdatedCompose ? "stale" : node.status);
     const promptPreparation =
       !projectedTask &&
       node.status === "gated" &&
@@ -465,11 +466,12 @@ export function buildAgentProgressModel(input: AgentProgressInput): {
       promptPreparation && node.preparationState === "failed";
     const preparationRunning =
       promptPreparation && node.preparationState === "running";
-    const phase = preparationFailed
-      ? "attention"
-      : preparationRunning
-      ? "running"
-      : phaseOf(status);
+    const phase =
+      node.manuallyHeld || preparationFailed
+        ? "attention"
+        : preparationRunning
+        ? "running"
+        : phaseOf(status);
     group.items.push({
       id: `graph:${node.id}`,
       source: "graph",
@@ -477,7 +479,9 @@ export function buildAgentProgressModel(input: AgentProgressInput): {
       label: creatorWorkNodeLabel(node, project),
       ...(projectedTask ? { task: projectedTask } : {}),
       status,
-      statusLabel: outdatedCompose
+      statusLabel: node.manuallyHeld
+        ? i18n.t("workGraph.manuallyHeld")
+        : outdatedCompose
         ? i18n.t("agentProgress.composeNeedsUpdate")
         : promptPreparation
         ? i18n.t(

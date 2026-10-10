@@ -145,9 +145,12 @@ def resolve_r2v_visual_reference_version_ids(
     constrain generation and owns the provider's reference budget. Only
     an element with no explicit references falls back to the automatic
     chain: cast-lineup group anchors lead, then per-entity identity
-    anchors. A bound entity never consumes an ArtifactVersion owned by
-    another Variant. Ambiguous legacy Elements are left unchanged rather
-    than guessed; the Plan coverage checkpoint exposes those missing
+    anchors. A bound character or prop never consumes an ArtifactVersion
+    owned by another Variant, so a normal shot cannot pull a different
+    costume/identity state. A bound scene may reference several of its own
+    Variants at once (a dusk-to-night lighting transition is authored
+    intent, not a mixup). Ambiguous legacy Elements are left unchanged
+    rather than guessed; the Plan coverage checkpoint exposes those missing
     bindings to the user.
     """
 
@@ -168,7 +171,15 @@ def resolve_r2v_visual_reference_version_ids(
                     entity,
                     version_id,
                 )
-                if owned_variant is not None and owned_variant != bound:
+                if (
+                    owned_variant is not None
+                    and owned_variant != bound
+                    # Scenes legitimately carry multiple time-of-day /
+                    # weather Variants into a single shot; only identity
+                    # carriers (character, prop) are locked to the bound
+                    # Variant to prevent cross-state mixups.
+                    and entity.kind != "scene"
+                ):
                     raise ValidationError(
                         f"显式参考 {version_id} 属于实体 {entity_id} 的 "
                         f"Variant {owned_variant}，与该 Element 绑定的 "

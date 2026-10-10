@@ -134,6 +134,12 @@ def resolve_idempotency_key(
     return key
 
 
+def semantic_etag(value: str) -> str:
+    """Reduce HTTP entity-tag forms (weak prefix, quotes) to the raw tag."""
+
+    return value.strip().removeprefix("W/").strip().strip('"')
+
+
 async def creator_error_handler(
     request: Request,
     error: CreatorError,

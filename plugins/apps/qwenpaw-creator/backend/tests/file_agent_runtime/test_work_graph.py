@@ -11,6 +11,7 @@ identities, dependency edges and all seven states.
 
 from __future__ import annotations
 
+import copy
 import hashlib
 from types import SimpleNamespace
 
@@ -27,6 +28,8 @@ from services.project_files.models import (
     ArtifactSlot,
     ArtifactVersion,
     ElementLocation,
+    ElementOutput,
+    ElementOutputRenderSource,
     IndexedFile,
     Project,
     R2VCreation,
@@ -38,6 +41,194 @@ from services.project_files.models import (
 )
 
 pytestmark = pytest.mark.unit
+
+
+def _historical_video_project() -> Project:
+    project = _project()
+    element = _element("clip-history")
+    element.outputs = {
+        "main": ElementOutput(slot_id="element:clip-history:main"),
+    }
+    element.render_source = ElementOutputRenderSource(
+        element_id=element.element_id,
+        output_name="main",
+    )
+    _add_element(project, element)
+    for suffix, kind, versions in (
+        ("storyboard", "r2v_storyboard_image", ["board-old", "board-new"]),
+        ("main", "element_video", ["clip-old", "clip-new"]),
+    ):
+        slot_id = f"element:clip-history:{suffix}"
+        for version_id in versions:
+            _select_slot(
+                project,
+                slot_id=slot_id,
+                kind=kind,
+                owner_ref="element:clip-history",
+                version_id=version_id,
+                provenance=(
+                    ["artifact-version:board-old"]
+                    if version_id == "clip-old"
+                    else None
+                ),
+            )
+        project.assets.artifact_slots_by_id[slot_id].version_ids = versions
+    old = project.assets.artifact_versions_by_id["clip-old"]
+    old.stale = True
+    old.stale_reason = "Element 生成输入已修改，需要重新生成"
+    for version_id in ("clip-old", "clip-new"):
+        project.assets.files_by_id[
+            f"file-{version_id}"
+        ].media_type = "video/mp4"
+    return project
+
+
+def _adopt_historical_video(project: Project):
+    from services.project_files.edit_impact import apply_frontend_edit_impacts
+
+    base = project.model_dump(mode="json")
+    candidate = copy.deepcopy(base)
+    candidate["assets"]["artifact_slots_by_id"]["element:clip-history:main"][
+        "selected_version_id"
+    ] = "clip-old"
+    updated, impact = apply_frontend_edit_impacts(
+        candidate,
+        [
+            "/assets/artifact_slots_by_id/element:clip-history:main/"
+            "selected_version_id",
+        ],
+        base=base,
+    )
+    return Project.model_validate(updated), impact
+
+
+@pytest.mark.parametrize("explicit_stale", [True, False])
+def test_adopting_historical_video_allows_compose_with_its_exact_version(
+    explicit_stale,
+):
+    from services.media_files.local_execution import _resolved_element_input
+
+    project = _historical_video_project()
+    original = project.assets.artifact_versions_by_id["clip-old"]
+    original.stale = explicit_stale
+    adopted, impact = _adopt_historical_video(project)
+    graph = derive_work_graph(adopted)
+    assert graph.by_id["video:clip-history"].status is WorkNodeStatus.DONE
+    assert graph.by_id["compose:timeline:main"].status is WorkNodeStatus.READY
+    assert impact.regeneration_required is False
+    assert impact.render_timeline_ids == {"timeline:main"}
+    chosen = adopted.assets.artifact_versions_by_id["clip-old"]
+    assert chosen.stale is False
+    assert chosen.provenance_refs == original.provenance_refs
+    assert chosen.input_fingerprint == original.input_fingerprint
+    element = adopted.timelines.items["timeline:main"].elements_by_id[
+        "clip-history"
+    ]
+    _, consumed, _ = _resolved_element_input(adopted, element)
+    assert consumed.version_id == "clip-old"
+    assert consumed.file_id == original.file_id
+
+
+@pytest.mark.parametrize(
+    "change",
+    ["prompt", "duration", "storyboard", "stale"],
+)
+def test_adopted_video_becomes_stale_again_after_new_input_change(change):
+    adopted, _ = _adopt_historical_video(_historical_video_project())
+    element = adopted.timelines.items["timeline:main"].elements_by_id[
+        "clip-history"
+    ]
+    if change == "prompt":
+        element.creation.video_prompt = "new visual requirements"
+    elif change == "duration":
+        element.span.duration_tick += 1000
+    elif change == "storyboard":
+        adopted.assets.artifact_slots_by_id[
+            "element:clip-history:storyboard"
+        ].selected_version_id = "board-old"
+    else:
+        adopted.assets.artifact_versions_by_id["clip-old"].stale = True
+    graph = derive_work_graph(adopted)
+    assert graph.by_id["video:clip-history"].status is WorkNodeStatus.STALE
+    assert graph.by_id["compose:timeline:main"].status is WorkNodeStatus.GATED
+
+
+def test_explicitly_reselecting_stale_current_video_accepts_it():
+    project = _historical_video_project()
+    project.assets.artifact_slots_by_id[
+        "element:clip-history:main"
+    ].selected_version_id = "clip-old"
+    assert (
+        derive_work_graph(project).by_id["video:clip-history"].status
+        is WorkNodeStatus.STALE
+    )
+    adopted, impact = _adopt_historical_video(project)
+    assert (
+        derive_work_graph(adopted).by_id["video:clip-history"].status
+        is WorkNodeStatus.DONE
+    )
+    assert impact.render_timeline_ids == {"timeline:main"}
+    unchanged, no_op = _adopt_historical_video(adopted)
+    assert unchanged == adopted
+    assert no_op.render_timeline_ids == set()
+
+
+def test_selection_acceptance_does_not_transfer_to_another_video_version():
+    adopted, _ = _adopt_historical_video(_historical_video_project())
+    adopted.assets.artifact_slots_by_id[
+        "element:clip-history:main"
+    ].selected_version_id = "clip-new"
+    adopted.assets.artifact_versions_by_id["clip-new"].provenance_refs = [
+        "artifact-version:board-old",
+    ]
+    assert (
+        derive_work_graph(adopted).by_id["video:clip-history"].status
+        is WorkNodeStatus.STALE
+    )
+
+
+@pytest.mark.parametrize("change", ["prompt", "storyboard"])
+def test_selection_in_same_edit_cannot_clear_new_input_invalidation(change):
+    from services.project_files.edit_impact import apply_frontend_edit_impacts
+
+    base = _historical_video_project().model_dump(mode="json")
+    candidate = copy.deepcopy(base)
+    slots = candidate["assets"]["artifact_slots_by_id"]
+    slots["element:clip-history:main"]["selected_version_id"] = "clip-old"
+    selection_path = (
+        "/assets/artifact_slots_by_id/element:clip-history:main/"
+        "selected_version_id"
+    )
+    if change == "prompt":
+        element = candidate["timelines"]["items"]["timeline:main"][
+            "elements_by_id"
+        ]["clip-history"]
+        element["creation"]["video_prompt"] = "new prompt in same edit"
+        input_path = (
+            "/timelines/items/timeline:main/elements_by_id/clip-history/"
+            "creation/video_prompt"
+        )
+    else:
+        slots["element:clip-history:storyboard"][
+            "selected_version_id"
+        ] = "board-old"
+        input_path = (
+            "/assets/artifact_slots_by_id/element:clip-history:storyboard/"
+            "selected_version_id"
+        )
+    updated, impact = apply_frontend_edit_impacts(
+        candidate,
+        [selection_path, input_path],
+        base=base,
+    )
+    assert updated["assets"]["artifact_versions_by_id"]["clip-old"]["stale"]
+    assert impact.regeneration_required
+    assert (
+        "selectionAcceptance"
+        not in updated["assets"]["artifact_slots_by_id"][
+            "element:clip-history:main"
+        ]["metadata"]
+    )
 
 
 def _entity(entity_id: str, variants: dict[str, str | None]) -> VisualEntity:
@@ -1164,8 +1355,12 @@ def test_stale_script_version_marks_script_node_stale() -> None:
     graph = derive_work_graph(project)
     node = graph.by_id["script:timeline:ep2"]
     assert node.status is WorkNodeStatus.STALE
-    # STALE is terminal for the scheduler: not READY, not dispatched.
+    # Regeneration is separate from READY and still requires authorization.
     assert node not in graph.ready_media_nodes()
+    assert node in graph.regeneration_nodes()
+    assert node.regeneration_of == "art:script-ep2"
+    assert node not in graph.model_required_nodes(automatic_regeneration=True)
+    assert node in graph.model_required_nodes(automatic_regeneration=False)
 
 
 @pytest.mark.parametrize("body", ["已发布正文：孙老四端茶，说完台词。", "", "  \n"])

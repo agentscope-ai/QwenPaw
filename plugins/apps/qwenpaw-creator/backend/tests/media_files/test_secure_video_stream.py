@@ -110,8 +110,11 @@ def _response(
     ("content", "declared", "container"),
     [
         (_MP4, "video/mp4", "mp4"),
+        (_MP4 + b"\r\n\x1a" + bytes(range(256)), "video/mp4", "mp4"),
         (_WEBM, "video/webm", "webm"),
+        (_MP4 + b"\x1a\r\n\x00\n", "video/mp4", "mp4"),
     ],
+    ids=["mp4", "all-byte-values", "webm", "binary-control-bytes"],
 )
 @_run_async
 async def test_local_streaming_detects_video_magic_and_returns_integrity(
@@ -167,11 +170,12 @@ async def test_local_absolute_file_and_generated_sources_cannot_cross_scope(
 @_run_async
 async def test_current_generated_url_is_allowed_but_openat_rejects_symlink_file(
     tmp_path: Path,
+    file_symlink,
 ) -> None:
     project_root, scratch = _scope(tmp_path)
     outside = tmp_path / "outside.mp4"
     outside.write_bytes(_MP4)
-    (scratch / "provider.mp4").symlink_to(outside)
+    file_symlink(outside, scratch / "provider.mp4")
 
     with pytest.raises(ValidationError, match="符号链接|regular"):
         await _materialize(
@@ -184,14 +188,15 @@ async def test_current_generated_url_is_allowed_but_openat_rejects_symlink_file(
 
 
 @_run_async
-async def test_openat_rejects_symlink_parent_and_hard_link(
+async def test_openat_rejects_directory_link(
     tmp_path: Path,
+    directory_link,
 ) -> None:
     project_root, scratch = _scope(tmp_path)
     outside = tmp_path / "outside"
     outside.mkdir()
     (outside / "provider.mp4").write_bytes(_MP4)
-    (scratch / "linked").symlink_to(outside, target_is_directory=True)
+    directory_link(outside, scratch / "linked")
 
     with pytest.raises(ValidationError, match="符号链接|父目录"):
         await _materialize(
@@ -199,6 +204,10 @@ async def test_openat_rejects_symlink_parent_and_hard_link(
             project_root,
         )
 
+
+@_run_async
+async def test_openat_rejects_hard_link(tmp_path: Path) -> None:
+    project_root, scratch = _scope(tmp_path)
     source = scratch / "source.mp4"
     source.write_bytes(_MP4)
     hard_link = scratch / "hard.mp4"
@@ -256,16 +265,22 @@ async def test_size_mime_checksum_and_magic_failures_remove_partial_file(
     assert not list(scratch.glob("r2v-materialized-*"))
 
 
+@pytest.mark.parametrize(
+    "content",
+    [_MP4, _MP4 + b"\r\n\x1a" + bytes(range(256))],
+    ids=["plain", "binary"],
+)
 @_run_async
 async def test_remote_stream_pins_peer_to_preresolved_public_dns(
     tmp_path: Path,
+    content: bytes,
 ) -> None:
     project_root, _scratch = _scope(tmp_path)
     transport = httpx.MockTransport(
         lambda _request: _response(
             200,
             peer="93.184.216.34",
-            content=_MP4,
+            content=content,
             headers={"content-type": "video/mp4"},
         ),
     )
@@ -278,7 +293,9 @@ async def test_remote_stream_pins_peer_to_preresolved_public_dns(
     )
 
     assert result.source_kind == "remote"
-    assert result.path.read_bytes() == _MP4
+    assert result.path.read_bytes() == content
+    assert result.size_bytes == len(content)
+    assert result.sha256 == hashlib.sha256(content).hexdigest()
 
 
 @_run_async

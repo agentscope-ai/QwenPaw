@@ -2,6 +2,7 @@ import { Button, Input, Modal, Select, Tooltip } from "antd";
 import { useTranslation } from "react-i18next";
 import {
   EyeOutlined,
+  MessageOutlined,
   PictureOutlined,
   VideoCameraOutlined,
 } from "@ant-design/icons";
@@ -283,6 +284,10 @@ export function ProjectComposer({ open, onClose }: ProjectComposerProps) {
               </span>
               {missingRequiredModels!.map((type) => {
                 const meta = {
+                  llm: {
+                    label: "LLM",
+                    icon: <MessageOutlined style={{ fontSize: 10 }} />,
+                  },
                   vlm: {
                     label: "VLM",
                     icon: <EyeOutlined style={{ fontSize: 10 }} />,

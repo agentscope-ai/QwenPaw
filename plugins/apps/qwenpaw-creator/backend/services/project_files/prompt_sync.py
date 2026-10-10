@@ -367,16 +367,25 @@ def derive_prompt_sync_changes(
     before: Mapping[str, Any],
     after: dict[str, Any],
     *,
-    confirmation: tuple[str, str, str] | None = None,
+    confirmation: tuple[str, str, str]
+    | tuple[str, str, str, str]
+    | None = None,
     changed_pointers: Iterable[str] | None = None,
 ) -> None:
+    # Keep full confirmation and stage-specific stamps in the same CAS pass.
+    # pylint: disable=too-many-branches
     """Called under the Project CAS lock for every writer, including agents.
 
     Ordinary writes cannot forge provenance. A validated service accept stamps
     shared alignment; authored stage inputs are derived under the same lock.
     """
     if confirmation:
-        timeline_id, element_id, token = confirmation
+        timeline_id, element_id, token = confirmation[:3]
+        if len(confirmation) == 4 and confirmation[3] not in (
+            "storyboard",
+            "video",
+        ):
+            raise ValidationError("无效的提示词确认阶段")
         if (
             prompt_sync_status(before, timeline_id, element_id)[
                 "baselineToken"
@@ -430,6 +439,26 @@ def derive_prompt_sync_changes(
                 creation["prompt_sync"] = None
                 continue
             old_sync = old["creation"].get("prompt_sync")
+            if (
+                confirmation
+                and len(confirmation) == 4
+                and confirmation[:2] == (timeline_id, element_id)
+            ):
+                # Confirm only the clicked stage; keep the other stage's
+                # provenance so it cannot silently become current as well.
+                stage = confirmation[3]
+                creation["prompt_sync"] = dict(
+                    old_sync or sync_stamp(before, timeline_id, element_id),
+                )
+                creation["prompt_sync"][
+                    f"{stage}_input_fingerprint"
+                ] = stage_input_fingerprint(
+                    after,
+                    timeline_id,
+                    element_id,
+                    stage,
+                )
+                continue
             if (
                 confirmation and confirmation[:2] == (timeline_id, element_id)
             ) or _first_prompt_pair(creation, old["creation"]):

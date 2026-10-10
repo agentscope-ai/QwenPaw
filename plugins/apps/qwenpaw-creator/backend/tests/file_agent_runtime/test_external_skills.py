@@ -108,6 +108,10 @@ def test_broken_entries_stay_isolated(tmp_path, monkeypatch) -> None:
             "visual-asset-design",
             ("canonical_variant_id", "derived_from_variant_id"),
         ),
+        (
+            "informal-launch-captions",
+            ("screenCopy", "design_motion_overlays"),
+        ),
     ],
 )
 def test_media_skills_are_builtin_and_viewable(
@@ -129,6 +133,23 @@ def test_media_skills_are_builtin_and_viewable(
     viewed = external_skills.view_skill(skill_name=skill_name)
     assert viewed["ok"] is True
     assert viewed["content"] == skill.skill_md
+
+
+def test_launch_caption_designer_reads_the_discoverable_skill(
+    tmp_path,
+    monkeypatch,
+):
+    from services.media_files.informal_launch_template import (
+        informal_launch_caption_skill,
+    )
+
+    _configure(tmp_path, monkeypatch, [])
+    builtin_root = Path(__file__).resolve().parents[2] / "skills"
+    monkeypatch.setattr(external_skills, "_BUILTIN_SKILLS_ROOT", builtin_root)
+    viewed = external_skills.view_skill(skill_name="informal-launch-captions")
+    assert viewed["ok"] is True
+    body = external_skills.parse_skill_md(viewed["content"])["body"]
+    assert body and informal_launch_caption_skill() == body
 
 
 # ── Driver loop: progressive disclosure end to end ───────────────────────────

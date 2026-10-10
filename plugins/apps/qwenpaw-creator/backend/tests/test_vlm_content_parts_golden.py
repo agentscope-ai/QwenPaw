@@ -160,7 +160,6 @@ def test_chat_completion_preserves_mixed_content_parts_in_request(monkeypatch):
             content,
             system_prompt="  仅分析提供的素材。  ",
             temperature=0.1,
-            max_tokens=321,
         ),
     )
 
@@ -178,7 +177,6 @@ def test_chat_completion_preserves_mixed_content_parts_in_request(monkeypatch):
             {"role": "user", "content": [content[0], video_part, content[2]]},
         ],
         "temperature": 0.1,
-        "max_tokens": 321,
         "enable_thinking": False,
     }
     assert content[1]["max_frames"] == 24
@@ -221,7 +219,6 @@ def test_anthropic_caller_rejects_video_before_io_or_http(
                 ],
                 system_prompt="",
                 temperature=0.2,
-                max_tokens=100,
                 timeout=5.0,
                 api_key="test-key",
                 base_url="https://api.anthropic.com",

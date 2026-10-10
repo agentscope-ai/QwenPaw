@@ -90,7 +90,7 @@ def test_loudness_flags_silence_and_clean_clip_passes(tmp_path: Path) -> None:
         "effectively_silent",
     )
     # A clean clip passes the black gate and yields judgeable stats.
-    clip = tmp_path / "red.mp4"
+    clip = tmp_path / "画面 [red], 'clip'.mp4"
     _make_clip(clip, interior_black=False, silent=False)
     assert review_gates.black_gate(clip).passed is True
     stats = frame_stats.sample_stats(clip)

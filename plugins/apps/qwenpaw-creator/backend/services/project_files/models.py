@@ -111,6 +111,8 @@ class ExecutionPreauthorization(StrictModel):
 
 
 class ProjectSettings(StrictModel):
+    production_stage: Literal["script", "media"] = "media"
+    script_approval_fingerprint: Sha256 | None = None
     aspect_ratio: str = "16:9"
     resolution: str = "720P"
     platform: str = ""

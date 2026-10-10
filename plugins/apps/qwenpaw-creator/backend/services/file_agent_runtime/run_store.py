@@ -15,7 +15,11 @@ from services.runtime_files.atomic_store import AtomicJsonRecordStore
 from services.runtime_files.errors import RuntimeFileError
 from services.runtime_files.locking import CrossProcessFileLock
 from services.runtime_files.models import utc_now
-from services.runtime_files.path_safety import require_safe_runtime_segment
+from services.runtime_files.path_safety import (
+    is_link_path,
+    is_link_stat,
+    require_safe_runtime_segment,
+)
 
 from .models import (
     AgentRunStatus,
@@ -96,11 +100,11 @@ class CreatorAgentRunStore:
         root = self._runtime_root(project_id) / "agent-runs"
         if not root.exists():
             return []
-        if root.is_symlink() or not root.is_dir():
+        if is_link_path(root) or not root.is_dir():
             raise AgentRunStoreError("agent-runs must be a real directory")
         records: list[CreatorAgentRunRecord] = []
         for path in root.glob("*.json"):
-            if path.is_symlink() or not path.is_file():
+            if is_link_path(path) or not path.is_file():
                 raise AgentRunStoreError(
                     "Agent run must be a regular file",
                 )
@@ -206,11 +210,11 @@ class CreatorAgentRunStore:
             raise AgentRunStoreError(
                 f"Project does not exist: {project_id}",
             ) from exc
-        if stat.S_ISLNK(root_stat.st_mode) or not stat.S_ISDIR(
+        if is_link_stat(root_stat) or not stat.S_ISDIR(
             root_stat.st_mode,
         ):
             raise AgentRunStoreError("Project root must be a real directory")
-        if stat.S_ISLNK(project_stat.st_mode) or not stat.S_ISREG(
+        if is_link_stat(project_stat) or not stat.S_ISREG(
             project_stat.st_mode,
         ):
             raise AgentRunStoreError("project.json must be a regular file")

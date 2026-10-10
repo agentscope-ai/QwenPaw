@@ -12,6 +12,10 @@ import pytest
 
 from models import text_model
 from models import config as model_config
+from services.media_files.visual_reference_resolution import (
+    preview_r2v_reference_order,
+)
+from services.project_files.models import Project
 from services.run_review import admission, text_review
 from services.run_review.prompt_contract import (
     check_changed_r2v_prompt_contracts,
@@ -684,6 +688,450 @@ def test_happyhorse_explicit_reference_roles_follow_runtime_order(
     ]
     assert "实际是 scene" in report["findings"][0]["message"]
     assert "实际是 prop" in report["findings"][1]["message"]
+
+
+def _add_reference_artifact(
+    project: dict,
+    version_id: str,
+    *,
+    owner_ref: str,
+    kind: str = "visual_asset_image",
+    slot_id: str | None = None,
+) -> None:
+    slot_id = slot_id or f"{owner_ref}:image"
+    file_id = f"file-{version_id}"
+    assets = project["assets"]
+    assets["files_by_id"][file_id] = {
+        "file_id": file_id,
+        "kind": "artifact_payload",
+        "relative_uri": f"assets/artifacts/{file_id}.png",
+        "sha256": "0" * 64,
+        "size_bytes": 1,
+        "media_type": "image/png",
+        "created_at": project["created_at"],
+    }
+    slot = assets["artifact_slots_by_id"].setdefault(
+        slot_id,
+        {
+            "slot_id": slot_id,
+            "kind": kind,
+            "owner_ref": owner_ref,
+            "version_ids": [],
+        },
+    )
+    slot["version_ids"].append(version_id)
+    slot["selected_version_id"] = version_id
+    assets["artifact_versions_by_id"][version_id] = {
+        "version_id": version_id,
+        "slot_id": slot_id,
+        "kind": kind,
+        "owner_ref": owner_ref,
+        "name": version_id,
+        "file_id": file_id,
+        "checksum": "0" * 64,
+        "based_on_generation": 0,
+        "created_at": project["created_at"],
+    }
+
+
+def _explicit_order_project(video_prompt: str) -> dict:
+    """Schema-valid Element with authored character → prop → scene order."""
+
+    project = Project.new(
+        project_id="project-reference-contract",
+        name="Reference contract",
+    ).model_dump(mode="json")
+    for role, entity_id in (
+        ("character", "char:hero"),
+        ("prop", "prop:lamp"),
+        ("scene", "scene:room"),
+    ):
+        version_id = f"artifact-version-{role}"
+        _add_reference_artifact(
+            project,
+            version_id,
+            owner_ref=f"asset:{entity_id}",
+        )
+        project["visual"]["entities"]["items"][entity_id] = {
+            "entity_id": entity_id,
+            "kind": role,
+            "name": entity_id,
+            "required_variant_ids": ["default"],
+            "variants": {
+                "order": ["default"],
+                "items": {
+                    "default": {
+                        "variant_id": "default",
+                        "generated_artifact_version_ids": [version_id],
+                        "selected_artifact_version_id": version_id,
+                    },
+                },
+            },
+        }
+        project["visual"]["entities"]["order"].append(entity_id)
+    _add_reference_artifact(
+        project,
+        "artifact-version-storyboard",
+        owner_ref="element:e",
+        kind="r2v_storyboard_image",
+        slot_id="element:e:storyboard",
+    )
+    project["timelines"] = {
+        "order": ["t"],
+        "items": {
+            "t": {
+                "timeline_id": "t",
+                "elements_by_id": {
+                    "e": {
+                        "element_id": "e",
+                        "span": {"start_tick": 0, "duration_tick": 4_000},
+                        "location": {},
+                        "outputs": {
+                            "storyboard": {"slot_id": "element:e:storyboard"},
+                        },
+                        "creation": {
+                            "type": "r2v",
+                            "character_refs": ["char:hero"],
+                            "scene_ref": "scene:room",
+                            "prop_refs": ["prop:lamp"],
+                            "video_reference_version_ids": [
+                                "artifact-version-character",
+                                "artifact-version-prop",
+                                "artifact-version-scene",
+                            ],
+                            "storyboard_prompt": (
+                                "16:9 故事板，1 个分镜格；每一个分镜格内部均为 16:9。"
+                            ),
+                            "video_prompt": video_prompt,
+                        },
+                    },
+                },
+            },
+        },
+    }
+    return Project.model_validate(project).model_dump(mode="json")
+
+
+@pytest.mark.parametrize("unselected", [False, True])
+def test_default_reference_roles_follow_selected_deduplicated_runtime_slots(
+    monkeypatch,
+    unselected,
+):
+    monkeypatch.setattr(
+        model_config,
+        "get_video_model_name",
+        lambda: "happyhorse-1.1",
+    )
+    monkeypatch.setattr(model_config, "get_video_backend", lambda: "wan")
+    project = _explicit_order_project("")
+    creation = project["timelines"]["items"]["t"]["elements_by_id"]["e"][
+        "creation"
+    ]
+    creation["video_reference_version_ids"] = []
+    creation["character_refs"] = ["char:hero", "char:hero"]
+    if unselected:
+        project["visual"]["entities"]["items"]["char:hero"]["variants"][
+            "items"
+        ]["default"]["selected_artifact_version_id"] = None
+    creation["video_prompt"] = (
+        "[Image 1] is the storyboard. "
+        + ("" if unselected else "[Image 2] is the character. ")
+        + f"[Image {2 if unselected else 3}] is the scene. "
+        + f"[Image {3 if unselected else 4}] is the prop."
+    )
+    validated = Project.model_validate(project)
+    report = check_changed_r2v_prompt_contracts(
+        validated.model_dump(mode="json"),
+        ["/timelines/items/t/elements_by_id/e"],
+    )
+    assert report["passed"], report
+
+
+def test_explicit_reference_order_overrides_canonical_type_roles(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        model_config,
+        "get_video_model_name",
+        lambda: "happyhorse-1.1",
+    )
+    monkeypatch.setattr(model_config, "get_video_backend", lambda: "wan")
+    project = _explicit_order_project(
+        "[Image 1] is the storyboard. "
+        "[Image 2] is the character reference. "
+        "[Image 3] is the lamp prop study. "
+        "[Image 4] is the room environment.",
+    )
+
+    report = check_changed_r2v_prompt_contracts(
+        project,
+        ["/timelines/items/t/elements_by_id/e"],
+    )
+
+    # [Image 3] really is the prop in the authored runtime order, so the
+    # prompt is correct and nothing may be gated.
+    assert report["passed"] is True
+
+
+def test_explicit_reference_order_still_catches_a_real_swap(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        model_config,
+        "get_video_model_name",
+        lambda: "happyhorse-1.1",
+    )
+    monkeypatch.setattr(model_config, "get_video_backend", lambda: "wan")
+    project = _explicit_order_project(
+        "[Image 1] is the storyboard. "
+        "[Image 2] is the character reference. "
+        "[Image 3] is the room environment. "
+        "[Image 4] continues the action.",
+    )
+
+    report = check_changed_r2v_prompt_contracts(
+        project,
+        ["/timelines/items/t/elements_by_id/e"],
+    )
+
+    assert [item["code"] for item in report["findings"]] == [
+        "VIDEO_REFERENCE_ROLE_MISMATCH",
+    ]
+    assert "实际是 prop" in report["findings"][0]["message"]
+
+
+@pytest.mark.parametrize("storyboard_state", ["absent", "unselected"])
+@pytest.mark.parametrize(
+    "roles",
+    [("character", "scene", "prop"), ("character", "prop", "scene")],
+    ids=["canonical", "noncanonical"],
+)
+@pytest.mark.parametrize("wrong_label", [False, True])
+def test_explicit_references_reserve_ungenerated_storyboard_position(
+    monkeypatch,
+    storyboard_state,
+    roles,
+    wrong_label,
+) -> None:
+    monkeypatch.setattr(
+        model_config,
+        "get_video_model_name",
+        lambda: "happyhorse-1.1",
+    )
+    monkeypatch.setattr(model_config, "get_video_backend", lambda: "wan")
+    labels = ["storyboard", *roles]
+    if wrong_label:
+        labels[2] = "character"
+    project = _explicit_order_project(
+        " ".join(
+            f"[Image {index}] is the {role} reference."
+            for index, role in enumerate(labels, start=1)
+        ),
+    )
+    element = project["timelines"]["items"]["t"]["elements_by_id"]["e"]
+    versions = [f"artifact-version-{role}" for role in roles]
+    element["creation"]["video_reference_version_ids"] = [
+        *versions,
+        versions[0],
+    ]
+    assets = project["assets"]
+    if storyboard_state == "absent":
+        element["outputs"].clear()
+        del assets["artifact_slots_by_id"]["element:e:storyboard"]
+        del assets["artifact_versions_by_id"]["artifact-version-storyboard"]
+        del assets["files_by_id"]["file-artifact-version-storyboard"]
+    else:
+        assets["artifact_slots_by_id"]["element:e:storyboard"][
+            "selected_version_id"
+        ] = None
+    validated = Project.model_validate(project)
+    preview = preview_r2v_reference_order(validated, "e")
+    assert [
+        (ref["index"], ref["versionId"]) for ref in preview["references"]
+    ] == [
+        (1, ""),
+        *enumerate(versions, start=2),
+    ]
+    assert preview["storyboardSelected"] is False
+    assert preview["ready"] is False
+
+    report = check_changed_r2v_prompt_contracts(
+        validated.model_dump(mode="json"),
+        ["/timelines/items/t/elements_by_id/e"],
+    )
+
+    assert report["passed"] is not wrong_label
+    assert [item["code"] for item in report["findings"]] == (
+        ["VIDEO_REFERENCE_ROLE_MISMATCH"] if wrong_label else []
+    )
+    if wrong_label:
+        assert "[Image 3]" in report["findings"][0]["message"]
+        assert f"实际是 {roles[1]}" in report["findings"][0]["message"]
+
+
+@pytest.mark.parametrize("selected", [False, True])
+@pytest.mark.parametrize("storyboard_only", [False, True])
+def test_explicit_references_filter_own_storyboard_versions(
+    monkeypatch,
+    selected,
+    storyboard_only,
+) -> None:
+    monkeypatch.setattr(
+        model_config,
+        "get_video_model_name",
+        lambda: "happyhorse-1.1",
+    )
+    monkeypatch.setattr(model_config, "get_video_backend", lambda: "wan")
+    project = _explicit_order_project(
+        "[Image 1] is the storyboard. [Image 2] is the character. "
+        "[Image 3] is the prop. [Image 4] is the scene.",
+    )
+    _add_reference_artifact(
+        project,
+        "artifact-version-storyboard-new",
+        owner_ref="element:e",
+        kind="r2v_storyboard_image",
+        slot_id="element:e:storyboard",
+    )
+    if not selected:
+        project["assets"]["artifact_slots_by_id"]["element:e:storyboard"][
+            "selected_version_id"
+        ] = None
+    creation = project["timelines"]["items"]["t"]["elements_by_id"]["e"][
+        "creation"
+    ]
+    references = creation["video_reference_version_ids"]
+    if storyboard_only:
+        references.clear()
+    references.insert(0, "artifact-version-storyboard")
+    references.append("artifact-version-storyboard-new")
+    validated = Project.model_validate(project)
+    preview = preview_r2v_reference_order(validated, "e")
+    assert len(preview["references"]) == (1 if storyboard_only else 4)
+    report = check_changed_r2v_prompt_contracts(
+        validated.model_dump(mode="json"),
+        ["/timelines/items/t/elements_by_id/e"],
+    )
+    assert report["passed"] is True
+
+
+@pytest.mark.parametrize("lineup_id", ["main", "lineup:main", "char:hero"])
+@pytest.mark.parametrize("bound", [False, True])
+@pytest.mark.parametrize("label", ["lineup", "scene"])
+def test_explicit_lineup_reference_roles_require_bound_owner(
+    monkeypatch,
+    lineup_id,
+    bound,
+    label,
+) -> None:
+    monkeypatch.setattr(
+        model_config,
+        "get_video_model_name",
+        lambda: "happyhorse-1.1",
+    )
+    monkeypatch.setattr(model_config, "get_video_backend", lambda: "wan")
+    project = _explicit_order_project(
+        f"[Image 1] is the storyboard. [Image 2] is the {label}. "
+        "[Image 3] is the character. [Image 4] is the prop. "
+        "[Image 5] is the scene.",
+    )
+    entities = project["visual"]["entities"]
+    entities["items"]["char:friend"] = {
+        "entity_id": "char:friend",
+        "kind": "character",
+        "name": "Friend",
+        "required_variant_ids": [],
+    }
+    entities["order"].append("char:friend")
+    _add_reference_artifact(
+        project,
+        "artifact-version-lineup",
+        owner_ref=f"lineup:{lineup_id}",
+        kind="cast_lineup_image",
+    )
+    project["visual"]["cast_lineups"] = {
+        "order": [lineup_id],
+        "items": {
+            lineup_id: {
+                "lineup_id": lineup_id,
+                "name": "Main cast",
+                "character_refs": ["char:hero", "char:friend"],
+                "generated_artifact_version_ids": ["artifact-version-lineup"],
+                "selected_artifact_version_id": "artifact-version-lineup",
+            },
+        },
+    }
+    creation = project["timelines"]["items"]["t"]["elements_by_id"]["e"][
+        "creation"
+    ]
+    creation["cast_lineup_refs"] = [lineup_id] if bound else []
+    creation["video_reference_version_ids"].insert(
+        0,
+        "artifact-version-lineup",
+    )
+    report = check_changed_r2v_prompt_contracts(
+        Project.model_validate(project).model_dump(mode="json"),
+        ["/timelines/items/t/elements_by_id/e"],
+    )
+    mismatch = bound and label != "lineup"
+    assert report["passed"] is not mismatch
+    assert [item["code"] for item in report["findings"]] == (
+        ["VIDEO_REFERENCE_ROLE_MISMATCH"] if mismatch else []
+    )
+    if mismatch:
+        assert "[Image 2]" in report["findings"][0]["message"]
+        assert "实际是 lineup" in report["findings"][0]["message"]
+
+
+@pytest.mark.parametrize(
+    "owner_ref",
+    ["unknown:char:hero", "asset:unknown", None],
+)
+def test_explicit_reference_unknown_owner_is_not_guessed(
+    monkeypatch,
+    owner_ref,
+) -> None:
+    monkeypatch.setattr(
+        model_config,
+        "get_video_model_name",
+        lambda: "happyhorse-1.1",
+    )
+    monkeypatch.setattr(model_config, "get_video_backend", lambda: "wan")
+    project = _explicit_order_project(
+        "[Image 1] is the storyboard. [Image 2] is the scene. "
+        "[Image 3] is the character. [Image 4] is the prop. "
+        "[Image 5] is the scene.",
+    )
+    _add_reference_artifact(
+        project,
+        "version-unknown",
+        owner_ref=owner_ref or "asset:char:hero",
+    )
+    if owner_ref is None:
+        assets = project["assets"]
+        artifact = assets["artifact_versions_by_id"].pop("version-unknown")
+        slot = assets["artifact_slots_by_id"][artifact["slot_id"]]
+        slot["version_ids"].remove("version-unknown")
+        slot["selected_version_id"] = slot["version_ids"][0]
+        assets["source_versions_by_id"]["version-unknown"] = {
+            "version_id": "version-unknown",
+            "logical_asset_id": "char:hero",
+            "name": "Unowned source",
+            "file_id": artifact["file_id"],
+            "checksum": artifact["checksum"],
+            "media_kind": "image",
+            "media_type": "image/png",
+            "created_at": project["created_at"],
+        }
+    creation = project["timelines"]["items"]["t"]["elements_by_id"]["e"][
+        "creation"
+    ]
+    creation["video_reference_version_ids"].insert(0, "version-unknown")
+    report = check_changed_r2v_prompt_contracts(
+        Project.model_validate(project).model_dump(mode="json"),
+        ["/timelines/items/t/elements_by_id/e"],
+    )
+    assert report["passed"] is True
 
 
 def test_borderless_outer_whitespace_is_not_a_panel_border_conflict(

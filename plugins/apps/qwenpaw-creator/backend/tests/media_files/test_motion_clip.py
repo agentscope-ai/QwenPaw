@@ -7,9 +7,12 @@ picture (pure motion-graphics cuts)."""
 from __future__ import annotations
 
 import asyncio
+import glob
 import importlib.util
+import os
 import shutil
 import subprocess
+import sys
 
 import pytest
 
@@ -23,6 +26,38 @@ from services.media_files.local_execution import (
 _FFMPEG = shutil.which("ffmpeg")
 _FFPROBE = shutil.which("ffprobe")
 _PLAYWRIGHT = importlib.util.find_spec("playwright") is not None
+
+
+def _playwright_browser_ready() -> bool:
+    """Whether the chromium binary the motion renderer launches is present.
+
+    The playwright *package* being importable is not enough: `playwright
+    install` has to have downloaded a browser. Without it the render raises a
+    launch error, so the case is skipped rather than failed on an
+    under-provisioned machine.
+    """
+
+    if not _PLAYWRIGHT:
+        return False
+    root = os.environ.get("PLAYWRIGHT_BROWSERS_PATH")
+    if not root:
+        if sys.platform == "darwin":
+            root = os.path.expanduser("~/Library/Caches/ms-playwright")
+        elif sys.platform.startswith("win"):
+            root = os.path.join(
+                os.environ.get("LOCALAPPDATA", ""),
+                "ms-playwright",
+            )
+        else:
+            root = os.path.expanduser("~/.cache/ms-playwright")
+    for name in ("chrome-headless-shell", "chrome", "Chromium", "chromium"):
+        if glob.glob(
+            os.path.join(root, "chromium*", "**", name),
+            recursive=True,
+        ):
+            return True
+    return False
+
 
 _CLIP_HTML = (
     "<!DOCTYPE html><html><head><style>"
@@ -42,6 +77,10 @@ _CLIP_HTML = (
 @pytest.mark.skipif(
     not _PLAYWRIGHT,
     reason="playwright is not installed (motion frames render through it)",
+)
+@pytest.mark.skipif(
+    not _playwright_browser_ready(),
+    reason="playwright chromium browser is not downloaded (run: playwright install chromium)",
 )
 def test_motion_clip_segment_renders_the_document_as_the_picture(
     tmp_path,

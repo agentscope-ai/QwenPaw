@@ -143,6 +143,30 @@ describe("AgentDock public output and interactions", () => {
     seedCreatorSession();
   });
 
+  it("shows a durable auto-resume pause once without creating a user review", async () => {
+    useAgentDockUiStore.getState().setOpen(false);
+    renderDock();
+    const notice = asst({
+      messageId: "execution-pause-1",
+      source: "creator_execution_notice",
+      text: "自动创作已暂停，作品尚未完成。已连续自动处理 5 轮，仍待处理序章剧本。",
+      metadata: {
+        executionPause: { reason: "consecutive_resume_limit" },
+      },
+    });
+    act(() => useCreatorSessionStore.setState({ messages: [notice] }));
+    await waitFor(() =>
+      expect(document.querySelector("[data-agent-dock]")).toBeInTheDocument(),
+    );
+    expect(
+      screen.getByText(/自动创作已暂停，作品尚未完成/),
+    ).toBeInTheDocument();
+    expect(useExecutionAuthorizationStore.getState().items).toHaveLength(0);
+    act(() => useAgentDockUiStore.getState().setOpen(false));
+    act(() => useCreatorSessionStore.setState({ messages: [{ ...notice }] }));
+    expect(document.querySelector("[data-agent-dock]")).not.toBeInTheDocument();
+  });
+
   it("pops the dock open with the inline tray when a production confirmation arrives live", async () => {
     useAgentDockUiStore.getState().setOpen(false);
     renderDock();

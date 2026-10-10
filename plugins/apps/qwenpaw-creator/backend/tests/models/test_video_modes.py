@@ -788,6 +788,33 @@ def test_happyhorse_models_route_to_wan_backend(monkeypatch) -> None:
         model_config.reset_request_tool_configs(token)
 
 
+def test_file_execution_preserves_distinct_version_slots_with_same_url(
+    monkeypatch,
+):
+    captured = {}
+    _bind(monkeypatch, "happyhorse-1.1-r2v", captured)
+    asyncio.run(
+        video_model.submit_video_task(
+            "[Image 2] is the character. [Image 3] is the scene.",
+            reference_image_url="/generated/storyboard.png",
+            reference_image_url_list=[
+                "/generated/same.png",
+                "/generated/same.png",
+            ],
+            preserve_reference_slots=True,
+            ratio="16:9",
+            duration=5,
+            resolution="720p",
+        ),
+    )
+    media = captured["body"]["input"]["media"]
+    assert [item["url"] for item in media] == [
+        "oss://dashscope-instant/storyboard.png",
+        "oss://dashscope-instant/same.png",
+        "oss://dashscope-instant/same.png",
+    ]
+
+
 def test_happyhorse_submit_body_omits_prompt_extend(monkeypatch) -> None:
     captured: dict = {}
     _bind(monkeypatch, "happyhorse-1.1-r2v", captured)

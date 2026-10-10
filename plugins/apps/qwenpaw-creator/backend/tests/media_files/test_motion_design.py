@@ -158,6 +158,17 @@ class TestMotionDesignSafety:
         )
         _validate_caption_location(wide, "这红色是什么", (1280, 720))
 
+    def test_default_subtitle_box_fits_two_languages(self) -> None:
+        from services.media_files.motion_templates import (
+            DEFAULT_CAPTION_LOCATION,
+        )
+
+        _validate_caption_location(
+            ElementLocation(**DEFAULT_CAPTION_LOCATION),
+            "让画面自己讲故事\nLet the picture tell its story",
+            (1280, 720),
+        )
+
     def test_active_or_embedded_content_is_rejected(self) -> None:
         html = (
             "<html><body><iframe src='file:///etc/passwd'>"
@@ -424,88 +435,118 @@ class TestApplyOverlayStyledRouting:
         assert "location.width 太窄" in warnings[0]
         assert "统一安全动效模板" in warnings[0]
         location, html = safe_motion_args[0]
-        assert location["width"] == 0.8 and location["y"] == 0.88
+        assert location["width"] == 0.8 and location["y"] == 0.86
         assert 'data-motion-motif="caption_card"' in html
 
 
-class TestUniformCaptionStyle:
-    def test_uniform_blueprint_shares_one_style_skeleton(self) -> None:
-        """Uniform narration captions share one deterministic skeleton:
-        two cards differ only by their words, never by style."""
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "arguments",
+    [{}, {"captionStyle": "uniform"}, {"captionStyle": "varied"}],
+)
+async def test_plain_subtitles_need_no_edit_or_design_model(
+    tmp_path,
+    monkeypatch,
+    arguments,
+):
+    from unittest.mock import AsyncMock
+    from services.project_files.facade import CreatorFileServices
+    from services.project_files.models import OverlayCreation, Project
 
-        from services.media_files.motion_blueprints import (
-            render_caption_blueprint,
+    services = CreatorFileServices.create(tmp_path)
+    project = Project.new(project_id="plain-subtitle", name="普通字幕")
+    elements = project.timelines.items["timeline:main"].elements_by_id
+    for index, text in enumerate(("让画面自己讲故事", "Simple words, clear picture")):
+        elements[f"caption-{index}"] = TimelineElement(
+            element_id=f"caption-{index}",
+            span=TimelineSpan(start_tick=index * 3000, duration_tick=3000),
+            location=ElementLocation(x=0.5, y=0.5, width=0.12, height=0.4),
+            creation=OverlayCreation(text=text),
         )
+    services.projects.create(project)
+    model = AsyncMock(
+        side_effect=AssertionError(
+            "Plain subtitles must not request a generated style",
+        ),
+    )
+    monkeypatch.setattr(motion_design, "_design_document", model)
+    monkeypatch.setattr(motion_design.vlm_model, "chat_completion", model)
+    result = await motion_design.design_motion_overlays(
+        services,
+        project_id=project.project_id,
+        target_ref="timeline:main",
+        arguments=arguments,
+        idempotency_key="plain-subtitles",
+    )
+    assert result["designedCount"] == 2
+    current = services.projects.read(project.project_id).project
+    for element in current.timelines.items[
+        "timeline:main"
+    ].elements_by_id.values():
+        motion = element.creation.motion
+        assert motion.format == "html_css" and motion.template_version == 2
+        assert element.location.y == 0.86
+        assert element.location.y + element.location.height / 2 <= 0.96
+        indexed = current.assets.files_by_id[motion.html_file_id]
+        html = (
+            services.projects.project_root(project.project_id)
+            / indexed.relative_uri
+        ).read_text()
+        assert 'data-caption-style="plain"' in html
+        assert element.creation.text in html
+        assert "border:" not in html and "border-radius:" not in html
+        assert "box-shadow:" not in html and "transform:" not in html
+        assert 'data-motion-exit="none"' in html
+    model.assert_not_called()
 
-        blueprint = motion_design._UNIFORM_CAPTION_BLUEPRINT
-        intensity = motion_design._UNIFORM_CAPTION_INTENSITY
-        first, _ = render_caption_blueprint(
-            blueprint,
-            "第一句旁白。",
-            intensity=intensity,
-        )
-        again, _ = render_caption_blueprint(
-            blueprint,
-            "第一句旁白。",
-            intensity=intensity,
-        )
-        assert first == again  # deterministic, no per-card variation
-        second, _ = render_caption_blueprint(
-            blueprint,
-            "第二句旁白。",
-            intensity=intensity,
-        )
-        assert first.replace("第一句旁白。", "") == second.replace(
-            "第二句旁白。",
-            "",
-        )
 
-    def test_uniform_blueprint_font_size_adapts_to_text_length(self) -> None:
-        """The static capsule uses dynamic font sizing (min(vh, vw)) so
-        that text fills its overlay box proportionally. Short text gets
-        a larger font; long text shrinks to fit. Both share the same
-        style skeleton structure (exit style, entrance, card layout)."""
+@pytest.mark.asyncio
+async def test_plain_subtitle_redesign_preserves_authored_position(tmp_path):
+    from services.project_files.facade import CreatorFileServices
+    from services.project_files.models import (
+        MotionGraphic,
+        OverlayCreation,
+        Project,
+    )
 
-        from services.media_files.motion_blueprints import (
-            render_caption_blueprint,
-        )
-
-        blueprint = motion_design._UNIFORM_CAPTION_BLUEPRINT
-        intensity = motion_design._UNIFORM_CAPTION_INTENSITY
-        short_text = "所以x等于3。"
-        long_text = "这道题要求我们解一元一次方程，6乘以括号x加2，等于30。"
-        short_doc, _ = render_caption_blueprint(
-            blueprint,
-            short_text,
-            intensity=intensity,
-        )
-        again, _ = render_caption_blueprint(
-            blueprint,
-            short_text,
-            intensity=intensity,
-        )
-        assert short_doc == again  # deterministic, no per-card variation
-        long_doc, _ = render_caption_blueprint(
-            blueprint,
-            long_text,
-            intensity=intensity,
-        )
-        # Font size uses dynamic min(vh, vw) clamping from _caption_font_css.
-        short_font = re.search(r"font-size:(min\([^)]+\))", short_doc)
-        long_font = re.search(r"font-size:(min\([^)]+\))", long_doc)
-        assert short_font is not None
-        assert long_font is not None
-        # Short text gets a larger font than long text.
-        assert short_font.group(1) != long_font.group(1)
-        # No per-card entrance choreography beyond the single card fade.
-        for performance in ("letterSpacing", "scaleY", "stagger"):
-            assert performance not in short_doc
-        # The t=0 probe rejects fully transparent frames, so the fade
-        # starts from partial visibility; exits stay hard cuts so
-        # back-to-back captions never double-expose.
-        assert "autoAlpha:0}" not in short_doc
-        assert "autoAlpha:.35" in short_doc
-        assert 'data-motion-exit="none"' in short_doc
+    services = CreatorFileServices.create(tmp_path)
+    project = Project.new(project_id="caption-position", name="字幕位置")
+    location = ElementLocation(x=0.28, y=0.3, width=0.4, height=0.22)
+    project.timelines.items["timeline:main"].elements_by_id[
+        "caption"
+    ] = TimelineElement(
+        element_id="caption",
+        span=TimelineSpan(start_tick=0, duration_tick=3000),
+        location=location,
+        creation=OverlayCreation(
+            text="清晰，简单",
+            motion=MotionGraphic(html=_HTML, template_version=1),
+        ),
+    )
+    services.projects.create(project)
+    preserved = await motion_design.design_motion_overlays(
+        services,
+        project_id=project.project_id,
+        target_ref="timeline:main",
+        arguments={},
+        idempotency_key="keep-authored",
+    )
+    assert preserved["designedCount"] == 0
+    updated = await motion_design.design_motion_overlays(
+        services,
+        project_id=project.project_id,
+        target_ref="timeline:main",
+        arguments={"elementIds": ["caption"]},
+        idempotency_key="redesign-caption",
+    )
+    assert updated["designedCount"] == 1
+    element = (
+        services.projects.read(project.project_id)
+        .project.timelines.items["timeline:main"]
+        .elements_by_id["caption"]
+    )
+    assert element.location == location
+    assert element.creation.motion.template_version == 2
 
 
 class TestSegmentCache:

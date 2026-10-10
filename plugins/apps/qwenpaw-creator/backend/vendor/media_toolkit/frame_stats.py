@@ -22,12 +22,13 @@ low as 3), which would inflate the normalization on real >=8-bit sources;
 ffmpeg runs with stdin detached — inside a background service process an
 ffmpeg reading the tty is suspended by SIGTTIN together with its whole
 process group (the upstream script only ever ran in a foreground shell).
+Metadata is read from stdout to avoid temporary-handle leaks and Windows
+drive letters being interpreted as FFmpeg filter option separators.
 """
 
 from __future__ import annotations
 
 import subprocess
-import tempfile
 from pathlib import Path
 
 _FFMPEG_TIMEOUT_SECONDS = 120.0
@@ -122,39 +123,32 @@ def _run_signalstats(
     input_args: list[str],
     video_filter: str,
 ) -> dict[str, float]:
-    meta = Path(tempfile.mkstemp(suffix=".txt")[1])
     try:
-        try:
-            subprocess.run(
-                [
-                    "ffmpeg",
-                    "-y",
-                    "-hide_banner",
-                    "-nostats",
-                    *input_args,
-                    "-vf",
-                    f"{video_filter},signalstats,metadata=print:file={meta}",
-                    "-f",
-                    "null",
-                    "-",
-                ],
-                check=True,
-                # Detach stdin so ffmpeg is not suspended by SIGTTIN when it
-                # reads the tty from a background process group.
-                stdin=subprocess.DEVNULL,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                timeout=_FFMPEG_TIMEOUT_SECONDS,
-            )
-        except (subprocess.SubprocessError, OSError) as exc:
-            raise FrameStatsError("signalstats sampling failed") from exc
-        # signalstats lines are pure ASCII; source metadata echoed into the
-        # print file may carry arbitrary bytes, so decode permissively.
-        return _parse_signalstats(
-            meta.read_text(encoding="utf-8", errors="replace"),
+        result = subprocess.run(
+            [
+                "ffmpeg",
+                "-y",
+                "-hide_banner",
+                "-nostats",
+                *input_args,
+                "-vf",
+                f"{video_filter},signalstats,metadata=print:file=-",
+                "-f",
+                "null",
+                "-",
+            ],
+            check=True,
+            # Detach stdin so ffmpeg is not suspended by SIGTTIN when it
+            # reads the tty from a background process group.
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            timeout=_FFMPEG_TIMEOUT_SECONDS,
         )
-    finally:
-        meta.unlink(missing_ok=True)
+    except (subprocess.SubprocessError, OSError) as exc:
+        raise FrameStatsError("signalstats sampling failed") from exc
+    # signalstats lines are ASCII; other source metadata may not be.
+    return _parse_signalstats(result.stdout.decode("utf-8", errors="replace"))
 
 
 def sample_stats(

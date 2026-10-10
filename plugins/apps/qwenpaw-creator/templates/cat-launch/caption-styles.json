@@ -1,0 +1,173 @@
+{
+  "version": 4,
+  "purpose": "本官方模板的全屏片内花字设计指南与可选预设。默认采用现代发布会的彩色渐变字、字形材质和有节奏的关键词动效，衬托主体的俏皮表现。按本次参考图、实片、文案和用户意图重新设计，不限定样式数量、固定配色、字体层级或五种预设。原视频始终全屏，字幕为透明叠层；普通字幕的默认风格不受影响。",
+  "copy": {
+    "source": "先读参考图片和用户描述，识别本次主体，记录确实可见的特征；优先取得至少三项，证据不足不凑数。结合本镜实际发生的动作、结果与反应形成 audience_brief，再写 screen_copy。每条中文与准确英文成对出现，包括主题、必有的多种装扮的实际颜色款式和副句。可以有针对本次事件的幽默点评，但不冒充照片证实的长期性格或习惯；不得保留示例文字、占位符或固定口号。",
+    "canonical": "Overlay.creation.text 按 DOM 阅读顺序逐组保存中文及准确对应英文，使用真实换行。可以用逐字 span 或关键词分层做花字，但保留完整文字和阅读顺序，英文按词排版。只序列化 screen_copy；不得把文案藏入注释、脚本、透明节点来通过校验，不夹带制作步骤。",
+    "coverage": "完整片默认约30秒，镜头与字幕组数按本次情节和阅读时间决定，不固定镜头数量或字幕数量。覆盖本次主题、真正展示的特征、趣味事件或反差、多种装扮展示及片尾；多种装扮是必拍镜头，若实片遗漏应先修画面，不以删除标签或字幕虚构穿搭代替，也不为每个动作另加标题。动作高潮与反应可短暂留白，结果稳定后再出双语短句，不用一秒镜头塞双语。主标题通常4–10个汉字，英文一般2–6词；多种装扮段必须为实片中实际展示的每种款式写完整中英标签。同一 region 的第二组必须提供新观众信息，正常文档流向下排列，不强制每镜都有副句。",
+    "translation": "英文逐组表达中文原意，保留主次关系，使用自然简洁的短语。检查冠词、单复数、搭配，不能增加中文没有的能力、性格、角色或动作，不漏译真实颜色和款式信息。先审中文，再翻译；普通主标题英文尽量2–6词，短镜头若超预算应缩短中文信息再重译。读起来生硬就重写，不用固定英文填空。",
+    "editing": "可见特征、当下表现、事件结果、反差笑点或实际款式都可以成为主标题。语气可以假装认真、轻微自嘲或给俏皮表现起一个发布会式功能名；内容须由这次实际画面支撑，不把它说成真实产品性能、既定性格或物种定论。把互动结果提炼成观众能懂的幽默短句，不能逐步报幕身体和道具如何运动。每组先有 audience_brief，再独立写中文与对应英文；副句没有新信息就省略，短镜只用一组短标题。每片重新写作，不把示例台词当成固定口号。",
+    "phrases": "中文优先短而有记忆点，长度由镜头时长和实际排版决定，不机械卡字数。毛色、部位、衣款等词组必须完整，超过一行时在词组之间主动插入 <br>，不把“加白”“虎斑”“针织衣领”等拆到两行；英文按词均衡换行，避免长句最后一行仅剩一个短词。先写本片照片已确认的中英术语对照，再逐组核对：例如银虎斑加白的译文不能漏掉 white，白爪不能只译成 paws；仅使用原照确认的词，不因示例而给其他主体虚构特征。",
+    "separation": "在 Timeline.description 的每镜计划中分列 production_notes（给生成模型的状态、动作因果与拍摄指令）、audience_brief（要让观众记住的特征、结果或反差笑点）、screen_copy（独立写作并校对的双语文案）。三栏只组织说明文本，不新增模型字段。制作步骤不直接缩写、翻译或加修辞后转存 screen_copy；可从已经发生的事件结果提炼幽默功能梗。Overlay.creation.text 与 HTML 只能取最终观众文案。",
+    "review": "独立审读 screen_copy，并与 production_notes / audience_brief 对照。先去除身体与道具的逐步运动报幕、拍摄参数和制作要求，再核对实片是否确有相应事件和结果。对当前小事件的幽默命名、反差或自嘲可以保留，不因它不是外观描述而删除；不能借幽默暗示实片未发生的动作或真实长期性格。中英文须保持同一含义和轻松语气，不漏译颜色款式，不额外添加能力、角色或个性。任一不合格先改稿，再更新完整双语组；字幕草稿写齐后检查实际 creation.text，全部通过再启用，不只声称初稿已合格。"
+  },
+  "composition": {
+    "subject": "在全屏分镜内部规划文字留白。以实际画面核对整个字幕时段的运动范围，脸、眼鼻、耳朵、爪部、正在展示的毛色细节、本次关键互动的道具与接触点、实际采用的服装都是重点保护区；白毛不能当作空背景。记录已观察的空区、关键部位与时间区间，没有实片证据不得声称完成主体检测或跟踪。",
+    "collision": "视频全程保持全屏，文字直接覆盖原视频内部。先检查本镜全时段的实际画面，再选择合适的文字空区；overlay_layouts 只是构图参考，允许在其他已确认的留白中排版；候选坐标本身不是安全证据。主体穿过时移动整组到另一个已确认空区或分段换位，也可调整文字出现时段；仍放不下先精简文案、分时呈现副句或修正生成构图。禁止缩小、平移原片腾出外栏，禁止以卡片、分屏、画中画或大面积不透明底衬遮住原片作为兜底。没有观察能力时保留全屏并记录位置待验收，不编造位置证据。",
+    "safe": "在实际输出尺寸和小预览中核对文字清晰度、画布边距与主体避让。建议文字留约6%边距、关键部位留适当间隔，按实片重新判断；入场/稳定/退场均检查字形边界与相邻组。动画后留足完整阅读期（短标题通常至少1.5秒），信息多时调整时段或分批显示，不机械限制行数、位置和动画类型；不能裁切正文或遮住主体关键动作。",
+    "timing": "字幕时段跟随实片切点，不跨镜；短镜只显示一组短标题和对应英文。主副信息可错开出现，但须留足稳定阅读时间。视频一直全屏播放，不出现为了放字而缩小或移位的跳变；纯动作过桥可不加字。 趣味事件发生与反应时可暂时不出字幕，待结果可读再出现，避免抢掉包袱或遮住关键互动。",
+    "looks": "本模板必须有多种装扮展示镜头，这是经典发布会段落；即使参考图没有衣服也要为同一主体创作适合其体型与本片主题的不同搭配。造型标签直接叠在全屏阵列视频内部的上方或下方留白中，不能另开视频外的列表区。全部造型出现且机位稳定后显示；根据实片确认顺序和各主体位置，Grid 区域宽度与位置可按阵列调整。无法逐款对齐时用片内顶部紧凑列表并明确它是款式列表，不假装跟随标签。横版3–5栏，中文最多6字、英文2–3词；竖版分批或2+3排布，保持原视频铺满画面。 款式、配色、标签字形与揭示方式按本次主体设计，不固定套用同一组衣服或 look_labels 预设；必须看得到装扮的区别，不用同一穿着换姿势冒充。",
+    "contrast": "根据文字下方的真实视频选择深字或浅字，英文也随背景调整。可使用轻微局部字影提高对比；默认透明背景，不能使用整幅蒙版、卡片底板、大面积渐变或底衬把视频变成小框。强调渐变两端均要可读。",
+    "flow": "默认双语排版可用正常文档流，标题换行自然推开英文。自定义花字也允许 Grid/Flex、多层关键词、逐字动画、描边、渐变、局部字影、弧线或错落排版；这些是开放的表现方式，不是必选菜单。不同信息不得互相遮挡或交叉穿越，字形必须完整可读；特效不能依赖裁字、省略号、过小字号或把正文藏起来。根据真实镜头设计，视频矩形始终全屏。"
+  },
+  "recipes": [
+    {
+      "name": "hero",
+      "class": "accent",
+      "motion": "slide",
+      "use": "片头一个 region 堆叠主标题和对应英文，中文48–56px、英文24–26px；必要副句作为 small group 接在后面，不能定位到主标题的行间。"
+    },
+    {
+      "name": "detail",
+      "class": "",
+      "motion": "focus",
+      "use": "照片细节的双语短标题，中文38–44px、英文22–24px，整体淡入；可加本片强调色细线。"
+    },
+    {
+      "name": "paired_callout",
+      "class": "",
+      "motion": "reveal",
+      "use": "可见特征或观感卖点使用同一区域的上下层级，主组36–40/22–23px；有新的观众信息时才加 small 补充组28–32/20–22px。两组都来自 screen_copy，不显示身体运动步骤或摄影指令；整组一起入场，中文和英文不相向穿越。"
+    },
+    {
+      "name": "look_labels",
+      "class": "label center",
+      "motion": "fade",
+      "use": "总标题在上方 region top，3–5项标签位于下方 region row，Grid 自动等宽。总标题28/17px，标签22–23/17px，延迟到稳定阅读期，间隔约0.08秒淡入。"
+    },
+    {
+      "name": "closing",
+      "class": "accent",
+      "motion": "lift",
+      "use": "主题与对应英文，再接 small 双语副句；两组在同一 region 正常流排版，组间28px以上，不设第二组绝对 top。"
+    }
+  ],
+  "render_contract": {
+    "format": "html_css",
+    "fps": 30,
+    "loop": false,
+    "motif": "custom",
+    "authoring": "默认在 creation.text 写完整双语，在 creation.prompt 描述本镜花字意图，调用 design_motion_overlays 结合实片自动生成完整 motion；不需要先写 HTML 或选预设。已有自定义设计也可直接提供完整透明 html_css 或可确定性 seek 的 html_js 文档，无需 template_version。只有主动选择 recipe 或 mode=preset 才使用可选预设，预设不会覆盖已有设计。html_css 不包含脚本；html_js 仅使用现有文档支持的 vendor/gsap.min.js 和 window.__hf.seek(t) 协议，不使用网络资源、随机数、计时器或自主播放循环。不编造 html_file_id。",
+    "viewport": "16:9：每个镜头一个透明全画布 Overlay，location={x:0.5,y:0.5,width:1,height:1,anchor_x:0.5,anchor_y:0.5}；WIDTH/HEIGHT=最终画布像素。全部可见组的位置在文档内设定，避免把文档再缩进小字幕框导致双重缩放。不是让文字铺满画布。 自定义文档用 vw/vh、百分比或相对单位响应当前视口；不能把1920px宽的固定文档直接塞入较小预览后裁切。",
+    "portrait": "9:16生成视频同样铺满画布，字幕可以在全幅透明叠层内重新排版；按实片脸、耳、身体和爪的运动范围选择空白，不沿用横版坐标。信息多时分时或分组展示，字体保持可读。透明文字叠层尺寸不改变底层视频。",
+    "duration": "动画时长与节奏服务镜头和音乐，不固定为0.55秒或只有平移淡入。默认结合字形渐变与按语义选择的错峰、轻弹性、短促流光或其他现代花字效果，不让全片只重复一种动效。先迅速形成文字，再作重点变化，最后完整保持；流光只占短暂时段，底色和字形始终清楚。入场不能挤占阅读时间，多装扮标签尽早到齐并稳定约3秒。首帧须有可见内容；延迟项可隐藏但至少一个有效组可见，末帧完整稳定。全部动画位于当前 Overlay 时段内，由渲染器确定性 seek。",
+    "design_pass": "整批启用后调用现有 design_motion_overlays（maxDecorations=0）。没有 motion 且未显式选择预设的字幕，由工具读取内置 informal-launch-captions/SKILL.md，结合当前实片抽帧、准确文案、镜头节奏与同片字幕生成独立设计。普通 creation.prompt 就能描述字体材质、重点词和动效意图，不需要先手写 HTML；这是模板专属 Skill，不新增 Agent 或 specialist。显式选择 recipe 或 mode=preset 时才填可选预设。已有且符合需求的自定义 motion 会核对文案并实际探测渲染，保留排版、颜色、字号和动画；只修复可确定的 CSS 换行转义。用户要求改样式时按现有编辑流程修订对应字幕，不把已存在文档当作拒绝修改的理由。设计或渲染失败须修正后重试，不改成五种预设或基础字幕冒充成功。手动与自动合成都遵守同一规则。",
+    "verification": "检查实际 MP4 与 Creator 预览，原视频持续铺满画布。主标题的渐变或材质应实际作用于字形，流光前后字形完整、对比清楚；按实际动画检查入场、流光经过、稳定期与末态的中英文字间距和裁切。保护眼鼻和关键互动接触点，主体很大时与耳边或身体的适度重叠可接受，具体位置交由用户后续补充信息微调，不因此反复重做整片。渲染回退、文案不一致、缺字或相邻文字交叉时修正对应字幕，不以任务成功替代实片核对。",
+    "reframe": "全屏是本模板的硬约束。原 R2V 直接使用项目画布，或复用其精确源区间创建 Edit；Edit.location 必须 x=0.5,y=0.5,width=1,height=1,anchor_x=0.5,anchor_y=0.5。保持原画幅和音轨，禁止为了文字缩放成小框、向一侧挪视频、加 matte_template 或 box-shadow 背景遮挡原片。多个 Edit 与原 R2V 只能有一套启用，避免重复画面和声音。只有用户另行明确要求分屏或画中画才改变全屏约束。",
+    "template_version": 4,
+    "compatibility": "预览与合成对本模板保留原文档样式，不注入通用字幕的强制字号、缩放或描边覆盖。类名自由，可使用 title/text/caption；显式设置字体、字号、行高、背景透明与盒模型。按当前 Overlay 的实际宽高布局，响应小预览；HTML 作为 JSON 字符串只编码一次，读回后 style 内应是真实换行，不是字面量反斜杠n。沿用实际渲染、文案和遮挡检查，不能用版本号跳过校验。",
+    "assembly": "先把全部透明字幕写成 enabled=false 的完整草稿；如需按镜剪辑，同时建立全屏 Edit 草稿，精确覆盖原片区间。文案、样式、主体避让与时序齐全后一次启用全部后期元素。使用 Edit 时停用原 R2V；只叠字幕时保留原 R2V。最终仅一条视频底层持续铺满画布，字幕叠在视频内部，不得混入旧的小框或底衬。完成整批启用再请求最终合成。",
+    "completion": "完成上述整批启用后，再按现有入口请求 compose。核对选中的成片确实由这批完整后期输入生成，所有镜头与全部双语信息都已进入实片。若请求只复用更早的产物，或实片仍缺任一字幕，不能宣布交付完成；保留原片并明确记录合成未跟随，不重新生成收费视频、不伪造 stale/产物记录。",
+    "layout_budget": "字号、文字区与信息层级按镜头和画布实际设计，不限定固定坐标、五种排列或每镜相同字体。1280×720 的预设参考：主标题约48–56px、普通标题38–44px、英文20–26px；花字可用更大的关键词和更轻的解释层级，但必须在最终画布与小预览中可读、完整、有足够对比。预设区域和数值仅是起点，自定义布局可超出这些建议，通过实际渲染验证后保留。",
+    "slot_input": {
+      "required": "creation.prompt 默认用自然语言说明本镜花字意图，可选 {\"template\":\"informal_launch\",\"mode\":\"custom\",\"intent\":\"本镜设计意图\"}；design_motion_overlays 会结合实片自动生成完整 motion。也可以提供已有的自定义 motion，校验通过后原样保留。仅主动选预设时写 {\"template\":\"informal_launch\",\"recipe\":\"预设名\"} 或 mode=preset。没有完成设计的字幕须先设计再合成，不静默填槽。",
+      "optional": "预设可用 layout=text_left/text_right/top_left/top_right/top_center/collection；region/header_region/label_region 为百分比；accent/accent_end 为六位颜色。自定义 HTML 的排版不受这些槽位限制。",
+      "timing": "预设 look_labels 可用 header_delay、label_delay、label_stagger。自定义设计直接在 CSS 中定义时序，均与当前 Overlay 的实际时长和实片对齐。",
+      "ownership": "document_template、region_template、group_template 是可选起点；可以复用也可以独立设计，不必保持其内部类名、排版或动画。保留用户文案与实片构图要求。"
+    }
+  },
+  "document_template": "<!doctype html><html lang=\"zh-CN\" style=\"padding:0!important;box-sizing:border-box!important\"><head><meta charset=\"utf-8\"><style>\n*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;background:transparent}body{font-family:\"PingFang SC\",\"Noto Sans CJK SC\",\"Microsoft YaHei\",sans-serif;color:var(--ink,#20242c)}\n:root{--unit:min(calc(100vw / {{WIDTH}}),calc(100vh / {{HEIGHT}}))}\n.region{position:absolute;left:var(--x);top:var(--y);width:var(--w);height:var(--h);display:flex;flex-direction:column;justify-content:center;gap:calc(28*var(--unit));isolation:isolate}.region.top{justify-content:flex-start}.region.row{display:grid;grid-template-columns:repeat(var(--count,4),minmax(0,1fr));column-gap:calc(12*var(--unit));align-items:start;align-content:start}\n.group{position:relative;flex:none;min-width:0;width:100%;text-align:var(--align,left);opacity:0;animation:fade .55s cubic-bezier(.22,.7,.28,1) var(--delay,0s) forwards}.zh,.en{position:static;display:block;width:100%;max-width:100%;height:auto;min-width:0;margin:0;padding:0;white-space:normal;word-break:normal;overflow-wrap:normal;text-shadow:var(--shadow,none);-webkit-text-stroke:0}.zh{font-size:calc(var(--zh,42)*var(--unit));font-weight:650;line-height:1.25;letter-spacing:.01em;text-wrap:balance;line-break:strict}.en{text-wrap:balance;font-family:Arial,\"Noto Sans\",sans-serif;font-size:calc(var(--en,23)*var(--unit));font-weight:400;line-height:1.4;letter-spacing:0;margin-top:calc(10*var(--unit));color:var(--muted,#454c58);hyphens:none}.region.top .en{margin-top:calc(6*var(--unit))}.small .zh{font-weight:550}.accent .zh{color:#6142bd;background:linear-gradient(105deg,var(--color,#6142bd) 8%,var(--color-end,#277f83) 90%);background-clip:text;-webkit-background-clip:text;-webkit-text-fill-color:transparent}.rule{width:calc(52*var(--unit));height:calc(2*var(--unit));margin-bottom:calc(16*var(--unit));background:var(--color,#6142bd);transform-origin:left;animation:line .55s var(--delay,0s) both}.label .zh{font-weight:600}.label .en{margin-top:calc(6*var(--unit))}.center{text-align:center}.center .rule{margin-left:auto;margin-right:auto}.region.row .group{animation-name:fade}\n.group[data-motion=slide]{animation-name:slide}.group[data-motion=lift]{animation-name:lift}.group[data-motion=focus],.group[data-motion=reveal],.group[data-motion=fade]{animation-name:fade}\n@keyframes fade{from{opacity:.28}to{opacity:1}}@keyframes slide{from{opacity:.28;transform:translateX(calc(-12*var(--unit)))}to{opacity:1;transform:translateX(0)}}@keyframes lift{from{opacity:.28;transform:translateY(calc(8*var(--unit)))}to{opacity:1;transform:translateY(0)}}@keyframes line{from{transform:scaleX(.1)}to{transform:scaleX(1)}}\n</style></head><body data-motion-template-version=\"4\" data-duration=\"{{DURATION}}\" style=\"transform:none!important;transform-origin:center!important\">{{GROUPS}}</body></html>",
+  "group_template": "<section class=\"group {{CLASS}}\" data-motion=\"{{MOTION}}\" style=\"--delay:{{DELAY}}s;--zh:{{ZH_SIZE}};--en:{{EN_SIZE}};--align:{{ALIGN}};--ink:{{INK}};--muted:{{MUTED}};--shadow:{{SHADOW}};color:var(--ink);--color:{{COLOR}};--color-end:{{COLOR_END}}\">{{RULE}}<h2 class=\"zh\">{{ZH}}</h2><div class=\"en\" lang=\"en\">{{EN}}</div></section>",
+  "slots": {
+    "CLASS": "accent / small / label center / 空；不组合冲突样式",
+    "MOTION": "slide / lift / focus / reveal / fade；整组入场，focus 只淡入，reveal 搭配细线而不裁文字，标签与顶部总标题只用 fade",
+    "DELAY": "本组真正开始显示的秒数，常规首组0、后续0.1–0.25；造型标签可延迟到已验证的稳定时段。延迟前保持不可见，动画完成后至少稳定1.5秒。",
+    "ZH_SIZE_EN_SIZE": "基于 WIDTH/HEIGHT 的像素字号，与视口一起等比缩放",
+    "ALIGN": "left / center / right",
+    "COLOR": "本片强调起色；根据照片与实际搭配选择，保证与背景对比",
+    "RULE": "可选 <div class=\"rule\"></div> 或空",
+    "ZH_EN": "仅填入本次 screen_copy 中已通过观众文案审稿的中文及其英文译文；严禁 production_notes 的姿态执行步骤、机位、角度、时长和制作备注。本次动态中文与准确英文翻译。逐段 HTML 转义；中文标题按完整词组断行时仅在已转义片段之间插入 <br>，creation.text 对应使用真实换行；不留孤立的单字尾行。英文保持按词换行，不插逐字标签。 每个 group 的中文和英文只出现一次，不为动画复制文字；一条双语不得拆成两个绝对定位 group。 副句也最多10个汉字，换行必须落在词组之间；毛色组合与衣款不得跨行拆词，英文不能漏译其中的颜色或白色部位。",
+    "COLOR_END": "本片强调尾色；可与 COLOR 相同得到纯色，避免每片都套同一渐变",
+    "LAYOUT": "region 空类表示上下堆叠并垂直居中；top 表示顶部对齐；row 表示造型列表等宽网格。每个文字区只放一个 region，内含全部组。",
+    "COUNT": "仅 row 使用，为实际3–5款数量；普通 region 填1",
+    "LEFT_TOP_WIDTH_HEIGHT": "region 的片内文字区域百分比，可参考 overlay_layouts 再按实片微调；这些数字不决定视频尺寸。group 没有独立坐标。标题换行后依靠文档流展开，超高度先精简或分时。",
+    "INK_MUTED_SHADOW": "根据文字下方实片选主字色、英文字色和轻微局部字影。浅背景默认 INK=#20242c、MUTED=#454c58、SHADOW=none；深背景可用浅字及小范围暗影。无背景板，不填大范围发光/阴影来遮住画面。",
+    "scope": "以下占位符只适用于可选预设的实现；自定义花字无需遵循这些内部枚举和分组数量。"
+  },
+  "region_template": "<div class=\"region {{LAYOUT}}\" style=\"--x:{{LEFT}}%;--y:{{TOP}}%;--w:{{WIDTH}}%;--h:{{HEIGHT}}%;--count:{{COUNT}}\">{{ITEMS}}</div>",
+  "overlay_layouts": {
+    "contract": "以下为透明片内文字区域的构图起点，不是自动主体检测结果。视频始终 full_frame；核对实际画面后选择文字位置、时段与尺寸，不能通过挪动或缩小视频来满足文字区。",
+    "full_frame": {
+      "x": 0.5,
+      "y": 0.5,
+      "width": 1,
+      "height": 1,
+      "anchor_x": 0.5,
+      "anchor_y": 0.5
+    },
+    "text_left": {
+      "text_region_percent": {
+        "LEFT": 8,
+        "TOP": 24,
+        "WIDTH": 24,
+        "HEIGHT": 52
+      }
+    },
+    "text_right": {
+      "text_region_percent": {
+        "LEFT": 70,
+        "TOP": 24,
+        "WIDTH": 24,
+        "HEIGHT": 52
+      }
+    },
+    "top_left": {
+      "text_region_percent": {
+        "LEFT": 8,
+        "TOP": 7,
+        "WIDTH": 32,
+        "HEIGHT": 19
+      }
+    },
+    "top_right": {
+      "text_region_percent": {
+        "LEFT": 62,
+        "TOP": 7,
+        "WIDTH": 32,
+        "HEIGHT": 19
+      }
+    },
+    "collection": {
+      "header_region_percent": {
+        "LEFT": 6,
+        "TOP": 6.5,
+        "WIDTH": 88,
+        "HEIGHT": 11
+      },
+      "labels_region_percent": {
+        "LEFT": 9,
+        "TOP": 83,
+        "WIDTH": 80,
+        "HEIGHT": 10.5
+      },
+      "note": "总标题和标签均直接位于原视频内部。顶部28/17px，底部 row 的3–5组22–23/17px，各组 fade。必须核对头顶、爪部与服装的真实位置；根据阵列宽度调整标签区域，不改变视频。"
+    },
+    "portrait": "只重排透明文字带，生成视频保持全屏；按实际头部与身体运动避让，信息较多时分批显示。",
+    "top_center": {
+      "text_region_percent": {
+        "LEFT": 34,
+        "TOP": 7,
+        "WIDTH": 32,
+        "HEIGHT": 19
+      }
+    }
+  },
+  "recipes_note": "这些预设展示几种发布会排版，可选用、改造或完全重新设计；不要求每片凑齐、按序轮换，也不限制新的花字样式。",
+  "visual_direction": {
+    "skill": "informal-launch-captions；现有 design_motion_overlays 自动读取同一份内置 SKILL.md。主 Agent 需要完整设计指导时可用已有 view_skill 查看，不新增 specialist 或制作流程。",
+    "typography": "主要中文标题和重点词主动使用清楚可见的渐变、珠光或金属材质，配合有力量的无衬线字重、关键词大小和英文辅助层级；不要全片黑字加统一淡入，也不要仅在细线或图标上使用渐变。用户指定的简洁风格或配色优先。",
+    "palette": "从本次主体、服装和背景取少量主色，形成统一但有变化的字体配色。浅色棚拍用饱和中深色渐变，深背景可用明亮珠光与轻微柔光；渐变两端、中段和扫光经过时均保留可辨字形。不要每镜套同一彩虹色板。",
+    "motion": "按文字语义和镜头情绪选择错峰揭示、字形流光、关键词弹性、细描边转实心、轻微倾斜回正、字距聚合等表达，也可创造其他合适的效果。不是每组都做金属扫光；主角名称、特征卖点、俏皮点评和装扮标签应有各自的表达。流光只经过字形，不用白色矩形或大卡片盖住视频。",
+    "freedom": "不新增字幕槽位、固定坐标、效果配额或类名白名单。每段选择一个清楚的主效果即可，辅助英文和较长标签优先稳定可读；多装扮仍是必须保留的镜头。"
+  }
+}

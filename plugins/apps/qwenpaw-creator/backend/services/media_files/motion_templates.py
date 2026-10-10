@@ -6,9 +6,20 @@
 from __future__ import annotations
 
 from html import escape
+import math
 import re
+import unicodedata
 
 MOTION_TEMPLATE_VERSION = 1
+CAPTION_TEMPLATE_VERSION = 2
+DEFAULT_CAPTION_LOCATION = {
+    "x": 0.5,
+    "y": 0.86,
+    "width": 0.8,
+    "height": 0.18,
+    "anchor_x": 0.5,
+    "anchor_y": 0.5,
+}
 SUPPORTED_MOTIFS = frozenset(
     {
         "paw_trail",
@@ -33,34 +44,28 @@ def _color(value: object, fallback: str) -> str:
     return text.lower() if _HEX_COLOR.fullmatch(text) else fallback
 
 
-def _compute_caption_font_size(
-    text_length: int,
+def _caption_font_css(
+    text: str,
     box_width: float | None,
     box_height: float | None,
-) -> float:
-    """Compute font size (vh) from box dimensions and text length.
-
-    Uses geometric mean of height-based and width-based estimates to balance
-    vertical and horizontal constraints. Falls back to text-length-only
-    heuristic when box dimensions are unavailable.
-
-    Box dimensions are normalized (0-1) fractions of the video canvas.
-    """
-    if box_width and box_height:
-        box_width_pct = box_width * 100
-        box_height_pct = box_height * 100
-        estimated_lines = max(1.0, text_length / max(1.0, box_width_pct * 0.1))
-        font_size = box_height_pct * 0.85 / estimated_lines**0.5
-        return round(min(max(font_size, 6.0), box_height_pct * 0.75), 1)
-    if text_length <= 3:
-        return 20
-    if text_length <= 7:
-        return 15
-    if text_length <= 11:
-        return 11
-    if text_length <= 17:
-        return 8.5
-    return 7
+) -> str:
+    """Keep normal copy at one canvas-relative size and fit longer lines."""
+    widths = [
+        sum(
+            1.0 if unicodedata.east_asian_width(char) in "WF" else 0.55
+            for char in line
+        )
+        for line in text.splitlines()
+        if line.strip()
+    ] or [1.0]
+    rows = [max(1, math.ceil(width / 24)) for width in widths]
+    per_line = max(width / count for width, count in zip(widths, rows))
+    width = box_width if box_width and box_width > 0 else 0.8
+    height = box_height if box_height and box_height > 0 else 0.18
+    return (
+        f"min({4 / height:.3f}vh,{4.5 / width:.3f}vw,"
+        f"{80 / (sum(rows) * 1.35):.3f}vh,{88 / max(1, per_line):.3f}vw)"
+    )
 
 
 def render_caption_template(
@@ -71,43 +76,21 @@ def render_caption_template(
     box_width: float | None = None,
     box_height: float | None = None,
 ) -> str:
-    """Render a trusted animated OS card when generative styling fails."""
+    """Render plain subtitles, also used when an authored design fails.
 
-    theme = theme if theme in SUPPORTED_THEMES else "comic_patrol"
-    emotion = emotion if emotion in SUPPORTED_EMOTIONS else "chill"
+    Legacy theme/emotion arguments remain accepted without changing the
+    typography. The only motion is a brief opacity fade; glyphs stay still.
+    """
+    del theme, emotion
     safe_text = "<br>".join(escape(line) for line in text.strip().splitlines())
-    lines = [line for line in text.strip().splitlines() if line.strip()]
-    max_line_length = max((len(line) for line in lines), default=1)
-    font_size = _compute_caption_font_size(
-        max_line_length,
-        box_width,
-        box_height,
-    )
-    palettes = {
-        "comic_patrol": ("#fff8df", "#231f1a", "#ff9a2f"),
-        "soft_journal": ("#fffaf2", "#55473d", "#e99e88"),
-        "neon_night": ("#171527", "#f8f5ff", "#70f0dc"),
-    }
-    background, ink, accent = palettes[theme]
-    ambient = {
-        "chill": "float",
-        "curious": "tilt",
-        "surprise": "pulse",
-        "action": "jolt",
-    }[emotion]
+    font = _caption_font_css(text, box_width, box_height)
     return f"""<!DOCTYPE html><html><head><meta charset="UTF-8"><style>
 html,body{{width:100%;height:100%;margin:0;background:transparent;overflow:hidden}}
 *{{box-sizing:border-box}}
-.stage{{position:absolute;inset:7%;display:flex;align-items:center;justify-content:center;animation:enter .45s cubic-bezier(.2,.85,.2,1) both}}
-.card{{position:relative;width:100%;height:88%;display:flex;align-items:center;justify-content:center;padding:7% 9%;background:{background};color:{ink};border:clamp(3px,1.8vh,8px) solid {ink};border-radius:24% 22% 24% 18%;box-shadow:1.8vh 2vh 0 color-mix(in srgb,{ink} 28%,transparent);animation:{ambient} 2.8s ease-in-out .45s infinite alternate;overflow:hidden}}
-.card:before{{content:'';position:absolute;left:9%;top:11%;width:18%;height:6%;border-radius:999px;background:{accent};transform:rotate(-8deg)}}
-.text{{position:relative;z-index:1;width:100%;max-height:100%;font-family:Impact,"Arial Black","PingFang SC",sans-serif;font-size:{font_size}vh;font-weight:900;line-height:1.08;text-align:center;overflow-wrap:anywhere;text-wrap:balance;text-shadow:.25vh .25vh 0 color-mix(in srgb,{accent} 65%,transparent)}}
-@keyframes enter{{0%{{opacity:.25;transform:scale(.7) rotate(-4deg)}}70%{{opacity:1;transform:scale(1.04) rotate(1deg)}}100%{{transform:scale(1)}}}}
-@keyframes float{{to{{transform:translateY(-2%)}}}}
-@keyframes tilt{{to{{transform:rotate(2deg) translateY(-1%)}}}}
-@keyframes pulse{{to{{transform:scale(1.025)}}}}
-@keyframes jolt{{0%{{transform:translateX(-1%) rotate(-.5deg)}}100%{{transform:translateX(1%) rotate(.5deg)}}}}
-</style></head><body><div class="stage" data-motion-template-version="1" data-motion-motif="caption_card" data-motion-theme="{theme}" data-motion-variant="sticker" data-motion-emotion="{emotion}" data-motion-entrance="pop" data-motion-exit="soft_fade" data-motion-intensity="0.600"><div class="card"><div class="text">{safe_text}</div></div></div></body></html>"""
+.stage{{position:absolute;inset:6%;display:flex;align-items:center;justify-content:center}}
+.words{{width:100%;margin:0;color:#fff;font-family:"Noto Sans CJK SC","Noto Sans SC","PingFang SC","Microsoft YaHei",sans-serif;font-size:{font};font-weight:600;line-height:1.35;text-align:center;word-break:normal;overflow-wrap:break-word;text-wrap:balance;text-shadow:0 .025em .05em #000d,0 .04em .14em #000b;animation:appear .14s linear both}}
+@keyframes appear{{from{{opacity:.72}}to{{opacity:1}}}}
+</style></head><body><div class="stage" data-motion-template-version="{CAPTION_TEMPLATE_VERSION}" data-motion-motif="caption_card" data-caption-style="plain" data-motion-exit="none"><div class="words">{safe_text}</div></div></body></html>"""
 
 
 def render_decoration_template(

@@ -26,6 +26,7 @@ from .errors import (
     RuntimeFileValidationError,
 )
 from .locking import CrossProcessFileLock
+from .shared_io import open_shared_read, replace_open_file
 
 logger = logging.getLogger("qwenpaw.creator.runtime_files.atomic_store")
 
@@ -106,11 +107,9 @@ def chmod_descriptor_if_supported(descriptor: int, mode: int) -> None:
         fchmod(descriptor, mode)
 
 
-# Reads across the Runtime stores are lock-free.  On POSIX a rename over an
-# open file is invisible to the reader, but Windows opens files without
-# FILE_SHARE_DELETE, so a reader holding a handle makes the publication fail
-# with a sharing violation.  Reads are short, so a bounded retry turns that
-# into a brief wait instead of a lost write.
+# Our snapshot readers permit atomic replacement on Windows. External readers
+# (antivirus, editors, etc.) can still open without FILE_SHARE_DELETE, so keep
+# a bounded retry for their transient sharing violations.
 _REPLACE_RETRY_ATTEMPTS = 50 if _is_windows() else 1
 _REPLACE_RETRY_DELAY_SECONDS = 0.02
 
@@ -126,6 +125,14 @@ def atomic_replace_path(
             os.replace(source, target)
             return
         except PermissionError:
+            if _is_windows():
+                try:
+                    if replace_open_file(Path(source), Path(target)):
+                        return
+                except PermissionError:
+                    # Non-sharing external readers still require the normal
+                    # bounded retry. Other filesystem errors must propagate.
+                    pass
             if attempt == _REPLACE_RETRY_ATTEMPTS - 1:
                 raise
             time.sleep(_REPLACE_RETRY_DELAY_SECONDS)
@@ -156,6 +163,19 @@ def _json_value(value: Any) -> Any:
         raise RuntimeFileValidationError(
             "Runtime record must be JSON serializable",
         ) from exc
+
+
+def _read_atomic_bytes(path: Path) -> bytes:
+    """Retry a Windows reader racing atomic replacement, without a lock."""
+    for attempt in range(_REPLACE_RETRY_ATTEMPTS):
+        try:
+            with open_shared_read(path) as stream:
+                return stream.read()
+        except PermissionError:
+            if attempt == _REPLACE_RETRY_ATTEMPTS - 1:
+                raise
+            time.sleep(_REPLACE_RETRY_DELAY_SECONDS)
+    raise AssertionError("Atomic read needs at least one attempt")
 
 
 def canonical_json_bytes(value: Any) -> bytes:
@@ -408,7 +428,7 @@ class AtomicJsonRecordStore(Generic[T]):
 
     def _read_snapshot_unlocked(self) -> RecordSnapshot[T]:
         try:
-            raw = self.path.read_bytes()
+            raw = _read_atomic_bytes(self.path)
         except FileNotFoundError as exc:
             raise RecordNotFoundError(self.path) from exc
         try:

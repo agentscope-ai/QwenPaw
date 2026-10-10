@@ -58,6 +58,9 @@ from services.project_files.assets import (
     AssetAlreadyExists,
     AssetFileStore,
 )
+from services.project_files.production_stage import (
+    assert_media_production_allowed,
+)
 from services.project_files.models import (
     ArtifactSlot,
     ArtifactVersion,
@@ -121,6 +124,7 @@ from services.runtime_files.execution_store import (
     ProjectExecutionStore,
 )
 from services.runtime_files.models import ChangeOrigin, ReviewPolicy
+from services.runtime_files.path_safety import is_link_stat
 from services.runtime_files.safe_remote_download import (
     SafeRemoteDownloadError,
     validate_public_remote_url,
@@ -592,18 +596,23 @@ def _resolved_reference_ids(resolved: _ResolvedRequest) -> tuple[str, ...]:
 
 def _safety_rejection_note(resolved: _ResolvedRequest) -> str:
     refs = _resolved_reference_ids(resolved)
-    if refs:
-        listed = ", ".join(refs[:6])
-        return (
-            f"本次调用携带了图片参考 [{listed}]。safety 拒绝通常由含真人照片的"
-            "参考图触发：在移除这些参考（先更新项目中的参考图选择，"
-            "或改用已生成的风格化 artifact-version id）之前，仅修改 prompt 的"
-            "重试不会成功。"
-        )
     return (
-        "本次调用未携带参考图，拒绝来自 prompt 文本本身：请移除对真实人物的"
-        "可识别描述（姓名、球队/机构名、可定位的真实事件），改用虚构化的"
-        "外貌与气质描述。"
+        (f"本次调用携带了图片参考 [{', '.join(refs[:6])}]。" if refs else "本次调用未携带参考图。")
+        + "请依据模型返回的具体拒绝原因修改内容：若指出输入文本，修改项目中"
+        "的 prompt；若指出参考图片，检查并调整参考图选择。未明确指出原因时，"
+        "不能认定参考图或某个词一定有问题。保存实际修改后再请求生成；"
+        "完全相同的 prompt 和参考图不会重复提交。"
+    )
+
+
+def _safety_request_fingerprint(resolved: _ResolvedRequest) -> str:
+    # A text-input refusal is not evidence that the references are unsafe.
+    # Fence the rejected input as a whole, including requests without refs.
+    return _fingerprint(
+        {
+            "prompt": resolved.prompt,
+            "references": sorted(set(_resolved_reference_ids(resolved))),
+        },
     )
 
 
@@ -975,6 +984,7 @@ def _resolve_request(
     max_reference_images: int | None = None,
 ) -> _ResolvedRequest:
     project = snapshot.project
+    assert_media_production_allowed(project)
     if command is CreatorCommandType.GENERATE_STORYBOARD_IMAGE:
         if any(
             key in arguments
@@ -1442,7 +1452,7 @@ async def _read_controlled_local(
                     raise ValidationError(
                         "provider 本地输出不存在、越界或包含 symlink",
                     ) from exc
-                if stat.S_ISLNK(details.st_mode) or not stat.S_ISDIR(
+                if is_link_stat(details) or not stat.S_ISDIR(
                     details.st_mode,
                 ):
                     raise ValidationError(
@@ -1455,7 +1465,7 @@ async def _read_controlled_local(
                 raise ValidationError(
                     "provider 本地输出不存在、越界或包含 symlink",
                 ) from exc
-            if stat.S_ISLNK(details.st_mode) or not stat.S_ISREG(
+            if is_link_stat(details) or not stat.S_ISREG(
                 details.st_mode,
             ):
                 raise ValidationError("provider 本地输出必须是普通文件")
@@ -1829,7 +1839,11 @@ class FileImageExecutionService:
             raise ValueError("max_output_bytes must be positive")
         self.services = services
         self.provider = provider or ExistingImageProvider()
-        self.executions = ProjectExecutionStore(services.root)
+        from services.file_agent_runtime.manual_regeneration_hold import (
+            HoldAwareExecutionStore,
+        )
+
+        self.executions = HoldAwareExecutionStore(services.root)
         self.max_output_bytes = max_output_bytes
         self.resume_poll_interval_seconds = resume_poll_interval_seconds
         self.resume_poll_budget_seconds = resume_poll_budget_seconds
@@ -1840,10 +1854,9 @@ class FileImageExecutionService:
         # keyed by Task id so one Task is never supervised twice.
         self._resume_jobs: dict[str, asyncio.Task] = {}
         self._resume_projects: dict[str, str] = {}
-        # (project_id, target_ref) -> reference ids of the last safety-
-        # rejected call. Process-local: worth losing on restart, priceless
-        # for cutting off same-refs resend loops within a session.
-        self._safety_rejected_refs: dict[tuple[str, str], frozenset[str]] = {}
+        # Block repeated rejected inputs within this process. A saved prompt
+        # or reference repair gets its own input identity and may proceed.
+        self._safety_rejected_requests: dict[tuple[str, str], set[str]] = {}
 
     async def execute(
         self,
@@ -2042,6 +2055,10 @@ class FileImageExecutionService:
                 replayed=True,
             )
 
+        from services.file_agent_runtime.manual_regeneration_hold import (
+            ManualHoldConflict,
+        )
+
         task = await self._start(
             run=run,
             task=task,
@@ -2051,14 +2068,18 @@ class FileImageExecutionService:
         try:
             if not await self._claim_provider(task):
                 raise ConflictError("图片 Task 已由另一个执行者领取")
-        except ValidationError as exc:
+        except (ValidationError, ManualHoldConflict) as exc:
             # An anchor can start repainting after admission. No provider
             # claim exists yet: close this attempt and allow a free retry
             # once its dependencies settle instead of leaving it RUNNING.
             await self._fail_if_running(
                 project_id,
                 ids,
-                "VISUAL_ANCHOR_NOT_READY",
+                (
+                    "MANUAL_REGENERATION_HOLD"
+                    if isinstance(exc, ManualHoldConflict)
+                    else "VISUAL_ANCHOR_NOT_READY"
+                ),
                 message=str(exc),
                 error=exc,
                 retryable=True,
@@ -2120,7 +2141,7 @@ class FileImageExecutionService:
                     ids,
                     "IMAGE_GENERATION_FAILED",
                     message=(
-                        "IMAGE_GENERATION_FAILED"
+                        str(exc)
                         + _accepted_provider_task_hint(
                             ids["task_id"],
                             project_id,
@@ -2161,23 +2182,16 @@ class FileImageExecutionService:
         project_id: str,
         resolved: _ResolvedRequest,
     ) -> None:
-        """Refuse locally when a safety-rejected ref set is resent verbatim.
+        """Block unchanged rejected inputs, while admitting actual repairs."""
 
-        The provider's answer is deterministic for the same references, so
-        replaying them with a reworded prompt only burns quota and turns.
-        """
-
-        refs = frozenset(_resolved_reference_ids(resolved))
-        if not refs:
-            return
-        rejected = self._safety_rejected_refs.get(
+        rejected = self._safety_rejected_requests.get(
             (project_id, resolved.target_ref),
+            set(),
         )
-        if rejected is not None and refs == rejected:
+        if _safety_request_fingerprint(resolved) in rejected:
             raise ConflictError(
-                "已本地拦截：上一次 safety 拒绝时携带的是完全相同的图片参考 "
-                f"[{', '.join(sorted(refs)[:6])}]。"
-                + _safety_rejection_note(resolved),
+                "已本地拦截，未调用图片模型：本次 prompt 和参考图与已被拒绝的"
+                "输入完全相同。" + _safety_rejection_note(resolved),
             )
 
     def _note_safety_rejection(
@@ -2185,11 +2199,10 @@ class FileImageExecutionService:
         project_id: str,
         resolved: _ResolvedRequest,
     ) -> None:
-        refs = frozenset(_resolved_reference_ids(resolved))
-        if refs:
-            self._safety_rejected_refs[
-                (project_id, resolved.target_ref)
-            ] = refs
+        self._safety_rejected_requests.setdefault(
+            (project_id, resolved.target_ref),
+            set(),
+        ).add(_safety_request_fingerprint(resolved))
 
     async def _defer_to_resume_supervisor(
         self,
@@ -2606,11 +2619,24 @@ class FileImageExecutionService:
         }
 
         def claim_sync():
-            with self.services.projects.lifecycle_lock(
-                task.project_id,
-                shared=True,
+            from services.file_agent_runtime.manual_regeneration_hold import (
+                admission_guard,
+            )
+
+            with (
+                self.services.projects.lifecycle_lock(
+                    task.project_id,
+                    shared=True,
+                ),
+                admission_guard(
+                    self.services.root,
+                    task.project_id,
+                    node_id=task.metadata.get("automaticWorkNodeId"),
+                    _lifecycle_lock_held=True,
+                ),
             ):
                 latest = self.services.projects.read(task.project_id)
+                assert_media_production_allowed(latest.project)
                 self._assert_visual_anchors_ready(
                     latest.project,
                     str(task.metadata.get("commandType") or ""),

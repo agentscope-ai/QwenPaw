@@ -147,4 +147,4 @@ def test_planned_gaps_and_missing_outputs_keep_full_preview_duration(tmp_path):
     )
     assert [clip.element_id for clip in clips] == ["gap", "one", "gap", "two"]
     assert sum(clip.duration_seconds for clip in clips) == 4
-    assert abs(_duration_seconds(render_rough_cut(clips), tmp_path) - 4) < 0.15
+    assert abs(_duration_seconds(render_rough_cut(clips), tmp_path) - 4) < 0.05

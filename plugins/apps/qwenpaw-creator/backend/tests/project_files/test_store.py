@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 import json
-import os
 import threading
 
 import pytest
@@ -165,31 +164,36 @@ def test_project_ids_cannot_escape_the_fixed_root(tmp_path, project_id):
         store.project_path(project_id)
 
 
-def test_read_rejects_project_directory_and_file_symlinks(tmp_path):
+def test_read_rejects_project_directory_links(tmp_path, directory_link):
     store = ProjectStore((tmp_path / "store").resolve())
     outside = tmp_path / "outside"
     outside.mkdir()
     (outside / "project.json").write_text("{}", encoding="utf-8")
-    os.symlink(outside, store.root / "project-link")
+    directory_link(outside, store.root / "project-link")
 
     with pytest.raises(UnsafeProjectPath):
         store.read("project-link")
 
+
+def test_read_rejects_project_file_symlinks(tmp_path, file_symlink):
+    store = ProjectStore((tmp_path / "store").resolve())
+    outside = tmp_path / "outside.json"
+    outside.write_text("{}", encoding="utf-8")
     store.create(_project("project-real"))
     target = store.project_path("project-real")
     target.unlink()
-    os.symlink(outside / "project.json", target)
+    file_symlink(outside, target)
     with pytest.raises(ProjectIntegrityError, match="non-symlink"):
         store.read("project-real")
 
 
-def test_read_rejects_indexed_asset_symlink_escape(tmp_path):
+def test_read_rejects_indexed_asset_symlink_escape(tmp_path, directory_link):
     store = ProjectStore((tmp_path / "store").resolve())
     project = store.create(_project("project-1")).project
     project_root = store.project_root("project-1")
     outside = tmp_path / "outside"
     outside.mkdir()
-    os.symlink(outside, project_root / "assets" / "escape")
+    directory_link(outside, project_root / "assets" / "escape")
 
     raw = project.model_dump(mode="json")
     raw["generation"] = 1
@@ -269,6 +273,7 @@ def test_corrupt_or_duplicate_key_project_is_not_silently_listed(tmp_path):
 
 def test_discovery_ignores_internal_incomplete_and_symlink_directories(
     tmp_path,
+    directory_link,
 ):
     store = ProjectStore((tmp_path / "store").resolve())
     store.create(_project("project-b"))
@@ -278,7 +283,7 @@ def test_discovery_ignores_internal_incomplete_and_symlink_directories(
     outside = tmp_path / "outside"
     outside.mkdir()
     (outside / "project.json").write_text("{}", encoding="utf-8")
-    os.symlink(outside, store.root / "project-link")
+    directory_link(outside, store.root / "project-link")
 
     assert store.discover_project_ids() == ("project-a", "project-b")
 

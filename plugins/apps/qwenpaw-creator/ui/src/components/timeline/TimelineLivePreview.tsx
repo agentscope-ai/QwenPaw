@@ -339,6 +339,7 @@ function useMotionDocumentHtml(motion: MotionGraphicDocument | null): {
 
 function MotionOverlayLayer({
   layer,
+  preserveAuthoredStyle,
   playheadTick,
   ticksPerSecond,
   playing,
@@ -346,6 +347,7 @@ function MotionOverlayLayer({
   onVisualReadyChange,
 }: {
   layer: ElementPlayback;
+  preserveAuthoredStyle: boolean;
   playheadTick: number;
   ticksPerSecond: number;
   playing: boolean;
@@ -384,8 +386,11 @@ function MotionOverlayLayer({
   // Paused scrubbing still needs every playhead change reflected immediately.
   const pausedSeekTimeMs = playing ? null : localTimeMs;
   const durationMs = (element.span.duration_tick / ticksPerSecond) * 1000;
-  const exitStyle =
-    motion?.exit ?? (html ? motionDataSetting(html, "exit") : undefined);
+  // The template renderer follows the document's declared exit. A default
+  // metadata value must not add a different animation only in the preview.
+  const exitStyle = preserveAuthoredStyle
+    ? (html ? motionDataSetting(html, "exit") : undefined) ?? "none"
+    : motion?.exit ?? (html ? motionDataSetting(html, "exit") : undefined);
   const exitProgress = motionExitProgress(exitStyle, localTimeMs, durationMs);
   const boxStyle = locationBoxStyle(element.location);
   const exitScale = exitStyle === "shrink" ? 1 - exitProgress * 0.18 : 1;
@@ -492,7 +497,10 @@ function MotionOverlayLayer({
     <iframe
       ref={iframeRef}
       data-live-motion-overlay={element.element_id}
-      srcDoc={motionPreviewDocument(html, isTextOverlay)}
+      srcDoc={motionPreviewDocument(
+        html,
+        isTextOverlay && !preserveAuthoredStyle,
+      )}
       title={element.label || t("livePreview.motionEffect")}
       // No scripts allowed; allow-same-origin exists only so the parent page
       // can sync the CSS animation timeline.
@@ -536,6 +544,20 @@ export default function TimelineLivePreview({
 }: TimelineLivePreviewProps) {
   const { t } = useTranslation();
   const ticksPerSecond = timeline.ticks_per_second || 1;
+  const replaceNativeAudio = Boolean(
+    timeline.edit_plan?.design_floor?.opening?.includes(
+      "【官方固定模板：informal_launch】",
+    ) &&
+      Object.values(timeline.elements_by_id).some(
+        (element) =>
+          element.enabled &&
+          element.creation.type === "audio" &&
+          element.creation.role === "bgm" &&
+          project.assets.source_versions_by_id[
+            element.creation.source_asset_version_id ?? ""
+          ]?.media_kind === "audio",
+      ),
+  );
   const mediaRefs = useRef(new Map<string, HTMLMediaElement>());
   const imageRefs = useRef(new Map<string, HTMLImageElement>());
   const mediaRefCallbacks = useRef(
@@ -897,7 +919,10 @@ export default function TimelineLivePreview({
           ) {
             // Audio policy identical to the final render: only main-track video
             // keeps its original sound, overlay media is muted.
-            const silent = muted || element.creation.type === "overlay";
+            const silent =
+              muted ||
+              replaceNativeAudio ||
+              element.creation.type === "overlay";
             const boxStyle = locationBoxStyle(element.location);
             const baseOpacity =
               typeof boxStyle.opacity === "number" ? boxStyle.opacity : 1;
@@ -984,6 +1009,11 @@ export default function TimelineLivePreview({
                 <MotionOverlayLayer
                   key={elementId}
                   layer={layer}
+                  preserveAuthoredStyle={Boolean(
+                    timeline.edit_plan?.design_floor.opening.includes(
+                      "【官方固定模板：informal_launch】",
+                    ),
+                  )}
                   playheadTick={playheadTick}
                   ticksPerSecond={ticksPerSecond}
                   playing={playing}

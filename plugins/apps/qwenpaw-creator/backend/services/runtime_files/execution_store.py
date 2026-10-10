@@ -52,7 +52,11 @@ from .execution_models import (
 from .jsonl_store import DurableJsonlStore
 from .locking import CrossProcessFileLock
 from .models import ReviewPolicy, utc_now
-from .path_safety import require_safe_runtime_segment
+from .path_safety import (
+    is_link_path,
+    is_link_stat,
+    require_safe_runtime_segment,
+)
 
 logger = logging.getLogger("qwenpaw.creator.runtime_files.execution_store")
 
@@ -329,13 +333,13 @@ class ProjectExecutionStore:
             root = self._runtime_root(project_id) / "runs"
             if not root.exists():
                 return []
-            if root.is_symlink() or not root.is_dir():
+            if is_link_path(root) or not root.is_dir():
                 raise UnsafeExecutionPath(
                     "Runtime runs path must be a real directory",
                 )
             records: list[SpecialistRunRecord] = []
             for child in root.iterdir():
-                if child.is_symlink() or not child.is_dir():
+                if is_link_path(child) or not child.is_dir():
                     raise UnsafeExecutionPath(
                         "Runtime runs directory contains an unsafe entry",
                     )
@@ -742,18 +746,18 @@ class ProjectExecutionStore:
             root = self._runtime_root(project_id) / "tasks"
             if not root.exists():
                 return []
-            if root.is_symlink() or not root.is_dir():
+            if is_link_path(root) or not root.is_dir():
                 raise UnsafeExecutionPath(
                     "Runtime tasks path must be a real directory",
                 )
             records: list[TaskRecord] = []
             for child in root.iterdir():
-                if child.is_symlink() or not child.is_dir():
+                if is_link_path(child) or not child.is_dir():
                     raise UnsafeExecutionPath(
                         "Runtime tasks directory contains an unsafe entry",
                     )
                 task_id = self._safe(child.name, "task_id")
-                if (child / "task.json").is_symlink():
+                if is_link_path((child / "task.json")):
                     raise UnsafeExecutionPath(
                         "Runtime Task head must be a real file",
                     )
@@ -1809,13 +1813,13 @@ class ProjectExecutionStore:
             raise ExecutionStoreError(
                 f"Project does not exist: {project_id}",
             ) from exc
-        if stat.S_ISLNK(root_stat.st_mode) or not stat.S_ISDIR(
+        if is_link_stat(root_stat) or not stat.S_ISDIR(
             root_stat.st_mode,
         ):
             raise UnsafeExecutionPath(
                 "Project root must be a regular, non-symlink directory",
             )
-        if stat.S_ISLNK(project_stat.st_mode) or not stat.S_ISREG(
+        if is_link_stat(project_stat) or not stat.S_ISREG(
             project_stat.st_mode,
         ):
             raise UnsafeExecutionPath(

@@ -18,6 +18,7 @@ import re
 import stat
 from urllib.parse import quote, unquote, urlsplit
 from uuid import uuid4
+from services.runtime_files.path_safety import is_link_stat, is_link_path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
@@ -66,7 +67,7 @@ def _require_real_directory(path: Path, *, label: str) -> Path:
         value = path.lstat()
     except FileNotFoundError as exc:
         raise ValueError(f"{label} does not exist: {path}") from exc
-    if stat.S_ISLNK(value.st_mode) or not stat.S_ISDIR(value.st_mode):
+    if is_link_stat(value) or not stat.S_ISDIR(value.st_mode):
         raise ValueError(f"{label} must be a real directory: {path}")
     return path
 
@@ -113,7 +114,7 @@ def task_work_root(task_id: str | None = None) -> Path:
             label="Project root",
         )
         project_file = project_root / "project.json"
-        if project_file.is_symlink() or not project_file.is_file():
+        if is_link_path(project_file) or not project_file.is_file():
             raise ValueError(
                 "Project-scoped media scratch requires project.json",
             )
