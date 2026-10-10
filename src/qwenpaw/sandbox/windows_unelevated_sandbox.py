@@ -42,6 +42,7 @@ from .config import (  # noqa: E402  pylint: disable=wrong-import-position
     NETWORK_DOMAIN_HINT,
     ExecutionResult,
     SandboxConfig,
+    is_volume_root,
     network_allow_is_absolute,
     report_unenforced_config,
 )
@@ -1126,6 +1127,15 @@ def _reset_dacl_to_inherited(path: str) -> bool:
     Returns:
         True if the DACL was reset successfully.
     """
+    # Never reset a volume root: this rewrites the DACL of the entire
+    # volume, which can make the drive inaccessible.
+    if is_volume_root(path):
+        logger.warning(
+            "Refusing to reset the DACL of volume root %s",
+            path,
+        )
+        return False
+
     advapi32 = _get_advapi32()
 
     # UNPROTECTED_DACL_SECURITY_INFORMATION = 0x20000000
@@ -1525,6 +1535,16 @@ def _set_path_ace(
     Returns:
         True if the ACE was set successfully.
     """
+    # Sandbox ACLs are inheritable, so writing one on a volume root
+    # re-propagates it to every child of the volume. Refuse here as well
+    # as in SandboxConfig, so no caller can reintroduce that write.
+    if is_volume_root(path):
+        logger.warning(
+            "Refusing to set an ACE on volume root %s",
+            path,
+        )
+        return False
+
     advapi32 = _get_advapi32()
     kernel32 = _get_kernel32()
 
@@ -1542,6 +1562,19 @@ def _set_path_ace(
     )
     if rc != 0:
         logger.warning("GetNamedSecurityInfoW(%s) failed: rc=%d", path, rc)
+        return False
+
+    # A NULL DACL means "no protection at all". Merging our ACE into it
+    # would write a DACL holding only the sandbox SID, silently locking
+    # every other trustee (SYSTEM, Administrators, the user) out of the
+    # path. Refuse rather than create that state.
+    if not p_dacl.value:
+        logger.warning(
+            "Refusing to set an ACE on %s: its DACL is NULL",
+            path,
+        )
+        if p_sd:
+            kernel32.LocalFree(p_sd)
         return False
 
     ea = _build_explicit_access(

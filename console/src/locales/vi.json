@@ -2395,6 +2395,8 @@
     "closeWorkspace": "Đóng workspace"
   },
   "projectDirectory": {
+    "volumeRootWarningTitle": "Đã chọn thư mục gốc của ổ đĩa",
+    "volumeRootWarningMessage": "{{path}} là thư mục gốc của ổ đĩa. Sandbox không thể cấp quyền truy cập tại đây — mục quyền của nó có thể kế thừa và thư mục gốc không có thư mục cha, nên nó sẽ áp dụng cho toàn bộ ổ đĩa và có thể khiến ổ đĩa không truy cập được. Phiên này sẽ chạy không có sandbox. Vẫn tiếp tục?",
     "agentTitle": "Thư mục dự án của tác nhân",
     "sessionTitle": "Thư mục dự án của phiên",
     "pathPlaceholder": "Nhập đường dẫn thư mục tuyệt đối",

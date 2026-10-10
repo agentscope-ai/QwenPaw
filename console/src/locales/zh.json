@@ -2914,6 +2914,8 @@
     "artifactsCollapse": "收起文件"
   },
   "projectDirectory": {
+    "volumeRootWarningTitle": "选择的是盘符根目录",
+    "volumeRootWarningMessage": "{{path}} 是盘符根目录。沙箱无法在这里授权：它的权限条目可继承，而盘符根没有上级目录，会作用到整个磁盘并可能导致磁盘无法访问。本次会话将在没有沙箱的情况下运行。仍要继续吗？",
     "agentTitle": "Agent 项目目录",
     "agentDescription": "Agent 文件工作区默认使用此目录。",
     "sessionTitle": "当前会话项目目录",

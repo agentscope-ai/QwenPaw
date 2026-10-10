@@ -4100,6 +4100,8 @@
     "closeWorkspace": "Tutup workspace"
   },
   "projectDirectory": {
+    "volumeRootWarningTitle": "Direktori akar volume dipilih",
+    "volumeRootWarningMessage": "{{path}} adalah direktori akar volume. Sandbox tidak dapat memberikan akses di sini — entri izinnya dapat diwariskan dan akar volume tidak memiliki induk, sehingga berlaku untuk seluruh drive dan dapat membuatnya tidak dapat diakses. Sesi ini akan berjalan tanpa sandbox. Lanjutkan?",
     "agentTitle": "Direktori proyek Agen",
     "sessionTitle": "Direktori proyek Sesi",
     "pathPlaceholder": "Masukkan path direktori absolut",
