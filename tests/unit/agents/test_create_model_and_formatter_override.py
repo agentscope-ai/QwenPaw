@@ -27,6 +27,7 @@ from qwenpaw.config.config import ModelSlotConfig
 from qwenpaw.providers import fallback_chat_model
 from qwenpaw.providers import provider as provider_module
 from qwenpaw.providers.dashscope_provider import DashScopeProvider
+from qwenpaw.providers.openai_provider import OpenAIProvider
 from qwenpaw.providers.provider_manager import ProviderManager
 from qwenpaw.providers.retry_chat_model import RetryChatModel
 from qwenpaw.token_usage import TokenRecordingModelWrapper
@@ -101,6 +102,12 @@ def _patch_dependencies(monkeypatch):
                     get_model_info=lambda model_id: provider_module.ModelInfo(
                         id=model_id,
                         name=model_id,
+                    ),
+                    resolve_model_info=lambda model_id: (
+                        provider_module.ModelInfo(
+                            id=model_id,
+                            name=model_id,
+                        )
                     ),
                     id=provider_id,
                     get_chat_model_instance=(
@@ -249,6 +256,10 @@ def test_factory_uses_resolved_provider_id(
         get_provider=lambda _provider_id: SimpleNamespace(
             enabled=True,
             get_model_info=lambda model_id: provider_module.ModelInfo(
+                id=model_id,
+                name=model_id,
+            ),
+            resolve_model_info=lambda model_id: provider_module.ModelInfo(
                 id=model_id,
                 name=model_id,
             ),
@@ -534,6 +545,10 @@ def test_preloaded_agent_config_preserves_model_settings(monkeypatch):
                 id=model_id,
                 name=model_id,
             ),
+            resolve_model_info=lambda model_id: provider_module.ModelInfo(
+                id=model_id,
+                name=model_id,
+            ),
             get_chat_model_instance=lambda model_name: (
                 _FakeChatModel(f"default-provider/{model_name}")
             ),
@@ -541,6 +556,7 @@ def test_preloaded_agent_config_preserves_model_settings(monkeypatch):
         "fallback-provider": SimpleNamespace(
             enabled=True,
             get_model_info=lambda _model_name: SimpleNamespace(is_free=False),
+            model_capabilities=lambda model: model,
             get_chat_model_instance=lambda model_name: (
                 _FakeChatModel(f"fallback-provider/{model_name}")
             ),
@@ -628,6 +644,10 @@ def test_each_fallback_model_gets_its_own_formatter(monkeypatch):
                 id=model_id,
                 name=model_id,
             ),
+            resolve_model_info=lambda model_id: provider_module.ModelInfo(
+                id=model_id,
+                name=model_id,
+            ),
             get_chat_model_instance=lambda model_name: (
                 _FakeChatModel(f"default-provider/{model_name}")
             ),
@@ -635,6 +655,7 @@ def test_each_fallback_model_gets_its_own_formatter(monkeypatch):
         "fallback-provider": SimpleNamespace(
             enabled=True,
             get_model_info=lambda _model_name: SimpleNamespace(is_free=False),
+            model_capabilities=lambda model: model,
             get_chat_model_instance=lambda model_name: (
                 _FakeChatModel(f"fallback-provider/{model_name}")
             ),
@@ -700,6 +721,10 @@ def test_model_override_disables_persisted_fallback_chain(monkeypatch):
                 id=model_id,
                 name=model_id,
             ),
+            resolve_model_info=lambda model_id: provider_module.ModelInfo(
+                id=model_id,
+                name=model_id,
+            ),
             get_chat_model_instance=lambda model_name: (
                 _FakeChatModel(f"override-provider/{model_name}")
             ),
@@ -707,6 +732,7 @@ def test_model_override_disables_persisted_fallback_chain(monkeypatch):
         "fallback-provider": SimpleNamespace(
             enabled=True,
             get_model_info=lambda _model_name: SimpleNamespace(is_free=False),
+            model_capabilities=lambda model: model,
             get_chat_model_instance=lambda model_name: (
                 _FakeChatModel(f"fallback-provider/{model_name}")
             ),
@@ -760,6 +786,10 @@ def test_invalid_fallback_slots_are_skipped(monkeypatch):
         "default-provider": SimpleNamespace(
             enabled=True,
             get_model_info=lambda model_id: provider_module.ModelInfo(
+                id=model_id,
+                name=model_id,
+            ),
+            resolve_model_info=lambda model_id: provider_module.ModelInfo(
                 id=model_id,
                 name=model_id,
             ),
@@ -817,3 +847,70 @@ def test_installs_extended_formatter_for_each_protocol(formatter_class):
     assert installed is model.formatter
     assert installed is not native_formatter
     assert isinstance(installed, formatter_class)
+
+
+def test_formatter_receives_resolved_model_capabilities(monkeypatch):
+    raw_model = provider_module.ModelInfo(
+        id="default-model",
+        name="default-model",
+        supports_image=False,
+        supports_multimodal=False,
+    )
+    discovered_model = provider_module.ModelInfo(
+        id="default-model",
+        name="default-model",
+        supports_image=True,
+        supports_multimodal=True,
+        probe_source="api",
+    )
+    resolved_provider = OpenAIProvider(
+        id="default-provider",
+        name="Default",
+        extra_models=[raw_model],
+        discovered_models=[discovered_model],
+    )
+    provider = SimpleNamespace(
+        enabled=True,
+        id="default-provider",
+        get_model_info=resolved_provider.get_model_info,
+        resolve_model_info=resolved_provider.resolve_model_info,
+        get_context_size=resolved_provider.get_context_size,
+        get_chat_model_instance=lambda model_name: _FakeChatModel(
+            f"default-provider/{model_name}",
+        ),
+    )
+    monkeypatch.setattr(
+        model_factory,
+        "ProviderManager",
+        SimpleNamespace(
+            get_instance=lambda: SimpleNamespace(
+                get_provider=lambda _provider_id: provider,
+                get_active_model=lambda: None,
+            ),
+        ),
+    )
+    received = {}
+
+    def capture_formatter(_model, provider_id=None, **kwargs):
+        received["provider_id"] = provider_id
+        received["supports_multimodal"] = kwargs["supports_multimodal"]
+        return "formatter"
+
+    monkeypatch.setattr(
+        model_factory,
+        "_create_formatter_instance",
+        capture_formatter,
+    )
+    monkeypatch.setattr(
+        model_factory,
+        "_install_model_formatter",
+        _REAL_INSTALL_MODEL_FORMATTER,
+    )
+    with patch.object(model_factory, "RetryConfig") as retry_cls:
+        retry_cls.return_value = "rc"
+        model, formatter = model_factory.create_model_and_formatter(
+            agent_id="agent-1",
+        )
+
+    assert model.formatter == formatter
+    assert received["supports_multimodal"] is True
