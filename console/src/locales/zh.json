@@ -5016,6 +5016,9 @@
     "providerDescription": "选择用于 Whisper API 音频转写的提供商。仅显示支持 Whisper 端点的提供商。",
     "providerPlaceholder": "选择提供商...",
     "noProvidersWarning": "未找到支持转写的提供商。请配置一个 OpenAI 提供商以启用语音转写。",
+    "modelLabel": "转写模型",
+    "modelDescription": "发送给 Whisper API 接口的模型名。请填写你所选服务商支持的模型 ID，例如 SiliconFlow 的 \"FunAudioLLM/SenseVoiceSmall\"。留空则使用默认值 \"whisper-1\"。",
+    "modelPlaceholder": "例如 whisper-1",
     "transcriptionInfoTitle": "转写工作原理",
     "transcriptionInfoDesc": "Whisper API 转写使用 OpenAI 兼容的 /v1/audio/transcriptions 端点。需要配置一个支持 Whisper 端点的提供商（如 OpenAI）。请在上方选择具体的提供商以启用转写。",
     "transcriptionInfoDescLocal": "本地 Whisper 转写直接在您的设备上运行 openai-whisper 库。需要同时安装 ffmpeg（用于音频解码）和 openai-whisper Python 包。无需 API Key 或网络连接。安装命令：uv pip install 'qwenpaw[whisper]'。"

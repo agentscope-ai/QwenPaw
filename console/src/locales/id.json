@@ -3498,6 +3498,9 @@
     "providerDescription": "Pilih penyedia mana yang akan digunakan untuk transkripsi audio melalui Whisper API. Hanya penyedia dengan endpoint yang kompatibel dengan Whisper yang ditampilkan.",
     "providerPlaceholder": "Pilih penyedia...",
     "noProvidersWarning": "Tidak ada penyedia yang mendukung transkripsi. Konfigurasi penyedia OpenAI untuk mengaktifkan transkripsi suara.",
+    "modelLabel": "Model Transkripsi",
+    "modelDescription": "Nama model yang dikirim ke endpoint Whisper API. Isi dengan ID model yang didukung penyedia Anda, misalnya \"FunAudioLLM/SenseVoiceSmall\" untuk SiliconFlow. Kosongkan untuk memakai default \"whisper-1\".",
+    "modelPlaceholder": "mis. whisper-1",
     "transcriptionInfoTitle": "Cara transkripsi bekerja",
     "transcriptionInfoDesc": "Transkripsi Whisper API menggunakan endpoint /v1/audio/transcriptions yang kompatibel dengan OpenAI. Ini memerlukan penyedia yang dikonfigurasi dengan endpoint yang kompatibel dengan Whisper — misalnya, penyedia OpenAI. Pilih penyedia tertentu di atas untuk mengaktifkan transkripsi.",
     "transcriptionInfoDescLocal": "Transkripsi Whisper Lokal menjalankan pustaka openai-whisper langsung di mesin Anda. Ini memerlukan ffmpeg (untuk decoding audio) dan paket Python openai-whisper yang terinstal. Tidak diperlukan API key atau koneksi jaringan. Instal dengan: uv pip install 'qwenpaw[whisper]'."
