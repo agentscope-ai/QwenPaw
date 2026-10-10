@@ -517,6 +517,8 @@ export default function OrganizationModels({
                 body.name = body.name?.trim() || body.upstream_model?.trim();
                 body.description =
                   models.find((m) => m.id === editing.id)?.description ?? "";
+                if (body.input_token_limit == null)
+                  delete body.input_token_limit;
                 body.output_token_limit = body.output_token_limit ?? null;
                 body.budget_verified = true;
                 body.enabled = editing.id

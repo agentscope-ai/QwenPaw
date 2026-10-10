@@ -143,10 +143,13 @@ export function HubModelIdentityFields({
     model?.max_input_length_auto_detected ?? resolved?.input_token_limit;
   const outputDefault =
     model?.max_output_length ?? resolved?.output_token_limit ?? null;
+  // Preset entries carry an unresolved effective context default. Only a
+  // resolved model card can use that field as a known capability limit.
   const knownInput =
-    model?.effective_max_input_length ??
-    model?.max_input_length_auto_detected ??
-    (resolved?.input_limit_known ? inputDefault : undefined);
+    model?.context_length_source && model.context_length_source !== "default"
+      ? model.effective_max_input_length
+      : model?.max_input_length_auto_detected ??
+        (resolved?.input_limit_known ? resolved.input_token_limit : undefined);
   const knownOutput =
     model?.max_output_length ??
     (resolved?.output_limit_known ? outputDefault ?? undefined : undefined);
@@ -265,6 +268,7 @@ export function HubModelIdentityFields({
         rules={[
           {
             required: true,
+            transform: (value) => value ?? inputDefault,
             type: "number",
             min: 1000,
             max: knownInput ?? 10000000,
