@@ -24,6 +24,11 @@
   --app-radius-card: 16px;
   --app-radius-panel: 24px;
   --app-glass: color-mix(in srgb, var(--app-surface) 88%, transparent);
+  /* Decorative-effects tier (General settings). Driven by the `data-fx-tier`
+   * attribute on <html>; every glass layer caps its backdrop blur radius
+   * with `min(<radius>, var(--fx-glass-blur))`. The full tier takes the
+   * largest radius in use (28px) so no glass layer changes appearance. */
+  --fx-glass-blur: 28px;
   --app-shadow-panel: 0 2px 6px rgb(0 0 0 / 3%), 0 24px 64px rgb(0 0 0 / 12%);
 
   /* Typography scale. `--app-font-scale` is driven by the console font-size
@@ -142,6 +147,16 @@
   /* Elevation */
   --app-shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.06);
   --app-shadow-md: 0 4px 16px rgba(0, 0, 0, 0.08);
+}
+
+/* Decorative-effects tier overrides. "reduced" caps every glass blur at
+ * 6px; "off" removes the backdrop blur entirely. */
+:root[data-fx-tier="reduced"] {
+  --fx-glass-blur: 6px;
+}
+
+:root[data-fx-tier="off"] {
+  --fx-glass-blur: 0px;
 }
 
 html.dark-mode {

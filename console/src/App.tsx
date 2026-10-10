@@ -34,6 +34,7 @@ import "dayjs/locale/id";
 dayjs.extend(relativeTime);
 import MainLayout from "./layouts/MainLayout";
 import { ThemeProvider, useTheme } from "./contexts/ThemeContext";
+import { FxTierProvider } from "./contexts/FxTierContext";
 import { FontSizeProvider } from "./contexts/FontSizeContext";
 import { PluginProvider } from "./plugins/PluginContext";
 import { ApprovalProvider } from "./contexts/ApprovalContext";
@@ -577,7 +578,9 @@ function AppInner({ backendInfo }: { backendInfo: BackendInfo }) {
 function App() {
   return (
     <ThemeProvider>
-      <BackendModeRouter />
+      <FxTierProvider>
+        <BackendModeRouter />
+      </FxTierProvider>
     </ThemeProvider>
   );
 }

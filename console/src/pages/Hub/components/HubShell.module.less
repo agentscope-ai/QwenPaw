@@ -68,7 +68,7 @@
   padding: 24px 16px 20px;
   border-right: 1px solid var(--hub-border);
   background: var(--app-glass);
-  backdrop-filter: blur(20px);
+  backdrop-filter: blur(min(20px, var(--fx-glass-blur)));
 }
 .brand {
   display: flex;
@@ -268,7 +268,7 @@
   top: 0;
   z-index: 10;
   background: var(--app-glass);
-  backdrop-filter: blur(20px);
+  backdrop-filter: blur(min(20px, var(--fx-glass-blur)));
   min-height: 64px;
   display: flex;
   align-items: center;

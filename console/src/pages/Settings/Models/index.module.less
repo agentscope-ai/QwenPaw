@@ -57,7 +57,7 @@
 :global(.os-window-body) .settingsPage .pageHeader {
   padding: 20px 24px;
   border-bottom: 1px solid var(--app-border-subtle);
-  backdrop-filter: blur(16px);
+  backdrop-filter: blur(min(16px, var(--fx-glass-blur)));
   background: var(--app-glass);
 }
 

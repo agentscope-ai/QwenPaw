@@ -48,7 +48,7 @@ h3 {
   ) {
   border-radius: 16px !important;
   background: var(--app-glass) !important;
-  backdrop-filter: blur(20px);
+  backdrop-filter: blur(min(20px, var(--fx-glass-blur)));
   box-shadow: var(--app-shadow-panel) !important;
 }
 :is(.ant-btn, .qwenpaw-btn) {

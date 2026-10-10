@@ -54,7 +54,7 @@
   flex: 0 0 auto;
   border-bottom: 1px solid var(--files-line);
   background: color-mix(in srgb, var(--files-bg) 92%, transparent);
-  backdrop-filter: blur(16px);
+  backdrop-filter: blur(min(16px, var(--fx-glass-blur)));
 }
 
 .fileMark {

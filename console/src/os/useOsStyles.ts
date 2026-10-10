@@ -282,8 +282,9 @@ const useOsStylesBase = createStyles(({ css }, { p }: { p: OsPalette }) => ({
     pointer-events: auto;
     outline: none;
     background: ${p.winBg};
-    backdrop-filter: saturate(1.18) blur(22px);
-    -webkit-backdrop-filter: saturate(1.18) blur(22px);
+    backdrop-filter: saturate(1.18) blur(min(22px, var(--fx-glass-blur)));
+    -webkit-backdrop-filter: saturate(1.18)
+      blur(min(22px, var(--fx-glass-blur)));
     border: 1px solid ${p.border};
     box-shadow: ${p.shadowWindow};
     transition:
@@ -402,8 +403,8 @@ const useOsStylesBase = createStyles(({ css }, { p }: { p: OsPalette }) => ({
     justify-content: space-between;
     padding: 0 12px;
     background: ${p.barBgStrong};
-    backdrop-filter: blur(14px);
-    -webkit-backdrop-filter: blur(14px);
+    backdrop-filter: blur(min(14px, var(--fx-glass-blur)));
+    -webkit-backdrop-filter: blur(min(14px, var(--fx-glass-blur)));
     border-top: 1px solid ${p.border};
   `,
   startBtn: css`
@@ -484,8 +485,9 @@ const useOsStylesBase = createStyles(({ css }, { p }: { p: OsPalette }) => ({
     justify-content: center;
     padding: max(64px, 8vh) clamp(16px, 5vw, 72px) ${DOCK_H + 24}px;
     background: ${p.dimBg};
-    backdrop-filter: saturate(1.15) blur(28px);
-    -webkit-backdrop-filter: saturate(1.15) blur(28px);
+    backdrop-filter: saturate(1.15) blur(min(28px, var(--fx-glass-blur)));
+    -webkit-backdrop-filter: saturate(1.15)
+      blur(min(28px, var(--fx-glass-blur)));
     animation: launcherIn ${MOTION_BASE} ${MOTION_SPRING};
     @keyframes launcherIn {
       from {
@@ -825,8 +827,8 @@ const useOsStylesBase = createStyles(({ css }, { p }: { p: OsPalette }) => ({
     padding: clamp(20px, 4vw, 48px);
     gap: 20px;
     background: ${p.overlayBg};
-    backdrop-filter: saturate(1.1) blur(26px);
-    -webkit-backdrop-filter: saturate(1.1) blur(26px);
+    backdrop-filter: saturate(1.1) blur(min(26px, var(--fx-glass-blur)));
+    -webkit-backdrop-filter: saturate(1.1) blur(min(26px, var(--fx-glass-blur)));
     animation: mcFade ${MOTION_BASE} ease-out;
     @keyframes mcFade {
       from {
@@ -1072,8 +1074,8 @@ const useOsStylesBase = createStyles(({ css }, { p }: { p: OsPalette }) => ({
     justify-content: space-between;
     padding: 0 10px 0 12px;
     background: ${p.barBg};
-    backdrop-filter: saturate(1.2) blur(20px);
-    -webkit-backdrop-filter: saturate(1.2) blur(20px);
+    backdrop-filter: saturate(1.2) blur(min(20px, var(--fx-glass-blur)));
+    -webkit-backdrop-filter: saturate(1.2) blur(min(20px, var(--fx-glass-blur)));
     border-bottom: 1px solid ${p.border};
     font-size: 12px;
     color: ${p.text};
@@ -1187,8 +1189,9 @@ const useOsStylesBase = createStyles(({ css }, { p }: { p: OsPalette }) => ({
     padding: 7px 10px 9px;
     border-radius: ${RADIUS_PANEL}px;
     background: ${p.floatBg};
-    backdrop-filter: saturate(1.24) blur(24px);
-    -webkit-backdrop-filter: saturate(1.24) blur(24px);
+    backdrop-filter: saturate(1.24) blur(min(24px, var(--fx-glass-blur)));
+    -webkit-backdrop-filter: saturate(1.24)
+      blur(min(24px, var(--fx-glass-blur)));
     border: 1px solid ${p.dockBorder};
     box-shadow: ${p.shadowFloat};
     overflow-x: auto;
@@ -1379,8 +1382,8 @@ const useOsStylesBase = createStyles(({ css }, { p }: { p: OsPalette }) => ({
     border-radius: ${RADIUS_PANEL}px;
     cursor: pointer;
     background: ${p.toastBg};
-    backdrop-filter: blur(18px);
-    -webkit-backdrop-filter: blur(18px);
+    backdrop-filter: blur(min(18px, var(--fx-glass-blur)));
+    -webkit-backdrop-filter: blur(min(18px, var(--fx-glass-blur)));
     border: 1px solid ${p.border};
     box-shadow: ${p.shadowToast};
     transition: transform ${MOTION_FAST} ${MOTION_SPRING};
@@ -1509,8 +1512,8 @@ const useOsStylesBase = createStyles(({ css }, { p }: { p: OsPalette }) => ({
     flex-direction: column;
     border-radius: ${RADIUS_PANEL}px;
     background: ${p.panelBg};
-    backdrop-filter: blur(20px);
-    -webkit-backdrop-filter: blur(20px);
+    backdrop-filter: blur(min(20px, var(--fx-glass-blur)));
+    -webkit-backdrop-filter: blur(min(20px, var(--fx-glass-blur)));
     border: 1px solid ${p.border};
     box-shadow: ${p.shadowPanel};
     overflow: hidden;
@@ -1770,8 +1773,8 @@ const useOsStylesBase = createStyles(({ css }, { p }: { p: OsPalette }) => ({
       border-radius: 12px;
       background: ${p.panelBg};
       box-shadow: ${p.shadowPanel};
-      backdrop-filter: blur(18px);
-      -webkit-backdrop-filter: blur(18px);
+      backdrop-filter: blur(min(18px, var(--fx-glass-blur)));
+      -webkit-backdrop-filter: blur(min(18px, var(--fx-glass-blur)));
     }
     .ant-dropdown-menu-item,
     .ant-dropdown-menu-submenu-title {
@@ -1788,8 +1791,8 @@ const useOsStylesBase = createStyles(({ css }, { p }: { p: OsPalette }) => ({
     align-items: center;
     justify-content: center;
     background: ${p.dimBg};
-    backdrop-filter: blur(6px);
-    -webkit-backdrop-filter: blur(6px);
+    backdrop-filter: blur(min(6px, var(--fx-glass-blur)));
+    -webkit-backdrop-filter: blur(min(6px, var(--fx-glass-blur)));
     animation: bootFadeIn 0.16s ease-out;
   `,
   wpPanel: css`
@@ -1898,8 +1901,8 @@ const useOsStylesBase = createStyles(({ css }, { p }: { p: OsPalette }) => ({
     gap: 14px;
     padding: 12px 18px;
     background: ${p.barBgStrong};
-    backdrop-filter: saturate(1.2) blur(22px);
-    -webkit-backdrop-filter: saturate(1.2) blur(22px);
+    backdrop-filter: saturate(1.2) blur(min(22px, var(--fx-glass-blur)));
+    -webkit-backdrop-filter: saturate(1.2) blur(min(22px, var(--fx-glass-blur)));
     border-bottom: 1px solid ${p.border};
     transform: translateY(0);
     transition:

@@ -552,7 +552,7 @@
   border: 1px solid rgba(255, 255, 255, 0.3);
   border-radius: 18px;
   background: rgba(0, 0, 0, 0.5);
-  backdrop-filter: blur(12px) saturate(180%);
+  backdrop-filter: blur(min(12px, var(--fx-glass-blur))) saturate(180%);
   box-shadow:
     0 4px 12px rgba(0, 0, 0, 0.15),
     0 2px 4px rgba(0, 0, 0, 0.1),
