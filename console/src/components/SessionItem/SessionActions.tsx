@@ -1,5 +1,4 @@
 import {
-  lazy,
   useEffect,
   Suspense,
   useRef,
@@ -12,10 +11,11 @@ import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { ArrowLeft, Check, ChevronRight, Folder } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useIsMobile } from "../../hooks/useIsMobile";
+import { lazyWithRetry } from "@/utils/lazyWithRetry";
 import { InteractiveCard } from "../interaction/InteractiveCard";
 import styles from "./sessionActions.module.less";
 
-const BottomSheet = lazy(() => import("../interaction/BottomSheet"));
+const BottomSheet = lazyWithRetry(() => import("../interaction/BottomSheet"));
 type Action = {
   key?: string;
   type?: "divider";

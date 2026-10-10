@@ -37,6 +37,27 @@ function renderLazy(Comp: React.ComponentType<unknown>) {
   );
 }
 
+/** Minimal error boundary so an exhausted lazy promise can be asserted on. */
+class RetryExhaustedBoundary extends React.Component<
+  { children: React.ReactNode },
+  { error: Error | null }
+> {
+  state = { error: null as Error | null };
+  static getDerivedStateFromError(error: Error) {
+    return { error };
+  }
+  render() {
+    if (this.state.error) {
+      return React.createElement(
+        "div",
+        null,
+        `chunk-failed: ${this.state.error.message}`,
+      );
+    }
+    return this.props.children;
+  }
+}
+
 describe("lazyWithRetry", () => {
   beforeEach(() => {
     registryMock.get.mockReset().mockReturnValue(undefined);
@@ -63,6 +84,27 @@ describe("lazyWithRetry", () => {
       findByText("loaded-page", {}, { timeout: 6000 }),
     ).resolves.toBeTruthy();
     expect(factory).toHaveBeenCalledTimes(3);
+  }, 15000);
+
+  it("gives up after the retry budget and surfaces the error to the boundary", async () => {
+    const factory = vi.fn().mockRejectedValue(new Error("chunk gone forever"));
+    const Comp = lazyWithRetry(factory);
+    const { findByText } = render(
+      React.createElement(
+        RetryExhaustedBoundary,
+        null,
+        React.createElement(
+          Suspense,
+          { fallback: React.createElement("div", null, "loading...") },
+          React.createElement(Comp),
+        ),
+      ),
+    );
+    // 1 initial load + 3 retries => three 1s delays; generous timeout for CI
+    await expect(
+      findByText(/chunk-failed: chunk gone forever/, {}, { timeout: 8000 }),
+    ).resolves.toBeTruthy();
+    expect(factory).toHaveBeenCalledTimes(4);
   }, 15000);
 
   it("uses the registry override when present (relative path key)", async () => {

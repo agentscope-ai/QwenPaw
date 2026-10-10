@@ -1,5 +1,4 @@
 import {
-  lazy,
   Suspense,
   useCallback,
   useEffect,
@@ -12,6 +11,7 @@ import { Plus, RotateCw, TerminalSquare, X } from "lucide-react";
 import { Dropdown } from "antd";
 import { Group, Panel, Separator, usePanelRef } from "react-resizable-panels";
 import { useTranslation } from "react-i18next";
+import { lazyWithRetry } from "@/utils/lazyWithRetry";
 import { terminalGroup } from "./terminalIdentity";
 import {
   terminalApi,
@@ -20,7 +20,7 @@ import {
 } from "./terminalApi";
 import styles from "./TerminalDock.module.less";
 
-const TerminalView = lazy(() => import("./TerminalView"));
+const TerminalView = lazyWithRetry(() => import("./TerminalView"));
 
 export default function TerminalDock({
   children,

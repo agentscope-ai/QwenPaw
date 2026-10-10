@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowUpRight, ChartNoAxesCombined, RotateCw, X } from "lucide-react";
 import { Select } from "antd";
 import { Link } from "react-router-dom";
@@ -7,10 +7,13 @@ import { InteractiveCard } from "../components/interaction/InteractiveCard";
 import SidebarUsageDialog from "./SidebarUsageDialog";
 import { tokenUsageApi } from "../api/modules/tokenUsage";
 import type { TokenUsageSummary } from "../api/types/tokenUsage";
+import { lazyWithRetry } from "@/utils/lazyWithRetry";
 import styles from "./sidebarA.module.less";
 
-const BottomSheet = lazy(() => import("../components/interaction/BottomSheet"));
-const Trend = lazy(() => import("./SidebarUsageTrend"));
+const BottomSheet = lazyWithRetry(
+  () => import("../components/interaction/BottomSheet"),
+);
+const Trend = lazyWithRetry(() => import("./SidebarUsageTrend"));
 
 /** Load real usage on demand; the capsule and detail share one visual surface. */
 export default function SidebarUsage({

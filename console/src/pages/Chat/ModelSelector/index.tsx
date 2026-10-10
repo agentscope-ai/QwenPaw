@@ -4,7 +4,6 @@ import {
 } from "../../Settings/Models/components/modals/ModelCapabilityTags";
 import { saveSessionModel } from "../../../features/session-settings/sessionModel";
 import {
-  lazy,
   Suspense,
   useState,
   useEffect,
@@ -39,6 +38,7 @@ import { useTranslation } from "react-i18next";
 import type { ActiveModelsInfo } from "../../../api/types";
 import { useAgentStore } from "../../../stores/agentStore";
 import { confirmFreeModelSwitch } from "@/utils/freeModelSwitchWarning";
+import { lazyWithRetry } from "@/utils/lazyWithRetry";
 import { ProviderIcon } from "../../Settings/Models/components/ProviderIconComponent";
 import { useTurnUsageStore } from "../turnUsageStore";
 import { OAuthConfirmModal } from "./OAuthConfirmModal";
@@ -57,7 +57,9 @@ import type { CandidateModel, EligibleProvider } from "./modelSelectorModels";
 import { useModelSelectorData } from "./useModelSelectorData";
 import styles from "./index.module.less";
 
-const ProviderCandidatePicker = lazy(() => import("./ProviderCandidatePicker"));
+const ProviderCandidatePicker = lazyWithRetry(
+  () => import("./ProviderCandidatePicker"),
+);
 
 /** Sync Chat context ring with the active model's effective window. */
 function publishActiveMaxInputLength(

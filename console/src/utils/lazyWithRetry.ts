@@ -1,5 +1,5 @@
 import { lazy } from "react";
-import type { ComponentType } from "react";
+import type { ComponentType, LazyExoticComponent } from "react";
 import { moduleRegistry } from "../plugins/moduleRegistry";
 
 const MAX_RETRIES = 3;
@@ -20,7 +20,7 @@ function pathToModuleKey(importPath: string): string {
   return key.includes("/") && !/\/index$/.test(key) ? `${key}/index` : key;
 }
 
-function retryImport<T extends ComponentType<unknown>>(
+function retryImport<T extends ComponentType<any>>(
   factory: () => Promise<{ default: T }>,
   retries: number,
 ): Promise<{ default: T }> {
@@ -74,10 +74,10 @@ function toGlobKey(path: string): string {
  * const ModelsPage = lazyWithRetry(() => import("../../pages/Settings/Models"));
  * ```
  */
-export function lazyWithRetry<T extends ComponentType<unknown>>(
+export function lazyWithRetry<T extends ComponentType<any>>(
   factory: () => Promise<{ default: T }>,
   moduleKeyOrPath?: string,
-) {
+): LazyExoticComponent<T> {
   return lazy(() => {
     if (moduleKeyOrPath) {
       const key = moduleKeyOrPath.startsWith(".")

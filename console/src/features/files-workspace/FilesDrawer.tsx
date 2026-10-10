@@ -10,7 +10,6 @@ import {
 import {
   useCallback,
   useEffect,
-  lazy,
   useLayoutEffect,
   useRef,
   useState,
@@ -24,6 +23,7 @@ import FilePreview, { isPreviewable } from "../../pages/Coding/FilePreview";
 import { setTextareaValue } from "../../pages/Chat/utils";
 import { downloadFileFromUrl } from "../../utils/downloadFileFromUrl";
 import { copyText } from "../../utils/clipboard";
+import { lazyWithRetry } from "../../utils/lazyWithRetry";
 import { useAppMessage } from "../../hooks/useAppMessage";
 import type { FileMetadata, FilesDrawerEvent, FilesDrawerState } from "./types";
 import type { FilesWorkspaceScope } from "./filesWorkspaceScope";
@@ -33,7 +33,7 @@ const PREVIEW_WIDTH_STORAGE_KEY = "qwenpaw-files-preview-width";
 const WORKSPACE_WIDTH_STORAGE_KEY = "qwenpaw-files-workspace-width";
 const MIN_DRAWER_WIDTH = 420;
 const MIN_CHAT_WIDTH = 420;
-const FilesWorkspace = lazy(() => import("./FilesWorkspace"));
+const FilesWorkspace = lazyWithRetry(() => import("./FilesWorkspace"));
 
 function readStoredWidth(key: string): number {
   if (typeof window === "undefined") return 0;

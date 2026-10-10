@@ -6,7 +6,7 @@
  * (no full-page navigation). The classic console mirrors the app path in the
  * URL; the Desktop OS keeps its single `/os` browser entry point.
  */
-import { lazy, Suspense, useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useParams, useSearchParams } from "react-router-dom";
 import {
@@ -46,6 +46,7 @@ import {
 import { AppCard, type AppCardData } from "./AppCard";
 import { pickAppDescription } from "./appDescription";
 import { ChunkErrorBoundary } from "@/components/ChunkErrorBoundary";
+import { lazyWithRetry } from "../../utils/lazyWithRetry";
 import {
   addRouterBasename,
   getOsPawAppIdFromHistoryState,
@@ -57,7 +58,7 @@ import styles from "./index.module.less";
 
 // Code-split market views so their bundle + network fetch never block the
 // installed-apps section from rendering or being used.
-const AppMarket = lazy(() =>
+const AppMarket = lazyWithRetry(() =>
   import("./AppMarket").then((m) => ({ default: m.AppMarket })),
 );
 

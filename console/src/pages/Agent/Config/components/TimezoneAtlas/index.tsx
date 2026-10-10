@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useId, useMemo, useState } from "react";
+import { Suspense, useEffect, useId, useMemo, useState } from "react";
 import { Button, Select, Spin } from "antd";
 import { Globe2, LocateFixed, ArrowUpRight } from "lucide-react";
 import { LayoutGroup, motion, useReducedMotion } from "motion/react";
@@ -6,6 +6,7 @@ import { getTimeZones } from "@vvo/tzdb";
 import NumberFlow from "@number-flow/react";
 import { useTranslation } from "react-i18next";
 import { SharedModal } from "@/components/interaction/SharedModal";
+import { lazyWithRetry } from "@/utils/lazyWithRetry";
 import styles from "./index.module.less";
 import {
   fixedTimezone,
@@ -14,7 +15,7 @@ import {
   timezoneName,
 } from "./timezones";
 
-const WorldMap = lazy(() => import("./WorldMap"));
+const WorldMap = lazyWithRetry(() => import("./WorldMap"));
 const zones = getTimeZones({ includeUtc: true });
 
 export default function TimezoneAtlas({

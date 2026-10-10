@@ -1,5 +1,4 @@
 import {
-  lazy,
   Suspense,
   useLayoutEffect,
   useRef,
@@ -9,9 +8,12 @@ import {
 import { Popover } from "antd";
 
 import { useTranslation } from "react-i18next";
+import { lazyWithRetry } from "@/utils/lazyWithRetry";
 import styles from "./index.module.less";
 
-const BottomSheet = lazy(() => import("@/components/interaction/BottomSheet"));
+const BottomSheet = lazyWithRetry(
+  () => import("@/components/interaction/BottomSheet"),
+);
 
 /** Keep the menu anchored and its scroll viewport stable while browsing. */
 export function ModelPickerPopover({

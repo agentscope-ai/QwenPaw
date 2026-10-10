@@ -39,8 +39,8 @@ import { PluginProvider } from "./plugins/PluginContext";
 import { ApprovalProvider } from "./contexts/ApprovalContext";
 import { DesktopUpdateProvider } from "./contexts/DesktopUpdateContext";
 import { UpdateTakeoverGate } from "./components/UpdateTakeoverPage";
-import { Suspense, lazy } from "react";
-import { lazyImportWithRetry } from "./utils/lazyWithRetry";
+import { Suspense } from "react";
+import { lazyImportWithRetry, lazyWithRetry } from "./utils/lazyWithRetry";
 import {
   addRouterBasename,
   getLoginHref,
@@ -51,9 +51,9 @@ import {
 
 const LoginPage = lazyImportWithRetry("./pages/Login/index");
 const HubPage = lazyImportWithRetry("./pages/Hub/index");
-// Desktop OS shell. Uses React.lazy (not lazyImportWithRetry, which only
-// resolves the ./pages/** glob) so it can load from ./os/.
-const DesktopOSPage = lazy(() => import("./os/DesktopOS"));
+// Desktop OS shell. Uses lazyWithRetry (not lazyImportWithRetry, which
+// only resolves the ./pages/** glob) so it can load from ./os/.
+const DesktopOSPage = lazyWithRetry(() => import("./os/DesktopOS"));
 import { languageApi } from "./api/modules/language";
 import { useUploadLimitStore } from "./stores/uploadLimitStore";
 import CloseWindowPrompt from "./tauri/CloseWindowPrompt";

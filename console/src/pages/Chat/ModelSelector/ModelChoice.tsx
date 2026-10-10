@@ -1,11 +1,12 @@
 import { ModelPickerPopover } from "./ModelPickerPopover";
 import { ProviderIcon } from "../../Settings/Models/components/ProviderIconComponent";
-import { lazy, Suspense, useState } from "react";
+import { Suspense, useState } from "react";
 import { Spin } from "antd";
 import { ChevronRight } from "lucide-react";
 import type { ModelSlotConfig } from "@/api/types";
+import { lazyWithRetry } from "@/utils/lazyWithRetry";
 import styles from "./index.module.less";
-const ModelSelector = lazy(() => import("./index"));
+const ModelSelector = lazyWithRetry(() => import("./index"));
 export function ModelChoice({
   value,
   ariaLabel,
