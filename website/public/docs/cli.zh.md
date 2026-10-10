@@ -87,7 +87,7 @@ Docker 镜像或 pip 安装包已内置控制台，无需单独构建。
 | `qwenpaw daemon version`       | 版本与路径                                                                     |
 | `qwenpaw daemon logs [-n N]`   | 最近 N 行日志（默认 100，来自工作目录 `qwenpaw.log`）                          |
 
-**多智能体支持：** 所有命令都支持 `--agent-id` 参数（默认为 `default`）。
+**多智能体支持：** `status`、`restart`、`reload-config` 和 `version` 支持 `--agent-id`（默认为 `default`）；`logs` 读取共享日志，不接受此参数。详见「指定智能体（`--agent-id`）」一节。
 
 ```bash
 qwenpaw daemon status                     # 默认智能体状态
@@ -173,6 +173,29 @@ qwenpaw doctor fix -y --only seed-missing-agent-json,reset-invalid-agent-json
 恢复时，将 `files/` 子树中的文件按相同相对路径复制回工作目录即可。
 
 > 除非你非常确定不需要回滚，否则不建议使用 `--no-backup`。
+
+---
+
+## 指定智能体（`--agent-id`）
+
+QwenPaw 支持同时运行多个智能体。按智能体划分的 CLI 命令通过 `--agent-id`
+选择目标智能体。面向现有智能体工作区的命令通常在省略参数时使用内置的
+`default` 智能体；具体例外以各命令的帮助为准。
+
+- **适用范围：** `channels`、`chats`、`cron`、`daemon`、`skills` 中面向智能体的子命令，以及 `task` 命令
+  （各子命令的支持情况略有差异，以 `qwenpaw <组> <命令> --help` 为准）。
+- **例外：** `channels send` 要求显式指定 `--agent-id`；`daemon logs` 不接受此参数。`skills install` 和 `skills uninstall`
+  在既未指定 `--agent-id` 也未指定 `--pool` 时操作共享技能池；`--pool` 与
+  `--agent-id` 互斥。`agents create` 用此参数指定新智能体的 id，而非选择现有工作区；
+  `agents chat` 中此参数是 `--from-agent` 的别名，表示发送方，目标智能体由
+  `--to-agent` 指定。
+- **查看可用 id：** `qwenpaw agents list` 列出所有已配置的智能体 id。
+
+```
+qwenpaw cron list --agent-id my_bot   # 查看智能体 "my_bot" 的定时任务
+qwenpaw chats list --agent-id my_bot  # 查看智能体 "my_bot" 的会话
+qwenpaw cron list                     # 同上，但针对 "default" 智能体
+```
 
 ---
 
@@ -298,7 +321,7 @@ qwenpaw env delete TAVILY_API_KEY
 | `qwenpaw channels send`   | 向用户/会话单向发送消息（需要全部 5 个参数） |
 | `qwenpaw channels config` | 交互式启用/禁用频道并填写凭据                |
 
-**多智能体支持：** 所有命令都支持 `--agent-id` 参数（默认为 `default`）。
+**多智能体支持：** `list` 和 `config` 默认使用 `default` 智能体；`send` 要求显式指定 `--agent-id`。详见「指定智能体（`--agent-id`）」一节。
 
 ```bash
 qwenpaw channels list                    # 看默认智能体的频道状态
@@ -503,7 +526,7 @@ qwenpaw agents chat \
 | `qwenpaw cron resume <job_id>` | 恢复暂停的任务                 |
 | `qwenpaw cron run <job_id>`    | 立刻执行一次                   |
 
-**多智能体支持：** 所有命令都支持 `--agent-id` 参数（默认为 `default`）。
+**多智能体支持：** 这些命令支持 `--agent-id` 以指定目标智能体（默认为 `default`），详见「指定智能体（`--agent-id`）」一节。
 
 ### 创建任务
 
@@ -641,7 +664,7 @@ JSON 结构见 `qwenpaw cron get <job_id>` 的返回。
 | `qwenpaw chats update <id> --name "..."` | 重命名会话                                         |
 | `qwenpaw chats delete <id>`              | 删除会话                                           |
 
-**多智能体支持：** 所有命令都支持 `--agent-id` 参数（默认为 `default`）。
+**多智能体支持：** 这些命令支持 `--agent-id` 以指定目标智能体（默认为 `default`），详见「指定智能体（`--agent-id`）」一节。
 
 ```bash
 qwenpaw chats list                        # 默认智能体的会话
@@ -672,6 +695,8 @@ qwenpaw chats delete <chat_id>
 | `qwenpaw skills install BUNDLE_URL`    | 支持来源的技能 URL                   | `--pool` 导入 Pool；`--agent-id ID` 直接安装到该 workspace；二者互斥；为兼容旧用法，两者都不传时仍导入 Pool；`--enable/--no-enable` 仅支持 workspace（默认启用） |
 | `qwenpaw skills uninstall SKILL_NAME`  | 一个精确的技能名                     | `--pool` 从 Pool 删除；`--agent-id ID` 从该 workspace 删除；二者互斥；为兼容旧用法，两者都不传时仍操作 Pool                                                      |
 | `qwenpaw skills test SKILL`            | 本地技能目录，或作用域内的精确技能名 | `--agent-id ID`（按名称查找时默认 `default`）或 `--pool`；命令检查可用 `--base-url URL` 指定服务                                                                 |
+
+**多智能体支持：** 工作区操作支持 `--agent-id`，共享池操作使用 `--pool`；默认行为和例外详见「指定智能体（`--agent-id`）」一节。
 
 ```bash
 qwenpaw skills install https://skills.sh/owner/repo/skill --pool  # 导入到本地技能池
