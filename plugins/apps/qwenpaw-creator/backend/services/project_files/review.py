@@ -9,6 +9,7 @@ from contextlib import nullcontext
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import StrEnum
+import logging
 from pathlib import Path
 import secrets
 from typing import Any, Literal, Mapping
@@ -48,6 +49,8 @@ from .store import ProjectSnapshot, ProjectStore
 from .models import Project
 from .serialization import project_etag
 from .review_bookkeeping import is_human_review_change
+
+logger = logging.getLogger("qwenpaw.creator.project_files.review")
 
 ReviewDecisionValue = Literal["ACCEPT", "REJECT"]
 
@@ -1196,11 +1199,23 @@ class ProjectReviewService:
                     decision_root / "journal.json",
                     ReviewDecisionJournal,
                 )
-                journal = other_store.read()
+                journal = other_store.read_or_none()
             except Exception as exc:
                 raise ReviewDecisionConflict(
                     "Review decision journal set is inconsistent",
                 ) from exc
+            if journal is None:
+                # ``atomic_create_bytes`` creates the decision directory
+                # before it stages the journal, so an unpublished attempt
+                # (e.g. a staging failure) leaves an empty ``decision-*``
+                # directory behind.  It holds no decision, and the Review
+                # decision lock rules out a concurrent writer mid-publish
+                # here, so it must not block every later attempt (#8163).
+                logger.warning(
+                    "ignoring decision directory without a journal: %s",
+                    decision_root,
+                )
+                continue
             if (
                 journal.project_id != project_id
                 or journal.review_id != review_id

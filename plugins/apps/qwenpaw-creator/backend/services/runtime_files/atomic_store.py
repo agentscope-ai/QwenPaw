@@ -189,6 +189,13 @@ def json_checksum(value: Any) -> str:
     return f"sha256:{hashlib.sha256(canonical_json_bytes(value)).hexdigest()}"
 
 
+# A staged temp file must never make the write path longer than the target it
+# publishes to: when Windows long paths are disabled, a record that fits under
+# the legacy MAX_PATH limit used to fail in ``mkstemp`` only because the
+# staged name was longer than the target name (#8163).
+_STAGED_TEMP_PREFIX = ".tmp"
+
+
 def atomic_replace_bytes(
     target: str | os.PathLike[str],
     payload: bytes,
@@ -201,8 +208,8 @@ def atomic_replace_bytes(
     path = Path(target)
     path.parent.mkdir(parents=True, exist_ok=True)
     descriptor, raw_temp = tempfile.mkstemp(
-        prefix=f".{path.name}.",
-        suffix=".tmp",
+        prefix=_STAGED_TEMP_PREFIX,
+        suffix="",
         dir=path.parent,
     )
     temporary = Path(raw_temp)
@@ -267,8 +274,8 @@ def atomic_create_bytes(
     path = Path(target)
     path.parent.mkdir(parents=True, exist_ok=True)
     descriptor, raw_temp = tempfile.mkstemp(
-        prefix=f".{path.name}.",
-        suffix=".tmp",
+        prefix=_STAGED_TEMP_PREFIX,
+        suffix="",
         dir=path.parent,
     )
     temporary = Path(raw_temp)
