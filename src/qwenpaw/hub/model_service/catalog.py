@@ -176,21 +176,9 @@ class ModelCatalog:
             if connection is None:
                 raise ValueError("Connection does not exist")
             defaults = model_token_defaults(body.upstream_model, connection)
-            for field, known in (
-                ("input_token_limit", "input_limit_known"),
-                ("output_token_limit", "output_limit_known"),
-            ):
+            for field in (f"input_token_limit", f"output_token_limit"):
                 if field not in body.model_fields_set:
                     value[field] = defaults[field]
-                elif (
-                    value[field] is not None
-                    and defaults[known]
-                    and value[field] > defaults[field]
-                ):
-                    raise ValueError(
-                        f"{field} must not exceed the known model limit "
-                        f"of {defaults[field]}",
-                    )
             for user_id in body.user_ids:
                 if not db.execute(
                     "SELECT 1 FROM hub_users WHERE user_id = ? "
