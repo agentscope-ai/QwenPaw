@@ -260,6 +260,7 @@ export function HubModelIdentityFields({
           {
             type: "integer",
             min: 1000,
+            max: 10_000_000,
           },
         ]}
       >
@@ -273,6 +274,7 @@ export function HubModelIdentityFields({
           {
             type: "integer",
             min: 1,
+            max: 1_000_000,
           },
         ]}
       >
