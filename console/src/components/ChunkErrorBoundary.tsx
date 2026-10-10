@@ -53,8 +53,6 @@ interface State {
    * from looping forever.
    */
   isRetryableError: boolean;
-  /** How many times the user asked to re-render after a render error. */
-  retryCount: number;
 }
 
 /**
@@ -80,12 +78,13 @@ export class ChunkErrorBoundary extends Component<Props, State> {
     copied: false,
     copyFailed: false,
     isRetryableError: false,
-    retryCount: 0,
   };
 
   private diagnosticGeneration = 0;
+  /** How many times the user asked to re-render after a render error. */
+  private retryCount = 0;
 
-  static getDerivedStateFromError(error: unknown): State {
+  static getDerivedStateFromError(error: unknown): Partial<State> {
     return {
       hasError: true,
       isChunkError: isChunkLoadError(error),
@@ -96,7 +95,6 @@ export class ChunkErrorBoundary extends Component<Props, State> {
       copied: false,
       copyFailed: false,
       isRetryableError: isErrorLike(error),
-      retryCount: 0,
     };
   }
 
@@ -145,6 +143,7 @@ export class ChunkErrorBoundary extends Component<Props, State> {
   };
 
   private reset = () => {
+    this.retryCount = 0;
     this.setState({
       hasError: false,
       isChunkError: false,
@@ -155,18 +154,17 @@ export class ChunkErrorBoundary extends Component<Props, State> {
       copied: false,
       copyFailed: false,
       isRetryableError: false,
-      retryCount: 0,
     });
   };
 
   /** Re-render the same subtree without reloading the page. */
   retryRender = () => {
+    this.retryCount += 1;
     this.setState((prev) => ({
       hasError: false,
       isChunkError: false,
       restartError: "",
       isRetryableError: prev.isRetryableError,
-      retryCount: prev.retryCount + 1,
     }));
   };
 
@@ -219,7 +217,7 @@ export class ChunkErrorBoundary extends Component<Props, State> {
       const canRetry =
         this.state.isRetryableError &&
         !this.state.isChunkError &&
-        this.state.retryCount < MAX_RENDER_ERROR_RETRIES;
+        this.retryCount < MAX_RENDER_ERROR_RETRIES;
 
       return (
         <Result
