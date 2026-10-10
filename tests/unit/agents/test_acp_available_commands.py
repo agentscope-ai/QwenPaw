@@ -721,6 +721,10 @@ def test_usage_meta_includes_model(monkeypatch):
             "outputTokens": 34,
             "totalTokens": 46,
             "model": "qwen-plus",
+            f"cacheReadTokens": None,
+            f"cacheWriteTokens": None,
+            f"cacheEligibleInputTokens": None,
+            f"cacheUsageComplete": False,
             # Absent in the recorded usage -> 0 (window unknown), which the TUI
             # treats as "hide the context bar".
             "contextSize": 0,

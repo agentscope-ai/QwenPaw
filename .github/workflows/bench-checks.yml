@@ -1,0 +1,49 @@
+name: Evaluation checks
+on:
+  pull_request:
+    paths:
+      - '.github/bench/**'
+      - '.github/workflows/bench*.yml'
+      - '.github/workflows/deploy-website.yml'
+      - 'scripts/bench/**'
+      - 'website/**'
+  push:
+    branches: [main]
+    paths:
+      - '.github/bench/**'
+      - '.github/workflows/bench*.yml'
+      - '.github/workflows/deploy-website.yml'
+      - 'scripts/bench/**'
+      - 'website/**'
+permissions:
+  contents: read
+jobs:
+  website:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: pnpm
+          cache-dependency-path: website/pnpm-lock.yaml
+      - run: pnpm --dir website install --frozen-lockfile
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: '0.8.22'
+          python-version: '3.12'
+      - name: Validate result JSON and generate website index
+        env:
+          VISIBILITY: ${{ github.event.repository.private && 'private' || 'public' }}
+        run: >-
+          uv run --no-project --with pyyaml==6.0.2 python -m scripts.bench.results
+          --build-index --data website/public/evaluation/data --visibility "$VISIBILITY"
+      - run: pnpm --dir website build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: evaluation-website-preview
+          path: website/dist
+          retention-days: 14

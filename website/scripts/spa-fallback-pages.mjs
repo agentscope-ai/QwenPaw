@@ -52,11 +52,21 @@ async function main() {
   const paths = [
     "docs",
     "usage-policy",
+    "evaluation",
+    "evaluation/demo",
     "docs/search",
     ...DOC_SLUGS.map((s) => `docs/${s}`),
     "blog",
     ...BLOG_SLUGS.map((s) => `blog/${s}`),
   ];
+  const history = JSON.parse(
+    await readFile(join(distDir, "evaluation/data/index.json"), "utf-8"),
+  );
+  for (const run of history.runs) {
+    if (!/^[a-f0-9]{64}$/.test(run.manifest_sha256))
+      throw new Error("Invalid evaluation run ID");
+    paths.push(`evaluation/runs/${run.manifest_sha256}`);
+  }
   for (const p of paths) {
     const out = join(distDir, p, "index.html");
     await mkdir(dirname(out), { recursive: true });

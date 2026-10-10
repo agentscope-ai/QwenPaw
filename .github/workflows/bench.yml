@@ -1,0 +1,181 @@
+name: Release benchmarks
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      task_limit:
+        description: Tasks per benchmark for incomplete validation only (0 = full)
+        type: number
+        default: 0
+      parallelism:
+        description: 'Runner concurrency JSON: experiments x tasks (account limit still applies)'
+        type: string
+        default: '{"experiments":6,"tasks":16}'
+      harnesses:
+        description: 'Harness IDs: one, comma-separated, or all'
+        type: string
+        default: qwenpaw
+      provider:
+        description: 'Provider ID(s), comma-separated, all, or configured default'
+        type: string
+        default: default
+      base_url:
+        description: 'Optional HTTPS endpoint override (one provider only)'
+        type: string
+        default: ''
+      api_key_secret:
+        description: 'Bench secret NAME override, never the key value'
+        type: string
+        default: ''
+      model_options:
+        description: 'JSON keyed by model ID: token limits, supports_image, generate_kwargs'
+        type: string
+        default: '{}'
+      price_snapshot:
+        description: 'Optional checked-in price snapshot path; otherwise unknown if unavailable'
+        type: string
+        default: ''
+      models:
+        description: 'Model IDs: one, comma-separated, or all provider defaults'
+        type: string
+        default: all
+      benchmarks:
+        description: 'Benchmark IDs: one, comma-separated, or all'
+        type: string
+        default: all
+permissions:
+  contents: read
+concurrency:
+  group: release-benchmarks
+  cancel-in-progress: false
+jobs:
+  prepare:
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'release' && vars.BENCH_ENABLED == 'true')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    outputs:
+      experiments: ${{ steps.prepare.outputs.experiments }}
+      visibility: ${{ steps.prepare.outputs.visibility }}
+      experiment_parallelism: ${{ steps.prepare.outputs.experiment_parallelism }}
+      task_parallelism: ${{ steps.prepare.outputs.task_parallelism }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: '0.8.22'
+          python-version: '3.12'
+      - id: prepare
+        name: Freeze protocol and resolve selected experiments
+        env:
+          TASK_LIMIT: ${{ inputs.task_limit || 0 }}
+          PARALLELISM: ${{ inputs.parallelism || '{"experiments":6,"tasks":16}' }}
+          PROVIDER_SELECTION: ${{ inputs.provider || 'default' }}
+          PROVIDER_BASE_URL: ${{ inputs.base_url }}
+          PROVIDER_SECRET_NAME: ${{ inputs.api_key_secret }}
+          MODEL_OPTIONS: ${{ inputs.model_options || '{}' }}
+          PRICE_SNAPSHOT: ${{ inputs.price_snapshot }}
+          HARNESS_SELECTION: ${{ github.event_name == 'release' && 'qwenpaw' || inputs.harnesses }}
+          MODEL_SELECTION: ${{ github.event_name == 'release' && 'all' || inputs.models }}
+          BENCHMARK_SELECTION: ${{ github.event_name == 'release' && 'all' || inputs.benchmarks }}
+          SOURCE_SHA: ${{ github.sha }}
+          SOURCE_REPOSITORY: ${{ github.repository }}
+          PRIVATE_REPOSITORY: ${{ github.event.repository.private }}
+        run: |
+          flags=()
+          if [ "$PRIVATE_REPOSITORY" = true ]; then flags+=(--private-repository); fi
+          uv run --no-project --with harbor==0.24.0 --with litellm==1.103.4 \
+            python -m scripts.bench.dispatch "${flags[@]}" \
+            --task-limit "$TASK_LIMIT" \
+            --parallelism "$PARALLELISM" \
+            --provider "$PROVIDER_SELECTION" --base-url "$PROVIDER_BASE_URL" \
+            --secret-name "$PROVIDER_SECRET_NAME" --model-options "$MODEL_OPTIONS" \
+            --price-snapshot "$PRICE_SNAPSHOT" \
+            --harnesses "$HARNESS_SELECTION" --models "$MODEL_SELECTION" \
+            --benchmarks "$BENCHMARK_SELECTION" \
+            --output "$RUNNER_TEMP/bench" --sha "$SOURCE_SHA" \
+            --repository "$SOURCE_REPOSITORY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bench-prepared
+          path: ${{ runner.temp }}/bench/experiments
+          compression-level: 0
+          if-no-files-found: error
+  experiments:
+    needs: prepare
+    strategy:
+      fail-fast: false
+      max-parallel: ${{ fromJSON(needs.prepare.outputs.experiment_parallelism) }}
+      matrix:
+        include: ${{ fromJSON(needs.prepare.outputs.experiments) }}
+    uses: ./.github/workflows/bench-model.yml
+    secrets: inherit
+    with:
+      experiment: ${{ matrix.experiment }}
+      batches: ${{ matrix.batches }}
+      model: 0
+      task_parallelism: ${{ fromJSON(needs.prepare.outputs.task_parallelism) }}
+  results:
+    needs: [prepare, experiments]
+    if: ${{ always() && !cancelled() && needs.prepare.result == 'success' }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      pull-requests: write
+    concurrency:
+      group: evaluation-results-pr
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          path: publication
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: '0.8.22'
+          python-version: '3.12'
+      - uses: actions/download-artifact@v4
+        with:
+          name: bench-prepared
+          path: prepared
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: bench-receipt-*
+          path: receipts
+      - name: Upsert allowlisted result JSON
+        env:
+          WORKFLOW_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          VISIBILITY: ${{ needs.prepare.outputs.visibility }}
+          ATTEMPT_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          uv run --no-project --with pyyaml==6.0.2 python -m scripts.bench.results \
+            --manifests prepared --receipts receipts \
+            --data publication/website/public/evaluation/data \
+            --workflow-url "$WORKFLOW_URL" --visibility "$VISIBILITY" \
+            --attempt-id "$ATTEMPT_ID"
+      - name: Create result-only pull request
+        uses: peter-evans/create-pull-request@v7
+        with:
+          path: publication
+          base: ${{ github.event.repository.default_branch }}
+          branch: bench/results-${{ github.run_id }}
+          commit-message: 'Update evaluation result JSON'
+          title: 'Evaluation results · run ${{ github.run_id }}'
+          body: |
+            Generated from ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}.
+
+            Same effective configuration replaces its current benchmark result;
+            new configurations retain separate SDK history. Incomplete attempts
+            are recorded without replacing an existing complete score.
+
+            This PR contains result JSON only. Merging publishes the results
+            through the website workflow. No automatic merge is enabled.
+          add-paths: |
+            website/public/evaluation/data/results/*.json
+            website/public/evaluation/data/attempts/*.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: bench-result-json
+          path: publication/website/public/evaluation/data

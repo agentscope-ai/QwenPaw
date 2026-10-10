@@ -1,0 +1,24 @@
+# All three adapters already exist in Harbor. Pin exported tasks by manifest hash.
+harness: QwenPaw
+harness_version: source
+version: index-v1
+harbor_version: 0.24.0
+visibility: public
+batch_size: 128
+max_parallel: 16
+experiment_parallelism: 6
+agent_setup_seconds: 1200
+upload_margin_seconds: 300
+benchmarks:
+  - id: gaia
+    dataset: gaia
+    count: 165
+    domains: [research]
+  - id: spreadsheetbench-verified
+    dataset: spreadsheetbench-verified
+    count: 400
+    domains: [office]
+  - id: swebench-verified
+    dataset: swe-bench/swe-bench-verified
+    count: 500
+    domains: [coding]

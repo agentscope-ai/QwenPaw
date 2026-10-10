@@ -9,6 +9,10 @@ from qwenpaw.cli.acp_cmd import acp_cmd
 
 def test_acp_cmd_passes_local_diagnostics(monkeypatch, tmp_path):
     captured = {}
+    monkeypatch.setattr(
+        f"qwenpaw.cli.init_cmd.ensure_local_runtime_initialized",
+        lambda **_kwargs: None,
+    )
 
     async def fake_run_qwenpaw_agent(**kwargs):
         captured.update(kwargs)

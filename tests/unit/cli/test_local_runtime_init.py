@@ -52,6 +52,7 @@ def test_local_initialization_runs_once(tmp_path, monkeypatch, existing):
             "zh",
             skip_existing=True,
             workspace_dir=workspace,
+            exclude_filenames=None,
         )
         assert config_path.read_text(encoding="utf-8") == "user configuration"
         assert heartbeat.read_text(encoding="utf-8") == "user heartbeat"
@@ -60,6 +61,7 @@ def test_local_initialization_runs_once(tmp_path, monkeypatch, existing):
             force=False,
             use_defaults=True,
             accept_security=True,
+            skip_bootstrap=False,
         )
     assert (tmp_path / ".hub-initialized").is_file()
 

@@ -1,0 +1,315 @@
+name: One model benchmark suite
+on:
+  workflow_call:
+    inputs:
+      task_parallelism:
+        required: true
+        type: number
+      batches:
+        required: true
+        type: number
+      experiment:
+        required: true
+        type: string
+      model:
+        required: true
+        type: number
+permissions:
+  contents: read
+jobs:
+  stage:
+    environment: Bench
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: bench-prepared
+          path: prepared
+      - name: Resolve and validate provider credential
+        id: provider
+        env:
+          MANIFEST_PATH: prepared/${{ inputs.experiment }}/manifest.json
+        run: |
+          python - <<'PYCODE'
+          import json, os
+          from pathlib import Path
+          data = json.loads(Path(os.environ['MANIFEST_PATH']).read_text())
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write('secret_name=' + data['models']['provider']['secret_name'] + '\n')
+          PYCODE
+      - name: Require configured secret before scheduling tasks
+        env:
+          BENCH_API_KEY: ${{ secrets[steps.provider.outputs.secret_name] }}
+        run: |
+          if [ -z "$BENCH_API_KEY" ]; then
+            echo '::error::The configured Bench provider secret is unavailable.'
+            exit 1
+          fi
+      - uses: actions/upload-artifact@v4
+        id: upload_manifest
+        continue-on-error: true
+        with:
+          name: bench-manifest-${{ inputs.experiment }}
+          path: prepared/${{ inputs.experiment }}/manifest.json
+          overwrite: true
+          compression-level: 0
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        if: steps.upload_manifest.outcome == 'failure'
+        with:
+          name: bench-manifest-${{ inputs.experiment }}
+          path: prepared/${{ inputs.experiment }}/manifest.json
+          overwrite: true
+          compression-level: 0
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        id: upload_0
+        continue-on-error: true
+        if: inputs.batches > 0
+        with:
+          name: bench-tasks-${{ inputs.experiment }}-0
+          path: prepared/${{ inputs.experiment }}/batch-0.tar.gz
+          overwrite: true
+          compression-level: 0
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        if: steps.upload_0.outcome == 'failure'
+        with:
+          name: bench-tasks-${{ inputs.experiment }}-0
+          path: prepared/${{ inputs.experiment }}/batch-0.tar.gz
+          overwrite: true
+          compression-level: 0
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        id: upload_1
+        continue-on-error: true
+        if: inputs.batches > 1
+        with:
+          name: bench-tasks-${{ inputs.experiment }}-1
+          path: prepared/${{ inputs.experiment }}/batch-1.tar.gz
+          overwrite: true
+          compression-level: 0
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        if: steps.upload_1.outcome == 'failure'
+        with:
+          name: bench-tasks-${{ inputs.experiment }}-1
+          path: prepared/${{ inputs.experiment }}/batch-1.tar.gz
+          overwrite: true
+          compression-level: 0
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        id: upload_2
+        continue-on-error: true
+        if: inputs.batches > 2
+        with:
+          name: bench-tasks-${{ inputs.experiment }}-2
+          path: prepared/${{ inputs.experiment }}/batch-2.tar.gz
+          overwrite: true
+          compression-level: 0
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        if: steps.upload_2.outcome == 'failure'
+        with:
+          name: bench-tasks-${{ inputs.experiment }}-2
+          path: prepared/${{ inputs.experiment }}/batch-2.tar.gz
+          overwrite: true
+          compression-level: 0
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        id: upload_3
+        continue-on-error: true
+        if: inputs.batches > 3
+        with:
+          name: bench-tasks-${{ inputs.experiment }}-3
+          path: prepared/${{ inputs.experiment }}/batch-3.tar.gz
+          overwrite: true
+          compression-level: 0
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        if: steps.upload_3.outcome == 'failure'
+        with:
+          name: bench-tasks-${{ inputs.experiment }}-3
+          path: prepared/${{ inputs.experiment }}/batch-3.tar.gz
+          overwrite: true
+          compression-level: 0
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        id: upload_4
+        continue-on-error: true
+        if: inputs.batches > 4
+        with:
+          name: bench-tasks-${{ inputs.experiment }}-4
+          path: prepared/${{ inputs.experiment }}/batch-4.tar.gz
+          overwrite: true
+          compression-level: 0
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        if: steps.upload_4.outcome == 'failure'
+        with:
+          name: bench-tasks-${{ inputs.experiment }}-4
+          path: prepared/${{ inputs.experiment }}/batch-4.tar.gz
+          overwrite: true
+          compression-level: 0
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        id: upload_5
+        continue-on-error: true
+        if: inputs.batches > 5
+        with:
+          name: bench-tasks-${{ inputs.experiment }}-5
+          path: prepared/${{ inputs.experiment }}/batch-5.tar.gz
+          overwrite: true
+          compression-level: 0
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        if: steps.upload_5.outcome == 'failure'
+        with:
+          name: bench-tasks-${{ inputs.experiment }}-5
+          path: prepared/${{ inputs.experiment }}/batch-5.tar.gz
+          overwrite: true
+          compression-level: 0
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        id: upload_6
+        continue-on-error: true
+        if: inputs.batches > 6
+        with:
+          name: bench-tasks-${{ inputs.experiment }}-6
+          path: prepared/${{ inputs.experiment }}/batch-6.tar.gz
+          overwrite: true
+          compression-level: 0
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        if: steps.upload_6.outcome == 'failure'
+        with:
+          name: bench-tasks-${{ inputs.experiment }}-6
+          path: prepared/${{ inputs.experiment }}/batch-6.tar.gz
+          overwrite: true
+          compression-level: 0
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        id: upload_7
+        continue-on-error: true
+        if: inputs.batches > 7
+        with:
+          name: bench-tasks-${{ inputs.experiment }}-7
+          path: prepared/${{ inputs.experiment }}/batch-7.tar.gz
+          overwrite: true
+          compression-level: 0
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        if: steps.upload_7.outcome == 'failure'
+        with:
+          name: bench-tasks-${{ inputs.experiment }}-7
+          path: prepared/${{ inputs.experiment }}/batch-7.tar.gz
+          overwrite: true
+          compression-level: 0
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        id: upload_8
+        continue-on-error: true
+        if: inputs.batches > 8
+        with:
+          name: bench-tasks-${{ inputs.experiment }}-8
+          path: prepared/${{ inputs.experiment }}/batch-8.tar.gz
+          overwrite: true
+          compression-level: 0
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        if: steps.upload_8.outcome == 'failure'
+        with:
+          name: bench-tasks-${{ inputs.experiment }}-8
+          path: prepared/${{ inputs.experiment }}/batch-8.tar.gz
+          overwrite: true
+          compression-level: 0
+          if-no-files-found: error
+  batch_0:
+    needs: stage
+    uses: ./.github/workflows/bench-batch.yml
+    secrets: inherit
+    with:
+      experiment: ${{ inputs.experiment }}
+      model: ${{ inputs.model }}
+      task_parallelism: ${{ inputs.task_parallelism }}
+      batch: 0
+  batch_1:
+    needs: [stage, batch_0]
+    if: ${{ always() && !cancelled() && needs.stage.result == 'success' && inputs.batches > 1 }}
+    uses: ./.github/workflows/bench-batch.yml
+    secrets: inherit
+    with:
+      experiment: ${{ inputs.experiment }}
+      model: ${{ inputs.model }}
+      task_parallelism: ${{ inputs.task_parallelism }}
+      batch: 1
+  batch_2:
+    needs: [stage, batch_1]
+    if: ${{ always() && !cancelled() && needs.stage.result == 'success' && inputs.batches > 2 }}
+    uses: ./.github/workflows/bench-batch.yml
+    secrets: inherit
+    with:
+      experiment: ${{ inputs.experiment }}
+      model: ${{ inputs.model }}
+      task_parallelism: ${{ inputs.task_parallelism }}
+      batch: 2
+  batch_3:
+    needs: [stage, batch_2]
+    if: ${{ always() && !cancelled() && needs.stage.result == 'success' && inputs.batches > 3 }}
+    uses: ./.github/workflows/bench-batch.yml
+    secrets: inherit
+    with:
+      experiment: ${{ inputs.experiment }}
+      model: ${{ inputs.model }}
+      task_parallelism: ${{ inputs.task_parallelism }}
+      batch: 3
+  batch_4:
+    needs: [stage, batch_3]
+    if: ${{ always() && !cancelled() && needs.stage.result == 'success' && inputs.batches > 4 }}
+    uses: ./.github/workflows/bench-batch.yml
+    secrets: inherit
+    with:
+      experiment: ${{ inputs.experiment }}
+      model: ${{ inputs.model }}
+      task_parallelism: ${{ inputs.task_parallelism }}
+      batch: 4
+  batch_5:
+    needs: [stage, batch_4]
+    if: ${{ always() && !cancelled() && needs.stage.result == 'success' && inputs.batches > 5 }}
+    uses: ./.github/workflows/bench-batch.yml
+    secrets: inherit
+    with:
+      experiment: ${{ inputs.experiment }}
+      model: ${{ inputs.model }}
+      task_parallelism: ${{ inputs.task_parallelism }}
+      batch: 5
+  batch_6:
+    needs: [stage, batch_5]
+    if: ${{ always() && !cancelled() && needs.stage.result == 'success' && inputs.batches > 6 }}
+    uses: ./.github/workflows/bench-batch.yml
+    secrets: inherit
+    with:
+      experiment: ${{ inputs.experiment }}
+      model: ${{ inputs.model }}
+      task_parallelism: ${{ inputs.task_parallelism }}
+      batch: 6
+  batch_7:
+    needs: [stage, batch_6]
+    if: ${{ always() && !cancelled() && needs.stage.result == 'success' && inputs.batches > 7 }}
+    uses: ./.github/workflows/bench-batch.yml
+    secrets: inherit
+    with:
+      experiment: ${{ inputs.experiment }}
+      model: ${{ inputs.model }}
+      task_parallelism: ${{ inputs.task_parallelism }}
+      batch: 7
+  batch_8:
+    needs: [stage, batch_7]
+    if: ${{ always() && !cancelled() && needs.stage.result == 'success' && inputs.batches > 8 }}
+    uses: ./.github/workflows/bench-batch.yml
+    secrets: inherit
+    with:
+      experiment: ${{ inputs.experiment }}
+      model: ${{ inputs.model }}
+      task_parallelism: ${{ inputs.task_parallelism }}
+      batch: 8

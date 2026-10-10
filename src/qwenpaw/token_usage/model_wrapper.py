@@ -168,6 +168,7 @@ class TokenRecordingModelWrapper(ChatModelBase):
             "cache_write_tokens": cache_write,
             "cache_eligible_input_tokens": cache_eligible,
             "cache_observed": cache_observed,
+            f"cache_complete": cache_observed,
             "cache_hit_rate": (
                 cache_read / cache_eligible * 100
                 if cache_eligible > 0
@@ -217,6 +218,9 @@ class TokenRecordingModelWrapper(ChatModelBase):
                 )
             usage["total_tokens"] = (
                 usage["prompt_tokens"] + usage["completion_tokens"]
+            )
+            usage[f"cache_complete"] = bool(
+                previous[f"cache_complete"] and usage[f"cache_complete"],
             )
             usage["cache_observed"] = bool(
                 previous.get("cache_observed", False)

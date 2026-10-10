@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from contextlib import redirect_stdout
 import logging
 import sys
 
@@ -72,6 +73,12 @@ def acp_cmd(
             provider_config = OpenAIRuntimeProviderConfig.from_env()
         except ValueError as exc:
             raise click.UsageError(str(exc)) from exc
+
+    from .init_cmd import ensure_local_runtime_initialized
+
+    # ACP owns stdout exclusively; setup diagnostics belong on stderr.
+    with redirect_stdout(sys.stderr):
+        ensure_local_runtime_initialized(skip_bootstrap=True)
 
     from ..agents.acp.server import run_qwenpaw_agent
 

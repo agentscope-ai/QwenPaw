@@ -1,0 +1,26 @@
+# Values are configuration only. Credentials stay in the Bench environment.
+dashscope:
+  default: true
+  base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
+  secret_name: DASHSCOPE_API_KEY
+  protocol: openai
+  prices: .github/bench/prices/dashscope-beijing.yaml
+  models:
+    - id: qwen3.8-max-0902
+      supports_image: true
+    - id: qwen3.8-27b
+      supports_image: true
+    - id: deepseek-v4-pro-0813
+      supports_image: false
+    - id: deepseek-v4.1-flash
+      supports_image: true
+    - id: glm-5.3
+      supports_image: false
+    - id: glm-5.2
+      supports_image: false
+openai:
+  base_url: https://api.openai.com/v1
+  secret_name: OPENAI_API_KEY
+  protocol: openai
+  # Select model IDs through dispatch, or configure provider defaults here.
+  models: []

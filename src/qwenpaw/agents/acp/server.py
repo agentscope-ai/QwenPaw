@@ -426,6 +426,7 @@ class QwenPawACPAgent(Agent):
 
         return WorkspaceBootstrapFactory.build_bootstrap_kwargs(
             app_services,
+            include_bootstrap_hook=False,
             extra_command_specs=(
                 extra_command_specs if extra_command_specs else None
             ),
@@ -1286,6 +1287,12 @@ class QwenPawACPAgent(Agent):
                 "outputTokens": raw.get("completion_tokens", 0),
                 "totalTokens": raw.get("total_tokens", 0),
                 "model": raw.get("model_name") or "",
+                f"cacheReadTokens": raw.get(f"cache_read_tokens"),
+                f"cacheWriteTokens": raw.get(f"cache_write_tokens"),
+                f"cacheEligibleInputTokens": raw.get(
+                    f"cache_eligible_input_tokens",
+                ),
+                f"cacheUsageComplete": raw.get(f"cache_complete", False),
                 # Context window, so the UI can show how full the *current*
                 # context is (inputTokens / contextSize). 0 = unknown.
                 "contextSize": raw.get("context_size", 0),

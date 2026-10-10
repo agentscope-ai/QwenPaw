@@ -3,6 +3,10 @@
 name: Deploy website to GitHub Pages
 
 on:
+  push:
+    paths:
+      - "website/public/evaluation/data/results/**.json"
+      - "website/public/evaluation/data/attempts/**.json"
   release:
     types: [published]
   workflow_dispatch:
@@ -31,8 +35,10 @@ jobs:
     runs-on: ubuntu-latest
     # Deploy on: stable releases OR manual workflow_dispatch
     if: >-
+      (github.event_name == 'push' && github.ref_name == github.event.repository.default_branch) ||
+      inputs.ref != '' ||
       github.event_name == 'workflow_dispatch' ||
-      github.event.release.prerelease == false
+      (github.event_name == 'release' && github.event.release.prerelease == false)
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -55,9 +61,22 @@ jobs:
         working-directory: website
         run: pnpm install --frozen-lockfile
 
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: '0.8.22'
+          python-version: '3.12'
+
+      - name: Build evaluation index from merged result JSON
+        run: >-
+          uv run --no-project --with pyyaml==6.0.2
+          python -m scripts.bench.results --build-index
+          --data website/public/evaluation/data
+          --visibility ${{ github.event.repository.private && 'private' || 'public' }}
+
       - name: Build
         working-directory: website
         env:
+          VITE_EVALUATION_VISIBILITY: ${{ github.event.repository.private && 'private' || 'public' }}
           VITE_BASE_PATH: "/"
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
@@ -147,7 +166,7 @@ jobs:
         run: cp website/dist/index.html website/dist/404.html
 
       - name: Deploy to GitHub Pages
-        if: ${{ !inputs.dry_run }}
+        if: ${{ !inputs.dry_run && github.repository == 'agentscope-ai/QwenPaw' }}
         uses: peaceiris/actions-gh-pages@v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
@@ -155,6 +174,6 @@ jobs:
           cname: qwenpaw.agentscope.io
 
       - name: Dry-run notice
-        if: ${{ inputs.dry_run }}
+        if: ${{ inputs.dry_run || github.repository != 'agentscope-ai/QwenPaw' }}
         run: |
           echo "DRY-RUN: would deploy website/dist to GitHub Pages (cname qwenpaw.agentscope.io)"

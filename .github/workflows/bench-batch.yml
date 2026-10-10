@@ -1,0 +1,110 @@
+name: Independent task runners
+on:
+  workflow_call:
+    inputs:
+      task_parallelism:
+        required: true
+        type: number
+      experiment:
+        required: true
+        type: string
+      model:
+        required: true
+        type: number
+      batch:
+        required: true
+        type: number
+permissions:
+  contents: read
+jobs:
+  matrix:
+    runs-on: ubuntu-24.04
+    outputs:
+      tasks: ${{ steps.matrix.outputs.tasks }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: bench-manifest-${{ inputs.experiment }}
+          path: manifest
+      - id: matrix
+        env:
+          BATCH: ${{ inputs.batch }}
+        run: |
+          python - <<'PYCODE'
+          import json, os
+          from pathlib import Path
+          data = json.loads(Path('manifest/manifest.json').read_text())
+          tasks = [{k: t[k] for k in ('id', 'job_minutes')}
+                   for t in data['batches'][int(os.environ['BATCH'])]]
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as out:
+              out.write('tasks=' + json.dumps(tasks) + '\n')
+          PYCODE
+  task:
+    needs: matrix
+    strategy:
+      fail-fast: false
+      max-parallel: ${{ inputs.task_parallelism }}
+      matrix:
+        include: ${{ fromJSON(needs.matrix.outputs.tasks) }}
+    uses: ./.github/workflows/bench-task.yml
+    secrets: inherit
+    with:
+      experiment: ${{ inputs.experiment }}
+      model: ${{ inputs.model }}
+      batch: ${{ inputs.batch }}
+      task: ${{ matrix.id }}
+      job_minutes: ${{ matrix.job_minutes }}
+      attempt: 1
+
+  recovery:
+    needs: [matrix, task]
+    if: ${{ always() && !cancelled() && needs.matrix.result == 'success' }}
+    runs-on: ubuntu-24.04
+    outputs:
+      tasks: ${{ steps.recovery.outputs.tasks }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: '0.8.22'
+          python-version: '3.12'
+      - uses: actions/download-artifact@v4
+        with:
+          name: bench-manifest-${{ inputs.experiment }}
+          path: manifest
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: bench-receipt-${{ inputs.experiment }}-${{ inputs.model }}-*
+          path: receipts
+      - id: recovery
+        env:
+          MODEL: ${{ inputs.model }}
+          BATCH: ${{ inputs.batch }}
+        run: |
+          uv run --no-project --with harbor==0.24.0 --with litellm==1.103.4 \
+            python -m scripts.bench.retry --manifest manifest/manifest.json \
+            --receipts receipts --model "$MODEL" --batch "$BATCH" \
+            --missing "$RUNNER_TEMP/missing"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bench-receipt-${{ inputs.experiment }}-missing-${{ inputs.model }}-${{ inputs.batch }}
+          path: ${{ runner.temp }}/missing
+          if-no-files-found: ignore
+
+  retry:
+    needs: recovery
+    if: ${{ always() && !cancelled() && needs.recovery.result == 'success' && needs.recovery.outputs.tasks != '[]' }}
+    strategy:
+      fail-fast: false
+      max-parallel: ${{ inputs.task_parallelism }}
+      matrix:
+        include: ${{ fromJSON(needs.recovery.outputs.tasks) }}
+    uses: ./.github/workflows/bench-task.yml
+    secrets: inherit
+    with:
+      experiment: ${{ inputs.experiment }}
+      model: ${{ inputs.model }}
+      batch: ${{ inputs.batch }}
+      task: ${{ matrix.id }}
+      job_minutes: ${{ matrix.job_minutes }}
+      attempt: 2

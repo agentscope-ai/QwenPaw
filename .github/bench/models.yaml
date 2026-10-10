@@ -1,0 +1,5 @@
+# These are evaluation settings, not claims about model native limits.
+# Freeze reasoning/tool settings after offline parity before enabling releases.
+max_input_tokens: 128000
+max_output_tokens: 16384
+generate_kwargs: {}
