@@ -86,6 +86,7 @@
     "genericTitle": "页面出现异常",
     "genericSubTitle": "渲染此页面时发生了意外错误。",
     "reload": "刷新页面",
+    "retry": "重试",
     "details": "查看错误详情",
     "copy": "复制错误信息",
     "copied": "错误信息已复制",
