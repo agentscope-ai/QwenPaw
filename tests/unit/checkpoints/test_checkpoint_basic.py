@@ -6,7 +6,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import os
 import shutil
 import threading
@@ -16,6 +15,7 @@ from types import SimpleNamespace
 import pytest
 
 from qwenpaw.app.task_tracker import TaskTracker
+from qwenpaw.app.chats.transcript_catalog import TranscriptCatalog
 from qwenpaw.checkpoints import policy as checkpoint_policy
 from qwenpaw.runtime.commands.control.checkpoint_handler import (
     CheckpointCommandHandler,
@@ -23,7 +23,6 @@ from qwenpaw.runtime.commands.control.checkpoint_handler import (
 from qwenpaw.checkpoints.service import CheckpointService
 from qwenpaw.checkpoints.policy import (
     ref_session_key,
-    session_file_path,
     session_key,
 )
 from qwenpaw.checkpoints.models import CheckpointError
@@ -77,33 +76,42 @@ def _write_session(
     *,
     session_id: str = SESSION_ID,
 ) -> Path:
-    path = session_file_path(
-        workspace_dir,
+    catalog = TranscriptCatalog(workspace_dir)
+    catalog.replace_runtime_state(
+        session_id=session_id,
+        user_id=USER_ID,
+        channel=CHANNEL,
+        state={
+            "agent": {
+                "state": {
+                    "context": [
+                        {
+                            "id": f"msg-{text}",
+                            "role": "user",
+                            "content": [{"type": "text", "text": text}],
+                        },
+                    ],
+                },
+            },
+        },
+        context_generation=0,
+        current_usage=None,
+    )
+    catalog.close()
+    return workspace_dir
+
+
+def _session_text(workspace_dir: Path, session_id: str = SESSION_ID) -> str:
+    catalog = TranscriptCatalog(workspace_dir)
+    snapshot = catalog.read_runtime_state(
         session_id=session_id,
         user_id=USER_ID,
         channel=CHANNEL,
     )
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps(
-            {
-                "agent": {
-                    "state": {
-                        "context": [
-                            {
-                                "id": f"msg-{text}",
-                                "role": "user",
-                                "content": [{"type": "text", "text": text}],
-                            },
-                        ],
-                    },
-                },
-            },
-            ensure_ascii=False,
-        ),
-        encoding="utf-8",
-    )
-    return path
+    catalog.close()
+    assert snapshot is not None
+    content = snapshot.state["agent"]["state"]["context"][-1]["content"]
+    return "\n".join(block["text"] for block in content)
 
 
 def _engine(workspace: _Workspace):
@@ -432,7 +440,7 @@ async def test_control_restore_waits_for_active_agent(
             break
         await asyncio.sleep(0.01)
 
-    assert "after" in session_path.read_text(encoding="utf-8")
+    assert _session_text(session_path) == "after"
     assert not restore_finished.is_set()
     assert not engine.query_gate.is_set()
 
@@ -444,7 +452,7 @@ async def test_control_restore_waits_for_active_agent(
         pass
 
     assert "**Restore complete**" in restore_result[0]
-    assert "before" in session_path.read_text(encoding="utf-8")
+    assert _session_text(session_path) == "before"
     assert engine.query_gate.is_set()
     assert not engine.maintenance_lock.locked()
     assert not engine.lock.locked()
@@ -659,9 +667,17 @@ async def test_snapshot_reuses_index_and_timeline_batches_git_reads(
     calls: list[tuple[str, ...]] = []
     original_run_git = engine.repository.run_git
 
-    def recording_run_git(*args: str, input_text: str | None = None) -> str:
+    def recording_run_git(
+        *args: str,
+        input_text: str | None = None,
+        input_bytes: bytes | None = None,
+    ) -> str:
         calls.append(args)
-        return original_run_git(*args, input_text=input_text)
+        return original_run_git(
+            *args,
+            input_text=input_text,
+            input_bytes=input_bytes,
+        )
 
     monkeypatch.setattr(engine.repository, "run_git", recording_run_git)
     _write_session(tmp_path, "second")
@@ -700,9 +716,17 @@ async def test_gc_skips_git_maintenance_when_nothing_is_deleted(
     calls: list[tuple[str, ...]] = []
     original_run_git = engine.repository.run_git
 
-    def recording_run_git(*args: str, input_text: str | None = None) -> str:
+    def recording_run_git(
+        *args: str,
+        input_text: str | None = None,
+        input_bytes: bytes | None = None,
+    ) -> str:
         calls.append(args)
-        return original_run_git(*args, input_text=input_text)
+        return original_run_git(
+            *args,
+            input_text=input_text,
+            input_bytes=input_bytes,
+        )
 
     monkeypatch.setattr(engine.repository, "run_git", recording_run_git)
     result = await engine.gc(
@@ -728,6 +752,7 @@ async def test_delete_sessions_removes_only_target_refs_and_head(
         name="target",
         message="target",
     )
+    _write_session(tmp_path, "other", session_id="session-2")
     other_ref = await engine.make_snapshot(
         kind="snap",
         session_id="session-2",

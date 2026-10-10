@@ -1088,6 +1088,14 @@ class AgentBuilder:
             else ""
         )
         session_id = getattr(ctx, "session_id", None) or "local"
+        raw_generation = (getattr(ctx, "session_state", None) or {}).get(
+            "_context_generation",
+            0,
+        )
+        try:
+            context_generation = max(int(raw_generation), 0)
+        except (TypeError, ValueError):
+            context_generation = 0
         agent_id = (
             getattr(agent_config, "id", None)
             or getattr(ctx, "agent_id", None)
@@ -1105,6 +1113,7 @@ class AgentBuilder:
             workspace_dir=workspace_dir,
             model=model,
             session_id=session_id,
+            context_generation=context_generation,
             agent_id=agent_id,
             offloader=offloader,
         )

@@ -701,7 +701,7 @@ class CommandHandler(ConversationCommandHandlerMixin):
             "- Auto-memory task started in background\n"
             "- Plan state cleared\n"
             "- Ready for new conversation",
-            metadata={"clear_plan": True},
+            metadata={"context_reset": True, "clear_plan": True},
         )
 
     async def _process_clear(
@@ -715,11 +715,11 @@ class CommandHandler(ConversationCommandHandlerMixin):
         reset_auto_memory_turn_state(self._state)
         await self._reset_modes()
         return await self._make_system_msg(
-            "**History Cleared!**\n\n"
+            "**Context Reset!**\n\n"
             "- Compressed summary reset\n"
-            "- Memory is now empty\n"
+            "- Active model context is now empty\n"
             "- Plan state cleared",
-            metadata={"clear_history": True, "clear_plan": True},
+            metadata={"context_reset": True, "clear_plan": True},
         )
 
     async def _persist_and_clear(self) -> None:

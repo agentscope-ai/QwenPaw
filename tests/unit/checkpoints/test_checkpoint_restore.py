@@ -17,17 +17,20 @@ from unittest.mock import patch
 import pytest
 
 from qwenpaw.app.task_tracker import TaskTracker
+from qwenpaw.app.chats.transcript_catalog import TranscriptCatalog
 from qwenpaw.checkpoints.service import CheckpointService
 from qwenpaw.checkpoints.policy import (
+    encode_metadata,
     sanitize_ref_component,
-    session_file_path,
     session_key,
+    session_snapshot_path,
 )
 from qwenpaw.checkpoints.restore import MemoryRestorer, WorkspaceMutationGuard
 from qwenpaw.checkpoints.models import CheckpointError, RestoreResult
 from qwenpaw.checkpoints.render import render_restore
 from qwenpaw.checkpoints.repository import CheckpointRepository
 from qwenpaw.checkpoints.restore import RestoreService
+from qwenpaw.schemas import Message, TextContent
 
 pytestmark = pytest.mark.skipif(
     shutil.which("git") is None,
@@ -37,6 +40,11 @@ pytestmark = pytest.mark.skipif(
 SESSION_ID = "session-1"
 USER_ID = "user"
 CHANNEL = "console"
+CONVERSATION_PATH = session_snapshot_path(
+    channel=CHANNEL,
+    user_id=USER_ID,
+    session_id=SESSION_ID,
+)
 
 
 def _write_session(
@@ -47,38 +55,41 @@ def _write_session(
     user_id: str = USER_ID,
     channel: str = CHANNEL,
 ) -> Path:
-    path = session_file_path(
-        workspace,
+    catalog = TranscriptCatalog(workspace)
+    catalog.replace_runtime_state(
         session_id=session_id,
         user_id=user_id,
         channel=channel,
-    )
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps(
-            {
-                "agent": {
-                    "state": {
-                        "context": [
-                            {
-                                "id": f"msg-{text}",
-                                "role": "user",
-                                "content": [{"type": "text", "text": text}],
-                            },
-                        ],
-                    },
+        state={
+            "agent": {
+                "state": {
+                    "context": [
+                        {
+                            "id": f"msg-{text}",
+                            "role": "user",
+                            "content": [{"type": "text", "text": text}],
+                        },
+                    ],
                 },
             },
-            ensure_ascii=False,
-        ),
-        encoding="utf-8",
+        },
+        context_generation=0,
+        current_usage=None,
     )
-    return path
+    catalog.close()
+    return workspace
 
 
 def _session_text(path: Path) -> str:
-    data = json.loads(path.read_text(encoding="utf-8"))
-    content = data["agent"]["state"]["context"][-1]["content"]
+    catalog = TranscriptCatalog(path)
+    snapshot = catalog.read_runtime_state(
+        session_id=SESSION_ID,
+        user_id=USER_ID,
+        channel=CHANNEL,
+    )
+    catalog.close()
+    assert snapshot is not None
+    content = snapshot.state["agent"]["state"]["context"][-1]["content"]
     if isinstance(content, str):
         return content
     return "\n".join(
@@ -86,6 +97,45 @@ def _session_text(path: Path) -> str:
         for block in content
         if isinstance(block, dict) and isinstance(block.get("text"), str)
     )
+
+
+def _append_turn(workspace: Path, turn_id: str, text: str) -> None:
+    catalog = TranscriptCatalog(workspace)
+    catalog.start_turn(
+        session_id=SESSION_ID,
+        user_id=USER_ID,
+        channel=CHANNEL,
+        turn_id=turn_id,
+    )
+    catalog.upsert_message(
+        session_id=SESSION_ID,
+        turn_id=turn_id,
+        message=Message(
+            id=f"message-{turn_id}",
+            role="user",
+            content=[TextContent(text=text)],
+        ).completed(),
+        ordinal=0,
+    )
+    catalog.finish_turn(
+        session_id=SESSION_ID,
+        turn_id=turn_id,
+        status="completed",
+    )
+    catalog.close()
+
+
+def _transcript_texts(workspace: Path) -> list[str]:
+    catalog = TranscriptCatalog(workspace)
+    page = catalog.get_page(
+        session_id=SESSION_ID,
+        user_id=USER_ID,
+        channel=CHANNEL,
+        limit=100,
+    )
+    catalog.close()
+    assert page is not None
+    return [message.content[0].text for message in page.messages]
 
 
 async def _checkpoint(
@@ -134,7 +184,7 @@ def test_file_restore_dry_run_renders_every_candidate() -> None:
     result = RestoreResult(
         target="#1",
         commit="a" * 40,
-        restored_paths=("sessions/console/user_session-1.json", *restored),
+        restored_paths=(CONVERSATION_PATH, *restored),
         pre_restore_ref=None,
         dry_run=True,
         include_files=True,
@@ -163,7 +213,7 @@ def test_file_restore_candidates_skip_qwenpaw_state_files(
 
     assert service._is_file_restore_candidate(
         "src/app.py",
-        conv_rel="sessions/console/user_s1.json",
+        conv_rel=".qwenpaw-checkpoint/sessions/test.db",
     )
     for rel in (
         "chats.json",
@@ -178,13 +228,13 @@ def test_file_restore_candidates_skip_qwenpaw_state_files(
         "mem_agent/index.json",
         "mem_session/state.json",
         ".scroll/cache.json",
-        "sessions/console/user_s1.json",
+        ".qwenpaw-checkpoint/sessions/test.db",
         "MEMORY.md",
         "memory/note.md",
     ):
         assert not service._is_file_restore_candidate(
             rel,
-            conv_rel="sessions/console/user_s1.json",
+            conv_rel=".qwenpaw-checkpoint/sessions/test.db",
         )
 
 
@@ -216,10 +266,12 @@ async def test_snapshot_keeps_checkpoint_state_and_excludes_runtime_state(
         ).splitlines(),
     )
 
-    assert "sessions/console/user_session-1.json" in tree_paths
+    assert CONVERSATION_PATH in tree_paths
     assert "MEMORY.md" in tree_paths
     assert "memory/daily.md" in tree_paths
     assert "mem_agent/index.json" not in tree_paths
+    assert "transcript_catalog.db" not in tree_paths
+    assert not any(path.startswith("transcripts/") for path in tree_paths)
     assert ".venv/cache.txt" not in tree_paths
     assert ".gitignore" not in tree_paths
 
@@ -244,7 +296,7 @@ async def test_conversation_restore_dry_run_then_confirm(
     )
     assert preview.dry_run is True
     assert preview.pre_restore_ref is None
-    assert preview.restored_paths == ("sessions/console/user_session-1.json",)
+    assert preview.restored_paths == (CONVERSATION_PATH,)
     assert _session_text(session_path) == "second"
     assert (
         engine.session_head(
@@ -276,6 +328,99 @@ async def test_conversation_restore_dry_run_then_confirm(
         )
         == first_commit
     )
+
+
+@pytest.mark.asyncio
+async def test_conversation_restore_imports_legacy_json_checkpoint(
+    tmp_path: Path,
+) -> None:
+    engine = CheckpointService(tmp_path)
+    _write_session(tmp_path, "current")
+    legacy_state = {
+        "agent": {
+            "state": {
+                "context": [
+                    {
+                        "id": "legacy-user",
+                        "name": "user",
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": "legacy"},
+                        ],
+                        "created_at": "2026-01-01T00:00:00+00:00",
+                    },
+                ],
+            },
+        },
+    }
+    legacy_path = "sessions/console/user_session-1.json"
+    tree = engine.repository.write_workspace_tree(
+        {legacy_path: json.dumps(legacy_state)},
+    )
+    metadata = encode_metadata(
+        "legacy",
+        channel=CHANNEL,
+        user_id=USER_ID,
+        session_id=SESSION_ID,
+    )
+    commit = engine.repository.run_git(
+        "commit-tree",
+        tree,
+        input_text=f"snapshot legacy\n\n{metadata}\n",
+    )
+    key = session_key(
+        channel=CHANNEL,
+        user_id=USER_ID,
+        session_id=SESSION_ID,
+    )
+    engine.repository.run_git(
+        "update-ref",
+        f"refs/snap/{key}/legacy",
+        commit,
+    )
+
+    preview = await engine.restore(
+        target=commit[:12],
+        session_id=SESSION_ID,
+        user_id=USER_ID,
+        channel=CHANNEL,
+        dry_run=True,
+    )
+    assert preview.restored_paths == (legacy_path,)
+
+    await engine.restore(
+        target=commit[:12],
+        session_id=SESSION_ID,
+        user_id=USER_ID,
+        channel=CHANNEL,
+    )
+
+    assert _session_text(tmp_path) == "legacy"
+    assert _transcript_texts(tmp_path) == ["legacy"]
+
+
+@pytest.mark.asyncio
+async def test_conversation_restore_rolls_back_transcript_and_runtime(
+    tmp_path: Path,
+) -> None:
+    engine = CheckpointService(tmp_path)
+    _write_session(tmp_path, "two")
+    _append_turn(tmp_path, "turn-2", "2")
+    checkpoint_two = await _checkpoint(engine, "two")
+
+    _write_session(tmp_path, "three")
+    _append_turn(tmp_path, "turn-3", "3")
+    await _checkpoint(engine, "three")
+
+    await engine.restore(
+        target=checkpoint_two[:12],
+        session_id=SESSION_ID,
+        user_id=USER_ID,
+        channel=CHANNEL,
+    )
+
+    assert _session_text(tmp_path) == "two"
+    assert _transcript_texts(tmp_path) == ["2"]
 
 
 @pytest.mark.asyncio
@@ -1029,18 +1174,18 @@ async def test_restore_io_does_not_block_event_loop(
     await _checkpoint(engine, "second")
     started = threading.Event()
     release = threading.Event()
-    original_restore_paths = engine.repository.restore_internal_paths
+    original_restore = engine.restore_session_database
 
-    def slow_restore_paths(blobs: dict[str, bytes]) -> None:
+    def slow_restore(blob: bytes, **kwargs) -> None:
         started.set()
         if not release.wait(timeout=5):
             raise RuntimeError("test restore release timed out")
-        original_restore_paths(blobs)
+        original_restore(blob, **kwargs)
 
     monkeypatch.setattr(
-        engine.repository,
-        "restore_internal_paths",
-        slow_restore_paths,
+        engine,
+        "restore_session_database",
+        slow_restore,
     )
     restore_task = asyncio.create_task(
         engine.restore(

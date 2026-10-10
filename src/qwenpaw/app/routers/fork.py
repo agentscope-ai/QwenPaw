@@ -7,7 +7,6 @@ for spawn_subagent(fork=True).
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 from pathlib import Path
 from typing import Optional
@@ -17,7 +16,7 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
 from ...config.config import load_agent_config
-from ..chats.session import sanitize_filename
+from ...utils.io_utils import run_sync_io
 
 logger = logging.getLogger(__name__)
 
@@ -81,97 +80,27 @@ def _get_project_dir(agent_id: str) -> Optional[Path]:
     return candidate
 
 
-def _get_sessions_dir(agent_id: str) -> Path:
-    """Resolve the sessions directory for the agent."""
+async def _get_workspace(request: Request, agent_id: str):
+    """Return the live workspace that owns the session database."""
+    manager = getattr(request.app.state, "multi_agent_manager", None)
+    if manager is None:
+        raise HTTPException(
+            status_code=500,
+            detail="MultiAgentManager not initialized",
+        )
     try:
-        config = load_agent_config(agent_id)
-        workspace = Path(config.workspace_dir).expanduser().resolve()
+        workspace = await manager.get_agent(agent_id)
     except Exception as exc:
         raise HTTPException(
             status_code=404,
-            detail=f"Cannot resolve workspace: {exc}",
+            detail=f"Agent '{agent_id}' not found: {exc}",
         ) from exc
-    return workspace / "sessions"
-
-
-def _session_path(
-    sessions_dir: Path,
-    session_id: str,
-    user_id: Optional[str],
-    channel: Optional[str],
-) -> Path:
-    """Reconstruct the session file path (SafeJSONSession compat)."""
-    safe_sid = sanitize_filename(session_id)
-    safe_uid = sanitize_filename(user_id) if user_id else ""
-    filename = (
-        f"{safe_uid}_{safe_sid}.json" if safe_uid else f"{safe_sid}.json"
-    )
-
-    if channel:
-        safe_channel = sanitize_filename(channel)
-        return sessions_dir / safe_channel / filename
-    return sessions_dir / filename
-
-
-def _read_session_state(session_file: Path) -> dict:
-    """Read full session state dict (SafeJSONSession format).
-
-    The file format is: {"agent": {state_dict}, ...} keyed by
-    module name.
-    """
-    if not session_file.exists():
-        return {}
-    try:
-        data = json.loads(
-            session_file.read_text(encoding="utf-8"),
+    if workspace.session is None or workspace.transcript_store is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Agent session storage is not available",
         )
-        if isinstance(data, dict):
-            return data
-        return {}
-    except Exception as exc:
-        logger.warning(
-            "Failed to read session file %s: %s",
-            session_file,
-            exc,
-        )
-        return {}
-
-
-def _write_fork_session(
-    sessions_dir: Path,
-    fork_session_id: str,
-    state: dict,
-    user_id: str = "",
-    channel: str = "",
-) -> None:
-    """Write pre-seeded state into a new fork session file.
-
-    Uses the same path convention as SafeJSONSession._get_save_path
-    so the runner can load it correctly.
-    """
-    safe_sid = sanitize_filename(fork_session_id)
-    safe_uid = sanitize_filename(user_id) if user_id else ""
-    filename = (
-        f"{safe_uid}_{safe_sid}.json" if safe_uid else f"{safe_sid}.json"
-    )
-
-    if channel:
-        safe_channel = sanitize_filename(channel)
-        target_dir = sessions_dir / safe_channel
-    else:
-        target_dir = sessions_dir
-
-    target_dir.mkdir(parents=True, exist_ok=True)
-    fork_file = target_dir / filename
-    fork_file.write_text(
-        json.dumps(state, ensure_ascii=False),
-        encoding="utf-8",
-    )
-    logger.info(
-        "Fork session written: %s (%d keys)",
-        fork_file,
-        len(state),
-    )
+    return workspace
 
 
 async def _create_worktree(
@@ -282,36 +211,43 @@ async def fork_agent(
     This endpoint is internal (localhost-only) and called by
     ``spawn_subagent(fork=True)`` in the tool layer.
 
-    Steps:
-    1. Resolve project dir (Agent project_dir or workspace fallback).
-    2. Read parent session state.
-    3. Write fork session file with inherited state.
-    4. If project_dir is a git repo, create worktree.
-    5. If worktree created, copy ``.worktreeinclude`` files.
+    The fork inherits completed transcript messages and persisted agent
+    context. Process-local mode state is intentionally not copied.
     """
     _enforce_localhost(request)
 
     project_dir = _get_project_dir(req.agent_id)
-    sessions_dir = _get_sessions_dir(req.agent_id)
+    workspace = await _get_workspace(request, req.agent_id)
+    user_id = req.user_id or ""
+    channel = req.channel or ""
 
-    parent_file = _session_path(
-        sessions_dir,
+    # Import a legacy parent on first access before cloning from the DB.
+    await workspace.session.get_session_state_dict(
         req.parent_session_id,
-        req.user_id,
-        req.channel,
+        user_id,
+        channel,
     )
-    state = _read_session_state(parent_file)
 
     fork_id = str(uuid4())[:8]
     fork_session_id = f"sub-{fork_id}"
 
-    _write_fork_session(
-        sessions_dir,
-        fork_session_id,
-        state,
-        user_id=req.user_id or "",
-        channel=req.channel or "",
+    cloned = await run_sync_io(
+        workspace.transcript_store.clone_session,
+        source_session_id=req.parent_session_id,
+        source_user_id=user_id,
+        source_channel=channel,
+        target_session_id=fork_session_id,
+        target_user_id=user_id,
+        target_channel=channel,
     )
+    if not cloned:
+        await run_sync_io(
+            workspace.transcript_store.write_runtime_state,
+            session_id=fork_session_id,
+            user_id=user_id,
+            channel=channel,
+            state={},
+        )
 
     worktree_path = ""
     worktree_branch = ""

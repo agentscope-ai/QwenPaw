@@ -3217,13 +3217,13 @@
     "sidebarPreview": "表示中の項目"
   },
   "chat": {
+    "sessionLoadFailed": "会話を読み込めませんでした。もう一度開いてください。",
     "longTextPaste": {
       "title": "長いテキストを貼り付け",
       "asText": "テキストとして貼り付け",
       "asFile": "ファイルとして添付",
       "characters": "{{count}} 文字"
     },
-    "historyLoadFailed": "会話を読み込めませんでした。もう一度開いてください。",
     "newTask": "新しいタスク",
     "newChat": "新しいチャット",
     "groups": {
@@ -3235,6 +3235,7 @@
     },
     "modelSelectTooltip": "モデルを選択",
     "chatHistoryTooltip": "チャット履歴",
+    "historyLoadFailed": "過去のメッセージを読み込めませんでした",
     "messageDisplay": {
       "stepsRunning": "実行中… · {{count}} ステップ",
       "stepsCanceled": "キャンセル済み · {{count}} ステップ",

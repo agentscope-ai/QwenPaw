@@ -3984,13 +3984,13 @@
     "system": "System"
   },
   "chat": {
+    "sessionLoadFailed": "Could not load this conversation. Please reopen it.",
     "longTextPaste": {
       "title": "Paste long text",
       "asText": "Paste as text",
       "asFile": "Attach as file",
       "characters": "{{count}} characters"
     },
-    "historyLoadFailed": "Could not load this conversation. Please reopen it.",
     "switchSession": "Switch conversation",
     "lastActive": "Last active · {{time}}",
     "fileReference": {
@@ -4001,6 +4001,7 @@
     "newTask": "New task",
     "newChat": "New chat",
     "chatHistoryTooltip": "Chat history",
+    "historyLoadFailed": "Failed to load older messages",
     "messageDisplay": {
       "stepsRunning": "Running… · {{count}} steps",
       "stepsCanceled": "Canceled · {{count}} steps",

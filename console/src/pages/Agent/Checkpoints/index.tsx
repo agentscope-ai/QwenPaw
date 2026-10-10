@@ -35,6 +35,7 @@ import type {
 } from "@/api/types/checkpoints";
 import { useAgentStore } from "@/stores/agentStore";
 import { useAppMessage } from "@/hooks/useAppMessage";
+import { buildChatPath } from "@/utils/sessionRoute";
 import { buildGraphRows, graphLaneCount } from "./graphLayout";
 import { CheckpointGraph } from "./CheckpointGraph";
 import { RestoreModal } from "./RestoreModal";
@@ -619,7 +620,13 @@ export default function CheckpointsPage() {
         open={restoreOpen}
         node={selected}
         onClose={() => setRestoreOpen(false)}
-        onRestored={() => void load(true)}
+        onRestored={() => {
+          if (selected?.chat_id) {
+            window.location.assign(buildChatPath(selected.chat_id));
+            return;
+          }
+          void load(true);
+        }}
       />
     </div>
   );

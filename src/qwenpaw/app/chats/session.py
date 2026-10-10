@@ -11,7 +11,7 @@ import logging
 import shutil
 
 from pathlib import Path, PurePosixPath
-from typing import Union, Sequence
+from typing import TYPE_CHECKING, Any, Sequence, Union
 
 from qwenpaw.exceptions import ConfigurationException
 from ...exceptions import AgentStateError
@@ -23,6 +23,27 @@ from ...utils.io_utils import (
 from ...utils.json_utils import safe_json_loads as _safe_json_loads
 
 logger = logging.getLogger(__name__)
+
+if TYPE_CHECKING:
+    from .transcript_catalog import TranscriptCatalog
+
+
+def _legacy_current_usage(state: dict[str, Any]) -> dict[str, Any] | None:
+    """Read the latest persisted usage projection from an old snapshot."""
+    context = ((state.get("agent") or {}).get("state") or {}).get("context")
+    if not isinstance(context, list):
+        return None
+    for message in reversed(context):
+        if not isinstance(message, dict) or message.get("role") != "assistant":
+            continue
+        metadata = message.get("metadata")
+        if not isinstance(metadata, dict):
+            continue
+        usage = metadata.get("qwenpaw_turn_usage")
+        if isinstance(usage, dict):
+            return usage
+    return None
+
 
 # Characters forbidden in Windows filenames
 _UNSAFE_FILENAME_RE = re.compile(r'[\\/:*?"<>|]')
@@ -471,3 +492,309 @@ class SafeJSONSession:
                 f"because it does not exist"
             ),
         )
+
+    async def delete_session_state(
+        self,
+        session_id: str,
+        user_id: str = "",
+        channel: str = "",
+    ) -> bool:
+        """Delete one persisted session snapshot if it exists."""
+        session_save_path = await run_sync_io(
+            self._get_save_path,
+            session_id,
+            user_id,
+            channel,
+        )
+        async with get_path_lock(session_save_path):
+            try:
+                await run_sync_io(Path(session_save_path).unlink)
+            except FileNotFoundError:
+                return False
+        return True
+
+
+class DatabaseSession:
+    """Agent runtime snapshots stored in each conversation database."""
+
+    def __init__(
+        self,
+        *,
+        catalog: "TranscriptCatalog",
+        legacy_save_dir: str,
+    ) -> None:
+        self._catalog = catalog
+        self._legacy_save_dir = Path(legacy_save_dir)
+
+    async def _legacy_path(
+        self,
+        session_id: str,
+        user_id: str,
+        channel: str,
+    ) -> Path:
+        filename = session_filename(session_id, user_id)
+        if channel:
+            safe_channel = sanitize_filename(channel)
+            if safe_channel in {".", ".."}:
+                raise ValueError(f"invalid session channel: {channel!r}")
+            channel_path = self._legacy_save_dir / safe_channel / filename
+            if await run_sync_io(channel_path.exists):
+                return channel_path
+        return self._legacy_save_dir / filename
+
+    async def _import_legacy(
+        self,
+        *,
+        session_id: str,
+        user_id: str,
+        channel: str,
+    ) -> bool:
+        path = await self._legacy_path(session_id, user_id, channel)
+        try:
+            state = await run_sync_io(_read_session_json, str(path))
+        except FileNotFoundError:
+            return False
+        if not state:
+            return False
+
+        _, inserted = await run_sync_io(
+            self._catalog.write_runtime_state,
+            session_id=session_id,
+            user_id=user_id,
+            channel=channel,
+            state=state,
+            current_usage=_legacy_current_usage(state),
+            only_if_missing=True,
+        )
+        try:
+            from .utils import session_state_to_messages
+
+            messages = await run_sync_io(session_state_to_messages, state)
+            if messages:
+                await run_sync_io(
+                    self._catalog.import_legacy_messages,
+                    session_id=session_id,
+                    user_id=user_id,
+                    channel=channel,
+                    messages=messages,
+                )
+        except Exception:
+            logger.warning(
+                "Failed to import legacy transcript for %s",
+                session_id,
+                exc_info=True,
+            )
+        return inserted
+
+    async def save_session_state(
+        self,
+        session_id: str,
+        user_id: str = "",
+        channel: str = "",
+        **state_modules_mapping: Any,
+    ) -> None:
+        """Persist module snapshots into the session database."""
+        state = {
+            name: state_module.state_dict()
+            for name, state_module in state_modules_mapping.items()
+        }
+        await run_sync_io(
+            self._catalog.write_runtime_state,
+            session_id=session_id,
+            user_id=user_id,
+            channel=channel,
+            state=state,
+        )
+
+    async def reset_session_state(
+        self,
+        session_id: str,
+        user_id: str = "",
+        channel: str = "",
+        **state_modules_mapping: Any,
+    ) -> int:
+        """Persist a clean state and advance the context generation."""
+        state = {
+            name: state_module.state_dict()
+            for name, state_module in state_modules_mapping.items()
+        }
+        generation, _ = await run_sync_io(
+            self._catalog.write_runtime_state,
+            session_id=session_id,
+            user_id=user_id,
+            channel=channel,
+            state=state,
+            reset_context=True,
+        )
+        return generation
+
+    async def load_session_state(
+        self,
+        session_id: str,
+        user_id: str = "",
+        channel: str = "",
+        allow_not_exist: bool = True,
+        **state_modules_mapping: Any,
+    ) -> None:
+        """Load module snapshots from the session database."""
+        state = await self.get_session_state_dict(
+            session_id,
+            user_id,
+            channel,
+            allow_not_exist=allow_not_exist,
+        )
+        for name, state_module in state_modules_mapping.items():
+            if name in state:
+                module_state = state[name]
+                if name == "agent" and isinstance(module_state, dict):
+                    module_state = dict(module_state)
+                    module_state["_context_generation"] = state.get(
+                        "_context_generation",
+                        0,
+                    )
+                state_module.load_state_dict(module_state)
+
+    async def get_session_state_dict(
+        self,
+        session_id: str,
+        user_id: str = "",
+        channel: str = "",
+        allow_not_exist: bool = True,
+    ) -> dict[str, Any]:
+        """Return the authoritative runtime state and context generation."""
+        snapshot = await run_sync_io(
+            self._catalog.read_runtime_state,
+            session_id=session_id,
+            user_id=user_id,
+            channel=channel,
+        )
+        if snapshot is None:
+            await self._import_legacy(
+                session_id=session_id,
+                user_id=user_id,
+                channel=channel,
+            )
+            snapshot = await run_sync_io(
+                self._catalog.read_runtime_state,
+                session_id=session_id,
+                user_id=user_id,
+                channel=channel,
+            )
+        if snapshot is None:
+            if allow_not_exist:
+                return {}
+            raise AgentStateError(
+                session_id=session_id,
+                message="Session runtime state does not exist",
+            )
+        state = dict(snapshot.state)
+        state["_context_generation"] = snapshot.context_generation
+        return state
+
+    async def update_session_state(
+        self,
+        session_id: str,
+        key: Union[str, Sequence[str]],
+        value: Any,
+        user_id: str = "",
+        channel: str = "",
+        create_if_not_exist: bool = True,
+    ) -> None:
+        """Update one nested runtime-state value."""
+        path = key.split(".") if isinstance(key, str) else list(key)
+        if not path:
+            raise ConfigurationException(
+                config_key="session.key",
+                message="key path is empty",
+            )
+        snapshot = await run_sync_io(
+            self._catalog.read_runtime_state,
+            session_id=session_id,
+            user_id=user_id,
+            channel=channel,
+        )
+        if snapshot is None:
+            await self._import_legacy(
+                session_id=session_id,
+                user_id=user_id,
+                channel=channel,
+            )
+        try:
+            await run_sync_io(
+                self._catalog.update_runtime_state,
+                session_id=session_id,
+                user_id=user_id,
+                channel=channel,
+                path=path,
+                value=value,
+                create_if_missing=create_if_not_exist,
+            )
+        except KeyError as exc:
+            raise AgentStateError(
+                session_id=session_id,
+                message="Session runtime state does not exist",
+            ) from exc
+
+    async def set_current_usage(
+        self,
+        *,
+        session_id: str,
+        usage: dict[str, Any] | None,
+        context_usage: dict[str, Any] | None,
+    ) -> None:
+        """Persist the current context usage projection."""
+        await run_sync_io(
+            self._catalog.set_current_usage,
+            session_id=session_id,
+            usage=usage,
+            context_usage=context_usage,
+        )
+
+    async def get_current_usage(
+        self,
+        *,
+        session_id: str,
+        user_id: str,
+        channel: str,
+    ) -> tuple[int, dict[str, Any] | None]:
+        """Return current context generation and usage projection."""
+        projection = await run_sync_io(
+            self._catalog.read_current_usage,
+            session_id=session_id,
+            user_id=user_id,
+            channel=channel,
+        )
+        if projection is None:
+            await self._import_legacy(
+                session_id=session_id,
+                user_id=user_id,
+                channel=channel,
+            )
+            projection = await run_sync_io(
+                self._catalog.read_current_usage,
+                session_id=session_id,
+                user_id=user_id,
+                channel=channel,
+            )
+        if projection is None:
+            return 0, None
+        return projection
+
+    async def delete_session_state(
+        self,
+        session_id: str,
+        user_id: str = "",
+        channel: str = "",
+    ) -> bool:
+        """Delete the session database and any unimported JSON snapshot."""
+        deleted = await run_sync_io(
+            self._catalog.delete_session,
+            session_id,
+        )
+        path = await self._legacy_path(session_id, user_id, channel)
+        try:
+            await run_sync_io(path.unlink)
+            deleted = True
+        except FileNotFoundError:
+            pass
+        return deleted

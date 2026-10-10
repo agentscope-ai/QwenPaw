@@ -10,6 +10,7 @@ API endpoints:
   - POST /api/console/chat/task
   - GET  /api/console/chat/task/{task_id}
 """
+
 from __future__ import annotations
 
 import json
@@ -52,7 +53,12 @@ def provider(app_server, mock_llm):  # pylint: disable=redefined-outer-name
     unregister_mock_provider(app_server, provider_id)
 
 
-def _send(app_server, *, user_id: str, text: str) -> dict:
+def _send(
+    app_server,
+    *,
+    user_id: str,
+    text: str,
+) -> dict:
     """Send one message and poll the task to completion."""
     submit = app_server.api_request(
         "POST",
@@ -89,6 +95,33 @@ def _send(app_server, *, user_id: str, text: str) -> dict:
     raise AssertionError(
         "command task did not finish: " + app_server.logs_tail()[-2000:],
     )
+
+
+def _create_chat(app_server, *, user_id: str, name: str) -> str:
+    response = app_server.api_request(
+        "POST",
+        "/api/chats",
+        json={
+            "name": name,
+            "session_id": f"console:{user_id}",
+            "user_id": user_id,
+            "channel": "console",
+            "meta": {},
+        },
+        timeout=_HTTP_TIMEOUT,
+    )
+    assert response.status_code == 200, app_server.logs_tail()[-2000:]
+    return str(response.json()["id"])
+
+
+def _read_chat_messages(app_server, chat_id: str) -> list[dict]:
+    response = app_server.api_request(
+        "GET",
+        f"/api/chats/{chat_id}",
+        timeout=_HTTP_TIMEOUT,
+    )
+    assert response.status_code == 200, app_server.logs_tail()[-2000:]
+    return list(response.json()["messages"])
 
 
 @pytest.mark.integration
@@ -159,6 +192,67 @@ def test_compact_and_new_commands(
         )
         == "finished"
     )
+
+
+@pytest.mark.integration
+@pytest.mark.p1
+def test_transcript_survives_compact_clear_and_refresh(
+    app_server,
+    provider,  # pylint: disable=redefined-outer-name,unused-argument
+):
+    """Durable transcript remains authoritative across context resets."""
+    user = "integ-transcript-compact"
+    first = "TRANSCRIPT-BEFORE-COMPACT-4101"
+    second = "TRANSCRIPT-BEFORE-COMPACT-4102"
+    chat_id = _create_chat(
+        app_server,
+        user_id=user,
+        name="durable transcript compact",
+    )
+    try:
+        assert _send(app_server, user_id=user, text=first)["status"] == (
+            "finished"
+        )
+        assert _send(app_server, user_id=user, text=second)["status"] == (
+            "finished"
+        )
+        before = _read_chat_messages(app_server, chat_id)
+        before_ids = [message["id"] for message in before]
+        before_blob = json.dumps(before, ensure_ascii=False)
+        assert first in before_blob
+        assert second in before_blob
+
+        assert (
+            _send(app_server, user_id=user, text="/compact")["status"]
+            == "finished"
+        )
+        assert (
+            _send(app_server, user_id=user, text="/compact")["status"]
+            == "finished"
+        )
+        compacted = _read_chat_messages(app_server, chat_id)
+        compacted_ids = [message["id"] for message in compacted]
+        assert compacted_ids[: len(before_ids)] == before_ids
+        compacted_blob = json.dumps(compacted, ensure_ascii=False)
+        assert first in compacted_blob
+        assert second in compacted_blob
+
+        assert (
+            _send(app_server, user_id=user, text="/clear")["status"]
+            == "finished"
+        )
+        cleared = _read_chat_messages(app_server, chat_id)
+        cleared_ids = [message["id"] for message in cleared]
+        assert cleared_ids[: len(compacted_ids)] == compacted_ids
+        cleared_blob = json.dumps(cleared, ensure_ascii=False)
+        assert first in cleared_blob
+        assert second in cleared_blob
+    finally:
+        app_server.api_request(
+            "DELETE",
+            f"/api/chats/{chat_id}",
+            timeout=_HTTP_TIMEOUT,
+        )
 
 
 @pytest.mark.integration

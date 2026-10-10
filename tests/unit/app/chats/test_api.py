@@ -5,7 +5,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
-from fastapi import HTTPException
+from fastapi import BackgroundTasks, HTTPException
 
 from qwenpaw.app.chats.api import get_chat, get_chat_status, list_chats
 from qwenpaw.app.chats.models import ChatSpec
@@ -62,6 +62,7 @@ async def test_get_chat_hides_app_owned_dialogue_when_caller_opts_out():
     with pytest.raises(HTTPException) as raised:
         await get_chat(
             chat_id="app-owned",
+            background_tasks=BackgroundTasks(),
             include_app_owned=False,
             mgr=manager,
             session=SimpleNamespace(),

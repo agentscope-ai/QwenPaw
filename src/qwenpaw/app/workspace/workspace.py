@@ -26,6 +26,7 @@ from typing import (
 from ...config.timezone import normalize_tz
 from ...config.utils import load_config
 from ...constant import WORKING_DIR
+from ...token_usage.turn_usage import resolve_turn_usage
 from ...utils.io_utils import run_async_to_completion
 
 from .service_manager import ServiceDescriptor, ServiceManager
@@ -40,7 +41,13 @@ from .service_factories import (
 )
 from .local_workspace import QwenPawLocalWorkspace
 from ..task_tracker import TaskTracker
-from ..chats.session import SafeJSONSession
+from ..chats.session import DatabaseSession
+from ..chats.transcript_catalog import TranscriptCatalog
+from ..chats.transcript_recorder import (
+    TRANSCRIPT_TURN_ID_CONTEXT_KEY,
+    TranscriptRecorder,
+)
+from ..chats.utils import session_state_to_messages
 from ..crons.manager import CronManager
 from ..crons.repo.json_repo import JsonJobRepository
 from ...config.config import load_agent_config
@@ -52,6 +59,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _MEMORY_BACKEND_FALLBACK = "remelight"
+_TURN_USAGE_SNAPSHOT_CONTEXT_KEY = "_qwenpaw_turn_usage_snapshot"
 
 
 def _configured_memory_backend_id(ws: "Workspace") -> str:
@@ -134,7 +142,7 @@ def _memory_manager_reuse_compatible(
     )
 
 
-class Workspace:
+class Workspace:  # pylint: disable=too-many-public-methods
     """Single agent workspace with complete runtime components.
 
     Each Workspace is an independent agent instance with its own:
@@ -192,7 +200,7 @@ class Workspace:
 
     # Service access via properties (delegates to ServiceManager)
     @property
-    def session(self) -> Optional[SafeJSONSession]:
+    def session(self) -> Optional[DatabaseSession]:
         """Get session instance from ServiceManager."""
         return self._service_manager.services.get("session")
 
@@ -210,6 +218,11 @@ class Workspace:
     def chat_manager(self):
         """Get chat manager instance from ServiceManager."""
         return self._service_manager.services.get("chat_manager")
+
+    @property
+    def transcript_store(self) -> Optional[TranscriptCatalog]:
+        """Get the durable transcript store, when available."""
+        return self._service_manager.services.get("transcript_store")
 
     @property
     def channel_manager(self):
@@ -444,20 +457,152 @@ class Workspace:
                 "user_id": getattr(request, "user_id", None),
                 "channel": getattr(request, "channel", None) or "console",
             }
-            async for item in self.harness_runtime.stream(
+            stream = self.harness_runtime.stream(
                 backend=backend,
                 request=request,
                 cwd=self.workspace_dir.resolve(),
                 settings=settings,
-            ):
+            )
+            async for item in stream:
                 yield item
             return
 
         from ...runtime import Runtime
 
         rt = Runtime(workspace=self, app_services=self._app_services)
-        async for item in rt.run(request):
-            yield item
+        stream = rt.run(request)
+        transcript_store = self.transcript_store
+        legacy_messages = []
+        if (
+            transcript_store is not None
+            and self.session is not None
+            and getattr(request, "session_id", None)
+        ):
+            identity = {
+                "session_id": str(getattr(request, "session_id", "") or ""),
+                "user_id": str(getattr(request, "user_id", "") or ""),
+                "channel": str(
+                    getattr(request, "channel", "") or "console",
+                ),
+            }
+            try:
+                has_transcript = await asyncio.to_thread(
+                    transcript_store.has_session,
+                    **identity,
+                )
+                if not has_transcript:
+                    state = await self.session.get_session_state_dict(
+                        identity["session_id"],
+                        identity["user_id"],
+                        identity["channel"],
+                    )
+                    legacy_messages = await asyncio.to_thread(
+                        session_state_to_messages,
+                        state,
+                    )
+                    del state
+            except Exception:
+                logger.warning(
+                    "Legacy transcript migration skipped for session %s",
+                    sanitize_log_value(identity["session_id"]),
+                    exc_info=True,
+                )
+        recorder = TranscriptRecorder(
+            store=transcript_store,
+            request=request,
+            legacy_messages=legacy_messages,
+        )
+        del legacy_messages
+        try:
+            await recorder.start()
+            async for item in stream:
+                await recorder.observe(item)
+                yield item
+        except (asyncio.CancelledError, GeneratorExit, KeyboardInterrupt):
+            await asyncio.shield(recorder.finish("cancelled"))
+            raise
+        except BaseException as exc:
+            error = {
+                "code": type(exc).__name__,
+                "message": "",
+            }
+            await recorder.finish("failed", error=error)
+            raise
+        await recorder.finish("completed")
+
+    async def finalize_turn_usage(
+        self,
+        request: Any,
+    ) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+        """Resolve and persist one turn's usage across durable stores."""
+        request_context = getattr(request, "request_context", None)
+        if not isinstance(request_context, dict):
+            request_context = {}
+            request.request_context = request_context
+
+        cached = request_context.get(_TURN_USAGE_SNAPSHOT_CONTEXT_KEY)
+        if isinstance(cached, dict) and cached.get("resolved") is True:
+            return cached.get("usage"), cached.get("context_usage")
+
+        session_id = str(getattr(request, "session_id", "") or "")
+        user_id = str(getattr(request, "user_id", "") or "")
+        channel = str(getattr(request, "channel", "") or "console")
+        turn, context_usage, _agent_state = await resolve_turn_usage(
+            session_id=session_id,
+            agent_id=self.agent_id,
+            session=self.session,
+            user_id=user_id,
+            channel=channel,
+        )
+        request_context[_TURN_USAGE_SNAPSHOT_CONTEXT_KEY] = {
+            "resolved": True,
+            "usage": turn,
+            "context_usage": context_usage,
+        }
+        if turn is None and context_usage is None:
+            return None, None
+
+        session = self.session
+        if session is not None:
+            try:
+                await session.set_current_usage(
+                    session_id=session_id,
+                    usage=turn,
+                    context_usage=context_usage,
+                )
+            except Exception:
+                logger.warning(
+                    "Current context usage persist skipped for session %s",
+                    sanitize_log_value(session_id),
+                    exc_info=True,
+                )
+
+        store = self.transcript_store
+        transcript_turn_id = request_context.get(
+            TRANSCRIPT_TURN_ID_CONTEXT_KEY,
+        )
+        if store is not None and transcript_turn_id:
+            try:
+                attached = await asyncio.to_thread(
+                    store.attach_turn_usage,
+                    session_id=session_id,
+                    turn_id=str(transcript_turn_id),
+                    usage=turn,
+                    context_usage=context_usage,
+                )
+                if not attached:
+                    logger.warning(
+                        "Transcript turn usage target missing for session %s",
+                        sanitize_log_value(session_id),
+                    )
+            except Exception:
+                logger.warning(
+                    "Transcript turn usage persist skipped for session %s",
+                    sanitize_log_value(session_id),
+                    exc_info=True,
+                )
+
+        return turn, context_usage
 
     def _register_services(  # pylint: disable=too-many-statements
         self,
@@ -515,15 +660,31 @@ class Workspace:
             ),
         )
 
-        # Priority 10: Session (replaces old Runner init)
+        # Runtime snapshots and display transcripts share one per-session DB.
+        sm.register(
+            ServiceDescriptor(
+                name="transcript_store",
+                service_class=TranscriptCatalog,
+                init_args=lambda ws: {
+                    "workspace_dir": ws.workspace_dir,
+                },
+                stop_method="close",
+                reusable=True,
+                priority=10,
+                concurrent_init=False,
+            ),
+        )
+
         sm.register(
             ServiceDescriptor(
                 name="session",
-                service_class=SafeJSONSession,
+                service_class=DatabaseSession,
                 init_args=lambda ws: {
-                    "save_dir": str(ws.workspace_dir / "sessions"),
+                    "catalog": ws.transcript_store,
+                    "legacy_save_dir": str(ws.workspace_dir / "sessions"),
                 },
-                priority=10,
+                dependencies=["transcript_store"],
+                priority=15,
                 concurrent_init=False,
             ),
         )

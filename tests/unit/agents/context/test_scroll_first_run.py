@@ -40,6 +40,22 @@ def _build(workspace: Path):
     )
 
 
+def test_context_generation_isolates_recall_rows(tmp_path: Path):
+    components = build_scroll_components(
+        agent_config=_agent_config(),
+        workspace_dir=str(tmp_path),
+        model=_DummyModel(),
+        session_id="s1",
+        context_generation=2,
+        agent_id="ag1",
+    )
+    assert components is not None
+    manager = components.context_manager
+    assert manager._session_id == "s1\x1fcontext:2"
+    assert manager._archive_session_id == "s1"
+    manager._history.close()
+
+
 def _notice_records(caplog) -> list[logging.LogRecord]:
     return [
         r

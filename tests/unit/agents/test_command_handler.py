@@ -95,13 +95,13 @@ async def test_agent_config_load_runs_in_worker_thread(monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
-async def test_process_clear_returns_clear_history_metadata() -> None:
+async def test_process_clear_returns_context_reset_metadata() -> None:
     agent = _make_agent()
     handler = CommandHandler(agent_name="QwenPaw", agent=agent)
 
     msg = await handler.handle_command("/clear")
 
-    assert msg.metadata == {"clear_history": True, "clear_plan": True}
+    assert msg.metadata == {"context_reset": True, "clear_plan": True}
 
 
 @pytest.mark.asyncio

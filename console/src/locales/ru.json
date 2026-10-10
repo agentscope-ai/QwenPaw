@@ -3232,13 +3232,13 @@
     "sidebarPreview": "Видимые пункты"
   },
   "chat": {
+    "sessionLoadFailed": "Не удалось загрузить диалог. Откройте его снова.",
     "longTextPaste": {
       "title": "Вставить длинный текст",
       "asText": "Вставить как текст",
       "asFile": "Прикрепить файл",
       "characters": "Символов: {{count}}"
     },
-    "historyLoadFailed": "Не удалось загрузить диалог. Откройте его снова.",
     "newTask": "Новая задача",
     "newChat": "Новый чат",
     "groups": {
@@ -3250,6 +3250,7 @@
     },
     "modelSelectTooltip": "Выбор модели",
     "chatHistoryTooltip": "История чатов",
+    "historyLoadFailed": "Не удалось загрузить предыдущие сообщения",
     "messageDisplay": {
       "stepsRunning": "Выполняется… · шагов: {{count}}",
       "stepsCanceled": "Отменено · шагов: {{count}}",

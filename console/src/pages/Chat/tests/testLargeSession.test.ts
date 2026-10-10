@@ -633,7 +633,7 @@ describe("session id + status helpers", () => {
 
 // ---------------------------------------------------------------------------
 // 6. Integration — SessionApi.getSession on a mocked 500KB+ backend response
-//    (exercises fetch → convert → cache → patchLastUserMessage end-to-end)
+//    (exercises fetch → convert → cache end-to-end)
 // ---------------------------------------------------------------------------
 
 describe("SessionApi.getSession — large payload integration (#5479)", () => {

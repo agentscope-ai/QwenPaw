@@ -1,8 +1,8 @@
 /**
- * Retry scheduling and SSE stream observation for turn usage. The trailing
- * `turn_usage` SSE event arrives after the Completed response and may be
- * dropped by the chat SDK, so the stream wrapper captures it and retries
- * patching the final card until the turn ends or attempts are exhausted.
+ * Retry scheduling and SSE stream observation for turn usage. The chat SDK
+ * does not expose this transport-only event, so the stream wrapper captures
+ * it and retries patching the final card until the turn ends or attempts are
+ * exhausted.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
@@ -179,6 +179,28 @@ describe("wrapChatResponseUsageStream", () => {
     const wrapped = wrapChatResponseUsageStream(sseResponse(body), ref, turn);
     await wrapped.text(); // drain the stream to trigger flush
     expect(useTurnUsageStore.getState().snapshot).toEqual(snapshot);
+  });
+
+  it("keeps a zero context snapshot after a context reset", async () => {
+    const turn = useTurnUsageStore.getState().beginTurn("a", "s");
+    const { ref } = makeRef([assistantCard({})]);
+    const contextUsage = {
+      estimated_tokens: 0,
+      max_input_length: 1000,
+      context_usage_ratio: 0,
+    };
+    const body = `data: ${JSON.stringify({
+      type: "turn_usage",
+      usage: null,
+      context_usage: contextUsage,
+    })}\n\n`;
+
+    await wrapChatResponseUsageStream(sseResponse(body), ref, turn).text();
+
+    expect(useTurnUsageStore.getState().snapshot).toEqual({
+      usage: null,
+      context_usage: contextUsage,
+    });
   });
 
   it("keeps the last turn_usage payload when several arrive", async () => {

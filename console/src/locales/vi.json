@@ -1106,13 +1106,13 @@
     "runtimeRestartFailed": "Không thể khởi động lại môi trường"
   },
   "chat": {
+    "sessionLoadFailed": "Không thể tải cuộc trò chuyện. Vui lòng mở lại.",
     "longTextPaste": {
       "title": "Dán văn bản dài",
       "asText": "Dán dưới dạng văn bản",
       "asFile": "Đính kèm tệp",
       "characters": "{{count}} ký tự"
     },
-    "historyLoadFailed": "Không thể tải cuộc trò chuyện. Vui lòng mở lại.",
     "newTask": "Tác vụ mới",
     "newChat": "Cuộc trò chuyện mới",
     "groups": {
@@ -1124,6 +1124,7 @@
     },
     "modelSelectTooltip": "Chọn mô hình",
     "chatHistoryTooltip": "Lịch sử trò chuyện",
+    "historyLoadFailed": "Không thể tải các tin nhắn trước đó",
     "messageDisplay": {
       "stepsRunning": "Đang chạy… · {{count}} bước",
       "stepsCanceled": "Đã hủy · {{count}} bước",

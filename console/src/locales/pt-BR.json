@@ -3476,13 +3476,13 @@
     "sidebarPreview": "Itens visíveis"
   },
   "chat": {
+    "sessionLoadFailed": "Não foi possível carregar a conversa. Abra-a novamente.",
     "longTextPaste": {
       "title": "Colar texto longo",
       "asText": "Colar como texto",
       "asFile": "Anexar como arquivo",
       "characters": "{{count}} caracteres"
     },
-    "historyLoadFailed": "Não foi possível carregar a conversa. Abra-a novamente.",
     "newTask": "Nova tarefa",
     "newChat": "Novo chat",
     "groups": {
@@ -3494,6 +3494,7 @@
     },
     "modelSelectTooltip": "Selecionar Modelo",
     "chatHistoryTooltip": "Chat history",
+    "historyLoadFailed": "Falha ao carregar mensagens anteriores",
     "messageDisplay": {
       "stepsRunning": "Em execução… · {{count}} etapas",
       "stepsCanceled": "Cancelado · {{count}} etapas",
