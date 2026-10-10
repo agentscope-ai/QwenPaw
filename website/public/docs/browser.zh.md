@@ -115,6 +115,7 @@ Agent 使用的是 QwenPaw 自带的 Browser SDK（不是 Playwright），API �
 | `headless`                 | string             | `"auto"` | `auto` 表示容器内或无图形界面时无头运行，否则显示窗口；也可写 `"true"` / `"false"` 强制 |
 | `user_data_dir`            | string \| null     | `null`   | 自定义独立浏览器的数据目录；不填则按工作区自动分配                                      |
 | `args`                     | string[]           | `[]`     | 追加的浏览器启动参数                                                                    |
+| `ignore_default_args`      | string[]           | `[]`     | 使用 Playwright 启动后端时移除指定的默认参数（如 `--disable-extensions`）；对 `managed_cdp` 和 `connect_cdp` 无效 |
 | `viewport`                 | [int, int] \| null | `null`   | 视口尺寸，两个值都必须为正整数                                                          |
 | `proxy`                    | string \| null     | `null`   | 代理地址                                                                                |
 | `use_system_default`       | bool               | `true`   | 优先使用系统默认浏览器的 Chromium 可执行文件                                            |
