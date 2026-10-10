@@ -446,6 +446,142 @@ async def test_get_version_raises_when_command_fails(
         await downloader.get_version()
 
 
+def _patch_version_output(
+    monkeypatch: pytest.MonkeyPatch,
+    downloader: LlamaCppBackend,
+    version_line: str,
+) -> None:
+    """Make ``llama-server --version`` report ``version_line``."""
+
+    async def fake_run_command_async(
+        command: list[str],
+        **_kwargs: Any,
+    ) -> CommandResult:
+        del _kwargs
+        return CommandResult(
+            command=command,
+            returncode=0,
+            stdout="",
+            stderr=f"{version_line}\n",
+        )
+
+    monkeypatch.setattr(
+        downloader,
+        "check_llamacpp_installation",
+        lambda: (True, ""),
+    )
+    monkeypatch.setattr(
+        downloader_module,
+        "run_command_async",
+        fake_run_command_async,
+    )
+
+
+@pytest.mark.parametrize(
+    ("version_text", "expected"),
+    [
+        ("8514 (406f4e3f6)", 8514),
+        ("b8744", 8744),
+        ("b10839", 10839),
+        ("0.4.0-dev (build 10853, commit 9dcf84e5a)", 10853),
+        ("unknown-build", None),
+        ("", None),
+    ],
+)
+def test_parse_llamacpp_build_number(
+    version_text: str,
+    expected: int | None,
+) -> None:
+    assert (
+        downloader_module._parse_llamacpp_build_number(version_text)
+        == expected
+    )
+
+
+@pytest.mark.asyncio
+async def test_get_version_parses_v0_4_0_build_number(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    downloader = _build_downloader(monkeypatch)
+    _patch_version_output(
+        monkeypatch,
+        downloader,
+        "version: 0.4.0-dev (build 10853, commit 9dcf84e5a)",
+    )
+
+    assert await downloader.get_version() == "10853"
+
+
+@pytest.mark.asyncio
+async def test_has_update_detects_an_older_installed_build(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    downloader = _build_downloader(monkeypatch)
+    _patch_version_output(
+        monkeypatch,
+        downloader,
+        "version: 8514 (406f4e3f6)",
+    )
+
+    assert await downloader.has_update("b8744") is True
+
+
+@pytest.mark.asyncio
+async def test_has_update_does_not_roll_back_a_newer_installed_build(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    downloader = _build_downloader(monkeypatch)
+    _patch_version_output(
+        monkeypatch,
+        downloader,
+        "version: 0.4.0-dev (build 10853, commit 9dcf84e5a)",
+    )
+
+    assert await downloader.has_update("b8744") is False
+
+
+@pytest.mark.asyncio
+async def test_has_update_ignores_an_unrecognized_installed_version(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    downloader = _build_downloader(monkeypatch)
+    _patch_version_output(
+        monkeypatch,
+        downloader,
+        "version: unknown-build",
+    )
+
+    assert await downloader.has_update("b8744") is False
+
+
+@pytest.mark.asyncio
+async def test_has_update_ignores_an_unrecognized_target_version(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    downloader = _build_downloader(monkeypatch)
+    _patch_version_output(
+        monkeypatch,
+        downloader,
+        "version: 8514 (406f4e3f6)",
+    )
+
+    assert await downloader.has_update("latest") is False
+
+
+@pytest.mark.asyncio
+async def test_has_update_false_when_llamacpp_is_not_installed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    downloader = _build_downloader(monkeypatch)
+    monkeypatch.setattr(
+        downloader,
+        "check_llamacpp_installation",
+        lambda: (False, "missing"),
+    )
+
+    assert await downloader.has_update("b8744") is False
+
+
 @pytest.mark.asyncio
 async def test_list_devices_raises_when_not_installed(
     monkeypatch: pytest.MonkeyPatch,

@@ -5,6 +5,7 @@ import atexit
 import asyncio
 import logging
 import multiprocessing as mp
+import re
 import shutil
 import socket
 import tempfile
@@ -40,6 +41,35 @@ from ..utils import system_info
 from ..utils.stdio import ensure_standard_streams
 
 logger = logging.getLogger(__name__)
+
+_BUILD_NUMBER_RE = re.compile(r"\bbuild\s+(\d+)")
+_TAG_BUILD_RE = re.compile(r"b(\d+)")
+
+
+def _parse_llamacpp_build_number(version_text: str) -> int | None:
+    """Extract the llama.cpp build number from a version string.
+
+    llama.cpp has reported its version in more than one shape over time:
+
+    * ``8514 (406f4e3f6)``                        - builds before v0.4.0
+    * ``b8744``                                   - release tags
+    * ``0.4.0-dev (build 10853, commit 9dcf84e)`` - builds from v0.4.0 on
+
+    Returns ``None`` when no build number can be recognized so callers can
+    decide how to treat an unknown version instead of guessing.
+    """
+    if not version_text:
+        return None
+    build_match = _BUILD_NUMBER_RE.search(version_text)
+    if build_match:
+        return int(build_match.group(1))
+    first_token = version_text.split()[0]
+    tag_match = _TAG_BUILD_RE.fullmatch(first_token)
+    if tag_match:
+        return int(tag_match.group(1))
+    if first_token.isdigit():
+        return int(first_token)
+    return None
 
 
 class LlamaCppServerSetupResult(BaseModel):
@@ -133,16 +163,29 @@ class LlamaCppBackend:
         self._download_controller.cancel()
 
     async def has_update(self, latest_version: str) -> bool:
-        """Check if there is a newer version of llama.cpp available."""
+        """Check if there is a newer version of llama.cpp available.
+
+        Never answers ``True`` when the versions cannot be compared: the
+        download path reinstalls the pinned runtime over whatever is on
+        disk, so an unrecognized version must not silently trigger that.
+        """
         if not self.check_llamacpp_installation()[0]:
             return False
         try:
-            return int(latest_version[1:]) > int(
-                (await self.get_version()),
-            )
+            installed_version = await self.get_version()
         except Exception as exc:
             logger.warning(f"Failed to check for llama.cpp updates: {exc}")
-            return True
+            return False
+        installed_build = _parse_llamacpp_build_number(installed_version)
+        latest_build = _parse_llamacpp_build_number(latest_version)
+        if installed_build is None or latest_build is None:
+            logger.warning(
+                "Failed to compare llama.cpp versions: "
+                f"installed={installed_version!r} "
+                f"latest={latest_version!r}",
+            )
+            return False
+        return latest_build > installed_build
 
     def download(
         self,
@@ -330,7 +373,7 @@ class LlamaCppBackend:
         ][1:]
 
     async def get_version(self) -> str:
-        """get llama.cpp server version using `llama-server --version`."""
+        """Get the llama.cpp build number using `llama-server --version`."""
         installed, message = self.check_llamacpp_installation()
         if not installed:
             raise RuntimeError(message or "llama.cpp server is not installed")
@@ -346,10 +389,16 @@ class LlamaCppBackend:
         prefix = "version:"
         for line in lines:
             if line.startswith(prefix):
-                # Output looks like "version: 8514 (406f4e3f6)"; take the
-                # first whitespace-delimited token instead of a fixed-width
-                # slice, which breaks once the build number is not 4 digits.
-                tokens = line.removeprefix(prefix).split()
+                # Output looks like "version: 8514 (406f4e3f6)" before
+                # v0.4.0 and "version: 0.4.0-dev (build 10853, ...)" after
+                # it. Normalize both to the build number so callers compare
+                # like with like; fall back to the first token when the
+                # build number cannot be recognized.
+                text = line.removeprefix(prefix).strip()
+                build = _parse_llamacpp_build_number(text)
+                if build is not None:
+                    return str(build)
+                tokens = text.split()
                 if tokens:
                     return tokens[0]
         raise RuntimeError(
