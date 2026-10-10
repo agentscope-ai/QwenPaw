@@ -10,6 +10,42 @@ from typing import Any, Mapping
 # The plugin can be updated independently of the desktop host. Keep its
 # expected version local so mismatched installations fail at the handshake.
 PROTOCOL_VERSION = 2
+CONTRACT_NAME = "computer_use"
+CONTRACT_VERSION = 2
+
+
+def _int_or_none(value: object) -> int | None:
+    try:
+        return int(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
+
+
+def hello_params(*, capability: str, protocol_version: int) -> dict[str, Any]:
+    """Build the additive, namespace-selecting hello payload."""
+    return {
+        "capability": capability,
+        "protocol_version": protocol_version,
+        "contract": CONTRACT_NAME,
+    }
+
+
+def validate_hello_result(
+    result: object,
+    *,
+    protocol_version: int,
+) -> bool:
+    """Accept legacy v2 helpers and validate contracts when advertised."""
+    if not isinstance(result, Mapping):
+        return False
+    if _int_or_none(result.get("protocol_version", 0)) != protocol_version:
+        return False
+    contracts = result.get("contracts")
+    if contracts is None:
+        return True
+    if not isinstance(contracts, Mapping):
+        return False
+    return _int_or_none(contracts.get(CONTRACT_NAME, 0)) == CONTRACT_VERSION
 
 
 # Every method name this adapter may put on the wire. The helper matches on

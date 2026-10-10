@@ -25,7 +25,12 @@ from typing import Any
 
 from qwenpaw.app.computer_use.runtime import RuntimeCapability
 
-from ..protocol import ComputerUseProtocolError, approval_reply
+from ..protocol import (
+    ComputerUseProtocolError,
+    approval_reply,
+    hello_params,
+    validate_hello_result,
+)
 from .base import ComputerUseTransport, ReverseRequestHandler
 
 _MAX_FRAME_BYTES = 64 * 1024 * 1024
@@ -73,19 +78,18 @@ class UnixSocketTransport(ComputerUseTransport):
         hello = {
             "request_id": "hello",
             "method": "hello",
-            "params": {
-                "capability": self._capability._secret,
-                "protocol_version": self._capability.protocol_version,
-            },
+            "params": hello_params(
+                capability=self._capability._secret,
+                protocol_version=self._capability.protocol_version,
+            ),
             "meta": {"session_id": "", "turn_id": "", "deadline_ms": 5000},
             "protocol_version": self._capability.protocol_version,
         }
         response = await self.request(hello)
         result = response.get("result")
-        if (
-            not isinstance(result, Mapping)
-            or int(result.get("protocol_version", 0))
-            != self._capability.protocol_version
+        if not validate_hello_result(
+            result,
+            protocol_version=self._capability.protocol_version,
         ):
             await self.close()
             raise ComputerUseProtocolError(
