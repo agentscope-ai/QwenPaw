@@ -2,6 +2,7 @@ import { createRoot } from "react-dom/client";
 import App from "./App.tsx";
 import { i18nReady } from "./i18n";
 import { installHostExternals } from "./plugins/hostExternals";
+import { installDomInsertTolerance } from "./utils/domInsertTolerance";
 // Bare side-effect imports: each file self-registers its data into
 // menuRegistry / routeRegistry so consumers' first render sees them.
 import "./layouts/registry/builtinMenu";
@@ -11,6 +12,10 @@ const INITIAL_RENDER_TIMEOUT_MS = 3000;
 
 // Expose host dependencies (React, antd, etc.) on window
 // so that plugin UI modules can use them without bundling their own copies.
+// Must run before React takes over the DOM so that a mutation performed
+// behind React's back cannot fail a commit (see utils/domInsertTolerance).
+installDomInsertTolerance();
+
 installHostExternals();
 
 if (typeof window !== "undefined") {
