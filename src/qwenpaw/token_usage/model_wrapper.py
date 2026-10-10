@@ -157,11 +157,18 @@ class TokenRecordingModelWrapper(ChatModelBase):
         # Fire-and-forget: synchronous put_nowait, ~100 ns, no await needed.
         get_token_usage_manager().enqueue(event)
 
+        # The context meter shows this value per request, so it must be the
+        # full prompt the provider processed: Anthropic reports only the
+        # uncached part in ``input_tokens`` and its cache read/write counters
+        # separately, while OpenAI-style ``prompt_tokens`` already includes
+        # cached tokens (and ``cache_eligible`` equals ``pt`` there).
         usage_data = {
             "provider_id": self._provider_id,
             "model_name": self.model,
             "prompt_tokens": pt,
-            "last_prompt_tokens": pt,
+            "last_prompt_tokens": (
+                cache_eligible if cache_observed and cache_eligible > 0 else pt
+            ),
             "completion_tokens": ct,
             "total_tokens": pt + ct,
             "cache_read_tokens": cache_read,

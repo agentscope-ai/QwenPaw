@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import math
 import time
 from dataclasses import dataclass
@@ -15,11 +16,13 @@ from agentscope.credential import (
     OllamaCredential,
     OpenAICredential,
 )
-from agentscope.embedding import EmbeddingModelBase
+from agentscope.embedding import EmbeddingModelBase, EmbeddingResponse
 
 from qwenpaw.config.config import EmbeddingModelConfig
 
 from .reme_config import _embedding_credential, _is_embedding_enabled
+
+logger = logging.getLogger(__name__)
 
 _CREDENTIAL_TYPES = {
     "openai": OpenAICredential,
@@ -30,6 +33,74 @@ _CREDENTIAL_TYPES = {
 }
 
 _TEST_TEXT = "QwenPaw embedding connection test"
+
+
+class PerItemFallbackEmbeddingModel:
+    """Delegating embedding model that survives one rejected text.
+
+    The memory store batches texts and truncates them with a character
+    budget, but a serving stack can enforce a much smaller per-item token
+    window (Ollama ``num_ctx``, gateway caps, CJK-dense chunks). The provider
+    then rejects the whole request and every text in the batch loses its
+    vector, including the healthy ones.
+
+    Retrying the rejected batch item by item converts that into a single
+    missing vector, which the store already skips per chunk. The original
+    error is still raised when nothing survived, so callers keep their
+    retry, quota, and health-check handling for real outages.
+    """
+
+    def __init__(
+        self,
+        model: EmbeddingModelBase[Any],
+        report_limit: int = 5,
+    ) -> None:
+        self._model = model
+        self._report_limit = report_limit
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self.__dict__["_model"], name)
+
+    async def __call__(self, inputs: Any, **kwargs: Any) -> Any:
+        try:
+            return await self._model(inputs, **kwargs)
+        except Exception as error:  # Provider SDKs expose many types.
+            if len(inputs) <= 1:
+                raise
+            embeddings, rejected = await self._retry_items(inputs, kwargs)
+            if all(embedding is None for embedding in embeddings):
+                raise
+            logger.warning(
+                "Embedding batch rejected (%s: %s); retried %d text(s) "
+                "individually and kept %d vector(s); rejected: %s",
+                type(error).__name__,
+                error,
+                len(inputs),
+                sum(1 for embedding in embeddings if embedding is not None),
+                "; ".join(rejected) or "unknown",
+            )
+            return EmbeddingResponse(embeddings=embeddings)
+
+    async def _retry_items(
+        self,
+        inputs: Any,
+        kwargs: dict[str, Any],
+    ) -> tuple[list[Any], list[str]]:
+        """Embed every text on its own, reporting the rejected ones."""
+        embeddings: list[Any] = []
+        rejected: list[str] = []
+        for position, text in enumerate(inputs):
+            try:
+                response = await self._model([text], **kwargs)
+                embeddings.append(response.embeddings[0])
+            except Exception as error:  # Provider SDKs expose many types.
+                embeddings.append(None)
+                if len(rejected) < self._report_limit:
+                    rejected.append(
+                        f"#{position} ({len(text)} chars, "
+                        f"{type(error).__name__}: {error})",
+                    )
+        return embeddings, rejected
 
 
 def _effective_use_dimensions(config: EmbeddingModelConfig) -> bool:
@@ -80,7 +151,7 @@ def create_embedding_model(
     }
     if config.backend == "openai":
         kwargs["pass_dimensions"] = config.use_dimensions
-    return model_type(**kwargs)
+    return PerItemFallbackEmbeddingModel(model_type(**kwargs))
 
 
 async def test_embedding_model(
