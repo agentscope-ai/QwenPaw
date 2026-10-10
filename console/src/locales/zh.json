@@ -3877,7 +3877,8 @@
     "switchSession": "切换会话",
     "lastActive": "上次活跃 · {{time}}",
     "fileReference": {
-      "codeSnippet": "代码片段 · {{count}} 行"
+      "codeSnippet_one": "代码片段 · {{count}} 行",
+      "codeSnippet_other": "代码片段 · {{count}} 行"
     },
     "modelSelectTooltip": "模型选择",
     "newTask": "新建任务",

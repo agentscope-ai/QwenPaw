@@ -5635,8 +5635,8 @@
     },
     "wireType": {
       "native": "Provider protocol default",
-      "compat_budget": "OpenAI 兼容 · thinking_budget",
-      "compat_effort": "OpenAI 兼容 · reasoning_effort",
+      "compat_budget": "OpenAI compatible · thinking_budget",
+      "compat_effort": "OpenAI compatible · reasoning_effort",
       "anthropic_budget": "Anthropic · budget_tokens",
       "anthropic_adaptive": "Anthropic · adaptive / effort",
       "gemini_budget": "Gemini · thinking_budget",

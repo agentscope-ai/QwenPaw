@@ -36,7 +36,13 @@
     "configure": "設定",
     "all": "すべて",
     "decrease": "減らす",
-    "increase": "増やす"
+    "increase": "増やす",
+    "back": "戻る",
+    "yes": "はい",
+    "no": "いいえ",
+    "advancedSettings": "詳細設定",
+    "done": "完了",
+    "autoSaveFailed": "変更を保存できませんでした"
   },
   "harnesses": {
     "connected": "接続済み",
@@ -204,7 +210,8 @@
     "version": "バージョン",
     "id": "ID",
     "category": "カテゴリ",
-    "description": "説明"
+    "description": "説明",
+    "appLoadFailed": "アプリの読み込みに失敗しました。他のアプリには影響せずに再試行できます。"
   },
   "nav": {
     "chat": "チャット",
@@ -236,7 +243,12 @@
     "acp": "ACP",
     "backups": "バックアップ",
     "pluginManager": "プラグインマネージャー",
-    "moreSettings": "その他の設定"
+    "moreSettings": "その他の設定",
+    "moreFunctions": "その他",
+    "inbox": "受信トレイ",
+    "apps": "アプリ",
+    "market": "スキルマーケット",
+    "offloadPolicy": "ツールのバックグラウンド実行"
   },
   "os": {
     "console": "コンソール",
@@ -576,7 +588,11 @@
     "mailPushWakeOptionInvoice": "請求書・領収書メールの添付を保存してアーカイブ",
     "mailPushWakeOptionReply": "問い合わせメールに丁寧に返信",
     "mailPushWakeOptionOtp": "認証コードを抽出して通知",
-    "mailPushWakeOptionSummary": "メールの要点をまとめて受信箱に保存"
+    "mailPushWakeOptionSummary": "メールの要点をまとめて受信箱に保存",
+    "mailNameDedicated": "メールボックス名（登録前は任意、登録後は必須）",
+    "mailAuthCodeOptional": "16桁の認証コード / アプリパスワード（任意）",
+    "mailCredentialOptional": "メールボックスのパスワード（任意）",
+    "mailDedicatedCredentialHint": "{{credentialHint}}。登録前は空欄のままにし、登録後はここに入力して保存するとメールボックスの接続が完了します。"
   },
   "checkpoints": {
     "nav": "チェックポイント",
@@ -685,7 +701,10 @@
     "configUpdateFailed": "システムプロンプト設定の更新に失敗しました",
     "attribution": "ワークスペースの設計はOpenClawプロジェクトの一部を参考にしています — ありがとう！🐾",
     "saveSuccess": "保存しました",
-    "saveFailed": "保存に失敗しました"
+    "saveFailed": "保存に失敗しました",
+    "saving": "保存中...",
+    "saved": "保存しました",
+    "unsaved": "未保存"
   },
   "skills": {
     "title": "スキル",
@@ -947,7 +966,12 @@
     "statusConflict": "競合",
     "renameEntry": "\"{{name}}\" の新しい名前：",
     "builtin": "組み込み",
-    "custom": "カスタム"
+    "custom": "カスタム",
+    "renameAffectsTitle": "エージェント側でも名前を変更しますか？",
+    "renameAffectsContent": "\"{{from}}\" は {{count}} 件のエージェントにインストールされています。\"{{to}}\" に名前を変更します",
+    "tagTooLong": "タグは {{max}} 文字以内にしてください",
+    "zipImportFailed": "ZIP インポートに失敗しました",
+    "externalHubHint": "外部ハブからのインポートは、ローカルのスキルプールとは別の機能です。"
   },
   "mcp": {
     "title": "MCPクライアント",
@@ -1780,7 +1804,9 @@
       "default": "既定値"
     },
     "qwenpawSettings": "QwenPaw の環境設定",
-    "emptyValue": "空の文字列"
+    "emptyValue": "空の文字列",
+    "qwenpawSettingsDescription": "既定値や起動時にロックされる値など、既知の設定を表示します。",
+    "startupOnly": "参照専用"
   },
   "tokenUsage": {
     "title": "Token 使用量",
@@ -1810,7 +1836,19 @@
     "allSelected": "すべて",
     "itemsSelected": "{{count}} 件選択済み",
     "selectModels": "モデルを選択",
-    "selectTokenTypes": "トークンタイプを選択"
+    "selectTokenTypes": "トークンタイプを選択",
+    "year": "年",
+    "futureDate": "未来の日付",
+    "activity": "アクティビティ",
+    "activityHint": "日付を選択すると使用量を確認できます",
+    "modelRanking": "モデルランキング",
+    "less": "少ない",
+    "more": "多い",
+    "trends": "推移",
+    "lastDays": "直近 {{count}} 日間",
+    "activeDays": "アクティブ日数",
+    "dailyAverage": "1日平均",
+    "peakDay": "ピーク日"
   },
   "agentStats": {
     "title": "エージェント統計",
@@ -1880,7 +1918,52 @@
     "currentModelProtected": "Switch the current model before removing it",
     "addToSelector": "Add to selector",
     "removeFromSelector": "Remove from selector",
-    "searchCandidates": "Search candidate models..."
+    "searchCandidates": "Search candidate models...",
+    "chooseProvider": "プロバイダーを選択",
+    "configureProviderHint": "プロバイダーを接続してモデルを選択すると、利用を開始できます。",
+    "manageModels": "モデル管理",
+    "addModels": "モデルを追加",
+    "noProviders": "プロバイダーがまだありません",
+    "addProvider": "プロバイダーを追加",
+    "clearSearch": "モデル検索をクリア",
+    "loadingModels": "モデルを読み込み中",
+    "partialLoadFailed": "一部のモデル情報を読み込めませんでした。",
+    "retry": "再試行",
+    "oauthModelUnavailable": "選択したモデルは利用できなくなりました。プロバイダーのモデルを確認して、もう一度お試しください。",
+    "addAndUse": "追加して使用",
+    "availableToAdd": "追加可能",
+    "addFailed": "モデルの追加に失敗しました",
+    "hideModel": "モデルを非表示",
+    "hiddenModels": "非表示のモデル ({{count}})",
+    "restoreModel": "モデルを復元",
+    "restore": "復元",
+    "visibilityFailed": "モデルの表示状態を更新できませんでした",
+    "agentModelSettings": "エージェントのモデルルーティング",
+    "agentSettingsLoadFailed": "エージェントのモデル設定の読み込みに失敗しました",
+    "loadingAgentSettings": "エージェントのモデル設定を読み込み中",
+    "agentSettingsSaveFailed": "エージェントのモデル設定の保存に失敗しました",
+    "agentSettingsSaved": "エージェントのモデル設定を保存しました",
+    "saveAgentSettings": "ルーティング設定を保存",
+    "thinkingLevel": "思考レベル",
+    "thinkingUnsupported": "現在のモデルは思考の調整が可能であることを宣言していません。",
+    "thinking": {
+      "inherit": "モデルの既定値",
+      "off": "オフ",
+      "low": "低",
+      "medium": "中",
+      "high": "高"
+    },
+    "subagentModel": "サブエージェントのモデル",
+    "sameAsPrimary": "メインと同じ",
+    "enableFallback": "失敗時にバックアップモデルを使用",
+    "fallbackScope": "フォールバックの範囲",
+    "configuredModels": "設定済みモデル",
+    "freeModelsOnly": "無料モデルのみ",
+    "chooseFallback": "バックアップモデル",
+    "moveFallbackUp": "{{model}} を上へ移動",
+    "moveFallbackDown": "{{model}} を下へ移動",
+    "removeFallback": "{{model}} を削除",
+    "fallbackActive": "実際の処理モデル：{{provider}} / {{model}}"
   },
   "models": {
     "discoveryOriginApi": "API 検出",
@@ -2239,10 +2322,110 @@
         "capability": "Capabilities",
         "availability": "Connection status",
         "family": "Model family"
-      }
+      },
+      "enabledCount": "モデル {{count}} 件",
+      "modelCount": "モデル {{count}} / {{total}} 件",
+      "enableAllConfirm": "{{count}} 件のモデルをすべて有効にしますか？",
+      "enableAll": "すべて有効化",
+      "disableAll": "すべて無効化"
     },
     "billing": {
-      "free": "無料"
+      "free": "無料",
+      "paid": "有料",
+      "unknown": "料金不明"
+    },
+    "connectProviderTitle": "最初のモデルを接続",
+    "cardStatus": {
+      "configured": "設定済み",
+      "configuredCount": "{{count}} 件設定済み",
+      "unconfigured": "未設定",
+      "disabled": "無効",
+      "ready": "準備完了"
+    },
+    "partialLoadWarning": "一部のモデル情報を利用できません。個人用プロバイダーは引き続き利用できます。",
+    "notConfiguredYet": "未設定",
+    "getApiKey": "API キーを取得",
+    "resetContextLength": "自動コンテキストに戻す",
+    "automatic": "自動",
+    "metadataSource": {
+      "api": "プロバイダー API",
+      "catalog": "モデルカタログ",
+      "template": "モデルテンプレート（エンドポイントの制限を上書き）",
+      "user": "手動での上書き",
+      "adapter": "プロバイダーアダプター",
+      "default": "既定（モデル情報を利用できません）",
+      "unknown": "不明",
+      "automatic": "自動解決"
+    },
+    "enterApiKeyRequired": "API キーを入力",
+    "cloudGroup": "クラウドプロバイダー",
+    "configuredGroup": "設定済み",
+    "configuredOnline": "件のプロバイダーがオンライン",
+    "noConfigured": "設定済みのプロバイダーはまだありません。下から選ぶと利用を開始できます。",
+    "goConfigureBtn": "プロバイダーを設定",
+    "availableGroup": "利用可能なプロバイダー",
+    "clickToConfigure": "クリックして設定",
+    "configureAction": "設定",
+    "disableProvider": "プロバイダーを無効化",
+    "disableProviderConfirm": "\"{{name}}\" の API キーを削除しますか？プロバイダーは未設定の状態になります。",
+    "disableBtn": "無効化",
+    "changeApiKey": "変更",
+    "selectVariant": "{{name}} のバリアントを選択",
+    "providerDisabled": "プロバイダー \"{{name}}\" を無効化しました",
+    "modelsLastSynced": "最終同期：{{time}}",
+    "modelsNeverSynced": "モデルはまだ同期されていません",
+    "modelsSyncFailed": "最後の同期に失敗しました",
+    "modelsSyncing": "モデル候補を検出しています...",
+    "discoveredModelsReady": "{{count}} 件のモデル候補を追加できます",
+    "addAllDiscoveredModels": "利用可能なものをすべて追加 ({{count}})",
+    "discoveredModelsAdded": "検出したモデルを {{count}} 件追加しました",
+    "discoveredModelsAddFailed": "{{count}} 件のモデルを追加できませんでした",
+    "modelList": "モデル一覧",
+    "clearAll": "すべてクリア",
+    "filteredModelsLoaded": "絞り込まれたモデルを読み込みました：{{count}}",
+    "filterFailed": "モデルの絞り込みに失敗しました",
+    "clearAllModels": "モデルをすべてクリア",
+    "clearAllModelsConfirm": "追加したモデル {{count}} 件をすべてクリアしますか？この操作は元に戻せません。",
+    "allModelsCleared": "モデルを {{count}} 件クリアしました",
+    "filterModels": "モデルを絞り込み",
+    "filterByProvider": "プロバイダー：",
+    "filterByModality": "入力モダリティ：",
+    "getModels": "モデルを取得",
+    "discovered": "利用可能なモデル：",
+    "add": "追加",
+    "perMillionIn": "/1M 入力",
+    "perMillionOut": "/1M 出力",
+    "modelTemplate": "モデルテンプレート（任意）",
+    "modelInfoUnavailable": "モデル情報を利用できません。モデルは引き続き追加できます。",
+    "remoteMissing": "リモートの一覧にありません",
+    "enablePaidModel": "有料利用を有効化",
+    "providerEnabled": "プロバイダーを有効化",
+    "anthropicOutputHint": "自動モードでは、モデルの性能と思考の制限の範囲内で出力バジェットが確保されます。",
+    "capabilities": {
+      "unknown": "不明",
+      "supports_image": "画像入力",
+      "supports_audio": "音声入力",
+      "supports_video": "動画入力",
+      "supports_tool_calling": "ツール呼び出し",
+      "auto": "自動",
+      "supported": "対応",
+      "unsupported": "未対応"
+    },
+    "recommendation": {
+      "unranked": "審査済みスコアなし · 手動で追加",
+      "estimated_score": "推定スコア · 手動で追加",
+      "below_quality_threshold": "推奨しきい値未満 · 手動で追加",
+      "tools_unverified": "ツール対応は未検証",
+      "unavailable": "接続不可",
+      "billing_unknown": "無料の可否は未検証",
+      "billing_paid": "有料モデル",
+      "ranking_version_mismatch": "ランキングバージョンの確認が必要"
+    },
+    "includesFreeModels": "無料モデルを含む",
+    "agentDefaults": "エージェントの既定値",
+    "scope": {
+      "global": "グローバルモデル",
+      "agent": "現在のエージェント"
     }
   },
   "files": {
@@ -2329,7 +2512,23 @@
     "mentionInChat": "チャットで参照",
     "expandWorkspace": "ワークスペースを展開",
     "openWorkspace": "ワークスペースを開く",
-    "closeWorkspace": "ワークスペースを閉じる"
+    "closeWorkspace": "ワークスペースを閉じる",
+    "agentWorkspace": "エージェントワークスペース",
+    "memoryGraphAutoRotate": "自動回転",
+    "memoryGraphMotionReduced": "システムの「動きを減らす」設定が有効です",
+    "memoryGraphRendering": "3D シーンを構築しています…",
+    "memoryGraphRenderFailed": "3D グラフのレンダリングに失敗しました。",
+    "memoryGraphCanvasLabel": "インタラクティブな 3D メモリグラフ。ドラッグで回転、スクロールでズーム、ノードを選択すると詳細を表示します。",
+    "memoryGraphCloseDetails": "ノードの詳細を閉じる",
+    "changeDirectoryTitle": "プロジェクトディレクトリを変更しますか？",
+    "changeDirectoryWarning": "このプロジェクトには未保存の編集または保留中の差分があります。ディレクトリを変更すると、これらは破棄されます。",
+    "htmlPreview": "HTML プレビュー",
+    "openHtmlInBrowser": "ブラウザーで開く",
+    "artifactCreated": "作成",
+    "artifactModified": "変更",
+    "artifactSent": "送信済み",
+    "artifactsExpand": "さらに {{count}} 件のファイルを表示",
+    "artifactsCollapse": "ファイル表示を減らす"
   },
   "projectDirectory": {
     "agentTitle": "エージェントのプロジェクトディレクトリ",
@@ -2363,7 +2562,8 @@
     "tooMany": "バインドできるディレクトリは最大 {{max}} 件です。",
     "countTitle": "設定済みディレクトリ数",
     "syncAsAgentDefault": "今後の新しいタスクでこのワークスペース設定を既定にする",
-    "openDirectory": "{{name}} を開く"
+    "openDirectory": "{{name}} を開く",
+    "agentDescription": "エージェントのファイルワークスペースは、この既定のディレクトリを使用します。"
   },
   "agentConfig": {
     "title": "設定",
@@ -2876,9 +3076,177 @@
     "saveLevelSuccess": "ツール承認モードを保存しました",
     "saveLevelFailed": "ツール承認モードの保存に失敗しました",
     "offloadPolicy": {
-      "title": "ツールのバックグラウンド実行ポリシー"
+      "title": "ツールのバックグラウンド実行ポリシー",
+      "alertMessage": "これはエージェント単位ではなく、グローバルな設定（settings.json）です。ツールがオフロード期限に達したときの既定の動作を制御します。ツールの実行中は、ツールコントロールパネルから上書きできます。",
+      "keepForeground": "フォアグラウンドで継続",
+      "keepForegroundDesc": "カウントダウン終了後もツールは自動オフロードされず、フォアグラウンドで実行を続けます。リアルタイムで出力を監視する必要がある場合に適しています。",
+      "offload": "バックグラウンドへ自動オフロード",
+      "offloadDesc": "カウントダウン終了後、ツールは自動的にバックグラウンド実行へ移され、エージェントは他のタスクの処理を続けられます。長時間実行されるツールに適しています。",
+      "saveFailed": "ポリシーの保存に失敗しました"
     },
-    "memoryAutoRecordTitle": "会話メモリを有効にする"
+    "memoryAutoRecordTitle": "会話メモリを有効にする",
+    "advancedRuntime": "ランタイム詳細設定",
+    "memoryDailyPaperTitle": "Daily Paper",
+    "memoryDailyPaperDescription": "Hugging Face の論文情報を使って、スケジュールに沿って日次の論文閲覧と簡潔なブリーフを生成します。",
+    "dailyPaperCron": "Daily Paper のスケジュール",
+    "dailyPaperCronTooltip": "Daily Paper を生成する Cron 式です。スイッチを有効にするまでタスクは実行されません。",
+    "dailyPaperTopics": "トピック",
+    "dailyPaperTopicsTooltip": "論文を選定する際に優先するトピック（任意）。",
+    "dailyPaperTopicsPlaceholder": "例: agent memory, reinforcement learning",
+    "dailyPaperUseHfMirror": "Hugging Face ミラーを使用",
+    "dailyPaperUseHfMirrorDescription": "Hugging Face ミラーを通じて論文情報を取得します",
+    "dailyPaperCronPlaceholder": "0 9 * * *",
+    "dailyPaperCronRequired": "Daily Paper を有効にする場合は Cron 式を入力してください",
+    "dailyPaperCronInvalid": "有効な5フィールドの Cron 式を入力してください",
+    "memoryAutoFinTitle": "Auto Fin",
+    "memoryAutoFinDescription": "トピックに関連する直近の CLS 金融ニュースを調査し、過去の記憶と結び付けます。",
+    "autoFinDocumentation": "ガイドを見る",
+    "autoFinCron": "Auto Fin のスケジュール",
+    "autoFinCronTooltip": "Auto Fin の調査に使用する Cron 式です。スイッチを有効にするまでタスクは実行されません。",
+    "autoFinCronPlaceholder": "0 18 * * *",
+    "autoFinCronRequired": "Auto Fin を有効にする場合は Cron 式を入力してください",
+    "autoFinCronInvalid": "有効な5フィールドの Cron 式を入力してください",
+    "autoFinTopics": "トピック",
+    "autoFinTopicsTooltip": "直近の CLS ニュースを絞り込むためのトピック（カンマ区切り）。",
+    "autoFinTopicsPlaceholder": "例: gold, AI, memory chips",
+    "autoFinWindowHours": "ニュースの対象期間（時間）",
+    "autoFinWindowHoursTooltip": "各実行で分析する直近の CLS 電訊ニュースの時間数です。",
+    "autoFinWindowHoursPlaceholder": "24",
+    "autoFinWindowHoursRequired": "ニュースの対象期間を入力してください",
+    "autoFinWindowHoursMin": "ニュースの対象期間は 1 時間以上である必要があります",
+    "autoFinWindowHoursMax": "ニュースの対象期間は {{max}} 時間以下である必要があります",
+    "autoFinNotifyDescription": "Auto Fin の結果を受信トレイに送信します",
+    "autoFinDisclaimer": "Auto Fin は市場価格、収益、目標株価、売買シグナル、投資助言を提供しません。",
+    "embeddingTestConnection": "Embedding 接続テスト",
+    "embeddingTestSuccess": "Embedding サービスのテストに成功しました",
+    "embeddingTestSuccessDetail": "実際の次元数: {{dimensions}} · レイテンシ: {{latency}} ms。このモデルを適用するには保存してください。",
+    "embeddingTestFailed": "Embedding サービスのテストに失敗しました",
+    "embeddingTestIncomplete": "先にモデル名、必要な認証情報、有効なベクトル次元数を入力してください。",
+    "embeddingStatusDescription": "現在のモデルを確認し、接続とベクトル出力を検証します",
+    "embeddingOverviewTitle": "Embedding モデルハブ",
+    "embeddingConfigStatus": "設定",
+    "embeddingCurrentModel": "現在のモデル",
+    "embeddingConfiguredDimensions": "設定済みの次元数",
+    "embeddingDimensionsUnit": "次元のベクトル",
+    "embeddingVerificationStatus": "サービスの検証",
+    "embeddingVerified": "検証済み",
+    "embeddingNotVerified": "未検証",
+    "embeddingVerificationHint": "クリックしてサービスを検証し、次元数とレイテンシを表示します",
+    "embeddingVerificationMetrics": "返却 {{dimensions}} 次元 · {{latency}} ms",
+    "embeddingServiceTitle": "Embedding サービス",
+    "embeddingServiceDescription": "モデルサービスに接続し、ベクトル出力を定義します",
+    "embeddingCapabilityEnabled": "有効",
+    "embeddingCapabilityDisabled": "無効",
+    "embeddingIndexTitle": "インデックスとキャッシュ",
+    "embeddingIndexDescription": "ReMe のベクトル保存とバッチ処理の動作を制御します",
+    "memoryPageDescription": "過去の会話から有用な情報を抽出・整理・想起できるようにします。日常の設定はすぐに反映され、セマンティック検索は任意です。",
+    "memoryPoweredBy": "提供元",
+    "memoryDocumentation": "ドキュメント",
+    "memoryOverviewTitle": "長期記憶ハブ",
+    "memoryRuntimeStatus": "サービスの状態",
+    "memoryStatusUnknown": "未確認",
+    "memoryStatusChecking": "状態を確認中",
+    "memoryStatusRunning": "正常に実行中",
+    "memoryStatusCheckFailed": "状態の確認に失敗しました",
+    "remeStatusLoading": "ReMe ランタイムの状態を読み込み中…",
+    "remeStatusFailed": "ReMe ランタイムの状態を読み込めません",
+    "remeStatusComponentsTotal": "ReMe コンポーネント数の推定",
+    "remeStatusEstimated": "ステートフルコンポーネントのオブジェクトサイズ合計",
+    "remeStatusProcessRss": "プロセスのメモリ RSS",
+    "remeStatusProcessRssHint": "QwenPaw プロセスが使用する物理メモリ",
+    "remeStatusComponents": "コンポーネントの詳細",
+    "remeStatusEstimateNote": "コンポーネントのサイズはそれぞれ独立した推定値です。共有オブジェクトが重複してカウントされる場合があるため、合計はプロセスの RSS とは一致しません。",
+    "memoryStatusNeedsAttention": "注意が必要",
+    "memoryStatusBusy": "処理中",
+    "memoryStatusStopping": "停止中",
+    "memoryBackgroundTasks": "バックグラウンドジョブ",
+    "memoryWorker": "メモリワーカー",
+    "memoryWorkerStatus": {
+      "idle": "待機中",
+      "busy": "処理中",
+      "stopping": "停止中",
+      "error": "予期せず停止しました"
+    },
+    "memoryQueueSummary": "{{running}} 件実行中 · {{pending}} 件待機中",
+    "memoryQueueIdleSummary": "待機中 · 保留中のジョブはありません",
+    "memoryAutoRecordDisabledHint": "自動会話メモリはオフです",
+    "memoryAutoMemoryEnabledSummary": "自動記憶が有効 · {{interval}} ターンごとに実行",
+    "memoryRuntimeActivityDescription": "自動・手動の操作による自動記憶ジョブは、現在の会話をブロックせず順番に実行されます",
+    "memoryLastError": "直近のエラー",
+    "memoryNeverRun": "まだ実行履歴はありません",
+    "autoMemoryRecentTasks": "直近の自動記憶ジョブ",
+    "autoMemoryRecentTasksEmpty": "自動記憶ジョブはまだありません",
+    "autoMemoryTrigger": {
+      "periodic": "定期",
+      "manual": "手動",
+      "compact": "コンテキスト圧縮時",
+      "new": "新しい会話"
+    },
+    "memoryTaskMessages": "{{count}} 件のメッセージを処理",
+    "memoryTaskNoResult": "ジョブはまだ内容を返していません",
+    "memoryTaskStatus": {
+      "pending": "保留中",
+      "running": "処理中",
+      "completed": "完了",
+      "failed": "失敗",
+      "cancelled": "キャンセル済み"
+    },
+    "memoryResourceUsageDescription": "ReMe コンポーネントの推定値と QwenPaw プロセスのメモリ",
+    "memoryDiagnostics": "リソースと診断",
+    "memoryComponentsMetric": "コンポーネント",
+    "memoryProcessMetric": "プロセス",
+    "memoryDiagnosticsHint": "コンポーネントの使用量とランタイムの詳細を表示します",
+    "remeStatusComponent": {
+      "embedding_store": "Embedding ストア",
+      "file_graph": "ファイルグラフ",
+      "file_store": "ファイルストア",
+      "keyword_index": "キーワードインデックス"
+    },
+    "memoryStatusDisabled": "無効",
+    "memoryJournalTitle": "自動記憶",
+    "memoryJournalDescription": "会話や外部のナレッジソースから、検索可能な記憶を継続的に抽出します",
+    "memoryConversationJournalTitle": "会話メモリ",
+    "memoryExternalSourcesDevelopingLabel": "今後も追加予定",
+    "memoryExternalSourcesTitle": "外部ナレッジジャーナル",
+    "dailyPaperDocumentation": "ガイドを見る",
+    "memoryAutoRecordDescription": "選択した間隔で新しい記憶を継続的に抽出します",
+    "memoryAutoRecordFrequency": "記録頻度（会話ターン）",
+    "memoryNotifyTitle": "受信トレイ通知",
+    "memoryNotifyDescription": "会話ジャーナルが変化した場合またはジョブが失敗した場合のみ受信トレイに通知します",
+    "dailyPaperNotifyDescription": "Daily Paper の結果を受信トレイに送信します",
+    "autoDreamNotifyDescription": "メモリ整理で変更があった場合またはジョブが失敗した場合のみ受信トレイに通知します",
+    "memoryOrganizeSectionTitle": "メモリ整理",
+    "memoryOrganizeSectionDescription": "既存の長期記憶を定期的に要約・統合・改善します",
+    "memoryOrganizeTitle": "定期整理",
+    "memoryScheduledOrganizeTitle": "定期整理を有効化",
+    "memoryScheduledOrganizeDescription": "ドリームジョブでメモリの品質をバックグラウンドで維持します",
+    "memoryRecallTitle": "メモリ検索ツール",
+    "memorySearchSectionTitle": "メモリ検索",
+    "memorySearchSectionDescription": "オンデマンド検索と、応答前の自動メモリ呼び出しを制御します",
+    "memorySearchToolTitle": "エージェントにメモリ検索ツールを付与",
+    "memorySearchToolDescription": "必要に応じてエージェントが memory_search を呼び出せるようにします",
+    "memoryAutoRecallTitle": "自動メモリ検索を有効化（Beta）",
+    "memoryAutoRecallDescription": "エージェントがツールを呼び出さなくても、毎ターン検索します",
+    "memoryMaintenanceEyebrow": "メンテナンスと修復",
+    "memoryMaintenanceTitle": "記憶インデックスを再構築",
+    "memoryMaintenanceDescription": "検索インデックスを消去して再生成します。インデックスの破損や検索結果の異常時のみ使用することを推奨します。",
+    "embeddingIndexDisabled": "無効",
+    "embeddingIndexEnableFirst": "再構築する前に Embedding を有効にしてください",
+    "dialogPath": "会話の保存パス",
+    "dialogPathTooltip": "会話を永続化する保存先の相対パス（working_dir からの相対）",
+    "dialogPathPlaceholder": "dialog",
+    "contextCompactCollapseLabel": "コンテキスト圧縮",
+    "toolResultPruningCollapseLabel": "ツール結果の整理",
+    "autoMemorySearchCollapseLabel": "自動メモリ検索",
+    "embeddingConfigCollapseLabel": "Embedding モデル設定",
+    "summarizeWhenCompact": "圧縮時にメモリを生成",
+    "summarizeWhenCompactTooltip": "コンテキスト圧縮時にメモリを自動的に生成して保存します",
+    "contextManagerBackend": "コンテキストマネージャーのバックエンド",
+    "contextManagerBackendTooltip": "コンテキストマネージャーのバックエンド種別です。現在は Light のみ対応しています。",
+    "contextStrategy": "コンテキスト戦略",
+    "contextStrategyTooltip": "エージェントが長いコンテキストを管理する方法です。Scroll（推奨）は退避されたターンを永続的な履歴ストアに保存し、必要に応じて呼び出します。Native はその場で圧縮します。変更を反映するには QwenPaw を再起動してください。",
+    "contextStrategyScroll": "Scroll",
+    "contextStrategyNative": "Native"
   },
   "tools": {
     "title": "ツール",
@@ -3141,7 +3509,33 @@
     "collapse": "サイドバーを折りたたむ",
     "expand": "サイドバーを展開する",
     "more": "その他",
-    "toggleAgentNavigation": "エージェントナビゲーションを展開または折りたたむ"
+    "toggleAgentNavigation": "エージェントナビゲーションを展開または折りたたむ",
+    "avatarLoadFailed": "アバターを読み込めませんでした。再試行してください。",
+    "toolsCompact": "コンパクトメニューを表示",
+    "toolsDetailed": "詳細メニューを表示",
+    "changeAvatar": "アバター管理",
+    "uploadAvatar": "画像を選択",
+    "avatarHistory": "最近のアバター · 直近12件",
+    "defaultAvatar": "既定のアバターに戻す",
+    "historyAvatar": "前のアバター {{number}}",
+    "avatarInvalid": "PNG、JPG、WebP は 10 MB 未満、GIF は 2 MB 未満を選択してください",
+    "avatarSaveFailed": "アバターを保存できませんでした。接続を確認して再試行してください。",
+    "localWorkspace": "ローカルワークスペース",
+    "localMode": "このデバイス",
+    "consoleAccount": "コンソールアカウント",
+    "weeklyUsage": "直近7日間",
+    "noUsage": "使用量はまだありません",
+    "closeMobile": "ナビゲーションを閉じる",
+    "tools": "エージェントとショートカット",
+    "pinTools": "ツールを固定",
+    "unpinTools": "ツールの固定を解除",
+    "foldTools": "メニューを折りたたむ",
+    "expandTools": "メニューを展開",
+    "dragHandle": "サイドバーをドラッグしてフロート表示、Enter でドッキングを切り替え",
+    "dock": "サイドバーを左端に戻す",
+    "usageModel": "モデルを選択",
+    "allModels": "すべてのモデル",
+    "usageDetails": "使用量の詳細"
   },
   "settingsCenter": {
     "backToApp": "アプリに戻る",
@@ -3251,10 +3645,32 @@
     "newChat": "新しいチャット",
     "groups": {
       "cronShort": "定期タスク",
-      "subagentShort": "サブエージェント"
+      "subagentShort": "サブエージェント",
+      "create": "新しいグループ",
+      "namePlaceholder": "グループ名",
+      "uncategorized": "未分類",
+      "cron": "定期タスクの会話",
+      "chatShort": "チャット",
+      "cronHint": "定期タスクが作成した独立した会話です。既定では折りたたまれ、下部付近に固定されます",
+      "subagents": "サブエージェントとの会話",
+      "subagentsHint": "子エージェントのタスク用に作成された独立した会話です。既定では折りたたまれ、下部に固定されます",
+      "pin": "グループをピン留め",
+      "unpin": "グループのピン留めを解除",
+      "pinned": "ピン留め済みのグループ",
+      "fixedLast": "下部に固定されるシステムグループ",
+      "moveSuccess": "「{{name}}」へ移動しました",
+      "moveFailed": "会話を移動できませんでした。もう一度お試しください。",
+      "rename": "名前を変更",
+      "moveUp": "上に移動",
+      "moveDown": "下に移動",
+      "delete": "グループを削除",
+      "manage": "グループを管理",
+      "deleteTitle": "このグループを削除しますか？",
+      "deleteHint": "会話は組み込みのグループに戻ります。"
     },
     "fileReference": {
-      "codeSnippet": "コードスニペット · {{count}} 行"
+      "codeSnippet_one": "コードスニペット · {{count}} 行",
+      "codeSnippet_other": "コードスニペット · {{count}} 行"
     },
     "modelSelectTooltip": "モデルを選択",
     "chatHistoryTooltip": "チャット履歴",
@@ -3303,6 +3719,9 @@
       },
       "goal": {
         "description": "Goalループ — エージェントが目標に向かって継続実行し、Rubric評価で完了を自動判定"
+      },
+      "plan": {
+        "description": "タスクをサブタスクに分解する構造化された計画を作成します"
       }
     },
     "attachments": {
@@ -3318,7 +3737,7 @@
     },
     "rateLimitHit": "現在のモデルがレート制限されています。他の無料モデルに切り替えてみてください。",
     "turnUsagePopover": {
-      "ariaLabel": "このターンのトークンとコンテキスト使用量を表示",
+      "ariaLabel": "コンテキスト使用率 {{contextRate}}、キャッシュ命中率 {{cacheRate}}。使用状況の詳細を表示",
       "turn": "このターン",
       "turnEstimated": "このターン約",
       "tok": "tok",
@@ -3330,7 +3749,8 @@
       "cacheTokens": "ヒット {{readTok}} / 入力 {{inputTok}}",
       "manageContext": "コンテキスト管理",
       "compact": "圧縮",
-      "new": "新しい会話"
+      "new": "新しい会話",
+      "cacheNotReported": "キャッシュ使用量は報告されていません"
     },
     "rateLimitMessage": "レート制限に達しました。他の無料モデルに切り替え：",
     "rateLimitSwitched": "{{model}} に切り替えました",
@@ -3362,7 +3782,9 @@
       "pin": "ピン留め",
       "unpin": "ピン留め解除",
       "copyId": "会話 ID をコピー",
-      "delete": "削除"
+      "delete": "削除",
+      "pinFailed": "会話のピン留め状態を更新できませんでした",
+      "moveToGroup": "グループへ移動"
     },
     "queue": {
       "title": "メッセージキュー",
@@ -3387,7 +3809,8 @@
       "today": "今日",
       "week": "7日以内",
       "month": "30日以内",
-      "older": "それ以前"
+      "older": "それ以前",
+      "noGroups": "グループはまだありません"
     },
     "sessionPanel": {
       "searchConversations": "会話を検索…",
@@ -3409,7 +3832,11 @@
     },
     "regenerate": "再生成",
     "regenerateUnavailable": "この過去のターンにはリクエスト ID がありません。新しいメッセージを送信してください。",
-    "turnCanceled": "停止済み"
+    "turnCanceled": "停止済み",
+    "switchSession": "会話を切り替え",
+    "lastActive": "最終アクティビティ · {{time}}",
+    "statusUnseenResult": "新しい結果",
+    "modelFallbackNotice": "モデルを {{from}} から {{to}} に切り替えました（{{reason}}）。"
   },
   "security": {
     "parent": "設定",
@@ -3597,7 +4024,52 @@
         "moreFindings": "他に {{count}} 件は表示していません（一覧は 設定 → セキュリティ → スキルスキャナ を参照）。"
       }
     },
-    "sandboxEnabled": "サンドボックス保護"
+    "sandboxEnabled": "サンドボックス保護",
+    "sandboxEnabledTooltip": "有効にすると、一致するルールがないシェルコマンドはサンドボックス内で確認なしに実行されます。無効にすると、そのようなコマンドはサンドボックスなしで直接実行されます（承認プロンプトは表示されません）。どちらの場合も、シークレットファイルの読み取りと危険なコマンド（例：rm -rf /、sudo）はブロックされるか承認が必要です。",
+    "sandboxDegradedWarning": "サンドボックスは有効に設定されていますが、QwenPaw が管理者として実行されていません。このセッションではサンドボックスは無効になります。サンドボックスを使用するには、QwenPaw を管理者権限で再起動してください。",
+    "sandboxElevatedWarning": "サンドボックスは管理者モードで実行中です",
+    "sandboxElevatedDescription": "管理者モードのサンドボックスは、ウイルス対策ソフトにブロックされたり互換性の問題を引き起こしたりする可能性があります。予期しないブロックやクラッシュが発生する場合は、サンドボックスを無効化するか、QwenPaw を管理者権限なしで実行してください。",
+    "sandboxUnelevatedWarning": "サンドボックスは非管理者モードで実行中です",
+    "sandboxUnelevatedDescription": "管理者モードではより強力で完全なサンドボックス分離が得られますが、ウイルス対策ソフトにブロックされたり互換性の問題を引き起こしたりする可能性があります。上級ユーザーにのみ推奨されます。有効にするには：QwenPaw のショートカットを右クリック → 「管理者として実行」を選択するか、昇格したターミナルを開いて `qwenpaw app` を実行してください。",
+    "denyPathsProtection": "拒否パス保護",
+    "denyPathsSandboxEnhancement": "これはサンドボックス強化機能です。管理者権限なしで実行すると、サンドボックスはファイルシステムアクセスを完全に分離できません。この機能は Windows ACL を使用して機密パスへのアクセスを拒否し、追加の保護層を提供します。",
+    "denyPathsProtectionTooltip": "有効にすると、現在のユーザーに対して機密パス（例：~/.ssh、~/.aws）にシステムレベルのアクセス拒否 ACL を適用します。警告：有効中は、QwenPaw だけでなく、あなたのユーザーで実行されているすべてのプログラムがこれらのパスにアクセスできません。保護は QwenPaw の終了時、またはこの切り替えを無効にしたときに自動的に解除されます。",
+    "denyPathsActiveMessage": "拒否パス保護が有効です",
+    "denyPathsActiveDescription": "以下のパスは現在、現在のユーザーのすべてのプロセスからブロックされています。アクセスを復元するには、この切り替えを無効にするか QwenPaw を終了してください。",
+    "shellEvasion": {
+      "title": "シェル回避検出",
+      "description": "有効にするシェル回避および難読化の検出チェックを設定します。これらのチェックは、単純な正規表現のみの検出から悪意のある意図を隠そうとする手法を検出します。",
+      "checks": {
+        "command_substitution": {
+          "name": "コマンド置換",
+          "description": "$()、バッククォート、プロセス置換、その他のコマンド置換パターンを検出します"
+        },
+        "obfuscated_flags": {
+          "name": "難読化されたフラグ",
+          "description": "ANSI-C クォート、ロケールクォート、空クォートによるフラグの難読化を検出します"
+        },
+        "backslash_escaped_whitespace": {
+          "name": "バックスラッシュエスケープされた空白",
+          "description": "コマンドの解析を変更できる、バックスラッシュでエスケープされたスペース/タブを検出します"
+        },
+        "backslash_escaped_operators": {
+          "name": "バックスラッシュエスケープされた演算子",
+          "description": "コマンド構造を隠せる、シェル演算子（;|&<>）の前のバックスラッシュを検出します"
+        },
+        "newlines": {
+          "name": "隠された改行",
+          "description": "隠されたコマンドを区切る可能性のある改行と復帰を検出します"
+        },
+        "comment_quote_desync": {
+          "name": "コメントのクォートずれ",
+          "description": "クォート追跡をずらせる # コメント内の引用文字を検出します"
+        },
+        "quoted_newline": {
+          "name": "クォート内の改行",
+          "description": "引数を隠せる、クォート文字列内の改行とそれに続く # 始まりの行を検出します"
+        }
+      }
+    }
   },
   "hub": {
     "brand": {
@@ -4239,7 +4711,36 @@
     "unauthorized": "未認証です。ログインしてください",
     "invitationCode": "招待コード",
     "inviteTitle": "招待を受け入れる",
-    "acceptInvitation": "招待コードで参加"
+    "acceptInvitation": "招待コードで参加",
+    "returnToSignIn": "ログイン画面に戻る",
+    "createAccount": "アカウントを作成",
+    "switchLanguage": "言語を切り替え",
+    "hubDisclaimerTitle": "セルフホスト Hub に関するお知らせ",
+    "hubDisclaimerPoint1": "自分または信頼できる組織が運営する Hub にのみログインしてください",
+    "hubDisclaimerPoint2": "管理者は、このインスタンスに保存または処理されたデータにアクセスできる場合があります",
+    "hubDisclaimerPoint3": "サンドボックスにより QwenPaw の一部の機能が制限される場合があります",
+    "hubDisclaimerAccept": "利用規約を読み、同意しました",
+    "hubDisclaimerAcceptPrefix": "以下を読み、同意しました：",
+    "hubTerms": "利用規約",
+    "hubLinks": "QwenPaw リンク",
+    "officialWebsite": "公式ウェブサイト",
+    "hubTermsTitle": "QwenPaw Hub 利用規約",
+    "hubTermsLead": "この独立して運営されている QwenPaw Hub インスタンスを使用する前に、以下の規約をお読みください。",
+    "hubTermsSection1Title": "1. 信頼できるデプロイ",
+    "hubTermsSection1Body": "自分または信頼できる組織がデプロイした Hub のみを使用してください。サードパーティの Hub は独立して運営されており、QwenPaw プロジェクトはその正体、構成、またはセキュリティを検証しません。",
+    "hubTermsSection2Title": "2. データと管理者のアクセス",
+    "hubTermsSection2Body": "インスタンスの運営者は、サーバー、データベース、バックアップ、ログ、ランタイムプロセスを管理します。管理者は、このインスタンスに保存または処理された会話、アップロードされたファイル、認証情報、設定、およびランタイムデータに技術的にアクセスできる場合があります。",
+    "hubTermsSection3Title": "3. 認証情報と機密情報",
+    "hubTermsSection3Body": "業務に必要な認証情報とデータのみを提供してください。信頼できないインスタンスにシークレットを入力しないでください。保存、保持、バックアップ、削除、およびインシデント対応の方針は、インスタンスの運営者が定めます。",
+    "hubTermsSection4Title": "4. サンドボックスと機能の制限",
+    "hubTermsSection4Body": "QwenPaw は Hub 内の隔離されたランタイムで実行されます。ホストの権限、デバイス、ローカルアプリケーション、ネットワークアクセス、その他の統合が制限される場合があるため、Hub は信頼できるローカルの QwenPaw インストールで利用できる完全な機能を保証できません。",
+    "hubTermsSection5Title": "5. 許容され認可された利用",
+    "hubTermsSection5Body": "このサービスは、合法かつ認可された目的にのみ使用してください。あなたの指示、アップロードされたコンテンツ、生成された出力、外部サービスの利用、およびインスタンス運営者と該当するサービスの規則の遵守について、あなたが責任を負います。",
+    "hubTermsSection6Title": "6. 可用性とリスク",
+    "hubTermsSection6Body": "サービスの可用性、データ保護、サポート、復旧はインスタンス運営者の責任です。重要なデータはバックアップし、生成された結果は依拠する前に確認してください。QwenPaw プロジェクトの貢献者は、サードパーティのデプロイの運営者ではありません。",
+    "hubTermsEnd": "「同意して続行」を選択すると、あなたはこの Hub の運営者を信頼し、これらのデータ、機能、利用の範囲を理解したことを確認したことになります。",
+    "hubTermsScrollHint": "続行するには下部までスクロールしてください",
+    "hubTermsAgree": "同意して続行"
   },
   "account": {
     "title": "アカウント管理",
@@ -4268,7 +4769,12 @@
     "runtimeRestartConfirmDescription": "再起動中は実行中のタスクが中断されます。",
     "runtimeRestart": "ランタイムを再起動",
     "runtimeRestartSuccess": "ランタイムを再起動しました",
-    "runtimeRestartFailed": "ランタイムの再起動に失敗しました"
+    "runtimeRestartFailed": "ランタイムの再起動に失敗しました",
+    "runtimeRestarting": "ランタイムを再起動中...",
+    "runtimeStoppedTitle": "ランタイムが停止しました",
+    "runtimeStoppedDescription": "管理者がプロセスを停止しました。続行する用意ができたら再起動してください。",
+    "runtimeDisabledTitle": "ランタイムが無効になっています",
+    "runtimeDisabledDescription": "管理者がこのランタイムの起動をブロックしました。アクセスを復元するには管理者に連絡してください。"
   },
   "voiceTranscription": {
     "title": "音声文字起こし",
@@ -4524,7 +5030,9 @@
     "acknowledge": "了解",
     "builtinSource": "組み込み",
     "ownerAgent": "オーナーエージェント",
-    "executingAgent": "実行エージェント"
+    "executingAgent": "実行エージェント",
+    "agent": "エージェント",
+    "reason": "理由"
   },
   "pluginManager": {
     "title": "プラグインマネージャー",
@@ -4597,7 +5105,13 @@
     "marketSortLabel": "Sort plugins",
     "marketSortDownloads": "Most downloaded",
     "marketSortUpdated": "Recently updated",
-    "marketSortFavorites": "Most favorited"
+    "marketSortFavorites": "Most favorited",
+    "publishBtn": "プラグインを公開",
+    "marketFeatured": "おすすめ",
+    "marketTrending": "人気",
+    "compatWarningTitle": "互換性の警告",
+    "compatWarningContent": "このプラグインは QwenPaw {{labels}} 向けです。現在の QwenPaw バージョンは {{version}} です。インストールするとエラーが発生する可能性があります。続行しますか？",
+    "compatWarningConfirm": "インストールする"
   },
   "inbox": {
     "title": "受信トレイ",
@@ -4709,7 +5223,33 @@
     "remark": "備考",
     "actions": "操作",
     "optional": "（任意）",
-    "required": "（必須）"
+    "required": "（必須）",
+    "heartbeatSuccess": "ハートビートが正常に完了しました",
+    "heartbeatTimeout": "ハートビートがタイムアウトしました",
+    "heartbeatCancelled": "ハートビートがキャンセルされました",
+    "heartbeatFailed": "ハートビートが失敗しました",
+    "skillAutoSyncTitle": "スキルの自動同期",
+    "skillBuiltinAutoUpdateTitle": "ビルトインスキルの自動更新",
+    "skillPoolSender": "スキルプール",
+    "skillAutoSynced": "スキル「{{skill}}」が変更されました — 自動同期しました：{{agents}}",
+    "skillAutoSyncFailed": "スキル「{{skill}}」の自動同期に失敗しました：{{agents}}",
+    "skillBuiltinUpdated": "プールのビルトイン「{{skill}}」を更新しました：{{from}} → {{to}}",
+    "skillBuiltinUpdateFailed": "プールのビルトイン「{{skill}}」を更新できませんでした",
+    "skillBuiltinSynced": "「{{skill}}」を同期しました：{{agents}}",
+    "skillBuiltinSyncFailed": "「{{skill}}」を同期できませんでした：{{agents}}",
+    "mailProcessingPaused": "メール処理を一時停止しました — {{agent}}",
+    "mailProcessingReason_batch": "処理待ちのメールが {{count}} 件検出されました。このバッチを確認するまで自動処理を一時停止します。",
+    "mailProcessingReason_failures": "メール処理が {{count}} 回連続で失敗したため一時停止しました。再開する前に、モデルプロバイダーの残高、設定、接続を確認してください。",
+    "mailProcessingReason_state_error": "メールの安全性状態を読み込みまたは保存できませんでした。処理は一時停止されたままです。再開する前に、ディスクの空き容量とワークスペースの権限を確認してください。",
+    "mailProcessingReview": "確認して再開",
+    "mailProcessingConfirmBatch": "{{count}} 件のメールを処理",
+    "mailProcessingConfirmResume": "問題を解決しました。再開します",
+    "mailProcessingKeepPaused": "一時停止を維持",
+    "mailProcessingBatchConfirm": "この {{count}} 件のバッチの処理を許可しますか？エージェントの処理にはモデルの使用料が発生する場合があります。差出人のアクセス制御は引き続き適用されます。「一時停止を維持」を選んでも、これらのメールが削除されたりスキップされたりすることはありません。",
+    "mailProcessingResumeConfirm": "原因を解決してメールの自動処理を再開しますか？承認待ちのメールは再試行されます。すでに処理を試みたメールは自動的に再実行されません。再び失敗すると、処理は再度一時停止される可能性があります。",
+    "mailProcessingResumed": "メール処理を再開しました",
+    "mailProcessingResumeFailed": "再開できませんでした。一時停止の状態が変更されたか、エージェントがオフラインの可能性があります。現在の状態を更新しますので、確認してからもう一度お試しください。",
+    "mailProcessingLoadFailed": "メール処理の状態を更新できませんでした。既存の一時停止は引き続き有効です。"
   },
   "codingMode": {
     "title": "コーディングモード",
@@ -4935,7 +5475,81 @@
       "submitted": "送信済み"
     },
     "execute": "{{tool}} を実行",
-    "executeDefault": "ツールを実行"
+    "executeDefault": "ツールを実行",
+    "runToolBatch": "ワークフロー {{workflow}} を実行",
+    "runToolBatchRunning": "保存されたワークフローを実行中",
+    "runToolBatchProgress": "{{count}} ステップ",
+    "runToolBatchStepCount": "総ステップ数：{{count}}",
+    "control": {
+      "title": "ツール実行中 — バックグラウンドに移しますか？",
+      "offload": "バックグラウンドに移動",
+      "keep": "フォアグラウンドで継続",
+      "extendOffload": "バックグラウンド実行を延期",
+      "extendKill": "タイムアウトを延長",
+      "cancel": "キャンセル",
+      "autoAction": "既定の動作まで {{seconds}}秒：",
+      "noCountdown": "カウントダウンなし · 既定：",
+      "policyOffload": "バックグラウンド実行",
+      "policyKeep": "フォアグラウンドで継続",
+      "manage": "管理",
+      "offloadMode": {
+        "title": "ツールの実行が長引いています — まもなくバックグラウンドに移行します",
+        "offloadNow": "今すぐバックグラウンドに移動",
+        "preventOffload": "自動的にバックグラウンドに移さない",
+        "delayOffload": "バックグラウンド実行を延期",
+        "countdownCaption": "自動バックグラウンド移行まで",
+        "footerNoCountdown": "カウントダウンなし · 既定：バックグラウンド実行",
+        "ringAria": "自動バックグラウンド移行まで {{seconds}}秒",
+        "toastAuto": "自動的にバックグラウンドに移動しました",
+        "preventedTitle": "自動バックグラウンド移行を無効にしました",
+        "preventedFooter": "自動的にはバックグラウンドに移行しません。手動でバックグラウンドに移動またはキャンセルできます"
+      },
+      "keepMode": {
+        "title": "ツールはフォアグラウンドで実行中です",
+        "offload": "バックグラウンドに移動",
+        "countdownCaption": "パネルが閉じるまで",
+        "footerNoCountdown": "既定ではフォアグラウンドで実行を続けます。いつでもバックグラウンドに移動できます",
+        "ringAria": "パネルは {{seconds}}秒後に閉じます",
+        "toastDismiss": "リマインダーを閉じました。ツールはフォアグラウンドで実行を続けます"
+      },
+      "toast": {
+        "offloaded": "ツールをバックグラウンドに移動しました",
+        "keepWaiting": "待機を続けています…",
+        "extended": "バックグラウンド実行を延期しました。30秒後にお知らせします",
+        "killExtended": "タイムアウトを30秒延長しました",
+        "cancelled": "ツール呼び出しをキャンセルしました",
+        "cancelFailed": "ツールのキャンセルに失敗しました",
+        "actionFailed": "操作に失敗しました。ツールが既に完了したか、リクエストが拒否された可能性があります。",
+        "notFound": "ツール呼び出しが見つかりません（既に完了した可能性があります）。",
+        "conflict": "操作が拒否されました（ツールの状態が変更されたか、上限に達しました）。",
+        "networkError": "ネットワークエラー。接続を確認してもう一度お試しください。",
+        "bgComplete": "バックグラウンドツール完了：{{tool}}",
+        "bgCancelled": "バックグラウンドツールをキャンセル：{{tool}}"
+      },
+      "hint": {
+        "completed": "ツール {{tool}} はバックグラウンドで完了しました",
+        "cancelled": "ツール {{tool}} をキャンセルしました"
+      },
+      "bgQueue": {
+        "title": "バックグラウンドタスク",
+        "running": "実行中",
+        "done": "完了",
+        "doneLabel": "タスク完了",
+        "cancelled": "キャンセル済み",
+        "totalDuration": "合計",
+        "cancel": "キャンセル",
+        "remove": "削除",
+        "cancelAll": "すべてキャンセル",
+        "clearAll": "完了済みをクリア",
+        "cancelAllDone": "実行中のすべてのタスクをキャンセルしました",
+        "clearAllDone": "完了済みのタスクをクリアしました",
+        "showFinished": "完了済みを表示",
+        "emptyRunning": "実行中のタスクはありません",
+        "emptyHiddenFinished": "完了 {{count}} 件（非表示）",
+        "scrollMore": "スクロールしてさらに表示",
+        "noOutput": "まだ出力はありません"
+      }
+    }
   },
   "loop": {
     "gotoSettings": "エージェント Loop 設定",
@@ -4964,6 +5578,16 @@
         "name": "ミッション",
         "description": "構造化された複数ステップのタスクを継続的に実行します。"
       }
+    },
+    "budget": {
+      "low": "低",
+      "medium": "中",
+      "high": "高"
+    },
+    "status": {
+      "pause": "一時停止",
+      "resume": "再開",
+      "stop": "停止"
     }
   },
   "runtimeDesign": {
@@ -5038,6 +5662,78 @@
       "10": "シドニー",
       "11": "ヌメア",
       "12": "スバ"
+    }
+  },
+  "terminal": {
+    "authRequired": "ターミナルを使用するには、QWENPAW_AUTH_ENABLED=true を設定してサービスを再起動し、サインインしてください。",
+    "dependencyMissing": "ターミナルを利用できません：バックエンドの Python 環境に pywinpty をインストールしてサービスを再起動してください。",
+    "unavailable": "ターミナルを利用できません。バックエンドサービスを確認して、もう一度お試しください。",
+    "closeOthers": "他のターミナルを閉じる",
+    "closeAll": "すべてのターミナルを閉じる",
+    "hide": "ターミナルパネルを非表示",
+    "title": "ターミナル",
+    "tabs": "ターミナルのタブ",
+    "new": "新しいターミナル",
+    "close": "ターミナルを閉じる",
+    "restart": "ターミナルを再起動",
+    "rename": "ターミナルの名前を変更",
+    "resize": "ターミナルのサイズを変更",
+    "reconnect": "再接続",
+    "exited": "プロセスが終了しました",
+    "inputTooLarge": "入力が大きすぎます。続行するには再接続してください。"
+  },
+  "thinkingControl": {
+    "default": "デフォルト",
+    "resetModel": "既定のモデルに戻す",
+    "title": "思考の強度",
+    "reset": "既定に戻す",
+    "inherit": "既定値を使用",
+    "off": "オフ",
+    "minimal": "最小",
+    "low": "低",
+    "medium": "中",
+    "high": "高",
+    "xhigh": "最高",
+    "max": "最大",
+    "light": "ライト",
+    "balanced": "バランス",
+    "deep": "ディープ",
+    "intensive": "インテンシブ",
+    "budget": "思考バジェット",
+    "unsupported": "思考深度は調整できません",
+    "budgetHint": "思考トークンの上限を正確に調整します。ラベルは強度を示すもので、固定のプリセットではありません。",
+    "effortHint": "このモデルが対応するレベルのみ表示されます。",
+    "sessionHint": "次のリクエストから、この会話に適用されます。",
+    "adapted": "保存された設定は、このモデルの能力に合わせて調整されました。",
+    "saveFailed": "思考設定を保存できませんでした",
+    "unknown": "思考深度は調整できません",
+    "declaration": "思考能力の宣言（詳細）",
+    "declarationHint": "カードがないモデルの能力を宣言します。レベルと上限は、お使いのエンドポイントのドキュメントで確認してください。初期値は例です。自動では、カタログまたはプラグインのメタデータを使用します。",
+    "controlType": "制御タイプ",
+    "wire": "ワイヤパラメータ",
+    "efforts": "対応レベル",
+    "minimum": "最小バジェット",
+    "maximum": "最大バジェット",
+    "canDisable": "思考の無効化に対応",
+    "type": {
+      "unknown": "自動 / 不明",
+      "unsupported": "非対応",
+      "effort": "強度レベル",
+      "budget": "トークン予算"
+    },
+    "wireType": {
+      "native": "プロバイダープロトコルの既定",
+      "compat_budget": "OpenAI 互換 · thinking_budget",
+      "compat_effort": "OpenAI 互換 · reasoning_effort",
+      "anthropic_budget": "Anthropic · budget_tokens",
+      "anthropic_adaptive": "Anthropic · adaptive / effort",
+      "gemini_budget": "Gemini · thinking_budget",
+      "gemini_level": "Gemini · thinking_level"
+    },
+    "modelSource": {
+      "session": "会話のモデル",
+      "agent": "エージェントのデフォルト",
+      "global": "既定の LLM"
     }
   }
 }

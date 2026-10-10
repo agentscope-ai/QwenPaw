@@ -38,7 +38,11 @@
     "configure": "Configurar",
     "all": "Todos",
     "decrease": "Diminuir",
-    "increase": "Aumentar"
+    "increase": "Aumentar",
+    "back": "Voltar",
+    "advancedSettings": "Avançado",
+    "done": "Concluir",
+    "autoSaveFailed": "Não foi possível salvar as alterações"
   },
   "harnesses": {
     "connected": "Conectado",
@@ -206,7 +210,8 @@
     "version": "Versão",
     "id": "ID",
     "category": "Categoria",
-    "description": "Descrição"
+    "description": "Descrição",
+    "appLoadFailed": "Falha ao carregar o aplicativo. Você pode tentar novamente sem afetar os outros aplicativos."
   },
   "nav": {
     "chat": "Chat",
@@ -238,7 +243,12 @@
     "plugins": "Plugins",
     "backups": "Backups",
     "pluginManager": "Gerenciador de Plugins",
-    "moreSettings": "Mais configurações"
+    "moreSettings": "Mais configurações",
+    "moreFunctions": "Mais",
+    "inbox": "Caixa de entrada",
+    "apps": "Aplicativos",
+    "market": "Mercado de Skills",
+    "offloadPolicy": "Execução em segundo plano"
   },
   "os": {
     "console": "Console",
@@ -672,7 +682,10 @@
     "configUpdateFailed": "Falha ao Atualizar system prompt Configuracao",
     "attribution": "Workspace design partly inspired by the OpenClaw project — thank you! 🐾",
     "saveSuccess": "Salvo com sucesso",
-    "saveFailed": "Falha ao salvar"
+    "saveFailed": "Falha ao salvar",
+    "saving": "Salvando...",
+    "saved": "Salvo",
+    "unsaved": "Não salvo"
   },
   "agent": {
     "parent": "Configuracoes",
@@ -917,7 +930,11 @@
     "mailPushWakeOptionInvoice": "Baixar e arquivar anexos de emails de fatura/cobranca",
     "mailPushWakeOptionReply": "Responder educadamente a emails de consulta",
     "mailPushWakeOptionOtp": "Extrair o codigo de verificacao e me notificar",
-    "mailPushWakeOptionSummary": "Resumir os pontos do email na caixa de entrada"
+    "mailPushWakeOptionSummary": "Resumir os pontos do email na caixa de entrada",
+    "mailNameDedicated": "Nome da caixa de e-mail (opcional antes do registro, obrigatório depois)",
+    "mailAuthCodeOptional": "Código de autorização de 16 dígitos / senha de app (opcional)",
+    "mailCredentialOptional": "Senha da caixa de e-mail (opcional)",
+    "mailDedicatedCredentialHint": "{{credentialHint}}. Deixe em branco antes do registro; depois do registro, informe-a aqui e salve para concluir a conexão da caixa de e-mail."
   },
   "skills": {
     "title": "Skills",
@@ -1182,7 +1199,9 @@
     "statusConflict": "Conflict",
     "renameEntry": "Novo Nome for \"{{name}}\":",
     "builtin": "Integrado",
-    "custom": "Personalizado"
+    "custom": "Personalizado",
+    "renameAffectsTitle": "Renomear também nos agentes?",
+    "renameAffectsContent": "\"{{from}}\" está instalado em {{count}} agente(s). Renomear para \"{{to}}\""
   },
   "mcp": {
     "title": "MCP Clients",
@@ -2015,7 +2034,9 @@
       "default": "Padrão"
     },
     "qwenpawSettings": "Configurações de ambiente do QwenPaw",
-    "emptyValue": "String vazia"
+    "emptyValue": "String vazia",
+    "qwenpawSettingsDescription": "As configurações conhecidas incluem padrões e valores bloqueados na inicialização.",
+    "startupOnly": "Somente leitura"
   },
   "modelSelector": {
     "selectModel": "Selecionar Modelo",
@@ -2049,7 +2070,52 @@
     "currentModelProtected": "Switch the current model before removing it",
     "addToSelector": "Add to selector",
     "removeFromSelector": "Remove from selector",
-    "searchCandidates": "Search candidate models..."
+    "searchCandidates": "Search candidate models...",
+    "chooseProvider": "Escolher provedor",
+    "configureProviderHint": "Conecte um provedor e escolha um modelo para começar.",
+    "manageModels": "Gerenciar modelos",
+    "addModels": "Adicionar modelos",
+    "noProviders": "Nenhum provedor ainda",
+    "addProvider": "Adicionar provedor",
+    "clearSearch": "Limpar busca de modelos",
+    "loadingModels": "Carregando modelos",
+    "partialLoadFailed": "Não foi possível carregar algumas informações dos modelos.",
+    "retry": "Tentar novamente",
+    "oauthModelUnavailable": "O modelo selecionado não está mais disponível. Revise os modelos do provedor e tente novamente.",
+    "addAndUse": "Adicionar e usar",
+    "availableToAdd": "Disponíveis para adicionar",
+    "addFailed": "Falha ao adicionar modelo",
+    "hideModel": "Ocultar modelo",
+    "hiddenModels": "Modelos ocultos ({{count}})",
+    "restoreModel": "Restaurar modelo",
+    "restore": "Restaurar",
+    "visibilityFailed": "Falha ao atualizar a visibilidade do modelo",
+    "agentModelSettings": "Roteamento de modelos do agente",
+    "agentSettingsLoadFailed": "Falha ao carregar as configurações de modelo do agente",
+    "loadingAgentSettings": "Carregando as configurações de modelo do agente",
+    "agentSettingsSaveFailed": "Falha ao salvar as configurações de modelo do agente",
+    "agentSettingsSaved": "Configurações de modelo do agente salvas",
+    "saveAgentSettings": "Salvar configurações de roteamento",
+    "thinkingLevel": "Nível de pensamento",
+    "thinkingUnsupported": "O modelo ativo não informa pensamento configurável.",
+    "thinking": {
+      "inherit": "Padrão do modelo",
+      "off": "Desativado",
+      "low": "Baixo",
+      "medium": "Médio",
+      "high": "Alto"
+    },
+    "subagentModel": "Modelo do subagente",
+    "sameAsPrimary": "Igual ao principal",
+    "enableFallback": "Usar um modelo reserva em caso de falha",
+    "fallbackScope": "Escopo do reserva",
+    "configuredModels": "Modelos configurados",
+    "freeModelsOnly": "Somente modelos gratuitos",
+    "chooseFallback": "Modelo reserva",
+    "moveFallbackUp": "Mover {{model}} para cima",
+    "moveFallbackDown": "Mover {{model}} para baixo",
+    "removeFallback": "Remover {{model}}",
+    "fallbackActive": "Modelo de processamento real: {{provider}} / {{model}}"
   },
   "tokenUsage": {
     "title": "Uso de Tokens",
@@ -2075,7 +2141,26 @@
     "date": "Date",
     "refresh": "Atualizar",
     "loadFailed": "Falha ao load token usage",
-    "noData": "No token usage data in the selected period"
+    "noData": "No token usage data in the selected period",
+    "year": "Ano",
+    "futureDate": "Data futura",
+    "modelTrend": "Tendência de uso por modelo",
+    "tokenTypeChart": "Tendência por tipo de token",
+    "selectAll": "Selecionar todos",
+    "allSelected": "Todos",
+    "itemsSelected": "{{count}} selecionados",
+    "selectModels": "Selecionar modelos",
+    "selectTokenTypes": "Selecionar tipos de token",
+    "activity": "Atividade",
+    "activityHint": "Selecione um dia para inspecionar o uso",
+    "modelRanking": "Ranking de modelos",
+    "less": "Menos",
+    "more": "Mais",
+    "trends": "Tendências",
+    "lastDays": "Últimos {{count}} dias",
+    "activeDays": "Dias ativos",
+    "dailyAverage": "Média diária",
+    "peakDay": "Dia de pico"
   },
   "agentStats": {
     "title": "Estatisticas dos Agentes",
@@ -2485,10 +2570,95 @@
         "capability": "Capabilities",
         "availability": "Connection status",
         "family": "Model family"
-      }
+      },
+      "enabledCount": "Modelos {{count}}",
+      "modelCount": "Modelos {{count}} / {{total}}",
+      "enableAllConfirm": "Ativar todos os {{count}} modelos?",
+      "enableAll": "Ativar todos",
+      "disableAll": "Desativar todos"
     },
     "billing": {
-      "free": "Free"
+      "free": "Free",
+      "paid": "Pago",
+      "unknown": "Preço desconhecido"
+    },
+    "connectProviderTitle": "Conecte seu primeiro modelo",
+    "cardStatus": {
+      "configured": "Configurado",
+      "configuredCount": "{{count}} configurados",
+      "unconfigured": "Não configurado",
+      "disabled": "Desativado",
+      "ready": "Pronto"
+    },
+    "partialLoadWarning": "Algumas informações de modelo estão indisponíveis. Os provedores pessoais continuam acessíveis.",
+    "notConfiguredYet": "Não configurado",
+    "getApiKey": "Obter API Key",
+    "resetContextLength": "Restaurar contexto automático",
+    "automatic": "Automático",
+    "metadataSource": {
+      "api": "API do provedor",
+      "catalog": "Catálogo de modelos",
+      "template": "Template de modelo (substituição para limites do endpoint)",
+      "user": "Substituição manual",
+      "adapter": "Adaptador do provedor",
+      "default": "Padrão (informações do modelo indisponíveis)",
+      "unknown": "Desconhecido",
+      "automatic": "Resolução automática"
+    },
+    "enterApiKeyRequired": "Informe a chave de API",
+    "cloudGroup": "Provedores em nuvem",
+    "configuredGroup": "Configurados",
+    "configuredOnline": "provedores online",
+    "noConfigured": "Nenhum provedor configurado ainda. Selecione um abaixo para começar.",
+    "goConfigureBtn": "Configurar um provedor",
+    "availableGroup": "Provedores disponíveis",
+    "clickToConfigure": "Clique para configurar",
+    "configureAction": "Configurar",
+    "disableProvider": "Desativar provedor",
+    "disableProviderConfirm": "Limpar a chave de API de \"{{name}}\"? O provedor ficará não configurado.",
+    "disableBtn": "Desativar",
+    "changeApiKey": "Alterar",
+    "selectVariant": "Selecionar variante de {{name}}",
+    "providerDisabled": "Provedor \"{{name}}\" desativado",
+    "modelsLastSynced": "Última sincronização: {{time}}",
+    "modelsNeverSynced": "Os modelos ainda não foram sincronizados",
+    "modelsSyncFailed": "Falha na última sincronização",
+    "modelsSyncing": "Descobrindo modelos candidatos...",
+    "discoveredModelsReady": "{{count}} modelos candidatos prontos para adicionar",
+    "addAllDiscoveredModels": "Adicionar todos os disponíveis ({{count}})",
+    "discoveredModelsAdded": "{{count}} modelos descobertos adicionados",
+    "discoveredModelsAddFailed": "Falha ao adicionar {{count}} modelos",
+    "modelTemplate": "Template de modelo (opcional)",
+    "modelInfoUnavailable": "As informações do modelo estão indisponíveis. Você ainda pode adicionar o modelo.",
+    "remoteMissing": "Não está mais listado remotamente",
+    "enablePaidModel": "Ativar uso pago",
+    "providerEnabled": "Ativar provedor",
+    "anthropicOutputHint": "O modo automático fornece um orçamento de saída dentro da capacidade do modelo e das restrições de pensamento.",
+    "capabilities": {
+      "unknown": "Desconhecido",
+      "supports_image": "Entrada de imagem",
+      "supports_audio": "Entrada de áudio",
+      "supports_video": "Entrada de vídeo",
+      "supports_tool_calling": "Chamada de ferramentas",
+      "auto": "Automático",
+      "supported": "Compatível",
+      "unsupported": "Não compatível"
+    },
+    "recommendation": {
+      "unranked": "Sem pontuação revisada; adicione manualmente",
+      "estimated_score": "Pontuação estimada; adicione manualmente",
+      "below_quality_threshold": "Abaixo do limite de recomendação; adicione manualmente",
+      "tools_unverified": "Suporte a ferramentas não verificado",
+      "unavailable": "Conexão indisponível",
+      "billing_unknown": "Status gratuito não verificado",
+      "billing_paid": "Modelo pago",
+      "ranking_version_mismatch": "A versão do ranking precisa de revisão"
+    },
+    "includesFreeModels": "Inclui modelos gratuitos",
+    "agentDefaults": "Padrões do Agent",
+    "scope": {
+      "global": "Modelos globais",
+      "agent": "Agente atual"
     }
   },
   "files": {
@@ -2575,7 +2745,23 @@
     "mentionInChat": "Mencionar no Chat",
     "expandWorkspace": "Expandir workspace",
     "openWorkspace": "Abrir workspace",
-    "closeWorkspace": "Fechar workspace"
+    "closeWorkspace": "Fechar workspace",
+    "agentWorkspace": "Workspace do Agent",
+    "memoryGraphAutoRotate": "Rotação automática",
+    "memoryGraphMotionReduced": "O movimento reduzido está ativado pelo sistema",
+    "memoryGraphRendering": "Construindo a cena 3D…",
+    "memoryGraphRenderFailed": "Falha ao renderizar o grafo 3D.",
+    "memoryGraphCanvasLabel": "Grafo de memória 3D interativo. Arraste para girar, role para zoom e selecione um nó para ver os detalhes.",
+    "memoryGraphCloseDetails": "Fechar detalhes do nó",
+    "changeDirectoryTitle": "Alterar o diretório do projeto?",
+    "changeDirectoryWarning": "Há edições não salvas ou diffs pendentes neste projeto. Alterar o diretório descartará essas alterações.",
+    "htmlPreview": "Preview de HTML",
+    "openHtmlInBrowser": "Abrir no navegador",
+    "artifactCreated": "Criado",
+    "artifactModified": "Modificado",
+    "artifactSent": "Enviado",
+    "artifactsExpand": "Mostrar mais {{count}} arquivos",
+    "artifactsCollapse": "Mostrar menos arquivos"
   },
   "projectDirectory": {
     "agentTitle": "Diretório de projeto do agente",
@@ -2609,7 +2795,8 @@
     "tooMany": "No máximo {{max}} diretórios podem ser vinculados.",
     "countTitle": "Número de diretórios vinculados",
     "syncAsAgentDefault": "Usar esta configuração de espaço de trabalho em novas tarefas",
-    "openDirectory": "Abrir {{name}}"
+    "openDirectory": "Abrir {{name}}",
+    "agentDescription": "O workspace de Arquivos do Agent usa este diretório padrão."
   },
   "agentConfig": {
     "title": "Configuracao",
@@ -3135,9 +3322,164 @@
     "contextStrategyScroll": "Scroll",
     "contextStrategyNative": "Native",
     "offloadPolicy": {
-      "title": "Política de execução de ferramentas em segundo plano"
+      "title": "Política de execução de ferramentas em segundo plano",
+      "alertMessage": "Esta é uma configuração global (settings.json), não por Agent. Ela controla a ação padrão quando uma ferramenta atinge o prazo para ir para o segundo plano. Os usuários podem substituí-la no painel de controle da ferramenta enquanto ela está em execução.",
+      "keepForeground": "Manter em primeiro plano",
+      "keepForegroundDesc": "Após o fim da contagem regressiva, a ferramenta continua em execução em primeiro plano sem ir automaticamente para o segundo plano. Adequado para cenários que exigem monitoramento da saída em tempo real.",
+      "offload": "Mover automaticamente para o segundo plano",
+      "offloadDesc": "Após o fim da contagem regressiva, a ferramenta é movida automaticamente para a execução em segundo plano, permitindo que o Agent continue processando outras tarefas. Adequado para ferramentas de longa duração.",
+      "saveFailed": "Falha ao salvar a política"
     },
-    "memoryAutoRecordTitle": "Ativar memória de conversas"
+    "memoryAutoRecordTitle": "Ativar memória de conversas",
+    "advancedRuntime": "Runtime avançado",
+    "autoGenerateSessionTitle": "Gerar títulos de sessão automaticamente",
+    "autoGenerateSessionTitleTooltip": "Após a primeira mensagem do usuário em um novo chat, execute uma chamada curta de LLM em segundo plano para substituir o placeholder truncado por um título conciso. Custa uma chamada curta extra de LLM por novo chat. Desative para manter o placeholder e evitar esse gasto.",
+    "memoryDailyPaperTitle": "Daily Paper",
+    "memoryDailyPaperDescription": "Gere leituras diárias de artigos e um resumo conciso em um agendamento, usando informações de artigos do Hugging Face.",
+    "dailyPaperCron": "Agendamento do Daily Paper",
+    "dailyPaperCronTooltip": "Expressão Cron para a geração do Daily Paper. A tarefa permanece desativada até o interruptor ser habilitado.",
+    "dailyPaperTopics": "Tópicos",
+    "dailyPaperTopicsTooltip": "Tópicos opcionais a priorizar ao selecionar os artigos.",
+    "dailyPaperTopicsPlaceholder": "Por exemplo: memória de agentes, aprendizado por reforço",
+    "dailyPaperUseHfMirror": "Usar espelho do Hugging Face",
+    "dailyPaperUseHfMirrorDescription": "Buscar informações dos artigos pelo espelho do Hugging Face",
+    "dailyPaperCronPlaceholder": "0 9 * * *",
+    "dailyPaperCronRequired": "Insira uma expressão Cron quando o Daily Paper estiver ativado",
+    "dailyPaperCronInvalid": "Insira uma expressão Cron válida de 5 campos",
+    "memoryAutoFinTitle": "Auto Fin",
+    "memoryAutoFinDescription": "Pesquise notícias financeiras recentes da CLS relacionadas ao tópico e conecte-as à memória histórica.",
+    "autoFinDocumentation": "Ver guia",
+    "autoFinCron": "Agendamento do Auto Fin",
+    "autoFinCronTooltip": "Expressão Cron para a pesquisa do Auto Fin. A tarefa permanece desativada até o interruptor ser habilitado.",
+    "autoFinCronPlaceholder": "0 18 * * *",
+    "autoFinCronRequired": "Insira uma expressão Cron quando o Auto Fin estiver ativado",
+    "autoFinCronInvalid": "Insira uma expressão Cron válida de 5 campos",
+    "autoFinTopics": "Tópicos",
+    "autoFinTopicsTooltip": "Tópicos separados por vírgula usados para filtrar as notícias recentes da CLS.",
+    "autoFinTopicsPlaceholder": "Por exemplo: ouro, IA, chips de memória",
+    "autoFinWindowHours": "Janela de notícias (horas)",
+    "autoFinWindowHoursTooltip": "Quantas horas de notícias recentes do telegraph da CLS analisar em cada execução.",
+    "autoFinWindowHoursPlaceholder": "24",
+    "autoFinWindowHoursRequired": "Informe a janela de notícias",
+    "autoFinWindowHoursMin": "A janela de notícias deve ser de pelo menos 1 hora",
+    "autoFinWindowHoursMax": "A janela de notícias não pode exceder {{max}} horas",
+    "autoFinNotifyDescription": "Enviar os resultados do Auto Fin para a caixa de entrada",
+    "autoFinDisclaimer": "O Auto Fin não fornece preços de mercado, retornos, metas, sinais de negociação nem aconselhamento de investimento.",
+    "embeddingTestConnection": "Testar serviço de Embedding",
+    "embeddingTestSuccess": "Teste do serviço de Embedding bem-sucedido",
+    "embeddingTestSuccessDetail": "Dimensões reais: {{dimensions}}; latência: {{latency}} ms. Salve para aplicar este modelo.",
+    "embeddingTestFailed": "Falha no teste do serviço de Embedding",
+    "embeddingTestIncomplete": "Informe primeiro um nome de modelo, as credenciais obrigatórias e dimensões de vetor válidas.",
+    "embeddingStatusDescription": "Revise o modelo atual e verifique sua conexão e a saída do vetor",
+    "embeddingOverviewTitle": "Central de modelos de Embedding",
+    "embeddingConfigStatus": "Configuração",
+    "embeddingCurrentModel": "Modelo atual",
+    "embeddingConfiguredDimensions": "Dimensões configuradas",
+    "embeddingDimensionsUnit": "dimensões",
+    "embeddingVerificationStatus": "Verificação do serviço",
+    "embeddingVerified": "Verificado",
+    "embeddingNotVerified": "Não verificado",
+    "embeddingVerificationHint": "Clique para verificar o serviço e ver as dimensões e a latência",
+    "embeddingVerificationMetrics": "Retornadas {{dimensions}} dimensões · {{latency}} ms",
+    "embeddingServiceTitle": "Serviço de Embedding",
+    "embeddingServiceDescription": "Conecte-se ao serviço de modelos e defina a saída do vetor",
+    "embeddingCapabilityEnabled": "Ativado",
+    "embeddingCapabilityDisabled": "Desativado",
+    "embeddingIndexTitle": "Índice e cache",
+    "embeddingIndexDescription": "Controle o armazenamento de vetores e o processamento em lote do ReMe",
+    "memoryPageDescription": "Permita que o Agent extraia, organize e recupere informações úteis de conversas anteriores. As configurações do dia a dia são aplicadas imediatamente; a busca semântica é opcional.",
+    "memoryPoweredBy": "Desenvolvido por",
+    "memoryDocumentation": "Documentação",
+    "memoryOverviewTitle": "Central de memória de longo prazo",
+    "memoryRuntimeStatus": "Status do serviço",
+    "memoryStatusUnknown": "Não verificado",
+    "memoryStatusChecking": "Verificando",
+    "memoryStatusRunning": "Em execução",
+    "memoryStatusCheckFailed": "Falha na verificação de status",
+    "remeStatusLoading": "Lendo o status de runtime do ReMe…",
+    "remeStatusFailed": "Não foi possível ler o status de runtime do ReMe",
+    "remeStatusComponentsTotal": "Componentes do ReMe estimados",
+    "remeStatusEstimated": "Tamanho combinado dos objetos dos componentes com estado",
+    "remeStatusProcessRss": "RSS de memória do processo",
+    "remeStatusProcessRssHint": "Memória física usada pelo processo do QwenPaw",
+    "remeStatusComponents": "Detalhes dos componentes",
+    "remeStatusEstimateNote": "Os tamanhos dos componentes são estimativas independentes. Objetos compartilhados podem ser contados mais de uma vez, portanto o total deles não equivale ao RSS do processo.",
+    "memoryStatusNeedsAttention": "Requer atenção",
+    "memoryStatusBusy": "Processando",
+    "memoryStatusStopping": "Parando",
+    "memoryBackgroundTasks": "Tarefas em segundo plano",
+    "memoryWorker": "Worker de memória",
+    "memoryWorkerStatus": {
+      "idle": "Ocioso",
+      "busy": "Processando",
+      "stopping": "Parando",
+      "error": "Parou inesperadamente"
+    },
+    "memoryQueueSummary": "{{running}} em execução · {{pending}} aguardando",
+    "memoryQueueIdleSummary": "Ocioso · nenhuma tarefa pendente",
+    "memoryAutoRecordDisabledHint": "A memória automática de conversas está desativada",
+    "memoryAutoMemoryEnabledSummary": "Memória automática ativada · executa a cada {{interval}} turnos",
+    "memoryRuntimeActivityDescription": "As tarefas de memória automática disparadas por ações automáticas e manuais são executadas em sequência, sem bloquear a conversa atual",
+    "memoryLastError": "Erro mais recente",
+    "memoryNeverRun": "Nenhuma atividade ainda",
+    "autoMemoryRecentTasks": "Tarefas recentes de memória automática",
+    "autoMemoryRecentTasksEmpty": "Ainda não há tarefas de memória automática",
+    "autoMemoryTrigger": {
+      "periodic": "Periódico",
+      "manual": "Manual",
+      "compact": "Compactação de contexto",
+      "new": "Nova conversa"
+    },
+    "memoryTaskMessages": "{{count}} mensagens processadas",
+    "memoryTaskNoResult": "A tarefa ainda não retornou conteúdo",
+    "memoryTaskStatus": {
+      "pending": "Pendente",
+      "running": "Processando",
+      "completed": "Concluído",
+      "failed": "Falhou",
+      "cancelled": "Cancelado"
+    },
+    "memoryResourceUsageDescription": "Componentes estimados do ReMe e memória do processo do QwenPaw",
+    "memoryDiagnostics": "Recursos e diagnósticos",
+    "memoryComponentsMetric": "Componentes",
+    "memoryProcessMetric": "Processo",
+    "memoryDiagnosticsHint": "Ver o uso dos componentes e os detalhes do runtime",
+    "remeStatusComponent": {
+      "embedding_store": "Armazenamento de vetores",
+      "file_graph": "Grafo de arquivos",
+      "file_store": "Armazenamento de arquivos",
+      "keyword_index": "Índice de palavras-chave"
+    },
+    "memoryStatusDisabled": "Desativado",
+    "memoryJournalTitle": "Memória automática",
+    "memoryJournalDescription": "Extraia continuamente memórias pesquisáveis de conversas e fontes de conhecimento externas",
+    "memoryConversationJournalTitle": "Memória de conversas",
+    "memoryExternalSourcesDevelopingLabel": "Em breve",
+    "memoryExternalSourcesTitle": "Diários de conhecimento externo",
+    "dailyPaperDocumentation": "Ver guia",
+    "memoryAutoRecordDescription": "Extraia continuamente novas memórias no intervalo escolhido",
+    "memoryAutoRecordFrequency": "Frequência de registro (turnos de conversa)",
+    "memoryNotifyTitle": "Notificações na caixa de entrada",
+    "memoryNotifyDescription": "Notificar a caixa de entrada apenas quando o diário de conversas mudar ou a tarefa falhar",
+    "dailyPaperNotifyDescription": "Enviar os resultados do Daily Paper para a caixa de entrada",
+    "autoDreamNotifyDescription": "Notificar a caixa de entrada apenas quando a organização da memória alterar algo ou a tarefa falhar",
+    "memoryOrganizeSectionTitle": "Organização da memória",
+    "memoryOrganizeSectionDescription": "Resuma, mescle e melhore periodicamente as memórias de longo prazo existentes",
+    "memoryOrganizeTitle": "Organização agendada",
+    "memoryScheduledOrganizeTitle": "Ativar organização agendada",
+    "memoryScheduledOrganizeDescription": "Use a tarefa Dream para manter a qualidade da memória em segundo plano",
+    "memoryRecallTitle": "Ferramenta de busca na memória",
+    "memorySearchSectionTitle": "Busca na memória",
+    "memorySearchSectionDescription": "Controle a busca sob demanda e a recordação automática de memória antes das respostas",
+    "memorySearchToolTitle": "Fornecer ao Agent a ferramenta de busca na memória",
+    "memorySearchToolDescription": "Permitir que o Agent chame memory_search quando necessário",
+    "memoryAutoRecallTitle": "Ativar busca automática na memória (Beta)",
+    "memoryAutoRecallDescription": "Buscar em cada turno sem exigir que o Agent chame uma ferramenta",
+    "memoryMaintenanceEyebrow": "Manutenção e reparo",
+    "memoryMaintenanceTitle": "Reconstruir índice de memória",
+    "memoryMaintenanceDescription": "Limpa e gera novamente o índice de pesquisa. Recomendado apenas quando o índice está danificado ou os resultados da pesquisa são anormais.",
+    "embeddingIndexDisabled": "Não ativado",
+    "embeddingIndexEnableFirst": "Ative o Embedding antes de reconstruir"
   },
   "tools": {
     "title": "Ferramentas",
@@ -3400,7 +3742,33 @@
     "collapse": "Recolher barra lateral",
     "expand": "Expandir barra lateral",
     "more": "Mais",
-    "toggleAgentNavigation": "Expandir ou recolher a navegação do agente"
+    "toggleAgentNavigation": "Expandir ou recolher a navegação do agente",
+    "avatarLoadFailed": "Não foi possível carregar os avatares. Tente novamente.",
+    "toolsCompact": "Mostrar menu compacto",
+    "toolsDetailed": "Mostrar menu detalhado",
+    "changeAvatar": "Gerenciador de avatares",
+    "uploadAvatar": "Escolher imagem",
+    "avatarHistory": "Avatares recentes · Últimos 12",
+    "defaultAvatar": "Restaurar avatar padrão",
+    "historyAvatar": "Avatar anterior {{number}}",
+    "avatarInvalid": "Escolha PNG, JPG ou WebP de até 10 MB, ou GIF de até 2 MB",
+    "avatarSaveFailed": "Não foi possível salvar o avatar. Verifique sua conexão e tente novamente.",
+    "localWorkspace": "Workspace local",
+    "localMode": "Este dispositivo",
+    "consoleAccount": "Conta do console",
+    "weeklyUsage": "Últimos 7 dias",
+    "noUsage": "Nenhum uso ainda",
+    "closeMobile": "Fechar navegação",
+    "tools": "Agente e atalhos",
+    "pinTools": "Fixar ferramentas",
+    "unpinTools": "Desafixar ferramentas",
+    "foldTools": "Recolher menu",
+    "expandTools": "Expandir menu",
+    "dragHandle": "Arraste a barra lateral para flutuar; Enter alterna o encaixe",
+    "dock": "Retornar a barra lateral para a borda esquerda",
+    "usageModel": "Selecionar modelo",
+    "allModels": "Todos os modelos",
+    "usageDetails": "Detalhes de uso"
   },
   "settingsCenter": {
     "backToApp": "Voltar ao aplicativo",
@@ -3510,10 +3878,34 @@
     "newChat": "Novo chat",
     "groups": {
       "cronShort": "Agendado",
-      "subagentShort": "Subagente"
+      "subagentShort": "Subagente",
+      "create": "Novo grupo",
+      "namePlaceholder": "Nome do grupo",
+      "uncategorized": "Sem categoria",
+      "cron": "Conversas de tarefas agendadas",
+      "chatShort": "Chat",
+      "cronHint": "Conversas separadas criadas por tarefas agendadas; ficam recolhidas por padrão e fixas perto do fim da lista",
+      "subagents": "Conversas com subagentes",
+      "subagentsHint": "Conversas separadas criadas para tarefas de agentes filhos; ficam recolhidas por padrão e fixas no fim da lista",
+      "pin": "Fixar grupo",
+      "unpin": "Desafixar grupo",
+      "pinned": "Grupo fixado",
+      "fixedLast": "Grupo do sistema fixado no fim da lista",
+      "moveSuccess": "Movido para “{{name}}”",
+      "moveFailed": "Não foi possível mover a conversa. Tente novamente.",
+      "rename": "Renomear",
+      "moveUp": "Mover para cima",
+      "moveDown": "Mover para baixo",
+      "delete": "Excluir grupo",
+      "manage": "Gerenciar grupo",
+      "deleteTitle": "Excluir este grupo?",
+      "deleteHint": "As conversas voltarão para os respectivos grupos do sistema."
     },
     "fileReference": {
-      "codeSnippet": "Trecho de código · {{count}} linhas"
+      "codeSnippet_one": "Trecho de código · {{count}} linha",
+      "codeSnippet_few": "Trecho de código · {{count}} linhas",
+      "codeSnippet_many": "Trecho de código · {{count}} linhas",
+      "codeSnippet_other": "Trecho de código · {{count}} linhas"
     },
     "modelSelectTooltip": "Selecionar Modelo",
     "chatHistoryTooltip": "Chat history",
@@ -3562,6 +3954,9 @@
       },
       "goal": {
         "description": "Loop Goal — Agente persegue objetivo continuamente, auto-avalia via Rubric"
+      },
+      "plan": {
+        "description": "Criar um plano estruturado para decompor a tarefa em subtarefas"
       }
     },
     "attachments": {
@@ -3577,7 +3972,7 @@
     },
     "rateLimitHit": "O modelo atual está com limite de taxa. Tente mudar para outro modelo gratuito.",
     "turnUsagePopover": {
-      "ariaLabel": "Ver uso de tokens e contexto desta rodada",
+      "ariaLabel": "Uso de contexto {{contextRate}}, taxa de acerto do cache {{cacheRate}}. Ver detalhes de uso",
       "turn": "Esta rodada",
       "turnEstimated": "Esta rodada ~",
       "tok": "tok",
@@ -3589,7 +3984,8 @@
       "cacheTokens": "acerto {{readTok}} / entrada {{inputTok}}",
       "manageContext": "Gerenciar contexto",
       "compact": "Compactar",
-      "new": "Nova conversa"
+      "new": "Nova conversa",
+      "cacheNotReported": "Uso de cache não informado"
     },
     "rateLimitMessage": "Limite de taxa atingido. Mude para outro modelo gratuito:",
     "rateLimitSwitched": "Mudou para {{model}}",
@@ -3621,7 +4017,9 @@
       "pin": "Pin",
       "unpin": "Unpin",
       "copyId": "Copiar ID da conversa",
-      "delete": "Excluir"
+      "delete": "Excluir",
+      "pinFailed": "Falha ao atualizar a fixação da conversa",
+      "moveToGroup": "Mover para o grupo"
     },
     "queue": {
       "title": "Fila de mensagens",
@@ -3646,7 +4044,8 @@
       "today": "Hoje",
       "week": "Últimos 7 dias",
       "month": "Últimos 30 dias",
-      "older": "Anteriores"
+      "older": "Anteriores",
+      "noGroups": "Ainda não há grupos"
     },
     "sessionPanel": {
       "searchConversations": "Pesquisar…",
@@ -3668,7 +4067,11 @@
     },
     "regenerate": "Gerar novamente",
     "regenerateUnavailable": "Esta interação antiga não tem ID de solicitação. Envie uma nova mensagem para continuar.",
-    "turnCanceled": "Interrompido"
+    "turnCanceled": "Interrompido",
+    "switchSession": "Trocar de conversa",
+    "lastActive": "Última atividade · {{time}}",
+    "statusUnseenResult": "Novo resultado",
+    "modelFallbackNotice": "Modelo alterado de {{from}} para {{to}} ({{reason}})."
   },
   "security": {
     "parent": "Configuracoes",
@@ -3764,7 +4167,11 @@
         "privilege_escalation": "Privilege Escalation",
         "prompt_injection": "Prompt Injection",
         "other": "Other"
-      }
+      },
+      "autoDeny": "Negação automática",
+      "autoDenyTooltip": "Quando ativado, as chamadas de ferramenta que corresponderem a esta regra serão negadas automaticamente, sem exigir aprovação manual",
+      "autoDenyEnable": "Ativar a negação automática para esta regra",
+      "autoDenyDisable": "Desativar a negação automática para esta regra"
     },
     "shellEvasion": {
       "title": "Shell Evasion Detection",
@@ -3886,7 +4293,18 @@
         "moreFindings": "{{count}} more issues not shown (see Security → Skill Scanner for the full list)."
       }
     },
-    "sandboxEnabled": "Proteção de sandbox"
+    "sandboxEnabled": "Proteção de sandbox",
+    "sandboxEnabledTooltip": "Quando ativado, comandos de shell sem regra correspondente são executados silenciosamente dentro do sandbox. Quando desativado, esses comandos são executados diretamente sem o sandbox (sem prompt de aprovação). De qualquer forma, a leitura de arquivos de segredos e comandos perigosos (ex.: rm -rf /, sudo) continuam bloqueados ou exigem aprovação.",
+    "sandboxDegradedWarning": "O sandbox está configurado como ativado, mas o QwenPaw não está em execução como administrador. O sandbox ficará inativo nesta sessão. Para usar o sandbox, reinicie o QwenPaw com privilégios de administrador.",
+    "sandboxElevatedWarning": "O sandbox está em execução no modo de administrador",
+    "sandboxElevatedDescription": "O sandbox em modo de administrador pode provocar interceptação por antivírus ou causar problemas de compatibilidade. Se ocorrerem bloqueios inesperados ou falhas, tente desativar o sandbox ou executar o QwenPaw sem privilégios de administrador.",
+    "sandboxUnelevatedWarning": "O sandbox está em execução sem privilégios de administrador",
+    "sandboxUnelevatedDescription": "O modo de administrador oferece isolamento de sandbox mais agressivo e completo, mas pode provocar interceptação por antivírus ou causar problemas de compatibilidade. Recomendado apenas para usuários avançados. Para ativar: clique com o botão direito no atalho do QwenPaw → Executar como administrador, ou abra um terminal elevado e execute `qwenpaw app`.",
+    "denyPathsProtection": "Proteção de caminhos negados",
+    "denyPathsSandboxEnhancement": "Este é um recurso de aprimoramento do sandbox. Ao executar sem privilégios de administrador, o sandbox não consegue isolar totalmente o acesso ao sistema de arquivos. Este recurso usa ACLs do Windows para negar acesso a caminhos sensíveis, oferecendo uma camada adicional de proteção.",
+    "denyPathsProtectionTooltip": "Quando ativado, aplica ACLs de negação no nível do sistema nos caminhos sensíveis (ex.: ~/.ssh, ~/.aws) do usuário atual. ATENÇÃO: enquanto estiver ativo, TODOS os programas executados como seu usuário ficam sem acesso a esses caminhos — não apenas o QwenPaw. A proteção é removida automaticamente quando o QwenPaw é encerrado ou quando você desativa esta opção.",
+    "denyPathsActiveMessage": "A proteção de caminhos negados está ativa",
+    "denyPathsActiveDescription": "Os caminhos abaixo estão bloqueados no momento para todos os processos do usuário atual. Desative esta opção ou encerre o QwenPaw para restaurar o acesso."
   },
   "hub": {
     "brand": {
@@ -4528,7 +4946,36 @@
     "unauthorized": "Unauthorized, please login",
     "invitationCode": "Código de convite",
     "inviteTitle": "Aceite seu convite",
-    "acceptInvitation": "Entrar com um convite"
+    "acceptInvitation": "Entrar com um convite",
+    "returnToSignIn": "Voltar para o login",
+    "createAccount": "Criar uma conta",
+    "switchLanguage": "Trocar de idioma",
+    "hubDisclaimerTitle": "Aviso do Hub auto-hospedado",
+    "hubDisclaimerPoint1": "Conecte-se apenas a um Hub operado por você ou por uma organização em que você confia",
+    "hubDisclaimerPoint2": "Administradores podem acessar dados armazenados ou processados por esta instância",
+    "hubDisclaimerPoint3": "A sandbox pode limitar alguns recursos do QwenPaw",
+    "hubDisclaimerAccept": "Li e aceito os Termos de Uso",
+    "hubDisclaimerAcceptPrefix": "Li e aceito os ",
+    "hubTerms": "Termos de Uso",
+    "hubLinks": "Links do QwenPaw",
+    "officialWebsite": "Site oficial",
+    "hubTermsTitle": "Termos de Uso do QwenPaw Hub",
+    "hubTermsLead": "Leia estes termos antes de usar esta instância do QwenPaw Hub operada de forma independente.",
+    "hubTermsSection1Title": "1. Implantação confiável",
+    "hubTermsSection1Body": "Use apenas um Hub implantado por você ou por uma organização em que você confia. Um Hub de terceiros é operado de forma independente; o projeto QwenPaw não verifica sua identidade, configuração ou segurança.",
+    "hubTermsSection2Title": "2. Dados e acesso de administradores",
+    "hubTermsSection2Body": "O operador da instância controla o servidor, o banco de dados, os backups, os logs e os processos de execução. Administradores podem ter acesso técnico a conversas, arquivos enviados, credenciais, configuração e dados de execução armazenados ou processados por esta instância.",
+    "hubTermsSection3Title": "3. Credenciais e informações confidenciais",
+    "hubTermsSection3Body": "Forneça apenas as credenciais e os dados necessários para o seu trabalho. Não insira segredos em uma instância não confiável. As políticas de armazenamento, retenção, backup, exclusão e tratamento de incidentes são definidas pelo operador da instância.",
+    "hubTermsSection4Title": "4. Sandbox e limites de recursos",
+    "hubTermsSection4Body": "O QwenPaw é executado em um runtime isolado no Hub. Permissões do host, dispositivos, aplicativos locais, acesso à rede e outras integrações podem ser restritos, portanto o Hub não pode garantir todos os recursos disponíveis em uma instalação local confiável do QwenPaw.",
+    "hubTermsSection5Title": "5. Uso aceitável e autorizado",
+    "hubTermsSection5Body": "Use este serviço apenas para fins lícitos e autorizados. Você é responsável por suas instruções, conteúdo enviado, resultados gerados, uso de serviços externos e conformidade com as regras do operador da instância e dos serviços aplicáveis.",
+    "hubTermsSection6Title": "6. Disponibilidade e risco",
+    "hubTermsSection6Body": "A disponibilidade do serviço, a proteção de dados, o suporte e a recuperação são responsabilidade do operador da instância. Faça backup de dados importantes e revise os resultados gerados antes de contar com eles. Os colaboradores do projeto QwenPaw não são operadores de implantações de terceiros.",
+    "hubTermsEnd": "Ao selecionar “Concordar e continuar”, você confirma que confia no operador deste Hub e reconhece estes limites de dados, recursos e uso.",
+    "hubTermsScrollHint": "Role até o final para continuar",
+    "hubTermsAgree": "Concordar e continuar"
   },
   "account": {
     "title": "Account",
@@ -4557,7 +5004,12 @@
     "runtimeRestartConfirmDescription": "As tarefas em execução serão interrompidas durante a reinicialização.",
     "runtimeRestart": "Reiniciar ambiente",
     "runtimeRestartSuccess": "Ambiente reiniciado",
-    "runtimeRestartFailed": "Falha ao reiniciar o ambiente"
+    "runtimeRestartFailed": "Falha ao reiniciar o ambiente",
+    "runtimeRestarting": "Reiniciando ambiente...",
+    "runtimeStoppedTitle": "Seu ambiente está parado",
+    "runtimeStoppedDescription": "Um administrador interrompeu o processo. Reinicie-o quando estiver pronto para continuar.",
+    "runtimeDisabledTitle": "Seu ambiente está desativado",
+    "runtimeDisabledDescription": "Um administrador bloqueou a inicialização deste ambiente. Entre em contato com um administrador para restaurar o acesso."
   },
   "approval": {
     "title": "Seguranca Approval Obrigatorio",
@@ -4582,7 +5034,9 @@
     "acknowledge": "Entendi",
     "builtinSource": "Integrado",
     "ownerAgent": "Agente Proprietário",
-    "executingAgent": "Agente Executando"
+    "executingAgent": "Agente Executando",
+    "agent": "Agente",
+    "reason": "Motivo"
   },
   "pluginManager": {
     "title": "Gerenciador de Plugins",
@@ -4655,7 +5109,13 @@
     "marketSortLabel": "Sort plugins",
     "marketSortDownloads": "Most downloaded",
     "marketSortUpdated": "Recently updated",
-    "marketSortFavorites": "Most favorited"
+    "marketSortFavorites": "Most favorited",
+    "publishBtn": "Publicar Plugin",
+    "marketFeatured": "Em destaque",
+    "marketTrending": "Em alta",
+    "compatWarningTitle": "Aviso de compatibilidade",
+    "compatWarningContent": "Este plugin é destinado ao QwenPaw {{labels}}, mas a versão atual do QwenPaw é {{version}}. A instalação pode causar erros. Continuar?",
+    "compatWarningConfirm": "Instalar mesmo assim"
   },
   "inbox": {
     "title": "Colheita diária de IA",
@@ -4767,7 +5227,33 @@
     "remark": "Observacao",
     "actions": "Acoes",
     "optional": " (opcional)",
-    "required": " (obrigatorio)"
+    "required": " (obrigatorio)",
+    "heartbeatSuccess": "Heartbeat concluído com sucesso",
+    "heartbeatTimeout": "O heartbeat expirou",
+    "heartbeatCancelled": "O heartbeat foi cancelado",
+    "heartbeatFailed": "Falha no heartbeat",
+    "skillAutoSyncTitle": "Sincronização automática de skills",
+    "skillBuiltinAutoUpdateTitle": "Atualização automática de skills integradas",
+    "skillPoolSender": "Pool de Skills",
+    "skillAutoSynced": "A skill \"{{skill}}\" foi alterada — sincronizada automaticamente com: {{agents}}",
+    "skillAutoSyncFailed": "Falha na sincronização automática da skill \"{{skill}}\" para: {{agents}}",
+    "skillBuiltinUpdated": "A skill integrada \"{{skill}}\" foi atualizada no Pool: {{from}} → {{to}}",
+    "skillBuiltinUpdateFailed": "Não foi possível atualizar a skill integrada \"{{skill}}\" no Pool",
+    "skillBuiltinSynced": "\"{{skill}}\" sincronizada com: {{agents}}",
+    "skillBuiltinSyncFailed": "Não foi possível sincronizar \"{{skill}}\" com: {{agents}}",
+    "mailProcessingPaused": "Processamento de e-mails pausado — {{agent}}",
+    "mailProcessingReason_batch": "Detectados {{count}} e-mails aguardando processamento. O processamento automático está pausado até você confirmar este lote.",
+    "mailProcessingReason_failures": "O processamento de e-mails falhou {{count}} vezes consecutivas e foi pausado. Verifique o saldo, a configuração e a conexão do seu provedor de modelos antes de retomar.",
+    "mailProcessingReason_state_error": "Não foi possível carregar ou salvar o estado de segurança de e-mails. O processamento permanece pausado. Verifique o espaço em disco e as permissões do workspace antes de retomar.",
+    "mailProcessingReview": "Revisar e retomar",
+    "mailProcessingConfirmBatch": "Processar {{count}} e-mails",
+    "mailProcessingConfirmResume": "Problema resolvido, retomar",
+    "mailProcessingKeepPaused": "Manter pausado",
+    "mailProcessingBatchConfirm": "Permitir o processamento deste lote de {{count}} e-mails? O processamento pelo agente pode gerar cobranças de uso de modelo. Os controles de acesso por remetente continuam valendo. Escolher Manter pausado não exclui nem ignora estes e-mails.",
+    "mailProcessingResumeConfirm": "Retomar o processamento automático de e-mails após resolver a causa? As aprovações na fila serão tentadas novamente; e-mails cujo processamento já foi tentado não são repetidos automaticamente. Novas falhas podem pausar o processamento outra vez.",
+    "mailProcessingResumed": "Processamento de e-mails retomado",
+    "mailProcessingResumeFailed": "Não foi possível retomar. A pausa pode ter sido alterada ou o agente pode estar offline. O status atual será atualizado; revise-o antes de tentar novamente.",
+    "mailProcessingLoadFailed": "Não foi possível atualizar o status do processamento de e-mails. As pausas existentes permanecem em vigor."
   },
   "codingMode": {
     "title": "Modo de Codificação",
@@ -4993,7 +5479,81 @@
       "submitted": "Enviado"
     },
     "execute": "Executar {{tool}}",
-    "executeDefault": "Executar ferramenta"
+    "executeDefault": "Executar ferramenta",
+    "runToolBatch": "Executar workflow {{workflow}}",
+    "runToolBatchRunning": "Executando workflow salvo",
+    "runToolBatchProgress": "{{count}} etapas",
+    "runToolBatchStepCount": "Total de etapas: {{count}}",
+    "control": {
+      "title": "Ferramenta em execução — mover para segundo plano?",
+      "offload": "Mover para segundo plano",
+      "keep": "Manter em primeiro plano",
+      "extendOffload": "Adiar mudança",
+      "extendKill": "Estender o tempo limite",
+      "cancel": "Cancelar",
+      "autoAction": "{{seconds}}s até a ação padrão: ",
+      "noCountdown": "Sem contagem regressiva · Padrão: ",
+      "policyOffload": "Mover para segundo plano",
+      "policyKeep": "Manter em primeiro plano",
+      "manage": "Gerenciar",
+      "offloadMode": {
+        "title": "A ferramenta está em execução há mais tempo — prestes a mover para segundo plano",
+        "offloadNow": "Mover para segundo plano agora",
+        "preventOffload": "Não mover automaticamente",
+        "delayOffload": "Adiar mudança para segundo plano",
+        "countdownCaption": "até mover para segundo plano",
+        "footerNoCountdown": "Sem contagem regressiva · Padrão: mover para segundo plano",
+        "ringAria": "{{seconds}}s até mover para segundo plano",
+        "toastAuto": "Movida para segundo plano automaticamente",
+        "preventedTitle": "Mudança automática para segundo plano desativada",
+        "preventedFooter": "Não será movida automaticamente para segundo plano; você pode mover para segundo plano ou cancelar"
+      },
+      "keepMode": {
+        "title": "A ferramenta ainda está em execução em primeiro plano",
+        "offload": "Mover para segundo plano",
+        "countdownCaption": "até o painel fechar",
+        "footerNoCountdown": "Permanece em primeiro plano por padrão; você pode mover para segundo plano a qualquer momento",
+        "ringAria": "O painel fecha em {{seconds}}s",
+        "toastDismiss": "Lembrete fechado; a ferramenta continua em execução em primeiro plano"
+      },
+      "toast": {
+        "offloaded": "Ferramenta movida para segundo plano",
+        "keepWaiting": "Continuando a aguardar…",
+        "extended": "Mudança para segundo plano adiada; você será avisado em +30s",
+        "killExtended": "Tempo limite estendido em 30s",
+        "cancelled": "Chamada de ferramenta cancelada",
+        "cancelFailed": "Falha ao cancelar a ferramenta",
+        "actionFailed": "Falha na ação. A ferramenta pode ter terminado ou a solicitação foi rejeitada.",
+        "notFound": "Chamada de ferramenta não encontrada (pode já ter terminado).",
+        "conflict": "Ação rejeitada (o estado da ferramenta mudou ou o limite foi atingido).",
+        "networkError": "Erro de rede. Verifique sua conexão e tente novamente.",
+        "bgComplete": "Ferramenta em segundo plano concluída: {{tool}}",
+        "bgCancelled": "Ferramenta em segundo plano cancelada: {{tool}}"
+      },
+      "hint": {
+        "completed": "A ferramenta {{tool}} foi concluída em segundo plano",
+        "cancelled": "Ferramenta {{tool}} cancelada"
+      },
+      "bgQueue": {
+        "title": "Tarefas em segundo plano",
+        "running": "Em execução",
+        "done": "Concluído",
+        "doneLabel": "Tarefa concluída",
+        "cancelled": "Cancelado",
+        "totalDuration": "Total",
+        "cancel": "Cancelar",
+        "remove": "Remover",
+        "cancelAll": "Cancelar tudo",
+        "clearAll": "Limpar concluídas",
+        "cancelAllDone": "Todas as tarefas em execução foram canceladas",
+        "clearAllDone": "Tarefas concluídas removidas",
+        "showFinished": "Mostrar concluídas",
+        "emptyRunning": "Nenhuma tarefa em execução",
+        "emptyHiddenFinished": "{{count}} concluídas (ocultas)",
+        "scrollMore": "Role para ver mais",
+        "noOutput": "Nenhuma saída ainda"
+      }
+    }
   },
   "loop": {
     "gotoSettings": "Configurações de Loop do Agente",
@@ -5022,6 +5582,16 @@
         "name": "Missão",
         "description": "Execute uma tarefa estruturada e persistente em várias etapas."
       }
+    },
+    "budget": {
+      "low": "Baixo",
+      "medium": "Média",
+      "high": "Alto"
+    },
+    "status": {
+      "pause": "Pausar",
+      "resume": "Retomar",
+      "stop": "Parar"
     }
   },
   "runtimeDesign": {
@@ -5096,6 +5666,78 @@
       "10": "Sydney",
       "11": "Nouméa",
       "12": "Suva"
+    }
+  },
+  "terminal": {
+    "authRequired": "Para usar o terminal, defina QWENPAW_AUTH_ENABLED=true, reinicie o serviço e faça login.",
+    "dependencyMissing": "Terminal indisponível: instale o pywinpty no ambiente Python do backend e reinicie o serviço.",
+    "unavailable": "Terminal indisponível. Verifique o serviço de backend e tente novamente.",
+    "closeOthers": "Fechar outros terminais",
+    "closeAll": "Fechar todos os terminais",
+    "hide": "Ocultar painel do terminal",
+    "title": "Terminal",
+    "tabs": "Abas do terminal",
+    "new": "Novo terminal",
+    "close": "Fechar terminal",
+    "restart": "Reiniciar terminal",
+    "rename": "Renomear terminal",
+    "resize": "Redimensionar terminal",
+    "reconnect": "Reconectar",
+    "exited": "Processo encerrado",
+    "inputTooLarge": "A entrada é muito grande; reconecte para continuar."
+  },
+  "thinkingControl": {
+    "default": "Padrão",
+    "resetModel": "Restaurar o modelo padrão",
+    "title": "Intensidade do pensamento",
+    "reset": "Restaurar padrões",
+    "inherit": "Usar o padrão",
+    "off": "Desativado",
+    "minimal": "Mínimo",
+    "low": "Baixo",
+    "medium": "Médio",
+    "high": "Alto",
+    "xhigh": "Muito alto",
+    "max": "Máximo",
+    "light": "Leve",
+    "balanced": "Equilibrado",
+    "deep": "Profundo",
+    "intensive": "Intensivo",
+    "budget": "Orçamento de pensamento",
+    "unsupported": "A profundidade do pensamento não pode ser ajustada",
+    "budgetHint": "Ajuste o limite exato de tokens de pensamento. Os rótulos indicam intensidade, não predefinições fixas.",
+    "effortHint": "Somente os níveis compatíveis com este modelo são exibidos.",
+    "sessionHint": "Aplica-se a esta conversa, a partir da próxima solicitação.",
+    "adapted": "A preferência salva foi ajustada aos recursos deste modelo.",
+    "saveFailed": "Não foi possível salvar as configurações de pensamento",
+    "unknown": "A profundidade do pensamento não pode ser ajustada",
+    "declaration": "Recursos de pensamento (avançado)",
+    "declarationHint": "Declare recursos para modelos sem cartão. Confirme os níveis e limites na documentação do seu endpoint; os valores iniciais são exemplos. Automático usa metadados do catálogo ou de plugins.",
+    "controlType": "Tipo de controle",
+    "wire": "Parâmetros de protocolo",
+    "efforts": "Níveis compatíveis",
+    "minimum": "Orçamento mínimo",
+    "maximum": "Orçamento máximo",
+    "canDisable": "Permite desativar o pensamento",
+    "type": {
+      "unknown": "Automático / desconhecido",
+      "unsupported": "Não compatível",
+      "effort": "Níveis de esforço",
+      "budget": "Orçamento de tokens"
+    },
+    "wireType": {
+      "native": "Padrão do protocolo do provedor",
+      "compat_budget": "Compatível com OpenAI · thinking_budget",
+      "compat_effort": "Compatível com OpenAI · reasoning_effort",
+      "anthropic_budget": "Anthropic · budget_tokens",
+      "anthropic_adaptive": "Anthropic · adaptive / effort",
+      "gemini_budget": "Gemini · thinking_budget",
+      "gemini_level": "Gemini · thinking_level"
+    },
+    "modelSource": {
+      "session": "Modelo da conversa",
+      "agent": "Padrão do agente",
+      "global": "LLM padrão"
     }
   }
 }

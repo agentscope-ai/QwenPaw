@@ -30,7 +30,15 @@ export interface TimezoneOption {
 
 function getLocalizedName(tzName: string, lang: string): string {
   const locale =
-    { zh: "zh-CN", en: "en", ru: "ru", ja: "ja", id: "id-ID" }[lang] || "en";
+    {
+      zh: "zh-CN",
+      en: "en",
+      ru: "ru",
+      ja: "ja",
+      id: "id-ID",
+      pt: "pt-BR",
+      vi: "vi",
+    }[lang] || "en";
   try {
     const parts = new Intl.DateTimeFormat(locale, {
       timeZone: tzName,
