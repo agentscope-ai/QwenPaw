@@ -422,6 +422,10 @@ class SaveSkillRequest(BaseModel):
 
 
 class HubInstallRequest(BaseModel):
+    provider_key: str | None = Field(
+        default=None,
+        description="Market source key",
+    )
     bundle_url: str = Field(..., description="Skill URL")
     version: str = Field(default="", description="Optional version tag")
     enable: bool = Field(default=True, description="Enable after import")
@@ -717,6 +721,7 @@ async def _run_hub_install_task(
         result = await install_skill_from_hub(
             workspace_dir=workspace_dir,
             bundle_url=body.bundle_url,
+            provider_key=body.provider_key,
             version=body.version,
             enable=body.enable,
             target_name=body.target_name,
@@ -1336,6 +1341,7 @@ async def import_skill_pool_from_hub(
     try:
         result = await import_pool_skill_from_hub(
             bundle_url=body.bundle_url,
+            provider_key=body.provider_key,
             version=body.version,
             target_name=body.target_name,
         )

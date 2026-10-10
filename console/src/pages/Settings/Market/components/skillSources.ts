@@ -5,6 +5,6 @@ export const SOURCE_LABELS: Record<string, string> = {
   aliyun: "Aliyun",
 };
 
-export function sourceLabel(source: string): string {
-  return SOURCE_LABELS[source] ?? source;
+export function sourceLabel(source: string, label?: string | null): string {
+  return label || SOURCE_LABELS[source] || source;
 }

@@ -31,6 +31,9 @@ class PluginType(str, Enum):
     CHANNEL = "channel"
     """Registers a custom messaging channel."""
 
+    HUB = "hub"
+    """Registers a Skill marketplace source."""
+
     MEMORY = "memory"
     """Registers a memory backend required before workspace startup."""
 
