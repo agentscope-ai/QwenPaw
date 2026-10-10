@@ -79,11 +79,14 @@ describe("useDebugLogs", () => {
     (App.useApp as Mock).mockReturnValue({ message: messageApi });
     getBackendLogs.mockReset();
     getBackendLogs.mockResolvedValue(logsResponse("2026-09-15 INFO started"));
+    // copyText() prefers the async clipboard API only in secure contexts.
+    vi.stubGlobal("isSecureContext", true);
   });
 
   afterEach(() => {
     vi.useRealTimers();
     vi.clearAllMocks();
+    vi.unstubAllGlobals();
   });
 
   // ── initial load ────────────────────────────────────────────────────────

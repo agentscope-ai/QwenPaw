@@ -4,6 +4,7 @@ import { Shield, Check, X, Clock, Copy, Info, AlertCircle } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useAgentStore } from "../../stores/agentStore";
 import { getAgentDisplayName } from "../../utils/agentDisplayName";
+import { copyText } from "../../utils/clipboard";
 import styles from "./ApprovalCard.module.less";
 
 const { Text } = Typography;
@@ -75,7 +76,7 @@ export function ApprovalCard({
 
   const handleCopy = useCallback(async (text: string, field: string) => {
     try {
-      await navigator.clipboard.writeText(text);
+      await copyText(text);
       setCopiedField(field);
       setTimeout(() => setCopiedField(null), 1500);
     } catch {
