@@ -64,11 +64,33 @@
     }
   },
   "chunkError": {
+    "startup": {
+      "title": "Konsol tidak dapat dimulai",
+      "resource": "Sumber daya yang diperlukan untuk memulai aplikasi gagal dimuat.",
+      "runtime": "Terjadi kesalahan saat menginisialisasi aplikasi.",
+      "timeout": "Aplikasi belum selesai dimulai. Muat ulang halaman atau salin informasi kesalahan untuk pemeriksaan."
+    },
     "title": "Gagal memuat halaman",
     "subTitle": "Ini mungkin disebabkan oleh masalah jaringan atau pembaruan aplikasi.",
     "genericTitle": "Terjadi kesalahan",
     "genericSubTitle": "Terjadi kesalahan tak terduga saat merender halaman ini.",
-    "reload": "Muat ulang"
+    "reload": "Muat ulang",
+    "details": "Lihat detail kesalahan",
+    "copy": "Salin informasi kesalahan",
+    "copied": "Informasi kesalahan disalin",
+    "copyFailed": "Gagal menyalin. Buka detail dan salin secara manual.",
+    "checking": "Memeriksa ulang sumber daya yang gagal dimuat…",
+    "recheckNote": "originalError adalah pengecualian awal; recheck adalah pemeriksaan ulang sumber daya setelah kegagalan, bukan respons awal. Nilai yang tidak diketahui tetap null. Pemeriksaan ulang tidak dapat membedakan masalah DNS, TLS, CORS, atau proxy.",
+    "observations": {
+      "missing": "Pemeriksaan ulang sumber daya: sumber daya saat ini tidak ditemukan (404).",
+      "denied": "Pemeriksaan ulang sumber daya: permintaan tanpa kredensial login ditolak.",
+      "html": "Pemeriksaan ulang sumber daya: URL modul mengembalikan halaman web.",
+      "http-error": "Pemeriksaan ulang sumber daya: server mengembalikan status kesalahan. Lihat detail kesalahan.",
+      "available": "Pemeriksaan ulang sumber daya berhasil; penyebab kegagalan awal belum diketahui.",
+      "request-failed": "Pemeriksaan ulang sumber daya: permintaan gagal; penyebab pastinya belum diketahui.",
+      "timeout": "Pemeriksaan ulang sumber daya: waktu tunggu habis; penyebab pastinya belum diketahui.",
+      "unavailable": "Sumber daya tidak dapat diperiksa ulang; penyebab kegagalan awal belum diketahui."
+    }
   },
   "portabilityImport": {
     "qwenpawOnly": "Impor hanya tersedia untuk agen yang menggunakan backend QwenPaw. Pilih agen QwenPaw untuk melanjutkan.",

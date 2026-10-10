@@ -64,11 +64,33 @@
     }
   },
   "chunkError": {
+    "startup": {
+      "title": "Không thể khởi động bảng điều khiển",
+      "resource": "Không thể tải các tài nguyên cần thiết để khởi động ứng dụng.",
+      "runtime": "Đã xảy ra lỗi khi khởi tạo ứng dụng.",
+      "timeout": "Ứng dụng chưa khởi động xong. Hãy tải lại trang hoặc sao chép thông tin lỗi để kiểm tra."
+    },
     "title": "Không thể tải trang",
     "subTitle": "Có thể do lỗi mạng hoặc ứng dụng vừa được cập nhật.",
     "genericTitle": "Đã xảy ra lỗi",
     "genericSubTitle": "Có lỗi không mong muốn khi hiển thị trang này.",
-    "reload": "Tải lại"
+    "reload": "Tải lại",
+    "details": "Xem chi tiết lỗi",
+    "copy": "Sao chép thông tin lỗi",
+    "copied": "Đã sao chép thông tin lỗi",
+    "copyFailed": "Không thể sao chép. Hãy mở phần chi tiết và sao chép thủ công.",
+    "checking": "Đang kiểm tra lại tài nguyên không tải được…",
+    "recheckNote": "originalError là ngoại lệ ban đầu; recheck là kết quả kiểm tra lại tài nguyên sau khi xảy ra lỗi, không phải phản hồi ban đầu. Giá trị chưa xác định được giữ là null. Việc kiểm tra lại không thể phân biệt lỗi DNS, TLS, CORS hoặc proxy.",
+    "observations": {
+      "missing": "Kiểm tra lại tài nguyên: tài nguyên hiện không tồn tại (404).",
+      "denied": "Kiểm tra lại tài nguyên: yêu cầu không kèm thông tin đăng nhập đã bị từ chối.",
+      "html": "Kiểm tra lại tài nguyên: URL của mô-đun trả về một trang web.",
+      "http-error": "Kiểm tra lại tài nguyên: máy chủ trả về mã trạng thái lỗi. Xem chi tiết lỗi.",
+      "available": "Đã kiểm tra lại tài nguyên thành công; nguyên nhân lỗi tải ban đầu vẫn chưa được xác định.",
+      "request-failed": "Kiểm tra lại tài nguyên: yêu cầu thất bại; nguyên nhân cụ thể chưa được xác định.",
+      "timeout": "Kiểm tra lại tài nguyên: đã hết thời gian chờ; nguyên nhân cụ thể chưa được xác định.",
+      "unavailable": "Không thể kiểm tra lại tài nguyên; nguyên nhân lỗi ban đầu chưa được xác định."
+    }
   },
   "portabilityImport": {
     "qwenpawOnly": "Chỉ các tác tử sử dụng backend QwenPaw mới có thể nhập dữ liệu. Hãy chọn tác tử QwenPaw để tiếp tục.",

@@ -64,11 +64,33 @@
     }
   },
   "chunkError": {
-    "title": "Falha ao carregar pagina",
-    "subTitle": "This may be caused by a network issue or an application update.",
+    "startup": {
+      "title": "Não foi possível iniciar o console",
+      "resource": "Falha ao carregar os recursos necessários para iniciar o aplicativo.",
+      "runtime": "Ocorreu um erro durante a inicialização do aplicativo.",
+      "timeout": "O aplicativo ainda não concluiu a inicialização. Recarregue a página ou copie os detalhes do erro para investigar."
+    },
+    "title": "Falha ao carregar a página",
+    "subTitle": "Isso pode ser causado por um problema de rede ou por uma atualização do aplicativo.",
     "genericTitle": "Algo deu errado",
-    "genericSubTitle": "An unexpected error occurred while rendering this page.",
-    "reload": "Recarregar"
+    "genericSubTitle": "Ocorreu um erro inesperado ao renderizar esta página.",
+    "reload": "Recarregar",
+    "details": "Ver detalhes do erro",
+    "copy": "Copiar informações do erro",
+    "copied": "Informações do erro copiadas",
+    "copyFailed": "Não foi possível copiar. Expanda os detalhes e copie manualmente.",
+    "checking": "Verificando novamente o recurso que não pôde ser carregado…",
+    "recheckNote": "originalError é a exceção inicial; recheck é uma verificação posterior do recurso, não a resposta original. Valores desconhecidos permanecem null. Essa verificação não permite distinguir falhas de DNS, TLS, CORS ou proxy.",
+    "observations": {
+      "missing": "Nova verificação do recurso: o recurso não existe no momento (404).",
+      "denied": "Nova verificação do recurso: a solicitação sem credenciais de login foi negada.",
+      "html": "Nova verificação do recurso: a URL do módulo retornou uma página da web.",
+      "http-error": "Nova verificação do recurso: o servidor retornou um status de erro. Veja os detalhes do erro.",
+      "available": "A nova verificação do recurso foi bem-sucedida; a causa da falha inicial ainda é desconhecida.",
+      "request-failed": "Nova verificação do recurso: a solicitação falhou; a causa específica é desconhecida.",
+      "timeout": "Nova verificação do recurso: o tempo limite foi excedido; a causa específica é desconhecida.",
+      "unavailable": "Não é possível verificar o recurso novamente; a causa da falha inicial é desconhecida."
+    }
   },
   "portabilityImport": {
     "qwenpawOnly": "A importação está disponível apenas para agentes que usam o backend QwenPaw. Selecione um agente QwenPaw para continuar.",

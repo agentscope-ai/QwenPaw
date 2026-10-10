@@ -75,11 +75,33 @@
     }
   },
   "chunkError": {
+    "startup": {
+      "title": "控制台启动失败",
+      "resource": "应用启动所需的资源加载失败。",
+      "runtime": "应用初始化时发生了错误。",
+      "timeout": "应用尚未完成启动，可刷新页面或复制错误信息进行排查。"
+    },
     "title": "页面加载失败",
     "subTitle": "可能由网络问题或应用更新导致，请稍后重试。",
     "genericTitle": "页面出现异常",
     "genericSubTitle": "渲染此页面时发生了意外错误。",
-    "reload": "刷新页面"
+    "reload": "刷新页面",
+    "details": "查看错误详情",
+    "copy": "复制错误信息",
+    "copied": "错误信息已复制",
+    "copyFailed": "复制失败，请展开详情后手动复制。",
+    "checking": "正在复查失败资源…",
+    "recheckNote": "originalError 为原始异常，recheck 为故障后的资源复查结果，不能代表首次请求。未知信息保留为 null；复查无法区分 DNS、TLS、CORS 或代理故障。",
+    "observations": {
+      "missing": "资源复查：资源当前不存在（404）。",
+      "denied": "资源复查：未携带登录凭据的请求被拒绝。",
+      "html": "资源复查：模块地址返回了网页内容。",
+      "http-error": "资源复查：服务器返回了错误状态，详情见诊断信息。",
+      "available": "资源复查：请求已成功；首次加载失败原因尚未确定。",
+      "request-failed": "资源复查：请求失败，具体原因尚未确定。",
+      "timeout": "资源复查：请求超时，具体原因尚未确定。",
+      "unavailable": "当前无法复查资源，首次加载失败原因尚未确定。"
+    }
   },
   "appCenter": {
     "backToList": "返回",

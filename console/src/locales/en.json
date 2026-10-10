@@ -75,11 +75,33 @@
     }
   },
   "chunkError": {
+    "startup": {
+      "title": "Unable to start the console",
+      "resource": "Resources required to start the application failed to load.",
+      "runtime": "An error occurred while initializing the application.",
+      "timeout": "The application has not finished starting. Reload or copy the error details to investigate."
+    },
     "title": "Failed to load page",
     "subTitle": "This may be caused by a network issue or an application update.",
     "genericTitle": "Something went wrong",
     "genericSubTitle": "An unexpected error occurred while rendering this page.",
-    "reload": "Reload"
+    "reload": "Reload",
+    "details": "View error details",
+    "copy": "Copy error information",
+    "copied": "Error information copied",
+    "copyFailed": "Copy failed. Expand the details and copy them manually.",
+    "checking": "Rechecking the failed resource…",
+    "recheckNote": "originalError is the initial exception; recheck is a later resource check, not the original response. Unknown values remain null. The recheck cannot distinguish DNS, TLS, CORS, or proxy failures.",
+    "observations": {
+      "missing": "Resource recheck: the resource is currently missing (404).",
+      "denied": "Resource recheck: the request without login credentials was denied.",
+      "html": "Resource recheck: the module URL returned a web page.",
+      "http-error": "Resource recheck: the server returned an error status. See diagnostics.",
+      "available": "Resource recheck succeeded; the original failure remains unexplained.",
+      "request-failed": "Resource recheck failed; the specific cause is unknown.",
+      "timeout": "Resource recheck timed out; the specific cause is unknown.",
+      "unavailable": "The resource cannot be rechecked; the original cause is unknown."
+    }
   },
   "appCenter": {
     "backToList": "Back",
