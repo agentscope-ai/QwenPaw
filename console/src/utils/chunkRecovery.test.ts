@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { createForeignError } from "../test/foreignError";
 import {
   getFrontendBuildId,
   isChunkLoadError,
@@ -6,6 +7,34 @@ import {
 } from "./chunkRecovery";
 
 describe("chunk-load error recognition", () => {
+  it("recognizes module failures from a different JavaScript realm", () => {
+    const error = createForeignError(
+      "Failed to fetch dynamically imported module: /assets/page.js",
+    );
+    expect(error).not.toBeInstanceOf(Error);
+    expect(isChunkLoadError(error)).toBe(true);
+  });
+
+  it("recognizes serialized module errors without a local Error prototype", () => {
+    expect(
+      isChunkLoadError({
+        name: "TypeError",
+        message: "Importing a module script failed.",
+      }),
+    ).toBe(true);
+  });
+
+  it.each([
+    createForeignError("Failed to fetch"),
+    createForeignError("Cannot read properties of null", "Error"),
+    { name: "TypeError", message: "Failed to fetch" },
+    { name: "ChunkLoadError", message: null },
+    { message: 42 },
+    "Failed to fetch dynamically imported module: /assets/page.js",
+  ])("does not misclassify malformed or unrelated foreign errors", (error) => {
+    expect(isChunkLoadError(error)).toBe(false);
+  });
+
   it.each([
     "Failed to fetch dynamically imported module: /assets/page.js",
     "error loading dynamically imported module: /assets/page.js",

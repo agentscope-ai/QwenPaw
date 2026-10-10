@@ -1,14 +1,14 @@
 import { createElement, lazy } from "react";
 import type { ComponentType } from "react";
 import { moduleRegistry } from "../plugins/moduleRegistry";
-import { isChunkLoadError } from "./chunkRecovery";
+import { isChunkLoadError, isErrorLike } from "./chunkRecovery";
 import { importFailures } from "./lazyImportFailure";
 
 export { getLazyImportFailure } from "./lazyImportFailure";
 
-const failedImports = new WeakMap<Error, Set<() => void>>();
+const failedImports = new WeakMap<object, Set<() => void>>();
 /** Reset only imports caught by the boundary, after React commits the error. */
-export function resetFailedLazyImports(error: Error): void {
+export function resetFailedLazyImports(error: object): void {
   const resets = failedImports.get(error);
   failedImports.delete(error);
   resets?.forEach((reset) => reset());
@@ -33,7 +33,7 @@ function loadImport<T extends ComponentType<unknown>>(
   factory: () => Promise<{ default: T }>,
 ): Promise<{ default: T }> {
   return factory().catch((error: unknown) => {
-    if (error instanceof Error) {
+    if (isErrorLike(error)) {
       importFailures.set(error, { attempts: 1 });
     }
     // Browsers cache failed module imports for this document. The boundary
@@ -49,7 +49,7 @@ function recoverableLazy(
 ): ComponentType<unknown> {
   const load = () =>
     loader().catch((error: unknown) => {
-      if (error instanceof Error && isChunkLoadError(error)) {
+      if (isChunkLoadError(error)) {
         importFailures.set(error, {
           attempts: importFailures.get(error)?.attempts ?? 1,
           modulePath,

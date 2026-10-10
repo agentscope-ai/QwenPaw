@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createForeignError } from "../test/foreignError";
 import { installStartupMonitor } from "./monitor";
 import {
   captureChunkDiagnostic,
@@ -73,6 +74,64 @@ afterEach(() => {
 });
 
 describe("Console startup recovery", () => {
+  it.each(["error", "unhandledrejection"] as const)(
+    "preserves a foreign module failure from a startup %s event",
+    async (kind) => {
+      const url = `${location.origin}/assets/foreign-vendor.js`;
+      const error = createForeignError(
+        `Failed to fetch dynamically imported module: ${url}`,
+      );
+      error.stack = `TypeError: ${error.message}\n    at load (${url}:1:2)`;
+      expect(error).not.toBeInstanceOf(Error);
+      const event =
+        kind === "error"
+          ? new ErrorEvent("error", {
+              error,
+              message: error.message,
+              filename: entry.src,
+            })
+          : new PromiseRejectionEvent("unhandledrejection", {
+              reason: error,
+              promise: Promise.resolve(),
+            });
+      window.dispatchEvent(event);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(readChunkDiagnostic()).toMatchObject({
+        startupFailure: "resource",
+        resourceUrl: url,
+        originalError: {
+          name: error.name,
+          message: error.message,
+          stack: error.stack,
+        },
+        automaticReloadAttempted: true,
+      });
+      expect(reloadAfterChunkError).toHaveBeenCalledOnce();
+    },
+  );
+
+  it("keeps foreign API failures distinct from module failures at startup", async () => {
+    const error = createForeignError("Failed to fetch");
+    error.stack = "TypeError: Failed to fetch\n    at fetchApi";
+    window.dispatchEvent(
+      new PromiseRejectionEvent("unhandledrejection", {
+        reason: error,
+        promise: Promise.resolve(),
+      }),
+    );
+    await vi.advanceTimersByTimeAsync(0);
+    expect(readChunkDiagnostic()).toMatchObject({
+      startupFailure: "runtime",
+      originalError: {
+        name: error.name,
+        message: error.message,
+        stack: error.stack,
+      },
+      automaticReloadAttempted: false,
+    });
+    expect(reloadAfterChunkError).not.toHaveBeenCalled();
+  });
+
   it("captures an entry failure before any React module runs", async () => {
     entry.dispatchEvent(new Event("error"));
     expect(readChunkDiagnostic()).toMatchObject({

@@ -8,6 +8,7 @@ import {
   isChunkLoadError,
   reloadAfterChunkError,
 } from "../utils/chunkRecovery";
+import type { ErrorLike } from "../utils/chunkRecovery";
 import { resetFailedLazyImports } from "../utils/lazyWithRetry";
 import {
   captureChunkDiagnostic,
@@ -96,7 +97,7 @@ export class ChunkErrorBoundary extends Component<Props, State> {
     this.diagnosticGeneration += 1;
   }
 
-  componentDidCatch(error: Error, info: ErrorInfo) {
+  componentDidCatch(error: unknown, info: ErrorInfo) {
     const label = isChunkLoadError(error) ? "Chunk load error" : "Render error";
     console.error(`${label}:`, error, info);
     if (isChunkLoadError(error)) {
@@ -105,7 +106,7 @@ export class ChunkErrorBoundary extends Component<Props, State> {
     }
   }
 
-  diagnoseChunkError = async (error: Error) => {
+  diagnoseChunkError = async (error: ErrorLike) => {
     const generation = ++this.diagnosticGeneration;
     const diagnostic = captureChunkDiagnostic(error);
     const previous = readBeforeAutomaticReloadDiagnostic(diagnostic.page);

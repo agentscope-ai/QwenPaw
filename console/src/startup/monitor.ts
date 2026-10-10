@@ -11,8 +11,10 @@ import type {
 } from "../utils/chunkDiagnostics";
 import {
   isChunkLoadError,
+  isErrorLike,
   reloadAfterChunkError,
 } from "../utils/chunkRecovery";
+import type { ErrorLike } from "../utils/chunkRecovery";
 import { copyText } from "../utils/clipboard";
 
 export interface StartupMessages {
@@ -121,7 +123,7 @@ export function installStartupMonitor(
   }
 
   async function fail(
-    error: Error,
+    error: ErrorLike,
     kind: NonNullable<ChunkDiagnostic["startupFailure"]>,
     resourceUrl = failedResourceUrl(error),
   ) {
@@ -172,17 +174,21 @@ export function installStartupMonitor(
       error.name = "ChunkLoadError";
       void fail(error, "resource", failedPreload ?? event.target.src);
     } else if (event instanceof ErrorEvent) {
-      const error =
-        event.error instanceof Error ? event.error : new Error(event.message);
-      void fail(error, "runtime", event.filename || null);
+      const error = isErrorLike(event.error)
+        ? event.error
+        : new Error(event.message);
+      void fail(
+        error,
+        isChunkLoadError(error) ? "resource" : "runtime",
+        failedResourceUrl(error) ?? (event.filename || null),
+      );
     }
   }
 
   function onRejection(event: PromiseRejectionEvent) {
-    const error =
-      event.reason instanceof Error
-        ? event.reason
-        : new Error(String(event.reason));
+    const error = isErrorLike(event.reason)
+      ? event.reason
+      : new Error(String(event.reason));
     void fail(error, isChunkLoadError(error) ? "resource" : "runtime");
   }
 

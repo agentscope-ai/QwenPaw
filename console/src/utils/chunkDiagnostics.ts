@@ -1,5 +1,5 @@
 import { getFrontendBuildId } from "./chunkRecovery";
-import type { ChunkReloadDecision } from "./chunkRecovery";
+import type { ChunkReloadDecision, ErrorLike } from "./chunkRecovery";
 import { getLazyImportFailure } from "./lazyImportFailure";
 
 const STORAGE_KEY = "qwenpaw:chunk-diagnostic";
@@ -83,7 +83,7 @@ function safeErrorText(text: string): string {
 }
 
 /** Browsers may omit the failed URL, notably Safari/WebView. */
-export function failedResourceUrl(error: Error): string | null {
+export function failedResourceUrl(error: ErrorLike): string | null {
   for (const value of error.message.match(URL_PATTERN) ?? []) {
     try {
       const [resource] = splitUrlSuffix(value);
@@ -102,7 +102,7 @@ export function failedResourceUrl(error: Error): string | null {
 }
 
 export function captureChunkDiagnostic(
-  error: Error,
+  error: ErrorLike,
   resourceUrl = failedResourceUrl(error),
 ): ChunkDiagnostic {
   const timing = resourceUrl
@@ -118,9 +118,11 @@ export function captureChunkDiagnostic(
     browser: navigator.userAgent,
     online: navigator.onLine,
     originalError: {
-      name: error.name,
+      name: typeof error.name === "string" ? error.name : "Error",
       message: safeErrorText(error.message).slice(0, 4000),
-      stack: safeErrorText(error.stack ?? "").slice(0, 16000),
+      stack: safeErrorText(
+        typeof error.stack === "string" ? error.stack : "",
+      ).slice(0, 16000),
     },
     modulePath: failure?.modulePath ?? null,
     attempts: failure?.attempts ?? null,

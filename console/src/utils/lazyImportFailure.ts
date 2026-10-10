@@ -1,9 +1,9 @@
 // Keep diagnostic metadata independent of React and the page import graph.
 export const importFailures = new WeakMap<
-  Error,
+  object,
   { attempts: number; modulePath?: string }
 >();
 
-export function getLazyImportFailure(error: Error) {
+export function getLazyImportFailure(error: object) {
   return importFailures.get(error);
 }

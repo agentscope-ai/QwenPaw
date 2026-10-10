@@ -1,4 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { createForeignError } from "../test/foreignError";
+import { importFailures } from "./lazyImportFailure";
 import {
   captureChunkDiagnostic,
   failedResourceUrl,
@@ -16,6 +18,37 @@ afterEach(() => {
 });
 
 describe("original chunk diagnostics", () => {
+  it("preserves foreign error metadata and redacts its original stack", () => {
+    const url = "https://user:secret@example.com/assets/page.js?token=secret";
+    const error = createForeignError(
+      `Failed to fetch dynamically imported module: ${url}`,
+    );
+    error.stack = `TypeError: ${error.message}\n    at load (${url}:1:2)`;
+    importFailures.set(error, { attempts: 1, modulePath: "ForeignPage" });
+    const report = captureChunkDiagnostic(error);
+    expect(report).toMatchObject({
+      modulePath: "ForeignPage",
+      attempts: 1,
+      originalError: { name: "TypeError" },
+      resourceUrl: "https://example.com/assets/page.js",
+    });
+    expect(report.originalError.stack).toContain("at load");
+    expect(JSON.stringify(report)).not.toContain("secret");
+  });
+
+  it("tolerates non-string optional fields on serialized errors", () => {
+    const report = captureChunkDiagnostic({
+      message: "Importing a module script failed.",
+      name: null,
+      stack: 42,
+    });
+    expect(report.originalError).toEqual({
+      name: "Error",
+      message: "Importing a module script failed.",
+      stack: "",
+    });
+  });
+
   it("keeps original facts while redacting URL credentials and query secrets", () => {
     const error = new TypeError(
       "Failed to fetch dynamically imported module: https://user:secret@example.com/assets/page.js?token=secret&v=123#secret",

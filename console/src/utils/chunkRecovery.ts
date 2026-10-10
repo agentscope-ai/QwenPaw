@@ -12,6 +12,22 @@ export interface ChunkReloadDecision {
   maxAttempts: number;
 }
 
+export interface ErrorLike {
+  message: string;
+  name?: unknown;
+  stack?: unknown;
+}
+
+/** Error constructors differ across WebView, iframe, and plugin realms. */
+export function isErrorLike(error: unknown): error is ErrorLike {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "message" in error &&
+    typeof error.message === "string"
+  );
+}
+
 // Production bundle URLs contain content hashes; HMR URLs identify dev builds.
 export function getFrontendBuildId(): string {
   return (
@@ -25,8 +41,8 @@ export function getFrontendBuildId(): string {
 }
 
 /** Match module loading failures without treating API fetch errors as chunks. */
-export function isChunkLoadError(error: unknown): boolean {
-  if (!(error instanceof Error)) return false;
+export function isChunkLoadError(error: unknown): error is ErrorLike {
+  if (!isErrorLike(error)) return false;
   return (
     error.name === "ChunkLoadError" ||
     /loading (?:css )?chunk|dynamically imported module|importing a module script failed|unable to preload css/i.test(

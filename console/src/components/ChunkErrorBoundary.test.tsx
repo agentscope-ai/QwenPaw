@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { Suspense } from "react";
 import type { ReactElement } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createForeignError } from "../test/foreignError";
 
 vi.mock("../i18n", () => ({
   default: { t: (key: string) => key },
@@ -89,6 +90,63 @@ describe("ChunkErrorBoundary runtime recovery", () => {
     await screen.findByText("recovered page");
     expect(factory).toHaveBeenCalledTimes(2);
   });
+
+  it("recovers and resets a foreign rejected lazy payload without replacing its error", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const url = `${location.origin}/assets/foreign-page.js`;
+    const error = createForeignError(
+      `Failed to fetch dynamically imported module: ${url}`,
+    );
+    error.stack = `TypeError: ${error.message}\n    at load (${url}:1:2)`;
+    expect(error).not.toBeInstanceOf(Error);
+    const factory = vi.fn().mockRejectedValue(error);
+    const Page = lazyWithRetry(factory, "ForeignPage");
+    const view = (key: string, showPage = true) => (
+      <ChunkErrorBoundary resetKey={key}>
+        <Suspense fallback="loading">
+          {showPage ? <Page /> : <div>other page</div>}
+        </Suspense>
+      </ChunkErrorBoundary>
+    );
+    const { rerender } = render(view("foreign"));
+    await waitFor(() => expect(reloadAfterChunkError).toHaveBeenCalledOnce());
+    expect(readChunkDiagnostic()).toMatchObject({
+      modulePath: "ForeignPage",
+      attempts: 1,
+      resourceUrl: url,
+      originalError: {
+        name: error.name,
+        message: error.message,
+        stack: error.stack,
+      },
+    });
+    factory.mockResolvedValue({
+      default: () => <div>recovered foreign page</div>,
+    });
+    rerender(view("other", false));
+    await screen.findByText("other page");
+    rerender(view("foreign"));
+    await screen.findByText("recovered foreign page");
+    expect(factory).toHaveBeenCalledTimes(2);
+  });
+
+  it.each(["Failed to fetch", "render failed"])(
+    "does not refresh for a foreign ordinary error: %s",
+    async (message) => {
+      vi.spyOn(console, "error").mockImplementation(() => undefined);
+      function ForeignFailure(): ReactElement {
+        throw createForeignError(message);
+      }
+      render(
+        <ChunkErrorBoundary>
+          <ForeignFailure />
+        </ChunkErrorBoundary>,
+      );
+      await screen.findByText("chunkError.genericTitle");
+      expect(reloadAfterChunkError).not.toHaveBeenCalled();
+      expect(readChunkDiagnostic()).toBeNull();
+    },
+  );
 
   it("offers document recovery without repeating a cached failed import", async () => {
     vi.spyOn(console, "error").mockImplementation(() => undefined);
