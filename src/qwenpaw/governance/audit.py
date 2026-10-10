@@ -238,7 +238,7 @@ class AuditLog:
                         tc_spec.target,
                         str(decision.action.value),
                         decision.reason,
-                        "{}",
+                        json.dumps(decision.extra),
                     ),
                 )
                 conn.commit()
