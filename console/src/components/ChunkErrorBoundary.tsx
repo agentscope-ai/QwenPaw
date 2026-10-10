@@ -17,7 +17,6 @@ import {
   recheckChunkResource,
   saveChunkDiagnostic,
   type ChunkDiagnostic,
-  type ResourceRecheck,
 } from "../utils/chunkDiagnostics";
 import { resetFailedLazyImports } from "../utils/lazyWithRetry";
 import { copyText } from "../utils/clipboard";
