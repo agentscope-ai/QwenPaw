@@ -52,6 +52,7 @@ from ..providers.error_utils import extract_status_code
 from ..providers.fallback_chat_model import install_fallback_notice_sink
 from ..providers.model_capability_cache import get_capability_cache
 from ..providers.adapters.request_context import model_session
+from ..providers.stream_progress import _block_has_meaningful_content
 from ..utils.tool_call_extra import (
     collect_transient_tool_call_extras,
     persist_tool_call_extras,
@@ -251,6 +252,9 @@ class QwenPawAgent(CodingModeMixin, Agent):
         # native AgentScope compression (see compress_context /
         # _save_to_context).
         self._context_manager = context_manager
+        # A4-PR1: empty-reply fallback (design §3 案C-1) — at most one
+        # context-recovery retry per zero-content reply.
+        self._empty_reply_retried = False
 
         # Register skills metadata on toolkit
         self._register_skills(toolkit, effective_skills=effective_skills or [])
@@ -1169,6 +1173,73 @@ class QwenPawAgent(CodingModeMixin, Agent):
             )
             return  # outer loop continues
 
+        # A4-PR1: empty-reply fallback (design §3 案C-1). A zero-meaningful-
+        # block reply (e.g. 200 + completion_tokens=0 after the provider
+        # silently truncated an oversized prompt) must not look like a
+        # normal completion: retry once through context recovery, then
+        # surface a visible warning instead of the empty reply.
+        if (
+            stop_result.final_message is None
+            and not self._final_msg_has_meaningful_content(final_msg)
+        ):
+            has_user_input = any(
+                getattr(msg, "role", None) == "user"
+                for msg in self.state.context
+            )
+            if has_user_input and not self._empty_reply_retried:
+                self._empty_reply_retried = True
+                logger.warning(
+                    "Model returned a zero-content reply; attempting one "
+                    "context-recovery retry.",
+                )
+                context_manager = getattr(self, "_context_manager", None)
+                if context_manager is not None:
+                    try:
+                        await context_manager.recover_from_context_overflow(
+                            self,
+                        )
+                    except Exception:  # noqa: BLE001 - retry either way
+                        logger.warning(
+                            "Context recovery before the empty-reply retry "
+                            "failed; retrying without compaction.",
+                            exc_info=True,
+                        )
+                self.state.context.append(
+                    Msg(
+                        name="user",
+                        role="user",
+                        content=[
+                            TextBlock(
+                                type="text",
+                                text="Response was empty; retrying.",
+                            ),
+                        ],
+                        metadata={
+                            QWENPAW_MESSAGE_TAG_KEY: (
+                                LOOP_CONTINUATION_MESSAGE_TAG
+                            ),
+                        },
+                    ),
+                )
+                return  # outer loop re-enters the model
+            self._empty_reply_retried = False
+            warning_msg = Msg(
+                name=self.name,
+                role="assistant",
+                content=[
+                    TextBlock(
+                        type="text",
+                        text=self._empty_reply_warning_text(final_msg),
+                    ),
+                ],
+            )
+            self._attach_fallback_notices(warning_msg, fallback_sink)
+            yield warning_msg
+            return
+
+        # A4-PR1: a meaningful reply clears the pending retry flag.
+        self._empty_reply_retried = False
+
         outgoing_msg = stop_result.final_message or final_msg
         self._attach_fallback_notices(outgoing_msg, fallback_sink)
         yield outgoing_msg
@@ -1444,6 +1515,46 @@ class QwenPawAgent(CodingModeMixin, Agent):
             agent=self,
             final_msg=final_msg,
             iteration=self.state.cur_iter,
+        )
+
+    @staticmethod
+    def _final_msg_has_meaningful_content(final_msg: Msg) -> bool:
+        """A4-PR1: does the reply carry any meaningful block (design §3 案C-1)?
+
+        Reuses the provider-level block semantics: text, tool_call, data,
+        and reasoning each count, so tool-call-only and thinking-only
+        turns pass through untouched.
+        """
+        content = getattr(final_msg, "content", None)
+        if content is None:
+            return False
+        blocks = content if isinstance(content, (list, tuple)) else [content]
+        return any(_block_has_meaningful_content(block) for block in blocks)
+
+    @staticmethod
+    def _empty_reply_warning_text(final_msg: Any) -> str:
+        """A4-PR1: bilingual warning for an unrecoverable empty reply."""
+        usage = getattr(final_msg, "usage", None)
+        if isinstance(usage, dict):
+            prompt_tokens = usage.get("prompt_tokens")
+            completion_tokens = usage.get("completion_tokens")
+        elif usage is not None:
+            prompt_tokens = getattr(usage, "prompt_tokens", None)
+            completion_tokens = getattr(usage, "completion_tokens", None)
+        else:
+            prompt_tokens = None
+            completion_tokens = None
+        usage_note = ""
+        if prompt_tokens is not None and completion_tokens is not None:
+            usage_note = (
+                f" (prompt_tokens={prompt_tokens}, "
+                f"completion_tokens={completion_tokens})"
+            )
+        return (
+            "The model returned an empty response (likely context overflow "
+            "or a server-side fault); please retry or start a new session. "
+            "模型返回了空响应（疑似上下文超窗或服务端异常），请重试或"
+            f"开启新会话。{usage_note}"
         )
 
     # pylint: disable=too-many-nested-blocks
