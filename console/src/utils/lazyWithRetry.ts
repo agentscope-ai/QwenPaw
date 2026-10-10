@@ -6,8 +6,6 @@ import { importFailures } from "./lazyImportFailure";
 
 export { getLazyImportFailure } from "./lazyImportFailure";
 
-const MAX_RETRIES = 3;
-const RETRY_DELAY_MS = 1000;
 const failedImports = new WeakMap<Error, Set<() => void>>();
 /** Reset only imports caught by the boundary, after React commits the error. */
 export function resetFailedLazyImports(error: Error): void {
@@ -31,23 +29,16 @@ function pathToModuleKey(importPath: string): string {
   return key.includes("/") && !/\/index$/.test(key) ? `${key}/index` : key;
 }
 
-function retryImport<T extends ComponentType<unknown>>(
+function loadImport<T extends ComponentType<unknown>>(
   factory: () => Promise<{ default: T }>,
-  retries: number,
 ): Promise<{ default: T }> {
   return factory().catch((error: unknown) => {
-    if (retries <= 0 || !isChunkLoadError(error)) {
-      if (error instanceof Error) {
-        importFailures.set(error, { attempts: MAX_RETRIES - retries + 1 });
-      }
-      throw error;
+    if (error instanceof Error) {
+      importFailures.set(error, { attempts: 1 });
     }
-    return new Promise<{ default: T }>((resolve) =>
-      setTimeout(
-        () => resolve(retryImport(factory, retries - 1)),
-        RETRY_DELAY_MS,
-      ),
-    );
+    // Browsers cache failed module imports for this document. The boundary
+    // recovers with a bounded reload instead of repeating the same import.
+    throw error;
   });
 }
 
@@ -103,7 +94,7 @@ function toGlobKey(path: string): string {
 // ---------------------------------------------------------------------------
 
 /**
- * Like `React.lazy` but retries on chunk-load failure.
+ * Like `React.lazy` but supports boundary recovery on chunk-load failure.
  * Pass the import path as a second argument to enable plugin-registry lookup:
  *
  * ```ts
@@ -128,7 +119,7 @@ export function lazyWithRetry<T extends ComponentType<unknown>>(
       const patched = moduleRegistry.get(key, "default");
       if (patched) return Promise.resolve({ default: patched as T });
     }
-    return retryImport(factory, MAX_RETRIES);
+    return loadImport(factory);
   }, moduleKeyOrPath);
 }
 
@@ -175,9 +166,6 @@ export function lazyImportWithRetry(path: string): ComponentType<unknown> {
         default: patched as ComponentType<unknown>,
       });
     }
-    return retryImport(
-      () => factory().then((comp) => ({ default: comp })),
-      MAX_RETRIES,
-    );
+    return loadImport(() => factory().then((comp) => ({ default: comp })));
   }, path);
 }

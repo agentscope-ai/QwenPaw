@@ -189,6 +189,79 @@ describe("original chunk diagnostics", () => {
 });
 
 describe("bounded resource rechecks", () => {
+  it("waits for the entire body before reporting a resource as available", async () => {
+    const content = "export default 42;";
+    let finish!: (body: ArrayBuffer) => void;
+    const body = new Promise<ArrayBuffer>((resolve) => {
+      finish = resolve;
+    });
+    const response = new Response(content, {
+      headers: { "content-type": "application/javascript" },
+    });
+    vi.spyOn(response, "arrayBuffer").mockReturnValue(body);
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response));
+    let completed = false;
+    const check = recheckChunkResource(
+      `${location.origin}/assets/page.js`,
+    ).then((report) => {
+      completed = true;
+      return report;
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(completed).toBe(false);
+    finish(new TextEncoder().encode(content).buffer);
+    expect(await check).toMatchObject({
+      outcome: "available",
+      status: 200,
+      bodyBytes: content.length,
+    });
+  });
+
+  it("reports a truncated body as failed even after receiving a 200 response", async () => {
+    const response = new Response(null, {
+      headers: { "content-type": "application/javascript" },
+    });
+    vi.spyOn(response, "arrayBuffer").mockRejectedValue(
+      new TypeError("Response body terminated"),
+    );
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response));
+    expect(
+      await recheckChunkResource(`${location.origin}/assets/page.js`),
+    ).toMatchObject({
+      outcome: "request-failed",
+      status: 200,
+      contentType: "application/javascript",
+      bodyBytes: null,
+    });
+  });
+
+  it("bounds body download and retains its timeout when the body finishes late", async () => {
+    vi.useFakeTimers();
+    let finish!: (body: ArrayBuffer) => void;
+    const response = new Response(null, {
+      headers: { "content-type": "application/javascript" },
+    });
+    vi.spyOn(response, "arrayBuffer").mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response));
+    const check = recheckChunkResource(`${location.origin}/assets/page.js`);
+    await vi.advanceTimersByTimeAsync(2000);
+    const report = await check;
+    expect(report).toMatchObject({
+      outcome: "timeout",
+      status: 200,
+      bodyBytes: null,
+    });
+    finish(new ArrayBuffer(42));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(report).toMatchObject({ outcome: "timeout", bodyBytes: null });
+  });
+
   it.each([
     [404, "application/json", "missing"],
     [401, "application/json", "denied"],

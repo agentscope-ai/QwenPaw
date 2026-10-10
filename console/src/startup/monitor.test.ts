@@ -17,10 +17,7 @@ import viLocale from "../locales/vi.json";
 
 vi.mock("../utils/chunkRecovery", async (original) => ({
   ...(await original<typeof import("../utils/chunkRecovery")>()),
-  reloadAfterChunkError: vi.fn((persist?: () => void) => {
-    persist?.();
-    return true;
-  }),
+  reloadAfterChunkError: vi.fn(),
 }));
 vi.mock("../utils/clipboard", () => ({
   copyText: vi.fn().mockResolvedValue(undefined),
@@ -42,7 +39,7 @@ beforeEach(() => {
   vi.useFakeTimers();
   vi.clearAllMocks();
   vi.mocked(reloadAfterChunkError).mockImplementation((persist) => {
-    persist?.();
+    persist?.({ reason: "reload", attempts: 1, maxAttempts: 2 });
     return true;
   });
   localStorage.clear();
@@ -89,6 +86,7 @@ describe("Console startup recovery", () => {
     await vi.advanceTimersByTimeAsync(0);
     expect(readChunkDiagnostic()).toMatchObject({
       automaticReloadAttempted: true,
+      automaticReload: { reason: "reload", attempts: 1, maxAttempts: 2 },
       recheck: { status: 200, outcome: "available" },
     });
     expect(reloadAfterChunkError).toHaveBeenCalledOnce();
@@ -262,7 +260,10 @@ describe("Console startup recovery", () => {
     await vi.advanceTimersByTimeAsync(0);
     const previous = readChunkDiagnostic();
     expect(previous?.automaticReloadAttempted).toBe(true);
-    vi.mocked(reloadAfterChunkError).mockReturnValue(false);
+    vi.mocked(reloadAfterChunkError).mockImplementation((persist) => {
+      persist?.({ reason: "limit-reached", attempts: 2, maxAttempts: 2 });
+      return false;
+    });
 
     for (let refresh = 0; refresh < 3; refresh += 1) {
       stop();
@@ -274,6 +275,11 @@ describe("Console startup recovery", () => {
       const text = JSON.parse(document.querySelector("pre")!.textContent!);
       expect(text.beforeAutomaticReload).toEqual(previous);
       expect(readChunkDiagnostic()?.automaticReloadAttempted).toBe(false);
+      expect(text.current.automaticReload).toEqual({
+        reason: "limit-reached",
+        attempts: 2,
+        maxAttempts: 2,
+      });
       document.querySelector("button")!.click();
       await vi.advanceTimersByTimeAsync(0);
       expect(

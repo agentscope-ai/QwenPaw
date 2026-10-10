@@ -1,4 +1,5 @@
 import { getFrontendBuildId } from "./chunkRecovery";
+import type { ChunkReloadDecision } from "./chunkRecovery";
 import { getLazyImportFailure } from "./lazyImportFailure";
 
 const STORAGE_KEY = "qwenpaw:chunk-diagnostic";
@@ -21,6 +22,7 @@ export interface ResourceRecheck {
   outcome: ResourceOutcome;
   status: number | null;
   contentType: string | null;
+  bodyBytes: number | null;
 }
 
 export interface ChunkDiagnostic {
@@ -36,6 +38,7 @@ export interface ChunkDiagnostic {
   originalResourceStatus: number | null;
   recheck: ResourceRecheck | null;
   automaticReloadAttempted: boolean;
+  automaticReload: ChunkReloadDecision | null;
   phase?: "startup";
   startupFailure?: "resource" | "runtime" | "timeout";
   elapsedMs?: number;
@@ -125,6 +128,7 @@ export function captureChunkDiagnostic(
     originalResourceStatus: timing?.responseStatus || null,
     recheck: null,
     automaticReloadAttempted: false,
+    automaticReload: null,
   };
 }
 
@@ -183,6 +187,7 @@ export async function recheckChunkResource(
     outcome: "unavailable",
     status: null,
     contentType: null,
+    bodyBytes: null,
   };
   if (!resourceUrl) return result;
   const url = new URL(resourceUrl);
@@ -191,12 +196,41 @@ export async function recheckChunkResource(
   let timeout: ReturnType<typeof setTimeout> | undefined;
   let timedOut = false;
   try {
-    const response = await Promise.race([
-      fetch(url.toString(), {
-        cache: "no-store",
-        credentials: "omit",
-        signal: controller.signal,
-      }),
+    await Promise.race([
+      (async () => {
+        const response = await fetch(url.toString(), {
+          cache: "no-store",
+          credentials: "omit",
+          signal: controller.signal,
+        });
+        if (timedOut) {
+          void response.body?.cancel().catch(() => undefined);
+          return;
+        }
+        result.status = response.status;
+        result.contentType = response.headers.get("content-type");
+        const outcome =
+          response.status === 404
+            ? "missing"
+            : response.status === 401 || response.status === 403
+            ? "denied"
+            : !response.ok
+            ? "http-error"
+            : /(?:text\/html|application\/xhtml\+xml)/i.test(
+                result.contentType ?? "",
+              )
+            ? "html"
+            : "available";
+        if (outcome === "available") {
+          // Headers can report 200 even when the body fails to download.
+          const body = await response.arrayBuffer();
+          if (timedOut) return;
+          result.bodyBytes = body.byteLength;
+        } else {
+          void response.body?.cancel().catch(() => undefined);
+        }
+        result.outcome = outcome;
+      })(),
       new Promise<never>((_resolve, reject) => {
         timeout = setTimeout(() => {
           timedOut = true;
@@ -205,21 +239,6 @@ export async function recheckChunkResource(
         }, RECHECK_TIMEOUT_MS);
       }),
     ]);
-    result.status = response.status;
-    result.contentType = response.headers.get("content-type");
-    result.outcome =
-      response.status === 404
-        ? "missing"
-        : response.status === 401 || response.status === 403
-        ? "denied"
-        : !response.ok
-        ? "http-error"
-        : /(?:text\/html|application\/xhtml\+xml)/i.test(
-            result.contentType ?? "",
-          )
-        ? "html"
-        : "available";
-    void response.body?.cancel().catch(() => undefined);
   } catch {
     result.outcome = timedOut ? "timeout" : "request-failed";
   } finally {

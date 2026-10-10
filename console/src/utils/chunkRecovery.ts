@@ -1,4 +1,17 @@
 const RELOAD_KEY = "qwenpaw:chunk-reload-build";
+const MAX_RELOADS = 2;
+
+export interface ChunkReloadDecision {
+  reason:
+    | "reload"
+    | "limit-reached"
+    | "offline"
+    | "storage-unavailable"
+    | "reload-failed";
+  attempts: number | null;
+  maxAttempts: number;
+}
+
 // Production bundle URLs contain content hashes; HMR URLs identify dev builds.
 export function getFrontendBuildId(): string {
   return (
@@ -22,18 +35,58 @@ export function isChunkLoadError(error: unknown): boolean {
   );
 }
 
-/** Reload once per build and tab, retaining the guard across successful pages. */
-export function reloadAfterChunkError(beforeReload?: () => void): boolean {
-  if (!window.navigator.onLine) return false;
+/** Publish every decision and reload at most twice per build and tab. */
+export function reloadAfterChunkError(
+  onDecision?: (decision: ChunkReloadDecision) => void,
+): boolean {
+  let decision: ChunkReloadDecision = {
+    reason: "offline",
+    attempts: null,
+    maxAttempts: MAX_RELOADS,
+  };
+  if (window.navigator.onLine) {
+    try {
+      const build = getFrontendBuildId();
+      const stored = window.sessionStorage.getItem(RELOAD_KEY);
+      // The previous implementation stored only the build URL after one reload.
+      let attempts = stored === build ? 1 : 0;
+      if (stored && stored !== build) {
+        try {
+          const guard = JSON.parse(stored);
+          if (guard?.build === build) {
+            attempts =
+              Number.isInteger(guard.attempts) && guard.attempts >= 0
+                ? guard.attempts
+                : MAX_RELOADS;
+          }
+        } catch {
+          // A legacy marker for another build does not consume this budget.
+        }
+      }
+      decision = {
+        ...decision,
+        reason: attempts >= MAX_RELOADS ? "limit-reached" : "reload",
+        attempts,
+      };
+      if (decision.reason === "reload") {
+        decision.attempts = attempts + 1;
+        window.sessionStorage.setItem(
+          RELOAD_KEY,
+          JSON.stringify({ build, attempts: decision.attempts }),
+        );
+      }
+    } catch {
+      // Storage restrictions must not permit an unguarded reload loop.
+      decision = { ...decision, reason: "storage-unavailable", attempts: null };
+    }
+  }
+  onDecision?.(decision);
+  if (decision.reason !== "reload") return false;
   try {
-    const build = getFrontendBuildId();
-    if (window.sessionStorage.getItem(RELOAD_KEY) === build) return false;
-    window.sessionStorage.setItem(RELOAD_KEY, build);
-    beforeReload?.();
     window.location.reload();
     return true;
   } catch {
-    // Storage restrictions must not permit an unguarded reload loop.
+    onDecision?.({ ...decision, reason: "reload-failed" });
     return false;
   }
 }

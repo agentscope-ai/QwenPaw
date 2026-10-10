@@ -47,7 +47,10 @@ describe("ChunkErrorBoundary runtime recovery", () => {
       ),
     );
     sessionStorage.clear();
-    vi.mocked(reloadAfterChunkError).mockImplementation(() => false);
+    vi.mocked(reloadAfterChunkError).mockImplementation((persist) => {
+      persist?.({ reason: "limit-reached", attempts: 2, maxAttempts: 2 });
+      return false;
+    });
     vi.mocked(copyText).mockResolvedValue(undefined);
   });
   afterEach(() => {
@@ -75,19 +78,19 @@ describe("ChunkErrorBoundary runtime recovery", () => {
     );
     const { rerender } = render(view("broken"));
     await screen.findByText("chunkError.title", {}, { timeout: 6000 });
-    expect(factory).toHaveBeenCalledTimes(4);
+    expect(factory).toHaveBeenCalledTimes(1);
     await waitFor(() => expect(reloadAfterChunkError).toHaveBeenCalledOnce());
-    expect(readChunkDiagnostic()?.attempts).toBe(4);
+    expect(readChunkDiagnostic()?.attempts).toBe(1);
 
     factory.mockResolvedValue({ default: () => <div>recovered page</div> });
     rerender(view("other", false));
     await screen.findByText("other page");
     rerender(view("broken"));
     await screen.findByText("recovered page");
-    expect(factory).toHaveBeenCalledTimes(5);
+    expect(factory).toHaveBeenCalledTimes(2);
   });
 
-  it("stops retries and offers recovery for a persistently unavailable page", async () => {
+  it("offers document recovery without repeating a cached failed import", async () => {
     vi.spyOn(console, "error").mockImplementation(() => undefined);
     const factory = vi
       .fn()
@@ -101,7 +104,7 @@ describe("ChunkErrorBoundary runtime recovery", () => {
       </ChunkErrorBoundary>,
     );
     await screen.findByText("chunkError.title", {}, { timeout: 6000 });
-    expect(factory).toHaveBeenCalledTimes(4);
+    expect(factory).toHaveBeenCalledTimes(1);
     await waitFor(() => expect(reloadAfterChunkError).toHaveBeenCalledOnce());
     expect(
       screen.getByRole("button", { name: "chunkError.reload" }),
@@ -131,6 +134,11 @@ describe("ChunkErrorBoundary runtime recovery", () => {
       status: 200,
       outcome: "html",
     });
+    expect(copied.current.automaticReload).toEqual({
+      reason: "limit-reached",
+      attempts: 2,
+      maxAttempts: 2,
+    });
   });
 
   it("preserves a diagnostic before automatic refresh and includes the earlier report", async () => {
@@ -140,7 +148,7 @@ describe("ChunkErrorBoundary runtime recovery", () => {
     previous.automaticReloadAttempted = true;
     saveChunkDiagnostic(previous);
     vi.mocked(reloadAfterChunkError).mockImplementation((persist) => {
-      persist?.();
+      persist?.({ reason: "reload", attempts: 2, maxAttempts: 2 });
       expect(readChunkDiagnostic()?.automaticReloadAttempted).toBe(true);
       return true;
     });

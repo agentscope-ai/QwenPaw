@@ -1,11 +1,8 @@
 /**
  * lazyWithRetry / lazyImportWithRetry wrap React.lazy with chunk-load
- * retries and plugin-registry overrides. Defects here break every page
+ * recovery and plugin-registry overrides. Defects here break every page
  * navigation on a flaky network or hide plugin module patches.
  *
- * Note: real timers throughout — fake timers deadlock with Suspense's
- * async resolution (findByText polls on real timers). Retry delays are
- * fixed at 1s, so the retry test waits ~2s real time.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render } from "@testing-library/react";
@@ -49,25 +46,6 @@ describe("lazyWithRetry", () => {
     await expect(findByText("loaded-page")).resolves.toBeTruthy();
     expect(factory).toHaveBeenCalledTimes(1);
   });
-
-  it("retries after chunk-load failures and eventually succeeds", async () => {
-    const factory = vi
-      .fn()
-      .mockRejectedValueOnce(
-        new TypeError("Failed to fetch dynamically imported module"),
-      )
-      .mockRejectedValueOnce(
-        new TypeError("Failed to fetch dynamically imported module"),
-      )
-      .mockResolvedValueOnce({ default: Dummy });
-    const Comp = lazyWithRetry(factory);
-    const { findByText } = renderLazy(Comp);
-    // Two failures => two 1s retry delays; generous timeout for CI
-    await expect(
-      findByText("loaded-page", {}, { timeout: 6000 }),
-    ).resolves.toBeTruthy();
-    expect(factory).toHaveBeenCalledTimes(3);
-  }, 15000);
 
   it("uses the registry override when present (relative path key)", async () => {
     const Patched = () => React.createElement("div", null, "patched-by-plugin");

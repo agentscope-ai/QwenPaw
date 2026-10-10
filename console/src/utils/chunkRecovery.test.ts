@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { isChunkLoadError, reloadAfterChunkError } from "./chunkRecovery";
+import {
+  getFrontendBuildId,
+  isChunkLoadError,
+  reloadAfterChunkError,
+} from "./chunkRecovery";
 
 describe("chunk-load error recognition", () => {
   it.each([
@@ -25,7 +29,7 @@ describe("chunk-load error recognition", () => {
   );
 });
 
-describe("one-shot document recovery", () => {
+describe("bounded document recovery", () => {
   afterEach(() => vi.unstubAllGlobals());
 
   function browser() {
@@ -48,9 +52,10 @@ describe("one-shot document recovery", () => {
     const { values, reload } = browser();
     reload.mockImplementation(() => expect(values.size).toBe(1));
     expect(reloadAfterChunkError()).toBe(true);
+    expect(reloadAfterChunkError()).toBe(true);
     expect(reloadAfterChunkError()).toBe(false);
     expect(reloadAfterChunkError()).toBe(false);
-    expect(reload).toHaveBeenCalledOnce();
+    expect(reload).toHaveBeenCalledTimes(2);
   });
 
   it("allows recovery when the guard belongs to an earlier build", () => {
@@ -58,23 +63,78 @@ describe("one-shot document recovery", () => {
     reloadAfterChunkError();
     for (const key of values.keys()) values.set(key, "previous-build");
     expect(reloadAfterChunkError()).toBe(true);
+    expect(reloadAfterChunkError()).toBe(true);
     expect(reloadAfterChunkError()).toBe(false);
-    expect(reload).toHaveBeenCalledTimes(2);
+    expect(reload).toHaveBeenCalledTimes(3);
   });
 
-  it("runs diagnostic persistence before navigation and only once", () => {
+  it("publishes every decision and persists the budget before navigation", () => {
     const { reload } = browser();
     const persist = vi.fn();
-    reload.mockImplementation(() => expect(persist).toHaveBeenCalledOnce());
+    reload.mockImplementation(() => {
+      expect(persist.mock.lastCall?.[0].reason).toBe("reload");
+    });
+    expect(reloadAfterChunkError(persist)).toBe(true);
     expect(reloadAfterChunkError(persist)).toBe(true);
     expect(reloadAfterChunkError(persist)).toBe(false);
-    expect(persist).toHaveBeenCalledOnce();
+    expect(persist.mock.calls.map(([decision]) => decision)).toEqual([
+      { reason: "reload", attempts: 1, maxAttempts: 2 },
+      { reason: "reload", attempts: 2, maxAttempts: 2 },
+      { reason: "limit-reached", attempts: 2, maxAttempts: 2 },
+    ]);
+  });
+
+  it("allows one remaining refresh for the legacy one-shot guard", () => {
+    const { values, reload } = browser();
+    values.set("qwenpaw:chunk-reload-build", getFrontendBuildId());
+    expect(reloadAfterChunkError()).toBe(true);
+    expect(reloadAfterChunkError()).toBe(false);
+    expect(reload).toHaveBeenCalledOnce();
+  });
+
+  it("does not reset a malformed counter for the current build", () => {
+    const { values, reload } = browser();
+    values.set(
+      "qwenpaw:chunk-reload-build",
+      JSON.stringify({ build: getFrontendBuildId(), attempts: "invalid" }),
+    );
+    const persist = vi.fn();
+    expect(reloadAfterChunkError(persist)).toBe(false);
+    expect(persist).toHaveBeenCalledWith({
+      reason: "limit-reached",
+      attempts: 2,
+      maxAttempts: 2,
+    });
+    expect(reload).not.toHaveBeenCalled();
+  });
+
+  it("reports navigation failure without discarding the reload budget", () => {
+    const { reload } = browser();
+    reload.mockImplementation(() => {
+      throw new Error("Navigation failed");
+    });
+    const persist = vi.fn();
+    expect(reloadAfterChunkError(persist)).toBe(false);
+    expect(persist).toHaveBeenLastCalledWith({
+      reason: "reload-failed",
+      attempts: 1,
+      maxAttempts: 2,
+    });
+    expect(reloadAfterChunkError()).toBe(false);
+    expect(reloadAfterChunkError()).toBe(false);
+    expect(reload).toHaveBeenCalledTimes(2);
   });
 
   it("keeps the fallback while offline without consuming recovery", () => {
     const { navigator, storage, reload } = browser();
     navigator.onLine = false;
-    expect(reloadAfterChunkError()).toBe(false);
+    const persist = vi.fn();
+    expect(reloadAfterChunkError(persist)).toBe(false);
+    expect(persist).toHaveBeenCalledWith({
+      reason: "offline",
+      attempts: null,
+      maxAttempts: 2,
+    });
     expect(storage.setItem).not.toHaveBeenCalled();
     expect(reload).not.toHaveBeenCalled();
     navigator.onLine = true;
@@ -88,7 +148,13 @@ describe("one-shot document recovery", () => {
       storage[method].mockImplementation(() => {
         throw new DOMException("Storage blocked", "SecurityError");
       });
-      expect(reloadAfterChunkError()).toBe(false);
+      const persist = vi.fn();
+      expect(reloadAfterChunkError(persist)).toBe(false);
+      expect(persist).toHaveBeenCalledWith({
+        reason: "storage-unavailable",
+        attempts: null,
+        maxAttempts: 2,
+      });
       expect(reload).not.toHaveBeenCalled();
     },
   );

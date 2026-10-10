@@ -150,9 +150,11 @@ export function installStartupMonitor(
       observation.textContent = messages.observations[recheck.outcome];
       pre.textContent = diagnosticText();
     }
-    reloadAfterChunkError(() => {
-      diagnostic!.automaticReloadAttempted = true;
+    reloadAfterChunkError((decision) => {
+      diagnostic!.automaticReloadAttempted = decision.reason === "reload";
+      diagnostic!.automaticReload = decision;
       saveChunkDiagnostic(diagnostic!);
+      if (rendered) pre.textContent = diagnosticText();
     });
   }
 

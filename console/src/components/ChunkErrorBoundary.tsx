@@ -41,7 +41,7 @@ interface State {
 /**
  * Error boundary that wraps lazily-loaded route chunks.
  *
- * - **Chunk-load errors** reset rejected imports and refresh once per build.
+ * - **Chunk-load errors** reset rejected imports and refresh at most twice per build.
  *   Persistent failures retain a targeted fallback and manual refresh.
  * - **Other render errors** (runtime bugs) get a generic fallback so the
  *   rest of the app remains functional.
@@ -120,9 +120,11 @@ export class ChunkErrorBoundary extends Component<Props, State> {
     const completed = { ...diagnostic, recheck };
     saveChunkDiagnostic(completed);
     this.setState({ diagnostic: completed, copied: false });
-    reloadAfterChunkError(() => {
-      completed.automaticReloadAttempted = true;
+    reloadAfterChunkError((decision) => {
+      completed.automaticReloadAttempted = decision.reason === "reload";
+      completed.automaticReload = decision;
       saveChunkDiagnostic(completed);
+      this.setState({ diagnostic: { ...completed } });
     });
   };
 
