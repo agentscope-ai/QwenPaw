@@ -1,0 +1,20 @@
+/node_modules
+/oh_modules
+**/node_modules
+**/oh_modules
+/local.properties
+/.idea
+**/build
+/.hvigor
+.cxx
+/.clangd
+/.clang-format
+/.clang-tidy
+**/.test
+/.appanalyzer
+/.cache
+# 本机签名凭据与路径（勿入库，见 build-profile.example.json5）
+/build-profile.json5
+
+# 本机编辑器目录（勿入库）
+/.vscode

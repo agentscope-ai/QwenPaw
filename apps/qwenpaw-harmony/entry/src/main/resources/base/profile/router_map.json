@@ -1,0 +1,24 @@
+{
+  "routerMap": [
+    {
+      "name": "settings",
+      "pageSourceFile": "src/main/ets/pages/SettingsPage.ets",
+      "buildFunction": "SettingsPageBuilder"
+    },
+    {
+      "name": "chat",
+      "pageSourceFile": "src/main/ets/pages/ChatDetailPage.ets",
+      "buildFunction": "ChatDetailPageBuilder"
+    },
+    {
+      "name": "module",
+      "pageSourceFile": "src/main/ets/pages/ModulePage.ets",
+      "buildFunction": "ModulePageBuilder"
+    },
+    {
+      "name": "workbench-category",
+      "pageSourceFile": "src/main/ets/pages/CategoryPage.ets",
+      "buildFunction": "CategoryPageBuilder"
+    }
+  ]
+}

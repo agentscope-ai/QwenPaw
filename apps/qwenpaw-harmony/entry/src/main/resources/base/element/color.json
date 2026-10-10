@@ -1,0 +1,84 @@
+{
+  "color": [
+    {
+      "name": "start_window_background",
+      "value": "#F3EFE8"
+    },
+    {
+      "name": "card_bg",
+      "value": "#F1F3F5"
+    },
+    {
+      "name": "input_text",
+      "value": "#182431"
+    },
+    {
+      "name": "placeholder",
+      "value": "#999999"
+    },
+    {
+      "name": "text_primary_strong",
+      "value": "#1A1A1A"
+    },
+    {
+      "name": "text_secondary",
+      "value": "#666666"
+    },
+    {
+      "name": "text_tertiary",
+      "value": "#999999"
+    },
+    {
+      "name": "btn_gray_text",
+      "value": "#333333"
+    },
+    {
+      "name": "status_idle",
+      "value": "#999999"
+    },
+    {
+      "name": "status_warning",
+      "value": "#E6A23C"
+    },
+    {
+      "name": "status_success",
+      "value": "#1AAD19"
+    },
+    {
+      "name": "status_error",
+      "value": "#E84026"
+    },
+    {
+      "name": "success_bg",
+      "value": "#E6F7E6"
+    },
+    {
+      "name": "danger_bg",
+      "value": "#FBE9E7"
+    },
+    {
+      "name": "page_bg",
+      "value": "#EBE7DF"
+    },
+    {
+      "name": "card_surface",
+      "value": "#FFFDF9"
+    },
+    {
+      "name": "tab_faint",
+      "value": "#6D6760"
+    },
+    {
+      "name": "line",
+      "value": "#E4DDD4"
+    },
+    {
+      "name": "card_glass",
+      "value": "#E6FFFDF9"
+    },
+    {
+      "name": "sheet_card_bg",
+      "value": "#DDD8CF"
+    }
+  ]
+}

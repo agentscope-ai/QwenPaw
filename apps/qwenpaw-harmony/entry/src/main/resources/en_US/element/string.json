@@ -1,0 +1,2720 @@
+{
+  "string": [
+    {
+      "name": "module_desc",
+      "value": "QwenPaw HarmonyOS entry module"
+    },
+    {
+      "name": "EntryAbility_desc",
+      "value": "QwenPaw for HarmonyOS"
+    },
+    {
+      "name": "EntryAbility_label",
+      "value": "QwenPaw"
+    },
+    {
+      "name": "camera_reason",
+      "value": "Used to scan QwenPaw pairing codes (qwenpaw://pair QR)"
+    },
+    {
+      "name": "tab_chats",
+      "value": "Chats"
+    },
+    {
+      "name": "tab_agents",
+      "value": "Agents"
+    },
+    {
+      "name": "tab_community",
+      "value": "Community"
+    },
+    {
+      "name": "tab_workbench",
+      "value": "Workbench"
+    },
+    {
+      "name": "menu_settings",
+      "value": "Settings"
+    },
+    {
+      "name": "about_title",
+      "value": "About QwenPaw"
+    },
+    {
+      "name": "about_message",
+      "value": "QwenPaw HarmonyOS · Phase 1\nVersion 1.0.0\nBundle io.agentscope.qwenpaw.mobile\nRelay contract v0.1.0\nLAN direct · Chats / Agents / Community / Workbench"
+    },
+    {
+      "name": "settings_title",
+      "value": "Settings"
+    },
+    {
+      "name": "settings_theme",
+      "value": "Theme color"
+    },
+    {
+      "name": "settings_theme_hint",
+      "value": "Matches QwenPaw console theme presets; selection applies to tab highlight and the immersive finger-follow glow"
+    },
+    {
+      "name": "settings_theme_sync",
+      "value": "Theme sync"
+    },
+    {
+      "name": "settings_sync_title",
+      "value": "Sync with console"
+    },
+    {
+      "name": "settings_sync_hint",
+      "value": "Colors follow the QwenPaw console accent; refreshed on every launch"
+    },
+    {
+      "name": "settings_sync_refresh",
+      "value": "Refresh now"
+    },
+    {
+      "name": "settings_theme_synced",
+      "value": "From console"
+    },
+    {
+      "name": "settings_sync_failed",
+      "value": "Sync failed, check the connection"
+    },
+    {
+      "name": "settings_account",
+      "value": "Account"
+    },
+    {
+      "name": "settings_paired",
+      "value": "Paired QwenPaw"
+    },
+    {
+      "name": "settings_current",
+      "value": "Active"
+    },
+    {
+      "name": "settings_switch",
+      "value": "Switch"
+    },
+    {
+      "name": "settings_remove",
+      "value": "Remove"
+    },
+    {
+      "name": "settings_remove_title",
+      "value": "Remove this QwenPaw?"
+    },
+    {
+      "name": "settings_remove_msg",
+      "value": "Only this connection is removed; others are unaffected."
+    },
+    {
+      "name": "settings_disconnect",
+      "value": "Disconnect all"
+    },
+    {
+      "name": "settings_disconnect_title",
+      "value": "Disconnect?"
+    },
+    {
+      "name": "settings_disconnect_msg",
+      "value": "All paired QwenPaw on this device will be cleared; re-scan or sign in again."
+    },
+    {
+      "name": "settings_security_group",
+      "value": "Security & Alerts"
+    },
+    {
+      "name": "settings_security",
+      "value": "Security"
+    },
+    {
+      "name": "settings_security_hint",
+      "value": "Sandbox, Tool Guard, File Guard and scanning"
+    },
+    {
+      "name": "agents_loading",
+      "value": "Loading agents…"
+    },
+    {
+      "name": "agents_empty",
+      "value": "Not connected to a QwenPaw service.\nConnect on the Chats tab first."
+    },
+    {
+      "name": "agents_none",
+      "value": "Service online, but no agents configured yet."
+    },
+    {
+      "name": "agents_current_eyebrow",
+      "value": "Active Agent"
+    },
+    {
+      "name": "agents_current_follow",
+      "value": " · New chats and Workbench use this Agent"
+    },
+    {
+      "name": "agents_connected",
+      "value": "Connected"
+    },
+    {
+      "name": "agents_search_placeholder",
+      "value": "Search Agents"
+    },
+    {
+      "name": "agents_all",
+      "value": "All Agents"
+    },
+    {
+      "name": "agents_active_badge",
+      "value": "Active"
+    },
+    {
+      "name": "agents_switch_failed",
+      "value": "Unable to switch agent"
+    },
+    {
+      "name": "agents_search_empty",
+      "value": "No matching Agents"
+    },
+    {
+      "name": "agents_search_empty_copy",
+      "value": "Try another keyword or create a new QwenPaw."
+    },
+    {
+      "name": "agents_fallback_desc",
+      "value": "QwenPaw Agent"
+    },
+    {
+      "name": "community_title",
+      "value": "Community"
+    },
+    {
+      "name": "community_desc",
+      "value": "Node community content lands in phase 2:\nnode discovery / shared workspaces / cross-machine collaboration."
+    },
+    {
+      "name": "workbench_title",
+      "value": "Workbench"
+    },
+    {
+      "name": "workbench_search",
+      "value": "Search features and settings"
+    },
+    {
+      "name": "workbench_quick",
+      "value": "Quick Actions"
+    },
+    {
+      "name": "workbench_all",
+      "value": "All Features"
+    },
+    {
+      "name": "workbench_items_unit",
+      "value": "items"
+    },
+    {
+      "name": "workbench_qa_sessions",
+      "value": "Chats"
+    },
+    {
+      "name": "workbench_qa_automation",
+      "value": "Schedules"
+    },
+    {
+      "name": "workbench_qa_files",
+      "value": "Files"
+    },
+    {
+      "name": "workbench_qa_tools",
+      "value": "Tools"
+    },
+    {
+      "name": "workbench_scope",
+      "value": "Scope"
+    },
+    {
+      "name": "workbench_endpoint",
+      "value": "Endpoint: "
+    },
+    {
+      "name": "workbench_endpoint_note",
+      "value": "Settings data is served by backend endpoints; mobile detail pages come in a later version."
+    },
+    {
+      "name": "module_not_connected",
+      "value": "Not connected to QwenPaw"
+    },
+    {
+      "name": "module_selected",
+      "value": "Selected"
+    },
+    {
+      "name": "module_loading",
+      "value": "Reading QwenPaw…"
+    },
+    {
+      "name": "module_error_title",
+      "value": "Unable to load these settings"
+    },
+    {
+      "name": "module_field_required",
+      "value": "Required"
+    },
+    {
+      "name": "module_field_on",
+      "value": "On"
+    },
+    {
+      "name": "module_field_off",
+      "value": "Off"
+    },
+    {
+      "name": "module_field_select",
+      "value": "Choose"
+    },
+    {
+      "name": "module_edit",
+      "value": "Edit"
+    },
+    {
+      "name": "module_delete",
+      "value": "Delete"
+    },
+    {
+      "name": "module_acp_runtime",
+      "value": "Node Runtime"
+    },
+    {
+      "name": "module_acp_node_path",
+      "value": "Node.js Path"
+    },
+    {
+      "name": "module_acp_runtimes",
+      "value": "runtimes available"
+    },
+    {
+      "name": "module_acp_not_detected",
+      "value": "Not detected"
+    },
+    {
+      "name": "module_acp_add",
+      "value": "Add ACP Agent"
+    },
+    {
+      "name": "module_acp_add_hint",
+      "value": "Configure an external agent command and trust policy"
+    },
+    {
+      "name": "module_acp_agent_title",
+      "value": "ACP Agent"
+    },
+    {
+      "name": "module_acp_trusted",
+      "value": "Trusted"
+    },
+    {
+      "name": "module_acp_need_approval",
+      "value": "Needs approval"
+    },
+    {
+      "name": "module_acp_empty_title",
+      "value": "No ACP agents yet"
+    },
+    {
+      "name": "module_acp_empty_copy",
+      "value": "Add one to delegate from a chat to an external agent."
+    },
+    {
+      "name": "module_acp_footer",
+      "value": "ACP changes trigger a hot reload of the current agent."
+    },
+    {
+      "name": "module_acp_agent_id",
+      "value": "Agent ID"
+    },
+    {
+      "name": "module_acp_command",
+      "value": "Command"
+    },
+    {
+      "name": "module_acp_args",
+      "value": "Arguments"
+    },
+    {
+      "name": "module_acp_args_help",
+      "value": "One argument per line."
+    },
+    {
+      "name": "module_acp_env",
+      "value": "Environment variables"
+    },
+    {
+      "name": "module_acp_env_help",
+      "value": "Provide a JSON object."
+    },
+    {
+      "name": "module_acp_trust",
+      "value": "Trust this ACP agent"
+    },
+    {
+      "name": "module_acp_parse",
+      "value": "Tool parse mode"
+    },
+    {
+      "name": "module_acp_buffer",
+      "value": "Stdio buffer limit"
+    },
+    {
+      "name": "module_acp_save_failed",
+      "value": "Save failed"
+    },
+    {
+      "name": "module_acp_delete_failed",
+      "value": "Delete failed"
+    },
+    {
+      "name": "module_acp_env_invalid",
+      "value": "Environment variables must be a valid JSON object."
+    },
+    {
+      "name": "module_acp_command_required",
+      "value": "Command is required."
+    },
+    {
+      "name": "module_agent_identity",
+      "value": "Identity"
+    },
+    {
+      "name": "module_agent_defaults",
+      "value": "Default behavior"
+    },
+    {
+      "name": "module_agent_memory",
+      "value": "Memory"
+    },
+    {
+      "name": "module_agent_g_runtime",
+      "value": "Runtime & limits"
+    },
+    {
+      "name": "module_agent_g_memory_view",
+      "value": "Memory & presentation"
+    },
+    {
+      "name": "module_agent_g_locale",
+      "value": "Language & region"
+    },
+    {
+      "name": "module_agent_edit",
+      "value": "Edit name and description"
+    },
+    {
+      "name": "module_agent_edit_title",
+      "value": "Edit Agent"
+    },
+    {
+      "name": "module_agent_no_desc",
+      "value": "No description"
+    },
+    {
+      "name": "module_agent_approval",
+      "value": "Approval level"
+    },
+    {
+      "name": "module_agent_approval_hint",
+      "value": "Chats can override this"
+    },
+    {
+      "name": "module_agent_approval_strict",
+      "value": "Strict"
+    },
+    {
+      "name": "module_agent_approval_smart",
+      "value": "Smart"
+    },
+    {
+      "name": "module_agent_approval_auto",
+      "value": "Auto"
+    },
+    {
+      "name": "module_agent_approval_off",
+      "value": "Off"
+    },
+    {
+      "name": "module_agent_thinking",
+      "value": "Thinking level"
+    },
+    {
+      "name": "module_agent_thinking_hint",
+      "value": "Model reasoning effort"
+    },
+    {
+      "name": "module_agent_think_inherit",
+      "value": "Follow model"
+    },
+    {
+      "name": "module_agent_think_off",
+      "value": "Off"
+    },
+    {
+      "name": "module_agent_think_low",
+      "value": "Low"
+    },
+    {
+      "name": "module_agent_think_medium",
+      "value": "Medium"
+    },
+    {
+      "name": "module_agent_think_high",
+      "value": "High"
+    },
+    {
+      "name": "module_agent_reindex",
+      "value": "Rebuild memory index"
+    },
+    {
+      "name": "module_agent_reindex_hint",
+      "value": "Original memory files are kept"
+    },
+    {
+      "name": "module_agent_reindex_confirm_title",
+      "value": "Rebuild memory index?"
+    },
+    {
+      "name": "module_agent_reindex_confirm_msg",
+      "value": "The current Agent's memory will be re-indexed in the background."
+    },
+    {
+      "name": "module_agent_reindex_start",
+      "value": "Start"
+    },
+    {
+      "name": "module_agent_reindex_started_title",
+      "value": "Started"
+    },
+    {
+      "name": "module_agent_reindex_started_msg",
+      "value": "The rebuild task is running in the background."
+    },
+    {
+      "name": "module_agent_reindex_failed",
+      "value": "Failed to start"
+    },
+    {
+      "name": "module_agent_save_failed",
+      "value": "Save failed"
+    },
+    {
+      "name": "module_agent_loop",
+      "value": "Agent loop & LLM"
+    },
+    {
+      "name": "module_agent_loop_hint",
+      "value": "up to %d iterations · %m retries"
+    },
+    {
+      "name": "module_agent_shell",
+      "value": "Shell & context"
+    },
+    {
+      "name": "module_agent_shell_hint",
+      "value": "%d s · %m tokens"
+    },
+    {
+      "name": "module_agent_mem_row",
+      "value": "Memory & compression"
+    },
+    {
+      "name": "module_agent_mem_hint",
+      "value": "%b · every %d iterations"
+    },
+    {
+      "name": "module_agent_lang_hint",
+      "value": "Agent default language"
+    },
+    {
+      "name": "module_agent_workspace",
+      "value": "Current Agent workspace"
+    },
+    {
+      "name": "module_agent_form_name",
+      "value": "Name"
+    },
+    {
+      "name": "module_agent_form_desc",
+      "value": "Description"
+    },
+    {
+      "name": "module_agent_form_desc_ph",
+      "value": "What this Agent is responsible for"
+    },
+    {
+      "name": "module_agent_f_iter_enabled",
+      "value": "Enable iteration limit"
+    },
+    {
+      "name": "module_agent_f_max_iterations",
+      "value": "Max iterations"
+    },
+    {
+      "name": "module_agent_f_retry_enabled",
+      "value": "Auto-retry LLM calls"
+    },
+    {
+      "name": "module_agent_f_max_retries",
+      "value": "Max retries"
+    },
+    {
+      "name": "module_agent_f_backoff_base",
+      "value": "Retry base wait (s)"
+    },
+    {
+      "name": "module_agent_f_backoff_cap",
+      "value": "Retry max wait (s)"
+    },
+    {
+      "name": "module_agent_f_max_concurrent",
+      "value": "Max concurrent requests"
+    },
+    {
+      "name": "module_agent_f_max_qpm",
+      "value": "Max requests per minute"
+    },
+    {
+      "name": "module_agent_f_acquire_timeout",
+      "value": "Rate-limit wait timeout (s)"
+    },
+    {
+      "name": "module_agent_f_shell_timeout",
+      "value": "Shell command timeout (s)"
+    },
+    {
+      "name": "module_agent_f_shell_exec",
+      "value": "Shell executable"
+    },
+    {
+      "name": "module_agent_f_max_input",
+      "value": "Max input tokens"
+    },
+    {
+      "name": "module_agent_f_history_max",
+      "value": "Max history messages"
+    },
+    {
+      "name": "module_agent_f_compact_enabled",
+      "value": "Auto-compress context"
+    },
+    {
+      "name": "module_agent_f_compact_ratio",
+      "value": "Compaction threshold ratio"
+    },
+    {
+      "name": "module_agent_f_pruning_enabled",
+      "value": "Prune old tool results"
+    },
+    {
+      "name": "module_agent_f_pruning_n",
+      "value": "Recent tool results kept"
+    },
+    {
+      "name": "module_agent_f_visual_enabled",
+      "value": "Compress visual input"
+    },
+    {
+      "name": "module_agent_f_visual_effort",
+      "value": "Visual compression effort"
+    },
+    {
+      "name": "module_agent_f_mem_backend",
+      "value": "Memory backend"
+    },
+    {
+      "name": "module_agent_f_mem_interval",
+      "value": "Auto-memory interval (turns)"
+    },
+    {
+      "name": "module_agent_f_mem_search",
+      "value": "Enable memory search"
+    },
+    {
+      "name": "module_agent_f_auto_search",
+      "value": "Auto search before chat"
+    },
+    {
+      "name": "module_agent_f_auto_search_max",
+      "value": "Auto search results"
+    },
+    {
+      "name": "module_agent_f_dream_enabled",
+      "value": "Enable Dream Cron"
+    },
+    {
+      "name": "module_agent_f_dream_cron",
+      "value": "Dream Cron expression"
+    },
+    {
+      "name": "module_agent_f_paper_enabled",
+      "value": "Enable Daily Paper"
+    },
+    {
+      "name": "module_agent_f_paper_cron",
+      "value": "Daily Paper Cron"
+    },
+    {
+      "name": "module_agent_f_paper_topics",
+      "value": "Daily Paper topics"
+    },
+    {
+      "name": "module_agent_f_language",
+      "value": "Agent language"
+    },
+    {
+      "name": "module_agent_f_timezone",
+      "value": "Time zone"
+    },
+    {
+      "name": "module_auto_g_heartbeat",
+      "value": "Heartbeat"
+    },
+    {
+      "name": "module_auto_wake",
+      "value": "Heartbeat wake"
+    },
+    {
+      "name": "module_auto_default_every",
+      "value": "as configured"
+    },
+    {
+      "name": "module_auto_current_agent",
+      "value": "current Agent"
+    },
+    {
+      "name": "module_auto_unsupported",
+      "value": "This QwenPaw does not support Heartbeat"
+    },
+    {
+      "name": "module_auto_enabled",
+      "value": "Enabled"
+    },
+    {
+      "name": "module_auto_disabled",
+      "value": "Disabled"
+    },
+    {
+      "name": "module_auto_config",
+      "value": "Configure Heartbeat"
+    },
+    {
+      "name": "module_auto_config_hint",
+      "value": "Interval, target, timeout and active hours"
+    },
+    {
+      "name": "module_auto_hb_config",
+      "value": "Heartbeat settings"
+    },
+    {
+      "name": "module_auto_create",
+      "value": "Create cron job"
+    },
+    {
+      "name": "module_auto_create_hint",
+      "value": "Recurring or one-off task"
+    },
+    {
+      "name": "module_auto_job_edit",
+      "value": "Edit cron job"
+    },
+    {
+      "name": "module_auto_running",
+      "value": "Running"
+    },
+    {
+      "name": "module_auto_paused",
+      "value": "Paused"
+    },
+    {
+      "name": "module_auto_empty_title",
+      "value": "No cron jobs yet"
+    },
+    {
+      "name": "module_auto_empty_copy",
+      "value": "This Agent has no cron jobs yet."
+    },
+    {
+      "name": "module_auto_footer",
+      "value": "Tap a job to run, pause or resume it; changes go straight to QwenPaw."
+    },
+    {
+      "name": "module_auto_no_schedule",
+      "value": "No schedule"
+    },
+    {
+      "name": "module_auto_server_schedule",
+      "value": "Runs on the server schedule"
+    },
+    {
+      "name": "module_auto_run_now",
+      "value": "Run now"
+    },
+    {
+      "name": "module_auto_pause",
+      "value": "Pause job"
+    },
+    {
+      "name": "module_auto_resume",
+      "value": "Resume job"
+    },
+    {
+      "name": "module_auto_history",
+      "value": "History"
+    },
+    {
+      "name": "module_auto_history_empty",
+      "value": "No runs yet"
+    },
+    {
+      "name": "module_auto_read_failed",
+      "value": "Failed to load"
+    },
+    {
+      "name": "module_auto_delete_title",
+      "value": "Delete cron job?"
+    },
+    {
+      "name": "module_auto_delete_failed",
+      "value": "Delete failed"
+    },
+    {
+      "name": "module_auto_op_failed",
+      "value": "Job action failed"
+    },
+    {
+      "name": "module_auto_hb_started_title",
+      "value": "Heartbeat started"
+    },
+    {
+      "name": "module_auto_hb_started_msg",
+      "value": "The task has been handed to QwenPaw."
+    },
+    {
+      "name": "module_auto_start_failed",
+      "value": "Failed to start"
+    },
+    {
+      "name": "module_auto_need_cron",
+      "value": "A cron expression is required for recurring jobs."
+    },
+    {
+      "name": "module_auto_need_run_at",
+      "value": "An execution time is required for one-off jobs."
+    },
+    {
+      "name": "module_auto_f_hb_enabled",
+      "value": "Enable Heartbeat"
+    },
+    {
+      "name": "module_auto_f_hb_every",
+      "value": "Interval"
+    },
+    {
+      "name": "module_auto_f_hb_target",
+      "value": "Target"
+    },
+    {
+      "name": "module_auto_f_hb_timeout",
+      "value": "Timeout (s)"
+    },
+    {
+      "name": "module_auto_f_hb_start",
+      "value": "Active hours start"
+    },
+    {
+      "name": "module_auto_f_hb_end",
+      "value": "Active hours end"
+    },
+    {
+      "name": "module_auto_f_job_name",
+      "value": "Job name"
+    },
+    {
+      "name": "module_auto_f_job_enabled",
+      "value": "Enable job"
+    },
+    {
+      "name": "module_auto_f_job_schedule",
+      "value": "Schedule"
+    },
+    {
+      "name": "module_auto_f_job_cron",
+      "value": "Cron expression"
+    },
+    {
+      "name": "module_auto_f_job_run_at",
+      "value": "One-off run time"
+    },
+    {
+      "name": "module_auto_f_job_timezone",
+      "value": "Time zone"
+    },
+    {
+      "name": "module_auto_f_job_repeat",
+      "value": "Repeat every N days"
+    },
+    {
+      "name": "module_auto_f_job_repeat_help",
+      "value": "Optional for one-off jobs; 0 means no repeat."
+    },
+    {
+      "name": "module_auto_f_job_type",
+      "value": "Task type"
+    },
+    {
+      "name": "module_auto_f_job_content",
+      "value": "Task content"
+    },
+    {
+      "name": "module_auto_f_job_content_help",
+      "value": "For agent tasks: the instruction. For text tasks: the text to deliver."
+    },
+    {
+      "name": "module_auto_f_job_dispatch",
+      "value": "Delivery target"
+    },
+    {
+      "name": "module_auto_f_job_inbox",
+      "value": "Save result to Inbox"
+    },
+    {
+      "name": "module_auto_f_job_timeout",
+      "value": "Timeout (s)"
+    },
+    {
+      "name": "module_ch_access_group",
+      "value": "Access control"
+    },
+    {
+      "name": "module_ch_add_rule",
+      "value": "Add access rule"
+    },
+    {
+      "name": "module_ch_add_rule_hint",
+      "value": "Add to the allow or deny list manually"
+    },
+    {
+      "name": "module_ch_pending",
+      "value": "Pending requests"
+    },
+    {
+      "name": "module_ch_pending_hint",
+      "value": "Channel and mail access requests"
+    },
+    {
+      "name": "module_ch_pending_channel",
+      "value": "Channel approvals"
+    },
+    {
+      "name": "module_ch_pending_mail",
+      "value": "Mail approvals"
+    },
+    {
+      "name": "module_ch_handle",
+      "value": "Review"
+    },
+    {
+      "name": "module_ch_allow",
+      "value": "Allow"
+    },
+    {
+      "name": "module_ch_deny",
+      "value": "Deny"
+    },
+    {
+      "name": "module_ch_dismiss",
+      "value": "Dismiss"
+    },
+    {
+      "name": "module_ch_remove_rule",
+      "value": "Remove rule"
+    },
+    {
+      "name": "module_ch_list_suffix",
+      "value": "access list"
+    },
+    {
+      "name": "module_ch_channels_group",
+      "value": "Message channels"
+    },
+    {
+      "name": "module_ch_connected",
+      "value": "Connected and receiving"
+    },
+    {
+      "name": "module_ch_disabled",
+      "value": "Disabled"
+    },
+    {
+      "name": "module_ch_empty_title",
+      "value": "No channels"
+    },
+    {
+      "name": "module_ch_empty_copy",
+      "value": "This QwenPaw returned no configurable message channels."
+    },
+    {
+      "name": "module_ch_footer",
+      "value": "Tap a channel to edit credentials, presentation and access policy; the switch saves immediately."
+    },
+    {
+      "name": "module_ch_save_failed",
+      "value": "Failed to save channel settings"
+    },
+    {
+      "name": "module_ch_acl_failed",
+      "value": "Access control action failed"
+    },
+    {
+      "name": "module_ch_f_channel",
+      "value": "Channel"
+    },
+    {
+      "name": "module_ch_f_user_id",
+      "value": "User ID"
+    },
+    {
+      "name": "module_ch_f_remark",
+      "value": "Remark"
+    },
+    {
+      "name": "module_ch_f_effect",
+      "value": "Rule"
+    },
+    {
+      "name": "module_ch_f_prefix",
+      "value": "Bot prefix"
+    },
+    {
+      "name": "module_ch_f_show_tool_calls",
+      "value": "Show tool calls"
+    },
+    {
+      "name": "module_ch_f_show_tool_results",
+      "value": "Show tool results"
+    },
+    {
+      "name": "module_ch_f_show_thinking",
+      "value": "Show thinking"
+    },
+    {
+      "name": "module_ch_f_allow_dm",
+      "value": "Allow direct messages"
+    },
+    {
+      "name": "module_ch_f_allow_group",
+      "value": "Allow group chats"
+    },
+    {
+      "name": "module_ch_f_require_mention",
+      "value": "Require @ in groups"
+    },
+    {
+      "name": "module_cp_group",
+      "value": "Version protection"
+    },
+    {
+      "name": "module_cp_auto",
+      "value": "Auto checkpoint"
+    },
+    {
+      "name": "module_cp_auto_hint",
+      "value": "Save a version around agent work"
+    },
+    {
+      "name": "module_cp_snap",
+      "value": "Create snapshot now"
+    },
+    {
+      "name": "module_cp_snap_hint",
+      "value": "Save the current Agent workspace"
+    },
+    {
+      "name": "module_cp_gc_policy",
+      "value": "History retention"
+    },
+    {
+      "name": "module_cp_safe_days",
+      "value": "safety version"
+    },
+    {
+      "name": "module_cp_clean",
+      "value": "Clean by retention policy"
+    },
+    {
+      "name": "module_cp_clean_hint",
+      "value": "Preview first, then confirm deletion"
+    },
+    {
+      "name": "module_cp_history",
+      "value": "History"
+    },
+    {
+      "name": "module_cp_empty_title",
+      "value": "No versions yet"
+    },
+    {
+      "name": "module_cp_empty_copy",
+      "value": "Turn on auto versions or create a manual snapshot."
+    },
+    {
+      "name": "module_cp_kind_auto",
+      "value": "Auto version"
+    },
+    {
+      "name": "module_cp_kind_pre",
+      "value": "Pre-restore safety version"
+    },
+    {
+      "name": "module_cp_kind_snap",
+      "value": "Manual snapshot"
+    },
+    {
+      "name": "module_cp_kind_other",
+      "value": "Workspace version"
+    },
+    {
+      "name": "module_cp_no_session_title",
+      "value": "No chats"
+    },
+    {
+      "name": "module_cp_no_session_msg",
+      "value": "Create at least one chat before making a manual snapshot."
+    },
+    {
+      "name": "module_cp_snap_confirm_title",
+      "value": "Create a snapshot of the workspace?"
+    },
+    {
+      "name": "module_cp_snap_link",
+      "value": "The snapshot will be linked to"
+    },
+    {
+      "name": "module_cp_create",
+      "value": "Create"
+    },
+    {
+      "name": "module_cp_snap_done",
+      "value": "Snapshot created"
+    },
+    {
+      "name": "module_cp_restore_title",
+      "value": "Restore to this version?"
+    },
+    {
+      "name": "module_cp_restore_msg",
+      "value": "Pre-check passed. A safety snapshot is created automatically."
+    },
+    {
+      "name": "module_cp_restore",
+      "value": "Restore"
+    },
+    {
+      "name": "module_cp_restored",
+      "value": "Workspace restored"
+    },
+    {
+      "name": "module_cp_cannot_restore",
+      "value": "Cannot restore"
+    },
+    {
+      "name": "module_cp_no_clean_title",
+      "value": "Nothing to clean"
+    },
+    {
+      "name": "module_cp_no_clean_msg",
+      "value": "No versions exceed the retention policy."
+    },
+    {
+      "name": "module_cp_clean_title",
+      "value": "Clean up history?"
+    },
+    {
+      "name": "module_cp_clean_prefix",
+      "value": "Will delete "
+    },
+    {
+      "name": "module_cp_clean_suffix",
+      "value": " outdated versions."
+    },
+    {
+      "name": "module_cp_clean_btn",
+      "value": "Clean"
+    },
+    {
+      "name": "module_cp_cleaned",
+      "value": "History cleaned"
+    },
+    {
+      "name": "module_cp_precheck_failed",
+      "value": "Pre-check failed"
+    },
+    {
+      "name": "module_cp_op_failed",
+      "value": "Action failed"
+    },
+    {
+      "name": "module_cp_save_failed",
+      "value": "Save failed"
+    },
+    {
+      "name": "module_cp_f_count",
+      "value": "Versions kept per chat"
+    },
+    {
+      "name": "module_cp_f_days",
+      "value": "Days to keep auto versions"
+    },
+    {
+      "name": "module_cp_f_pre",
+      "value": "Days to keep pre-restore safety versions"
+    },
+    {
+      "name": "module_cp_l_count",
+      "value": "count"
+    },
+    {
+      "name": "module_cp_l_days",
+      "value": "days"
+    },
+    {
+      "name": "module_cp_l_pre",
+      "value": "safety-version days"
+    },
+    {
+      "name": "module_cp_int_invalid",
+      "value": " must be a positive integer."
+    },
+    {
+      "name": "module_snap_group",
+      "value": "Current config"
+    },
+    {
+      "name": "module_snap_status",
+      "value": "Connection"
+    },
+    {
+      "name": "module_snap_synced",
+      "value": "Synced from QwenPaw"
+    },
+    {
+      "name": "module_snap_empty_title",
+      "value": "No data"
+    },
+    {
+      "name": "module_snap_empty_copy",
+      "value": "QwenPaw responded, but nothing is configured here."
+    },
+    {
+      "name": "module_snap_footer",
+      "value": "Data comes from the live QwenPaw; no preview or sample content."
+    },
+    {
+      "name": "module_snap_enabled",
+      "value": "enabled"
+    },
+    {
+      "name": "module_snap_disabled",
+      "value": "disabled"
+    },
+    {
+      "name": "module_snap_items",
+      "value": "items"
+    },
+    {
+      "name": "module_snap_fields",
+      "value": "config fields"
+    },
+    {
+      "name": "module_snap_unset",
+      "value": "not set"
+    },
+    {
+      "name": "module_snap_item",
+      "value": "Item"
+    },
+    {
+      "name": "module_offload_group",
+      "value": "Default long-task behavior"
+    },
+    {
+      "name": "module_offload_keep",
+      "value": "Keep in foreground"
+    },
+    {
+      "name": "module_offload_keep_hint",
+      "value": "Continue the reply after the tool finishes"
+    },
+    {
+      "name": "module_offload_bg",
+      "value": "Move to background"
+    },
+    {
+      "name": "module_offload_bg_hint",
+      "value": "Becomes a background task after the time limit"
+    },
+    {
+      "name": "module_offload_footer",
+      "value": "Controls only the default policy; single tool tasks in a chat can still be adjusted."
+    },
+    {
+      "name": "workbench_conn",
+      "value": "Connection & settings"
+    },
+    {
+      "name": "workbench_conn_hint",
+      "value": "Connection · Theme color · Protocol self-test"
+    },
+    {
+      "name": "workbench_about",
+      "value": "About QwenPaw"
+    },
+    {
+      "name": "workbench_approvals",
+      "value": "Approvals"
+    },
+    {
+      "name": "workbench_approvals_hint",
+      "value": "Phase 1: Approval Inbox coming soon"
+    },
+    {
+      "name": "wb_connected",
+      "value": "Connected"
+    },
+    {
+      "name": "wb_not_connected",
+      "value": "Not connected"
+    },
+    {
+      "name": "mine_title",
+      "value": "About & self-test"
+    },
+    {
+      "name": "mine_protocol",
+      "value": "Relay protocol version"
+    },
+    {
+      "name": "mine_contract",
+      "value": "Contract version"
+    },
+    {
+      "name": "mine_operations",
+      "value": "Relay operations"
+    },
+    {
+      "name": "mine_frame",
+      "value": "Frame format"
+    },
+    {
+      "name": "mine_run",
+      "value": "Run self-test (12 items)"
+    },
+    {
+      "name": "mine_frame_value",
+      "value": "4B big-endian length + stable JSON head + payload"
+    },
+    {
+      "name": "mine_footer",
+      "value": "Connection: Chats tab · Agent list: Agents tab · Approvals: Workbench"
+    },
+    {
+      "name": "cp_title",
+      "value": "Connect to QwenPaw"
+    },
+    {
+      "name": "cp_status_disconnected",
+      "value": "Not connected"
+    },
+    {
+      "name": "cp_status_connecting",
+      "value": "Connecting…"
+    },
+    {
+      "name": "cp_status_connected",
+      "value": "Connected"
+    },
+    {
+      "name": "cp_status_failed",
+      "value": "Connection failed"
+    },
+    {
+      "name": "cp_agents_unit",
+      "value": " agents"
+    },
+    {
+      "name": "cp_service_url",
+      "value": "Service address"
+    },
+    {
+      "name": "cp_url_placeholder",
+      "value": "http://192.168.x.x:8088, or paste a qwenpaw://pair code"
+    },
+    {
+      "name": "cp_ticket",
+      "value": "Pairing code (optional)"
+    },
+    {
+      "name": "cp_ticket_placeholder",
+      "value": "Leave blank for direct connect if auth is disabled"
+    },
+    {
+      "name": "cp_connect",
+      "value": "Connect"
+    },
+    {
+      "name": "cp_scan",
+      "value": "Scan to pair"
+    },
+    {
+      "name": "cp_hint",
+      "value": "The QwenPaw service must be on the same LAN, started with --host 0.0.0.0."
+    },
+    {
+      "name": "cp_mode_open",
+      "value": "Open mode"
+    },
+    {
+      "name": "cp_mode_paired",
+      "value": "Paired"
+    },
+    {
+      "name": "cp_user",
+      "value": "User"
+    },
+    {
+      "name": "cp_agents",
+      "value": "Agents"
+    },
+    {
+      "name": "cp_sse_next",
+      "value": "Chat list lands next (SSE streaming)"
+    },
+    {
+      "name": "cp_reconnect",
+      "value": "Reconnect"
+    },
+    {
+      "name": "cp_disconnect",
+      "value": "Disconnect"
+    },
+    {
+      "name": "cp_err_no_camera",
+      "value": "Camera permission not granted. Enter address and pairing code manually."
+    },
+    {
+      "name": "cp_err_scan_invalid",
+      "value": "Scanned content is not a valid QwenPaw pairing code"
+    },
+    {
+      "name": "cp_err_scan_cancel",
+      "value": "Scan canceled or failed."
+    },
+    {
+      "name": "notify_reason",
+      "value": "System notification when approvals are pending"
+    },
+    {
+      "name": "notify_approval_title",
+      "value": "QwenPaw Approval"
+    },
+    {
+      "name": "notify_approval_body",
+      "value": "%d approval(s) awaiting review"
+    },
+    {
+      "name": "wb_approvals_has",
+      "value": "%d pending"
+    },
+    {
+      "name": "wb_approvals_none",
+      "value": "No pending approvals"
+    },
+    {
+      "name": "wb_approvals_more",
+      "value": "and %d more"
+    },
+    {
+      "name": "cp_chats_title",
+      "value": "Chats"
+    },
+    {
+      "name": "cp_chats_loading",
+      "value": "Loading chats…"
+    },
+    {
+      "name": "cp_chats_empty",
+      "value": "No chats yet"
+    },
+    {
+      "name": "cp_chat_pinned",
+      "value": "Pinned"
+    },
+    {
+      "name": "chat_title",
+      "value": "Chat"
+    },
+    {
+      "name": "chat_input_placeholder",
+      "value": "Message…"
+    },
+    {
+      "name": "chat_send",
+      "value": "Send"
+    },
+    {
+      "name": "chat_stop",
+      "value": "Stop"
+    },
+    {
+      "name": "chat_loading",
+      "value": "Loading chat…"
+    },
+    {
+      "name": "chat_no_conn",
+      "value": "Not connected. Connect QwenPaw on the Chats tab first."
+    },
+    {
+      "name": "chat_kind_reasoning",
+      "value": "Reasoning"
+    },
+    {
+      "name": "chat_kind_tool",
+      "value": "Tool"
+    },
+    {
+      "name": "agents_menu_more",
+      "value": "More actions"
+    },
+    {
+      "name": "agents_menu_copy",
+      "value": "Duplicate"
+    },
+    {
+      "name": "agents_menu_pin",
+      "value": "Pin"
+    },
+    {
+      "name": "agents_menu_unpin",
+      "value": "Unpin"
+    },
+    {
+      "name": "agents_menu_enable",
+      "value": "Enable"
+    },
+    {
+      "name": "agents_menu_disable",
+      "value": "Disable"
+    },
+    {
+      "name": "agents_menu_delete",
+      "value": "Delete"
+    },
+    {
+      "name": "agents_delete_title",
+      "value": "Delete Agent"
+    },
+    {
+      "name": "agents_delete_msg",
+      "value": "This removes the Agent and its workspace. This cannot be undone."
+    },
+    {
+      "name": "common_cancel",
+      "value": "Cancel"
+    },
+    {
+      "name": "common_confirm_delete",
+      "value": "Delete"
+    },
+    {
+      "name": "common_save",
+      "value": "Save"
+    },
+    {
+      "name": "agents_create_title",
+      "value": "Create Agent"
+    },
+    {
+      "name": "agents_copy_title",
+      "value": "Duplicate Agent"
+    },
+    {
+      "name": "agents_form_name",
+      "value": "Name"
+    },
+    {
+      "name": "agents_form_id",
+      "value": "Agent ID (optional, auto-generated)"
+    },
+    {
+      "name": "agents_form_desc",
+      "value": "Description (optional)"
+    },
+    {
+      "name": "agents_form_workspace",
+      "value": "Workspace path (optional)"
+    },
+    {
+      "name": "agents_form_copy_md",
+      "value": "Copy prompts and memory files"
+    },
+    {
+      "name": "agents_form_copy_skills",
+      "value": "Copy Skills"
+    },
+    {
+      "name": "agents_form_copy_jobs",
+      "value": "Copy Cron Jobs"
+    },
+    {
+      "name": "agents_profile_title",
+      "value": "Avatar & Nickname"
+    },
+    {
+      "name": "agents_profile_name",
+      "value": "Nickname (empty = server name)"
+    },
+    {
+      "name": "agents_profile_color",
+      "value": "Avatar color"
+    },
+    {
+      "name": "agents_profile_reset",
+      "value": "Reset"
+    },
+    {
+      "name": "chat_attach",
+      "value": "Attach"
+    },
+    {
+      "name": "chat_attach_failed",
+      "value": "Attachment upload failed, please retry"
+    },
+    {
+      "name": "approval_need",
+      "value": "Approval needed"
+    },
+    {
+      "name": "approval_checks",
+      "value": "checks"
+    },
+    {
+      "name": "approval_details",
+      "value": "Details"
+    },
+    {
+      "name": "approval_deny",
+      "value": "Deny"
+    },
+    {
+      "name": "approval_once",
+      "value": "Once"
+    },
+    {
+      "name": "approval_always",
+      "value": "Always allow"
+    },
+    {
+      "name": "approval_failed",
+      "value": "Approval action failed, please retry"
+    },
+    {
+      "name": "chat_process_think",
+      "value": "Thinking"
+    },
+    {
+      "name": "chat_process_tool",
+      "value": "Execution"
+    },
+    {
+      "name": "chats_inbox_title",
+      "value": "Approval Inbox"
+    },
+    {
+      "name": "chats_inbox_pending",
+      "value": "tool actions need approval"
+    },
+    {
+      "name": "chats_inbox_empty",
+      "value": "No pending approvals"
+    },
+    {
+      "name": "chat_menu_pin",
+      "value": "Pin"
+    },
+    {
+      "name": "chat_menu_unpin",
+      "value": "Unpin"
+    },
+    {
+      "name": "chat_menu_archive",
+      "value": "Archive"
+    },
+    {
+      "name": "chat_menu_delete",
+      "value": "Delete"
+    },
+    {
+      "name": "chat_menu_delete_title",
+      "value": "Delete chat?"
+    },
+    {
+      "name": "chat_menu_delete_msg",
+      "value": "This cannot be undone."
+    },
+    {
+      "name": "chat_menu_rename",
+      "value": "Rename"
+    },
+    {
+      "name": "chat_menu_restore",
+      "value": "Restore"
+    },
+    {
+      "name": "chat_menu_delete_forever",
+      "value": "Delete permanently"
+    },
+    {
+      "name": "chat_rename_title",
+      "value": "Rename chat"
+    },
+    {
+      "name": "chat_rename_placeholder",
+      "value": "Enter chat name"
+    },
+    {
+      "name": "chat_menu_move",
+      "value": "Move"
+    },
+    {
+      "name": "chat_move_title",
+      "value": "Move to group"
+    },
+    {
+      "name": "chat_group_new",
+      "value": "New chat group"
+    },
+    {
+      "name": "chat_group_rename",
+      "value": "Rename group"
+    },
+    {
+      "name": "chat_group_delete",
+      "value": "Delete group"
+    },
+    {
+      "name": "chat_group_placeholder",
+      "value": "e.g. Product"
+    },
+    {
+      "name": "chats_group_new",
+      "value": "+ New group"
+    },
+    {
+      "name": "chats_group_empty",
+      "value": "Empty"
+    },
+    {
+      "name": "chats_group_pinned",
+      "value": "Pinned"
+    },
+    {
+      "name": "chats_group_ungrouped",
+      "value": "Ungrouped"
+    },
+    {
+      "name": "chats_group_cron",
+      "value": "Scheduled"
+    },
+    {
+      "name": "chats_group_subagents",
+      "value": "Sub-agents"
+    },
+    {
+      "name": "common_confirm",
+      "value": "OK"
+    },
+    {
+      "name": "chat_op_failed",
+      "value": "Chat action failed, please retry"
+    },
+    {
+      "name": "chat_approvals_count",
+      "value": "%d approvals in this chat"
+    },
+    {
+      "name": "chats_tab_active",
+      "value": "Chats"
+    },
+    {
+      "name": "chats_tab_archived",
+      "value": "Archived"
+    },
+    {
+      "name": "chats_archived_empty",
+      "value": "No archived chats"
+    },
+    {
+      "name": "module_dbg_group",
+      "value": "Backend"
+    },
+    {
+      "name": "module_dbg_recent",
+      "value": "Recent logs"
+    },
+    {
+      "name": "module_dbg_lines",
+      "value": "lines"
+    },
+    {
+      "name": "module_dbg_view",
+      "value": "View"
+    },
+    {
+      "name": "module_dbg_not_created",
+      "value": "Not created"
+    },
+    {
+      "name": "module_dbg_refresh",
+      "value": "Refresh logs"
+    },
+    {
+      "name": "module_dbg_refresh_hint",
+      "value": "Reload from the current QwenPaw"
+    },
+    {
+      "name": "module_dbg_path",
+      "value": "Log location"
+    },
+    {
+      "name": "module_dbg_no_path",
+      "value": "QwenPaw did not return a path"
+    },
+    {
+      "name": "module_dbg_footer",
+      "value": "Logs stay on this device and are not uploaded to QwenPaw Mobile."
+    },
+    {
+      "name": "module_dbg_sheet_title",
+      "value": "Backend Logs"
+    },
+    {
+      "name": "module_dbg_empty_content",
+      "value": "No log content"
+    },
+    {
+      "name": "module_files_root",
+      "value": "Workspace root"
+    },
+    {
+      "name": "module_files_up",
+      "value": "Parent folder"
+    },
+    {
+      "name": "module_files_upload",
+      "value": "Upload files"
+    },
+    {
+      "name": "module_files_uploading",
+      "value": "Uploading…"
+    },
+    {
+      "name": "module_files_upload_hint",
+      "value": "Conflicting names are renamed safely"
+    },
+    {
+      "name": "module_files_new",
+      "value": "New text file"
+    },
+    {
+      "name": "module_files_new_hint",
+      "value": "The relative path can be edited when saving"
+    },
+    {
+      "name": "module_files_folder",
+      "value": "Folder"
+    },
+    {
+      "name": "module_files_file",
+      "value": "File"
+    },
+    {
+      "name": "module_files_loading",
+      "value": "Reading workspace…"
+    },
+    {
+      "name": "module_files_empty_title",
+      "value": "Empty folder"
+    },
+    {
+      "name": "module_files_empty_subtitle",
+      "value": "There is nothing here yet."
+    },
+    {
+      "name": "module_files_footer",
+      "value": "File contents are read straight from the Agent workspace; the Platform community is not involved."
+    },
+    {
+      "name": "module_files_preview_title",
+      "value": "File preview"
+    },
+    {
+      "name": "module_files_truncated",
+      "value": "File is too large; only the first 256 KB is shown and editing is disabled"
+    },
+    {
+      "name": "module_files_edit_title",
+      "value": "Edit file"
+    },
+    {
+      "name": "module_files_saving",
+      "value": "Saving"
+    },
+    {
+      "name": "module_files_downloading",
+      "value": "Downloading…"
+    },
+    {
+      "name": "module_files_downloaded",
+      "value": "Saved to the selected location"
+    },
+    {
+      "name": "module_files_path_label",
+      "value": "Relative path"
+    },
+    {
+      "name": "module_files_content_label",
+      "value": "Contents"
+    },
+    {
+      "name": "module_git_group",
+      "value": "Coding workspace"
+    },
+    {
+      "name": "module_git_coding",
+      "value": "Coding Mode"
+    },
+    {
+      "name": "module_git_coding_hint",
+      "value": "Enable project directory and coding tools"
+    },
+    {
+      "name": "module_git_workspace",
+      "value": "Agent workspace"
+    },
+    {
+      "name": "module_git_default",
+      "value": "Default"
+    },
+    {
+      "name": "module_git_current",
+      "value": "Current"
+    },
+    {
+      "name": "module_git_new",
+      "value": "New project"
+    },
+    {
+      "name": "module_git_new_hint",
+      "value": "Create an empty directory and init Git"
+    },
+    {
+      "name": "module_git_import",
+      "value": "Import project ZIP"
+    },
+    {
+      "name": "module_git_restore",
+      "value": "Restore default workspace"
+    },
+    {
+      "name": "module_git_projects",
+      "value": "Projects"
+    },
+    {
+      "name": "module_git_is_git",
+      "value": "Git project"
+    },
+    {
+      "name": "module_git_git",
+      "value": "Git"
+    },
+    {
+      "name": "module_git_branch_unnamed",
+      "value": "Unnamed branch"
+    },
+    {
+      "name": "module_git_changes",
+      "value": "changes"
+    },
+    {
+      "name": "module_git_commit_staged",
+      "value": "Commit staged changes"
+    },
+    {
+      "name": "module_git_commit_hint",
+      "value": "Provide a message to create the commit"
+    },
+    {
+      "name": "module_git_staged",
+      "value": "Staged"
+    },
+    {
+      "name": "module_git_unstaged",
+      "value": "Not staged"
+    },
+    {
+      "name": "module_git_recent",
+      "value": "Recent commits"
+    },
+    {
+      "name": "module_git_not_repo_title",
+      "value": "The current directory is not a Git repository"
+    },
+    {
+      "name": "module_git_not_repo_subtitle",
+      "value": "Create or import a project to manage branches and commits."
+    },
+    {
+      "name": "module_git_footer",
+      "value": "Project and Git operations act directly on the current Agent workspace; review changes before committing or discarding."
+    },
+    {
+      "name": "module_git_field_name",
+      "value": "Project name"
+    },
+    {
+      "name": "module_git_field_branch",
+      "value": "Branch name"
+    },
+    {
+      "name": "module_git_field_create",
+      "value": "Create a new branch"
+    },
+    {
+      "name": "module_git_field_message",
+      "value": "Commit message"
+    },
+    {
+      "name": "module_git_title_project",
+      "value": "New project"
+    },
+    {
+      "name": "module_git_title_import",
+      "value": "Import project ZIP"
+    },
+    {
+      "name": "module_git_title_branch",
+      "value": "Switch branch"
+    },
+    {
+      "name": "module_git_title_commit",
+      "value": "Create commit"
+    },
+    {
+      "name": "module_git_act_stage",
+      "value": "Stage"
+    },
+    {
+      "name": "module_git_act_unstage",
+      "value": "Unstage"
+    },
+    {
+      "name": "module_git_act_discard",
+      "value": "Discard changes"
+    },
+    {
+      "name": "module_git_act_revert",
+      "value": "Revert this commit"
+    },
+    {
+      "name": "module_git_reverted",
+      "value": "Revert commit created"
+    },
+    {
+      "name": "module_git_zip_missing",
+      "value": "Please pick the project ZIP again."
+    },
+    {
+      "name": "module_git_failed",
+      "value": "Operation failed"
+    },
+    {
+      "name": "module_tools_group",
+      "value": "Built-in tools"
+    },
+    {
+      "name": "module_tools_enabled",
+      "value": "enabled"
+    },
+    {
+      "name": "module_tools_async",
+      "value": "Async execution"
+    },
+    {
+      "name": "module_tools_async_help",
+      "value": "Let slow tools run in the background without blocking the current turn."
+    },
+    {
+      "name": "module_tools_empty_title",
+      "value": "Nothing to configure"
+    },
+    {
+      "name": "module_tools_empty_subtitle",
+      "value": "The current QwenPaw returned no configurable tools."
+    },
+    {
+      "name": "module_tools_footer",
+      "value": "Disabling a tool immediately stops the agent from calling it in later turns."
+    },
+    {
+      "name": "module_tools_save_failed",
+      "value": "Save failed"
+    },
+    {
+      "name": "module_voice_group_audio",
+      "value": "Audio messages"
+    },
+    {
+      "name": "module_voice_audio_label",
+      "value": "Handling"
+    },
+    {
+      "name": "module_voice_audio_hint",
+      "value": "Transcribe automatically or hand the audio to a multimodal model"
+    },
+    {
+      "name": "module_voice_audio_auto",
+      "value": "Auto transcribe"
+    },
+    {
+      "name": "module_voice_audio_native",
+      "value": "Native multimodal"
+    },
+    {
+      "name": "module_voice_group_text",
+      "value": "Transcription"
+    },
+    {
+      "name": "module_voice_type_label",
+      "value": "Engine"
+    },
+    {
+      "name": "module_voice_type_off",
+      "value": "Disabled"
+    },
+    {
+      "name": "module_voice_type_api",
+      "value": "Whisper API"
+    },
+    {
+      "name": "module_voice_type_local",
+      "value": "Local Whisper"
+    },
+    {
+      "name": "module_voice_provider_label",
+      "value": "Whisper provider"
+    },
+    {
+      "name": "module_voice_provider_available",
+      "value": "providers available"
+    },
+    {
+      "name": "module_voice_local_label",
+      "value": "Local Whisper"
+    },
+    {
+      "name": "module_voice_installed",
+      "value": "installed"
+    },
+    {
+      "name": "module_voice_not_installed",
+      "value": "missing"
+    },
+    {
+      "name": "module_voice_clear",
+      "value": "Clear selection"
+    },
+    {
+      "name": "module_voice_footer",
+      "value": "These settings belong to the current QwenPaw; switching between local and cloud reads each side config."
+    },
+    {
+      "name": "module_voice_save_failed",
+      "value": "Save failed"
+    },
+    {
+      "name": "module_skill_group",
+      "value": "Installed skills"
+    },
+    {
+      "name": "module_skill_new",
+      "value": "New skill"
+    },
+    {
+      "name": "module_skill_new_hint",
+      "value": "Create and security-scan SKILL.md"
+    },
+    {
+      "name": "module_skill_import",
+      "value": "Import skill ZIP"
+    },
+    {
+      "name": "module_skill_import_hint",
+      "value": "Import and enable for the current agent"
+    },
+    {
+      "name": "module_skill_refresh",
+      "value": "Refresh skills"
+    },
+    {
+      "name": "module_skill_no_desc",
+      "value": "No description"
+    },
+    {
+      "name": "module_skill_empty_title",
+      "value": "No skills yet"
+    },
+    {
+      "name": "module_skill_empty_subtitle",
+      "value": "You can create a new SKILL.md right away."
+    },
+    {
+      "name": "module_skill_footer",
+      "value": "All operations only affect the current agent workspace."
+    },
+    {
+      "name": "module_skill_field_name",
+      "value": "Skill name"
+    },
+    {
+      "name": "module_skill_field_content",
+      "value": "Content (SKILL.md)"
+    },
+    {
+      "name": "module_skill_field_config",
+      "value": "Config"
+    },
+    {
+      "name": "module_skill_field_config_help",
+      "value": "Optional JSON object."
+    },
+    {
+      "name": "module_skill_delete",
+      "value": "Delete"
+    },
+    {
+      "name": "module_skill_delete_failed",
+      "value": "Delete failed"
+    },
+    {
+      "name": "module_skill_save_failed",
+      "value": "Save failed"
+    },
+    {
+      "name": "module_skill_import_failed",
+      "value": "Import failed"
+    },
+    {
+      "name": "module_pool_field_name",
+      "value": "Pool skill name"
+    },
+    {
+      "name": "module_pool_field_content",
+      "value": "Content (SKILL.md)"
+    },
+    {
+      "name": "module_pool_field_tags",
+      "value": "Tags"
+    },
+    {
+      "name": "module_pool_field_tags_help",
+      "value": "Comma separated; saved through the dedicated tags endpoint."
+    },
+    {
+      "name": "module_pool_field_config",
+      "value": "Config"
+    },
+    {
+      "name": "module_pool_field_config_help",
+      "value": "Optional JSON object."
+    },
+    {
+      "name": "module_pool_new",
+      "value": "New pool skill"
+    },
+    {
+      "name": "module_pool_import",
+      "value": "Import ZIP"
+    },
+    {
+      "name": "module_pool_import_hint",
+      "value": "Security scan runs before import"
+    },
+    {
+      "name": "module_pool_refresh",
+      "value": "Refresh skill pool"
+    },
+    {
+      "name": "module_pool_refresh_failed",
+      "value": "Refresh failed"
+    },
+    {
+      "name": "module_pool_import_failed",
+      "value": "Import failed"
+    },
+    {
+      "name": "module_pool_shared",
+      "value": "Shared skill"
+    },
+    {
+      "name": "module_pool_empty_title",
+      "value": "Skill pool is empty"
+    },
+    {
+      "name": "module_pool_empty_subtitle",
+      "value": "This QwenPaw has no skills that can be reused across agents yet."
+    },
+    {
+      "name": "module_pool_edit",
+      "value": "Edit"
+    },
+    {
+      "name": "module_pool_footer",
+      "value": "Skills in the pool can be reused by every agent."
+    },
+    {
+      "name": "module_mcp_group",
+      "value": "MCP servers"
+    },
+    {
+      "name": "module_mcp_add",
+      "value": "Add MCP server"
+    },
+    {
+      "name": "module_mcp_add_hint",
+      "value": "Streamable HTTP, SSE or stdio"
+    },
+    {
+      "name": "module_mcp_field_name",
+      "value": "Name"
+    },
+    {
+      "name": "module_mcp_field_transport",
+      "value": "Transport"
+    },
+    {
+      "name": "module_mcp_field_url",
+      "value": "Endpoint URL"
+    },
+    {
+      "name": "module_mcp_field_url_help",
+      "value": "Required for HTTP/SSE transports."
+    },
+    {
+      "name": "module_mcp_field_command",
+      "value": "Command"
+    },
+    {
+      "name": "module_mcp_field_command_help",
+      "value": "Required for stdio (e.g. npx)."
+    },
+    {
+      "name": "module_mcp_field_args",
+      "value": "Arguments"
+    },
+    {
+      "name": "module_mcp_field_args_help",
+      "value": "Comma separated."
+    },
+    {
+      "name": "module_mcp_field_desc",
+      "value": "Description"
+    },
+    {
+      "name": "module_mcp_oauth_ok",
+      "value": "OAuth authorized"
+    },
+    {
+      "name": "module_mcp_delete",
+      "value": "Delete"
+    },
+    {
+      "name": "module_mcp_delete_failed",
+      "value": "Delete failed"
+    },
+    {
+      "name": "module_mcp_save_failed",
+      "value": "Save failed"
+    },
+    {
+      "name": "module_mcp_empty_title",
+      "value": "No MCP servers yet"
+    },
+    {
+      "name": "module_mcp_empty_subtitle",
+      "value": "Add one to enable it and let the current agent call it."
+    },
+    {
+      "name": "module_mcp_footer",
+      "value": "Disabling a server stops the current agent from calling its tools."
+    },
+    {
+      "name": "module_env_group",
+      "value": "Environment variables"
+    },
+    {
+      "name": "module_env_add",
+      "value": "Add variable"
+    },
+    {
+      "name": "module_env_add_hint",
+      "value": "Saved to the current QwenPaw agent environment"
+    },
+    {
+      "name": "module_env_hidden",
+      "value": "Value hidden"
+    },
+    {
+      "name": "module_env_field_key",
+      "value": "Name"
+    },
+    {
+      "name": "module_env_field_value",
+      "value": "Value"
+    },
+    {
+      "name": "module_env_field_value_help",
+      "value": "Multi-line values are supported (e.g. certificates)."
+    },
+    {
+      "name": "module_env_delete",
+      "value": "Delete"
+    },
+    {
+      "name": "module_env_delete_failed",
+      "value": "Delete failed"
+    },
+    {
+      "name": "module_env_empty_title",
+      "value": "No environment variables"
+    },
+    {
+      "name": "module_env_empty_subtitle",
+      "value": "Added values are stored safely on the current QwenPaw."
+    },
+    {
+      "name": "module_env_footer",
+      "value": "Variables only affect the current agent process; the list never echoes values."
+    },
+    {
+      "name": "module_sec_group_run",
+      "value": "Execution isolation"
+    },
+    {
+      "name": "module_sec_group_chain",
+      "value": "Supply chain"
+    },
+    {
+      "name": "module_sec_group_net",
+      "value": "Network access"
+    },
+    {
+      "name": "module_sec_hosts",
+      "value": "No-auth hosts"
+    },
+    {
+      "name": "module_sec_hosts_empty",
+      "value": "Not configured"
+    },
+    {
+      "name": "module_sec_hosts_field",
+      "value": "Trusted hosts"
+    },
+    {
+      "name": "module_sec_hosts_help",
+      "value": "Comma separated, e.g. 127.0.0.1, ::1."
+    },
+    {
+      "name": "module_sec_scan_block",
+      "value": "Block risky skills"
+    },
+    {
+      "name": "module_sec_scan_warn",
+      "value": "Warn only"
+    },
+    {
+      "name": "module_sec_scan_off",
+      "value": "Scanning off"
+    },
+    {
+      "name": "module_sec_unsupported",
+      "value": "Not supported by this QwenPaw"
+    },
+    {
+      "name": "module_sec_unsupported_all",
+      "value": "This QwenPaw does not support the security settings API"
+    },
+    {
+      "name": "module_sec_save_failed",
+      "value": "Saving security settings failed"
+    },
+    {
+      "name": "module_sec_footer",
+      "value": "No-auth hosts bypass authentication for explicitly trusted internal services; add them carefully."
+    },
+    {
+      "name": "module_ops_unsupported",
+      "value": "This QwenPaw does not support this module"
+    },
+    {
+      "name": "module_ops_unsupported_short",
+      "value": "N/A"
+    },
+    {
+      "name": "module_ops_group_token",
+      "value": "Token usage"
+    },
+    {
+      "name": "module_ops_prompt",
+      "value": "Prompt tokens"
+    },
+    {
+      "name": "module_ops_completion",
+      "value": "Completion tokens"
+    },
+    {
+      "name": "module_ops_cache",
+      "value": "Cache read tokens"
+    },
+    {
+      "name": "module_ops_group_stats",
+      "value": "Agent stats"
+    },
+    {
+      "name": "module_ops_active_sessions",
+      "value": "Active sessions"
+    },
+    {
+      "name": "module_ops_messages",
+      "value": "Messages"
+    },
+    {
+      "name": "module_ops_user_messages",
+      "value": "User messages"
+    },
+    {
+      "name": "module_ops_assistant_messages",
+      "value": "Assistant messages"
+    },
+    {
+      "name": "module_ops_group_backups",
+      "value": "Backups"
+    },
+    {
+      "name": "module_ops_restore",
+      "value": "Restore this backup"
+    },
+    {
+      "name": "module_ops_delete",
+      "value": "Delete backup"
+    },
+    {
+      "name": "module_ops_restored",
+      "value": "Backup restored"
+    },
+    {
+      "name": "module_ops_deleted",
+      "value": "Backup deleted"
+    },
+    {
+      "name": "module_ops_failed",
+      "value": "Action failed"
+    },
+    {
+      "name": "module_ops_empty_title",
+      "value": "No backups"
+    },
+    {
+      "name": "module_ops_empty_subtitle",
+      "value": "Backups created on this QwenPaw will appear here"
+    },
+    {
+      "name": "module_ops_footer",
+      "value": "Restoring reloads affected agents and may overwrite current data; deletion is irreversible."
+    },
+    {
+      "name": "module_models_unsupported",
+      "value": "This QwenPaw does not support the models API"
+    },
+    {
+      "name": "module_models_na",
+      "value": "N/A"
+    },
+    {
+      "name": "module_models_yes",
+      "value": "Yes"
+    },
+    {
+      "name": "module_models_no",
+      "value": "No"
+    },
+    {
+      "name": "module_models_group_active",
+      "value": "Active model"
+    },
+    {
+      "name": "module_models_active_provider",
+      "value": "Active provider"
+    },
+    {
+      "name": "module_models_active_model",
+      "value": "Active model"
+    },
+    {
+      "name": "module_models_max_input",
+      "value": "Max input length"
+    },
+    {
+      "name": "module_models_group_providers",
+      "value": "Providers"
+    },
+    {
+      "name": "module_models_group_local",
+      "value": "Local models"
+    },
+    {
+      "name": "module_models_local_server",
+      "value": "Local inference server"
+    },
+    {
+      "name": "module_models_save_failed",
+      "value": "Save failed"
+    },
+    {
+      "name": "module_models_empty_title",
+      "value": "No providers"
+    },
+    {
+      "name": "module_models_empty_subtitle",
+      "value": "Providers added on this QwenPaw will appear here"
+    },
+    {
+      "name": "module_models_footer",
+      "value": "Toggles write back the full document read from GET, so hidden fields are preserved."
+    },
+    {
+      "name": "module_ext_unsupported",
+      "value": "This QwenPaw does not support the extensions API"
+    },
+    {
+      "name": "module_ext_group_plugins",
+      "value": "Plugins"
+    },
+    {
+      "name": "module_ext_group_apps",
+      "value": "PawApps"
+    },
+    {
+      "name": "module_ext_install",
+      "value": "Install extension"
+    },
+    {
+      "name": "module_ext_install_hint",
+      "value": "Install from an extension ZIP URL (run by this QwenPaw)"
+    },
+    {
+      "name": "module_ext_source",
+      "value": "Extension ZIP URL"
+    },
+    {
+      "name": "module_ext_source_help",
+      "value": "e.g. https://…/archive.zip"
+    },
+    {
+      "name": "module_ext_uninstall",
+      "value": "Uninstall plugin"
+    },
+    {
+      "name": "module_ext_uninstalled",
+      "value": "Uninstalled"
+    },
+    {
+      "name": "module_ext_installed",
+      "value": "Install submitted"
+    },
+    {
+      "name": "module_ext_failed",
+      "value": "Action failed"
+    },
+    {
+      "name": "module_ext_empty_title",
+      "value": "No plugins"
+    },
+    {
+      "name": "module_ext_empty_subtitle",
+      "value": "Plugins installed on this QwenPaw will appear here"
+    },
+    {
+      "name": "module_ext_footer",
+      "value": "Search, install and uninstall are executed by this QwenPaw; unknown third-party apps open in a controlled web container."
+    },
+    {
+      "name": "module_hub_unsupported",
+      "value": "Hub is not enabled on this QwenPaw"
+    },
+    {
+      "name": "module_hub_group_health",
+      "value": "Hub health"
+    },
+    {
+      "name": "module_hub_status",
+      "value": "Status"
+    },
+    {
+      "name": "module_hub_group_me",
+      "value": "Hub identity"
+    },
+    {
+      "name": "module_hub_name",
+      "value": "Name"
+    },
+    {
+      "name": "module_hub_id",
+      "value": "ID"
+    },
+    {
+      "name": "module_hub_role",
+      "value": "Role"
+    },
+    {
+      "name": "module_hub_group_runtimes",
+      "value": "Runtimes"
+    },
+    {
+      "name": "module_hub_group_actions",
+      "value": "My runtime"
+    },
+    {
+      "name": "module_hub_restart",
+      "value": "Restart my runtime"
+    },
+    {
+      "name": "module_hub_restart_hint",
+      "value": "Executed by this QwenPaw Hub"
+    },
+    {
+      "name": "module_hub_restarted",
+      "value": "Restart submitted"
+    },
+    {
+      "name": "module_hub_footer",
+      "value": "Data comes from this QwenPaw Hub; when Hub is not enabled it shows \"unsupported\" instead of sample content."
+    }
+  ]
+}
