@@ -60,6 +60,8 @@
 
 ## Новости
 
+- [2026-09-22] **v2.2.2** | PawPort переносит беседы и настройки из Codex/Qoder, Hub позволяет команде пользоваться общими моделями, а для каждой беседы можно выбрать модель и настроить глубину рассуждения. [Release Notes v2.2.2 →](https://qwenpaw.agentscope.io/release-notes#v2.2.2)
+
 - [2026-09-10] **v2.2.1** | Рабочее пространство Blueprint в Creator 1.2, маршрутизация моделей для отдельных агентов и единое управление средой. [Release Notes v2.2.1 →](https://qwenpaw.agentscope.io/release-notes#v2.2.1)
 
 - [2026-09-03] **v2.2.0** | Самостоятельно размещаемый многопользовательский QwenPaw Hub, QwenPaw Mail, нативный QwenPaw Data, единая маршрутизация моделей, Creator 1.1 и крупные улучшения Market, Console, Skills, каналов и надежности. [Release Notes v2.2.0 →](https://qwenpaw.agentscope.io/release-notes#v2.2.0)
@@ -67,19 +69,6 @@
 - [2026-08-13] **v2.1.0** | QwenPaw OS Shell, единое файловое пространство, QwenPaw Creator, интеграция агентов Codex/Qoder, Browser-use, Computer-use, контрольные точки и продолжение длительных задач в диалоге. [Release Notes v2.1.0 →](https://qwenpaw.agentscope.io/release-notes#v2.1.0)
 
 - [2026-07-24] **v2.0.1** | Платформа мини-приложений PawApp, редактируемые Agent Mode, Oh-My-Paw plugins, улучшения памяти [ReMe](https://github.com/agentscope-ai/ReMe), улучшения UX десктопа и др. [v2.0.1 Release Notes →](https://qwenpaw.agentscope.io/release-notes#v2.0.1)
-
-- [2026-07-10] **v2.0.0 — QwenPaw 2.0 Official Release** 🎉 | Полностью переписанный на основе AgentScope 2.0: архитектура Agent OS, Loop Engineering, Scroll Context, саморазвивающаяся персональная база знаний [ReMe](https://github.com/agentscope-ai/ReMe) v0.4 и встроенный TUI.
-
-  | Основное | Что нового |
-  |----------|-----------|
-  | **Agent OS — Workspace** | Три столпа на агента: **Resources** (прозрачно на диске), **Governance** (allow/deny/ask/sandbox), **Sandbox** (macOS / Linux / Windows). |
-  | **Agent OS — Drivers** | Протокол-нейтральный слой коннекторов MCP / A2A / ACP с шифрованием учётных данных и политикой на вызов. |
-  | **Loop Engineering** | Продвинутые шаблоны циклов агента (Coding Mode, Mission Mode, далее — больше) с компонуемыми вентилями одобрения. |
-  | **Scroll Context** | Каждый ход сохраняется; вытесненные ходы индексируются с recall по запросу — ничего не суммаризуется. |
-  | **[ReMe](https://github.com/agentscope-ai/ReMe) v0.4 — саморазвивающаяся персональная база знаний** | Непрерывно преобразует диалоги и материалы в читаемые, редактируемые, доступные для поиска и связанные между собой записи Markdown. |
-  | **Terminal UI (TUI)** | Полноэкранный терминальный чат — тот же агент, память и сессии, что в Console и каналах. |
-
-  На базе Agent OS мы будем выпускать готовые к использованию приложения QwenPaw — такие как **QwenPaw Creator** и **QwenPaw Insight** — следите за обновлениями. [v2.0.0 Release Notes →](https://qwenpaw.agentscope.io/release-notes#v2.0.0)
 
 [Все release notes →](https://qwenpaw.agentscope.io/release-notes)
 
