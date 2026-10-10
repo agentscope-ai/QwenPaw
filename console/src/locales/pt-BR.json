@@ -75,6 +75,7 @@
     "genericTitle": "Algo deu errado",
     "genericSubTitle": "Ocorreu um erro inesperado ao renderizar esta página.",
     "reload": "Recarregar",
+    "retry": "Tentar novamente",
     "details": "Ver detalhes do erro",
     "copy": "Copiar informações do erro",
     "copied": "Informações do erro copiadas",
