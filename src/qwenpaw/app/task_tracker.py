@@ -26,6 +26,10 @@ logger = logging.getLogger(__name__)
 
 _SENTINEL = None
 
+# Indirection so tests can simulate a failing task creation without
+# patching the process-wide ``asyncio`` module.
+_create_task = asyncio.create_task
+
 # Emitted to reconnect subscribers right after the buffered events, so
 # the client can render the replayed part instantly (no token-by-token
 # re-animation) and switch to live streaming afterwards.
@@ -278,7 +282,6 @@ class TaskTracker:
                 buffer=[],
                 owner=owner,
             )
-            self._runs[run_key] = run
 
             tracker_ref = weakref.ref(self)
 
@@ -339,7 +342,15 @@ class TaskTracker:
                                 None,
                             )
 
-            run.task = asyncio.create_task(_producer())
+            # Register the run only once the producer task exists.
+            # Registering a placeholder first would leak a permanent
+            # "running" entry -- the status counters read
+            # ``not state.task.done()``, and a bare Future is never done --
+            # if task creation ever failed. This is defensive hardening:
+            # the window is synchronous and a running loop cannot be
+            # closed, so the failure is not reachable in practice.
+            run.task = _create_task(_producer())
+            self._runs[run_key] = run
             return my_queue, True
 
     async def stream_from_queue(
