@@ -30,8 +30,9 @@ export function useDirectoryListing(
   const activeRequest = useRef<string>();
   const loadedKey = useRef<string>();
   const snapshot = useRef<Listing>();
+  const failedAppend = useRef(false);
   const [listing, setListing] = useState<Listing>();
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(enabled);
   const [failed, setFailed] = useState(false);
 
   const load = useCallback(
@@ -81,7 +82,10 @@ export function useDirectoryListing(
           cursor = page.next_cursor ?? undefined;
         }
       } catch {
-        if (isCurrent()) setFailed(true);
+        if (isCurrent()) {
+          failedAppend.current = append;
+          setFailed(true);
+        }
       } finally {
         if (isCurrent()) {
           activeRequest.current = undefined;
@@ -116,6 +120,7 @@ export function useDirectoryListing(
     loading,
     failed,
     reload: () => load(),
+    retry: () => load(failedAppend.current),
     loadMore: () => load(true),
   };
 }

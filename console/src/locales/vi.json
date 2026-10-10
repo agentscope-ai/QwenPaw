@@ -2343,6 +2343,7 @@
     "rootMissing": "Thiếu",
     "rootsPending": "{{count}} thư mục khác sẽ khả dụng sau tin nhắn đầu tiên",
     "sourceEmpty": "Nguồn này chưa có tệp.",
+    "listFailed": "Không thể tải danh sách thư mục. Vui lòng thử lại.",
     "loadMore": "Tải 200 mục tiếp theo",
     "upload": "Tải tệp lên",
     "conflictPolicy": "Chính sách xung đột tải lên",

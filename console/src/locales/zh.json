@@ -2855,6 +2855,7 @@
     "changeDirectoryTitle": "更换项目目录？",
     "changeDirectoryWarning": "当前项目仍有未保存的编辑或待处理差异。更换目录将丢弃这些内容。",
     "sourceEmpty": "此来源暂无可用文件。",
+    "listFailed": "目录列表加载失败，请重试。",
     "loadMore": "继续加载 200 项",
     "upload": "上传文件",
     "conflictPolicy": "上传冲突策略",

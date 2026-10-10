@@ -2258,6 +2258,7 @@
     "rootMissing": "見つかりません",
     "rootsPending": "他 {{count}} 件は最初のメッセージ送信後に利用できます",
     "sourceEmpty": "このソースにはまだファイルがありません。",
+    "listFailed": "ディレクトリ一覧を読み込めませんでした。再試行してください。",
     "loadMore": "次の200件を読み込む",
     "upload": "ファイルをアップロード",
     "conflictPolicy": "アップロード競合ポリシー",

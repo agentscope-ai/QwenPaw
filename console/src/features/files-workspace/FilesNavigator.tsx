@@ -177,6 +177,7 @@ function DirectoryNode({
     hasMore,
     loadMore,
     failed,
+    retry,
   } = useDirectoryListing(
     entry.path,
     root,
@@ -245,7 +246,24 @@ function DirectoryNode({
           {t("files.loadMore")}
         </button>
       )}
-      {expanded && failed && <div role="alert">{t("files.loadFailed")}</div>}
+      {expanded && failed && (
+        <div
+          className={styles.listingError}
+          style={{ paddingInlineStart: 12 + depth * 16 }}
+          role="alert"
+        >
+          <span>{t("files.listFailed")}</span>
+          <button
+            type="button"
+            className={styles.loadMore}
+            onClick={() => void retry()}
+            disabled={loading}
+          >
+            <RefreshCw size={14} aria-hidden="true" />
+            {t("common.retry")}
+          </button>
+        </div>
+      )}
     </>
   );
 }
@@ -420,6 +438,7 @@ export default function FilesNavigator({
     loading: rootLoading,
     failed: rootFailed,
     reload: loadRoot,
+    retry: retryRoot,
     loadMore: loadMoreRoot,
   } = useDirectoryListing(
     "",
@@ -1050,11 +1069,24 @@ export default function FilesNavigator({
               })
             )}
             {source === "workspace" && rootFailed && (
-              <div role="alert">{t("files.loadFailed")}</div>
+              <div className={styles.listingError} role="alert">
+                <span>{t("files.listFailed")}</span>
+                <button
+                  type="button"
+                  className={styles.loadMore}
+                  onClick={() => void retryRoot()}
+                  disabled={rootLoading}
+                >
+                  <RefreshCw size={14} aria-hidden="true" />
+                  {t("common.retry")}
+                </button>
+              </div>
             )}
-            {!navigatorLoading && displayEntries.length === 0 && (
-              <div className={styles.empty}>{t("files.sourceEmpty")}</div>
-            )}
+            {!navigatorLoading &&
+              !(source === "workspace" && rootFailed) &&
+              displayEntries.length === 0 && (
+                <div className={styles.empty}>{t("files.sourceEmpty")}</div>
+              )}
             {source === "workspace" && hasMore && (
               <button
                 type="button"

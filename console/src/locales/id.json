@@ -4048,6 +4048,7 @@
     "rootMissing": "Hilang",
     "rootsPending": "{{count}} lainnya tersedia setelah pesan pertama",
     "sourceEmpty": "Belum ada file di sumber ini.",
+    "listFailed": "Gagal memuat daftar isi direktori. Silakan coba lagi.",
     "loadMore": "Muat 200 berikutnya",
     "upload": "Unggah file",
     "conflictPolicy": "Kebijakan konflik unggahan",

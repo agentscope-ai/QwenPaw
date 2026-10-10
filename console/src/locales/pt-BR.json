@@ -2504,6 +2504,7 @@
     "rootMissing": "Ausente",
     "rootsPending": "{{count}} mais disponíveis após a primeira mensagem",
     "sourceEmpty": "Ainda não há arquivos nesta fonte.",
+    "listFailed": "Falha ao carregar a lista de arquivos do diretório. Tente novamente.",
     "loadMore": "Carregar próximos 200",
     "upload": "Enviar arquivos",
     "conflictPolicy": "Política de conflito de upload",

@@ -2995,6 +2995,7 @@
     "changeDirectoryTitle": "Change project directory?",
     "changeDirectoryWarning": "Unsaved edits or pending diffs are open in this project. Changing directories will discard them.",
     "sourceEmpty": "No files are available in this source yet.",
+    "listFailed": "Failed to load the directory listing. Please retry.",
     "loadMore": "Load next 200",
     "upload": "Upload files",
     "conflictPolicy": "Upload conflict policy",

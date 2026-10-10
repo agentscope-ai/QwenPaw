@@ -856,6 +856,25 @@
   }
 }
 
+.listingError {
+  padding: 8px 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  color: var(--app-error-text);
+  font-size: var(--app-font-caption);
+
+  > button {
+    width: 100%;
+    min-height: 40px;
+    margin: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+  }
+}
+
 .loadMore {
   width: calc(100% - 12px);
   height: auto;

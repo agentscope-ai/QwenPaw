@@ -61,7 +61,32 @@ function renderListing(
 }
 
 describe("directory listing request lifecycle", () => {
-  beforeEach(() => listDirectory.mockReset());
+  beforeEach(() => {
+    listDirectory.mockReset();
+  });
+
+  it.each([true, false])(
+    "reports the initial loading state before effects when enabled=%s",
+    (enabled) => {
+      listDirectory.mockReturnValue(deferred().promise);
+      const renders: boolean[] = [];
+      renderHook(() => {
+        const listing = useDirectoryListing(
+          "",
+          "project",
+          undefined,
+          undefined,
+          "agent:default",
+          0,
+          enabled,
+        );
+        renders.push(listing.loading);
+        return listing;
+      });
+      expect(renders[0]).toBe(enabled);
+      expect(listDirectory).toHaveBeenCalledTimes(enabled ? 1 : 0);
+    },
+  );
 
   it("ignores a stale first-page response after refreshing", async () => {
     const old = deferred();
