@@ -268,6 +268,7 @@ export function HubModelIdentityFields({
         rules={[
           {
             required: true,
+            transform: (value) => value ?? inputDefault,
             type: "number",
             min: 1000,
             max: knownInput ?? 10000000,
