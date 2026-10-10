@@ -425,6 +425,9 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
     app.state.multi_agent_manager = workspace_registry
     app.state.provider_manager = provider_manager
     app.state.local_model_manager = local_model_manager
+    from ..coding_cli.service import CodingCliService
+
+    app.state.coding_cli_service = CodingCliService()
     app.state.backup_manager = backup_manager
     app.state.plugin_loader = None
     app.state.plugin_registry = None
