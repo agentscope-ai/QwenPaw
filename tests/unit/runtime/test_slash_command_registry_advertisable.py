@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """Tests for SlashCommandRegistry.advertisable_commands()."""
+
 from __future__ import annotations
 
 import pytest
@@ -148,13 +149,13 @@ class TestOwnerAwareRegistration:
         original = CommandSpec(name="taken", handler=_noop_handler)
         registry.register(original)
 
-        with pytest.raises(ValueError, match="already registered"):
+        with pytest.raises(ValueError, match="already registered|未标注归属"):
             registry.register(
                 CommandSpec(
                     name=name,
                     aliases=aliases,
                     handler=_noop_handler,
-                    owner_id="plugin-a",
+                    owner_plugin_id="plugin-a",
                 ),
             )
 
@@ -167,7 +168,7 @@ class TestOwnerAwareRegistration:
         plugin = CommandSpec(
             name="plugin",
             handler=_noop_handler,
-            owner_id="plugin-a",
+            owner_plugin_id="plugin-a",
         )
         registry.register(builtin)
         registry.register(plugin)
@@ -177,7 +178,7 @@ class TestOwnerAwareRegistration:
                 CommandSpec(
                     name="builtin",
                     handler=_noop_handler,
-                    owner_id="plugin-a",
+                    owner_plugin_id="plugin-a",
                 ),
             )
         with pytest.raises(ValueError):
@@ -185,14 +186,14 @@ class TestOwnerAwareRegistration:
                 CommandSpec(
                     name="plugin",
                     handler=_noop_handler,
-                    owner_id="plugin-b",
+                    owner_plugin_id="plugin-b",
                 ),
             )
 
         assert registry.resolve("/builtin")[0] is builtin
         assert registry.resolve("/plugin")[0] is plugin
 
-    def test_same_owner_replaces_handler_and_removes_stale_aliases(
+    def test_reload_revokes_old_identity_before_registering_new(
         self,
     ) -> None:
         registry = SlashCommandRegistry()
@@ -208,16 +209,22 @@ class TestOwnerAwareRegistration:
                 name="deploy",
                 aliases=("old", "legacy"),
                 handler=old_handler,
-                owner_id="plugin-a",
+                owner_plugin_id="plugin-a",
             ),
         )
         replacement = CommandSpec(
             name="deploy",
             aliases=("new",),
             handler=new_handler,
-            owner_id="plugin-a",
+            owner_plugin_id="plugin-a",
         )
+        with pytest.raises(ValueError, match="plugin-a"):
+            registry.register(replacement)
+        assert registry.resolve("/deploy")[0].handler is old_handler
+        original = registry.resolve("/deploy")[0]
+        assert registry.unregister("deploy", expected=original)
         registry.register(replacement)
+        assert not registry.unregister("deploy", expected=original)
 
         assert registry.names() == ["deploy", "new"]
         assert registry.resolve("/deploy")[0].handler is new_handler
@@ -233,17 +240,17 @@ class TestOwnerAwareRegistration:
             name="alpha",
             aliases=("shared",),
             handler=_noop_handler,
-            owner_id="plugin-a",
+            owner_plugin_id="plugin-a",
         )
         registry.register(original)
 
-        with pytest.raises(ValueError, match="already registered"):
+        with pytest.raises(ValueError, match="already registered|未标注归属"):
             registry.register(
                 CommandSpec(
                     name="beta",
                     aliases=("shared",),
                     handler=_noop_handler,
-                    owner_id="plugin-a",
+                    owner_plugin_id="plugin-a",
                 ),
             )
 
@@ -252,31 +259,37 @@ class TestOwnerAwareRegistration:
         assert registry.resolve("/shared")[0] is original
         assert registry.resolve("/beta") is None
 
-    def test_unregister_owner_removes_only_owners_mappings(self) -> None:
+    def test_unregister_removes_only_expected_identity(self) -> None:
         registry = SlashCommandRegistry()
         builtin = CommandSpec(name="builtin", handler=_noop_handler)
         other = CommandSpec(
             name="other",
-            aliases=("other-alias",),
             handler=_noop_handler,
-            owner_id="plugin-b",
+            owner_plugin_id="plugin-b",
         )
-        registry.register(builtin)
-        registry.register(
-            CommandSpec(
-                name="owned",
-                aliases=("owned-alias",),
-                handler=_noop_handler,
-                owner_id="plugin-a",
-            ),
+        owned = CommandSpec(
+            name="owned",
+            aliases=("owned-alias",),
+            handler=_noop_handler,
+            owner_plugin_id="plugin-a",
         )
-        registry.register(other)
-
-        assert registry.unregister_owner("plugin-a") == [
-            "owned",
-            "owned-alias",
-        ]
-        assert registry.names() == ["builtin", "other", "other-alias"]
+        for spec in (builtin, owned, other):
+            registry.register(spec)
+        assert not registry.unregister("owned", expected=other)
+        assert registry.unregister("owned", expected=owned)
+        assert registry.names() == ["builtin", "other"]
         assert registry.resolve("/builtin")[0] is builtin
         assert registry.resolve("/other")[0] is other
-        assert registry.unregister_owner("") == []
+
+    @pytest.mark.parametrize("aliases", [("SEARCH",), ("x", "X")])
+    def test_duplicate_aliases_leave_registry_unchanged(self, aliases):
+        registry = SlashCommandRegistry()
+        with pytest.raises(ValueError, match="duplicate names"):
+            registry.register(
+                CommandSpec(
+                    name="search",
+                    aliases=aliases,
+                    handler=_noop_handler,
+                )
+            )
+        assert registry.names() == []

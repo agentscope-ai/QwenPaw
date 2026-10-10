@@ -17,6 +17,7 @@ import sys
 import types
 from pathlib import Path
 from typing import Dict
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 
@@ -439,8 +440,11 @@ class TestLoadAllPluginsIsolation:
         assert "zzz-good" in loaded
         assert loaded["zzz-good"].enabled is True
 
-        # Bad plugin is NOT in loaded dict
-        assert "aaa-bad" not in loaded
+        # Failed register() stays as a FAILED record so repair/uninstall
+        # can still find it. Runtime hooks from the failed load are gone.
+        assert "aaa-bad" in loaded
+        assert loaded["aaa-bad"].status == "failed"
+        assert loaded["aaa-bad"].enabled is False
 
         # Registry contains only the good plugin's hook, not the bad one
         hooks = fresh_registry.get_startup_hooks()
@@ -451,3 +455,73 @@ class TestLoadAllPluginsIsolation:
         # No manifest residue from bad plugin
         assert fresh_registry.get_plugin_manifest("aaa-bad") is None
         assert fresh_registry.get_plugin_manifest("zzz-good") is not None
+
+
+def _ownership_probe(tmp_path):
+    root = tmp_path / "delegate-probe"
+    imported, registered, started = [
+        tmp_path / name for name in ("imported", "registered", "started")
+    ]
+    manifest = _write_plugin(
+        root,
+        "from pathlib import Path\n"
+        f"Path({str(imported)!r}).touch()\n"
+        "class Plugin:\n"
+        "    def register(self, api):\n"
+        f"        Path({str(registered)!r}).touch()\n"
+        "        api.register_startup_hook('start', "
+        f"lambda: Path({str(started)!r}).touch())\n"
+        "plugin = Plugin()\n",
+    )
+    from qwenpaw.plugins.architecture import PluginManifest
+
+    return (
+        root,
+        PluginManifest.from_dict(manifest),
+        (imported, registered, started),
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "entry,activate",
+    [("facade", False), ("loader", True)],
+)
+async def test_unowned_load_has_no_local_effects(
+    loader,
+    tmp_path,
+    monkeypatch,
+    entry,
+    activate,
+):
+    monkeypatch.setattr("qwenpaw.constant.WORKING_DIR", tmp_path / "work")
+    root, manifest, markers = _ownership_probe(tmp_path)
+    loader.lifecycle.delegate.owns_commit = Mock(return_value=False)
+    dependencies = AsyncMock()
+    monkeypatch.setattr(loader, "_ensure_dependencies_installed", dependencies)
+    load = loader.lifecycle.load if entry == "facade" else loader.load_plugin
+    with pytest.raises(RuntimeError, match="commit is not owned"):
+        await load(manifest, root, activate=activate, allow_install=True)
+    dependencies.assert_not_called()
+    assert not any(marker.exists() for marker in markers)
+    assert loader.lifecycle.get_instance(manifest.id) is None
+    assert loader.get_loaded_plugin(manifest.id) is None
+
+
+@pytest.mark.asyncio
+async def test_owned_load_preserves_foreign_dependency_environment(
+    loader,
+    tmp_path,
+    monkeypatch,
+):
+    monkeypatch.setattr("qwenpaw.constant.WORKING_DIR", tmp_path / "work")
+    root, manifest, markers = _ownership_probe(tmp_path)
+    loader.lifecycle.delegate.owns_dependency_env = Mock(return_value=False)
+    (root / "requirements.txt").write_text("foreign-environment==1")
+    install = AsyncMock(side_effect=AssertionError("must not install"))
+    monkeypatch.setattr(loader, "_install_requirements_locked", install)
+    record = await loader.lifecycle.load(manifest, root, allow_install=True)
+    assert record.status == "active"
+    assert all(marker.exists() for marker in markers)
+    install.assert_not_called()
+    await loader.unload_plugin(manifest.id)

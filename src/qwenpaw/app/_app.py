@@ -99,6 +99,42 @@ async def _sync_scroll_history_on_startup() -> None:
         logger.warning("session-sync: import/launch failed", exc_info=True)
 
 
+async def _shutdown_plugins(app: FastAPI) -> None:
+    """Tear down plugin runtime resources before other services stop."""
+    plugin_loader = getattr(app.state, "plugin_loader", None)
+    if plugin_loader is not None:
+        logger.info("Executing plugin shutdown (mode=shutdown)...")
+        from ..plugins.lifecycle import UnloadMode
+
+        await plugin_loader.lifecycle.unload_all(UnloadMode.SHUTDOWN)
+        return
+    plugin_registry = getattr(app.state, "plugin_registry", None)
+    if plugin_registry is None:
+        return
+    logger.info("Executing plugin shutdown hooks...")
+    for hook in plugin_registry.get_shutdown_hooks():
+        try:
+            logger.info(
+                f"Executing shutdown hook '{hook.hook_name}' "
+                f"from plugin '{hook.plugin_id}' (priority"
+                f"={hook.priority})",
+            )
+            result = hook.callback()
+            if inspect.iscoroutine(result) or inspect.isawaitable(result):
+                await result
+            logger.info(
+                f"✓ Completed shutdown hook '{hook.hook_name}' "
+                f"from plugin '{hook.plugin_id}'",
+            )
+        except Exception as exc:
+            logger.error(
+                f"✗ Failed to execute shutdown hook "
+                f"'{hook.hook_name}' "
+                f"from plugin '{hook.plugin_id}': {exc}",
+                exc_info=True,
+            )
+
+
 async def _browser_idle_watchdog(kernel: Any, interval: float) -> None:
     """Periodically reclaim idle browser workers for this app process."""
     while True:
@@ -154,32 +190,7 @@ async def _stop_workspaces_after_dependents_impl(
         # released its workspace. The process watchdog is the cutoff.
         imports_quiesced = await import_jobs.drain()
 
-    plugin_registry = getattr(app.state, "plugin_registry", None)
-    if plugin_registry is not None:
-        logger.info("Executing plugin shutdown hooks...")
-        for hook in plugin_registry.get_shutdown_hooks():
-            try:
-                logger.info(
-                    f"Executing shutdown hook '{hook.hook_name}' "
-                    f"from plugin '{hook.plugin_id}' (priority"
-                    f"={hook.priority})",
-                )
-                result = hook.callback()
-                if inspect.iscoroutine(result) or inspect.isawaitable(result):
-                    await result
-                logger.info(
-                    f"✓ Completed shutdown hook '{hook.hook_name}' "
-                    f"from plugin '{hook.plugin_id}'",
-                )
-            except Exception as exc:
-                logger.error(
-                    "✗ Failed to execute shutdown hook '%s' "
-                    "from plugin '%s': %s",
-                    hook.hook_name,
-                    hook.plugin_id,
-                    exc,
-                    exc_info=True,
-                )
+    await _shutdown_plugins(app)
 
     # Hooks may access live workspaces. Stop them before unrelated cleanup
     # delays the memory drain, but only after their dependents have finished.
@@ -509,10 +520,11 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
                 f"Loading plugins with {len(plugin_configs)} config(s)",
             )
 
-            # Phase 1: load startup-critical plugins before agents start
+            # Phase 1: register only; projection waits for activate_all
             await plugin_loader.load_all_plugins(
                 configs=plugin_configs,
                 types=["channel", "memory"],
+                activate=False,
             )
             logger.debug("Phase 1: channel and memory plugins loaded")
 
@@ -552,6 +564,7 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
             # loaded — load_plugin skips them automatically)
             loaded_plugins = await plugin_loader.load_all_plugins(
                 configs=plugin_configs,
+                activate=False,
             )
             logger.debug(f"Loaded {len(loaded_plugins)} plugin(s)")
 
@@ -563,84 +576,11 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
                 workspace_registry,
             )
 
-            for (
-                provider_id,
-                provider_reg,
-            ) in plugin_loader.registry.get_all_providers().items():
-                await provider_manager.register_plugin_provider_async(
-                    provider_id=provider_id,
-                    provider_class=provider_reg.provider_class,
-                    label=provider_reg.label,
-                    base_url=provider_reg.base_url,
-                    metadata=provider_reg.metadata,
-                )
-                logger.debug(
-                    f"Registered plugin provider: {provider_id}",
-                )
-
             app.state.plugin_loader = plugin_loader
             app.state.plugin_registry = plugin_loader.registry
 
-            # ---- Plugin Control Commands ----
-            logger.debug("Registering plugin control commands...")
-            from qwenpaw.runtime.commands.control import register_command
-
-            from ..app.channels.command_registry import CommandRegistry
-
-            command_registry = CommandRegistry()
-
-            control_commands = plugin_loader.registry.get_control_commands()
-            for cmd_reg in control_commands:
-                try:
-                    register_command(cmd_reg.handler)
-
-                    command_registry.register_command(
-                        f"/{cmd_reg.handler.command_name}",
-                        priority_level=cmd_reg.priority_level,
-                    )
-
-                    logger.debug(
-                        f"Registered plugin control command: "
-                        f"/{cmd_reg.handler.command_name} "
-                        f"from plugin '{cmd_reg.plugin_id}' (priority"
-                        f"={cmd_reg.priority_level})",
-                    )
-                except Exception as e:
-                    logger.error(
-                        f"✗ Failed to register control command "
-                        f"'{cmd_reg.handler.command_name}' "
-                        f"from plugin '{cmd_reg.plugin_id}': {e}",
-                        exc_info=True,
-                    )
-
-            # ---- Startup Hooks ----
-            logger.debug("Executing plugin startup hooks...")
-            startup_hooks = plugin_loader.registry.get_startup_hooks()
-            for hook in startup_hooks:
-                try:
-                    logger.debug(
-                        f"Executing startup hook '{hook.hook_name}' "
-                        f"from plugin '{hook.plugin_id}' "
-                        f"(priority={hook.priority})",
-                    )
-
-                    result = hook.callback()
-                    if inspect.iscoroutine(
-                        result,
-                    ) or inspect.isawaitable(result):
-                        await result
-
-                    logger.debug(
-                        f"Completed startup hook '{hook.hook_name}' "
-                        f"from plugin '{hook.plugin_id}'",
-                    )
-                except Exception as e:
-                    logger.error(
-                        f"✗ Failed to execute startup hook "
-                        f"'{hook.hook_name}' "
-                        f"from plugin '{hook.plugin_id}': {e}",
-                        exc_info=True,
-                    )
+            logger.debug("Activating loaded plugins...")
+            await plugin_loader.activate_all_loaded()
 
             # ---- Approval Service ----
             try:

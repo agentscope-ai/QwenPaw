@@ -19,6 +19,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from ...runtime.hooks import HookRegistry
+from ...runtime.occupancy import occupancy_conflict
 from ...runtime.prompt_manager import PromptManager
 from ...runtime.slash_command_registry import SlashCommandRegistry
 from ...runtime.tool_registry import ToolRegistry
@@ -40,21 +41,101 @@ class WorkspacePlugins:
     tool_registry: ToolRegistry = field(default_factory=ToolRegistry)
     prompt_manager: PromptManager = field(default_factory=PromptManager)
     modes: list["AgentMode"] = field(default_factory=list)
+    _pending_modes: list["AgentMode"] = field(default_factory=list, repr=False)
     stop_handlers: list["StopHandlerRegistration"] = field(
         default_factory=list,
     )
 
     def register_mode(self, mode: "AgentMode", workspace: object) -> None:
-        """Add ``mode`` and immediately run its ``setup(workspace)``.
+        """Run ``setup`` first, then enter the table.
 
         Duplicate names are rejected — collisions usually mean two
         bootstrap paths both think they own the mode and silently
         double-registering would cause subtle dispatch ambiguities.
+        A failed ``setup`` rolls back via ``teardown`` and does not
+        leave the mode in the table.
         """
-        if any(m.name == mode.name for m in self.modes):
-            raise ValueError(f"AgentMode {mode.name!r} already registered")
+        occupant = next(
+            (
+                m
+                for m in (*self.modes, *self._pending_modes)
+                if m.name == mode.name
+            ),
+            None,
+        )
+        if occupant is not None:
+            raise ValueError(
+                occupancy_conflict(
+                    "AgentMode",
+                    mode.name,
+                    getattr(occupant, "owner_plugin_id", "") or "",
+                ),
+            )
+        try:
+            mode.setup(workspace)
+        except Exception:
+            try:
+                teardown = getattr(mode, "teardown", None)
+                if callable(teardown):
+                    teardown(workspace)
+            except Exception as cleanup_exc:
+                # Setup may already have opened a resource. Retain the mode
+                # for rollback instead of claiming the failed setup is clean.
+                self._pending_modes.append(mode)
+                cleanup_exc.binding = mode
+                raise
+            raise
         self.modes.append(mode)
-        mode.setup(workspace)
+
+    def unregister_mode(
+        self,
+        name: str,
+        workspace: object,
+        expected: object | None = None,
+    ) -> bool:
+        """Remove a mode only if *expected* still occupies the row."""
+        for modes in (self.modes, self._pending_modes):
+            for index, mode in enumerate(modes):
+                if mode.name != name:
+                    continue
+                if expected is not None and mode is not expected:
+                    continue
+                teardown = getattr(mode, "teardown", None)
+                if callable(teardown):
+                    teardown(workspace)
+                modes.pop(index)
+                return True
+        return False
+
+    def register_stop_handler(self, reg: "StopHandlerRegistration") -> None:
+        """Append a stop handler; duplicate names name the occupant."""
+        occupant = next(
+            (item for item in self.stop_handlers if item.name == reg.name),
+            None,
+        )
+        if occupant is not None:
+            owner = getattr(occupant, "owner_plugin_id", "") or ""
+            raise ValueError(
+                occupancy_conflict("stop handler", reg.name, owner),
+            )
+        self.stop_handlers.append(reg)
+
+    def unregister_stop_handler(
+        self,
+        name: str,
+        expected: object | None = None,
+    ) -> bool:
+        """Remove a stop handler only if *expected* still occupies the row."""
+        before = len(self.stop_handlers)
+        kept = []
+        for item in self.stop_handlers:
+            if item.name != name:
+                kept.append(item)
+                continue
+            if expected is not None and item is not expected:
+                kept.append(item)
+        self.stop_handlers = kept
+        return len(self.stop_handlers) < before
 
     def active_mode_names(self, ctx: "HookContext") -> set[str]:
         """Return the names of every mode reporting ``is_active(ctx)``.

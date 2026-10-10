@@ -239,3 +239,4 @@ class PluginRecord:
     enabled: bool
     instance: Optional[Any] = None
     diagnostics: List[str] = field(default_factory=list)
+    status: str = "active"

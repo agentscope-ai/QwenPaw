@@ -20,7 +20,6 @@ from unittest.mock import MagicMock
 
 import pytest
 
-
 # ---------------------------------------------------------------------------
 # Stub missing agentscope 2.0 modules so MultiAgentManager can be imported
 # in environments where agentscope 2.0 is not installed.
@@ -74,7 +73,7 @@ def plugin_api(fresh_registry):
 
 
 class TestSlashCommandLifecycle:
-    """Plugin slash commands retain ownership across load and unload."""
+    """Plugin slash commands use successful registration identities."""
 
     @staticmethod
     def _workspace(agent_id="ws-1"):
@@ -87,7 +86,8 @@ class TestSlashCommandLifecycle:
             ),
         )
 
-    def test_plugin_api_stamps_command_owner(
+    @pytest.mark.asyncio
+    async def test_plugin_api_stamps_command_owner(
         self,
         plugin_api,
         fresh_registry,
@@ -96,81 +96,84 @@ class TestSlashCommandLifecycle:
         fresh_registry.set_workspace_manager(
             SimpleNamespace(agents={workspace.agent_id: workspace}),
         )
-
         plugin_api.register_slash_command("owned", MagicMock())
-        hook = next(
-            hook
-            for hook in fresh_registry.get_startup_hooks()
-            if hook.hook_name == "slash_cmd_test-plugin_owned"
+        await fresh_registry.projector.project(
+            "slash_command", "owned", "test-plugin"
         )
-        hook.callback()
-
         spec, _args = workspace.plugins.slash_command_registry.resolve(
-            "/owned",
+            "/owned"
         )
-        assert spec.owner_id == "test-plugin"
+        assert spec.owner_plugin_id == "test-plugin"
 
-    def test_plugin_collision_is_error_logged_and_propagated(
+    @pytest.mark.asyncio
+    async def test_plugin_collision_is_error_logged_and_propagated(
         self,
         plugin_api,
         fresh_registry,
         caplog,
     ):
         from qwenpaw.runtime.slash_command_registry import CommandSpec
+        from qwenpaw.plugins.workspace_projector import ProjectionError
 
         workspace = self._workspace()
-        workspace.plugins.slash_command_registry.register(
-            CommandSpec(name="reserved", handler=MagicMock()),
-        )
+        original = CommandSpec(name="reserved", handler=MagicMock())
+        workspace.plugins.slash_command_registry.register(original)
         fresh_registry.set_workspace_manager(
             SimpleNamespace(agents={workspace.agent_id: workspace}),
         )
         plugin_api.register_slash_command("reserved", MagicMock())
-        hook = next(
-            hook
-            for hook in fresh_registry.get_startup_hooks()
-            if hook.hook_name == "slash_cmd_test-plugin_reserved"
+        with caplog.at_level(logging.ERROR, logger="qwenpaw.plugins.api"):
+            with pytest.raises(ProjectionError):
+                await fresh_registry.projector.project(
+                    "slash_command", "reserved", "test-plugin"
+                )
+        assert "Projection slash_command failed" in caplog.text
+        await fresh_registry.projector.revoke(
+            "slash_command", "reserved", "test-plugin"
+        )
+        assert (
+            workspace.plugins.slash_command_registry.resolve("/reserved")[0]
+            is original
         )
 
-        with caplog.at_level(logging.ERROR, logger="qwenpaw.plugins.api"):
-            with pytest.raises(ValueError, match="already registered"):
-                hook.callback()
-
-        assert "failed to register slash command '/reserved'" in caplog.text
-
-    def test_plugin_collision_does_not_partially_register_workspaces(
+    @pytest.mark.asyncio
+    async def test_failed_projection_can_revoke_only_successful_bindings(
         self,
         plugin_api,
         fresh_registry,
     ):
         from qwenpaw.runtime.slash_command_registry import CommandSpec
+        from qwenpaw.plugins.workspace_projector import ProjectionError
 
         first = self._workspace("ws-1")
         second = self._workspace("ws-2")
-        second.plugins.slash_command_registry.register(
-            CommandSpec(name="reserved", handler=MagicMock()),
-        )
+        occupant = CommandSpec(name="reserved", handler=MagicMock())
+        second.plugins.slash_command_registry.register(occupant)
         fresh_registry.set_workspace_manager(
             SimpleNamespace(agents={"ws-1": first, "ws-2": second}),
         )
         plugin_api.register_slash_command("reserved", MagicMock())
-        hook = next(
-            hook
-            for hook in fresh_registry.get_startup_hooks()
-            if hook.hook_name == "slash_cmd_test-plugin_reserved"
+        with pytest.raises(ProjectionError):
+            await fresh_registry.projector.project(
+                "slash_command", "reserved", "test-plugin"
+            )
+        await fresh_registry.projector.revoke(
+            "slash_command", "reserved", "test-plugin"
         )
-
-        with pytest.raises(ValueError, match="already registered"):
-            hook.callback()
-
         assert (
             first.plugins.slash_command_registry.resolve("/reserved") is None
         )
+        assert (
+            second.plugins.slash_command_registry.resolve("/reserved")[0]
+            is occupant
+        )
 
     @pytest.mark.asyncio
-    async def test_unload_removes_only_owned_commands_and_allows_reload(
+    async def test_unload_revokes_bindings_and_reports_untracked_rows(
         self,
+        plugin_api,
         fresh_registry,
+        tmp_path,
     ):
         from qwenpaw.plugins.architecture import (
             PluginEntryPoints,
@@ -183,72 +186,51 @@ class TestSlashCommandLifecycle:
         workspace = self._workspace()
         commands = workspace.plugins.slash_command_registry
         builtin = CommandSpec(name="builtin", handler=MagicMock())
-        other = CommandSpec(
-            name="other",
+        untracked = CommandSpec(
+            name="untracked",
             handler=MagicMock(),
-            owner_id="other-plugin",
+            owner_plugin_id="test-plugin",
         )
         commands.register(builtin)
-        commands.register(
-            CommandSpec(
-                name="reloadable",
-                aliases=("stale",),
-                handler=MagicMock(),
-                owner_id="test-plugin",
-            ),
-        )
-        commands.register(other)
-        second_workspace = self._workspace("ws-2")
-        second_commands = second_workspace.plugins.slash_command_registry
-        second_commands.register(builtin)
-        second_commands.register(
-            CommandSpec(
-                name="reloadable",
-                handler=MagicMock(),
-                owner_id="test-plugin",
-            ),
-        )
+        commands.register(untracked)
         fresh_registry.set_workspace_manager(
-            SimpleNamespace(
-                agents={
-                    workspace.agent_id: workspace,
-                    second_workspace.agent_id: second_workspace,
-                },
-            ),
+            SimpleNamespace(agents={workspace.agent_id: workspace})
         )
-
         loader = PluginLoader(plugin_dirs=[])
-        loader.registry = fresh_registry
-        manifest = PluginManifest(
-            id="test-plugin",
-            name="Test",
-            version="1.0.0",
-            entry=PluginEntryPoints(backend="plugin.py"),
+        instance = loader.lifecycle.ensure_instance("test-plugin")
+        plugin_api.bind_instance(instance)
+        plugin_api.register_slash_command(
+            "reloadable", MagicMock(), aliases=("stale",)
+        )
+        await fresh_registry.projector.project(
+            "slash_command", "reloadable", "test-plugin"
         )
         loader._loaded_plugins["test-plugin"] = PluginRecord(
-            manifest=manifest,
-            source_path=Path("/fake-slash-plugin"),
+            manifest=PluginManifest(
+                id="test-plugin",
+                name="Test",
+                version="1.0.0",
+                entry=PluginEntryPoints(backend="plugin.py"),
+            ),
+            source_path=tmp_path,
             enabled=True,
             instance=None,
+            status="active",
         )
-
-        await loader.unload_plugin("test-plugin")
-
-        assert commands.names() == ["builtin", "other"]
+        report = await loader.unload_plugin("test-plugin")
+        assert commands.names() == ["builtin", "untracked"]
         assert commands.resolve("/builtin")[0] is builtin
-        assert commands.resolve("/other")[0] is other
-        assert second_commands.names() == ["builtin"]
-        assert second_commands.resolve("/builtin")[0] is builtin
-
+        assert commands.resolve("/untracked")[0] is untracked
+        assert not report.clean
+        assert report.workspace_leaks
         replacement = CommandSpec(
             name="reloadable",
             aliases=("fresh",),
             handler=MagicMock(),
-            owner_id="test-plugin",
+            owner_plugin_id="test-plugin",
         )
         commands.register(replacement)
         assert commands.resolve("/reloadable")[0] is replacement
-        assert commands.resolve("/fresh")[0] is replacement
         assert commands.resolve("/stale") is None
 
 
@@ -267,11 +249,12 @@ class TestUninstallHook:
     ):
         """Uninstall hooks are stored in registry after registration."""
         callback = MagicMock()
-        plugin_api.register_uninstall_hook(
-            hook_name="test_cleanup",
-            callback=callback,
-            priority=50,
-        )
+        with pytest.warns(DeprecationWarning, match="register_uninstall_hook"):
+            plugin_api.register_uninstall_hook(
+                hook_name="test_cleanup",
+                callback=callback,
+                priority=50,
+            )
 
         hooks = fresh_registry.get_uninstall_hooks()
         assert len(hooks) == 1
@@ -279,6 +262,12 @@ class TestUninstallHook:
         assert hooks[0].hook_name == "test_cleanup"
         assert hooks[0].callback is callback
         assert hooks[0].priority == 50
+
+    def test_legacy_hooks_are_deprecated(self, plugin_api):
+        with pytest.warns(DeprecationWarning, match="register_uninstall_hook"):
+            plugin_api.register_uninstall_hook("u", lambda: None)
+        with pytest.warns(DeprecationWarning, match="register_shutdown_hook"):
+            plugin_api.register_shutdown_hook("s", lambda: None)
 
     def test_uninstall_hooks_sorted_by_priority(
         self,
@@ -640,7 +629,11 @@ class TestRegisterSkillProvider:
         plugin_api,
         fresh_registry,
     ):
-        """register_skill_provider registers startup and uninstall hooks."""
+        """register_skill_provider uses install-layer teardown, not hooks."""
+        from qwenpaw.plugins.lifecycle import PluginInstance
+
+        inst = PluginInstance("test-plugin")
+        plugin_api.bind_instance(inst)
         with tempfile.TemporaryDirectory() as tmpdir:
             skills_dir = Path(tmpdir)
             # Create a fake skill
@@ -662,10 +655,11 @@ class TestRegisterSkillProvider:
         startup_names = [h.hook_name for h in startup_hooks]
         assert "install_skills_test-plugin" in startup_names
 
-        # Check uninstall hook registered
         uninstall_hooks = fresh_registry.get_uninstall_hooks()
-        uninstall_names = [h.hook_name for h in uninstall_hooks]
-        assert "uninstall_skills_test-plugin" in uninstall_names
+        assert uninstall_hooks == []
+        assert any(
+            entry.desc.startswith("skill_provider:") for entry in inst._install
+        )
 
     def test_register_skill_provider_default_channels(
         self,
@@ -718,6 +712,50 @@ class TestRegisterSkillProvider:
         hooks = fresh_registry.get_workspace_created_hooks()
         hook_names = [h.hook_name for h in hooks]
         assert "provision_skills_test-plugin" in hook_names
+
+    def test_skill_install_records_provision_inventory(
+        self,
+        plugin_api,
+        tmp_path: Path,
+        monkeypatch,
+    ):
+        """Skill copy goes through provision_files (hash / create branch)."""
+        from qwenpaw.plugins.lifecycle import PluginInstance
+        from qwenpaw.plugins.provision import load_inventory
+
+        monkeypatch.setattr(
+            "qwenpaw.constant.WORKING_DIR",
+            tmp_path / "work",
+        )
+        inst = PluginInstance("test-plugin")
+        plugin_api.bind_instance(inst)
+        plugin_api.manifest = {
+            "id": "test-plugin",
+            "version": "3.1.0",
+        }
+        skills_dir = tmp_path / "skills"
+        skill_dir = skills_dir / "hashed-skill"
+        skill_dir.mkdir(parents=True)
+        (skill_dir / "SKILL.md").write_text(
+            "---\nname: hashed\n---\nHi.",
+            encoding="utf-8",
+        )
+        workspace = tmp_path / "ws"
+        workspace.mkdir()
+        plugin_api._install_skills_into_workspace(
+            {"workspace_dir": str(workspace), "agent_id": "a"},
+            skills_dir,
+            "plugin:test-plugin",
+            True,
+            ["all"],
+        )
+        dest = workspace / "skills" / "hashed-skill"
+        data = load_inventory("test-plugin")
+        loc = data["locations"][str(dest)]
+        assert loc["owned"] is True
+        assert "branch" not in loc
+        assert loc["version"] == "3.1.0"
+        assert loc["files"]["SKILL.md"]["factory_hash"]
 
 
 # ---------------------------------------------------------------------------

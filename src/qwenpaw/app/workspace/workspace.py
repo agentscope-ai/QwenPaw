@@ -840,6 +840,12 @@ class Workspace:
             f"{sanitize_log_value(self.agent_id)} (final={final})",
         )
 
+        # Revoke this instance's plugin bindings while its managers are alive.
+        # Reload candidates and draining old instances may share an agent id.
+        from ...plugins.registry import PluginRegistry
+
+        await PluginRegistry().projector.revoke_workspace(self)
+
         # Stop all services via ServiceManager (handles reuse automatically)
         await self._service_manager.stop_all(
             final=final,

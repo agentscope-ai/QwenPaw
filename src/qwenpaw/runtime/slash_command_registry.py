@@ -14,6 +14,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Awaitable, Callable
 
+from .occupancy import occupancy_conflict
+
 if TYPE_CHECKING:
     from agentscope.message import Msg
 
@@ -31,8 +33,8 @@ class CommandSpec:
     ``aliases`` are extra names that resolve to the same handler.
     ``category`` records the origin (``"daemon"`` / ``"control"`` /
     ``"conversation"`` / ``"skill"`` / ``"auto"`` / ``"user"``) so future
-    introspection can group commands without re-parsing source. ``owner_id``
-    identifies plugin commands; built-in commands remain ownerless.
+    introspection can group commands without re-parsing source.
+    ``owner_plugin_id`` identifies plugin commands; built-ins remain ownerless.
     """
 
     name: str
@@ -41,7 +43,7 @@ class CommandSpec:
     category: str = "user"
     help_text: str = ""
     metadata: dict[str, Any] = field(default_factory=dict)
-    owner_id: str | None = None
+    owner_plugin_id: str = ""
 
 
 class SlashCommandRegistry:
@@ -58,71 +60,48 @@ class SlashCommandRegistry:
         self._fallback: FallbackHandler | None = None
 
     # ---------------------------------------------------------------- register
-    def _validate_registration(
-        self,
-        spec: CommandSpec,
-    ) -> tuple[tuple[str, ...], CommandSpec | None]:
+    def _validate_registration(self, spec: CommandSpec) -> tuple[str, ...]:
         names = (spec.name, *spec.aliases)
         keys = tuple(name.lower() for name in names)
         if any(not key for key in keys):
-            raise ValueError(
-                f"command spec has empty name in {names!r}",
-            )
+            raise ValueError(f"command spec has empty name in {names!r}")
         if len(set(keys)) != len(keys):
-            raise ValueError(
-                f"command spec has duplicate names in {names!r}",
-            )
-
-        canonical_key = keys[0]
-        replacement = self._by_name.get(canonical_key)
-        if replacement is not None and (
-            not spec.owner_id
-            or replacement.owner_id != spec.owner_id
-            or replacement.name.lower() != canonical_key
-        ):
-            replacement = None
-
+            raise ValueError(f"command spec has duplicate names in {names!r}")
         for key in keys:
-            existing = self._by_name.get(key)
-            if existing is None or existing is replacement:
-                continue
-            owner = existing.owner_id or existing.category
-            raise ValueError(
-                f"command /{key} already registered "
-                f"by {owner} ({existing.name})",
-            )
-        return keys, replacement
+            if key in self._by_name:
+                existing = self._by_name[key]
+                raise ValueError(
+                    occupancy_conflict(
+                        "command",
+                        f"/{key}",
+                        getattr(existing, "owner_plugin_id", "") or "",
+                    ),
+                )
+        return keys
 
     def validate(self, spec: CommandSpec) -> None:
         """Validate a registration without changing the registry."""
         self._validate_registration(spec)
 
     def register(self, spec: CommandSpec) -> None:
-        keys, replacement = self._validate_registration(spec)
-        if replacement is not None:
-            self._by_name = {
-                key: existing
-                for key, existing in self._by_name.items()
-                if existing is not replacement
-            }
+        keys = self._validate_registration(spec)
         self._by_name.update(zip(keys, (spec,) * len(keys)))
 
-    def unregister_owner(self, owner_id: str) -> list[str]:
-        """Remove all command mappings owned by a plugin."""
-        if not owner_id:
-            return []
-        removed = sorted(
-            key
-            for key, spec in self._by_name.items()
-            if spec.owner_id == owner_id
-        )
-        if removed:
-            self._by_name = {
-                key: spec
-                for key, spec in self._by_name.items()
-                if spec.owner_id != owner_id
-            }
-        return removed
+    def unregister(
+        self,
+        name: str,
+        expected: CommandSpec | None = None,
+    ) -> bool:
+        """Remove a command only if *expected* still occupies the row."""
+        key = name.lower()
+        spec = self._by_name.get(key)
+        if spec is None:
+            return False
+        if expected is not None and spec is not expected:
+            return False
+        for nm in (spec.name, *spec.aliases):
+            self._by_name.pop(nm.lower(), None)
+        return True
 
     def register_fallback(self, handler: FallbackHandler) -> None:
         if self._fallback is not None:

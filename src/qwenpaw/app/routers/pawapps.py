@@ -9,7 +9,6 @@ with ``meta.pawapp`` when the PluginRegistry is not yet ready.
 
 import json
 import logging
-import shutil
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -197,32 +196,61 @@ async def uninstall_pawapp(app_id: str, request: Request) -> Dict[str, Any]:
             detail="Invalid app path",
         ) from exc
 
-    # If the plugin is loaded, unload it first (which also deletes files).
     loader = getattr(request.app.state, "plugin_loader", None)
-    if loader is not None and loader.get_loaded_plugin(app_id) is not None:
-        try:
-            await loader.unload_plugin(app_id, delete_files=True)
-        except Exception as exc:  # noqa: BLE001
-            raise HTTPException(
-                status_code=500,
-                detail=f"Uninstall failed: {exc}",
-            ) from exc
-        return {"id": app_id, "message": f"PawApp '{app_id}' uninstalled."}
+    if loader is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Plugin loader is not ready yet.",
+        )
+    try:
+        from ...plugins.lifecycle import UnloadMode
+        from .plugins import memory_in_use_detail, unload_http_detail
 
-    # If not loaded but directory exists, delete it directly.
-    if app_dir.exists() and app_dir.is_dir():
-        try:
-            # Run blocking directory deletion in thread pool
-            await asyncio.to_thread(shutil.rmtree, app_dir)
-        except Exception as exc:  # noqa: BLE001
-            logger.error("Failed to remove PawApp '%s': %s", app_id, exc)
+        report = await loader.unload_plugin(
+            app_id,
+            delete_files=True,
+            mode=UnloadMode.UNINSTALL,
+        )
+    except KeyError as exc:
+        raise HTTPException(
+            status_code=404,
+            detail=f"PawApp '{app_id}' not found",
+        ) from exc
+    except RuntimeError as exc:
+        if "memory backend is in use" in str(exc):
+            still_loaded = loader.get_loaded_plugin(app_id) is not None
             raise HTTPException(
-                status_code=500,
-                detail=f"Uninstall failed: {exc}",
+                status_code=409,
+                detail=memory_in_use_detail(
+                    app_id,
+                    exc,
+                    loaded=still_loaded,
+                    kind="PawApp",
+                ),
             ) from exc
-        return {"id": app_id, "message": f"PawApp '{app_id}' uninstalled."}
-
-    raise HTTPException(status_code=404, detail=f"PawApp '{app_id}' not found")
+        logger.error("PawApp uninstall failed for '%s': %s", app_id, exc)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Uninstall failed: {exc}",
+        ) from exc
+    except Exception as exc:  # noqa: BLE001
+        logger.error("PawApp uninstall failed for '%s': %s", app_id, exc)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Uninstall failed: {exc}",
+        ) from exc
+    still_loaded = loader.get_loaded_plugin(app_id) is not None
+    if not report.quiescent or still_loaded:
+        raise HTTPException(
+            status_code=409,
+            detail=unload_http_detail(
+                app_id,
+                report,
+                loaded=still_loaded,
+                kind="PawApp",
+            ),
+        )
+    return {"id": app_id, "message": f"PawApp '{app_id}' uninstalled."}
 
 
 @router.get("/{app_id}/settings")

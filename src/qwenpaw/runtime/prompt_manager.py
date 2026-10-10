@@ -15,6 +15,8 @@ import inspect
 import logging
 from typing import Any, TYPE_CHECKING
 
+from .occupancy import occupancy_conflict
+
 if TYPE_CHECKING:
     from .hooks import HookContext
 
@@ -34,6 +36,7 @@ class PromptContributor:
 
     name: str
     priority: int = 100
+    owner_plugin_id: str = ""
 
     async def contribute(
         self,
@@ -72,12 +75,33 @@ class PromptManager:
             raise ValueError(
                 "PromptContributor.name must be a non-empty string",
             )
-        if any(c.name == contributor.name for c in self._contributors):
+        occupant = next(
+            (c for c in self._contributors if c.name == contributor.name),
+            None,
+        )
+        if occupant is not None:
             raise ValueError(
-                f"prompt contributor {contributor.name!r} already registered",
+                occupancy_conflict(
+                    "prompt contributor",
+                    contributor.name,
+                    getattr(occupant, "owner_plugin_id", "") or "",
+                ),
             )
         self._contributors.append(contributor)
         self._contributors.sort(key=lambda c: c.priority)
+
+    def unregister(self, name: str, expected: Any = None) -> bool:
+        """Remove a contributor only if *expected* still occupies the row."""
+        before = len(self._contributors)
+        kept = []
+        for contributor in self._contributors:
+            if contributor.name != name:
+                kept.append(contributor)
+                continue
+            if expected is not None and contributor is not expected:
+                kept.append(contributor)
+        self._contributors = kept
+        return len(self._contributors) < before
 
     def names(self) -> list[str]:
         return [c.name for c in self._contributors]

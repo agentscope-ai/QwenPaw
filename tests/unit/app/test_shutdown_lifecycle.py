@@ -76,6 +76,80 @@ async def test_import_worker_and_plugin_hook_finish_before_workspace_stop():
     ]
 
 
+@pytest.mark.asyncio
+async def test_plugin_resource_finishes_before_workspace_stop(
+    monkeypatch, tmp_path
+):
+    from qwenpaw.plugins.api import PluginApi
+    from qwenpaw.plugins.architecture import (
+        PluginEntryPoints,
+        PluginManifest,
+        PluginRecord,
+    )
+    from qwenpaw.plugins.loader import PluginLoader
+    from qwenpaw.plugins.registry import PluginRegistry
+
+    monkeypatch.setattr(PluginRegistry, "_instance", None)
+    loader = PluginLoader(plugin_dirs=[])
+    instance = loader.lifecycle.ensure_instance("test")
+    api = PluginApi("test", {}, {})
+    api.set_registry(loader.registry)
+    api.bind_instance(instance)
+    order = []
+    stopping = asyncio.Event()
+    release = asyncio.Event()
+
+    async def hook():
+        order.append("hook")
+
+    async def close_resource():
+        order.append("closing")
+        stopping.set()
+        await release.wait()
+        order.append("closed")
+
+    with pytest.warns(DeprecationWarning):
+        api.register_shutdown_hook("test", hook)
+    instance.record_runtime("connection", close_resource, kind="custody")
+    loader._loaded_plugins["test"] = PluginRecord(
+        manifest=PluginManifest(
+            id="test",
+            name="Test",
+            version="1.0.0",
+            entry=PluginEntryPoints(backend="plugin.py"),
+        ),
+        source_path=tmp_path,
+        enabled=True,
+        status="active",
+    )
+
+    async def stop_workspaces():
+        order.append("workspaces")
+
+    async def stop_imports():
+        order.append("imports")
+        return True
+
+    app = FastAPI()
+    app.state.plugin_loader = loader
+    app.state.plugin_registry = loader.registry
+    app.state.multi_agent_manager = SimpleNamespace(stop_all=stop_workspaces)
+    task = asyncio.create_task(
+        _stop_workspaces_after_dependents(
+            app,
+            SimpleNamespace(shutdown=stop_imports),
+        ),
+    )
+    try:
+        await asyncio.wait_for(stopping.wait(), timeout=1)
+        assert order == ["imports", "hook", "closing"]
+    finally:
+        release.set()
+        await asyncio.wait_for(task, timeout=1)
+    assert order == ["imports", "hook", "closing", "closed", "workspaces"]
+    assert loader.get_loaded_plugin("test") is not None
+
+
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX direct SIGTERM")
 def test_direct_signal_hard_exits_when_import_never_quiesces(tmp_path):
     started = tmp_path / "started"
