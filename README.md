@@ -336,6 +336,8 @@ After installation, configure your model in **Console → Settings → Models**,
 - [Configure Cron](https://qwenpaw.agentscope.io/docs/cron) for scheduled tasks and automation
 - See the full [Quick Start guide](https://qwenpaw.agentscope.io/docs/quickstart) for all options and verification steps
 
+For local file attachments in Console, use the exact filename, including literal `%` characters; see the [Console guide](https://qwenpaw.agentscope.io/docs/console).
+
 ---
 
 ## Terminal UI (TUI)

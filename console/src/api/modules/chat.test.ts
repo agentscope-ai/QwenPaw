@@ -36,6 +36,20 @@ describe("chatApi.filePreviewUrl", () => {
     );
   });
 
+  it.each(["literal%20name.txt", "report#1.txt", "question?.txt", "中文.txt"])(
+    "preserves filesystem filename %s through URL transport",
+    (name) => {
+      const url = new URL(
+        chatApi.filePreviewUrl(`/tmp/${name}`),
+        "http://test",
+      );
+      expect(decodeURIComponent(url.pathname)).toBe(
+        `/api/files/preview/tmp/${name}`,
+      );
+      expect(url.hash).toBe("");
+    },
+  );
+
   it("prepends /api/files/preview/ for relative paths", () => {
     const result = chatApi.filePreviewUrl("img.png");
     expect(result).toBe("/api/files/preview/img.png");
