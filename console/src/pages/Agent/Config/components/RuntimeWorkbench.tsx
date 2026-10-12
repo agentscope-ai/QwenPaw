@@ -9,7 +9,10 @@ const groups = [
   { id: "execution", keys: ["agentLoop", "toolExecutionLevel"] },
   { id: "recovery", keys: ["llmRetry", "llmRateLimiter"] },
   { id: "context", keys: ["lightContext"] },
-  { id: "memory", keys: ["remeLightMemory", "embeddingModel"] },
+  {
+    id: "memory",
+    keys: ["remeLightMemory", "embeddingModel", "proactiveAgenda"],
+  },
 ];
 
 export function RuntimeWorkbench({

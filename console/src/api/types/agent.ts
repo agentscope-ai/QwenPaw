@@ -88,6 +88,14 @@ export interface ReMeLightMemoryConfig {
   auto_fin_cron: string;
   auto_fin_topics: string;
   auto_fin_window_hours: number;
+  proactive_enabled: boolean;
+  proactive_cron_enabled: boolean;
+  proactive_cron: string;
+  proactive_inbox_push_enabled: boolean;
+  proactive_max_items: number;
+  proactive_cron_max_items: number;
+  proactive_delivery_cooldown_days: number;
+  proactive_refresh_min_interval_minutes: number;
   memory_search_enabled: boolean;
   auto_memory_search_config: AutoMemorySearchConfig;
   embedding_model_config: EmbeddingModelConfig;

@@ -13,6 +13,7 @@ import {
   ToolExecutionLevelCard,
   AgentLoopCard,
   EmbeddingModelCard,
+  ProactiveAgendaCard,
 } from "./components";
 import { PageHeader } from "@/components/PageHeader";
 import {
@@ -266,6 +267,22 @@ function AgentConfigPage() {
         children: (
           <div className={styles.tabContent}>
             <EmbeddingModelCard />
+          </div>
+        ),
+      });
+
+      // Last card of Memory & Retrieval, so the proactive agenda closes the
+      // page instead of sitting inside the memory card.
+      baseTabs.push({
+        key: "proactiveAgenda",
+        label: (
+          <span className={styles.tabLabel}>
+            {t("agentConfig.proactiveSectionTitle")}
+          </span>
+        ),
+        children: (
+          <div className={styles.tabContent}>
+            <ProactiveAgendaCard />
           </div>
         ),
       });

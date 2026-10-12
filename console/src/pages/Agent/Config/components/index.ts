@@ -6,4 +6,5 @@ export { LlmRateLimiterCard } from "./LlmRateLimiterCard";
 export { LightContextCard } from "./LightContextCard";
 export { ReMeLightMemoryCard } from "./ReMeLightMemoryCard";
 export { EmbeddingModelCard } from "./EmbeddingModelCard";
+export { ProactiveAgendaCard } from "./ProactiveAgendaCard";
 export { ToolExecutionLevelCard } from "./ToolExecutionLevelCard";

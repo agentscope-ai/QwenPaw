@@ -76,4 +76,43 @@ describe("runtime navigation", () => {
     expect(screen.getByLabelText("retry draft")).toBeTruthy();
     expect(screen.queryByLabelText("workspace draft")).toBeNull();
   });
+
+  const memoryItems = [
+    { key: "remeLightMemory", children: <div>memory card</div> },
+    { key: "embeddingModel", children: <div>embedding card</div> },
+    { key: "proactiveAgenda", children: <div>proactive card</div> },
+  ];
+
+  it("closes Memory & Retrieval with the proactive agenda card", () => {
+    const { container } = render(
+      <RuntimeWorkbench
+        items={memoryItems}
+        initialKey="remeLightMemory"
+        onSectionChange={() => {}}
+        onNavigate={async () => true}
+      />,
+    );
+    const rendered = [...container.querySelectorAll("[data-runtime-key]")].map(
+      (node) => node.getAttribute("data-runtime-key"),
+    );
+    expect(rendered).toEqual([
+      "remeLightMemory",
+      "embeddingModel",
+      "proactiveAgenda",
+    ]);
+  });
+
+  it("resolves a proactive deep link to the Memory & Retrieval tab", () => {
+    render(
+      <RuntimeWorkbench
+        items={memoryItems}
+        initialKey="proactiveAgenda"
+        onSectionChange={() => {}}
+        onNavigate={async () => true}
+      />,
+    );
+    expect(
+      screen.getByRole("tab", { name: "runtimeDesign.memory" }),
+    ).toHaveAttribute("aria-selected", "true");
+  });
 });
