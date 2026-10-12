@@ -35,6 +35,7 @@ import type {
 } from "@/api/types/checkpoints";
 import { useAgentStore } from "@/stores/agentStore";
 import { useAppMessage } from "@/hooks/useAppMessage";
+import { copyText } from "@/utils/clipboard";
 import { buildGraphRows, graphLaneCount } from "./graphLayout";
 import { CheckpointGraph } from "./CheckpointGraph";
 import { RestoreModal } from "./RestoreModal";
@@ -502,9 +503,11 @@ export default function CheckpointsPage() {
                     type="text"
                     size="small"
                     icon={<Copy size={14} />}
-                    onClick={() =>
-                      void navigator.clipboard.writeText(selected.commit)
-                    }
+                    onClick={() => {
+                      void copyText(selected.commit).catch(() => {
+                        // Clipboard unavailable (e.g. insecure context).
+                      });
+                    }}
                   />
                 </span>
               </Descriptions.Item>
