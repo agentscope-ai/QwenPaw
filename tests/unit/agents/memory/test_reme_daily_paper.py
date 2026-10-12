@@ -265,6 +265,11 @@ def test_reme_declares_its_enabled_cron_jobs() -> None:
         daily_paper_cron="0 9 * * *",
         auto_fin_cron_enabled=True,
         auto_fin_cron="0 18 * * *",
+        # The proactive cron is doubly gated; a disabled master switch must
+        # keep the job out even when its own schedule is configured.
+        proactive_enabled=False,
+        proactive_cron_enabled=True,
+        proactive_cron="0 18 * * *",
     )
 
     jobs = manager.list_cron_jobs()
@@ -278,6 +283,32 @@ def test_reme_declares_its_enabled_cron_jobs() -> None:
     assert jobs[0].jitter_seconds == 60
     assert jobs[1].callback.args == ("daily_paper",)
     assert jobs[2].callback.args == ("auto_fin",)
+
+
+def test_proactive_cron_job_is_declared_when_enabled() -> None:
+    manager = ReMeLightMemoryManager.__new__(ReMeLightMemoryManager)
+    manager._reme = SimpleNamespace(is_started=True)
+    manager._load_memory_config = lambda: SimpleNamespace(
+        dream_cron_enabled=False,
+        dream_cron="",
+        daily_paper_cron_enabled=False,
+        daily_paper_cron="",
+        auto_fin_cron_enabled=False,
+        auto_fin_cron="",
+        proactive_enabled=True,
+        proactive_cron_enabled=True,
+        proactive_cron="30 8 * * *",
+    )
+
+    jobs = manager.list_cron_jobs()
+
+    assert [job.key for job in jobs] == ["proactive"]
+    assert jobs[0].cron == "30 8 * * *"
+    assert jobs[0].jitter_seconds == 60
+    assert jobs[0].callback.__self__ is manager
+    assert jobs[0].callback.__func__ is (
+        ReMeLightMemoryManager._run_proactive_daily
+    )
 
 
 @pytest.mark.asyncio

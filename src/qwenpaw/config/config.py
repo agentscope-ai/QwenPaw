@@ -1061,7 +1061,82 @@ class ReMeLightMemoryConfig(BaseModel):
         description="Whether to expose the memory_search tool to the agent",
     )
 
-    @field_validator("dream_cron", "daily_paper_cron", "auto_fin_cron")
+    proactive_enabled: bool = Field(
+        default=False,
+        description=(
+            "Master switch for the ReMe proactive agenda. While off, "
+            "/proactive only explains how to enable it, the idle loop "
+            "stays disarmed, and no proactive cron job is registered."
+        ),
+    )
+
+    proactive_cron_enabled: bool = Field(
+        default=False,
+        description="Whether to enable the daily proactive agenda push",
+    )
+
+    proactive_cron: str = Field(
+        default="0 18 * * *",
+        description=(
+            "Cron expression for the daily proactive agenda push "
+            "(use proactive_cron_enabled to enable/disable). Scheduled "
+            "runs start after a random delay of 0 to 60 seconds."
+        ),
+    )
+
+    proactive_inbox_push_enabled: bool = Field(
+        default=True,
+        description=(
+            "Whether to push proactive agenda items to the inbox, both "
+            "for idle rounds and for the daily job"
+        ),
+    )
+
+    proactive_max_items: int = Field(
+        default=3,
+        ge=1,
+        le=10,
+        description=(
+            "How many agenda items a /proactive reply or an idle round "
+            "presents; ReMe pins due reminders first"
+        ),
+    )
+
+    proactive_cron_max_items: int = Field(
+        default=0,
+        ge=0,
+        le=20,
+        description=(
+            "How many agenda items the daily push includes. 0 sends the "
+            "whole agenda, which ReMe itself caps at 6 items per day."
+        ),
+    )
+
+    proactive_delivery_cooldown_days: int = Field(
+        default=3,
+        ge=0,
+        le=90,
+        description=(
+            "Days an already delivered agenda item stays hidden, both in "
+            "ReMe and in the local delivery ledger"
+        ),
+    )
+
+    proactive_refresh_min_interval_minutes: int = Field(
+        default=120,
+        ge=0,
+        description=(
+            "Minimum minutes between two on-demand agenda refreshes "
+            "started because a read came back empty; 0 lifts the limit"
+        ),
+    )
+
+    @field_validator(
+        "dream_cron",
+        "daily_paper_cron",
+        "auto_fin_cron",
+        "proactive_cron",
+    )
     @classmethod
     def validate_service_cron(cls, value: str) -> str:
         """Reject expressions that the runtime scheduler cannot install."""
@@ -1082,6 +1157,16 @@ class ReMeLightMemoryConfig(BaseModel):
             raise ValueError(
                 "auto_fin_cron must not be empty when "
                 "auto_fin_cron_enabled is true",
+            )
+        return self
+
+    @model_validator(mode="after")
+    def validate_enabled_proactive_cron(self) -> "ReMeLightMemoryConfig":
+        """Require a schedule whenever the daily proactive push is on."""
+        if self.proactive_cron_enabled and not self.proactive_cron.strip():
+            raise ValueError(
+                "proactive_cron must not be empty when "
+                "proactive_cron_enabled is true",
             )
         return self
 

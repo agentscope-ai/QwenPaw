@@ -14,9 +14,6 @@ from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 
 from qwenpaw.agents.tools import agent_management
-from qwenpaw.agents.memory.proactive.proactive_responder import (
-    send_proactive_message_via_http,
-)
 from qwenpaw.app.auth import RuntimeBoundaryMiddleware
 from qwenpaw.cli import http as cli_http
 from qwenpaw.cli import doctor_cmd, plugin_commands, update_cmd
@@ -395,11 +392,16 @@ def test_cli_api_operations_pass_boundary(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("slow_stream", [False, True])
-async def test_proactive_request_auth_stream_and_total_timeout(
+async def test_async_api_client_auth_stream_and_total_timeout(
     monkeypatch,
-    caplog,
     slow_stream,
 ):
+    """The runtime client attaches the token and honours a total timeout.
+
+    Proactive delivery no longer streams through ``/console/chat``, but this
+    is the only coverage ``async_api_client`` has for the managed-runtime
+    token boundary combined with a streamed body, so it is driven directly.
+    """
     seen = []
     closed = []
 
@@ -428,9 +430,28 @@ async def test_proactive_request_auth_stream_and_total_timeout(
         "AsyncClient",
         partial(httpx.AsyncClient, transport=httpx.MockTransport(respond)),
     )
-    with caplog.at_level("INFO"):
-        await send_proactive_message_via_http("agent-a", "message", 1)
+
+    last_data = None
+    timed_out = False
+    try:
+        async with asyncio.timeout(1):
+            async with async_api_client(_RUNTIME_URL, timeout=1) as session:
+                async with session.stream(
+                    "POST",
+                    "/console/chat",
+                    json={"session_id": "session-a"},
+                    headers={"X-Agent-Id": "agent-a"},
+                ) as response:
+                    response.raise_for_status()
+                    async for line in response.aiter_lines():
+                        line = line.strip()
+                        if line.startswith("data: "):
+                            last_data = line[6:]
+    except (asyncio.TimeoutError, httpx.TimeoutException):
+        timed_out = True
+
     assert seen == [(9001, "secret-a", "agent-a")]
     assert closed == [True]
-    expected = "Timeout (1s)" if slow_stream else "sent successfully via HTTP"
-    assert expected in caplog.text
+    assert timed_out is slow_stream
+    if not slow_stream:
+        assert last_data == '{"done":true}'

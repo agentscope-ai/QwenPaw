@@ -1,395 +1,355 @@
 # -*- coding: utf-8 -*-
-"""Responder logic for proactive conversation feature."""
+"""Deliver ReMe's proactive agenda through QwenPaw's surfaces.
 
-import asyncio
+QwenPaw no longer produces proactive topics itself.  ReMe's proactive
+chain (extract -> topics -> plan -> agenda) already ranks the day's
+agenda and pins due reminders first, so delivery here is read-only
+presentation:
+
+* ``/proactive`` answers in the user's current chat with the top few
+  openers (:func:`build_agenda_receipt`);
+* the idle trigger and the daily cron push the same items to the inbox
+  (:func:`deliver_proactive_round`).
+
+No LLM call and no tool execution happens on this path, which is what
+keeps an agenda item from ever being mistaken for an instruction the
+agent should carry out by itself.
+"""
+
 import logging
-import re
-from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Optional, List, Dict
-
-import httpx
-
-from agentscope.agent import Agent, InjectionConfig, ReActConfig
-from agentscope.message import Msg, TextBlock
-from agentscope.permission import PermissionContext, PermissionMode
-from agentscope.state import AgentState
-from agentscope.tool import FunctionTool, Toolkit
+from dataclasses import dataclass, field
+from datetime import datetime
+from pathlib import Path
+from typing import Any
 
 from ....config.config import load_agent_config
-from ....utils.runtime_api import async_api_client
-from ...tools.agent_management import resolve_agent_api_base_url
-from ...tools import (
-    browser,
-    execute_shell_command,
-    read_file,
-    web_search,
-    web_fetch,
-    desktop_screenshot,
+from ....utils.io_utils import run_sync_io
+from ..action_provider import MemoryActionProvider
+from ..reme_inbox import emit_proactive_agenda
+from .proactive_agenda import (
+    AgendaBundle,
+    AgendaItem,
+    ensure_agenda,
+    select_presentation_items,
+)
+from .proactive_delivery import (
+    get_delivery_ledger,
+    ledger_path,
+    mark_delivered,
 )
 from .proactive_prompts import (
-    PROACTIVE_TASK_EXTRACTION_PROMPT,
-    PROACTIVE_USER_FACING_MESSAGE_PROMPT,
+    render_agenda_receipt,
+    text_for,
 )
-from .proactive_types import ProactiveQueryResult, ProactiveTask
-from .proactive_utils import (
-    build_proactive_memory_context,
-    load_json_safely,
-    ensure_tz_aware,
-    is_agent_busy,
-)
-from ....utils.io_utils import run_sync_io
-
-if TYPE_CHECKING:
-    from ....app.workspace import Workspace
 
 logger = logging.getLogger(__name__)
 
-
-async def generate_proactive_response(
-    workspace: "Workspace",
-) -> Optional[Msg]:
-    """Main function to generate proactive response based on memory."""
-    from ....app.agent_context import set_current_agent_id
-    from ....config.context import set_current_workspace_dir
-
-    set_current_agent_id(workspace.agent_id)
-    set_current_workspace_dir(workspace.workspace_dir)
-    baseline_timestamp = datetime.now(timezone.utc)  # Use UTC time directly
-    active_agent_id = workspace.agent_id
-
-    agent = await _initialize_single_proactive_agent(
-        active_agent_id,
-    )
-
-    memory_context_str = await build_proactive_memory_context(
-        workspace=workspace,
-        agent=agent,
-    )
-
-    if await _was_interrupted(
-        baseline_timestamp,
-        workspace,
-    ):
-        logger.info("Proactive response generation interrupted")
-        return None
-
-    tasks = await _extract_tasks_from_memory(memory_context_str, agent)
-
-    results = []
-    for task in tasks[:3]:
-        if await _was_interrupted(
-            baseline_timestamp,
-            workspace,
-        ):
-            logger.info("Proactive response generation interrupted")
-            return None
-
-        result = await _execute_query(task.query, agent)
-        results.append(result)
-
-        if result.success and result.data:
-            break
-    if await _was_interrupted(
-        baseline_timestamp,
-        workspace,
-    ):
-        logger.info("Proactive response generation interrupted")
-        return None
-
-    if results:
-        message_content = await _generate_final_message(
-            results[-1],
-            active_agent_id,
-        )
-
-        if message_content:
-            return message_content
-
-    return None
+CHANNEL_CONVERSATION = "in_conversation"
+CHANNEL_INBOX = "inbox"
 
 
-async def _initialize_single_proactive_agent(
-    agent_id: str = "proactive",
-) -> Agent:
-    """Initialize a single proactive agent instance."""
-    # Use a local constant for the proactive-specific iteration limit.
-    # Do NOT mutate the cached config object returned by load_agent_config(),
-    # as that would pollute the global cache and cause user settings to be
-    # silently overwritten when save_agent_config() is later triggered.
-    _PROACTIVE_MAX_ITERS = 50
-    agent_config = await run_sync_io(load_agent_config, agent_id)
+@dataclass(frozen=True)
+class ProactiveSettings:
+    """The proactive slice of one agent's long-term memory config."""
 
-    # Create model and formatter for the agent
-    from ...model_factory import create_model_and_formatter_async
-
-    model, formatter = await create_model_and_formatter_async(
-        agent_id=agent_config.id,
-        agent_config=agent_config,
-    )
-
-    tools = [
-        FunctionTool(web_search),
-        FunctionTool(web_fetch),
-        FunctionTool(read_file),
-        FunctionTool(execute_shell_command),
-        FunctionTool(browser),
-    ]
-
-    from ...prompt import get_active_model_supports_multimodal
-
-    if await run_sync_io(get_active_model_supports_multimodal):
-        tools.append(FunctionTool(desktop_screenshot))
-
-    toolkit = Toolkit(tools=tools)
-
-    if formatter is not None:
-        innermost = model
-        while hasattr(innermost, "_inner"):
-            innermost = innermost._inner  # pylint: disable=protected-access
-        while hasattr(innermost, "_model"):
-            innermost = innermost._model  # pylint: disable=protected-access
-        if hasattr(innermost, "formatter"):
-            innermost.formatter = formatter
-
-    state = AgentState(
-        permission_context=PermissionContext(mode=PermissionMode.BYPASS),
-    )
-    agent = Agent(
-        name="ProactiveAssistant",
-        model=model,
-        system_prompt=(
-            "You are a helpful assistant. Tool priority:\n"
-            "1. `web_search` for finding information online.\n"
-            "2. `web_fetch` for reading a known URL's content.\n"
-            "3. `browser` ONLY for interactive tasks (login, clicking, "
-            "filling forms, or JS-heavy sites that web_fetch cannot handle).\n"
-            "Prefer lightweight tools over browser whenever possible."
-        ),
-        toolkit=toolkit,
-        react_config=ReActConfig(max_iters=_PROACTIVE_MAX_ITERS),
-        injection_config=InjectionConfig(inject_runtime_state=False),
-        state=state,
-    )
-
-    return agent
+    language: str = "en"
+    enabled: bool = False
+    inbox_enabled: bool = False
+    max_items: int = 3
+    cron_max_items: int = 0
+    cooldown_days: int = 3
+    refresh_min_interval_minutes: int = 120
+    metadata_dir: str = "mem_metadata"
 
 
-async def _extract_tasks_from_memory(
-    memory_context: str,
-    agent: Agent,
-) -> List[ProactiveTask]:
-    """Extract likely user tasks from memory context."""
-    prompt = f"{PROACTIVE_TASK_EXTRACTION_PROMPT}\n#Contexts: {memory_context}"
-    response = await agent.reply(
-        Msg(
-            name="User",
-            role="user",
-            content=[TextBlock(type="text", text=prompt)],
-        ),
-    )
+@dataclass
+class AgendaRound:
+    """What one proactive delivery attempt actually did."""
 
-    if not response or not response.content:
-        return []
+    language: str = "en"
+    available: bool = False
+    date: str = ""
+    items: list[AgendaItem] = field(default_factory=list)
+    shown: list[AgendaItem] = field(default_factory=list)
+    refreshed: bool = False
+    forced_refresh: bool = False
+    throttled: bool = False
+    hidden_total: int = 0
+    cooldown_days: int = 0
+    refresh_min_interval_minutes: int = 0
+    pushed: bool = False
+    event_id: str = ""
+    skip_reason: str = ""
 
-    text_content = response.get_text_content()
-    parsed_data = load_json_safely(text_content)
+    def empty_state(self) -> str:
+        """Localized explanation for a round with nothing to show.
 
-    if parsed_data and "tasks" in parsed_data:
-        return _create_tasks_from_data(parsed_data["tasks"])
-
-    json_match = re.search(r"\{.*\}", text_content, re.DOTALL)
-    if json_match:
-        parsed_data = load_json_safely(json_match.group(0))
-        if parsed_data and "tasks" in parsed_data:
-            return _create_tasks_from_data(parsed_data["tasks"])
-
-    return []
-
-
-def _create_tasks_from_data(tasks_data: List[Dict]) -> List[ProactiveTask]:
-    """Helper to create ProactiveTask instances from data."""
-    tasks = []
-    for i, task_data in enumerate(tasks_data):
-        if "task" in task_data and "query" in task_data:
-            tasks.append(
-                ProactiveTask(
-                    task=task_data["task"],
-                    query=task_data["query"],
-                    priority=i + 1,
-                    reason=task_data.get("why", ""),
-                ),
+        Withheld items outrank the refresh throttle: "everything was
+        already surfaced" is the fact the user can act on, while the
+        throttle only explains a round that had nothing to withhold.
+        """
+        if not self.available:
+            key = "empty_unavailable"
+        elif self.hidden_total:
+            return text_for(
+                "empty_all_delivered",
+                self.language,
+                count=self.hidden_total,
+                days=self.cooldown_days,
             )
-    return tasks
+        elif self.throttled:
+            return text_for(
+                "empty_throttled",
+                self.language,
+                minutes=self.refresh_min_interval_minutes,
+            )
+        elif self.refreshed and self.forced_refresh:
+            key = "empty_after_refresh_forced"
+        else:
+            key = "empty_after_refresh"
+        return text_for(key, self.language)
 
 
-async def _execute_query(
-    query: str,
-    agent: Agent,
-) -> ProactiveQueryResult:
-    """Execute a query using available tools."""
-    prompt = (
-        f"Task: Answer: {query} using tools --\n"
-        "Use `web_search` to find information, then `web_fetch` to read "
-        "specific URLs. Use `browser` ONLY for interactive tasks (login, "
-        "clicking, JS-heavy sites).\n"
-        "`execute_shell_command`/`read_file` only if essential.\n"
-        "Self-check: Did you retrieve new, query-relevant data or "
-        "complete given task?\n"
-        "Output: Query answer and end strictly with `[SUCCESS]` "
-        "(yes) or `[FAILURE]` (no).\n"
-        "⚠️ CRITICAL: The flag MUST be the absolute last token. "
-        "No trailing text."
-    )
-
-    response = await agent.reply(
-        Msg(
-            name="User",
-            role="user",
-            content=[TextBlock(type="text", text=prompt)],
+async def load_proactive_settings(agent_id: str) -> ProactiveSettings:
+    """Read the proactive switches without blocking the event loop."""
+    agent_config = await run_sync_io(load_agent_config, agent_id)
+    cfg = getattr(agent_config.running, "reme_light_memory_config", None)
+    if cfg is None:
+        return ProactiveSettings(language=agent_config.language)
+    return ProactiveSettings(
+        language=str(getattr(agent_config, "language", "en") or "en"),
+        enabled=bool(getattr(cfg, "proactive_enabled", False)),
+        inbox_enabled=bool(
+            getattr(cfg, "proactive_inbox_push_enabled", False),
         ),
-    )
-
-    success = False
-    response_content = response.get_text_content()
-    if response_content:
-        match = re.search(r"\[(SUCCESS)\]\s*$", response_content.strip())
-        if match:
-            success = True
-
-    return ProactiveQueryResult(
-        query=query,
-        success=success,
-        data=response_content,
+        max_items=int(getattr(cfg, "proactive_max_items", 3)),
+        cron_max_items=int(getattr(cfg, "proactive_cron_max_items", 0)),
+        cooldown_days=int(
+            getattr(cfg, "proactive_delivery_cooldown_days", 3),
+        ),
+        refresh_min_interval_minutes=int(
+            getattr(cfg, "proactive_refresh_min_interval_minutes", 120),
+        ),
+        metadata_dir=str(getattr(cfg, "metadata_dir", "mem_metadata")),
     )
 
 
-async def _generate_final_message(
-    result: ProactiveQueryResult,
-    active_agent_id: str,
-) -> Optional[Msg]:
-    """Generate the final proactive message for the user."""
-    if not result.data:
-        return None
-
-    gathered_info = f"Query: {result.query}\nResult: {result.data}\n\n"
-
-    agent_config = await run_sync_io(load_agent_config, active_agent_id)
-    agent_language = agent_config.language
-    proactive_content = PROACTIVE_USER_FACING_MESSAGE_PROMPT.format(
-        gathered_info=gathered_info,
-        language=agent_language,
-    )
-
-    await send_proactive_message_via_http(
-        active_agent_id=active_agent_id,
-        proactive_content=proactive_content,
-        timeout_seconds=300,
-    )
-
+def resolve_memory_provider(candidate: Any) -> MemoryActionProvider | None:
+    """Return ``candidate`` when it can actually serve memory actions."""
+    if isinstance(candidate, MemoryActionProvider):
+        return candidate
     return None
 
 
-async def send_proactive_message_via_http(
-    active_agent_id: str,
-    proactive_content: str,
-    timeout_seconds: int = 60,
-) -> Optional[Msg]:
-    """Send a proactive message by directly calling the QwenPaw API."""
-
-    session_id = f"proactive_mode:{active_agent_id}"
-
-    request_payload = {
-        "session_id": session_id,
-        "input": [
-            {
-                "role": "user",
-                "content": [
-                    {
-                        "type": "text",
-                        "text": (
-                            "[Agent proactive_helper requesting] "
-                            f"{proactive_content}"
-                        ),
-                    },
-                ],
-            },
-        ],
-    }
-
-    headers = {"X-Agent-Id": active_agent_id}
-
-    base_url = resolve_agent_api_base_url()
-    clean_base = base_url.rstrip("/")
-    api_base_url = (
-        f"{clean_base}/api" if not clean_base.endswith("/api") else clean_base
+def _ledger_for(workspace_dir: str, settings: ProactiveSettings):
+    return get_delivery_ledger(
+        ledger_path(workspace_dir, settings.metadata_dir),
     )
 
-    try:
-        async with (
-            asyncio.timeout(timeout_seconds),
-            async_api_client(api_base_url, timeout=timeout_seconds) as session,
-        ):
-            async with session.stream(
-                "POST",
-                "/console/chat",
-                json=request_payload,
-                headers=headers,
-            ) as resp:
-                resp.raise_for_status()
-                last_data = None
-                async for line in resp.aiter_lines():
-                    line = line.strip()
-                    if line.startswith("data: "):
-                        last_data = line[6:]
 
-                if last_data:
-                    logger.info("Proactive message sent successfully via HTTP")
-                else:
-                    logger.warning("No valid SSE data received from agent")
+async def collect_agenda(
+    memory_manager: Any,
+    *,
+    agent_id: str,
+    workspace_dir: str,
+    force_refresh: bool = False,
+    limit: int | None = None,
+    settings: ProactiveSettings | None = None,
+) -> AgendaRound:
+    """Read (and refresh when empty) the agenda for one delivery round."""
+    resolved = settings or await load_proactive_settings(agent_id)
+    provider = resolve_memory_provider(memory_manager)
+    cap = resolved.max_items if limit is None else limit
+    base = AgendaRound(
+        language=resolved.language,
+        forced_refresh=force_refresh,
+        cooldown_days=resolved.cooldown_days,
+        refresh_min_interval_minutes=resolved.refresh_min_interval_minutes,
+    )
+    if provider is None:
+        base.skip_reason = "unavailable"
+        return base
 
-    except (asyncio.TimeoutError, httpx.TimeoutException):
-        logger.error(
-            "Timeout (%ds) calling QwenPaw API for proactive message",
-            timeout_seconds,
-        )
-    except Exception as e:
-        logger.error("Error calling QwenPaw API for proactive message: %s", e)
+    ledger = _ledger_for(workspace_dir, resolved)
+    bundle: AgendaBundle = await ensure_agenda(
+        provider,
+        ledger,
+        cooldown_days=resolved.cooldown_days,
+        min_interval_minutes=resolved.refresh_min_interval_minutes,
+        force_refresh=force_refresh,
+    )
+    base.available = bundle.available
+    base.date = bundle.date
+    base.items = list(bundle.items)
+    base.refreshed = bundle.refreshed
+    base.throttled = bundle.throttled
+    base.hidden_total = bundle.hidden_total
+    base.shown = select_presentation_items(bundle.items, limit=cap)
+    if not base.available:
+        base.skip_reason = "unavailable"
+    elif not base.shown:
+        # Name the most specific cause: everything withheld beats the
+        # refresh throttle, which only matters when nothing was withheld.
+        if base.hidden_total:
+            base.skip_reason = "all_delivered"
+        else:
+            base.skip_reason = "throttled" if bundle.throttled else "empty"
+    return base
 
-    return None
 
+async def build_agenda_receipt(
+    *,
+    agent_id: str,
+    workspace_dir: str,
+    memory_manager: Any,
+    limit: int | None = None,
+    external_ref: str = "",
+    settings: ProactiveSettings | None = None,
+) -> str:
+    """Build the ``/proactive`` in-chat receipt and mark it delivered.
 
-async def _was_interrupted(
-    baseline_timestamp: datetime,
-    workspace: Optional["Workspace"] = None,
-) -> bool:
-    """Check if the proactive process was interrupted by new user activity.
-
-    This enhanced version combines:
-    Active task checking - if agent is busy with user requests
-    Timestamp comparison - if session was updated since baseline
+    The receipt is the whole delivery: a few ranked openers rendered as one
+    assistant message.  The agent is never asked to act on them, so an
+    agenda item cannot turn into an unrequested tool call.
     """
-    # Check if the agent has active tasks (busy with user messages)
-    if workspace:
-        try:
-            is_busy = await is_agent_busy(workspace)
-            if is_busy:
-                return True
-        except Exception as e:
-            logger.warning(f"Error checking if agent is busy: {e}")
+    resolved = settings or await load_proactive_settings(agent_id)
+    if not resolved.enabled:
+        return text_for("disabled", resolved.language)
 
-    # Check if any chat was updated since the baseline timestamp
-    if workspace and hasattr(workspace, "chat_manager"):
-        try:
-            chats = await workspace.chat_manager.list_chats()
-            baseline_tz_aware = ensure_tz_aware(baseline_timestamp)
+    outcome = await collect_agenda(
+        memory_manager,
+        agent_id=agent_id,
+        workspace_dir=workspace_dir,
+        limit=limit,
+        settings=resolved,
+    )
+    if not outcome.shown:
+        return outcome.empty_state()
 
-            for chat in chats:
-                chat_updated_tz_aware = ensure_tz_aware(chat.updated_at)
-                if chat_updated_tz_aware > baseline_tz_aware:
-                    logger.info(f"Interrupt detected: chat {chat.id}")
-                    return True
+    await mark_delivered(
+        resolve_memory_provider(memory_manager),
+        _ledger_for(workspace_dir, resolved),
+        items=outcome.shown,
+        channel=CHANNEL_CONVERSATION,
+        external_ref=external_ref,
+        date=outcome.date,
+    )
+    return render_agenda_receipt(
+        outcome.shown,
+        resolved.language,
+        date=outcome.date,
+    )
 
-        except Exception as e:
-            logger.warning(f"Error checking chat updates: {e}")
 
-    return False
+async def deliver_proactive_round(
+    *,
+    agent_id: str,
+    workspace_dir: str,
+    memory_manager: Any,
+    channel: str = "idle",
+    force_refresh: bool = False,
+    limit: int | None = None,
+    settings: ProactiveSettings | None = None,
+) -> AgendaRound:
+    """Push one agenda round to the inbox; stay silent when empty.
+
+    Used by the idle trigger (``channel="idle"``) and by the daily cron job
+    (``channel="cron"``, ``force_refresh=True``).  Both are automatic
+    surfaces, so an empty agenda produces no event and no notification --
+    only a log line.
+    """
+    # The idle trigger calls this from an ``asyncio.create_task`` that never
+    # passes through ``ContextVarsSetupHook``, so anything downstream that
+    # resolves the current agent (inbox store, config cache) would otherwise
+    # silently fall back to the default agent.
+    from ....app.agent_context import (  # noqa: PLC0415
+        set_current_agent_id,
+    )
+    from ....config.context import (  # noqa: PLC0415
+        set_current_workspace_dir,
+    )
+
+    set_current_agent_id(agent_id)
+    set_current_workspace_dir(Path(workspace_dir) if workspace_dir else None)
+
+    resolved = settings or await load_proactive_settings(agent_id)
+    if not resolved.enabled:
+        logger.info("proactive round skipped; feature disabled")
+        return AgendaRound(
+            language=resolved.language,
+            skip_reason="disabled",
+        )
+    if not resolved.inbox_enabled:
+        logger.info("proactive round skipped; inbox push disabled")
+        return AgendaRound(
+            language=resolved.language,
+            available=True,
+            skip_reason="inbox_disabled",
+        )
+
+    cap = resolved.cron_max_items if channel == "cron" else resolved.max_items
+    if limit is not None:
+        cap = limit
+    outcome = await collect_agenda(
+        memory_manager,
+        agent_id=agent_id,
+        workspace_dir=workspace_dir,
+        force_refresh=force_refresh,
+        limit=cap,
+        settings=resolved,
+    )
+    if not outcome.shown:
+        logger.info(
+            "proactive round produced nothing: channel=%s reason=%s",
+            channel,
+            outcome.skip_reason or "empty",
+        )
+        return outcome
+
+    from ....app.inbox_store import (  # noqa: PLC0415
+        append_event as append_inbox_event,
+    )
+
+    memory_config = await run_sync_io(
+        _memory_config_for,
+        agent_id,
+    )
+    event = await emit_proactive_agenda(
+        agent_id=agent_id,
+        memory_config=memory_config,
+        date=outcome.date,
+        items=outcome.shown,
+        append_event=append_inbox_event,
+        channel=channel,
+        language=resolved.language,
+    )
+    if event is None:
+        outcome.skip_reason = "inbox_rejected"
+        return outcome
+
+    outcome.pushed = True
+    outcome.event_id = str(event.get("id") or "")
+    await mark_delivered(
+        resolve_memory_provider(memory_manager),
+        _ledger_for(workspace_dir, resolved),
+        items=outcome.shown,
+        channel=CHANNEL_INBOX,
+        external_ref=outcome.event_id,
+        date=outcome.date,
+    )
+    return outcome
+
+
+def _memory_config_for(agent_id: str) -> Any:
+    agent_config = load_agent_config(agent_id)
+    return agent_config.running.reme_light_memory_config
+
+
+async def last_inbox_push_at(
+    workspace_dir: str,
+    settings: ProactiveSettings,
+) -> datetime | None:
+    """When the ledger last recorded an inbox push, for idle spacing."""
+    ledger = _ledger_for(workspace_dir, settings)
+    await ledger.load()
+    return ledger.last_delivered_at(channel=CHANNEL_INBOX)

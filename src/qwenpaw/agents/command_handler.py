@@ -83,6 +83,7 @@ _REME_CHAT_SAFE_ACTIONS = frozenset(
         "status",
         "search",
         "proactive",
+        "proactive_refresh",
         "auto_memory",
         "auto_dream",
         "daily_paper",
@@ -93,13 +94,86 @@ _REME_CHAT_SAFE_ACTIONS = frozenset(
 # they can consume external/LLM resources and persist results.  The runtime
 # adapter therefore requires an explicit approval before dispatching them.
 _REME_APPROVAL_REQUIRED_ACTIONS = frozenset(
-    {"auto_dream", "daily_paper", "auto_fin"},
+    {"auto_dream", "daily_paper", "auto_fin", "proactive_refresh"},
 )
 
 ReMeActionAuthorizer = Callable[
     [str, dict[str, Any]],
     Awaitable[bool],
 ]
+
+# ``/proactive`` arms an idle watcher and immediately presents ReMe's ranked
+# agenda.  The agent only ever shows those items -- it never executes one --
+# so the copy says exactly that instead of warning about bypassed tool
+# protection (there is no bypass agent and no screenshot any more).
+_PROACTIVE_DEFAULT_IDLE_MINUTES = 30
+_PROACTIVE_USAGE = (
+    "- Usage: /proactive [minutes|on|off|now]\n"
+    "- Examples:\n"
+    "  \u2022 /proactive (present the agenda, watch after 30 idle minutes)\n"
+    "  \u2022 /proactive 45 (same, with a 45 minute idle threshold)\n"
+    "  \u2022 /proactive now (rebuild the agenda and push it to the inbox)\n"
+    "  \u2022 /proactive off (stop the idle watcher)\n"
+)
+_PROACTIVE_MESSAGES: dict[str, dict[str, str]] = {
+    "en": {
+        "enabled": (
+            "**Proactive Mode Enabled**\n\n"
+            "- Idle threshold: {minutes} minute(s)\n"
+            "- Topic source: the ReMe proactive agenda (long-term memory)\n"
+            "- I only present suggestions and never execute them; idle "
+            "rounds and the daily job push the agenda to your inbox"
+        ),
+        "disabled": (
+            "**Proactive Mode Disabled**\n\n"
+            "- The idle watcher stopped; no more proactive agenda pushes"
+        ),
+        "pushed": (
+            "**Pushed To Your Inbox**\n\n"
+            "- {count} proactive agenda item(s) in this round\n"
+            "- The inbox cannot run them: tell me the number or title in "
+            "chat to take one forward"
+        ),
+        "not_pushed": "**Nothing Was Pushed**",
+        "error_on": "**Error Enabling Proactive Mode**\n\n- {error}",
+        "error_off": "**Error Disabling Proactive Mode**\n\n- {error}",
+        "error_args": "**Invalid Proactive Arguments**\n\n" + _PROACTIVE_USAGE,
+        "no_workspace": (
+            "No workspace is bound to this command context, so the idle "
+            "watcher cannot start."
+        ),
+    },
+    "zh": {
+        "enabled": (
+            "**主动模式已启用**\n\n"
+            "- 空闲时间: {minutes} 分钟\n"
+            "- 话题来源: ReMe 主动议程（长期记忆）\n"
+            "- 我只呈现建议、不会自行执行；空闲时与每日定时任务会把议程"
+            "推送到收件箱"
+        ),
+        "disabled": (
+            "**主动模式已停用**\n\n- 已停止空闲监听，不再推送主动议程"
+        ),
+        "pushed": (
+            "**已推送到收件箱**\n\n"
+            "- 本次共 {count} 条主动议程\n"
+            "- 收件箱不支持直接执行；想推进哪一条，在聊天里告诉我编号或标题"
+        ),
+        "not_pushed": "**本次没有推送**",
+        "error_on": "**启用主动模式时出错**\n\n- {error}",
+        "error_off": "**停用主动模式时出错**\n\n- {error}",
+        "error_args": (
+            "**主动模式参数无效**\n\n"
+            "- 使用方法: /proactive [分钟数|on|off|now]\n"
+            "- 示例:\n"
+            "  \u2022 /proactive （呈现议程，并在空闲 30 分钟后持续观察）\n"
+            "  \u2022 /proactive 45 （同上，空闲阈值 45 分钟）\n"
+            "  \u2022 /proactive now （重新生成议程并推送到收件箱）\n"
+            "  \u2022 /proactive off （停止空闲监听）\n"
+        ),
+        "no_workspace": "当前命令上下文没有绑定 workspace，无法启动空闲监听。",
+    },
+}
 
 
 def _fmt_tokens(n: int) -> str:
@@ -1596,144 +1670,126 @@ class CommandHandler(ConversationCommandHandlerMixin):
         _messages: list[Msg],
         args: str = "",
     ) -> Msg:
-        """Process /proactive command for proactive message feature."""
+        """Process ``/proactive``: present ReMe's agenda, arm idle rounds.
+
+        Topics come from ReMe's proactive chain, not from a QwenPaw-side
+        extraction pass.  The command answers with the top few openers
+        directly (no model call, nothing is executed) and enables the idle
+        trigger, which pushes later rounds to the inbox.
+        """
         args = args.strip().lower()
         from ..app.agent_context import get_current_agent_id
-        from .memory import enable_proactive_for_session
+        from .memory import (
+            build_agenda_receipt,
+            disable_proactive_for_session,
+            enable_proactive_for_session,
+            load_proactive_settings,
+        )
+        from .memory.proactive.proactive_prompts import text_for
 
-        # Get current agent ID and language
         active_agent_id = get_current_agent_id()
         agent_config = await run_sync_io(
             load_agent_config,
             active_agent_id,
         )
-        agent_lang = getattr(agent_config, "language", "en")
+        agent_lang = str(getattr(agent_config, "language", "en") or "en")
+        lang_key = "zh" if agent_lang.lower().startswith("zh") else "en"
+        msgs = _PROACTIVE_MESSAGES[lang_key]
+        settings = await load_proactive_settings(active_agent_id)
 
-        # Define warnings in both languages
-        warning_en = (
-            "**NOTE**: In this mode, the agent bypasses tool "
-            "protection mechanisms. Please note that the agent will "
-            "read historical session memories and may take screenshots "
-            "to obtain runtime environment information."
-            "Proactive mode can be turned off via /proactive off."
+        workspace = getattr(self._prompt_context, "workspace", None)
+        agent_id = getattr(workspace, "agent_id", None) or active_agent_id
+        workspace_dir = str(
+            getattr(workspace, "workspace_dir", None)
+            or self._workspace_dir
+            or "",
         )
+        memory_manager = getattr(workspace, "memory_manager", None)
+        if memory_manager is None:
+            memory_manager = self.memory_manager
 
-        warning_zh = (
-            "**请注意**：在此模式下，代理会绕过工具保护机制。请注意，代理将会"
-            "读取历史会话内存，并可能截取屏幕截图以获取运行环境信息。"
-            "可通过 /proactive off 关闭主动模式。"
-        )
-
-        # Define all message templates in both languages
-        msg_templates = {
-            "en": {
-                "enabled": (
-                    "**Proactive Mode Enabled**\n\n"
-                    "- Idle time: {minutes} minutes\n"
-                    "- Status: {result}\n"
-                    "- Proactive messages will be sent after "
-                    "{minutes} minutes of inactivity\n\n{warning}"
-                ),
-                "disabled": (
-                    "**Proactive Mode Disabled**\n\n"
-                    "- Proactive monitoring has been stopped\n"
-                    "- No more proactive messages will be sent"
-                ),
-                "error_en": ("**Error Enabling Proactive Mode**\n-{error}"),
-                "error_dis": ("**Error Disabling Proactive Mode**\n- {error}"),
-                "error_args": (
-                    "**Error Enabling Proactive Mode**\n\n"
-                    "- {error}"
-                    "- Usage: /proactive [minutes|on|off]\n"
-                    "- Examples:\n"
-                    "  • /proactive (default 30 minutes)\n"
-                    "  • /proactive 45 (45 minutes idle time)\n"
-                    "  • /proactive on (default 30 minutes)\n"
-                    "  • /proactive off (disable proactive mode)\n"
-                ),
-            },
-            "zh": {
-                "enabled": (
-                    "**主动模式已启用**\n\n"
-                    "- 空闲时间: {minutes} 分钟\n"
-                    "- 状态: {result}\n"
-                    "- 将在 {minutes} 分钟不活动后发送主动消息\n\n{warning}"
-                ),
-                "disabled": ("**主动模式已停用**\n" "- 不再发送主动消息"),
-                "error_en": ("**启用主动模式时出错**\n\n-{error}"),
-                "error_dis": ("**禁用主动模式时出错**\n\n- {error}"),
-                "error_args": (
-                    "**启用主动模式时出错**\n\n"
-                    "- {error}"
-                    "- 使用方法: /proactive [分钟数|on|off]\n"
-                    "- 示例:\n"
-                    "  • /proactive (默认30分钟)\n"
-                    "  • /proactive 45 (45分钟空闲时间)\n"
-                    "  • /proactive on (默认30分钟)\n"
-                    "  • /proactive off (禁用主动模式)\n"
-                ),
-            },
-        }
-
-        # Select messages and warning based on agent language
-        lang_key = "zh" if agent_lang.lower() == "zh" else "en"
-        msgs = msg_templates[lang_key]
-        selected_warning = warning_zh if lang_key == "zh" else warning_en
-
-        if not args or args == "on":
+        if args == "off":
             try:
-                workspace = getattr(self._prompt_context, "workspace", None)
-                result = enable_proactive_for_session(
-                    self.agent_name,
-                    30,
-                    workspace=workspace,
-                )
+                await disable_proactive_for_session(self.agent_name)
+                return await self._make_system_msg(msgs["disabled"])
+            except Exception as e:  # noqa: BLE001
                 return await self._make_system_msg(
-                    msgs["enabled"].format(
-                        minutes=30,
-                        result=result,
-                        warning=selected_warning,
-                    ),
-                )
-            except Exception as e:
-                return await self._make_system_msg(
-                    msgs["error_en"].format(error=str(e)),
+                    msgs["error_off"].format(error=e),
                 )
 
-        elif args == "off":
-            try:
-                from .memory import disable_proactive_for_session
+        if not settings.enabled:
+            return await self._make_system_msg(
+                text_for("disabled", agent_lang),
+            )
 
-                result = await disable_proactive_for_session(
-                    self.agent_name,
-                )
-                return await self._make_system_msg(
-                    msgs["disabled"],
-                )
-            except Exception as e:
-                return await self._make_system_msg(
-                    msgs["error_dis"].format(error=str(e)),
-                )
-        else:
+        if args == "now":
+            return await self._process_proactive_now(
+                agent_id=agent_id,
+                workspace_dir=workspace_dir,
+                memory_manager=memory_manager,
+                msgs=msgs,
+            )
+
+        minutes = _PROACTIVE_DEFAULT_IDLE_MINUTES
+        if args and args != "on":
             try:
                 minutes = int(args)
-                if minutes <= 0:
-                    raise ValueError("Minutes must be a positive integer")
+            except ValueError:
+                return await self._make_system_msg(msgs["error_args"])
+            if minutes <= 0:
+                return await self._make_system_msg(msgs["error_args"])
 
-                workspace = getattr(self._prompt_context, "workspace", None)
-                result = enable_proactive_for_session(
-                    self.agent_name,
-                    minutes,
-                    workspace=workspace,
-                )
-                return await self._make_system_msg(
-                    msgs["enabled"].format(
-                        minutes=minutes,
-                        result=result,
-                        warning=selected_warning,
-                    ),
-                )
-            except Exception as e:
-                return await self._make_system_msg(
-                    msgs["error_args"].format(error=str(e)),
-                )
+        try:
+            if workspace is None:
+                raise ValueError(msgs["no_workspace"])
+            enable_proactive_for_session(
+                self.agent_name,
+                minutes,
+                workspace=workspace,
+            )
+        except Exception as e:  # noqa: BLE001
+            return await self._make_system_msg(
+                msgs["error_on"].format(error=e),
+            )
+
+        receipt = await build_agenda_receipt(
+            agent_id=agent_id,
+            workspace_dir=workspace_dir,
+            memory_manager=memory_manager,
+            external_ref=self._current_session_id(),
+            settings=settings,
+        )
+        header = msgs["enabled"].format(minutes=minutes)
+        return await self._make_system_msg(f"{header}\n\n{receipt}")
+
+    async def _process_proactive_now(
+        self,
+        *,
+        agent_id: str,
+        workspace_dir: str,
+        memory_manager: Any,
+        msgs: dict[str, str],
+    ) -> Msg:
+        """Run one inbox round immediately (``/proactive now``)."""
+        from .memory import deliver_proactive_round
+
+        try:
+            outcome = await deliver_proactive_round(
+                agent_id=agent_id,
+                workspace_dir=workspace_dir,
+                memory_manager=memory_manager,
+                channel="idle",
+                force_refresh=True,
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.exception("proactive now round failed")
+            return await self._make_system_msg(
+                msgs["error_on"].format(error=e),
+            )
+        if outcome.pushed:
+            return await self._make_system_msg(
+                msgs["pushed"].format(count=len(outcome.shown)),
+            )
+        return await self._make_system_msg(
+            f"{msgs['not_pushed']}\n\n{outcome.empty_state()}",
+        )

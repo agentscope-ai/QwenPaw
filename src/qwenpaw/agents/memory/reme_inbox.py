@@ -8,6 +8,12 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 RESULT_JOB_NAMES = {"auto_memory", "auto_dream", "daily_paper", "auto_fin"}
+# The proactive agenda is deliberately *not* in RESULT_JOB_NAMES: a manual
+# `/reme proactive` read must not advance the user's inbox. The idle trigger
+# and the daily cron call emit_proactive_agenda() explicitly instead.
+PROACTIVE_JOB_NAME = "proactive"
+PROACTIVE_EVENT_TYPE = "proactive_agenda_result"
+PROACTIVE_NOTIFICATION_FIELD = "proactive_inbox_push_enabled"
 NOTIFICATION_FIELDS = {
     "auto_memory": "auto_memory_inbox_push_enabled",
     "auto_dream": "auto_dream_inbox_push_enabled",
@@ -187,3 +193,105 @@ async def emit_job_result(
             success,
         )
         return False
+
+
+def build_proactive_agenda_body(items: list[Any], language: str) -> str:
+    """Render the reading-only inbox body for an agenda push."""
+    from .proactive.proactive_prompts import build_inbox_body  # noqa: PLC0415
+
+    return build_inbox_body(list(items), language)
+
+
+def proactive_agenda_payload(
+    items: list[Any],
+    *,
+    date: str,
+    channel: str,
+    language: str,
+) -> dict[str, Any]:
+    """Stable inbox payload for one proactive agenda push."""
+    from .proactive.proactive_prompts import inbox_title  # noqa: PLC0415
+
+    return {
+        "job_name": PROACTIVE_JOB_NAME,
+        "date": date,
+        "channel": channel,
+        "count": len(items),
+        "title": inbox_title(len(items), language, channel=channel),
+        "agenda": [
+            {
+                "topic_id": item.topic_id,
+                "title": item.title,
+                "kind": item.kind,
+                "opener": item.opener,
+                "next_action": item.next_action,
+                "due_at": item.due_at,
+            }
+            for item in items
+        ],
+    }
+
+
+async def emit_proactive_agenda(
+    *,
+    agent_id: str,
+    memory_config: Any,
+    date: str,
+    items: list[Any],
+    append_event: Callable[..., Any],
+    channel: str = "cron",
+    language: str = "en",
+) -> dict[str, Any] | None:
+    """Append one proactive agenda card, honouring the inbox switch.
+
+    Returns the created event, or ``None`` when the push is disabled, there
+    is nothing to show, or the inbox rejected the event. An empty agenda
+    stays silent by design: the inbox is a reading surface, so a card that
+    says "nothing today" is pure noise.
+    """
+    if not items:
+        logger.info("proactive inbox push skipped; empty agenda")
+        return None
+    if not getattr(memory_config, PROACTIVE_NOTIFICATION_FIELD, False):
+        logger.info(
+            "proactive inbox push disabled: agent_id=%s channel=%s",
+            agent_id,
+            channel,
+        )
+        return None
+    body = build_proactive_agenda_body(items, language)
+    if len(body) > MAX_BODY_CHARS:
+        body = f"{body[:MAX_BODY_CHARS].rstrip()}\n..."
+    payload = proactive_agenda_payload(
+        items,
+        date=date,
+        channel=channel,
+        language=language,
+    )
+    try:
+        event = await append_event(
+            agent_id=agent_id,
+            source_type="memory",
+            source_id=PROACTIVE_JOB_NAME,
+            event_type=PROACTIVE_EVENT_TYPE,
+            status="success",
+            severity="info",
+            title=payload["title"],
+            body=body,
+            payload=payload,
+        )
+    except Exception:
+        logger.exception(
+            "failed to push the proactive agenda: agent=%s channel=%s",
+            agent_id,
+            channel,
+        )
+        return None
+    logger.info(
+        "proactive agenda pushed: agent=%s channel=%s items=%d event=%s",
+        agent_id,
+        channel,
+        len(items),
+        event.get("id") if isinstance(event, dict) else event,
+    )
+    return event if isinstance(event, dict) else {"id": str(event or "")}

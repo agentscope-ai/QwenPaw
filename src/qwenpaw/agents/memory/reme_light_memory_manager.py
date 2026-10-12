@@ -89,7 +89,13 @@ NO_MEMORY_RESULTS = "(no memory results)"
 INBOX_RESULT_HOOK_KEY = "qwenpaw_memory_result_hook"
 _REME_SESSION_ID_HASH_PREFIX = "qpsid_sha256_"
 _REME_LLM_ACTIONS = frozenset(
-    {"auto_dream", "auto_memory", "daily_paper", "auto_fin"},
+    {
+        "auto_dream",
+        "auto_memory",
+        "daily_paper",
+        "auto_fin",
+        "proactive_refresh",
+    },
 )
 _HOST_MEMORY_ACTIONS: dict[str, MemoryActionSpec] = {
     "undo_reindex": {
@@ -100,7 +106,7 @@ _HOST_MEMORY_ACTIONS: dict[str, MemoryActionSpec] = {
         "parameters": {"type": "object", "properties": {}},
     },
 }
-_REQUIRED_REME_VERSION = "0.4.1.11"
+_REQUIRED_REME_VERSION = "0.4.1.13"
 
 
 def _consume_detached_task_result(task: asyncio.Task[Any]) -> None:
@@ -461,6 +467,20 @@ class ReMeLightMemoryManager(BaseMemoryManager, MemoryActionProvider):
                         "auto_fin",
                     ),
                     misfire_grace_seconds=600,
+                ),
+            )
+        if (
+            cfg.proactive_enabled
+            and cfg.proactive_cron_enabled
+            and cfg.proactive_cron
+        ):
+            jobs.append(
+                ServiceCronJob(
+                    key="proactive",
+                    cron=cfg.proactive_cron,
+                    callback=self._run_proactive_daily,
+                    misfire_grace_seconds=600,
+                    jitter_seconds=60,
                 ),
             )
         return jobs
@@ -923,6 +943,39 @@ class ReMeLightMemoryManager(BaseMemoryManager, MemoryActionProvider):
     async def _undo_reindex(self) -> EmbeddingModelConfig:
         """Execute the host-managed embedding rollback implementation."""
         return await self._embedding_service().undo_reindex()
+
+    async def _run_proactive_daily(self) -> None:
+        """Rebuild today's proactive agenda and push it to the inbox.
+
+        Unlike the on-demand paths this always starts from ReMe's topic
+        extraction, so the daily push reflects the day's material instead of
+        a stale ``interests.yaml``.  An empty agenda stays silent: the inbox
+        is a reading surface and a card that says "nothing today" is noise.
+        """
+        from .proactive.proactive_responder import (  # noqa: PLC0415
+            deliver_proactive_round,
+        )
+
+        outcome = await deliver_proactive_round(
+            agent_id=self.agent_id,
+            workspace_dir=self.working_dir,
+            memory_manager=self,
+            channel="cron",
+            force_refresh=True,
+        )
+        if not outcome.available:
+            raise RuntimeError(
+                "Proactive agenda is unavailable; ReMe did not answer",
+            )
+        logger.info(
+            "proactive daily job done: agent=%s shown=%d pushed=%s "
+            "refreshed=%s reason=%s",
+            self.agent_id,
+            len(outcome.shown),
+            outcome.pushed,
+            outcome.refreshed,
+            outcome.skip_reason or "-",
+        )
 
     async def _run_scheduled_action(self, action: str) -> None:
         """Run one configured action on behalf of the cron service."""
