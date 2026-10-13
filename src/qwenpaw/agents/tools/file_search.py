@@ -73,6 +73,9 @@ _BINARY_EXTENSIONS = frozenset(
     },
 )
 
+_DEFAULT_GREP_SKIP_DIRS = frozenset({"sessions", "state"})
+_NON_TEXT_BYTES = bytes(c for c in range(32) if c not in (9, 10, 13))
+
 _SKIP_DIRS = frozenset(
     {
         ".git",
@@ -108,13 +111,22 @@ _GLOB_TIMEOUT = 15  # seconds
 # ---------------------------------------------------------------------------
 
 
-def _is_text_file(path: Path) -> bool:
-    """Heuristic: skip known binary extensions and files > 2 MB."""
+def _is_text_file(
+    path: Path,
+    cancel: threading.Event | None = None,
+) -> bool:
+    """Skip large files and files containing binary control bytes."""
     if path.suffix.lower() in _BINARY_EXTENSIONS:
         return False
     try:
         if path.stat().st_size > _MAX_FILE_SIZE:
             return False
+        with path.open("rb") as stream:
+            for chunk in iter(lambda: stream.read(8192), b""):
+                if cancel is not None and cancel.is_set():
+                    return False
+                if len(chunk.translate(None, _NON_TEXT_BYTES)) != len(chunk):
+                    return False
     except OSError:
         return False
     return True
@@ -388,6 +400,8 @@ def _walk_and_grep(  # noqa: C901  pylint: disable=too-many-branches,too-many-lo
     cancel: threading.Event,
     include_pattern: "str | None",
     show_file: bool = True,
+    *,
+    skip_internal_paths: bool = False,
 ) -> tuple[list[str], str]:
     """Walk *search_root*, grep every text file, return ``(lines, status)``.
 
@@ -404,7 +418,9 @@ def _walk_and_grep(  # noqa: C901  pylint: disable=too-many-branches,too-many-lo
     headers_emitted: set[str] = set()
 
     if single_file:
-        file_iter: list[Path] = [search_root]
+        file_iter: list[Path] = (
+            [search_root] if _is_text_file(search_root, cancel) else []
+        )
     else:
         file_iter = []
         for dirpath, dirnames, filenames in os.walk(
@@ -414,15 +430,26 @@ def _walk_and_grep(  # noqa: C901  pylint: disable=too-many-branches,too-many-lo
             if cancel.is_set():
                 status = "timeout"
                 break
-            dirnames[:] = sorted(d for d in dirnames if d not in _SKIP_DIRS)
+            at_root = skip_internal_paths and Path(dirpath) == search_root
+            dirnames[:] = sorted(
+                d
+                for d in dirnames
+                if d not in _SKIP_DIRS
+                and not (at_root and d in _DEFAULT_GREP_SKIP_DIRS)
+            )
             for fname in filenames:
-                fp = Path(dirpath) / fname
-                if not _is_text_file(fp):
+                if cancel.is_set():
+                    status = "timeout"
+                    break
+                if at_root and fname.lower().startswith("history.db"):
                     continue
                 if include_pattern and not fnmatch.fnmatch(
                     fname,
                     include_pattern,
                 ):
+                    continue
+                fp = Path(dirpath) / fname
+                if not _is_text_file(fp, cancel):
                     continue
                 file_iter.append(fp)
                 if len(file_iter) >= _MAX_FILES_SCANNED:
@@ -619,6 +646,10 @@ async def grep_search(
     """Search file contents by pattern, recursively. Relative paths resolve
     from the project directory. Output format: ``path:line_number: content``.
 
+    Binary files are skipped. Without a path, workspace-wide searches
+    omit root-level history.db files and the sessions/state directories.
+    An explicit text path can still search those locations.
+
     When *show_file* is False, each match line omits the file path prefix
     (``line_number:> content``).  For multi-file searches, the file path
     is printed once before that file's matches, with ``---`` separating
@@ -670,6 +701,7 @@ async def grep_search(
                 cancel,
                 include_pattern,
                 show_file,
+                skip_internal_paths=not path,
             )
         except Exception as exc:
             return [], f"error: {exc}"
