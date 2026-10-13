@@ -5,7 +5,7 @@
 
 web_search delegates to a pluggable search provider (Tavily by
 default, AnySearch when the per-agent Console config selects it).
-web_fetch uses direct HTTP GET + html2text.
+web_fetch uses direct HTTP GET + markdownify.
 """
 
 import logging
@@ -14,8 +14,8 @@ import ssl
 
 from urllib.parse import urlparse
 
-import html2text
 import httpx
+from markdownify import MarkdownConverter
 
 from agentscope.message import TextBlock
 from agentscope.tool import ToolChunk
@@ -45,13 +45,20 @@ _FETCH_HEADERS = {
 }
 
 
-def _new_html2text() -> html2text.HTML2Text:
-    """Create a configured HTML2Text converter."""
-    h = html2text.HTML2Text()
-    h.ignore_links = False
-    h.ignore_images = True
-    h.body_width = 0
-    return h
+class _WebFetchMarkdownConverter(MarkdownConverter):
+    """Keep fetched page metadata and images out of the text."""
+
+    def convert_head(self, el, text, parent_tags):
+        del el, text, parent_tags
+        return ""
+
+    def convert_title(self, el, text, parent_tags):
+        del el, text, parent_tags
+        return ""
+
+    def convert_img(self, el, text, parent_tags):
+        del el, text, parent_tags
+        return ""
 
 
 def _is_ssl_error(exc: BaseException) -> bool:
@@ -119,13 +126,16 @@ def _extract_title(html_content: str) -> str:
 
 
 def _html_to_text(html_content: str) -> str:
-    """Convert HTML to readable markdown via html2text.
+    """Convert HTML to readable markdown via markdownify.
 
     Always prepends the <title> as a heading when present.
     """
     title = _extract_title(html_content)
-    h = _new_html2text()
-    body = h.handle(html_content).strip()
+    body = _WebFetchMarkdownConverter(
+        heading_style="ATX",
+        bullets="-",
+        wrap=False,
+    ).convert(html_content).strip()
     if title and body:
         return f"# {title}\n\n{body}"
     if title:
