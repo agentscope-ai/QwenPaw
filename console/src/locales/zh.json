@@ -3046,6 +3046,7 @@
     "htmlReadOnlyNotice": "动态内容无法在只读预览中展示。请在浏览器中打开，查看完整效果。",
     "htmlReadOnlyNotice_fallback": "点击下方按钮，在浏览器中打开页面，查看完整效果。",
     "openHtmlInBrowser": "在浏览器中打开",
+    "openHtmlOutsideWorkspace": "该文件在工作区之外，已在预览窗口中打开。",
     "edit": "编辑",
     "selectFile": "选择文件以打开",
     "closeTab": "关闭标签页",

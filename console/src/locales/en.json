@@ -3193,6 +3193,7 @@
     "htmlReadOnlyNotice": "Dynamic content isn't available in this read-only preview. Open the file in your browser to view the full experience.",
     "htmlReadOnlyNotice_fallback": "Click the button below to open the page in your browser for the full experience.",
     "openHtmlInBrowser": "Open in browser",
+    "openHtmlOutsideWorkspace": "This file is outside the workspace, so it opened in a preview window instead.",
     "edit": "Edit",
     "selectFile": "Select a file to open",
     "closeTab": "Close tab",
