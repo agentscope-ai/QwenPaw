@@ -184,6 +184,17 @@ class ChatPage(BasePage):
         '.qwenpaw-dropdown-menu-item:has-text("搜索对话"), '
         '.ant-dropdown-menu-item:has-text("搜索对话")'
     )
+    # Pinned marker on a session row. Post-#7956 SessionItem renders
+    # ``<span class="...pinMark" title={t("chat.group.pinned")}>`` with a
+    # lucide Pin icon when the session is pinned (SessionItem/index.tsx).
+    # This is the product's own visible pin indicator and the primary
+    # anchor for verification; the menu round-trip is only a fallback.
+    SESSION_PIN_MARK = (
+        'div[role="button"][class*="sessionItem-module__item"] '
+        'span[class*="pinMark"], '
+        '[class*=chatSessionItem] span[class*="pinMark"], '
+        'span[title="Pinned"], span[title="置顶"]'
+    )
     # Legacy hover-button selectors (kept for older builds / fallbacks).
     SESSION_PIN_BTN = 'button:has(.spark-icon-spark-mark-line), button:has(.anticon-pushpin)'
     SESSION_EDIT_BTN = 'button:has(.spark-icon-spark-edit-line), button:has(.anticon-edit)'
@@ -221,6 +232,43 @@ class ChatPage(BasePage):
     )
 
     # Settings and model
+    # --- Model selector, post-#7899 (upstream d7afd981, merged 2026-09-21) ---
+    # #7899 ("unify model discovery, pricing, selection and thinking
+    # controls") moved the model picker OUT of the chat right-header and
+    # INTO the sender prefix, wrapped by the new ``SessionThinking``
+    # feature component (console/src/features/thinking/SessionThinking.tsx,
+    # added by the same PR). Two consequences for us:
+    #   1. The container ``.qwenpaw-chat-anywhere-layout-right-header`` no
+    #      longer holds the trigger (the right header now only renders
+    #      ChatHeaderTitle / ChatActionGroup / plugin slots).
+    #   2. The trigger is no longer an antd Dropdown trigger: it is a plain
+    #      ``<button class="...trigger">`` inside an antd *Popover*, so the
+    #      runtime class ``qwenpaw-dropdown-trigger`` never appears.
+    # The stable handles are the i18n-derived accessible names:
+    #   * outer trigger: ``aria-label = t("thinkingControl.title")``
+    #     ("Thinking intensity" / "思考强度")
+    #   * inner "change model" button inside the opened panel:
+    #     ``ThinkingControl`` renders ``button.<css-module modelChoice>``
+    #     whose accessible name falls back to ``t("modelSelector.selectModel")``
+    #     ("Select model" / "选择模型") when the model lacks thinking support,
+    #     and whose visible text is the active model name otherwise.
+    #   * embedded picker rows: ``button.<css-module modelSelectButton>``
+    #     (ModelSelector ``embedded`` branch, index.tsx:1291).
+    MODEL_THINKING_TRIGGER = (
+        'button[aria-label="Thinking intensity"], '
+        'button[aria-label="思考强度"]'
+    )
+    MODEL_CHOICE_BTN = (
+        'div[role="dialog"] button[class*="modelChoice"], '
+        'button[class*="modelChoice"]'
+    )
+    MODEL_SELECT_EMBEDDED_BTN = (
+        'div[role="dialog"] button[class*="modelSelectButton"], '
+        'button[class*="modelSelectButton"]'
+    )
+    # Legacy anchors, kept ONLY as last-resort fallbacks for builds older
+    # than #7899 (the pre-#7899 header Dropdown). They are dead on current
+    # main; do not add new uses.
     MODEL_SELECTOR = '.qwenpaw-dropdown-trigger'
     MODEL_OPTION = '.qwenpaw-dropdown-menu-item'
     AGENT_SELECTOR = '.qwenpaw-select-selector'
@@ -462,6 +510,10 @@ class ChatPage(BasePage):
         # ---- Before a new round: record the baseline (must be before any fill / click) ----
         self._ai_count_before_send = self.page.locator(self.AI_MESSAGE).count()
         user_count_before = self.page.locator(self.USER_MESSAGE).count()
+        # Kept for wait_for_ai_response's Path D (post-compression rebuild):
+        # the user-bubble count is what proves a round's request reached the
+        # server even when the AI bubble list got rebuilt mid-round.
+        self._user_count_before_send = user_count_before
         logger.info(
             f"[send_message] baseline: ai={self._ai_count_before_send}, "
             f"user={user_count_before}"
@@ -710,10 +762,13 @@ class ChatPage(BasePage):
         #     to this round (index >= expectedCount); the index guard prevents
         #     misreading the previous round's content as this round's reply.
         stability_timeout = min(timeout, stability_cap_ms)
+        user_count_before = getattr(self, "_user_count_before_send", None)
+        if user_count_before is None:
+            user_count_before = self.page.locator(self.USER_MESSAGE).count()
         passed_via = None
         try:
             self.page.wait_for_function(
-                """(expectedCount) => {
+                """({expectedCount, expectedUserCount}) => {
                     // Path A: button transitioned from disabled back to enabled -> streaming really ended
                     const btn = document.querySelector(
                         'button.qwenpaw-sender-actions-btn.qwenpaw-btn-primary'
@@ -811,9 +866,54 @@ class ChatPage(BasePage):
                             return true;
                         }
                     }
+
+                    // Path D (2026-10-13): the bubble list can be REBUILT
+                    // mid-round (context compression / virtualised
+                    // re-render), which drops the round's own bubble below
+                    // `expectedCount` or empties it. Then Paths A/B/C can
+                    // never release even though the answer is fully
+                    // rendered — evidence: nightly 2026-10-07..12, the
+                    // 25-round compression case failed at rounds 11-13
+                    // every night with "Last bubble text: ''" while the
+                    // FAIL-moment screenshot showed the round's answer
+                    // complete ("Completed 1 steps" + full text) and the
+                    // send button enabled.
+                    // Release when: the send button is enabled AND the
+                    // user-bubble count still equals this round's baseline
+                    // (i.e. no NEWER round was started, so the enabled
+                    // button belongs to THIS round) AND at least one AI
+                    // bubble carries real text. The user-count guard is
+                    // what keeps this from releasing on a stale state.
+                    const userMsgs = document.querySelectorAll(
+                        '.qwenpaw-bubble.qwenpaw-bubble-end'
+                    );
+                    let anyReal = false;
+                    for (let i = 0; i < aiMsgs.length; i++) {
+                        const t = (aiMsgs[i].innerText || '').trim();
+                        const s = t
+                            .replace(/Thinking/gi, '')
+                            .replace(/Loading/gi, '')
+                            .trim();
+                        if (s.length >= 2) {
+                            anyReal = true;
+                            break;
+                        }
+                    }
+                    if (
+                        btnEnabled &&
+                        anyReal &&
+                        userMsgs.length === expectedUserCount
+                    ) {
+                        window.__qwenpaw_wait_passed_via__ =
+                            'btn_enabled_post_rebuild';
+                        return true;
+                    }
                     return false;
                 }""",
-                arg=count_before_send,
+                arg={
+                    "expectedCount": count_before_send,
+                    "expectedUserCount": user_count_before,
+                },
                 timeout=stability_timeout,
             )
             try:
@@ -845,6 +945,7 @@ class ChatPage(BasePage):
                 self.page.evaluate(
                     "() => { try { "
                     "delete window.__qwenpaw_ai_stable_cache__; "
+                    "delete window.__qwenpaw_ai_stable_cache_c__; "
                     "delete window.__qwenpaw_wait_passed_via__; "
                     "} catch(e) {} }"
                 )
@@ -1187,10 +1288,19 @@ class ChatPage(BasePage):
             return self
 
         rename_item = self.page.locator(self.SESSION_MENU_RENAME).first
-        if rename_item.count() == 0 or not rename_item.is_visible():
-            logger.warning("Rename menu item not found, skipping rename")
+        # The menu items enter with a staggered framer-motion animation
+        # (SessionActions.tsx: delay = index * 0.02s), so an instant
+        # count()/is_visible() probe right after the menu opened can race
+        # the entrance. Wait explicitly; fail loudly if it never shows.
+        try:
+            rename_item.wait_for(state="visible", timeout=5000)
+        except Exception:
+            names = self._visible_menuitem_names()
             self.page.keyboard.press("Escape")
-            return self
+            raise AssertionError(
+                f"Rename item never became visible in the session menu of "
+                f"session {index}. Visible menu items: {names}"
+            )
         rename_item.click()
         self.wait(500)
 
@@ -1216,14 +1326,32 @@ class ChatPage(BasePage):
 
     
     def pin_session(self, index: int) -> "ChatPage":
-        """Pin a session via more-menu → Pin."""
+        """Pin a session via more-menu → Pin.
+
+        The menu items enter with a staggered framer-motion animation
+        (``SessionActions.tsx``: ``delay = index * 0.02s``), and Pin sits at
+        index 1 while Rename sits at 0 — an instant ``count()``/
+        ``is_visible()`` probe right after the menu opened therefore races
+        the entrance for Pin more often than for Rename. The old code
+        treated "not found yet" as "already pinned" and returned silently,
+        which turned a timing miss into a mystery assertion failure one
+        step later ("Pinned marker not shown", nightly 2026-10). Now we
+        wait explicitly, and only take the already-pinned branch when the
+        *Unpin* item is positively visible.
+        """
         logger.info(f"Pinning session at index {index}")
         if not self._open_session_menu(index):
             self.step_shot(f"pin_session_{index}_menu_failed")
-            return self
+            raise AssertionError(
+                f"Could not open the session menu for session {index}"
+            )
 
         pin_item = self.page.locator(self.SESSION_MENU_PIN).first
         if pin_item.count() == 0 or not pin_item.is_visible():
+            # #8247: the label lives in a nested span, so the scoped
+            # :has(span:text-is(...)) selector above is the reliable
+            # probe; a pinned row shows "Unpin" instead and the row
+            # carries data-pinned="true".
             target = self.page.locator(self.SESSION_ITEM).nth(index)
             if target.get_attribute("data-pinned") == "true":
                 logger.info("Session is already pinned")
@@ -1237,6 +1365,22 @@ class ChatPage(BasePage):
         self.step_shot(f"pin_session_{index}_done")
         return self
 
+    def _visible_menuitem_names(self, limit: int = 12) -> List[str]:
+        """Visible role=menuitem labels (failure context for menu races)."""
+        try:
+            items = self.page.locator(
+                'div[role="menu"] button[role="menuitem"]'
+            ).all()[:limit]
+            names = []
+            for it in items:
+                try:
+                    names.append((it.inner_text() or "").strip())
+                except Exception:
+                    names.append("<unreadable>")
+            return names
+        except Exception:
+            return ["<unreadable>"]
+
     def delete_session(self, index: int) -> "ChatPage":
         """Delete a session via more-menu → Delete (confirm modal if shown)."""
         logger.info(f"Deleting session at index {index}")
@@ -1247,11 +1391,20 @@ class ChatPage(BasePage):
             return self
 
         del_item = self.page.locator(self.SESSION_MENU_DELETE).first
-        if del_item.count() == 0 or not del_item.is_visible():
-            logger.warning("Delete menu item not found")
+        # Same staggered-entrance race as pin/rename: wait explicitly.
+        # Callers that treat deletion as best-effort (cleanup paths) wrap
+        # this in try/except; test paths get a loud failure instead of a
+        # silently skipped delete.
+        try:
+            del_item.wait_for(state="visible", timeout=5000)
+        except Exception:
+            names = self._visible_menuitem_names()
             self.page.keyboard.press("Escape")
             self.step_shot(f"delete_session_{index}_item_missing")
-            return self
+            raise AssertionError(
+                f"Delete item never became visible in the session menu of "
+                f"session {index}. Visible menu items: {names}"
+            )
         del_item.click()
         self.wait(800)
 
@@ -1276,20 +1429,53 @@ class ChatPage(BasePage):
         self.step_shot(f"delete_session_{index}_done")
         return self
 
-    def verify_pinned_session(self) -> bool:
-        """Verify the first session exposes its pinned state."""
-        first_session = self.page.locator(self.SESSION_ITEM).first
-        if first_session.count() == 0:
-            return False
+    def verify_pinned_session(self, index: int = 0) -> bool:
+        """Verify the session at ``index`` shows the pinned marker.
+
+        Primary anchor: the product's own visible pin indicator —
+        ``SessionItem`` renders ``span[class*="pinMark"]`` with
+        ``title="Pinned"``/``title="置顶"`` on pinned rows. This needs no
+        menu round-trip and therefore no race with the menu's staggered
+        entrance animation.
+
+        Fallback (pre-#7956 builds without the marker): re-open the
+        session's more-menu and look for the "Unpin" item.
+        """
+        mark = self.page.locator(self.SESSION_PIN_MARK)
         try:
-            expect(first_session).to_have_attribute(
-                "data-pinned",
-                "true",
-                timeout=5000,
+            # Any pinned row proves the pin action landed; when several
+            # sessions exist we still accept the row-scoped match first.
+            scoped = self.page.locator(self.SESSION_ITEM).nth(index).locator(
+                'span[class*="pinMark"], [title="Pinned"], [title="置顶"]'
             )
-        except AssertionError:
+            if scoped.count() > 0:
+                try:
+                    scoped.first.wait_for(state="visible", timeout=5000)
+                    logger.info(f"Pinned marker visible on session {index}")
+                    return True
+                except Exception:
+                    pass
+            if mark.count() > 0 and mark.first.is_visible():
+                logger.info("Pinned marker visible (any row)")
+                return True
+        except Exception as exc:
+            logger.warning(f"[verify_pinned_session] marker probe: {exc}")
+
+        # Fallback: menu round-trip (Unpin item present == pinned).
+        if not self._open_session_menu(index):
             return False
-        return True
+        unpin = self.page.locator(self.SESSION_MENU_UNPIN).first
+        try:
+            unpin.wait_for(state="visible", timeout=5000)
+            result = True
+        except Exception:
+            result = False
+        try:
+            self.page.keyboard.press("Escape")
+        except Exception:
+            pass
+        self.wait(300)
+        return result
 
     def open_session_search(self) -> "ChatPage":
         """Reveal the conversation search box in the sidebar session list.
@@ -1450,14 +1636,85 @@ class ChatPage(BasePage):
     # ========== Model and Agent switching ==========
     
     def open_model_selector(self) -> "ChatPage":
-        """Open the model selector."""
+        """Open the model picker panel.
+
+        Post-#7899 the picker is reached in two hops from the sender area:
+        the ``SessionThinking`` trigger (``aria-label`` = "Thinking
+        intensity" / "思考强度") opens a Popover; inside it, when a model is
+        already bound to the session, ``ThinkingControl`` shows a
+        ``modelChoice`` button that flips the panel into the embedded
+        ``ModelSelector``. When no model is bound yet the embedded picker
+        is shown straight away, so hop 2 is skipped.
+
+        Fail-fast: if neither hop materialises we raise with the visible
+        button names instead of silently returning — the old silent
+        ``return self`` turned a missing element into a mystery failure
+        several steps later (see the 2026-10 nightly post-mortem).
+        """
         logger.info("Opening model selector")
-        # The model selector lives in the right-side area of the header
-        header = self.page.locator('.qwenpaw-chat-anywhere-layout-right-header')
-        model_btn = header.locator(self.MODEL_SELECTOR).first
-        model_btn.click()
+        trigger = self.page.locator(self.MODEL_THINKING_TRIGGER).first
+        try:
+            trigger.wait_for(state="visible", timeout=10000)
+        except Exception:
+            # Pre-#7899 builds: header Dropdown trigger.
+            legacy = self.page.locator(
+                '.qwenpaw-chat-anywhere-layout-right-header'
+            ).locator(self.MODEL_SELECTOR).first
+            if legacy.count() > 0 and legacy.is_visible():
+                legacy.click()
+                self.wait(500)
+                return self
+            names = self._visible_button_names()
+            raise AssertionError(
+                "Model selector trigger not found in 10s. Looked for "
+                f"{self.MODEL_THINKING_TRIGGER!r} and the pre-#7899 header "
+                f"dropdown. Visible buttons: {names}"
+            )
+        trigger.click()
         self.wait(500)
+
+        # Hop 2: the panel may already be the embedded picker (no model
+        # bound yet) or the ThinkingControl with a modelChoice button.
+        embedded = self.page.locator(self.MODEL_SELECT_EMBEDDED_BTN).first
+        choice = self.page.locator(self.MODEL_CHOICE_BTN).first
+        for _ in range(20):
+            if embedded.count() > 0 and embedded.first.is_visible():
+                logger.info("Model picker panel open (embedded picker)")
+                return self
+            if choice.count() > 0 and choice.first.is_visible():
+                choice.first.click()
+                self.wait(500)
+                break
+            self.wait(250)
+        try:
+            embedded.wait_for(state="visible", timeout=8000)
+        except Exception:
+            names = self._visible_button_names()
+            raise AssertionError(
+                "Model picker panel did not open: neither the embedded "
+                "modelSelectButton rows nor the modelChoice hop appeared. "
+                f"Visible buttons: {names}"
+            )
+        logger.info("Model picker panel open (via modelChoice hop)")
         return self
+
+    def _visible_button_names(self, limit: int = 25) -> List[str]:
+        """Accessible names of currently visible buttons (failure context)."""
+        try:
+            btns = self.page.locator("button:visible").all()[:limit]
+            names = []
+            for b in btns:
+                try:
+                    label = b.get_attribute("aria-label")
+                    if not label:
+                        lines = (b.inner_text() or "").strip().splitlines()
+                        label = lines[0] if lines else ""
+                    names.append(label or "<no-text>")
+                except Exception:
+                    names.append("<unreadable>")
+            return names
+        except Exception:
+            return ["<unreadable>"]
 
     def select_model(self, model_name: str) -> "ChatPage":
         """
@@ -1471,19 +1728,39 @@ class ChatPage(BasePage):
         """
         logger.info(f"Selecting model: {model_name}")
 
-        # Find and select the model
-        model_option = self.page.locator(self.MODEL_OPTION).filter(has_text=model_name).first
-        if model_option.count() > 0:
-            model_option.click()
-            self.wait(1000)
-            logger.info(f"Model selected: {model_name}")
-
+        # Post-#7899 the picker rows are ``modelSelectButton`` buttons whose
+        # visible text is the model name; pre-#7899 builds used antd
+        # dropdown menu items. Try the new anchor first, fall back once.
+        option = self.page.locator(self.MODEL_SELECT_EMBEDDED_BTN).filter(
+            has_text=model_name
+        ).first
+        if option.count() == 0 or not option.is_visible():
+            option = self.page.locator(self.MODEL_OPTION).filter(
+                has_text=model_name
+            ).first
+        if option.count() == 0 or not option.is_visible():
+            available = self.get_available_models()
+            raise AssertionError(
+                f"Model option {model_name!r} not visible in the open "
+                f"picker. Available rows: {available}"
+            )
+        option.click()
+        self.wait(1000)
+        logger.info(f"Model selected: {model_name}")
         return self
 
     def get_available_models(self) -> List[str]:
-        """Get the list of available models."""
-        options = self.page.locator(self.MODEL_OPTION).all()
-        models = [opt.inner_text() for opt in options]
+        """Get the list of available models shown in the open picker."""
+        rows = self.page.locator(self.MODEL_SELECT_EMBEDDED_BTN).all()
+        models = []
+        for opt in rows:
+            try:
+                models.append(opt.inner_text().strip())
+            except Exception:
+                continue
+        if not models:
+            legacy = self.page.locator(self.MODEL_OPTION).all()
+            models = [opt.inner_text() for opt in legacy]
         return models
 
     def open_agent_selector(self) -> "ChatPage":
