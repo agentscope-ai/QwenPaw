@@ -327,6 +327,12 @@ async def ensure_agenda(
             daily cron uses this so every push reflects fresh extraction.
         date: Agenda date override, empty means ReMe's today.
     """
+    if ledger is not None:
+        # ``is_delivered`` and ``last_refresh_at`` read the in-memory copy,
+        # which only ``record``/``record_refresh`` used to hydrate. Without
+        # this the first round in a fresh process would skip host-side dedupe
+        # and the refresh throttle entirely.
+        await ledger.load()
     read = await fetch_agenda(memory_manager, date=date)
     items = filter_delivered(read.items, ledger, cooldown_days=cooldown_days)
     if items and not force_refresh:

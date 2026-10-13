@@ -324,6 +324,55 @@ class TestEnsureAgenda:
         assert bundle.hidden_total == 2
         assert [item.topic_id for item in bundle.items] == ["t-2"]
 
+    async def test_fresh_process_hydrates_the_ledger(self, tmp_path: Path):
+        """An unloaded ledger written by a prior process still dedupes.
+
+        ``is_delivered`` reads the in-memory copy, so ``ensure_agenda`` has to
+        hydrate it or the first round after a restart re-shows everything and
+        ignores the refresh throttle.
+        """
+        writer = _ledger(tmp_path)
+        await writer.record(
+            [{"topic_id": "t-1", "channel": "inbox", "status": "shown"}],
+        )
+        manager = FakeMemoryManager(
+            [agenda_entry("t-1"), agenda_entry("t-2")],
+        )
+        fresh = DeliveryLedger(writer.path)
+        assert fresh.entries == []  # nothing hydrated yet
+
+        bundle = await pa.ensure_agenda(
+            manager,
+            fresh,
+            cooldown_days=3,
+            min_interval_minutes=120,
+        )
+
+        assert [item.topic_id for item in bundle.items] == ["t-2"]
+
+    async def test_reminder_survives_the_hydrated_ledger(self, tmp_path: Path):
+        """The due reminder stays; the delivered discovery item goes."""
+        writer = _ledger(tmp_path)
+        await writer.record(
+            [
+                {"topic_id": "r-1", "channel": "inbox", "status": "shown"},
+                {"topic_id": "t-1", "channel": "inbox", "status": "shown"},
+            ],
+        )
+        manager = FakeMemoryManager(
+            [agenda_entry("r-1", kind="reminder"), agenda_entry("t-1")],
+        )
+
+        bundle = await pa.ensure_agenda(
+            manager,
+            DeliveryLedger(writer.path),
+            cooldown_days=3,
+            min_interval_minutes=120,
+        )
+
+        assert [item.topic_id for item in bundle.items] == ["r-1"]
+        assert bundle.hidden_total == 1
+
 
 def test_refresh_allowed_without_ledger_or_window():
     ledger = SimpleNamespace(last_refresh_at=lambda: None)
