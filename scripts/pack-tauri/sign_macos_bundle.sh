@@ -85,7 +85,7 @@ while IFS= read -r -d '' path; do
 done < <(find "${TARGET}" -type f -print0)
 
 # Framework directories carry their own bundle signature. Sign them after the
-# contained Mach-O files, then sign the app bundle last.
+# contained Mach-O files, then sign nested Apps before the outer bundle.
 signed_frameworks=0
 while IFS= read -r framework; do
     if [[ -n "${framework}" ]]; then
@@ -94,11 +94,13 @@ while IFS= read -r framework; do
     fi
 done < <(find "${TARGET}" -type d -name "*.framework" | sort -r)
 
-if [[ "${TARGET}" == *.app ]]; then
-    codesign_bundle "${TARGET}"
-fi
+signed_apps=0
+while IFS= read -r -d '' app; do
+    codesign_bundle "${app}"
+    signed_apps=$((signed_apps + 1))
+done < <(find "${TARGET}" -depth -type d -name '*.app' -print0)
 
-echo "Signed ${signed_files} Mach-O files and ${signed_frameworks} frameworks"
+echo "Signed ${signed_files} Mach-O files, ${signed_frameworks} frameworks and ${signed_apps} apps"
 
 if [[ "${TARGET}" == *.app ]]; then
     codesign --verify --deep --strict --verbose=2 "${TARGET}"
