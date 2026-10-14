@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import tempfile
+import sys
 from pathlib import Path
 import shutil
 
@@ -1682,6 +1683,99 @@ class TestFileGuardConfigBridge:
             ),
         )
         monkeypatch.setattr("qwenpaw.config.load_config", lambda: config)
+
+    @pytest.mark.skipif(sys.platform == "win32", reason="POSIX paths")
+    @pytest.mark.parametrize("persisted", [False, True])
+    def test_default_system_credentials_require_approval(
+        self,
+        tmp_path,
+        monkeypatch,
+        persisted,
+    ):
+        self._patch_config(monkeypatch, enabled=True, paths=[])
+        policy = _create_default_policy(str(tmp_path))
+        if persisted:
+            # Existing policies contain only the historical user paths.
+            save_governance_policy(policy, str(tmp_path), str(tmp_path))
+            policy = load_governance_policy(str(tmp_path), str(tmp_path))
+        for target in (
+            "/etc/shadow",
+            "/etc/shadow-",
+            "/etc/gshadow",
+            "/etc/gshadow-",
+            "/etc/ssh/ssh_host_ed25519_key",
+            "/etc/sudoers",
+            "/etc/security/opasswd",
+        ):
+            decision = policy.evaluate(_tc("Read", target))
+            assert decision.action is GovernanceAction.ASK, target
+            assert decision.source == "sensitive_paths"
+        assert policy.evaluate(_tc("Read", "/etc/passwd")).action is (
+            GovernanceAction.ALLOW
+        )
+
+    def test_shared_safety_default_deny_and_opt_out(
+        self,
+        tmp_path,
+        monkeypatch,
+    ):
+        self._patch_config(monkeypatch, enabled=True, paths=[])
+        policy = _create_default_policy(str(tmp_path))
+        # Evaluate strings only: never execute the tool or read credentials.
+        tc = _tc("Bash", "dd if=/dev/zero of=/tmp/gov-probe.img bs=1 count=1")
+        monkeypatch.delenv(
+            "QWENPAW_TOOL_GUARD_AUTO_DENIED_RULES",
+            raising=False,
+        )
+        decision = policy.evaluate(tc)
+        assert decision.action is GovernanceAction.DENY
+        assert decision.source == "shared_safety_checks"
+        assert any(
+            f.rule_id == "SAFETY_CHECKS_DESTRUCTIVE_COMMAND"
+            for f in decision.findings
+        )
+        monkeypatch.setenv("QWENPAW_TOOL_GUARD_AUTO_DENIED_RULES", "none")
+        assert policy.evaluate(tc).action is GovernanceAction.ASK
+        monkeypatch.delenv(
+            "QWENPAW_TOOL_GUARD_AUTO_DENIED_RULES",
+            raising=False,
+        )
+        assert policy.evaluate(tc).action is GovernanceAction.DENY
+
+        governor = _make_governor(tmp_path)
+        governor._policy = policy
+        governor._sandbox_available = False
+        governor._sandbox_capability = SandboxCapability(
+            supported=False,
+            mode=None,
+            reason="test: sandbox unavailable",
+        )
+        assert governor.assert_policy(tc).action is GovernanceAction.DENY
+
+        # Independent Phase 1.5 protection survives the auto-deny opt-out.
+        monkeypatch.setenv("QWENPAW_TOOL_GUARD_AUTO_DENIED_RULES", "none")
+        decision = policy.evaluate(_tc("Bash", "mkfs.ext4 /tmp/probe.img"))
+        assert decision.action is GovernanceAction.DENY
+        assert decision.source == "shell_danger_keywords"
+
+    def test_relative_destructive_target_uses_tool_cwd(
+        self,
+        tmp_path,
+        monkeypatch,
+    ):
+        self._patch_config(monkeypatch, enabled=True, paths=[])
+        monkeypatch.setattr(
+            "qwenpaw.config.context.get_tool_base_dir",
+            lambda: Path("/etc"),
+        )
+        policy = _create_default_policy(str(tmp_path))
+        findings = policy._deep_security_scan(
+            _tc("Bash", "rm -rf ../"),
+            "shell",
+        )
+        assert any(
+            f.rule_id == "SAFETY_CHECKS_DESTRUCTIVE_COMMAND" for f in findings
+        )
 
     def test_read_allow_rule_cannot_override_sensitive_path(
         self,
