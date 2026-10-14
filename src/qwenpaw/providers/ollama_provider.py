@@ -1,15 +1,103 @@
 # -*- coding: utf-8 -*-
 """An Ollama provider implementation."""
 
-import os
-from typing import Any
+from __future__ import annotations
 
+import asyncio
+import os
+import re
+from typing import Any, List
+
+import httpx
 from agentscope.model import ChatModelBase
 from openai import AsyncOpenAI
 
 from qwenpaw.providers.capping_formatter import _CappingOpenAIFormatter
+from qwenpaw.providers.model_info import ModelInfo
 from qwenpaw.providers.openai_provider import OpenAIProvider
 from qwenpaw.providers.provider import ModelConnectionResult
+
+# ModelInfo.max_input_length_auto_detected requires >= 1000.
+_MIN_CONTEXT_TOKENS = 1000
+
+_NUM_CTX_RE = re.compile(
+    r"(?m)^\s*num_ctx\s+(\d+)\s*$",
+)
+
+
+def parse_ollama_num_ctx(parameters: str | None) -> int | None:
+    """Return Modelfile ``num_ctx`` from an ``/api/show`` parameters block."""
+    if not parameters:
+        return None
+    match = _NUM_CTX_RE.search(parameters)
+    if match is None:
+        return None
+    value = int(match.group(1))
+    return value if value >= _MIN_CONTEXT_TOKENS else None
+
+
+def parse_ollama_model_context_length(
+    model_info: dict[str, Any] | None,
+) -> int | None:
+    """Return the GGUF ``*.context_length`` from an ``/api/show`` payload."""
+    if not model_info:
+        return None
+    for key, raw in model_info.items():
+        if not str(key).endswith(".context_length"):
+            continue
+        try:
+            value = int(raw)
+        except (TypeError, ValueError):
+            continue
+        if value >= _MIN_CONTEXT_TOKENS:
+            return value
+    return None
+
+
+def resolve_ollama_context_window(
+    *,
+    show_payload: dict[str, Any] | None = None,
+    served_context: int | None = None,
+) -> int | None:
+    """Pick the best Ollama context signal for compaction.
+
+    Precedence (most specific first):
+
+    1. ``/api/ps`` ``context_length`` when the model is currently loaded —
+       this reflects ``OLLAMA_CONTEXT_LENGTH`` and the load-time window;
+    2. Modelfile ``num_ctx`` from ``/api/show`` ``parameters``;
+    3. GGUF ``*.context_length`` from ``/api/show`` ``model_info``.
+
+    Returns ``None`` when nothing usable is present so the caller keeps the
+    128k default rather than inventing a window.
+    """
+    if (
+        isinstance(served_context, int)
+        and served_context >= _MIN_CONTEXT_TOKENS
+    ):
+        return served_context
+    payload = show_payload or {}
+    baked = parse_ollama_num_ctx(payload.get("parameters"))
+    if baked is not None:
+        return baked
+    return parse_ollama_model_context_length(payload.get("model_info"))
+
+
+def _ollama_model_aliases(model_id: str) -> set[str]:
+    """Match ids against ``/api/ps`` name/model fields (with/without tag)."""
+    normalized = (model_id or "").strip()
+    if not normalized:
+        return set()
+    aliases = {normalized, normalized.lower()}
+    if ":" not in normalized:
+        aliases.add(f"{normalized}:latest")
+        aliases.add(f"{normalized}:latest".lower())
+    else:
+        base, _, tag = normalized.partition(":")
+        if tag == "latest":
+            aliases.add(base)
+            aliases.add(base.lower())
+    return aliases
 
 
 class OllamaProvider(OpenAIProvider):
@@ -77,9 +165,96 @@ class OllamaProvider(OpenAIProvider):
         """Ollama serves models locally: the family's cloud window does not
         apply (a local ``qwen3-coder:30b`` truncates at ``num_ctx``, not at
         262k). Skip the static catalog; an explicit per-model
-        ``max_input_length`` still wins, everything else gets the 128k
-        default."""
+        ``max_input_length`` still wins. When discovery has populated
+        ``max_input_length_auto_detected`` from ``/api/show`` / ``/api/ps``,
+        that value is used; otherwise the 128k default remains."""
         return False
+
+    async def fetch_models(self, timeout: float = 5) -> List[ModelInfo]:
+        """List models, then attach Ollama's real context window when known.
+
+        The OpenAI-compatible ``/v1/models`` rows do not carry context
+        metadata, so without this step every Ollama model stays at the
+        128k placeholder and compaction never aligns with ``num_ctx``.
+        """
+        models = await super().fetch_models(timeout=timeout)
+        if not models:
+            return models
+        try:
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                served = await self._fetch_served_contexts(client)
+                enriched = await asyncio.gather(
+                    *[
+                        self._enrich_model_context(client, model, served)
+                        for model in models
+                    ],
+                )
+            return list(enriched)
+        except Exception:
+            # Discovery must still return the model list if native probes fail.
+            return models
+
+    async def _fetch_served_contexts(
+        self,
+        client: httpx.AsyncClient,
+    ) -> dict[str, int]:
+        """Map loaded model ids to their runtime ``context_length``."""
+        try:
+            response = await client.get(f"{self.base_url}/api/ps")
+            response.raise_for_status()
+            payload = response.json()
+        except Exception:
+            return {}
+        result: dict[str, int] = {}
+        for row in payload.get("models") or []:
+            if not isinstance(row, dict):
+                continue
+            raw = row.get("context_length")
+            try:
+                value = int(raw)
+            except (TypeError, ValueError):
+                continue
+            if value < _MIN_CONTEXT_TOKENS:
+                continue
+            for key in (row.get("name"), row.get("model")):
+                name = str(key or "").strip()
+                if name:
+                    result[name] = value
+                    result[name.lower()] = value
+        return result
+
+    async def _enrich_model_context(
+        self,
+        client: httpx.AsyncClient,
+        model: ModelInfo,
+        served: dict[str, int],
+    ) -> ModelInfo:
+        served_context = None
+        for alias in _ollama_model_aliases(model.id):
+            if alias in served:
+                served_context = served[alias]
+                break
+        show_payload: dict[str, Any] | None = None
+        try:
+            response = await client.post(
+                f"{self.base_url}/api/show",
+                json={"model": model.id},
+            )
+            if response.status_code == 200:
+                payload = response.json()
+                if isinstance(payload, dict):
+                    show_payload = payload
+        except Exception:
+            show_payload = None
+        detected = resolve_ollama_context_window(
+            show_payload=show_payload,
+            served_context=served_context,
+        )
+        if detected is None:
+            return model
+        return model.model_copy(
+            update={"max_input_length_auto_detected": detected},
+        )
 
     def get_chat_model_instance(self, model_id: str) -> ChatModelBase:
         from agentscope.credential._openai import OpenAICredential

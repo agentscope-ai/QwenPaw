@@ -371,6 +371,35 @@ def test_ollama_explicit_config_still_wins():
     assert provider.get_context_size("qwen3-coder:30b") == 32_768
 
 
+def test_ollama_uses_auto_detected_num_ctx():
+    """Auto-detected num_ctx must drive compaction, not the 128k default."""
+    provider = _make_ollama(
+        models=[
+            ModelInfo(
+                id="qwen3-coder:30b",
+                name="qwen3-coder",
+                max_input_length_auto_detected=8_192,
+            ),
+        ],
+    )
+    assert provider.get_context_size("qwen3-coder:30b") == 8_192
+
+
+def test_ollama_explicit_config_beats_auto_detected():
+    provider = _make_ollama(
+        models=[
+            ModelInfo(
+                id="qwen3-coder:30b",
+                name="qwen3-coder",
+                max_input_length=16_384,
+                max_input_length_configured=True,
+                max_input_length_auto_detected=8_192,
+            ),
+        ],
+    )
+    assert provider.get_context_size("qwen3-coder:30b") == 16_384
+
+
 # -- OpenRouter: the API's context_length is authoritative --------------------
 
 
