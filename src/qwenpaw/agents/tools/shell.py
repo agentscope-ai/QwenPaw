@@ -1441,6 +1441,18 @@ async def execute_shell_command(
     # locate user-installed CLIs — see ``_ensure_user_bins_on_path``.
     env = _ensure_user_bins_on_path(os.environ.copy())
     env["PATH"] = shell_execution_path(env.get("PATH"))
+    # 注入当前会话 ID（#8156）：供外部工具（QC 派单/唤醒等）做会话隔离，根治同
+    # Agent 多会话/多 matrix 房间串（派单方派单时 WAKE_TARGET 自动=当前会话）。
+    # matrix 场景=matrix:<room_id>，console 场景=console session id。函数内 import
+    # 避免与 app.agent_context 循环依赖（同 prompt.py/fork_project.py 惯例）。
+    try:
+        from ...app.agent_context import get_current_session_id
+
+        _sid = get_current_session_id()
+        if _sid:
+            env["QWENPAW_SESSION_ID"] = str(_sid)
+    except Exception:  # noqa: BLE001 - 注入失败不阻塞 shell 执行
+        pass
 
     if sandbox_config is not None and not isinstance(
         sandbox_config,
