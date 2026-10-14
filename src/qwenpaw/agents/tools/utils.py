@@ -542,10 +542,36 @@ def truncate_text_output(
         return text, {}
 
 
-def _read_file_safe_sync(
-    file_path: str,
-    max_bytes: int,
-) -> str:
+def detect_newline_style(data: bytes) -> str:
+    """Return the newline sequence used by *data*.
+
+    Prefers CRLF when present so Windows checkouts keep ``\r\n`` after an
+    edit. Lone CR is preserved for rare legacy files; otherwise LF.
+    """
+    if b"\r\n" in data:
+        return "\r\n"
+    if b"\r" in data:
+        return "\r"
+    return "\n"
+
+
+def apply_newline_style(text: str, newline: str) -> str:
+    """Rewrite LF-normalized *text* using *newline* before writing to disk."""
+    normalized = text.replace("\r\n", "\n").replace("\r", "\n")
+    if newline == "\n":
+        return normalized
+    return normalized.replace("\n", newline)
+
+
+def _decode_text_bytes(content: bytes) -> str:
+    """Decode a binary snapshot the same way ``read_file_safe`` does."""
+    try:
+        return content.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        return content.decode("utf-8-sig", errors="ignore")
+
+
+def _read_file_bytes_sync(file_path: str, max_bytes: int) -> bytes:
     """Read one byte snapshot from a single opened file handle."""
     path = Path(file_path)
     if not path.exists():
@@ -554,12 +580,29 @@ def _read_file_safe_sync(
         raise IsADirectoryError(file_path)
     with path.open("rb") as file:
         read_size = min(os.fstat(file.fileno()).st_size, max_bytes)
-        content = file.read(read_size)
-    try:
-        text = content.decode("utf-8-sig")
-    except UnicodeDecodeError:
-        text = content.decode("utf-8-sig", errors="ignore")
+        return file.read(read_size)
+
+
+def _read_file_safe_sync(
+    file_path: str,
+    max_bytes: int,
+) -> str:
+    """Read one byte snapshot and normalize newlines to LF."""
+    content = _read_file_bytes_sync(file_path, max_bytes)
+    text = _decode_text_bytes(content)
     return text.replace("\r\n", "\n").replace("\r", "\n")
+
+
+def _read_file_safe_with_newline_sync(
+    file_path: str,
+    max_bytes: int,
+) -> tuple[str, str]:
+    """Like ``_read_file_safe_sync``, also returning the original newline."""
+    content = _read_file_bytes_sync(file_path, max_bytes)
+    newline = detect_newline_style(content)
+    text = _decode_text_bytes(content)
+    normalized = text.replace("\r\n", "\n").replace("\r", "\n")
+    return normalized, newline
 
 
 async def read_file_safe(
@@ -576,3 +619,20 @@ async def read_file_safe(
         File content as string (up to max_bytes).
     """
     return await run_sync_io(_read_file_safe_sync, file_path, max_bytes)
+
+
+async def read_file_safe_with_newline(
+    file_path: str,
+    max_bytes: int = MAX_FILE_READ_BYTES,
+) -> tuple[str, str]:
+    """Read a file snapshot and the newline style used on disk.
+
+    Returns:
+        ``(lf_normalized_text, newline)`` where *newline* is ``\n``,
+        ``\r\n``, or ``\r``.
+    """
+    return await run_sync_io(
+        _read_file_safe_with_newline_sync,
+        file_path,
+        max_bytes,
+    )
