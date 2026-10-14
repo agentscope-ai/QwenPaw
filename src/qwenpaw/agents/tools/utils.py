@@ -547,6 +547,8 @@ def _read_file_safe_sync(
     max_bytes: int,
 ) -> str:
     """Read one byte snapshot from a single opened file handle."""
+    from ..utils.file_handling import decode_text_bytes_with_encoding_fallback
+
     path = Path(file_path)
     if not path.exists():
         raise FileNotFoundError(file_path)
@@ -555,11 +557,14 @@ def _read_file_safe_sync(
     with path.open("rb") as file:
         read_size = min(os.fstat(file.fileno()).st_size, max_bytes)
         content = file.read(read_size)
-    try:
-        text = content.decode("utf-8-sig")
-    except UnicodeDecodeError:
-        text = content.decode("utf-8-sig", errors="ignore")
-    return text.replace("\r\n", "\n").replace("\r", "\n")
+    # Prefer the shared encoder ladder (utf-8 → gbk/cp936 → …) used by
+    # markdown/skill loaders. UTF-8 with errors="ignore" silently deleted
+    # every non-UTF-8 byte, which turns Chinese Windows GBK notes into ASCII
+    # leftovers and lets edit_file persist that damage.
+    return decode_text_bytes_with_encoding_fallback(
+        content,
+        file_name=file_path,
+    )
 
 
 async def read_file_safe(
