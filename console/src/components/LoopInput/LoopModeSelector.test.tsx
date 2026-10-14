@@ -18,6 +18,14 @@ vi.mock("../../hooks/useIsMobile", () => ({
   useIsMobile: mockUseIsMobile,
 }));
 
+vi.mock("../../api/modules/advisorMode", async () => ({
+  ...(await vi.importActual<object>("../../api/modules/advisorMode")),
+  advisorModeApi: { get: vi.fn(async () => ({}) as never), update: vi.fn() },
+}));
+vi.mock("../../api/modules/provider", () => ({
+  providerApi: { listProviders: vi.fn(async () => []) },
+}));
+
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
     t: (key: string) => key,
@@ -261,5 +269,29 @@ describe("LoopModeSelector", () => {
       expect(indicator).toBeTruthy();
       expect(indicator!.getAttribute("data-state")).toBe("running");
     });
+  });
+});
+
+describe("advisor setup", () => {
+  const advisor: LoopModeInfo = {
+    id: "advisor",
+    name: "Advisor",
+    slash_command: "advisor",
+    description: "Advisor mode",
+    source: "builtin",
+  };
+
+  beforeEach(() => {
+    useLoopStore.getState().resetSessionMode();
+    useLoopStore.getState().setAvailableModes([DEFAULT_LOOP_MODE, advisor]);
+  });
+
+  it("opens the model setup right after Advisor is picked", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<LoopModeSelector />);
+    expect(screen.queryByTestId("advisor-setup")).toBeNull();
+    await user.click(screen.getByRole("button", { name: "loop.selectorAria" }));
+    await user.click(await screen.findByRole("option", { name: /advisor/i }));
+    expect(await screen.findByTestId("advisor-setup")).toBeInTheDocument();
   });
 });
