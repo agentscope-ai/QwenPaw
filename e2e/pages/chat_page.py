@@ -773,10 +773,74 @@ class ChatPage(BasePage):
         user_count_before = getattr(self, "_user_count_before_send", None)
         if user_count_before is None:
             user_count_before = self.page.locator(self.USER_MESSAGE).count()
+        # Path D (revised 2026-10-16) needs wait-start evidence, not the
+        # pre-send baseline: this round's own user bubble has already
+        # landed by the time gate-2/3 begins (send_message waits for it),
+        # so the pre-send user-count equality can never hold - fork run
+        # 38719913840 shows Path D never released once since 2026-10-13.
+        # Snapshot the pre-wait AI texts and start a MutationObserver so
+        # Path D can release on "a bubble node carrying NEW text was
+        # attached after wait start" (the shape a mid-round context
+        # compression / virtualised re-render leaves behind).
+        pre_wait_texts: List[str] = []
+        try:
+            snapshot = self.page.evaluate(
+                """() => {
+                    if (window.__qwenpaw_ai_attach_obs__) {
+                        try { window.__qwenpaw_ai_attach_obs__.disconnect(); }
+                        catch (e) {}
+                    }
+                    window.__qwenpaw_ai_attach_log__ = [];
+                    const texts = [];
+                    document.querySelectorAll(
+                        '.qwenpaw-bubble.qwenpaw-bubble-start'
+                    ).forEach((el) => texts.push((el.innerText || '').trim()));
+                    const obs = new MutationObserver((muts) => {
+                        const now = Date.now();
+                        const log = window.__qwenpaw_ai_attach_log__;
+                        for (const m of muts) {
+                            for (const n of m.addedNodes) {
+                                if (!n || n.nodeType !== 1) continue;
+                                const hits = [];
+                                if (
+                                    n.classList
+                                    && n.classList.contains('qwenpaw-bubble')
+                                ) {
+                                    hits.push(n);
+                                }
+                                if (n.querySelectorAll) {
+                                    n.querySelectorAll('.qwenpaw-bubble')
+                                        .forEach((el) => hits.push(el));
+                                }
+                                for (const el of hits) {
+                                    // Keep the element reference: the text
+                                    // at attach time is empty for a
+                                    // streaming bubble, so Path D must read
+                                    // innerText live at poll time.
+                                    log.push({
+                                        t: now,
+                                        cls: String(el.className).slice(0, 120),
+                                        el: el,
+                                    });
+                                }
+                            }
+                        }
+                    });
+                    obs.observe(document.body, {childList: true, subtree: true});
+                    window.__qwenpaw_ai_attach_obs__ = obs;
+                    window.__qwenpaw_ai_wait_start__ = Date.now();
+                    return texts;
+                }"""
+            )
+            pre_wait_texts = list(snapshot or [])
+        except Exception as e:  # observer is best-effort diagnostics only
+            logger.warning(
+                f"[wait_ai] attach-observer install failed: {type(e).__name__}"
+            )
         passed_via = None
         try:
             self.page.wait_for_function(
-                """({expectedCount, expectedUserCount}) => {
+                """({expectedCount, expectedUserCount, preWaitTexts}) => {
                     // Path A: button transitioned from disabled back to enabled -> streaming really ended
                     const btn = document.querySelector(
                         'button.qwenpaw-sender-actions-btn.qwenpaw-btn-primary'
@@ -875,43 +939,49 @@ class ChatPage(BasePage):
                         }
                     }
 
-                    // Path D (2026-10-13): the bubble list can be REBUILT
-                    // mid-round (context compression / virtualised
+                    // Path D (revised 2026-10-16): the bubble list can be
+                    // REBUILT mid-round (context compression / virtualised
                     // re-render), which drops the round's own bubble below
                     // `expectedCount` or empties it. Then Paths A/B/C can
                     // never release even though the answer is fully
-                    // rendered — evidence: nightly 2026-10-07..12, the
-                    // 25-round compression case failed at rounds 11-13
-                    // every night with "Last bubble text: ''" while the
-                    // FAIL-moment screenshot showed the round's answer
-                    // complete ("Completed 1 steps" + full text) and the
-                    // send button enabled.
-                    // Release when: the send button is enabled AND the
-                    // user-bubble count still equals this round's baseline
-                    // (i.e. no NEWER round was started, so the enabled
-                    // button belongs to THIS round) AND at least one AI
-                    // bubble carries real text. The user-count guard is
-                    // what keeps this from releasing on a stale state.
-                    const userMsgs = document.querySelectorAll(
-                        '.qwenpaw-bubble.qwenpaw-bubble-end'
-                    );
-                    let anyReal = false;
-                    for (let i = 0; i < aiMsgs.length; i++) {
-                        const t = (aiMsgs[i].innerText || '').trim();
-                        const s = t
+                    // rendered - evidence: nightly 2026-10-07..12 and fork
+                    // run 38719913840, the 25-round compression case failed
+                    // at rounds 11-13 every night with "Last bubble text:
+                    // ''" while the FAIL-moment screenshot showed the
+                    // round's answer complete ("Completed 1 steps" + full
+                    // text) and the send button enabled.
+                    // The 2026-10-13 version guarded with
+                    // userMsgs.length === expectedUserCount, but that
+                    // baseline is taken BEFORE the click while this round's
+                    // own user bubble has already landed by wait start, so
+                    // the equality can never hold and the path is dead.
+                    // Release when: the send button is enabled AND a bubble
+                    // node carrying text that did NOT exist at wait start
+                    // was attached after wait start (MutationObserver
+                    // log). The fresh-text guard is what keeps this from
+                    // releasing on the pre-wait history state.
+                    const attachLog = window.__qwenpaw_ai_attach_log__ || [];
+                    let freshReal = false;
+                    for (let i = 0; i < attachLog.length; i++) {
+                        const el = attachLog[i].el;
+                        if (!el || !el.isConnected) continue;
+                        // AI bubbles only: this round's own user bubble is
+                        // also attached after wait start and its text is
+                        // not in the AI-text snapshot, so without the class
+                        // guard a user-bubble re-attach would release.
+                        if (!el.classList.contains('qwenpaw-bubble-start')) {
+                            continue;
+                        }
+                        const s = (el.innerText || '')
                             .replace(/Thinking/gi, '')
                             .replace(/Loading/gi, '')
                             .trim();
-                        if (s.length >= 2) {
-                            anyReal = true;
+                        if (s.length >= 2 && preWaitTexts.indexOf(s) === -1) {
+                            freshReal = true;
                             break;
                         }
                     }
-                    if (
-                        btnEnabled &&
-                        anyReal &&
-                        userMsgs.length === expectedUserCount
-                    ) {
+                    if (btnEnabled && freshReal) {
                         window.__qwenpaw_wait_passed_via__ =
                             'btn_enabled_post_rebuild';
                         return true;
@@ -921,6 +991,7 @@ class ChatPage(BasePage):
                 arg={
                     "expectedCount": count_before_send,
                     "expectedUserCount": user_count_before,
+                    "preWaitTexts": pre_wait_texts,
                 },
                 timeout=stability_timeout,
             )
@@ -939,6 +1010,76 @@ class ChatPage(BasePage):
                 last_text = ai_locator.last.inner_text()[:200]
             except Exception:
                 last_text = "<unreadable>"
+            # FAIL-moment DOM snapshot: the four release-path components
+            # plus the bubble inventory and the MutationObserver attach
+            # log. Nightly 2026-10-07..15 and fork run 38719913840 failed
+            # here with the answer visibly rendered, so the screenshot
+            # alone cannot tell which component vetoed the release.
+            try:
+                diag = self.page.evaluate(
+                    """(expectedCount) => {
+                        const btn = document.querySelector(
+                            'button.qwenpaw-sender-actions-btn'
+                            + '.qwenpaw-btn-primary'
+                        );
+                        let btnEnabled = false;
+                        if (btn) {
+                            const cls = btn.className || '';
+                            const disCls = /qwenpaw-btn-disabled/
+                                .test(cls)
+                                || /qwenpaw-btn-loading/.test(cls)
+                                || /is-disabled/.test(cls)
+                                || /is-loading/.test(cls);
+                            const disAttr = btn.disabled === true
+                                || btn.hasAttribute('disabled')
+                                || btn.getAttribute('aria-disabled')
+                                    === 'true';
+                            btnEnabled = !disAttr && !disCls;
+                        }
+                        const aiMsgs = document.querySelectorAll(
+                            '.qwenpaw-bubble.qwenpaw-bubble-start'
+                        );
+                        const bubbles = [];
+                        for (let i = 0; i < aiMsgs.length; i++) {
+                            const el = aiMsgs[i];
+                            bubbles.push({
+                                idx: i,
+                                txt: (el.innerText || '').trim().slice(0, 80),
+                                cls: String(el.className).slice(0, 120),
+                            });
+                        }
+                        return {
+                            btnFound: !!btn,
+                            btnEnabled: btnEnabled,
+                            aiCount: aiMsgs.length,
+                            expectedCount: expectedCount,
+                            userCount: document.querySelectorAll(
+                                '.qwenpaw-bubble.qwenpaw-bubble-end'
+                            ).length,
+                            bubbles: bubbles,
+                            attachLog: (
+                                window.__qwenpaw_ai_attach_log__ || []
+                            ).slice(-12).map((r) => ({
+                                t: r.t,
+                                cls: r.cls,
+                                connected: !!(r.el && r.el.isConnected),
+                                txt: r.el
+                                    ? (r.el.innerText || '')
+                                        .trim().slice(0, 80)
+                                    : '',
+                            })),
+                        };
+                    }""",
+                    count_before_send,
+                )
+                logger.error(
+                    f"[wait_ai] gate-2/3 FAIL DIAG: {diag!r}"
+                )
+            except Exception as diag_e:
+                logger.error(
+                    f"[wait_ai] gate-2/3 FAIL DIAG unavailable: "
+                    f"{type(diag_e).__name__}"
+                )
             logger.error(
                 f"[wait_ai] gate-2/3 FAIL within {stability_timeout}ms "
                 f"({type(e).__name__}). Neither button re-enabled nor content stabilized. "
@@ -955,6 +1096,10 @@ class ChatPage(BasePage):
                     "delete window.__qwenpaw_ai_stable_cache__; "
                     "delete window.__qwenpaw_ai_stable_cache_c__; "
                     "delete window.__qwenpaw_wait_passed_via__; "
+                    "if (window.__qwenpaw_ai_attach_obs__) "
+                    "window.__qwenpaw_ai_attach_obs__.disconnect(); "
+                    "delete window.__qwenpaw_ai_attach_obs__; "
+                    "delete window.__qwenpaw_ai_attach_log__; "
                     "} catch(e) {} }"
                 )
             except Exception:
