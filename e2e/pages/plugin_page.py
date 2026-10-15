@@ -64,7 +64,34 @@ class PluginPage(BasePage):
     # ----- Plugin Market compatibility (upstream #5661) -----
     # Catalog rows share CSS-module classes with the Official list
     # (OfficialPluginList.module.less), matched by basename substring.
-    MARKET_ROW = '[class*="catalogRow"], article[class*="pluginCard"]'
+    #
+    # Pane scope is mandatory, not cosmetic: all three Plugin Manager tabs
+    # (Installed / Official / Market) render cards/rows with the SAME
+    # CSS-module classes (InstalledPluginList and OfficialPluginList import
+    # MarketPluginList.module.less), and antd Tabs keep inactive panes in
+    # the DOM (display:none; no destroyInactiveTabPane is configured). A
+    # global ``.first`` therefore resolves to the FIRST pane in DOM order
+    # (Installed). Before #8128 that pane was empty and the miss was
+    # harmless; #8128 seeds four built-in hub plugins into it, so the
+    # hidden ``<article aria-label="ModelScope Hub" ...>`` now shadows the
+    # Market rows forever (nightly 2026-10-13/14: "123 x locator resolved
+    # to hidden"). Scope every Market selector to the active tab pane.
+    MARKET_TABPANE = '.qwenpaw-tabs-tabpane-active'
+    MARKET_ROW = (
+        '.qwenpaw-tabs-tabpane-active [class*="catalogRow"], '
+        '.qwenpaw-tabs-tabpane-active article[class*="pluginCard"]'
+    )
+    # The card/list view toggle (PluginViewToggle) is rendered once PER
+    # pane with identical aria-labels in all three lists, so it needs the
+    # same pane scope: the unscoped variant clicked the HIDDEN Installed
+    # pane's toggle, the click raised, and a bare ``except: pass`` swallowed
+    # it -- leaving the Market pane in card view where catalogRow never
+    # renders (failure screenshot 2026-10-14 shows the Market tab active
+    # with both mocked cards still in card view).
+    MARKET_LIST_TOGGLE = (
+        '.qwenpaw-tabs-tabpane-active span[aria-label*="List view"], '
+        '.qwenpaw-tabs-tabpane-active span[aria-label*="列表"]'
+    )
     # antd Tag with prefixCls=qwenpaw; text is "QwenPaw <labels>"
     COMPAT_TAG_GREEN = '.qwenpaw-tag-green:has-text("QwenPaw")'
     COMPAT_TAG_ORANGE = '.qwenpaw-tag-orange:has-text("QwenPaw")'

@@ -39,6 +39,14 @@ class SessionsPage(BasePage):
     # Page-loaded indicator (the page has no h1; use the table as the load-complete marker)
     PAGE_LOAD_INDICATOR = '.ant-table, .qwenpaw-table, table'
 
+    # Table loading state. antd/design Table renders
+    # ``<prefix>-spin-nested-loading`` permanently while ``loading`` is
+    # true and adds ``<prefix>-spin-spinning`` only while actually
+    # spinning, so the spinning variant is the load-complete signal.
+    # (BasePage.LOADING_SPINNER is deliberately NOT used here: its
+    # ``[class*=loading]`` arm matches the permanent wrapper.)
+    TABLE_SPINNING = '[class*="spin-spinning"]'
+
     # Filter bar
     FILTER_USER_ID_INPUT = 'input[placeholder*="User ID" i], input[placeholder*="用户" i]'
     FILTER_CHANNEL_SELECT = '.ant-select[data-placeholder*="Channel" i], .qwenpaw-select'
@@ -212,6 +220,61 @@ class SessionsPage(BasePage):
         expect(self.page.locator(self.PAGE_LOAD_INDICATOR).first).to_be_visible(timeout=timeout)
 
         return self
+
+    def wait_for_data_rows(self, timeout: Optional[int] = None) -> int:
+        """Wait until the session table has rendered its data rows.
+
+        ``wait_for_page_loaded`` only proves the table CONTAINER exists;
+        the rows arrive later with the async ``GET /api/chats`` response.
+        Counting rows immediately after ``open()`` therefore races the
+        fetch: on nightly 2026-10-13 the count ran 0.70 s after the goto
+        and read 0 while the server already held the three sessions the
+        fixture had just created (the teardown resolved their uuids), and
+        the case then skipped with "Insufficient sessions; need at least
+        2, have 0" -- a zero-wait race, not missing data.
+
+        The settle signal is the table BODY rendering one of its two
+        terminal states: a data row, or the empty-state placeholder row
+        (antd renders ``<tr class="<prefix>-table-placeholder">`` once
+        ``loading`` is false and ``dataSource`` is empty). Both prove the
+        async ``GET /api/chats`` response has been committed, so the row
+        count taken right after is authoritative. Waiting for the spinner
+        to disappear instead would be weaker: a Table implementation that
+        renders no spinner at all would make such a wait pass instantly
+        and leave the original race in place.
+
+        A genuinely empty session list is NOT an error here: the
+        placeholder settles the wait and this returns 0, letting the
+        caller's existing skip branch report the real zero. A fetch that
+        never settles renders neither terminal state and fails fast with
+        the on-page state instead of silently degrading into a skip.
+        """
+        timeout = timeout or self.timeout
+        logger.info(
+            "Waiting for Sessions table body to settle (data rows or "
+            "empty placeholder)"
+        )
+        settled = self.page.locator(
+            f"{self.SESSION_DATA_ROW}, "
+            ".qwenpaw-table-placeholder, .ant-table-placeholder"
+        )
+        try:
+            expect(settled.first).to_be_visible(timeout=timeout)
+        except AssertionError:
+            spinning = self.page.locator(self.TABLE_SPINNING).count()
+            tab_text = [
+                t.inner_text().strip()
+                for t in self.page.locator(self.SESSION_TAB).all()
+            ]
+            raise AssertionError(
+                f"Sessions table body never settled within {timeout}ms: "
+                f"neither a data row nor the empty-state placeholder "
+                f"rendered. spinner_nodes={spinning}; tab labels: "
+                f"{tab_text}."
+            )
+        count = len(self.get_session_data_rows())
+        logger.info(f"Sessions table rendered {count} data row(s)")
+        return count
 
     # ========== Table operations ==========
 

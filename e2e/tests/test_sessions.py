@@ -470,7 +470,17 @@ class TestSessionBatchDelete:
         # Count DATA rows only: the table renders a hidden measure-row inside
         # <tbody>, which the old bare "tbody tr" selector counted as a session
         # (11 instead of 10 rows), so the "at least 2" gate below was off by one.
-        session_count = len(sessions_page.get_session_data_rows())
+        #
+        # Wait for the table body to SETTLE before counting: open() only
+        # proves the table container exists, while the rows arrive with the
+        # async GET /api/chats response. On nightly 2026-10-13 the count ran
+        # 0.70 s after the goto, read 0 although the fixture's three
+        # sessions were already on the server (teardown resolved their
+        # uuids), and the case skipped with "Insufficient sessions; need at
+        # least 2, have 0" -- a zero-wait race, not missing data. The real
+        # empty-list case still skips: the settle wait accepts the empty
+        # placeholder and returns 0.
+        session_count = sessions_page.wait_for_data_rows()
         if session_count < 2:
             pytest.skip(f"Insufficient sessions; need at least 2, have {session_count}")
 
