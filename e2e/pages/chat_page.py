@@ -256,7 +256,15 @@ class ChatPage(BasePage):
     #     (ModelSelector ``embedded`` branch, index.tsx:1291).
     MODEL_THINKING_TRIGGER = (
         'button[aria-label="Thinking intensity"], '
-        'button[aria-label="思考强度"]'
+        'button[aria-label="思考强度"], '
+        # i18n cold-start arm: before the locale bundle resolves, the
+        # trigger renders the RAW key as its aria-label (live-probe DOM
+        # 2026-10-15: aria-label="thinkingControl.title"). Without this
+        # arm the first case of a cold CI run times out at hop 1 while
+        # every later case passes (the bundle is then cached) — exactly
+        # the split seen in fork run 38557785191 (attempt 1 died at hop 1
+        # with the trigger plainly on screen, attempt 2 reached hop 2).
+        'button[aria-label="thinkingControl.title"]'
     )
     MODEL_CHOICE_BTN = (
         'div[role="dialog"] button[class*="modelChoice"], '
@@ -1675,12 +1683,33 @@ class ChatPage(BasePage):
 
         # Hop 2: the panel may already be the embedded picker (no model
         # bound yet) or the ThinkingControl with a modelChoice button.
+        # Third terminal state: the embedded picker rendered its EMPTY
+        # tip (role="status" with the add-provider action) — the panel IS
+        # open but no eligible provider reached the selector. That is a
+        # distinct failure from "the panel never opened" and must be
+        # reported as such instead of burning the full 8s wait (live
+        # probe 2026-10-15: the empty tip carries class emptyTip and a
+        # role=status wrapper).
         embedded = self.page.locator(self.MODEL_SELECT_EMBEDDED_BTN).first
         choice = self.page.locator(self.MODEL_CHOICE_BTN).first
+        empty_tip = self.page.locator(
+            'div[role="dialog"] div[class*="emptyTip"], '
+            'div[role="dialog"] [class*="emptyTip"]'
+        ).first
         for _ in range(20):
             if embedded.count() > 0 and embedded.first.is_visible():
                 logger.info("Model picker panel open (embedded picker)")
                 return self
+            if empty_tip.count() > 0 and empty_tip.first.is_visible():
+                names = self._visible_button_names()
+                raise AssertionError(
+                    "Model picker panel opened but rendered the empty "
+                    "state: no eligible provider reached the selector "
+                    "(post-#7899 buildEligibleProviders filters providers "
+                    "without an api key / base url). The instance under "
+                    "test has no selectable model configured. Visible "
+                    f"buttons: {names}"
+                )
             if choice.count() > 0 and choice.first.is_visible():
                 choice.first.click()
                 self.wait(500)
