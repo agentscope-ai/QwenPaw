@@ -1702,66 +1702,114 @@ class ChatPage(BasePage):
         # the instance under test), not a broken picker: return normally
         # with a loud log and let the caller's existing "no switchable
         # model" branch decide (every family-A case already has one).
+        for _ in range(20):
+            state, detail = self._picker_terminal_state()
+            if state == "embedded":
+                logger.info("Model picker panel open (embedded picker)")
+                return self
+            if state == "empty":
+                logger.info(
+                    "Model picker panel open but the visible tab rendered "
+                    "the empty tip (no selectable row on this tab); "
+                    "leaving the switch decision to the caller's "
+                    "no-switch branch (%s)",
+                    detail,
+                )
+                return self
+            if state == "choice":
+                self.page.locator(self.MODEL_CHOICE_BTN).first.click()
+                self.wait(500)
+                break
+            if state == "rowless":
+                logger.info(
+                    "Model picker panel open but no selectable model rows "
+                    "(provider groups rendered with zero models); leaving "
+                    "the switch decision to the caller's no-switch branch "
+                    "(%s)",
+                    detail,
+                )
+                return self
+            self.wait(250)
+        # Post-hop settle: after the modelChoice click the panel must be
+        # re-classified. 6d810e0e only waited for embedded rows here, so a
+        # rowless panel behind the hop burned the full 8s and raised
+        # "did not open" (fork run 38707190848: four family-A cases, 9.5s
+        # each, loop broke on the visible choice button in round 1 and the
+        # rowless terminal state was never evaluated again).
+        for _ in range(32):
+            state, detail = self._picker_terminal_state()
+            if state == "embedded":
+                logger.info("Model picker panel open (via modelChoice hop)")
+                return self
+            if state == "empty":
+                logger.info(
+                    "Model picker panel open after the modelChoice hop but "
+                    "the visible tab rendered the empty tip; leaving the "
+                    "switch decision to the caller's no-switch branch (%s)",
+                    detail,
+                )
+                return self
+            if state == "rowless":
+                logger.info(
+                    "Model picker panel open after the modelChoice hop but "
+                    "no selectable model rows; leaving the switch decision "
+                    "to the caller's no-switch branch (%s)",
+                    detail,
+                )
+                return self
+            self.wait(250)
+        state, detail = self._picker_terminal_state()
+        names = self._visible_button_names()
+        raise AssertionError(
+            "Model picker panel did not open: neither the embedded "
+            "modelSelectButton rows nor the modelChoice hop appeared. "
+            f"last state: {state} ({detail}). Visible buttons: {names}"
+        )
+
+    def _picker_terminal_state(self):
+        """Classify the model picker panel into one terminal state.
+
+        Returns ``(state, detail)``. Priority mirrors the render branches
+        of ``console/src/pages/Chat/ModelSelector/index.tsx``:
+
+        - ``embedded``: ``modelSelectButton`` rows visible (models listed)
+        - ``empty``: ``emptyTip`` visible (no eligible provider at all)
+        - ``choice``: the ThinkingControl ``modelChoice`` hop button
+          visible (a model is bound; one click flips to the embedded view)
+        - ``loading``: a ``role="status"`` spinner inside the dialog
+        - ``rowless``: dialog visible with no spinner, no rows and no
+          emptyTip — the provider group headers / configure entries render
+          while every provider carries zero models (the fourth terminal
+          state probed live on 2026-10-15)
+        - ``none``: no visible ``role="dialog"`` at all
+
+        Visibility (not mere presence) decides: leftover hidden DOM from
+        inactive panes must not veto a terminal state (same lesson as the
+        family-C pane-id scoping fix).
+        """
+        dialog = self.page.locator('div[role="dialog"]').first
+        if not (dialog.count() > 0 and dialog.first.is_visible()):
+            return "none", "no visible role=dialog"
         embedded = self.page.locator(self.MODEL_SELECT_EMBEDDED_BTN).first
-        choice = self.page.locator(self.MODEL_CHOICE_BTN).first
+        if embedded.count() > 0 and embedded.first.is_visible():
+            return "embedded", "modelSelectButton rows visible"
         empty_tip = self.page.locator(
             'div[role="dialog"] div[class*="emptyTip"], '
             'div[role="dialog"] [class*="emptyTip"]'
         ).first
-        dialog = self.page.locator('div[role="dialog"]').first
-        for _ in range(20):
-            if embedded.count() > 0 and embedded.first.is_visible():
-                logger.info("Model picker panel open (embedded picker)")
-                return self
-            if empty_tip.count() > 0 and empty_tip.first.is_visible():
-                names = self._visible_button_names()
-                raise AssertionError(
-                    "Model picker panel opened but rendered the empty "
-                    "state: no eligible provider reached the selector "
-                    "(post-#7899 buildEligibleProviders filters providers "
-                    "without an api key / base url). The instance under "
-                    "test has no selectable model configured. Visible "
-                    f"buttons: {names}"
-                )
-            if choice.count() > 0 and choice.first.is_visible():
-                choice.first.click()
-                self.wait(500)
-                break
-            if (
-                dialog.count() > 0
-                and dialog.first.is_visible()
-                and dialog.locator('[role="status"]').count() == 0
-                and choice.count() == 0
-                and empty_tip.count() == 0
-            ):
-                logger.info(
-                    "Model picker panel open but no selectable model rows "
-                    "(provider groups rendered with zero models); leaving "
-                    "the switch decision to the caller's no-switch branch"
-                )
-                return self
-            self.wait(250)
+        if empty_tip.count() > 0 and empty_tip.first.is_visible():
+            return "empty", "emptyTip visible"
+        choice = self.page.locator(self.MODEL_CHOICE_BTN).first
+        if choice.count() > 0 and choice.first.is_visible():
+            return "choice", "modelChoice hop button visible"
+        if dialog.locator('[role="status"]').count() > 0:
+            return "loading", "role=status spinner inside dialog"
         try:
-            embedded.wait_for(state="visible", timeout=8000)
+            n_dialogs = self.page.locator('div[role="dialog"]').count()
+            text = (dialog.first.inner_text() or "").strip()[:200]
         except Exception:
-            names = self._visible_button_names()
-            dialog_state = "absent"
-            try:
-                dialog_state = (
-                    "visible"
-                    if dialog.count() > 0 and dialog.first.is_visible()
-                    else "hidden"
-                )
-            except Exception:
-                dialog_state = "unreadable"
-            raise AssertionError(
-                "Model picker panel did not open: neither the embedded "
-                "modelSelectButton rows nor the modelChoice hop appeared. "
-                f"role=dialog state: {dialog_state}. "
-                f"Visible buttons: {names}"
-            )
-        logger.info("Model picker panel open (via modelChoice hop)")
-        return self
+            n_dialogs, text = -1, "<unreadable>"
+        return "rowless", f"dialogs={n_dialogs} text={text!r}"
 
     def _visible_button_names(self, limit: int = 25) -> List[str]:
         """Accessible names of currently visible buttons (failure context)."""
