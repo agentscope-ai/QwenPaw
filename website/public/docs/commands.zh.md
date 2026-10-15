@@ -1100,6 +1100,8 @@ qwenpaw daemon version --agent-id abc123
 ```text
 /reme help
 /reme status
+/reme proactive
+/reme proactive_refresh
 /reme search query="项目决策" limit=5
 /reme search query="项目决策" tags='["架构","记忆"]'
 /reme auto_dream hint="重点整理 AI 芯片"
@@ -1108,8 +1110,9 @@ qwenpaw daemon version --agent-id abc123
 /reme auto_fin topics="黄金,机器人" window_hours=12
 ```
 
-聊天 allowlist 包含 `status`、`search`、`proactive`、`auto_memory`、
-`auto_dream`、`daily_paper` 和 `auto_fin`。action 在后端可用并不代表它能从
+聊天 allowlist 包含 `status`、`search`、`proactive`、
+`proactive_refresh`、`auto_memory`、`auto_dream`、`daily_paper`
+和 `auto_fin`。action 在后端可用并不代表它能从
 聊天调用。`read`、`read_image`、`write`、`edit`、`delete`、`move`、
 `list`、`stat`、`daily_write`、`daily_list`、`frontmatter_*`、`node_search`
 等原始 vault action 不对聊天开放；`reindex`、`undo_reindex`、
@@ -1142,72 +1145,52 @@ CLI 的解析规则，因此数字、布尔值、列表和对象会保留对应�
 
 ---
 
-## Proactive Mode - 主动提醒模式
+## Proactive Mode - 主动议程模式
 
-Proactive Mode（主动提醒模式）是一个智能化的功能，允许 AI 代理在检测到用户长时间未活动后，主动分析用户当前的会话上下文和屏幕活动，并提供相关的帮助和信息。
+Proactive Mode（主动议程模式）把长期记忆提炼出的**当日主动议程**呈现给你：ReMe 的 proactive 链路从每日记忆、外部通知与日程注册表里产出排好序的议程（到期提醒固定在最前），QwenPaw 只负责读取、去重和呈现。
 
 ### 核心特性
 
-- 🤖 **智能检测**：监控用户会话活动状态，当检测到设定时间内的无活动时触发
-- 🧠 **上下文分析**：分析用户的对话历史和当前屏幕内容，识别潜在需求
-- 🔍 **目标提取**：从对话历史中提取用户可能关注的高频或近期主题
-- 💬 **主动响应**：基于分析结果，自动生成友好且相关的主动帮助信息
+- 📥 **只呈现，不执行**：整条呈现路径零 LLM 调用、零工具执行，Agent 不会把议程条目当成指令自己去办
+- 🗂 **来自长期记忆**：议程由 ReMe 的 proactive 链路产出，不再扫描会话原文，也不再截屏
+- ⏰ **三种触发**：`/proactive` 立即回执、空闲轮次推送收件箱、每日定时任务推送收件箱
+- 🔁 **三层去重**：ReMe 写侧压制 + ReMe 读侧扣减 + QwenPaw 本地投递台账
 
 ### 重要提示
 
-**启用此模式前请务必知悉以下风险：**
-
-- **工具防护绕过**：在此模式下，Agent会绕过标准的工具防护机制，Agent 拥有更高的系统权限和执行自由度
-- **隐私与环境访问**：Agent会读取历史会话记忆以理解上下文，并可能进行截屏以获取当前的运行环境信息。请确保在可信环境中使用，并注意敏感信息的保护
-- 本模式默认不启用，仅在用户主动开启时才生效，且可在开启后关闭
+- 本模式**默认关闭**：需要先在 **运行配置 → 长期记忆 → 主动议程** 打开总开关，`/proactive` 才可用
+- **不再有工具防护绕过**：没有 bypass 助手，也不启动任何带工具的子 Agent
+- 议程内容来自你的长期记忆，因此可能提到你确实说过的私事
+- 空闲监听状态只存在于进程内存中，QwenPaw 重启后需要重新执行 `/proactive` 武装
 
 ### 基本用法
 
-#### 启用主动提醒模式
-
 ```bash
-/proactive
-/proactive on
-/proactive <分钟数>
+/proactive           # 立即在当前聊天回执当日议程，并武装空闲监听（默认 30 分钟）
+/proactive on        # 同上
+/proactive 60        # 同上，空闲阈值改为 60 分钟（须为正整数）
+/proactive now       # 立刻强制重跑一次议程并推送到收件箱
+/proactive off       # 停止空闲监听
 ```
 
-**示例：**
-
-```bash
-/proactive      # 默认30分钟后如果没有活动则触发主动提醒
-/proactive on   # 同上，默认30分钟
-/proactive 60   # 60分钟后触发主动提醒
-```
-
-#### 停用主动提醒模式
-
-```bash
-/proactive off
-```
+总开关关闭时，命令只回一句“请先在 运行配置 → 长期记忆 中打开主动议程”；参数写错时会提示用法。
 
 ### 工作原理
 
-1. **监控阶段**：持续监控用户活动，记录最后活动时间戳
-2. **分析阶段**：当检测到超过设定的空闲时间后，分析最近的对话历史
-3. **任务提取**：识别用户可能关心的主题和目标
-4. **查询执行**：使用浏览器、文件读取、命令执行等工具获取相关信息
-5. **响应生成**：生成友好且相关的主动帮助信息
-
-#### 上下文感知
-
-- 仅关注用户发起的消息，忽略系统消息
-- 避免重复发送相同主题的主动提醒
-- 优先处理高频和近期提到的主题
+1. **读取**：调 ReMe 的 `proactive` job 只读现成议程，到期提醒已排在最前
+2. **去重**：用本地投递台账过滤掉冷却期内已经展示过的条目
+3. **按需刷新**：只有过滤后为空时，才调 `proactive_refresh` 从 topic extraction 重跑一遍，并受最小刷新间隔限流
+4. **呈现**：`/proactive` 回到当前聊天；空闲轮次与每日任务写入收件箱，议程为空时**完全静默**（不写收件箱、只留日志）
+5. **回传**：每次真正展示后尽力调用 `proactive_feedback`，让 ReMe 知道哪些已经用过
 
 ### 注意事项
 
-1. **资源消耗**：启用后会定期分析上下文，可能增加计算资源使用
-2. **干扰控制**：如果用户在收到主动消息后未回应，则不会连续发送新的主动消息
-3. **模型依赖**：功能效果取决于所使用的AI模型能力，支持多媒体的模型能更好利用屏幕分析功能
+1. **资源消耗**：呈现本身不消耗模型调用；只有 `proactive_refresh` 会调用模型，且只在有素材变化时才发生
+2. **干扰控制**：空闲轮次要求 Agent 空闲、距最后一次活动超过阈值，并且距上一次收件箱推送超过最小刷新间隔
+3. **收件箱不能执行**：卡片只供阅读；想推进某一条，要在聊天里告诉 Agent 编号或标题
 
-### 典型应用场景
+### 相关配置
 
-- 研究过程中的新信息获取
-- 学习过程中的补充知识提供
+`agent.json` 的 `running.reme_light_memory_config` 下的 `proactive_*` 字段，可在 **运行配置 → 长期记忆** 面板修改；逐项说明见[记忆自进化与主动交互](./memory-evolving-and-proactive)与[配置参考](./config)。
 
 ---

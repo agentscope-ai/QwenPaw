@@ -2,14 +2,14 @@
 
 > This page builds on [Long-Term Memory](./memory) and covers only the two things that page does not expand on: **how a single durable conclusion gets rewritten over time**, and **how `/proactive` actually works**. Memory directories, file formats, indexing internals, retrieval mechanics, and the complete configuration all live in [Long-Term Memory](./memory).
 
-QwenPaw has two related but currently **independent** paths:
+QwenPaw has two paths that cooperate but run independently:
 
-| Path             | Input                                      | Output                                            |
-| ---------------- | ------------------------------------------ | ------------------------------------------------- |
-| Memory evolution | Daily memory under `memory/`               | Durable knowledge in `digest/` + `interests.yaml` |
-| `/proactive`     | Recent chat sessions + optional screenshot | One message prefixed with `[PROACTIVE]`           |
+| Path             | Input                                                                        | Output                                           |
+| ---------------- | ---------------------------------------------------------------------------- | ------------------------------------------------ |
+| Memory evolution | Daily memory under `memory/`                                                 | Durable knowledge in `digest/`                   |
+| Proactive        | Durable memory, external notices, and the schedule registry (produced by ReMe) | Today's agenda in `memory/<date>/interests.yaml` |
 
-`/proactive` does **not** read `digest/` or `interests.yaml` today. See “Current boundary” at the end of this page.
+Auto-Dream writes only `digest/`; the agenda comes from a **separate proactive chain** in ReMe, and that is exactly what `/proactive` reads.
 
 <p align="center">
   <img src="https://img.alicdn.com/imgextra/i3/O1CN01mG5Uot1GQdX33v4h4_!!6000000000617-55-tps-1200-640.svg" alt="QwenPaw long-term memory from capture and consolidation to retrieval and discovery" />
@@ -85,21 +85,23 @@ Auto-Dream does not re-read all of `memory/` every day:
 
 That is why long-term memory can be corrected indefinitely without losing history: conclusions are mutable, the record of the moment is not.
 
-### Interest topics, produced along the way
+### Interest topics and today's agenda
 
-While consolidating durable nodes, Auto-Dream also picks a small set of non-repetitive interest topics from recent evidence — up to three by default — and writes them to `memory/<date>/interests.yaml`:
+The agenda is not produced by Auto-Dream. ReMe runs a **separate proactive refresh chain**: it distils proposals from daily memory and external notices, deduplicates them into topics, plans them into scenario cards, selects today's agenda, and writes two files:
 
-```yaml
-- title: Verify the emergency rollback path
-  reason: The hotfix exception was added, but the follow-up checks are not yet documented.
-  evidence:
-    - Emergency staging bypass discussed in the hotfix retrospective.
-  keywords: [hotfix, rollback, release]
-  paths:
-    - memory/2026-08-20/hotfix-retrospective.md
-```
+- `memory/<date>/interests.yaml` — today's `topics`, the ranked `agenda`, and this round's `suppressed` candidates;
+- `memory/_proactive.yaml` — the rebuildable source of truth: `open_topics`, `resolved` tombstones, the `schedules` registry, and the `deliveries` ledger.
 
-Each topic carries a reason, evidence, keywords, and relevant paths — so it does not just claim “you may care about X,” it can also explain why. Generation also checks the topics produced over the last seven days to avoid suggesting the same thing every day. ReMe exposes a low-level `proactive` job that reads this file for other integrations; a missing file returns a normal skipped result rather than an error.
+There are exactly four proposal kinds, and none of them is mandatory: a round may produce any subset, or nothing at all.
+
+| Kind              | What it proposes                                                                             |
+| ----------------- | -------------------------------------------------------------------------------------------- |
+| `reminder`        | Your own plans and appointments, plus notices and events from external sources you must know  |
+| `follow_up`       | New progress on something you asked for but never closed, or keep tracking                    |
+| `new_idea`        | Work the Agent can hand to you, based on its own resources (data, skills, tools)              |
+| `interest_extend` | Refinements and extensions of the topics you care about                                       |
+
+`reminder` outranks the other three: due schedules are **pinned** to the top of the agenda, never suppressed and never swapped out, while discovery items always keep their `min_discovery_slots` (2 by default). Every agenda item carries an `opener` and a minimal `next_action`; QwenPaw renders both verbatim instead of asking a model to rewrite them.
 
 <p align="center">
   <img src="https://img.alicdn.com/imgextra/i1/O1CN01ddkg0rN9DXK49o5c_!!6000000001181-0-tps-2048-796.jpg" alt="Auto-Dream integration results and interest-topic summary" />
@@ -109,113 +111,55 @@ Each topic carries a reason, evidence, keywords, and relevant paths — so it do
 
 ## 2. `/proactive`: Letting the Agent Speak First
 
-Everything above answers questions you ask. `/proactive` inverts that: **while you are not asking anything, it decides whether something is worth telling you now.**
+Everything above answers questions you ask. `/proactive` inverts that: **while you are not asking anything, it puts the agenda worth telling you about today in front of you.**
 
-Once enabled, this is what happens. You spent yesterday and today looking into a framework migration, then left for a meeting. Half an hour later you come back to a new message:
-
-> **[PROACTIVE]** I noticed you've been working through the xxx migration. The official 3.0 migration guide shipped last week, and its API-change section covers the error you hit yesterday…
-
-That message is not a template. It is sent only after the assistant **actually ran the search and got a result**. Here is the process, in order.
+The content comes from durable memory rather than a guess: ReMe's proactive chain has already ranked today's agenda from daily memory, external notices, and the schedule registry, and QwenPaw does only three things — **read, deduplicate, present**. The presentation path makes **no LLM call and runs no tool**: the message is ReMe's agenda verbatim, and the Agent never treats an item as an instruction to carry out.
 
 <p align="center">
-  <img src="https://img.alicdn.com/imgextra/i2/O1CN01bGrMQC1kGxdbG4IDT_!!6000000004657-55-tps-1200-640.svg" alt="Proactive mode using recent signals to discover a next step and ask before acting" />
+  <img src="https://img.alicdn.com/imgextra/i2/O1CN01bGrMQC1kGxdbG4IDT_!!6000000004657-55-tps-1200-640.svg" alt="The agenda is read from durable memory, deduplicated, and presented for the user to decide" />
 </p>
 
-### Step 1: Deciding it is time to speak
+Proactive is **off by default**: `/proactive` becomes available only after you enable the master switch under **Running Config → Long-Term Memory → Proactive agenda**. While it is off, the command only replies with a hint, the idle listener is not armed, and the daily job is not registered.
 
-`/proactive` starts a background loop that checks **every 30 seconds**. Every condition below must hold before it triggers — and almost all of them exist to avoid interrupting you:
+### Three ways it triggers
 
-| Check               | Rule                                                                 | Why it exists                                   |
-| ------------------- | -------------------------------------------------------------------- | ----------------------------------------------- |
-| Agent idle          | No task is currently running                                         | Never interrupt work in progress                |
-| Idle long enough    | ≥ the idle threshold since the last activity (30 minutes by default) | Only consider speaking once you've stepped away |
-| Enabled long enough | ≥ the idle threshold since `/proactive` was turned on                | Firing right after enabling feels abrupt        |
-| Cooldown            | > 60 seconds since the previous attempt                              | No bursts while conditions stay satisfied       |
-| No overlap          | The previous proactive task has finished                             | One at a time                                   |
-| Previous answered   | Skip if the last message is an unanswered `[PROACTIVE]`              | If you ignored it, don't keep talking           |
+| Trigger      | When                              | Where it lands                            | Forces a new extraction |
+| ------------ | --------------------------------- | ----------------------------------------- | ----------------------- |
+| `/proactive` | You run it                        | An agenda receipt in the **current chat**  | No (only when empty)    |
+| Idle round   | Idle conditions hold after arming | **Inbox**                                 | No (only when empty)    |
+| Daily job    | `proactive_cron` (18:00 default)  | **Inbox**, full agenda by default         | Yes                     |
 
-“Last activity” is the newest `updated_at` across **all chats in the current workspace**, not just the chat where you typed `/proactive`. Working in another chat therefore counts as still being busy.
+`/proactive` reads the agenda right away, turns the top `proactive_max_items` (3 by default) into one message in the chat you are in, and **also** arms the idle listener. Idle rounds and the daily job write to the Inbox only and never interrupt an ongoing conversation; an Inbox card is read-only, so mention its number or title in chat to move one forward.
 
-### Step 2: What it knows about your work
+### Read first, refresh only when empty
 
-Once the conditions hold, it assembles a context with only two parts.
+Every trigger first calls ReMe's read-only `proactive` job for the existing agenda, then filters out items already shown within the cooldown using the local delivery ledger. **Only when nothing is left** does it call `proactive_refresh` to rerun from topic extraction, throttled by `proactive_refresh_min_interval_minutes` (120 by default). The daily job and `/proactive now` are the exception: they **always** refresh first.
 
-**① Screen (optional)** — only when the active model supports multimodal input: it captures a desktop screenshot and asks the model to describe which application you are in and what activity you are engaged in. The result becomes `[SCREEN CONTEXT]`. Without multimodal support this part is skipped entirely.
+Refresh does not spend anything for nothing either: with no daily-memory change, no new external notice, and no due schedule, ReMe returns before calling the LLM; when only the clock produced due reminders the chain still runs to completion with zero LLM calls (`reminder_only=true`).
 
-**② Recent sessions** — `[SESSION CONTEXT]`, built by very concrete rules:
+### Deciding it is time to speak (idle rounds)
 
-- List every chat in the current workspace and keep those updated within the **last 7 days**.
-- If fewer than five match, fall back to the **five most recent** chats so there is always material.
-- Read each session's content, **dropping system messages** and all non-text content (images, tool results, and so on).
-- Order **newest first**, capped at **100 messages** and **50,000 characters**; anything beyond that is truncated.
-- Skip every request message produced by proactive mode itself, so **it never mistakes its own output for your input**.
+The idle listener checks every 30 seconds and pushes a round only when all of these hold: the feature is enabled and pushing is allowed, the Agent is idle, the time since the last activity *and* since `/proactive` was turned on are both ≥ the idle threshold (30 minutes by default), more than 60 seconds have passed since the previous attempt, the previous round has finished, and at least `proactive_refresh_min_interval_minutes` has passed since the last Inbox push. Almost all of them exist to avoid interrupting you.
 
-In other words, it sees a condensed excerpt of what you said over the past week — not your complete history. **It does not read `digest/`, and it does not read `interests.yaml`.**
+“Last activity” is the newest `updated_at` across **all chats in the current workspace**, not just the chat where you typed `/proactive`, so working in another chat counts as still being busy.
 
-### Step 3: From “what you're doing” to “what would help”
+### When there is nothing to show
 
-With that context, the model produces one to three candidates, each with three fields:
+The automatic surfaces (idle rounds and the daily job) stay **completely silent** when the agenda is empty: no Inbox card, no notification, only a log line. A manual `/proactive` always replies, and distinguishes four reasons: ReMe is not running or the read failed, the refresh was throttled, every item was already delivered, or the refresh still produced nothing.
 
-```json
-{
-  "tasks": [
-    {
-      "task": "a goal you are likely pursuing",
-      "query": "one concrete new query that moves it forward",
-      "why": "why this goal is likely and why this query helps"
-    }
-  ]
-}
-```
+### Never showing you the same thing twice
 
-A few constraints on this step are worth knowing:
+Deduplication has three layers, and an item is skipped this round as soon as any of them hits: on ReMe's write side the agenda step suppresses delivered candidates by `redelivery_cooldown_days` and records the reason in `suppressed`; on ReMe's read side the `proactive` job withholds delivered items using `deliveries` and returns `delivered_ids`; and QwenPaw's local ledger `<metadata_dir>/proactive_delivered.json` records every item actually shown, covering ReMe write failures and **cross-day** duplicates.
 
-- Candidates are ranked by **priority**, based on how often and how recently the goal appeared.
-- The `query` must be **new** — never a repeat of a command you already ran or a search you already made.
-- Goals may come only from **what you said**; guessing from the screenshot alone is not allowed, the screen is supporting context.
-- It must not duplicate any `[PROACTIVE]` message already sent.
-- No tools during this step — think it through and answer directly.
-
-### Step 4: Do the work first, then decide whether to speak
-
-This is the biggest difference between `/proactive` and “guess what you want to ask”: **it never hands you the guess directly.** It verifies first.
-
-It initializes a separate `ProactiveAssistant` that reuses the current Agent's model, with a toolset it is told to use lightest-first:
-
-1. `web_search` to find information;
-2. `web_fetch` to read a known URL;
-3. `browser` only for interactive cases (login, clicking, JS-heavy pages);
-4. `read_file` and `execute_shell_command` only when essential;
-5. `desktop_screenshot` additionally, on multimodal models.
-
-It then runs the queries of **at most three** candidates in priority order, requiring the model to end each answer with a `[SUCCESS]` or `[FAILURE]` self-assessment. **The first candidate that both succeeds and actually returns content stops the remaining attempts** — good enough is enough; it does not run all three.
-
-If all of them fail, the round simply produces nothing and no message is sent.
-
-### Step 5: Where the message goes
-
-Given a result, the model writes it up in the language configured for the current Agent, phrased along the lines of “I noticed you've been focusing on X, so I looked into…” — explaining why it brought this up before giving the answer. The output **must start with `[PROACTIVE] `**, and that same marker drives the “previous answered” check in Step 1.
-
-Delivery happens by calling QwenPaw's own API (`POST /api/console/chat`) with a fixed session of `proactive_mode:<agentId>` and a 300-second timeout. So **proactive messages land in a dedicated session rather than in the middle of a conversation you are having.**
-
-### It can be interrupted at any point
-
-Three checkpoints ask “is the user back?”: after the context is built, before each candidate runs, and after execution completes. Two signals are used — whether the Agent became busy again, and whether **any chat's update time is newer than the moment this round started**. Either one aborts the round immediately, so no half-finished message is ever sent.
+`reminder` is the only exception to all three cooldowns: its `topic_id` derives from a stable schedule title, so normal suppression would silence a recurring reminder for the whole window after a single delivery. After items are really shown, QwenPaw makes a best-effort `proactive_feedback` call to report them; the receipt is an **optional contract** — ReMe behaves exactly as before when a host never reports.
 
 ### Privacy and safety
 
-This is the section worth reading carefully. Enabling `/proactive` means:
+- **No screenshots** and **no raw session text** — it reads the agenda text ReMe distilled from durable memory.
+- **No bypass assistant**: no sub-agent with tools is started, and the agenda is presented, never executed.
+- The only model spend happens inside ReMe's `proactive_refresh`, and only when the material changed.
 
-- It **reads chat history** (the last 7 days, or the five most recent sessions).
-- On a multimodal model, it may **capture your desktop**.
-- The assistant it starts has web search/fetch, browser, file-read, and shell-command capabilities.
-- That assistant runs with **bypass permissions**, meaning it **skips the normal tool-authorization prompts**.
-
-`/proactive` displays this warning when you enable it. Turn it on only when that level of access is appropriate, and use `/proactive off` to stop at any time. Note also that monitor settings live **only in process memory** — they must be enabled again after a QwenPaw restart.
-
-### Current boundary
-
-`/proactive` derives both its trigger and its tasks **only from recent sessions and optional screen context**; it reads neither `interests.yaml` nor `digest/`. The two halves of this page are therefore independent paths today: memory evolution makes knowledge more accurate with use, while proactive interaction runs purely on recent activity. Connecting them is still in progress.
+The agenda does come from your durable memory, so it may mention things you really said. The idle listener's state lives **only in process memory** and must be armed again with `/proactive` after a restart; the master switch and the scheduled job are persisted in `agent.json`.
 
 ---
 
@@ -223,16 +167,15 @@ This is the section worth reading carefully. Enabling `/proactive` means:
 
 ### The `/proactive` command
 
-Proactive uses **no `agent.json` settings**. It is managed entirely by commands, scoped to the current Agent:
-
 ```text
-/proactive           # enable; trigger after 30 minutes of inactivity
+/proactive           # reply with today's agenda now and arm the idle listener (30 min default)
 /proactive on        # same as above
-/proactive 45        # use a 45-minute idle threshold (positive integer minutes)
-/proactive off       # stop proactive monitoring
+/proactive 45        # same, with a 45-minute idle threshold (positive integer)
+/proactive now       # force one refresh now and push it to the Inbox
+/proactive off       # stop the idle listener
 ```
 
-Enabling it returns the current idle threshold together with the safety warning above. An invalid argument prints the usage. Settings are lost on restart and must be re-enabled.
+An invalid argument prints the usage; with the master switch off the command only replies “enable the proactive agenda under Running Config → Long-Term Memory first”. Idle-listener state lives only in process memory and must be re-armed after a restart. The underlying actions can also be called directly: `/reme proactive` (read-only, supports `date` and `include_delivered`) and `/reme proactive_refresh` (reruns from extraction, spends model calls, requires approval).
 
 ### Running Auto-Dream manually
 
@@ -248,7 +191,7 @@ Run `/reme help` to see all currently available chat-allowed actions.
 
 ### Settings relevant to this page
 
-These live under `running.reme_light_memory_config` in `agent.json`. For the complete configuration (directories, Embedding, Daily Paper, Auto Fin, index maintenance, and other backends) see [Long-Term Memory](./memory).
+These live under `running.reme_light_memory_config` in `agent.json` and can all be edited in the **Running Config → Long-Term Memory** panel. For the complete configuration (directories, Embedding, Daily Paper, Auto Fin, index maintenance, and other backends) see [Long-Term Memory](./memory).
 
 | Field                               | Default        | Description                                                      |
 | ----------------------------------- | -------------- | ---------------------------------------------------------------- |
@@ -257,8 +200,16 @@ These live under `running.reme_light_memory_config` in `agent.json`. For the com
 | `auto_dream_inbox_push_enabled`     | `true`         | Send Auto-Dream changes and failures to Inbox                    |
 | `auto_memory_interval`              | `5`            | Run Auto-Memory after every N user turns                         |
 | `auto_memory_search_config.enabled` | `false`        | Search memory automatically before every normal user request     |
+| `proactive_enabled`                      | `false`          | Master switch; while off `/proactive` only explains how to enable it |
+| `proactive_max_items`                    | `3`              | Agenda items presented per round (1–10)                  |
+| `proactive_inbox_push_enabled`           | `true`           | Push idle rounds and the daily job to Inbox              |
+| `proactive_cron_enabled`                 | `false`          | Register the daily agenda push job                       |
+| `proactive_cron`                         | `"0 18 * * *"`   | Five-field cron for the daily push; random 0–60 s delay  |
+| `proactive_cron_max_items`               | `0`              | Items per daily push; `0` means all (ReMe caps at 6/day) |
+| `proactive_delivery_cooldown_days`       | `3`              | Days a delivered item stays hidden (0–90); `reminder` is exempt |
+| `proactive_refresh_min_interval_minutes` | `120`            | Minimum interval for an on-demand refresh; also caps idle push density; `0` disables |
 
-A smaller Auto-Memory interval feeds fresher material into Auto-Dream, at the cost of more model calls and tokens.
+A smaller Auto-Memory interval feeds fresher material into Auto-Dream and proactive extraction, at the cost of more model calls and tokens.
 
 ---
 

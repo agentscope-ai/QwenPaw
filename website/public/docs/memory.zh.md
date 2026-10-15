@@ -305,7 +305,7 @@ Auto-Link 是 Auto-Dream 构建文档图谱的关键。它不是等整理结束�
   <img src="https://img.alicdn.com/imgextra/i1/O1CN01ddkg0rN9DXK49o5c_!!6000000001181-0-tps-2048-796.jpg" alt="Auto-Dream 完成后推送到 Inbox 的任务摘要" />
 </p>
 
-Auto-Dream 还会生成 `interests.yaml`。它与 QwenPaw 当前的 `/proactive` mode 是独立能力；当前 `/proactive` 不读取该文件。
+主动议程不由 Auto-Dream 产出：ReMe 有一条独立的 proactive 链路，写入 `memory/<date>/interests.yaml`（topics + 当日 agenda）与 `memory/_proactive.yaml`（日程注册表与投递记录），Auto-Dream 不读写这两份文件。`/proactive` 读取的正是这份议程，详见[记忆自进化与主动交互](./memory-evolving-and-proactive)。
 
 ### 5. Memory Search 在需要时找回正确的记忆
 
@@ -401,6 +401,14 @@ BM25 擅长“宁德时代”“CATL”“碳酸锂”这类明确名称；向�
       "auto_fin_topics": "gold,robotics,semiconductors",
       "auto_fin_window_hours": 24,
       "auto_fin_inbox_push_enabled": true,
+      "proactive_enabled": false,
+      "proactive_max_items": 3,
+      "proactive_inbox_push_enabled": true,
+      "proactive_cron_enabled": false,
+      "proactive_cron": "0 18 * * *",
+      "proactive_cron_max_items": 0,
+      "proactive_delivery_cooldown_days": 3,
+      "proactive_refresh_min_interval_minutes": 120,
       "memory_search_enabled": true,
       "auto_memory_search_config": {
         "enabled": false,
@@ -428,6 +436,14 @@ BM25 擅长“宁德时代”“CATL”“碳酸锂”这类明确名称；向�
 | `auto_fin_topics`                       | `"gold,robotics,semiconductors"` | 用逗号分隔的财联社新闻筛选主题                                     |
 | `auto_fin_window_hours`                 | `24`                             | 每次向前抓取财联社电报的滚动小时数，范围为 1–168                   |
 | `auto_fin_inbox_push_enabled`           | `true`                           | 把实际生成的 Auto Fin 报告或失败结果推送到 Inbox                   |
+| `proactive_enabled`                  | `false`          | 主动议程总开关；关闭时 `/proactive` 只解释如何开启        |
+| `proactive_max_items`                | `3`              | `/proactive` 回执与空闲轮次单次呈现的议程条数（1–10）     |
+| `proactive_inbox_push_enabled`       | `true`           | 空闲轮次与每日任务是否把议程推送到 Inbox                  |
+| `proactive_cron_enabled`             | `false`          | 启用每日议程推送任务                                      |
+| `proactive_cron`                     | `"0 18 * * *"`   | 每日议程推送的五段式 cron（启用时必填）                   |
+| `proactive_cron_max_items`           | `0`              | 每日推送条数；`0` 表示全量（ReMe 自身上限 6 条/天）       |
+| `proactive_delivery_cooldown_days`   | `3`              | 已投递条目的隐藏天数，ReMe 与本地台账共用（0–90）         |
+| `proactive_refresh_min_interval_minutes` | `120`        | 按需刷新议程的最小间隔，同时限制空闲推送密度；`0` 不限制  |
 | `memory_search_enabled`                 | `true`                           | 向 Agent 提供手动 `memory_search` 工具                             |
 | `auto_memory_search_config.enabled`     | `false`                          | 每次普通用户请求前自动搜索记忆                                     |
 | `auto_memory_search_config.max_results` | `2`                              | 自动搜索时最多注入的结果数                                         |
@@ -457,8 +473,9 @@ BM25 擅长“宁德时代”“CATL”“碳酸锂”这类明确名称；向�
 `/reme auto_memory`、上下文压缩和 `/new` 都会向同一队列提交任务；每条状态记录
 会标明 `periodic`、`manual`、`compact` 或 `new` 触发来源。可在对话中使用
 `/auto_memory_status` 查看这些任务，使用 `/reme help` 查看运行时、聊天安全的 ReMe
-action 目录。QwenPaw 明确允许 `status`、`search`、`proactive`、`auto_memory`、
-`auto_dream`、`daily_paper` 和 `auto_fin`；原始 vault 与索引维护 action 不能从
+action 目录。QwenPaw 明确允许 `status`、`search`、`proactive`、
+`proactive_refresh`、`auto_memory`、`auto_dream`、`daily_paper` 和
+`auto_fin`；原始 vault 与索引维护 action 不能从
 聊天调用。关闭时会用同一个五秒 deadline 停止 worker、
 等待正在执行的 ReMe job 退出并关闭 ReMe；如果无法按时完成，则返回失败，而不会
 无限等待或替换仍在使用的 backend。ReMe 的图谱快照、索引重建和 Embedding 配置

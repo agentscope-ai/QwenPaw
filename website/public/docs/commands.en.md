@@ -1105,6 +1105,8 @@ actions:
 ```text
 /reme help
 /reme status
+/reme proactive
+/reme proactive_refresh
 /reme search query="project decisions" limit=5
 /reme search query="project decisions" tags='["architecture","memory"]'
 /reme auto_dream hint="focus on AI chip work"
@@ -1113,8 +1115,9 @@ actions:
 /reme auto_fin topics="gold,robotics" window_hours=12
 ```
 
-The chat allowlist is `status`, `search`, `proactive`, `auto_memory`,
-`auto_dream`, `daily_paper`, and `auto_fin`. Backend availability alone does
+The chat allowlist is `status`, `search`, `proactive`,
+`proactive_refresh`, `auto_memory`, `auto_dream`, `daily_paper`,
+and `auto_fin`. Backend availability alone does
 not make an action callable from chat. Raw vault actions such as `read`,
 `read_image`, `write`, `edit`, `delete`, `move`, `list`, `stat`,
 `daily_write`, `daily_list`, `frontmatter_*`, and `node_search` are excluded.
@@ -1155,72 +1158,52 @@ removed. Use `/reme auto_dream`, `/reme auto_memory`, and `/reme status`.
 
 ---
 
-## Proactive Mode - Proactive Notification Mode
+## Proactive Mode - Proactive Agenda Mode
 
-Proactive Mode is an intelligent feature that allows the AI agent to actively analyze the user's current session context and screen activities after detecting that the user has been inactive for a prolonged period, and provide relevant assistance and information.
+Proactive Mode surfaces **today's proactive agenda**, distilled from long-term memory: ReMe's proactive chain ranks the agenda out of daily memory, external notices, and the schedule registry (due reminders pinned first), and QwenPaw only reads, dedupes, and presents it.
 
 ### Core Features
 
-- 🤖 **Intelligent Detection**: Monitors session activity status and triggers when inactivity is detected for a set period
-- 🧠 **Context Analysis**: Analyzes user's conversation history and current screen content to identify potential needs
-- 🔍 **Goal Extraction**: Extracts topics that the user may be focusing on from conversation history
-- 💬 **Proactive Response**: Generates helpful and relevant proactive messages based on analysis results
+- 📥 **Present, never execute**: the whole presentation path makes zero LLM calls and zero tool calls, so the agent never treats an agenda item as an instruction to carry out
+- 🗂 **Sourced from long-term memory**: the agenda comes from ReMe's proactive chain; raw sessions are no longer scanned and no screenshots are taken
+- ⏰ **Three triggers**: the `/proactive` receipt, idle rounds pushing to the inbox, and a daily scheduled push to the inbox
+- 🔁 **Three dedupe layers**: ReMe write-side suppression + ReMe read-side withholding + QwenPaw's local delivery ledger
 
 ### Important Notice
 
-**Please be aware of the following risks before enabling this mode:**
-
-- **Tool Protection Bypass**: In this mode, the Agent **bypasses standard tool protection mechanisms**. This means the Agent has higher system privileges and execution freedom.
-- **Privacy and Environment Access**: The Agent **reads historical session memory** to understand context and **may take screenshots** to obtain current runtime environment information. Please ensure use in a trusted environment and protect sensitive information.
-- This mode is **disabled by default**. It only takes effect when actively enabled by the user and can be disabled after being turned on.
+- This mode is **disabled by default**: turn on the master switch under **Run Config → Long-term Memory → Proactive** before `/proactive` works
+- **There is no tool-protection bypass any more**: no bypass assistant, and no sub-agent with tools is started
+- Agenda content is derived from your long-term memory, so it can mention private things you really did say
+- The idle watcher's state lives only in process memory; re-run `/proactive` to re-arm it after a QwenPaw restart
 
 ### Basic Usage
 
-#### Enable Proactive Mode
-
 ```bash
-/proactive
-/proactive on
-/proactive <minutes>
+/proactive           # reply with today's agenda in this chat now, and arm the idle watcher (30 minutes)
+/proactive on        # same as above
+/proactive 60        # same, with a 60-minute idle threshold (positive integer)
+/proactive now       # rebuild the agenda immediately and push it to the inbox
+/proactive off       # stop the idle watcher
 ```
 
-**Example:**
-
-```bash
-/proactive      # Default 30 minutes, trigger proactive notification after 30 minutes of inactivity
-/proactive on   # Same as above, default 30 minutes
-/proactive 60   # Trigger proactive notification after 60 minutes
-```
-
-#### Disable Proactive Mode
-
-```bash
-/proactive off
-```
+With the master switch off the command only replies that proactive has to be enabled under Run Config → Long-term Memory first; an invalid argument prints the usage.
 
 ### How It Works
 
-1. **Monitoring Phase**: Continuously monitors user activity, recording the last activity timestamp
-2. **Analysis Phase**: When inactivity exceeding the set time is detected, analyzes recent conversation history
-3. **Task Extraction**: Identifies topics the user may be concerned about
-4. **Query Execution**: Uses tools like browser, file reading, command execution to obtain relevant information
-5. **Response Generation**: Generates friendly and relevant proactive assistance information
-
-#### Context Awareness
-
-- Focuses only on user-initiated messages, ignoring system messages
-- Avoids repeatedly sending proactive messages on the same topics
-- Prioritizes frequent and recently mentioned topics
+1. **Read**: call ReMe's `proactive` job to read the existing agenda, due reminders already first
+2. **Dedupe**: filter out entries the local delivery ledger shows you inside the cooldown window
+3. **Refresh on demand**: only when nothing is left, call `proactive_refresh` to rebuild from topic extraction, rate-limited by the minimum refresh interval
+4. **Present**: `/proactive` answers in the current chat; idle rounds and the daily job write to the inbox and stay **completely silent** on an empty agenda (log line only)
+5. **Report back**: after each real delivery, make a best-effort `proactive_feedback` call so ReMe knows what was already used
 
 ### Important Notes
 
-1. **Resource Consumption**: Enables regular context analysis after activation, which may increase computational resource usage
-2. **Distraction Control**: If the user does not respond to proactive messages, no consecutive proactive messages will be sent
-3. **Model Dependency**: Function effectiveness depends on the AI model capability used; multimodal-enabled models can better utilize screen analysis features
+1. **Resource Consumption**: presentation itself costs no model calls; only `proactive_refresh` calls a model, and only when material actually changed
+2. **Distraction Control**: an idle round requires an idle agent, elapsed idle time above the threshold, and enough spacing since the last inbox push
+3. **The Inbox Cannot Execute**: cards are read-only; to take one forward, tell the agent its number or title in chat
 
-### Typical Use Cases
+### Related Settings
 
-- New information acquisition during research processes
-- Supplementary knowledge provision during learning processes
+The `proactive_*` fields under `running.reme_light_memory_config` in `agent.json`, editable in the **Run Config → Long-term Memory** panel. Field-by-field details are in [Memory Evolution and Proactive Interaction](./memory-evolving-and-proactive) and the [configuration reference](./config).
 
 ---
