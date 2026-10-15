@@ -1690,12 +1690,25 @@ class ChatPage(BasePage):
         # reported as such instead of burning the full 8s wait (live
         # probe 2026-10-15: the empty tip carries class emptyTip and a
         # role=status wrapper).
+        # Fourth terminal state (live probe 2026-10-15 against a
+        # version-aligned local build, frontend+backend both at the CI
+        # head): the panel IS open and the provider group headers render
+        # (Ollama / LM Studio / Kilo Code ...) but EVERY provider carries
+        # zero models, so no modelSelectButton row and no emptyTip exist
+        # either — the picker shows "No matching models found" under the
+        # group headers. The loading state is told apart by its
+        # role="status" spin wrapper, which the fourth state lacks. This
+        # is an environment condition (nothing selectable configured on
+        # the instance under test), not a broken picker: return normally
+        # with a loud log and let the caller's existing "no switchable
+        # model" branch decide (every family-A case already has one).
         embedded = self.page.locator(self.MODEL_SELECT_EMBEDDED_BTN).first
         choice = self.page.locator(self.MODEL_CHOICE_BTN).first
         empty_tip = self.page.locator(
             'div[role="dialog"] div[class*="emptyTip"], '
             'div[role="dialog"] [class*="emptyTip"]'
         ).first
+        dialog = self.page.locator('div[role="dialog"]').first
         for _ in range(20):
             if embedded.count() > 0 and embedded.first.is_visible():
                 logger.info("Model picker panel open (embedded picker)")
@@ -1714,14 +1727,37 @@ class ChatPage(BasePage):
                 choice.first.click()
                 self.wait(500)
                 break
+            if (
+                dialog.count() > 0
+                and dialog.first.is_visible()
+                and dialog.locator('[role="status"]').count() == 0
+                and choice.count() == 0
+                and empty_tip.count() == 0
+            ):
+                logger.info(
+                    "Model picker panel open but no selectable model rows "
+                    "(provider groups rendered with zero models); leaving "
+                    "the switch decision to the caller's no-switch branch"
+                )
+                return self
             self.wait(250)
         try:
             embedded.wait_for(state="visible", timeout=8000)
         except Exception:
             names = self._visible_button_names()
+            dialog_state = "absent"
+            try:
+                dialog_state = (
+                    "visible"
+                    if dialog.count() > 0 and dialog.first.is_visible()
+                    else "hidden"
+                )
+            except Exception:
+                dialog_state = "unreadable"
             raise AssertionError(
                 "Model picker panel did not open: neither the embedded "
                 "modelSelectButton rows nor the modelChoice hop appeared. "
+                f"role=dialog state: {dialog_state}. "
                 f"Visible buttons: {names}"
             )
         logger.info("Model picker panel open (via modelChoice hop)")

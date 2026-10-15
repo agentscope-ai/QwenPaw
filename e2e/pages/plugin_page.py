@@ -76,10 +76,22 @@ class PluginPage(BasePage):
     # hidden ``<article aria-label="ModelScope Hub" ...>`` now shadows the
     # Market rows forever (nightly 2026-10-13/14: "123 x locator resolved
     # to hidden"). Scope every Market selector to the active tab pane.
-    MARKET_TABPANE = '.qwenpaw-tabs-tabpane-active'
+    # Live probe 2026-10-15 (version-aligned local build, frontend and
+    # backend both at the CI head) settled the scope anchor: rc-tabs
+    # gives every pane a STABLE id ``rc-tabs-<n>-panel-<key>`` (key comes
+    # from the Tabs items, here "market"), while the ``-active`` class is
+    # only swapped after a React commit (~90 ms in the probe). During
+    # that window ``.qwenpaw-tabs-tabpane-active`` still names the OLD
+    # pane, so a locator resolved then pins the hidden Installed pane's
+    # toggle and Playwright keeps retrying that same hidden handle for
+    # the whole timeout (nightly 2026-10-15: "112 x element is not
+    # visible" while the failure screenshot shows the Market toggle
+    # plainly visible). Scoping by pane id is immune to the window and
+    # to the active-class swap alike.
+    MARKET_TABPANE = '[id$="panel-market"]'
     MARKET_ROW = (
-        '.qwenpaw-tabs-tabpane-active [class*="catalogRow"], '
-        '.qwenpaw-tabs-tabpane-active article[class*="pluginCard"]'
+        '[id$="panel-market"] [class*="catalogRow"], '
+        '[id$="panel-market"] article[class*="pluginCard"]'
     )
     # The card/list view toggle (PluginViewToggle) is rendered once PER
     # pane with identical aria-labels in all three lists, so it needs the
@@ -87,10 +99,12 @@ class PluginPage(BasePage):
     # pane's toggle, the click raised, and a bare ``except: pass`` swallowed
     # it -- leaving the Market pane in card view where catalogRow never
     # renders (failure screenshot 2026-10-14 shows the Market tab active
-    # with both mocked cards still in card view).
+    # with both mocked cards still in card view). Note the toggle is a
+    # design-library segmented control (label > input + item-label > the
+    # aria-labelled span); there is NO button[role="tab"] layer to click.
     MARKET_LIST_TOGGLE = (
-        '.qwenpaw-tabs-tabpane-active span[aria-label*="List view"], '
-        '.qwenpaw-tabs-tabpane-active span[aria-label*="列表"]'
+        '[id$="panel-market"] span[aria-label*="List view"], '
+        '[id$="panel-market"] span[aria-label*="列表"]'
     )
     # antd Tag with prefixCls=qwenpaw; text is "QwenPaw <labels>"
     COMPAT_TAG_GREEN = '.qwenpaw-tag-green:has-text("QwenPaw")'
