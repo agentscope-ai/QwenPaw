@@ -144,6 +144,29 @@ class TestFilterAndSelect:
 
         assert [item.topic_id for item in kept] == ["t-2"]
 
+    async def test_filter_delivered_exempts_reminders(self, tmp_path: Path):
+        """A due reminder is announced again inside the cooldown window.
+
+        Reminder ids derive from a stable schedule title, so treating them
+        like discovery items would silence a recurring reminder for the whole
+        window after one delivery.
+        """
+        ledger = _ledger(tmp_path)
+        await ledger.record(
+            [
+                {"topic_id": "r-1", "channel": "inbox", "status": "shown"},
+                {"topic_id": "t-1", "channel": "inbox", "status": "shown"},
+            ],
+        )
+        items = [
+            pa.AgendaItem(topic_id="r-1", kind="reminder"),
+            pa.AgendaItem(topic_id="t-1", kind="follow_up"),
+        ]
+
+        kept = pa.filter_delivered(items, ledger, cooldown_days=3)
+
+        assert [item.topic_id for item in kept] == ["r-1"]
+
     def test_filter_without_ledger_keeps_everything(self):
         items = [pa.AgendaItem(topic_id="t-1")]
 
