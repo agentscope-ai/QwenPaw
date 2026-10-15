@@ -1,5 +1,6 @@
 import asyncio
 import json
+from dataclasses import replace
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
@@ -565,6 +566,85 @@ async def test_user_speech_preempts_application_presentation_and_pump_survives()
         assert second.data["output_id"] != first.data["output_id"]
     finally:
         await coordinator.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("result_count", [1, 10])
+async def test_background_results_wait_for_playback_without_preempting(
+    result_count,
+):
+    provider, bridge = Provider(), Bridge()
+    coordinator, _ = build_coordinator(provider, bridge)
+    seen = []
+
+    async def collect():
+        async for event in coordinator.events():
+            seen.append(event)
+
+    def events(kind):
+        return [event for event in seen if event.kind == kind]
+
+    await coordinator.start()
+    collector = asyncio.create_task(collect())
+    try:
+        await coordinator._queue_presentation(
+            PresentationIntent("admission"),
+            persist_exchange=False,
+        )
+        await eventually(lambda: bool(events("output.begin")))
+        first = events("output.begin")[0].data["output_id"]
+        results = tuple(
+            replace(
+                snapshot(f"task-{index}", status="responded"),
+                replies=(
+                    ChatReply(
+                        f"message-{index}",
+                        "final",
+                        "run-1",
+                        (f"input-{index}",),
+                        1,
+                        "final",
+                        f"结果是{index}",
+                    ),
+                ),
+            )
+            for index in range(result_count)
+        )
+        bridge.presentation_snapshots.return_value = results
+        for result in results:
+            await bridge.queue.put(VoiceTaskEvent(result))
+        await eventually(
+            lambda: len(events("agent.task.updated")) == result_count
+        )
+        for kind in ("response.started", "response.finished"):
+            await provider.queue.put(
+                ProviderEvent(
+                    kind,
+                    kind,
+                    {},
+                    correlation_id="response-1",
+                    response_origin="application",
+                )
+            )
+        await eventually(lambda: bool(events("output.sealed")))
+        coordinator.playback_feedback("old-session-output", "drained")
+        await asyncio.sleep(0.01)
+        assert not events("output.cancelled")
+        assert len(events("output.begin")) == 1
+        coordinator.playback_feedback(first, "drained")
+        await eventually(lambda: len(events("output.begin")) == 2)
+        assert all(
+            f"结果是{index}" in provider.created_messages[-2][2]
+            for index in range(result_count)
+        )
+        # Repeated or older task snapshots never schedule another output.
+        for result in results:
+            await bridge.queue.put(VoiceTaskEvent(result))
+        await asyncio.sleep(0.01)
+        assert len(events("output.begin")) == 2
+    finally:
+        await coordinator.close()
+        await collector
 
 
 def test_update_instruction_replaces_stale_progress_with_latest_final_reply():

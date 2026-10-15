@@ -9,7 +9,11 @@ from typing import Any, Literal
 from uuid import uuid4
 
 from ...config.config import load_agent_config
-from ...constant import QWENPAW_CLIENT_MESSAGE_ID_KEY, QWENPAW_RECEIVED_AT_KEY
+from ...constant import (
+    CHAT_CONVERSATION_CONTEXT_KEY,
+    QWENPAW_CLIENT_MESSAGE_ID_KEY,
+    QWENPAW_RECEIVED_AT_KEY,
+)
 from ...runtime.reply_cycle import TIMELINE_ORDER_METADATA_KEY
 from ...services.project_directory import (
     resolve_effective_project_dir,
@@ -190,6 +194,26 @@ class ChatRunCoordinator:
         metadata[QWENPAW_RECEIVED_AT_KEY] = received_at
         metadata[TIMELINE_ORDER_METADATA_KEY] = timeline_order
         request = replace(request, message_metadata=metadata)
+        if request.origin == "speech":
+            # Native delegation contains the new request, not a reconstruction
+            # of earlier conversation. The live view includes speech not yet
+            # folded into Agent state; never wait for an active run to finish
+            # or for playback/durable-history reconciliation to supply it.
+            # The input's order excludes later arrivals. Both start and steer
+            # already consume this model-only context, without extra user turns.
+            prior = await timeline.read_context(
+                turn_id=request.client_message_id,
+                order=timeline_order,
+                max_turns=20,
+                max_chars=16_000,
+            )
+            request = replace(
+                request,
+                request_context={
+                    **request.request_context,
+                    CHAT_CONVERSATION_CONTEXT_KEY: prior,
+                },
+            )
         payload = await cls._console_payload(workspace, chat, request)
         # Do not recreate a background owner after deletion during preparation.
         workspace.task_tracker.input_context(chat.id)

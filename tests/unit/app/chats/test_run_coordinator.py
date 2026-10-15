@@ -14,6 +14,7 @@ from qwenpaw.app.chats.session import SafeJSONSession
 from qwenpaw.app.chats.timeline import ChatTimelineJournal
 from qwenpaw.app.task_tracker import TaskTracker
 from qwenpaw.constant import (
+    CHAT_CONVERSATION_CONTEXT_KEY,
     QWENPAW_CLIENT_MESSAGE_ID_KEY,
     QWENPAW_RECEIVED_AT_KEY,
 )
@@ -322,6 +323,7 @@ async def test_starts_agent_without_losing_rich_input(tmp_path):
     assert context["input_origin"] == "keyboard"
     assert context["source"] == "realtime_voice"
     assert context["project_dir_source"] == "workspace"
+    assert CHAT_CONVERSATION_CONTEXT_KEY not in context
 
     stream = owner.task_tracker.stream_from_queue(result.events, "chat-1")
     initial_user = json.loads((await anext(stream)).removeprefix("data: "))
@@ -406,3 +408,92 @@ async def test_atomically_steers_active_run_with_the_same_typed_input(
     await stream.aclose()
     await owner.task_tracker.detach_subscriber("chat-1", second.events)
     await owner.task_tracker.request_stop("chat-1")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("busy", [False, True], ids=["start", "steer"])
+async def test_speech_handoff_carries_live_prior_context_not_an_extra_request(
+    tmp_path,
+    busy,
+):
+    from qwenpaw.app.chats.conversation_view import ConversationItem
+    from qwenpaw.runtime.message_convert import _request_input_to_msgs
+    from qwenpaw.schemas import Message
+
+    channel = FakeConsoleChannel()
+    owner = workspace(tmp_path, channel)
+    journal = ChatTimelineJournal(owner, chat())
+    try:
+        if busy:
+            await ChatRunCoordinator.submit(
+                owner,
+                chat(),
+                ChatInputRequest(("first task",), "first"),
+            )
+            await channel.started.wait()
+        order = await journal.reserve_order()
+        # Known by Voice, but not yet saved/reconciled into Agent history.
+        journal.observe_voice_exchange(
+            "preface",
+            "下一个测试叫香蕉。",
+            "好的。",
+            timeline_order=order,
+        )
+        journal.conversation_view().observe(
+            (
+                ConversationItem(
+                    "future", 999, "user", "FUTURE_INPUT", ("future",), "voice"
+                ),
+            )
+        )
+        request = ChatInputRequest(
+            (TextContent(text="请执行刚才说的测试"),),
+            "new-input",
+            origin="speech",
+        )
+        submission = await ChatRunCoordinator.submit(owner, chat(), request)
+        await channel.started.wait()
+        if busy:
+            mailbox = channel.payload["meta"]["request_context"][
+                "_run_input_mailbox"
+            ]
+            [steer] = mailbox.drain_after_reply()
+            context = steer.request_context
+            assert submission.status == "accepted"
+        else:
+            context = channel.payload["meta"]["request_context"]
+            assert submission.status == "started"
+        frozen = context[CHAT_CONVERSATION_CONTEXT_KEY]
+        rows = json.loads(frozen)["messages"]
+        assert any(
+            row["id"] == "preface" and "香蕉" in row["text"] for row in rows
+        )
+        assert "FUTURE_INPUT" not in frozen
+        assert "请执行刚才说的测试" not in frozen
+        journal.observe_voice_exchange(
+            "late", "LATER_INPUT", timeline_order=1000
+        )
+        assert context[CHAT_CONVERSATION_CONTEXT_KEY] == frozen
+
+        converted = _request_input_to_msgs(
+            [
+                Message(
+                    role="user",
+                    content=list(request.content_parts),
+                    metadata={
+                        QWENPAW_CLIENT_MESSAGE_ID_KEY: "new-input",
+                    },
+                )
+            ],
+            conversation_context=frozen,
+        )
+        users = [message for message in converted if message.role == "user"]
+        assert len(users) == 1
+        assert users[0].id == "new-input"
+        assert users[0].get_text_content() == "请执行刚才说的测试"
+        assert converted[0].content[0].type == "hint"
+        assert "香蕉" in converted[0].content[0].hint
+    finally:
+        channel.release.set()
+        await owner.task_tracker.request_stop(chat().id)
+        await journal.conversation_view().close()

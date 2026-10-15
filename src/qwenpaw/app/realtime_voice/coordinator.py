@@ -530,7 +530,7 @@ class VoiceCoordinator:
                 if queued.completion is not None and not queued.completion.done():
                     queued.completion.cancel()
                 # Cancelling the pump itself is shutdown.  Cancelling only the
-                # child is normal barge-in/supersession and must not disable
+                # child is normal barge-in and must not disable
                 # future application speech.
                 current = asyncio.current_task()
                 if current is not None and current.cancelling():
@@ -566,7 +566,7 @@ class VoiceCoordinator:
         await credit.wait(self._playback_timeout)
 
     def _preempt_presentation(self, reason: str) -> None:
-        """Cancel replaceable application speech without touching Chat work."""
+        """Interrupt current application speech without touching Chat work."""
         task = self._active_presentation_task
         if task is None or task.done():
             return
@@ -803,8 +803,9 @@ class VoiceCoordinator:
                     )
                 ):
                     self._announce_changes.add(f"task:{snapshot.task_id}")
-                if changed or f"task:{snapshot.task_id}" in self._announce_changes:
-                    self._preempt_presentation("superseded")
+                # Routine progress/results update pending speech, not playback
+                # already owned by the renderer. Only user interruption cancels
+                # it; the next output still requires the current playback ACK.
                 await self._events.put(
                     ProviderEvent(
                         "agent.task.updated",

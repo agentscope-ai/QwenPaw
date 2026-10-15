@@ -25,7 +25,10 @@ VOICE_SESSION_INSTRUCTIONS = (
     "工作收到补充限制、更正或追问时，都调用 handoff_to_chat。应用会根据普通 Chat"
     "的真实运行状态决定启动还是追加到当前工作。只有名称、铺垫或没有明确目标和"
     "动作的片段不要委派，先自然确认并等待。"
-    "request_text 必须忠实保留当前原始语音上下文里的名称、动作、参数、限制和更正。"
+    "request_text 用用户自己的话传递这次新增的请求、补充、更正或追问，"
+    "不要把之前已经委派过的动作和参数重新整理成一份完整任务。"
+    "用户只补充限制时就只传这项补充；明确要求再次执行时必须保留，不能当作重复忽略。"
+    "普通 Chat 会另外收到此前的对话上下文，不需要把历史请求改写为新的执行指令。"
     "调用工具时不要假装执行或完成，应用会另行确认接管并反馈真实进度。"
     "不要朗读 JSON、控制标记、日志、推理、内部 ID 或工具参数。"
 )
@@ -36,9 +39,11 @@ _REQUEST_SCHEMA = {
         "request_text": {
             "type": "string",
             "description": (
-                "Complete faithful work request or update, including names, "
-                "actions, parameters, constraints and corrections from the "
-                "native audio conversation."
+                "The user's current new request, follow-up, correction or "
+                "question in their own words. Preserve names, parameters, "
+                "constraints and an explicitly requested repeat. Do not "
+                "restate work already handed off; prior conversation is "
+                "provided separately as context."
             ),
         }
     },
@@ -52,9 +57,10 @@ _VOICE_SESSION = RealtimeSessionConfig(
         RealtimeTool(
             name="handoff_to_chat",
             description=(
-                "Hand one complete actionable work request, follow-up, correction "
+                "Pass the current new actionable request, follow-up, correction "
                 "or status question to the ordinary Chat Agent. The application "
-                "starts or steers the current Chat run. Never use for a label or "
+                "starts or steers the current Chat run. Do not rewrite a "
+                "follow-up as a replay of prior commands. Never use for a label or "
                 "preface alone."
             ),
             parameters=_REQUEST_SCHEMA,
