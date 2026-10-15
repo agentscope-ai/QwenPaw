@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   addRouterBasename,
   getAppRelativeLocation,
@@ -16,6 +16,50 @@ import {
 } from "./navigationMode";
 
 describe("navigationMode", () => {
+  it("uses the configured basename for prefixed deployments", async () => {
+    vi.stubEnv("VITE_CONSOLE_BASENAME", "/qwenpaw");
+    vi.resetModules();
+
+    try {
+      const navigationMode = await import("./navigationMode");
+      expect(navigationMode.getRouterBasename("/qwenpaw/os")).toBe("/qwenpaw");
+      expect(navigationMode.stripRouterBasename("/qwenpaw/os")).toBe("/os");
+      expect(
+        navigationMode.getRouterBasename("/qwenpawish/os"),
+      ).toBeUndefined();
+    } finally {
+      vi.unstubAllEnvs();
+      vi.resetModules();
+    }
+  });
+
+  it("normalizes a configured basename without a leading slash", async () => {
+    vi.stubEnv("VITE_CONSOLE_BASENAME", "qwenpaw/");
+    vi.resetModules();
+
+    try {
+      const navigationMode = await import("./navigationMode");
+      expect(navigationMode.getRouterBasename("/qwenpaw/os")).toBe("/qwenpaw");
+      expect(navigationMode.stripRouterBasename("/qwenpaw/os")).toBe("/os");
+    } finally {
+      vi.unstubAllEnvs();
+      vi.resetModules();
+    }
+  });
+
+  it("treats the root path as having no router basename", async () => {
+    vi.stubEnv("VITE_CONSOLE_BASENAME", "/");
+    vi.resetModules();
+
+    try {
+      const navigationMode = await import("./navigationMode");
+      expect(navigationMode.getRouterBasename("/os")).toBeUndefined();
+    } finally {
+      vi.unstubAllEnvs();
+      vi.resetModules();
+    }
+  });
+
   it("recognizes OS routes with and without the console basename", () => {
     expect(isOsPath("/")).toBe(false);
     expect(isOsPath("/os/apps/office")).toBe(true);

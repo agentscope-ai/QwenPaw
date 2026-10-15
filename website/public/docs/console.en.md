@@ -30,6 +30,22 @@ walk through each feature in order.
 > **Not seeing the Console?** Make sure the frontend has been built. See
 > [CLI](./cli).
 
+## Serving under a URL prefix
+
+To build the Console for a reverse-proxy prefix, set `VITE_CONSOLE_BASENAME`
+when building:
+
+```bash
+cd console
+VITE_CONSOLE_BASENAME=/qwenpaw npm run build
+```
+
+The value configures both SPA routes and asset URLs. Configure the proxy to
+remove `/qwenpaw` before forwarding Console and asset requests to QwenPaw, and
+route `/api/*` requests to the same backend. Rebuild the Console when changing
+the prefix. Without this variable, the router keeps `/console` and assets keep
+their root paths.
+
 ---
 
 ## Chat

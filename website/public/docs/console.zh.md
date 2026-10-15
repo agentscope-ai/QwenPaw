@@ -28,6 +28,19 @@
 
 > **看不到控制台？** 请确认前端已构建，构建方式见 [CLI](./cli)。
 
+## 通过 URL 前缀部署
+
+如需通过反向代理前缀访问控制台，构建时设置 `VITE_CONSOLE_BASENAME`：
+
+```bash
+cd console
+VITE_CONSOLE_BASENAME=/qwenpaw npm run build
+```
+
+该值会同时配置 SPA 路由和静态资源 URL。请将代理配置为转发控制台和静态资源请求前移除
+`/qwenpaw` 前缀，并将 `/api/*` 请求转发到同一后端。修改前缀后需要重新构建控制台。
+不设置该变量时，路由仍使用 `/console`，静态资源仍使用根路径。
+
 ---
 
 ## 聊天

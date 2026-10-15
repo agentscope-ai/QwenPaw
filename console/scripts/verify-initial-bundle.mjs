@@ -1,17 +1,33 @@
 import { readFile, stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { loadEnv } from "vite";
 
 const scriptDirectory = dirname(fileURLToPath(import.meta.url));
-const outputDirectory = join(scriptDirectory, "..", "dist");
+const consoleDirectory = join(scriptDirectory, "..");
+const outputDirectory = join(consoleDirectory, "dist");
 const indexPath = join(outputDirectory, "index.html");
 const maximumRawBytes = 10 * 1024 * 1024;
 const maximumBrotliBytes = 3 * 1024 * 1024;
+const env = loadEnv("production", consoleDirectory, "");
+const basename = (env.VITE_CONSOLE_BASENAME || "")
+  .trim()
+  .replace(/^\/+|\/+$/g, "");
+const assetPrefix = `/${basename ? `${basename}/` : ""}assets/`;
 
 const html = await readFile(indexPath, "utf-8");
-const assets = new Set(
-  [...html.matchAll(/\/assets\/[^"' ]+\.(?:css|js)/g)].map(([asset]) => asset),
-);
+const referencedAssets = [
+  ...html.matchAll(/["']([^"']*\/assets\/[^"']+\.(?:css|js))["']/g),
+].map(([, asset]) => asset);
+if (
+  referencedAssets.length === 0 ||
+  referencedAssets.some((asset) => !asset.startsWith(assetPrefix))
+) {
+  throw new Error(`Initial HTML assets must use the ${assetPrefix} prefix.`);
+}
+const assets = new Set(referencedAssets);
+const outputAssetPath = (asset) =>
+  join(outputDirectory, "assets", asset.split("/").at(-1));
 
 const initialJavaScriptAssets = [...assets].filter((asset) =>
   asset.endsWith(".js"),
@@ -22,7 +38,7 @@ const initialJavaScriptNames = new Set(
 const importGraph = new Map();
 
 for (const asset of initialJavaScriptAssets) {
-  const source = await readFile(join(outputDirectory, asset), "utf-8");
+  const source = await readFile(outputAssetPath(asset), "utf-8");
   const dependencies = new Set(
     [...source.matchAll(/\b(?:from|import)\s*\(?["']\.\/([^"']+\.js)["']/g)]
       .map((match) => match[1])
@@ -67,7 +83,7 @@ for (const asset of initialJavaScriptNames) {
 let rawBytes = 0;
 let brotliBytes = 0;
 for (const asset of assets) {
-  const path = join(outputDirectory, asset);
+  const path = outputAssetPath(asset);
   const rawSize = (await stat(path)).size;
   rawBytes += rawSize;
   try {

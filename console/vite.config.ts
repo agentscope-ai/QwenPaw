@@ -26,11 +26,23 @@ export default defineConfig(({ command, mode }) => {
   // while `vite build --mode test` is a real build that needs real CSS.
   const isVitest = command === "serve" && mode === "test";
   const env = loadEnv(mode, process.cwd(), "");
+  const rawConsoleBasename = env.VITE_CONSOLE_BASENAME?.trim();
+  const normalizedConsoleBasename = (rawConsoleBasename || "").replace(
+    /^\/+|\/+$/g,
+    "",
+  );
+  const configuredConsoleBasename = normalizedConsoleBasename
+    ? `/${normalizedConsoleBasename}`
+    : "";
+  const base = configuredConsoleBasename
+    ? `${configuredConsoleBasename}/`
+    : "/";
   // Empty = same-origin; frontend and backend served together, no hardcoded host.
   // Use a dedicated Vite-prefixed key so unrelated shell BASE_URL values don't leak into the build.
   const apiBaseUrl = env.VITE_API_BASE_URL ?? "";
 
   return {
+    base,
     define: {
       VITE_API_BASE_URL: JSON.stringify(apiBaseUrl),
       TOKEN: JSON.stringify(env.TOKEN || ""),
