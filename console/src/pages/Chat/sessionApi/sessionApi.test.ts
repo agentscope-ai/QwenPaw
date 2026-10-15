@@ -38,10 +38,7 @@ function createdChat(id: string): ChatSpec {
   };
 }
 
-function chatHistory(
-  id: string,
-  status: "idle" | "running",
-): ChatHistory {
+function chatHistory(id: string, status: "idle" | "running"): ChatHistory {
   return { ...createdChat(id), status, messages: [] };
 }
 
@@ -64,10 +61,7 @@ describe("createSession owner-epoch singleflight", () => {
     const live = { usage: { total_tokens: 125 }, context_usage: null };
     useTurnUsageStore.getState().setSnapshotForTurn(live, turn);
     sessionApi.setVisibleSession("one");
-    vi.spyOn(api, "getChat").mockResolvedValue({
-      messages: [],
-      status: "idle",
-    } as ChatHistory);
+    vi.spyOn(api, "getChat").mockResolvedValue(chatHistory("one", "idle"));
     await sessionApi.getSession("one");
     expect(useTurnUsageStore.getState().activeTurn).toEqual(turn);
     expect(useTurnUsageStore.getState().snapshot).toEqual(live);
@@ -310,9 +304,7 @@ describe("bound session history owner epochs", () => {
 
   it("still delivers current-owner idle history to the observer", async () => {
     const chatId = "22222222-2222-4222-8222-222222222222";
-    vi.spyOn(api, "getChat").mockResolvedValue(
-      chatHistory(chatId, "idle"),
-    );
+    vi.spyOn(api, "getChat").mockResolvedValue(chatHistory(chatId, "idle"));
     const observer = vi.fn();
     const adapter = createSdkSessionAdapter(sessionApi.bindToOwner(), observer);
     const session = await adapter.api.getSession(chatId);
@@ -683,29 +675,29 @@ describe("visible session usage ownership", () => {
   });
   it("does not project a late history response over the selected session", async () => {
     const { useTurnUsageStore } = await import("../turnUsageStore");
-    const history = (tokens: number): ChatHistory =>
-      ({
-        messages: [
-          {
-            role: "assistant",
-            content: [{ type: "text", text: "done" }],
-            metadata: {
-              qwenpaw_turn_usage: {
-                usage: { total_tokens: tokens },
-                context_usage: {
-                  estimated_tokens: tokens,
-                  max_input_length: 100000,
-                  context_usage_ratio: tokens / 1000,
-                },
+    const history = (id: string, tokens: number): ChatHistory => ({
+      ...chatHistory(id, "idle"),
+      messages: [
+        {
+          role: "assistant",
+          content: [{ type: "text", text: "done" }],
+          metadata: {
+            qwenpaw_turn_usage: {
+              usage: { total_tokens: tokens },
+              context_usage: {
+                estimated_tokens: tokens,
+                max_input_length: 100000,
+                context_usage_ratio: tokens / 1000,
               },
             },
           },
-        ],
-        status: "idle",
-      }) as ChatHistory;
+        },
+      ],
+      status: "idle",
+    });
     const slow = deferred<ChatHistory>();
     vi.spyOn(api, "getChat").mockImplementation((id) =>
-      id === "one" ? slow.promise : Promise.resolve(history(200)),
+      id === "one" ? slow.promise : Promise.resolve(history(id, 200)),
     );
     sessionApi.setVisibleSession("one");
     const first = sessionApi.getSession("one");
@@ -714,7 +706,7 @@ describe("visible session usage ownership", () => {
     expect(
       useTurnUsageStore.getState().snapshot?.context_usage?.estimated_tokens,
     ).toBe(200);
-    slow.resolve(history(100));
+    slow.resolve(history("one", 100));
     await first;
     expect(
       useTurnUsageStore.getState().snapshot?.context_usage?.estimated_tokens,
@@ -725,6 +717,7 @@ describe("visible session usage ownership", () => {
   it("restores usage when selection hits the preload result cache", async () => {
     const { useTurnUsageStore } = await import("../turnUsageStore");
     vi.spyOn(api, "getChat").mockResolvedValue({
+      ...chatHistory("cached", "idle"),
       messages: [
         {
           role: "assistant",
@@ -741,7 +734,7 @@ describe("visible session usage ownership", () => {
         },
       ],
       status: "idle",
-    } as ChatHistory);
+    });
     sessionApi.setVisibleSession(null);
     await sessionApi.preloadSession("cached");
     expect(useTurnUsageStore.getState().snapshot).toBeNull();

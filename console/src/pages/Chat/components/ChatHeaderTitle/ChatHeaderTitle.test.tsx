@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { renderWithProviders } from "@/test/common_setup";
-import "@/i18n";
+import i18n from "@/i18n";
 import ChatHeaderTitle from "./index";
 import styles from "./index.module.less";
 
@@ -133,7 +133,9 @@ describe("ChatHeaderTitle", () => {
     renderWithProviders(<ChatHeaderTitle />, {
       initialEntries: ["/chat/sess-0"],
     });
-    const trigger = screen.getByRole("button", { name: "chat.switchSession" });
+    const trigger = screen.getByRole("button", {
+      name: i18n.t("chat.switchSession"),
+    });
     await user.click(trigger);
 
     expect(trigger).toHaveAttribute("aria-expanded", "true");
@@ -166,7 +168,7 @@ describe("Conversation title editing", () => {
     });
     await user.click(screen.getByRole("button", { name: "Old title" }));
     const input = screen.getByRole("textbox", {
-      name: "chat.contextMenu.rename",
+      name: i18n.t("chat.contextMenu.rename"),
     });
     await user.clear(input);
     await user.type(input, " New title {Enter}");
@@ -213,9 +215,11 @@ it("distinguishes duplicate titles with activity time and channel", async () => 
     ],
     currentSessionId: "sess-1",
   });
-  renderWithProviders(<ChatHeaderTitle />);
+  renderWithProviders(<ChatHeaderTitle />, {
+    initialEntries: ["/chat/sess-1"],
+  });
   await userEvent.click(
-    screen.getByRole("button", { name: "chat.switchSession" }),
+    screen.getByRole("button", { name: i18n.t("chat.switchSession") }),
   );
   const menu = await screen.findByRole("menu");
   expect(
