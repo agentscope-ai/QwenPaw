@@ -518,13 +518,54 @@ class ChatPage(BasePage):
         # ---- Before a new round: record the baseline (must be before any fill / click) ----
         self._ai_count_before_send = self.page.locator(self.AI_MESSAGE).count()
         user_count_before = self.page.locator(self.USER_MESSAGE).count()
-        # Kept for wait_for_ai_response's Path D (post-compression rebuild):
-        # the user-bubble count is what proves a round's request reached the
-        # server even when the AI bubble list got rebuilt mid-round.
+        # Retained but NO LONGER READ by any release path. It used to guard
+        # Path D on the theory that compression rebuilds the bubble list and
+        # the user count proves the request still reached the server. Fork
+        # run 38788391872 falsified that theory: the FAIL-moment DOM
+        # snapshot recorded ZERO bubble attachments during the whole wait
+        # window, so nothing was rebuilt or unloaded - this round's answer
+        # sat in the list the entire time and the release paths simply read
+        # the wrong end of it. Kept (rather than dropped) because Path D's
+        # comment quotes the old condition to explain why a count-based
+        # guard cannot work here.
         self._user_count_before_send = user_count_before
+        # Text baseline for wait_for_ai_response's Path E. Taken HERE, before
+        # the fill/click, because by the time that wait starts gate-1 has
+        # already seen this round's own bubble and its text may already be
+        # rendered - a snapshot taken at wait start then cannot tell this
+        # round's answer apart from history. Normalised the same way the
+        # release path normalises (Thinking/Loading stripped, trimmed) so the
+        # two sides compare like for like; a bubble that still said
+        # "Thinking" at snapshot time would otherwise count as fresh text.
+        try:
+            self._ai_texts_before_send = list(
+                self.page.evaluate(
+                    """() => {
+                        const out = [];
+                        document.querySelectorAll(
+                            '.qwenpaw-bubble.qwenpaw-bubble-start'
+                        ).forEach((el) => {
+                            const s = (el.innerText || '')
+                                .replace(/Thinking/gi, '')
+                                .replace(/Loading/gi, '')
+                                .trim();
+                            out.push(s);
+                        });
+                        return out;
+                    }"""
+                )
+                or []
+            )
+        except Exception as e:  # baseline is best-effort; Path E degrades safely
+            self._ai_texts_before_send = []
+            logger.warning(
+                f"[send_message] pre-send AI text baseline unavailable: "
+                f"{type(e).__name__}"
+            )
         logger.info(
             f"[send_message] baseline: ai={self._ai_count_before_send}, "
-            f"user={user_count_before}"
+            f"user={user_count_before}, "
+            f"ai_texts={len(self._ai_texts_before_send)}"
         )
 
         # ---- Wait for the previous round to truly finish (dual signal: button recovered OR content stable >= 1.5s) ----
@@ -782,6 +823,31 @@ class ChatPage(BasePage):
         # Path D can release on "a bubble node carrying NEW text was
         # attached after wait start" (the shape a mid-round context
         # compression / virtualised re-render leaves behind).
+        #
+        # UPDATE, same day, after fork run 38788391872: the rebuild
+        # shape described above did NOT occur - the FAIL-moment snapshot
+        # recorded an EMPTY attach log on both attempts, so no bubble node
+        # was attached during the wait window at all. Path D's premise is
+        # falsified and it is retained only as instrumentation. What the
+        # snapshot did show is that the list renders newest-first and
+        # compression empties the OLDEST bubbles, which is what wedges
+        # Paths B and C (both read the last node). Path E below is the
+        # release path the evidence supports. The observer and its log stay
+        # because "zero attachments" is precisely the negative evidence
+        # that ruled the rebuild theory out.
+        #
+        # Path E needs a PRE-SEND text baseline, which send_message
+        # captured before the click. This wait-start snapshot cannot serve
+        # that purpose: gate-1 has already seen this round's bubble by
+        # here, so its text may already be present and would not count as
+        # fresh. Fall back to the wait-start snapshot only when the
+        # pre-send baseline is missing (e.g. wait_for_ai_response called
+        # without send_message), which degrades Path E to "text not seen at
+        # wait start" - still order-independent, just a weaker notion of
+        # new.
+        pre_send_texts: List[str] = list(
+            getattr(self, "_ai_texts_before_send", None) or []
+        )
         pre_wait_texts: List[str] = []
         try:
             snapshot = self.page.evaluate(
@@ -833,6 +899,11 @@ class ChatPage(BasePage):
                 }"""
             )
             pre_wait_texts = list(snapshot or [])
+            if not pre_send_texts:
+                # No pre-send baseline (wait_for_ai_response used without
+                # send_message): degrade Path E to the wait-start snapshot
+                # rather than disabling it.
+                pre_send_texts = list(pre_wait_texts)
         except Exception as e:  # observer is best-effort diagnostics only
             logger.warning(
                 f"[wait_ai] attach-observer install failed: {type(e).__name__}"
@@ -840,7 +911,7 @@ class ChatPage(BasePage):
         passed_via = None
         try:
             self.page.wait_for_function(
-                """({expectedCount, expectedUserCount, preWaitTexts}) => {
+                """({expectedCount, expectedUserCount, preWaitTexts, preSendTexts}) => {
                     // Path A: button transitioned from disabled back to enabled -> streaming really ended
                     const btn = document.querySelector(
                         'button.qwenpaw-sender-actions-btn.qwenpaw-btn-primary'
@@ -986,12 +1057,113 @@ class ChatPage(BasePage):
                             'btn_enabled_post_rebuild';
                         return true;
                     }
+
+                    // Path E (2026-10-16, second revision): release on
+                    // "some bubble carries text that did not exist before
+                    // the send", scanning the WHOLE list.
+                    //
+                    // This is the path the evidence actually supports. Fork
+                    // run 38788391872's FAIL-moment DOM snapshot recorded,
+                    // on both attempts: the bubble timestamps strictly
+                    // DECREASING by index (02:59:31 at idx0 down to
+                    // 02:58:29 at idx9) i.e. the newest bubble is at index
+                    // 0 and the OLDEST sits at the end of the NodeList;
+                    // this round's answer fully rendered at idx0
+                    // ("Completed 1 steps" + the whole reply); the five
+                    // oldest bubbles emptied to ''; btnEnabled false; and
+                    // the attach log EMPTY.
+                    //
+                    // Three consequences, each fatal to one of the paths
+                    // above:
+                    //  - Paths B and C both read aiMsgs[length-1], which is
+                    //    the OLDEST bubble, and Path C's `i >= expectedCount`
+                    //    guard covers exactly that one index - so once
+                    //    compression empties the old bubbles both paths read
+                    //    '' forever. That also explains why earlier rounds
+                    //    passed: before compression kicked in the oldest
+                    //    bubble still had stable text, so Path B released on
+                    //    it. It was releasing on the WRONG bubble, which was
+                    //    merely harmless while that bubble had content.
+                    //  - Paths A and D both require btnEnabled, which the
+                    //    snapshot shows is false throughout (the known
+                    //    lost-streaming-end-signal behaviour this function
+                    //    was written to tolerate in the first place).
+                    //  - Path D additionally requires a freshly attached
+                    //    node, and the attach log was empty: nothing was
+                    //    rebuilt or unloaded. The mid-round-rebuild theory
+                    //    Path D was written for is falsified by this run.
+                    //
+                    // So Path E deliberately depends on NONE of: render
+                    // order, list index, the send button, or node
+                    // attachment. It scans every bubble and asks only
+                    // whether some bubble carries real text absent from the
+                    // pre-send baseline (`preSendTexts`, captured in
+                    // send_message BEFORE the click - the wait-start
+                    // snapshot is too late, since gate-1 has already seen
+                    // this round's bubble and its text may already be
+                    // rendered there). Emptied old bubbles cannot trigger
+                    // it: they normalise to length 0 and are skipped.
+                    //
+                    // Order-independence is required, not cosmetic: the
+                    // snapshot proves the list is newest-first on the
+                    // failing round, and nothing establishes that this order
+                    // is constant across rounds, builds, or view modes.
+                    // Taking an endpoint (first or last) or an index guard
+                    // would re-introduce exactly the bug being fixed here.
+                    //
+                    // The 1500 ms stability window keeps this from
+                    // releasing on a half-streamed answer: text that is
+                    // still growing is by definition not yet stable. The
+                    // key is the SORTED join of all fresh texts, so a
+                    // re-order of the same content does not reset it.
+                    const preSend = preSendTexts || [];
+                    // Guard: with no pre-send baseline there is no way to
+                    // tell this round's answer apart from history, so
+                    // every existing bubble would look "fresh" and Path E
+                    // would release on the PREVIOUS round's content. That
+                    // can happen when the pre-send snapshot threw (see the
+                    // warning in send_message) or when this wait is reached
+                    // without send_message. Refuse to guess: skip Path E
+                    // whenever the baseline is missing and there IS history
+                    // to be confused by. A genuine first round has no
+                    // history (expectedCount === 0), so "any stable text is
+                    // new" is safe there and the path still works.
+                    if (preSend.length === 0 && expectedCount > 0) {
+                        window.__qwenpaw_wait_pathE_skipped__ =
+                            'no_presend_baseline';
+                        return false;
+                    }
+                    const fresh = [];
+                    for (let i = 0; i < aiMsgs.length; i++) {
+                        const s = (aiMsgs[i].innerText || '')
+                            .replace(/Thinking/gi, '')
+                            .replace(/Loading/gi, '')
+                            .trim();
+                        if (s.length >= 2 && preSend.indexOf(s) === -1) {
+                            fresh.push(s);
+                        }
+                    }
+                    if (fresh.length > 0) {
+                        const keyE = '__qwenpaw_ai_fresh_cache__';
+                        const nowE = Date.now();
+                        const sigE = fresh.slice().sort().join('\u0000');
+                        const cacheE = window[keyE] || {};
+                        if (cacheE.sig !== sigE) {
+                            window[keyE] = { sig: sigE, since: nowE };
+                        } else if (nowE - cacheE.since >= 1500) {
+                            window.__qwenpaw_wait_passed_via__ =
+                                'fresh_text_stable';
+                            window.__qwenpaw_ai_fresh_count__ = fresh.length;
+                            return true;
+                        }
+                    }
                     return false;
                 }""",
                 arg={
                     "expectedCount": count_before_send,
                     "expectedUserCount": user_count_before,
                     "preWaitTexts": pre_wait_texts,
+                    "preSendTexts": pre_send_texts,
                 },
                 timeout=stability_timeout,
             )
@@ -1017,7 +1189,7 @@ class ChatPage(BasePage):
             # alone cannot tell which component vetoed the release.
             try:
                 diag = self.page.evaluate(
-                    """(expectedCount) => {
+                    """({expectedCount, preSendTexts}) => {
                         const btn = document.querySelector(
                             'button.qwenpaw-sender-actions-btn'
                             + '.qwenpaw-btn-primary'
@@ -1057,6 +1229,35 @@ class ChatPage(BasePage):
                                 '.qwenpaw-bubble.qwenpaw-bubble-end'
                             ).length,
                             bubbles: bubbles,
+                            // Path E's own view, so a future red can say
+                            // WHICH of its two conditions failed: no fresh
+                            // text at all, or fresh text found but never
+                            // stable for 1500ms. Without this the next
+                            // reader is back to guessing which path vetoed.
+                            pathE: (() => {
+                                const pre = preSendTexts || [];
+                                const fr = [];
+                                for (let i = 0; i < aiMsgs.length; i++) {
+                                    const s = (aiMsgs[i].innerText || '')
+                                        .replace(/Thinking/gi, '')
+                                        .replace(/Loading/gi, '')
+                                        .trim();
+                                    if (s.length >= 2 && pre.indexOf(s) === -1) {
+                                        fr.push({ idx: i, txt: s.slice(0, 80) });
+                                    }
+                                }
+                                const cE = window.__qwenpaw_ai_fresh_cache__;
+                                return {
+                                    preSendCount: pre.length,
+                                    freshCount: fr.length,
+                                    freshIdx: fr.map((r) => r.idx),
+                                    freshSample: fr.slice(0, 3),
+                                    stableCacheSigLen: cE && cE.sig
+                                        ? cE.sig.length : 0,
+                                    stableAgeMs: cE && cE.since
+                                        ? (Date.now() - cE.since) : -1,
+                                };
+                            })(),
                             attachLog: (
                                 window.__qwenpaw_ai_attach_log__ || []
                             ).slice(-12).map((r) => ({
@@ -1070,7 +1271,10 @@ class ChatPage(BasePage):
                             })),
                         };
                     }""",
-                    count_before_send,
+                    {
+                        "expectedCount": count_before_send,
+                        "preSendTexts": pre_send_texts,
+                    },
                 )
                 logger.error(
                     f"[wait_ai] gate-2/3 FAIL DIAG: {diag!r}"
@@ -1095,6 +1299,8 @@ class ChatPage(BasePage):
                     "() => { try { "
                     "delete window.__qwenpaw_ai_stable_cache__; "
                     "delete window.__qwenpaw_ai_stable_cache_c__; "
+                    "delete window.__qwenpaw_ai_fresh_cache__; "
+                    "delete window.__qwenpaw_ai_fresh_count__; "
                     "delete window.__qwenpaw_wait_passed_via__; "
                     "if (window.__qwenpaw_ai_attach_obs__) "
                     "window.__qwenpaw_ai_attach_obs__.disconnect(); "
