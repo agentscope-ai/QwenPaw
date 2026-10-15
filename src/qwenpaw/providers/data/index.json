@@ -6738,6 +6738,83 @@
         ]
       },
       "free_model_ids": []
+    },
+    "atlascloud": {
+      "path": "providers/atlascloud.json",
+      "free_model_ids": [],
+      "sha256": "8dc8cae38f793348663c4f861f31c553e39f0d07fa52f4a201c126cebbc19ade",
+      "api_urls": [
+        "https://api.atlascloud.ai/v1"
+      ],
+      "templates": [],
+      "defaults": {
+        "api_urls": [
+          "https://api.atlascloud.ai/v1"
+        ],
+        "remote_id": null,
+        "template_owner": false,
+        "default_model_ids": [
+          "deepseek-ai/deepseek-v4-pro",
+          "deepseek-ai/deepseek-v4-flash",
+          "qwen/qwen3.5-flash"
+        ],
+        "models": [
+          {
+            "id": "deepseek-ai/deepseek-v4-pro",
+            "name": "DeepSeek V4 Pro",
+            "supports_image": false,
+            "supports_video": false,
+            "probe_source": "documentation",
+            "is_free": false,
+            "source": "builtin",
+            "availability_status": "unverified",
+            "availability_retryable": true,
+            "config_overrides": [],
+            "max_input_length": 1048576,
+            "max_input_length_configured": false,
+            "generate_kwargs": {},
+            "relay_reasoning": false,
+            "max_output_length": 393216,
+            "max_output_length_source": "catalog"
+          },
+          {
+            "id": "deepseek-ai/deepseek-v4-flash",
+            "name": "DeepSeek V4 Flash",
+            "supports_image": false,
+            "supports_video": false,
+            "probe_source": "documentation",
+            "is_free": false,
+            "source": "builtin",
+            "availability_status": "unverified",
+            "availability_retryable": true,
+            "config_overrides": [],
+            "max_input_length": 1048576,
+            "max_input_length_configured": false,
+            "generate_kwargs": {},
+            "relay_reasoning": false,
+            "max_output_length": 393216,
+            "max_output_length_source": "catalog"
+          },
+          {
+            "id": "qwen/qwen3.5-flash",
+            "name": "Qwen3.5 Flash",
+            "supports_image": true,
+            "supports_video": false,
+            "probe_source": "documentation",
+            "is_free": false,
+            "source": "builtin",
+            "availability_status": "unverified",
+            "availability_retryable": true,
+            "config_overrides": [],
+            "max_input_length": 1000000,
+            "max_input_length_configured": false,
+            "generate_kwargs": {},
+            "relay_reasoning": false,
+            "max_output_length": 67072,
+            "max_output_length_source": "catalog"
+          }
+        ]
+      }
     }
   }
 }
