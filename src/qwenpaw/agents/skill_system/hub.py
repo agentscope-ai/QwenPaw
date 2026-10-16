@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import asyncio
 import base64
-import contextvars
 import io
 import json
 import logging
@@ -14,7 +13,7 @@ import re
 import time
 import zipfile
 from collections import OrderedDict
-from contextlib import asynccontextmanager, contextmanager, nullcontext
+from contextlib import asynccontextmanager, nullcontext
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Awaitable, Callable
@@ -24,7 +23,8 @@ import frontmatter
 import httpx
 import yaml
 
-from ...exceptions import (
+# ``SkillImportCancelled`` is re-exported: callers import it from here.
+from ...exceptions import (  # pylint: disable=unused-import
     ConfigurationException,
     SkillConflictError,
     SkillImportCancelled,
@@ -32,7 +32,15 @@ from ...exceptions import (
 )
 from ...constant import EnvVarLoader
 from .pool_service import SkillPoolService
-from .store import suggest_conflict_name
+
+# ``_cancel_checker_ctx`` is re-exported: callers and tests reach the
+# cancel primitives through this module.
+from .store import (  # pylint: disable=unused-import
+    _cancel_checker_ctx,
+    ensure_not_cancelled as _ensure_not_cancelled,
+    suggest_conflict_name,
+    with_cancel_checker as _with_cancel_checker,
+)
 from .workspace_service import SkillService
 
 logger = logging.getLogger(__name__)
@@ -126,11 +134,10 @@ _in_flight: int = 0
 _drain_event: asyncio.Event = asyncio.Event()
 _drain_event.set()
 
-# Cancel checker (callable returning bool), propagated by contextvar so
-# nested install tasks each carry their own checker without interference.
-_cancel_checker_ctx: contextvars.ContextVar[
-    Any | None
-] = contextvars.ContextVar("skills_hub_cancel_checker", default=None)
+# The cancel checker is owned by ``store``, beside the copy it guards, so the
+# hub installer and the pool download observe one mechanism instead of two.
+# It is imported and re-exported at the top of this module under the names
+# this module has always used.
 
 
 # ---------- Env-driven config ----------------------------------------------
@@ -227,29 +234,12 @@ def _join_url(base: str, path: str) -> str:
 
 
 # ---------- Cancellation hooks ---------------------------------------------
-
-
-def _ensure_not_cancelled() -> None:
-    checker = _cancel_checker_ctx.get()
-    if checker is None:
-        return
-    try:
-        if bool(checker()):
-            raise SkillImportCancelled("Skill import cancelled by user")
-    except SkillImportCancelled:
-        raise
-    except Exception:
-        # Ignore checker failures and continue.
-        return
-
-
-@contextmanager
-def _with_cancel_checker(checker: Any | None):
-    token = _cancel_checker_ctx.set(checker)
-    try:
-        yield
-    finally:
-        _cancel_checker_ctx.reset(token)
+#
+# ``_ensure_not_cancelled`` and ``_with_cancel_checker`` are re-exported from
+# ``store`` in the import block above so that a hub install and a pool
+# download can never disagree about whether they were cancelled. They are
+# used throughout this module; this heading just keeps them findable where
+# they used to be defined.
 
 
 # ---------- GitHub response cache ------------------------------------------

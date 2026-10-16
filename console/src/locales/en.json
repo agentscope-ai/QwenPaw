@@ -1519,6 +1519,8 @@
     "updateFailed": "Update failed",
     "broadcastSuccess": "Broadcast completed",
     "broadcastFailed": "Broadcast failed",
+    "downloading": "Downloading…",
+    "cancelling": "Cancelling…",
     "overwriteConfirm": "Overwrite existing skills?",
     "overwriteTargetsContent": "The following existing targets will be overwritten:",
     "builtinOverwriteTargetsContent": "The following built-in targets have different versions and will be overwritten:",

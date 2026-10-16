@@ -5,6 +5,7 @@ import NumberFlow from "@number-flow/react";
 import { ArrowRight, Search, Check as CheckOutlined } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type {
+  PoolDownloadState,
   PoolSkillSpec,
   WorkspaceSkillSummary,
 } from "../../../../api/types";
@@ -20,7 +21,9 @@ interface BroadcastModalProps {
   skills: PoolSkillSpec[];
   workspaces: WorkspaceSkillSummary[];
   initialSkillNames: string[];
+  downloadState?: PoolDownloadState | null;
   onCancel: () => void;
+  onCancelDownload?: () => void;
   onConfirm: (skillNames: string[], workspaceIds: string[]) => Promise<void>;
 }
 
@@ -30,7 +33,9 @@ export function BroadcastModal({
   skills,
   workspaces,
   initialSkillNames,
+  downloadState,
   onCancel,
+  onCancelDownload,
   onConfirm,
 }: BroadcastModalProps) {
   const { t } = useTranslation();
@@ -61,10 +66,23 @@ export function BroadcastModal({
     }
   }, [open, initialSkillNames, setSearchTags]);
 
+  const downloading = Boolean(downloadState);
+
   const handleCancel = () => {
     setSelectedSkillNames([]);
     setSelectedWorkspaceIds([]);
     onCancel();
+  };
+
+  // While a download job runs, the left button asks the backend to stop at its
+  // next safe point instead of closing the dialog, so the cancelling state
+  // stays visible until the rollback has finished.
+  const handleDialogCancel = () => {
+    if (downloading) {
+      onCancelDownload?.();
+      return;
+    }
+    handleCancel();
   };
 
   return (
@@ -76,8 +94,9 @@ export function BroadcastModal({
       closable={!submitting}
       maskClosable={!submitting}
       keyboard={!submitting}
-      cancelButtonProps={{ disabled: submitting }}
-      onCancel={handleCancel}
+      cancelButtonProps={{ disabled: submitting && !downloading }}
+      cancelText={downloading ? t("skills.cancelImport") : undefined}
+      onCancel={handleDialogCancel}
       onOk={async () => {
         if (submitting) return;
         setSubmitting(true);
@@ -111,6 +130,13 @@ export function BroadcastModal({
           <span>{t("skillPool.selectWorkspaces")}</span>
         </div>
       </div>
+      {downloading && (
+        <div style={{ marginTop: 8, fontSize: 13, opacity: 0.75 }}>
+          {downloadState === "cancelling"
+            ? t("skillPool.cancelling")
+            : t("skillPool.downloading")}
+        </div>
+      )}
       <fieldset disabled={submitting} className={transferStyles.fields}>
         <div style={{ display: "grid", gap: 12 }}>
           <div className={styles.pickerSection}>
