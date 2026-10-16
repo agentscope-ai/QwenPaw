@@ -379,10 +379,152 @@ class ChatPage(BasePage):
         return true;
     }"""
 
+    # ========== "Which AI bubble carries this round's answer" ==========
+    #
+    # Fork run 38788391872's FAIL-moment DOM snapshot settles what the render
+    # order actually is (two attempts, same shape; quoted verbatim):
+    #
+    #   idx0   'QwenPaw\nCompleted 1 steps\n\n1, 2, ... 10, 11\n\n02:59:31'
+    #   idx1   ...                                              02:59:27
+    #   ...
+    #   idx9   'QwenPaw\nCompleted 1 steps\n\n1, 2\n\n02:58:29'
+    #   idx10  ''
+    #
+    # Two facts, each fatal to ``get_ai_messages()[-1]``: the list renders
+    # NEWEST-FIRST, so the DOM end is the OLDEST bubble; and context
+    # compression empties the OLDEST bubbles, so the DOM end is precisely the
+    # bubble that loses its text first. ``[-1]`` therefore yields an empty
+    # string, which is how
+    # tests/test_context_scroll.py::TestLongConversationCompression failed
+    # with ``assert ('1' in '' or 'one' in '')`` while the step screenshot
+    # showed the answer fully rendered.
+    #
+    # The rendered per-bubble timestamp is the only order-independent
+    # freshness signal the DOM carries, so that is what this reads. It returns
+    # an INDEX plus the tier that produced it. -1 means "cannot tell", and the
+    # caller must then fall back to DOM order (a visible false red) rather than
+    # guess: guessing here means handing the PREVIOUS round's answer to an
+    # assertion, which passes for the wrong reason and hides the defect.
+    #
+    # Tiers, in order:
+    #   1 fresh_after_send        baseline present: newest bubble rendered
+    #                             AFTER the send. This is the tier that rules
+    #                             out a false green.
+    #   2 pathe_fresh_single      baseline present but no usable timestamp:
+    #                             the single index the release path recorded
+    #                             as carrying fresh text (an ambiguous count
+    #                             is refused). Defensive: keeps this correct
+    #                             if a build stops rendering timestamps.
+    #   3 newest_with_ts          no baseline: newest by timestamp.
+    #   4 last_nonempty_dom_order no baseline and no timestamps: walk back from
+    #                             the DOM end to the first non-empty bubble
+    #                             (correct on a forward list, and still better
+    #                             than '' on a reverse one).
+    _JS_LATEST_AI_BUBBLE = """(args) => {
+        const baselineTs = (args && typeof args.baselineTs === 'number')
+            ? args.baselineTs : -1;
+        const pathEFreshIdx = (args && Array.isArray(args.pathEFreshIdx))
+            ? args.pathEFreshIdx : [];
+        const els = document.querySelectorAll(
+            '.qwenpaw-bubble.qwenpaw-bubble-start'
+        );
+        const rows = [];
+        let tsCount = 0;
+        for (let i = 0; i < els.length; i++) {
+            const raw = (els[i].innerText || '').trim();
+            const stripped = raw
+                .replace(/Thinking/gi, '')
+                .replace(/Loading/gi, '')
+                .trim();
+            // Take the LAST HH:MM:SS in the text: the answer body itself may
+            // quote a time, and the rendered stamp is what trails the bubble.
+            let ts = -1;
+            const hits = raw.match(/\\d{1,2}:\\d{2}:\\d{2}/g);
+            if (hits && hits.length > 0) {
+                const p = hits[hits.length - 1].split(':');
+                ts = (+p[0]) * 3600 + (+p[1]) * 60 + (+p[2]);
+                tsCount++;
+            }
+            rows.push({ idx: i, ok: stripped.length >= 2, ts: ts });
+        }
+        // Stamps carry no date, so a round crossing midnight would otherwise
+        // look 24h older than the baseline.
+        const adjust = (t) => {
+            if (baselineTs >= 0 && t >= 0 && t < baselineTs - 43200) {
+                return t + 86400;
+            }
+            return t;
+        };
+
+        if (baselineTs >= 0) {
+            let best = null;
+            for (let i = 0; i < rows.length; i++) {
+                if (!rows[i].ok || rows[i].ts < 0) continue;
+                const t = adjust(rows[i].ts);
+                if (t <= baselineTs) continue;
+                if (!best || t > best.t) best = { idx: rows[i].idx, t: t };
+            }
+            if (best) {
+                return {
+                    idx: best.idx, why: 'fresh_after_send', ts: best.t,
+                    count: rows.length, tsCount: tsCount,
+                };
+            }
+            if (pathEFreshIdx.length === 1) {
+                const cand = pathEFreshIdx[0];
+                if (cand >= 0 && cand < rows.length && rows[cand].ok) {
+                    return {
+                        idx: cand, why: 'pathe_fresh_single',
+                        ts: rows[cand].ts, count: rows.length,
+                        tsCount: tsCount,
+                    };
+                }
+            }
+            // Refuse to guess: fall back to today's behaviour so a wrong read
+            // stays a visible RED instead of a silent pass on stale text.
+            return {
+                idx: -1, why: 'no_bubble_newer_than_baseline',
+                count: rows.length, tsCount: tsCount,
+            };
+        }
+
+        let best3 = null;
+        for (let i = 0; i < rows.length; i++) {
+            if (!rows[i].ok || rows[i].ts < 0) continue;
+            if (!best3 || rows[i].ts > best3.t) {
+                best3 = { idx: rows[i].idx, t: rows[i].ts };
+            }
+        }
+        if (best3) {
+            return {
+                idx: best3.idx, why: 'newest_with_ts', ts: best3.t,
+                count: rows.length, tsCount: tsCount,
+            };
+        }
+        for (let i = rows.length - 1; i >= 0; i--) {
+            if (rows[i].ok) {
+                return {
+                    idx: rows[i].idx, why: 'last_nonempty_dom_order',
+                    ts: rows[i].ts, count: rows.length, tsCount: tsCount,
+                };
+            }
+        }
+        return {
+            idx: -1, why: 'no_nonempty_bubble',
+            count: rows.length, tsCount: tsCount,
+        };
+    }"""
+
     # ========== Initialization ==========
     
     def __init__(self, page: Page):
         super().__init__(page)
+        # Read-path state, both written by send_message / wait_for_ai_response
+        # and read by _resolve_latest_ai_index. Declared here so the resolver
+        # never depends on attribute-existence luck.
+        self._ai_stamp_before_send = -1
+        self._ai_texts_before_send: List[str] = []
+        self._last_round_fresh_idx: List[int] = []
         logger.info("ChatPage initialized")
     
     # ========== Page navigation ==========
@@ -537,27 +679,47 @@ class ChatPage(BasePage):
         # release path normalises (Thinking/Loading stripped, trimmed) so the
         # two sides compare like for like; a bubble that still said
         # "Thinking" at snapshot time would otherwise count as fresh text.
+        #
+        # The same snapshot also records the NEWEST rendered bubble stamp
+        # (``_ai_stamp_before_send``), which is the baseline the read path
+        # uses to tell this round's answer apart from history: only a bubble
+        # stamped AFTER it can be this round's. Both sides read the stamps the
+        # frontend paints, so no clock outside the page is involved.
         try:
-            self._ai_texts_before_send = list(
-                self.page.evaluate(
-                    """() => {
-                        const out = [];
-                        document.querySelectorAll(
-                            '.qwenpaw-bubble.qwenpaw-bubble-start'
-                        ).forEach((el) => {
-                            const s = (el.innerText || '')
-                                .replace(/Thinking/gi, '')
-                                .replace(/Loading/gi, '')
-                                .trim();
-                            out.push(s);
-                        });
-                        return out;
-                    }"""
-                )
-                or []
-            )
+            baseline = self.page.evaluate(
+                """() => {
+                    const out = [];
+                    let maxTs = -1;
+                    document.querySelectorAll(
+                        '.qwenpaw-bubble.qwenpaw-bubble-start'
+                    ).forEach((el) => {
+                        const raw = (el.innerText || '').trim();
+                        const s = raw
+                            .replace(/Thinking/gi, '')
+                            .replace(/Loading/gi, '')
+                            .trim();
+                        out.push(s);
+                        // Newest pre-existing render stamp, read from the same
+                        // clock the bubbles are painted with. Using the test
+                        // runner's wall clock here instead would compare
+                        // against a different clock and could be skewed.
+                        const hits = raw.match(/\\d{1,2}:\\d{2}:\\d{2}/g);
+                        if (hits && hits.length > 0) {
+                            const p = hits[hits.length - 1].split(':');
+                            const t = (+p[0]) * 3600
+                                + (+p[1]) * 60
+                                + (+p[2]);
+                            if (t > maxTs) maxTs = t;
+                        }
+                    });
+                    return { texts: out, maxTs: maxTs };
+                }"""
+            ) or {}
+            self._ai_texts_before_send = list(baseline.get("texts") or [])
+            self._ai_stamp_before_send = baseline.get("maxTs", -1)
         except Exception as e:  # baseline is best-effort; Path E degrades safely
             self._ai_texts_before_send = []
+            self._ai_stamp_before_send = -1
             logger.warning(
                 f"[send_message] pre-send AI text baseline unavailable: "
                 f"{type(e).__name__}"
@@ -565,7 +727,8 @@ class ChatPage(BasePage):
         logger.info(
             f"[send_message] baseline: ai={self._ai_count_before_send}, "
             f"user={user_count_before}, "
-            f"ai_texts={len(self._ai_texts_before_send)}"
+            f"ai_texts={len(self._ai_texts_before_send)}, "
+            f"newest_stamp={self._ai_stamp_before_send}"
         )
 
         # ---- Wait for the previous round to truly finish (dual signal: button recovered OR content stable >= 1.5s) ----
@@ -723,9 +886,113 @@ class ChatPage(BasePage):
         return self.page.locator(self.MESSAGE_CONTAINER).all()
 
     def get_last_ai_message(self) -> Optional[Locator]:
-        """Get the last AI message."""
+        """
+        Get the most recent AI message.
+
+        NOT ``get_ai_messages()[-1]``: fork run 38788391872's FAIL-moment
+        snapshot proved this page renders the bubble list NEWEST-FIRST and
+        that context compression empties the OLDEST bubbles, so the DOM end is
+        the one bubble guaranteed to lose its text. ``[-1]`` returned an empty
+        string there, failing
+        ``TestLongConversationCompression`` with
+        ``assert ('1' in '' or 'one' in '')`` while the step screenshot showed
+        the answer fully rendered.
+
+        Resolution is order-independent (rendered bubble stamps, then the
+        release path's fresh-text index, then DOM order) and refuses to guess:
+        when it cannot identify this round's answer it falls back to the
+        DOM-end bubble, i.e. today's behaviour - a visible false red rather
+        than a silent pass on the previous round's text.
+        """
+        return self._latest_ai_locator("get_last_ai_message")
+
+    def _resolve_latest_ai_index(self, use_round_baseline: bool = True) -> Tuple[int, str]:
+        """
+        Locate the AI bubble that carries the current round's answer.
+
+        Returns ``(index, why)``. ``index == -1`` means "cannot tell" and the
+        caller must fall back to DOM order rather than guess, because guessing
+        means handing the PREVIOUS round's answer to an assertion - which
+        passes for the wrong reason and hides the defect.
+
+        ``_JS_LATEST_AI_BUBBLE`` documents the tiers and the evidence. The
+        baseline is the newest render stamp recorded by ``send_message``
+        BEFORE the click, so it is only available when this wait belongs to a
+        round; ``use_round_baseline=False`` asks for "the latest AI message"
+        outside any round (tiers 3/4).
+        """
+        baseline_ts = -1
+        if use_round_baseline:
+            raw_baseline = getattr(self, "_ai_stamp_before_send", None)
+            if isinstance(raw_baseline, int) and raw_baseline >= 0:
+                baseline_ts = raw_baseline
+        fresh_idx: List[int] = []
+        if use_round_baseline:
+            recorded = getattr(self, "_last_round_fresh_idx", None) or []
+            fresh_idx = [i for i in recorded if isinstance(i, int)]
+        try:
+            result = self.page.evaluate(
+                self._JS_LATEST_AI_BUBBLE,
+                {"baselineTs": baseline_ts, "pathEFreshIdx": fresh_idx},
+            ) or {}
+            idx = result.get("idx", -1)
+            why = result.get("why", "unavailable")
+            if not isinstance(idx, int):
+                idx = -1
+                why = "bad_idx_type"
+            logger.info(
+                f"[read_ai] latest bubble idx={idx} why='{why}' "
+                f"(baselineTs={baseline_ts}, freshIdx={fresh_idx}, "
+                f"count={result.get('count')}, tsCount={result.get('tsCount')})"
+            )
+            return idx, why
+        except Exception as e:
+            logger.warning(
+                f"[read_ai] latest-bubble resolution failed "
+                f"({type(e).__name__}); falling back to DOM order"
+            )
+            return -1, f"evaluate_failed:{type(e).__name__}"
+
+    def _read_newest_ai_text(self) -> str:
+        """Text of the newest non-empty AI bubble (diagnostics only)."""
+        idx, _why = self._resolve_latest_ai_index(use_round_baseline=False)
+        locator = self.page.locator(self.AI_MESSAGE)
+        target = locator.nth(idx) if idx >= 0 else locator.last
+        return target.inner_text()
+
+    def _latest_ai_locator(self, caller: str) -> Optional[Locator]:
+        """
+        Shared read-path resolution for ``get_last_ai_message`` and
+        ``wait_for_ai_response``'s return value.
+
+        Logs the resolved index, the tier that produced it AND the text it
+        reads, so a future red states which of the two was wrong instead of
+        leaving the next reader to guess: an empty text with a plausible index
+        means the bubble itself is empty, while a stale answer means the tier
+        picked the wrong bubble.
+        """
         messages = self.get_ai_messages()
-        return messages[-1] if messages else None
+        if not messages:
+            logger.warning(f"[read_ai] {caller}: no AI bubble in the DOM")
+            return None
+        idx, why = self._resolve_latest_ai_index()
+        if idx < 0:
+            logger.warning(
+                f"[read_ai] {caller}: unresolved (why='{why}'); falling back "
+                f"to DOM order messages[-1] = idx{len(messages) - 1}"
+            )
+            target = messages[-1]
+        else:
+            target = messages[idx]
+        try:
+            sample = target.inner_text().strip()[:120]
+        except Exception:
+            sample = "<unreadable>"
+        logger.info(
+            f"[read_ai] {caller}: idx={idx} why='{why}' "
+            f"count={len(messages)} text={sample!r}"
+        )
+        return target
 
     def wait_for_ai_response(
         self,
@@ -1134,6 +1401,7 @@ class ChatPage(BasePage):
                         return false;
                     }
                     const fresh = [];
+                    const freshIdx = [];
                     for (let i = 0; i < aiMsgs.length; i++) {
                         const s = (aiMsgs[i].innerText || '')
                             .replace(/Thinking/gi, '')
@@ -1141,8 +1409,13 @@ class ChatPage(BasePage):
                             .trim();
                         if (s.length >= 2 && preSend.indexOf(s) === -1) {
                             fresh.push(s);
+                            freshIdx.push(i);
                         }
                     }
+                    // Recorded for the READ path: when no bubble carries a
+                    // usable render stamp, get_last_ai_message falls back to
+                    // this index (only when it is unambiguous).
+                    window.__qwenpaw_ai_fresh_idx__ = freshIdx;
                     if (fresh.length > 0) {
                         const keyE = '__qwenpaw_ai_fresh_cache__';
                         const nowE = Date.now();
@@ -1173,13 +1446,32 @@ class ChatPage(BasePage):
                 )
             except Exception:
                 passed_via = "unknown"
+            # Read the fresh-text indices BEFORE the finally block deletes the
+            # window caches; the read path uses them as its fallback tier.
+            try:
+                fresh_idx = list(
+                    self.page.evaluate(
+                        "() => window.__qwenpaw_ai_fresh_idx__ || []"
+                    )
+                    or []
+                )
+            except Exception:
+                fresh_idx = []
+            self._last_round_fresh_idx = fresh_idx
             logger.info(
                 f"[wait_ai] gate-2/3 PASS via '{passed_via}' "
-                f"(streaming considered done)"
+                f"(streaming considered done), fresh_idx={fresh_idx}"
             )
         except (TimeoutError, AssertionError, Exception) as e:
+            self._last_round_fresh_idx = []
             try:
-                last_text = ai_locator.last.inner_text()[:200]
+                # Report the newest non-empty bubble, not the DOM end: on a
+                # reverse-ordered list the DOM end is the OLDEST bubble and
+                # compression empties it first, so `.last` prints '' and the
+                # log tells the next reader nothing (that is exactly how
+                # nightly 2026-10-07..15 read "Last bubble text: ''" while the
+                # screenshot showed the answer complete).
+                last_text = self._read_newest_ai_text()[:200]
             except Exception:
                 last_text = "<unreadable>"
             # FAIL-moment DOM snapshot: the four release-path components
@@ -1276,6 +1568,38 @@ class ChatPage(BasePage):
                         "preSendTexts": pre_send_texts,
                     },
                 )
+                # Read-path view, evaluated from the SAME constant the read
+                # path uses (an inlined copy here would drift from it). Tells
+                # the next reader which bubble a red assertion would have
+                # read, and by which tier, without re-deriving anything.
+                try:
+                    stamp = getattr(self, "_ai_stamp_before_send", -1)
+                    answer = self.page.evaluate(
+                        self._JS_LATEST_AI_BUBBLE,
+                        {
+                            "baselineTs": stamp if isinstance(stamp, int) else -1,
+                            "pathEFreshIdx": [],
+                        },
+                    ) or {}
+                    ans_idx = answer.get("idx", -1)
+                    ans_txt = ""
+                    if isinstance(ans_idx, int) and ans_idx >= 0:
+                        try:
+                            ans_txt = self.page.locator(
+                                self.AI_MESSAGE
+                            ).nth(ans_idx).inner_text().strip()[:120]
+                        except Exception:
+                            ans_txt = "<unreadable>"
+                    elif isinstance(diag, dict):
+                        ans_txt = "<unresolved: DOM end would be read>"
+                    answer["text"] = ans_txt
+                    if isinstance(diag, dict):
+                        diag["roundAnswer"] = answer
+                except Exception as ra_e:
+                    if isinstance(diag, dict):
+                        diag["roundAnswer"] = {
+                            "error": type(ra_e).__name__,
+                        }
                 logger.error(
                     f"[wait_ai] gate-2/3 FAIL DIAG: {diag!r}"
                 )
@@ -1301,6 +1625,7 @@ class ChatPage(BasePage):
                     "delete window.__qwenpaw_ai_stable_cache_c__; "
                     "delete window.__qwenpaw_ai_fresh_cache__; "
                     "delete window.__qwenpaw_ai_fresh_count__; "
+                    "delete window.__qwenpaw_ai_fresh_idx__; "
                     "delete window.__qwenpaw_wait_passed_via__; "
                     "if (window.__qwenpaw_ai_attach_obs__) "
                     "window.__qwenpaw_ai_attach_obs__.disconnect(); "
@@ -1313,7 +1638,12 @@ class ChatPage(BasePage):
 
         # Screenshot: final state after AI fully replied
         self.step_shot(f"ai_response_complete_{passed_via or 'unknown'}")
-        return ai_locator.last
+        # Return THIS ROUND'S bubble, not the DOM end. On a reverse-ordered
+        # list the DOM end is the oldest bubble and compression empties it
+        # first, so `.last` hands callers an empty string - the failure mode
+        # tests/test_context_scroll.py hit (assert ('1' in '' or 'one' in '')).
+        resolved = self._latest_ai_locator("wait_for_ai_response")
+        return resolved if resolved is not None else ai_locator.last
 
     # ========== Message actions ==========
     
