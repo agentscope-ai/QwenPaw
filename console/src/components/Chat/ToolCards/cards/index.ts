@@ -37,6 +37,7 @@ export { default as SubmitToAgentCard } from "./SubmitToAgentCard";
 export { default as CheckAgentTaskCard } from "./CheckAgentTaskCard";
 export { default as DelegateExternalAgentCard } from "./DelegateExternalAgentCard";
 export { default as ShellCard } from "./ShellCard";
+export { default as CodeModeCard } from "./CodeModeCard";
 export { default as RunToolBatchCard } from "./RunToolBatchCard";
 export { default as GenericToolCard } from "./GenericToolCard";
 
@@ -65,6 +66,7 @@ import SubmitToAgentCard from "./SubmitToAgentCard";
 import CheckAgentTaskCard from "./CheckAgentTaskCard";
 import DelegateExternalAgentCard from "./DelegateExternalAgentCard";
 import ShellCard from "./ShellCard";
+import CodeModeCard from "./CodeModeCard";
 import RunToolBatchCard from "./RunToolBatchCard";
 
 // ── Common props type ─────────────────────────────────────────────────
@@ -128,4 +130,5 @@ export const BUILTIN_CARD_REGISTRY: Record<string, BuiltinCardComponent> = {
 
   // Workflow
   run_tool_batch: RunToolBatchCard,
+  run_code: CodeModeCard,
 };

@@ -3138,9 +3138,6 @@
     "changeProjectDirectory": "Manage",
     "manageDefaultFolders": "Default workspace",
     "projectDirectoryWorkspaceFallback": "Using the Agent configuration directory",
-    "enhancedCodeCapability": "Enhanced code capability",
-    "enhancedCodeCapabilityTooltip": "Adds code-oriented tools without changing the project directory.",
-    "enhancedCodeCapabilityDescription": "Enable AST, LSP, code prompts, Git context and source control.",
     "description": "Configure agent runtime parameters",
     "reactAgentTitle": "ReAct Agent",
     "llmRetryTitle": "LLM Auto Retry",
@@ -3883,10 +3880,6 @@
         "name": "Find files",
         "description": "Locate files by name or path pattern."
       },
-      "ast_search": {
-        "name": "Search code structure",
-        "description": "Find code patterns using syntax-aware search."
-      },
       "desktop_screenshot": {
         "name": "Capture desktop",
         "description": "Take a desktop screenshot for the agent to inspect."
@@ -4429,8 +4422,7 @@
       "modeTooltip": "Controls how the scanner handles unsafe skills: block, warn only, or disabled",
       "modeBlock": "Block",
       "modeWarn": "Warn Only",
-      "modeOff": "Off",
-      "timeout": "Scan Timeout (seconds)",
+        "timeout": "Scan Timeout (seconds)",
       "timeoutTooltip": "Maximum time to wait for a scan to complete (5-300 seconds)",
       "saveSuccess": "Skill scanner settings saved",
       "saveFailed": "Failed to save skill scanner settings",
@@ -5287,7 +5279,13 @@
     "compatWarningConfirm": "Install anyway"
   },
   "codingMode": {
-    "title": "Coding Mode",
+    "toolPresentationHelp": "When enabled, the agent uses a single code tool. It searches, processes files, and performs other tool operations by writing and running Python code.",
+    "loadFailed": "Could not load Code Mode. Try again.",
+    "updateFailed": "Could not save Code Mode. Try again.",
+    "runCode": "Run Python",
+    "script": "Script",
+    "output": "Output",
+    "title": "Code Mode",
     "experimental": "Experimental Feature",
     "experimentalDesc": "Coding Mode transforms QwenPaw into a lightweight Web IDE with a code editor, file tree, Git integration, and AI-powered coding assistance.",
     "experimentalNote": "This feature is experimental and still under active development. Some functionality may be limited or change in future updates.",

@@ -2117,10 +2117,6 @@
         "name": "Temukan berkas",
         "description": "Temukan berkas berdasarkan nama atau pola jalur."
       },
-      "ast_search": {
-        "name": "Cari struktur kode",
-        "description": "Cari pola kode dengan memahami sintaks."
-      },
       "desktop_screenshot": {
         "name": "Ambil tangkapan layar",
         "description": "Ambil tangkapan layar desktop untuk diperiksa agen."
@@ -4185,9 +4181,6 @@
     "changeProjectDirectory": "Kelola",
     "manageDefaultFolders": "Workspace bawaan",
     "projectDirectoryWorkspaceFallback": "Menggunakan direktori konfigurasi Agent",
-    "enhancedCodeCapability": "Kemampuan kode lanjutan",
-    "enhancedCodeCapabilityTooltip": "Menambahkan alat kode tanpa mengubah direktori proyek.",
-    "enhancedCodeCapabilityDescription": "Aktifkan AST, LSP, prompt kode, konteks Git, dan kontrol sumber.",
     "description": "Konfigurasi parameter runtime agen",
     "reactAgentTitle": "Agen ReAct",
     "llmRetryTitle": "Coba Ulang LLM Otomatis",

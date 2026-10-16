@@ -2396,9 +2396,6 @@
     "changeProjectDirectory": "管理",
     "manageDefaultFolders": "既定のワークスペース",
     "projectDirectoryWorkspaceFallback": "Agent の設定ディレクトリを使用中",
-    "enhancedCodeCapability": "コード能力を強化",
-    "enhancedCodeCapabilityTooltip": "プロジェクトディレクトリを変更せずにコードツールを追加します。",
-    "enhancedCodeCapabilityDescription": "AST、LSP、コードプロンプト、Gitコンテキスト、ソース管理を有効にします。",
     "description": "エージェントのランタイムパラメーターを設定します",
     "reactAgentTitle": "ReActエージェント",
     "llmRetryTitle": "LLM自動再試行",
@@ -2972,10 +2969,6 @@
       "glob_search": {
         "name": "ファイルを探す",
         "description": "名前やパスのパターンでファイルを探します。"
-      },
-      "ast_search": {
-        "name": "コード構造を検索",
-        "description": "構文を考慮してコードのパターンを検索します。"
       },
       "desktop_screenshot": {
         "name": "デスクトップを撮影",

@@ -631,7 +631,9 @@ def _spawn_managed_process_in_appcontainer(
     cwd: str,
     env: Dict[str, str],
     log_handle: IO[str],
+    stdin_handle: IO[bytes] | None = None,
 ) -> WindowsAppContainerProcess:
+    # pylint: disable=too-many-statements
     """Create a suspended AppContainer process inside a kill-on-close job."""
     import msvcrt
 
@@ -645,10 +647,15 @@ def _spawn_managed_process_in_appcontainer(
     ) = _setup_security_capabilities(kernel32, container_sid, capabilities)
     windows_log_handle = msvcrt.get_osfhandle(log_handle.fileno())
     os.set_handle_inheritable(windows_log_handle, True)
+    windows_input_handle = (
+        msvcrt.get_osfhandle(stdin_handle.fileno()) if stdin_handle else None
+    )
+    if windows_input_handle is not None:
+        os.set_handle_inheritable(windows_input_handle, True)
     si_ex = _STARTUPINFOEXW()
     si_ex.StartupInfo.cb = ctypes.sizeof(si_ex)
     si_ex.StartupInfo.dwFlags = _WC.STARTF_USESTDHANDLES
-    si_ex.StartupInfo.hStdInput = None
+    si_ex.StartupInfo.hStdInput = windows_input_handle
     si_ex.StartupInfo.hStdOutput = windows_log_handle
     si_ex.StartupInfo.hStdError = windows_log_handle
     si_ex.lpAttributeList = attr_list
@@ -681,6 +688,8 @@ def _spawn_managed_process_in_appcontainer(
         )
     finally:
         os.set_handle_inheritable(windows_log_handle, False)
+        if windows_input_handle is not None:
+            os.set_handle_inheritable(windows_input_handle, False)
         kernel32.DeleteProcThreadAttributeList(attr_list)
         kernel32.LocalFree(app_container_psid)
         for psid in cap_psids:
@@ -1071,6 +1080,7 @@ class WindowsAppContainerSandbox(WindowsSandboxBase):
         cwd: str,
         env: Dict[str, str],
         log_handle: IO[str],
+        stdin_handle: IO[bytes] | None = None,
     ) -> WindowsAppContainerProcess:
         """Start a long-running process in a kill-on-close Job Object."""
         if self._container_sid is None:
@@ -1082,6 +1092,7 @@ class WindowsAppContainerSandbox(WindowsSandboxBase):
             cwd,
             env,
             log_handle,
+            stdin_handle,
         )
 
     async def stop(self) -> None:
@@ -1100,6 +1111,21 @@ class WindowsAppContainerSandbox(WindowsSandboxBase):
 
     async def __aexit__(self, exc_type, exc, tb):
         await self.stop()
+
+    async def destroy(self) -> None:
+        """Remove an exclusively owned ephemeral profile and its ACLs."""
+        await self.stop()
+        if self._container_name is None:
+            return
+        metadata = (
+            self._state_dir / "containers" / f"{self._container_name}.json"
+        )
+        if metadata.is_file():
+            await asyncio.to_thread(
+                _cleanup_single_container,
+                json.loads(metadata.read_text(encoding="utf-8")),
+                metadata,
+            )
 
 
 # ═══════════════════════════════════════════════════════════════════════════
