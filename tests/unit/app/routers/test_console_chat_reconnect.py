@@ -241,3 +241,84 @@ async def test_new_message_rejects_active_run(
         "use a different session_id."
     )
     assert console_workspace.console_channel.stream_calls == []
+
+
+@pytest.mark.asyncio
+async def test_new_run_stream_leads_with_user_message_echo(
+    app,
+    console_workspace,
+    monkeypatch,
+):
+    """A fresh run must lead its stream with the user's own message.
+
+    The user message is only persisted at run end, so the echo frame is
+    the only way a client without a local echo (mobile app, console on
+    another device) sees this turn while the run is in flight.
+    """
+    from starlette.requests import Request
+    from qwenpaw.app.routers import console
+
+    monkeypatch.setattr(
+        console,
+        "_persist_pending_project_dirs",
+        AsyncMock(side_effect=lambda _ws, chat, _payload: chat),
+    )
+    monkeypatch.setattr(console, "generate_and_update_title", AsyncMock())
+    console_workspace.chat_manager.mark_chat_finished = AsyncMock()
+
+    stream_calls: list = []
+
+    async def plain_stream(_payload):
+        stream_calls.append(_payload)
+        yield "data: assistant\n\n"
+
+    console_workspace.console_channel.stream_one = plain_stream
+
+    request = Request(
+        scope={
+            "type": "http",
+            "method": "POST",
+            "path": "/api/console/chat",
+            "headers": [],
+            "app": app,
+        },
+    )
+    response = await console.post_console_chat(
+        request_data={
+            "session_id": "console:default",
+            "user_id": "default",
+            "channel": "console",
+            "input": [
+                {
+                    "role": "user",
+                    "content": [{"type": "text", "text": "hello echo"}],
+                    "metadata": {"qwenpaw_client_message_id": "client-123"},
+                },
+            ],
+        },
+        request=request,
+    )
+
+    received: list[str] = []
+
+    async def _consume() -> None:
+        async for chunk in response.body_iterator:
+            received.append(chunk)
+
+    await asyncio.wait_for(_consume(), timeout=5)
+
+    assert received[0].startswith("data: ")
+    echo = json.loads(received[0][len("data: ") :])
+    assert echo["type"] == "user_message"
+    assert echo["content"][0]["type"] == "text"
+    assert echo["content"][0]["text"] == "hello echo"
+    # Identity fields so a client without a local echo can key its
+    # pending user message (console) or correlate the turn (mobile).
+    assert echo["session_id"] == "console:default"
+    assert isinstance(echo["chat_id"], str) and echo["chat_id"]
+    assert echo["client_message_id"] == "client-123"
+    # The run's own frames follow the echo, in order, with the payload
+    # passed through unchanged.
+    assert "data: assistant\n\n" in received[1:]
+    assert len(stream_calls) == 1
+    assert stream_calls[0]["content_parts"][0].text == "hello echo"

@@ -368,6 +368,58 @@ def _is_reconnect_request(request_data: Union[AgentRequest, dict]) -> bool:
     return getattr(request_data, "reconnect", None) is True
 
 
+def _user_message_echo_sse(
+    content_parts: list[Any],
+    message_metadata: Any = None,
+    chat_id: str | None = None,
+    session_id: str | None = None,
+) -> Optional[str]:
+    """Return the user's own content as a replayable SSE echo frame.
+
+    The frame carries no ``object`` field, same shape as the
+    ``turn_usage`` and ``replay_end`` frames. Consumers must special-case
+    it: the console's responseParser maps it into the pending user
+    message cache (the SDK response builder routes any frame without a
+    recognized ``object`` to its error path, which fails the stream);
+    the React Native client is expected to ignore it (to be verified on
+    the RN side — the console assumption here was wrong once already).
+
+    ``chat_id`` / ``session_id`` / ``client_message_id`` let clients
+    without a local echo (mobile app, another tab) key their pending
+    user message: ``client_message_id`` — echoed back from the sending
+    client's request metadata when present — lets the console confirm
+    persistence by unique id instead of text.
+    """
+    items: list[Any] = []
+    for part in content_parts:
+        if hasattr(part, "model_dump"):
+            try:
+                items.append(part.model_dump(mode="json"))
+                continue
+            except Exception:  # pragma: no cover - keep echo best-effort
+                pass
+        if isinstance(part, (dict, str)):
+            items.append(part)
+    if not items:
+        return None
+    frame: dict[str, Any] = {
+        "type": "user_message",
+        "id": uuid.uuid4().hex,
+        "content": items,
+    }
+    if chat_id:
+        frame["chat_id"] = chat_id
+    if session_id:
+        frame["session_id"] = session_id
+    if isinstance(message_metadata, dict):
+        client_message_id = str(
+            message_metadata.get("qwenpaw_client_message_id") or "",
+        )
+        if client_message_id:
+            frame["client_message_id"] = client_message_id
+    return f"data: {json.dumps(frame, ensure_ascii=False)}\n\n"
+
+
 def _chat_registration_fields(native_payload: dict[str, Any]) -> dict:
     """Return first-class subagent fields from an internal request."""
     request_context = native_payload["meta"].get("request_context")
@@ -507,10 +559,30 @@ async def post_console_chat(
         # ContextVarsSetupHook (from the chat meta persisted above);
         # the router no longer pre-resolves or injects them.
 
+        # The user's own message is only persisted at run end, so a client
+        # without a local echo (mobile app, or the console opened on another
+        # device) cannot see this turn until the run finishes. Emit it as the
+        # first frame of the run: it then flows through the live stream and
+        # is included in reconnect replay like every other frame.
+        echo_frame = _user_message_echo_sse(
+            native_payload.get("content_parts") or [],
+            message_metadata=native_payload.get("message_metadata"),
+            chat_id=chat.id,
+            session_id=(native_payload.get("meta") or {}).get("session_id"),
+        )
+
+        async def _stream_with_user_echo(
+            run_payload: dict[str, Any],
+        ) -> AsyncGenerator[str, None]:
+            if echo_frame is not None:
+                yield echo_frame
+            async for sse in console_channel.stream_one(run_payload):
+                yield sse
+
         queue, is_new_run = await tracker.attach_or_start(
             chat.id,
             native_payload,
-            console_channel.stream_one,
+            _stream_with_user_echo,
             owner=workspace,
             on_finished=workspace.chat_manager.mark_chat_finished,
         )

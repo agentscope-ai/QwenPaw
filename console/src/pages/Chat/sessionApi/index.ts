@@ -935,6 +935,24 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     }
   }
 
+  /**
+   * Read-only peek at the pending user message cache. The response parser
+   * uses this to tell whether an incoming `user_message` echo frame was
+   * sent from THIS console (its client id is already cached by the local
+   * submission path, which renders the user card via the history patch) or
+   * from another client (mobile app / another tab), whose message must be
+   * projected inline into the live stream instead.
+   */
+  peekPendingUserMessage(
+    sessionId: string | null | undefined,
+  ): { text: string; clientMessageId?: string } | null {
+    for (const id of normalizePendingUserMessageIds([sessionId])) {
+      const cached = loadPendingUserMessage(id);
+      if (cached) return cached;
+    }
+    return null;
+  }
+
   /** Remove a pending message only when it still belongs to this request. */
   discardLastUserMessage(
     sessionIds: string | readonly (string | null | undefined)[],

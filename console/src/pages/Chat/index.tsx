@@ -13,8 +13,11 @@ import { setPendingThinking } from "@/features/thinking/sessionThinkingApi";
 import { SessionThinking } from "@/features/thinking/SessionThinking";
 import {
   AgentScopeRuntimeWebUI,
+  Bubble,
   IAgentScopeRuntimeWebUIOptions,
+  type IAgentScopeRuntimeMessage,
   type IAgentScopeRuntimeRequest,
+  type IAgentScopeRuntimeResponse,
   type IAgentScopeRuntimeWebUIInputData,
   type IAgentScopeRuntimeWebUISenderBeforeSubmitResult,
   type IAgentScopeRuntimeWebUIRef,
@@ -74,6 +77,7 @@ import { providerApi } from "../../api/modules/provider";
 import type { ProviderInfo, ModelInfo, SkillSpec } from "../../api/types";
 import { useTheme } from "../../contexts/ThemeContext";
 import { useAgentStore } from "../../stores/agentStore";
+import { useSessionListStore } from "../../stores/sessionListStore";
 import {
   beginLoopModeSubmission,
   fetchActiveLoopMode,
@@ -101,6 +105,7 @@ import { wrapReplayFastForward } from "./replayFastForward";
 import { clearTurnStopped, markTurnStopped } from "./stoppedTurns";
 import { useTurnUsageStore } from "./turnUsageStore";
 import ChatHeaderTitle from "./components/ChatHeaderTitle";
+import UserEchoBubble from "./components/UserEchoBubble";
 import {
   buildFallbackSystemMessage,
   modelFallbackEventKey,
@@ -749,6 +754,15 @@ function payloadCompletesResponse(payload: unknown): boolean {
   return record.object === "response" && record.status === "completed";
 }
 
+/** Small stable string hash for deterministic client-only ids. */
+function hashCode(value: string): number {
+  let h = 0;
+  for (let i = 0; i < value.length; i += 1) {
+    h = (h * 31 + value.charCodeAt(i)) | 0;
+  }
+  return h;
+}
+
 function renderSuggestionLabel(command: string, description?: string) {
   return (
     <div
@@ -1338,6 +1352,68 @@ export default function ChatPage() {
     if (backendChatId)
       void sessionApi.getSession(queueSessionId).catch(() => undefined);
   }, [selectedAgent, queueSessionId, backendChatId]);
+
+  // #8203 — auto-attach to a run that started on ANOTHER client (mobile
+  // app, another tab). The sidebar's session-list poll (3s) flips this
+  // chat's status to "running"; when this tab holds no active run for it,
+  // resume the run so its SSE stream — including the leading user-message
+  // echo frame — reaches the response parser and renders in real time.
+  // Without this, an attached view stayed stale until a manual refresh.
+  //
+  // Guards (all must pass before attaching):
+  //  1. Rising edge only. Resume on the first "running" tick after an
+  //     idle (or first-observed) tick, never on repeated "running"
+  //     ticks. A run THIS tab just finished locally settles its stream
+  //     up to one poll interval before the sidebar flips back to
+  //     "idle"; resuming during that stale window opens a SECOND stream
+  //     into the same message store and strands an orphaned assistant
+  //     message stuck in "generating" — the three-dot spinner that
+  //     never clears until a manual refresh. A foreign run still
+  //     produces exactly one rising edge here.
+  //  2. getActiveRun — a live SDK run lifecycle for this chat means the
+  //     view is already attached (or owns) the run; resume() would be a
+  //     duplicate.
+  //  3. The SDK's findGeneratingResponse predicate over the active
+  //     messages — for a run submitted from this tab on a freshly
+  //     created chat the lifecycle is keyed by the draft session id
+  //     that predates the chat UUID, so check 2 misses on the UUID; a
+  //     generating assistant message in the active list means this tab
+  //     is already streaming the run.
+  const polledSessions = useSessionListStore((s) => s.sessions);
+  const autoAttachStatusRef = useRef<Map<string, string>>(new Map());
+  useEffect(() => {
+    if (!backendChatId) return;
+    const statusMap = autoAttachStatusRef.current;
+    if (statusMap.size > 100) statusMap.clear();
+    const current = polledSessions.find(
+      (s) => s.id === backendChatId || s.realId === backendChatId,
+    );
+    const status: string | undefined = current?.status;
+    const previous = statusMap.get(backendChatId);
+    statusMap.set(backendChatId, status ?? "unknown");
+    if (status !== "running") return;
+    if (previous === "running") return;
+    void (async () => {
+      const ctrl = chatRef.current?.execution;
+      if (!ctrl) return;
+      try {
+        if (await ctrl.getActiveRun(backendChatId)) return;
+        const activeMessages =
+          chatRef.current?.messages?.getMessages?.() ?? [];
+        const alreadyGenerating = Array.isArray(activeMessages) &&
+          activeMessages.some(
+            (m) =>
+              (m as { role?: string })?.role === "assistant" &&
+              (m as { msgStatus?: string })?.msgStatus === "generating",
+          );
+        if (alreadyGenerating) return;
+        await ctrl.resume({ sessionId: backendChatId });
+      } catch {
+        // Transient failure — the next rising edge retries; repeating
+        // resume() on every tick would re-trigger the double-attach.
+      }
+    })();
+  }, [backendChatId, polledSessions]);
 
   const pendingProjectDir = backendChatId
     ? undefined
@@ -3911,6 +3987,50 @@ export default function ChatPage() {
       })),
     };
 
+    // #8203 — user-message echo projection for attached views. When the run
+    // was started by another client, the parser projects the user turn into
+    // the in-flight response as `user_echo` message frames (role "user").
+    // The default card renderer ignores unknown message types, so without
+    // this slot the turn would be invisible for the whole run; when the
+    // turn is later persisted, history refetch removes the echo frames and
+    // the user card comes from history instead (no double render).
+    const responseOptions: IAgentScopeRuntimeWebUIOptions["response"] = {
+      render: ({
+        data,
+        fallback,
+      }: {
+        data: IAgentScopeRuntimeResponse;
+        isLast?: boolean;
+        fallback: () => React.ReactNode;
+      }) => {
+        const output = data.output ?? [];
+        const userEchoes = output.filter(
+          (m): m is IAgentScopeRuntimeMessage =>
+            m.role === "user" && (m.type as string) === "user_echo",
+        );
+        if (userEchoes.length === 0) return fallback();
+        const hasAssistantContent = output.some(
+          (m) => m.role !== "user" && m.type !== "heartbeat",
+        );
+        const generating =
+          data.status === "created" || data.status === "in_progress";
+        return (
+          <>
+            {userEchoes.map((item) => (
+              <UserEchoBubble key={item.id} data={item} />
+            ))}
+            {hasAssistantContent ? (
+              fallback()
+            ) : generating ? (
+              <Bubble.Spin />
+            ) : (
+              fallback()
+            )}
+          </>
+        );
+      },
+    };
+
     const wrapToolFC = <Props extends object>(
       pluginId: string,
       toolName: string,
@@ -4305,6 +4425,121 @@ export default function ChatPage() {
             >;
           }
 
+          if (payload.type === "user_message") {
+            // #8203 user-message echo: carries no `object` field, so the
+            // raw frame must never reach the SDK response builder (unknown
+            // shapes route to its error path → "Answers have stopped").
+            // Two consumers:
+            //  1. pending user message cache — patchLastUserMessage renders
+            //     the user card on (re)load while the run is in flight and
+            //     clears the entry once backend history contains the turn.
+            //  2. when the turn was started by ANOTHER client (mobile app /
+            //     another tab), this view's history layer is frozen for the
+            //     whole run (applySessionView no-ops while a turn is active),
+            //     so the cache alone is invisible until a refresh. Project
+            //     the user message inline as a `user_echo` message frame:
+            //     the SDK builder accepts any `object:"message"` frame, the
+            //     default card switch ignores unknown types, and the host
+            //     `response.render` slot draws it as a user bubble.
+            try {
+              const rawContent = Array.isArray(payload.content)
+                ? (payload.content as Array<Record<string, unknown>>)
+                : [];
+              const text = rawContent
+                .map((c) => {
+                  const t = c?.text;
+                  return typeof t === "string" ? t : "";
+                })
+                .join("");
+              const content: Array<{
+                type: string;
+                [key: string]: unknown;
+              }> = rawContent
+                .filter(
+                  (c): c is { type: string; [key: string]: unknown } =>
+                    !!c && typeof c.type === "string" && c.type.length > 0,
+                )
+                .map((c) => {
+                  const item: { type: string; [key: string]: unknown } = {
+                    type: c.type,
+                  };
+                  for (const k of [
+                    "text",
+                    "image_url",
+                    "file_name",
+                    "file",
+                    "data",
+                  ]) {
+                    if (c[k] != null) item[k] = c[k];
+                  }
+                  return item;
+                });
+              const chatIdKey =
+                typeof payload.chat_id === "string" ? payload.chat_id : null;
+              const clientId =
+                typeof payload.client_message_id === "string"
+                  ? payload.client_message_id
+                  : undefined;
+              // Read the pending entry BEFORE this frame writes its own:
+              // setLastUserMessage below stores the frame's client id, so
+              // peaking after the write would make even a foreign frame
+              // look like this tab's own submission (the only echo of the
+              // run gets suppressed and the bubble never appears).
+              const pending = chatIdKey
+                ? sessionApi.peekPendingUserMessage(chatIdKey)
+                : null;
+              if (chatIdKey && (text || content.length > 0)) {
+                sessionApi.setLastUserMessage(
+                  chatIdKey,
+                  text,
+                  content.length > 0 ? content : undefined,
+                  clientId,
+                );
+              }
+              if (chatIdKey && (text || content.length > 0)) {
+                // Own submission: this tab's submission path already cached
+                // the same client id before the POST, and the history patch
+                // renders the user card — putting the frame into the stream
+                // as well would double-render the bubble.
+                const isOwn =
+                  pending !== null &&
+                  (clientId
+                    ? pending.clientMessageId === clientId
+                    : pending.text.length > 0 && pending.text === text);
+                if (!isOwn) {
+                  const frameContent =
+                    content.length > 0 ? content : [{ type: "text", text }];
+                  const frameId =
+                    typeof payload.id === "string" && payload.id
+                      ? payload.id
+                      : clientId
+                        ? `echo-${clientId}`
+                        : `echo-${Math.abs(hashCode(text) % 2 ** 31)}`;
+                  return {
+                    object: "message",
+                    id: frameId,
+                    type: "user_echo",
+                    role: "user",
+                    status: "completed",
+                    content: frameContent,
+                  } as unknown as ReturnType<
+                    NonNullable<
+                      NonNullable<
+                        IAgentScopeRuntimeWebUIOptions["api"]
+                      >["responseParser"]
+                    >
+                  >;
+                }
+              }
+            } catch (err) {
+              console.warn(
+                "[user_message echo] failed to cache pending user message",
+                err,
+              );
+            }
+            return null;
+          }
+
           if (payload.type === "rate_limited") {
             const alts =
               (payload.alternatives as typeof rateLimitAlternatives) || [];
@@ -4411,6 +4646,7 @@ export default function ChatPage() {
       },
       customToolRenderConfig: withGenericFallback(mergedToolRenderers),
       request: requestOptions,
+      response: responseOptions,
       cards: {
         // CoPaw still owns assistant Markdown/media/artifact rendering. User
         // request extensions use the SDK's public request seam above.
