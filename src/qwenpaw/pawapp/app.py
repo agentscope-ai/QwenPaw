@@ -58,7 +58,11 @@ from .dependency import (
     DependencySpec,
 )
 from .agent import ManagedAgentProfile, ManagedAgentProfileSpec
-from .service import ManagedService, ManagedServiceSpec
+from .service import (
+    ManagedService,
+    ManagedServiceSpec,
+    ManagedServiceUnavailable,
+)
 
 logger = logging.getLogger(__name__)
 _APP_ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9-]*$")
@@ -346,6 +350,7 @@ class PawApp:  # pylint: disable=too-many-public-methods
         # into the standard capabilities below.
         self.app_id = app_id
         self._plugin_api: Any = None  # set by PluginLoader via .register(api)
+        self._service_closers: dict[ManagedService, Any] = {}
 
         # Internal router for decorator-mode routes
         self._router = APIRouter()
@@ -653,7 +658,14 @@ class PawApp:  # pylint: disable=too-many-public-methods
         expose_dependency: bool = True,
         runtime_remediation: str | None = None,
     ) -> ManagedService:
-        """Declare a process managed with the PawApp lifecycle."""
+        """Declare a process managed with the PawApp lifecycle.
+
+        Startup awaits readiness before later app hooks. Missing runtimes or
+        unavailable endpoints leave the app registered, with dependency
+        health reporting the failure; runtime packages are never installed
+        automatically. Registration and app callback errors still fail the
+        plugin transaction. Hosted cleanup owns pending starts and processes.
+        """
         service = ManagedService(
             ManagedServiceSpec(
                 name=name,
@@ -693,6 +705,15 @@ class PawApp:  # pylint: disable=too-many-public-methods
                             "Provision the app runtime or attach an "
                             "external endpoint"
                         ),
+                    )
+                if service.startup_error is not None:
+                    return DependencyHealth(
+                        health="unavailable",
+                        lifecycle="failed",
+                        error_code=service.startup_error.code,
+                        message=service.startup_error.message,
+                        remediation=runtime_remediation
+                        or "Check the service environment and retry Start",
                     )
                 return DependencyHealth(
                     health="unavailable",
@@ -757,6 +778,49 @@ class PawApp:  # pylint: disable=too-many-public-methods
         return self
 
     # ─── Plugin registration (called by PluginLoader) ───────────────
+
+    def _register_service(self, api: Any, service: ManagedService) -> None:
+        """Register one ordered start and its shared hosted cleanup."""
+        from qwenpaw.plugins.custody import ConnectionCloser
+
+        previous = self._service_closers.get(service)
+        if previous and previous.task and not previous.task.done():
+            raise RuntimeError("previous managed service is still closing")
+        service.reopen()
+        closer = ConnectionCloser(
+            service,
+            f"pawapp:{self.app_id}:service:{service.spec.name}",
+        )
+        self._service_closers[service] = closer
+
+        async def start_service(
+            selected_service: ManagedService = service,
+        ) -> None:
+            try:
+                await selected_service.start()
+            except ManagedServiceUnavailable as exc:
+                logger.warning(
+                    "PawApp '%s' service '%s' unavailable: %s",
+                    self.app_id or self.name,
+                    selected_service.spec.name,
+                    exc,
+                )
+
+        api.effect(
+            desc=f"pawapp:{self.app_id}:service:{service.spec.name}",
+            setup=None,
+            teardown=closer,
+        )
+        api.register_startup_hook(
+            hook_name=f"pawapp_{self.app_id}_service_{service.spec.name}",
+            callback=start_service,
+            priority=70,
+        )
+        api.register_shutdown_hook(
+            hook_name=f"pawapp_{self.app_id}_service_{service.spec.name}",
+            callback=closer,
+            priority=130,
+        )
 
     def register(self, api: Any) -> None:  # pylint: disable=R0912
         """Called by PluginLoader when the plugin is loaded.
@@ -920,16 +984,7 @@ class PawApp:  # pylint: disable=too-many-public-methods
             )
 
         for service in self._services:
-            api.register_startup_hook(
-                hook_name=f"pawapp_{self.app_id}_service_{service.spec.name}",
-                callback=service.start,
-                priority=70,
-            )
-            api.register_shutdown_hook(
-                hook_name=f"pawapp_{self.app_id}_service_{service.spec.name}",
-                callback=service.stop,
-                priority=130,
-            )
+            self._register_service(api, service)
 
         # Register startup/shutdown hooks
         for hook_info in self._hooks:

@@ -14,6 +14,7 @@ from pathlib import Path
 
 from .module_isolation import (
     build_plugin_builtins,
+    clear_plugin_bytecode,
     get_namespace_finder,
     strip_plugin_sys_path,
     sweep_bare_tree_modules,
@@ -50,6 +51,7 @@ def validate_plugin_module(
             f"Backend entry point not found: {backend_entry}",
         )
 
+    clear_plugin_bytecode(plugin_path)
     safe_id = plugin_id.replace("-", "_")
     module_name = f"_plugin_validation_{safe_id}"
     plugin_dir_str = str(plugin_path)

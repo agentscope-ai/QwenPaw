@@ -176,6 +176,25 @@ class MyPlugin:
 plugin = MyPlugin()
 ```
 
+#### Registration and Cleanup Contract
+
+- `register(api)` must be synchronous. Put asynchronous initialization in a startup hook.
+- Use `api.spawn_task()` for background tasks and `api.effect()` for process-local
+  effects. Teardown must be idempotent and safe after incomplete setup.
+- Prefer `api.declare_provision_files(src, dest, version)` during registration.
+  It only records a declaration and returns no creation result. Activation prepares
+  the files in a worker before startup hooks; do not read these files in register.
+- In startup hooks, use `await api.provision_files_async(src, dest, version)` when
+  files are needed immediately. It returns the actual `create`, `keep`, etc. result.
+  Both APIs preserve ownership and rollback rules. The existing
+  `api.provision_files()` remains synchronous for compatibility and can still block
+  the event loop; migrate to the new APIs where possible.
+- For custom persistent resources, use `api.provision()` with
+  `teardown_ref="module:function"` so cleanup works without a live instance.
+  Setup must be synchronous.
+- Use `api.register_*()` instead of changing host registries directly. The framework
+  records their cleanup.
+
 ### Memory Backend Plugins
 
 A memory plugin owns its remote client, configuration model, prompts, tools,
@@ -1885,7 +1904,12 @@ httpx>=0.24.0
 pydantic>=2.0.0
 ```
 
-Dependencies will be automatically installed when the plugin is installed.
+Explicit installation, updates, and repairs check and install missing dependencies.
+Boot only checks dependencies; it does not install them. Missing dependencies fail
+that plugin's load. Call `POST /api/plugins/{plugin_id}/repair-dependencies` to repair
+them; disabled plugins stay disabled. Versions that conflict with protected host
+packages are refused; resolve the environment conflict first. Administrator-managed
+local runtimes require the administrator to install dependencies.
 
 ### Using Custom PyPI Index
 
@@ -1893,6 +1917,10 @@ Dependencies will be automatically installed when the plugin is installed.
 --index-url https://custom-pypi.example.com/simple
 my-package>=1.0.0
 ```
+
+Use `--index-url URL` or `--index-url=URL` on its own line. pip / uv receives the
+index setting; package version and host-package checks still apply. Other options,
+nested `-r` files, extras, and direct URL requirements are not supported yet.
 
 ## Best Practices
 

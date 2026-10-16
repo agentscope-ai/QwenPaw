@@ -176,6 +176,22 @@ class MyPlugin:
 plugin = MyPlugin()
 ```
 
+#### 注册与资源清理约定
+
+- `register(api)` 必须是同步方法。异步初始化放在 startup hook 中。
+- 后台任务使用 `api.spawn_task()`；进程内副作用使用 `api.effect()` 登记清理。
+  teardown 必须幂等，并能处理 setup 只完成一部分的情况。
+- 注册时推荐用 `api.declare_provision_files(src, dest, version)` 声明文件置备；
+  此时不复制文件，也不返回创建结果。激活时框架在工作线程完成置备，再执行 startup。
+  因此不能在 register 中立即读取这些文件。
+- startup 中需要立即使用文件时，使用
+  `await api.provision_files_async(src, dest, version)`，返回 `create`、`keep` 等实际结果。
+  两个入口沿用原有归属和失败回滚规则。旧 `api.provision_files()` 保留同步语义，
+  在事件循环中调用仍可能阻塞，建议迁移到上述入口。
+- 自定义持久资源使用 `api.provision()`，并提供 `teardown_ref="模块:函数"`，
+  让无活实例时仍能执行清理。setup 必须是同步函数。
+- 不直接修改宿主登记表。使用 `api.register_*()`，由框架管理撤销。
+
 ### Memory Backend 插件
 
 Memory 插件拥有远程 client、配置模型、prompt、工具和后端特有的检索行为。QwenPaw 核心负责
@@ -1841,7 +1857,10 @@ httpx>=0.24.0
 pydantic>=2.0.0
 ```
 
-插件安装时会自动安装依赖。
+显式安装、更新或修复时，框架检查并安装缺失依赖。开机只检查，不自动安装；缺失依赖会
+使该插件加载失败。可调用 `POST /api/plugins/{plugin_id}/repair-dependencies` 修复；
+停用的插件修复后仍保持停用。与受保护宿主包冲突的版本会被拒绝，需先解决环境冲突。
+管理员管理的本地运行环境不自动安装依赖，需由管理员处理。
 
 ### 使用自定义 PyPI 源
 
@@ -1849,6 +1868,9 @@ pydantic>=2.0.0
 --index-url https://custom-pypi.example.com/simple
 my-package>=1.0.0
 ```
+
+支持单独一行的 `--index-url URL` 或 `--index-url=URL`。源地址交给 pip / uv，
+依赖包仍接受版本和宿主包检查。其他选项、嵌套 `-r` 文件、extras 和直接 URL 依赖暂不支持。
 
 ## 最佳实践
 

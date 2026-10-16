@@ -5227,6 +5227,19 @@
     "details": "详细信息"
   },
   "pluginManager": {
+    "busyTitle": "插件正在执行任务",
+    "busy": {
+      "update": {
+        "warning": "强制更新将中断当前任务，未完成的任务可能失败。",
+        "confirm": "强制更新",
+        "cancel": "暂不更新"
+      },
+      "uninstall": {
+        "warning": "强制卸载将中断当前任务，未完成的任务可能失败。",
+        "confirm": "强制卸载",
+        "cancel": "暂不卸载"
+      }
+    },
     "title": "插件管理",
     "description": "安装、管理和卸载插件，无需重启服务。",
     "installed": "已安装插件",
@@ -5257,6 +5270,7 @@
     "uninstalling": "卸载中...",
     "uninstallSuccess": "插件卸载成功",
     "uninstallFailed": "插件卸载失败",
+    "statusError": "状态异常",
     "statusLoaded": "运行中",
     "statusUnloaded": "未加载",
     "type": "类型",

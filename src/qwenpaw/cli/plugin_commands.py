@@ -3,12 +3,11 @@
 # pylint:disable=too-many-statements
 """Plugin management CLI commands."""
 
+import asyncio
 import json
 import logging
 import os
 import shutil
-import subprocess
-import sys
 import tempfile
 import urllib.request
 import zipfile
@@ -77,6 +76,8 @@ def _api_install_plugin(source: str, force: bool = False) -> bool:
         click.echo(
             f"✅ Plugin '{name}' installed and loaded (hot reload).",
         )
+        for diagnostic in body.get("diagnostics", []):
+            click.echo(diagnostic)
         return True
     except httpx.HTTPStatusError as exc:
         try:
@@ -143,6 +144,8 @@ def _api_upload_plugin(zip_path: Path, force: bool = False) -> bool:
         click.echo(
             f"✅ Plugin '{name}' installed and loaded (hot reload).",
         )
+        for diagnostic in result.get("diagnostics", []):
+            click.echo(diagnostic)
         return True
     except httpx.HTTPStatusError as exc:
         try:
@@ -201,132 +204,6 @@ def _api_uninstall_plugin(plugin_id: str) -> bool:
         return False
 
 
-def _find_uv() -> Optional[str]:
-    """Return the path to the ``uv`` binary, or ``None`` if not found.
-
-    Checks PATH first (``shutil.which`` handles PATHEXT on Windows),
-    then well-known install locations for Unix and Windows.
-
-    Returns:
-        Absolute path string to ``uv``, or ``None``.
-    """
-    # shutil.which honours PATHEXT on Windows (finds uv.exe automatically)
-    found = shutil.which("uv")
-    if found:
-        return found
-
-    home = Path.home()
-    candidates = [
-        home / ".local" / "bin" / "uv",  # Linux/macOS script install
-        home / ".cargo" / "bin" / "uv",  # Linux/macOS cargo install
-    ]
-    # Windows-specific locations
-    local_app_data = os.environ.get("LOCALAPPDATA")
-    if local_app_data:
-        candidates.append(
-            Path(local_app_data) / "Programs" / "uv" / "uv.exe",
-        )
-    candidates.append(home / ".cargo" / "bin" / "uv.exe")
-
-    for candidate in candidates:
-        if candidate.is_file():
-            return str(candidate)
-    return None
-
-
-def _install_requirements_cli(
-    requirements_file: Path,
-    target_dir: Path,
-) -> bool:
-    """Install requirements.txt using pip or uv (fallback).
-
-    Tries ``python -m pip`` first.  When pip is absent (uv-managed
-    venv), falls back to ``uv pip install``.  On any failure the
-    ``target_dir`` is removed and an error is printed.
-
-    Args:
-        requirements_file: Path to requirements.txt
-        target_dir: Plugin directory to clean up on failure.
-
-    Returns:
-        ``True`` on success, ``False`` on failure (error already
-        printed).
-    """
-    if os.environ.get("QWENPAW_RUNTIME_PROVISIONER") == "local":
-        raise click.ClickException(
-            "Local dependencies are administrator-managed; "
-            "ask the administrator to install them or use Docker.",
-        )
-    req = str(requirements_file)
-    timeout = 300
-
-    # ── Attempt 1: python -m pip ──────────────────────────────────────
-    try:
-        result = subprocess.run(  # pylint: disable=subprocess-run-check
-            [sys.executable, "-m", "pip", "install", "-r", req],
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-        )
-    except subprocess.TimeoutExpired:
-        click.echo("❌ Dependency installation timed out.", err=True)
-        shutil.rmtree(target_dir, ignore_errors=True)
-        return False
-
-    if result.returncode == 0:
-        click.echo("Dependencies installed")
-        return True
-
-    pip_missing = (
-        "No module named pip" in result.stderr
-        or "No module named pip" in result.stdout
-    )
-    if not pip_missing:
-        click.echo("❌ Failed to install dependencies:", err=True)
-        click.echo(f"  {result.stderr}", err=True)
-        shutil.rmtree(target_dir, ignore_errors=True)
-        return False
-
-    # ── Attempt 2: uv pip install ─────────────────────────────────────
-    uv = _find_uv()
-    if uv is None:
-        click.echo(
-            "❌ pip is not available and uv was not found on PATH.\n"
-            f"   Install manually: pip install -r {req}",
-            err=True,
-        )
-        shutil.rmtree(target_dir, ignore_errors=True)
-        return False
-
-    click.echo("pip not found, retrying with uv...")
-    try:
-        uv_result = subprocess.run(  # pylint: disable=subprocess-run-check
-            [uv, "pip", "install", "--python", sys.executable, "-r", req],
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-        )
-    except subprocess.TimeoutExpired:
-        click.echo(
-            "❌ Dependency installation timed out (via uv).",
-            err=True,
-        )
-        shutil.rmtree(target_dir, ignore_errors=True)
-        return False
-
-    if uv_result.returncode != 0:
-        click.echo(
-            "❌ Failed to install dependencies (via uv):",
-            err=True,
-        )
-        click.echo(f"  {uv_result.stderr}", err=True)
-        shutil.rmtree(target_dir, ignore_errors=True)
-        return False
-
-    click.echo("Dependencies installed (via uv)")
-    return True
-
-
 def _is_running() -> bool:
     """Return whether QwenPaw is currently running.
 
@@ -357,125 +234,6 @@ def _safe_extract_zip(zip_ref: zipfile.ZipFile, extract_path: Path):
                 f"outside target directory",
             )
     zip_ref.extractall(extract_path)
-
-
-def _sync_tool_plugin_to_agents(manifest: dict):
-    """Add tool plugin to all existing agents.
-
-    Args:
-        manifest: Plugin manifest dictionary
-    """
-    meta = manifest.get("meta", {})
-    tool_name = meta.get("tool_name")
-
-    # Only process if this is a tool plugin
-    if not tool_name:
-        return
-
-    click.echo(f"🔄 Syncing tool '{tool_name}' to all agents...")
-
-    from ..config.utils import load_config
-
-    config = load_config()
-
-    if not config.agents or not config.agents.profiles:
-        click.echo("   No agents found, skipping sync")
-        return
-
-    from ..config.config import (
-        BuiltinToolConfig,
-        load_agent_config,
-        save_agent_config,
-    )
-
-    synced_count = 0
-    for agent_id in config.agents.profiles.keys():
-        try:
-            # Load agent config using agent_id
-            agent_config = load_agent_config(agent_id)
-
-            # Check if tool already exists
-            if tool_name in agent_config.tools.builtin_tools:
-                continue
-
-            # Add tool config using Pydantic model
-            agent_config.tools.builtin_tools[tool_name] = BuiltinToolConfig(
-                name=tool_name,
-                enabled=False,
-                config={},
-            )
-
-            # Save using config system
-            save_agent_config(agent_id, agent_config)
-
-            synced_count += 1
-
-        except Exception as e:
-            logger.warning(
-                f"Failed to sync tool to {agent_id}: {e}",
-            )
-
-    if synced_count > 0:
-        click.echo(f"✓ Synced tool to {synced_count} agent(s)")
-    else:
-        click.echo("   All agents already have this tool")
-
-
-def _remove_tool_plugin_from_agents(manifest: dict):
-    """Remove tool plugin from all agents.
-
-    Args:
-        manifest: Plugin manifest dictionary
-    """
-    meta = manifest.get("meta", {})
-    tool_name = meta.get("tool_name")
-
-    # Only process if this is a tool plugin
-    if not tool_name:
-        return
-
-    click.echo(f"🔄 Removing tool '{tool_name}' from all agents...")
-
-    from ..config.utils import get_agent_dirs
-
-    agent_dirs = get_agent_dirs()
-    if not agent_dirs:
-        click.echo("   No agents found, skipping cleanup")
-        return
-
-    from ..config.config import load_agent_config, save_agent_config
-
-    removed_count = 0
-    for agent_dir in agent_dirs:
-        agent_json_path = agent_dir / "agent.json"
-        if not agent_json_path.exists():
-            continue
-
-        try:
-            # Load agent config using Pydantic model
-            config = load_agent_config(str(agent_dir))
-
-            # Check if tool exists
-            if tool_name not in config.tools.builtin_tools:
-                continue
-
-            # Remove tool
-            del config.tools.builtin_tools[tool_name]
-
-            # Save using config system
-            save_agent_config(str(agent_dir), config)
-
-            removed_count += 1
-
-        except Exception as e:
-            logger.warning(
-                f"Failed to remove tool from {agent_dir.name}: {e}",
-            )
-
-    if removed_count > 0:
-        click.echo(f"✓ Removed tool from {removed_count} agent(s)")
-    else:
-        click.echo("   No agents had this tool")
 
 
 def _download_plugin_from_url(url: str) -> tuple[Path, Path]:
@@ -589,83 +347,28 @@ def install(source: str, force: bool):
             click.echo(f"❌ Path not found: {source}", err=True)
             return
 
-    manifest_path = source_path / "plugin.json"
-    if not manifest_path.exists():
-        click.echo(f"❌ plugin.json not found in {source}", err=True)
-        return
+    from ..plugins.loader import PluginLoader
 
     try:
-        with open(manifest_path, encoding="utf-8") as f:
-            manifest = json.load(f)
-    except json.JSONDecodeError as e:
-        click.echo(f"❌ Invalid plugin.json: {e}", err=True)
-        return
-    except Exception as e:
-        click.echo(f"❌ Failed to read plugin.json: {e}", err=True)
-        return
-
-    plugin_id = manifest.get("id")
-    plugin_name = manifest.get("name")
-
-    if not plugin_id or not plugin_name:
-        click.echo(
-            "❌ plugin.json missing required fields: id, name",
-            err=True,
+        loader = PluginLoader([get_plugins_dir()])
+        record = asyncio.run(
+            loader.install_plugin_files(source_path, force=force),
         )
-        return
+    except Exception as exc:
+        raise click.ClickException(f"Failed to install plugin: {exc}") from exc
+    finally:
+        if temp_dir is not None:
+            try:
+                shutil.rmtree(temp_dir, ignore_errors=True)
+            except OSError as exc:
+                logger.warning("Failed to remove download staging: %s", exc)
 
-    click.echo(f"Installing plugin: {plugin_name} ({plugin_id})")
-
-    plugin_dir = get_plugins_dir()
-    plugin_dir.mkdir(parents=True, exist_ok=True)
-    target_dir = plugin_dir / plugin_id
-
-    if target_dir.exists() and not force:
-        click.echo(
-            f"❌ Plugin '{plugin_id}' already exists. "
-            "Use --force to reinstall.",
-            err=True,
-        )
-        return
-
-    click.echo("Validating plugin structure...")
-    try:
-        backend_entry = manifest.get("entry", {}).get("backend")
-        if backend_entry:
-            _validate_plugin_module(plugin_id, source_path, backend_entry)
-
-        click.echo("Plugin validation successful")
-    except Exception as e:
-        click.echo(f"❌ Plugin validation failed: {e}", err=True)
-        return
-
-    if target_dir.exists():
-        shutil.rmtree(target_dir)
-
-    click.echo("Copying plugin files...")
-    try:
-        shutil.copytree(source_path, target_dir)
-    except Exception as e:
-        click.echo(f"❌ Failed to copy plugin files: {e}", err=True)
-        return
-
-    requirements_file = target_dir / "requirements.txt"
-    if requirements_file.exists():
-        click.echo("Installing dependencies...")
-        if not _install_requirements_cli(requirements_file, target_dir):
-            return
-
-    click.echo(f"\n✅ Plugin '{plugin_name}' installed successfully!")
-    click.echo(f"Location: {target_dir}")
-
-    _sync_tool_plugin_to_agents(manifest)
-
-    if is_url and temp_dir:
-        try:
-            shutil.rmtree(temp_dir)
-        except Exception:
-            pass
-
+    click.echo(
+        f"\n✅ Plugin '{record.manifest.name}' installed successfully!",
+    )
+    click.echo(f"Location: {record.source_path}")
+    for diagnostic in record.diagnostics:
+        click.echo(diagnostic)
     click.echo("\nNext steps:")
     click.echo("   1. Start QwenPaw to load the plugin")
     click.echo("   2. Configure the plugin in the web UI")
@@ -801,7 +504,7 @@ def uninstall(plugin_id: str):
 
     When QwenPaw is running, the plugin is unloaded immediately via
     the API (no restart required).  When QwenPaw is stopped, only the
-    plugin files are removed from disk.
+    plugin files and owned provisioned resources are removed from disk.
     """
     # Support passing a directory path in addition to a bare plugin ID
     resolved_id = _resolve_plugin_id(plugin_id)
@@ -833,33 +536,33 @@ def uninstall(plugin_id: str):
 
     plugin_dir = get_plugins_dir() / plugin_id
 
-    if not plugin_dir.exists():
+    from ..plugins.provision import inventory_path
+
+    if not plugin_dir.exists() and not inventory_path(plugin_id).is_file():
         click.echo(f"❌ Plugin '{plugin_id}' not found", err=True)
         return
 
-    manifest_path = plugin_dir / "plugin.json"
-    manifest = None
-    if manifest_path.exists():
-        try:
-            with open(manifest_path, encoding="utf-8") as f:
-                manifest = json.load(f)
-        except Exception as e:
-            logger.warning(f"Failed to read plugin manifest: {e}")
-
-    if not click.confirm(
-        f"Uninstall plugin '{plugin_id}'?",
-    ):
+    if not click.confirm(f"Uninstall plugin '{plugin_id}'?"):
         click.echo("Cancelled.")
         return
 
-    if manifest:
-        _remove_tool_plugin_from_agents(manifest)
+    from ..plugins.lifecycle import UnloadMode
+    from ..plugins.loader import PluginLoader
 
     try:
-        shutil.rmtree(plugin_dir)
-        click.echo(f"✅ Plugin '{plugin_id}' uninstalled successfully")
-    except Exception as e:
-        click.echo(f"❌ Failed to uninstall plugin: {e}", err=True)
+        loader = PluginLoader([get_plugins_dir()])
+        report = asyncio.run(
+            loader.lifecycle.unload(plugin_id, UnloadMode.UNINSTALL),
+        )
+        if not report.clean or not report.quiescent:
+            raise RuntimeError(
+                "; ".join(report.errors) or "Cleanup incomplete",
+            )
+    except Exception as exc:
+        raise click.ClickException(
+            f"Failed to uninstall plugin: {exc}",
+        ) from exc
+    click.echo(f"✅ Plugin '{plugin_id}' uninstalled successfully")
 
 
 @plugin.command()
