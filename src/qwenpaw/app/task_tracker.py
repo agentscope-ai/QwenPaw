@@ -35,6 +35,71 @@ _create_task = asyncio.create_task
 # re-animation) and switch to live streaming afterwards.
 REPLAY_END_SSE = f"data: {json.dumps({'type': 'replay_end'})}\n\n"
 
+# Upper bound on the ``on_finished`` completion callback. The callback
+# persists a completion marker under ``ChatManager``'s shared lock (held by
+# ~24 other methods), so lock contention or a stalled repo would otherwise
+# leave the producer task suspended in its ``finally``: the run stays
+# registered *and* its task is not done, so every status reader reports
+# "running", which blocks workspace reload and makes inbound messages get
+# dropped with HTTP 409. The callback is best-effort bookkeeping, so giving
+# up on it is better than wedging the run.
+#
+# The wedge is therefore *bounded* by this value, not eliminated: the run is
+# cleaned up in ``_producer``'s ``finally`` only after the callback returns
+# or times out, which the ordering below is required to preserve (a
+# subscriber must observe the run as running while the callback runs).
+# A callback that suppresses cancellation can still outlive the bound, since
+# ``wait_for`` waits for the cancelled coroutine to unwind; none of the
+# shipped callbacks do that.
+ON_FINISHED_TIMEOUT = 30.0
+
+
+async def _notify_finished(
+    on_finished: Callable[[str, datetime], Awaitable[Any]] | None,
+    run_key: str,
+    finish_time: datetime,
+) -> None:
+    """Invoke the completion callback, bounded; failures are swallowed.
+
+    An exception or a timeout is logged and swallowed, so cleanup of the
+    finished run is never skipped and a slow callback cannot hold the run
+    open indefinitely. ``CancelledError`` is deliberately not caught: it is
+    a ``BaseException`` and must keep propagating to the caller, whose
+    ``finally`` still performs the cleanup.
+    """
+    if on_finished is None:
+        return
+    callback = asyncio.ensure_future(on_finished(run_key, finish_time))
+    try:
+        await asyncio.wait_for(
+            asyncio.shield(callback),
+            timeout=ON_FINISHED_TIMEOUT,
+        )
+    except asyncio.TimeoutError:
+        # Distinguish "our bound fired" from a TimeoutError the callback
+        # raised itself; only the former is a hang on our side.
+        if callback.done():
+            logger.exception(
+                "run completion callback failed run_key=%s",
+                run_key,
+            )
+        else:
+            callback.cancel()
+            logger.warning(
+                "run completion callback timed out after %ss run_key=%s",
+                ON_FINISHED_TIMEOUT,
+                run_key,
+            )
+    except asyncio.CancelledError:
+        callback.cancel()
+        raise
+    except Exception:  # pylint: disable=broad-except
+        callback.cancel()
+        logger.exception(
+            "run completion callback failed run_key=%s",
+            run_key,
+        )
+
 
 @dataclass
 class _RunState:
@@ -325,27 +390,32 @@ class TaskTracker:
                                 q.put_nowait(err_sse)
                 finally:
                     finish_time = datetime.now(timezone.utc)
-                    if on_finished is not None:
-                        try:
-                            await on_finished(run_key, finish_time)
-                        except Exception:  # pylint: disable=broad-except
-                            logger.exception(
-                                "run completion callback failed run_key=%s",
-                                run_key,
-                            )
-                    tracker = tracker_ref()
-                    if tracker is not None:
-                        async with tracker.lock:
-                            run.finish_time = finish_time
-                            # pylint: disable=protected-access
-                            tracker._global_last_finish_at = finish_time
-                            for q in run.queues:
-                                q.put_nowait(_SENTINEL)
-                            # pylint: disable=protected-access
-                            tracker._runs.pop(
-                                run_key,
-                                None,
-                            )
+                    # Cleanup lives in a nested ``finally`` so it still runs
+                    # when the producer is cancelled while the completion
+                    # callback is in flight: ``CancelledError`` is a
+                    # ``BaseException`` and so escapes the ``except
+                    # Exception`` guard, which would otherwise leave a
+                    # subscriber queue without its end-of-stream sentinel.
+                    try:
+                        await _notify_finished(
+                            on_finished,
+                            run_key,
+                            finish_time,
+                        )
+                    finally:
+                        tracker = tracker_ref()
+                        if tracker is not None:
+                            async with tracker.lock:
+                                run.finish_time = finish_time
+                                # pylint: disable=protected-access
+                                tracker._global_last_finish_at = finish_time
+                                for q in run.queues:
+                                    q.put_nowait(_SENTINEL)
+                                # pylint: disable=protected-access
+                                tracker._runs.pop(
+                                    run_key,
+                                    None,
+                                )
 
             # Register the run only once the producer task exists.
             # Registering a placeholder first would leak a permanent
