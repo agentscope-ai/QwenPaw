@@ -933,7 +933,10 @@ async def get_chat(
         if memory_raw:
             memories, _summary = parse_legacy_memory_state(memory_raw)
 
-    messages = agentscope_msg_to_message(memories)
+    messages = agentscope_msg_to_message(
+        memories,
+        truncate_oversized_outputs=True,
+    )
     return ChatHistory(messages=messages, status=status)
 
 
