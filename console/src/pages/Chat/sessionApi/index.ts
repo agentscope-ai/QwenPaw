@@ -17,7 +17,10 @@ import {
   extractLatestSnapshotFromCards,
 } from "../turnUsage";
 import { useTurnUsageStore } from "../turnUsageStore";
-import { extractClientMessageId } from "../../../utils/clientMessageId";
+import {
+  extractClientMessageId,
+  QWENPAW_CLIENT_MESSAGE_ID_KEY,
+} from "../../../utils/clientMessageId";
 import { useMessageQueueStore } from "../../../stores/messageQueueStore";
 import { syncSessionsGlobal } from "../../../stores/sessionListStore";
 
@@ -442,6 +445,8 @@ const STORAGE_PREFIX = "qwenpaw_pending_user_msg_";
 interface PendingUserMsg {
   text: string;
   clientMessageId?: string;
+  /** Original submission time, retained across history reloads and reconnects. */
+  timestamp?: string;
   /** Full content array (stored-name format) for rebuilding the user card
    *  with attachments. When absent, only text is displayed. */
   content?: Array<{ type: string; [key: string]: unknown }>;
@@ -920,18 +925,19 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
   ): void {
     if (!text && (!content || content.length === 0)) return;
     const ids = normalizePendingUserMessageIds(sessionIds);
+    const timestamp = new Date().toISOString();
     for (const sessionId of ids) {
       // Callers supply only canonical Chat UUIDs and their local draft IDs.
       // A runtime session_id can belong to other users/channels or Agents;
       // it must never be used as a shared pending-message cache key.
       this.invalidateConvertedCache(sessionId);
-      if (content && content.length > 0) {
-        savePendingUserMessage(sessionId, { text, content, clientMessageId });
-      } else if (clientMessageId) {
-        savePendingUserMessage(sessionId, { text, clientMessageId });
-      } else {
-        savePendingUserMessage(sessionId, text);
-      }
+      this.sessionResultCache.delete(sessionId);
+      savePendingUserMessage(sessionId, {
+        text,
+        content,
+        clientMessageId,
+        timestamp,
+      });
     }
   }
 
@@ -1099,24 +1105,35 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
       cached.content ??
       (cached.text ? [{ type: "text", text: cached.text }] : []);
 
+    const pendingCard = buildUserCard({
+      id: cached.clientMessageId,
+      content: msgContent,
+      role: ROLE_USER,
+      metadata: {
+        timestamp: cached.timestamp,
+        ...(cached.clientMessageId
+          ? { [QWENPAW_CLIENT_MESSAGE_ID_KEY]: cached.clientMessageId }
+          : {}),
+      },
+    } as Message);
     const lastMsg = messages[messages.length - 1];
-    if (lastMsg?.role === ROLE_USER) {
-      const text = extractTextFromContent(
-        lastMsg?.cards?.[0]?.data?.input?.[0]?.content,
-      );
-      if (!text) {
-        lastMsg.cards = buildUserCard({
-          content: msgContent,
-          role: ROLE_USER,
-        } as Message).cards;
-      }
-    } else {
-      messages.push(
-        buildUserCard({
-          content: msgContent,
-          role: ROLE_USER,
-        } as Message),
-      );
+    const lastInput = lastMsg?.cards?.[0]?.data?.input?.[0];
+    const lastText = extractTextFromContent(lastInput?.content);
+    if (
+      lastMsg?.role === ROLE_USER &&
+      !lastText &&
+      !lastInput?.content?.some((part: ContentItem) => part.type !== "text") &&
+      !extractClientMessageId(lastInput?.metadata)
+    ) {
+      // Only repair an empty placeholder. A previous user turn (including an
+      // attachment-only turn) must not hide this new pending submission.
+      lastMsg.cards = pendingCard.cards;
+    } else if (
+      lastMsg?.role !== ROLE_USER ||
+      cached.clientMessageId ||
+      lastText.trim() !== cached.text.trim()
+    ) {
+      messages.push(pendingCard);
     }
     return true;
   }
