@@ -6,7 +6,7 @@ import { useAppMessage } from "./useAppMessage";
 type Save = () => Promise<void | boolean>;
 
 /** Debounce edits, serialize writes, and flush the latest job on navigation. */
-export function useAutoSave(save: Save, delay = 1000) {
+export function useAutoSave(save: Save, delay = 1000, enabled = true) {
   const { message } = useAppMessage();
   const { t } = useTranslation();
   const errorKey = useId();
@@ -69,6 +69,7 @@ export function useAutoSave(save: Save, delay = 1000) {
     return saved;
   }, [errorKey]);
   const schedule = useCallback(() => {
+    if (!enabled) return;
     revision.current += 1;
     feedback.current.message.destroy(errorKey);
     pending.current = true;
@@ -76,19 +77,18 @@ export function useAutoSave(save: Save, delay = 1000) {
     timer.current = setTimeout(() => {
       void flush();
     }, delay);
-  }, [delay, flush, errorKey]);
-  useEffect(
-    () =>
-      useAgentStore.subscribe((next, previous) => {
-        if (next.selectedAgent !== previous.selectedAgent) void flush();
-      }),
-    [flush],
-  );
-  useEffect(
-    () => () => {
+  }, [delay, enabled, flush, errorKey]);
+  useEffect(() => {
+    if (!enabled) return;
+    return useAgentStore.subscribe((next, previous) => {
+      if (next.selectedAgent !== previous.selectedAgent) void flush();
+    });
+  }, [enabled, flush]);
+  useEffect(() => {
+    if (!enabled) return;
+    return () => {
       void flush();
-    },
-    [flush],
-  );
+    };
+  }, [enabled, flush]);
   return { schedule, flush };
 }

@@ -17,6 +17,7 @@ import { codingModeApi } from "../../../../api/modules/codingMode";
 import { projectDirectoryApi } from "../../../../api/modules/projectDirectory";
 import ProjectSelectModal from "../../../../components/ProjectSelectModal";
 import TimezoneAtlas from "./TimezoneAtlas";
+import { AgentModelCard } from "./AgentModelCard";
 import { useMemoryBackends } from "../../../../plugins/memoryBackends";
 import { useAgentStore } from "../../../../stores/agentStore";
 import {
@@ -238,6 +239,8 @@ export function ReactAgentCard({
         <ProjectDirectorySetting />
         <EnhancedCodeCapabilitySetting />
       </div>
+
+      <AgentModelCard />
 
       <SettingsField
         label={t("agentConfig.autoGenerateSessionTitle")}

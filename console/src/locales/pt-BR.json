@@ -2134,7 +2134,6 @@
     "providersDescription": "Configure API keys and endpoints for each provider.",
     "llmTitle": "Modelos",
     "defaultLlm": "Padrao LLM",
-    "llmDescription": "Set the global default LLM model from an authorized provider. You can choose a specific model for each Agent in the Chat page.",
     "configureProvider": "Configure {{name}}",
     "baseURL": "URL Base",
     "apiKey": "Chave da API",
