@@ -61,10 +61,11 @@ class GovernanceDecision:
     #   "sandbox"               — Phase 3 shell sandbox fallback
     #   "No rule hit"           — Phase 3 fallback (no rule/finding matched)
     source: str = "No rule hit"
+    extra: dict[str, Any] = field(default_factory=dict)
 
 
 class ToolCallSpec:
-    """Specification of a tool call (used by the governor for evaluation).
+    """Public version-1 tool call contract for governance and plugin hooks.
 
     Attributes:
         tool_name: Tool name, e.g. "Read", "Bash", "Write"
@@ -72,7 +73,11 @@ class ToolCallSpec:
         agent_id: Agent ID that initiated the call
         session_id: Current session ID
         raw_params: Raw tool call arguments dict
+        approval_level: Effective execution level, including F1 overrides
+        schema_version: Callback contract version (currently 1)
     """
+
+    schema_version = 1
 
     def __init__(
         self,
@@ -81,12 +86,15 @@ class ToolCallSpec:
         agent_id: str,
         session_id: str,
         raw_params: dict[str, Any] | None = None,
+        *,
+        approval_level: str | None = None,
     ) -> None:
         self.tool_name = tool_name
         self.target = target
         self.agent_id = agent_id
         self.session_id = session_id
         self.raw_params = raw_params or {}
+        self.approval_level = approval_level
 
 
 @dataclass

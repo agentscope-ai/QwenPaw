@@ -9,6 +9,7 @@ QwenPaw 提供了插件系统，允许用户扩展 QwenPaw 的功能。
 - **Provider 插件**：添加新的 LLM Provider 和模型
 - **Middleware 插件**：注册 AgentScope `MiddlewareBase` 工厂，在 agent 推理循环中包裹 `on_acting` / `on_reasoning` 等钩子
 - **Hook 插件**：在应用启动/关闭时执行自定义代码（app 生命周期级别，仅执行一次）
+- **工具策略钩子**：在工具调用前添加风险检查、审批要求和审计信息
 - **Command 插件**：注册自定义的 `/command` 魔法命令
 - **HTTP API 插件**：通过 FastAPI `APIRouter` 在 `/api` 下暴露自定义 REST 接口
 - **前端扩展插件**：在浏览器中运行的 JS 插件，共享宿主的 React / Ant Design 运行时，通过声明式 `window.QwenPaw.*` API 扩展界面——注册侧边栏菜单、页面路由、UI 插槽、聊天定制等，无需修改宿主代码
@@ -1991,6 +1992,85 @@ api.register_provider(
     **metadata,                    # 额外关键字参数（chat_model, require_api_key 等）
 )
 ```
+
+### register_tool_policy_hook
+
+注册在静态治理策略评估之后执行的异步决策回调：
+
+```python
+from qwenpaw.plugins import PolicyHint, ToolCallSpec
+
+api.register_tool_policy_hook(
+    hook_name="risk-gate",       # 在本插件内唯一
+    callback=decide,             # async (ToolCallSpec) -> PolicyHint | None
+    priority=50,                # 数值越小越早；同优先级按注册顺序执行
+    fail="closed",              # 默认 "open"：失败时弃权；"closed"：失败时拒绝
+    timeout_s=0.5,               # 有限正数，单位秒；默认 1.0
+)
+```
+
+`PolicyHint(action=None, reason="", metadata=None)` 的 action 支持 `"allow"`、
+`"ask"`、`"deny"` 或 `None`（弃权）。直接返回 `None` 也表示弃权。
+metadata 必须是可 JSON 序列化的字典。回调接收独立快照，包含治理工具名
+`tool_name`（如 `Bash`）、`target`、`agent_id`、`session_id` 和
+`raw_params`、`approval_level`（实际生效级别，包含 F1 的 `strict` 覆盖）；
+修改快照不会改变实际工具调用。从 `qwenpaw.plugins` 导入的 `ToolCallSpec`
+是公开回调契约，其版本由 `schema_version=1` 标识。
+
+- 钩子全局作用于经过 `PolicyGuardedTool` 的工具，包括内置、插件和 MCP
+  工具。可在回调中按 `agent_id` 或工具名筛选需要检查的调用。
+- 钩子只能增加限制：静态 DENY 直接跳过回调，插件的 `allow` 不能覆盖静态
+  ASK 或沙箱要求。第一个明确的 DENY 终止链；否则第一个 ASK 生效。
+  已有静态 ASK 的原因和检测结果会保留。
+- 插件 ASK 复用现有审批服务和跨会话路由。批准仅针对本次调用，不生成
+  allow 规则，并保留静态策略要求的沙箱。
+- 每个回调有独立超时。异常、无效返回值和超时均按 `fail` 处理。
+  异步回调必须使用非阻塞 I/O 并响应取消；它们在宿主进程中运行，不是
+  安全沙箱。宿主请求取消会正常向上传播。
+- 最终决策的审计记录在 `extra.tool_policy` 中保留静态决策和每个已执行
+  钩子的身份、action、reason、metadata、status。仅附加审计信息或弃权的
+  结果也会记录。请勿在 metadata 中放入凭据或敏感请求内容。
+- 卸载插件会移除后续评估使用的钩子；重复注册相同的
+  `(plugin_id, hook_name)` 会替换原钩子。正在执行的评估使用注册快照。
+- OFF 模式沿用现有治理绕过行为，也会跳过这些钩子。governor 不可用时
+  不运行回调。未注册钩子时，现有行为和审计结构不变。
+
+示例：在后端插件的 `register(api)` 中接入小型外部风险分类器。以下示例
+要求配置的端点返回 `{"risk": 0.6, "verdict_id": "v-123"}`；阈值仅作演示：
+
+```python
+import httpx
+from qwenpaw.plugins import PolicyHint, ToolCallSpec
+
+
+def register(api):
+    async def decide(spec: ToolCallSpec) -> PolicyHint | None:
+        if spec.tool_name != "Bash":
+            return None
+        async with httpx.AsyncClient(timeout=0.4) as client:
+            response = await client.post(
+                api.config["classifier_url"],
+                json={"command": spec.raw_params.get("command", "")},
+            )
+            response.raise_for_status()
+            verdict = response.json()
+        risk = float(verdict["risk"])
+        if not 0 <= risk <= 1:
+            raise ValueError("Invalid risk score")
+        action = "deny" if risk >= 0.9 else "ask" if risk >= 0.4 else None
+        return PolicyHint(
+            action=action,
+            reason="External classifier risk review",
+            metadata={"risk": risk, "verdict_id": verdict.get("verdict_id")},
+        )
+
+    api.register_tool_policy_hook(
+        "risk-gate", decide, priority=50, fail="closed", timeout_s=0.5,
+    )
+```
+
+该示例会将 shell 命令发送给配置的分类器，请按数据要求选择本地端点或
+已授权的服务。
 
 ### register_startup_hook
 

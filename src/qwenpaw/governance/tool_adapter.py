@@ -280,8 +280,9 @@ async def _policy_tool_check_permissions(
     Flow:
         1. Construct ToolCallSpec(tool_name, target, agent_id, session_id)
         2. governor.assert_policy(tool_call) → GovernanceDecision
-        3. governor.audit(tool_call, decision)
-        4. Map to PermissionDecision
+        3. Apply escalation-only plugin policy hints
+        4. governor.audit(tool_call, decision)
+        5. Map to PermissionDecision
     """
     from agentscope.permission import PermissionBehavior, PermissionDecision
 
@@ -357,6 +358,11 @@ async def _policy_tool_check_permissions(
         )
 
     tc_spec = self._build_tc_spec()
+    tc_spec.approval_level = (
+        effective_level.value
+        if effective_level is not None
+        else governor.policy.execution_level
+    )
 
     if f1_active:
         # Temporarily force STRICT for this evaluation only, then restore
@@ -370,6 +376,14 @@ async def _policy_tool_check_permissions(
             governor.policy.execution_level = prev_level
     else:
         decision = governor.assert_policy(tc_spec)
+    from ..plugins.registry import PluginRegistry
+    from .tool_policy import apply_tool_policy_hooks
+
+    decision = await apply_tool_policy_hooks(
+        tc_spec,
+        decision,
+        PluginRegistry().get_tool_policy_hooks(),
+    )
     governor.audit(tc_spec, decision)
 
     # Cache the decision + tc_spec for __call__ to use
@@ -399,14 +413,24 @@ async def _policy_tool_check_permissions(
         # Requires user confirmation
         self._qp_policy_decision = decision
 
-        return await _ask_user_approval(
+        permission = await _ask_user_approval(
             governor=governor,
             tc_spec=tc_spec,
             request_context=getattr(self, "_qp_request_context", {}) or {},
             policy_findings=decision.findings,
             governance_reason=decision.reason,
             source=decision.source,
+            policy_extra=decision.extra,
         )
+        # Asking for additional consent must not discard a sandbox that the
+        # static policy required. Approval only satisfies the plugin gate.
+        if (
+            permission.behavior is PermissionBehavior.ALLOW
+            and decision.sandbox_config is not None
+        ):
+            self._qp_sandbox_mode = True
+            self._qp_sandbox_config = decision.sandbox_config
+        return permission
     else:
         # Unknown decision → deny as safe default
         return PermissionDecision(
@@ -565,6 +589,7 @@ async def _ask_user_approval(
     governance_reason: str | None = None,
     policy_findings: list[Any] | None = None,
     source: str = "No rule hit",
+    policy_extra: dict | None = None,
 ) -> Any:
     """Request user approval, blocking until a reply is received."""
     from agentscope.permission import PermissionBehavior, PermissionDecision
@@ -597,11 +622,21 @@ async def _ask_user_approval(
 
     from .generalize import generalize_target_for_approval
 
-    generalized_target = await generalize_target_for_approval(
-        tool_name,
-        target,
-        source,
-        agent_id=agent_id,
+    hook_asked = any(
+        hint.get("action") == "ask"
+        for hint in (policy_extra or {})
+        .get("tool_policy", {})
+        .get("hooks", [])
+    )
+    generalized_target = (
+        target
+        if hook_asked
+        else await generalize_target_for_approval(
+            tool_name,
+            target,
+            source,
+            agent_id=agent_id,
+        )
     )
     display_target = generalized_target or target
 
@@ -771,6 +806,7 @@ async def _ask_user_approval(
     approval_decision = GovernanceDecision(
         action=GovernanceAction.ALLOW if approved else GovernanceAction.DENY,
         reason=(f"User Approve ({scope_label})" if approved else "User Deny"),
+        extra=policy_extra or {},
     )
     governor.audit(tc_spec, approval_decision)
 
@@ -782,10 +818,13 @@ async def _ask_user_approval(
         rule_target = (
             generalized_target if scope == ApprovalScope.SIMILAR else target
         )
-        await governor.add_approved_rule(
-            tc_spec,
-            generalized_target=rule_target,
-        )
+        # Plugin consent is per invocation, not a durable static allow rule.
+        # Otherwise approving a sandboxed call could unsandbox future calls.
+        if not hook_asked:
+            await governor.add_approved_rule(
+                tc_spec,
+                generalized_target=rule_target,
+            )
         return PermissionDecision(
             behavior=PermissionBehavior.ALLOW,
             message=f"Approved by user ({scope_label}).\n{summary}",
