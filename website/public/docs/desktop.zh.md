@@ -176,6 +176,7 @@ xattr -cr "/Applications/QwenPaw Desktop.app"
 - 应用会在后台运行，打开应用窗口
 - 应用日志输出到：`~/Library/Logs/io.agentscope.qwenpaw.desktop/qwenpaw-desktop.log`
 - 后端 sidecar 日志位于工作目录：`~/.qwenpaw/desktop.log`
+- Python 原生崩溃堆栈写入 `~/.qwenpaw/desktop-crash.log`；启动时会根据 `QWENPAW_LOG_MAX_BACKUPS` 将上次运行的文件轮转为编号备份。设置为 `0` 会禁用备份并删除上次的崩溃日志。
 
 #### 终端启动（查看实时日志）
 
@@ -201,6 +202,9 @@ tail -f ~/Library/Logs/io.agentscope.qwenpaw.desktop/qwenpaw-desktop.log
 
 # 跟踪后端 sidecar 日志
 tail -f ~/.qwenpaw/desktop.log
+
+# 查看 Python 原生崩溃堆栈
+cat ~/.qwenpaw/desktop-crash.log
 ```
 
 ### 常见问题
@@ -239,8 +243,8 @@ A: 当前采用
 - **GitHub Issues**: [提交问题](https://github.com/agentscope-ai/QwenPaw/issues)
 - **桌面外壳与构建**: Tauri 桌面外壳位于 `console/src-tauri/`，打包脚本位于 `scripts/pack-tauri/`
 - **日志位置**:
-  - Windows: Debug 快捷方式终端查看；应用日志 `%LOCALAPPDATA%\io.agentscope.qwenpaw.desktop\logs\qwenpaw-desktop.log`；后端 `%USERPROFILE%\.qwenpaw\desktop.log`
-  - macOS: 应用日志 `~/Library/Logs/io.agentscope.qwenpaw.desktop/qwenpaw-desktop.log`；后端 `~/.qwenpaw/desktop.log`
+  - Windows: Debug 快捷方式终端查看；应用日志 `%LOCALAPPDATA%\io.agentscope.qwenpaw.desktop\logs\qwenpaw-desktop.log`；后端 `%USERPROFILE%\.qwenpaw\desktop.log`；Python 原生崩溃堆栈 `%USERPROFILE%\.qwenpaw\desktop-crash.log`
+  - macOS: 应用日志 `~/Library/Logs/io.agentscope.qwenpaw.desktop/qwenpaw-desktop.log`；后端 `~/.qwenpaw/desktop.log`；Python 原生崩溃堆栈 `~/.qwenpaw/desktop-crash.log`
 
 ---
 

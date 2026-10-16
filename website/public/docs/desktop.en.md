@@ -176,6 +176,7 @@ When first launched, macOS may request the following permissions:
 - The app runs in the background and opens its window
 - App logs are written to: `~/Library/Logs/io.agentscope.qwenpaw.desktop/qwenpaw-desktop.log`
 - Backend sidecar logs live in the working directory: `~/.qwenpaw/desktop.log`
+- Native Python crash traces are written to `~/.qwenpaw/desktop-crash.log`; at startup, previous runs rotate to numbered backups according to `QWENPAW_LOG_MAX_BACKUPS`. Setting it to `0` disables backups and discards the previous crash log.
 
 #### Terminal Launch (View real-time logs)
 
@@ -201,6 +202,9 @@ tail -f ~/Library/Logs/io.agentscope.qwenpaw.desktop/qwenpaw-desktop.log
 
 # Tail the backend sidecar log
 tail -f ~/.qwenpaw/desktop.log
+
+# Inspect native Python crash traces
+cat ~/.qwenpaw/desktop-crash.log
 ```
 
 ### Common Issues
@@ -239,8 +243,8 @@ A: Currently using:
 - **GitHub Issues**: [Submit an issue](https://github.com/agentscope-ai/QwenPaw/issues)
 - **Desktop shell & build**: The Tauri desktop shell lives in `console/src-tauri/`, and the packaging scripts are in `scripts/pack-tauri/`
 - **Log locations**:
-  - Windows: View in the Debug shortcut terminal; app log `%LOCALAPPDATA%\io.agentscope.qwenpaw.desktop\logs\qwenpaw-desktop.log`; backend `%USERPROFILE%\.qwenpaw\desktop.log`
-  - macOS: app log `~/Library/Logs/io.agentscope.qwenpaw.desktop/qwenpaw-desktop.log`; backend `~/.qwenpaw/desktop.log`
+  - Windows: View in the Debug shortcut terminal; app log `%LOCALAPPDATA%\io.agentscope.qwenpaw.desktop\logs\qwenpaw-desktop.log`; backend `%USERPROFILE%\.qwenpaw\desktop.log`; native Python crash traces `%USERPROFILE%\.qwenpaw\desktop-crash.log`
+  - macOS: app log `~/Library/Logs/io.agentscope.qwenpaw.desktop/qwenpaw-desktop.log`; backend `~/.qwenpaw/desktop.log`; native Python crash traces `~/.qwenpaw/desktop-crash.log`
 
 ---
 

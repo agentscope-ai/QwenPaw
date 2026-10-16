@@ -170,8 +170,7 @@ class _SafeRotatingFileHandler(logging.handlers.RotatingFileHandler):
     On Windows, ``os.rename()`` inside ``doRollover()`` raises
     ``PermissionError`` when the log file is held open by another
     process (e.g. a log viewer or the debug-log console reader).
-    This subclass catches the error, reopens the stream so logging
-    continues without data loss, and defers rotation to the next
+    Reopen the stream so logging continues and defer rotation to the next
     size-exceeding emit.
     """
 
@@ -182,6 +181,33 @@ class _SafeRotatingFileHandler(logging.handlers.RotatingFileHandler):
             if self.stream:
                 self.stream.close()
             self.stream = self._open()
+            if not getattr(self, "_rotation_warning_emitted", False):
+                self._rotation_warning_emitted = True
+                warning = (
+                    f"WARNING: log rotation deferred for {self.baseFilename}\n"
+                )
+                self.stream.write(warning)
+                self.flush()
+
+    def write_text(self, text: str) -> int:
+        """Write raw text under the handler's rotation lock."""
+        self.acquire()
+        try:
+            if self.stream is None:
+                raise ValueError("I/O operation on closed log stream")
+            max_bytes = int(self.maxBytes)
+            if max_bytes > 0:
+                self.stream.seek(0, 2)
+                size = self.stream.tell() + len(
+                    text.encode(self.encoding or "utf-8", errors="replace"),
+                )
+                if size >= max_bytes:
+                    self.doRollover()
+            self.stream.write(text)
+            self.flush()
+        finally:
+            self.release()
+        return len(text)
 
 
 class PlainFormatter(logging.Formatter):
