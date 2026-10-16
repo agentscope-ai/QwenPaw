@@ -24,12 +24,14 @@ import {
   Moon,
   Check,
   SlidersHorizontal,
+  Sparkles,
 } from "lucide-react";
 import { useEffect, useId, useState, useSyncExternalStore } from "react";
 import { useTranslation } from "react-i18next";
 
 import { LANGUAGE_LIST } from "@/constants/languageList";
 import { useTheme, type ThemeMode } from "@/contexts/ThemeContext";
+import { useFxTier, type FxTierPreference } from "@/contexts/FxTierContext";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import type { ThemeConfig } from "@/api/modules/theme";
 import { isTauriRuntime } from "@/tauri/backendRuntime";
@@ -126,6 +128,7 @@ export default function GeneralSettings() {
     saveUserTheme,
     resetUserTheme,
   } = useTheme();
+  const { fxTierPreference, setFxTierPreference } = useFxTier();
   const { message } = App.useApp();
   const [editorOpen, setEditorOpen] = useState(false);
   const screens = Grid.useBreakpoint();
@@ -456,6 +459,47 @@ export default function GeneralSettings() {
                     );
                   })}
                 </div>
+              </div>
+              <div className={styles.settingRow} data-setting-block>
+                <span className={styles.settingIcon}>
+                  <Sparkles size={18} />
+                </span>
+                <span className={styles.settingCopy}>
+                  <strong>
+                    {t("settingsCenter.fxTier", "Decorative effects")}
+                  </strong>
+                  <small>
+                    {t(
+                      "settingsCenter.fxTierHint",
+                      "Choose how much glass blur and decorative animation the console uses.",
+                    )}
+                  </small>
+                </span>
+                <Segmented<FxTierPreference>
+                  className={styles.segmentedControl}
+                  vertical={mobile}
+                  aria-label={t("settingsCenter.fxTier", "Decorative effects")}
+                  value={fxTierPreference}
+                  options={[
+                    {
+                      value: "full",
+                      label: t("settingsCenter.fxTierFull", "Full"),
+                    },
+                    {
+                      value: "reduced",
+                      label: t("settingsCenter.fxTierReduced", "Reduced"),
+                    },
+                    {
+                      value: "off",
+                      label: t("settingsCenter.fxTierOff", "Off"),
+                    },
+                    {
+                      value: "system",
+                      label: t("settingsCenter.fxTierSystem", "Follow system"),
+                    },
+                  ]}
+                  onChange={setFxTierPreference}
+                />
               </div>
               <div className={styles.settingRow} data-setting-block>
                 <span className={styles.settingIcon}>

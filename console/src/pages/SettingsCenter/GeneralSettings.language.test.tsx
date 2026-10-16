@@ -39,7 +39,7 @@ describe("GeneralSettings language persistence", () => {
     const { container } = renderWithProviders(<GeneralSettings />);
 
     expect(container.querySelectorAll(".ant-segmented-vertical")).toHaveLength(
-      3,
+      4,
     );
   });
 
