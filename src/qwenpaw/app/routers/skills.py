@@ -25,6 +25,7 @@ from qwenpaw.exceptions import (
     AppBaseException,
 )
 
+from ...installation_origin import InstallationOrigin, validated_origin
 from ...agents.skill_system.hub import (
     SkillImportCancelled,
     search_hub_skills,
@@ -254,6 +255,7 @@ class SkillSpec(BaseModel):
     description: str = ""
     version_text: str = ""
     source: str
+    installation_origin: InstallationOrigin | None = None
     emoji: str = ""
     enabled: bool = False
     channels: list[str] = Field(default_factory=lambda: ["all"])
@@ -278,6 +280,7 @@ class PoolSkillSpec(BaseModel):
     description: str = ""
     version_text: str = ""
     source: str
+    installation_origin: InstallationOrigin | None = None
     emoji: str = ""
     external: bool = False
     external_path: str = ""
@@ -739,6 +742,7 @@ async def _run_hub_install_task(
                     "enabled": False,
                     "source_url": result.source_url,
                     "installed_from": result.installed_from,
+                    "installation_origin": result.installation_origin,
                 },
             )
             return
@@ -751,6 +755,7 @@ async def _run_hub_install_task(
                 "enabled": result.enabled,
                 "source_url": result.source_url,
                 "installed_from": result.installed_from,
+                "installation_origin": result.installation_origin,
             },
         )
     except SkillImportCancelled:
@@ -824,6 +829,9 @@ def _build_workspace_skill_specs(workspace_dir: Path) -> list[SkillSpec]:
                     description=str(metadata.get("description", "") or ""),
                     version_text=metadata["version_text"],
                     source=source,
+                    installation_origin=validated_origin(
+                        entry.get("installation_origin"),
+                    ),
                     emoji=str(metadata.get("emoji", "") or ""),
                     enabled=entry.get("enabled", False),
                     channels=entry.get("channels") or ["all"],
@@ -872,6 +880,9 @@ def _build_pool_skill_specs() -> list[PoolSkillSpec]:
                     description=str(metadata.get("description", "") or ""),
                     version_text=metadata["version_text"],
                     source=source,
+                    installation_origin=validated_origin(
+                        entry.get("installation_origin"),
+                    ),
                     emoji=str(metadata.get("emoji", "") or ""),
                     external=is_external,
                     external_path=str(skill_dir) if is_external else "",
@@ -924,6 +935,7 @@ def _build_workspace_skill_detail(
         version_text=metadata["version_text"],
         requirements=SkillRequirements(**metadata["requirements"]),
         source=source,
+        installation_origin=validated_origin(entry.get("installation_origin")),
         emoji=str(metadata.get("emoji", "") or ""),
         enabled=bool(entry.get("enabled", False)),
         channels=entry.get("channels") or ["all"],
@@ -967,6 +979,7 @@ def _build_pool_skill_detail(skill_name: str) -> PoolSkillDetail | None:
         version_text=metadata["version_text"],
         requirements=SkillRequirements(**metadata["requirements"]),
         source=source,
+        installation_origin=validated_origin(entry.get("installation_origin")),
         emoji=str(metadata.get("emoji", "") or ""),
         external=is_external,
         external_path=str(skill_dir) if is_external else "",
@@ -1360,6 +1373,7 @@ async def import_skill_pool_from_hub(
         "enabled": False,
         "source_url": result.source_url,
         "installed_from": result.installed_from,
+        "installation_origin": result.installation_origin,
     }
 
 

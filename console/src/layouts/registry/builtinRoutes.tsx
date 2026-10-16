@@ -46,6 +46,7 @@ const EnvironmentsPage = lazyImportWithRetry(
 const OffloadPolicyPage = lazyImportWithRetry(
   "../../pages/Settings/OffloadPolicy",
 );
+const CommunityPage = lazyImportWithRetry("../../pages/Settings/Community");
 const SecurityPage = lazyImportWithRetry("../../pages/Settings/Security");
 const TokenUsagePage = lazyImportWithRetry("../../pages/Settings/TokenUsage");
 const AgentStatsPage = lazyImportWithRetry("../../pages/Settings/AgentStats");
@@ -312,6 +313,19 @@ export const BUILTIN_ROUTES: Route[] = [
     path: "/agent-stats",
     component: AgentStatsPage,
     meta: routeMeta("nav.agentStats", "Agent Statistics", "workspace", "agent"),
+  },
+  {
+    id: "core.community",
+    path: "/community-settings",
+    component: CommunityPage,
+    meta: routeMeta(
+      "community.title",
+      "Community",
+      "settings",
+      "global",
+      "standard",
+      "settings",
+    ),
   },
   {
     id: "core.voice-transcription",

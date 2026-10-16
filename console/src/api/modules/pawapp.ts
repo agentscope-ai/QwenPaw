@@ -1,7 +1,9 @@
 import { getApiUrl } from "../config";
 import { buildAuthHeaders } from "../authHeaders";
+import type { InstallationOrigin } from "../types/community";
 
 export interface PawAppInfo {
+  installation_origin?: InstallationOrigin | null;
   id: string;
   name: string;
   version: string;

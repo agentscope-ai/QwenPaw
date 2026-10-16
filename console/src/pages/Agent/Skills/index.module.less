@@ -231,8 +231,16 @@
 .cardTopRight {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   gap: 8px;
-  flex-shrink: 0;
+  min-width: 0;
+  flex: 1;
+}
+.cardFeedback {
+  display: flex;
+  justify-content: flex-end;
+  flex-basis: 100%;
 }
 
 /* Status badge: dot + text */
@@ -1231,9 +1239,6 @@
 }
 
 .disabledSkillGridItem {
-  display: flex;
-  align-items: center;
-  gap: 10px;
   padding: 10px 14px;
   border: 1px solid var(--skills-disabled-item-border);
   border-radius: 8px;
@@ -1252,6 +1257,13 @@
     border-color: var(--app-accent);
     box-shadow: 0 2px 8px var(--app-accent-ring);
   }
+}
+
+.disabledSkillGridContent {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
 }
 
 .disabledSkillGridIcon {

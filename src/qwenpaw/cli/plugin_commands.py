@@ -639,6 +639,13 @@ def install(source: str, force: bool):
         click.echo(f"❌ Plugin validation failed: {e}", err=True)
         return
 
+    from ..installation_origin import (
+        origin_from_platform_url,
+        write_plugin_origin,
+    )
+    from ..plugins.architecture import PluginManifest
+
+    write_plugin_origin(plugin_dir, plugin_id, None)
     if target_dir.exists():
         shutil.rmtree(target_dir)
 
@@ -654,6 +661,19 @@ def install(source: str, force: bool):
         click.echo("Installing dependencies...")
         if not _install_requirements_cli(requirements_file, target_dir):
             return
+
+    parsed_manifest = PluginManifest.from_dict(manifest)
+    origin = origin_from_platform_url(
+        source if is_url else "",
+        (
+            "app"
+            if parsed_manifest.plugin_type == "app"
+            or parsed_manifest.meta.get("pawapp")
+            else "plugin"
+        ),
+        parsed_manifest.version,
+    )
+    write_plugin_origin(plugin_dir, plugin_id, origin)
 
     click.echo(f"\n✅ Plugin '{plugin_name}' installed successfully!")
     click.echo(f"Location: {target_dir}")
@@ -857,6 +877,9 @@ def uninstall(plugin_id: str):
 
     try:
         shutil.rmtree(plugin_dir)
+        from ..installation_origin import write_plugin_origin
+
+        write_plugin_origin(plugin_dir.parent, plugin_id, None)
         click.echo(f"✅ Plugin '{plugin_id}' uninstalled successfully")
     except Exception as e:
         click.echo(f"❌ Failed to uninstall plugin: {e}", err=True)

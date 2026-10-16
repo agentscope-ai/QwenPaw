@@ -1,6 +1,7 @@
 import { notifyPluginChange } from "../../utils/pluginChangeEvents";
 import { getApiUrl } from "../config";
 import { buildAuthHeaders } from "../authHeaders";
+import type { InstallationOrigin } from "../types/community";
 
 /** Matches the backend ``PluginType`` enum values. */
 export type PluginType =
@@ -19,6 +20,7 @@ export type PluginType =
  * A single plugin record returned by `GET /api/plugins`.
  */
 export interface PluginInfo {
+  installation_origin?: InstallationOrigin | null;
   id: string;
   name: string;
   version: string;
