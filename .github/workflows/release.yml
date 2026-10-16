@@ -415,6 +415,11 @@ jobs:
         with:
           node-version: "20"
 
+      - name: Build OpenUI plugin
+        run: |
+          npm --prefix plugins/bundle/qwenpaw-openui/frontend ci
+          npm --prefix plugins/bundle/qwenpaw-openui/frontend test
+
       - name: Build memory plugin frontends
         shell: bash
         run: |

@@ -1,0 +1,23 @@
+{
+  "id": "qwenpaw-openui",
+  "name": "QwenPaw OpenUI",
+  "version": "0.1.0",
+  "description": "Interactive OpenUI components inline in QwenPaw Chat replies.",
+  "description_i18n": {
+    "zh-CN": "在 QwenPaw 对话中交错呈现文字与可交互的 OpenUI 组件。",
+    "en-US": "Interactive OpenUI components inline in QwenPaw Chat replies."
+  },
+  "author": "QwenPaw",
+  "entry": {
+    "backend": "plugin.py",
+    "frontend": "dist/index.js"
+  },
+  "dependencies": [],
+  "qwenpaw_version": {
+    "min": "2.2.3"
+  },
+  "pack_requires": ["dist/system-prompt.txt"],
+  "pack_exclude": ["frontend"],
+  "pack_requires_hint": "Run npm ci && npm run build in plugins/bundle/qwenpaw-openui/frontend before packaging.",
+  "type": "frontend"
+}
