@@ -14,10 +14,13 @@ import { invalidateSkillCache } from "../../../api/modules/skill";
 import type {
   BuiltinImportSpec,
   BuiltinUpdateNotice,
+  PoolDownloadJob,
+  PoolDownloadState,
   PoolSkillDetail,
   PoolSkillSpec,
   SkillAutomationResponse,
   SkillAutomationUpdate,
+  SkillPoolDownloadRequest,
   WorkspaceSkillSummary,
 } from "../../../api/types";
 import { parseErrorDetail } from "../../../utils/error";
@@ -30,6 +33,10 @@ import {
 } from "../../Agent/Skills/components";
 import { useSkillFilter } from "../../Agent/Skills/useSkillFilter";
 import { useUploadLimitStore } from "../../../stores/uploadLimitStore";
+import {
+  startPoolDownloadJob,
+  type PoolDownloadHandle,
+} from "../../../utils/skillPoolDownloadJob";
 
 export type PoolMode = "broadcast" | "create" | "edit";
 
@@ -133,6 +140,10 @@ function writeBuiltinNoticeAcknowledgement(fingerprint: string): void {
 
 export function useSkillPool() {
   const { t, i18n } = useTranslation();
+  const [downloadState, setDownloadState] = useState<PoolDownloadState | null>(
+    null,
+  );
+  const downloadHandleRef = useRef<PoolDownloadHandle | null>(null);
   const [skills, setSkills] = useState<PoolSkillSpec[]>([]);
   const [workspaces, setWorkspaces] = useState<WorkspaceSkillSummary[]>([]);
   const [builtinNotice, setBuiltinNotice] =
@@ -483,6 +494,38 @@ export function useSkillPool() {
     [drawerContent, t],
   );
 
+  const runPoolDownload = async (
+    payload: SkillPoolDownloadRequest,
+  ): Promise<PoolDownloadJob> => {
+    const handle = startPoolDownloadJob(payload, {
+      onState: setDownloadState,
+    });
+    downloadHandleRef.current = handle;
+    try {
+      return await handle.done;
+    } finally {
+      downloadHandleRef.current = null;
+      setDownloadState(null);
+    }
+  };
+
+  const cancelDownload = useCallback(() => {
+    const handle = downloadHandleRef.current;
+    if (!handle) return;
+    void handle.cancel();
+  }, []);
+
+  const handleDownloadStopped = async (job: PoolDownloadJob) => {
+    closeModal();
+    invalidateSkillCache({ pool: true, workspaces: true });
+    await loadData(true);
+    if (job.state === "cancelled") {
+      message.warning(t("skills.importCancelled"));
+      return;
+    }
+    message.error(job.error || t("skillPool.broadcastFailed"));
+  };
+
   const handleBroadcast = async (
     broadcastSkillNames: string[],
     targetWorkspaceIds: string[],
@@ -617,22 +660,30 @@ export function useSkillPool() {
         );
 
         if (cleanTargetIds.length > 0) {
-          await api.downloadSkillPoolSkill({
+          const job = await runPoolDownload({
             skill_name: skillName,
             targets: cleanTargetIds.map((workspace_id) => ({
               workspace_id,
             })),
           });
+          if (job.state !== "completed") {
+            await handleDownloadStopped(job);
+            return;
+          }
         }
 
         if (overwriteTargetIds.size > 0) {
-          await api.downloadSkillPoolSkill({
+          const job = await runPoolDownload({
             skill_name: skillName,
             targets: Array.from(overwriteTargetIds).map((workspace_id) => ({
               workspace_id,
             })),
             overwrite: true,
           });
+          if (job.state !== "completed") {
+            await handleDownloadStopped(job);
+            return;
+          }
         }
       }
       message.success(t("skillPool.broadcastSuccess"));
@@ -1258,6 +1309,7 @@ export function useSkillPool() {
     importBuiltinLoading,
     importModalOpen,
     importing,
+    downloadState,
     selectedPoolSkills,
     batchModeEnabled,
     viewMode,
@@ -1295,6 +1347,7 @@ export function useSkillPool() {
     handleDrawerContentChange,
     validateFrontmatter,
     handleBroadcast,
+    cancelDownload,
     handleImportBuiltins,
     handleBuiltinLanguageSwitch,
     handleAutomationQuickAction,
