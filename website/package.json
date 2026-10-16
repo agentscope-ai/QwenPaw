@@ -3,11 +3,12 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "tsc -b && node scripts/build-search-index.mjs && vite build && node scripts/spa-fallback-pages.mjs",
+    "dev": "pnpm evaluation:build && vite",
+    "build": "pnpm evaluation:build && tsc -b && node scripts/build-search-index.mjs && vite build && node scripts/spa-fallback-pages.mjs",
     "format": "tsc -b --noEmit && prettier --write .",
     "format:check": "tsc -b --noEmit && prettier --check .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "evaluation:build": "node scripts/build-evaluation-index.mjs"
   },
   "dependencies": {
     "@fontsource-variable/geist": "^5.2.8",
@@ -23,6 +24,7 @@
     "mermaid": "^11.12.2",
     "motion": "^11.11.17",
     "ogl": "^1.0.11",
+    "plotly.js-basic-dist-min": "3.1.0",
     "radix-ui": "^1.4.3",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
@@ -41,13 +43,15 @@
     "@tailwindcss/vite": "^4.2.2",
     "@types/js-yaml": "^4.0.9",
     "@types/node": "^25.5.0",
+    "@types/plotly.js": "3.0.7",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.4",
     "prettier": "3.0.0",
     "tailwindcss": "^4.2.2",
     "typescript": "~5.6.2",
-    "vite": "^6.4.3"
+    "vite": "^6.4.3",
+    "ajv": "8.17.1"
   },
   "engines": {
     "node": ">=22"

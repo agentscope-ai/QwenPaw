@@ -1,0 +1,2531 @@
+{
+  "schema_version": 3,
+  "runs": [
+    {
+      "schema_version": 3,
+      "kind": "testing",
+      "board": {
+        "id": "qwenpaw",
+        "name": "QwenPaw",
+        "group_by": "model"
+      },
+      "index_version": "index-v1",
+      "id": "demo-0",
+      "evaluation_sha": null,
+      "source_repository": "https://github.com/agentscope-ai/QwenPaw",
+      "artifact_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "exchange_rate": {
+        "cny_per_usd": 7.0,
+        "basis": "fixed"
+      },
+      "date": "2026-07-08T00:00:00Z",
+      "workflow_url": "",
+      "benchmark_versions": [
+        {
+          "id": "gaia",
+          "name": "GAIA",
+          "revision": "demo",
+          "domains": [
+            "research"
+          ],
+          "expected": 165,
+          "judge": {
+            "kind": "programmatic",
+            "model": null,
+            "scorer": "replace-with-scorer-revision",
+            "official_model": null,
+            "prompt_revision": null,
+            "parity_note": ""
+          }
+        },
+        {
+          "id": "spreadsheetbench-verified",
+          "name": "SpreadsheetBench Verified",
+          "revision": "demo",
+          "domains": [
+            "office"
+          ],
+          "expected": 400,
+          "judge": {
+            "kind": "programmatic",
+            "model": null,
+            "scorer": "replace-with-scorer-revision",
+            "official_model": null,
+            "prompt_revision": null,
+            "parity_note": ""
+          }
+        },
+        {
+          "id": "swebench-verified",
+          "name": "SWE-bench Verified",
+          "revision": "demo",
+          "domains": [
+            "coding"
+          ],
+          "expected": 500,
+          "judge": {
+            "kind": "programmatic",
+            "model": null,
+            "scorer": "replace-with-scorer-revision",
+            "official_model": null,
+            "prompt_revision": null,
+            "parity_note": ""
+          }
+        }
+      ],
+      "records": [
+        {
+          "model": "qwen3.8-max-0902",
+          "provider": "demo",
+          "harness": "QwenPaw",
+          "sdk_version": "2.0.0-demo",
+          "source_sha": null,
+          "source_repository": "https://github.com/agentscope-ai/QwenPaw",
+          "artifact_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+          "complete": true,
+          "benchmarks": [
+            {
+              "benchmark": "gaia",
+              "domains": [
+                "gaia"
+              ],
+              "expected": 165,
+              "scored": 165,
+              "score": 76,
+              "mean_runtime_seconds": 160,
+              "mean_model_cost_usd": 0.9,
+              "cost_sources": {
+                "litellm_estimated": 165
+              },
+              "cost_bases": {
+                "list_price": 165
+              },
+              "name": "GAIA",
+              "judge": {
+                "kind": "programmatic",
+                "model": null,
+                "scorer": "replace-with-scorer-revision",
+                "official_model": null,
+                "prompt_revision": null,
+                "parity_note": ""
+              },
+              "original_model_cost": {
+                "currency": "USD",
+                "mean_amount": 0.9
+              },
+              "mean_judge_cost_usd": 0,
+              "original_judge_cost": {
+                "currency": "USD",
+                "mean_amount": 0
+              },
+              "failed": 0,
+              "failures": {}
+            },
+            {
+              "benchmark": "spreadsheetbench-verified",
+              "domains": [
+                "spreadsheetbench-verified"
+              ],
+              "expected": 400,
+              "scored": 400,
+              "score": 81.04882590884738,
+              "mean_runtime_seconds": 270,
+              "mean_model_cost_usd": 1.17,
+              "cost_sources": {
+                "litellm_estimated": 400
+              },
+              "cost_bases": {
+                "list_price": 400
+              },
+              "name": "SpreadsheetBench Verified",
+              "judge": {
+                "kind": "programmatic",
+                "model": null,
+                "scorer": "replace-with-scorer-revision",
+                "official_model": null,
+                "prompt_revision": null,
+                "parity_note": ""
+              },
+              "original_model_cost": {
+                "currency": "USD",
+                "mean_amount": 1.17
+              },
+              "mean_judge_cost_usd": 0,
+              "original_judge_cost": {
+                "currency": "USD",
+                "mean_amount": 0
+              },
+              "failed": 0,
+              "failures": {}
+            },
+            {
+              "benchmark": "swebench-verified",
+              "domains": [
+                "swebench-verified"
+              ],
+              "expected": 500,
+              "scored": 500,
+              "score": 81.45578456095409,
+              "mean_runtime_seconds": 380,
+              "mean_model_cost_usd": 1.44,
+              "cost_sources": {
+                "litellm_estimated": 500
+              },
+              "cost_bases": {
+                "list_price": 500
+              },
+              "name": "SWE-bench Verified",
+              "judge": {
+                "kind": "programmatic",
+                "model": null,
+                "scorer": "replace-with-scorer-revision",
+                "official_model": null,
+                "prompt_revision": null,
+                "parity_note": ""
+              },
+              "original_model_cost": {
+                "currency": "USD",
+                "mean_amount": 1.44
+              },
+              "mean_judge_cost_usd": 0,
+              "original_judge_cost": {
+                "currency": "USD",
+                "mean_amount": 0
+              },
+              "failed": 0,
+              "failures": {}
+            }
+          ]
+        },
+        {
+          "model": "qwen3.8-27b",
+          "provider": "demo",
+          "harness": "QwenPaw",
+          "sdk_version": "2.0.0-demo",
+          "source_sha": null,
+          "source_repository": "https://github.com/agentscope-ai/QwenPaw",
+          "artifact_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+          "complete": true,
+          "benchmarks": [
+            {
+              "benchmark": "gaia",
+              "domains": [
+                "gaia"
+              ],
+              "expected": 165,
+              "scored": 165,
+              "score": 78.04882590884738,
+              "mean_runtime_seconds": 207,
+              "mean_model_cost_usd": 0.07,
+              "cost_sources": {
+                "litellm_estimated": 165
+              },
+              "cost_bases": {
+                "list_price": 165
+              },
+              "name": "GAIA",
+              "judge": {
+                "kind": "programmatic",
+                "model": null,
+                "scorer": "replace-with-scorer-revision",
+                "official_model": null,
+                "prompt_revision": null,
+                "parity_note": ""
+              },
+              "original_model_cost": {
+                "currency": "USD",
+                "mean_amount": 0.07
+              },
+              "mean_judge_cost_usd": 0,
+              "original_judge_cost": {
+                "currency": "USD",
+                "mean_amount": 0
+              },
+              "failed": 0,
+              "failures": {}
+            },
+            {
+              "benchmark": "spreadsheetbench-verified",
+              "domains": [
+                "spreadsheetbench-verified"
+              ],
+              "expected": 400,
+              "scored": 400,
+              "score": 78.45578456095409,
+              "mean_runtime_seconds": 317,
+              "mean_model_cost_usd": 0.091,
+              "cost_sources": {
+                "litellm_estimated": 400
+              },
+              "cost_bases": {
+                "list_price": 400
+              },
+              "name": "SpreadsheetBench Verified",
+              "judge": {
+                "kind": "programmatic",
+                "model": null,
+                "scorer": "replace-with-scorer-revision",
+                "official_model": null,
+                "prompt_revision": null,
+                "parity_note": ""
+              },
+              "original_model_cost": {
+                "currency": "USD",
+                "mean_amount": 0.091
+              },
+              "mean_judge_cost_usd": 0,
+              "original_judge_cost": {
+                "currency": "USD",
+                "mean_amount": 0
+              },
+              "failed": 0,
+              "failures": {}
+            },
+            {
+              "benchmark": "swebench-verified",
+              "domains": [
+                "swebench-verified"
+              ],
+              "expected": 500,
+              "scored": 500,
+              "score": 73.8467200483592,
+              "mean_runtime_seconds": 427,
+              "mean_model_cost_usd": 0.112,
+              "cost_sources": {
+                "litellm_estimated": 500
+              },
+              "cost_bases": {
+                "list_price": 500
+              },
+              "name": "SWE-bench Verified",
+              "judge": {
+                "kind": "programmatic",
+                "model": null,
+                "scorer": "replace-with-scorer-revision",
+                "official_model": null,
+                "prompt_revision": null,
+                "parity_note": ""
+              },
+              "original_model_cost": {
+                "currency": "USD",
+                "mean_amount": 0.112
+              },
+              "mean_judge_cost_usd": 0,
+              "original_judge_cost": {
+                "currency": "USD",
+                "mean_amount": 0
+              },
+              "failed": 0,
+              "failures": {}
+            }
+          ]
+        },
+        {
+          "model": "deepseek-v4-pro-0813",
+          "provider": "demo",
+          "harness": "QwenPaw",
+          "sdk_version": "2.0.0-demo",
+          "source_sha": null,
+          "source_repository": "https://github.com/agentscope-ai/QwenPaw",
+          "artifact_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+          "complete": true,
+          "benchmarks": [
+            {
+              "benchmark": "gaia",
+              "domains": [
+                "gaia"
+              ],
+              "expected": 165,
+              "scored": 165,
+              "score": 75.45578456095409,
+              "mean_runtime_seconds": 254,
+              "mean_model_cost_usd": 0.3,
+              "cost_sources": {
+                "litellm_estimated": 165
+              },
+              "cost_bases": {
+                "list_price": 165
+              },
+              "name": "GAIA",
+              "judge": {
+                "kind": "programmatic",
+                "model": null,
+                "scorer": "replace-with-scorer-revision",
+                "official_model": null,
+                "prompt_revision": null,
+                "parity_note": ""
+              },
+              "original_model_cost": {
+                "currency": "USD",
+                "mean_amount": 0.3
+              },
+              "mean_judge_cost_usd": 0,
+              "original_judge_cost": {
+                "currency": "USD",
+                "mean_amount": 0
+              },
+              "failed": 0,
+              "failures": {}
+            },
+            {
+              "benchmark": "spreadsheetbench-verified",
+              "domains": [
+                "spreadsheetbench-verified"
+              ],
+              "expected": 400,
+              "scored": 400,
+              "score": 70.8467200483592,
+              "mean_runtime_seconds": 364,
+              "mean_model_cost_usd": 0.39,
+              "cost_sources": {
+                "litellm_estimated": 400
+              },
+              "cost_bases": {
+                "list_price": 400
+              },
+              "name": "SpreadsheetBench Verified",
+              "judge": {
+                "kind": "programmatic",
+                "model": null,
+                "scorer": "replace-with-scorer-revision",
+                "official_model": null,
+                "prompt_revision": null,
+                "parity_note": ""
+              },
+              "original_model_cost": {
+                "currency": "USD",
+                "mean_amount": 0.39
+              },
+              "mean_judge_cost_usd": 0,
+              "original_judge_cost": {
+                "currency": "USD",
+                "mean_amount": 0
+              },
+              "failed": 0,
+              "failures": {}
+            },
+            {
+              "benchmark": "swebench-verified",
+              "domains": [
+                "swebench-verified"
+              ],
+              "expected": 500,
+              "scored": 500,
+              "score": 65.45918502815243,
+              "mean_runtime_seconds": 474,
+              "mean_model_cost_usd": 0.48,
+              "cost_sources": {
+                "litellm_estimated": 500
+              },
+              "cost_bases": {
+                "list_price": 500
+              },
+              "name": "SWE-bench Verified",
+              "judge": {
+                "kind": "programmatic",
+                "model": null,
+                "scorer": "replace-with-scorer-revision",
+                "official_model": null,
+                "prompt_revision": null,
+                "parity_note": ""
+              },
+              "original_model_cost": {
+                "currency": "USD",
+                "mean_amount": 0.48
+              },
+              "mean_judge_cost_usd": 0,
+              "original_judge_cost": {
+                "currency": "USD",
+                "mean_amount": 0
+              },
+              "failed": 0,
+              "failures": {}
+            }
+          ]
+        },
+        {
+          "model": "deepseek-v4.1-flash",
+          "provider": "demo",
+          "harness": "QwenPaw",
+          "sdk_version": "2.0.0-demo",
+          "source_sha": null,
+          "source_repository": "https://github.com/agentscope-ai/QwenPaw",
+          "artifact_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+          "complete": true,
+          "benchmarks": [
+            {
+              "benchmark": "gaia",
+              "domains": [
+                "gaia"
+              ],
+              "expected": 165,
+              "scored": 165,
+              "score": 67.8467200483592,
+              "mean_runtime_seconds": 301,
+              "mean_model_cost_usd": 0.225,
+              "cost_sources": {
+                "litellm_estimated": 165
+              },
+              "cost_bases": {
+                "list_price": 165
+              },
+              "name": "GAIA",
+              "judge": {
+                "kind": "programmatic",
+                "model": null,
+                "scorer": "replace-with-scorer-revision",
+                "official_model": null,
+                "prompt_revision": null,
+                "parity_note": ""
+              },
+              "original_model_cost": {
+                "currency": "USD",
+                "mean_amount": 0.225
+              },
+              "mean_judge_cost_usd": 0,
+              "original_judge_cost": {
+                "currency": "USD",
+                "mean_amount": 0
+              },
+              "failed": 0,
+              "failures": {}
+            },
+            {
+              "benchmark": "spreadsheetbench-verified",
+              "domains": [
+                "spreadsheetbench-verified"
+              ],
+              "expected": 400,
+              "scored": 400,
+              "score": 62.45918502815243,
+              "mean_runtime_seconds": 411,
+              "mean_model_cost_usd": 0.2925,
+              "cost_sources": {
+                "litellm_estimated": 400
+              },
+              "cost_bases": {
+                "list_price": 400
+              },
+              "name": "SpreadsheetBench Verified",
+              "judge": {
+                "kind": "programmatic",
+                "model": null,
+                "scorer": "replace-with-scorer-revision",
+                "official_model": null,
+                "prompt_revision": null,
+                "parity_note": ""
+              },
+              "original_model_cost": {
+                "currency": "USD",
+                "mean_amount": 0.2925
+              },
+              "mean_judge_cost_usd": 0,
+              "original_judge_cost": {
+                "currency": "USD",
+                "mean_amount": 0
+              },
+              "failed": 0,
+              "failures": {}
+            },
+            {
+              "benchmark": "swebench-verified",
+              "domains": [
+                "swebench-verified"
+              ],
+              "expected": 500,
+              "scored": 500,
+              "score": 61.24645435202117,
+              "mean_runtime_seconds": 521,
+              "mean_model_cost_usd": 0.36,
+              "cost_sources": {
+                "litellm_estimated": 500
+              },
+              "cost_bases": {
+                "list_price": 500
+              },
+              "name": "SWE-bench Verified",
+              "judge": {
+                "kind": "programmatic",
+                "model": null,
+                "scorer": "replace-with-scorer-revision",
+                "official_model": null,
+                "prompt_revision": null,
+                "parity_note": ""
+              },
+              "original_model_cost": {
+                "currency": "USD",
+                "mean_amount": 0.36
+              },
+              "mean_judge_cost_usd": 0,
+              "original_judge_cost": {
+                "currency": "USD",
+                "mean_amount": 0
+              },
+              "failed": 0,
+              "failures": {}
+            }
+          ]
+        },
+        {
+          "model": "glm-5.3",
+          "provider": "demo",
+          "harness": "QwenPaw",
+          "sdk_version": "2.0.0-demo",
+          "source_sha": null,
+          "source_repository": "https://github.com/agentscope-ai/QwenPaw",
+          "artifact_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+          "complete": true,
+          "benchmarks": [
+            {
+              "benchmark": "gaia",
+              "domains": [
+                "gaia"
+              ],
+              "expected": 165,
+              "scored": 165,
+              "score": 59.45918502815243,
+              "mean_runtime_seconds": 348,
+              "mean_model_cost_usd": 0.18,
+              "cost_sources": {
+                "litellm_estimated": 165
+              },
+              "cost_bases": {
+                "list_price": 165
+              },
+              "name": "GAIA",
+              "judge": {
+                "kind": "programmatic",
+                "model": null,
+                "scorer": "replace-with-scorer-revision",
+                "official_model": null,
+                "prompt_revision": null,
+                "parity_note": ""
+              },
+              "original_model_cost": {
+                "currency": "USD",
+                "mean_amount": 0.18
+              },
+              "mean_judge_cost_usd": 0,
+              "original_judge_cost": {
+                "currency": "USD",
+                "mean_amount": 0
+              },
+              "failed": 0,
+              "failures": {}
+            },
+            {
+              "benchmark": "spreadsheetbench-verified",
+              "domains": [
+                "spreadsheetbench-verified"
+              ],
+              "expected": 400,
+              "scored": 400,
+              "score": 58.24645435202117,
+              "mean_runtime_seconds": 458,
+              "mean_model_cost_usd": 0.234,
+              "cost_sources": {
+                "litellm_estimated": 400
+              },
+              "cost_bases": {
+                "list_price": 400
+              },
+              "name": "SpreadsheetBench Verified",
+              "judge": {
+                "kind": "programmatic",
+                "model": null,
+                "scorer": "replace-with-scorer-revision",
+                "official_model": null,
+                "prompt_revision": null,
+                "parity_note": ""
+              },
+              "original_model_cost": {
+                "currency": "USD",
+                "mean_amount": 0.234
+              },
+              "mean_judge_cost_usd": 0,
+              "original_judge_cost": {
+                "currency": "USD",
+                "mean_amount": 0
+              },
+              "failed": 0,
+              "failures": {}
+            },
+            {
+              "benchmark": "swebench-verified",
+              "domains": [
+                "swebench-verified"
+              ],
+              "expected": 500,
+              "scored": 500,
+              "score": 62.323507010806445,
+              "mean_runtime_seconds": 568,
+              "mean_model_cost_usd": 0.288,
+              "cost_sources": {
+                "litellm_estimated": 500
+              },
+              "cost_bases": {
+                "list_price": 500
+              },
+              "name": "SWE-bench Verified",
+              "judge": {
+                "kind": "programmatic",
+                "model": null,
+                "scorer": "replace-with-scorer-revision",
+                "official_model": null,
+                "prompt_revision": null,
+                "parity_note": ""
+              },
+              "original_model_cost": {
+                "currency": "USD",
+                "mean_amount": 0.288
+              },
+              "mean_judge_cost_usd": 0,
+              "original_judge_cost": {
+                "currency": "USD",
+                "mean_amount": 0
+              },
+              "failed": 0,
+              "failures": {}
+            }
+          ]
+        },
+        {
+          "model": "glm-5.2",
+          "provider": "demo",
+          "harness": "QwenPaw",
+          "sdk_version": "2.0.0-demo",
+          "source_sha": null,
+          "source_repository": "https://github.com/agentscope-ai/QwenPaw",
+          "artifact_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+          "complete": true,
+          "benchmarks": [
+            {
+              "benchmark": "gaia",
+              "domains": [
+                "gaia"
+              ],
+              "expected": 165,
+              "scored": 165,
+              "score": 55.24645435202117,
+              "mean_runtime_seconds": 395,
+              "mean_model_cost_usd": null,
+              "cost_sources": {
+                "litellm_estimated": 165
+              },
+              "cost_bases": {
+                "list_price": 165
+              },
+              "name": "GAIA",
+              "judge": {
+                "kind": "programmatic",
+                "model": null,
+                "scorer": "replace-with-scorer-revision",
+                "official_model": null,
+                "prompt_revision": null,
+                "parity_note": ""
+              },
+              "original_model_cost": {
+                "currency": "USD",
+                "mean_amount": null
+              },
+              "mean_judge_cost_usd": 0,
+              "original_judge_cost": {
+                "currency": "USD",
+                "mean_amount": 0
+              },
+              "failed": 0,
+              "failures": {}
+            },
+            {
+              "benchmark": "spreadsheetbench-verified",
+              "domains": [
+                "spreadsheetbench-verified"
+              ],
+              "expected": 400,
+              "scored": 400,
+              "score": 59.323507010806445,
+              "mean_runtime_seconds": 505,
+              "mean_model_cost_usd": null,
+              "cost_sources": {
+                "litellm_estimated": 400
+              },
+              "cost_bases": {
+                "list_price": 400
+              },
+              "name": "SpreadsheetBench Verified",
+              "judge": {
+                "kind": "programmatic",
+                "model": null,
+                "scorer": "replace-with-scorer-revision",
+                "official_model": null,
+                "prompt_revision": null,
+                "parity_note": ""
+              },
+              "original_model_cost": {
+                "currency": "USD",
+                "mean_amount": null
+              },
+              "mean_judge_cost_usd": 0,
+              "original_judge_cost": {
+                "currency": "USD",
+                "mean_amount": 0
+              },
+              "failed": 0,
+              "failures": {}
+            },
+            {
+              "benchmark": "swebench-verified",
+              "domains": [
+                "swebench-verified"
+              ],
+              "expected": 500,
+              "scored": 500,
+              "score": 64.94191959231273,
+              "mean_runtime_seconds": 615,
+              "mean_model_cost_usd": null,
+              "cost_sources": {
+                "litellm_estimated": 500
+              },
+              "cost_bases": {
+                "list_price": 500
+              },
+              "name": "SWE-bench Verified",
+              "judge": {
+                "kind": "programmatic",
+                "model": null,
+                "scorer": "replace-with-scorer-revision",
+                "official_model": null,
+                "prompt_revision": null,
+                "parity_note": ""
+              },
+              "original_model_cost": {
+                "currency": "USD",
+                "mean_amount": null
+              },
+              "mean_judge_cost_usd": 0,
+              "original_judge_cost": {
+                "currency": "USD",
+                "mean_amount": 0
+              },
+              "failed": 0,
+              "failures": {}
+            }
+          ]
+        }
+      ],
+      "complete": true,
+      "index_definition": {
+        "id": "index-v1",
+        "order": 0,
+        "directions": {
+          "spreadsheetbench-verified": {
+            "name": "spreadsheetbench-verified",
+            "weight": 0.3333333333333333,
+            "benchmarks": {
+              "spreadsheetbench-verified": 1
+            }
+          },
+          "gaia": {
+            "name": "gaia",
+            "weight": 0.3333333333333333,
+            "benchmarks": {
+              "gaia": 1
+            }
+          },
+          "swebench-verified": {
+            "name": "swebench-verified",
+            "weight": 0.3333333333333333,
+            "benchmarks": {
+              "swebench-verified": 1
+            }
+          }
+        }
+      },
+      "source_results": []
+    },
+    {
+      "schema_version": 3,
+      "kind": "testing",
+      "board": {
+        "id": "qwenpaw",
+        "name": "QwenPaw",
+        "group_by": "model"
+      },
+      "index_version": "index-v1",
+      "id": "demo-1",
+      "evaluation_sha": null,
+      "source_repository": "https://github.com/agentscope-ai/QwenPaw",
+      "artifact_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "exchange_rate": {
+        "cny_per_usd": 7.0,
+        "basis": "fixed"
+      },
+      "date": "2026-08-08T00:00:00Z",
+      "workflow_url": "",
+      "benchmark_versions": [
+        {
+          "id": "gaia",
+          "name": "GAIA",
+          "revision": "demo",
+          "domains": [
+            "research"
+          ],
+          "expected": 165,
+          "judge": {
+            "kind": "programmatic",
+            "model": null,
+            "scorer": "replace-with-scorer-revision",
+            "official_model": null,
+            "prompt_revision": null,
+            "parity_note": ""
+          }
+        },
+        {
+          "id": "spreadsheetbench-verified",
+          "name": "SpreadsheetBench Verified",
+          "revision": "demo",
+          "domains": [
+            "office"
+          ],
+          "expected": 400,
+          "judge": {
+            "kind": "programmatic",
+            "model": null,
+            "scorer": "replace-with-scorer-revision",
+            "official_model": null,
+            "prompt_revision": null,
+            "parity_note": ""
+          }
+        },
+        {
+          "id": "swebench-verified",
+          "name": "SWE-bench Verified",
+          "revision": "demo",
+          "domains": [
+            "coding"
+          ],
+          "expected": 500,
+          "judge": {
+            "kind": "programmatic",
+            "model": null,
+            "scorer": "replace-with-scorer-revision",
+            "official_model": null,
+            "prompt_revision": null,
+            "parity_note": ""
+          }
+        }
+      ],
+      "records": [
+        {
+          "model": "qwen3.8-max-0902",
+          "provider": "demo",
+          "harness": "QwenPaw",
+          "sdk_version": "2.1.0-demo",
+          "source_sha": null,
+          "source_repository": "https://github.com/agentscope-ai/QwenPaw",
+          "artifact_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+          "complete": true,
+          "benchmarks": [
+            {
+              "benchmark": "gaia",
+              "domains": [
+                "gaia"
+              ],
+              "expected": 165,
+              "scored": 165,
+              "score": 78.4,
+              "mean_runtime_seconds": 147,
+              "mean_model_cost_usd": 0.828,
+              "cost_sources": {
+                "litellm_estimated": 165
+              },
+              "cost_bases": {
+                "list_price": 165
+              },
+              "name": "GAIA",
+              "judge": {
+                "kind": "programmatic",
+                "model": null,
+                "scorer": "replace-with-scorer-revision",
+                "official_model": null,
+                "prompt_revision": null,
+                "parity_note": ""
+              },
+              "original_model_cost": {
+                "currency": "USD",
+                "mean_amount": 0.828
+              },
+              "mean_judge_cost_usd": 0,
+              "original_judge_cost": {
+                "currency": "USD",
+                "mean_amount": 0
+              },
+              "failed": 0,
+              "failures": {}
+            },
+            {
+              "benchmark": "spreadsheetbench-verified",
+              "domains": [
+                "spreadsheetbench-verified"
+              ],
+              "expected": 400,
+              "scored": 400,
+              "score": 83.44882590884738,
+              "mean_runtime_seconds": 257,
+              "mean_model_cost_usd": 1.0764,
+              "cost_sources": {
+                "litellm_estimated": 400
+              },
+              "cost_bases": {
+                "list_price": 400
+              },
+              "name": "SpreadsheetBench Verified",
+              "judge": {
+                "kind": "programmatic",
+                "model": null,
+                "scorer": "replace-with-scorer-revision",
+                "official_model": null,
+                "prompt_revision": null,
+                "parity_note": ""
+              },
+              "original_model_cost": {
+                "currency": "USD",
+                "mean_amount": 1.0764
+              },
+              "mean_judge_cost_usd": 0,
+              "original_judge_cost": {
+                "currency": "USD",
+                "mean_amount": 0
+              },
+              "failed": 0,
+              "failures": {}
+            },
+            {
+              "benchmark": "swebench-verified",
+              "domains": [
+                "swebench-verified"
+              ],
+              "expected": 500,
+              "scored": 500,
+              "score": 83.85578456095409,
+              "mean_runtime_seconds": 367,
+              "mean_model_cost_usd": 1.3248,
+              "cost_sources": {
+                "litellm_estimated": 500
+              },
+              "cost_bases": {
+                "list_price": 500
+              },
+              "name": "SWE-bench Verified",
+              "judge": {
+                "kind": "programmatic",
+                "model": null,
+                "scorer": "replace-with-scorer-revision",
+                "official_model": null,
+                "prompt_revision": null,
+                "parity_note": ""
+              },
+              "original_model_cost": {
+                "currency": "USD",
+                "mean_amount": 1.3248
+              },
+              "mean_judge_cost_usd": 0,
+              "original_judge_cost": {
+                "currency": "USD",
+                "mean_amount": 0
+              },
+              "failed": 0,
+              "failures": {}
+            }
+          ]
+        },
+        {
+          "model": "qwen3.8-27b",
+          "provider": "demo",
+          "harness": "QwenPaw",
+          "sdk_version": "2.1.0-demo",
+          "source_sha": null,
+          "source_repository": "https://github.com/agentscope-ai/QwenPaw",
+          "artifact_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+          "complete": true,
+          "benchmarks": [
+            {
+              "benchmark": "gaia",
+              "domains": [
+                "gaia"
+              ],
+              "expected": 165,
+              "scored": 165,
+              "score": 80.44882590884738,
+              "mean_runtime_seconds": 194,
+              "mean_model_cost_usd": 0.0644,
+              "cost_sources": {
+                "litellm_estimated": 165
+              },
+              "cost_bases": {
+                "list_price": 165
+              },
+              "name": "GAIA",
+              "judge": {
+                "kind": "programmatic",
+                "model": null,
+                "scorer": "replace-with-scorer-revision",
+                "official_model": null,
+                "prompt_revision": null,
+                "parity_note": ""
+              },
+              "original_model_cost": {
+                "currency": "USD",
+                "mean_amount": 0.0644
+              },
+              "mean_judge_cost_usd": 0,
+              "original_judge_cost": {
+                "currency": "USD",
+                "mean_amount": 0
+              },
+              "failed": 0,
+              "failures": {}
+            },
+            {
+              "benchmark": "spreadsheetbench-verified",
+              "domains": [
+                "spreadsheetbench-verified"
+              ],
+              "expected": 400,
+              "scored": 400,
+              "score": 80.85578456095409,
+              "mean_runtime_seconds": 304,
+              "mean_model_cost_usd": 0.0837,
+              "cost_sources": {
+                "litellm_estimated": 400
+              },
+              "cost_bases": {
+                "list_price": 400
+              },
+              "name": "SpreadsheetBench Verified",
+              "judge": {
+                "kind": "programmatic",
+                "model": null,
+                "scorer": "replace-with-scorer-revision",
+                "official_model": null,
+                "prompt_revision": null,
+                "parity_note": ""
+              },
+              "original_model_cost": {
+                "currency": "USD",
+                "mean_amount": 0.0837
+              },
+              "mean_judge_cost_usd": 0,
+              "original_judge_cost": {
+                "currency": "USD",
+                "mean_amount": 0
+              },
+              "failed": 0,
+              "failures": {}
+            },
+            {
+              "benchmark": "swebench-verified",
+              "domains": [
+                "swebench-verified"
+              ],
+              "expected": 500,
+              "scored": 500,
+              "score": 76.24672004835921,
+              "mean_runtime_seconds": 414,
+              "mean_model_cost_usd": 0.103,
+              "cost_sources": {
+                "litellm_estimated": 500
+              },
+              "cost_bases": {
+                "list_price": 500
+              },
+              "name": "SWE-bench Verified",
+              "judge": {
+                "kind": "programmatic",
+                "model": null,
+                "scorer": "replace-with-scorer-revision",
+                "official_model": null,
+                "prompt_revision": null,
+                "parity_note": ""
+              },
+              "original_model_cost": {
+                "currency": "USD",
+                "mean_amount": 0.103
+              },
+              "mean_judge_cost_usd": 0,
+              "original_judge_cost": {
+                "currency": "USD",
+                "mean_amount": 0
+              },
+              "failed": 0,
+              "failures": {}
+            }
+          ]
+        },
+        {
+          "model": "deepseek-v4-pro-0813",
+          "provider": "demo",
+          "harness": "QwenPaw",
+          "sdk_version": "2.1.0-demo",
+          "source_sha": null,
+          "source_repository": "https://github.com/agentscope-ai/QwenPaw",
+          "artifact_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+          "complete": true,
+          "benchmarks": [
+            {
+              "benchmark": "gaia",
+              "domains": [
+                "gaia"
+              ],
+              "expected": 165,
+              "scored": 165,
+              "score": 77.85578456095409,
+              "mean_runtime_seconds": 241,
+              "mean_model_cost_usd": 0.276,
+              "cost_sources": {
+                "litellm_estimated": 165
+              },
+              "cost_bases": {
+                "list_price": 165
+              },
+              "name": "GAIA",
+              "judge": {
+                "kind": "programmatic",
+                "model": null,
+                "scorer": "replace-with-scorer-revision",
+                "official_model": null,
+                "prompt_revision": null,
+                "parity_note": ""
+              },
+              "original_model_cost": {
+                "currency": "USD",
+                "mean_amount": 0.276
+              },
+              "mean_judge_cost_usd": 0,
+              "original_judge_cost": {
+                "currency": "USD",
+                "mean_amount": 0
+              },
+              "failed": 0,
+              "failures": {}
+            },
+            {
+              "benchmark": "spreadsheetbench-verified",
+              "domains": [
+                "spreadsheetbench-verified"
+              ],
+              "expected": 400,
+              "scored": 400,
+              "score": 73.24672004835921,
+              "mean_runtime_seconds": 351,
+              "mean_model_cost_usd": 0.3588,
+              "cost_sources": {
+                "litellm_estimated": 400
+              },
+              "cost_bases": {
+                "list_price": 400
+              },
+              "name": "SpreadsheetBench Verified",
+              "judge": {
+                "kind": "programmatic",
+                "model": null,
+                "scorer": "replace-with-scorer-revision",
+                "official_model": null,
+                "prompt_revision": null,
+                "parity_note": ""
+              },
+              "original_model_cost": {
+                "currency": "USD",
+                "mean_amount": 0.3588
+              },
+              "mean_judge_cost_usd": 0,
+              "original_judge_cost": {
+                "currency": "USD",
+                "mean_amount": 0
+              },
+              "failed": 0,
+              "failures": {}
+            },
+            {
+              "benchmark": "swebench-verified",
+              "domains": [
+                "swebench-verified"
+              ],
+              "expected": 500,
+              "scored": 500,
+              "score": 67.85918502815244,
+              "mean_runtime_seconds": 461,
+              "mean_model_cost_usd": 0.4416,
+              "cost_sources": {
+                "litellm_estimated": 500
+              },
+              "cost_bases": {
+                "list_price": 500
+              },
+              "name": "SWE-bench Verified",
+              "judge": {
+                "kind": "programmatic",
+                "model": null,
+                "scorer": "replace-with-scorer-revision",
+                "official_model": null,
+                "prompt_revision": null,
+                "parity_note": ""
+              },
+              "original_model_cost": {
+                "currency": "USD",
+                "mean_amount": 0.4416
+              },
+              "mean_judge_cost_usd": 0,
+              "original_judge_cost": {
+                "currency": "USD",
+                "mean_amount": 0
+              },
+              "failed": 0,
+              "failures": {}
+            }
+          ]
+        },
+        {
+          "model": "deepseek-v4.1-flash",
+          "provider": "demo",
+          "harness": "QwenPaw",
+          "sdk_version": "2.1.0-demo",
+          "source_sha": null,
+          "source_repository": "https://github.com/agentscope-ai/QwenPaw",
+          "artifact_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+          "complete": true,
+          "benchmarks": [
+            {
+              "benchmark": "gaia",
+              "domains": [
+                "gaia"
+              ],
+              "expected": 165,
+              "scored": 165,
+              "score": 70.24672004835921,
+              "mean_runtime_seconds": 288,
+              "mean_model_cost_usd": 0.207,
+              "cost_sources": {
+                "litellm_estimated": 165
+              },
+              "cost_bases": {
+                "list_price": 165
+              },
+              "name": "GAIA",
+              "judge": {
+                "kind": "programmatic",
+                "model": null,
+                "scorer": "replace-with-scorer-revision",
+                "official_model": null,
+                "prompt_revision": null,
+                "parity_note": ""
+              },
+              "original_model_cost": {
+                "currency": "USD",
+                "mean_amount": 0.207
+              },
+              "mean_judge_cost_usd": 0,
+              "original_judge_cost": {
+                "currency": "USD",
+                "mean_amount": 0
+              },
+              "failed": 0,
+              "failures": {}
+            },
+            {
+              "benchmark": "spreadsheetbench-verified",
+              "domains": [
+                "spreadsheetbench-verified"
+              ],
+              "expected": 400,
+              "scored": 400,
+              "score": 64.85918502815244,
+              "mean_runtime_seconds": 398,
+              "mean_model_cost_usd": 0.2691,
+              "cost_sources": {
+                "litellm_estimated": 400
+              },
+              "cost_bases": {
+                "list_price": 400
+              },
+              "name": "SpreadsheetBench Verified",
+              "judge": {
+                "kind": "programmatic",
+                "model": null,
+                "scorer": "replace-with-scorer-revision",
+                "official_model": null,
+                "prompt_revision": null,
+                "parity_note": ""
+              },
+              "original_model_cost": {
+                "currency": "USD",
+                "mean_amount": 0.2691
+              },
+              "mean_judge_cost_usd": 0,
+              "original_judge_cost": {
+                "currency": "USD",
+                "mean_amount": 0
+              },
+              "failed": 0,
+              "failures": {}
+            },
+            {
+              "benchmark": "swebench-verified",
+              "domains": [
+                "swebench-verified"
+              ],
+              "expected": 500,
+              "scored": 500,
+              "score": 63.64645435202117,
+              "mean_runtime_seconds": 508,
+              "mean_model_cost_usd": 0.3312,
+              "cost_sources": {
+                "litellm_estimated": 500
+              },
+              "cost_bases": {
+                "list_price": 500
+              },
+              "name": "SWE-bench Verified",
+              "judge": {
+                "kind": "programmatic",
+                "model": null,
+                "scorer": "replace-with-scorer-revision",
+                "official_model": null,
+                "prompt_revision": null,
+                "parity_note": ""
+              },
+              "original_model_cost": {
+                "currency": "USD",
+                "mean_amount": 0.3312
+              },
+              "mean_judge_cost_usd": 0,
+              "original_judge_cost": {
+                "currency": "USD",
+                "mean_amount": 0
+              },
+              "failed": 0,
+              "failures": {}
+            }
+          ]
+        },
+        {
+          "model": "glm-5.3",
+          "provider": "demo",
+          "harness": "QwenPaw",
+          "sdk_version": "2.1.0-demo",
+          "source_sha": null,
+          "source_repository": "https://github.com/agentscope-ai/QwenPaw",
+          "artifact_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+          "complete": true,
+          "benchmarks": [
+            {
+              "benchmark": "gaia",
+              "domains": [
+                "gaia"
+              ],
+              "expected": 165,
+              "scored": 165,
+              "score": 61.85918502815244,
+              "mean_runtime_seconds": 335,
+              "mean_model_cost_usd": 0.1656,
+              "cost_sources": {
+                "litellm_estimated": 165
+              },
+              "cost_bases": {
+                "list_price": 165
+              },
+              "name": "GAIA",
+              "judge": {
+                "kind": "programmatic",
+                "model": null,
+                "scorer": "replace-with-scorer-revision",
+                "official_model": null,
+                "prompt_revision": null,
+                "parity_note": ""
+              },
+              "original_model_cost": {
+                "currency": "USD",
+                "mean_amount": 0.1656
+              },
+              "mean_judge_cost_usd": 0,
+              "original_judge_cost": {
+                "currency": "USD",
+                "mean_amount": 0
+              },
+              "failed": 0,
+              "failures": {}
+            },
+            {
+              "benchmark": "spreadsheetbench-verified",
+              "domains": [
+                "spreadsheetbench-verified"
+              ],
+              "expected": 400,
+              "scored": 400,
+              "score": 60.64645435202117,
+              "mean_runtime_seconds": 445,
+              "mean_model_cost_usd": 0.2153,
+              "cost_sources": {
+                "litellm_estimated": 400
+              },
+              "cost_bases": {
+                "list_price": 400
+              },
+              "name": "SpreadsheetBench Verified",
+              "judge": {
+                "kind": "programmatic",
+                "model": null,
+                "scorer": "replace-with-scorer-revision",
+                "official_model": null,
+                "prompt_revision": null,
+                "parity_note": ""
+              },
+              "original_model_cost": {
+                "currency": "USD",
+                "mean_amount": 0.2153
+              },
+              "mean_judge_cost_usd": 0,
+              "original_judge_cost": {
+                "currency": "USD",
+                "mean_amount": 0
+              },
+              "failed": 0,
+              "failures": {}
+            },
+            {
+              "benchmark": "swebench-verified",
+              "domains": [
+                "swebench-verified"
+              ],
+              "expected": 500,
+              "scored": 500,
+              "score": 64.72350701080646,
+              "mean_runtime_seconds": 555,
+              "mean_model_cost_usd": 0.265,
+              "cost_sources": {
+                "litellm_estimated": 500
+              },
+              "cost_bases": {
+                "list_price": 500
+              },
+              "name": "SWE-bench Verified",
+              "judge": {
+                "kind": "programmatic",
+                "model": null,
+                "scorer": "replace-with-scorer-revision",
+                "official_model": null,
+                "prompt_revision": null,
+                "parity_note": ""
+              },
+              "original_model_cost": {
+                "currency": "USD",
+                "mean_amount": 0.265
+              },
+              "mean_judge_cost_usd": 0,
+              "original_judge_cost": {
+                "currency": "USD",
+                "mean_amount": 0
+              },
+              "failed": 0,
+              "failures": {}
+            }
+          ]
+        },
+        {
+          "model": "glm-5.2",
+          "provider": "demo",
+          "harness": "QwenPaw",
+          "sdk_version": "2.1.0-demo",
+          "source_sha": null,
+          "source_repository": "https://github.com/agentscope-ai/QwenPaw",
+          "artifact_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+          "complete": true,
+          "benchmarks": [
+            {
+              "benchmark": "gaia",
+              "domains": [
+                "gaia"
+              ],
+              "expected": 165,
+              "scored": 165,
+              "score": 57.646454352021166,
+              "mean_runtime_seconds": 382,
+              "mean_model_cost_usd": 0.138,
+              "cost_sources": {
+                "litellm_estimated": 165
+              },
+              "cost_bases": {
+                "list_price": 165
+              },
+              "name": "GAIA",
+              "judge": {
+                "kind": "programmatic",
+                "model": null,
+                "scorer": "replace-with-scorer-revision",
+                "official_model": null,
+                "prompt_revision": null,
+                "parity_note": ""
+              },
+              "original_model_cost": {
+                "currency": "USD",
+                "mean_amount": 0.138
+              },
+              "mean_judge_cost_usd": 0,
+              "original_judge_cost": {
+                "currency": "USD",
+                "mean_amount": 0
+              },
+              "failed": 0,
+              "failures": {}
+            },
+            {
+              "benchmark": "spreadsheetbench-verified",
+              "domains": [
+                "spreadsheetbench-verified"
+              ],
+              "expected": 400,
+              "scored": 400,
+              "score": 61.72350701080644,
+              "mean_runtime_seconds": 492,
+              "mean_model_cost_usd": 0.1794,
+              "cost_sources": {
+                "litellm_estimated": 400
+              },
+              "cost_bases": {
+                "list_price": 400
+              },
+              "name": "SpreadsheetBench Verified",
+              "judge": {
+                "kind": "programmatic",
+                "model": null,
+                "scorer": "replace-with-scorer-revision",
+                "official_model": null,
+                "prompt_revision": null,
+                "parity_note": ""
+              },
+              "original_model_cost": {
+                "currency": "USD",
+                "mean_amount": 0.1794
+              },
+              "mean_judge_cost_usd": 0,
+              "original_judge_cost": {
+                "currency": "USD",
+                "mean_amount": 0
+              },
+              "failed": 0,
+              "failures": {}
+            },
+            {
+              "benchmark": "swebench-verified",
+              "domains": [
+                "swebench-verified"
+              ],
+              "expected": 500,
+              "scored": 500,
+              "score": 67.34191959231273,
+              "mean_runtime_seconds": 602,
+              "mean_model_cost_usd": 0.2208,
+              "cost_sources": {
+                "litellm_estimated": 500
+              },
+              "cost_bases": {
+                "list_price": 500
+              },
+              "name": "SWE-bench Verified",
+              "judge": {
+                "kind": "programmatic",
+                "model": null,
+                "scorer": "replace-with-scorer-revision",
+                "official_model": null,
+                "prompt_revision": null,
+                "parity_note": ""
+              },
+              "original_model_cost": {
+                "currency": "USD",
+                "mean_amount": 0.2208
+              },
+              "mean_judge_cost_usd": 0,
+              "original_judge_cost": {
+                "currency": "USD",
+                "mean_amount": 0
+              },
+              "failed": 0,
+              "failures": {}
+            }
+          ]
+        }
+      ],
+      "complete": true,
+      "index_definition": {
+        "id": "index-v1",
+        "order": 0,
+        "directions": {
+          "spreadsheetbench-verified": {
+            "name": "spreadsheetbench-verified",
+            "weight": 0.3333333333333333,
+            "benchmarks": {
+              "spreadsheetbench-verified": 1
+            }
+          },
+          "gaia": {
+            "name": "gaia",
+            "weight": 0.3333333333333333,
+            "benchmarks": {
+              "gaia": 1
+            }
+          },
+          "swebench-verified": {
+            "name": "swebench-verified",
+            "weight": 0.3333333333333333,
+            "benchmarks": {
+              "swebench-verified": 1
+            }
+          }
+        }
+      },
+      "source_results": []
+    },
+    {
+      "schema_version": 3,
+      "kind": "testing",
+      "board": {
+        "id": "qwenpaw",
+        "name": "QwenPaw",
+        "group_by": "model"
+      },
+      "index_version": "index-v1",
+      "id": "demo-2",
+      "evaluation_sha": null,
+      "source_repository": "https://github.com/agentscope-ai/QwenPaw",
+      "artifact_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "exchange_rate": {
+        "cny_per_usd": 7.0,
+        "basis": "fixed"
+      },
+      "date": "2026-09-08T00:00:00Z",
+      "workflow_url": "",
+      "benchmark_versions": [
+        {
+          "id": "gaia",
+          "name": "GAIA",
+          "revision": "demo",
+          "domains": [
+            "research"
+          ],
+          "expected": 165,
+          "judge": {
+            "kind": "programmatic",
+            "model": null,
+            "scorer": "replace-with-scorer-revision",
+            "official_model": null,
+            "prompt_revision": null,
+            "parity_note": ""
+          }
+        },
+        {
+          "id": "spreadsheetbench-verified",
+          "name": "SpreadsheetBench Verified",
+          "revision": "demo",
+          "domains": [
+            "office"
+          ],
+          "expected": 400,
+          "judge": {
+            "kind": "programmatic",
+            "model": null,
+            "scorer": "replace-with-scorer-revision",
+            "official_model": null,
+            "prompt_revision": null,
+            "parity_note": ""
+          }
+        },
+        {
+          "id": "swebench-verified",
+          "name": "SWE-bench Verified",
+          "revision": "demo",
+          "domains": [
+            "coding"
+          ],
+          "expected": 500,
+          "judge": {
+            "kind": "programmatic",
+            "model": null,
+            "scorer": "replace-with-scorer-revision",
+            "official_model": null,
+            "prompt_revision": null,
+            "parity_note": ""
+          }
+        }
+      ],
+      "records": [
+        {
+          "model": "qwen3.8-max-0902",
+          "provider": "demo",
+          "harness": "QwenPaw",
+          "sdk_version": "2.2.0-demo",
+          "source_sha": null,
+          "source_repository": "https://github.com/agentscope-ai/QwenPaw",
+          "artifact_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+          "complete": true,
+          "benchmarks": [
+            {
+              "benchmark": "gaia",
+              "domains": [
+                "gaia"
+              ],
+              "expected": 165,
+              "scored": 165,
+              "score": 80.8,
+              "mean_runtime_seconds": 134,
+              "mean_model_cost_usd": 0.756,
+              "cost_sources": {
+                "litellm_estimated": 165
+              },
+              "cost_bases": {
+                "list_price": 165
+              },
+              "name": "GAIA",
+              "judge": {
+                "kind": "programmatic",
+                "model": null,
+                "scorer": "replace-with-scorer-revision",
+                "official_model": null,
+                "prompt_revision": null,
+                "parity_note": ""
+              },
+              "original_model_cost": {
+                "currency": "USD",
+                "mean_amount": 0.756
+              },
+              "mean_judge_cost_usd": 0,
+              "original_judge_cost": {
+                "currency": "USD",
+                "mean_amount": 0
+              },
+              "failed": 0,
+              "failures": {}
+            },
+            {
+              "benchmark": "spreadsheetbench-verified",
+              "domains": [
+                "spreadsheetbench-verified"
+              ],
+              "expected": 400,
+              "scored": 400,
+              "score": 85.84882590884737,
+              "mean_runtime_seconds": 244,
+              "mean_model_cost_usd": 0.9828,
+              "cost_sources": {
+                "litellm_estimated": 400
+              },
+              "cost_bases": {
+                "list_price": 400
+              },
+              "name": "SpreadsheetBench Verified",
+              "judge": {
+                "kind": "programmatic",
+                "model": null,
+                "scorer": "replace-with-scorer-revision",
+                "official_model": null,
+                "prompt_revision": null,
+                "parity_note": ""
+              },
+              "original_model_cost": {
+                "currency": "USD",
+                "mean_amount": 0.9828
+              },
+              "mean_judge_cost_usd": 0,
+              "original_judge_cost": {
+                "currency": "USD",
+                "mean_amount": 0
+              },
+              "failed": 0,
+              "failures": {}
+            },
+            {
+              "benchmark": "swebench-verified",
+              "domains": [
+                "swebench-verified"
+              ],
+              "expected": 500,
+              "scored": 500,
+              "score": 86.25578456095408,
+              "mean_runtime_seconds": 354,
+              "mean_model_cost_usd": 1.2096,
+              "cost_sources": {
+                "litellm_estimated": 500
+              },
+              "cost_bases": {
+                "list_price": 500
+              },
+              "name": "SWE-bench Verified",
+              "judge": {
+                "kind": "programmatic",
+                "model": null,
+                "scorer": "replace-with-scorer-revision",
+                "official_model": null,
+                "prompt_revision": null,
+                "parity_note": ""
+              },
+              "original_model_cost": {
+                "currency": "USD",
+                "mean_amount": 1.2096
+              },
+              "mean_judge_cost_usd": 0,
+              "original_judge_cost": {
+                "currency": "USD",
+                "mean_amount": 0
+              },
+              "failed": 0,
+              "failures": {}
+            }
+          ]
+        },
+        {
+          "model": "qwen3.8-27b",
+          "provider": "demo",
+          "harness": "QwenPaw",
+          "sdk_version": "2.2.0-demo",
+          "source_sha": null,
+          "source_repository": "https://github.com/agentscope-ai/QwenPaw",
+          "artifact_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+          "complete": true,
+          "benchmarks": [
+            {
+              "benchmark": "gaia",
+              "domains": [
+                "gaia"
+              ],
+              "expected": 165,
+              "scored": 165,
+              "score": 82.84882590884737,
+              "mean_runtime_seconds": 181,
+              "mean_model_cost_usd": 0.0588,
+              "cost_sources": {
+                "litellm_estimated": 165
+              },
+              "cost_bases": {
+                "list_price": 165
+              },
+              "name": "GAIA",
+              "judge": {
+                "kind": "programmatic",
+                "model": null,
+                "scorer": "replace-with-scorer-revision",
+                "official_model": null,
+                "prompt_revision": null,
+                "parity_note": ""
+              },
+              "original_model_cost": {
+                "currency": "USD",
+                "mean_amount": 0.0588
+              },
+              "mean_judge_cost_usd": 0,
+              "original_judge_cost": {
+                "currency": "USD",
+                "mean_amount": 0
+              },
+              "failed": 0,
+              "failures": {}
+            },
+            {
+              "benchmark": "spreadsheetbench-verified",
+              "domains": [
+                "spreadsheetbench-verified"
+              ],
+              "expected": 400,
+              "scored": 400,
+              "score": 83.25578456095408,
+              "mean_runtime_seconds": 291,
+              "mean_model_cost_usd": 0.0764,
+              "cost_sources": {
+                "litellm_estimated": 400
+              },
+              "cost_bases": {
+                "list_price": 400
+              },
+              "name": "SpreadsheetBench Verified",
+              "judge": {
+                "kind": "programmatic",
+                "model": null,
+                "scorer": "replace-with-scorer-revision",
+                "official_model": null,
+                "prompt_revision": null,
+                "parity_note": ""
+              },
+              "original_model_cost": {
+                "currency": "USD",
+                "mean_amount": 0.0764
+              },
+              "mean_judge_cost_usd": 0,
+              "original_judge_cost": {
+                "currency": "USD",
+                "mean_amount": 0
+              },
+              "failed": 0,
+              "failures": {}
+            },
+            {
+              "benchmark": "swebench-verified",
+              "domains": [
+                "swebench-verified"
+              ],
+              "expected": 500,
+              "scored": 500,
+              "score": 78.6467200483592,
+              "mean_runtime_seconds": 401,
+              "mean_model_cost_usd": 0.0941,
+              "cost_sources": {
+                "litellm_estimated": 500
+              },
+              "cost_bases": {
+                "list_price": 500
+              },
+              "name": "SWE-bench Verified",
+              "judge": {
+                "kind": "programmatic",
+                "model": null,
+                "scorer": "replace-with-scorer-revision",
+                "official_model": null,
+                "prompt_revision": null,
+                "parity_note": ""
+              },
+              "original_model_cost": {
+                "currency": "USD",
+                "mean_amount": 0.0941
+              },
+              "mean_judge_cost_usd": 0,
+              "original_judge_cost": {
+                "currency": "USD",
+                "mean_amount": 0
+              },
+              "failed": 0,
+              "failures": {}
+            }
+          ]
+        },
+        {
+          "model": "deepseek-v4-pro-0813",
+          "provider": "demo",
+          "harness": "QwenPaw",
+          "sdk_version": "2.2.0-demo",
+          "source_sha": null,
+          "source_repository": "https://github.com/agentscope-ai/QwenPaw",
+          "artifact_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+          "complete": true,
+          "benchmarks": [
+            {
+              "benchmark": "gaia",
+              "domains": [
+                "gaia"
+              ],
+              "expected": 165,
+              "scored": 165,
+              "score": 80.25578456095408,
+              "mean_runtime_seconds": 228,
+              "mean_model_cost_usd": 0.252,
+              "cost_sources": {
+                "litellm_estimated": 165
+              },
+              "cost_bases": {
+                "list_price": 165
+              },
+              "name": "GAIA",
+              "judge": {
+                "kind": "programmatic",
+                "model": null,
+                "scorer": "replace-with-scorer-revision",
+                "official_model": null,
+                "prompt_revision": null,
+                "parity_note": ""
+              },
+              "original_model_cost": {
+                "currency": "USD",
+                "mean_amount": 0.252
+              },
+              "mean_judge_cost_usd": 0,
+              "original_judge_cost": {
+                "currency": "USD",
+                "mean_amount": 0
+              },
+              "failed": 0,
+              "failures": {}
+            },
+            {
+              "benchmark": "spreadsheetbench-verified",
+              "domains": [
+                "spreadsheetbench-verified"
+              ],
+              "expected": 400,
+              "scored": 400,
+              "score": 75.6467200483592,
+              "mean_runtime_seconds": 338,
+              "mean_model_cost_usd": 0.3276,
+              "cost_sources": {
+                "litellm_estimated": 400
+              },
+              "cost_bases": {
+                "list_price": 400
+              },
+              "name": "SpreadsheetBench Verified",
+              "judge": {
+                "kind": "programmatic",
+                "model": null,
+                "scorer": "replace-with-scorer-revision",
+                "official_model": null,
+                "prompt_revision": null,
+                "parity_note": ""
+              },
+              "original_model_cost": {
+                "currency": "USD",
+                "mean_amount": 0.3276
+              },
+              "mean_judge_cost_usd": 0,
+              "original_judge_cost": {
+                "currency": "USD",
+                "mean_amount": 0
+              },
+              "failed": 0,
+              "failures": {}
+            },
+            {
+              "benchmark": "swebench-verified",
+              "domains": [
+                "swebench-verified"
+              ],
+              "expected": 500,
+              "scored": 500,
+              "score": 70.25918502815243,
+              "mean_runtime_seconds": 448,
+              "mean_model_cost_usd": 0.4032,
+              "cost_sources": {
+                "litellm_estimated": 500
+              },
+              "cost_bases": {
+                "list_price": 500
+              },
+              "name": "SWE-bench Verified",
+              "judge": {
+                "kind": "programmatic",
+                "model": null,
+                "scorer": "replace-with-scorer-revision",
+                "official_model": null,
+                "prompt_revision": null,
+                "parity_note": ""
+              },
+              "original_model_cost": {
+                "currency": "USD",
+                "mean_amount": 0.4032
+              },
+              "mean_judge_cost_usd": 0,
+              "original_judge_cost": {
+                "currency": "USD",
+                "mean_amount": 0
+              },
+              "failed": 0,
+              "failures": {}
+            }
+          ]
+        },
+        {
+          "model": "deepseek-v4.1-flash",
+          "provider": "demo",
+          "harness": "QwenPaw",
+          "sdk_version": "2.2.0-demo",
+          "source_sha": null,
+          "source_repository": "https://github.com/agentscope-ai/QwenPaw",
+          "artifact_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+          "complete": true,
+          "benchmarks": [
+            {
+              "benchmark": "gaia",
+              "domains": [
+                "gaia"
+              ],
+              "expected": 165,
+              "scored": 165,
+              "score": 72.6467200483592,
+              "mean_runtime_seconds": 275,
+              "mean_model_cost_usd": 0.189,
+              "cost_sources": {
+                "litellm_estimated": 165
+              },
+              "cost_bases": {
+                "list_price": 165
+              },
+              "name": "GAIA",
+              "judge": {
+                "kind": "programmatic",
+                "model": null,
+                "scorer": "replace-with-scorer-revision",
+                "official_model": null,
+                "prompt_revision": null,
+                "parity_note": ""
+              },
+              "original_model_cost": {
+                "currency": "USD",
+                "mean_amount": 0.189
+              },
+              "mean_judge_cost_usd": 0,
+              "original_judge_cost": {
+                "currency": "USD",
+                "mean_amount": 0
+              },
+              "failed": 0,
+              "failures": {}
+            },
+            {
+              "benchmark": "spreadsheetbench-verified",
+              "domains": [
+                "spreadsheetbench-verified"
+              ],
+              "expected": 400,
+              "scored": 400,
+              "score": 67.25918502815243,
+              "mean_runtime_seconds": 385,
+              "mean_model_cost_usd": 0.2457,
+              "cost_sources": {
+                "litellm_estimated": 400
+              },
+              "cost_bases": {
+                "list_price": 400
+              },
+              "name": "SpreadsheetBench Verified",
+              "judge": {
+                "kind": "programmatic",
+                "model": null,
+                "scorer": "replace-with-scorer-revision",
+                "official_model": null,
+                "prompt_revision": null,
+                "parity_note": ""
+              },
+              "original_model_cost": {
+                "currency": "USD",
+                "mean_amount": 0.2457
+              },
+              "mean_judge_cost_usd": 0,
+              "original_judge_cost": {
+                "currency": "USD",
+                "mean_amount": 0
+              },
+              "failed": 0,
+              "failures": {}
+            },
+            {
+              "benchmark": "swebench-verified",
+              "domains": [
+                "swebench-verified"
+              ],
+              "expected": 500,
+              "scored": 500,
+              "score": 66.04645435202117,
+              "mean_runtime_seconds": 495,
+              "mean_model_cost_usd": 0.3024,
+              "cost_sources": {
+                "litellm_estimated": 500
+              },
+              "cost_bases": {
+                "list_price": 500
+              },
+              "name": "SWE-bench Verified",
+              "judge": {
+                "kind": "programmatic",
+                "model": null,
+                "scorer": "replace-with-scorer-revision",
+                "official_model": null,
+                "prompt_revision": null,
+                "parity_note": ""
+              },
+              "original_model_cost": {
+                "currency": "USD",
+                "mean_amount": 0.3024
+              },
+              "mean_judge_cost_usd": 0,
+              "original_judge_cost": {
+                "currency": "USD",
+                "mean_amount": 0
+              },
+              "failed": 0,
+              "failures": {}
+            }
+          ]
+        },
+        {
+          "model": "glm-5.3",
+          "provider": "demo",
+          "harness": "QwenPaw",
+          "sdk_version": "2.2.0-demo",
+          "source_sha": null,
+          "source_repository": "https://github.com/agentscope-ai/QwenPaw",
+          "artifact_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+          "complete": true,
+          "benchmarks": [
+            {
+              "benchmark": "gaia",
+              "domains": [
+                "gaia"
+              ],
+              "expected": 165,
+              "scored": 165,
+              "score": 64.25918502815243,
+              "mean_runtime_seconds": 322,
+              "mean_model_cost_usd": 0.1512,
+              "cost_sources": {
+                "litellm_estimated": 165
+              },
+              "cost_bases": {
+                "list_price": 165
+              },
+              "name": "GAIA",
+              "judge": {
+                "kind": "programmatic",
+                "model": null,
+                "scorer": "replace-with-scorer-revision",
+                "official_model": null,
+                "prompt_revision": null,
+                "parity_note": ""
+              },
+              "original_model_cost": {
+                "currency": "USD",
+                "mean_amount": 0.1512
+              },
+              "mean_judge_cost_usd": 0,
+              "original_judge_cost": {
+                "currency": "USD",
+                "mean_amount": 0
+              },
+              "failed": 0,
+              "failures": {}
+            },
+            {
+              "benchmark": "spreadsheetbench-verified",
+              "domains": [
+                "spreadsheetbench-verified"
+              ],
+              "expected": 400,
+              "scored": 400,
+              "score": 63.046454352021165,
+              "mean_runtime_seconds": 432,
+              "mean_model_cost_usd": 0.1966,
+              "cost_sources": {
+                "litellm_estimated": 400
+              },
+              "cost_bases": {
+                "list_price": 400
+              },
+              "name": "SpreadsheetBench Verified",
+              "judge": {
+                "kind": "programmatic",
+                "model": null,
+                "scorer": "replace-with-scorer-revision",
+                "official_model": null,
+                "prompt_revision": null,
+                "parity_note": ""
+              },
+              "original_model_cost": {
+                "currency": "USD",
+                "mean_amount": 0.1966
+              },
+              "mean_judge_cost_usd": 0,
+              "original_judge_cost": {
+                "currency": "USD",
+                "mean_amount": 0
+              },
+              "failed": 0,
+              "failures": {}
+            },
+            {
+              "benchmark": "swebench-verified",
+              "domains": [
+                "swebench-verified"
+              ],
+              "expected": 500,
+              "scored": 500,
+              "score": 67.12350701080643,
+              "mean_runtime_seconds": 542,
+              "mean_model_cost_usd": 0.2419,
+              "cost_sources": {
+                "litellm_estimated": 500
+              },
+              "cost_bases": {
+                "list_price": 500
+              },
+              "name": "SWE-bench Verified",
+              "judge": {
+                "kind": "programmatic",
+                "model": null,
+                "scorer": "replace-with-scorer-revision",
+                "official_model": null,
+                "prompt_revision": null,
+                "parity_note": ""
+              },
+              "original_model_cost": {
+                "currency": "USD",
+                "mean_amount": 0.2419
+              },
+              "mean_judge_cost_usd": 0,
+              "original_judge_cost": {
+                "currency": "USD",
+                "mean_amount": 0
+              },
+              "failed": 0,
+              "failures": {}
+            }
+          ]
+        },
+        {
+          "model": "glm-5.2",
+          "provider": "demo",
+          "harness": "QwenPaw",
+          "sdk_version": "2.2.0-demo",
+          "source_sha": null,
+          "source_repository": "https://github.com/agentscope-ai/QwenPaw",
+          "artifact_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+          "complete": true,
+          "benchmarks": [
+            {
+              "benchmark": "gaia",
+              "domains": [
+                "gaia"
+              ],
+              "expected": 165,
+              "scored": 165,
+              "score": 60.046454352021165,
+              "mean_runtime_seconds": 369,
+              "mean_model_cost_usd": 0.126,
+              "cost_sources": {
+                "litellm_estimated": 165
+              },
+              "cost_bases": {
+                "list_price": 165
+              },
+              "name": "GAIA",
+              "judge": {
+                "kind": "programmatic",
+                "model": null,
+                "scorer": "replace-with-scorer-revision",
+                "official_model": null,
+                "prompt_revision": null,
+                "parity_note": ""
+              },
+              "original_model_cost": {
+                "currency": "USD",
+                "mean_amount": 0.126
+              },
+              "mean_judge_cost_usd": 0,
+              "original_judge_cost": {
+                "currency": "USD",
+                "mean_amount": 0
+              },
+              "failed": 0,
+              "failures": {}
+            },
+            {
+              "benchmark": "spreadsheetbench-verified",
+              "domains": [
+                "spreadsheetbench-verified"
+              ],
+              "expected": 400,
+              "scored": 400,
+              "score": 64.12350701080643,
+              "mean_runtime_seconds": 479,
+              "mean_model_cost_usd": 0.1638,
+              "cost_sources": {
+                "litellm_estimated": 400
+              },
+              "cost_bases": {
+                "list_price": 400
+              },
+              "name": "SpreadsheetBench Verified",
+              "judge": {
+                "kind": "programmatic",
+                "model": null,
+                "scorer": "replace-with-scorer-revision",
+                "official_model": null,
+                "prompt_revision": null,
+                "parity_note": ""
+              },
+              "original_model_cost": {
+                "currency": "USD",
+                "mean_amount": 0.1638
+              },
+              "mean_judge_cost_usd": 0,
+              "original_judge_cost": {
+                "currency": "USD",
+                "mean_amount": 0
+              },
+              "failed": 0,
+              "failures": {}
+            },
+            {
+              "benchmark": "swebench-verified",
+              "domains": [
+                "swebench-verified"
+              ],
+              "expected": 500,
+              "scored": 500,
+              "score": 69.74191959231273,
+              "mean_runtime_seconds": 589,
+              "mean_model_cost_usd": 0.2016,
+              "cost_sources": {
+                "litellm_estimated": 500
+              },
+              "cost_bases": {
+                "list_price": 500
+              },
+              "name": "SWE-bench Verified",
+              "judge": {
+                "kind": "programmatic",
+                "model": null,
+                "scorer": "replace-with-scorer-revision",
+                "official_model": null,
+                "prompt_revision": null,
+                "parity_note": ""
+              },
+              "original_model_cost": {
+                "currency": "USD",
+                "mean_amount": 0.2016
+              },
+              "mean_judge_cost_usd": 0,
+              "original_judge_cost": {
+                "currency": "USD",
+                "mean_amount": 0
+              },
+              "failed": 0,
+              "failures": {}
+            }
+          ]
+        }
+      ],
+      "complete": true,
+      "index_definition": {
+        "id": "index-v1",
+        "order": 0,
+        "directions": {
+          "spreadsheetbench-verified": {
+            "name": "spreadsheetbench-verified",
+            "weight": 0.3333333333333333,
+            "benchmarks": {
+              "spreadsheetbench-verified": 1
+            }
+          },
+          "gaia": {
+            "name": "gaia",
+            "weight": 0.3333333333333333,
+            "benchmarks": {
+              "gaia": 1
+            }
+          },
+          "swebench-verified": {
+            "name": "swebench-verified",
+            "weight": 0.3333333333333333,
+            "benchmarks": {
+              "swebench-verified": 1
+            }
+          }
+        }
+      },
+      "source_results": []
+    }
+  ]
+}

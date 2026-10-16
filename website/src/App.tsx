@@ -14,6 +14,7 @@ const Blog = lazy(() => import("@/pages/Blog"));
 const BlogPost = lazy(() => import("@/pages/Blog/Post"));
 const ReleaseNotes = lazy(() => import("@/pages/ReleaseNotes"));
 const Downloads = lazy(() => import("@/pages/Downloads"));
+const Evaluation = lazy(() => import("@/pages/Evaluation"));
 const UsagePolicy = lazy(() => import("@/pages/UsagePolicy"));
 
 /**
@@ -83,6 +84,16 @@ export default function App() {
         <Route element={<SiteLayout showFooter={false} />}>
           <Route path="/docs" element={<Navigate to="/docs/intro" replace />} />
           <Route path="/docs/:slug" element={<Docs />} />
+          <Route path="/evaluation" element={<Evaluation key="results" />} />
+          <Route
+            path="/evaluation/demo"
+            element={<Evaluation key="demo" demo />}
+          />
+          <Route
+            path="/evaluation/demo/runs/:id"
+            element={<Evaluation key="demo" demo />}
+          />
+          <Route path="/evaluation/runs/:id" element={<Evaluation />} />
           <Route path="/release-notes" element={<ReleaseNotes />} />
         </Route>
       </Routes>

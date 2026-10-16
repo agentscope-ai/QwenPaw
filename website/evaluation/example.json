@@ -1,0 +1,65 @@
+{
+  "schema_version": 3,
+  "kind": "testing",
+  "id": "example-observation",
+  "date": "2026-10-15T00:00:00Z",
+  "experiment": "example-experiment",
+  "candidate_hash": "1111111111111111111111111111111111111111111111111111111111111111",
+  "profile_hash": "2222222222222222222222222222222222222222222222222222222222222222",
+  "protocol_hash": "3333333333333333333333333333333333333333333333333333333333333333",
+  "sdk_version": "example-version",
+  "source_sha": null,
+  "source_repository": "https://github.com/agentscope-ai/QwenPaw",
+  "artifact_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "provider": "dashscope",
+  "model": "example-model",
+  "harness": "example-agent",
+  "parameters": {
+    "max_context_length": 262144,
+    "max_response_length": 16384
+  },
+  "exchange_rate": {
+    "cny_per_usd": 7.0,
+    "basis": "fixed"
+  },
+  "benchmark": {
+    "id": "acp-file-smoke",
+    "name": "ACP 文件写入冒烟",
+    "revision": "fixture-v1",
+    "domains": ["coding"],
+    "expected": 1,
+    "instances": ["acp-file-smoke"],
+    "repetitions": 1,
+    "judge": {
+      "kind": "programmatic",
+      "model": null,
+      "scorer": "exact-file-content-v1",
+      "official_model": null,
+      "prompt_revision": null,
+      "parity_note": ""
+    }
+  },
+  "trials": [
+    {
+      "instance": "acp-file-smoke",
+      "repeat": 0,
+      "status": "passed",
+      "score": 0.5,
+      "failure_reason": null,
+      "cost": {
+        "amount": 0.1,
+        "currency": "CNY"
+      },
+      "judge_cost": null,
+      "judge_called": false,
+      "runtime_seconds": 10,
+      "finished_at": "2026-10-15T00:00:00Z"
+    }
+  ],
+  "sources": [],
+  "board": {
+    "id": "acp-agents",
+    "name": "ACP Agents",
+    "group_by": "model_harness"
+  }
+}
