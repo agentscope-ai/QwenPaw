@@ -3258,7 +3258,9 @@
       "asFile": "ファイルとして添付",
       "characters": "{{count}} 文字"
     },
-    "historyLoadFailed": "会話を読み込めませんでした。もう一度開いてください。",
+    "historyLoadFailed": "会話を読み込めませんでした。再試行してください。",
+    "routeNotFound": "この会話は利用できないか、削除されています。",
+    "routeAmbiguous": "このリンクは複数の会話に一致します。サイドバーから会話を開いてください。",
     "newTask": "新しいタスク",
     "newChat": "新しいチャット",
     "groups": {

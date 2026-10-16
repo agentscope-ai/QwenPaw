@@ -3517,7 +3517,9 @@
       "asFile": "Anexar como arquivo",
       "characters": "{{count}} caracteres"
     },
-    "historyLoadFailed": "Não foi possível carregar a conversa. Abra-a novamente.",
+    "historyLoadFailed": "Não foi possível carregar a conversa. Tente novamente.",
+    "routeNotFound": "Esta conversa não está disponível ou foi excluída.",
+    "routeAmbiguous": "Este link corresponde a mais de uma conversa. Abra uma conversa na barra lateral.",
     "newTask": "Nova tarefa",
     "newChat": "Novo chat",
     "groups": {

@@ -1122,7 +1122,9 @@
       "asFile": "Lampirkan sebagai file",
       "characters": "{{count}} karakter"
     },
-    "historyLoadFailed": "Percakapan tidak dapat dimuat. Silakan buka kembali.",
+    "historyLoadFailed": "Percakapan tidak dapat dimuat. Silakan coba lagi.",
+    "routeNotFound": "Percakapan ini tidak tersedia atau telah dihapus.",
+    "routeAmbiguous": "Tautan ini cocok dengan lebih dari satu percakapan. Buka percakapan dari bilah sisi.",
     "newTask": "Tugas baru",
     "newChat": "Chat baru",
     "groups": {

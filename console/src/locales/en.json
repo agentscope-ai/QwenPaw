@@ -4023,7 +4023,9 @@
       "asFile": "Attach as file",
       "characters": "{{count}} characters"
     },
-    "historyLoadFailed": "Could not load this conversation. Please reopen it.",
+    "historyLoadFailed": "Could not load this conversation. Please retry.",
+    "routeNotFound": "This conversation is unavailable or has been deleted.",
+    "routeAmbiguous": "This link matches more than one conversation. Open a conversation from the sidebar.",
     "switchSession": "Switch conversation",
     "lastActive": "Last active · {{time}}",
     "fileReference": {
