@@ -196,6 +196,8 @@ export function SkillDrawer({
       const aborted =
         error instanceof DOMException && error.name === "AbortError";
       if (!aborted) {
+        setContentValue(originalContent);
+        form.setFieldsValue({ content: originalContent });
         message.error(
           error instanceof Error ? error.message : t("skills.optimizeFailed"),
         );

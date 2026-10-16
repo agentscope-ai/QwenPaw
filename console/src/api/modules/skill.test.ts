@@ -9,6 +9,7 @@ vi.mock("../authHeaders", () => ({
 }));
 
 import { request } from "../request";
+import { buildAuthHeaders } from "../authHeaders";
 import { skillApi, invalidateSkillCache } from "./skill";
 
 // ---------------------------------------------------------------------------
@@ -728,7 +729,27 @@ describe("skillApi.streamOptimizeSkill", () => {
   const originalFetch = global.fetch;
   afterEach(() => {
     global.fetch = originalFetch;
+    vi.mocked(buildAuthHeaders).mockReturnValue({});
     vi.clearAllMocks();
+  });
+
+  it("keeps the current agent and API authentication on optimization requests", async () => {
+    vi.mocked(buildAuthHeaders).mockReturnValue({
+      "X-Agent-Id": "isolated-agent",
+      Authorization: "Bearer synthetic-test-token",
+    });
+    global.fetch = vi.fn().mockResolvedValue(sse('data: {"done": true}\n'));
+    await skillApi.streamOptimizeSkill(
+      "content",
+      () => {},
+      new AbortController().signal,
+    );
+    const headers = new Headers(
+      vi.mocked(global.fetch).mock.calls[0][1]?.headers,
+    );
+    expect(headers.get("X-Agent-Id")).toBe("isolated-agent");
+    expect(headers.get("Authorization")).toBe("Bearer synthetic-test-token");
+    expect(headers.get("Content-Type")).toBe("application/json");
   });
 
   function sse(body: string, status = 200) {
@@ -792,15 +813,9 @@ describe("skillApi.streamOptimizeSkill", () => {
   it("throws when the stream carries an error payload", async () => {
     global.fetch = vi.fn().mockResolvedValue(sse('data: {"error": "boom"}\n'));
     const controller = new AbortController();
-    // The error event is swallowed by the inner catch (malformed-chunk
-    // tolerance), so the stream simply ends without chunks.
-    const chunks: string[] = [];
-    await skillApi.streamOptimizeSkill(
-      "c",
-      (t) => chunks.push(t),
-      controller.signal,
-    );
-    expect(chunks).toEqual([]);
+    await expect(
+      skillApi.streamOptimizeSkill("c", () => {}, controller.signal),
+    ).rejects.toThrow("boom");
   });
 });
 
