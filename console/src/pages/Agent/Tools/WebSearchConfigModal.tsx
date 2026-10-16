@@ -144,6 +144,7 @@ export function WebSearchConfigModal({
 
   const isAnysearch = providerValue === "anysearch";
   const isTavily = providerValue === "tavily" || !providerValue;
+  const isSerply = providerValue === "serply";
   const isLoading = loadState.status === "loading";
   const isError = loadState.status === "error";
 
@@ -180,9 +181,17 @@ export function WebSearchConfigModal({
             >
               <Select.Option value="tavily">tavily</Select.Option>
               <Select.Option value="anysearch">anysearch</Select.Option>
+              <Select.Option value="serply">serply</Select.Option>
             </Select>
           </Form.Item>
-          <Form.Item name="api_key" label={t("tools.webSearchApiKeyLabel")}>
+          <Form.Item
+            name="api_key"
+            label={t(
+              isSerply
+                ? "tools.webSearchApiKeyRequiredLabel"
+                : "tools.webSearchApiKeyLabel",
+            )}
+          >
             <Input.Password
               autoComplete="off"
               disabled={isLoading || isError}
@@ -230,6 +239,22 @@ export function WebSearchConfigModal({
                 anysearch.com
               </Typography.Link>
               {t("tools.webSearchQuotaHintAfter")}
+            </Typography.Text>
+          )}
+          {isSerply && !isError && (
+            <Typography.Text
+              type="secondary"
+              style={{ fontSize: 12, lineHeight: "20px", display: "block" }}
+            >
+              {t("tools.webSearchSerplyHintBefore")}
+              <Typography.Link
+                href="https://serply.io"
+                target="_blank"
+                rel="noreferrer"
+              >
+                serply.io
+              </Typography.Link>
+              {t("tools.webSearchSerplyHintAfter")}
             </Typography.Text>
           )}
           {isTavily && !isError && (
