@@ -608,3 +608,57 @@ def test_concurrent_new_decision_waits_then_rejects_active_journal(
     journal = journal_store.read()
     assert journal.decision_id == "decision-concurrent-first"
     assert journal.state is ReviewDecisionJournalState.PREPARED
+
+
+def test_decision_ignores_leftover_directory_without_journal(tmp_path) -> None:
+    """A failed publish must not brick every later decision.
+
+    ``atomic_create_bytes`` creates the decision directory before it stages
+    the journal, so a staging failure (e.g. the Windows MAX_PATH temp path in
+    #8163) leaves a ``decision-*`` directory with no ``journal.json``.  The
+    active-decision guard used to raise on that leftover for every later
+    attempt, turning one transient write failure into a Review that can never
+    be decided.
+    """
+    store, _base, committed = make_pending_review(tmp_path)
+    review = committed.review
+    assert review is not None
+    service = ProjectReviewService(store)
+
+    abandoned_id = "decision-abandoned-publish"
+    leftover = _decision_transactions_root(
+        tmp_path,
+        review.review_id,
+    ) / hashed_runtime_segment("decision", abandoned_id)
+    leftover.mkdir(parents=True)
+    assert not (leftover / "journal.json").exists()
+
+    resolved = _decide(service, review, [_item(_operation(review, "/name"))])
+
+    assert resolved.status is ReviewStatus.PENDING
+    assert (
+        _decision_journal_store(
+            tmp_path,
+            review.review_id,
+            abandoned_id,
+        ).read_or_none()
+        is None
+    )
+
+
+def test_decision_still_rejects_unreadable_existing_journal(tmp_path) -> None:
+    """A journal that exists but cannot be read still fails closed."""
+    store, _base, committed = make_pending_review(tmp_path)
+    review = committed.review
+    assert review is not None
+    service = ProjectReviewService(store)
+
+    corrupt = _decision_transactions_root(
+        tmp_path,
+        review.review_id,
+    ) / hashed_runtime_segment("decision", "decision-corrupt-journal")
+    corrupt.mkdir(parents=True)
+    (corrupt / "journal.json").write_text("{not json", encoding="utf-8")
+
+    with pytest.raises(ReviewDecisionConflict, match="inconsistent"):
+        _decide(service, review, [_item(_operation(review, "/name"))])
