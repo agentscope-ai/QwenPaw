@@ -297,6 +297,28 @@ class TestEditFile:
         await edit_file(str(f), "aaa", "ccc")
         assert f.read_text(encoding="utf-8-sig") == "ccc bbb ccc"
 
+    @pytest.mark.asyncio
+    async def test_edit_preserves_crlf_line_endings(self, tmp_path):
+        """edit_file must not rewrite a CRLF file as LF (full-file diffs)."""
+        f = tmp_path / "app.py"
+        f.write_bytes(b'def hi():\r\n    return "old"\r\n')
+
+        result = await edit_file(str(f), "old", "new")
+
+        assert "Successfully replaced" in result.content[0].text
+        assert f.read_bytes() == b'def hi():\r\n    return "new"\r\n'
+
+    @pytest.mark.asyncio
+    async def test_edit_preserves_lf_line_endings(self, tmp_path):
+        """LF files stay LF after a successful edit."""
+        f = tmp_path / "app.py"
+        f.write_bytes(b'def hi():\n    return "old"\n')
+
+        result = await edit_file(str(f), "old", "new")
+
+        assert "Successfully replaced" in result.content[0].text
+        assert f.read_bytes() == b'def hi():\n    return "new"\n'
+
 
 # ---------------------------------------------------------------------------
 # append_file
