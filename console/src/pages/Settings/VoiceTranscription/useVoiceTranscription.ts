@@ -29,22 +29,26 @@ export function useVoiceTranscription() {
   const [providerType, setProviderType] = useState("disabled");
   const [providers, setProviders] = useState<TranscriptionProvider[]>([]);
   const [selectedProviderId, setSelectedProviderId] = useState("");
+  const [transcriptionModel, setTranscriptionModel] = useState("whisper-1");
   const [localWhisperStatus, setLocalWhisperStatus] =
     useState<LocalWhisperStatus | null>(null);
 
   const fetchSettings = useCallback(async () => {
     setLoading(true);
     try {
-      const [modeRes, provTypeRes, provRes, lwStatus] = await Promise.all([
-        api.getAudioMode(),
-        api.getTranscriptionProviderType(),
-        api.getTranscriptionProviders(),
-        api.getLocalWhisperStatus(),
-      ]);
+      const [modeRes, provTypeRes, provRes, modelRes, lwStatus] =
+        await Promise.all([
+          api.getAudioMode(),
+          api.getTranscriptionProviderType(),
+          api.getTranscriptionProviders(),
+          api.getTranscriptionModel(),
+          api.getLocalWhisperStatus(),
+        ]);
       setAudioMode(modeRes.audio_mode ?? "auto");
       setProviderType(provTypeRes.transcription_provider_type ?? "disabled");
       setProviders(provRes.providers ?? []);
       setSelectedProviderId(provRes.configured_provider_id ?? "");
+      setTranscriptionModel(modelRes.transcription_model ?? "whisper-1");
       setLocalWhisperStatus(lwStatus);
     } catch (err) {
       console.error("Failed to load voice transcription settings:", err);
@@ -68,6 +72,7 @@ export function useVoiceTranscription() {
       ];
       if (providerType === "whisper_api") {
         promises.push(api.updateTranscriptionProvider(selectedProviderId));
+        promises.push(api.updateTranscriptionModel(transcriptionModel));
       }
       await Promise.all(promises);
       if (!automatic) message.success(t("voiceTranscription.saveSuccess"));
@@ -95,6 +100,8 @@ export function useVoiceTranscription() {
     setProviderType,
     selectedProviderId,
     setSelectedProviderId,
+    transcriptionModel,
+    setTranscriptionModel,
     localWhisperStatus,
     availableProviders,
     showProviderSection,
