@@ -52,6 +52,7 @@ const registry = vi.hoisted(() => ({
 
 vi.mock("@/plugins/registry/hooks", () => ({
   useRoutes: () => registry.routes,
+  useAllMenuItems: () => [...registry.agentMenu, ...registry.settingsMenu],
   useMenuItems: (location: string) => {
     if (location === "primary.agentScoped") return registry.agentMenu;
     if (location === "primary.settings") return registry.settingsMenu;
@@ -98,6 +99,74 @@ describe("SettingsCenter", () => {
       focusItemIds: DEFAULT_FOCUS_ITEM_IDS,
       hiddenPluginItemIds: [],
     });
+  });
+
+  it("honors public menu visibility for built-in settings and restores on disposal", async () => {
+    registry.routes = [
+      {
+        id: "core.channels",
+        path: "/channels",
+        Component: () => <p>Channel configuration</p>,
+      },
+    ];
+    registry.agentMenu = [
+      {
+        id: "channel-shortcut",
+        label: "Channels",
+        location: "primary.agentScoped",
+        route: "core.channels",
+      },
+    ];
+    const view = renderWithProviders(<SettingsCenter />, {
+      initialEntries: ["/settings/general"],
+    });
+    expect(screen.getByRole("button", { name: "Channels" })).toBeVisible();
+
+    registry.agentMenu = registry.agentMenu.map((item) => ({
+      ...item,
+      visible: () => false,
+    }));
+    view.rerender(<SettingsCenter />);
+    expect(screen.queryByRole("button", { name: "Channels" })).toBeNull();
+    registry.agentMenu = registry.agentMenu.map((item) => {
+      const restored = { ...item };
+      delete restored.visible;
+      return restored;
+    });
+    view.rerender(<SettingsCenter />);
+    expect(screen.getByRole("button", { name: "Channels" })).toBeVisible();
+  });
+
+  it("does not render a hidden built-in settings deep link", async () => {
+    registry.routes = [
+      {
+        id: "core.channels",
+        path: "/channels",
+        Component: () => <p>Channel configuration</p>,
+      },
+    ];
+    registry.agentMenu = [
+      {
+        id: "core.channels",
+        label: "Channels",
+        location: "primary.agentScoped",
+        route: "core.channels",
+        visible: () => false,
+      },
+    ];
+    renderWithProviders(
+      <>
+        <SettingsCenter />
+        <LocationProbe />
+      </>,
+      { initialEntries: ["/settings/channels"] },
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId("location")).toHaveTextContent(
+        "/settings/general",
+      ),
+    );
+    expect(screen.queryByText("Channel configuration")).toBeNull();
   });
 
   it("uses dark preset swatches when dark theme is active", async () => {
