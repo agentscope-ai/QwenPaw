@@ -205,6 +205,13 @@ async def materialize_data_url(
 
 _FENCE_RE = re.compile(r"^(`{3,}|~{3,})")
 
+
+def _fence_marker(line: str) -> str:
+    """Return the marker run of a fence line, or ``""`` if it is not one."""
+    match = _FENCE_RE.match(line)
+    return match.group(1) if match else ""
+
+
 # Matches a GFM table separator row, e.g. ``| --- | :---: |``.
 _TABLE_SEPARATOR_RE = re.compile(
     r"^\s*\|?\s*:?-{3,}:?(\s*\|\s*:?-{3,}:?)*\s*\|?\s*$",
@@ -302,7 +309,7 @@ class _SplitBuffer:
         """Emit the buffered content, closing an open code fence."""
         body = "".join(self._current).rstrip("\n")
         if self.fence_open:
-            body += "\n```"
+            body += "\n" + _fence_marker(self.fence_open)
         self.chunks.append(body)
         self._current.clear()
         self._length = 0
@@ -377,8 +384,20 @@ def split_text(text: str, max_len: int = 3000) -> List[str]:
         line = lines[i]
         stripped = line.strip()
 
-        if _FENCE_RE.match(stripped):
-            buf.fence_open = "" if buf.fence_open else stripped
+        marker = _fence_marker(stripped)
+        if marker:
+            opened = _fence_marker(buf.fence_open) if buf.fence_open else ""
+            # A fence only closes on its own marker char, at least the
+            # opener's run length, and with nothing after it, so a shorter
+            # or differently marked fence stays content.
+            if not opened:
+                buf.fence_open = stripped
+            elif (
+                marker[0] == opened[0]
+                and len(marker) >= len(opened)
+                and not stripped[len(marker) :].strip()
+            ):
+                buf.fence_open = ""
             buf.emit_line(line)
             i += 1
             continue
