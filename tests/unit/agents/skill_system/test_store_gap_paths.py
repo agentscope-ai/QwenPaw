@@ -585,6 +585,11 @@ class TestDirectoryTreeRoundTrip:
         assert (tmp_path / "a.txt").read_text(encoding="utf-8") == "hello"
         assert (tmp_path / "sub" / "b.md").read_text(encoding="utf-8") == ""
 
+    def test_create_files_from_tree_preserves_binary(self, tmp_path):
+        payload = b"\x89PNG\x00\xff"
+        _create_files_from_tree(tmp_path, {"assets": {"image.png": payload}})
+        assert (tmp_path / "assets" / "image.png").read_bytes() == payload
+
     def test_create_files_rejects_invalid_value(self, tmp_path):
         with pytest.raises(SkillsError):
             _create_files_from_tree(tmp_path, {"bad": 123})
