@@ -10,6 +10,12 @@ only persist pending picks onto the chat. Resolution precedence is
 fork worktree → mode pin → trusted request override → session list
 (per-chat, or inherited from a parent agent, or pending from the
 client) → agent default (ordered list) → workspace fallback.
+
+The hook also seeds the per-chat approval level for the turn: the
+level persisted on the chat (cross-device, written via
+``PUT /chats/{id}/approval-level``) replaces the client-carried
+``request_context["approval_level"]`` when present; the carry stays
+the fallback for chats without a persisted level.
 """
 
 from __future__ import annotations
@@ -106,12 +112,17 @@ class ContextVarsSetupHook(LifecycleHook):
                 "channel": getattr(ctx.request, "channel", None) or "",
                 "channel_meta": getattr(ctx.request, "channel_meta", None),
             }
-        if isinstance(request_context, dict) and request_context.get(
-            "approval_level",
-        ):
-            approval_route["approval_level"] = request_context.get(
-                "approval_level",
-            )
+        if isinstance(request_context, dict):
+            # The level persisted on the chat (server-side, cross-device)
+            # wins over the value carried by the client; the carry stays
+            # the fallback when nothing is persisted for this chat.
+            persisted_level = await _session_approval_level(ctx)
+            if persisted_level is not None:
+                request_context["approval_level"] = persisted_level
+            if request_context.get("approval_level"):
+                approval_route["approval_level"] = request_context.get(
+                    "approval_level",
+                )
         set_current_approval_route(approval_route)
 
         agent_project_dir = None
@@ -295,9 +306,11 @@ def _resolve_turn_project_dirs(
 
         allowed_dirs: list[str] = []
         allowed_dirs.extend(
-            _entry_path_strings(agent_project_dirs)
-            if agent_project_dirs
-            else ([agent_project_dir] if agent_project_dir else []),
+            (
+                _entry_path_strings(agent_project_dirs)
+                if agent_project_dirs
+                else ([agent_project_dir] if agent_project_dir else [])
+            ),
         )
         allowed_dirs.extend(_entry_path_strings(session_project_dirs))
         fork_dir = resolve_allowed_fork_project_dir(
@@ -533,6 +546,54 @@ async def _session_project_dirs(ctx: HookContext) -> list | None:
         raise SessionProjectDirsUnavailable(
             f"could not read project dirs for session {ctx.session_id}",
         ) from exc
+
+
+async def _session_approval_level(ctx: HookContext) -> str | None:
+    """Read the chat's persisted approval level, if any.
+
+    Best-effort: any lookup problem yields ``None`` (the turn then falls
+    back to the client-carried level or the agent default). An
+    approval-level read must never block a turn, unlike the
+    project-directory read whose outcome decides whether the turn may
+    run at all.
+    """
+    if not ctx.session_id:
+        return None
+
+    from ...app.channels.schema import DEFAULT_CHANNEL
+    from ...services.session_approval import (
+        session_approval_level_from_meta,
+    )
+
+    workspace = getattr(ctx, "workspace", None)
+    chat_manager = getattr(workspace, "chat_manager", None)
+    if chat_manager is None:
+        return None
+
+    request = getattr(ctx, "request", None)
+    channel = getattr(request, "channel", None) or DEFAULT_CHANNEL
+    user_id = getattr(request, "user_id", None) or None
+
+    try:
+        chat_id = await chat_manager.get_chat_id_by_session(
+            ctx.session_id,
+            channel,
+            user_id,
+        )
+        if not chat_id:
+            return None
+        chat = await chat_manager.get_chat(chat_id)
+        if chat is None:
+            return None
+        return session_approval_level_from_meta(chat.meta)
+    except Exception:
+        logger.warning(
+            "contextvars_setup: could not read persisted approval level "
+            "for session %s; falling back to carried/agent default",
+            ctx.session_id,
+            exc_info=True,
+        )
+        return None
 
 
 __all__ = [

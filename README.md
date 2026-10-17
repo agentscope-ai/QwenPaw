@@ -377,6 +377,7 @@ QwenPaw includes five core security layers:
 
 - **Sandbox** — Kernel-level execution isolation using Seatbelt (macOS), Bubblewrap / Landlock (Linux), and AppContainer (Windows). Shell commands run inside a restricted filesystem view.
 - **Tool Guard** — YAML rule engine with `ShellEvasionGuardian` inspects every tool call before execution, detecting command injection, path traversal, reverse shells, and obfuscated attacks. Configurable approval levels: STRICT / SMART / AUTO / OFF.
+  - **Scope** — the agent-level default lives in the agent config. Each chat can override it with its own approval level from the console's per-chat "Tool Approval Mode" toggle: that value is stored on the server with the chat, so it follows the chat across devices and browsers, and takes precedence over the agent default. Clients may also carry a level per request; that carry is the fallback for chats without a persisted level. A level change takes effect from the next request — an in-flight run keeps its resolved level.
 - **File Guard** — Independent of Tool Guard; blocks agent access to sensitive files and directories (default-protects `~/.qwenpaw.secret/`, `~/.ssh`, etc.).
 - **Skill Scanner** — Pre-activation scanning with block / warn / off modes and whitelist support. Detects prompt injection, hardcoded secrets, data exfiltration, and more.
 - **Access Policy** — Declarative access rules that allow, deny, or request human approval for each capability call, with tool-level granularity and source-aware matching.

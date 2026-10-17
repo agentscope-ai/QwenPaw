@@ -3058,7 +3058,7 @@
     "rerankerTimeoutMin": "O tempo limite deve ser ≥ 1 segundo",
     "rerankerCandidateMultiplierInteger": "O multiplicador de candidatos deve ser um número inteiro",
     "toolExecutionLevelTitle": "Modo de Aprovação de Ferramentas",
-    "toolExecutionLevelTooltip": "Modo de Aprovação",
+    "toolExecutionLevelTooltip": "Apenas para este chat — salvo no servidor, consistente entre dispositivos; os outros chats usam o nível padrão do agente.",
     "toolExecutionLevel": {
       "title": "Modo de Aprovação de Ferramentas",
       "alertMessage": "Configure a aprovação antes das chamadas de ferramentas. As regras do File Guard são aplicadas separadamente.",
@@ -3069,7 +3069,10 @@
       "auto": "Modo Automático",
       "autoDesc": "Somente operações que correspondem às regras de aprovação de ferramentas e arquivos exigem aprovação (padrão)",
       "off": "Modo Desativado",
-      "offDesc": "As aprovações de ferramentas e arquivos são desativadas"
+      "offDesc": "As aprovações de ferramentas e arquivos são desativadas",
+      "followAgent": "Seguir padrão do agente",
+      "followAgentDesc": "Usar o nível configurado para este agente",
+      "persistFailed": "Falha ao salvar o nível de aprovação; revertido para o nível anterior."
     },
     "saveLevelSuccess": "Modo de aprovação de ferramentas salvo",
     "saveLevelFailed": "Falha ao salvar o modo de aprovação de ferramentas",

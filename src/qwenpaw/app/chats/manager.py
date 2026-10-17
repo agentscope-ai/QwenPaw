@@ -523,6 +523,41 @@ class ChatManager:  # pylint: disable=too-many-public-methods
             await self._repo.upsert_chat(updated)
             return updated
 
+    async def set_session_approval_level(
+        self,
+        chat_id: str,
+        level: Optional[str],
+    ) -> Optional[ChatSpec]:
+        """Set or clear this chat's persisted approval level.
+
+        ``level`` is the canonical uppercase level name (validated by
+        the caller); ``None`` clears the override so the chat follows
+        the agent-level default. The value lives in the controlled
+        ``meta["runtime_context"]`` namespace, and the read-modify-write
+        happens under the manager lock like the sibling setters, so a
+        concurrent update to a sibling key cannot be lost.
+
+        Returns the updated spec, or ``None`` if the chat does not exist.
+        """
+        async with self._lock:
+            existing = await self._repo.get_chat(chat_id)
+            if existing is None:
+                return None
+            meta = dict(existing.meta or {})
+            runtime_context = dict(meta.get("runtime_context") or {})
+            if level is None:
+                runtime_context.pop("approval_level", None)
+            else:
+                runtime_context["approval_level"] = level
+            if runtime_context:
+                meta["runtime_context"] = runtime_context
+            else:
+                meta.pop("runtime_context", None)
+            updated = existing.model_copy(update={"meta": meta})
+            updated.updated_at = datetime.now(timezone.utc)
+            await self._repo.upsert_chat(updated)
+            return updated
+
     async def set_session_project_dirs(
         self,
         chat_id: str,

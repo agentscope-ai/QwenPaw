@@ -4609,7 +4609,7 @@
     "rerankerTimeoutMin": "Batas waktu harus ≥ 1 detik",
     "rerankerCandidateMultiplierInteger": "Perkalian kandidat harus bilangan bulat",
     "toolExecutionLevelTitle": "Mode Persetujuan Alat",
-    "toolExecutionLevelTooltip": "Mode Persetujuan",
+    "toolExecutionLevelTooltip": "Hanya untuk obrolan ini — disimpan di server sehingga konsisten antar perangkat; obrolan lain memakai level default agen.",
     "toolExecutionLevel": {
       "title": "Mode Persetujuan Alat",
       "alertMessage": "Atur persetujuan sebelum panggilan alat. Aturan File Guard berlaku secara terpisah.",
@@ -4620,7 +4620,10 @@
       "auto": "Mode Otomatis",
       "autoDesc": "Hanya operasi yang cocok dengan aturan persetujuan alat dan file yang memerlukan persetujuan (default)",
       "off": "Mode Mati",
-      "offDesc": "Persetujuan alat dan file dinonaktifkan"
+      "offDesc": "Persetujuan alat dan file dinonaktifkan",
+      "followAgent": "Ikuti default agen",
+      "followAgentDesc": "Gunakan level yang dikonfigurasi untuk agen ini",
+      "persistFailed": "Gagal menyimpan tingkat persetujuan; dikembalikan ke tingkat sebelumnya."
     },
     "saveLevelSuccess": "Mode persetujuan alat tersimpan",
     "saveLevelFailed": "Gagal menyimpan mode persetujuan alat",

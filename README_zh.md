@@ -377,6 +377,7 @@ QwenPaw 内置五层核心安全防护：
 
 - **Sandbox** — 内核级执行隔离，macOS 使用 Seatbelt，Linux 使用 Bubblewrap / Landlock，Windows 使用 AppContainer。Shell 命令在受限文件系统视图中运行。
 - **Tool Guard** — 带 `ShellEvasionGuardian` 的 YAML 规则引擎，在每次工具调用执行前进行检查，检测命令注入、路径遍历、反向 Shell 与混淆攻击。可配置审批级别：STRICT / SMART / AUTO / OFF。
+  - **作用范围** — Agent 级默认值存在 agent 配置里。每个会话可用控制台会话页的「工具审批模式」开关设置自己的等级：该值**保存在服务端（随会话存储）**，跨设备/浏览器一致，且优先于 Agent 默认值。客户端也可以逐请求携带等级，但只是未持久化会话的兜底。修改等级从下一次请求生效——进行中的 run 保持其已解析的等级。
 - **File Guard** — 独立于 Tool Guard；阻止智能体访问敏感文件与目录（默认保护 `~/.qwenpaw.secret/`、`~/.ssh` 等）。
 - **Skill Scanner** — 激活前扫描，支持 block / warn / off 模式与白名单。检测提示词注入、硬编码密钥、数据外泄等风险。
 - **Access Policy** — 声明式访问策略，对每次能力调用裁定放行(allow)、拒绝(deny)或请求人工审批(ask)，支持工具级粒度和来源感知匹配。

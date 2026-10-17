@@ -4121,6 +4121,7 @@ export default function ChatPage() {
             {usesQwenPawBackend ? (
               <ApprovalLevelToggle
                 sessionId={queueKey}
+                agentId={selectedAgent}
                 runningConfigApprovalLevel={runningConfigApprovalLevel}
                 compact={isMobile || compactSender}
                 className={[

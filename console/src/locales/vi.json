@@ -2945,7 +2945,23 @@
     },
     "remeLightMemoryTitle": "Bộ nhớ dài hạn",
     "lightContextTitle": "Quản lý ngữ cảnh",
-    "memoryAutoRecordTitle": "Bật bộ nhớ hội thoại"
+    "memoryAutoRecordTitle": "Bật bộ nhớ hội thoại",
+    "toolExecutionLevel": {
+      "title": "Chế độ phê duyệt công cụ",
+      "alertMessage": "Cấu hình phê duyệt trước các cuộc gọi công cụ. Quy tắc File Guard được áp dụng độc lập.",
+      "strict": "Chế độ nghiêm ngặt",
+      "strictDesc": "Mọi cuộc gọi công cụ và truy cập tệp bên ngoài đều yêu cầu phê duyệt",
+      "smart": "Chế độ thông minh",
+      "smartDesc": "Công cụ và truy cập tệp bên ngoài rủi ro thấp chạy tự động; thao tác rủi ro trung bình và cao yêu cầu phê duyệt",
+      "auto": "Chế độ tự động",
+      "autoDesc": "Chỉ thao tác khớp quy tắc phê duyệt công cụ và tệp mới cần phê duyệt (mặc định)",
+      "off": "Chế độ tắt",
+      "offDesc": "Tắt phê duyệt công cụ và tệp",
+      "followAgent": "Theo mặc định của agent",
+      "followAgentDesc": "Dùng mức đã cấu hình cho agent này",
+      "persistFailed": "Không lưu được cấp độ phê duyệt; đã hoàn tác về cấp độ trước."
+    },
+    "toolExecutionLevelTooltip": "Chỉ cho cuộc trò chuyện này — lưu trên máy chủ nên nhất quán giữa các thiết bị; các cuộc trò chuyện khác dùng mức mặc định của agent."
   },
   "models": {
     "llmConfiguration": "Cấu hình LLM",
