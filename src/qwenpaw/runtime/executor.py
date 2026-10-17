@@ -11,6 +11,8 @@ import logging
 from datetime import datetime
 from typing import Any, AsyncGenerator
 
+from agentscope.event import EventType, ReplyFinishedReason
+
 from .envelope import Envelope
 from .heartbeat import (
     _iter_with_heartbeat,
@@ -33,6 +35,7 @@ class AgentExecutor:
     def __init__(self, agent: Any, envelope: Envelope) -> None:
         self._agent = agent
         self._envelope = envelope
+        self.finished_reason: ReplyFinishedReason | None = None
 
     async def run(
         self,
@@ -53,6 +56,9 @@ class AgentExecutor:
                 async for obj in self._envelope.heartbeat():
                     yield obj
                 continue
+
+            if getattr(event, "type", None) == EventType.REPLY_END:
+                self.finished_reason = getattr(event, "finished_reason", None)
 
             self._maybe_stamp_finished_at(event)
 
@@ -78,8 +84,6 @@ class AgentExecutor:
         logged and swallowed so the SSE stream is never affected.
         """
         try:
-            from agentscope.event import EventType
-
             if getattr(event, "type", None) != EventType.REPLY_END.value:
                 return
             context = getattr(
