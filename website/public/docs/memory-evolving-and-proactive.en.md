@@ -11,6 +11,13 @@ QwenPaw has two related but currently **independent** paths:
 
 `/proactive` does **not** read `digest/` or `interests.yaml` today. See “Current boundary” at the end of this page.
 
+With the ReMe 0.4.2 integration, QwenPaw runs digest consolidation and proactive topic refresh as
+separate jobs under the existing Auto-Dream action and schedule. A successful consolidation is
+followed by a private `proactive_refresh` job; the `proactive` memory action remains a reader.
+The old Auto-Dream `topic_count` and `topic_diversity_days` arguments are no longer accepted.
+Topic generation now follows the independent proactive pipeline's configuration in
+`src/qwenpaw/agents/memory/reme_config.py`.
+
 <p align="center">
   <img src="https://img.alicdn.com/imgextra/i3/O1CN01mG5Uot1GQdX33v4h4_!!6000000000617-55-tps-1200-640.svg" alt="QwenPaw long-term memory from capture and consolidation to retrieval and discovery" />
 </p>

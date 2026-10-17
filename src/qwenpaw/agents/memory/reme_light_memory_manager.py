@@ -9,6 +9,7 @@ ReMe's application/job framework.
 import asyncio
 from copy import deepcopy
 import hashlib
+from inspect import signature
 import logging
 import os
 from contextlib import asynccontextmanager
@@ -100,7 +101,7 @@ _HOST_MEMORY_ACTIONS: dict[str, MemoryActionSpec] = {
         "parameters": {"type": "object", "properties": {}},
     },
 }
-_REQUIRED_REME_VERSION = "0.4.1.11"
+_REQUIRED_REME_VERSION = "0.4.2.0"
 
 
 def _consume_detached_task_result(task: asyncio.Task[Any]) -> None:
@@ -154,11 +155,17 @@ def _load_validated_reme_app() -> type:
     import reme  # type: ignore
     from reme import ReMe as ReMeApp  # type: ignore
     from reme.components.file_store import LocalFileStore  # type: ignore
+    from reme.steps.index.watch_changes import WatchChangesStep  # type: ignore
 
     if reme.__version__ != _REQUIRED_REME_VERSION:
         raise _ReMeContractError(
             "QwenPaw requires "
             f"reme-ai=={_REQUIRED_REME_VERSION}, found {reme.__version__}",
+        )
+    if "watch_mode" not in signature(WatchChangesStep.__init__).parameters:
+        raise _ReMeContractError(
+            "QwenPaw requires ReMe with watch_mode support. "
+            "Install the ReMe source containing the watcher isolation change.",
         )
     required = {
         "ReMe.run_job": getattr(ReMeApp, "run_job", None),
@@ -896,13 +903,38 @@ class ReMeLightMemoryManager(BaseMemoryManager, MemoryActionProvider):
                 kwargs,
             )
             if action not in {"reindex", "undo_reindex"}:
-                return await self._run_reme_job(
+                response = await self._run_reme_job(
                     action,
                     needs_llm=action in _REME_LLM_ACTIONS,
                     raise_on_error=True,
                     lifecycle_locked=True,
                     **kwargs,
                 )
+                if (
+                    action == "auto_dream"
+                    and response is not None
+                    and response.success
+                ):
+                    # Keep the host action's topic-refresh behaviour while
+                    # giving ReMe's two pipelines separate RuntimeContexts
+                    # and independent catalog watermarks.
+                    refreshed = await self._run_reme_job(
+                        "proactive_refresh",
+                        needs_llm=True,
+                        raise_on_error=True,
+                        lifecycle_locked=True,
+                        date=str(kwargs.get("date") or ""),
+                    )
+                    if refreshed is None or not refreshed.success:
+                        detail = (
+                            str(refreshed.answer)
+                            if refreshed is not None
+                            else "ReMe is not started"
+                        )
+                        raise RuntimeError(
+                            f"Proactive refresh failed: {detail}",
+                        )
+                return response
 
         # Host-managed actions acquire the exclusive lifecycle lock and must
         # therefore run after releasing the ordinary ReMe job lease.

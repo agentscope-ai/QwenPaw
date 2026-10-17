@@ -80,6 +80,7 @@ def _base_config() -> dict[str, Any]:
                     },
                     {
                         "backend": "watch_changes_step",
+                        "watch_mode": "watch",
                         "dispatch_steps": [
                             {"backend": "update_index_step", "persist": False},
                         ],
@@ -420,9 +421,9 @@ def _base_config() -> dict[str, Any]:
                 "backend": "base",
                 "description": (
                     "Auto-dream: scan today's day-index and daily notes, "
-                    "globally extract merged units/topics, integrate digest "
-                    "units, write interests.yaml, and persist the dream "
-                    "catalog."
+                    "extract and integrate digest units, and persist the "
+                    "dream catalog. QwenPaw refreshes proactive topics "
+                    "after this job succeeds."
                 ),
                 "parameters": {
                     "type": "object",
@@ -431,28 +432,43 @@ def _base_config() -> dict[str, Any]:
                         "hint": {"type": "string", "default": ""},
                         "scan_days": {"type": "integer", "default": 2},
                         "max_units": {"type": "integer", "default": 5},
-                        "topic_count": {"type": "integer", "default": 3},
-                        "topic_diversity_days": {
-                            "type": "integer",
-                            "default": 7,
-                        },
                     },
                 },
                 "steps": [
                     {
                         "backend": "dream_extract_step",
                         "file_catalog": "dream",
-                        "topic_session_id": "interests",
                         "scan_days": 2,
                         "max_units": 5,
                     },
                     {"backend": "dream_integrate_step"},
-                    {
-                        "backend": "dream_topics_step",
-                        "topic_count": 3,
-                        "topic_diversity_days": 7,
-                    },
                     {"backend": "dream_finish_step", "file_catalog": "dream"},
+                ],
+            },
+            # ReMe 0.4.2 separates topic generation from digest consolidation.
+            # The host runs this private job after successful auto_dream calls,
+            # using the existing dream schedule rather than adding a new cron.
+            "proactive_refresh": {
+                "backend": "base",
+                "enable_serve": False,
+                "steps": [
+                    {
+                        "backend": "proactive_extract_step",
+                        "file_catalog": "proactive",
+                        "scan_days": 2,
+                        "carry_forward_days": 14,
+                        "max_carry_forward_topics": 20,
+                        "llm_timeout_seconds": 300,
+                        "max_chars_per_file": 60000,
+                        "max_total_chars": 300000,
+                    },
+                    {"backend": "proactive_topics_step"},
+                    {"backend": "proactive_plan_step"},
+                    {"backend": "proactive_agenda_step"},
+                    {
+                        "backend": "proactive_finish_step",
+                        "file_catalog": "proactive",
+                    },
                 ],
             },
             "proactive": {
@@ -611,6 +627,7 @@ def _base_components() -> dict[str, Any]:
             "default": {"backend": "local"},
             "digest": {"backend": "local"},
             "dream": {"backend": "local"},
+            "proactive": {"backend": "local"},
         },
         "file_chunker": {
             "markdown": {
