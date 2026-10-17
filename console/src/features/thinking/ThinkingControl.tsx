@@ -95,9 +95,6 @@ export function ThinkingControl({
           }), var(--thinking-${ratio < 0.5 ? "mid" : "end"}) ${Math.round(
             (ratio < 0.5 ? ratio * 2 : (ratio - 0.5) * 2) * 100,
           )}%)`,
-          "--thinking-low-position": `${
-            ((low - offPosition) / (high - offPosition)) * 100
-          }%`,
         } as CSSProperties
       }
       onKeyDownCapture={(event) => {
