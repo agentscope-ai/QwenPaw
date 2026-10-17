@@ -6,6 +6,7 @@ _strip_media_blocks_from_memory (top-level media removal, nested
 tool_result output filtering, empty-content placeholder insertion), plus
 request-only recovery from provider media-payload rejections.
 """
+
 # pylint: disable=protected-access,redefined-outer-name,unused-argument
 from __future__ import annotations
 
@@ -27,7 +28,6 @@ from qwenpaw.constant import MEDIA_UNSUPPORTED_PLACEHOLDER
 from qwenpaw.loop.gates import StopAction, StopHandlerResult
 from qwenpaw.providers.model_capability_cache import get_capability_cache
 
-
 _DEEPSEEK_UNSUPPORTED_IMAGE_ERROR = (
     "Error code: 400 - {'error': {'message': 'Failed to deserialize the "
     "JSON body into the target type: messages[106].image[0]: You have "
@@ -38,6 +38,28 @@ _DEEPSEEK_UNSUPPORTED_IMAGE_ERROR = (
 _MODEL_CAPABILITY_ERROR = (
     "Error code: 400 - {'error': {'message': 'This model does not support "
     "image input.'}}"
+)
+
+# LM Studio / OpenAI-compatible: image|video at-most twin of the audio shape
+# covered in test_react_agent_scroll_seen.py (#8171 / #8290).
+_LM_STUDIO_VIDEO_LIMIT_ERROR = (
+    "Error code: 400 - {'error': {'message': 'At most 0 video(s) may be "
+    "provided in one prompt. (parameter=video)', 'type': 'BadRequestError', "
+    "'param': 'video', 'code': 400}}"
+)
+
+_LM_STUDIO_IMAGE_LIMIT_ERROR = (
+    "Error code: 400 - {'error': {'message': 'At most 0 image(s) may be "
+    "provided in one prompt. (parameter=image)', 'type': 'BadRequestError', "
+    "'param': 'image', 'code': 400}}"
+)
+
+# Aggregator endpoint with media disabled while the model is declared
+# multimodal (#8290 shape B).
+_ENDPOINT_MEDIA_DISABLED_ERROR = (
+    "Error code: 400 - {'error': {'type': 'server_error', 'message': "
+    "'Upstream request failed: [unsupported_request] Message content "
+    "supports text content only. Images, audio and files are not enabled.'}}"
 )
 
 
@@ -324,6 +346,26 @@ class TestStripMediaBlocksFromMemory:
         ("Error code: 400 - invalid image data in messages[3].image[0]", True),
         ("Error code: 400 - failed to decode the audio payload", True),
         ("Error code: 400 - multiple image inputs are not supported", True),
+        (
+            "Error code: 400 - {'error': {'message': 'At most 0 image(s) "
+            "may be provided in one prompt. (parameter=image)', "
+            "'param': 'image', 'code': 400}}",
+            True,
+        ),
+        (
+            "Error code: 400 - {'error': {'message': 'At most 0 audio(s) "
+            "may be provided in one prompt. (parameter=audio)', "
+            "'param': 'audio', 'code': 400}}",
+            True,
+        ),
+        (_LM_STUDIO_VIDEO_LIMIT_ERROR, True),
+        (_LM_STUDIO_IMAGE_LIMIT_ERROR, True),
+        (_ENDPOINT_MEDIA_DISABLED_ERROR, True),
+        (
+            "Error code: 400 - Message content supports text content only. "
+            "Images, audio and files are not enabled.",
+            True,
+        ),
         (_MODEL_CAPABILITY_ERROR, False),
         (
             "Error code: 400 - image is sensitive: invalid image content",
@@ -471,3 +513,82 @@ async def test_payload_rejection_without_safe_retry_raises(
 
     assert calls == 1
     assert _dump_context(agent.state.context) == original_dump
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("provider_error", "model_key"),
+    [
+        (_LM_STUDIO_VIDEO_LIMIT_ERROR, "opencode:deepseek-v4.1-flash-video"),
+        (_LM_STUDIO_IMAGE_LIMIT_ERROR, "lmstudio:local-image-limit"),
+        (_ENDPOINT_MEDIA_DISABLED_ERROR, "opencode:deepseek-v4.1-flash-text"),
+    ],
+    ids=["at-most-video", "at-most-image", "endpoint-media-disabled"],
+)
+async def test_media_at_most_and_disabled_use_media_strip_path(
+    monkeypatch,
+    provider_error: str,
+    model_key: str,
+) -> None:
+    """Image/video at-most and are-not-enabled retry on the media path.
+
+    Must not enter the audio-only fallback, and must not teach
+    ``rejects_media`` (request-scoped / endpoint-scoped only).
+    """
+    cache = get_capability_cache()
+    cache.clear()
+    agent = _reasoning_agent()
+    agent.model = SimpleNamespace(model_key=model_key)
+    agent.state.context = _current_media_context()
+    original_context = agent.state.context
+    original_dump = _dump_context(original_context)
+    agent.formatter = _formatter()
+    calls = 0
+
+    async def provider_reasoning(self, tool_choice=None):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise RuntimeError(provider_error)
+        assert agent.formatter._qwenpaw_force_strip_media is True
+        assert agent.formatter._qwenpaw_force_strip_audio is False
+        assert agent.state.context is original_context
+        assert _dump_context(agent.state.context) == original_dump
+        yield Msg(
+            name="agent",
+            role="assistant",
+            content=[TextBlock(type="text", text="recovered")],
+        )
+
+    monkeypatch.setattr(Agent, "_reasoning", provider_reasoning)
+
+    try:
+        events = [event async for event in agent._reasoning()]
+
+        assert calls == 2
+        assert isinstance(events[-1], Msg)
+        assert cache.get(model_key, "rejects_media", False) is False
+        assert cache.get(model_key, "rejects_audio", False) is False
+        assert agent.formatter._qwenpaw_force_strip_media is False
+        assert agent.formatter._qwenpaw_force_strip_audio is False
+        # Routing invariants for the expansion promised on #8171.
+        assert (
+            QwenPawAgent._is_audio_fallback_error(
+                RuntimeError(provider_error),
+            )
+            is False
+        )
+        assert (
+            QwenPawAgent._is_media_payload_rejection_error(
+                RuntimeError(provider_error),
+            )
+            is True
+        )
+        assert (
+            QwenPawAgent._is_explicit_media_capability_error(
+                RuntimeError(provider_error),
+            )
+            is False
+        )
+    finally:
+        cache.clear()

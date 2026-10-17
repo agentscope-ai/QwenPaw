@@ -144,6 +144,21 @@ _REQUEST_SCOPED_MEDIA_LIMIT_SIGNALS = (
     "smaller than",
     "per image",
     "file size",
+    # LM Studio / OpenAI-compatible: "At most N image|video|audio(s) may
+    # be provided in one prompt". Request-scoped, so it never teaches
+    # model-wide ``rejects_media``. Audio still prefers the audio fallback.
+    "may be provided in one prompt",
+)
+
+# "At most N audio(s)" with either the LM Studio prompt-limit sentence or
+# an audio parameter marker. Image and video counts must not match.
+_AT_MOST_AUDIO_COUNT_RE = re.compile(
+    r"\bat most \d+ audio(?:\(s\)|s)?(?!\w)",
+)
+_AUDIO_PARAMETER_MARKERS = (
+    "(parameter=audio)",
+    "param': 'audio'",
+    'param": "audio"',
 )
 
 # Asset-level media failures: the provider refused these bytes (undecodable
@@ -185,6 +200,11 @@ _MEDIA_PAYLOAD_REJECTION_SIGNALS = (
     "image too large",
     "image is too large",
     "image dimensions",
+    # OpenAI-compatible aggregator: endpoint has media disabled while
+    # the model is still declared multimodal. Request-scoped strip only —
+    # do not teach model-wide rejects_media (see #8171 / #8290).
+    "are not enabled",
+    "supports text content only",
 )
 
 # A payload rejection only counts when the provider actually names the media
@@ -684,7 +704,17 @@ class QwenPawAgent(CodingModeMixin, Agent):
 
     @staticmethod
     def _is_audio_fallback_error(exc: Exception) -> bool:
-        """Return whether a provider rejected the current audio payload."""
+        """Return whether a provider rejected the current audio payload.
+
+        Matches DashScope's incorrect-modal ``audio`` 400, unknown
+        ``input_audio`` parts from OpenAI-compatible gateways, and LM
+        Studio's OpenAI-compatible limit ``At most N audio(s) may be
+        provided in one prompt`` (``N`` may be 0). The same rejection is
+        also recognized when ``(parameter=audio)`` or ``param: audio``
+        accompanies that at-most audio limit. Image and video ``at most
+        N`` limits stay on the media classifiers so a vision-capable
+        model is not sent down the audio-strip path.
+        """
         error_str = " ".join(str(exc).lower().split())
         status = extract_status_code(exc)
         has_bad_request_status = status == 400 or "<400>" in error_str
@@ -708,10 +738,24 @@ class QwenPawAgent(CodingModeMixin, Agent):
                 "wrong position",
             )
         )
-        return rejects_unknown_audio_part or (
-            has_bad_request_status
-            and "internalerror.algo.invalidparameter" in error_str
-            and invalid_modal
+        at_most_audio = _AT_MOST_AUDIO_COUNT_RE.search(error_str) is not None
+        names_audio_parameter = any(
+            marker in error_str for marker in _AUDIO_PARAMETER_MARKERS
+        )
+        # The sentence alone is enough. The parameter marker is the
+        # alternate LM Studio shape and still requires an audio count.
+        lmstudio_audio_limit = at_most_audio and (
+            "may be provided in one prompt" in error_str
+            or names_audio_parameter
+        )
+        return (
+            rejects_unknown_audio_part
+            or lmstudio_audio_limit
+            or (
+                has_bad_request_status
+                and "internalerror.algo.invalidparameter" in error_str
+                and invalid_modal
+            )
         )
 
     async def _prepare_model_input(self) -> dict[str, Any]:
@@ -1268,9 +1312,12 @@ class QwenPawAgent(CodingModeMixin, Agent):
 
         Covers the request-scoped media limits documented by
         ``_REQUEST_SCOPED_MEDIA_LIMIT_SIGNALS`` — too many images, a
-        resolution or a video duration the provider refuses — plus
+        resolution or a video duration the provider refuses, an
+        ``at most N <modal>(s) may be provided in one prompt`` cap — plus
         asset-level failures: undecodable bytes, an unsupported container,
-        a declared MIME type the provider cannot render. None of them says
+        a declared MIME type the provider cannot render, and endpoint
+        wordings such as ``supports text content only`` / ``are not
+        enabled`` when the request still carries media. None of them says
         anything about the model, so recovery is a media-free retry, never
         a cached model-wide ``rejects_media`` capability loss.
 
