@@ -1540,11 +1540,17 @@ async def test_formatter_base_call_does_not_block_event_loop() -> None:
 async def test_openai_formatter_uses_prepared_local_video(
     tmp_path,
 ) -> None:
-    """The formatter must consume local video data prepared off-thread."""
+    """The formatter must consume local video data prepared off-thread.
+
+    Video on Chat Completions is opt-in: ``video_url`` is a vendor
+    extension, so the formatter only emits it for a model that declares
+    ``supports_video=True`` (see ``test_video_part_wire_capability``).
+    """
     video_path = tmp_path / "clip.mp4"
     video_path.write_bytes(b"video")
     formatter_class = model_factory._create_file_block_support_formatter(
         _CappingOpenAIFormatter,
+        supports_video=True,
     )
     formatter = formatter_class()
     msg = Msg(

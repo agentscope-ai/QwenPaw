@@ -663,6 +663,18 @@ class QwenPawAgent(CodingModeMixin, Agent):
             return
         setattr(formatter, "_qwenpaw_force_strip_audio", enabled)
 
+    def _set_formatter_video_strip(self, enabled: bool) -> None:
+        """Toggle request-time video stripping on the active formatter.
+
+        Narrower than ``_qwenpaw_force_strip_media``: images and audio in the
+        same request stay untouched, so a session that only tripped over an
+        unsupported ``video_url`` part keeps its other media.
+        """
+        formatter = self._get_active_formatter()
+        if formatter is None:
+            return
+        setattr(formatter, "_qwenpaw_force_strip_video", enabled)
+
     def _set_formatter_thinking_omit_ids(self, block_ids: set[str]) -> bool:
         """Propagate reasoning omissions through model wrappers."""
         model_setter = getattr(self.model, "set_thinking_omit_ids", None)
@@ -772,6 +784,47 @@ class QwenPawAgent(CodingModeMixin, Agent):
         if "at most 0 audio" in error_str and "may be provided" in error_str:
             return True
         return False
+
+    @staticmethod
+    def _is_video_fallback_error(exc: Exception) -> bool:
+        """Return whether a provider rejected the current video part type.
+
+        OpenAI-compatible endpoints that never implemented the ``video_url``
+        (Chat Completions) or ``input_video`` (Responses) extension fail at
+        the *schema* level, e.g. DeepSeek's::
+
+            422 ... messages[443]: unknown variant `video_url`,
+            expected one of `text`, `image_url`, `file`
+
+        That message says nothing about the model's capability, and because
+        the block is replayed from stored history every later turn, the
+        session cannot heal by itself.  Recognising it allows a retry that
+        drops only the video parts.
+        """
+        error_str = " ".join(str(exc).lower().split())
+        names_video_part = any(
+            part in error_str
+            for part in (
+                "video_url",
+                "input_video",
+                "video/",
+                "(parameter=video)",
+            )
+        )
+        rejects_part_shape = any(
+            marker in error_str
+            for marker in (
+                "unknown variant",
+                "unexpected variant",
+                "unknown part",
+                "unknown content",
+                "unknown field",
+                "unexpected field",
+                "not one of the supported",
+                "only supports text and image",
+            )
+        ) or bool(re.search(r"at most \d+ video", error_str))
+        return names_video_part and rejects_part_shape
 
     async def _prepare_model_input(self) -> dict[str, Any]:
         """Freeze local images before they enter a provider request."""
@@ -1101,6 +1154,10 @@ class QwenPawAgent(CodingModeMixin, Agent):
                     self._attach_fallback_notices(evt, fallback_sink)
                     yield evt
         except Exception as e:
+            video_fallback_retry = (
+                self._last_wire_request_had_media()
+                and self._is_video_fallback_error(e)
+            )
             audio_fallback_retry = (
                 self._last_wire_request_had_audio()
                 and self._is_audio_fallback_error(e)
@@ -1116,7 +1173,8 @@ class QwenPawAgent(CodingModeMixin, Agent):
                 and self._is_media_payload_rejection_error(e)
             )
             if not (
-                audio_fallback_retry
+                video_fallback_retry
+                or audio_fallback_retry
                 or media_capability_retry
                 or media_payload_retry
             ):
@@ -1132,7 +1190,16 @@ class QwenPawAgent(CodingModeMixin, Agent):
                 media_capability_retry
                 and self._is_global_media_capability_error(e)
             )
-            if audio_fallback_retry:
+            if video_fallback_retry:
+                logger.warning(
+                    "_reasoning failed because the provider rejected the "
+                    "video part type (%s); stripping video from the retry "
+                    "request. Images, audio, and stored history are "
+                    "unchanged, and no capability loss is cached.",
+                    e,
+                )
+                self._set_formatter_video_strip(True)
+            elif audio_fallback_retry:
                 logger.warning(
                     "_reasoning failed because the provider rejected an "
                     "audio payload (%s); stripping audio and retrying.",
@@ -1182,6 +1249,7 @@ class QwenPawAgent(CodingModeMixin, Agent):
                     )
             finally:
                 if self._uses_request_time_media_normalization():
+                    self._set_formatter_video_strip(False)
                     self._set_formatter_audio_strip(False)
                     self._set_formatter_media_strip(False)
         else:
