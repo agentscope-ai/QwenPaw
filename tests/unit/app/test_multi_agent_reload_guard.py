@@ -104,6 +104,22 @@ async def test_reload_swaps_when_no_write_intervenes(manager):
     assert mgr.agents["agent"] is not old_instance
 
 
+async def test_reload_fires_workspace_created_hooks(manager, monkeypatch):
+    mgr, _old_instance = manager
+    new_instance = _fake_workspace()
+    mgr._create_workspace = lambda agent_id, workspace_dir: new_instance
+    mock_fire = AsyncMock()
+    monkeypatch.setattr(mgr, "_fire_workspace_created_hooks", mock_fire)
+
+    assert await mgr.reload_agent("agent") is True
+    mock_fire.assert_awaited_once_with(
+        {
+            "agent_id": "agent",
+            "workspace_dir": "/tmp/ws/agent",
+        },
+    )
+
+
 async def test_cancelled_plugin_setup_cleans_uncommitted_candidate(manager):
     mgr, old_instance = manager
     new_instance = _fake_workspace()

@@ -697,6 +697,15 @@ class MultiAgentManager:
             active_tasks=old_active_tasks,
         )
 
+        # Fire workspace_created hooks so plugins can provision
+        # skills / config into the newly installed workspace.
+        await self._fire_workspace_created_hooks(
+            {
+                "agent_id": agent_id,
+                "workspace_dir": str(agent_ref.workspace_dir),
+            },
+        )
+
         return True
 
     async def cancel_all_cleanup_tasks(self) -> None:
