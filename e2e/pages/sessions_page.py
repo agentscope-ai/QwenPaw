@@ -212,12 +212,48 @@ class SessionsPage(BasePage):
         return self
 
     def wait_for_page_loaded(self, timeout: Optional[int] = None) -> "SessionsPage":
-        """Wait for the page to finish loading."""
+        """Wait for the page to finish loading: container, then settled body.
+
+        Two terminal conditions, in order:
+
+        1. the table CONTAINER is visible -- the page has no h1 to key off,
+           so the table is the load-complete marker;
+        2. the table BODY has settled -- a data row, or the empty-state
+           placeholder row (see :meth:`wait_for_data_rows`).
+
+        Condition 2 is not optional. antd/rc-table renders the container and
+        an aria-hidden measure-row while ``loading`` is still true, so
+        condition 1 returns before the async ``GET /api/chats`` response has
+        been committed, and every caller that counts rows right after
+        ``open()`` races that fetch. The timing is what decides the outcome,
+        and it is not stable: across seven CI runs of the same code with the
+        same fixture-created sessions (upstream nightly plus fork runs), the
+        container wait returned 626-702 ms after the goto in the three runs
+        that then read 0 rows and skipped with "No operable sessions", and
+        1018-1096 ms in the four runs that read the rows and passed. The same
+        race skipped the batch-delete case with "Insufficient sessions; need
+        at least 2, have 0" (counted 0.70 s after the goto). Settling the
+        body closes that window once for all five ``open()`` call sites
+        instead of only at the one call site that already knew about the race.
+        Two adjacent fork runs of one branch show both outcomes with no
+        change to this file in between, so it is flakiness, not a version
+        difference.
+
+        A genuinely empty session list is NOT an error here: the placeholder
+        settles condition 2 and callers still see the real zero, leaving
+        their own skip branches in charge of reporting it. A fetch that never
+        settles renders neither terminal state and fails fast with the
+        on-page state, rather than silently degrading into a skip that reads
+        like "no data".
+        """
         timeout = timeout or self.timeout
         logger.info("Waiting for Sessions page to load")
 
         # Wait for the table to appear (the page has no h1)
         expect(self.page.locator(self.PAGE_LOAD_INDICATOR).first).to_be_visible(timeout=timeout)
+
+        # The container alone does not prove the rows arrived; settle the body.
+        self.wait_for_data_rows(timeout=timeout)
 
         return self
 
