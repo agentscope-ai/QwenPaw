@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any
 
 from ..types import LogEntry
+from ....constant import QWENPAW_MESSAGE_TAG_KEY, RUNTIME_CONTEXT_MESSAGE_TAG
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +28,7 @@ _BACKUP_TIMEOUT_S = 60.0
 _WRITE_RETRY_DEADLINE_S = 5.0
 _WRITE_RETRY_MIN_S = 0.020
 _WRITE_RETRY_MAX_S = 0.150
-_SCHEMA_VERSION = 1
+_SCHEMA_VERSION = 2
 _REQUIRED_COLUMNS = {"seq", "session_id", "kind"}
 
 _CONTENTION_CODES = {
@@ -696,6 +697,29 @@ class HistoryStore:
                 "ON conversation_history(session_id, dedup_key)",
             )
             self._init_fts()
+            if version < 2:
+                # Older versions could write tagged request-local messages
+                # before runtime cleanup. Migrate once, atomically with FTS,
+                # so neither row retrieval nor text search can recall them.
+                removed = self._conn.execute(
+                    "DELETE FROM conversation_history WHERE "
+                    "CASE WHEN json_valid(metadata) "
+                    "THEN json_extract(metadata, ?) END = ?",
+                    (
+                        f"$.{QWENPAW_MESSAGE_TAG_KEY}",
+                        RUNTIME_CONTEXT_MESSAGE_TAG,
+                    ),
+                ).rowcount
+                if removed and self._fts:
+                    try:
+                        self._rebuild_fts()
+                    except sqlite3.DatabaseError as exc:
+                        # Let the transaction roll back. A failed derived
+                        # index rebuild must not quarantine source history.
+                        raise RuntimeError(
+                            "Runtime-context migration failed; "
+                            f"history preserved: {self._path}",
+                        ) from exc
             # Publish the version only after every table/index/FTS migration in
             # this transaction has succeeded.
             if version != _SCHEMA_VERSION:
