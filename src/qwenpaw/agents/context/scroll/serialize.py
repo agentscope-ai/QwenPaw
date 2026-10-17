@@ -97,6 +97,134 @@ def strip_headline(text: str | None) -> str | None:
     return cleaned.strip()
 
 
+_INJECTED_BLOCK_RE = re.compile(
+    r"^[ \t]*<(system-[a-z0-9_-]+)>.*?</(?:\1|notification|info|warning|"
+    r"reminder|error)>[ \t]*(?:\r?\n)?",
+    re.DOTALL | re.IGNORECASE,
+)
+
+
+def strip_injected_context(text: str | None) -> str | None:
+    """Hide framework-injected blocks that lead a message for display.
+
+    Context notes (``<system-info>``), background tool hints
+    (``<system-notification>``) and the other ``system-*`` notices are
+    persisted as ordinary assistant text so they stay in the live context.
+    Those same bytes must not be shown to a channel user. Only balanced blocks
+    that open the text are removed, so prose that merely mentions a tag is
+    left untouched, and the original text is returned unchanged whenever
+    nothing can be removed safely.
+    """
+    if not text:
+        return text
+    visible = text.lstrip()
+    # A leading backtick means the marker is quoted, not injected.
+    while visible and not visible.startswith("`"):
+        match = _INJECTED_BLOCK_RE.match(visible)
+        if match is None:
+            break
+        visible = visible[match.end() :]
+    if visible == text.lstrip():
+        return text
+    cleaned = re.sub(r"\n{3,}", "\n\n", visible).strip()
+    return cleaned
+
+
+_SCAFFOLD_TAGS = r"thinking|think|analysis|reasoning"
+
+_SCAFFOLD_PAIRED_RE = re.compile(
+    rf"<({_SCAFFOLD_TAGS})>.*?</\1>",
+    re.DOTALL | re.IGNORECASE,
+)
+_SCAFFOLD_BARE_CLOSE_RE = re.compile(
+    rf"</(?:{_SCAFFOLD_TAGS})>",
+    re.IGNORECASE,
+)
+_SCAFFOLD_PARAM_SHELL_RE = re.compile(r"<parameter\s+[^>]*>", re.IGNORECASE)
+_QUOTED_SPAN_RE = re.compile(r"```.*?```|`[^`\n]*`", re.DOTALL)
+
+
+def _quoted_spans(text: str) -> list[tuple[int, int]]:
+    """Character spans of fenced code and inline code in *text*."""
+    return [(m.start(), m.end()) for m in _QUOTED_SPAN_RE.finditer(text)]
+
+
+def _is_quoted(spans: list[tuple[int, int]], position: int) -> bool:
+    return any(start <= position < end for start, end in spans)
+
+
+def strip_model_scaffolding(text: str | None) -> str | None:
+    """Hide reasoning scaffolding a model wrote into ordinary text.
+
+    Most providers deliver reasoning in a structured field, but some models
+    also inline it: a whole ``<thinking>`` block, a truncated tail that ends
+    in a bare ``</think>``, or a cut-off ``<parameter …>`` tool shell. Those
+    bytes are persisted as normal assistant text, so the display boundary has
+    to drop them or they reach the user verbatim.
+
+    The order below is deliberate: balanced blocks are removed first, so a
+    legitimate sentence before them survives; the bare-close rule then only
+    sees a truncated tail. A truncated tool-call shell is dropped when it
+    opens the text or a paragraph, because a model that narrates before
+    calling a tool leaves the shell mid-message rather than at the start.
+    Quoted mentions (backticks, fenced code) are never touched, so prose that
+    discusses the tags survives. A message that becomes empty was pure
+    scaffolding and is returned as an empty string; nothing removable returns
+    the original text untouched.
+
+    Prose reasoning with no tag at all cannot be detected here; that case is
+    the parser's responsibility, not the renderer's.
+    """
+    if not text:
+        return text
+    original = text
+
+    # 1. Balanced reasoning blocks, skipping quoted examples.
+    spans = _quoted_spans(text)
+    parts: list[str] = []
+    cursor = 0
+    for match in _SCAFFOLD_PAIRED_RE.finditer(text):
+        if _is_quoted(spans, match.start()):
+            continue
+        parts.append(text[cursor : match.start()])
+        cursor = match.end()
+    parts.append(text[cursor:])
+    visible = "".join(parts).strip()
+
+    # 2. A bare close tag means the reasoning head was dropped upstream. When a
+    #    reply follows the tag the head can go entirely; when the tag ends the
+    #    message it only closes a trailing reasoning paragraph, and the reply
+    #    that sits before it must survive.
+    spans = _quoted_spans(visible)
+    match = _SCAFFOLD_BARE_CLOSE_RE.search(visible)
+    if match is not None and not _is_quoted(spans, match.start()):
+        tail = visible[match.end() :].strip()
+        if tail:
+            visible = tail
+        else:
+            head = visible[: match.start()]
+            cut = head.rfind("\n\n")
+            visible = head[:cut].strip() if cut != -1 else ""
+
+    # 3. A truncated tool-call shell is not a reply either. It leads many
+    #    messages, but a model that narrates before calling a tool leaves it
+    #    mid-message, so anchoring to the start alone missed 49 of the 51
+    #    occurrences observed in practice. Only a shell that opens the text or
+    #    a paragraph is dropped, so prose that merely mentions one survives.
+    spans = _quoted_spans(visible)
+    for match in _SCAFFOLD_PARAM_SHELL_RE.finditer(visible):
+        if _is_quoted(spans, match.start()):
+            continue
+        head = visible[: match.start()]
+        if not head.strip() or head.endswith("\n"):
+            visible = head.strip()
+            break
+
+    if visible == original.strip():
+        return original
+    return re.sub(r"\n{3,}", "\n\n", visible).strip()
+
+
 def strip_headline_delta(
     text: str,
     *,

@@ -11,7 +11,11 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from agentscope.message import Msg
 from pydantic import ValidationError
-from qwenpaw.agents.context.scroll.serialize import strip_headline
+from qwenpaw.agents.context.scroll.serialize import (
+    strip_headline,
+    strip_injected_context,
+    strip_model_scaffolding,
+)
 from qwenpaw.schemas import (
     Message,
     TextContent,
@@ -591,14 +595,20 @@ def strip_injected_skill_block(text: str, role: str) -> str:
 
 
 def clean_display_text(text: str, role: str) -> str:
-    """Hide model-facing artifacts from the transcript: the ``⟦ … ⟧``
-    headline fence and the injected ``<skill>`` block. The SSE stream already
-    strips the headline; the HTTP history path didn't, so it reappeared on
-    reload — do both here so every display path matches. Headline first: the
-    ``<skill>`` regex is ``$``-anchored, so a trailing headline would leave it
-    un-anchored.
+    """Hide model-facing artifacts from the transcript.
+
+    Three kinds reach the transcript and no user ever typed them: the
+    ``⟦ … ⟧`` headline fence, the injected ``<skill>`` block, and the
+    ``<system-info>`` / ``<system-notification>`` blocks that lead an
+    assistant message. The SSE stream already strips the headline and the
+    channel renderer hides the injected blocks; the HTTP history path did
+    neither, so both reappeared on reload. Do the whole set here so every
+    display path matches. Headline first: the ``<skill>`` regex is
+    ``$``-anchored, so a trailing headline would leave it un-anchored.
     """
-    return strip_injected_skill_block(strip_headline(text) or "", role)
+    cleaned = strip_injected_skill_block(strip_headline(text) or "", role)
+    cleaned = strip_injected_context(cleaned) or ""
+    return strip_model_scaffolding(cleaned) or ""
 
 
 def _original_user_message(msg: Msg, metadata: dict) -> Message | None:

@@ -10,6 +10,8 @@ from qwenpaw.agents.context.scroll.serialize import (
     flush_headline_delta,
     strip_headline,
     strip_headline_delta,
+    strip_injected_context,
+    strip_model_scaffolding,
 )
 
 
@@ -33,6 +35,137 @@ def test_extract_headline_accepts_plain_and_legacy_fences(
 
 def test_strip_headline_removes_plain_fence() -> None:
     assert strip_headline("done\n⟦ shipped the fix ⟧") == "done"
+
+
+def test_strip_injected_context_drops_leading_blocks() -> None:
+    text = (
+        "<system-info>\n[context compressed] …\n</system-info>\n"
+        "<system-notification>\nBackground tool call …\n"
+        "</system-notification>\n"
+        "主人，好了。"
+    )
+    assert strip_injected_context(text) == "主人，好了。"
+
+
+def test_strip_injected_context_strips_repeated_blocks() -> None:
+    text = (
+        "<system-info>\na\n</system-info>"
+        + "<system-info>\nb\n</system-info>ok"
+    )
+    assert strip_injected_context(text) == "ok"
+
+
+def test_strip_injected_context_keeps_quoted_mention() -> None:
+    text = "`<system-info>` 是框架注入的块。"
+    assert strip_injected_context(text) == text
+
+
+def test_strip_injected_context_keeps_mid_text_mention() -> None:
+    text = "正文里出现了 <system-info> 标记。"
+    assert strip_injected_context(text) == text
+
+
+def test_strip_injected_context_keeps_unbalanced_block() -> None:
+    text = "<system-info>\n没闭合的注入块"
+    assert strip_injected_context(text) == text
+
+
+def test_strip_injected_context_drops_pure_injected_text() -> None:
+    """A message that is nothing but an injected block has nothing to show."""
+    text = "<system-info>\nonly\n</system-info>"
+    assert strip_injected_context(text) == ""
+
+
+@pytest.mark.parametrize(
+    "tag",
+    ["system-warning", "system-reminder", "system-error"],
+)
+def test_strip_injected_context_drops_every_system_notice(tag: str) -> None:
+    text = f"<{tag}>\n注意\n</{tag}>\n主人，好了。"
+    assert strip_injected_context(text) == "主人，好了。"
+
+
+def test_strip_injected_context_drops_short_close_form() -> None:
+    """The framework closes <system-notification> with </notification>."""
+    text = (
+        "<system-notification>\nBackground tool call finished.\n"
+        "</notification>\n主人，好了。"
+    )
+    assert strip_injected_context(text) == "主人，好了。"
+
+
+def test_strip_model_scaffolding_drops_paired_block() -> None:
+    text = "<thinking>IncompleteRead(226257 bytes read)</thinking>读取被截断了"
+    assert strip_model_scaffolding(text) == "读取被截断了"
+
+
+def test_strip_model_scaffolding_drops_block_between_prose() -> None:
+    text = "开头一段正文。<thinking>中间推理</thinking>后面还有正文"
+    assert strip_model_scaffolding(text) == "开头一段正文。后面还有正文"
+
+
+def test_strip_model_scaffolding_drops_truncated_tail() -> None:
+    """A bare close tag means the reasoning head was cut off upstream."""
+    text = "推理半句，我应该先查库里的。</think>主人，我查到了"
+    assert strip_model_scaffolding(text) == "主人，我查到了"
+
+
+def test_strip_model_scaffolding_drops_leading_bare_close() -> None:
+    text = "</thinking>\n正文开始"
+    assert strip_model_scaffolding(text) == "正文开始"
+
+
+def test_strip_model_scaffolding_keeps_reply_before_trailing_close() -> None:
+    """A trailing bare close ends a reasoning paragraph, not the reply."""
+    text = "主人，已经改好了。\n\nneed to look at the log first.</think>"
+    assert strip_model_scaffolding(text) == "主人，已经改好了。"
+
+
+def test_strip_model_scaffolding_keeps_backticked_mention() -> None:
+    text = "主人问：`<thinking>` 这个标签是什么意思？"
+    assert strip_model_scaffolding(text) == text
+
+
+def test_strip_model_scaffolding_keeps_fenced_example() -> None:
+    text = "示例：\n```\n<thinking>x</thinking>\n```\n就是这种"
+    assert strip_model_scaffolding(text) == text
+
+
+def test_strip_model_scaffolding_keeps_plain_prose() -> None:
+    text = "我先看看这个函数是怎么写的，然后再决定要不要改"
+    assert strip_model_scaffolding(text) == text
+
+
+def test_strip_model_scaffolding_keeps_bare_word() -> None:
+    text = "thinking 是一个英文单词，thinking hard 也行"
+    assert strip_model_scaffolding(text) == text
+
+
+def test_strip_model_scaffolding_drops_truncated_tool_shell() -> None:
+    text = '<parameter name="content">截断的工具调用'
+    assert strip_model_scaffolding(text) == ""
+
+
+def test_strip_model_scaffolding_empties_pure_reasoning() -> None:
+    """Nothing but reasoning: the block must not become an empty bubble."""
+    assert strip_model_scaffolding("先查库。</think>") == ""
+
+
+def test_strip_model_scaffolding_drops_shell_opening_a_paragraph() -> None:
+    """Narration before a truncated tool call leaves the shell mid-message."""
+    text = '主人，我先查。\n\n<parameter name="content">截断的工具调用'
+    assert strip_model_scaffolding(text) == "主人，我先查。"
+
+
+def test_strip_model_scaffolding_keeps_shell_mid_sentence() -> None:
+    text = '正文里提到 <parameter name="content"> 这种壳。'
+    assert strip_model_scaffolding(text) == text
+
+
+def test_strip_model_scaffolding_keeps_unclosed_open_tag() -> None:
+    """An unclosed tag is prose about tags, not leaked reasoning."""
+    text = "我还是先去确认 <thinking> 这个标签有没有闭合"
+    assert strip_model_scaffolding(text) == text
 
 
 def test_structured_task_state_headline_is_extracted_and_hidden() -> None:
