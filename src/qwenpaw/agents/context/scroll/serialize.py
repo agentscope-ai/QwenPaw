@@ -97,6 +97,38 @@ def strip_headline(text: str | None) -> str | None:
     return cleaned.strip()
 
 
+_INJECTED_BLOCK_RE = re.compile(
+    r"^[ \t]*<(?:system-info|system-notification)>.*?</(?:system-info|"
+    r"system-notification)>[ \t]*(?:\r?\n)?",
+    re.DOTALL,
+)
+
+
+def strip_injected_context(text: str | None) -> str | None:
+    """Hide framework-injected blocks that lead a message for display.
+
+    Context notes (``<system-info>``) and background tool hints
+    (``<system-notification>``) are persisted as ordinary assistant text so
+    they stay in the live context. Those same bytes must not be shown to a
+    channel user. Only balanced blocks that open the text are removed, so
+    prose that merely mentions a tag is left untouched, and the original
+    text is returned unchanged whenever nothing can be removed safely.
+    """
+    if not text:
+        return text
+    visible = text.lstrip()
+    # A leading backtick means the marker is quoted, not injected.
+    while visible and not visible.startswith("`"):
+        match = _INJECTED_BLOCK_RE.match(visible)
+        if match is None:
+            break
+        visible = visible[match.end() :]
+    if visible == text.lstrip():
+        return text
+    cleaned = re.sub(r"\n{3,}", "\n\n", visible).strip()
+    return cleaned or text
+
+
 def strip_headline_delta(
     text: str,
     *,
