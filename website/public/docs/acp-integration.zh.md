@@ -141,9 +141,14 @@ qwenpaw acp --workspace /path/to/workspace
 
 # 启用调试日志（输出到 stderr）
 qwenpaw acp --debug
+
+# 为无界面会话启用 goal 模式
+qwenpaw acp --mode goal
 ```
 
 进程通过 stdin/stdout 使用 ACP JSON-RPC 协议通信，stderr 用于日志输出。
+
+使用 `--mode goal` 时，每个新会话的第一条用户消息会自动加上 `/goal` 命令前缀，无界面客户端无需自行发送该命令即可进入 goal 模式。已以斜杠命令开头的消息不会被修改，加载或恢复的会话也不会重复添加前缀。
 
 ### 支持的 ACP 方法
 

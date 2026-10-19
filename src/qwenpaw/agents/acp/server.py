@@ -272,11 +272,16 @@ class QwenPawACPAgent(Agent):
         workspace_dir: Path | None = None,
         local_diagnostics: bool = False,
         runtime_provider: OpenAIRuntimeProviderConfig | None = None,
+        mode: str | None = None,
     ):
         self._agent_id = agent_id
         self._workspace_dir = workspace_dir
         self._local_diagnostics = local_diagnostics
         self._runtime_provider = runtime_provider
+        # Runtime loop mode (e.g. "goal"); distinct from the ACP session
+        # config option "mode" (MODE_CONFIG_ID), which is a permission mode.
+        self._mode = mode
+        self._mode_started: set[str] = set()
         self._runtime_provider_manager: ProviderManager | None = None
         self._runtime_provider_instance: Any | None = None
         self._previous_active_model: ModelSlotConfig | None = None
@@ -572,6 +577,9 @@ class QwenPawACPAgent(Agent):
             session_id=session_id,
             meta=kwargs,
         )
+        # A loaded session already had its first message, so the mode
+        # prefix must not apply to any subsequent prompt.
+        self._mode_started.add(session_id)
         try:
             await self._sync_session_mcp(session_id, mcp_servers)
         except BaseException:
@@ -603,6 +611,8 @@ class QwenPawACPAgent(Agent):
         text = _extract_text(prompt)
         if not text:
             return PromptResponse(stop_reason="end_turn")
+
+        text = self._apply_mode(text, session_id)
 
         workspace = await self._ensure_workspace()
         session_info = self._sessions.get(
@@ -689,6 +699,23 @@ class QwenPawACPAgent(Agent):
         stop_reason = "cancelled" if was_cancelled else "end_turn"
         return PromptResponse(stop_reason=stop_reason)
 
+    def _apply_mode(self, text: str, session_id: str) -> str:
+        """Prefix the session's first message with the mode command.
+
+        Only the first user message of a session gets the prefix (for
+        example ``/goal``); messages that already start with a slash
+        command are left untouched so explicit commands always win.
+        Later messages and resumed sessions are never prefixed.
+        """
+        if self._mode is None:
+            return text
+        if session_id in self._mode_started:
+            return text
+        self._mode_started.add(session_id)
+        if text.lstrip().startswith("/"):
+            return text
+        return f"/{self._mode} {text}"
+
     async def close_session(  # pylint: disable=unused-argument
         self,
         session_id: str,
@@ -699,6 +726,7 @@ class QwenPawACPAgent(Agent):
         await self._cancel_pending_approvals(session_id)
         await self._remove_session_mcp(session_id)
         self._sessions.pop(session_id, None)
+        self._mode_started.discard(session_id)
         self._cancel_events.pop(session_id, None)
         self._prompt_tasks.pop(session_id, None)
         return CloseSessionResponse()
@@ -750,6 +778,9 @@ class QwenPawACPAgent(Agent):
             if isinstance(project_dir, str) and project_dir.strip():
                 candidate_session[ACP_PROJECT_DIR_META_KEY] = project_dir
         self._sessions[session_id] = candidate_session
+        # A resumed session already had its first message, so the mode
+        # prefix must not apply to any subsequent prompt.
+        self._mode_started.add(session_id)
         try:
             await self._sync_session_mcp(session_id, mcp_servers)
         except BaseException:
@@ -1572,6 +1603,7 @@ async def run_qwenpaw_agent(
     workspace_dir: Path | None = None,
     local_diagnostics: bool = False,
     runtime_provider: OpenAIRuntimeProviderConfig | None = None,
+    mode: str | None = None,
 ) -> None:
     """Entry point: run QwenPaw as an ACP agent over stdio."""
     agent = QwenPawACPAgent(
@@ -1579,6 +1611,7 @@ async def run_qwenpaw_agent(
         workspace_dir=workspace_dir,
         local_diagnostics=local_diagnostics,
         runtime_provider=runtime_provider,
+        mode=mode,
     )
     try:
         # pylint: disable=protected-access

@@ -141,9 +141,14 @@ qwenpaw acp --workspace /path/to/workspace
 
 # Enable debug logging to stderr
 qwenpaw acp --debug
+
+# Activate goal mode for headless sessions
+qwenpaw acp --mode goal
 ```
 
 The process communicates over stdin/stdout using the ACP JSON-RPC protocol. stderr is used for logging.
+
+With `--mode goal`, the first user message of every new session is automatically prefixed with the `/goal` command, so headless clients can activate goal mode without sending the command themselves. Messages that already start with a slash command are never modified, and loaded or resumed sessions are not re-prefixed.
 
 ### Supported ACP Methods
 

@@ -33,3 +33,40 @@ def test_acp_cmd_passes_local_diagnostics(monkeypatch, tmp_path):
     assert captured["agent_id"] == "writer"
     assert captured["workspace_dir"] == tmp_path
     assert captured["local_diagnostics"] is True
+
+
+def test_acp_cmd_passes_mode(monkeypatch):
+    captured = {}
+
+    async def fake_run_qwenpaw_agent(**kwargs):
+        captured.update(kwargs)
+
+    monkeypatch.setattr(
+        "qwenpaw.agents.acp.server.run_qwenpaw_agent",
+        fake_run_qwenpaw_agent,
+    )
+
+    result = CliRunner().invoke(
+        acp_cmd,
+        ["--mode", "goal"],
+    )
+
+    assert result.exit_code == 0
+    assert captured["mode"] == "goal"
+
+
+def test_acp_cmd_mode_defaults_to_none(monkeypatch):
+    captured = {}
+
+    async def fake_run_qwenpaw_agent(**kwargs):
+        captured.update(kwargs)
+
+    monkeypatch.setattr(
+        "qwenpaw.agents.acp.server.run_qwenpaw_agent",
+        fake_run_qwenpaw_agent,
+    )
+
+    result = CliRunner().invoke(acp_cmd, [])
+
+    assert result.exit_code == 0
+    assert captured["mode"] is None

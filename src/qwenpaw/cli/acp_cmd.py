@@ -45,12 +45,23 @@ import click
         "OPENAI_API_KEY, and OPENAI_MODEL."
     ),
 )
+@click.option(
+    "--mode",
+    type=click.Choice(["goal"]),
+    default=None,
+    help=(
+        "Activate a runtime mode: the first user message of every "
+        "new session is prefixed with the mode's slash command "
+        "(e.g. /goal)."
+    ),
+)
 def acp_cmd(
     agent: str | None,
     workspace: str | None,
     debug: bool,
     local_diagnostics: bool,
     runtime_provider: str | None,
+    mode: str | None,
 ) -> None:
     """Start QwenPaw as an ACP agent (stdio)."""
     from pathlib import Path
@@ -95,5 +106,6 @@ def acp_cmd(
             workspace_dir=workspace_dir,
             local_diagnostics=local_diagnostics,
             runtime_provider=provider_config,
+            mode=mode,
         ),
     )
