@@ -14,6 +14,8 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
+import sys
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -115,7 +117,9 @@ def _is_transport_close(exc: BaseException) -> bool:
     """Return whether *exc* is an ACP transport closure at the entry point."""
     if isinstance(exc, (ACPClientDisconnected, BrokenPipeError)):
         return True
-    if isinstance(exc, ConnectionError):
+    if isinstance(exc, OSError):
+        if exc.errno in {22, 32, 10053, 10054, 10058}:
+            return True
         message = str(exc).lower()
         return any(
             marker in message
@@ -127,6 +131,19 @@ def _is_transport_close(exc: BaseException) -> bool:
             )
         )
     return False
+
+
+def silence_stdout() -> None:
+    """Point fd 1 at devnull so interpreter exit cannot flush a dead pipe."""
+    try:
+        descriptor = sys.stdout.fileno()
+        devnull = os.open(os.devnull, os.O_WRONLY)
+        try:
+            os.dup2(devnull, descriptor)
+        finally:
+            os.close(devnull)
+    except (OSError, ValueError, AttributeError):
+        pass
 
 
 def _is_provider_error(exc: BaseException) -> bool:
@@ -746,7 +763,7 @@ class QwenPawACPAgent(Agent):
 
         try:
             while True:
-                if terminal:
+                if terminal and queue.empty():
                     kind, payload = terminal.pop()
                 else:
                     timeout = max(
@@ -1364,7 +1381,7 @@ class QwenPawACPAgent(Agent):
                 session_id=session_id,
                 update=update,
             )
-        except (ConnectionError, BrokenPipeError) as exc:
+        except OSError as exc:
             raise ACPClientDisconnected("ACP transport closed") from exc
 
     async def _emit_usage_if_available(
@@ -1759,7 +1776,7 @@ async def run_qwenpaw_agent(
         await agent._install_runtime_provider()
         try:
             await run_agent(agent, use_unstable_protocol=True)
-        except ConnectionError as exc:
+        except OSError as exc:
             # run_agent owns the ACP stdio connection; task-level failures are
             # already converted inside prompt() and cannot reach this boundary.
             if not _is_transport_close(exc):

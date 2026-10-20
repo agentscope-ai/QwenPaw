@@ -73,7 +73,7 @@ def acp_cmd(
         except ValueError as exc:
             raise click.UsageError(str(exc)) from exc
 
-    from ..agents.acp.server import run_qwenpaw_agent
+    from ..agents.acp.server import run_qwenpaw_agent, silence_stdout
 
     # Warm-up heavy native imports before the event loop starts. In the full
     # ACP runtime, the first `import numpy` (via agentscope.embedding inside
@@ -89,11 +89,16 @@ def acp_cmd(
         except ModuleNotFoundError:
             pass
 
-    asyncio.run(
-        run_qwenpaw_agent(
-            agent_id=agent,
-            workspace_dir=workspace_dir,
-            local_diagnostics=local_diagnostics,
-            runtime_provider=provider_config,
-        ),
-    )
+    try:
+        asyncio.run(
+            run_qwenpaw_agent(
+                agent_id=agent,
+                workspace_dir=workspace_dir,
+                local_diagnostics=local_diagnostics,
+                runtime_provider=provider_config,
+            ),
+        )
+    finally:
+        # The client may have closed both pipe directions. Redirect fd 1
+        # before interpreter shutdown so the final flush cannot fail.
+        silence_stdout()

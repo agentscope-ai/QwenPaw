@@ -30,7 +30,12 @@ from types import SimpleNamespace
 import httpx
 import openai
 import pytest
-from acp import PROTOCOL_VERSION, RequestError, text_block
+from acp import (
+    PROTOCOL_VERSION,
+    RequestError,
+    connect_to_agent,
+    text_block,
+)
 from acp.stdio import spawn_agent_process
 
 import qwenpaw
@@ -483,6 +488,43 @@ async def test_queue_applies_backpressure_to_producer(monkeypatch):
 
 
 @pytest.mark.integration
+async def test_terminal_waits_for_queued_updates(monkeypatch):
+    """A terminal signal must not overtake updates already queued."""
+
+    monkeypatch.setattr(acp_server, "_ACP_KEEPALIVE_SECONDS", 10.0)
+
+    async def _stream():
+        for index in range(5):
+            yield _content_event(f"x{index}")
+
+    agent, conn, session_id = await _agent_with_stream(
+        monkeypatch,
+        _stream,
+    )
+    original_send = agent._send_update
+
+    async def _slow_send(session_id, update):
+        await asyncio.sleep(0.02)
+        await original_send(session_id, update)
+
+    monkeypatch.setattr(agent, "_send_update", _slow_send)
+
+    response = await agent.prompt(
+        prompt=[text_block("hello")],
+        session_id=session_id,
+    )
+
+    texts = [
+        update.content.text
+        for _, update in conn.updates
+        if getattr(update, "session_update", "") == "agent_message_chunk"
+        and getattr(getattr(update, "content", None), "text", "")
+    ]
+    assert response.stop_reason == "end_turn"
+    assert texts == [f"x{index}" for index in range(5)]
+
+
+@pytest.mark.integration
 async def test_keepalive_does_not_cancel_pending_event(monkeypatch):
     """Keepalive timeouts must reuse the pending ``__anext__`` future."""
 
@@ -867,4 +909,55 @@ async def test_subprocess_active_prompt_pipe_close_exits(tmp_path):
 
     await asyncio.wait_for(process.wait(), timeout=10)
     assert process.returncode == 0
+    assert marker.read_text(encoding="utf-8") == "shutdown"
+
+
+@pytest.mark.integration
+async def test_subprocess_bidirectional_pipe_close_exits_cleanly(tmp_path):
+    """Closing both client pipe directions must not fail the final flush."""
+
+    marker = tmp_path / "shutdown.marker"
+    env = _driver_env("hang", tmp_path)
+    env["QWENPAW_FAULT_MARKER"] = str(marker)
+    client = _SubprocessClient()
+    process = await asyncio.create_subprocess_exec(
+        sys.executable,
+        str(DRIVER),
+        stdin=asyncio.subprocess.PIPE,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+        env=env,
+        cwd=str(pathlib.Path(__file__).resolve().parents[2]),
+    )
+    conn = connect_to_agent(client, process.stdin, process.stdout)
+    try:
+        await conn.initialize(protocol_version=PROTOCOL_VERSION)
+        session = await conn.new_session(cwd=str(tmp_path))
+        prompt_task = asyncio.create_task(
+            conn.prompt(
+                prompt=[text_block("hello")],
+                session_id=session.session_id,
+            ),
+        )
+        await asyncio.wait_for(client.first_update.wait(), timeout=5)
+
+        # The client closes both directions: agent stdin and agent stdout.
+        process.stdin.close()
+        with contextlib.suppress(Exception):
+            await process.stdin.wait_closed()
+        process.stdout._transport.close()  # type: ignore[attr-defined]
+
+        with contextlib.suppress(Exception):
+            await asyncio.wait_for(prompt_task, timeout=2)
+        await asyncio.wait_for(process.wait(), timeout=10)
+    finally:
+        if process.returncode is None:
+            process.kill()
+            await process.wait()
+
+    stderr = b""
+    if process.stderr is not None:
+        with contextlib.suppress(Exception):
+            stderr = await process.stderr.read()
+    assert process.returncode == 0, stderr.decode(errors="replace")
     assert marker.read_text(encoding="utf-8") == "shutdown"

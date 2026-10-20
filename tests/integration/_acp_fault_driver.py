@@ -108,4 +108,7 @@ server.QwenPawACPAgent._shutdown_workspace = _shutdown_workspace
 
 
 if __name__ == "__main__":
-    asyncio.run(server.run_qwenpaw_agent())
+    try:
+        asyncio.run(server.run_qwenpaw_agent())
+    finally:
+        server.silence_stdout()
