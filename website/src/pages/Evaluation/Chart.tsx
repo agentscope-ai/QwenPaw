@@ -1,6 +1,13 @@
 import { useTranslation } from "react-i18next";
 import { useEffect, useRef, useState } from "react";
-import { Download, RotateCcw, ZoomIn, ZoomOut } from "lucide-react";
+import {
+  ArrowLeft,
+  ArrowRight,
+  Download,
+  RotateCcw,
+  ZoomIn,
+  ZoomOut,
+} from "lucide-react";
 import { bestRows, frontier } from "./metrics";
 import { logo, money, type Row } from "./types";
 
@@ -22,7 +29,14 @@ export default function Chart({
   const svg = useRef<SVGSVGElement>(null);
   const [width, setWidth] = useState(1000);
   const [hovered, setHovered] = useState<string | null>(null);
-  const [zoom, setZoom] = useState(1);
+  const [view, setView] = useState({ zoom: 1, offset: 0 });
+  const [panning, setPanning] = useState(false);
+  const drag = useRef<{
+    pointerId: number;
+    x: number;
+    offset: number;
+  } | null>(null);
+  const dragged = useRef(false);
   useEffect(() => {
     const observer = new ResizeObserver(([entry]) =>
       setWidth(entry.contentRect.width),
@@ -31,7 +45,9 @@ export default function Chart({
     return () => observer.disconnect();
   }, []);
   useEffect(() => {
-    setZoom(1);
+    setView({ zoom: 1, offset: 0 });
+    drag.current = null;
+    setPanning(false);
     setHovered(null);
   }, [rows, history, compareHarnesses]);
   const mobile = width < 700;
@@ -48,14 +64,27 @@ export default function Chart({
   const missing = shown.filter((r) => r.cost === null || r.cost === 0);
   const end = missing.length ? left + (right - left) * 0.87 : right;
   const min = known.length
-    ? Math.log10(Math.min(...known.map((r) => r.cost!))) - 0.22
+    ? Math.log10(Math.min(...known.map((r) => r.cost!)))
     : -2;
   const max = known.length
-    ? Math.log10(Math.max(...known.map((r) => r.cost!))) + 0.22
+    ? Math.log10(Math.max(...known.map((r) => r.cost!)))
     : 1;
-  const center = (min + max) / 2,
-    low = center - (max - min) / (2 * zoom),
-    high = center + (max - min) / (2 * zoom);
+  const { zoom } = view;
+  const range = (max - min + (known.length ? 0.44 : 0)) / zoom;
+  const maxOffset = ((max - min) * (1 - 1 / zoom)) / 2;
+  const offset = Math.max(-maxOffset, Math.min(maxOffset, view.offset));
+  const center = (min + max) / 2 + offset,
+    low = center - range / 2,
+    high = center + range / 2;
+  const updateView = (nextZoom: number, nextOffset = offset) => {
+    const zoom = Math.max(1, Math.min(8, nextZoom));
+    const limit = ((max - min) * (1 - 1 / zoom)) / 2;
+    setView({ zoom, offset: Math.max(-limit, Math.min(limit, nextOffset)) });
+  };
+  const finishPan = () => {
+    drag.current = null;
+    setPanning(false);
+  };
   const floor = shown.length
     ? Math.max(
         0,
@@ -121,26 +150,49 @@ export default function Chart({
     URL.revokeObjectURL(url);
   };
   return (
-    <div className="evaluation-plot evaluation-svg-chart" ref={container}>
+    <div
+      className="evaluation-plot evaluation-svg-chart"
+      ref={container}
+      data-zoomed={zoom > 1}
+      data-panning={panning}
+    >
       <div className="evaluation-chart-tools">
         <button
           aria-label={t("zoomIn")}
           title={t("zoomIn")}
-          onClick={() => setZoom((z) => Math.min(8, z * 1.5))}
+          disabled={zoom === 8}
+          onClick={() => updateView(zoom * 1.5)}
         >
           <ZoomIn size={16} />
         </button>
         <button
           aria-label={t("zoomOut")}
           title={t("zoomOut")}
-          onClick={() => setZoom((z) => Math.max(1, z / 1.5))}
+          disabled={zoom === 1}
+          onClick={() => updateView(zoom / 1.5)}
         >
           <ZoomOut size={16} />
         </button>
         <button
+          aria-label={t("panLeft")}
+          title={t("panLeft")}
+          disabled={offset <= -maxOffset}
+          onClick={() => updateView(zoom, offset - range / 4)}
+        >
+          <ArrowLeft size={16} />
+        </button>
+        <button
+          aria-label={t("panRight")}
+          title={t("panRight")}
+          disabled={offset >= maxOffset}
+          onClick={() => updateView(zoom, offset + range / 4)}
+        >
+          <ArrowRight size={16} />
+        </button>
+        <button
           aria-label={t("resetChart")}
           title={t("resetChart")}
-          onClick={() => setZoom(1)}
+          onClick={() => updateView(1, 0)}
         >
           <RotateCcw size={16} />
         </button>
@@ -157,7 +209,42 @@ export default function Chart({
         viewBox={`0 0 ${width} ${height}`}
         role="img"
         aria-label={t("chartAlt", { title })}
-        onDoubleClick={() => setZoom(1)}
+        onDoubleClick={() => updateView(1, 0)}
+        onPointerDown={(event) => {
+          if (!event.isPrimary || event.button !== 0) return;
+          dragged.current = false;
+          if (zoom === 1) return;
+          drag.current = {
+            pointerId: event.pointerId,
+            x: event.clientX,
+            offset,
+          };
+          (event.target as Element).setPointerCapture(event.pointerId);
+        }}
+        onPointerMove={(event) => {
+          const start = drag.current;
+          if (!start || start.pointerId !== event.pointerId) return;
+          const delta = event.clientX - start.x;
+          if (!dragged.current && Math.abs(delta) < 4) return;
+          dragged.current = true;
+          setPanning(true);
+          setHovered(null);
+          const scale =
+            width / event.currentTarget.getBoundingClientRect().width;
+          updateView(
+            zoom,
+            start.offset - (delta * scale * range) / (end - left),
+          );
+        }}
+        onPointerUp={finishPan}
+        onPointerCancel={finishPan}
+        onLostPointerCapture={finishPan}
+        onClickCapture={(event) => {
+          if (!dragged.current) return;
+          event.preventDefault();
+          event.stopPropagation();
+          dragged.current = false;
+        }}
       >
         <text x={mobile ? 16 : 28} y={28} fontSize={mobile ? 13 : 16}>
           {t("chartTitle", { title })}
@@ -264,7 +351,10 @@ export default function Chart({
               onBlur={() => setHovered(null)}
               onClick={() => onSelect(r)}
               onKeyDown={(e) => {
-                if (e.key === "Enter") onSelect(r);
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  if (!e.repeat) onSelect(r);
+                }
               }}
             >
               <circle

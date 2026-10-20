@@ -1,4 +1,6 @@
-.evaluation-page {
+.evaluation-page,
+.evaluation-select-content,
+.evaluation-methodology-tooltip {
   --eval-accent: var(--app-accent, #ff7f16);
   --eval-accent-text: var(
     --app-accent-text,
@@ -13,6 +15,8 @@
   --eval-border: var(--app-border, var(--border));
   --eval-text: var(--app-text, var(--text));
   --eval-muted: var(--app-text-secondary, var(--text-muted));
+}
+.evaluation-page {
   width: 100%;
   min-width: 0;
   max-width: 1680px;
@@ -26,10 +30,10 @@
   font-optical-sizing: auto;
   -webkit-font-smoothing: antialiased;
 }
-.evaluation-page :is(button, select, input) {
+.evaluation-page :is(button, input) {
   font: inherit;
 }
-.evaluation-page :is(button, a, select, input[type="checkbox"]) {
+.evaluation-page :is(button, a, input[type="checkbox"]) {
   cursor: pointer;
 }
 .evaluation-page button {
@@ -103,17 +107,6 @@
   gap: 8px;
   min-height: 44px;
   color: var(--eval-muted);
-}
-.evaluation-controls select {
-  min-height: 44px;
-  max-width: 100%;
-  background: var(--eval-canvas);
-  border: 1px solid var(--eval-border);
-  appearance: none;
-  width: 100%;
-  padding: 8px 40px 8px 14px;
-  border-radius: 10px;
-  color: var(--eval-text);
 }
 .evaluation-page input[type="checkbox"] {
   appearance: none;
@@ -189,14 +182,25 @@
 }
 .evaluation-results-heading {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 12px;
   margin-bottom: 14px;
 }
 .evaluation-results-heading h2 {
+  min-width: 0;
   font-size: 1.375rem;
   font-weight: 600;
   letter-spacing: -0.02em;
+}
+.evaluation-results-heading h2 button {
+  justify-content: flex-start;
+  gap: 10px;
+  padding: 0;
+  text-align: left;
+}
+.evaluation-results-heading h2 button:hover {
+  background: transparent;
+  color: var(--eval-accent-text);
 }
 .evaluation-results-heading > span {
   font-size: 0.75rem;
@@ -466,19 +470,99 @@
 .evaluation-controls label {
   white-space: nowrap;
 }
-.evaluation-select {
-  position: relative;
-  display: inline-flex;
+.evaluation-select-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   min-width: 0;
   max-width: 100%;
 }
-.evaluation-select > svg {
-  position: absolute;
-  right: 14px;
-  top: 50%;
-  transform: translateY(-50%);
+.evaluation-page .evaluation-select {
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+  max-width: 420px;
+  padding: 8px 12px 8px 14px;
+  border: 1px solid var(--eval-border);
+  background: var(--eval-canvas);
+  color: var(--eval-text);
+}
+.evaluation-page .evaluation-select:hover,
+.evaluation-page .evaluation-select[data-state="open"] {
+  border-color: var(--eval-accent-text);
+  background: var(--eval-surface);
+}
+.evaluation-select-value {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.evaluation-select-icon {
+  display: inline-flex;
+  flex-shrink: 0;
   color: var(--eval-muted);
-  pointer-events: none;
+}
+.evaluation-select-content {
+  z-index: 60;
+  min-width: var(--radix-select-trigger-width);
+  max-width: min(420px, calc(100vw - 24px));
+  max-height: var(--radix-select-content-available-height);
+  overflow: hidden;
+  border: 1px solid var(--eval-border);
+  border-radius: 12px;
+  background: var(--eval-surface);
+  color: var(--eval-text);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  box-shadow:
+    0 4px 8px -2px #0000000d,
+    0 12px 32px -4px #0000001a;
+}
+.evaluation-select-viewport {
+  padding: 6px;
+}
+.evaluation-select-viewport > [role="group"] + [role="group"] {
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px solid var(--eval-border);
+}
+.evaluation-select-label {
+  padding: 6px 10px;
+  color: var(--eval-muted);
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+.evaluation-select-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-height: 40px;
+  padding: 8px 36px 8px 10px;
+  border-radius: 6px;
+  outline: none;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+  user-select: none;
+}
+.evaluation-select-item[data-highlighted] {
+  background: var(--eval-soft);
+}
+.evaluation-select-item[data-state="checked"] {
+  color: var(--eval-accent-text);
+}
+.evaluation-select-indicator {
+  position: absolute;
+  right: 10px;
+  display: inline-flex;
+}
+.evaluation-select-scroll {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 24px;
+  color: var(--eval-muted);
+  background: var(--eval-surface);
 }
 .evaluation-board-select .evaluation-select {
   width: clamp(230px, 22vw, 320px);
@@ -504,6 +588,9 @@
     width: auto;
     flex: 1;
   }
+  .evaluation-select-item {
+    min-height: 44px;
+  }
   .evaluation-display-controls {
     gap: 6px 18px;
   }
@@ -520,6 +607,15 @@
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   fill: currentColor;
 }
+.evaluation-svg-chart[data-zoomed="true"] > svg {
+  cursor: grab;
+  touch-action: pan-y pinch-zoom;
+  user-select: none;
+}
+.evaluation-svg-chart[data-panning="true"] > svg,
+.evaluation-svg-chart[data-panning="true"] .evaluation-chart-point {
+  cursor: grabbing;
+}
 .evaluation-chart-tools {
   position: absolute;
   top: 38px;
@@ -528,11 +624,19 @@
   gap: 4px;
 }
 .evaluation-chart-tools button {
+  min-width: 40px;
   padding: 5px;
   color: var(--eval-muted);
   border: 0;
   background: var(--eval-surface);
   cursor: pointer;
+}
+.evaluation-chart-tools button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.evaluation-chart-tools button:disabled:hover {
+  background: var(--eval-surface);
 }
 .evaluation-chart-point {
   cursor: pointer;
@@ -573,7 +677,6 @@
 }
 
 .evaluation-methodology {
-  position: relative;
   margin-left: auto;
 }
 .evaluation-methodology button {
@@ -582,22 +685,16 @@
   gap: 6px;
   cursor: help;
 }
-.evaluation-methodology [role="tooltip"] {
-  display: none;
-  position: absolute;
-  bottom: calc(100% + 8px);
-  right: 0;
-  z-index: 3;
+.evaluation-methodology-tooltip {
+  z-index: 60;
   width: min(380px, calc(100vw - 56px));
   padding: 12px 16px;
   border: 1px solid var(--eval-border);
   border-radius: 12px;
   background: var(--eval-surface);
   color: var(--eval-text);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 0.75rem;
   line-height: 1.7;
   box-shadow: 0 6px 24px #00000012;
-}
-.evaluation-methodology:hover [role="tooltip"],
-.evaluation-methodology:focus-within [role="tooltip"] {
-  display: block;
 }

@@ -86,6 +86,8 @@
   "qwenpawDefault": "QwenPaw · Default mode",
   "zoomIn": "Zoom in",
   "zoomOut": "Zoom out",
+  "panLeft": "Pan left",
+  "panRight": "Pan right",
   "resetChart": "Reset view",
   "exportChart": "Export chart"
 }

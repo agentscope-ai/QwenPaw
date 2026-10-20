@@ -86,6 +86,8 @@
   "qwenpawDefault": "QwenPaw · 默认模式",
   "zoomIn": "放大",
   "zoomOut": "缩小",
+  "panLeft": "向左平移",
+  "panRight": "向右平移",
   "resetChart": "重置视图",
   "exportChart": "导出图表"
 }

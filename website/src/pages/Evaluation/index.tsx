@@ -1,6 +1,7 @@
 import { useTranslation } from "react-i18next";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
+import { Tooltip as TooltipPrimitive } from "radix-ui";
 import {
   ArrowDown,
   ArrowUp,
@@ -12,6 +13,7 @@ import {
   CircleHelp,
 } from "lucide-react";
 import Chart from "./Chart";
+import EvaluationSelect from "./Select";
 import { bestRows, frontier } from "./metrics";
 import {
   harnessLogo,
@@ -50,6 +52,8 @@ export default function Evaluation() {
     }).format(new Date(value));
   const { id } = useParams();
   const navigate = useNavigate();
+  const tableRef = useRef<HTMLDivElement>(null);
+  const listPosition = useRef<{ top: number; left: number } | null>(null);
   const [loadAttempt, setLoadAttempt] = useState(0);
   const [data, setData] = useState<History>({
     schema_version: 3,
@@ -63,6 +67,7 @@ export default function Evaluation() {
   const [showTable, setShowTable] = useState(true);
   const [showBreakdown, setShowBreakdown] = useState(false);
   const [onlyFrontier, setOnlyFrontier] = useState(false);
+  const [methodologyOpen, setMethodologyOpen] = useState(false);
   const kind = "official";
   const [boardId, setBoardId] = useState("");
   const [protocol, setProtocol] = useState("");
@@ -70,6 +75,15 @@ export default function Evaluation() {
     key: "score" | "cost" | "runtime" | "date";
     asc: boolean;
   }>({ key: "score", asc: false });
+  useEffect(() => {
+    if (id || !listPosition.current) return;
+    const position = listPosition.current;
+    const frame = requestAnimationFrame(() => {
+      window.scrollTo(0, position.top);
+      tableRef.current?.scrollTo({ left: position.left });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [id]);
   useEffect(() => {
     setLoading(true);
     setError("");
@@ -157,12 +171,8 @@ export default function Evaluation() {
             run.index_version === activeProtocol,
         ),
         metric,
-      ).filter((row) =>
-        `${row.model} ${row.sdk_version} ${row.harness}`
-          .toLowerCase()
-          .includes(search.toLowerCase()),
       ),
-    [history, kind, activeBoard?.id, activeProtocol, metric, search],
+    [history, kind, activeBoard?.id, activeProtocol, metric],
   );
   const best = useMemo(
     () => bestRows(rows, compareHarnesses),
@@ -175,11 +185,18 @@ export default function Evaluation() {
       ),
     [rows, best],
   );
-  const visible = useMemo(
-    () => rows.filter((row) => !onlyFrontier || pareto.has(row.id)),
-    [rows, onlyFrontier, pareto],
+  const tableRows = useMemo(
+    () =>
+      rows.filter(
+        (row) =>
+          (!onlyFrontier || pareto.has(row.id)) &&
+          `${row.model} ${row.sdk_version} ${row.harness}`
+            .toLowerCase()
+            .includes(search.toLowerCase()),
+      ),
+    [rows, onlyFrontier, pareto, search],
   );
-  const ordered = [...visible].sort((a, b) => {
+  const ordered = [...tableRows].sort((a, b) => {
     const av = sort.key === "date" ? a.run.date : a[sort.key];
     const bv = sort.key === "date" ? b.run.date : b[sort.key];
     if (av === null) return bv === null ? 0 : 1;
@@ -187,7 +204,13 @@ export default function Evaluation() {
     return (av < bv ? -1 : av > bv ? 1 : 0) * (sort.asc ? 1 : -1);
   });
   const navigateRow = useCallback(
-    (row: Row) => navigate(`/evaluation/runs/${row.run.id}`),
+    (row: Row) => {
+      listPosition.current = {
+        top: window.scrollY,
+        left: tableRef.current?.scrollLeft ?? 0,
+      };
+      navigate(`/evaluation/runs/${row.run.id}`);
+    },
     [navigate],
   );
   const detail = id ? history.runs.find((run) => run.id === id) : undefined;
@@ -318,78 +341,71 @@ export default function Evaluation() {
           <section className="evaluation-chart-surface">
             <div className="evaluation-controls">
               <div className="evaluation-board-controls">
-                <label className="evaluation-board-select">
-                  <span>{t("board")}</span>
-                  <span className="evaluation-select">
-                    <select
-                      value={metric}
-                      onChange={(e) => setMetric(e.target.value)}
-                    >
-                      <option value="index">{t("main")}</option>
-                      <optgroup label={t("domainBoards")}>
-                        {domainIds.map((key) => (
-                          <option key={key} value={`domain:${key}`}>
-                            {t(`domains.${key}`, {
-                              defaultValue:
-                                activeRuns[0]?.index_definition.directions[key]
-                                  ?.name ?? key,
-                            })}
-                          </option>
-                        ))}
-                      </optgroup>
-                      <optgroup label={t("benchmarkBoards")}>
-                        {Object.entries(benchmarks).map(([key, label]) => (
-                          <option key={key} value={`benchmark:${key}`}>
-                            {label}
-                          </option>
-                        ))}
-                      </optgroup>
-                    </select>
-                    <ChevronDown size={16} aria-hidden="true" />
-                  </span>
-                </label>
+                <EvaluationSelect
+                  className="evaluation-board-select"
+                  label={t("board")}
+                  value={metric}
+                  onValueChange={setMetric}
+                  groups={[
+                    { options: [{ value: "index", label: t("main") }] },
+                    {
+                      label: t("domainBoards"),
+                      options: domainIds.map((key) => ({
+                        value: `domain:${key}`,
+                        label: t(`domains.${key}`, {
+                          defaultValue:
+                            activeRuns[0]?.index_definition.directions[key]
+                              ?.name ?? key,
+                        }),
+                      })),
+                    },
+                    {
+                      label: t("benchmarkBoards"),
+                      options: Object.entries(benchmarks).map(
+                        ([key, name]) => ({
+                          value: `benchmark:${key}`,
+                          label: name,
+                        }),
+                      ),
+                    },
+                  ]}
+                />
                 {boards.length > 1 && (
-                  <label>
-                    {t("collection")}
-                    <span className="evaluation-select">
-                      <select
-                        value={activeBoard?.id}
-                        onChange={(e) => {
-                          setBoardId(e.target.value);
-                          setProtocol("");
-                          setMetric("index");
-                        }}
-                      >
-                        {boards.map((board) => (
-                          <option key={board.id} value={board.id}>
-                            {board.name}
-                          </option>
-                        ))}
-                      </select>
-                      <ChevronDown size={16} aria-hidden="true" />
-                    </span>
-                  </label>
+                  <EvaluationSelect
+                    label={t("collection")}
+                    value={activeBoard?.id ?? ""}
+                    onValueChange={(value) => {
+                      setBoardId(value);
+                      setProtocol("");
+                      setMetric("index");
+                    }}
+                    groups={[
+                      {
+                        options: boards.map((board) => ({
+                          value: board.id,
+                          label: board.name,
+                        })),
+                      },
+                    ]}
+                  />
                 )}
                 {versions.length > 1 && (
-                  <label>
-                    {t("benchmarkSet")}
-                    <span className="evaluation-select">
-                      <select
-                        value={activeProtocol}
-                        onChange={(e) => {
-                          setProtocol(e.target.value);
-                          setMetric("index");
-                        }}
-                      >
-                        {versions.map((v) => (
-                          <option key={v} value={v}>
-                            {versionName(v)}
-                          </option>
-                        ))}
-                      </select>
-                      <ChevronDown size={16} aria-hidden="true" />
-                    </span>
-                  </label>
+                  <EvaluationSelect
+                    label={t("benchmarkSet")}
+                    value={activeProtocol ?? ""}
+                    onValueChange={(value) => {
+                      setProtocol(value);
+                      setMetric("index");
+                    }}
+                    groups={[
+                      {
+                        options: versions.map((version) => ({
+                          value: version,
+                          label: versionName(version),
+                        })),
+                      },
+                    ]}
+                  />
                 )}
               </div>
               <div className="evaluation-display-controls">
@@ -416,7 +432,7 @@ export default function Evaluation() {
             )}
             <div className="evaluation-chart">
               <Chart
-                rows={visible}
+                rows={rows}
                 title={title}
                 compareHarnesses={compareHarnesses}
                 history={showHistory}
@@ -437,16 +453,44 @@ export default function Evaluation() {
                 {t("pareto")}
               </span>
               <div className="evaluation-methodology">
-                <button
-                  aria-label={t("methodology")}
-                  aria-describedby="evaluation-methodology-tip"
-                >
-                  <CircleHelp size={14} aria-hidden="true" />
-                  {t("methodology")}
-                </button>
-                <div role="tooltip" id="evaluation-methodology-tip">
-                  {t("partialCostNote")}
-                </div>
+                <TooltipPrimitive.Provider delayDuration={0}>
+                  <TooltipPrimitive.Root
+                    open={methodologyOpen}
+                    onOpenChange={setMethodologyOpen}
+                  >
+                    <TooltipPrimitive.Trigger asChild>
+                      <button
+                        type="button"
+                        aria-label={t("methodology")}
+                        onKeyDown={(event) => {
+                          if (event.key === "Escape") {
+                            event.preventDefault();
+                            setMethodologyOpen(false);
+                          }
+                        }}
+                        onClick={(event) => {
+                          event.preventDefault();
+                          setMethodologyOpen(true);
+                        }}
+                      >
+                        <CircleHelp size={14} aria-hidden="true" />
+                        {t("methodology")}
+                      </button>
+                    </TooltipPrimitive.Trigger>
+                    <TooltipPrimitive.Portal>
+                      <TooltipPrimitive.Content
+                        id="evaluation-methodology-tip"
+                        className="evaluation-methodology-tooltip"
+                        side="top"
+                        align="end"
+                        sideOffset={8}
+                        collisionPadding={16}
+                      >
+                        {t("partialCostNote")}
+                      </TooltipPrimitive.Content>
+                    </TooltipPrimitive.Portal>
+                  </TooltipPrimitive.Root>
+                </TooltipPrimitive.Provider>
               </div>
             </div>
           </section>
@@ -465,53 +509,62 @@ export default function Evaluation() {
           )}
           <section className="evaluation-results">
             <div className="evaluation-results-heading">
-              <h2>{t("tableTitle")}</h2>
+              <h2>
+                <button
+                  id="evaluation-results-toggle"
+                  type="button"
+                  aria-expanded={showTable}
+                  aria-controls="evaluation-results-content"
+                  onClick={() => setShowTable((value) => !value)}
+                >
+                  {showTable ? (
+                    <ChevronUp size={18} aria-hidden="true" />
+                  ) : (
+                    <ChevronDown size={18} aria-hidden="true" />
+                  )}
+                  {t("tableTitle")}
+                </button>
+              </h2>
               <span>{t("recordsCount", { count: ordered.length })}</span>
             </div>
-            <div className="evaluation-table-controls">
-              <button
-                aria-expanded={showTable}
-                onClick={() => setShowTable(!showTable)}
-              >
-                {showTable ? (
-                  <ChevronUp size={16} />
-                ) : (
-                  <ChevronDown size={16} />
-                )}
-                {t("toggleTable")}
-              </button>
-              <label>
-                <input
-                  type="checkbox"
-                  checked={onlyFrontier}
-                  onChange={(e) => setOnlyFrontier(e.target.checked)}
-                />
-                {t("onlyFrontier")}
-              </label>
-              <label>
-                <input
-                  type="checkbox"
-                  checked={showBreakdown}
-                  onChange={(e) => setShowBreakdown(e.target.checked)}
-                />
-                {t("breakdown")}
-              </label>
-              <label className="evaluation-search">
-                <Search size={15} />
-                <input
-                  aria-label={t("search")}
-                  placeholder={t("search")}
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                />
-              </label>
-              <button onClick={() => download(visible)}>
-                <Download size={16} />
-                JSON
-              </button>
-            </div>
-            {showTable && (
-              <div className="evaluation-table-wrap">
+            <div
+              id="evaluation-results-content"
+              role="region"
+              aria-labelledby="evaluation-results-toggle"
+              hidden={!showTable}
+            >
+              <div className="evaluation-table-controls">
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={onlyFrontier}
+                    onChange={(e) => setOnlyFrontier(e.target.checked)}
+                  />
+                  {t("onlyFrontier")}
+                </label>
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={showBreakdown}
+                    onChange={(e) => setShowBreakdown(e.target.checked)}
+                  />
+                  {t("breakdown")}
+                </label>
+                <label className="evaluation-search">
+                  <Search size={15} />
+                  <input
+                    aria-label={t("search")}
+                    placeholder={t("search")}
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                  />
+                </label>
+                <button onClick={() => download(tableRows)}>
+                  <Download size={16} />
+                  JSON
+                </button>
+              </div>
+              <div className="evaluation-table-wrap" ref={tableRef}>
                 <table className={showBreakdown ? "with-breakdown" : undefined}>
                   <thead>
                     <tr>
@@ -724,7 +777,7 @@ export default function Evaluation() {
                   <p className="evaluation-empty">{t("noMatch")}</p>
                 )}
               </div>
-            )}
+            </div>
           </section>
         </>
       )}
