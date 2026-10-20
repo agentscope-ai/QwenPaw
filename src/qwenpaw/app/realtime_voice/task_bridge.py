@@ -171,7 +171,9 @@ class VoiceTaskBridge:
                 record.version += 1
                 self._publish(VoiceTaskEvent(self._snapshot(record)))
 
-    def observe_input(self, identity: str, text: str) -> None:
+    def observe_input(
+        self, identity: str, text: str, *, transcript_source_id: str = ""
+    ) -> None:
         """Publish original words before admission or speech I/O."""
         if self._closed:
             raise RuntimeError("The Chat admission bridge is closed.")
@@ -179,7 +181,13 @@ class VoiceTaskBridge:
             identity,
             text,
             context_only=False,
+            transcript_source_id=transcript_source_id,
         )
+
+    def observe_transcript(
+        self, source_id: str, text: str, *, final: bool
+    ) -> None:
+        self._input_context.observe_transcript(source_id, text, final=final)
 
     async def enqueue_input(
         self,
@@ -187,6 +195,7 @@ class VoiceTaskBridge:
         *,
         idempotency_key: str,
         admission_mode: VoiceAdmissionMode = "queue",
+        transcript_source_id: str = "",
     ) -> VoiceAdmissionHandle:
         """Take custody before a Voice session publishes a committed turn."""
         idempotency_key = idempotency_key.strip()
@@ -194,7 +203,9 @@ class VoiceTaskBridge:
             raise ValueError("The speech turn identity is empty.")
         if admission_mode not in {"queue", "steer"}:
             raise ValueError("unknown voice admission mode")
-        self.observe_input(idempotency_key, text)
+        self.observe_input(
+            idempotency_key, text, transcript_source_id=transcript_source_id
+        )
 
         async with self._lock:
             existing = self._admission_results.get(idempotency_key)

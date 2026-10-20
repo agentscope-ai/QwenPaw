@@ -111,6 +111,7 @@ class VoiceHandoffController:
                 work.request_text,
                 idempotency_key=work.input_id,
                 admission_mode=work.admission_mode,
+                transcript_source_id=work.source_id,
             )
             receipt = await admission.wait()
         except asyncio.CancelledError:
@@ -174,6 +175,7 @@ class VoiceHandoffController:
             work.request_text,
             idempotency_key=work.input_id,
             admission_mode=work.admission_mode,
+            transcript_source_id=work.source_id,
         )
         return VoiceHandoffResult(work, await admission.wait())
 

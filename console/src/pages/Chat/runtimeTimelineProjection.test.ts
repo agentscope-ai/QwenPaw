@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { RuntimeTimelineAccumulator } from "./runtimeTimelineProjection";
+import type { Message } from "../../api";
+import AgentScopeRuntimeResponseBuilder from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/AgentScopeRuntime/Response/Builder";
+import type { IAgentScopeRuntimeMessage } from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/AgentScopeRuntime/types";
+import { countCollapsedSteps } from "./messageDisplay";
 
 describe("RuntimeTimelineAccumulator", () => {
   it("accumulates message content deltas and canonical response output", () => {
@@ -90,6 +94,97 @@ describe("delayed Voice history snapshots", () => {
 });
 
 describe("canonical history reconciliation", () => {
+  it("keeps two reasoning and two repeated tool steps stable through history and reload", () => {
+    const items: Message[] = ["1", "2"].flatMap((occurrence) => [
+      {
+        id: `msg_run:reasoning:think-${occurrence}`,
+        role: "assistant",
+        type: "reasoning",
+        content: [{ type: "text", text: "same plan" }],
+      },
+      {
+        id: `msg_run:plugin_call:call-${occurrence}`,
+        role: "assistant",
+        type: "plugin_call",
+        content: [
+          {
+            type: "data",
+            data: {
+              call_id: `call-${occurrence}`,
+              name: "write_file",
+              arguments: "{}",
+            },
+          },
+        ],
+      },
+      {
+        id: `msg_run:plugin_call_output:call-${occurrence}`,
+        role: "tool",
+        type: "plugin_call_output",
+        content: [
+          {
+            type: "data",
+            data: {
+              call_id: `call-${occurrence}`,
+              name: "write_file",
+              output: "ok",
+            },
+          },
+        ],
+      },
+    ]);
+    const accumulator = new RuntimeTimelineAccumulator();
+    const steps = () =>
+      countCollapsedSteps(
+        AgentScopeRuntimeResponseBuilder.mergeToolMessages(
+          accumulator.messages() as unknown as IAgentScopeRuntimeMessage[],
+        ),
+      );
+    accumulator.ingest({ object: "response", output: structuredClone(items) });
+    expect(steps()).toBe(4);
+    accumulator.mergeHistory(
+      structuredClone(items),
+      accumulator.historyCheckpoint(),
+    );
+    expect(steps()).toBe(4);
+    expect(accumulator.messages()).toHaveLength(6);
+    accumulator.reset(items);
+    expect(steps()).toBe(4);
+  });
+
+  it("continues an item when chunks arrive after history has replaced its live copy", () => {
+    const accumulator = new RuntimeTimelineAccumulator();
+    const item = {
+      id: "msg_run:message:text-1",
+      role: "assistant",
+      content: [{ type: "text", text: "hel", delta: false }],
+    };
+    accumulator.ingest({ object: "message", ...structuredClone(item) });
+    accumulator.mergeHistory([item], accumulator.historyCheckpoint());
+    accumulator.ingest({
+      object: "content",
+      msg_id: item.id,
+      type: "text",
+      text: "lo",
+      delta: true,
+    });
+    expect(accumulator.messages()).toHaveLength(1);
+    expect(accumulator.messages()[0].content).toEqual([
+      expect.objectContaining({ text: "hello" }),
+    ]);
+    expect(item.content[0].text).toBe("hel");
+    accumulator.ingest({
+      object: "content",
+      msg_id: item.id,
+      type: "text",
+      text: "hello!",
+      delta: false,
+    });
+    expect(accumulator.messages()[0].content).toEqual([
+      expect.objectContaining({ text: "hello!", delta: false }),
+    ]);
+  });
+
   it("replaces stale live replies without losing newer tail commits or live output", () => {
     const accumulator = new RuntimeTimelineAccumulator();
     accumulator.ingest({

@@ -18,6 +18,7 @@ from functools import wraps
 from typing import Any, AsyncGenerator, Callable, Dict
 
 from .message_convert import _media_type_to_block_type
+from .reply_cycle import reply_item_id
 
 logger = logging.getLogger(__name__)
 
@@ -149,6 +150,16 @@ class Envelope:
     def _next_seq(self) -> int:
         self._seq_counter += 1
         return self._seq_counter
+
+    def _block_message_id(self, block_type: str, block_id: str) -> str:
+        cycle = self._event_reply_cycle
+        return reply_item_id(
+            block_type, block_id, cycle.run_id if cycle is not None else ""
+        )
+
+    def _identify_text_message(self, block_type: str, block_id: str) -> None:
+        self._message_id = self._block_message_id(block_type, block_id)
+        self._completed_message.id = self._message_id
 
     def _tag_seq(self, obj: Any) -> Any:
         metadata = dict(getattr(obj, "metadata", None) or {})
@@ -292,7 +303,11 @@ class Envelope:
 
         # === TEXT BLOCK ===
         if evt_type == EventType.TEXT_BLOCK_START.value:
+            if self._should_finalize_text_message():
+                async for output in self._finalize_text_message():
+                    yield _EventMetadataExcludedOutput(output)
             if not self._message_started:
+                self._identify_text_message("text", event.block_id)
                 yield self._tag_seq(self._completed_message)
                 self._message_started = True
             block_id = event.block_id
@@ -303,7 +318,14 @@ class Envelope:
             }
 
         elif evt_type == EventType.TEXT_BLOCK_DELTA.value:
+            if (
+                event.block_id not in self._text_blocks
+                and self._should_finalize_text_message()
+            ):
+                async for output in self._finalize_text_message():
+                    yield _EventMetadataExcludedOutput(output)
             if not self._message_started:
+                self._identify_text_message("text", event.block_id)
                 yield self._tag_seq(self._completed_message)
                 self._message_started = True
             block_id = event.block_id
@@ -364,7 +386,7 @@ class Envelope:
                 async for obj in self._finalize_text_message():
                     yield _EventMetadataExcludedOutput(obj)
             block_id = event.block_id
-            r_msg_id = _gen_msg_id()
+            r_msg_id = self._block_message_id("thinking", block_id)
             r_envelope = Message(
                 id=r_msg_id,
                 type=MessageType.REASONING,
@@ -392,7 +414,7 @@ class Envelope:
                 if self._should_finalize_text_message():
                     async for obj in self._finalize_text_message():
                         yield _EventMetadataExcludedOutput(obj)
-                r_msg_id = _gen_msg_id()
+                r_msg_id = self._block_message_id("thinking", block_id)
                 r_envelope = Message(
                     id=r_msg_id,
                     type=MessageType.REASONING,
@@ -454,7 +476,7 @@ class Envelope:
                     yield _EventMetadataExcludedOutput(obj)
 
             call_id = event.tool_call_id
-            msg_id = _gen_msg_id()
+            msg_id = self._block_message_id("tool_call", call_id)
             plugin_call_message = Message(
                 id=msg_id,
                 type=MessageType.PLUGIN_CALL,
@@ -526,6 +548,7 @@ class Envelope:
                 ).model_dump(),
                 delta=False,
             )
+            final_content.msg_id = state["message"].id
             state["message"].add_content(new_content=final_content)
             yield self._tag_seq(final_content.completed())
             self._response.output.append(state["message"])
@@ -544,7 +567,7 @@ class Envelope:
                 }
                 self._tool_calls[call_id] = state
 
-            out_msg_id = _gen_msg_id()
+            out_msg_id = self._block_message_id("tool_result", call_id)
             out_message = Message(
                 id=out_msg_id,
                 type=MessageType.PLUGIN_CALL_OUTPUT,
@@ -659,7 +682,7 @@ class Envelope:
             out_message = state.get("output_message")
             if out_message is None:
                 out_message = Message(
-                    id=_gen_msg_id(),
+                    id=self._block_message_id("tool_result", call_id),
                     type=MessageType.PLUGIN_CALL_OUTPUT,
                     role=Role.TOOL,
                     content=[],
@@ -668,6 +691,7 @@ class Envelope:
                 out_message.name = "assistant"
                 out_message.object = "message"
 
+            final_content.msg_id = out_message.id
             out_message.add_content(new_content=final_content)
             yield self._tag_seq(final_content.completed())
             self._response.output.append(out_message)
@@ -679,7 +703,11 @@ class Envelope:
             block_id = event.block_id
             media_type = getattr(event, "media_type", "")
 
+            if self._should_finalize_text_message():
+                async for output in self._finalize_text_message():
+                    yield _EventMetadataExcludedOutput(output)
             if not self._message_started:
+                self._identify_text_message("data", block_id)
                 yield self._tag_seq(self._completed_message)
                 self._message_started = True
 

@@ -71,6 +71,64 @@ def test_capture_cutoff_and_replays_cannot_replace_words():
     assert second["inputs"][-1]["text"] == "New words after capture"
 
 
+def test_speech_evidence_refines_only_its_original_input():
+    context = ChatInputContext()
+    context.observe_transcript("audio-1", "变基验证", final=False)
+    context.register(
+        "handoff-1", "创建便签验证点.txt", transcript_source_id="audio-1"
+    )
+    context.bind("execution-1", "handoff-1")
+    first = context.capture(("execution-1",))
+    row = json.loads(first)["inputs"][0]
+    assert row["text"] == "创建便签验证点.txt"
+    assert row["transcript"] == {
+        "source_id": "audio-1",
+        "text": "变基验证",
+        "final": False,
+    }
+
+    context.observe_transcript("audio-1", "变基验证点.txt", final=True)
+    context.observe_transcript("audio-1", "迟到的临时转写", final=False)
+    context.observe_transcript("audio-1", "重放的最终事件", final=True)
+    latest = json.loads(context.capture(("execution-1",)))
+    assert latest["through_order"] == 1
+    assert latest["active_input_ids"] == ["execution-1"]
+    assert latest["inputs"][0]["transcript"]["text"] == "变基验证点.txt"
+    assert latest["inputs"][0]["transcript"]["final"] is True
+    assert json.loads(first)["inputs"][0]["transcript"]["final"] is False
+    assert context.admission_status("handoff-1") == "received"
+    assert context.state("execution-1") is None
+
+    # Identical delegated wording in a new utterance is a distinct request.
+    context.register(
+        "handoff-2", "创建便签验证点.txt", transcript_source_id="audio-2"
+    )
+    context.bind("execution-2", "handoff-2")
+    repeat = json.loads(context.capture(("execution-2",)))
+    assert repeat["inputs"] == [
+        {
+            "source_id": "handoff-2",
+            "order": 2,
+            "kind": "active_input",
+            "text": "创建便签验证点.txt",
+        }
+    ]
+    context.observe_transcript("audio-2", "明确重新创建", final=False)
+    context.observe_transcript("audio-2", "明确重新创建文件", final=False)
+    repeat = json.loads(context.capture(("execution-2",)))
+    assert repeat["inputs"][0]["transcript"]["text"] == "明确重新创建文件"
+    context.observe_transcript("audio-2", "", final=False)
+    assert (
+        json.loads(context.capture(("execution-2",)))["inputs"][0][
+            "transcript"
+        ]["text"]
+        == ""
+    )
+    context.close()
+    context.observe_transcript("audio-2", "late", final=True)
+    assert context.capture(("execution-2",)) == ""
+
+
 def test_context_only_never_becomes_an_execution_input():
     context = ChatInputContext()
     context.register("query", "What happened?", context_only=True)

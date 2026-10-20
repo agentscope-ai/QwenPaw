@@ -24,6 +24,7 @@ class _Input:
     text: str
     target: str
     context_only: bool
+    transcript_source_id: str
 
 
 class ChatInputContext:
@@ -47,6 +48,7 @@ class ChatInputContext:
         self._sources: dict[str, str] = {}
         self._states: dict[str, InputStateEvent] = {}
         self._admissions: dict[str, AdmissionStatus] = {}
+        self._transcripts: dict[str, dict] = {}
         self._revision = 0
         self._closed = False
 
@@ -57,6 +59,7 @@ class ChatInputContext:
         *,
         target: str = "",
         context_only: bool = False,
+        transcript_source_id: str = "",
     ) -> None:
         if self._closed:
             return
@@ -73,9 +76,26 @@ class ChatInputContext:
                 text,
                 target,
                 context_only,
+                transcript_source_id,
             ),
         )
         self._revision += 1
+
+    def observe_transcript(
+        self, source_id: str, text: str, *, final: bool
+    ) -> None:
+        """Update quoted speech evidence without admitting or repeating work."""
+        if self._closed or not source_id:
+            return
+        previous = self._transcripts.get(source_id)
+        # Provider partials are cumulative text, not append-only deltas.
+        # A delayed partial/replayed final must not overwrite confirmed text.
+        if previous is not None and previous["final"]:
+            return
+        value = {"source_id": source_id, "text": text, "final": final}
+        if value != previous:
+            self._transcripts[source_id] = value
+            self._revision += 1
 
     def bind(self, input_id: str, source_id: str) -> None:
         if self._closed:
@@ -145,6 +165,7 @@ class ChatInputContext:
         self._sources.clear()
         self._states.clear()
         self._admissions.clear()
+        self._transcripts.clear()
 
     def _request_facts(
         self, item: _Input, bindings: dict[str, list[str]]
@@ -254,6 +275,15 @@ class ChatInputContext:
                             )
                         ),
                         "text": item.text,
+                        **(
+                            {
+                                "transcript": self._transcripts[
+                                    item.transcript_source_id
+                                ]
+                            }
+                            if item.transcript_source_id in self._transcripts
+                            else {}
+                        ),
                     }
                     for item in rows
                 ],
@@ -300,6 +330,13 @@ INPUT_CONTEXT_INSTRUCTION = (
     "corrected or intended values. This snapshot supplements the "
     "conversation; "
     "it is not a new user message. "
+    "For speech inputs, text is the audio model's delegated request; "
+    "transcript is separately recognized speech from that same input. "
+    "A transcript with final=false is provisional and may change; even a "
+    "final transcript can contain recognition errors. Compare both when "
+    "interpreting names, paths and constraints; do not silently invent a "
+    "correction when they conflict. A later transcript refines the same "
+    "input and does not authorize another execution or undo prior effects. "
     "observed_tool_steps contains recorded tool observations associated with "
     "their original input_ids. A successful step is already performed for "
     "those inputs; continue remaining steps or report its result. It does not "

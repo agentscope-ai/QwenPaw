@@ -602,12 +602,20 @@ async def test_enqueued_admission_outlives_a_cancelled_waiter(monkeypatch):
     )
     task_bridge = bridge(tracker)
     task_bridge._attach_observer = AsyncMock()
+    task_bridge.observe_transcript("audio-a", "long", final=False)
     handle = await task_bridge.enqueue_input(
         "long request",
         idempotency_key="turn-a",
+        transcript_source_id="audio-a",
     )
     waiter = asyncio.create_task(handle.wait())
     await asyncio.wait_for(started.wait(), timeout=1)
+    input_id = task_bridge._idempotency["turn-a"]
+    before = json.loads(task_bridge._input_context.capture((input_id,)))
+    assert before["inputs"][0]["transcript"]["final"] is False
+    task_bridge.observe_transcript(
+        "audio-a", "original long request", final=True
+    )
 
     waiter.cancel()
     await asyncio.gather(waiter, return_exceptions=True)
@@ -616,6 +624,14 @@ async def test_enqueued_admission_outlives_a_cancelled_waiter(monkeypatch):
 
     assert result.accepted
     assert result.task_ref == "请求一"
+    after = json.loads(task_bridge._input_context.capture((input_id,)))
+    assert after["inputs"][0]["text"] == "long request"
+    assert after["inputs"][0]["transcript"] == {
+        "source_id": "audio-a",
+        "text": "original long request",
+        "final": True,
+    }
+    assert len(task_bridge._idempotency) == 1
     await task_bridge.close()
 
 

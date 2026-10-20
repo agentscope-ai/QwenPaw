@@ -37,7 +37,7 @@ from ...constant import (
     SCROLL_MEMORY_MESSAGE_TAG,
     TIMELINE_HIDDEN_USER_MESSAGE_TAGS,
 )
-from ...runtime.reply_cycle import reply_block_metadata
+from ...runtime.reply_cycle import reply_block_metadata, reply_item_id
 
 # Maximum characters of a single ``tool_result`` output included in served
 # chat history when ``truncate_oversized_outputs=True``. Tool outputs such as
@@ -813,6 +813,17 @@ def agentscope_msg_to_message(
             block_message_id = (
                 f"{msg.id}:{btype}:{block.get('id') or block_index}"
             )
+            if role in {"assistant", "tool"} and block.get("id"):
+                owner = block_metadata.get("metadata") or {}
+                block_message_id = reply_item_id(
+                    btype, block["id"], str(owner.get("run_id") or "")
+                )
+            distinct_assistant_block = (
+                role == "assistant"
+                and bool(block.get("id"))
+                and current_message is not None
+                and current_message.id != block_message_id
+            )
 
             # DataBlock (2.0): map type="data" to concrete media type
             if btype == "data":
@@ -832,9 +843,13 @@ def agentscope_msg_to_message(
                     btype = "file"
 
             if btype == "text":
-                if current_type != MessageType.MESSAGE or (
-                    current_message is not None
-                    and current_message.metadata != block_metadata
+                if (
+                    distinct_assistant_block
+                    or current_type != MessageType.MESSAGE
+                    or (
+                        current_message is not None
+                        and current_message.metadata != block_metadata
+                    )
                 ):
                     if current_message:
                         results.append(current_message.completed())
@@ -864,19 +879,17 @@ def agentscope_msg_to_message(
                 continue
 
             elif btype == "thinking":
-                if current_type != MessageType.REASONING or (
-                    current_message is not None
-                    and current_message.metadata != block_metadata
-                ):
-                    if current_message:
-                        results.append(current_message.completed())
-                    current_message = Message(
-                        id=block_message_id,
-                        type=MessageType.REASONING,
-                        role=role,
-                    )
-                    current_message.metadata = block_metadata
-                    current_type = MessageType.REASONING
+                # The stream emits one item per reasoning block, including
+                # adjacent blocks in the same persisted assistant Msg.
+                if current_message:
+                    results.append(current_message.completed())
+                current_message = Message(
+                    id=block_message_id,
+                    type=MessageType.REASONING,
+                    role=role,
+                )
+                current_message.metadata = block_metadata
+                current_type = MessageType.REASONING
 
                 text_content = TextContent(
                     delta=False,
@@ -959,9 +972,13 @@ def agentscope_msg_to_message(
                 current_message.add_content(new_content=data_content)
 
             elif btype == "image":
-                if current_type != MessageType.MESSAGE or (
-                    current_message is not None
-                    and current_message.metadata != block_metadata
+                if (
+                    distinct_assistant_block
+                    or current_type != MessageType.MESSAGE
+                    or (
+                        current_message is not None
+                        and current_message.metadata != block_metadata
+                    )
                 ):
                     if current_message:
                         results.append(current_message.completed())
@@ -1002,9 +1019,13 @@ def agentscope_msg_to_message(
                 current_message.add_content(new_content=image_content)
 
             elif btype == "audio":
-                if current_type != MessageType.MESSAGE or (
-                    current_message is not None
-                    and current_message.metadata != block_metadata
+                if (
+                    distinct_assistant_block
+                    or current_type != MessageType.MESSAGE
+                    or (
+                        current_message is not None
+                        and current_message.metadata != block_metadata
+                    )
                 ):
                     if current_message:
                         results.append(current_message.completed())
@@ -1047,9 +1068,13 @@ def agentscope_msg_to_message(
                 current_message.add_content(new_content=audio_content)
 
             elif btype == "video":
-                if current_type != MessageType.MESSAGE or (
-                    current_message is not None
-                    and current_message.metadata != block_metadata
+                if (
+                    distinct_assistant_block
+                    or current_type != MessageType.MESSAGE
+                    or (
+                        current_message is not None
+                        and current_message.metadata != block_metadata
+                    )
                 ):
                     if current_message:
                         results.append(current_message.completed())
@@ -1090,9 +1115,13 @@ def agentscope_msg_to_message(
                 current_message.add_content(new_content=video_content)
 
             elif btype == "file":
-                if current_type != MessageType.MESSAGE or (
-                    current_message is not None
-                    and current_message.metadata != block_metadata
+                if (
+                    distinct_assistant_block
+                    or current_type != MessageType.MESSAGE
+                    or (
+                        current_message is not None
+                        and current_message.metadata != block_metadata
+                    )
                 ):
                     if current_message:
                         results.append(current_message.completed())
@@ -1138,9 +1167,13 @@ def agentscope_msg_to_message(
                 current_message.add_content(new_content=file_content)
 
             else:
-                if current_type != MessageType.MESSAGE or (
-                    current_message is not None
-                    and current_message.metadata != block_metadata
+                if (
+                    distinct_assistant_block
+                    or current_type != MessageType.MESSAGE
+                    or (
+                        current_message is not None
+                        and current_message.metadata != block_metadata
+                    )
                 ):
                     if current_message:
                         results.append(current_message.completed())

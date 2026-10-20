@@ -15,6 +15,7 @@ from agentscope.message import (
     HintBlock,
     Msg,
     TextBlock,
+    ThinkingBlock,
     ToolCallBlock,
     ToolResultBlock,
 )
@@ -39,6 +40,63 @@ from qwenpaw.runtime.reply_cycle import (
     reply_block_metadata,
 )
 from qwenpaw.schemas import TextContent
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("streaming", [True, False])
+async def test_model_event_conversion_keeps_saved_block_identity(streaming):
+    from qwenpaw.app.chats.utils import agentscope_msg_to_message
+    from qwenpaw.runtime.envelope import Envelope
+
+    agent = object.__new__(QwenPawAgent)
+    agent.name = "assistant"
+    agent.state = SimpleNamespace(reply_id="reply")
+    agent.model = SimpleNamespace(model="test")
+    agent._prepare_model_input = AsyncMock(return_value={})
+    agent._get_reply_usage = lambda: None
+    agent._save_to_context = Mock()
+    final = ChatResponse(
+        content=[
+            ThinkingBlock(id="model-thinking", thinking="plan"),
+            TextBlock(id="model-text", text="done"),
+        ],
+        is_last=True,
+    )
+
+    async def chunks():
+        yield ChatResponse(
+            content=[ThinkingBlock(id="model-thinking", thinking="plan")],
+            is_last=False,
+        )
+        yield ChatResponse(
+            content=[TextBlock(id="model-text", text="done")],
+            is_last=False,
+        )
+        yield final
+
+    agent._call_model = AsyncMock(
+        return_value=chunks() if streaming else final
+    )
+    envelope = Envelope()
+    payloads = []
+    async for event in Agent._reasoning_impl(agent):
+        payloads.extend(
+            [
+                item.model_dump()
+                async for item in envelope.translate_event(event)
+            ]
+        )
+    payloads.extend([item.model_dump() async for item in envelope.finalize()])
+    saved_blocks = agent._save_to_context.call_args.args[0]
+    history = agentscope_msg_to_message(
+        Msg(name="assistant", role="assistant", content=saved_blocks)
+    )
+    assert [item["id"] for item in payloads[-1]["output"]] == [
+        item.id for item in history
+    ]
+    assert {
+        item["msg_id"] for item in payloads if item.get("object") == "content"
+    } == {"msg_:reasoning:model-thinking", "msg_:message:model-text"}
 
 
 @pytest.mark.asyncio
@@ -73,7 +131,11 @@ async def test_model_boundary_reads_updates_without_releasing_queue(
     agent._model_rejects_media = lambda: False
     agent._model_rejects_audio = lambda: False
     agent._uses_request_time_media_normalization = lambda: False
-    source.register_execution("original", "Run and print 3002")
+    source.register(
+        "speech-original", "Run and print 3002", transcript_source_id="audio-1"
+    )
+    source.bind("original", "speech-original")
+    source.observe_transcript("audio-1", "Run and print 302", final=False)
     source.register("correction-source", "Correction: 302", target="original")
     source.bind("correction", "correction-source")
     for i in range(10):
@@ -115,6 +177,8 @@ async def test_model_boundary_reads_updates_without_releasing_queue(
     assert "Do not rerun" in json.dumps(captured)
     assert "Future job" in json.dumps(captured)
     assert "readonly_requests" in json.dumps(captured)
+    assert "Run and print 302" in json.dumps(captured)
+    assert "audio-1" in json.dumps(captured)
     # The context channel must not publish a second visible user message.
     assert agentscope_msg_to_message(agent.state.context) == []
     assert [
@@ -126,7 +190,7 @@ async def test_model_boundary_reads_updates_without_releasing_queue(
         prepared["messages"][-1].content[0].hint.split("\n", 1)[1]
     )
     assert [row["source_id"] for row in latest["inputs"]] == [
-        "original",
+        "speech-original",
         "correction-source",
         "constraint",
     ]
@@ -135,6 +199,14 @@ async def test_model_boundary_reads_updates_without_releasing_queue(
         "Do not rerun; only report actual output",
     ]
     assert mailbox.drain_after_reply() == []
+    source.observe_transcript(
+        "audio-1", "Run and print 302 exactly", final=True
+    )
+    final_input = await agent._prepare_model_input()
+    assert "Run and print 302 exactly" in str(final_input)
+    assert "Run and print 302 exactly" not in str(prepared)
+    assert mailbox.drain_after_reply() == []
+    prepared = final_input
     assert agent._reply_cycle_context.terminated_input_ids("cancelled") == ()
     size = len(agent.state.context)
     again = await agent._prepare_model_input()

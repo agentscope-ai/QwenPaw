@@ -61,6 +61,19 @@ REPLY_CYCLE_METADATA_KEYS = (
 REPLY_BLOCKS_METADATA_KEY = "qwenpaw_reply_blocks"
 
 
+def reply_item_id(block_type: str, block_id: str, run_id: str = "") -> str:
+    """Use the producer block identity in both SSE and restored history."""
+    kind = {
+        "text": "message",
+        "data": "message",
+        "thinking": "reasoning",
+        "tool_use": "plugin_call",
+        "tool_call": "plugin_call",
+        "tool_result": "plugin_call_output",
+    }.get(block_type, "message")
+    return f"msg_{run_id}:{kind}:{block_id}"
+
+
 def reply_block_metadata(message: Any, block: Any) -> dict[str, Any]:
     """Return reply ownership for one content block on its owning message."""
     block_id = block if isinstance(block, str) else getattr(block, "id", "")
@@ -461,6 +474,7 @@ __all__ = [
     "ReplyCycleSnapshot",
     "ReplyOccurrenceSnapshot",
     "reply_block_metadata",
+    "reply_item_id",
     "set_reply_block_metadata",
     "update_reply_block_metadata",
 ]

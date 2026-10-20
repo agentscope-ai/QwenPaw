@@ -51,6 +51,7 @@ class Bridge:
     def __init__(self):
         self.queue = asyncio.Queue()
         self.enqueue_input = AsyncMock()
+        self.observe_transcript = Mock()
         self.presentation_snapshots = AsyncMock(return_value=())
         self.observe_active_run = AsyncMock(return_value=None)
         self.status = AsyncMock(return_value=snapshot())
@@ -340,7 +341,10 @@ async def test_close_tail_survives_journal_reload(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_native_handoff_admits_exact_model_request_and_returns_receipt():
+@pytest.mark.parametrize("final_before_handoff", [True, False])
+async def test_native_handoff_admits_exact_model_request_and_returns_receipt(
+    final_before_handoff,
+):
     provider, bridge = Provider(), Bridge()
     bridge.enqueue_input.return_value = admission(receipt())
     coordinator, _ = build_coordinator(provider, bridge)
@@ -350,6 +354,16 @@ async def test_native_handoff_admits_exact_model_request_and_returns_receipt():
         await provider.queue.put(
             ProviderEvent("speech.started", "speech-1", {}, correlation_id="source-1")
         )
+        await provider.queue.put(
+            ProviderEvent(
+                "input_transcript.partial",
+                "partial",
+                {"text": "截取桌面"},
+                correlation_id="source-1",
+            )
+        )
+        if final_before_handoff:
+            await provider.queue.put(transcript("source-1", "截取桌面并解释"))
         await provider.queue.put(tool_call("call-1", "截图桌面并说明重点"))
         committed = await next_kind(events, "input_turn.committed")
         await eventually(lambda: provider.complete_tool_call.await_count == 1)
@@ -358,6 +372,17 @@ async def test_native_handoff_admits_exact_model_request_and_returns_receipt():
         assert call.args == ("截图桌面并说明重点",)
         assert call.kwargs["idempotency_key"] == committed.data["turn_id"]
         assert call.kwargs["admission_mode"] == "steer"
+        assert call.kwargs["transcript_source_id"] == "source-1"
+        if not final_before_handoff:
+            await provider.queue.put(transcript("source-1", "截取桌面并解释"))
+        await eventually(lambda: bridge.observe_transcript.call_count == 2)
+        bridge.observe_transcript.assert_any_call(
+            "source-1", "截取桌面", final=False
+        )
+        bridge.observe_transcript.assert_any_call(
+            "source-1", "截取桌面并解释", final=True
+        )
+        bridge.enqueue_input.assert_awaited_once()
         provider.complete_tool_call.assert_awaited_once_with(
             "call-1",
             {

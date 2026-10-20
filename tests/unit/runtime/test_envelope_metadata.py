@@ -8,10 +8,93 @@ from typing import Any, AsyncGenerator
 
 import pytest
 from agentscope.event import EventType
+from agentscope.message import Msg
 
+from qwenpaw.app.chats.utils import agentscope_msg_to_message
 from qwenpaw.runtime.envelope import Envelope, _propagate_event_metadata
 from qwenpaw.runtime.reply_cycle import ReplyCycleContext
 from qwenpaw.schemas import ContentType, MessageType, RunStatus, TextContent
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("run_id", ["", "run-1", "run-2"])
+async def test_stream_and_restored_history_share_producer_item_ids(run_id):
+    cycle = ReplyCycleContext(run_id, "input") if run_id else None
+    envelope = Envelope(reply_cycle_context=cycle)
+    blocks = []
+    streamed = []
+
+    async def emit(event_type, **fields):
+        streamed.extend(
+            await _translate(envelope, _event(event_type, **fields))
+        )
+
+    # Adjacent reasoning blocks and explicitly repeated tools stay distinct.
+    for block_id in ("think-1", "think-2"):
+        blocks.append({"type": "thinking", "id": block_id, "thinking": "plan"})
+        await emit(EventType.THINKING_BLOCK_START, block_id=block_id)
+        await emit(
+            EventType.THINKING_BLOCK_DELTA, block_id=block_id, delta="plan"
+        )
+        await emit(EventType.THINKING_BLOCK_END, block_id=block_id)
+    for call_id in ("call-1", "call-2"):
+        blocks.extend(
+            [
+                {
+                    "type": "tool_call",
+                    "id": call_id,
+                    "name": "write_file",
+                    "input": "{}",
+                },
+                {
+                    "type": "tool_result",
+                    "id": call_id,
+                    "name": "write_file",
+                    "output": "ok",
+                },
+            ]
+        )
+        await emit(
+            EventType.TOOL_CALL_START,
+            tool_call_id=call_id,
+            tool_call_name="write_file",
+        )
+        await emit(EventType.TOOL_CALL_DELTA, tool_call_id=call_id, delta="{}")
+        await emit(EventType.TOOL_CALL_END, tool_call_id=call_id)
+        await emit(
+            EventType.TOOL_RESULT_START,
+            tool_call_id=call_id,
+            tool_call_name="write_file",
+        )
+        await emit(
+            EventType.TOOL_RESULT_TEXT_DELTA, tool_call_id=call_id, delta="ok"
+        )
+        await emit(EventType.TOOL_RESULT_END, tool_call_id=call_id)
+    for block_id in ("text-1", "text-2"):
+        blocks.append({"type": "text", "id": block_id, "text": "done"})
+        await emit(EventType.TEXT_BLOCK_START, block_id=block_id)
+        await emit(EventType.TEXT_BLOCK_DELTA, block_id=block_id, delta="done")
+        await emit(EventType.TEXT_BLOCK_END, block_id=block_id)
+    streamed.extend(await _dump(envelope.finalize()))
+    saved = Msg(
+        name="assistant",
+        role="assistant",
+        content=blocks,
+        metadata={"run_id": run_id} if run_id else {},
+    )
+    restored = agentscope_msg_to_message(
+        Msg.from_dict(saved.model_dump(mode="json"))
+    )
+    live = streamed[-1]["output"]
+    ids = [item["id"] for item in live]
+    assert ids == [item.id for item in restored]
+    assert len(set(ids)) == 8
+    assert {
+        item["msg_id"] for item in streamed if item.get("object") == "content"
+    } <= set(ids)
+    assert [
+        item["id"] for item in streamed if item.get("object") == "message"
+    ] == [identity for identity in ids for _ in range(2)]
 
 
 class _SyntheticEnvelope(Envelope):

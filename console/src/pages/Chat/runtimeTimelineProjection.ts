@@ -147,7 +147,20 @@ export class RuntimeTimelineAccumulator {
 
     const messageId = payload.msg_id;
     if (typeof messageId !== "string") return true;
-    const message = this.live.find((item) => item.id === messageId);
+    let message = this.live.find((item) => item.id === messageId);
+    if (!message) {
+      const restored = this.base.find((item) => item.id === messageId);
+      if (restored) {
+        // History can arrive between chunks of an existing item. Continue
+        // its live copy without mutating the captured history snapshot.
+        message = structuredClone(restored);
+        if (payload.delta && Array.isArray(message.content)) {
+          const last = message.content[message.content.length - 1];
+          if (last?.type === payload.type) last.delta = true;
+        }
+        this.live.push(message);
+      }
+    }
     if (!message) return true;
     const content = Array.isArray(message.content)
       ? (message.content as Array<Record<string, unknown>>)

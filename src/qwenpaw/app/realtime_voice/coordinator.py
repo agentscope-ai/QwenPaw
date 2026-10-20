@@ -217,6 +217,15 @@ class VoiceCoordinator:
                         source="coordinator",
                     )
                     continue
+                if event.kind in {
+                    "input_transcript.partial",
+                    "input_transcript.final",
+                }:
+                    self._bridge.observe_transcript(
+                        str(event.correlation_id),
+                        str(event.data.get("text") or "").strip(),
+                        final=event.kind == "input_transcript.final",
+                    )
                 if event.kind == "input_transcript.final":
                     source_id = str(event.correlation_id or "")
                     self._live_sources.add(source_id)

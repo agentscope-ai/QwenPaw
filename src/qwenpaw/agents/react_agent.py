@@ -1848,6 +1848,27 @@ class QwenPawAgent(CodingModeMixin, Agent):
     # Middleware-injected exchanges, surfaced to the UI as tool calls
     # ------------------------------------------------------------------
 
+    async def _convert_chat_response_to_event(
+        self, block_ids: dict, chunk: Any
+    ):
+        """Keep model block IDs through AgentScope's event conversion."""
+        async for event in super()._convert_chat_response_to_event(
+            block_ids, chunk
+        ):
+            kind = None
+            if isinstance(event, ThinkingBlockStartEvent):
+                kind = "thinking"
+            elif isinstance(event, TextBlockStartEvent):
+                kind = "text"
+            if kind is not None:
+                # AgentScope allocates a fresh ID at START but saves the
+                # original ChatResponse blocks. Update its stream cursor
+                # before it emits DELTA/END so both paths keep one identity.
+                source = next(b for b in chunk.content if b.type == kind)
+                block_ids[kind] = source.id
+                event.block_id = source.id
+            yield event
+
     def _reasoning_events(self, tool_choice: Any) -> Any:
         """The base reasoning stream, with injected exchanges merged in
         when a middleware emits them."""
