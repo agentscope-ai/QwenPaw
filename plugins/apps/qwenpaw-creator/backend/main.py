@@ -64,6 +64,11 @@ from services.pawapp_video_workflow import (  # noqa: E402
     creator_create_video_action_descriptor,
     creator_create_video_experience,
 )
+from services.pawapp_story import register_story_actions  # noqa: E402
+from services.pawapp_story_production import (  # noqa: E402
+    CreatorStoryProductionTaskAdapter,
+    produce_story_descriptor,
+)
 from services.project_files.facade import (  # noqa: E402
     CreatorFileServices,
     clear_creator_file_service_registry,
@@ -181,6 +186,21 @@ def _creator_task_services() -> CreatorFileServices:
     return _file_services
 
 
+register_story_actions(app, _creator_task_services)
+app.task_action(
+    ActionRegistration(
+        action=produce_story_descriptor(),
+        factory=lambda: CreatorStoryProductionTaskAdapter(
+            _creator_task_services,
+        ),
+        settings_entry="/apps/qwenpaw-creator",
+        requirement_ids=(LLM_REQUIREMENT_ID,),
+        deferred_requirement_ids=(IMAGE_REQUIREMENT_ID, VIDEO_REQUIREMENT_ID),
+        experience=creator_create_video_experience().model_copy(
+            update={"action_id": "produce-video"},
+        ),
+    ),
+)
 app.task_action(
     ActionRegistration(
         action=creator_create_project_action_descriptor(),

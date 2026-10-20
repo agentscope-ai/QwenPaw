@@ -15,7 +15,7 @@ import asyncio
 import json
 import hashlib
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, NoReturn
 
 from .binding import Readiness
 from .contracts import (
@@ -78,6 +78,25 @@ class TaskExecution:
         self.inputs = dict(submission.inputs)
         self.scope = submission.handle.scope
         self.submission_id = submission.handle.submission_id
+
+    async def fail(
+        self,
+        key: str,
+        *,
+        text: str,
+        project: ProjectRef | None = None,
+    ) -> NoReturn:
+        """Stop with a deliberate public failure; never pass raw exceptions."""
+        await self._adapter.emit(
+            self.submission,
+            "failure:" + key,
+            status="failed",
+            text_result=text,
+            project_ref=project,
+        )
+        # _execute preserves an already-terminal journal. Raising stops the
+        # handler so it cannot publish success after reporting this failure.
+        raise TaskStoreError("action_failed")
 
     async def report(
         self,

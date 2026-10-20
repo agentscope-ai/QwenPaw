@@ -76,7 +76,10 @@ def test_registered_entries_match_the_typed_manifest() -> None:
         setup_coordination.IMAGE_REQUIREMENT_ID,
         setup_coordination.VIDEO_REQUIREMENT_ID,
     ]
-    assert collector.checks[0].requirement.required_for == ("create-video",)
+    assert collector.checks[0].requirement.required_for == (
+        "create-video",
+        "produce-video",
+    )
 
 
 @pytest.mark.asyncio

@@ -189,7 +189,9 @@ class HandoffStore:
     def _goal(submission: TaskSubmission) -> str:
         candidate = submission.inputs.get("text")
         if not isinstance(candidate, str) or not candidate.strip():
-            candidate = submission.action.summary
+            candidate = (
+                submission.handle.text_result or submission.action.summary
+            )
         return candidate[:16000]
 
     @staticmethod

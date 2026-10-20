@@ -217,7 +217,7 @@ def register_creator_setup(app: Any) -> None:
             requirement=SetupRequirement(
                 id=LLM_REQUIREMENT_ID,
                 summary="Configure the Creator planning model.",
-                required_for=("create-video",),
+                required_for=("create-video", "produce-video"),
                 authority="AppLocal",
                 setup_entry_ref=LLM_ENTRY_ID,
                 check_ref="creator.llm-model-ready",
@@ -230,7 +230,11 @@ def register_creator_setup(app: Any) -> None:
             requirement=SetupRequirement(
                 id=IMAGE_REQUIREMENT_ID,
                 summary="Configure the Creator image generation model.",
-                required_for=("generate-storyboard", "create-video"),
+                required_for=(
+                    "generate-storyboard",
+                    "create-video",
+                    "produce-video",
+                ),
                 authority="AppLocal",
                 setup_entry_ref=IMAGE_ENTRY_ID,
                 check_ref="creator.image-model-ready",
@@ -243,7 +247,11 @@ def register_creator_setup(app: Any) -> None:
             requirement=SetupRequirement(
                 id=VIDEO_REQUIREMENT_ID,
                 summary="Configure the Creator video generation model.",
-                required_for=("generate-video", "create-video"),
+                required_for=(
+                    "generate-video",
+                    "create-video",
+                    "produce-video",
+                ),
                 authority="AppLocal",
                 setup_entry_ref=VIDEO_ENTRY_ID,
                 check_ref="creator.video-model-ready",

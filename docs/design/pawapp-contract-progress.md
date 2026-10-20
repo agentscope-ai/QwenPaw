@@ -282,3 +282,36 @@ Live browser acceptance: selecting `Demo PG - GAAP use case` populated
 `SELECT COUNT(*) AS row_count FROM dws_gaap_di`, returning **475** rows.
 The completed result remains in the verification session. A request for an
 unrelated datasource returned an empty catalog.
+
+## Main Chat story writing and Creator handoff — 2026-10-20
+
+The bilingual bundled `story-writing` skill develops the full story in Main
+Chat, then uses granted Creator actions to prepare, revise and produce one
+film. `prepare-production` deterministically imports a versioned story package
+and exact Markdown script without invoking a model. Both are published as Host
+artifacts and the task opens the populated Creator project.
+
+`revise-story` preserves history, checks the preceding digest and project ETag,
+rejects active Runtime work, and invalidates script approval even for changes
+only to character details or agreed decisions. `produce-video` resumes the
+same project with explicit media-generation permissions, setup and spending
+gates. Its admission recovers after a crash without duplicating the goal;
+stale requests become visible failed tasks rather than indefinite recovery.
+Ownership is user/workspace/App scoped, so another chat can reuse the project.
+
+The shared SDK adds `ctx.fail` for deliberate public business failures while
+unexpected exceptions remain sanitized. Generic handoff context now falls back
+to the completed task result when no text input exists. The Host contains no
+story-schema or Creator routing logic.
+
+Validation: 145 focused Creator tests and 799 Host/skill tests passed. The broad
+unit run reported 17,721 passed and 24 skipped, plus the existing local-timezone
+failure in `TestFormatTimestamp.test_formats_epoch`; all 23 tests in that
+unchanged module passed with `TZ=UTC`. Both packaged skill languages resolve.
+The default whole-repository pytest command still has the existing duplicate
+`test_backup.py` collection issue.
+
+Reference URIs and notes are preserved, but their binary files are not copied.
+No live provider generation or local service rollout is claimed for this
+addition. Contract, recovery details and limits:
+[Creator story handoff](pawapp-creator-story-handoff.md).

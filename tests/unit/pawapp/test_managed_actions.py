@@ -188,6 +188,29 @@ async def test_terminal_commit_between_stream_reads(harness, monkeypatch):
     assert done.handle.result_data == {"answer": "complete"}
 
 
+async def test_explicit_failure_is_public_terminal_and_stops_handler(harness):
+    continued = []
+
+    async def handler(ctx):
+        await ctx.fail(
+            "revision-conflict",
+            text="The document changed. Review it before retrying.",
+        )
+        continued.append(True)
+        return ActionResult("This must not be published.", {"answer": "wrong"})
+
+    runtime = await harness.start(handler, "replay_safe")
+    task = await dispatch(runtime)
+    failed = await status(harness, task.task_id, "failed")
+    assert (
+        failed.text_result
+        == "The document changed. Review it before retrying."
+    )
+    assert failed.result_data is None
+    assert not continued
+    assert (await dispatch(runtime)).task_id == task.task_id
+
+
 async def test_question_replay_artifact_and_scoped_reuse(harness):
     calls = []
 

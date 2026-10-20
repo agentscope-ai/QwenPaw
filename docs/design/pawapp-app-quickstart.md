@@ -48,6 +48,13 @@ for the App ID is needed. Discovery in Main Chat excludes direct-only actions.
 Optional descriptor `guidance` explains action selection and stays untrusted
 metadata, separate from permission/effect grants.
 
+For an expected business failure such as a stale document revision, use
+`await ctx.fail("revision-conflict", text="The document changed. Review it first.")`.
+This persists a failed task and stops the handler; the deliberate public text
+survives retries. An optional `project=ProjectRef(...)` keeps the destination
+available for review. Do not pass raw exception messages, credentials or
+internal diagnostics as public text. Unexpected exceptions remain sanitized.
+
 ## Frontend
 
 ```javascript

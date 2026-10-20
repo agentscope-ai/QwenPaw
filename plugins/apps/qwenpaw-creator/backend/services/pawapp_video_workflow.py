@@ -1842,7 +1842,7 @@ class CreatorVideoWorkflowTaskAdapter:
         descriptor_digest = descriptor.descriptor_digest
         if (
             submission.action.descriptor_digest != descriptor_digest
-            or submission.handle.action_id != _CREATE_VIDEO_ACTION_ID
+            or submission.handle.action_id != descriptor.action_id
             or submission.handle.descriptor_digest != descriptor_digest
         ):
             raise TaskStoreError("creator_video_workflow_action_mismatch")
@@ -2949,6 +2949,14 @@ class CreatorVideoWorkflowTaskAdapter:
             )
         return Readiness(state="ready")
 
+    @staticmethod
+    def _create_project(services, _record, request):
+        return services.project_creation.create_with_runtime_identity(request)
+
+    @staticmethod
+    def _lookup_project(services, _record, request):
+        return services.project_creation.lookup_with_runtime_identity(request)
+
     async def submit(self, submission: TaskSubmission) -> ExecutorRunRef:
         services = self._services()
         record, request = await asyncio.to_thread(
@@ -2969,7 +2977,9 @@ class CreatorVideoWorkflowTaskAdapter:
             notify_creator_agent_runtime(record.project_id)
             return self._run_ref(record)
         result = await asyncio.to_thread(
-            services.project_creation.create_with_runtime_identity,
+            self._create_project,
+            services,
+            record,
             request,
         )
         record = await asyncio.to_thread(
@@ -3012,7 +3022,9 @@ class CreatorVideoWorkflowTaskAdapter:
             )
 
         result = await asyncio.to_thread(
-            services.project_creation.lookup_with_runtime_identity,
+            self._lookup_project,
+            services,
+            candidate,
             request,
         )
         if result is None:
