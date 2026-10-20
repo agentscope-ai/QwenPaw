@@ -14,7 +14,7 @@ tests additionally assert the real process exit code, which is what the
 benchmark harness classifies as ``NonZeroAgentExitCodeError``.
 """
 
-# pylint: disable=unreachable,unused-argument
+# pylint: disable=protected-access,unreachable,unused-argument
 
 from __future__ import annotations
 
@@ -323,6 +323,100 @@ async def test_contextvars_persist_across_stream_events(monkeypatch):
 
     assert response.stop_reason == "end_turn"
     assert seen == ["set-by-runtime-hook"]
+
+
+@pytest.mark.integration
+async def test_mutable_events_are_snapshotted_before_queue(monkeypatch):
+    """One mutable runtime event must not produce duplicate ACP updates."""
+    data = {"call_id": "call-1", "name": "Bash", "arguments": "{}"}
+    event = SimpleNamespace(
+        object="message",
+        type=MessageType.PLUGIN_CALL.value,
+        status=RunStatus.InProgress,
+        content=[SimpleNamespace(data=data)],
+    )
+
+    async def _stream():
+        yield event
+        event.status = RunStatus.Completed
+        yield event
+
+    agent, conn, session_id = await _agent_with_stream(
+        monkeypatch,
+        _stream,
+    )
+
+    response = await agent.prompt(
+        prompt=[text_block("hello")],
+        session_id=session_id,
+    )
+
+    starts = [
+        update
+        for _, update in conn.updates
+        if getattr(update, "session_update", "") == "tool_call"
+    ]
+    assert response.stop_reason == "end_turn"
+    assert len(starts) == 1
+
+
+@pytest.mark.integration
+async def test_runtime_cancelled_error_returns_cancelled(monkeypatch):
+    """A CancelledError from the runtime itself is not a normal end."""
+
+    async def _stream():
+        raise asyncio.CancelledError("timeout")
+        yield  # pragma: no cover
+
+    agent, _conn, session_id = await _agent_with_stream(
+        monkeypatch,
+        _stream,
+    )
+
+    response = await agent.prompt(
+        prompt=[text_block("hello")],
+        session_id=session_id,
+    )
+
+    assert response.stop_reason == "cancelled"
+
+
+@pytest.mark.integration
+async def test_queue_applies_backpressure_to_producer(monkeypatch):
+    """The pump must not run unboundedly ahead of the ACP consumer."""
+    monkeypatch.setattr(acp_server, "_ACP_KEEPALIVE_SECONDS", 10.0)
+    produced = 0
+    consumed = 0
+    max_lag = 0
+
+    async def _stream():
+        nonlocal produced, max_lag
+        for index in range(20):
+            produced += 1
+            max_lag = max(max_lag, produced - consumed)
+            yield _content_event(f"x{index}")
+
+    agent, _conn, session_id = await _agent_with_stream(
+        monkeypatch,
+        _stream,
+    )
+    original_send = agent._send_update
+
+    async def _slow_send(session_id, update):
+        nonlocal consumed
+        await asyncio.sleep(0.01)
+        await original_send(session_id, update)
+        consumed += 1
+
+    monkeypatch.setattr(agent, "_send_update", _slow_send)
+
+    response = await agent.prompt(
+        prompt=[text_block("hello")],
+        session_id=session_id,
+    )
+
+    assert response.stop_reason == "end_turn"
+    assert max_lag <= 3, f"producer ran {max_lag} events ahead"
 
 
 @pytest.mark.integration

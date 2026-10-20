@@ -706,22 +706,32 @@ class QwenPawACPAgent(Agent):
             ),
         )
 
-        tracker = _EnvelopeTracker()
         was_cancelled = False
         loop = asyncio.get_running_loop()
         last_emit = loop.time()
-        queue: asyncio.Queue[tuple[str, Any]] = asyncio.Queue()
+        queue: asyncio.Queue[tuple[str, Any]] = asyncio.Queue(maxsize=1)
 
         async def _pump() -> None:
             """Consume the whole turn in one task so ContextVars persist."""
+            tracker = _EnvelopeTracker()
+            source_cancelled = False
             try:
                 workspace = await self._ensure_workspace()
                 async for event in workspace.stream_query(request):
-                    queue.put_nowait(("event", event))
+                    for upd in tracker.process(event):
+                        await queue.put(("update", upd))
+            except asyncio.CancelledError:
+                task = asyncio.current_task()
+                if task is not None and task.cancelling() == 0:
+                    source_cancelled = True
+                    await queue.put(("cancelled", None))
+                    return
+                raise
             except Exception as exc:
-                queue.put_nowait(("error", exc))
+                await queue.put(("error", exc))
             finally:
-                queue.put_nowait(("end", None))
+                if not source_cancelled:
+                    await queue.put(("end", None))
 
         pump_task = asyncio.create_task(_pump())
 
@@ -743,14 +753,18 @@ class QwenPawACPAgent(Agent):
 
                 if kind == f"end":
                     break
+                if kind == f"cancelled":
+                    was_cancelled = True
+                    logger.info(
+                        "ACP prompt cancelled by runtime: session=%s",
+                        session_id,
+                    )
+                    break
                 if kind == f"error":
                     raise payload
-                event = payload
 
-                updates = tracker.process(event)
-                for upd in updates:
-                    await self._send_update(session_id, upd)
-                    last_emit = loop.time()
+                await self._send_update(session_id, payload)
+                last_emit = loop.time()
 
                 if await self._emit_usage_if_available(session_id):
                     last_emit = loop.time()
