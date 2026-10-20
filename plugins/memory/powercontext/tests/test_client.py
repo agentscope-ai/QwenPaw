@@ -677,3 +677,173 @@ async def test_client_redacts_token_if_server_echoes_it():
     assert token not in str(error.value)
     assert "<redacted>" in str(error.value)
     await client.close()
+
+
+@pytest.mark.asyncio
+async def test_prepare_context_preserves_unicode_and_assembly():
+    requests = []
+    content = "上下文\n" * 100
+    envelope = {
+        "schema": "powercontext.prepared-context.v1",
+        "status": "ready",
+        "content": content,
+        "content_bytes": len(content.encode("utf-8")),
+    }
+    assembly = {"format": "markdown", "sections": [], "show": []}
+
+    def handler(request):
+        requests.append(request)
+        return httpx.Response(200, json=envelope)
+
+    client = PowerContextMemoryClient(
+        PowerContextConfig("http://pc", scope_id="agent:test"),
+    )
+    await client._http.aclose()
+    client._http = httpx.AsyncClient(
+        transport=httpx.MockTransport(handler),
+        base_url="http://pc",
+    )
+    result = await client.prepare_context(
+        query="继续",
+        max_bytes=1000,
+        assembly=assembly,
+    )
+    assert result == envelope
+    assert requests[0].url.path == "/v1/context/prepare"
+    assert json.loads(requests[0].content) == {
+        "scope_id": "agent:test",
+        "query": "继续",
+        "max_bytes": 1000,
+        "assembly": assembly,
+    }
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_prepare_context_empty_is_normal_and_assembly_is_optional():
+    requests = []
+    envelope = {
+        "schema": "powercontext.prepared-context.v1",
+        "status": "empty",
+        "content": None,
+        "content_bytes": 0,
+    }
+
+    def handler(request):
+        requests.append(request)
+        return httpx.Response(200, json=envelope)
+
+    client = PowerContextMemoryClient(
+        PowerContextConfig("http://pc", scope_id="agent:test"),
+    )
+    await client._http.aclose()
+    client._http = httpx.AsyncClient(
+        transport=httpx.MockTransport(handler),
+        base_url="http://pc",
+    )
+    assert await client.prepare_context(query="x", max_bytes=512) == envelope
+    assert "assembly" not in json.loads(requests[0].content)
+    await client.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"schema": "unknown"},
+        {"status": "skipped"},
+        {"content": ""},
+        {"content": " \n", "content_bytes": 2},
+        {"content": None},
+        {"content_bytes": True},
+        {"content_bytes": 1},
+        {"status": "empty", "content": "private", "content_bytes": 7},
+        {"status": "empty", "content": None, "content_bytes": 1},
+        {"extra": "private"},
+        {"content": "你" * 171, "content_bytes": 513},
+    ],
+)
+async def test_prepare_context_rejects_bad_envelopes_without_truncation(
+    changes,
+):
+    envelope = {
+        "schema": "powercontext.prepared-context.v1",
+        "status": "ready",
+        "content": "private",
+        "content_bytes": 7,
+    }
+    envelope.update(changes)
+    requests = []
+
+    def handler(request):
+        requests.append(request)
+        return httpx.Response(200, json=envelope)
+
+    client = PowerContextMemoryClient(
+        PowerContextConfig("http://pc", scope_id="agent:test"),
+    )
+    await client._http.aclose()
+    client._http = httpx.AsyncClient(
+        transport=httpx.MockTransport(handler),
+        base_url="http://pc",
+    )
+    with pytest.raises(PowerContextProtocolError) as error:
+        await client.prepare_context(query="x", max_bytes=512)
+    assert "private" not in str(error.value)
+    assert len(requests) == 1
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_prepare_context_preserves_meaningful_surrounding_whitespace():
+    content = "\n 上下文 \n"
+    envelope = {
+        "schema": "powercontext.prepared-context.v1",
+        "status": "ready",
+        "content": content,
+        "content_bytes": len(content.encode("utf-8")),
+    }
+    client = PowerContextMemoryClient(
+        PowerContextConfig("http://pc", scope_id="agent:test"),
+    )
+    await client._http.aclose()
+    client._http = httpx.AsyncClient(
+        transport=httpx.MockTransport(
+            lambda request: httpx.Response(200, json=envelope),
+        ),
+        base_url="http://pc",
+    )
+    assert await client.prepare_context(query="x", max_bytes=512) == envelope
+    await client.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"query": " "},
+        {"query": True},
+        {"query": "x" * 8193},
+        {"max_bytes": 511},
+        {"max_bytes": 32769},
+        {"max_bytes": True},
+        {"max_bytes": 512.0},
+        {"assembly": []},
+    ],
+)
+async def test_prepare_context_validates_request_before_network(kwargs):
+    def handler(_request):
+        pytest.fail("invalid input must not reach the server")
+
+    client = PowerContextMemoryClient(
+        PowerContextConfig("http://pc", scope_id="agent:test"),
+    )
+    await client._http.aclose()
+    client._http = httpx.AsyncClient(
+        transport=httpx.MockTransport(handler),
+        base_url="http://pc",
+    )
+    request = {"query": "x", "max_bytes": 512, **kwargs}
+    with pytest.raises(PowerContextRequestValidationError):
+        await client.prepare_context(**request)
+    await client.close()

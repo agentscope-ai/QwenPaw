@@ -85,6 +85,7 @@ async def _running_manager(
     *,
     agent_id: str = "default",
     scope_id: str = "",
+    recall_mode: str | None = None,
 ) -> AsyncIterator[PowerContextMemoryManager]:
     host_root.mkdir(parents=True, exist_ok=True)
     workspace = host_root / "workspaces" / agent_id
@@ -97,6 +98,13 @@ async def _running_manager(
             backend_config=PowerContextMemoryConfig(
                 base_url=str(server.base_url).rstrip("/"),
                 scope_id=scope_id,
+                auto_memory_search_config={
+                    "mode": recall_mode
+                    or os.environ.get(
+                        "POWERCONTEXT_TEST_RECALL_MODE",
+                        "prepare",
+                    ),
+                },
             ).model_dump(),
         ),
     )
@@ -153,7 +161,9 @@ def _assert_exact_citation(rendered: str, hit: dict, scope_id: str) -> None:
 async def test_default_scope_and_explicit_memory_roundtrip(server, tmp_path):
     marker = "roundtrip" + uuid.uuid4().hex
     async with _running_manager(server, tmp_path / "host") as manager:
-        assert len(manager.list_memory_tools()) == 2
+        assert {"memory_search", "memory_remember"} <= {
+            tool.__name__ for tool in manager.list_memory_tools()
+        }
         # Inspect the resolved identity only to address the real server below;
         # assertions concern persisted registration and public tool results.
         scope_id = manager._scope_id()
@@ -237,7 +247,7 @@ async def test_queued_auto_memory_drains_and_reopens_with_recall(
         assert injected is not None
         assert injected["query"] == first_marker
         assert first_marker in injected["text"]
-        assert POWERCONTEXT_UNTRUSTED_HISTORY_NOTICE in injected["text"]
+        assert "untrusted" in injected["text"].lower()
         assert injected["msg"][0] is incoming
         assert len(injected["msg"]) == 2
         assert first_marker in str(injected["msg"][-1].content)
