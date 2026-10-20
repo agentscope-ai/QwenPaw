@@ -312,6 +312,34 @@ The default whole-repository pytest command still has the existing duplicate
 `test_backup.py` collection issue.
 
 Reference URIs and notes are preserved, but their binary files are not copied.
-No live provider generation or local service rollout is claimed for this
-addition. Contract, recovery details and limits:
+No live media-provider generation is claimed. Contract, recovery details and limits:
 [Creator story handoff](pawapp-creator-story-handoff.md).
+
+### Local workflow acceptance — 2026-10-20
+
+The local service on port 8088 now runs this branch with rebuilt Console and
+Creator assets. Existing service settings and the Creator installation were
+backed up before switching the LaunchAgent from the release checkout. The
+default workspace imported/enabled `story-writing` and explicitly enabled the
+three new action grants.
+
+Using the configured Main Chat model, the browser flow wrote the 12-second
+Chinese film **一盏灯**, then delegated `prepare-production`. Creator opened the
+populated script-stage project. The exact three-scene Markdown was preserved;
+the saved JSON matched the delegated package and its digest. Two characters,
+eight decisions and twelve constraints, including the silent ending, were
+carried over. JSON and Markdown artifacts were published. A service restart
+restored the completed task unchanged and the same project remained readable.
+
+A subsequent Main Chat `revise-story` added one no-brand-logo constraint.
+Revision 2 retained the same project, original script bytes and all other
+story fields, with both versions retained. Neither import admitted a production
+goal or generated media.
+
+Production preflight exposed undecryptable saved Creator credentials being
+counted as configured. Setup readiness now rejects retained encrypted values,
+including inherited LLM keys; keyless SGLang remains supported. All 16 setup
+tests and changed-file pre-commit checks pass. After redeployment, the public
+`produce-video/prepare` endpoint correctly returned `needs_configuration`
+without dispatching production. Creator credentials still need repair before
+live generation; this acceptance does not validate rendered output.

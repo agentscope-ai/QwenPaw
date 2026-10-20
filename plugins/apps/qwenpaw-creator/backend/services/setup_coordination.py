@@ -23,6 +23,7 @@ from qwenpaw.pawapp import (
 )
 from qwenpaw.pawapp.tasks import TaskScope, TaskStoreError
 from qwenpaw.pawapp.tasks.contracts import content_digest
+from qwenpaw.security.secret_store import is_encrypted
 
 APP_ID = "qwenpaw-creator"
 LLM_ENTRY_ID = "creator-llm-model"
@@ -82,7 +83,9 @@ def _model_ready(
     api_key = item.api_key
     if purpose != "llm" and item.reuse_llm_key and not api_key:
         api_key = data.llm.api_key
-    return bool(api_key.strip())
+    # The Host retains ciphertext when a saved secret cannot be decrypted.
+    # That value must trigger setup, never count as a usable provider key.
+    return bool(api_key.strip()) and not is_encrypted(api_key)
 
 
 async def _check_model(

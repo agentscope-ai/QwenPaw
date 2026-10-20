@@ -118,6 +118,39 @@ async def test_model_checks_report_public_revision_without_secrets(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("purpose", ["llm", "image", "video"])
+@pytest.mark.parametrize("reuse_llm_key", [False, True])
+async def test_undecryptable_credentials_require_setup(
+    monkeypatch: pytest.MonkeyPatch,
+    purpose: str,
+    reuse_llm_key: bool,
+) -> None:
+    config = model_routes._defaults()
+    config.llm.api_key = "ENC:unreadable-saved-secret"
+    item = getattr(config, purpose)
+    item.enabled = True
+    item.model_name = "test-model"
+    item.base_url = "https://provider.example/v1"
+    if purpose != "llm":
+        item.reuse_llm_key = reuse_llm_key
+        item.api_key = "" if reuse_llm_key else config.llm.api_key
+    monkeypatch.setattr(
+        setup_coordination,
+        "_load_snapshot",
+        lambda: (config, 8),
+    )
+
+    result = await getattr(setup_coordination, f"check_{purpose}_model")(
+        SCOPE,
+        {},
+    )
+
+    assert result.state == "needs_configuration"
+    assert result.checked_revision == 8
+    assert "unreadable-saved-secret" not in result.model_dump_json()
+
+
+@pytest.mark.asyncio
 async def test_keyless_sglang_video_is_ready(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
