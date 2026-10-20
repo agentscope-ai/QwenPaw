@@ -97,7 +97,11 @@ vi.mock("@agentscope-ai/design", () => ({
 vi.mock("antd", () => ({
   App: ({ children }: { children?: ReactNode }) => <>{children}</>,
   Badge: ({ children }: { children?: ReactNode }) => <>{children}</>,
-  Button: ({ children, icon, ...props }: ComponentProps<"button">) => (
+  Button: ({
+    children,
+    icon,
+    ...props
+  }: ComponentProps<"button"> & { icon?: ReactNode }) => (
     <button type="button" {...props}>
       {icon}
       {children}

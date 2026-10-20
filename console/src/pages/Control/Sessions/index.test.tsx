@@ -169,10 +169,12 @@ import SessionsPage from "./index";
 function createSessions(count: number): Session[] {
   return Array.from({ length: count }, (_, index) => ({
     id: `session-${index}`,
+    session_id: `console:user-${index}`,
     name: index === 25 ? "Chosen session" : `Session ${index}`,
     user_id: `user-${index}`,
     channel: "console",
     created_at: "2026-10-15T00:00:00Z",
+    updated_at: "2026-10-15T00:00:00Z",
   }));
 }
 

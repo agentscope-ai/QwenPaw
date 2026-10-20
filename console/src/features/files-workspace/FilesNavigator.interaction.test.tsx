@@ -8,7 +8,7 @@ import {
 } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import FilesNavigator from "./FilesNavigator";
-import type { DirectoryEntry, DirectoryPage } from "./types";
+import type { DirectoryEntry, DirectoryPage, FileTarget } from "./types";
 
 const mocks = vi.hoisted(() => ({
   getProjectDirectory: vi.fn(),
@@ -88,7 +88,7 @@ function renderNavigator({
   onSelect = vi.fn(),
   selectedPath = "",
 }: {
-  onSelect?: ReturnType<typeof vi.fn>;
+  onSelect?: (target: FileTarget) => void;
   selectedPath?: string;
 } = {}) {
   return render(

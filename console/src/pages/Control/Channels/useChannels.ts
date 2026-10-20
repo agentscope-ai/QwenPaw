@@ -46,7 +46,7 @@ export function useChannels() {
         api.listChannelTypes(requestAgentId),
       ]);
       if (!isCurrent()) return;
-      setChannelsState((data ?? {}) as Channels);
+      setChannelsState((data ?? {}) as unknown as Channels);
       setChannelTypes(types ?? []);
       loadedAgentRef.current = requestAgentId;
       setLoadedAgentId(requestAgentId);

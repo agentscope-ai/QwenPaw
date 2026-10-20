@@ -48,7 +48,6 @@ import { ApiError } from "../../api/request";
 import { useMessageQueueStore } from "../../stores/messageQueueStore";
 import { useCreateNewSession } from "./hooks/useCreateNewSession";
 import { useChatRouteResolution } from "./hooks/useChatRouteResolution";
-import { ChatSessionTransition } from "./components/ChatSessionTransition";
 import { menuRegistry } from "../../plugins/registry/store";
 import sessionApi from "./sessionApi";
 import { createSdkSessionAdapter } from "./sdkSessionAdapter";

@@ -1016,7 +1016,7 @@ export default function FilesNavigator({
     }
     if (event.key === "End") {
       event.preventDefault();
-      focusItem(items.at(-1));
+      focusItem(items[items.length - 1]);
       return;
     }
     if (event.key === "ArrowRight") {
@@ -1322,8 +1322,7 @@ export default function FilesNavigator({
                       onSelect({
                         source,
                         path: entry.path,
-                        root:
-                          source === "workspace" ? workspaceRoot : undefined,
+                        root: undefined,
                       })
                     }
                     {...treeItemAttributes(

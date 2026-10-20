@@ -134,9 +134,10 @@ describe("useMCP", () => {
       expect(
         await result.current.updatePolicy("client-1", {
           default_effect: "allow",
-          rules: [],
+          client_overrides: [],
           tool_defaults: [],
-          tool_rules: [],
+          tool_overrides: [],
+          unmanaged_rules_count: 0,
         }),
       ).toBe(false);
     });
@@ -282,9 +283,10 @@ describe("useMCP", () => {
         apiMocks.updateMCPPolicy.mockReturnValueOnce(pendingMutation.promise);
         mutation = result.current.updatePolicy("client-1", {
           default_effect: "allow",
-          rules: [],
+          client_overrides: [],
           tool_defaults: [],
-          tool_rules: [],
+          tool_overrides: [],
+          unmanaged_rules_count: 0,
         });
       }
 
