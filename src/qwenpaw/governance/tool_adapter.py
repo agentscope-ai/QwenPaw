@@ -65,9 +65,13 @@ def _resolve_effective_approval_level(
     """Resolve the effective approval_level for this tool call.
 
     Priority:
-      1. ``request_context["approval_level"]`` — session-level override
-         injected by the frontend (localStorage per chat, carried in each
-         request). Zero I/O: already in memory.
+      1. ``request_context["approval_level"]`` — per-chat level. At
+         request setup the hook already merged in the level persisted on
+         the chat (``meta["runtime_context"]["approval_level"]``, the
+         cross-device value written via ``PUT /chats/{id}/approval-level``)
+         when present; otherwise this holds the client-carried override
+         (console local storage, sent in each request) as the fallback.
+         Zero I/O: already in memory.
       2. ``agent.json`` → ``AgentProfileConfig.approval_level`` — the
          agent-level default set via the Web UI 'Tool Execution Security' card.
       3. ``None`` — unresolvable (caller falls back to AUTO).

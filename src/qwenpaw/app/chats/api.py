@@ -845,6 +845,83 @@ async def set_chat_model(
     )
 
 
+class ApprovalLevelUpdate(BaseModel):
+    """Per-chat approval level update.
+
+    ``level`` is case-insensitive (``"STRICT"``, ``"smart"``, ...);
+    ``None`` clears the override so the chat follows the agent default.
+    """
+
+    level: Optional[str] = None
+
+
+def _canonical_approval_level(raw: str | None) -> Optional[str]:
+    """Validate a level name and return its canonical uppercase form."""
+    if raw is None:
+        return None
+    from ...security.tool_guard.execution_level import ToolExecutionLevel
+
+    # The enum's values are lowercase ("strict", ...); match on the value.
+    try:
+        return ToolExecutionLevel(raw.strip().lower()).name
+    except ValueError as exc:
+        raise HTTPException(422, f"Invalid approval level: {raw}") from exc
+
+
+@router.get("/{chat_id}/approval-level")
+async def get_chat_approval_level(
+    chat_id: str,
+    mgr: ChatManager = Depends(get_chat_manager),
+):
+    """Read this chat's persisted approval level.
+
+    ``approval_level`` is the canonical level name, or ``null`` when the
+    chat has no per-chat override (it follows the agent-level default).
+    """
+    chat = await mgr.get_chat(chat_id)
+    if chat is None:
+        raise HTTPException(404, f"Chat not found")
+    from ...services.session_approval import (
+        session_approval_level_from_meta,
+    )
+
+    return {
+        "chat_id": chat_id,
+        "approval_level": session_approval_level_from_meta(chat.meta),
+    }
+
+
+@router.put("/{chat_id}/approval-level")
+async def set_chat_approval_level(
+    chat_id: str,
+    body: ApprovalLevelUpdate,
+    mgr: ChatManager = Depends(get_chat_manager),
+):
+    """Persist a per-chat approval level for subsequent turns.
+
+    The level is stored on the chat, so it follows the chat across
+    devices and browsers. Clients may still carry a level per request
+    (``request_context.approval_level``); the persisted level takes
+    precedence when present, and the carry remains the fallback for
+    chats without a persisted level.
+    """
+    level = _canonical_approval_level(body.level)
+    chat = await mgr.get_chat(chat_id)
+    if chat is None:
+        raise HTTPException(404, f"Chat not found")
+    chat = await mgr.set_session_approval_level(chat_id, level)
+    if chat is None:
+        raise HTTPException(404, f"Chat not found")
+    from ...services.session_approval import (
+        session_approval_level_from_meta,
+    )
+
+    return {
+        "chat_id": chat_id,
+        "approval_level": session_approval_level_from_meta(chat.meta),
+    }
+
+
 # ----- Existing CRUD endpoints -----
 
 

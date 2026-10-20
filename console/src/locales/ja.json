@@ -2917,7 +2917,7 @@
     "visualCompactCapabilityNote": "画像入力に対応するモデルでのみ有効です。",
     "remeLightMemoryTitle": "長期記憶",
     "toolExecutionLevelTitle": "ツール承認モード",
-    "toolExecutionLevelTooltip": "承認モード",
+    "toolExecutionLevelTooltip": "このチャットにのみ適用——サーバーに保存されるため、デバイス間で追従します。他のチャットはエージェント既定レベルを使用します。",
     "toolExecutionLevel": {
       "title": "ツール承認モード",
       "alertMessage": "ツール呼び出し前の承認を設定します。ファイル保護ルールは独立して適用されます。",
@@ -2928,7 +2928,10 @@
       "auto": "自動モード",
       "autoDesc": "ツールとファイルの承認ルールに一致する操作のみ承認が必要です（デフォルト）",
       "off": "オフモード",
-      "offDesc": "ツールとファイルの承認を無効にします"
+      "offDesc": "ツールとファイルの承認を無効にします",
+      "followAgent": "エージェント既定に従う",
+      "followAgentDesc": "このエージェントに設定されたレベルを使用",
+      "persistFailed": "承認レベルの保存に失敗したため、元のレベルに戻しました。"
     },
     "saveLevelSuccess": "ツール承認モードを保存しました",
     "saveLevelFailed": "ツール承認モードの保存に失敗しました",

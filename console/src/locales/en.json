@@ -3757,7 +3757,7 @@
     "rerankerTimeoutMin": "Timeout must be ≥ 1 second",
     "rerankerCandidateMultiplierInteger": "Candidate multiplier must be a whole number",
     "toolExecutionLevelTitle": "Tool Approval Mode",
-    "toolExecutionLevelTooltip": "Approval Mode",
+    "toolExecutionLevelTooltip": "For this chat only — stored on the server so it follows you across devices; other chats use the agent's default level.",
     "toolExecutionLevel": {
       "title": "Tool Approval Mode",
       "alertMessage": "Configure approval before tool calls. File Guard rules apply independently.",
@@ -3768,7 +3768,10 @@
       "auto": "Auto Mode",
       "autoDesc": "Only operations matching tool and file approval rules require approval (default)",
       "off": "Off Mode",
-      "offDesc": "Tool and file approvals are disabled"
+      "offDesc": "Tool and file approvals are disabled",
+      "followAgent": "Follow agent default",
+      "followAgentDesc": "Use the level configured for this agent",
+      "persistFailed": "Failed to save the approval level; reverted to the previous one."
     },
     "saveLevelSuccess": "Tool approval mode saved",
     "saveLevelFailed": "Failed to save tool approval mode",

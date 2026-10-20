@@ -62,7 +62,7 @@ export const chatApi = {
     if (!filename) return "";
     if (filename.startsWith("http://") || filename.startsWith("https://"))
       return filename;
-    let cleaned = filename.replace(/^\/+/, "");
+    const cleaned = filename.replace(/^\/+/, "");
     const path = `${FILES_PREVIEW}/${cleaned}`;
     const url = getApiUrl(path);
 
@@ -138,6 +138,26 @@ export const chatApi = {
       },
     );
   },
+
+  /** Read the chat's persisted per-chat approval level (null = agent default). */
+  getApprovalLevel: (chatId: string, agentId?: string) =>
+    request<{ chat_id: string; approval_level: string | null }>(
+      `/chats/${encodeURIComponent(chatId)}/approval-level`,
+      {
+        headers: agentId ? { "X-Agent-Id": agentId } : undefined,
+      },
+    ),
+
+  /** Persist (or clear with null) the chat's per-chat approval level. */
+  setApprovalLevel: (chatId: string, level: string | null, agentId?: string) =>
+    request<{ chat_id: string; approval_level: string | null }>(
+      `/chats/${encodeURIComponent(chatId)}/approval-level`,
+      {
+        method: "PUT",
+        headers: agentId ? { "X-Agent-Id": agentId } : undefined,
+        body: JSON.stringify({ level }),
+      },
+    ),
 
   updateChat: (chatId: string, chat: ChatUpdateRequest) =>
     request<ChatSpec>(`/chats/${encodeURIComponent(chatId)}`, {

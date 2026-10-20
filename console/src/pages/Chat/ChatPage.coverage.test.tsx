@@ -174,6 +174,12 @@ vi.mock("@/api/modules/chat", () => ({
     filePreviewUrl: mockFilePreviewUrl,
     getChatStatus: mockGetChatStatus,
     stopChat: vi.fn(() => Promise.resolve()),
+    getApprovalLevel: vi.fn(() =>
+      Promise.resolve({ chat_id: "", approval_level: null }),
+    ),
+    setApprovalLevel: vi.fn(() =>
+      Promise.resolve({ chat_id: "", approval_level: null }),
+    ),
   },
 }));
 
