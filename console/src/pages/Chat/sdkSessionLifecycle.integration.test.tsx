@@ -469,8 +469,10 @@ function mountLinkedHost(initialPath: string) {
   return { current: () => probe };
 }
 
-function linkedHistory(id: string) {
+function linkedHistory(id: string, sessionId = `runtime-${id}`) {
   return {
+    ...record(id),
+    session_id: sessionId,
     status: "idle" as const,
     messages: [
       {
@@ -493,7 +495,7 @@ describe("installed SDK activation after route ownership resolution", () => {
         chat: { ...record(B), session_id: alias },
       });
       vi.mocked(api.listChats).mockResolvedValue([]);
-      fixture.history.mockResolvedValue(linkedHistory(B));
+      fixture.history.mockResolvedValue(linkedHistory(B, alias));
       const host = mountLinkedHost(`/chat/${alias}`);
 
       await waitFor(() => {
@@ -517,12 +519,12 @@ describe("installed SDK activation after route ownership resolution", () => {
       ]);
       sessionApi.preferredChatId = alias;
       await sessionApi.getSessionList();
-      fixture.history.mockResolvedValue(linkedHistory(A));
+      fixture.history.mockResolvedValue(linkedHistory(A, alias));
       if (preloaded) await sessionApi.preloadSession(alias);
       fixture.history.mockClear();
       fixture.history.mockImplementation(async (id) => {
         if (id === A) throw new ApiError(404, "Chat not found");
-        return linkedHistory(id);
+        return linkedHistory(id, alias);
       });
       vi.spyOn(api, "resolveChat").mockResolvedValue({
         agent_id: AGENT,
@@ -553,7 +555,7 @@ describe("installed SDK activation after route ownership resolution", () => {
       chat: { ...record(B), session_id: alias, archived: true },
     });
     vi.mocked(api.listChats).mockResolvedValue([]);
-    fixture.history.mockResolvedValue(linkedHistory(B));
+    fixture.history.mockResolvedValue(linkedHistory(B, alias));
     const host = mountLinkedHost(`/chat/${alias}`);
     await waitFor(() =>
       expect(screen.getByTestId("linked-messages")).toHaveTextContent(

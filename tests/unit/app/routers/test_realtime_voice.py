@@ -301,3 +301,48 @@ async def test_coordinator_failure_remains_an_upstream_error():
     assert events[-1]["code"] == "upstream_unavailable"
     websocket.close.assert_awaited_once_with(code=1011)
     service.end_session.assert_awaited_once_with(live)
+
+
+@pytest.mark.asyncio
+async def test_closed_ack_waits_for_durable_cleanup():
+    entered, release = asyncio.Event(), asyncio.Event()
+
+    async def close(_live):
+        entered.set()
+        await release.wait()
+
+    class Coordinator:
+        async def events(self):
+            yield ProviderEvent("session.closed", "closed", {"reason": "idle_timeout"})
+
+    live = SimpleNamespace(
+        generation=1,
+        config=SimpleNamespace(max_session_seconds=60),
+        chat=SimpleNamespace(id="chat"),
+    )
+    service = SimpleNamespace(
+        consume_grant=AsyncMock(return_value=live),
+        connect=AsyncMock(return_value=Coordinator()),
+        end_session=AsyncMock(side_effect=close),
+    )
+
+    async def receive():
+        await asyncio.Event().wait()
+
+    websocket = SimpleNamespace(
+        query_params={"token": "token"},
+        app=SimpleNamespace(state=SimpleNamespace(realtime_voice_service=service)),
+        accept=AsyncMock(),
+        receive=receive,
+        send_json=AsyncMock(),
+        close=AsyncMock(),
+    )
+    running = asyncio.create_task(realtime_voice_stream(websocket, "voice"))
+    await asyncio.wait_for(entered.wait(), 1)
+    assert [c.args[0]["type"] for c in websocket.send_json.await_args_list] == [
+        "session.connected"
+    ]
+    release.set()
+    await asyncio.wait_for(running, 1)
+    assert websocket.send_json.await_args.args[0]["type"] == "session.closed"
+    service.end_session.assert_awaited_once()

@@ -201,3 +201,53 @@ async def test_voice_chat_resume_uses_capability_metadata():
     )
 
     assert resolved is voice_chat
+
+
+@pytest.mark.asyncio
+async def test_concurrent_release_waits_for_durable_close_and_checks_owner():
+    service = RealtimeVoiceService(ProviderManager())
+    live = live_session()
+    entered, release = asyncio.Event(), asyncio.Event()
+
+    async def close():
+        entered.set()
+        await release.wait()
+
+    live.coordinator = SimpleNamespace(close=AsyncMock(side_effect=close))
+    coordinator = live.coordinator
+    service._sessions[live.session_id] = live
+    service._leases[live.principal] = live
+    first = asyncio.create_task(service.end_session(live))
+    await asyncio.wait_for(entered.wait(), 1)
+    with pytest.raises(RealtimeVoiceServiceError):
+        await service.release_session(live.session_id, "other", "default")
+    second = asyncio.create_task(
+        service.release_session(live.session_id, "owner", "default")
+    )
+    await asyncio.sleep(0)
+    first.cancel()
+    await asyncio.gather(first, return_exceptions=True)
+    assert not second.done()
+    assert service._sessions[live.session_id] is live
+    replacement = live_session("replacement")
+    service._leases[live.principal] = replacement
+    release.set()
+    await asyncio.wait_for(second, 1)
+    coordinator.close.assert_awaited_once()
+    assert service._leases[live.principal] is replacement
+    assert live.session_id not in service._sessions
+
+
+@pytest.mark.asyncio
+async def test_failed_close_is_not_reported_as_success_by_later_delete():
+    service = RealtimeVoiceService(ProviderManager())
+    live = live_session()
+    live.coordinator = SimpleNamespace(
+        close=AsyncMock(side_effect=OSError("disk error"))
+    )
+    service._sessions[live.session_id] = live
+    service._leases[live.principal] = live
+    for _ in range(2):
+        with pytest.raises(OSError, match="disk error"):
+            await service.release_session(live.session_id, "owner", "default")
+    live.coordinator.close.assert_awaited_once()

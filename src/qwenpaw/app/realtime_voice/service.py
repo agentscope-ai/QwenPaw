@@ -50,6 +50,8 @@ class LiveVoiceSession:
         repr=False,
     )
     coordinator: VoiceCoordinator | None = field(default=None, repr=False)
+    start_task: asyncio.Task[None] | None = field(default=None, repr=False)
+    close_task: asyncio.Task[None] | None = field(default=None, repr=False)
 
 
 @dataclass(frozen=True)
@@ -288,7 +290,6 @@ class RealtimeVoiceService:
             if existing is not None:
                 displaced = existing
                 self._leases.pop(principal, None)
-                self._sessions.pop(existing.session_id, None)
                 self._grants = {
                     digest: grant
                     for digest, grant in self._grants.items()
@@ -323,7 +324,11 @@ class RealtimeVoiceService:
             )
 
         if displaced is not None:
-            await self._close_live(displaced)
+            try:
+                await self.end_session(displaced)
+            except BaseException:
+                await self.end_session(live)
+                raise
         return SessionBootstrap(
             session_id=live.session_id,
             agent_id=live.agent_id,
@@ -355,6 +360,7 @@ class RealtimeVoiceService:
                 or grant.chat_id != live.chat.id
                 or grant.generation != live.generation
                 or live.connected
+                or getattr(live, "close_task", None) is not None
             ):
                 raise RealtimeVoiceServiceError(
                     "invalid_token",
@@ -394,11 +400,14 @@ class RealtimeVoiceService:
             language=live.config.language,
             presentation_capacity=live.config.presentation_capacity,
             playback_timeout_seconds=live.config.playback_timeout_seconds,
+            max_history_turns=live.config.max_history_turns,
         )
         try:
-            await coordinator.start()
             async with self._lock:
-                if self._sessions.get(live.session_id) is not live:
+                if (
+                    self._sessions.get(live.session_id) is not live
+                    or getattr(live, "close_task", None) is not None
+                ):
                     raise RealtimeVoiceServiceError(
                         "session_closed",
                         "This Voice session has ended.",
@@ -406,8 +415,29 @@ class RealtimeVoiceService:
                     )
                 live.provider_session = provider_session
                 live.coordinator = coordinator
+                live.start_task = asyncio.create_task(coordinator.start())
+            await live.start_task
+            if getattr(live, "close_task", None) is not None:
+                raise RealtimeVoiceServiceError(
+                    "session_closed",
+                    "This Voice session has ended.",
+                    409,
+                )
+        except asyncio.CancelledError:
+            closing = getattr(live, "close_task", None) is not None
+            await self.end_session(live)
+            if closing:
+                raise RealtimeVoiceServiceError(
+                    "session_closed",
+                    "This Voice session has ended.",
+                    409,
+                ) from None
+            raise
         except BaseException:
-            await coordinator.close()
+            if live.coordinator is coordinator:
+                await self.end_session(live)
+            else:
+                await coordinator.close()
             raise
         return coordinator
 
@@ -431,6 +461,10 @@ class RealtimeVoiceService:
         await self.end_session(live)
 
     async def _close_live(self, live: LiveVoiceSession) -> None:
+        starting = getattr(live, "start_task", None)
+        if starting is not None and not starting.done():
+            starting.cancel()
+            await asyncio.gather(starting, return_exceptions=True)
         if live.coordinator is not None:
             await live.coordinator.close()
             live.coordinator = None
@@ -440,29 +474,41 @@ class RealtimeVoiceService:
             live.provider_session = None
 
     async def end_session(self, live: LiveVoiceSession) -> None:
-        """Release one exact generation without disrupting a replacement."""
+        """All callers await the same durable close of this exact generation."""
+        async with self._lock:
+            if getattr(live, "close_task", None) is None:
+                self._grants = {
+                    digest: grant
+                    for digest, grant in self._grants.items()
+                    if grant.session_id != live.session_id
+                }
+                live.close_task = asyncio.create_task(self._finish_session(live))
+            closing = live.close_task
+        await asyncio.shield(closing)
+
+    async def _finish_session(self, live: LiveVoiceSession) -> None:
+        # Retain the record until saving succeeds so concurrent DELETE calls
+        # cannot report success early. A failed close stays observable.
+        try:
+            await self._close_live(live)
+        finally:
+            # A failed save remains visible to DELETE, but must not hold the
+            # user's single live-voice lease after its providers are closed.
+            async with self._lock:
+                if self._leases.get(live.principal) is live:
+                    self._leases.pop(live.principal, None)
         async with self._lock:
             if self._sessions.get(live.session_id) is live:
                 self._sessions.pop(live.session_id, None)
-            if self._leases.get(live.principal) is live:
-                self._leases.pop(live.principal, None)
-            self._grants = {
-                digest: grant
-                for digest, grant in self._grants.items()
-                if grant.session_id != live.session_id
-            }
-        await self._close_live(live)
 
     async def shutdown(self) -> None:
         async with self._lock:
             sessions = list(self._sessions.values())
             bridges = list(self._bridges.values())
-            self._sessions.clear()
-            self._leases.clear()
             self._grants.clear()
             self._bridges.clear()
         await asyncio.gather(
-            *(self._close_live(live) for live in sessions),
+            *(self.end_session(live) for live in sessions),
             *(bridge.close() for bridge in bridges),
             return_exceptions=True,
         )

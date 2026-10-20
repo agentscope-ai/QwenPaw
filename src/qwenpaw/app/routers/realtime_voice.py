@@ -177,7 +177,7 @@ async def _coordinator_to_client(
     send_lock: asyncio.Lock,
     live: LiveVoiceSession,
     coordinator: VoiceCoordinator,
-) -> None:
+) -> dict[str, Any] | None:
     output_sequence = 0
     async for event in coordinator.events():
         if event.kind == "output.audio" and event.audio is not None:
@@ -207,6 +207,9 @@ async def _coordinator_to_client(
             client_event["correlation_id"] = event.correlation_id
         if event.response_origin:
             client_event["response_origin"] = event.response_origin
+        if event.kind == "session.closed":
+            # The router sends this only after durable session cleanup.
+            return client_event
         async with send_lock:
             await websocket.send_json(client_event)
 
@@ -232,6 +235,7 @@ async def realtime_voice_stream(
 
     await websocket.accept()
     close_code = 1000
+    session_ended = False
     send_lock = asyncio.Lock()
     try:
         coordinator = await service.connect(live)
@@ -278,34 +282,46 @@ async def realtime_voice_stream(
         )
         await asyncio.gather(*pending, return_exceptions=True)
 
-        close_reason: str | None
+        terminal: dict[str, Any] | None
         if coordinator_task in done:
             result = done_results[coordinator_task]
             if isinstance(result, BaseException):
                 raise result
-            # A clean coordinator stream has already forwarded its terminal
-            # event. Any simultaneous input send belongs to the closed session.
-            close_reason = None
+            terminal = result
         elif client_task in done:
             result = done_results[client_task]
             if isinstance(result, BaseException):
                 raise result
-            close_reason = "stopped"
+            terminal = {"reason": "stopped"}
         else:
-            close_reason = "max_duration"
+            terminal = {"reason": "max_duration"}
 
-        if close_reason is not None:
+        await service.end_session(live)
+        session_ended = True
+        if terminal is not None:
             with suppress(Exception):
                 async with send_lock:
                     await websocket.send_json(
                         {
                             "type": "session.closed",
                             "generation": live.generation,
-                            "reason": close_reason,
+                            **terminal,
                         }
                     )
     except WebSocketDisconnect:
         pass
+    except RealtimeVoiceServiceError as exc:
+        close_code = 1011
+        with suppress(Exception):
+            await websocket.send_json(
+                {
+                    "type": "error",
+                    "generation": live.generation,
+                    "code": exc.code,
+                    "message": exc.message,
+                    "recoverable": False,
+                },
+            )
     except ValueError as exc:
         close_code = 1003
         logger.info("Realtime Voice protocol error: %s", exc)
@@ -335,7 +351,11 @@ async def realtime_voice_stream(
                     }
                 )
     finally:
-        await service.end_session(live)
+        if not session_ended:
+            try:
+                await service.end_session(live)
+            except Exception:
+                logger.warning("Realtime Voice cleanup failed", exc_info=True)
         with suppress(Exception):
             await websocket.close(code=close_code)
 

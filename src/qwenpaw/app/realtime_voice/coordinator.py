@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import json
 from collections.abc import AsyncIterator, Coroutine
 from contextlib import suppress
 from dataclasses import replace
@@ -17,6 +18,7 @@ from ...providers.realtime_voice import (
 )
 from ..chats.timeline import ChatTimelineJournal
 from .contracts import (
+    RealtimeVoiceServiceError,
     VoiceRunEvent,
     VoiceTaskEvent,
     VoiceTaskReceipt,
@@ -63,6 +65,8 @@ class VoiceCoordinator:
         language: str = "zh",
         presentation_capacity: int = 32,
         playback_timeout_seconds: float = 90,
+        max_history_turns: int = 20,
+        history_timeout_seconds: float = 5,
     ) -> None:
         self._provider = provider
         self._presenter = presentation_provider or provider
@@ -95,17 +99,57 @@ class VoiceCoordinator:
         self._input_transcripts: dict[str, str] = {}
         self._auto_responses: dict[str, dict[str, Any]] = {}
         self._persisted_auto_sources: set[str] = set()
+        self._handoff_sources: set[str] = set()
         self._chat_owned_sources: set[str] = set()
         self._chat_owned_responses: dict[str, str] = {}
         self._chat_mode_active = False
         self._closed = False
+        self._close_task: asyncio.Task[None] | None = None
+        self._history_errors: dict[str, Exception] = {}
+        self._live_sources: set[str] = set()
+        self._max_history_turns = max_history_turns
+        self._history_timeout = history_timeout_seconds
 
     async def start(self) -> None:
+        try:
+            history = await asyncio.wait_for(
+                self._timeline.read_context(
+                    max_turns=self._max_history_turns,
+                    max_chars=12000,
+                ),
+                timeout=self._history_timeout,
+            )
+            snapshot = json.loads(history)
+            if not snapshot.get("available"):
+                raise ValueError("Conversation history is unavailable")
+        except Exception as exc:
+            raise RealtimeVoiceServiceError(
+                "voice_history_unavailable",
+                "Could not restore conversation history. Retry Voice Chat.",
+                503,
+            ) from exc
         await self._provider.connect(self._session_config)
+        if snapshot.get("messages"):
+            try:
+                await asyncio.wait_for(
+                    self._provider.create_message(
+                        "user",
+                        "<startup_history>\n" + history + "\n</startup_history>",
+                    ),
+                    timeout=self._history_timeout,
+                )
+            except Exception as exc:
+                raise RealtimeVoiceServiceError(
+                    "voice_history_unavailable",
+                    "Could not restore conversation history. Retry Voice Chat.",
+                    503,
+                ) from exc
         if self._presenter is not self._provider:
             await self._presenter.connect(self._presentation_session_config)
         snapshots = await self._bridge.presentation_snapshots()
-        self._chat_mode_active = bool(snapshots)
+        # An incomplete snapshot cannot support reliable direct recall. Route
+        # live input through Chat, which owns the full conversation and tools.
+        self._chat_mode_active = bool(snapshots) or bool(snapshot.get("omitted"))
         for snapshot in snapshots:
             self._task_snapshots[snapshot.task_id] = snapshot
         self._start(self._pump_provider())
@@ -175,6 +219,7 @@ class VoiceCoordinator:
                     continue
                 if event.kind == "input_transcript.final":
                     source_id = str(event.correlation_id or "")
+                    self._live_sources.add(source_id)
                     self._input_transcripts[source_id] = str(
                         event.data.get("text") or ""
                     ).strip()
@@ -184,6 +229,7 @@ class VoiceCoordinator:
                 elif event.kind == "input_transcript.failed":
                     self._input_transcripts[str(event.correlation_id or "")] = ""
                 if event.kind == "speech.started":
+                    self._live_sources.add(str(event.correlation_id or ""))
                     if self._chat_mode_active:
                         self._chat_owned_sources.add(str(event.correlation_id or ""))
                     self._preempt_presentation("barge_in")
@@ -204,6 +250,13 @@ class VoiceCoordinator:
 
     async def _handle_tool_call(self, event: ProviderEvent) -> None:
         try:
+            work = self._handoff.parse(event)
+            if not work.source_id or work.source_id not in self._live_sources:
+                raise VoiceHandoffError("Work must belong to a live speech input")
+            if work.source_id:
+                # Admission belongs to the bridge and may finish after this
+                # connection closes, even if its receipt has not arrived yet.
+                self._handoff_sources.add(work.source_id)
             result = await self._handoff.handle(event)
         except VoiceHandoffError as exc:
             call_id = str(event.data.get("call_id") or event.correlation_id or "")
@@ -402,6 +455,7 @@ class VoiceCoordinator:
             if response["had_tool_call"] or not user_text:
                 return
             try:
+                self._handoff_sources.add(source_id)
                 result = await self._handoff.handle_transcript(source_id, user_text)
             except asyncio.CancelledError:
                 raise
@@ -419,12 +473,34 @@ class VoiceCoordinator:
             return
         if response["had_tool_call"] or not user_text:
             return
+        task = self._start(
+            self._save_direct_exchange(
+                source_id,
+                user_text,
+                str(response["transcript"] or "").strip(),
+                str(response["status"] or "completed"),
+            )
+        )
+        self._history_tasks.add(task)
+        task.add_done_callback(self._history_finished)
+        await asyncio.shield(task)
+
+    def _history_finished(self, task: asyncio.Task[Any]) -> None:
+        self._history_tasks.discard(task)
+        if not task.cancelled() and (error := task.exception()) is not None:
+            self._history_errors[f"save:{id(task)}"] = error
+
+    async def _save_direct_exchange(
+        self,
+        source_id: str,
+        user_text: str,
+        assistant_text: str = "",
+        status: str = "",
+    ) -> None:
         turn_id = (
             "voice_dialogue_" + hashlib.sha256(source_id.encode()).hexdigest()[:32]
         )
         timeline_order = await self._timeline.reserve_order()
-        assistant_text = str(response["transcript"] or "").strip()
-        status = str(response["status"] or "completed")
         self._timeline.observe_voice_exchange(
             turn_id,
             user_text,
@@ -439,6 +515,33 @@ class VoiceCoordinator:
             timeline_order,
             generation_status=status,
         )
+
+    async def _flush_transcript_tail(self) -> None:
+        """Save received final user speech without admitting any new work."""
+        for source_id, user_text in tuple(self._input_transcripts.items()):
+            response = self._auto_responses.get(source_id, {})
+            if (
+                not user_text
+                or source_id in self._persisted_auto_sources
+                or source_id in self._handoff_sources
+                or response.get("had_tool_call")
+            ):
+                continue
+            try:
+                await self._save_direct_exchange(source_id, user_text)
+            except Exception as exc:  # noqa: BLE001
+                # A failed order reservation must not prevent the remaining
+                # tail or provider connections from being closed.
+                await self._emit_error(
+                    "voice_history_commit_failed",
+                    str(exc)[:500],
+                    source="coordinator",
+                    correlation_id=source_id,
+                )
+                continue
+            self._persisted_auto_sources.add(source_id)
+        self._input_transcripts.clear()
+        self._auto_responses.clear()
 
     async def _queue_admission(
         self,
@@ -503,9 +606,11 @@ class VoiceCoordinator:
                     uuid4().hex,
                     {
                         "turn_id": intent.turn_id,
-                        "code": "voice_output_unavailable"
-                        if self._presentation_failed
-                        else "voice_output_busy",
+                        "code": (
+                            "voice_output_unavailable"
+                            if self._presentation_failed
+                            else "voice_output_busy"
+                        ),
                         "task_admitted": intent.system_feedback,
                     },
                 )
@@ -604,9 +709,11 @@ class VoiceCoordinator:
                         # Automatic feedback has no new user question. Its
                         # purpose comes from the fresh instruction above,
                         # not a stale status question frozen at enqueue time.
-                        "请按本轮反馈目的，用自然口语向用户反馈以上信息。"
-                        if request.system_feedback
-                        else request.user_text,
+                        (
+                            "请按本轮反馈目的，用自然口语向用户反馈以上信息。"
+                            if request.system_feedback
+                            else request.user_text
+                        ),
                     )
                 )
                 credit = self._output_credit
@@ -681,6 +788,7 @@ class VoiceCoordinator:
                     else {}
                 ),
             )
+            self._history_errors.pop(turn_id, None)
             await self._events.put(
                 ProviderEvent(
                     "chat.history.updated",
@@ -697,6 +805,7 @@ class VoiceCoordinator:
             if not self._closed:
                 self._start(self._reconcile_timeline())
         except Exception as exc:  # noqa: BLE001
+            self._history_errors[turn_id] = exc
             await self._emit_error(
                 "voice_history_commit_failed",
                 str(exc)[:500],
@@ -817,9 +926,11 @@ class VoiceCoordinator:
             elif isinstance(event, VoiceRunEvent):
                 await self._events.put(
                     ProviderEvent(
-                        "agent.run.started"
-                        if event.status == "started"
-                        else "agent.run.completed",
+                        (
+                            "agent.run.started"
+                            if event.status == "started"
+                            else "agent.run.completed"
+                        ),
                         uuid4().hex,
                         {
                             "run_id": event.run_id,
@@ -887,8 +998,13 @@ class VoiceCoordinator:
                 yield event
 
     async def close(self) -> None:
-        if self._closed:
-            return
+        if self._close_task is None:
+            self._close_task = asyncio.create_task(self._close())
+        # A disconnected caller must not cancel durable history writes, and
+        # every caller observes the same completion (including save failures).
+        await asyncio.shield(self._close_task)
+
+    async def _close(self) -> None:
         self._closed = True
         self._bridge.unsubscribe(self._bridge_events)
         self._presentation_queue.close()
@@ -899,12 +1015,19 @@ class VoiceCoordinator:
             await asyncio.gather(*tasks, return_exceptions=True)
         if self._history_tasks:
             await asyncio.gather(*tuple(self._history_tasks), return_exceptions=True)
-        with suppress(Exception):
-            await self._provider.close()
-        if self._presenter is not self._provider:
+        try:
+            await self._flush_transcript_tail()
+            if self._history_errors:
+                raise RuntimeError("Voice history could not be saved") from next(
+                    iter(self._history_errors.values())
+                )
+        finally:
             with suppress(Exception):
-                await self._presenter.close()
-        await self._events.put(_EVENTS_CLOSED)
+                await self._provider.close()
+            if self._presenter is not self._provider:
+                with suppress(Exception):
+                    await self._presenter.close()
+            await self._events.put(_EVENTS_CLOSED)
 
 
 __all__ = ["VoiceCoordinator"]

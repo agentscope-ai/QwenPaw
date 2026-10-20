@@ -75,10 +75,16 @@ function mergeDeltaData(
 export class RuntimeTimelineAccumulator {
   private base: Message[] = [];
   private live: Message[] = [];
+  private revision = 0;
+  private baseVersions = new Map<string, number>();
+  private liveVersions = new Map<string, number>();
 
   reset(base: Message[] = []): void {
     this.base = [...base];
     this.live = [];
+    this.revision += 1;
+    this.baseVersions.clear();
+    this.liveVersions.clear();
   }
 
   replaceBase(base: Message[]): void {
@@ -89,6 +95,37 @@ export class RuntimeTimelineAccumulator {
 
   mergeBase(messages: Message[]): void {
     this.base = mergeMessages(this.base, messages);
+    this.markChanged(messages, this.baseVersions);
+  }
+
+  historyCheckpoint(): number {
+    return this.revision;
+  }
+
+  mergeHistory(messages: Message[], checkpoint: number): void {
+    const keys = new Set(messages.map(messageKey));
+    // Canonical history replaces the captured live copies. Output received
+    // while the request was in flight and newer tail commits still win.
+    const accepted = messages.filter(
+      (message, index) =>
+        (this.baseVersions.get(messageKey(message, index)) ?? 0) <= checkpoint,
+    );
+    this.base = mergeMessages(this.base, accepted);
+    this.markChanged(accepted, this.baseVersions);
+    this.live = this.live.filter((message, index) => {
+      const key = messageKey(message, index);
+      return !keys.has(key) || (this.liveVersions.get(key) ?? 0) > checkpoint;
+    });
+  }
+
+  private markChanged(
+    messages: Message[],
+    versions: Map<string, number>,
+  ): void {
+    const revision = ++this.revision;
+    messages.forEach((message, index) =>
+      versions.set(messageKey(message, index), revision),
+    );
   }
 
   ingest(payload: RuntimePayload): boolean {
@@ -97,11 +134,13 @@ export class RuntimeTimelineAccumulator {
         ? (payload.output as Message[])
         : [];
       this.live = mergeMessages(this.live, output);
+      this.markChanged(output, this.liveVersions);
       return true;
     }
     if (payload.object === "message") {
       if (payload.type === "heartbeat") return true;
       this.live = mergeMessages(this.live, [payload as Message]);
+      this.markChanged([payload as Message], this.liveVersions);
       return true;
     }
     if (payload.object !== "content") return false;
@@ -138,6 +177,7 @@ export class RuntimeTimelineAccumulator {
       content.push({ ...incoming });
     }
     message.content = content;
+    this.markChanged([message], this.liveVersions);
     return true;
   }
 

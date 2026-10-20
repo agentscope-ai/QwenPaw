@@ -43,7 +43,12 @@ it.each([false, true])(
     };
     const onOpenConfig = vi.fn();
     const onSaved = vi.fn();
-    const props = { onOpenConfig, onSaved, onOpenModels: vi.fn(), onOpenRealtimeVoice: vi.fn() };
+    const props = {
+      onOpenConfig,
+      onSaved,
+      onOpenModels: vi.fn(),
+      onOpenRealtimeVoice: vi.fn(),
+    };
     const card = (value: ProviderInfo) =>
       grouped ? (
         <ProviderGroupCard
@@ -95,6 +100,7 @@ it("localizes known provider variant labels", () => {
     provider_variant: "coding_plan_cn",
     models: [],
     extra_models: [],
+    realtime_models: [],
     require_api_key: true,
     base_url: "https://example.test",
   };
@@ -108,6 +114,7 @@ it("localizes known provider variant labels", () => {
       }}
       onOpenConfig={vi.fn()}
       onOpenModels={vi.fn()}
+      onOpenRealtimeVoice={vi.fn()}
       onSaved={vi.fn()}
     />,
   );
@@ -132,6 +139,7 @@ it("clears an unsaved API key when switching provider variants", () => {
     name: "First",
     models: [],
     extra_models: [],
+    realtime_models: [],
     require_api_key: true,
     base_url: "https://example.test",
   };
@@ -148,6 +156,7 @@ it("clears an unsaved API key when switching provider variants", () => {
       }}
       onOpenConfig={vi.fn()}
       onOpenModels={vi.fn()}
+      onOpenRealtimeVoice={vi.fn()}
       onSaved={vi.fn()}
     />,
   );

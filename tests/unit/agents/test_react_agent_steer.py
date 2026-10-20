@@ -58,6 +58,7 @@ async def test_model_boundary_reads_updates_without_releasing_queue(
     source = mailbox.input_context = ChatInputContext()
     agent._reply_cycle_context = ReplyCycleContext("run", "original")
     agent._context_manager = None
+    agent.context_config = SimpleNamespace(compression_tool_enabled=False)
     agent.state = SimpleNamespace(
         context=[],
         reply_id="reply",
@@ -177,6 +178,7 @@ def context_agent():
     owner.observe_state(InputStateEvent("run", ("banana",), "queued"))
     agent._reply_cycle_context = ReplyCycleContext("run", "apple")
     agent._context_manager = None
+    agent.context_config = SimpleNamespace(compression_tool_enabled=False)
     agent._get_system_prompt = AsyncMock(return_value="Be helpful")
     agent.toolkit = SimpleNamespace(
         get_tool_schemas=AsyncMock(return_value=[])
@@ -221,6 +223,56 @@ async def test_request_filters_dynamic_blocks_and_reads_current_revision():
     assert view(second)["revision"] > view(first)["revision"]
     assert agent._reply_cycle_context.snapshot.responds_to_input_ids == (
         "apple",
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "formatter", [OpenAIChatFormatter, DashScopeChatFormatter]
+)
+async def test_tool_execution_facts_reach_wire_and_are_refreshed(formatter):
+    from qwenpaw.runtime.reply_cycle import set_reply_block_metadata
+
+    agent = context_agent()
+    call = ToolCallBlock(
+        id="write", name="write_file", input='{"content":"done"}'
+    )
+    result = ToolResultBlock(
+        id="write", name="write_file", output="done", state="running"
+    )
+    saved = Msg(name="assistant", role="assistant", content=[call, result])
+    set_reply_block_metadata(
+        saved, call, {"run_id": "run", "responds_to_input_ids": ["apple"]}
+    )
+    agent.state.context.append(saved)
+    first = await agent._prepare_model_input()
+    result.state = "success"
+    second = await agent._prepare_model_input()
+    first_view = json.loads(
+        first["messages"][-1].content[0].hint.split("\n", 1)[1]
+    )
+    second_view = json.loads(
+        second["messages"][-1].content[0].hint.split("\n", 1)[1]
+    )
+    assert first_view["observed_tool_steps"][0]["succeeded"] is None
+    assert second_view["observed_tool_steps"][0]["succeeded"] is True
+    assert second_view["input_states"][0]["input_status"] == "processing"
+    wire = json.dumps(
+        await formatter().format(second["messages"]), ensure_ascii=False
+    )
+    assert "observed_tool_steps" in wire and "write_file" in wire
+    # Cancelling the input does not undo an already completed tool effect.
+    agent._run_input_mailbox.input_context.observe_state(
+        InputStateEvent("run", ("apple",), "cancelled")
+    )
+    cancelled = await agent._prepare_model_input()
+    cancelled_view = json.loads(
+        cancelled["messages"][-1].content[0].hint.split("\n", 1)[1]
+    )
+    assert cancelled_view["input_states"][0]["input_status"] == "cancelled"
+    assert cancelled_view["observed_tool_steps"][0]["succeeded"] is True
+    assert not any(
+        b.type == "hint" for m in agent.state.context for b in m.content
     )
 
 
@@ -287,7 +339,7 @@ async def test_real_scroll_counts_view_without_persisting_or_truncating(
         context_size=100000, count_tokens=count_tokens
     )
     agent.context_config = SimpleNamespace(
-        trigger_ratio=0.8, reserve_ratio=0.5
+        trigger_ratio=0.8, reserve_ratio=0.5, compression_tool_enabled=False
     )
     try:
         manager = ScrollContextManager(history=history, session_id="probe")
@@ -674,7 +726,9 @@ async def test_reasoning_preserves_cycle_until_exit_boundary(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("raw", ["", "   ", '⟦ 任务完成｜echo 输出测试口令"蓝色小猫"｜无后续'])
+@pytest.mark.parametrize(
+    "raw", ["", "   ", '⟦ 任务完成｜echo 输出测试口令"蓝色小猫"｜无后续']
+)
 @pytest.mark.parametrize("pending_work", [False, True])
 async def test_empty_public_reply_is_diagnosed_without_retry_or_queue_loss(
     monkeypatch,
@@ -727,7 +781,15 @@ async def test_empty_public_reply_is_diagnosed_without_retry_or_queue_loss(
     events = [event async for event in agent._reasoning()]
     assert calls == 1
     assert final.metadata["reply_error"] == "empty_response"
-    assert agent.state.context[-1].content[0].text == raw
+    if raw:
+        assert agent.state.context[-1].content[0].text == raw
+    else:
+        # Empty text is intentionally dropped before persistence.
+        assert not any(
+            b.type == "text" and b.text == ""
+            for m in agent.state.context
+            for b in m.content
+        )
     notice = next(
         e.delta for e in events if isinstance(e, TextBlockDeltaEvent)
     )
@@ -906,9 +968,7 @@ def test_steer_during_active_task_keeps_both_reply_owners():
     agent._get_stop_handlers = list
     agent.state = SimpleNamespace(context=[])
 
-    assert QwenPawAgent._consume_pending_run_inputs(
-        agent, steer_only=True
-    )
+    assert QwenPawAgent._consume_pending_run_inputs(agent, steer_only=True)
     assert cycle.snapshot.responds_to_input_ids == ("task", "status")
     assert cycle.snapshot.group_id == "status"
 
@@ -1064,7 +1124,11 @@ class HistoryReadingModel:
         assert len(self.requests) == 2, "Unexpected extra model attempt"
         assert "HTTP 403: expired permission" in json.dumps(wire)
         return ChatResponse(
-            content=[TextBlock(text="旧资料记录的是权限过期导致 HTTP 403；未重新执行任务。")],
+            content=[
+                TextBlock(
+                    text="旧资料记录的是权限过期导致 HTTP 403；未重新执行任务。"
+                )
+            ],
             is_last=True,
         )
 

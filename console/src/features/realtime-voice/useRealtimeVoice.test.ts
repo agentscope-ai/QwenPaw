@@ -15,6 +15,7 @@ const mocks = vi.hoisted(() => ({
   getCapabilities: vi.fn(),
   createSession: vi.fn(),
   endSession: vi.fn(async () => ({ released: true })),
+  getSessionHistory: vi.fn(async () => ({ messages: [] as unknown[] })),
   sendAudio: vi.fn(() => true),
   clientClose: vi.fn(),
   clientStop: vi.fn(),
@@ -43,6 +44,7 @@ vi.mock("../../api/modules/realtimeVoice", async (importOriginal) => {
       getCapabilities: mocks.getCapabilities,
       createSession: mocks.createSession,
       endSession: mocks.endSession,
+      getSessionHistory: mocks.getSessionHistory,
     },
   };
 });
@@ -1060,6 +1062,173 @@ describe("useRealtimeVoice", () => {
     });
     expect(mocks.captureStart).toHaveBeenCalledTimes(calls);
     expect(result.current.error).toBeNull();
+    unmount();
+  });
+
+  it("waits for durable close before merging history and coalesces repeated stop", async () => {
+    let finish!: (value: { released: boolean }) => void;
+    mocks.endSession.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    mocks.getSessionHistory.mockResolvedValueOnce({
+      messages: [{ id: "tail", role: "user", content: "saved tail" }],
+    });
+    const onTimelineChanged = vi.fn();
+    const { result, unmount } = renderHook(() =>
+      useRealtimeVoice({
+        chatId: "chat-1",
+        onChatCreated: vi.fn(),
+        onAgentRunStarted: vi.fn(),
+        onTimelineChanged,
+      }),
+    );
+    await waitFor(() => expect(result.current.capabilities).not.toBeNull());
+    await act(async () => result.current.start());
+    let first!: Promise<void>, second!: Promise<void>;
+    act(() => {
+      first = result.current.stop();
+      second = result.current.stop();
+    });
+    expect(first).toBe(second);
+    expect(mocks.endSession).toHaveBeenCalledTimes(1);
+    expect(mocks.getSessionHistory).not.toHaveBeenCalled();
+    await act(async () => {
+      finish({ released: true });
+      await first;
+    });
+    expect(onTimelineChanged).toHaveBeenCalledWith([
+      { id: "tail", role: "user", content: "saved tail" },
+    ]);
+    unmount();
+  });
+
+  it("keeps the visible transcript and reports a failed durable close", async () => {
+    mocks.endSession.mockRejectedValueOnce(new Error("disk error"));
+    const { result, unmount } = renderHook(() =>
+      useRealtimeVoice({
+        chatId: "chat-1",
+        onChatCreated: vi.fn(),
+        onAgentRunStarted: vi.fn(),
+      }),
+    );
+    await waitFor(() => expect(result.current.capabilities).not.toBeNull());
+    await act(async () => result.current.start());
+    act(
+      () =>
+        mocks.clientCallbacks?.onEvent({
+          type: "input_transcript.final",
+          generation: 1,
+          text: "keep this tail",
+        }),
+    );
+    await act(async () => result.current.stop());
+    expect(result.current.error).toContain("saving or refreshing");
+    expect(result.current.inputTranscript).toBe("keep this tail");
+    expect(mocks.getSessionHistory).not.toHaveBeenCalled();
+    unmount();
+  });
+
+  it("does not apply delayed stop history after switching chats", async () => {
+    let finish!: (value: { messages: unknown[] }) => void;
+    mocks.getSessionHistory.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const onTimelineChanged = vi.fn();
+    const { result, rerender, unmount } = renderHook(
+      ({ chatId }) =>
+        useRealtimeVoice({
+          chatId,
+          onChatCreated: vi.fn(),
+          onAgentRunStarted: vi.fn(),
+          onTimelineChanged,
+        }),
+      { initialProps: { chatId: "chat-1" } },
+    );
+    await waitFor(() => expect(result.current.capabilities).not.toBeNull());
+    await act(async () => result.current.start());
+    let closing!: Promise<void>;
+    act(() => {
+      closing = result.current.stop();
+    });
+    await waitFor(() => expect(mocks.getSessionHistory).toHaveBeenCalled());
+    rerender({ chatId: "chat-2" });
+    await act(async () => {
+      finish({ messages: [{ id: "old-tail" }] });
+      await closing;
+    });
+    expect(onTimelineChanged).not.toHaveBeenCalled();
+    unmount();
+  });
+
+  it("waits for the preceding stop before creating a replacement connection", async () => {
+    let finish!: (value: { released: boolean }) => void;
+    mocks.endSession.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const { result, unmount } = renderHook(() =>
+      useRealtimeVoice({
+        chatId: "chat-1",
+        onChatCreated: vi.fn(),
+        onAgentRunStarted: vi.fn(),
+      }),
+    );
+    await waitFor(() => expect(result.current.capabilities).not.toBeNull());
+    await act(async () => result.current.start());
+    let closing!: Promise<void>, starting!: Promise<void>;
+    act(() => {
+      closing = result.current.stop();
+      starting = result.current.start();
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(mocks.createSession).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      finish({ released: true });
+      await closing;
+      await starting;
+    });
+    expect(mocks.createSession).toHaveBeenCalledTimes(2);
+    unmount();
+  });
+  it("honors another stop while a replacement is waiting for the first close", async () => {
+    let finish!: (value: { released: boolean }) => void;
+    mocks.endSession.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const { result, unmount } = renderHook(() =>
+      useRealtimeVoice({
+        chatId: "chat-1",
+        onChatCreated: vi.fn(),
+        onAgentRunStarted: vi.fn(),
+      }),
+    );
+    await waitFor(() => expect(result.current.capabilities).not.toBeNull());
+    await act(async () => result.current.start());
+    let first!: Promise<void>, starting!: Promise<void>, last!: Promise<void>;
+    act(() => {
+      first = result.current.stop();
+      starting = result.current.start();
+      last = result.current.stop();
+    });
+    await act(async () => {
+      finish({ released: true });
+      await Promise.all([first, starting, last]);
+    });
+    expect(mocks.createSession).toHaveBeenCalledTimes(1);
+    expect(result.current.status).toBe("idle");
     unmount();
   });
 });

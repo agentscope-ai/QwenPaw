@@ -117,9 +117,10 @@ const ToolCardShell: React.FC<ToolCardShellProps> = ({
   // Only calls the backend coordinator knows can be controlled.
   const showGear = isExecuting && !!sessionId && !control.recordMissing;
   const isLoading = content.status === "calling" && isStreaming;
-  const isError = content.status === "error";
+  const isInterrupted =
+    content.status === "interrupted" || !!content.interrupted;
+  const isError = content.status === "error" && !isInterrupted;
   const errorText = isError ? stringifyResult(content.result) : "";
-  const isInterrupted = content.status === "interrupted";
   const interruptionOutput =
     isInterrupted && bodyMounted
       ? typeof content.result === "string"

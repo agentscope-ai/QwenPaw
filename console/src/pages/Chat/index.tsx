@@ -31,7 +31,7 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
-import { Alert, Button, Modal, Result, Spin, Tooltip } from "antd";
+import { Alert, Button, Modal, Result, Tooltip } from "antd";
 import { useAppMessage } from "../../hooks/useAppMessage";
 import { useIsMobile } from "../../hooks/useIsMobile";
 import {
@@ -1540,16 +1540,6 @@ export default function ChatPage() {
   }, [retryRouteResolution]);
   const chatRef = useRef<IAgentScopeRuntimeWebUIRef>(null);
   const [chatSourceAttempt, setChatSourceAttempt] = useState(0);
-  const [chatHistorySurface, setChatHistorySurface] = useState<{
-    agentId: string;
-    chatId: string;
-    status: "empty" | "populated" | "error";
-  } | null>(null);
-  const historySurface =
-    chatHistorySurface?.agentId === selectedAgent &&
-    chatHistorySurface.chatId === backendChatId
-      ? chatHistorySurface.status
-      : "loading";
   const [chatSurface, setChatSurface] = useState<ChatSurfaceState>(() =>
     backendChatId
       ? {
@@ -2453,7 +2443,6 @@ export default function ChatPage() {
   selectedAgentRef.current = selectedAgent;
 
   useEffect(() => {
-    setChatHistorySurface(null);
     if (!backendChatId) {
       setChatSurface({
         status: "ready",
@@ -2480,21 +2469,8 @@ export default function ChatPage() {
     // in-flight/result caches when it mounts.
     void sessionApi
       .preloadSession(backendChatId, controller.signal)
-      .then(({ session }) => {
-        if (controller.signal.aborted) return;
-        setChatHistorySurface({
-          agentId: selectedAgent,
-          chatId: backendChatId,
-          status: session.messages?.length ? "populated" : "empty",
-        });
-      })
       .catch(() => {
-        if (controller.signal.aborted) return;
-        setChatHistorySurface({
-          agentId: selectedAgent,
-          chatId: backendChatId,
-          status: "error",
-        });
+        // The SDK adapter presents history failures and owns retries.
       });
     void chatApi
       .getChatSpec(backendChatId, {
@@ -2531,34 +2507,6 @@ export default function ChatPage() {
     });
     setChatSourceAttempt((current) => current + 1);
   }, [backendChatId, selectedAgent]);
-
-  const renderChatPlaceholder = useCallback(
-    (failed = false) => (
-      <div
-        className={styles.chatSurfaceState}
-        role={failed ? undefined : "status"}
-      >
-        {failed ? (
-          <Result
-            status="error"
-            title={t("chunkError.title")}
-            subTitle={t("chunkError.subTitle")}
-            extra={
-              <Button type="primary" onClick={retryChatSource}>
-                {t("common.retry")}
-              </Button>
-            }
-          />
-        ) : (
-          <>
-            <Spin size="large" />
-            <span>{t("common.loading")}</span>
-          </>
-        )}
-      </div>
-    ),
-    [retryChatSource, t],
-  );
 
   const handleVoiceChatCreated = useCallback(
     (createdChatId: string) => {
@@ -4398,16 +4346,23 @@ export default function ChatPage() {
       welcome: {
         ...i18nConfig.welcome,
         nick: isVoiceChat ? "QwenPaw" : extNick ?? "QwenPaw",
-        avatar: (!isVoiceChat && extAvatar) || `${import.meta.env.BASE_URL}qwenpaw.png`,
-        ...(!isVoiceChat && extGreeting !== undefined ? { greeting: extGreeting } : {}),
+        avatar:
+          (!isVoiceChat && extAvatar) ||
+          `${import.meta.env.BASE_URL}qwenpaw.png`,
+        ...(!isVoiceChat && extGreeting !== undefined
+          ? { greeting: extGreeting }
+          : {}),
         ...(!isVoiceChat && extDescription !== undefined
           ? { description: extDescription }
+          : {}),
+        ...(!isVoiceChat && extPrompts !== undefined
+          ? { prompts: extPrompts }
           : {}),
         render: (props: WelcomeRenderProps) => (
           <ReadyChatWelcome
             adapter={sdkSessionAdapter}
             sessionId={chatId}
-            pending={isSessionTransition}
+            pending={isSessionTransition || !chatSurfaceReady}
           >
             {!isVoiceChat && wrappedWelcomeRender ? (
               wrappedWelcomeRender(props)
@@ -4471,19 +4426,20 @@ export default function ChatPage() {
                 agentId={selectedAgent}
               />
             )}
-            {!isVoiceChat && (usesQwenPawBackend && !isSessionTransition ? (
-              advisorConversation ? (
-                <AdvisorModelsPill />
-              ) : (
-                <SessionThinking
-                  agentId={selectedAgent}
-                  sessionId={queueSessionId}
-                  chatId={backendChatId}
-                />
-              )
-            ) : backendCapabilities?.model_selection ? (
-              <HarnessModelSelector providerId={selectedAgentBackend} />
-            ) : null)}
+            {!isVoiceChat &&
+              (usesQwenPawBackend && !isSessionTransition ? (
+                advisorConversation ? (
+                  <AdvisorModelsPill />
+                ) : (
+                  <SessionThinking
+                    agentId={selectedAgent}
+                    sessionId={queueSessionId}
+                    chatId={backendChatId}
+                  />
+                )
+              ) : backendCapabilities?.model_selection ? (
+                <HarnessModelSelector providerId={selectedAgentBackend} />
+              ) : null)}
             {!isVoiceChat && pluginSenderPrefix}
           </>
         ),
@@ -4626,6 +4582,7 @@ export default function ChatPage() {
             replayingResponseRef.current = false;
             if (isVoiceChat && backendChatId) {
               const generation = voiceProjectionGenerationRef.current;
+              const checkpoint = voiceTimelineRef.current.historyCheckpoint();
               void chatApi
                 .getChat(backendChatId, {
                   include_app_owned: false,
@@ -4635,7 +4592,10 @@ export default function ChatPage() {
                   if (generation !== voiceProjectionGenerationRef.current) {
                     return;
                   }
-                  voiceTimelineRef.current.reset(history.messages ?? []);
+                  voiceTimelineRef.current.mergeHistory(
+                    history.messages ?? [],
+                    checkpoint,
+                  );
                   scheduleVoiceTimelineRender();
                 })
                 .catch((reason) => {
@@ -4961,6 +4921,7 @@ export default function ChatPage() {
     usesQwenPawBackend,
     supportsAttachments,
     isVoiceChat,
+    chatSurfaceReady,
     runningConfigApprovalLevel,
     captureRequestContext,
     queueSessionId,
@@ -5001,8 +4962,6 @@ export default function ChatPage() {
     isSessionTransition,
     queueKey,
     backendChatId,
-    historySurface,
-    renderChatPlaceholder,
     realtimeVoice,
     canStartRealtimeVoice,
     handleCreateVoiceChat,
@@ -5067,9 +5026,15 @@ export default function ChatPage() {
                 <ChatSessionTransition
                   adapter={sdkSessionAdapter}
                   sessionId={chatId}
-                  pending={isSessionTransition}
-                  error={routeResolution.error}
-                  onRetry={retrySession}
+                  pending={isSessionTransition || !chatSurfaceReady}
+                  error={
+                    routeResolution.error ||
+                    effectiveChatSurface.status === "error"
+                  }
+                  onRetry={() => {
+                    retryChatSource();
+                    retrySession();
+                  }}
                 >
                   {!isAgentTransition && (
                     <AgentScopeRuntimeWebUI

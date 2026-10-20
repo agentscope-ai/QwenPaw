@@ -126,4 +126,9 @@ export const realtimeVoiceApi = {
       `/realtime-voice/sessions/${encodeURIComponent(bootstrap.session_id)}`,
       { method: "DELETE", headers: { "X-Agent-Id": bootstrap.agent_id } },
     ),
+  getSessionHistory: (bootstrap: RealtimeVoiceBootstrap) =>
+    request<{ messages: unknown[] }>(
+      `/chats/${encodeURIComponent(bootstrap.chat_id)}?include_app_owned=false`,
+      { cache: "no-store", headers: { "X-Agent-Id": bootstrap.agent_id } },
+    ),
 };

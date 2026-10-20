@@ -7,10 +7,14 @@ vi.mock("react-i18next", () => ({
 }));
 
 vi.mock("./ToolCallSessionContext", () => ({
-  useToolCallSessionId: () => "",
+  useToolCallSessionId: () => hookState.sessionId,
 }));
 
-const hookState = vi.hoisted(() => ({ lastIsCalling: false }));
+const hookState = vi.hoisted(() => ({
+  lastIsCalling: false,
+  sessionId: "",
+  recordMissing: false,
+}));
 
 vi.mock("../../../../hooks/useToolCallControl", () => ({
   useToolCallControl: (
@@ -26,7 +30,7 @@ vi.mock("../../../../hooks/useToolCallControl", () => ({
       defaultPolicy: "keep_foreground",
       maxInternalTimeoutSecs: null,
       elapsed: 0,
-      recordMissing: false,
+      recordMissing: hookState.recordMissing,
       toggleBanner: vi.fn(),
       closeBanner: vi.fn(),
       updateRemaining: vi.fn(),
@@ -71,6 +75,28 @@ const streamingInputContent: ToolCallContent = {
 };
 
 describe("ToolCardShell interruption", () => {
+  it("keeps injected tool cards visible without coordinator controls", () => {
+    hookState.sessionId = "backend-session";
+    hookState.recordMissing = true;
+    try {
+      render(
+        <ToolCardShell
+          content={{ ...runningContent, executionStarted: true }}
+          icon={<span />}
+          title="Advisor plan"
+          isStreaming
+        />,
+      );
+      expect(screen.getByTitle("Advisor plan")).toBeVisible();
+      expect(
+        screen.queryByRole("button", { name: "tool.control.manage" }),
+      ).not.toBeInTheDocument();
+    } finally {
+      hookState.sessionId = "";
+      hookState.recordMissing = false;
+    }
+  });
+
   it.each([
     ShellCard,
     ReadFileCard,

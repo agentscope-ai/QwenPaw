@@ -138,6 +138,9 @@ export function useRealtimeVoice({
   const captureRef = useRef<RealtimeAudioCapture | null>(null);
   const playbackRef = useRef<RealtimeAudioPlayback | null>(null);
   const bootstrapRef = useRef<RealtimeVoiceBootstrap | null>(null);
+  const stopPromiseRef = useRef<Promise<void> | null>(null);
+  const chatIdRef = useRef(chatId);
+  chatIdRef.current = chatId;
   const mediaRef = useRef<RealtimeVoiceMedia | null>(null);
   const manualStopRef = useRef(false);
   const startGenerationRef = useRef(0);
@@ -669,6 +672,8 @@ export function useRealtimeVoice({
           },
         );
         await Promise.all([playbackReady, captureReady]);
+        // A new connection must see the tail committed by the preceding stop.
+        await stopPromiseRef.current;
         if (
           startGeneration !== startGenerationRef.current ||
           manualStopRef.current
@@ -728,20 +733,52 @@ export function useRealtimeVoice({
     ],
   );
 
-  const stop = useCallback(async () => {
-    startGenerationRef.current += 1;
+  const stop = useCallback(() => {
+    if (stopPromiseRef.current && manualStopRef.current)
+      return stopPromiseRef.current;
+    const precedingStop = stopPromiseRef.current;
+    const generation = ++startGenerationRef.current;
+    const stoppedChatId = chatIdRef.current;
+    const bootstrap = bootstrapRef.current;
     manualStopRef.current = true;
     clearReconnectTimer();
     clientRef.current?.stop();
     clientRef.current?.close();
     clientRef.current = null;
-    releaseBootstrap(bootstrapRef.current);
     bootstrapRef.current = null;
     currentRunIdRef.current = null;
     setVoiceState(INITIAL_VOICE_STATE);
-    setInputTranscript("");
     setPendingInputError(null);
-    await cleanupMedia();
+    const mediaCleanup = cleanupMedia();
+    const isCurrent = () =>
+      generation === startGenerationRef.current &&
+      stoppedChatId === chatIdRef.current;
+    const completion = (async () => {
+      try {
+        if (precedingStop) await precedingStop;
+        if (bootstrap) {
+          await realtimeVoiceApi.endSession(bootstrap);
+          const history = await realtimeVoiceApi.getSessionHistory(bootstrap);
+          if (!isCurrent()) return;
+          // The host merges by message ID, retaining concurrent Agent output.
+          timelineChangedRef.current?.(history.messages ?? []);
+        }
+        if (isCurrent()) setInputTranscript("");
+      } catch {
+        if (isCurrent()) {
+          setError(
+            "Could not finish saving or refreshing Voice Chat. Reload the conversation to check its history.",
+          );
+        }
+      } finally {
+        await mediaCleanup;
+      }
+    })();
+    stopPromiseRef.current = completion;
+    void completion.finally(() => {
+      if (stopPromiseRef.current === completion) stopPromiseRef.current = null;
+    });
+    return completion;
   }, [cleanupMedia, clearReconnectTimer]);
 
   useEffect(() => {

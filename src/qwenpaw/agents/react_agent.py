@@ -1077,12 +1077,18 @@ class QwenPawAgent(CodingModeMixin, Agent):
 
     async def _prepare_model_input(self) -> dict[str, Any]:
         """Prepare one current view; dynamic input facts are not history."""
+        import json
+
         from ..runtime.input_context import INPUT_CONTEXT_INSTRUCTION
+        from ..runtime.conversation_context import project_conversation_context
+        from ..runtime.tool_execution_context import (
+            project_tool_execution_context,
+        )
 
         await freeze_local_images_async(self.state.context)
         prepared = await super()._prepare_model_input()
         messages = []
-        for message in prepared["messages"]:
+        for message in project_conversation_context(prepared["messages"]):
             content = [
                 block
                 for block in message.content
@@ -1103,6 +1109,12 @@ class QwenPawAgent(CodingModeMixin, Agent):
         if owner is not None and cycle is not None:
             snapshot = owner.capture(cycle.snapshot.responds_to_input_ids)
             if snapshot:
+                facts = json.loads(snapshot)
+                facts.update(
+                    project_tool_execution_context(
+                        messages, cycle.snapshot.responds_to_input_ids
+                    )
+                )
                 messages.append(
                     Msg(
                         name="chat_input_context",
@@ -1110,7 +1122,8 @@ class QwenPawAgent(CodingModeMixin, Agent):
                         content=[
                             HintBlock(
                                 source="chat_input_context",
-                                hint=INPUT_CONTEXT_INSTRUCTION + snapshot,
+                                hint=INPUT_CONTEXT_INSTRUCTION
+                                + json.dumps(facts, ensure_ascii=False),
                             ),
                         ],
                     ),

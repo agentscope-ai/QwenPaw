@@ -1352,8 +1352,8 @@ class AgentBuilder:
         2. ToolCoordinatorMiddleware — tool call lifecycle management
         3. Plugin-registered middlewares (sorted by priority)
         4. VisualCompressionMiddleware — pre-provider transform
-        5. Mode-contributed middlewares — e.g. AdvisorMiddleware
-        6. ReasoningBoundaryMiddleware — provider-neutral output normalization
+        5. ReasoningBoundaryMiddleware — provider-neutral output normalization
+        6. Mode-contributed middlewares — e.g. AdvisorMiddleware (innermost)
         """
         mws: list[Any] = []
 
@@ -1452,11 +1452,12 @@ class AgentBuilder:
         )
         mws.append(VisualCompressionMiddleware(visual_config))
 
-        # Mode-contributed middlewares (innermost).
-        mws.extend(AgentBuilder._collect_mode_middlewares(ctx, agent_config))
         from ..agents.middlewares import ReasoningBoundaryMiddleware
 
         mws.append(ReasoningBoundaryMiddleware())
+
+        # Mode-contributed middlewares (innermost).
+        mws.extend(AgentBuilder._collect_mode_middlewares(ctx, agent_config))
 
         return mws
 

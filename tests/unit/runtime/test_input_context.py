@@ -15,6 +15,16 @@ def setup_context():
     return context
 
 
+def test_single_active_input_has_context_before_and_after_tool_execution():
+    context = ChatInputContext()
+    context.register_execution("only", "Create one file")
+    context.observe_state(InputStateEvent("run", ("only",), "processing"))
+    view = json.loads(context.capture(("only",)))
+    assert view["active_input_ids"] == ["only"]
+    assert view["inputs"][0]["text"] == "Create one file"
+    assert view["input_states"][0]["input_status"] == "processing"
+
+
 def test_updates_are_ordered_scoped_and_do_not_release_other_work():
     context = setup_context()
     for i in range(10):
