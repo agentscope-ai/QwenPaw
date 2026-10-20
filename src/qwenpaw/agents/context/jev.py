@@ -165,6 +165,9 @@ class JevCompactor:
             )
             if after >= tokens:
                 return False
+            agent._jev_compaction_revision = (
+                getattr(agent, "_jev_compaction_revision", 0) + 1
+            )
             committed = True
         finally:
             if not committed and agent.state.context is candidate:

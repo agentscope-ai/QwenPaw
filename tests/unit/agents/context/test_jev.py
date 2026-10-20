@@ -83,7 +83,7 @@ def make_agent():
     agent = SimpleNamespace(
         _agent_config=config,
         _model_session_id="session",
-        state=SimpleNamespace(context=context),
+        state=SimpleNamespace(context=context, summary=None),
         model=SimpleNamespace(context_size=100000),
         context_config=SimpleNamespace(trigger_ratio=0.8),
         offloader=SimpleNamespace(
@@ -415,4 +415,29 @@ async def test_synthetic_continuation_does_not_expose_active_turn(model):
     compactor = JevCompactor()
     assert await compact(compactor, agent)
     assert agent.state.context[-2].model_dump(mode="json") == active
+    await compactor.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("scroll", [False, True])
+async def test_memory_middleware_detects_jev_without_message_eviction(
+    model,
+    scroll,
+):
+    from qwenpaw.agents.middlewares import MemoryMiddleware
+
+    agent = make_agent()
+    if scroll:
+        agent._context_manager = SimpleNamespace(
+            last_compress={"evicted": 0, "folded": 0},
+        )
+    before = MemoryMiddleware._compression_state(agent)
+    compactor = JevCompactor()
+    assert await compact(compactor, agent)
+    assert before[1] == tuple(msg.id for msg in agent.state.context)
+    assert MemoryMiddleware._did_compress_context(agent, before)
+    assert not MemoryMiddleware._did_compress_context(
+        agent,
+        MemoryMiddleware._compression_state(agent),
+    )
     await compactor.close()
