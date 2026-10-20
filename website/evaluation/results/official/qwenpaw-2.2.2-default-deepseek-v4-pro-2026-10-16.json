@@ -1,21 +1,21 @@
 {
   "schema_version": 1,
-  "id": "qwenpaw-glm-5.2-8bc7f654b9bf0cd108ac",
-  "date": "2026-10-17T14:23:34Z",
+  "id": "qwenpaw-2.2.2-default-deepseek-v4-pro-2026-10-16",
+  "date": "2026-10-16T10:58:52Z",
   "kind": "official",
-  "experiment": "qwenpaw-2.2.2-glm-5.2-20261016",
-  "candidate_hash": "46ed18cc42725bea8018bddc3dde0351624c23451ab0e89e60c7ebb872dcc4d2",
-  "profile_hash": "9e267df58361eee278fbc3755203a9057edde062a73898c044c157f9466c0e89",
+  "experiment": "qwenpaw-2.2.2-deepseek-v4-pro-20261016",
+  "candidate_hash": "970a77b38834fcf964793150666001426ffca46c1fb365b8140d552874f51cdc",
+  "profile_hash": "2e5e6dbe738fe5d15ceea0d880f49bd63d3d67a3dc80a056c65ec3cee253ef38",
   "sdk_version": "2.2.2",
   "source_sha": "5c56644a6e130762a236f8c946103e95a0a1eec8",
   "source_repository": "https://github.com/agentscope-ai/QwenPaw",
-  "artifact_sha256": "fcc442bd4ca1b426104f16d3aff4e6c1da90a057a58f2b509d9497d2938afd4d",
+  "artifact_sha256": "703dd63b2f1004badece42d8eb226df82ed97307f7f61a7a58d2d5773e2fc61d",
   "provider": "dashscope",
-  "model": "glm-5.2",
+  "model": "deepseek-v4-pro",
   "harness": "qwenpaw",
   "parameters": {
-    "max_context_length": 1048576,
-    "max_response_length": 131072
+    "max_context_length": 1000000,
+    "max_response_length": 393216
   },
   "exchange_rate": {
     "cny_per_usd": 7.0,
@@ -40,16 +40,17 @@
         "prompt_revision": null,
         "parity_note": ""
       },
-      "observation_id": "qwenpaw-2.2.2-glm-5.2-gaia-20261016",
-      "protocol_hash": "098ff9180cc8b94d72cddd91792cb20d5eed56811156b9e24caaef967c6249b2",
-      "date": "2026-10-16T19:40:02Z",
+      "observation_id": "qwenpaw-2.2.2-deepseek-v4-pro-gaia-20261016",
+      "protocol_hash": "e5b68dc006fb7da29e2622c1b22c23b79487e55b7d7d934646803c839f093fcd",
+      "date": "2026-10-16T02:48:06Z",
       "summary": {
-        "score_sum": 112.0,
+        "score_sum": 115.0,
         "failures": {
-          "execution_error": 5
+          "execution_error": 6,
+          "infrastructure_error": 2
         },
         "model_cost": {
-          "amount": 452.692648,
+          "amount": 240.02918,
           "currency": "CNY"
         },
         "model_cost_count": 165,
@@ -58,8 +59,8 @@
           "currency": "USD"
         },
         "judge_cost_count": 165,
-        "runtime_seconds_sum": 84120.269616,
-        "runtime_count": 165
+        "runtime_seconds_sum": 89255.031082,
+        "runtime_count": 157
       }
     },
     {
@@ -75,27 +76,28 @@
         "prompt_revision": "agentscope-ai/pawbench@4:bundled-per-task-rubric",
         "parity_note": ""
       },
-      "observation_id": "qwenpaw-2.2.2-glm-5.2-pawbench-20261016",
-      "protocol_hash": "0ee17d8748117746bb847565bc63ee69fdb8d49a3deaf2366f1f26b6f36631ef",
-      "date": "2026-10-16T18:37:23Z",
+      "observation_id": "qwenpaw-2.2.2-deepseek-v4-pro-pawbench-20261016",
+      "protocol_hash": "3e28b861d665ab544eb7846fa0eb9aef66d058fb665f7cbc0d9c2a506e72b97a",
+      "date": "2026-10-16T02:48:09Z",
       "summary": {
-        "score_sum": 105.46718,
+        "score_sum": 102.015542,
         "failures": {
-          "scoring_error": 2,
-          "execution_error": 1
+          "execution_error": 3,
+          "scoring_error": 1,
+          "infrastructure_error": 2
         },
         "model_cost": {
-          "amount": 287.338716,
+          "amount": 168.869304,
           "currency": "CNY"
         },
         "model_cost_count": 150,
         "judge_cost": {
-          "amount": 62.827212,
+          "amount": 61.694172,
           "currency": "CNY"
         },
-        "judge_cost_count": 149,
-        "runtime_seconds_sum": 82425.211991,
-        "runtime_count": 150
+        "judge_cost_count": 150,
+        "runtime_seconds_sum": 85379.579127,
+        "runtime_count": 144
       }
     },
     {
@@ -111,16 +113,18 @@
         "prompt_revision": null,
         "parity_note": ""
       },
-      "observation_id": "qwenpaw-2.2.2-glm-5.2-spreadsheetbench-verified-20261016",
-      "protocol_hash": "60debecdc8e73d8ae1c3917250a0f55301ace3374a670c9584ecd6cd73ba5af4",
-      "date": "2026-10-16T19:00:21Z",
+      "observation_id": "qwenpaw-2.2.2-deepseek-v4-pro-spreadsheetbench-verified-20261016",
+      "protocol_hash": "5f8e49f4ec7556f1dbbd47706ff6e92b35727e051c5c103a304e88eb34983604",
+      "date": "2026-10-16T10:58:52Z",
       "summary": {
-        "score_sum": 343.0,
+        "score_sum": 292.0,
         "failures": {
-          "execution_error": 1
+          "execution_error": 5,
+          "infrastructure_error": 4,
+          "timeout": 6
         },
         "model_cost": {
-          "amount": 496.743632,
+          "amount": 302.410992,
           "currency": "CNY"
         },
         "model_cost_count": 400,
@@ -129,8 +133,8 @@
           "currency": "USD"
         },
         "judge_cost_count": 400,
-        "runtime_seconds_sum": 151696.524069,
-        "runtime_count": 400
+        "runtime_seconds_sum": 224381.653757,
+        "runtime_count": 385
       }
     },
     {
@@ -146,17 +150,18 @@
         "prompt_revision": null,
         "parity_note": ""
       },
-      "observation_id": "qwenpaw-2.2.2-glm-5.2-swebench-verified-20261016",
-      "protocol_hash": "dbab0ee7047dc1e1e3fdca1f6fbd113221466b21263e942727a9dddb25a7867b",
-      "date": "2026-10-17T14:23:34Z",
+      "observation_id": "qwenpaw-2.2.2-deepseek-v4-pro-swebench-verified-20261016",
+      "protocol_hash": "3e2af8e779d64e8876c87febb7a13314865c7f9357bc2c61e603d9375cc06587",
+      "date": "2026-10-16T09:44:52Z",
       "summary": {
-        "score_sum": 456.0,
+        "score_sum": 326.0,
         "failures": {
-          "execution_error": 2,
-          "artifact_error": 1
+          "execution_error": 21,
+          "timeout": 12,
+          "infrastructure_error": 2
         },
         "model_cost": {
-          "amount": 2608.612912,
+          "amount": 1127.639684,
           "currency": "CNY"
         },
         "model_cost_count": 500,
@@ -165,8 +170,8 @@
           "currency": "USD"
         },
         "judge_cost_count": 500,
-        "runtime_seconds_sum": 360624.879935,
-        "runtime_count": 499
+        "runtime_seconds_sum": 481072.825814,
+        "runtime_count": 465
       }
     }
   ]
