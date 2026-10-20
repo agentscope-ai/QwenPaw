@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Tests for file_search module — _is_text_file and _walk_and_grep."""
+"""Tests for file discovery and content search tools."""
 
 # pylint: disable=protected-access,redefined-outer-name,reimported
 import os
@@ -9,15 +9,17 @@ import threading
 from pathlib import Path
 
 import pytest
+from agentscope.message import ToolResultState
 
+from qwenpaw.agents.tools import file_search
 from qwenpaw.agents.tools.file_search import (
     _compile_search_pattern,
     _is_text_file,
     _MAX_MATCHES,
     _MAX_OUTPUT_CHARS,
     _walk_and_grep,
+    _walk_and_glob,
 )
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -48,6 +50,56 @@ class FakeCancelAfter(FakeCancel):
     def is_set(self) -> bool:
         self._checks += 1
         return self._checks > self.after
+
+
+@pytest.mark.parametrize(
+    "pattern, expected",
+    [
+        (
+            "**/*.{csv,xlsx,json,tsv,parquet}",
+            [
+                ".hidden.csv",
+                ".reports/report.json",
+                "data/deep/values.json",
+                "sales_sample.csv",
+            ],
+        ),
+        ("**/*.csv", [".hidden.csv", "sales_sample.csv"]),
+        ("*.{csv,json}", [".hidden.csv", "sales_sample.csv"]),
+        ("**/*.{csv,csv}", [".hidden.csv", "sales_sample.csv"]),
+        ("**/*.parquet", []),
+    ],
+)
+def test_walk_and_glob_patterns(temp_dir, pattern, expected):
+    """Brace alternatives discover existing data at any directory depth."""
+    for name in (
+        "sales_sample.csv",
+        ".hidden.csv",
+        ".reports/report.json",
+        "data/deep/values.json",
+        "data/readme.txt",
+        ".git/ignored.csv",
+        "node_modules/ignored.json",
+    ):
+        target = temp_dir / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("test data")
+
+    results, truncated = _walk_and_glob(temp_dir, pattern, FakeCancel())
+
+    assert results == expected
+    assert truncated is False
+
+
+@pytest.mark.asyncio
+async def test_glob_search_brace_tool_result(temp_dir, monkeypatch):
+    monkeypatch.setattr(file_search, "get_tool_base_dir", lambda: temp_dir)
+    (temp_dir / "sales_sample.csv").write_text("sales\n10\n20\n30\n")
+
+    result = await file_search.glob_search("**/*.{csv,xlsx,json,tsv,parquet}")
+
+    assert result.state == ToolResultState.SUCCESS
+    assert result.content[0].text == "sales_sample.csv"
 
 
 # ---------------------------------------------------------------------------
