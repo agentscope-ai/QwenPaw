@@ -12,7 +12,7 @@ const messages = {
     token: "Bearer Token",
     scope: "Memory Scope",
     scopePlaceholder:
-      "Leave empty to use this installation's unique agent scope",
+      "Leave empty to create/reuse this Agent's Scope, or enter an existing Scope ID",
     scopeInvalid: "Memory scope must not contain only whitespace.",
     timeout: "Request Timeout",
     autoSection: "Auto Memory Search",
@@ -32,7 +32,8 @@ const messages = {
     serverUrl: "服务地址",
     token: "Bearer Token",
     scope: "记忆作用域",
-    scopePlaceholder: "留空以使用当前安装中唯一的 Agent 作用域",
+    scopePlaceholder:
+      "留空自动创建或复用当前 Agent 作用域，也可填写已有 Scope ID",
     scopeInvalid: "记忆作用域不能只包含空白字符。",
     timeout: "请求超时",
     autoSection: "自动记忆搜索",
@@ -52,7 +53,7 @@ const messages = {
     token: "Token Bearer",
     scope: "Ruang Lingkup Memori",
     scopePlaceholder:
-      "Kosongkan untuk menggunakan ruang lingkup agen unik untuk instalasi ini",
+      "Kosongkan untuk membuat/memakai ulang Scope Agen ini, atau isi ID Scope yang ada",
     scopeInvalid: "Ruang lingkup memori tidak boleh hanya berisi spasi.",
     timeout: "Batas Waktu Permintaan",
     autoSection: "Pencarian Memori Otomatis",
@@ -73,7 +74,7 @@ const messages = {
     token: "Bearer トークン",
     scope: "メモリスコープ",
     scopePlaceholder:
-      "空欄の場合、このインストール固有のエージェントスコープを使用します",
+      "空欄でこの Agent の Scope を作成・再利用、または既存の Scope ID を入力",
     scopeInvalid: "メモリスコープを空白文字だけにすることはできません。",
     timeout: "リクエストタイムアウト",
     autoSection: "自動メモリ検索",
@@ -94,7 +95,7 @@ const messages = {
     token: "Token Bearer",
     scope: "Escopo de memória",
     scopePlaceholder:
-      "Deixe em branco para usar o escopo de agente exclusivo desta instalação",
+      "Deixe em branco para criar/reusar o Scope deste Agente ou informe um ID de Scope existente",
     scopeInvalid: "O escopo de memória não pode conter apenas espaços.",
     timeout: "Tempo limite da solicitação",
     autoSection: "Pesquisa automática de memória",
@@ -116,7 +117,7 @@ const messages = {
     token: "Bearer-токен",
     scope: "Область памяти",
     scopePlaceholder:
-      "Оставьте пустым, чтобы использовать уникальную область агента для этой установки",
+      "Оставьте пустым для создания/повторного использования Scope этого Агента или введите ID существующего Scope",
     scopeInvalid: "Область памяти не может состоять только из пробелов.",
     timeout: "Тайм-аут запроса",
     autoSection: "Автоматический поиск по памяти",
@@ -137,7 +138,7 @@ const messages = {
     token: "Bearer Token",
     scope: "Phạm vi bộ nhớ",
     scopePlaceholder:
-      "Để trống để sử dụng phạm vi tác nhân riêng của bản cài đặt này",
+      "Để trống để tạo/dùng lại Scope của Agent này, hoặc nhập ID Scope hiện có",
     scopeInvalid: "Phạm vi bộ nhớ không được chỉ chứa khoảng trắng.",
     timeout: "Thời gian chờ yêu cầu",
     autoSection: "Tìm kiếm bộ nhớ tự động",

@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 # pylint: disable=protected-access
 
+import asyncio
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from types import SimpleNamespace
@@ -11,6 +12,7 @@ from agentscope.message import Msg, TextBlock
 from agentscope.message import ToolResultState
 from agentscope.tool import ToolChunk
 
+from plugins.memory.powercontext.backend.client import PowerContextMemoryClient
 from plugins.memory.powercontext.backend.config import PowerContextMemoryConfig
 from plugins.memory.powercontext.backend.manager import (
     PowerContextMemoryManager,
@@ -24,6 +26,22 @@ from qwenpaw.governance import PolicyGuardedTool
 from qwenpaw.governance.policy import GovernanceAction, GovernancePolicy
 from qwenpaw.governance.tool_registry import DEFAULT_REGISTRY
 from qwenpaw.runtime.builder import AgentBuilder
+
+
+@pytest.fixture(autouse=True)
+def registered_scopes(monkeypatch):
+    """Existing-scope fixture; HTTP contracts are tested in test_client."""
+
+    async def resolve_existing(client, *, create_default=False):
+        del create_default
+        return client.config.scope_id
+
+    monkeypatch.setattr(
+        PowerContextMemoryClient,
+        "resolve_scope",
+        resolve_existing,
+        raising=False,
+    )
 
 
 def _manager(
@@ -793,3 +811,129 @@ async def test_memory_remember_reports_backend_failure(tmp_path):
     result = await manager.memory_remember("fact", "important")
     assert result.state == ToolResultState.ERROR
     assert "offline" in result.content[0].text
+
+
+@pytest.mark.asyncio
+async def test_start_binds_server_assigned_scope_before_using_memory(
+    tmp_path,
+    monkeypatch,
+):
+    manager = _manager(
+        tmp_path,
+        config=PowerContextMemoryConfig(base_url="http://pc"),
+    )
+    client = SimpleNamespace(
+        resolve_scope=AsyncMock(return_value="scp_registered"),
+        close=AsyncMock(),
+        remember=AsyncMock(),
+    )
+    monkeypatch.setattr(
+        "plugins.memory.powercontext.backend.manager.PowerContextMemoryClient",
+        lambda config: client,
+    )
+    await manager.start()
+    assert manager._scope_id() == "scp_registered"
+    client.resolve_scope.assert_awaited_once_with(create_default=True)
+    result = await manager.memory_remember("fact", "saved fact")
+    assert result.state == ToolResultState.SUCCESS
+    await manager.close()
+
+
+@pytest.mark.asyncio
+async def test_explicit_scope_never_requests_creation(tmp_path, monkeypatch):
+    config = PowerContextMemoryConfig(
+        base_url="http://pc",
+        scope_id="scp_shared",
+    )
+    manager = _manager(tmp_path, config=config)
+    client = SimpleNamespace(
+        resolve_scope=AsyncMock(return_value="scp_shared"),
+        close=AsyncMock(),
+    )
+    monkeypatch.setattr(
+        "plugins.memory.powercontext.backend.manager.PowerContextMemoryClient",
+        lambda config: client,
+    )
+    await manager.start()
+    client.resolve_scope.assert_awaited_once_with(create_default=False)
+    assert manager._scope_id() == "scp_shared"
+    await manager.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("cancelled", [False, True])
+async def test_failed_scope_binding_closes_client_and_disables_backend(
+    tmp_path,
+    monkeypatch,
+    caplog,
+    cancelled,
+):
+    token = "scope-test-secret"
+    manager = _manager(
+        tmp_path,
+        config=PowerContextMemoryConfig(base_url="http://pc", token=token),
+    )
+    error = asyncio.CancelledError() if cancelled else RuntimeError(token)
+    client = SimpleNamespace(
+        resolve_scope=AsyncMock(side_effect=error),
+        close=AsyncMock(),
+    )
+    monkeypatch.setattr(
+        "plugins.memory.powercontext.backend.manager.PowerContextMemoryClient",
+        lambda config: client,
+    )
+    if cancelled:
+        with pytest.raises(asyncio.CancelledError):
+            await manager.start()
+    else:
+        await manager.start()
+    assert not manager.list_memory_tools()
+    assert manager.get_auto_memory_interval() == 0
+    assert manager._resolved_scope_id == ""
+    client.close.assert_awaited_once()
+    assert token not in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_atomic_memory_citation_keeps_artifact_and_zero_state_version(
+    tmp_path,
+):
+    manager = _manager(tmp_path)
+    manager._resolved_scope_id = "scp_registered"
+    manager._config = PowerContextMemoryConfig()
+    manager._client = SimpleNamespace(
+        search=AsyncMock(
+            return_value=[
+                {
+                    "text": "Use the current contract.",
+                    "score": 0.016,
+                    "matched_by": ["text"],
+                    "citation": {
+                        "artifact": {
+                            "family": "atomic-memory",
+                            "artifact_id": "am-123",
+                            "revision": 2,
+                        },
+                        "state_version": 0,
+                    },
+                },
+            ],
+        ),
+    )
+    result = await manager.memory_search("contract")
+    assert result.state == ToolResultState.SUCCESS
+    text = result.content[0].text
+    for expected in (
+        "family: atomic-memory",
+        "artifact_id: am-123",
+        "revision: 2",
+        "state_version: 0",
+        "scope: scp_registered",
+    ):
+        assert expected in text
+    assert "entry_id:" not in text
+    assert "entry_version_id:" not in text
+    assert "citation: unavailable" not in text
+    injected = await manager.auto_memory_search([user("contract")])
+    assert injected is not None
+    assert "artifact_id: am-123" in injected["text"]

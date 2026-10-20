@@ -1,7 +1,7 @@
 {
   "name": "memory-powercontext-plugin-ui",
   "private": true,
-  "version": "1.0.0",
+  "version": "1.1.0",
   "scripts": { "build": "vite build" },
   "devDependencies": {
     "@types/react": "^18.3.3",

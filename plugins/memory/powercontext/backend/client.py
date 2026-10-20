@@ -3,9 +3,11 @@
 
 from __future__ import annotations
 
+import hashlib
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
+from urllib.parse import quote
 
 import httpx
 
@@ -152,6 +154,10 @@ def _safe_error_summary(response: httpx.Response, *, token: str = "") -> str:
     except ValueError:
         payload = response.text
     if isinstance(payload, dict):
+        if isinstance(payload.get("error"), dict):
+            # PowerContext envelopes diagnostics under error. Its details and
+            # context can contain content, so only read code and message.
+            payload = payload["error"]
         code = payload.get("code")
         message = (
             payload.get("message")
@@ -217,6 +223,8 @@ def _validate_search_hit(hit: Any, *, index: int) -> dict[str, Any]:
             operation="memory search",
             summary=f"hit {index} must be an object",
         )
+    if "memory" in hit:
+        return _validate_atomic_search_hit(hit, index=index)
     text = hit.get("text")
     if not isinstance(text, str):
         raise _invalid_search_hit(index, "text")
@@ -262,13 +270,86 @@ def _validate_search_hit(hit: Any, *, index: int) -> dict[str, Any]:
 
     matched_by = hit.get("matched_by")
     if not isinstance(matched_by, list) or any(
-        value not in {"fts", "vector"} for value in matched_by
+        not isinstance(value, str) or value not in {"fts", "vector"}
+        for value in matched_by
     ):
         raise _invalid_search_hit(index, "matched_by")
 
     validated = dict(hit)
     validated["score"] = float(score)
     return validated
+
+
+def _validate_atomic_search_hit(
+    hit: dict[str, Any],
+    *,
+    index: int,
+) -> dict[str, Any]:
+    """Preserve Atomic identity and state without inventing entry IDs."""
+    if set(hit) != {"memory", "score", "matched_by"}:
+        raise _invalid_search_hit(index, "fields")
+    memory = hit["memory"]
+    if not isinstance(memory, dict) or set(memory) != {
+        "artifact",
+        "state_version",
+        "kind",
+        "text",
+        "state",
+        "merged_into_id",
+    }:
+        raise _invalid_search_hit(index, "memory")
+    for field in ("kind", "text"):
+        if not isinstance(memory[field], str) or not memory[field]:
+            raise _invalid_search_hit(index, f"memory {field}")
+    if memory["state"] != "active" or memory["merged_into_id"] is not None:
+        raise _invalid_search_hit(index, "memory state")
+
+    artifact = memory["artifact"]
+    if not isinstance(artifact, dict) or set(artifact) != {
+        "family",
+        "artifact_id",
+        "revision",
+    }:
+        raise _invalid_search_hit(index, "artifact")
+    revision = artifact["revision"]
+    if (
+        artifact["family"] != "atomic-memory"
+        or not _is_visible_ascii(artifact["artifact_id"], max_length=128)
+        or isinstance(revision, bool)
+        or not isinstance(revision, int)
+        or revision < 1
+    ):
+        raise _invalid_search_hit(index, "artifact")
+    state_version = memory["state_version"]
+    if (
+        isinstance(state_version, bool)
+        or not isinstance(state_version, int)
+        or state_version < 0
+    ):
+        raise _invalid_search_hit(index, "state_version")
+
+    score = hit["score"]
+    if (
+        isinstance(score, bool)
+        or not isinstance(score, (int, float))
+        or not math.isfinite(float(score))
+    ):
+        raise _invalid_search_hit(index, "score")
+    matched_by = hit["matched_by"]
+    if not isinstance(matched_by, list) or any(
+        not isinstance(value, str) or value not in {"text", "vector"}
+        for value in matched_by
+    ):
+        raise _invalid_search_hit(index, "matched_by")
+    return {
+        "text": memory["text"],
+        "score": float(score),
+        "matched_by": matched_by,
+        "citation": {
+            "artifact": dict(artifact),
+            "state_version": state_version,
+        },
+    }
 
 
 class PowerContextMemoryClient:
@@ -282,6 +363,83 @@ class PowerContextMemoryClient:
             headers=headers,
             timeout=config.timeout,
         )
+
+    async def resolve_scope(self, *, create_default: bool = False) -> str:
+        """Reuse an existing scope, or idempotently create a host default."""
+        requested_id = _validate_scope_id(self.config.scope_id)
+        response = await self._http.get(
+            f"/v1/scopes/{quote(requested_id, safe='')}",
+        )
+        missing_scope = False
+        if response.status_code == 404:
+            try:
+                payload = response.json()
+            except ValueError:
+                payload = None
+            error = payload.get("error") if isinstance(payload, dict) else None
+            missing_scope = (
+                isinstance(error, dict)
+                and error.get("code") == "scope_not_found"
+            )
+        if create_default and missing_scope:
+            # Keep both the key and payload stable across restarts: changing
+            # either would break the server's persisted idempotency contract.
+            response = await self._http.post(
+                "/v1/scopes",
+                json={
+                    "title": "QwenPaw agent memory",
+                    "summary": (
+                        "Long-term memory for one QwenPaw installation "
+                        "and agent."
+                    ),
+                    "idempotency_key": "qwenpaw-memory:"
+                    + hashlib.sha256(requested_id.encode("utf-8")).hexdigest(),
+                },
+            )
+            self._raise_for_status("scope creation", response)
+            resolved_id = self._scope_response_id(response)
+        else:
+            self._raise_for_status("scope lookup", response)
+            resolved_id = self._scope_response_id(
+                response,
+                expected_id=requested_id,
+            )
+        self.config = replace(self.config, scope_id=resolved_id)
+        return resolved_id
+
+    @staticmethod
+    def _scope_response_id(
+        response: httpx.Response,
+        *,
+        expected_id: str | None = None,
+    ) -> str:
+        success_statuses = {200} if expected_id is not None else {200, 201}
+        if response.status_code not in success_statuses:
+            raise PowerContextProtocolError(
+                operation="scope resolution",
+                summary="response has an unexpected HTTP status",
+            )
+        try:
+            payload = response.json()
+        except ValueError as exc:
+            raise PowerContextProtocolError(
+                operation="scope resolution",
+                summary="response body is not valid JSON",
+            ) from exc
+        scope_id = (
+            payload.get("scope_id") if isinstance(payload, dict) else None
+        )
+        if (
+            not isinstance(scope_id, str)
+            or not scope_id.strip()
+            or len(scope_id) > MAX_SCOPE_ID_LENGTH
+            or (expected_id is not None and scope_id != expected_id)
+        ):
+            raise PowerContextProtocolError(
+                operation="scope resolution",
+                summary="response has an invalid scope_id",
+            )
+        return scope_id
 
     async def remember(
         self,

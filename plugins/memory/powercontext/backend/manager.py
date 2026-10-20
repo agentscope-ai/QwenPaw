@@ -122,6 +122,7 @@ class PowerContextMemoryManager(BaseMemoryManager):
         if cfg is None or not cfg.base_url.strip():
             logger.warning("PowerContext is not configured; backend disabled")
             return
+        client: PowerContextMemoryClient | None = None
         try:
             scope_id = cfg.scope_id.strip()
             if not scope_id:
@@ -129,7 +130,7 @@ class PowerContextMemoryManager(BaseMemoryManager):
                     self._get_installation_id,
                 )
                 scope_id = f"qwenpaw:{installation_id}:agent:{self.agent_id}"
-            self._client = PowerContextMemoryClient(
+            client = PowerContextMemoryClient(
                 PowerContextConfig(
                     base_url=cfg.base_url.strip(),
                     token=cfg.token.strip(),
@@ -137,7 +138,10 @@ class PowerContextMemoryManager(BaseMemoryManager):
                     timeout=cfg.timeout,
                 ),
             )
-            self._resolved_scope_id = scope_id
+            self._resolved_scope_id = await client.resolve_scope(
+                create_default=not bool(cfg.scope_id),
+            )
+            self._client = client
         except Exception as exc:
             summary = safe_powercontext_exception_summary(
                 exc,
@@ -146,6 +150,18 @@ class PowerContextMemoryManager(BaseMemoryManager):
             logger.warning("PowerContext initialization failed: %s", summary)
             self._client = None
             self._resolved_scope_id = ""
+        finally:
+            if client is not None and self._client is not client:
+                try:
+                    await client.close()
+                except Exception as exc:
+                    logger.warning(
+                        "PowerContext initialization cleanup failed: %s",
+                        safe_powercontext_exception_summary(
+                            exc,
+                            token=cfg.token.strip(),
+                        ),
+                    )
 
     def _get_installation_id(self) -> str:
         return get_or_create_installation_id(self.context.host_working_dir)
@@ -442,6 +458,12 @@ class PowerContextMemoryManager(BaseMemoryManager):
     @staticmethod
     def _memory_citation(hit: dict[str, Any]) -> dict[str, Any] | None:
         citation = hit.get("citation") or {}
+        artifact = citation.get("artifact")
+        if artifact is not None:
+            return {
+                "artifact": artifact,
+                "state_version": citation["state_version"],
+            }
         memory_ref = citation.get("memory_ref") or {}
         entry_id = citation.get("entry_id")
         entry_version_id = citation.get("entry_version_id")
@@ -472,6 +494,15 @@ class PowerContextMemoryManager(BaseMemoryManager):
     ) -> str:
         if citation is None:
             citation_text = "citation: unavailable"
+        elif "artifact" in citation:
+            artifact = citation["artifact"]
+            citation_text = (
+                f"family: {artifact['family']}, "
+                f"artifact_id: {artifact['artifact_id']}, "
+                f"revision: {artifact['revision']}, "
+                f"state_version: {citation['state_version']}, "
+                f"scope: {self._scope_id()}"
+            )
         else:
             memory_ref = citation["memory_ref"]
             citation_text = (

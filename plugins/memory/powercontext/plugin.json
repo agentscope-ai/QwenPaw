@@ -1,7 +1,7 @@
 {
   "id": "memory-powercontext",
   "name": "PowerContext Memory",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "PowerContext memory backend",
   "author": "QwenPaw Team",
   "type": "memory",
