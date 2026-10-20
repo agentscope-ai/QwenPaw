@@ -175,6 +175,18 @@ _LIFECYCLE_HELD: ContextVar[Optional[_LifecycleHoldKey]] = ContextVar(
 )
 
 
+def _invalidate_import_caches() -> None:
+    """Refresh the import system's caches; a failure here is not fatal.
+
+    Some distro-patched Python builds make ``importlib.invalidate_caches()``
+    raise ``TypeError``. The refresh is best effort, so keep installing.
+    """
+    try:
+        importlib.invalidate_caches()
+    except Exception:  # pylint: disable=broad-except
+        logger.debug("importlib.invalidate_caches() failed", exc_info=True)
+
+
 def _ensure_plugin_site_on_path() -> None:
     """Put the plugin-deps site dir on ``sys.path`` (idempotent).
 
@@ -198,7 +210,7 @@ def _ensure_plugin_site_on_path() -> None:
     _site.addsitedir(site_dir)
     if site_dir not in sys.path:
         sys.path.insert(0, site_dir)
-    importlib.invalidate_caches()
+    _invalidate_import_caches()
 
 
 class PluginLoader:
@@ -462,7 +474,7 @@ class PluginLoader:
             # Another process may have installed while we waited; re-probe
             # with fresh import caches before spending resources on pip.
             _ensure_plugin_site_on_path()
-            importlib.invalidate_caches()
+            _invalidate_import_caches()
             if not self._find_unsatisfied_dependencies(requirements_file):
                 logger.info(
                     "Plugin '%s' dependencies already satisfied by a "
@@ -1091,7 +1103,7 @@ class PluginLoader:
                 f"Dependency installation failed for '{plugin_id}': "
                 f"{result.stdout}",
             )
-        importlib.invalidate_caches()
+        _invalidate_import_caches()
         logger.info(
             "Dependencies installed for plugin '%s' into %s",
             plugin_id,

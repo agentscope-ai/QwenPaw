@@ -26,6 +26,29 @@ def working_dir(tmp_path, monkeypatch):
     return wd
 
 
+class TestInvalidateImportCaches:
+    def test_failure_is_not_fatal(self, monkeypatch):
+        # Some distro-patched Python builds raise TypeError here.
+        def broken():
+            raise TypeError("missing 1 required positional argument: 'cls'")
+
+        monkeypatch.setattr(pl.importlib, "invalidate_caches", broken)
+
+        pl._invalidate_import_caches()
+
+    def test_calls_importlib(self, monkeypatch):
+        calls = []
+        monkeypatch.setattr(
+            pl.importlib,
+            "invalidate_caches",
+            lambda: calls.append(1),
+        )
+
+        pl._invalidate_import_caches()
+
+        assert calls == [1]
+
+
 class TestIsFrozen:
     def test_not_frozen(self):
         assert pl._is_frozen() is False
