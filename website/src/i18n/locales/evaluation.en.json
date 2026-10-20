@@ -41,6 +41,7 @@
   "sourceSha": "Source SHA",
   "workflow": "Workflow and public artifacts",
   "downloadRecord": "Download record",
+  "chartMeasure": "Cost/Performance",
   "chartTitle": "QwenPaw {{title}} Cost/Performance",
   "chartAlt": "{{title}} cost and score scatter plot. Detailed accessible data is available in the table below.",
   "averageScore": "Average score",

@@ -698,3 +698,14 @@
   line-height: 1.7;
   box-shadow: 0 6px 24px #00000012;
 }
+
+@media (max-width: 700px) {
+  .evaluation-chart-tools {
+    top: 60px;
+    right: 12px;
+    gap: 2px;
+  }
+  .evaluation-chart-tools button {
+    min-width: 34px;
+  }
+}

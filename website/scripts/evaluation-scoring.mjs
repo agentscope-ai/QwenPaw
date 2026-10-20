@@ -30,34 +30,7 @@ export function validateDefinition(definition) {
   );
 }
 
-function mean(values) {
-  return !values.length || values.some((v) => v === null)
-    ? null
-    : values.reduce((a, b) => a + b, 0) / values.length;
-}
-
-function cost(trials, role, rate) {
-  const values = trials
-    .map((t) =>
-      role === "judge" && !t.judge_called
-        ? { amount: 0, currency: "USD" }
-        : t[role === "judge" ? "judge_cost" : "cost"],
-    )
-    .filter((v) => v !== null);
-  if (!values.length) return { usd: null, original: null, known: 0 };
-  const nonzero = values.filter((v) => v.amount !== 0);
-  const currencies = new Set(nonzero.map((v) => v.currency));
-  check(currencies.size <= 1, "Mixed original currencies within a benchmark");
-  const currency = nonzero[0]?.currency ?? values[0].currency;
-  const amount = values.reduce((n, v) => n + v.amount, 0) / values.length;
-  return {
-    usd: amount / (currency === "CNY" ? rate : 1),
-    original: { currency, mean_amount: amount },
-    known: values.length,
-  };
-}
-
-export function summarize(input, benchmark, direction) {
+export function summarize(input, benchmark, direction, rate) {
   if (!input)
     return {
       benchmark,
@@ -77,53 +50,66 @@ export function summarize(input, benchmark, direction) {
       failures: {},
       failed: 0,
     };
-  const b = input.benchmark;
-  const expected = new Set(
-    b.instances.flatMap((instance) =>
-      Array.from({ length: b.repetitions }, (_, repeat) =>
-        JSON.stringify([instance, repeat]),
-      ),
-    ),
-  );
-  const observed = input.trials.map((t) =>
-    JSON.stringify([t.instance, t.repeat]),
-  );
+  const b = input;
+  const summary = b.summary;
+  const failed = Object.values(summary.failures).reduce((a, b) => a + b, 0);
+  check(failed <= b.expected, "Failure count exceeds expected tasks");
   check(
-    expected.size === b.expected &&
-      observed.length === b.expected &&
-      new Set(observed).size === b.expected &&
-      observed.every((k) => expected.has(k)),
-    `${input.id}: incomplete or duplicate task identities`,
+    summary.score_sum <= b.expected - failed,
+    "Score sum includes failed tasks or exceeds task count",
   );
-  const failures = {};
-  for (const t of input.trials)
-    if (t.status !== "passed")
-      failures[t.status] = (failures[t.status] ?? 0) + 1;
-  const model = cost(input.trials, "model", input.exchange_rate.cny_per_usd);
-  const judge = cost(input.trials, "judge", input.exchange_rate.cny_per_usd);
+  for (const role of ["model", "judge"]) {
+    const count = summary[`${role}_cost_count`];
+    const value = summary[`${role}_cost`];
+    check(
+      count <= b.expected && (count === 0) === (value === null),
+      "Invalid cost coverage",
+    );
+  }
+  check(
+    summary.runtime_count <= b.expected &&
+      (summary.runtime_count !== 0 || summary.runtime_seconds_sum === 0),
+    "Invalid runtime coverage",
+  );
+  const original = (role) => {
+    const value = summary[`${role}_cost`];
+    return value === null
+      ? null
+      : {
+          currency: value.currency,
+          mean_amount: value.amount / b.expected,
+        };
+  };
+  const usd = (role) => {
+    const value = original(role);
+    return value === null
+      ? null
+      : value.mean_amount / (value.currency === "CNY" ? rate.cny_per_usd : 1);
+  };
   return {
     benchmark,
     name: b.name,
     judge: b.judge,
     domains: [direction],
     expected: b.expected,
-    scored: input.trials.length,
-    score: mean(
-      input.trials.map((t) => (t.status === "passed" ? t.score * 100 : 0)),
-    ),
-    mean_runtime_seconds: mean(
-      input.trials.map((t) => t.runtime_seconds).filter((v) => v !== null),
-    ),
-    mean_model_cost_usd: model.usd,
-    original_model_cost: model.original,
-    mean_judge_cost_usd: judge.usd,
-    original_judge_cost: judge.original,
+    scored: b.expected,
+    score: (summary.score_sum / b.expected) * 100,
+    mean_runtime_seconds: summary.runtime_count
+      ? summary.runtime_seconds_sum / summary.runtime_count
+      : null,
+    mean_model_cost_usd: usd("model"),
+    original_model_cost: original("model"),
+    mean_judge_cost_usd: usd("judge"),
+    original_judge_cost: original("judge"),
     cost_sources: {
-      snapshot_estimated: model.known,
-      unknown: b.expected - model.known,
+      snapshot_estimated: summary.model_cost_count,
+      unknown: b.expected - summary.model_cost_count,
     },
-    cost_bases: { exact: model.known, unknown: b.expected - model.known },
-    failures,
-    failed: Object.values(failures).reduce((a, b) => a + b, 0),
+    cost_bases: {
+      exact: summary.model_cost_count,
+      unknown: b.expected - summary.model_cost_count,
+    },
+    failures: summary.failures,
+    failed,
   };
 }

@@ -55,8 +55,12 @@ for (const kind of ["official"]) {
     );
     check(!ids.has(input.id), "Duplicate observation ID");
     ids.add(input.id);
-    // Validate every input, including observations absent from current indexes.
-    summarize(input, input.benchmark.id, "validation");
+    const benchmarkIds = new Set();
+    for (const benchmark of input.benchmarks) {
+      check(!benchmarkIds.has(benchmark.id), "Duplicate benchmark summary");
+      benchmarkIds.add(benchmark.id);
+      summarize(benchmark, benchmark.id, "validation", input.exchange_rate);
+    }
     const key = JSON.stringify([
       kind,
       input.board.id,
@@ -82,11 +86,20 @@ for (const kind of ["official"]) {
           `${name}: inconsistent candidate metadata (${field})`,
         );
     }
-    group.push(input);
+    group.push(
+      ...input.benchmarks.map((benchmark) => ({
+        ...input,
+        id: benchmark.observation_id,
+        date: benchmark.date,
+        protocol_hash: benchmark.protocol_hash,
+        benchmark,
+      })),
+    );
     groups.set(key, group);
   }
 }
 const runs = [];
+const runIds = new Set();
 for (const observations of groups.values()) {
   observations.sort(
     (a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id),
@@ -115,9 +128,10 @@ for (const observations of groups.values()) {
       )) {
         for (const benchmark of Object.keys(metadata.benchmarks)) {
           const part = summarize(
-            available.get(benchmark),
+            available.get(benchmark)?.benchmark,
             benchmark,
             direction,
+            origin.exchange_rate,
           );
           if (!available.has(benchmark))
             Object.assign(part, {
@@ -135,12 +149,15 @@ for (const observations of groups.values()) {
             origin.kind,
             origin.board.id,
             origin.candidate_hash,
+            origin.profile_hash,
             definition.id,
             experiment,
           ]),
         )
         .digest("hex")
         .slice(0, 32);
+      check(!runIds.has(id), "Duplicate run ID");
+      runIds.add(id);
       runs.push({
         schema_version: 3,
         kind: origin.kind,
@@ -194,5 +211,5 @@ await writeFile(
 console.log(
   `Evaluation index: ${runs.length} snapshots from ${
     ids.size
-  } benchmark observations → ${fileURLToPath(target)}`,
+  } publication summaries → ${fileURLToPath(target)}`,
 );

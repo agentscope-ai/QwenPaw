@@ -89,6 +89,7 @@ export default function Evaluation() {
     setError("");
     const controller = new AbortController();
     let timedOut = false;
+    let cancelled = false;
     const timer = window.setTimeout(() => {
       timedOut = true;
       controller.abort();
@@ -101,6 +102,7 @@ export default function Evaluation() {
         return response.json();
       })
       .then((history: History) => {
+        if (cancelled) return;
         if (
           history.schema_version !== 3 ||
           !Array.isArray(history.runs) ||
@@ -115,15 +117,16 @@ export default function Evaluation() {
         setData(history);
       })
       .catch((e: Error) => {
-        if (timedOut || e.name !== "AbortError")
+        if (!cancelled && (timedOut || e.name !== "AbortError"))
           setError(e.message === "invalidData" ? "invalidData" : "unavailable");
       })
       .finally(() => {
         window.clearTimeout(timer);
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       });
     return () => {
       window.clearTimeout(timer);
+      cancelled = true;
       controller.abort();
     };
   }, [loadAttempt]);
@@ -149,7 +152,7 @@ export default function Evaluation() {
             ),
           ),
       ),
-    ].join(" + ");
+    ].join(" + ") + ` · ${version}`;
   const activeProtocol = versions.includes(protocol) ? protocol : versions[0];
   const activeRuns = boardRuns.filter(
     (run) => run.index_version === activeProtocol,

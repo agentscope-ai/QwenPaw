@@ -41,6 +41,7 @@
   "sourceSha": "源码 SHA",
   "workflow": "Workflow 与公开 artifacts",
   "downloadRecord": "下载公开记录",
+  "chartMeasure": "费用 / 能力",
   "chartTitle": "QwenPaw {{title}} 费用 / 能力",
   "chartAlt": "{{title}} 费用与得分散点图；详细数据见下方表格",
   "averageScore": "平均得分",

@@ -54,7 +54,7 @@ export default function Chart({
   const height = mobile ? 380 : 520;
   const left = mobile ? 48 : 78,
     right = width - (mobile ? 18 : 46);
-  const top = 66,
+  const top = mobile ? 116 : 66,
     bottom = height - 64;
   const best = bestRows(rows, compareHarnesses);
   const shown = rows.filter(
@@ -247,7 +247,16 @@ export default function Chart({
         }}
       >
         <text x={mobile ? 16 : 28} y={28} fontSize={mobile ? 13 : 16}>
-          {t("chartTitle", { title })}
+          {mobile ? (
+            <>
+              <tspan x={16}>QwenPaw {title}</tspan>
+              <tspan x={16} dy={18}>
+                {t("chartMeasure")}
+              </tspan>
+            </>
+          ) : (
+            t("chartTitle", { title })
+          )}
         </text>
         {ticks.map((cost) => (
           <g key={cost}>

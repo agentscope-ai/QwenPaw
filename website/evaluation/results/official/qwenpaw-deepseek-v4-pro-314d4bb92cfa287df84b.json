@@ -1,0 +1,178 @@
+{
+  "schema_version": 1,
+  "id": "qwenpaw-deepseek-v4-pro-314d4bb92cfa287df84b",
+  "date": "2026-10-16T10:58:52Z",
+  "kind": "official",
+  "experiment": "qwenpaw-2.2.2-deepseek-v4-pro-20261016",
+  "candidate_hash": "970a77b38834fcf964793150666001426ffca46c1fb365b8140d552874f51cdc",
+  "profile_hash": "2e5e6dbe738fe5d15ceea0d880f49bd63d3d67a3dc80a056c65ec3cee253ef38",
+  "sdk_version": "2.2.2",
+  "source_sha": "5c56644a6e130762a236f8c946103e95a0a1eec8",
+  "source_repository": "https://github.com/agentscope-ai/QwenPaw",
+  "artifact_sha256": "703dd63b2f1004badece42d8eb226df82ed97307f7f61a7a58d2d5773e2fc61d",
+  "provider": "dashscope",
+  "model": "deepseek-v4-pro",
+  "harness": "qwenpaw",
+  "parameters": {
+    "max_context_length": 1000000,
+    "max_response_length": 393216
+  },
+  "exchange_rate": {
+    "cny_per_usd": 7.0,
+    "basis": "fixed"
+  },
+  "board": {
+    "id": "acp-agents",
+    "name": "ACP Agents",
+    "group_by": "model_harness"
+  },
+  "benchmarks": [
+    {
+      "id": "gaia",
+      "name": "GAIA",
+      "revision": "1.0:004eaeda9ac5017a1d51e09bc19914d994f878b6",
+      "expected": 165,
+      "judge": {
+        "kind": "programmatic",
+        "model": null,
+        "scorer": "harbor-gaia@1.0",
+        "official_model": null,
+        "prompt_revision": null,
+        "parity_note": ""
+      },
+      "observation_id": "qwenpaw-2.2.2-deepseek-v4-pro-gaia-20261016",
+      "protocol_hash": "e5b68dc006fb7da29e2622c1b22c23b79487e55b7d7d934646803c839f093fcd",
+      "date": "2026-10-16T02:48:06Z",
+      "summary": {
+        "score_sum": 115.0,
+        "failures": {
+          "execution_error": 6,
+          "infrastructure_error": 2
+        },
+        "model_cost": {
+          "amount": 240.02918,
+          "currency": "CNY"
+        },
+        "model_cost_count": 165,
+        "judge_cost": {
+          "amount": 0.0,
+          "currency": "USD"
+        },
+        "judge_cost_count": 165,
+        "runtime_seconds_sum": 89255.031082,
+        "runtime_count": 157
+      }
+    },
+    {
+      "id": "pawbench",
+      "name": "PawBench",
+      "revision": "agentscope-ai/pawbench@4:sha256:b4e0ac2e4d5614fd46735f3ece1fb98207e02ea5818b07f9d5545f97fdde2bfe",
+      "expected": 150,
+      "judge": {
+        "kind": "llm",
+        "model": "qwen3.8-max",
+        "scorer": null,
+        "official_model": "claude-opus-4.6",
+        "prompt_revision": "agentscope-ai/pawbench@4:bundled-per-task-rubric",
+        "parity_note": ""
+      },
+      "observation_id": "qwenpaw-2.2.2-deepseek-v4-pro-pawbench-20261016",
+      "protocol_hash": "3e28b861d665ab544eb7846fa0eb9aef66d058fb665f7cbc0d9c2a506e72b97a",
+      "date": "2026-10-16T02:48:09Z",
+      "summary": {
+        "score_sum": 102.015542,
+        "failures": {
+          "execution_error": 3,
+          "scoring_error": 1,
+          "infrastructure_error": 2
+        },
+        "model_cost": {
+          "amount": 168.869304,
+          "currency": "CNY"
+        },
+        "model_cost_count": 150,
+        "judge_cost": {
+          "amount": 61.694172,
+          "currency": "CNY"
+        },
+        "judge_cost_count": 150,
+        "runtime_seconds_sum": 85379.579127,
+        "runtime_count": 144
+      }
+    },
+    {
+      "id": "spreadsheetbench-verified",
+      "name": "SpreadsheetBench Verified",
+      "revision": "1.0:0ad7209b09780e78c6c80f194e49e353191be1cc",
+      "expected": 400,
+      "judge": {
+        "kind": "programmatic",
+        "model": null,
+        "scorer": "harbor-spreadsheetbench-verified@1.0",
+        "official_model": null,
+        "prompt_revision": null,
+        "parity_note": ""
+      },
+      "observation_id": "qwenpaw-2.2.2-deepseek-v4-pro-spreadsheetbench-verified-20261016",
+      "protocol_hash": "5f8e49f4ec7556f1dbbd47706ff6e92b35727e051c5c103a304e88eb34983604",
+      "date": "2026-10-16T10:58:52Z",
+      "summary": {
+        "score_sum": 292.0,
+        "failures": {
+          "execution_error": 5,
+          "infrastructure_error": 4,
+          "timeout": 6
+        },
+        "model_cost": {
+          "amount": 302.410992,
+          "currency": "CNY"
+        },
+        "model_cost_count": 400,
+        "judge_cost": {
+          "amount": 0.0,
+          "currency": "USD"
+        },
+        "judge_cost_count": 400,
+        "runtime_seconds_sum": 224381.653757,
+        "runtime_count": 385
+      }
+    },
+    {
+      "id": "swebench-verified",
+      "name": "SWE-bench Verified",
+      "revision": "1.0:86723674f04e4209ac479d0fb75d9d9f44b4377e",
+      "expected": 500,
+      "judge": {
+        "kind": "programmatic",
+        "model": null,
+        "scorer": "harbor-swebench-verified@1.0",
+        "official_model": null,
+        "prompt_revision": null,
+        "parity_note": ""
+      },
+      "observation_id": "qwenpaw-2.2.2-deepseek-v4-pro-swebench-verified-20261016",
+      "protocol_hash": "3e2af8e779d64e8876c87febb7a13314865c7f9357bc2c61e603d9375cc06587",
+      "date": "2026-10-16T09:44:52Z",
+      "summary": {
+        "score_sum": 326.0,
+        "failures": {
+          "execution_error": 21,
+          "timeout": 12,
+          "infrastructure_error": 2
+        },
+        "model_cost": {
+          "amount": 1127.639684,
+          "currency": "CNY"
+        },
+        "model_cost_count": 500,
+        "judge_cost": {
+          "amount": 0.0,
+          "currency": "USD"
+        },
+        "judge_cost_count": 500,
+        "runtime_seconds_sum": 481072.825814,
+        "runtime_count": 465
+      }
+    }
+  ]
+}
