@@ -13,10 +13,13 @@ import {
   CircleHelp,
 } from "lucide-react";
 import Chart from "./Chart";
+import BenchmarkWeightsEditor from "./BenchmarkWeights";
 import EvaluationSelect from "./Select";
 import { bestRows, frontier } from "./metrics";
 import {
+  defaultWeights,
   harnessLogo,
+  type BenchmarkWeights,
   logo,
   money as formatMoney,
   safeWorkflow,
@@ -61,7 +64,9 @@ export default function Evaluation() {
   });
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
-  const [metric, setMetric] = useState("index");
+  const [customWeights, setCustomWeights] = useState<BenchmarkWeights | null>(
+    null,
+  );
   const [search, setSearch] = useState("");
   const [showHistory, setShowHistory] = useState(true);
   const [showTable, setShowTable] = useState(true);
@@ -163,7 +168,12 @@ export default function Evaluation() {
   const benchmarks = Object.fromEntries(
     parts.map((part) => [part.benchmark, part.name]),
   );
-  const domainIds = [...new Set(parts.flatMap((part) => part.domains))];
+  const defaults = useMemo(
+    () => defaultWeights(activeRuns[0]),
+    [activeRuns[0]],
+  );
+  const weights = customWeights ?? defaults;
+  const selectedBenchmarks = Object.keys(weights);
   const rows = useMemo(
     () =>
       selectRows(
@@ -173,9 +183,9 @@ export default function Evaluation() {
             run.board.id === activeBoard?.id &&
             run.index_version === activeProtocol,
         ),
-        metric,
+        weights,
       ),
-    [history, kind, activeBoard?.id, activeProtocol, metric],
+    [history, kind, activeBoard?.id, activeProtocol, weights],
   );
   const best = useMemo(
     () => bestRows(rows, compareHarnesses),
@@ -217,29 +227,19 @@ export default function Evaluation() {
     [navigate],
   );
   const detail = id ? history.runs.find((run) => run.id === id) : undefined;
+  const detailWeights =
+    detail?.index_version === activeProtocol ? weights : defaultWeights(detail);
+  const detailRow = detail ? selectRows([detail], detailWeights)[0] : undefined;
   const title =
-    metric === "index"
+    selectedBenchmarks.length === 1
+      ? benchmarks[selectedBenchmarks[0]]
+      : customWeights === null
       ? "Index"
-      : metric.startsWith("domain:")
-      ? t(`domains.${metric.slice(7)}`, {
-          defaultValue:
-            activeRuns[0]?.index_definition.directions[metric.slice(7)]?.name ??
-            metric.slice(7),
-        })
-      : benchmarks[metric.slice(10)];
+      : t("customWeights");
   const noteBenchmarks = (
-    metric.startsWith("benchmark:")
-      ? [metric.slice(10)]
-      : metric.startsWith("domain:")
-      ? Object.keys(
-          activeRuns[0]?.index_definition.directions[metric.slice(7)]
-            ?.benchmarks ?? {},
-        )
-      : []
+    selectedBenchmarks.length === 1 ? selectedBenchmarks : []
   ).filter((benchmark) =>
-    i18n.exists(`benchmarkNotes.${benchmark}`, {
-      ns: "evaluation",
-    }),
+    i18n.exists(`benchmarkNotes.${benchmark}`, { ns: "evaluation" }),
   );
   const sortButton = (key: typeof sort.key, label: string) => (
     <button
@@ -282,6 +282,27 @@ export default function Evaluation() {
                 <dd>{date(detail.date)}</dd>
                 <dt>{t("benchmarkSet")}</dt>
                 <dd>{versionName(detail.index_version)}</dd>
+                <dt>{t("score")}</dt>
+                <dd>
+                  {detailRow?.score == null
+                    ? t("incomplete")
+                    : number(detailRow.score)}
+                </dd>
+                <dt>{t("viewWeighting")}</dt>
+                <dd>
+                  {Object.entries(detailWeights).map(([benchmark, weight]) => (
+                    <div key={benchmark}>
+                      {detailRow?.benchmarks.find(
+                        (part) => part.benchmark === benchmark,
+                      )?.name ?? benchmark}{" "}
+                      ·{" "}
+                      {new Intl.NumberFormat(i18n.language, {
+                        style: "percent",
+                        maximumFractionDigits: 1,
+                      }).format(weight)}
+                    </div>
+                  ))}
+                </dd>
                 <dt>{t("sourceSha")}</dt>
                 <dd>{detail.evaluation_sha ?? t("unknown")}</dd>
                 <dt>{t("artifactSha")}</dt>
@@ -344,34 +365,11 @@ export default function Evaluation() {
           <section className="evaluation-chart-surface">
             <div className="evaluation-controls">
               <div className="evaluation-board-controls">
-                <EvaluationSelect
-                  className="evaluation-board-select"
-                  label={t("board")}
-                  value={metric}
-                  onValueChange={setMetric}
-                  groups={[
-                    { options: [{ value: "index", label: t("main") }] },
-                    {
-                      label: t("domainBoards"),
-                      options: domainIds.map((key) => ({
-                        value: `domain:${key}`,
-                        label: t(`domains.${key}`, {
-                          defaultValue:
-                            activeRuns[0]?.index_definition.directions[key]
-                              ?.name ?? key,
-                        }),
-                      })),
-                    },
-                    {
-                      label: t("benchmarkBoards"),
-                      options: Object.entries(benchmarks).map(
-                        ([key, name]) => ({
-                          value: `benchmark:${key}`,
-                          label: name,
-                        }),
-                      ),
-                    },
-                  ]}
+                <BenchmarkWeightsEditor
+                  benchmarks={benchmarks}
+                  defaults={defaults}
+                  value={customWeights}
+                  onApply={setCustomWeights}
                 />
                 {boards.length > 1 && (
                   <EvaluationSelect
@@ -380,7 +378,7 @@ export default function Evaluation() {
                     onValueChange={(value) => {
                       setBoardId(value);
                       setProtocol("");
-                      setMetric("index");
+                      setCustomWeights(null);
                     }}
                     groups={[
                       {
@@ -394,11 +392,11 @@ export default function Evaluation() {
                 )}
                 {versions.length > 1 && (
                   <EvaluationSelect
-                    label={t("benchmarkSet")}
+                    label={t("scoringVersion")}
                     value={activeProtocol ?? ""}
                     onValueChange={(value) => {
                       setProtocol(value);
-                      setMetric("index");
+                      setCustomWeights(null);
                     }}
                     groups={[
                       {
@@ -562,7 +560,9 @@ export default function Evaluation() {
                     onChange={(e) => setSearch(e.target.value)}
                   />
                 </label>
-                <button onClick={() => download(tableRows)}>
+                <button
+                  onClick={() => download({ weights, records: tableRows })}
+                >
                   <Download size={16} />
                   JSON
                 </button>
@@ -611,9 +611,9 @@ export default function Evaluation() {
                         {sortButton("runtime", t("runtime"))}
                       </th>
                       {showBreakdown &&
-                        Object.entries(benchmarks).map(([key, label]) => (
+                        selectedBenchmarks.map((key) => (
                           <th key={key}>
-                            {label}
+                            {benchmarks[key]}
                             <small>{t("metrics")}</small>
                           </th>
                         ))}
@@ -708,8 +708,9 @@ export default function Evaluation() {
                               ? ""
                               : row.benchmarks.some(
                                   (p) =>
-                                    p.cost_sources.litellm_estimated ||
-                                    p.cost_sources.snapshot_estimated,
+                                    selectedBenchmarks.includes(p.benchmark) &&
+                                    (p.cost_sources.litellm_estimated ||
+                                      p.cost_sources.snapshot_estimated),
                                 )
                               ? t("estimated")
                               : t("reported")}
@@ -733,7 +734,7 @@ export default function Evaluation() {
                               })}
                         </td>
                         {showBreakdown &&
-                          Object.keys(benchmarks).map((key) => {
+                          selectedBenchmarks.map((key) => {
                             const p = row.benchmarks.find(
                               (b) => b.benchmark === key,
                             );

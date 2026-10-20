@@ -90,5 +90,21 @@
   "panLeft": "Pan left",
   "panRight": "Pan right",
   "resetChart": "Reset view",
-  "exportChart": "Export chart"
+  "exportChart": "Export chart",
+  "selectedBenchmarks": "{{count}} selected",
+  "editWeights": "Edit",
+  "editBenchmarks": "Benchmarks & weights",
+  "presetWeights": "Preset",
+  "customWeights": "Custom weighting",
+  "relativeWeight": "Weight",
+  "effectiveWeight": "Share",
+  "weightsHelp": "Weights are relative. For two selected benchmarks, 60 and 40 give shares of 60% and 40%. Scores, costs and runtimes use the same normalized weights.",
+  "resetWeights": "Restore preset",
+  "weightTotal": "Total 100%",
+  "invalidWeights": "Select at least one benchmark and enter positive weights.",
+  "applyWeights": "Apply",
+  "closeWeights": "Close weight editor",
+  "scoringVersion": "Scoring version",
+  "viewWeighting": "View weights",
+  "weightsHelpLabel": "About benchmark weights"
 }

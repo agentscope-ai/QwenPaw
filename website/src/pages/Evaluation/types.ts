@@ -98,59 +98,84 @@ export function harnessLogo(name: string): string | undefined {
     ? `${import.meta.env.BASE_URL}evaluation/logos/${file}`
     : undefined;
 }
+export type BenchmarkWeights = Record<string, number>;
+
+export function defaultWeights(run?: Run): BenchmarkWeights {
+  return Object.fromEntries(
+    Object.values(run?.index_definition.directions ?? {}).flatMap((direction) =>
+      Object.entries(direction.benchmarks).map(([id, weight]) => [
+        id,
+        weight * direction.weight,
+      ]),
+    ),
+  );
+}
+
+export function normalizeWeights(weights: BenchmarkWeights): BenchmarkWeights {
+  const selected = Object.entries(weights).filter(([, weight]) => weight > 0);
+  const total = selected.reduce((sum, [, weight]) => sum + weight, 0);
+  return Object.fromEntries(
+    selected.map(([id, weight]) => [id, weight / total]),
+  );
+}
+
 function weighted(
-  run: Run,
   parts: Benchmark[],
-  metric: string,
+  weights: BenchmarkWeights,
   field: "score" | "mean_model_cost_usd" | "mean_runtime_seconds",
 ): number | null {
-  if (!parts.length || parts.some((p) => p[field] === null)) return null;
-  if (metric.startsWith("benchmark:")) return parts[0][field];
+  const selected = Object.entries(weights);
+  if (!selected.length) return null;
   let result = 0;
-  for (const [id, direction] of Object.entries(
-    run.index_definition.directions,
-  )) {
-    if (metric !== "index" && metric !== `domain:${id}`) continue;
-    let subtotal = 0;
-    for (const [benchmark, weight] of Object.entries(direction.benchmarks)) {
-      const part = parts.find((p) => p.benchmark === benchmark);
-      if (!part || part[field] === null) return null;
-      subtotal += part[field] * weight;
-    }
-    result += subtotal * (metric === "index" ? direction.weight : 1);
+  for (const [id, weight] of selected) {
+    const part = parts.find((part) => part.benchmark === id);
+    if (!part || part[field] === null) return null;
+    result += part[field] * weight;
   }
   return result;
 }
-export function selectRows(runs: Run[], metric: string): Row[] {
+
+export function selectRows(runs: Run[], weights?: BenchmarkWeights): Row[] {
   return runs.flatMap((run) =>
     run.records.map((record, i) => {
+      const selected = normalizeWeights(weights ?? defaultWeights(run));
       const parts = record.benchmarks.filter(
-        (part) =>
-          metric === "index" ||
-          metric === `benchmark:${part.benchmark}` ||
-          part.domains.some((domain) => metric === `domain:${domain}`),
+        (part) => part.benchmark in selected,
       );
+      const complete =
+        Object.keys(selected).length > 0 &&
+        Object.keys(selected).every((id) =>
+          parts.some(
+            (part) =>
+              part.benchmark === id &&
+              part.score !== null &&
+              part.scored === part.expected,
+          ),
+        );
       return {
         ...record,
         run,
         id: `${run.id}-${i}`,
-        score: weighted(run, parts, metric, "score"),
-        cost: weighted(run, parts, metric, "mean_model_cost_usd"),
-        runtime: weighted(run, parts, metric, "mean_runtime_seconds"),
-        failureRate: parts.some((p) => p.scored !== p.expected)
+        complete,
+        score: weighted(parts, selected, "score"),
+        cost: weighted(parts, selected, "mean_model_cost_usd"),
+        runtime: weighted(parts, selected, "mean_runtime_seconds"),
+        failureRate: !complete
           ? null
           : parts.reduce((n, p) => n + p.failed, 0) /
             parts.reduce((n, p) => n + p.expected, 0),
-        partialCost: parts.some((p) => (p.cost_sources.unknown ?? 0) > 0),
+        partialCost:
+          !complete || parts.some((p) => (p.cost_sources.unknown ?? 0) > 0),
         costKnown: parts.reduce(
           (n, p) => n + p.expected - (p.cost_sources.unknown ?? 0),
           0,
         ),
         costTotal: parts.reduce((n, p) => n + p.expected, 0),
         upperBound: parts.some((p) => p.cost_bases.upper_bound > 0),
-        coverage: `${parts.filter((p) => p.scored === p.expected).length}/${
-          parts.length
-        }`,
+        coverage: `${
+          parts.filter((p) => p.score !== null && p.scored === p.expected)
+            .length
+        }/${Object.keys(selected).length}`,
       };
     }),
   );

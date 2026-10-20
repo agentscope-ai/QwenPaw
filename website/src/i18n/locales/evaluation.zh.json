@@ -90,5 +90,21 @@
   "panLeft": "向左平移",
   "panRight": "向右平移",
   "resetChart": "重置视图",
-  "exportChart": "导出图表"
+  "exportChart": "导出图表",
+  "selectedBenchmarks": "已选 {{count}} 项",
+  "editWeights": "编辑",
+  "editBenchmarks": "评测集与权重",
+  "presetWeights": "预设",
+  "customWeights": "自定义加权",
+  "relativeWeight": "相对权重",
+  "effectiveWeight": "实际占比",
+  "weightsHelp": "输入相对权重即可自动换算百分比。例如仅选两项，输入 60 和 40，即为 60% 和 40%。成绩、费用和用时沿用同一组权重。",
+  "resetWeights": "恢复预设",
+  "weightTotal": "合计 100%",
+  "invalidWeights": "请至少选择一项，并填写正数权重。",
+  "applyWeights": "应用",
+  "closeWeights": "关闭权重编辑",
+  "scoringVersion": "评分版本",
+  "viewWeighting": "当前视图权重",
+  "weightsHelpLabel": "评测集权重说明"
 }

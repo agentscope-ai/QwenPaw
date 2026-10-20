@@ -1,6 +1,7 @@
 .evaluation-page,
 .evaluation-select-content,
-.evaluation-methodology-tooltip {
+.evaluation-methodology-tooltip,
+.evaluation-weight-panel {
   --eval-accent: var(--app-accent, #ff7f16);
   --eval-accent-text: var(
     --app-accent-text,
@@ -707,5 +708,189 @@
   }
   .evaluation-chart-tools button {
     min-width: 34px;
+  }
+}
+
+.evaluation-weight-control {
+  min-width: 0;
+}
+.evaluation-page .evaluation-weight-trigger {
+  gap: 10px;
+  padding: 8px 12px;
+  border: 1px solid var(--eval-border);
+  background: var(--eval-canvas);
+}
+.evaluation-weight-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin-top: 10px;
+  color: var(--eval-muted);
+  font-size: 0.75rem;
+}
+.evaluation-weight-summary strong {
+  color: var(--eval-accent-text);
+  font-weight: 500;
+}
+.evaluation-weight-summary b {
+  color: var(--eval-text);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+.evaluation-weight-panel {
+  z-index: 70;
+  width: min(440px, calc(100vw - 24px));
+  padding: 16px;
+  border: 1px solid var(--eval-border);
+  border-radius: 16px;
+  background: var(--eval-surface);
+  color: var(--eval-text);
+  box-shadow: 0 8px 32px #0002;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 0.8125rem;
+}
+.evaluation-weight-panel header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.evaluation-weight-panel h2 {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+}
+.evaluation-weight-panel button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 44px;
+  padding: 8px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.evaluation-weight-panel button:hover {
+  background: var(--eval-soft);
+}
+.evaluation-weight-panel :focus-visible {
+  outline: 2px solid var(--eval-accent-text);
+  outline-offset: 3px;
+}
+.evaluation-weight-heading {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  color: var(--eval-muted);
+  font-size: 0.6875rem;
+}
+.evaluation-weight-heading > span:last-child {
+  width: 58px;
+  text-align: right;
+}
+.evaluation-weight-rows {
+  max-height: clamp(60px, calc(100dvh - 240px), 400px);
+  overflow: auto;
+}
+.evaluation-weight-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 76px 58px;
+  align-items: center;
+  gap: 12px;
+  min-height: 60px;
+  border-top: 1px solid var(--eval-border);
+}
+.evaluation-weight-row label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  cursor: pointer;
+}
+.evaluation-weight-row input[type="checkbox"] {
+  flex: 0 0 auto;
+  accent-color: var(--eval-accent-text);
+  width: 16px;
+  height: 16px;
+}
+.evaluation-weight-row input[type="number"] {
+  width: 100%;
+  min-width: 0;
+  min-height: 44px;
+  padding: 6px 8px;
+  border: 1px solid var(--eval-border);
+  border-radius: 8px;
+  background: var(--eval-canvas);
+  color: var(--eval-text);
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+}
+.evaluation-weight-row input:disabled {
+  opacity: 0.45;
+}
+.evaluation-weight-row output {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.evaluation-weight-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--eval-border);
+}
+.evaluation-weight-footer > span {
+  color: var(--eval-muted);
+  font-size: 0.75rem;
+}
+.evaluation-weight-footer > .evaluation-weight-error {
+  flex: 1 1 100%;
+  order: -1;
+  color: var(--eval-accent-text);
+}
+.evaluation-weight-panel .evaluation-weight-apply {
+  padding: 8px 16px;
+  background: var(--eval-accent);
+  color: var(--eval-text);
+  font-weight: 600;
+}
+.evaluation-weight-panel button:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+.evaluation-weight-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 69;
+  background: #0005;
+}
+.evaluation-weight-sheet {
+  position: fixed;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  width: auto;
+  max-height: calc(100dvh - 32px);
+  overflow: auto;
+  padding-bottom: max(16px, env(safe-area-inset-bottom));
+  border-radius: 24px 24px 0 0;
+}
+@media (max-width: 700px) {
+  .evaluation-weight-row {
+    grid-template-columns: minmax(0, 1fr) 64px 50px;
+    gap: 8px;
+  }
+  .evaluation-weight-heading > span:last-child {
+    width: 50px;
+  }
+  .evaluation-weight-control {
+    width: 100%;
   }
 }
