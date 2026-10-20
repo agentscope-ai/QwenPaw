@@ -6,6 +6,7 @@ from typing import Any
 
 from agentscope.message import TextBlock, ToolResultState
 from agentscope.tool import ToolChunk
+from fastapi.encoders import jsonable_encoder
 
 from .contracts import (
     TaskScope,
@@ -99,10 +100,12 @@ async def bind_task_tools(request, workspace, chat, payload):
 
 
 def _result(payload, *, error=False):
+    # Match the HTTP boundary for nested public contracts such as readiness.
+    # Keep canonical_json strict for durable request/event identity elsewhere.
     return ToolChunk(
         is_last=True,
         state=ToolResultState.ERROR if error else ToolResultState.SUCCESS,
-        content=[TextBlock(text=canonical_json(payload))],
+        content=[TextBlock(text=canonical_json(jsonable_encoder(payload)))],
     )
 
 
@@ -215,7 +218,6 @@ def make_task_tools(context: TaskToolContext):
                 origin=origin,
             )
             if result["state"] == "accepted":
-                result["task"] = result["task"].model_dump(mode="json")
                 result["monitoring"] = _HOST_TASK_MONITORING
             return _result(
                 {

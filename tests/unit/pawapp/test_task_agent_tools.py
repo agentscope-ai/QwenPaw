@@ -4,6 +4,8 @@
 
 import asyncio
 import json
+import time
+from dataclasses import replace
 from datetime import datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
@@ -13,6 +15,15 @@ from agentscope.tool import FunctionTool
 from starlette.requests import Request
 
 from qwenpaw.app.channels.console.channel import ConsoleChannel
+from qwenpaw.pawapp.setup import (
+    PrepareResult,
+    ReadinessResult,
+    SetupCheckRegistration,
+    SetupCoordinator,
+    SetupEntryDescriptor,
+    SetupEntryRegistration,
+    SetupRequirement,
+)
 from qwenpaw.pawapp.tasks.agent_tools import (
     TaskToolContext,
     bind_task_tools,
@@ -20,6 +31,7 @@ from qwenpaw.pawapp.tasks.agent_tools import (
 )
 from qwenpaw.pawapp.tasks import ExecutorEvent, ExecutorRunRef
 from qwenpaw.pawapp.tasks.binding import Readiness
+from qwenpaw.pawapp.tasks.contracts import content_digest
 from qwenpaw.runtime.builder import AgentBuilder
 from qwenpaw.schemas import AgentRequest
 from tests.unit.pawapp.test_task_runtime import (
@@ -318,6 +330,105 @@ async def test_invalid_inputs_revoked_grant_and_blocked_setup(host):
         payload(await bound["delegate"](**args))["reason"]
         == "action_forbidden"
     )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "readiness_state",
+    [
+        "needs_input",
+        "needs_configuration",
+        "needs_authorization",
+        "unavailable",
+        "unknown",
+    ],
+)
+async def test_delegate_setup_result_and_retry_after_configuration(
+    host,
+    readiness_state,
+):
+    configured = False
+    requirement = SetupRequirement(
+        id="analysis-model",
+        summary="Configure an analysis model",
+        required_for=(ACTION.action_id,),
+        authority="AppLocal",
+        setup_entry_ref="agent-models",
+        check_ref="data.analysis-model-ready",
+    )
+
+    async def check(_scope, _inputs):
+        now = time.time()
+        return ReadinessResult(
+            requirement_id=requirement.id,
+            state="ready" if configured else readiness_state,
+            reason_code=None if configured else "analysis_model_missing",
+            checked_revision=3,
+            checked_at=now,
+            expires_at=now + 30,
+        )
+
+    entry = SetupEntryRegistration(
+        descriptor=SetupEntryDescriptor(
+            id="agent-models",
+            entry_ref="data.agent-models",
+            focus="analysis-model",
+            presentations=("app_entry",),
+        ),
+        opener=AsyncMock(),
+    )
+    runtime = host.app.state.pawapp_tasks
+    await runtime.aclose()
+    key = (SCOPE.app_id, ACTION.action_id)
+    host.registrations[key] = replace(
+        host.registrations[key],
+        requirement_ids=(requirement.id,),
+    )
+    host.setup_holder[0] = SetupCoordinator(
+        checks=lambda: {
+            (SCOPE.app_id, requirement.id): SetupCheckRegistration(
+                requirement=requirement,
+                checker=check,
+            ),
+        },
+        entries=lambda: {(SCOPE.app_id, entry.descriptor.id): entry},
+        store=host.setup_store,
+    )
+    host.app.state.pawapp_tasks = host.runtime(host.store)
+    await host.app.state.pawapp_tasks.start()
+    bound = tools(host)
+    args = {
+        "app_id": SCOPE.app_id,
+        "action_id": ACTION.action_id,
+        "inputs": BODY["inputs"],
+        "request_id": "setup-retry",
+    }
+    request_id = "agent_" + content_digest(["main", args["request_id"]])
+
+    for _ in range(2):
+        blocked = payload(await bound["delegate"](**args))
+        assert blocked["state"] == "blocked"
+        assert blocked["reason"] == "analysis_model_missing"
+        assert blocked["setup"] == "required"
+        assert blocked["setup_entries"] == ["agent-models"]
+        prepared = PrepareResult.model_validate(blocked["readiness"])
+        assert prepared.requirements == (requirement,)
+        assert prepared.results[0].state == readiness_state
+        assert prepared.results[0].checked_revision == 3
+        assert prepared.descriptor_digest == ACTION.descriptor_digest
+        assert "task" not in blocked
+        assert await host.store.find_request(SCOPE, request_id) is None
+        assert not host.runs
+
+    configured = True
+    accepted = payload(await bound["delegate"](**args))
+    assert accepted["state"] == "accepted"
+    task_id = accepted["task"]["task_id"]
+    await settled(host, task_id)
+    retry = payload(await bound["delegate"](**args))
+    assert retry["task"]["task_id"] == task_id
+    assert len(host.runs) == 1
+    entry.opener.assert_not_awaited()
 
 
 @pytest.mark.asyncio

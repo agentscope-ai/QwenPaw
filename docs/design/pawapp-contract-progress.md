@@ -343,3 +343,28 @@ tests and changed-file pre-commit checks pass. After redeployment, the public
 `produce-video/prepare` endpoint correctly returned `needs_configuration`
 without dispatching production. Creator credentials still need repair before
 live generation; this acceptance does not validate rendered output.
+
+### Main Chat setup response serialization — 2026-10-20
+
+A subsequent Main Chat production attempt exposed a separate Host transport
+bug: `delegate` passed a nested `PrepareResult` directly to the strict JSON
+serializer. The earlier HTTP preflight succeeded because that route already
+encoded contract models. The three failed chat attempts were audited as
+`creator_llm_model_missing`, with no task created for their request ID; the
+serialization exception then hid that setup result.
+
+All task-tool responses now use the same JSON-compatible encoding as HTTP,
+including nested setup contracts. Durable request/event serialization and
+identity digests remain unchanged. A regression test reproduced the exact
+exception before the fix. Tests cover all five non-ready setup states, no
+latent execution on repeated blocked requests, and exactly one task when the
+same request is retried after configuration becomes ready.
+
+Validation: 64 focused Host tests and changed-file pre-commit checks passed;
+12 optional Engine integration cases were skipped because their external
+checkout/interpreter variables were not supplied. The local service restarted
+healthy. Its current production preflight was round-tripped through the Main
+Chat response encoder and still reports `needs_configuration`, now as valid
+structured JSON. This check did not dispatch production or run another model
+turn. The existing project remains at generation 2; credential repair and
+live media generation remain outstanding.
