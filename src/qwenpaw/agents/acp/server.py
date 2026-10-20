@@ -107,14 +107,24 @@ _ACP_KEEPALIVE_SECONDS = 20.0
 ACP_KEEPALIVE_META_KEY = "qwenpaw.keepalive"
 
 
-def _is_client_disconnect(exc: BaseException) -> bool:
-    """Return whether *exc* is an ACP transport disconnect."""
-    if isinstance(exc, BrokenPipeError):
+class ACPClientDisconnected(ConnectionError):
+    """Raised when an ACP transport write observes a closed connection."""
+
+
+def _is_transport_close(exc: BaseException) -> bool:
+    """Return whether *exc* is an ACP transport closure at the entry point."""
+    if isinstance(exc, (ACPClientDisconnected, BrokenPipeError)):
         return True
     if isinstance(exc, ConnectionError):
         message = str(exc).lower()
-        return (
-            f"connection closed" in message or f"transport closed" in message
+        return any(
+            marker in message
+            for marker in (
+                f"connection closed",
+                f"transport closed",
+                f"connection reset",
+                f"broken pipe",
+            )
         )
     return False
 
@@ -125,11 +135,7 @@ def _prompt_failure_stop_reason(exc: BaseException) -> str | None:
     Unexpected exceptions must keep the original JSON-RPC error contract so
     that internal bugs are not silently converted into a normal 0-score turn.
     """
-    if _is_client_disconnect(exc):
-        return f"end_turn"
-    from ...providers.retry_chat_model import StreamIdleTimeoutError
-
-    if isinstance(exc, StreamIdleTimeoutError):
+    if isinstance(exc, ACPClientDisconnected):
         return f"end_turn"
     if isinstance(exc, Exception):
         from ...providers.model_error_policy import classify_model_error
@@ -636,6 +642,7 @@ class QwenPawACPAgent(Agent):
         return LoadSessionResponse(field_meta=self._session_meta())
 
     async def prompt(  # pylint: disable=too-many-locals,unused-argument
+        # pylint: disable=too-many-branches,too-many-statements
         self,
         prompt: PromptBlocks,
         session_id: str,
@@ -694,9 +701,29 @@ class QwenPawACPAgent(Agent):
         was_cancelled = False
         loop = asyncio.get_running_loop()
         last_emit = loop.time()
+        stream = workspace.stream_query(request).__aiter__()
+        pending: asyncio.Future[Any] | None = None
 
         try:
-            async for event in workspace.stream_query(request):
+            pending = asyncio.ensure_future(stream.__anext__())
+            while True:
+                timeout = max(
+                    0.0,
+                    _ACP_KEEPALIVE_SECONDS - (loop.time() - last_emit),
+                )
+                done, _ = await asyncio.wait({pending}, timeout=timeout)
+                if not done:
+                    await self._emit_keepalive(session_id)
+                    last_emit = loop.time()
+                    continue
+
+                try:
+                    event = pending.result()
+                except StopAsyncIteration:
+                    pending = None
+                    break
+                pending = asyncio.ensure_future(stream.__anext__())
+
                 if cancel_event.is_set():
                     was_cancelled = True
                     logger.info(
@@ -707,17 +734,10 @@ class QwenPawACPAgent(Agent):
 
                 updates = tracker.process(event)
                 for upd in updates:
-                    await self._conn.session_update(
-                        session_id=session_id,
-                        update=upd,
-                    )
+                    await self._send_update(session_id, upd)
                     last_emit = loop.time()
 
                 if await self._emit_usage_if_available(session_id):
-                    last_emit = loop.time()
-
-                if loop.time() - last_emit >= _ACP_KEEPALIVE_SECONDS:
-                    await self._emit_keepalive(session_id)
                     last_emit = loop.time()
         except asyncio.CancelledError:
             was_cancelled = True
@@ -738,6 +758,18 @@ class QwenPawACPAgent(Agent):
                 ) from None
             return PromptResponse(stop_reason=stop_reason)
         finally:
+            if pending is not None and not pending.done():
+                pending.cancel()
+                await asyncio.gather(pending, return_exceptions=True)
+            close = getattr(stream, f"aclose", None)
+            if close is not None:
+                try:
+                    await close()
+                except Exception:
+                    logger.exception(
+                        "ACP: failed to close prompt stream: session=%s",
+                        session_id,
+                    )
             await self._stop_approval_bridge(approval_bridge)
             self._cancel_events.pop(session_id, None)
             self._prompt_tasks.pop(session_id, None)
@@ -1269,6 +1301,16 @@ class QwenPawACPAgent(Agent):
                 exc_info=True,
             )
 
+    async def _send_update(self, session_id: str, update: Any) -> None:
+        """Send an ACP update, surfacing transport closure as a typed error."""
+        try:
+            await self._conn.session_update(
+                session_id=session_id,
+                update=update,
+            )
+        except (ConnectionError, BrokenPipeError) as exc:
+            raise ACPClientDisconnected("ACP transport closed") from exc
+
     async def _emit_usage_if_available(
         self,
         session_id: str,
@@ -1276,9 +1318,9 @@ class QwenPawACPAgent(Agent):
         """Send a usage chunk if new usage data is available."""
         usage_meta = self._pop_session_usage(session_id)
         if usage_meta:
-            await self._conn.session_update(
-                session_id=session_id,
-                update=AgentMessageChunk(
+            await self._send_update(
+                session_id,
+                AgentMessageChunk(
                     sessionUpdate="agent_message_chunk",
                     content=text_block(""),
                     field_meta=usage_meta,
@@ -1304,9 +1346,9 @@ class QwenPawACPAgent(Agent):
             valid_ratio = isinstance(ratio, (int, float)) and 0 < ratio < 1
             if used > 0 and size > 0 and valid_ratio:
                 field_meta = {"compactRatio": float(ratio)}
-            await self._conn.session_update(
-                session_id=session_id,
-                update=UsageUpdate(
+            await self._send_update(
+                session_id,
+                UsageUpdate(
                     sessionUpdate="usage_update",
                     used=used,
                     size=size,
@@ -1318,9 +1360,9 @@ class QwenPawACPAgent(Agent):
 
     async def _emit_keepalive(self, session_id: str) -> None:
         """Send a transport-only frame when events did not map to ACP."""
-        await self._conn.session_update(
-            session_id=session_id,
-            update=AgentMessageChunk(
+        await self._send_update(
+            session_id,
+            AgentMessageChunk(
                 sessionUpdate="agent_message_chunk",
                 content=text_block(""),
                 field_meta={ACP_KEEPALIVE_META_KEY: True},
@@ -1486,9 +1528,9 @@ class QwenPawACPAgent(Agent):
     ) -> None:
         """Surface a prompt failure to ACP clients as a visible message."""
         try:
-            await self._conn.session_update(
-                session_id=session_id,
-                update=AgentMessageChunk(
+            await self._send_update(
+                session_id,
+                AgentMessageChunk(
                     sessionUpdate="agent_message_chunk",
                     content=text_block(
                         f"Error: {self._safe_prompt_error_text(exc)}",
@@ -1496,13 +1538,12 @@ class QwenPawACPAgent(Agent):
                     field_meta={ACP_ERROR_META_KEY: True},
                 ),
             )
-        except Exception as report_exc:
-            if _is_client_disconnect(report_exc):
-                logger.info(
-                    "ACP client disconnected before error report: session=%s",
-                    session_id,
-                )
-                return
+        except ACPClientDisconnected:
+            logger.info(
+                "ACP client disconnected before error report: session=%s",
+                session_id,
+            )
+        except Exception:
             logger.exception(
                 "ACP: failed to report prompt error to client (session=%s)",
                 session_id,
@@ -1663,7 +1704,9 @@ async def run_qwenpaw_agent(
         try:
             await run_agent(agent, use_unstable_protocol=True)
         except ConnectionError as exc:
-            if not _is_client_disconnect(exc):
+            # run_agent owns the ACP stdio connection; task-level failures are
+            # already converted inside prompt() and cannot reach this boundary.
+            if not _is_transport_close(exc):
                 raise
             logger.info("ACP client disconnected; shutting down cleanly")
     finally:

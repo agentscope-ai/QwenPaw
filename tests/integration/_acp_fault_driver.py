@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import pathlib
 from types import SimpleNamespace
 
 from qwenpaw.agents.acp import server
@@ -68,7 +69,9 @@ async def _sync_session_mcp(self, session_id, mcp_servers):
 
 
 async def _shutdown_workspace(self):
-    return None
+    marker = os.environ.get("QWENPAW_FAULT_MARKER")
+    if marker:
+        pathlib.Path(marker).write_text("shutdown", encoding="utf-8")
 
 
 server.QwenPawACPAgent._ensure_workspace = _ensure_workspace

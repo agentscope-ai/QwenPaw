@@ -165,6 +165,77 @@ async def test_unmapped_deltas_emit_keepalive_at_production_threshold(
 
 
 @pytest.mark.integration
+async def test_keepalive_covers_wait_before_first_event(monkeypatch):
+    """Pre-hooks and agent build must not leave the client without frames."""
+
+    monkeypatch.setattr(acp_server, "_ACP_KEEPALIVE_SECONDS", 0.1)
+
+    async def _stream():
+        await asyncio.sleep(0.45)
+        yield SimpleNamespace(
+            object="content",
+            text="ok",
+            delta=False,
+            msg_id="m1",
+        )
+
+    agent, conn, session_id = await _agent_with_stream(
+        monkeypatch,
+        _stream,
+    )
+
+    response = await agent.prompt(
+        prompt=[text_block("hello")],
+        session_id=session_id,
+    )
+
+    keepalives = [
+        update
+        for _, update in conn.updates
+        if (getattr(update, "field_meta", None) or {}).get(
+            KEEPALIVE_META_KEY,
+        )
+    ]
+    assert response.stop_reason == "end_turn"
+    assert len(keepalives) >= 2
+
+
+@pytest.mark.integration
+async def test_keepalive_does_not_cancel_pending_event(monkeypatch):
+    """Keepalive timeouts must reuse the pending ``__anext__`` future."""
+
+    monkeypatch.setattr(acp_server, "_ACP_KEEPALIVE_SECONDS", 0.1)
+    cancelled = False
+
+    async def _stream():
+        nonlocal cancelled
+        try:
+            await asyncio.sleep(0.45)
+            yield SimpleNamespace(
+                object="content",
+                text="ok",
+                delta=False,
+                msg_id="m1",
+            )
+        except asyncio.CancelledError:
+            cancelled = True
+            raise
+
+    agent, _conn, session_id = await _agent_with_stream(
+        monkeypatch,
+        _stream,
+    )
+
+    response = await agent.prompt(
+        prompt=[text_block("hello")],
+        session_id=session_id,
+    )
+
+    assert response.stop_reason == "end_turn"
+    assert cancelled is False
+
+
+@pytest.mark.integration
 async def test_silent_tool_heartbeats_keep_transport_alive(monkeypatch):
     """Runtime heartbeats for an active tool must become ACP frames.
 
@@ -240,8 +311,8 @@ async def test_content_moderation_returns_refusal(monkeypatch):
 
 
 @pytest.mark.integration
-async def test_stream_idle_timeout_returns_end_turn(monkeypatch):
-    """An idle model stream must end the turn normally."""
+async def test_stream_idle_timeout_keeps_request_error(monkeypatch):
+    """An idle model stream must keep its failure signal."""
 
     async def _stream():
         raise StreamIdleTimeoutError("policy", 600.0)
@@ -252,12 +323,16 @@ async def test_stream_idle_timeout_returns_end_turn(monkeypatch):
         _stream,
     )
 
-    response = await agent.prompt(
-        prompt=[text_block("hello")],
-        session_id=session_id,
-    )
+    with pytest.raises(RequestError) as exc_info:
+        await agent.prompt(
+            prompt=[text_block("hello")],
+            session_id=session_id,
+        )
 
-    assert response.stop_reason == "end_turn"
+    assert exc_info.value.code == -32603
+    assert exc_info.value.data == {
+        "details": "QwenPaw runtime failed",
+    }
 
 
 def _driver_env(scenario: str, tmp_dir: pathlib.Path) -> dict[str, str]:
@@ -369,6 +444,36 @@ async def test_run_agent_swallows_client_disconnect(monkeypatch):
 
 
 @pytest.mark.integration
+async def test_run_agent_does_not_swallow_internal_errors(monkeypatch):
+    """Only the ACP transport boundary may absorb connection failures."""
+
+    async def _install(self):
+        return None
+
+    async def _shutdown(self):
+        return None
+
+    async def _boom(agent, use_unstable_protocol=True):
+        del agent, use_unstable_protocol
+        raise RuntimeError("internal bug")
+
+    monkeypatch.setattr(
+        acp_server.QwenPawACPAgent,
+        "_install_runtime_provider",
+        _install,
+    )
+    monkeypatch.setattr(
+        acp_server.QwenPawACPAgent,
+        "_shutdown_workspace",
+        _shutdown,
+    )
+    monkeypatch.setattr(acp_server, "run_agent", _boom)
+
+    with pytest.raises(RuntimeError, match="internal bug"):
+        await acp_server.run_qwenpaw_agent()
+
+
+@pytest.mark.integration
 async def test_subprocess_moderation_prompt_returns_refusal_and_exit_zero(
     tmp_path,
 ):
@@ -380,13 +485,14 @@ async def test_subprocess_moderation_prompt_returns_refusal_and_exit_zero(
 
 
 @pytest.mark.integration
-async def test_subprocess_idle_prompt_returns_end_turn_and_exit_zero(
-    tmp_path,
-):
+async def test_subprocess_idle_prompt_keeps_request_error(tmp_path):
     observed = await _prompt_via_subprocess("idle", tmp_path)
 
-    assert observed["prompt_error"] is None, observed
-    assert observed["stop_reason"] == "end_turn", observed
+    assert observed["stop_reason"] is None, observed
+    assert observed["error_code"] == -32603, observed
+    assert observed["error_data"] == {
+        "details": "QwenPaw runtime failed",
+    }, observed
     assert observed["exit_code"] == 0, observed
 
 
@@ -420,3 +526,26 @@ async def test_subprocess_internal_error_keeps_request_error(tmp_path):
     # RequestError is returned at the JSON-RPC layer; exit 0 is expected and
     # is not the evidence that the internal error was preserved.
     assert observed["exit_code"] == 0, observed
+
+
+@pytest.mark.integration
+async def test_subprocess_pipe_close_runs_shutdown_and_exits_zero(tmp_path):
+    """Closing the real ACP pipe must run cleanup and exit cleanly."""
+
+    marker = tmp_path / "shutdown.marker"
+    env = _driver_env("ok", tmp_path)
+    env["QWENPAW_FAULT_MARKER"] = str(marker)
+
+    async with spawn_agent_process(
+        _SubprocessClient(),
+        sys.executable,
+        str(DRIVER),
+        env=env,
+        cwd=str(pathlib.Path(__file__).resolve().parents[2]),
+    ) as (conn, process):
+        await conn.initialize(protocol_version=PROTOCOL_VERSION)
+        session = await conn.new_session(cwd=str(tmp_path))
+        assert session.session_id
+
+    assert process.returncode == 0
+    assert marker.read_text(encoding="utf-8") == "shutdown"

@@ -392,11 +392,12 @@ async def test_prompt_keepalive_covers_unmapped_events(monkeypatch):
 
     from qwenpaw.agents.acp import server as acp_server
 
-    monkeypatch.setattr(acp_server, "_ACP_KEEPALIVE_SECONDS", 0.0)
+    monkeypatch.setattr(acp_server, "_ACP_KEEPALIVE_SECONDS", 0.05)
 
     class _ProgressWorkspace:
         async def stream_query(self, request):  # noqa: ANN001
             del request
+            await asyncio.sleep(0.12)
             yield SimpleNamespace(
                 object="content",
                 type="data",
@@ -423,7 +424,9 @@ async def test_prompt_keepalive_covers_unmapped_events(monkeypatch):
 
     assert prompt_response.stop_reason == "end_turn"
     assert any(
-        getattr(update, "field_meta", {}).get(ACP_KEEPALIVE_META_KEY)
+        (getattr(update, "field_meta", None) or {}).get(
+            ACP_KEEPALIVE_META_KEY,
+        )
         for _, update in conn.updates
     )
 

@@ -4,9 +4,14 @@
 
 from __future__ import annotations
 
+import asyncio
 from types import SimpleNamespace
 
+import pytest
+
 from qwenpaw.agents.acp.server import (
+    ACPClientDisconnected,
+    QwenPawACPAgent,
     _EnvelopeTracker,
     _prompt_failure_stop_reason,
 )
@@ -86,14 +91,14 @@ def test_content_moderation_returns_refusal():
     assert _prompt_failure_stop_reason(error) == "refusal"
 
 
-def test_stream_idle_timeout_returns_end_turn():
+def test_stream_idle_timeout_is_not_normalized():
     error = StreamIdleTimeoutError("policy", 600.0)
 
-    assert _prompt_failure_stop_reason(error) == "end_turn"
+    assert _prompt_failure_stop_reason(error) is None
 
 
-def test_client_disconnect_returns_end_turn():
-    error = ConnectionError("Connection closed")
+def test_acp_client_disconnect_returns_end_turn():
+    error = ACPClientDisconnected("ACP transport closed")
 
     assert _prompt_failure_stop_reason(error) == "end_turn"
 
@@ -106,3 +111,17 @@ def test_non_transport_connection_error_is_not_normalized():
 
 def test_generic_prompt_error_is_not_normalized():
     assert _prompt_failure_stop_reason(RuntimeError("boom")) is None
+
+
+class _ClosedConn:
+    async def session_update(self, session_id, update):
+        del session_id, update
+        raise ConnectionError("connection closed")
+
+
+def test_send_update_wraps_transport_failure():
+    agent = QwenPawACPAgent(agent_id="default")
+    agent.on_connect(_ClosedConn())
+
+    with pytest.raises(ACPClientDisconnected):
+        asyncio.run(agent._send_update("session", object()))
