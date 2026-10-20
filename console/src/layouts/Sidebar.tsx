@@ -49,7 +49,7 @@ import {
 } from "../stores/sessionListStore";
 import { useSidebarStore } from "../stores/sidebarStore";
 import { buildChatPath } from "../utils/sessionRoute";
-import { getOsRootHref } from "../utils/navigationMode";
+import { addRouterBasename, getOsRootHref } from "../utils/navigationMode";
 import { openExternalLink } from "../utils/openExternalLink";
 import {
   getSidebarCollapsedPreference,
@@ -528,7 +528,10 @@ export default function Sidebar({
 
   const handleLogout = useCallback(() => {
     clearAuthToken();
-    window.location.href = "/login";
+    window.location.href = addRouterBasename(
+      window.location.pathname,
+      "/login",
+    );
   }, []);
 
   /**
@@ -586,7 +589,10 @@ export default function Sidebar({
       setAccountModalOpen(false);
       accountForm.resetFields();
       clearAuthToken();
-      window.location.href = "/login";
+      window.location.href = addRouterBasename(
+        window.location.pathname,
+        "/login",
+      );
     } catch (err: unknown) {
       const raw = err instanceof Error ? err.message : "";
       let msg = t("account.updateFailed");

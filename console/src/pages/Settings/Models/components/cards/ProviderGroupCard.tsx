@@ -18,21 +18,21 @@ interface ProviderGroupCardProps {
   onOpenModels: (provider: ProviderInfo) => void;
 }
 
-const VARIANT_LABELS: Record<string, string> = {
-  dashscope: "DashScope",
-  chat_completions: "Chat Completions",
-  responses: "Responses",
-  open_platform: "Open Platform",
-  open_platform_cn: "China",
-  open_platform_intl: "International",
-  coding_plan: "Coding Plan",
-  coding_plan_cn: "Coding (CN)",
-  coding_plan_intl: "Coding (Intl)",
-  token_plan: "Token Plan",
-  token_plan_intl: "Token (Intl)",
-  china: "China",
-  international: "International",
-};
+const KNOWN_VARIANTS = new Set([
+  "dashscope",
+  "chat_completions",
+  "responses",
+  "open_platform",
+  "open_platform_cn",
+  "open_platform_intl",
+  "coding_plan",
+  "coding_plan_cn",
+  "coding_plan_intl",
+  "token_plan",
+  "token_plan_intl",
+  "china",
+  "international",
+]);
 
 export const ProviderGroupCard = React.memo(function ProviderGroupCard({
   group,
@@ -65,7 +65,11 @@ export const ProviderGroupCard = React.memo(function ProviderGroupCard({
       />
       {/* Header */}
       <div className={styles.groupCardHeader}>
-        <ProviderIcon providerId={group.providers[0]?.id ?? ""} size={36} />
+        <ProviderIcon
+          providerId={group.providers[0]?.id ?? ""}
+          size={36}
+          decorative
+        />
         <span className={styles.groupCardName}>{group.groupName}</span>
       </div>
       <ProviderCardStatus
@@ -78,8 +82,10 @@ export const ProviderGroupCard = React.memo(function ProviderGroupCard({
       <div className={styles.groupSegmented}>
         {group.providers.map((provider, idx) => {
           const configured = getIsConfigured(provider);
-          const label =
-            VARIANT_LABELS[provider.provider_variant || ""] || provider.name;
+          const variant = provider.provider_variant || "";
+          const label = KNOWN_VARIANTS.has(variant)
+            ? t(`models.providerVariants.${variant}`)
+            : provider.name;
           return (
             <button
               type="button"
@@ -115,8 +121,9 @@ export const ProviderGroupCard = React.memo(function ProviderGroupCard({
         </div>
 
         <ProviderCredentialField
+          key={activeProvider.id}
           provider={activeProvider}
-          onEdit={onOpenConfig}
+          onSaved={onSaved}
         />
 
         <button

@@ -5,27 +5,38 @@ import {
   type ReactNode,
 } from "react";
 import { motion, useReducedMotion } from "motion/react";
+import { Button } from "antd";
 import { useTranslation } from "react-i18next";
+import { ApiError } from "../../../api/request";
 import type { createSdkSessionAdapter } from "../sdkSessionAdapter";
 import styles from "./ChatSessionTransition.module.less";
 
 type Props = {
   adapter: ReturnType<typeof createSdkSessionAdapter>;
   sessionId?: string;
+  pending?: boolean;
+  error?: unknown;
+  onRetry?: () => void;
   children: ReactNode;
 };
 
-function useSessionReady({ adapter, sessionId }: Props) {
+function useSessionReady({ adapter, sessionId, pending, error }: Props) {
   useSyncExternalStore(adapter.subscribe, adapter.getSnapshot);
-  return adapter.isReady(sessionId);
+  return !pending && !error && adapter.isReady(sessionId);
 }
 
 /** Keep SDK identity and loading intact; only transition its presented surface. */
 export function ChatSessionTransition(props: Props) {
   const ready = useSessionReady(props);
-  const failed = props.adapter.hasFailed(props.sessionId);
+  const failed = !!props.error || props.adapter.hasFailed(props.sessionId);
   const reduced = useReducedMotion();
   const { t } = useTranslation();
+  const errorKey =
+    props.error instanceof ApiError && props.error.status === 404
+      ? "chat.routeNotFound"
+      : props.error instanceof ApiError && props.error.status === 409
+      ? "chat.routeAmbiguous"
+      : "chat.historyLoadFailed";
   const surface = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
     if (surface.current) surface.current.inert = !ready;
@@ -43,8 +54,16 @@ export function ChatSessionTransition(props: Props) {
         {props.children}
       </motion.div>
       {!ready && (
-        <div className={styles.status} role={failed ? "alert" : "status"}>
-          {t(failed ? "chat.historyLoadFailed" : "common.loading")}
+        <div
+          className={`${styles.status} ${failed ? styles.error : ""}`}
+          role={failed ? "alert" : "status"}
+        >
+          <span>{t(failed ? errorKey : "common.loading")}</span>
+          {failed && props.onRetry && (
+            <Button size="small" onClick={props.onRetry}>
+              {t("common.retry")}
+            </Button>
+          )}
         </div>
       )}
     </div>

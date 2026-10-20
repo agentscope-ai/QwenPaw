@@ -165,7 +165,11 @@ vi.mock("@/api/modules/provider", () => ({
 }));
 
 vi.mock("@/api/modules/chat", () => ({
+  sessionApi: {},
   chatApi: {
+    resolveChat: vi.fn(async () => {
+      throw new Error("Chat not found");
+    }),
     uploadFile: mockUploadFile,
     filePreviewUrl: mockFilePreviewUrl,
     getChatStatus: mockGetChatStatus,
@@ -220,6 +224,15 @@ vi.mock("./sessionApi", () => ({
     onSessionCreated: null,
     invalidateSessionCreation: vi.fn(),
     activateCreatedSession: vi.fn(),
+    getActiveOwner: vi.fn(() => ({
+      agentId: mockSelectedAgent(),
+      generation: 0,
+    })),
+    isActiveOwner: vi.fn(
+      (owner: { agentId: string }) => owner.agentId === mockSelectedAgent(),
+    ),
+    registerResolvedChat: vi.fn(),
+    getRouteResolutionVersion: vi.fn(() => 0),
     bindToOwner: vi.fn(() => ({
       getSession: vi.fn(async (id: string) => ({ id, name: id, messages: [] })),
       getSessionList: vi.fn(async () => []),
@@ -686,7 +699,7 @@ describe("ChatPage coverage", () => {
     expect(mockFetchActiveLoopMode).not.toHaveBeenCalledWith(
       expect.objectContaining({ chatId: staleChatId }),
     );
-    expect(mockSessionProjectDirectory).toHaveBeenCalled();
+    expect(mockSessionProjectDirectory).not.toHaveBeenCalled();
     expect(
       mockSessionProjectDirectory.mock.calls.some(
         ([props]) =>
@@ -1525,6 +1538,7 @@ describe("ChatPage coverage", () => {
     vi.mocked(sessionApi.getSessionIdentity).mockReturnValue({
       sessionId: "source-session",
       sdkSessionId: "source-session",
+      chatId,
       userId: "source-user",
       channel: "console",
     });
@@ -1543,6 +1557,7 @@ describe("ChatPage coverage", () => {
     vi.mocked(sessionApi.getSessionIdentity).mockReturnValue({
       sessionId: "target-session",
       sdkSessionId: "target-session",
+      chatId,
       userId: "target-user",
       channel: "console",
     });

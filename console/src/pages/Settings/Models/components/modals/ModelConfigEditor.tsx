@@ -95,6 +95,31 @@ export function ModelConfigEditor({
 
   const [text, setText] = useState(initialText);
   const [dirty, setDirty] = useState(false);
+  const [thinkingBudgetMinimum, thinkingBudgetMaximum] = thinkingBudgetRange;
+
+  const inheritedThinkingControl = useMemo<ThinkingControlSpec | null>(() => {
+    if (model.thinking_control) return model.thinking_control;
+    if (!thinkingParamStyle) return null;
+    return {
+      kind: thinkingParamStyle === "budget" ? "budget" : "effort",
+      supports_off: true,
+      efforts: (reasoningEffortOptions ?? ["low", "medium", "high"]).filter(
+        (value) => value !== "none",
+      ) as ThinkingLevel[],
+      budget_min: thinkingBudgetMinimum,
+      budget_max: thinkingBudgetMaximum,
+    };
+  }, [
+    model.thinking_control,
+    thinkingParamStyle,
+    reasoningEffortOptions,
+    thinkingBudgetMinimum,
+    thinkingBudgetMaximum,
+  ]);
+  const previewThinkingControl =
+    thinkingDeclaration === undefined
+      ? inheritedThinkingControl
+      : thinkingDeclaration;
 
   useEffect(() => {
     setCapabilities({});
@@ -139,6 +164,50 @@ export function ModelConfigEditor({
     setMaxInputLengthDirty(true);
     setDirty(true);
   }, []);
+
+  const handleThinkingDeclarationChange = useCallback(
+    (next: ThinkingControlSpec | null) => {
+      setThinkingDeclaration(next);
+      setDirty(true);
+      if (!next) {
+        setThinkingEnabled(null);
+        setThinkingBudget(null);
+        setReasoningEffort(null);
+        return;
+      }
+
+      if (next.kind === "unsupported" || next.kind === "unknown") {
+        setThinkingEnabled(null);
+        setThinkingBudget(null);
+        setReasoningEffort(null);
+        return;
+      }
+
+      if (!next.supports_off && thinkingEnabled === false) {
+        setThinkingEnabled(null);
+      }
+      if (next.kind === "budget") {
+        setReasoningEffort(null);
+        if (thinkingBudget !== null) {
+          const minimum = next.budget_min ?? 1;
+          const maximum = next.budget_max ?? minimum;
+          setThinkingBudget(
+            Math.min(maximum, Math.max(minimum, thinkingBudget)),
+          );
+        }
+        return;
+      }
+
+      setThinkingBudget(null);
+      if (
+        reasoningEffort !== null &&
+        !next.efforts.includes(reasoningEffort as ThinkingLevel)
+      ) {
+        setReasoningEffort(null);
+      }
+    },
+    [reasoningEffort, thinkingBudget, thinkingEnabled],
+  );
 
   const handleSave = async () => {
     const trimmed = isDecision ? "" : text.trim();
@@ -237,21 +306,15 @@ export function ModelConfigEditor({
             }
           />
         </InteractiveCard>
-        {(model.thinking_control || thinkingParamStyle) && (
+        {previewThinkingControl && (
           <InteractiveCard as="section" tilt={0} className={styles.thinking}>
+            <div className={styles.thinkingHeading}>
+              <span>{t("thinkingControl.title")}</span>
+              <InlineHelp>{t("thinkingControl.modelSettingHint")}</InlineHelp>
+            </div>
             <ThinkingControl
               tone="quiet"
-              control={
-                model.thinking_control ?? {
-                  kind: thinkingParamStyle === "budget" ? "budget" : "effort",
-                  supports_off: true,
-                  efforts: (
-                    reasoningEffortOptions ?? ["low", "medium", "high"]
-                  ).filter((v) => v !== "none") as ThinkingLevel[],
-                  budget_min: thinkingBudgetRange[0],
-                  budget_max: thinkingBudgetRange[1],
-                }
-              }
+              control={previewThinkingControl}
               value={
                 thinkingEnabled === false || reasoningEffort === "none"
                   ? { level: "off" }
@@ -288,10 +351,7 @@ export function ModelConfigEditor({
                 ? model.thinking_control
                 : thinkingDeclaration
             }
-            onChange={(next) => {
-              setThinkingDeclaration(next);
-              setDirty(true);
-            }}
+            onChange={handleThinkingDeclarationChange}
           />
 
           {/* Responses API models handle reasoning via native reasoning items

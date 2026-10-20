@@ -76,7 +76,7 @@ function LoadMoreSentinel({ onVisible }: { onVisible: () => void }) {
 // Curated featured apps use pinned artwork because the market API may not
 // provide an icon for them.
 const FEATURED_APP_ICONS: Record<string, string> = {
-  "@agentscope/qwenpaw-creator": "/creator-logo.png",
+  "@agentscope/qwenpaw-creator": `${import.meta.env.BASE_URL}creator-logo.png`,
 };
 // The upstream market entry ships the same English text under every locale
 // key, so curated apps carry their real translations here (keyed by language

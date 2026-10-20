@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useAppMessage } from "@/hooks/useAppMessage";
+import { getApiUrl } from "@/api/config";
 import {
   fetchMarketPlugins,
   buildMarketDownloadUrl,
@@ -46,7 +47,7 @@ export function useMarketPlugins({ onInstalled }: UseMarketPluginsOptions) {
 
   useEffect(() => {
     const controller = new AbortController();
-    fetch("/api/version", { signal: controller.signal })
+    fetch(getApiUrl("/version"), { signal: controller.signal })
       .then((res) => {
         if (!res.ok) {
           throw new Error(`HTTP ${res.status}`);

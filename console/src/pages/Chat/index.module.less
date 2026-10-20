@@ -222,6 +222,25 @@
   flex: 0 0 auto !important;
 }
 
+@media (min-width: 1000px) {
+  .chatMessagesArea.advisorComposer :global {
+    [class$="-sender-content-bottom"] {
+      flex-wrap: nowrap;
+    }
+
+    [class$="-sender-prefix"] {
+      flex: 1 1 0;
+      overflow-x: auto;
+      overflow-y: hidden;
+      scrollbar-width: none;
+
+      &::-webkit-scrollbar {
+        display: none;
+      }
+    }
+  }
+}
+
 @media (max-width: 1024px) {
   .filesPreviewOpen,
   .filesWorkspaceOpen {

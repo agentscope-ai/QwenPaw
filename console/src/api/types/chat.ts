@@ -42,6 +42,11 @@ export interface ChatHistory {
   status?: ChatStatus; // Conversation status: idle or running
 }
 
+export interface ChatResolution {
+  agent_id: string;
+  chat: ChatSpec;
+}
+
 export interface ChatUpdateRequest {
   name?: string;
   pinned?: boolean;

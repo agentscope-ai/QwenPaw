@@ -31,6 +31,11 @@ describe("getApiUrl", () => {
     expect(getApiUrl("/models")).toBe("http://localhost:8088/api/models");
   });
 
+  it("supports an API under a reverse-proxy path prefix", () => {
+    setViteBase("/qwenpaw");
+    expect(getApiUrl("/models")).toBe("/qwenpaw/api/models");
+  });
+
   it("correctly handles nested paths", () => {
     expect(getApiUrl("/models/openai/config")).toBe(
       "/api/models/openai/config",
