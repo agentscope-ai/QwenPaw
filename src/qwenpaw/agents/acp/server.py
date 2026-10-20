@@ -707,49 +707,61 @@ class QwenPawACPAgent(Agent):
         )
 
         was_cancelled = False
+        consumer_stopped = False
+        terminal: list[tuple[str, Any]] = []
         loop = asyncio.get_running_loop()
         last_emit = loop.time()
         queue: asyncio.Queue[tuple[str, Any]] = asyncio.Queue(maxsize=1)
 
+        def _finish(kind: str, payload: Any = None) -> None:
+            """Publish a terminal state without waiting for queue capacity."""
+            try:
+                queue.put_nowait((kind, payload))
+            except asyncio.QueueFull:
+                terminal[:] = [(kind, payload)]
+
         async def _pump() -> None:
             """Consume the whole turn in one task so ContextVars persist."""
             tracker = _EnvelopeTracker()
-            source_cancelled = False
+            terminal_sent = False
             try:
                 workspace = await self._ensure_workspace()
                 async for event in workspace.stream_query(request):
                     for upd in tracker.process(event):
                         await queue.put(("update", upd))
             except asyncio.CancelledError:
-                task = asyncio.current_task()
-                if task is not None and task.cancelling() == 0:
-                    source_cancelled = True
-                    await queue.put(("cancelled", None))
-                    return
-                raise
+                if consumer_stopped:
+                    raise
+                terminal_sent = True
+                _finish("cancelled")
+                return
             except Exception as exc:
-                await queue.put(("error", exc))
+                terminal_sent = True
+                _finish("error", exc)
             finally:
-                if not source_cancelled:
-                    await queue.put(("end", None))
+                if not terminal_sent and not consumer_stopped:
+                    _finish("end")
 
         pump_task = asyncio.create_task(_pump())
 
         try:
             while True:
-                timeout = max(
-                    0.0,
-                    _ACP_KEEPALIVE_SECONDS - (loop.time() - last_emit),
-                )
-                try:
-                    kind, payload = await asyncio.wait_for(
-                        queue.get(),
-                        timeout=timeout,
+                if terminal:
+                    kind, payload = terminal.pop()
+                else:
+                    timeout = max(
+                        0.0,
+                        _ACP_KEEPALIVE_SECONDS - (loop.time() - last_emit),
                     )
-                except asyncio.TimeoutError:
-                    await self._emit_keepalive(session_id)
-                    last_emit = loop.time()
-                    continue
+                    try:
+                        kind, payload = await asyncio.wait_for(
+                            queue.get(),
+                            timeout=timeout,
+                        )
+                    except asyncio.TimeoutError:
+                        await self._emit_keepalive(session_id)
+                        last_emit = loop.time()
+                        continue
 
                 if kind == f"end":
                     break
@@ -805,6 +817,7 @@ class QwenPawACPAgent(Agent):
                 ) from None
             return PromptResponse(stop_reason=stop_reason)
         finally:
+            consumer_stopped = True
             if not pump_task.done():
                 pump_task.cancel()
                 await asyncio.gather(pump_task, return_exceptions=True)

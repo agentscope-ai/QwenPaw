@@ -382,6 +382,69 @@ async def test_runtime_cancelled_error_returns_cancelled(monkeypatch):
 
 
 @pytest.mark.integration
+async def test_task_cancel_returns_cancelled(monkeypatch):
+    """A runtime-issued Task.cancel must also preserve cancellation state."""
+
+    async def _stream():
+        task = asyncio.current_task()
+        assert task is not None
+        task.cancel("timeout")
+        while True:
+            await asyncio.sleep(0)
+            yield _content_event("ignored")
+
+    agent, _conn, session_id = await _agent_with_stream(
+        monkeypatch,
+        _stream,
+    )
+
+    response = await agent.prompt(
+        prompt=[text_block("hello")],
+        session_id=session_id,
+    )
+
+    assert response.stop_reason == "cancelled"
+
+
+@pytest.mark.integration
+async def test_queue_full_cancel_does_not_deadlock(monkeypatch):
+    """Cancelling while the pump waits on a full queue must clean up."""
+
+    monkeypatch.setattr(acp_server, "_ACP_KEEPALIVE_SECONDS", 10.0)
+    blocker = asyncio.Event()
+
+    async def _stream():
+        for index in range(20):
+            yield _content_event(f"x{index}")
+
+    agent, _conn, session_id = await _agent_with_stream(
+        monkeypatch,
+        _stream,
+    )
+    original_send = agent._send_update
+
+    async def _blocked_send(session_id, update):
+        await blocker.wait()
+        await original_send(session_id, update)
+
+    monkeypatch.setattr(agent, "_send_update", _blocked_send)
+
+    prompt_task = asyncio.create_task(
+        agent.prompt(
+            prompt=[text_block("hello")],
+            session_id=session_id,
+        ),
+    )
+    await asyncio.sleep(0.1)
+    prompt_task.cancel()
+
+    response = await asyncio.wait_for(prompt_task, timeout=2)
+    assert response.stop_reason == "cancelled"
+    assert session_id not in agent._prompt_tasks
+    assert session_id not in agent._cancel_events
+
+
+@pytest.mark.integration
 async def test_queue_applies_backpressure_to_producer(monkeypatch):
     """The pump must not run unboundedly ahead of the ACP consumer."""
     monkeypatch.setattr(acp_server, "_ACP_KEEPALIVE_SECONDS", 10.0)
