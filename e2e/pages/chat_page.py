@@ -109,7 +109,7 @@ class ChatPage(BasePage):
     # ``[class*="chatSessionItem"]`` is kept as a fallback for builds older than
     # the v2.0.0 redesign.
     SESSION_ITEM = (
-        'div[role="button"][class*="sessionItem-module__item"], '
+        'div[class*="sessionItem-module__item"], '
         '[class*=chatSessionItem]'
     )
     # Active item: ``.active`` is nested (``&.active``) inside ``.item`` in the
@@ -118,7 +118,7 @@ class ChatPage(BasePage):
     # ``[class*=active]`` keeps the selector from latching onto unrelated
     # active-looking classes.
     SESSION_ACTIVE = (
-        'div[role="button"][class*="sessionItem-module__item"]'
+        'div[class*="sessionItem-module__item"]'
         '[class*="sessionItem-module__active"], '
         '[class*=chatSessionItem][class*=active]'
     )
@@ -127,7 +127,7 @@ class ChatPage(BasePage):
     # matches the sibling ``styles.renameInput`` element ("re**name**Input"),
     # which would return the edit box instead of the title.
     SESSION_NAME = (
-        'div[role="button"][class*="sessionItem-module__item"] '
+        'div[class*="sessionItem-module__item"] '
         '[class*="sessionItem-module__name"], '
         '[class*=chatSessionItem] [class*=name]'
     )
@@ -1436,7 +1436,7 @@ class ChatPage(BasePage):
         under the sidebar group list (sibling of ``groupLabel`` buttons).
         """
         return self.page.locator(
-            f'div[role="button"][class*="item"]:has-text("{name}")'
+            f'div[class*="sessionItem-module__item"]:has-text("{name}")'
         ).first
 
     # ========== Non-owner tab banner (upstream #5664) ==========
