@@ -210,14 +210,16 @@ the Context console's data-source page. These replace the old PawApp
 
 | What to configure | Where to configure it |
 | --- | --- |
-| Analysis agent providers, credentials, and active models | **Settings → Agent Configuration** in the Data Console |
+| Provider credentials and workspace default model | Main Chat model settings |
+| Data analysis, summaries, and DataBridge model overrides | **Settings → Models** in the Data Console |
 | DataBridge semantic-service LLM, embedding model, and Neo4j graph store | **Settings → DataBridge Configuration** in the Data Console |
 | SQL datasources such as PostgreSQL and MySQL | **Data Bridge → Data Sources** in the linked Context console |
 
 DataBridge Configuration includes **Test connection**, **Save**, and
 **Save & restart Context service**. Its LLM is used for semantic weaving and
-document ingestion. Configure the analysis chat model separately in
-Agent Configuration.
+document ingestion. Data analysis inherits the workspace model by default;
+summaries and DataBridge inherit the analysis model. Choose an override only
+when needed. Embeddings remain a separate shared data-service setting.
 
 Register SQL connection details in Data Sources, test the connection, and
 select the registered datasource when starting an analysis. DataBridge stores
@@ -237,8 +239,10 @@ QwenPaw working directory (default: `~/.qwenpaw/apps/qwenpaw-data/`):
   `LLM_MODEL`, and `EMBED_*`) for the managed Context service.
 - `models.json` — the Context service's LLM and embedding settings.
 
-These files do not contain all Data Console settings: Agent Configuration
-saves the analysis engine's own model preferences through its API.
+Model choices are stored as references under `model-settings/`, scoped to
+the authenticated user and workspace. Main Chat provider credentials are
+resolved for each new turn and never copied into those references. Advanced
+app-specific connections use the Engine preferences API.
 On each managed Context service start, the PawApp regenerates `.env` and
 `models.json` from `config.json`. Model changes are also sent to a running
 Context service; use **Save & restart Context service** to apply Neo4j changes
@@ -248,17 +252,28 @@ When **Reuse the model configured in QwenPaw** is enabled for DataBridge,
 saving or starting the managed Context service refreshes the snapshot from
 the host's usable active model. Embedding reuse shares the host provider's
 endpoint and credentials while keeping the selected embedding model and
-dimension. This is separate from selecting analysis models in
-Agent Configuration.
+dimension. These advanced shared-service defaults are separate from the
+per-turn model choices in **Settings → Models**.
 
 ### Environment defaults and overrides
 
 On first initialization, the PawApp seeds empty DataBridge fields from the
-environment and can obtain a compatible model default from QwenPaw. After
-configuration is saved, the generated app `.env` is authoritative for its
-managed keys: inherited shell or QwenPaw environment values do not override
-saved values, and clearing a managed field removes its previous environment
-override. Unrelated environment keys remain unchanged.
+environment. Workspace models are resolved per turn. After
+configuration is saved, `config.json` is authoritative for the generated
+runtime files and each managed child's environment. Inherited shell or
+QwenPaw values do not override saved settings, and clearing a managed field
+removes its previous environment override on the next start. Saving settings,
+reusing a host model, and starting either sidecar do not modify the QwenPaw
+process environment. Environment defaults are imported only on first setup;
+they cannot restore a credential cleared from saved settings.
+
+Managed children inherit OS basics plus the exact runtime variable names
+declared by each service in [`backend/main.py`](backend/main.py). Network
+proxy/certificate settings are declared for both; Context-specific storage,
+pipeline and embedding settings belong to Context, while Engine runtime and
+Docker settings belong to Engine. Other global variables are not passed
+through automatically. Additional integrations must declare the variables
+they need; the global QwenPaw environment store itself is unchanged.
 
 Edit saved values through **DataBridge Configuration**; manual edits to the
 generated app `.env` are replaced on the next save or managed service start.
@@ -304,10 +319,10 @@ Missing host configuration is reported through the PawApp SDK as a structured
 service-unavailable error. QwenPaw-Data turns `MODEL_NOT_CONFIGURED` into an
 actionable UI message instead of displaying a generic HTTP 500.
 
-The app also opts into the generic `qwenpaw_data_dependency_status` and
-`qwenpaw_data_dependency_action` tools. The agent can inspect the same control plane
-as the UI and request only pre-registered actions; the host remains responsible
-for tool governance and audit.
+The app also opts into App-private dependency status and lifecycle tools. They
+let the QwenPaw-Data agent inspect the same control plane as the UI and request
+only pre-registered actions; they are not exported to Main Chat. The Host
+remains responsible for capability governance and audit.
 
 ### Local infrastructure quick reference
 
@@ -361,3 +376,10 @@ The PawApp lifecycle starts and stops both the Context service and the
 `qwenpaw-data-host-core` analysis engine. The embedded Data Console talks to
 that engine through the PawApp gateway; `/data` routes QwenPaw channel
 conversations to the same engine through the channel bridge.
+
+## Standalone app 1.0.3 release
+
+This release targets stable QwenPaw 2.2.2 and QwenPaw-Data runtime 0.3.3.
+See [the release boundary and validation guide](RELEASE.md). The app uses
+the Engine native console API; the generic Host vNext task contract ships
+separately. Main Chat model inheritance does not require that platform upgrade.

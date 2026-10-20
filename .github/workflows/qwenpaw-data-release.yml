@@ -144,7 +144,7 @@ jobs:
           repository: agentscope-ai/QwenPaw-Data
           # Pinned for reproducible vendoring; bump together with the
           # plugin version, or override per-run via the data_ref input.
-          ref: ${{ github.event.inputs.data_ref || 'v0.3.0' }}
+          ref: ${{ github.event.inputs.data_ref || 'v0.3.3' }}
           path: qwenpaw-data
 
       - name: Set up Python
