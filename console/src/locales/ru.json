@@ -1917,7 +1917,6 @@
     "defaultChatModel": "Модель чата",
     "defaultDecisionModel": "Модель решений",
     "defaultLlm": "LLM по умолчанию",
-    "llmDescription": "Здесь задается глобальная модель LLM по умолчанию у авторизованного провайдера. Для конкретного Agent модель можно выбрать отдельно на странице Chat.",
     "configureProvider": "Настроить {{name}}",
     "baseURL": "Базовый URL",
     "apiKey": "API-ключ",

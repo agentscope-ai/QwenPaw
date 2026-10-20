@@ -3678,7 +3678,6 @@
     "defaultDecisionModel": "Model keputusan",
     "defaultLlm": "LLM Default",
     "notConfiguredYet": "Belum dikonfigurasi",
-    "llmDescription": "Atur model LLM default global dari penyedia yang diotorisasi. Anda dapat memilih model tertentu untuk setiap Agen di halaman Chat.",
     "configureProvider": "Konfigurasi {{name}}",
     "baseURL": "URL Dasar",
     "apiKey": "API Key",

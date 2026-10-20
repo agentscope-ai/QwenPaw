@@ -2421,9 +2421,8 @@
     "defaultModels": "默认模型",
     "defaultChatModel": "对话模型",
     "defaultDecisionModel": "决策模型",
-    "defaultLlm": "默认LLM",
+    "defaultLlm": "全局默认模型",
     "notConfiguredYet": "尚未配置",
-    "llmDescription": "在这里设置全局默认的 LLM 模型。你也可以在聊天页面为具体 Agent 单独选择使用的模型。",
     "configureProvider": "配置 {{name}}",
     "baseURL": "基础 URL",
     "getApiKey": "获取 API Key",
@@ -2543,9 +2542,25 @@
     "paidGroup": "付费",
     "localCustomGroup": "本地 & 自定义",
     "cloudGroup": "云端提供商",
+    "providerVariants": {
+      "dashscope": "DashScope",
+      "chat_completions": "Chat Completions",
+      "responses": "Responses API",
+      "open_platform": "开放平台",
+      "open_platform_cn": "开放平台（中国区）",
+      "open_platform_intl": "开放平台（国际区）",
+      "coding_plan": "Coding Plan",
+      "coding_plan_cn": "Coding（中国区）",
+      "coding_plan_intl": "Coding（国际区）",
+      "token_plan": "Token Plan",
+      "token_plan_intl": "Token（国际区）",
+      "china": "中国区",
+      "international": "国际区"
+    },
     "configuredGroup": "已配置",
     "configuredOnline": "个提供商在线",
     "noConfigured": "尚未配置任何提供商，请在下方选择一个开始使用",
+    "noSearchResults": "没有与“{{query}}”匹配的提供商，请尝试其他关键词。",
     "goConfigureBtn": "去配置",
     "availableGroup": "可用提供商",
     "clickToConfigure": "点击配置",
@@ -2786,7 +2801,7 @@
       "modelCount": "模型 {{count}} / {{total}}",
       "enableAllConfirm": "启用全部 {{count}} 个模型？",
       "enableAll": "全部启用",
-      "disableAll": "全部关闭",
+      "disableAll": "全部停用",
       "unsupported": "此提供商地址不支持模型列表接口，已保留内置目录和已有模型。可手动添加模型。",
       "candidates": "候选模型 ({{count}})",
       "selected": "已选模型 ({{count}})",
@@ -2845,6 +2860,9 @@
     },
     "includesFreeModels": "含免费模型",
     "agentDefaults": "智能体默认模型",
+    "primaryModel": "主模型",
+    "agentRuntimeHint": "为当前智能体设置主模型、思考强度、子智能体模型和备用模型。更改会自动保存；思考强度同时作用于这些模型，并按各模型能力适配。",
+    "agentRuntimeLoadFailed": "模型数据加载失败，请重试。",
     "scope": {
       "global": "全局模型",
       "agent": "当前智能体"
@@ -5702,6 +5720,7 @@
     "default": "默认",
     "resetModel": "恢复默认模型",
     "title": "思考强度",
+    "modelSettingHint": "设置该模型的默认思考强度。“默认”表示沿用模型或提供商配置；会话或智能体设置可以覆盖此处。保存后从后续请求开始生效。",
     "reset": "恢复默认设置",
     "inherit": "跟随默认",
     "off": "关闭思考",
@@ -5749,7 +5768,7 @@
     "modelSource": {
       "session": "当前会话指定",
       "agent": "跟随 Agent 模型",
-      "global": "跟随默认 LLM"
+      "global": "跟随全局模型"
     }
   },
   "runtimeDesign": {

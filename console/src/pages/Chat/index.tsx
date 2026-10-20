@@ -4052,7 +4052,7 @@ export default function ChatPage() {
       welcome: {
         ...i18nConfig.welcome,
         nick: extNick ?? "QwenPaw",
-        avatar: extAvatar ?? "/qwenpaw.png",
+        avatar: extAvatar ?? `${import.meta.env.BASE_URL}qwenpaw.png`,
         ...(extGreeting !== undefined ? { greeting: extGreeting } : {}),
         ...(extDescription !== undefined
           ? { description: extDescription }

@@ -2561,9 +2561,8 @@
     "defaultModels": "Default models",
     "defaultChatModel": "Chat model",
     "defaultDecisionModel": "Decision model",
-    "defaultLlm": "Default LLM",
+    "defaultLlm": "Global default model",
     "notConfiguredYet": "Not configured",
-    "llmDescription": "Set the global default LLM model from an authorized provider. You can choose a specific model for each Agent in the Chat page.",
     "configureProvider": "Configure {{name}}",
     "baseURL": "Base URL",
     "getApiKey": "Get API Key",
@@ -2683,9 +2682,25 @@
     "paidGroup": "Paid",
     "localCustomGroup": "Local & Custom",
     "cloudGroup": "Cloud Providers",
+    "providerVariants": {
+      "dashscope": "DashScope",
+      "chat_completions": "Chat Completions",
+      "responses": "Responses API",
+      "open_platform": "Open Platform",
+      "open_platform_cn": "Open Platform (China)",
+      "open_platform_intl": "Open Platform (International)",
+      "coding_plan": "Coding Plan",
+      "coding_plan_cn": "Coding (China)",
+      "coding_plan_intl": "Coding (International)",
+      "token_plan": "Token Plan",
+      "token_plan_intl": "Token (International)",
+      "china": "China",
+      "international": "International"
+    },
     "configuredGroup": "Configured",
     "configuredOnline": "providers online",
     "noConfigured": "No providers configured yet. Select one below to get started.",
+    "noSearchResults": "No providers match \"{{query}}\". Try another search.",
     "goConfigureBtn": "Configure a Provider",
     "availableGroup": "Available Providers",
     "clickToConfigure": "Click to configure",
@@ -2985,6 +3000,9 @@
     },
     "includesFreeModels": "Includes free models",
     "agentDefaults": "Agent defaults",
+    "primaryModel": "Primary model",
+    "agentRuntimeHint": "Configure the primary, sub-agent, and backup models for this agent. Changes save automatically. Thinking effort applies to all of them and adapts to each model's capabilities.",
+    "agentRuntimeLoadFailed": "Failed to load model data. Please retry.",
     "scope": {
       "global": "Global models",
       "agent": "Current agent"
@@ -5682,6 +5700,7 @@
     "default": "Default",
     "resetModel": "Restore default model",
     "title": "Thinking intensity",
+    "modelSettingHint": "Sets this model's default thinking intensity. Default follows model or provider settings; conversation and agent settings can override it. Saved changes apply to subsequent requests.",
     "reset": "Restore defaults",
     "inherit": "Use default",
     "off": "Off",
@@ -5729,7 +5748,7 @@
     "modelSource": {
       "session": "Conversation model",
       "agent": "Agent default",
-      "global": "Default LLM"
+      "global": "Use global model"
     }
   },
   "runtimeDesign": {

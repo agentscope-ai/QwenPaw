@@ -1917,7 +1917,6 @@
     "defaultChatModel": "チャットモデル",
     "defaultDecisionModel": "判定モデル",
     "defaultLlm": "デフォルト LLM",
-    "llmDescription": "ここではグローバル既定の LLM モデルを設定します。Chat ページでは各 Agent ごとに使用するモデルを個別に選択できます。",
     "configureProvider": "{{name}} を設定",
     "baseURL": "ベースURL",
     "apiKey": "APIキー",

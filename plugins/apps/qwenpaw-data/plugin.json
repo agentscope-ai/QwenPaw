@@ -1,7 +1,7 @@
 {
   "id": "qwenpaw-data",
   "name": "QwenPaw-Data",
-  "version": "0.1.2",
+  "version": "1.0.3",
   "type": "app",
   "description": "Self-Evolving, Graph-Grounded Agentic BI at Enterprise Scale",
   "description_i18n": {
@@ -37,12 +37,12 @@
   ],
   "dependencies": [],
   "qwenpaw_version": {
-    "min": "2.1.1b1",
-    "max": "2.2.0"
+    "min": "2.2.2",
+    "max": "2.2.2"
   },
   "meta": {
     "pawapp": {
-      "icon": "\ud83d\udcca",
+      "icon": "📊",
       "icon_url": "/api/frontend_plugin/qwenpaw-data/files/ui/dist/app/logo-mark-v4.png",
       "entry_page": "/apps/qwenpaw-data",
       "launch_scope": "page",
@@ -66,7 +66,8 @@
         "mode_env": "QWENPAW_DATA_CONTEXT_MODE",
         "external_url_env": "QWENPAW_DATA_CONTEXT_URL",
         "external_token_env": "QWENPAW_DATA_CONTEXT_TOKEN"
-      }
+      },
+      "minimum_version": "0.3.3"
     },
     "features": [
       "chat-analysis",

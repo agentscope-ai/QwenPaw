@@ -2993,7 +2993,6 @@
     "defaultChatModel": "Mô hình hội thoại",
     "defaultDecisionModel": "Mô hình quyết định",
     "defaultLlm": "LLM mặc định",
-    "llmDescription": "Đặt mô hình LLM mặc định toàn cục. Bạn có thể chọn mô hình riêng cho từng Agent ở trang Trò chuyện.",
     "configureProvider": "Cấu hình {{name}}",
     "baseURL": "Base URL",
     "apiKey": "API Key",

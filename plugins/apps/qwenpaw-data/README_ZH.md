@@ -181,7 +181,9 @@ DataBridge 启用 **复用 QwenPaw 已配置的模型** 后，保存配置或启
 
 ### 环境默认值与覆盖规则
 
-首次初始化时，PawApp 从环境变量填充空缺的 DataBridge 字段，也可以从 QwenPaw 获取兼容的默认模型。保存配置后，应用生成的 `.env` 决定其管理的变量值：继承的 Shell 或 QwenPaw 环境变量不会覆盖已保存值；清空受管字段也会移除先前的环境覆盖值。其他环境变量保持不变。
+首次初始化时，PawApp 从环境变量填充空缺的 DataBridge 字段，也可以从 QwenPaw 获取兼容的默认模型。保存配置后，`config.json` 是生成运行时文件和托管子进程环境的权威来源：Shell 或 QwenPaw 环境变量不会覆盖已保存值；清空受管字段后，下次启动不再带入旧值。保存配置、复用宿主模型及启动两个托管服务均不修改 QwenPaw 主进程环境。环境默认值只在首次初始化时导入，不会补回已清空的凭证。
+
+托管子进程只继承基础操作系统变量，以及各服务在 [`backend/main.py`](backend/main.py) 中明确声明的变量。两个服务均声明了网络代理和证书配置；Context 另接收声明过的存储、数据管道和 Embedding 参数，Engine 另接收声明过的运行参数和 Docker 配置。其他全局变量不再自动透传，新增集成需明确声明所需变量；QwenPaw 全局环境变量管理本身保持原有行为。
 
 请通过 **数据底座配置** 修改已保存值；直接编辑应用生成的 `.env` 会在下次保存或启动托管服务时被覆盖。外部 Context 服务的启动环境由该部署管理。两种模式下，SQL 数据源凭证都通过数据源注册表管理。
 
@@ -204,7 +206,7 @@ DataBridge 启用 **复用 QwenPaw 已配置的模型** 后，保存配置或启
 
 缺失的 host 配置会通过 PawApp SDK 以结构化的 service-unavailable 错误上报。QwenPaw-Data 将 `MODEL_NOT_CONFIGURED` 转换为可操作的 UI 消息，而不是显示通用 HTTP 500。
 
-本 app 还会选择加入通用的 `qwenpaw_data_dependency_status` 和 `qwenpaw_data_dependency_action` 工具。智能体可以检查与 UI 相同的控制平面，并仅请求已注册的操作；host 仍负责工具治理与审计。
+本 app 还会选择加入 App 私有的依赖状态与生命周期工具。QwenPaw-Data 智能体可以检查与 UI 相同的控制平面，并仅请求已注册的操作；这些工具不会导出到 Main Chat。Host 仍负责能力治理与审计。
 
 ### 本地基础设施速查
 
@@ -233,3 +235,12 @@ DataBridge 启用 **复用 QwenPaw 已配置的模型** 后，保存配置或启
 - `qwenpaw-data-cli`：独立生命周期和诊断工具（`doctor`、`datasource`、`semantic`）；是唯一被设计为拥有本地基础设施命令的 QwenPaw Data 包。数据源服务器本身仍属于外部基础设施。
 
 托管模式下，用户只需启动 QwenPaw 这一个 UI / 后端入口。PawApp 生命周期会自动启动和停止 Context 服务及 `qwenpaw-data-host-core` 分析引擎。内嵌 Data Console 通过 PawApp 网关访问该引擎；`/data` 通过渠道桥接将 QwenPaw 渠道对话路由到同一引擎。
+
+## 独立应用 1.0.3
+
+本次发布基于稳定版 QwenPaw 2.2.2，配套 QwenPaw-Data 运行时 0.3.3。
+Data 分析默认使用主聊天当前工作区的模型，摘要和 DataBridge 默认继承分析模型。
+在 Data 的「设置 → 模型」中选择覆盖；供应商凭据仍在主聊天中管理。
+Embedding 与图索引属于共享数据服务，单独配置。
+应用通过 Engine 原生 Console API 运行，不依赖 Host vNext 的通用任务协议。
+发布顺序及边界见 [RELEASE.md](RELEASE.md)。
