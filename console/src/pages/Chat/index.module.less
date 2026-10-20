@@ -279,6 +279,13 @@
   overflow-x: hidden;
 
   :global {
+    // Override the SDK's inline placeholders so offscreen bubbles keep their
+    // real heights and cannot clamp the reversed scroll position (#8284).
+    .qwenpaw-bubble-list .qwenpaw-bubble {
+      content-visibility: visible !important;
+      contain-intrinsic-size: none !important;
+    }
+
     [class*="chat-anywhere-default-header-right"] {
       flex: 1;
       display: flex;
