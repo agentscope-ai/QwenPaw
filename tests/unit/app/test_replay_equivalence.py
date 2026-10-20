@@ -38,6 +38,7 @@ from typing import Any, Dict, List, Optional
 import pytest
 
 from qwenpaw.app.replay_store import ReplayStore
+from qwenpaw.runtime import envelope
 from tests.unit.app import replay_corpus as corpus
 from tests.unit.app import replay_oracle as oracle
 
@@ -67,9 +68,12 @@ _BASELINE_ROUND = {
 }
 
 #: Criterion 4, "A2 alone" row: the gate is defined on a stream where A1 has
-#: not landed, which is what this branch produces. The measured baseline is
-#: 28.2x events / 8.6x bytes over 485,041 events; the gates below are the
-#: ones the spec states, not the ones the measurement happened to reach.
+#: not landed, so the test below pins the A1 thresholds off while it builds
+#: its corpus. A1 suppresses exactly the repeated tool snapshots A2 folds, so
+#: on a tree carrying both the byte ratio would measure neither optimization
+#: alone. The measured baseline is 28.2x events / 8.6x bytes over 485,041
+#: events; the gates below are the ones the spec states, not the ones the
+#: measurement happened to reach.
 _MIN_EVENT_RATIO = 20.0
 _MIN_BYTE_RATIO = 6.0
 
@@ -205,7 +209,9 @@ async def test_shipped_builder_agrees_with_the_oracle(
     assert _reduced(folded) == _reduced(lines)
 
 
-async def test_compression_ratio_meets_the_a2_alone_gate() -> None:
+async def test_compression_ratio_meets_the_a2_alone_gate(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Criterion 4: >= 20x events and >= 6x bytes on the T0 corpus shape.
 
     Measured on a 16-round run in the shape
@@ -214,6 +220,25 @@ async def test_compression_ratio_meets_the_a2_alone_gate() -> None:
     run the benchmark. The full 1,720-round baseline in the issue report is
     the same shape scaled up.
     """
+    # "A2 alone" means an A1-off stream, so pin the A1 thresholds to their
+    # off value here instead of assuming the tree lacks them: 1/1 makes the
+    # gate in ``Envelope._should_emit_tool_snapshot`` unreachable, so every
+    # delta emits, which is the pre-A1 behaviour. The constants are read as
+    # module globals at call time, so a runtime patch is enough, and
+    # ``raising=False`` keeps this working on a tree where A1 has not
+    # landed and the names do not exist.
+    monkeypatch.setattr(
+        envelope,
+        "TOOL_RESULT_SNAPSHOT_MIN_BYTES",
+        1,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        envelope,
+        "TOOL_RESULT_SNAPSHOT_GROWTH",
+        1,
+        raising=False,
+    )
     lines = await corpus.synthetic_stream(
         16,
         corpus.spaced,
