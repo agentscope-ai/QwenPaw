@@ -16,6 +16,7 @@ from services.pawapp_story import (
     story_version,
 )
 from services.pawapp_story_production import CreatorStoryProductionTaskAdapter
+from services.pawapp_video_workflow import creator_create_video_experience
 from services.project_files.assets import AssetFileStore
 from services.project_files.facade import CreatorFileServices
 from services.story_package import StoryPackage
@@ -30,6 +31,7 @@ from qwenpaw.pawapp.tasks import (
     TaskStoreError,
     TaskSubmission,
 )
+from qwenpaw.pawapp.tasks.coordinator import TaskCoordinator
 from qwenpaw.pawapp.tasks.policy import FileTaskPolicy, TaskGrant, TaskPolicy
 from qwenpaw.pawapp.tasks.runtime import HostTaskRuntime
 
@@ -225,6 +227,75 @@ async def test_production_resumes_same_project_once_from_another_chat(setup):
     assert session.active_goal_id
     record = adapter._store(services, submission.handle.submission_id).read()
     assert record.project_id == result["project_id"]
+
+
+@pytest.mark.asyncio
+async def test_production_progress_recovers_accepted_task_with_experience(
+    setup,
+    tmp_path,
+):
+    services, scope = setup
+    package = {
+        **story(),
+        "resolution": "1080P",
+        "aspect_ratio": "9:16",
+        "duration_seconds": 12,
+    }
+    result, source = import_story(services, scope, "first", {"story": package})
+    request = production_submission(scope, result)
+    adapter = CreatorStoryProductionTaskAdapter(lambda: services)
+    experience = creator_create_video_experience().model_copy(
+        update={"action_id": request.action.action_id},
+    )
+    tasks = await TaskStore.open(tmp_path / "tasks.db")
+    coordinator = TaskCoordinator(tasks, authorize=AsyncMock())
+    coordinator.register(request.action, adapter, experience)
+    accepted = await coordinator.dispatch(
+        scope,
+        request.action.action_id,
+        request_id="produce-story",
+        inputs=request.inputs,
+        origin=request.handle.origin,
+    )
+    assert accepted.handle.submission_state == "accepted"
+    assert accepted.handle.executor_sequence is None
+    assert accepted.handle.experience is not None
+
+    # Reopen the Host journal and adapter before the first progress event,
+    # as with a deployment recovering an already accepted production task.
+    tasks = await TaskStore.open(tasks.path)
+    adapter = CreatorStoryProductionTaskAdapter(lambda: services)
+    coordinator = TaskCoordinator(tasks, authorize=AsyncMock())
+    coordinator.register(request.action, adapter, experience)
+    await coordinator.reconcile(scope, accepted.handle.task_id)
+    progress = await coordinator.consume(scope, accepted.handle.task_id)
+    assert progress.handle.status == "running"
+    assert progress.handle.executor_sequence == 2
+    assert progress.handle.executor_run_ref == accepted.handle.executor_run_ref
+    assert progress.handle.project_ref.project_id == result["project_id"]
+    assert progress.handle.experience.active_step_id == "plan"
+    assert {
+        item.id: item.value
+        for item in progress.handle.experience.context_items
+    } == {"resolution": "1080P", "aspect_ratio": "9:16", "duration": "12s"}
+
+    # Reconciliation and cursor replay must not create another goal or message.
+    await coordinator.reconcile(scope, accepted.handle.task_id)
+    replayed = await coordinator.consume(scope, accepted.handle.task_id)
+    assert replayed.handle.executor_sequence == 2
+    assert replayed.handle.experience == progress.handle.experience
+    session = services.sessions.get_project_session(result["project_id"])
+    assert (
+        len(
+            services.sessions.list_messages(
+                result["project_id"],
+                session.session_id,
+            ),
+        )
+        == 1
+    )
+    snapshot = services.projects.read(result["project_id"])
+    assert read_story(services, snapshot) == source
 
 
 @pytest.mark.asyncio

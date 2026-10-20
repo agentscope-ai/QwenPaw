@@ -395,3 +395,25 @@ blocked card. The current saved Creator planning/image credentials still fail
 decryption, despite the App's presence-based configured badge. The relevant
 App settings screen was opened for repair; no production task or media was
 created for the original request, and the revision-2 story remains intact.
+
+### Existing-story production progress recovery — 2026-10-20
+
+After repairing the local credentials, LLM, image and video connection probes
+passed and `produce-video` was accepted. Its first progress event failed because
+the shared video experience mapper parsed the story-reference request as a
+`create-video` brief. The Host retained the accepted task in recovery rather
+than receiving its planning status.
+
+Progress context now reads the workflow's persisted normalized input, shared by
+both entry actions. This preserves the admitted resolution, aspect ratio and
+duration without reinterpreting action-specific request schemas during replay.
+The regression test reopens the Host journal and adapter after acceptance,
+consumes the progress events, and verifies repeated reconciliation preserves
+the same run, project, story and single production message. All 96 focused
+Creator story/video and Host experience tests and changed-file pre-commit checks
+passed.
+
+The local Creator backend was updated and the Host restarted. The previously
+accepted task recovered to `running` / `plan`, with executor sequence 2 and its
+original task, submission and project identities. The Creator agent is active;
+final video generation and rendering are not yet validated by this check.

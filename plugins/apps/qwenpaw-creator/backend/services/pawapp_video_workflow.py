@@ -865,7 +865,6 @@ _EXPERIENCE_STEP_BY_STAGE = {
 
 
 def _creator_experience_update(
-    submission: TaskSubmission,
     record: CreatorVideoWorkflowSubmission,
     workflow_event: CreatorVideoWorkflowEvent,
 ) -> TaskExperienceUpdate:
@@ -899,7 +898,9 @@ def _creator_experience_update(
         else:
             status = "running"
         states.append(TaskExperienceStepState(step_id=step_id, status=status))
-    normalized = normalize_creator_video_workflow_input(submission.inputs)
+    # All entry actions persist this projection at admission. Their public
+    # inputs differ (a brief versus a story reference), including on replay.
+    normalized = record.normalized_input
     context = [
         TaskExperienceContextItem(
             id="resolution",
@@ -3133,7 +3134,6 @@ class CreatorVideoWorkflowTaskAdapter:
                     event_detail[
                         "experience_update"
                     ] = _creator_experience_update(
-                        submission,
                         record,
                         workflow_event,
                     ).model_dump(
