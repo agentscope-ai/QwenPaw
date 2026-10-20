@@ -2,7 +2,7 @@
 
 **Self-Evolving, Graph-Grounded Agentic BI at Enterprise Scale**
 
-Source: https://github.com/agentscope-ai/QwenPaw-Data
+Source: [QwenPaw-Data](https://github.com/agentscope-ai/QwenPaw-Data)
 
 [中文 README](./README_ZH.md)
 
@@ -17,18 +17,12 @@ graph-grounded data analysis into the QwenPaw workspace so
 users can ask business questions in natural language and get traceable,
 artifact-rich answers backed by real enterprise data.
 
-## Screenshots
+## Session workspace
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/agentscope-ai/QwenPaw/main/plugins/apps/qwenpaw-data/assets/screenshots/cm-graph.png" alt="Metadata graph visualization" width="900" />
+  <img src="https://raw.githubusercontent.com/agentscope-ai/QwenPaw-Data/main/assets/qwenpaw-app/session-workspace.png" alt="QwenPaw-Data session workspace showing an analysis result, a CSV artifact, and chat turns" width="900" />
   <br/>
-  <em>Metadata Graph: semantic model, dimensions, metrics, and lineage</em>
-</p>
-
-<p align="center">
-  <img src="https://raw.githubusercontent.com/agentscope-ai/QwenPaw/main/plugins/apps/qwenpaw-data/assets/screenshots/analysis-result.png" alt="End-to-end analysis result" width="900" />
-  <br/>
-  <em>End-to-end analysis: natural language question → governed SQL → traceable answer</em>
+  <em>Session workspace: data analysis, traceable results, and downloadable artifacts alongside chat turns.</em>
 </p>
 
 ## Core idea

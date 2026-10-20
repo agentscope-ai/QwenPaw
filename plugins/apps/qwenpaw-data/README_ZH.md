@@ -12,18 +12,12 @@ QwenPaw-Data 是一个原生 QwenPaw 应用。其前端挂载在 `/apps/qwenpaw-
 
 [QwenPaw-Data](https://github.com/agentscope-ai/QwenPaw-Data) 将自主、图驱动的数据分析能力引入 QwenPaw 工作区，让用户可以用自然语言提出业务问题，并获得可追溯、富含工件、由真实企业数据支撑的答案。
 
-## 界面截图
+## 会话工作区
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/agentscope-ai/QwenPaw/main/plugins/apps/qwenpaw-data/assets/screenshots/cm-graph.png" alt="元数据图谱可视化" width="900" />
+  <img src="https://raw.githubusercontent.com/agentscope-ai/QwenPaw-Data/main/assets/qwenpaw-app/session-workspace.png" alt="QwenPaw-Data 会话工作区，展示分析结果、CSV 工件和对话轮次" width="900" />
   <br/>
-  <em>元数据图谱：语义模型、维度、指标与血缘关系</em>
-</p>
-
-<p align="center">
-  <img src="https://raw.githubusercontent.com/agentscope-ai/QwenPaw/main/plugins/apps/qwenpaw-data/assets/screenshots/analysis-result.png" alt="端到端分析结果" width="900" />
-  <br/>
-  <em>端到端分析：自然语言提问 → 受控 SQL → 可追溯答案</em>
+  <em>会话工作区：在对话中查看数据分析、可追溯结果和可下载工件。</em>
 </p>
 
 ## 核心理念
