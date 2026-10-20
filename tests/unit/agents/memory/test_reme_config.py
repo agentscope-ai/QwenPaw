@@ -34,6 +34,41 @@ def test_memory_search_indexes_only_memory_markdown() -> None:
     assert job["watch_suffixes"] == ["md"]
 
 
+def test_reme_watchers_use_private_threads() -> None:
+    cfg = _config_for_embedding(EmbeddingModelConfig())
+    watcher = cfg["jobs"]["index_update_loop"]["steps"][1]
+    assert watcher["backend"] == "watch_changes_step"
+    assert watcher["watch_mode"] == "watch"
+
+
+def test_dream_and_proactive_use_separate_pipelines_and_catalogs() -> None:
+    cfg = _config_for_embedding(EmbeddingModelConfig())
+    dream = cfg["jobs"]["auto_dream"]
+    assert [step["backend"] for step in dream["steps"]] == [
+        "dream_extract_step",
+        "dream_integrate_step",
+        "dream_finish_step",
+    ]
+    refresh = cfg["jobs"]["proactive_refresh"]
+    assert refresh["enable_serve"] is False
+    assert [step["backend"] for step in refresh["steps"]] == [
+        "proactive_extract_step",
+        "proactive_topics_step",
+        "proactive_plan_step",
+        "proactive_agenda_step",
+        "proactive_finish_step",
+    ]
+    assert refresh["steps"][0]["file_catalog"] == "proactive"
+    assert refresh["steps"][-1]["file_catalog"] == "proactive"
+    assert cfg["components"]["file_catalog"]["proactive"] == {
+        "backend": "local",
+    }
+    assert cfg["jobs"]["proactive"]["steps"] == [
+        {"backend": "proactive_step"},
+    ]
+    assert not any(job["backend"] == "cron" for job in cfg["jobs"].values())
+
+
 def test_reme_file_processing_is_limited_to_10_mb() -> None:
     cfg = _config_for_embedding(EmbeddingModelConfig())
 

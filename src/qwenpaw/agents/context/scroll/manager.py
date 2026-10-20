@@ -556,6 +556,45 @@ class ScrollContextManager:
         )
         is_forced_compaction = float(cfg.trigger_ratio) < base_trigger_ratio
         if not is_forced_compaction:
+            jev = getattr(agent, "_try_jev_compact", None)
+            lcc = getattr(
+                getattr(
+                    getattr(agent, "_agent_config", None),
+                    "running",
+                    None,
+                ),
+                "light_context_config",
+                None,
+            )
+            if jev is not None and getattr(
+                getattr(lcc, "jev_compact_config", None),
+                "enabled",
+                False,
+            ):
+                # Results are already durable; only expose references whose
+                # rows still exist after retention or session recovery.
+                contents = self._history.contents_by_seqs(
+                    set(self._seq_by_tcid.values()),
+                )
+                refs = {}
+                for msg in agent.state.context:
+                    for entry in msg_to_entries(msg):
+                        tcid = entry.tool_call_id
+                        seq = self._seq_by_tcid.get(tcid)
+                        if (
+                            entry.kind == "tool_result"
+                            and seq in contents
+                            and contents[seq] == entry.content
+                        ):
+                            refs[tcid] = (
+                                "recall_history(op='recall_tool', "
+                                f"tool_call_id={tcid!r})"
+                            )
+                if await jev(target=trigger, tokens=tokens, source_refs=refs):
+                    self._overflow_warned = False
+                    log_timings("jev_below_trigger")
+                    return
+                tokens = await self._live_tokens(agent)
             pre_folded, tokens = await self._batch_fold_completed_tool_results(
                 agent,
                 tokens=tokens,
@@ -839,7 +878,9 @@ class ScrollContextManager:
                 if not durable_key:
                     durable_key = f"{mid}#anon{anonymous_position}"
                     anonymous_position += 1
-                if str(entry.content or "").startswith(
+                if entry.metadata.get("qwenpaw_jev_compacted") or str(
+                    entry.content or "",
+                ).startswith(
                     (_FOLD_MARK, _RECALL_FOLD_MARK),
                 ):
                     seq = self._seq_by_tcid.get(str(durable_key))
@@ -1484,16 +1525,7 @@ class ScrollContextManager:
     @staticmethod
     async def _count_model_input_tokens(agent: Any, kwargs: dict) -> int:
         """Count the formatter's omission view without altering model input."""
-        get_formatter = getattr(agent, "_get_active_formatter", None)
-        formatter = get_formatter() if callable(get_formatter) else None
-        project = getattr(
-            formatter,
-            "_prepare_messages_for_token_counting",
-            None,
-        )
-        if callable(project):
-            kwargs = {**kwargs, "messages": project(kwargs["messages"])}
-        return await agent.model.count_tokens(**kwargs)
+        return await as_internals.count_model_input_tokens(agent, kwargs)
 
     async def _live_tokens(self, agent: Any) -> int:
         """Token count of the live context as the model would receive it."""
@@ -2010,6 +2042,10 @@ class ScrollContextManager:
     @staticmethod
     def _is_folded_stub(block: Any) -> bool:
         """True if this result's output is already a fold stub."""
+        if ScrollContextManager._block_metadata(block).get(
+            "qwenpaw_jev_compacted",
+        ):
+            return True
         out = getattr(block, "output", None)
         if isinstance(out, str):
             return out.startswith((_FOLD_MARK, _RECALL_FOLD_MARK))

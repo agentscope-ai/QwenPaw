@@ -362,6 +362,26 @@ class QwenPawAgent(CodingModeMixin, Agent):
             instructions=instructions,
         )
 
+    async def _try_jev_compact(self, *, target, tokens, source_refs=None):
+        """Run optional semantic previews without enabling long-term memory."""
+        lcc = self._agent_config.running.light_context_config
+        if (
+            not lcc.context_compact_config.enabled
+            or not lcc.jev_compact_config.enabled
+        ):
+            return False
+        from .context.jev import JevCompactor
+
+        compactor = getattr(self, "_jev_compactor", None)
+        if compactor is None:
+            compactor = self._jev_compactor = JevCompactor()
+        return await compactor.compact(
+            self,
+            target=target,
+            tokens=tokens,
+            source_refs=source_refs,
+        )
+
     async def _compress_context_impl(
         self,
         context_config: Any = None,
@@ -380,6 +400,29 @@ class QwenPawAgent(CodingModeMixin, Agent):
                     instructions=instructions,
                 )
             return
+
+        lcc = self._agent_config.running.light_context_config
+        if (
+            lcc.jev_compact_config.enabled
+            and lcc.context_compact_config.enabled
+        ):
+            from .context.scroll import _as_internals as as_internals
+
+            cfg = context_config or self.context_config
+            target = cfg.trigger_ratio * self.model.context_size
+            # Manual /compact and overflow recovery retain their explicit
+            # eviction semantics rather than being intercepted by JEV.
+            if cfg.trigger_ratio >= self.context_config.trigger_ratio:
+                kwargs = await as_internals.prepare_model_input(self)
+                tokens = await as_internals.count_model_input_tokens(
+                    self,
+                    kwargs,
+                )
+                if tokens > target and await self._try_jev_compact(
+                    target=target,
+                    tokens=tokens,
+                ):
+                    return
 
         await super()._compress_context_impl(
             context_config,
@@ -514,6 +557,17 @@ class QwenPawAgent(CodingModeMixin, Agent):
             # compress_context() on the next reasoning cycle.
             pass
 
+    async def _close_jev_compactor(self):
+        """Release the optional model without interrupting other cleanup."""
+        compactor = getattr(self, "_jev_compactor", None)
+        if compactor is not None:
+            try:
+                await compactor.close()
+            except Exception:
+                logger.warning("JEV client close failed", exc_info=True)
+            else:
+                self._jev_compactor = None
+
     async def close(self) -> None:
         """Shut down governor, release the history store, and clean up expired
         tool-result files."""
@@ -523,6 +577,8 @@ class QwenPawAgent(CodingModeMixin, Agent):
                 gov.stop()
             except Exception:
                 logger.debug("governor stop failed", exc_info=True)
+
+        await self._close_jev_compactor()
 
         # Scroll history: apply the retention window (if any) while the
         # connection is still open, then release it (db + -wal + -shm fds —
@@ -702,6 +758,8 @@ class QwenPawAgent(CodingModeMixin, Agent):
             return False
         formatter_setter = getattr(formatter, "set_thinking_omit_ids", None)
         if callable(formatter_setter):
+            # Dynamic formatter implementations supply this optional method.
+            # pylint: disable-next=not-callable
             return bool(formatter_setter(set(block_ids)))
         # Compatibility for third-party OpenAI-chat formatters that predate
         # the explicit interface but consume the QwenPaw extension attribute.

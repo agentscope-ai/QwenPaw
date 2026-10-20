@@ -1,0 +1,254 @@
+# -*- coding: utf-8 -*-
+"""ReMe proposals with host-owned models, archives, and atomic commit."""
+# pylint: disable=protected-access
+
+from copy import deepcopy
+import asyncio
+import logging
+
+from agentscope.message import Msg
+
+from ...constant import (
+    QWENPAW_MESSAGE_TAG_KEY,
+    SYNTHETIC_USER_MESSAGE_TAGS,
+)
+from ..decision_model_factory import create_decision_model_async
+from .scroll import _as_internals as as_internals
+
+logger = logging.getLogger(__name__)
+JEV_COMPACTED = "qwenpaw_jev_compacted"
+
+
+class JevCompactor:
+    """One lazy decision client per agent; independent of long-term memory."""
+
+    def __init__(self):
+        self._component = None
+        self._model = None
+
+    async def close(self):
+        """ReMe drains borrowed calls before QwenPaw releases its client."""
+        if self._component is not None:
+            await self._component.close()
+        model, self._model = self._model, None
+        self._component = None
+        if model is not None:
+            await model.client.aclose()
+
+    async def _decision_component(self, agent):
+        if self._component is None:
+            from reme.components.as_decision_model import (
+                AgentScopeAsDecisionModel,
+            )
+
+            component = AgentScopeAsDecisionModel()
+            model = await create_decision_model_async(agent._agent_config)
+            component.model = model
+            self._model, self._component = model, component
+        return self._component
+
+    async def compact(self, agent, *, target, tokens, source_refs=None):
+        """Commit only validated output previews with a smaller real input.
+
+        Scroll supplies durable recall references. Native mode archives each
+        eligible result through its offloader. Every error leaves the current
+        context intact and allows the original compression pipeline to run.
+        """
+        cfg = (
+            agent._agent_config.running.light_context_config.jev_compact_config
+        )
+        try:
+            async with asyncio.timeout(cfg.total_timeout_seconds):
+                return await self._compact(
+                    agent,
+                    cfg,
+                    target,
+                    tokens,
+                    source_refs,
+                )
+        except Exception:
+            logger.warning(
+                "JEV compaction unavailable; continuing normal compaction",
+                exc_info=True,
+            )
+            return False
+
+    async def _compact(self, agent, cfg, target, tokens, source_refs):
+        from reme.schema.compaction import CompactionRequest, CompactionResult
+        from reme.steps.compaction.compact_context import CompactContextStep
+        from reme.steps.compaction.messages import collect_pairs
+
+        original = agent.state.context
+        snapshot = [msg.model_dump(mode="json") for msg in original]
+        # Protect the complete active turn as well as ReMe's recent window.
+        active_start = next(
+            (
+                i
+                for i in range(len(snapshot) - 1, -1, -1)
+                if snapshot[i]["role"] == "user"
+                and snapshot[i]
+                .get("metadata", {})
+                .get(QWENPAW_MESSAGE_TAG_KEY)
+                not in SYNTHETIC_USER_MESSAGE_TAGS
+            ),
+            0,
+        )
+        protected = [msg["id"] for msg in snapshot[active_start:]]
+        refs = dict(source_refs or {})
+        tools = set()
+        for message in snapshot:
+            for block in message["content"]:
+                if block["type"] == "tool_result":
+                    tools.add(block["name"])
+        options = cfg.model_dump(exclude={"enabled"})
+        request = CompactionRequest(
+            messages=snapshot,
+            protected_message_ids=protected,
+            protected_call_ids=[
+                block["id"]
+                for msg in snapshot
+                for block in msg["content"]
+                if block["type"] == "tool_result"
+                and block.get("metadata", {}).get(JEV_COMPACTED)
+            ],
+            source_refs=refs,
+            eligible_tool_names=sorted(tools),
+            options=options,
+        )
+        if source_refs is None:
+            request.source_refs = await self._archive_native(
+                agent,
+                request,
+                original,
+            )
+        pairs = {
+            pair.call_id: pair
+            for pair in collect_pairs(request)
+            if not pair.protected
+        }
+        if not pairs:
+            return False
+        request.goal = "\n".join(
+            b.get("text", "")
+            for m in snapshot[active_start:]
+            for b in m["content"]
+            if b["type"] == "text"
+        )
+        component = await self._decision_component(agent)
+        response = await CompactContextStep(as_decision_model=component)(
+            **request.model_dump(mode="json"),
+        )
+        if not response.success:
+            return False
+        result = CompactionResult.model_validate(response.answer)
+        if not result.changed:
+            return False
+        candidate, changed_ids = self._validated_candidate(
+            snapshot,
+            request,
+            result,
+            cfg,
+        )
+        if [
+            msg.model_dump(mode="json") for msg in agent.state.context
+        ] != snapshot:
+            return False
+        # Count the exact formatter input, including system prompt and tools.
+        # Roll back on failures/cancellation, before any subsequent await.
+        agent.state.context = candidate
+        committed = False
+        try:
+            kwargs = await as_internals.prepare_model_input(agent)
+            after = await as_internals.count_model_input_tokens(
+                agent,
+                kwargs,
+            )
+            if after >= tokens:
+                return False
+            committed = True
+        finally:
+            if not committed and agent.state.context is candidate:
+                agent.state.context = original
+        logger.info(
+            "JEV compacted %d tool results: %d -> %d input tokens",
+            len(changed_ids),
+            tokens,
+            after,
+        )
+        return after <= target
+
+    @staticmethod
+    async def _archive_native(agent, request, original):
+        """Archive safe candidate outputs before making them eligible."""
+        from reme.steps.compaction.messages import collect_pairs
+
+        offloader = getattr(agent, "offloader", None)
+        if offloader is None:
+            return {}
+        # Temporary refs discover safe pairs locally; never sent to ReMe.
+        probe = request.model_copy(
+            update={
+                "source_refs": {
+                    b["id"]: "pending"
+                    for m in request.messages
+                    for b in m["content"]
+                    if b["type"] == "tool_result"
+                },
+            },
+        )
+        refs = {}
+        for pair in collect_pairs(probe):
+            if not pair.protected:
+                mi, bi = pair.result_location
+                path = await offloader.offload_tool_result(
+                    agent._model_session_id,
+                    original[mi].content[bi],
+                )
+                if path:
+                    refs[pair.call_id] = f"read_file(file_path={str(path)!r})"
+        return refs
+
+    @staticmethod
+    def _validated_candidate(snapshot, request, result, cfg):
+        """Compare the entire proposal with permitted output previews."""
+        from reme.steps.compaction.messages import (
+            collect_pairs,
+            preview_result,
+        )
+
+        pairs = {
+            p.call_id: p for p in collect_pairs(request) if not p.protected
+        }
+        refs = request.source_refs
+        expected = deepcopy(snapshot)
+        changed_ids = set()
+        for decision in result.decisions:
+            if decision.action != "preview":
+                continue
+            pair = pairs.get(decision.call_id)
+            if pair is None or decision.source_ref != refs[pair.call_id]:
+                raise ValueError("Invalid JEV source reference")
+            if (
+                decision.probability is None
+                or decision.probability > cfg.drop_threshold
+            ):
+                raise ValueError("Invalid JEV preview decision")
+            mi, bi = pair.result_location
+            block = expected[mi]["content"][bi]
+            replacement = preview_result(
+                block,
+                refs[pair.call_id],
+                cfg.preview_chars,
+            )
+            if replacement is None or pair.call_id in changed_ids:
+                raise ValueError("Invalid or duplicate JEV preview")
+            block["output"] = replacement
+            changed_ids.add(pair.call_id)
+        if not changed_ids or expected != result.messages:
+            raise ValueError("JEV proposal changed protected content")
+        candidate = [Msg.model_validate(msg) for msg in expected]
+        for msg in candidate:
+            for block in msg.content:
+                if block.type == "tool_result" and block.id in changed_ids:
+                    block.metadata[JEV_COMPACTED] = True
+        return candidate, changed_ids

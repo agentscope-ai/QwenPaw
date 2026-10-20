@@ -1,5 +1,10 @@
 # 记忆自进化与主动交互（Beta）
 
+ReMe 0.4.2 集成将摘要整合和主动主题刷新拆成独立 Job，继续使用现有 Auto-Dream action 和调度。
+摘要整合成功后，QwenPaw 会执行私有的 `proactive_refresh` Job；`proactive` memory action 继续只负责读取。
+旧 Auto-Dream 的 `topic_count`、`topic_diversity_days` 参数不再接受，主题生成改用
+`src/qwenpaw/agents/memory/reme_config.py` 中独立 proactive 流程的配置。
+
 > 本文承接[长期记忆](./memory)，只讲那篇没有展开的两件事：**同一条长期知识如何随时间被改写**，以及 **`/proactive` 主动交互到底怎样工作**。记忆目录、文件格式、索引原理、检索机制和完整配置都在[长期记忆](./memory)中。
 
 QwenPaw 里有两条相关但目前**各自独立**的链路：

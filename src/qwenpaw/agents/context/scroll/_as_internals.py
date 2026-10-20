@@ -33,3 +33,17 @@ async def split_for_compression(
     reserving roughly ``reserve`` tokens of the recent tail."""
     # pylint: disable-next=protected-access
     return await agent._split_context_for_compression(reserve, tools)
+
+
+async def count_model_input_tokens(agent: Any, kwargs: dict) -> int:
+    """Count the formatter's omission view without altering model input."""
+    get_formatter = getattr(agent, "_get_active_formatter", None)
+    formatter = get_formatter() if callable(get_formatter) else None
+    project = getattr(
+        formatter,
+        "_prepare_messages_for_token_counting",
+        None,
+    )
+    if callable(project):
+        kwargs = {**kwargs, "messages": project(kwargs["messages"])}
+    return await agent.model.count_tokens(**kwargs)

@@ -1316,6 +1316,22 @@ class VisualCompactConfig(BaseModel):
     )
 
 
+class JevCompactConfig(BaseModel):
+    """Optional recoverable tool-result compaction through ReMe and JEV."""
+
+    model_config = ConfigDict(extra="ignore", allow_inf_nan=False)
+
+    enabled: bool = False
+    drop_threshold: float = Field(default=0.1, ge=0, le=1)
+    preserve_recent_messages: int = Field(default=6, ge=0)
+    preview_chars: int = Field(default=300, ge=0)
+    total_timeout_seconds: float = Field(default=30, gt=0, le=300)
+    max_state_tokens: int = Field(default=25000, gt=0)
+    max_request_tokens: int = Field(default=30000, gt=0)
+    evidence_chars: int = Field(default=2000, gt=0)
+    max_concurrency: int = Field(default=4, ge=1, le=32)
+
+
 class LightContextConfig(BaseModel):
     """Light context manager configuration."""
 
@@ -1353,6 +1369,9 @@ class LightContextConfig(BaseModel):
     )
     scroll_config: ScrollContextConfig = Field(
         default_factory=ScrollContextConfig,
+    )
+    jev_compact_config: JevCompactConfig = Field(
+        default_factory=JevCompactConfig,
     )
     visual_compact_config: VisualCompactConfig = Field(
         default_factory=VisualCompactConfig,

@@ -37,6 +37,18 @@ export interface VisualCompactConfig {
   effort: "low" | "medium" | "high";
 }
 
+export interface JevCompactConfig {
+  enabled: boolean;
+  drop_threshold: number;
+  preserve_recent_messages: number;
+  preview_chars: number;
+  total_timeout_seconds: number;
+  max_state_tokens: number;
+  max_request_tokens: number;
+  evidence_chars: number;
+  max_concurrency: number;
+}
+
 export interface LightContextConfig {
   strategy: ContextStrategy;
   dialog_path: string;
@@ -44,6 +56,7 @@ export interface LightContextConfig {
   context_compact_config: ContextCompactConfig;
   scroll_config: ScrollConfig;
   tool_result_pruning_config: ToolResultPruningConfig;
+  jev_compact_config: JevCompactConfig;
   visual_compact_config: VisualCompactConfig;
 }
 
