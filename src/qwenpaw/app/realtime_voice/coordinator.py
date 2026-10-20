@@ -147,9 +147,16 @@ class VoiceCoordinator:
         if self._presenter is not self._provider:
             await self._presenter.connect(self._presentation_session_config)
         snapshots = await self._bridge.presentation_snapshots()
-        # An incomplete snapshot cannot support reliable direct recall. Route
-        # live input through Chat, which owns the full conversation and tools.
-        self._chat_mode_active = bool(snapshots) or bool(snapshot.get("omitted"))
+        # Restore Chat ownership from public Agent replies when process-local
+        # task snapshots are gone. Incomplete history also needs Chat's context.
+        self._chat_mode_active = (
+            bool(snapshots)
+            or bool(snapshot.get("omitted"))
+            or any(
+                message.get("source") == "agent"
+                for message in snapshot.get("messages", [])
+            )
+        )
         for snapshot in snapshots:
             self._task_snapshots[snapshot.task_id] = snapshot
         self._start(self._pump_provider())
@@ -228,6 +235,11 @@ class VoiceCoordinator:
                     )
                 if event.kind == "input_transcript.final":
                     source_id = str(event.correlation_id or "")
+                    history_task = self._start(
+                        self._persist_handoff_transcript(source_id)
+                    )
+                    self._history_tasks.add(history_task)
+                    history_task.add_done_callback(self._history_finished)
                     self._live_sources.add(source_id)
                     self._input_transcripts[source_id] = str(
                         event.data.get("text") or ""
@@ -498,6 +510,20 @@ class VoiceCoordinator:
         self._history_tasks.discard(task)
         if not task.cancelled() and (error := task.exception()) is not None:
             self._history_errors[f"save:{id(task)}"] = error
+
+    async def _persist_handoff_transcript(self, source_id: str) -> None:
+        try:
+            await self._bridge.persist_transcript(source_id)
+        except Exception as exc:  # noqa: BLE001
+            await self._emit_error(
+                "voice_history_commit_failed",
+                str(exc)[:500],
+                source="coordinator",
+                correlation_id=source_id,
+            )
+            raise
+        if not self._closed:
+            self._start(self._reconcile_timeline())
 
     async def _save_direct_exchange(
         self,

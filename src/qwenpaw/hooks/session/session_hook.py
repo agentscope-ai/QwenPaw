@@ -11,8 +11,15 @@ from __future__ import annotations
 import asyncio
 import logging
 
+from agentscope.state import AgentState
+
 from ..cron.cron_hook import restore_cron_context
 from ...agents.acp.meta import ACP_EPHEMERAL_META_KEY
+from ...app.chats.timeline import (
+    merge_timeline_messages,
+    pending_timeline_messages,
+)
+from ...app.chats.utils import parse_legacy_memory_state
 from ...runtime._state_utils import StateProxy
 from ...runtime.console_turn_state import (
     prepare_console_regeneration,
@@ -60,12 +67,32 @@ class SessionLoadHook(LifecycleHook):
             channel = getattr(request, "channel", "") or ""
 
             proxy = StateProxy()
+            timeline = StateProxy()
             await session.load_session_state(
                 session_id=ctx.session_id,
                 user_id=user_id,
                 channel=channel,
                 agent=proxy,
+                chat_timeline=timeline,
             )
+            pending = pending_timeline_messages(
+                {"chat_timeline": timeline.data}
+            )
+            if pending:
+                raw_state = proxy.data.get("state")
+                if raw_state is not None:
+                    state = AgentState.model_validate(raw_state)
+                else:
+                    state = AgentState(session_id=ctx.session_id)
+                    memory = proxy.data.get("memory")
+                    if isinstance(memory, dict):
+                        state.context, state.summary = (
+                            parse_legacy_memory_state(memory)
+                        )
+                state.context = merge_timeline_messages(
+                    list(state.context), pending
+                )
+                proxy.data["state"] = state.model_dump(mode="json")
             if proxy.data:
                 ctx.session_state = proxy.data
                 mode_state = proxy.data.get("mode_state")

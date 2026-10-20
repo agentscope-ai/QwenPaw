@@ -5,6 +5,8 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from qwenpaw.app.chats.session import SafeJSONSession
+from qwenpaw.app.chats.timeline import pending_timeline_messages
 from qwenpaw.app.realtime_voice.contracts import VoiceRunEvent, VoiceTaskEvent
 from qwenpaw.app.realtime_voice.task_bridge import VoiceTaskBridge
 from qwenpaw.app.task_tracker import RunInput, RunOutcome, TaskTracker
@@ -581,7 +583,9 @@ async def test_execution_failure_never_replays_an_admitted_turn(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_enqueued_admission_outlives_a_cancelled_waiter(monkeypatch):
+async def test_enqueued_admission_outlives_a_cancelled_waiter(
+    monkeypatch, tmp_path
+):
     tracker = Tracker()
     events = asyncio.Queue()
     started = asyncio.Event()
@@ -601,6 +605,10 @@ async def test_enqueued_admission_outlives_a_cancelled_waiter(monkeypatch):
         submit,
     )
     task_bridge = bridge(tracker)
+    task_bridge._workspace.session = SafeJSONSession(str(tmp_path))
+    task_bridge._chat.session_id = "session-1"
+    task_bridge._chat.user_id = "user-1"
+    task_bridge._chat.channel = "console"
     task_bridge._attach_observer = AsyncMock()
     task_bridge.observe_transcript("audio-a", "long", final=False)
     handle = await task_bridge.enqueue_input(
@@ -616,6 +624,10 @@ async def test_enqueued_admission_outlives_a_cancelled_waiter(monkeypatch):
     task_bridge.observe_transcript(
         "audio-a", "original long request", final=True
     )
+    await task_bridge.persist_transcript("audio-a")
+    # A delayed/replayed provider event cannot replace confirmed evidence.
+    task_bridge.observe_transcript("audio-a", "wrong replay", final=True)
+    await task_bridge.persist_transcript("audio-a")
 
     waiter.cancel()
     await asyncio.gather(waiter, return_exceptions=True)
@@ -632,6 +644,75 @@ async def test_enqueued_admission_outlives_a_cancelled_waiter(monkeypatch):
         "final": True,
     }
     assert len(task_bridge._idempotency) == 1
+    persisted = pending_timeline_messages(
+        await task_bridge._workspace.session.get_session_state_dict(
+            "session-1", "user-1", "console"
+        )
+    )
+    assert [m.id for m in persisted] == [
+        f"speech_transcript:{input_id}:snapshot",
+        f"speech_transcript:{input_id}:final",
+    ]
+    evidence = [
+        json.loads(m.content[0].hint.split("\n", 1)[1]) for m in persisted
+    ]
+    assert [e["input_id"] for e in evidence] == [input_id, input_id]
+    assert [e["transcript"]["text"] for e in evidence] == [
+        "long",
+        "original long request",
+    ]
+    await task_bridge.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("save_fails", [False, True])
+async def test_final_before_handoff_is_saved_before_admission(
+    monkeypatch, tmp_path, save_fails
+):
+    task_bridge = bridge(Tracker())
+    session = SafeJSONSession(str(tmp_path))
+    task_bridge._workspace.session = session
+    task_bridge._chat.session_id = "session"
+    task_bridge._chat.user_id = "user"
+    task_bridge._chat.channel = "console"
+    task_bridge._attach_observer = AsyncMock()
+
+    async def submit(_workspace, _chat, request):
+        state = await session.get_session_state_dict(
+            "session", "user", "console"
+        )
+        pending = pending_timeline_messages(state)
+        assert len(pending) == 1
+        assert pending[0].id == (
+            f"speech_transcript:{request.client_message_id}:final"
+        )
+        assert request.content_parts[0].text == "delegated request"
+        return SimpleNamespace(run_id="run", events=asyncio.Queue())
+
+    submission = AsyncMock(side_effect=submit)
+    monkeypatch.setattr(
+        "qwenpaw.app.realtime_voice.task_bridge.ChatRunCoordinator.submit",
+        submission,
+    )
+    if save_fails:
+        monkeypatch.setattr(
+            session,
+            "mutate_session_state",
+            AsyncMock(side_effect=OSError("disk full")),
+        )
+    task_bridge.observe_transcript("audio", "original words", final=True)
+    # No binding yet: final evidence alone cannot admit work.
+    await task_bridge.persist_transcript("audio")
+    handle = await task_bridge.enqueue_input(
+        "delegated request",
+        idempotency_key="turn",
+        transcript_source_id="audio",
+    )
+    result = await handle.wait()
+    assert result.accepted is not save_fails
+    assert submission.await_count == (0 if save_fails else 1)
+    if save_fails:
+        assert "disk full" in result.message
     await task_bridge.close()
 
 

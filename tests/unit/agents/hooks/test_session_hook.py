@@ -4,14 +4,28 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import threading
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
+from agentscope.formatter import DashScopeChatFormatter, OpenAIChatFormatter
+from agentscope.message import Msg, TextBlock
+from agentscope.state import AgentState
 
 from qwenpaw.agents.acp.meta import ACP_EPHEMERAL_META_KEY
+from qwenpaw.agents.react_agent import QwenPawAgent
+from qwenpaw.app.chats.session import SafeJSONSession
+from qwenpaw.app.chats.timeline import (
+    ChatTimelineJournal,
+    pending_timeline_messages,
+)
+from qwenpaw.app.chats.utils import agentscope_msg_to_message
+from qwenpaw.app.task_tracker import TaskTracker
 from qwenpaw.hooks.session.session_hook import SessionLoadHook, SessionSaveHook
 from qwenpaw.hooks.session.signals import SESSION_SAVE_SUCCEEDED_KEY
+from qwenpaw.runtime._state_utils import StateProxy
 
 pytestmark = [pytest.mark.unit, pytest.mark.p1]
 
@@ -50,7 +64,99 @@ def _ctx(session: _FakeSession, *, ephemeral: bool):
         mode_state={},
         extras={},
         error=None,
+        session_state=None,
     )
+
+
+@pytest.mark.parametrize("storage_format", ["current", "legacy", "pending"])
+async def test_load_recovers_speech_journal_after_stale_agent_save(
+    tmp_path, storage_format
+):
+    session = SafeJSONSession(str(tmp_path))
+    ctx = _ctx(session, ephemeral=False)
+    chat = SimpleNamespace(
+        id="chat",
+        session_id=ctx.session_id,
+        user_id=ctx.request.user_id,
+        channel=ctx.request.channel,
+    )
+    ctx.workspace.task_tracker = TaskTracker()
+    journal = ChatTimelineJournal(ctx.workspace, chat)
+    original = Msg(
+        id="input",
+        name="user",
+        role="user",
+        content=[TextBlock(text="DELEGATED_REQUEST")],
+    )
+    old = StateProxy()
+    if storage_format == "current":
+        old.data = {
+            "state": AgentState(
+                context=[original], summary="retained summary"
+            ).model_dump(mode="json")
+        }
+    elif storage_format == "legacy":
+        old.data = {
+            "memory": {
+                "content": [[original.model_dump(mode="json"), []]],
+                "_compressed_summary": "retained summary",
+            }
+        }
+    initial = {"source_id": "audio", "text": "PARTIAL_WORDS", "final": False}
+    final = {**initial, "text": "FINAL_WORDS", "final": True}
+
+    async def stale_save():
+        await session.save_session_state(
+            chat.session_id, chat.user_id, chat.channel, agent=old
+        )
+
+    await journal.append_speech_transcript("input", initial)
+    await asyncio.gather(
+        stale_save(), journal.append_speech_transcript("input", final)
+    )
+    # An Agent save that started before final ASR can finish after its commit.
+    await stale_save()
+    ctx.workspace.session = SafeJSONSession(str(tmp_path))
+    ctx.workspace.task_tracker = TaskTracker()
+    ctx.workspace.task_tracker.submit_or_start = AsyncMock()
+    await SessionLoadHook().run(ctx)
+    restored = AgentState.model_validate(ctx.session_state["state"])
+    assert len(restored.context) == (2 if storage_format == "pending" else 3)
+    if storage_format != "pending":
+        assert restored.summary == "retained summary"
+        assert restored.context[0].model_dump() == original.model_dump()
+
+    agent = object.__new__(QwenPawAgent)
+    agent.state = restored
+    agent.context_config = SimpleNamespace(compression_tool_enabled=False)
+    agent._get_system_prompt = AsyncMock(return_value="Test")
+    agent.toolkit = SimpleNamespace(
+        get_tool_schemas=AsyncMock(return_value=[])
+    )
+    agent._run_input_mailbox = None
+    prepared = await agent._prepare_model_input()
+    for formatter in (DashScopeChatFormatter, OpenAIChatFormatter):
+        wire = json.dumps(await formatter().format(prepared["messages"]))
+        assert wire.count("PARTIAL_WORDS") == 1
+        assert wire.count("FINAL_WORDS") == 1
+    visible = agentscope_msg_to_message(restored.context)
+    assert len(visible) == (0 if storage_format == "pending" else 1)
+    assert all(message.role == "user" for message in visible)
+    ctx.workspace.task_tracker.submit_or_start.assert_not_awaited()
+
+    # Loading does not consume pending data before the Agent has saved it.
+    saved = await session.get_session_state_dict(
+        chat.session_id, chat.user_id, chat.channel
+    )
+    assert len(pending_timeline_messages(saved)) == 2
+    ctx.agent = SimpleNamespace(state_dict=lambda: ctx.session_state)
+    await SessionSaveHook().run(ctx)
+    assert await journal.reconcile() == 0
+    await journal.append_speech_transcript("input", final)
+    assert await journal.reconcile() == 0
+    await SessionLoadHook().run(ctx)
+    reloaded = AgentState.model_validate(ctx.session_state["state"])
+    assert [m.id for m in reloaded.context] == [m.id for m in restored.context]
 
 
 async def test_ephemeral_request_skips_session_load_and_save():

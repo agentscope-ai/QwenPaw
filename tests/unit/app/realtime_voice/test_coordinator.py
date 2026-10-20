@@ -52,6 +52,7 @@ class Bridge:
         self.queue = asyncio.Queue()
         self.enqueue_input = AsyncMock()
         self.observe_transcript = Mock()
+        self.persist_transcript = AsyncMock()
         self.presentation_snapshots = AsyncMock(return_value=())
         self.observe_active_run = AsyncMock(return_value=None)
         self.status = AsyncMock(return_value=snapshot())
@@ -382,6 +383,8 @@ async def test_native_handoff_admits_exact_model_request_and_returns_receipt(
         bridge.observe_transcript.assert_any_call(
             "source-1", "截取桌面并解释", final=True
         )
+        await eventually(lambda: bridge.persist_transcript.await_count == 1)
+        bridge.persist_transcript.assert_awaited_once_with("source-1")
         bridge.enqueue_input.assert_awaited_once()
         provider.complete_tool_call.assert_awaited_once_with(
             "call-1",
@@ -394,6 +397,44 @@ async def test_native_handoff_admits_exact_model_request_and_returns_receipt(
         )
     finally:
         await coordinator.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("save_fails", [False, True])
+async def test_close_joins_handoff_transcript_write(save_fails):
+    provider, bridge = Provider(), Bridge()
+    entered, release = asyncio.Event(), asyncio.Event()
+
+    async def persist(_source_id):
+        entered.set()
+        await release.wait()
+        if save_fails:
+            raise OSError("disk full")
+
+    bridge.persist_transcript.side_effect = persist
+    coordinator, _ = build_coordinator(provider, bridge)
+    coordinator._handoff_sources.add("source-1")
+    await coordinator.start()
+    await provider.queue.put(transcript("source-1", "final evidence"))
+    await asyncio.wait_for(entered.wait(), 1)
+    closing = asyncio.create_task(coordinator.close())
+    await asyncio.sleep(0)
+    closing.cancel()
+    await asyncio.gather(closing, return_exceptions=True)
+    assert not coordinator._close_task.done()
+    release.set()
+    if save_fails:
+        with pytest.raises(RuntimeError, match="history could not be saved"):
+            await coordinator.close()
+        assert any(
+            isinstance(e, ProviderEvent)
+            and e.data.get("code") == "voice_history_commit_failed"
+            for e in coordinator._events._queue
+        )
+    else:
+        await coordinator.close()
+    provider.close.assert_awaited_once()
+    bridge.enqueue_input.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -435,9 +476,21 @@ async def test_duplicate_native_call_is_admitted_and_announced_once():
 
 
 @pytest.mark.asyncio
-async def test_direct_realtime_answer_streams_and_persists_once():
+@pytest.mark.parametrize("resumed", [False, True])
+async def test_direct_realtime_answer_streams_and_persists_once(resumed):
     provider, bridge = Provider(), Bridge()
     coordinator, timeline = build_coordinator(provider, bridge)
+    if resumed:
+        timeline.read_context.return_value = json.dumps(
+            {
+                "available": True,
+                "omitted": False,
+                "messages": [
+                    {"role": "user", "source": "voice", "text": "你好"},
+                    {"role": "assistant", "source": "voice", "text": "你好"},
+                ],
+            }
+        )
     await coordinator.start()
     events = coordinator.events()
     try:
@@ -604,18 +657,41 @@ async def test_application_speech_uses_isolated_presenter_session():
 
 
 @pytest.mark.asyncio
-async def test_task_owned_turn_suppresses_native_answer_and_falls_back_to_chat():
+@pytest.mark.parametrize("restored", [False, True])
+@pytest.mark.parametrize("final_after_response", [False, True])
+async def test_task_owned_turn_suppresses_native_answer_and_falls_back_to_chat(
+    restored,
+    final_after_response,
+):
     provider, bridge = Provider(), Bridge()
-    bridge.presentation_snapshots.return_value = (snapshot(status="responded"),)
     bridge.enqueue_input.return_value = admission(receipt("fallback-task"))
     coordinator, timeline = build_coordinator(provider, bridge)
+    if restored:
+        timeline.read_context.return_value = json.dumps(
+            {
+                "available": True,
+                "omitted": False,
+                "messages": [
+                    {
+                        "role": "assistant",
+                        "source": "agent",
+                        "text": "旧任务已完成",
+                        "persisted": True,
+                    },
+                ],
+            }
+        )
+    else:
+        bridge.presentation_snapshots.return_value = (snapshot(status="responded"),)
     coordinator._queue_admission = AsyncMock()
     await coordinator.start()
     try:
+        bridge.enqueue_input.assert_not_awaited()
         await provider.queue.put(
             ProviderEvent("speech.started", "speech", correlation_id="source-2")
         )
-        await provider.queue.put(transcript("source-2", "只告诉我实际结果"))
+        if not final_after_response:
+            await provider.queue.put(transcript("source-2", "只告诉我实际结果"))
         await provider.queue.put(
             ProviderEvent(
                 "response.started",
@@ -648,8 +724,12 @@ async def test_task_owned_turn_suppresses_native_answer_and_falls_back_to_chat()
                 response_origin="provider_auto",
             )
         )
+        # Replayed final evidence must not execute the same live input twice.
+        for _ in range(2 if final_after_response else 1):
+            await provider.queue.put(transcript("source-2", "只告诉我实际结果"))
 
         await eventually(lambda: bridge.enqueue_input.await_count == 1)
+        await eventually(lambda: bridge.persist_transcript.await_count == 2)
         assert bridge.enqueue_input.await_args.args == ("只告诉我实际结果",)
         assert bridge.enqueue_input.await_args.kwargs["admission_mode"] == "steer"
         assert bridge.enqueue_input.await_args.kwargs["idempotency_key"].startswith(
@@ -666,14 +746,32 @@ async def test_task_owned_turn_suppresses_native_answer_and_falls_back_to_chat()
         )
     finally:
         await coordinator.close()
+    bridge.enqueue_input.assert_awaited_once()
 
 
 @pytest.mark.asyncio
-async def test_task_owned_native_tool_call_does_not_duplicate_asr_fallback():
+@pytest.mark.parametrize("restored", [False, True])
+async def test_task_owned_native_tool_call_does_not_duplicate_asr_fallback(restored):
     provider, bridge = Provider(), Bridge()
-    bridge.presentation_snapshots.return_value = (snapshot(status="processing"),)
     bridge.enqueue_input.return_value = admission(receipt())
-    coordinator, _ = build_coordinator(provider, bridge)
+    coordinator, timeline = build_coordinator(provider, bridge)
+    if restored:
+        timeline.read_context.return_value = json.dumps(
+            {
+                "available": True,
+                "omitted": False,
+                "messages": [
+                    {
+                        "role": "assistant",
+                        "source": "agent",
+                        "text": "旧任务已完成",
+                        "persisted": True,
+                    },
+                ],
+            }
+        )
+    else:
+        bridge.presentation_snapshots.return_value = (snapshot(status="processing"),)
     coordinator._queue_admission = AsyncMock()
     await coordinator.start()
     try:
@@ -720,6 +818,7 @@ async def test_task_owned_native_tool_call_does_not_duplicate_asr_fallback():
         )
     finally:
         await coordinator.close()
+    bridge.enqueue_input.assert_awaited_once()
 
 
 @pytest.mark.asyncio
@@ -910,8 +1009,8 @@ async def test_start_waits_for_history_ack_without_executing_it():
         "available": True,
         "omitted": False,
         "messages": [
-            {"role": "user", "text": "创建 old.txt"},
-            {"role": "assistant", "text": "已创建 old.txt"},
+            {"role": "user", "source": "voice", "text": "创建 old.txt"},
+            {"role": "assistant", "source": "agent", "text": "已创建 old.txt"},
         ],
     }
     timeline.read_context.return_value = json.dumps(history)
@@ -936,6 +1035,8 @@ async def test_start_waits_for_history_ack_without_executing_it():
     release.set()
     await starting
     await coordinator.close()
+    bridge.enqueue_input.assert_not_awaited()
+    provider.request_response.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -1008,8 +1109,15 @@ async def test_incomplete_history_routes_live_input_to_chat_instead_of_guessing(
 async def test_history_item_cannot_admit_work_without_live_speech():
     provider, bridge = Provider(), Bridge()
     coordinator, timeline = build_coordinator(provider, bridge)
-    timeline.read_context.return_value = (
-        '{"available":true,"messages":[{"role":"user","text":"重复旧任务"}]}'
+    timeline.read_context.return_value = json.dumps(
+        {
+            "available": True,
+            "omitted": False,
+            "messages": [
+                {"role": "user", "source": "voice", "text": "重复旧任务"},
+                {"role": "assistant", "source": "agent", "text": "旧任务已完成"},
+            ],
+        }
     )
     await coordinator.start()
     await provider.queue.put(

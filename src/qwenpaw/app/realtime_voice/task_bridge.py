@@ -12,6 +12,7 @@ from ...runtime.reply_cycle import InputStateEvent, ReplyContentEvent
 from ...schemas import TextContent
 from ..chats.replies import ChatReply
 from ..chats.run_coordinator import ChatInputRequest, ChatRunCoordinator
+from ..chats.timeline import ChatTimelineJournal
 from ..chats.title_generator import generate_and_update_title
 from ..task_tracker import RunOutcome
 from .contracts import (
@@ -189,6 +190,15 @@ class VoiceTaskBridge:
     ) -> None:
         self._input_context.observe_transcript(source_id, text, final=final)
 
+    async def persist_transcript(self, source_id: str) -> None:
+        """Save final evidence for bound inputs without resubmitting them."""
+        journal = ChatTimelineJournal(self._workspace, self._chat)
+        for input_id, transcript in self._input_context.transcripts(
+            source_id
+        ).items():
+            if transcript["final"]:
+                await journal.append_speech_transcript(input_id, transcript)
+
     async def enqueue_input(
         self,
         text: str,
@@ -338,6 +348,11 @@ class VoiceTaskBridge:
             self._input_context.bind(input_id, idempotency_key)
 
         try:
+            transcript = self._input_context.transcripts().get(input_id)
+            if transcript is not None:
+                await ChatTimelineJournal(
+                    self._workspace, self._chat
+                ).append_speech_transcript(input_id, transcript)
             submission = await ChatRunCoordinator.submit(
                 self._workspace,
                 self._chat,

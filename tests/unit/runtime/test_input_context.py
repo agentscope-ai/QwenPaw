@@ -86,6 +86,8 @@ def test_speech_evidence_refines_only_its_original_input():
         "text": "变基验证",
         "final": False,
     }
+    snapshot = context.transcripts("audio-1")
+    assert snapshot == {"execution-1": row["transcript"]}
 
     context.observe_transcript("audio-1", "变基验证点.txt", final=True)
     context.observe_transcript("audio-1", "迟到的临时转写", final=False)
@@ -96,6 +98,8 @@ def test_speech_evidence_refines_only_its_original_input():
     assert latest["inputs"][0]["transcript"]["text"] == "变基验证点.txt"
     assert latest["inputs"][0]["transcript"]["final"] is True
     assert json.loads(first)["inputs"][0]["transcript"]["final"] is False
+    assert snapshot["execution-1"]["final"] is False
+    assert context.transcripts("audio-2") == {}
     assert context.admission_status("handoff-1") == "received"
     assert context.state("execution-1") is None
 
@@ -127,6 +131,7 @@ def test_speech_evidence_refines_only_its_original_input():
     context.close()
     context.observe_transcript("audio-2", "late", final=True)
     assert context.capture(("execution-2",)) == ""
+    assert context.transcripts() == {}
 
 
 def test_context_only_never_becomes_an_execution_input():

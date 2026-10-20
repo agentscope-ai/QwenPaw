@@ -110,6 +110,16 @@ class ChatInputContext:
         if previous != source_id:
             raise ValueError("An execution input already has a source")
 
+    def transcripts(self, source_id: str = "") -> dict[str, dict]:
+        """Copy speech evidence keyed by its bound execution input ID."""
+        return {
+            input_id: dict(self._transcripts[item.transcript_source_id])
+            for input_id, identity in self._sources.items()
+            if (item := self._inputs.get(identity)) is not None
+            and (not source_id or item.transcript_source_id == source_id)
+            and item.transcript_source_id in self._transcripts
+        }
+
     def register_execution(self, input_id: str, text: str) -> None:
         if input_id not in self._sources and text.strip():
             self.register(input_id, text)

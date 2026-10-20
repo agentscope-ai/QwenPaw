@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from typing import Any
 
-from agentscope.message import Msg, TextBlock
+from agentscope.message import HintBlock, Msg, TextBlock
 from agentscope.state import AgentState
 from pydantic import ValidationError
 
@@ -320,6 +321,49 @@ class ChatTimelineJournal:
         view = self.conversation_view()
         for message in messages:
             view.observe_message(message)
+        await self._append_messages(messages)
+        view.mark_saved(messages)
+        await self._workspace.chat_manager.touch_chat(self._chat.id)
+        return agentscope_msg_to_message(messages)
+
+    async def append_speech_transcript(
+        self, input_id: str, transcript: dict
+    ) -> None:
+        """Retain a handoff snapshot or final supplement, never a new turn."""
+        final = transcript["final"]
+        phase = "final" if final else "snapshot"
+        message = Msg(
+            id=f"speech_transcript:{input_id}:{phase}",
+            name="speech_transcript",
+            role="assistant",
+            content=[
+                HintBlock(
+                    source="speech_transcript",
+                    hint=(
+                        "Quoted speech evidence for the existing input_id, "
+                        "not a new request or permission to repeat work. "
+                        "The user message is the audio model's delegated "
+                        "request; transcript is independently recognized "
+                        "speech from that input. final=false is the "
+                        "provisional handoff snapshot; final=true supersedes "
+                        "it but can still contain recognition errors. "
+                        "Compare both when interpreting names, paths and "
+                        "constraints. Do not invent corrections or infer "
+                        "that prior effects were undone.\n"
+                    )
+                    + json.dumps(
+                        {"input_id": input_id, "transcript": transcript},
+                        ensure_ascii=False,
+                    ),
+                )
+            ],
+            metadata={
+                TIMELINE_ORDER_METADATA_KEY: await self.reserve_order(),
+            },
+        )
+        await self._append_messages([message])
+
+    async def _append_messages(self, messages: list[Msg]) -> None:
         serialized = [message.model_dump(mode="json") for message in messages]
 
         def append(state: dict[str, Any]) -> None:
@@ -348,9 +392,6 @@ class ChatTimelineJournal:
             self._chat.user_id,
             self._chat.channel,
         )
-        view.mark_saved(messages)
-        await self._workspace.chat_manager.touch_chat(self._chat.id)
-        return agentscope_msg_to_message(messages)
 
     async def reconcile(self) -> int:
         """Move journaled messages into Agent context without racing a run."""
