@@ -166,12 +166,15 @@ def _is_declared_no_target_read(
     """Trust only a registered builtin explicitly marked as target-free."""
     if target.strip():
         return False
+    from ..governance.tool_registry import DEFAULT_REGISTRY
+
+    # The fallback Guard passes FunctionTool.name (the Python function name),
+    # while descriptors and dynamic registrations declare policy names.
+    tool_name = DEFAULT_REGISTRY.get_mapped_policy_name(tool_name) or tool_name
     # These read-only tools are registered dynamically rather than through
     # @tool_descriptor. Check the actual callable as well as its identity so
     # an unrelated tool using the same public name cannot inherit the bypass.
     if tool_name in {"MemorySearch", "RecallContext"}:
-        from ..governance.tool_registry import DEFAULT_REGISTRY
-
         func = getattr(tool_func, "__func__", tool_func)
         module = getattr(func, "__module__", "")
         name = getattr(func, "__name__", "")
