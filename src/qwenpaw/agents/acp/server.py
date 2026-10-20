@@ -147,7 +147,7 @@ def _prompt_failure_stop_reason(exc: BaseException) -> str | None:
     """
     if isinstance(exc, ACPClientDisconnected):
         return f"end_turn"
-    if _is_provider_error(exc):
+    if isinstance(exc, Exception) and _is_provider_error(exc):
         from ...providers.model_error_policy import classify_model_error
 
         if classify_model_error(exc).kind == f"content_safety":
