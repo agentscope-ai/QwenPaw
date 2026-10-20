@@ -577,6 +577,46 @@ class HostTaskRuntime:
         if reason is not None:
             raise TaskStoreError(reason)
 
+    async def _blocked_setup_result(
+        self,
+        scope,
+        registration,
+        prepared,
+        *,
+        request_id,
+        inputs,
+        origin,
+        prepare,
+    ):
+        blocking_ids = {
+            item.requirement_id for item in prepared.blocking_results
+        }
+        result = {
+            "state": "blocked",
+            "reason": prepared.blocking_results[0].reason_code,
+            "setup": "required",
+            "setup_entries": tuple(
+                dict.fromkeys(
+                    requirement.setup_entry_ref
+                    for requirement in prepared.requirements
+                    if requirement.id in blocking_ids
+                ),
+            ),
+            "readiness": prepared,
+        }
+        if not prepare:
+            result[
+                "setup_prompts"
+            ] = await self.setup.prompts_for_blocked_action(
+                scope,
+                registration,
+                prepared,
+                request_id=request_id,
+                inputs=inputs,
+                origin_ref=origin.origin_ref,
+            )
+        return result
+
     async def dispatch(
         self,
         scope,
@@ -635,24 +675,15 @@ class HostTaskRuntime:
                     request_id=request_id,
                 )
                 if prepared is not None and prepared.state != "ready":
-                    entries = tuple(
-                        dict.fromkeys(
-                            requirement.setup_entry_ref
-                            for requirement in prepared.requirements
-                            if any(
-                                result.requirement_id == requirement.id
-                                and result.state != "ready"
-                                for result in prepared.results
-                            )
-                        ),
+                    return await self._blocked_setup_result(
+                        scope,
+                        registration,
+                        prepared,
+                        request_id=request_id,
+                        inputs=inputs,
+                        origin=origin,
+                        prepare=prepare,
                     )
-                    return {
-                        "state": "blocked",
-                        "reason": reason,
-                        "setup": "required",
-                        "setup_entries": entries,
-                        "readiness": prepared,
-                    }
                 return {
                     "state": "blocked",
                     "reason": reason,

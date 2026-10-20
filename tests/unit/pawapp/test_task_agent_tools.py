@@ -22,6 +22,7 @@ from qwenpaw.pawapp.setup import (
     SetupCoordinator,
     SetupEntryDescriptor,
     SetupEntryRegistration,
+    SetupOpenAction,
     SetupRequirement,
 )
 from qwenpaw.pawapp.tasks.agent_tools import (
@@ -347,6 +348,7 @@ async def test_delegate_setup_result_and_retry_after_configuration(
     host,
     readiness_state,
 ):
+    # pylint: disable=too-many-statements
     configured = False
     requirement = SetupRequirement(
         id="analysis-model",
@@ -375,7 +377,15 @@ async def test_delegate_setup_result_and_retry_after_configuration(
             focus="analysis-model",
             presentations=("app_entry",),
         ),
-        opener=AsyncMock(),
+        opener=AsyncMock(
+            side_effect=lambda request: SetupOpenAction(
+                app_id=request.scope.app_id,
+                request_id=request.request_id,
+                entry_id=request.entry_id,
+                presentation=request.presentation,
+                path="/apps/qwenpaw-data/settings/models",
+            ),
+        ),
     )
     runtime = host.app.state.pawapp_tasks
     await runtime.aclose()
@@ -395,6 +405,7 @@ async def test_delegate_setup_result_and_retry_after_configuration(
         store=host.setup_store,
     )
     host.app.state.pawapp_tasks = host.runtime(host.store)
+    host.app.state.pawapp_setup = host.setup_holder[0]
     await host.app.state.pawapp_tasks.start()
     bound = tools(host)
     args = {
@@ -405,6 +416,14 @@ async def test_delegate_setup_result_and_retry_after_configuration(
     }
     request_id = "agent_" + content_digest(["main", args["request_id"]])
 
+    prepared_response = await host.client.post(
+        "/api/pawapps/qwenpaw-data/workspaces/sales/actions/analyze/prepare",
+        json=BODY,
+    )
+    assert prepared_response.status_code == 200
+    assert "setup_prompts" not in prepared_response.json()
+
+    prior_prompts = None
     for _ in range(2):
         blocked = payload(await bound["delegate"](**args))
         assert blocked["state"] == "blocked"
@@ -419,6 +438,46 @@ async def test_delegate_setup_result_and_retry_after_configuration(
         assert "task" not in blocked
         assert await host.store.find_request(SCOPE, request_id) is None
         assert not host.runs
+        prompts = blocked["setup_prompts"]
+        if prior_prompts is not None:
+            assert prompts == prior_prompts
+        prior_prompts = prompts
+        if readiness_state in {"unavailable", "unknown"}:
+            assert prompts == []
+        else:
+            assert len(prompts) == 1
+            assert prompts[0]["summary"] == requirement.summary
+            record = await host.setup_store.get(
+                SCOPE,
+                prompts[0]["request_id"],
+            )
+            assert record.request.task_id is None
+            assert record.request.return_target == "main"
+            assert record.request.requirement_ids == (requirement.id,)
+    entry.opener.assert_not_awaited()
+
+    if prior_prompts:
+        setup_id = prior_prompts[0]["request_id"]
+        url = (
+            "/api/pawapps/qwenpaw-data/workspaces/sales/setup-requests/"
+            + setup_id
+        )
+        denied = await host.client.post(
+            url + "/open",
+            headers={"Authorization": "Bearer bob-token"},
+        )
+        assert denied.status_code == 404
+        opened = await host.client.post(url + "/open")
+        assert opened.status_code == 200
+        assert opened.json()["open_action"]["path"] == (
+            "/apps/qwenpaw-data/settings/models"
+        )
+        cancelled = await host.client.post(url + "/cancel")
+        assert cancelled.status_code == 200
+        renewed = payload(await bound["delegate"](**args))
+        assert renewed["setup_prompts"][0]["request_id"] != setup_id
+        assert await host.store.find_request(SCOPE, request_id) is None
+        assert not host.runs
 
     configured = True
     accepted = payload(await bound["delegate"](**args))
@@ -428,7 +487,6 @@ async def test_delegate_setup_result_and_retry_after_configuration(
     retry = payload(await bound["delegate"](**args))
     assert retry["task"]["task_id"] == task_id
     assert len(host.runs) == 1
-    entry.opener.assert_not_awaited()
 
 
 @pytest.mark.asyncio

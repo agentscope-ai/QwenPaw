@@ -364,6 +364,56 @@ describe("PawApp task cards", () => {
     );
   });
 
+  it("opens the registered settings screen for a preflight blocker", async () => {
+    setupApi.mockResolvedValue({
+      schema_version: 1,
+      app_id: "qwenpaw-data",
+      request_id: "setup-model",
+      entry_id: "analysis-model",
+      presentation: "app_entry",
+      path: "/apps/qwenpaw-data/settings/models?setupRequest=setup-model",
+    });
+    const value = {
+      ...content(),
+      result: JSON.stringify({
+        kind: "pawapp_task",
+        state: "blocked",
+        app_id: "qwenpaw-data",
+        workspace_id: "sales",
+        reason: "analysis_model_missing",
+        setup_prompts: [
+          {
+            schema_version: 1,
+            request_id: "setup-model",
+            entry_id: "analysis-model",
+            summary: "Configure the analysis model",
+            path: "https://untrusted.test",
+          },
+        ],
+      }),
+    };
+    render(<PawAppTaskCard content={value} />);
+    await flush();
+    expect(api).not.toHaveBeenCalled();
+    expect(setupApi).not.toHaveBeenCalled();
+    expect(screen.queryByRole("link")).toBeNull();
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Configure the analysis model",
+      }),
+    );
+    await flush();
+    expect(setupApi).toHaveBeenCalledWith(
+      "qwenpaw-data",
+      "sales",
+      "setup-model",
+    );
+    expect(window.location.pathname + window.location.search).toBe(
+      "/apps/qwenpaw-data/settings/models?setupRequest=setup-model",
+    );
+    expect(answerApi).not.toHaveBeenCalled();
+  });
+
   it("keeps the approval command stable across a rejected retry and refreshes immediately", async () => {
     const waiting: PawAppTask = {
       ...task,

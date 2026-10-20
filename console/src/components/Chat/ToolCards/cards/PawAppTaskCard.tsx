@@ -546,8 +546,7 @@ function TaskCard({
       setOpening(false);
     }
   };
-  const openSetup = async () => {
-    const setupRequestId = task?.setup_request_id;
+  const openSetup = async (setupRequestId = task?.setup_request_id) => {
     if (!appId || !workspaceId || !setupRequestId) return;
     setSetupOpening(true);
     setSetupFailed(false);
@@ -575,10 +574,25 @@ function TaskCard({
             <span className={styles.status} data-status={status} role="status">
               {status && t(`tool.pawappTask.status.${status}`)}
             </span>
-            {blocked && appHref && (
+            {blocked && !result.setup_prompts?.length && appHref && (
               <a href={appHref}>{t("tool.pawappTask.settings")}</a>
             )}
             <div className={styles.actions}>
+              {blocked &&
+                result.setup_prompts?.map((prompt) => (
+                  <button
+                    key={prompt.request_id}
+                    className={styles.secondaryAction}
+                    type="button"
+                    disabled={setupOpening}
+                    onClick={() => void openSetup(prompt.request_id)}
+                  >
+                    {setupOpening
+                      ? t("tool.pawappTask.openingSetup")
+                      : prompt.summary}
+                    <ArrowRightOutlined aria-hidden="true" />
+                  </button>
+                ))}
               {!blocked &&
                 task?.status === "waiting_for_setup" &&
                 task.setup_request_id && (

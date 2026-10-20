@@ -181,6 +181,22 @@ the presentation and completes it with a typed, scoped receipt; browsers cannot
 submit completion receipts. Raw action inputs and credentials are not stored in
 the setup database; optional setup suggestions are explicitly non-secret.
 
+A blocked submission also returns `setup_prompts`: one scoped request ID and
+summary per actionable registered `app_entry`. Main Chat renders buttons that
+resolve those IDs through the Host's setup-open endpoint. The App chooses its
+configuration screen and focus; neither the model nor the tool payload supplies
+a navigation URL. Credentials are entered in the App's configuration UI.
+Requirements sharing an entry produce one button. Unavailable/unknown checks
+do not create configuration requests. Read-only prepare calls do not create
+prompts or tasks.
+
+Repeated blocked submissions reuse active setup requests. After cancellation,
+completion or expiry, an explicit retry can atomically create a fresh prompt
+while retaining the old request and receipt. Saving preflight setup does not
+start a task: the caller retries the original submission identity and the Host
+checks readiness again. Setup during an accepted task retains its existing
+task-linked resume behavior.
+
 Creator exposes two public delegated actions. `create-project` intentionally
 creates and returns an empty workspace. `create-video` accepts the bounded
 intent-level schema in its [descriptor fixture](pawapp-vnext-creator-create-video-action.example.json),

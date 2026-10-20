@@ -368,3 +368,30 @@ Chat response encoder and still reports `needs_configuration`, now as valid
 structured JSON. This check did not dispatch production or run another model
 turn. The existing project remains at generation 2; credential repair and
 live media generation remain outstanding.
+
+### App-owned setup prompts before task creation — 2026-10-20
+
+The live Main Chat retry confirmed the serialization fix but exposed the next
+UX gap: an eager setup blocker only linked to the App home page. Blocked
+submissions now return typed `setup_prompts`, grouped by the App's registered
+configuration entry. Main Chat renders those prompts as buttons and resolves
+their scoped request IDs through the Host before navigating. Creator's planning
+model prompt opens its LLM settings directly. No credential is requested or
+entered in Main Chat, and no model-supplied navigation URL is trusted.
+
+Active prompts are reused for repeated submissions. A subsequent explicit
+retry renews expired or closed prompts atomically while preserving old receipts.
+Unavailable/unknown checks produce no configuration requests. Read-only prepare
+calls create neither prompts nor tasks. Saving preflight configuration does
+not start production; a retry rechecks readiness under the original task intent.
+Setup after task acceptance retains the existing linked-task resume behavior.
+
+Validation: 508 Host tests and 23 focused Console tests pass. The Console build
+and generated-contract drift check pass. Tests cover grouping multiple missing
+requirements, prompt reuse and renewal, principal isolation, registered paths,
+no task before setup, and one task after configuration and an explicit retry.
+Live Main Chat now renders “Configure the Creator planning model.” on the
+blocked card. The current saved Creator planning/image credentials still fail
+decryption, despite the App's presence-based configured badge. The relevant
+App settings screen was opened for repair; no production task or media was
+created for the original request, and the revision-2 story remains intact.

@@ -174,8 +174,11 @@ def make_task_tools(context: TaskToolContext):
                 Reuse exactly the same key and inputs on an uncertain retry.
                 Use a new key for a new intentional task.
 
-        A blocked response starts no work: guide the user to App settings and
-        retry only after setup. Accepted means queued, not successful. After
+        A blocked response starts no work. Its setup_prompts appear as buttons
+        that open the App's registered configuration screen. Tell the user
+        which setup is needed and use those buttons; never invent setup URLs
+        or request credentials in chat. Retry the same request only after the
+        user completes setup. Accepted means queued, not successful. After
         an accepted response, end the turn: the Host chat card owns monitoring
         and completion queues a scoped continuation in Main Chat.
         Never run shell sleeps or call get_app_task in the same assistant turn

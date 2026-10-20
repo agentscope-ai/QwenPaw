@@ -95,6 +95,15 @@ Authenticated backend routes use `Depends(get_scoped_ctx)` from
 
 ## Questions, artifacts and recovery
 
+For missing app settings, register `SetupRequirement` checks and
+`SetupEntryRegistration` handlers with an `app_entry` presentation. Reference
+the requirement IDs on the action. A blocked submission then gets a Main Chat
+configuration button automatically. Its handler returns a `SetupOpenAction`
+pointing to the appropriate screen inside the App; credentials stay in that
+screen. Return a setup receipt after saving. Preflight setup still requires an
+explicit task retry; it does not silently authorize execution. See the
+[setup lifecycle](pawapp-task-runtime.md) for scoping and recovery rules.
+
 Use typed TaskInputRequest/TaskAnswer, TaskExperienceDefinition/Update and
 ProjectRef from `qwenpaw.pawapp.contracts`. Text is a human summary; `result_data`
 is a JSON object validated against the descriptor's result_schema and bounded

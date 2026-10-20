@@ -13,14 +13,16 @@ from qwenpaw.pawapp import (
     PrepareResult,
     ReadinessResult,
     SetupCheckRegistration,
+    SetupCoordinator,
     SetupEntryDescriptor,
     SetupEntryRegistration,
     SetupOpenAction,
     SetupRequest,
     SetupRequirement,
+    SetupStore,
     SuggestedValue,
 )
-from qwenpaw.pawapp.tasks import ActionDescriptor
+from qwenpaw.pawapp.tasks import ActionDescriptor, TaskScope
 from qwenpaw.pawapp.tasks.binding import ActionRegistration
 from qwenpaw.plugins.architecture import PluginManifest
 from qwenpaw.plugins.registry import PluginRegistry
@@ -74,6 +76,117 @@ async def _check_setup(_scope, _inputs):
         reason_code="video_model_missing",
         checked_at=now,
         expires_at=now + 30,
+    )
+
+
+@pytest.mark.asyncio
+async def test_blocked_prompts_group_by_app_entry_and_renew_after_expiry(
+    tmp_path,
+    monkeypatch,
+):
+    now = time.time()
+    monkeypatch.setattr(time, "time", lambda: now)
+    requirements = tuple(
+        _requirement().model_copy(
+            update={"id": identity, "setup_entry_ref": entry},
+        )
+        for identity, entry in (
+            ("image", "images"),
+            ("image-account", "images"),
+            ("video", "videos"),
+            ("service", "service"),
+            ("secure", "secure"),
+        )
+    )
+    entries = {
+        ("qwenpaw-creator", entry): SetupEntryRegistration(
+            descriptor=_entry().model_copy(
+                update={
+                    "id": entry,
+                    "presentations": (
+                        ("secure_form",)
+                        if entry == "secure"
+                        else ("app_entry",)
+                    ),
+                },
+            ),
+            opener=_open_setup,
+        )
+        for entry in ("images", "videos", "service", "secure")
+    }
+    prepared = PrepareResult(
+        app_id="qwenpaw-creator",
+        action_id="create-video",
+        descriptor_digest="digest",
+        state="blocked",
+        requirements=requirements,
+        results=tuple(
+            ReadinessResult(
+                requirement_id=item.id,
+                state="unavailable"
+                if item.id == "service"
+                else ("needs_configuration"),
+                reason_code="configuration_needed",
+                checked_revision=1,
+                checked_at=now,
+                expires_at=now + 30,
+            )
+            for item in requirements
+        ),
+        checked_at=now,
+        expires_at=now + 30,
+    )
+    store = await SetupStore.open(tmp_path / "setup.sqlite3")
+    coordinator = SetupCoordinator(
+        checks=lambda: {},
+        entries=lambda: entries,
+        store=store,
+    )
+    scope = TaskScope(
+        principal_id="alice",
+        workspace_id="default",
+        app_id="qwenpaw-creator",
+    )
+    registration = MagicMock()
+    registration.action.descriptor_digest = "digest"
+    registration.action.action_id = "create-video"
+    args = {"request_id": "intent", "inputs": {}, "origin_ref": "chat-1"}
+    first = await coordinator.prompts_for_blocked_action(
+        scope,
+        registration,
+        prepared,
+        **args,
+    )
+    assert [item.entry_id for item in first] == ["images", "videos"]
+    record = await store.get(scope, first[0].request_id)
+    assert record.request.requirement_ids == ("image", "image-account")
+    assert record.request.task_id is None
+    replay = await coordinator.prompts_for_blocked_action(
+        scope,
+        registration,
+        prepared,
+        **args,
+    )
+    assert replay == first
+    now += 901
+    renewed = await coordinator.prompts_for_blocked_action(
+        scope,
+        registration,
+        prepared,
+        **args,
+    )
+    assert all(a.request_id != b.request_id for a, b in zip(first, renewed))
+    assert (await store.get(scope, first[0].request_id)).request.state == (
+        "expired"
+    )
+    assert (
+        await coordinator.prompts_for_blocked_action(
+            scope,
+            registration,
+            prepared,
+            **args,
+        )
+        == renewed
     )
 
 

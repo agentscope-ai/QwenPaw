@@ -148,6 +148,15 @@ class SetupEntryDescriptor(Contract):
         return self
 
 
+class SetupPrompt(Contract):
+    """A scoped setup request to open on user action, never a supplied URL."""
+
+    schema_version: Literal[1] = 1
+    request_id: Identity
+    entry_id: Identity
+    summary: Annotated[str, Field(min_length=1, max_length=2000)]
+
+
 class SuggestedValue(Contract):
     """A non-secret suggestion whose source remains visible to the App."""
 

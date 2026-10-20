@@ -219,8 +219,13 @@ class SetupStore:
         idempotency_key: str,
         values: dict,
         meaning_context: dict | None = None,
+        renew_closed: bool = False,
     ) -> tuple[SetupRecord, bool]:
-        """Create one Host-ID request or return its exact idempotent replay."""
+        """Replay an intent; optionally renew a closed preflight prompt.
+
+        Normal setup requests retain exact idempotency. Only fresh blocked
+        submissions opt into renewal, preserving prior receipts by request ID.
+        """
         stable_values = {
             key: value for key, value in values.items() if key != "expires_at"
         }
@@ -248,7 +253,19 @@ class SetupStore:
             if row is not None:
                 if row["meaning_digest"] != digest:
                     raise TaskStoreError("setup_idempotency_conflict")
-                return self._expire(connection, scope, self._row(row)), True
+                existing = self._expire(connection, scope, self._row(row))
+                if not renew_closed or existing.request.state not in _TERMINAL:
+                    return existing, True
+                # Prompt renewal preserves the old receipt and its ID, while
+                # atomically moving the intent key to the new active request.
+                connection.execute(
+                    "UPDATE setup_requests SET idempotency_key = ? "
+                    "WHERE request_id = ?",
+                    (
+                        "archived_" + existing.request.request_id,
+                        existing.request.request_id,
+                    ),
+                )
             now = time.time()
             request = SetupRequest(
                 request_id="setup_" + uuid.uuid4().hex,

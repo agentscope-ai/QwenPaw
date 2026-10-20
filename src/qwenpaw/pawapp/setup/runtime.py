@@ -20,6 +20,7 @@ from ..tasks.contracts import (
 from .contracts import (
     PrepareResult,
     ReadinessResult,
+    SetupPrompt,
     SetupPresentation,
     SetupResult,
     SuggestedValue,
@@ -159,6 +160,76 @@ class SetupCoordinator:
             expires_at=expires_at,
         )
 
+    async def prompts_for_blocked_action(
+        self,
+        scope,
+        registration,
+        prepared,
+        *,
+        request_id,
+        inputs,
+        origin_ref,
+    ) -> tuple[SetupPrompt, ...]:
+        """Offer App-owned setup without opening UI or creating latent work."""
+        actionable = {
+            result.requirement_id
+            for result in prepared.results
+            if result.state
+            in {"needs_input", "needs_configuration", "needs_authorization"}
+        }
+        groups = {}
+        for requirement in prepared.requirements:
+            if requirement.id in actionable:
+                groups.setdefault(requirement.setup_entry_ref, []).append(
+                    requirement,
+                )
+        prompts = []
+        for entry_id, requirements in groups.items():
+            entry = self.entry(scope.app_id, entry_id).descriptor
+            if "app_entry" not in entry.presentations:
+                continue
+            ids = tuple(item.id for item in requirements)
+            revisions = {
+                result.requirement_id: result.checked_revision
+                for result in prepared.results
+                if result.requirement_id in ids
+            }
+            key = "blocked_" + content_digest(
+                [
+                    request_id,
+                    prepared.descriptor_digest,
+                    origin_ref,
+                    inputs,
+                    entry_id,
+                    revisions,
+                ],
+            )
+            # Repeated submissions share an active request. A closed/expired
+            # request gets a successor only after another explicit submission.
+            record, _replayed = await self.request(
+                scope,
+                registration,
+                prepared,
+                idempotency_key=key,
+                input_digest=content_digest(inputs),
+                origin_ref=origin_ref,
+                presentation="app_entry",
+                entry_id=entry_id,
+                requirement_ids=ids,
+                return_target=origin_ref,
+                renew_closed=True,
+            )
+            prompts.append(
+                SetupPrompt(
+                    request_id=record.request.request_id,
+                    entry_id=entry_id,
+                    summary=" ".join(item.summary for item in requirements)[
+                        :2000
+                    ],
+                ),
+            )
+        return tuple(prompts)
+
     async def prepare_for_task(
         self,
         scope: TaskScope,
@@ -215,6 +286,7 @@ class SetupCoordinator:
         suggested_values: tuple[SuggestedValue, ...] = (),
         return_target: str,
         expires_in_seconds: float = 900,
+        renew_closed: bool = False,
     ):
         """Persist one request for actionable blockers from a fresh prepare."""
         if prepared.descriptor_digest != registration.action.descriptor_digest:
@@ -274,6 +346,7 @@ class SetupCoordinator:
         return await self._store().create(
             scope,
             idempotency_key=idempotency_key,
+            renew_closed=renew_closed,
             meaning_context={"input_digest": input_digest},
             values={
                 "descriptor_digest": registration.action.descriptor_digest,

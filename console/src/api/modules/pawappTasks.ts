@@ -178,6 +178,14 @@ export interface PawAppTaskResult {
   state: "accepted" | "blocked";
   task?: PawAppTask;
   reason?: string;
+  setup_prompts?: PawAppSetupPrompt[];
+}
+
+export interface PawAppSetupPrompt {
+  schema_version: 1;
+  request_id: string;
+  entry_id: string;
+  summary: string;
 }
 
 export interface PawAppArtifactCollectionResult {
@@ -601,12 +609,25 @@ export function parsePawAppTaskResult(value: unknown): PawAppTaskResult | null {
     )
       return null;
     if (value.state === "blocked" && identity(value.reason)) {
+      const prompts = Array.isArray(value.setup_prompts)
+        ? value.setup_prompts.filter(
+            (item): item is PawAppSetupPrompt =>
+              record(item) &&
+              item.schema_version === 1 &&
+              identity(item.request_id) &&
+              identity(item.entry_id) &&
+              typeof item.summary === "string" &&
+              item.summary.length > 0 &&
+              item.summary.length <= 2000,
+          )
+        : [];
       return {
         kind: "pawapp_task",
         state: "blocked",
         app_id: value.app_id,
         workspace_id: value.workspace_id,
         reason: value.reason,
+        setup_prompts: prompts,
       };
     }
     if (
