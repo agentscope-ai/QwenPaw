@@ -29,6 +29,7 @@ builder fewer opportunities to warn about events it would have dropped anyway.
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -42,7 +43,11 @@ from tests.unit.app import replay_oracle as oracle
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 _HARNESS = _REPO_ROOT / "scripts" / "sdk_builder_reduce.mjs"
-_SDK_ROOT = _REPO_ROOT / "console" / "node_modules"
+#: A git worktree has no console/node_modules, so allow pointing at one.
+_SDK_ROOT = Path(
+    os.environ.get("QWENPAW_CONSOLE_NODE_MODULES")
+    or _REPO_ROOT / "console" / "node_modules",
+)
 _BUILDER_JS = (
     _SDK_ROOT
     / "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core"
