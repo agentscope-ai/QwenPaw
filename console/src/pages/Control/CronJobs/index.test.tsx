@@ -657,7 +657,74 @@ describe("CronJobsPage drawer submit", () => {
     expect(submitted.schedule.repeat_end_type).toBe("count");
     expect(submitted.schedule.repeat_count).toBe(3);
     expect(submitted.schedule.repeat_until).toBeUndefined();
+    expect(updateJob).toHaveBeenCalledWith("job-1", submitted);
+    expect(screen.queryByTestId("job-drawer")).not.toBeInTheDocument();
   });
+
+  it.each([null, { provider_id: "provider", model: "model" }])(
+    "preserves the request draft when saving fails and retries with model %j",
+    async (modelSlot) => {
+      const updateJob = vi
+        .fn()
+        .mockResolvedValueOnce(false)
+        .mockResolvedValueOnce(true);
+      await renderPage({ updateJob });
+      act(() => capturedColumns.handlers!.onEdit(recurringJob));
+      const messages = [
+        {
+          role: "user",
+          content: [{ type: "text", text: "Original report" }],
+        },
+      ];
+      const values = {
+        name: "Edited agent",
+        task_type: "agent",
+        scheduleType: "cron",
+        cronType: "daily",
+        cronTime: dayjs().hour(9).minute(45),
+        schedule: { timezone: "Asia/Shanghai" },
+        request: {
+          input: JSON.stringify(messages, null, 2),
+          model_slot_override: modelSlot,
+          request_context: {
+            model_slot_override: { provider_id: "old", model: "old" },
+            project_dir: "/workspace/project",
+          },
+        },
+      };
+      const originalRequest = structuredClone(values.request);
+
+      await act(async () => {
+        await capturedDrawer.props!.onSubmit(values);
+      });
+      expect(values.request).toEqual(originalRequest);
+      expect(screen.getByTestId("job-drawer")).toBeInTheDocument();
+      expect(capturedDrawer.props!.saving).toBe(false);
+
+      await act(async () => {
+        await capturedDrawer.props!.onSubmit(values);
+      });
+      expect(values.request).toEqual(originalRequest);
+      expect(updateJob).toHaveBeenCalledTimes(2);
+      for (const [, payload] of updateJob.mock.calls) {
+        expect(payload.request).not.toBe(values.request);
+        expect(payload.request.input).toEqual(messages);
+        expect(payload.schedule.cron).toBe("45 9 * * *");
+        expect(payload.request.model_slot_override).toEqual(
+          modelSlot ?? undefined,
+        );
+        expect(payload.request.request_context.project_dir).toBe(
+          "/workspace/project",
+        );
+        if (modelSlot === null) {
+          expect(
+            payload.request.request_context.model_slot_override,
+          ).toBeUndefined();
+        }
+      }
+      expect(screen.queryByTestId("job-drawer")).not.toBeInTheDocument();
+    },
+  );
 
   it("builds an until-bounded repeat and leaves a missing run_at empty", async () => {
     const createJob = vi.fn().mockResolvedValue(false);

@@ -457,10 +457,10 @@ function CronJobsPage() {
       // Remove request object entirely for text tasks
       delete processedValues.request;
     } else if (processedValues.task_type === "agent") {
-      //Ensure request object exists
-      if (!processedValues.request) {
-        processedValues.request = { input: [] };
-      }
+      // Normalize the API payload without changing the form's request draft.
+      processedValues.request = processedValues.request
+        ? { ...processedValues.request }
+        : { input: [] };
 
       if (processedValues.request.model_slot_override === null) {
         delete processedValues.request.model_slot_override;
@@ -482,7 +482,7 @@ function CronJobsPage() {
             processedValues.request.input,
           );
         } catch (error) {
-          console.error("❌ Failed to parse request.input JSON:", error);
+          console.error("Failed to parse request.input JSON:", error);
         }
       }
     }
@@ -491,15 +491,15 @@ function CronJobsPage() {
     setSaving(true);
     try {
       if (editingJob) {
-        success = await updateJob(editingJob.id, processedValues, true);
+        success = await updateJob(editingJob.id, processedValues);
       } else {
         success = await createJob(processedValues);
       }
     } finally {
       setSaving(false);
     }
-    if (success && !editingJob) {
-      setDrawerOpen(false);
+    if (success) {
+      handleDrawerClose();
     }
     return success;
   };
