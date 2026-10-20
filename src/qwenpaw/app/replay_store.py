@@ -337,9 +337,12 @@ class ReplayStore:
     def approx_bytes(self) -> int:
         """Estimate the retained replay size, for measurement only.
 
-        Nothing is ever evicted on this figure. ``len`` counts code
-        points, so UTF-8 CJK makes it a lower bound on the real byte cost
-        (spec N6).
+        Nothing is ever evicted on this figure, and it is not a bound in
+        either direction. ``len`` counts code points, so UTF-8 CJK makes it
+        under-count the real byte cost (spec N6); a merged slot renders
+        compact while its base may have arrived spaced, which makes it
+        over-count the rendered characters by a couple of bytes per slot
+        (spec revision F7). Both errors are well under a percent.
         """
         return sum(slot.approx_len() for slot in self._slots.values())
 
