@@ -77,6 +77,25 @@
   margin-top: 0;
 }
 
+.settingsPage .globalModelRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 0 8px;
+  font-size: var(--app-font-secondary);
+
+  > span {
+    color: var(--app-text-tertiary);
+    font-size: var(--app-font-caption);
+    white-space: nowrap;
+  }
+
+  button {
+    max-width: 240px;
+  }
+}
+
 .settingsPage .sectionHeaderRow {
   align-items: center;
   padding: 18px 24px 14px;
@@ -374,6 +393,20 @@
   text-align: left;
 }
 
+.settingsPage .searchEmpty {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 24px 24px;
+  padding: 16px 0;
+  color: var(--models-text-muted);
+  font-size: var(--app-font-secondary);
+}
+
+.settingsPage .searchEmpty > svg {
+  flex: 0 0 auto;
+}
+
 .settingsPage .emptyConfigured h3 {
   margin: 0 0 4px;
   color: var(--models-text);
@@ -449,7 +482,8 @@
 
   .settingsPage .tabsNav,
   .settingsPage .panelSection,
-  .settingsPage .panelSectionDashed {
+  .settingsPage .panelSectionDashed,
+  .settingsPage .searchEmpty {
     margin-right: 16px;
     margin-left: 16px;
   }
@@ -479,6 +513,17 @@
   flex: 1;
   overflow-y: auto;
   min-height: 0;
+}
+
+.settingsEntry {
+  height: auto;
+  min-height: 100%;
+  overflow: visible;
+}
+
+.settingsEntry .content {
+  flex: none;
+  overflow: visible;
 }
 
 .breadcrumbHeader {
@@ -1094,7 +1139,49 @@
 
 .groupCardKeyInput {
   display: flex;
+  align-items: center;
   gap: 8px;
+  width: 100%;
+  min-width: 0;
+}
+
+.groupCardKeyField {
+  flex: 1;
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--models-text);
+  font: inherit;
+}
+
+.groupCardKeyField::placeholder {
+  color: var(--models-text-faint);
+}
+
+.groupCardMono:focus-within {
+  border-color: var(--app-accent-border);
+  box-shadow: 0 0 0 2px var(--app-accent-faint);
+}
+
+.groupCardKeyActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.groupCardKeyCancelBtn {
+  composes: groupCardChangeBtn;
+  color: var(--models-text-muted);
+}
+
+.groupCardChangeBtn:disabled,
+.groupCardKeyCancelBtn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 /* Actions */
@@ -1359,13 +1446,6 @@
 
 .defaultLlmBody {
   padding: 16px 0 0;
-}
-
-.llmDescription {
-  font-size: var(--app-font-secondary);
-  color: var(--app-text-tertiary);
-  margin: 0 0 16px;
-  line-height: 1.5;
 }
 
 /* ---- Panel Section (grouped containers) ---- */
@@ -2374,6 +2454,7 @@
   .tabsNav {
     margin: 0 12px 12px;
     overflow-x: auto;
+    overflow-y: hidden;
     gap: 0;
   }
 
@@ -2802,56 +2883,6 @@
   outline-offset: 3px;
 }
 
-.scopeTabs {
-  display: flex;
-  align-self: flex-start;
-  width: fit-content;
-  margin: 16px 24px 0;
-  padding: 3px;
-  gap: 3px;
-  border-radius: 10px;
-  background: var(--app-fill);
-}
-.scopeTabs button {
-  padding: 7px 18px;
-  border: 0;
-  border-radius: 8px;
-  font: inherit;
-  font-size: var(--app-font-secondary);
-  color: var(--app-text-secondary);
-  background: transparent;
-  cursor: pointer;
-}
-.scopeTabs button[aria-selected="true"] {
-  background: var(--app-surface);
-  color: var(--app-text);
-  box-shadow: 0 1px 4px rgb(0 0 0 / 6%);
-}
-
-.globalModelRow {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  font-size: var(--app-font-secondary);
-}
-
-.headerRight .globalModelRow {
-  width: auto;
-  margin: 0;
-  padding: 0 8px;
-  gap: 8px;
-  min-width: 0;
-  background: transparent;
-  border: 0;
-  > span {
-    white-space: nowrap;
-    font-size: var(--app-font-caption);
-    color: var(--app-text-tertiary);
-  }
-  button {
-    max-width: 240px;
-  }
-}
 @media (max-width: 900px) {
   .settingsPage .headerRight {
     flex-wrap: wrap;

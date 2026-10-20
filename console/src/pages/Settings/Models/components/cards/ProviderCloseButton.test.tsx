@@ -58,11 +58,11 @@ describe("ProviderCloseButton", () => {
       }),
     ).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: "common.disable: Aliyun" }),
+      screen.getByRole("button", { name: "models.disableBtn: Aliyun" }),
     ).toBeInTheDocument();
     expect(
       screen.getByRole("button", {
-        name: "common.disable: AgentScope Platform",
+        name: "models.disableBtn: AgentScope Platform",
       }),
     ).toBeInTheDocument();
   });
@@ -85,7 +85,7 @@ describe("ProviderCloseButton", () => {
     );
 
     const disable = screen.getByRole("button", {
-      name: "common.disable: Aliyun",
+      name: "models.disableBtn: Aliyun",
     });
     fireEvent.click(disable);
 

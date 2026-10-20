@@ -3003,6 +3003,7 @@
     "memoryAutoRecordTitle": "Bật bộ nhớ hội thoại"
   },
   "models": {
+    "disableBtn": "Vô hiệu hóa",
     "llmConfiguration": "Cấu hình LLM",
     "providersTitle": "Nhà cung cấp",
     "providersDescription": "Cấu hình API key và endpoint cho từng nhà cung cấp.",
@@ -3011,7 +3012,6 @@
     "defaultChatModel": "Mô hình hội thoại",
     "defaultDecisionModel": "Mô hình quyết định",
     "defaultLlm": "LLM mặc định",
-    "llmDescription": "Đặt mô hình LLM mặc định toàn cục. Bạn có thể chọn mô hình riêng cho từng Agent ở trang Trò chuyện.",
     "configureProvider": "Cấu hình {{name}}",
     "baseURL": "Base URL",
     "apiKey": "API Key",

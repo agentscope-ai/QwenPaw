@@ -21,7 +21,7 @@ export function ProviderCloseButton({
   const { message } = useAppMessage();
   const [busy, setBusy] = useState(false);
   const settingsLabel = `${t("models.settings")}: ${providerName}`;
-  const disableLabel = `${t("common.disable")}: ${providerName}`;
+  const disableLabel = `${t("models.disableBtn")}: ${providerName}`;
   return (
     <>
       {onConfigure && (
