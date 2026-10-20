@@ -222,6 +222,20 @@ describe("compact approval controls", () => {
     expect(changed).toHaveBeenLastCalledWith("AUTO");
   });
 
+  it("preserves a saved decision mode while its setting is unknown", () => {
+    const changed = vi.fn();
+    localStorage.setItem("approval_level-pending-decision", "JEV");
+    renderWithProviders(
+      <ApprovalLevelToggle
+        onChange={changed}
+        runningConfigApprovalLevel="AUTO"
+        sessionId="pending-decision"
+      />,
+    );
+    expect(localStorage.getItem("approval_level-pending-decision")).toBe("JEV");
+    expect(changed).toHaveBeenLastCalledWith("JEV");
+  });
+
   it("uses a bottom drawer for harness approval on mobile", async () => {
     mockUseIsMobile.mockReturnValue(true);
     const user = userEvent.setup();

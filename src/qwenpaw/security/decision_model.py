@@ -2,7 +2,8 @@
 """Decision-model assessment for potentially effectful tool calls.
 
 The deterministic guard always runs first. Only a provenance-marked soft
-approval may be relaxed. No conversation or file contents are sent.
+approval may be relaxed. Tool targets are sent as decision metadata; parameter
+values and conversation contents are not sent separately.
 """
 
 from __future__ import annotations
@@ -90,8 +91,8 @@ _QUESTIONS: dict[str, dict[str, Any]] = {
 }
 
 
-def _decision_provider() -> tuple[TypeSafeProvider, str]:
-    """Resolve the configured TypeSafe provider and decision model."""
+def _decision_provider(agent_id: str = "") -> tuple[TypeSafeProvider, str]:
+    """Resolve the Agent's decision model, then the global default."""
     try:
         manager = ProviderManager.get_instance()
         provider = manager.get_provider("typesafe")
@@ -101,12 +102,21 @@ def _decision_provider() -> tuple[TypeSafeProvider, str]:
         ) from exc
     if not isinstance(provider, TypeSafeProvider) or not provider.enabled:
         raise TypeSafeEvaluationError("TypeSafe provider is unavailable")
-    slot = manager.default_models.get("decision")
-    model = (
-        slot.model
-        if slot is not None and slot.provider_id == "typesafe"
-        else "jev-latest"
-    )
+    slot = None
+    if agent_id:
+        try:
+            from ..config.config import load_agent_config
+
+            slot = load_agent_config(agent_id).decision_model
+        except Exception as exc:
+            raise TypeSafeEvaluationError(
+                "Agent decision model configuration is unavailable",
+            ) from exc
+    if slot is None:
+        slot = manager.default_models.get("decision")
+    if slot is not None and slot.provider_id != "typesafe":
+        raise TypeSafeEvaluationError("Decision model provider is unsupported")
+    model = slot.model if slot is not None else "jev-latest"
     return provider, model
 
 
@@ -143,6 +153,58 @@ def _is_declared_local_read(tool_name: str, target: str) -> bool:
                 descriptor.metadata.get("decision_model_local_read") is True
                 or descriptor.metadata.get("jev_local_read") is True
             )
+        ):
+            return True
+    return False
+
+
+def _is_declared_no_target_read(
+    tool_name: str,
+    target: str,
+    tool_func: Any = None,
+) -> bool:
+    """Trust only a registered builtin explicitly marked as target-free."""
+    if target.strip():
+        return False
+    # These read-only tools are registered dynamically rather than through
+    # @tool_descriptor. Check the actual callable as well as its identity so
+    # an unrelated tool using the same public name cannot inherit the bypass.
+    if tool_name in {"MemorySearch", "RecallContext"}:
+        from ..governance.tool_registry import DEFAULT_REGISTRY
+
+        func = getattr(tool_func, "__func__", tool_func)
+        module = getattr(func, "__module__", "")
+        name = getattr(func, "__name__", "")
+        trusted_func = (
+            tool_name == "MemorySearch"
+            and name == "memory_search"
+            and module
+            in {
+                "qwenpaw.agents.memory.reme_light_memory_manager",
+                "qwenpaw.agents.memory.dummy",
+            }
+        ) or (
+            tool_name == "RecallContext"
+            and name == "recall_context"
+            and module
+            == "qwenpaw.agents.context.visual_compression.runtime.recall_tool"
+        )
+        return (
+            trusted_func
+            and DEFAULT_REGISTRY.get_type(tool_name) == "internal"
+            and DEFAULT_REGISTRY.get_target_param(tool_name) == ""
+        )
+    from ..runtime.tool_registry import get_builtin_tool_funcs
+
+    func = getattr(tool_func, "__func__", tool_func)
+    for fn in get_builtin_tool_funcs():
+        descriptor = getattr(fn, "_tool_descriptor", None)
+        if (
+            func is fn
+            and descriptor is not None
+            and descriptor.governance.policy_name == tool_name
+            and descriptor.metadata.get("decision_model_no_target_read")
+            is True
         ):
             return True
     return False
@@ -200,7 +262,13 @@ def _is_read_only_shell_listing(tool_name: str, command: str) -> bool:
         tokens = list(lexer)
     except ValueError:
         return False
-    if not tokens or tokens.count("|") > 1:
+    # shlex emits a shell OR as one "||" token. Only a single, exact pipe
+    # may separate the supported ls/grep pipeline.
+    if (
+        not tokens
+        or tokens.count("|") > 1
+        or any("|" in token and token != "|" for token in tokens)
+    ):
         return False
     if "|" in tokens:
         index = tokens.index("|")
@@ -314,11 +382,14 @@ async def assess_tool_call(
     sandboxed: bool = False,
     baseline_ask: bool = False,
     risk_signals: list[dict[str, str]] | None = None,
+    agent_id: str = "",
+    tool_func: Any = None,
 ) -> DecisionModelAssessment:
     """Evaluate metadata for an effectful call; fail to approval on errors."""
     if (
         _is_read_only(tool_name, operation)
         or _is_declared_local_read(tool_name, target)
+        or _is_declared_no_target_read(tool_name, target, tool_func)
         or (
             _is_read_only_shell_listing(tool_name, target)
             and not any(
@@ -380,7 +451,7 @@ async def assess_tool_call(
         }
         if output_exists is False:
             state["verified_facts"] = {"output_exists": False}
-        provider, model = await asyncio.to_thread(_decision_provider)
+        provider, model = await asyncio.to_thread(_decision_provider, agent_id)
         response = await provider.evaluate(
             state=state,
             questions=_QUESTIONS,

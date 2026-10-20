@@ -150,7 +150,7 @@ async def test_console_decision_approval_requires_enabled_model(enabled):
     assert load.called
     assert settings.call_args.args == (load.return_value, enabled)
     assert body["meta"]["request_context"]["approval_level"] == (
-        "JEV" if enabled else "AUTO"
+        "JEV" if enabled else "STRICT"
     )
 
 

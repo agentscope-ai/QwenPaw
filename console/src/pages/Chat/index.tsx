@@ -1553,8 +1553,8 @@ export default function ChatPage() {
   const queueRunState = useMessageQueueStore((s) => s.runStates[queueKey]);
 
   const sessionApprovalLevelRef = useRef<ToolExecutionLevel | null>(null);
-  const decisionModelEnabledRef = useRef(decisionModelEnabled === true);
-  decisionModelEnabledRef.current = decisionModelEnabled === true;
+  const decisionModelEnabledRef = useRef(decisionModelEnabled);
+  decisionModelEnabledRef.current = decisionModelEnabled;
   const backendControlsRef = useRef<Record<string, unknown>>({});
   const runningConfigApprovalLevel = useAgentRunningConfigApprovalLevel();
   const captureRequestContext = useCallback(
@@ -1563,7 +1563,7 @@ export default function ChatPage() {
       ...(usesQwenPawBackend
         ? {
             approval_level:
-              !decisionModelEnabledRef.current &&
+              decisionModelEnabledRef.current === false &&
               (sessionApprovalLevelRef.current ??
                 runningConfigApprovalLevel) === "JEV"
                 ? "AUTO"
@@ -3317,7 +3317,8 @@ export default function ChatPage() {
           ? normalizeLevel(entrySnapshot.context.approval_level)
           : sessionApprovalLevelRef.current ?? runningConfigApprovalLevel;
       const approvalAtSubmission =
-        requestedApprovalLevel === "JEV" && !decisionModelEnabledRef.current
+        requestedApprovalLevel === "JEV" &&
+        decisionModelEnabledRef.current === false
           ? "AUTO"
           : requestedApprovalLevel;
       const controlsAtSubmission = entrySnapshot.context.backend_controls ?? {

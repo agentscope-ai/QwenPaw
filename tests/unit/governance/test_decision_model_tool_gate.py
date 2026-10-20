@@ -104,6 +104,7 @@ async def test_decision_model_can_relax_only_proven_soft_ask(monkeypatch):
 
     async def safe(*_args, **kwargs):
         assert kwargs["baseline_ask"] is True
+        assert kwargs["agent_id"] == "agent"
         return DecisionModelAssessment(
             False,
             "Decision model: low-risk assessment",

@@ -65,6 +65,7 @@ def _guarded_tool_init(
     from agentscope.tool import FunctionTool
 
     FunctionTool.__init__(self, func, **kwargs)
+    self._qp_tool_func = func  # pylint: disable=protected-access
     self._qp_agent_id = agent_id  # pylint: disable=protected-access
     # pylint: disable=protected-access
     self._qp_request_context = request_context or {}
@@ -316,7 +317,13 @@ async def _decision_model_guard_decision(
         ),
         "",
     )
-    assessment = await assess_tool_call(tool_name, target, params=input_data)
+    assessment = await assess_tool_call(
+        tool_name,
+        target,
+        params=input_data,
+        agent_id=getattr(tool, "_qp_agent_id", "") or "",
+        tool_func=getattr(tool, "_qp_tool_func", None),
+    )
     if not assessment.needs_approval:
         return PermissionDecision(
             behavior=PermissionBehavior.ALLOW,

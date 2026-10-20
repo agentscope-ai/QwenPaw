@@ -90,6 +90,31 @@ def test_selected_decision_model_comes_from_provider_manager(
     assert _decision_provider() == (typesafe_provider, "jev-2")
 
 
+def test_agent_decision_model_takes_priority_over_global(
+    monkeypatch,
+    typesafe_provider,
+):
+    manager = SimpleNamespace(
+        get_provider=lambda provider_id: (
+            typesafe_provider if provider_id == "typesafe" else None
+        ),
+        default_models={
+            "decision": SimpleNamespace(provider_id="typesafe", model="jev-b"),
+        },
+    )
+    monkeypatch.setattr(ProviderManager, "get_instance", lambda: manager)
+    monkeypatch.setattr(
+        "qwenpaw.config.config.load_agent_config",
+        lambda agent_id: SimpleNamespace(
+            decision_model=SimpleNamespace(
+                provider_id="typesafe",
+                model="jev-a",
+            ),
+        ),
+    )
+    assert _decision_provider("agent-a") == (typesafe_provider, "jev-a")
+
+
 def test_only_confident_low_risk_response_skips_approval():
     assert not _interpret(_response()).needs_approval
     assert not _interpret(_response(choice="read_only")).needs_approval
@@ -121,6 +146,10 @@ def test_narrow_read_only_shell_listing():
         "ls $(touch /tmp/side-effect)",
     )
     assert not _is_read_only_shell_listing("Bash", "ls | sh -c 'touch /tmp/x'")
+    assert not _is_read_only_shell_listing(
+        "Bash",
+        "ls /missing || cp replacement.txt important.txt",
+    )
     assert not _is_read_only_shell_listing("Bash", "ls > /tmp/output")
     assert not _is_read_only_shell_listing("Bash", "ls ~/.ssh")
 
@@ -150,6 +179,78 @@ async def test_read_only_listing_skips_model_but_not_existing_ask(
         baseline_ask=True,
     )
     assert result.needs_approval
+
+
+@pytest.mark.asyncio
+async def test_target_free_builtin_read_skips_model_but_not_existing_ask(
+    monkeypatch,
+):
+    from qwenpaw.agents.tools.get_current_time import get_current_time
+    from qwenpaw.agents.memory.reme_light_memory_manager import (
+        ReMeLightMemoryManager,
+    )
+    from qwenpaw.agents.context.visual_compression.runtime.recall_tool import (
+        make_recall_context_tool,
+    )
+
+    assert (
+        get_current_time._tool_descriptor.metadata[
+            "decision_model_no_target_read"
+        ]
+        is True
+    )
+
+    async def unexpected(*args):
+        raise AssertionError("target-free read must not call decision model")
+
+    monkeypatch.setattr(TypeSafeProvider, "evaluate", unexpected)
+    assert not (
+        await assess_tool_call(
+            "GetCurrentTime",
+            "",
+            tool_func=get_current_time,
+        )
+    ).needs_approval
+    assert not (
+        await assess_tool_call(
+            "MemorySearch",
+            "",
+            tool_func=ReMeLightMemoryManager.memory_search,
+        )
+    ).needs_approval
+    assert not (
+        await assess_tool_call(
+            "RecallContext",
+            "",
+            tool_func=make_recall_context_tool(),
+        )
+    ).needs_approval
+    assert (
+        await assess_tool_call(
+            "GetCurrentTime",
+            "",
+            tool_func=get_current_time,
+            baseline_ask=True,
+        )
+    ).needs_approval
+    assert (
+        await assess_tool_call(
+            "MemorySearch",
+            "",
+            tool_func=ReMeLightMemoryManager.memory_search,
+            baseline_ask=True,
+        )
+    ).needs_approval
+    assert (await assess_tool_call("MemorySearch", "")).needs_approval
+    assert (await assess_tool_call("GetCurrentTime", "")).needs_approval
+
+    async def memory_search():
+        return None
+
+    assert (
+        await assess_tool_call("MemorySearch", "", tool_func=memory_search)
+    ).needs_approval
+    assert (await assess_tool_call("OtherTool", "")).needs_approval
 
 
 @pytest.mark.asyncio
@@ -288,6 +389,64 @@ async def test_shell_syntax_reaches_model_instead_of_immediate_approval(
 
 
 @pytest.mark.asyncio
+async def test_shell_or_command_is_not_skipped_as_read_only(monkeypatch):
+    seen = []
+
+    async def evaluate(_provider, **request):
+        seen.append(request)
+        return _response(choice="risky")
+
+    monkeypatch.setattr(TypeSafeProvider, "evaluate", evaluate)
+    command = "ls /missing || cp replacement.txt important.txt"
+    result = await assess_tool_call(
+        "Bash",
+        command,
+        params={"command": command},
+    )
+    assert result.needs_approval
+    assert seen[0]["state"]["target"] == command
+
+
+@pytest.mark.asyncio
+async def test_shell_command_is_available_to_decision_model(monkeypatch):
+    seen = []
+
+    async def evaluate(_provider, **request):
+        seen.append(request)
+        return _response()
+
+    monkeypatch.setattr(TypeSafeProvider, "evaluate", evaluate)
+    command = "printf 'Quarterly revenue is 123456'"
+    await assess_tool_call("Bash", command, params={"command": command})
+    state = seen[0]["state"]
+    assert state["target"] == command
+    assert state["parameter_names"] == ["command"]
+
+
+@pytest.mark.asyncio
+async def test_shell_write_is_available_to_decision_model(
+    monkeypatch,
+):
+    seen = []
+
+    async def evaluate(_provider, **request):
+        seen.append(request)
+        return _response(choice="risky")
+
+    monkeypatch.setattr(TypeSafeProvider, "evaluate", evaluate)
+    command = "printf 'Quarterly revenue is 123456' > report.txt"
+    result = await assess_tool_call(
+        "Bash",
+        command,
+        params={"command": command},
+    )
+    assert result.needs_approval
+    assert seen[0]["state"]["target"] == command
+    assert (await assess_tool_call("Bash", "cp a.txt b.txt")).needs_approval
+    assert seen[1]["state"]["target"] == "cp a.txt b.txt"
+
+
+@pytest.mark.asyncio
 async def test_literal_secret_is_not_sent_to_decision_model(monkeypatch):
     async def unexpected(*args):
         raise AssertionError("secret must not reach service")
@@ -345,6 +504,7 @@ async def test_typed_request_and_response(monkeypatch):
             "privilege_change",
         }
         assert body["state"]["parameter_names"] == ["content"]
+        assert body["state"]["target"] == "notes.txt"
         assert "private content" not in str(body)
         return httpx.Response(200, json=_response())
 

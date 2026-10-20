@@ -236,7 +236,9 @@ async def _persist_pending_project_dirs(
             runtime.get("decision_enabled"),
         )
         if not enabled["enabled"]:
-            request_context["approval_level"] = "AUTO"
+            # A requested decision review must not become automatic execution
+            # when the model is unavailable or disabled.
+            request_context["approval_level"] = "STRICT"
 
     raw_list = request_context.pop("session_project_dirs", None)
     raw_single = request_context.pop("session_project_dir", None)

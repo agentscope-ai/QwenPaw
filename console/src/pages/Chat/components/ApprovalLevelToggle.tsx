@@ -92,11 +92,11 @@ const ApprovalLevelToggle: React.FC<ApprovalLevelToggleProps> = ({
 
   const requestedLevel = sessionLevel ?? runningConfigApprovalLevel;
   const effectiveLevel =
-    requestedLevel === "JEV" && decisionModelEnabled !== true
+    requestedLevel === "JEV" && decisionModelEnabled === false
       ? "AUTO"
       : requestedLevel;
   const effectiveOverride =
-    requestedLevel === "JEV" && decisionModelEnabled !== true
+    requestedLevel === "JEV" && decisionModelEnabled === false
       ? "AUTO"
       : sessionLevel;
   const meta = LEVEL_META[effectiveLevel];

@@ -157,6 +157,7 @@ def _policy_tool_init(
     # more precise governance identity. Remote searches can therefore opt into
     # a network policy while local backends keep the internal policy identity.
     self._qp_policy_name = getattr(func, "_qwenpaw_policy_name", "")
+    self._qp_tool_func = func
     self._qp_policy_decision = None  # Pre-evaluation result
     self._qp_sandbox_mode = False  # Whether to execute in sandbox
     self._qp_raw_params = {}  # Set per-call by check_permissions
@@ -428,6 +429,8 @@ async def _policy_tool_check_permissions(
                 if soft_ask
                 else None
             ),
+            agent_id=tc_spec.agent_id,
+            tool_func=getattr(self, "_qp_tool_func", None),
         )
         if assessment.needs_approval:
             decision = GovernanceDecision(
