@@ -57,7 +57,9 @@ from ...providers.hub_managed import (
 from ...utils.io_utils import run_sync_io
 from ...utils.logging import sanitize_log_value
 from ...providers.openrouter_provider import OpenRouterProvider
-from ...config.config import ModelSlotConfig
+from ...config.config import ModelSlotConfig, ModelType
+
+from .model_validation import validate_model_slot as _validate_model_slot
 
 logger = logging.getLogger(__name__)
 
@@ -122,6 +124,7 @@ def _active_models_info(
             )
     return ActiveModelsInfo(
         active_llm=active_llm,
+        default_models=manager.default_models,
         effective_max_input_length=effective_max_input_length,
     )
 
@@ -182,8 +185,9 @@ def _should_auto_discover(
 
 
 class ModelSlotRequest(BaseModel):
-    provider_id: str = Field(..., description="Provider to use")
-    model: str = Field(..., description="Model identifier")
+    provider_id: str | None = Field(..., description="Provider to use")
+    model: str | None = Field(..., description="Model identifier")
+    model_type: ModelType = "chat"
     scope: ActiveModelWriteScope = Field(
         ...,
         description="Whether to update the global model or a specific agent",
@@ -211,6 +215,7 @@ class CreateCustomProviderRequest(BaseModel):
 
 
 class AddModelRequest(BaseModel):
+    model_type: ModelType = "chat"
     template_id: str | None = None
     id: str = Field(...)
     name: str = Field(...)
@@ -237,6 +242,7 @@ class AddModelRequest(BaseModel):
 
 
 class ModelConfigRequest(BaseModel):
+    model_type: ModelType = "chat"
     thinking_control: ThinkingControl | None = None
     supports_image: bool | None = None
     supports_video: bool | None = None
@@ -294,41 +300,6 @@ class ModelConfigRequest(BaseModel):
         default=None,
         description="Reasoning effort level (low/medium/high).",
     )
-
-
-def _validate_model_slot(
-    manager: ProviderManager,
-    provider_id: str,
-    model_id: str,
-) -> None:
-    """Validate that the provider and model exist without mutating state."""
-    provider = manager.get_provider(provider_id)
-    if provider is None:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Provider '{provider_id}' not found.",
-        )
-    if not provider.has_model(model_id):
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                f"Model '{model_id}' not found in provider "
-                f"'{provider_id}'."
-            ),
-        )
-    model_info = provider.get_model_info(model_id)
-    if model_info and model_info.availability_status in {
-        "permission_denied",
-        "model_not_found",
-        "incompatible_api",
-    }:
-        reason = (
-            model_info.availability_message or model_info.availability_status
-        )
-        raise HTTPException(
-            status_code=400,
-            detail=f"Model '{model_id}' cannot be activated: {reason}",
-        )
 
 
 async def _load_agent_model(
@@ -753,6 +724,7 @@ async def add_model_endpoint(
     try:
         model_payload = {"id": body.id, "name": body.name}
         for field in (
+            "model_type",
             "supports_multimodal",
             "supports_image",
             "supports_video",
@@ -762,6 +734,8 @@ async def add_model_endpoint(
         ):
             if field in body.model_fields_set:
                 model_payload[field] = getattr(body, field)
+        if "model_type" in body.model_fields_set:
+            model_payload["config_overrides"] = ["model_type"]
         provider = await manager.add_model_to_provider(
             provider_id=provider_id,
             model_info=ModelInfo(**model_payload),
@@ -1019,23 +993,33 @@ async def get_active_models(
 @router.put(
     "/active",
     response_model=ActiveModelsInfo,
-    summary="Set active LLM",
+    summary="Set or clear a model selection",
 )
 async def set_active_model(
     request: Request,
     manager: ProviderManager = Depends(get_provider_manager),
     body: ModelSlotRequest = Body(...),
 ) -> ActiveModelsInfo:
-    """Set active model by scope."""
-    if hub_mode() and body.provider_id == PROVIDER_ID:
+    """Set typed global defaults or an agent's chat model."""
+    if (body.provider_id is None) != (body.model is None):
+        raise HTTPException(
+            status_code=400,
+            detail="provider_id and model must be set or cleared together",
+        )
+    slot = (
+        ModelSlotConfig(provider_id=body.provider_id, model=body.model)
+        if body.provider_id is not None
+        else None
+    )
+    if slot and hub_mode() and slot.provider_id == PROVIDER_ID:
         await run_sync_io(
             managed_slot,
-            ModelSlotConfig(provider_id=body.provider_id, model=body.model),
+            slot,
             explicit=True,
         )
     if body.scope == "global":
         try:
-            await manager.activate_model(body.provider_id, body.model)
+            await manager.set_default_model(body.model_type, slot)
         except (
             FileNotFoundError,
             RuntimeError,
@@ -1059,12 +1043,19 @@ async def set_active_model(
             status_code=400,
             detail="agent_id is required when scope is 'agent'",
         )
+    if body.model_type != "chat" or slot is None:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Use agent model settings to clear or select decision models"
+            ),
+        )
 
     await run_sync_io(
         _validate_model_slot,
         manager,
-        body.provider_id,
-        body.model,
+        slot.provider_id,
+        slot.model,
     )
 
     try:
@@ -1074,10 +1065,7 @@ async def set_active_model(
         )
 
         def apply_active_model(agent_config: AgentProfileConfig) -> None:
-            agent_config.active_model = ModelSlotConfig(
-                provider_id=body.provider_id,
-                model=body.model,
-            )
+            agent_config.active_model = slot
 
         await update_agent_config_async(
             workspace.agent_id,
@@ -1103,16 +1091,13 @@ async def set_active_model(
             detail="Failed to save active model to agent config",
         ) from exc
 
-    if body.provider_id != PROVIDER_ID:
-        manager.maybe_probe_multimodal(body.provider_id, body.model)
+    if slot.provider_id != PROVIDER_ID:
+        manager.maybe_probe_multimodal(slot.provider_id, slot.model)
 
     return await run_sync_io(
         _active_models_info,
         manager,
-        ModelSlotConfig(
-            provider_id=body.provider_id,
-            model=body.model,
-        ),
+        slot,
     )
 
 

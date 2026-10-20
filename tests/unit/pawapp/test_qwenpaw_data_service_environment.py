@@ -220,12 +220,15 @@ async def test_first_start_imports_persisted_defaults_without_host_mutation(
 
 @pytest.mark.asyncio
 async def test_local_model_metadata_uses_scoped_preferences(
-    backend, monkeypatch
+    backend,
+    monkeypatch,
 ):
     from qwenpaw.pawapp.tasks import TaskScope
 
     scope = TaskScope(
-        principal_id="alice", workspace_id="w1", app_id="qwenpaw-data"
+        principal_id="alice",
+        workspace_id="w1",
+        app_id="qwenpaw-data",
     )
     metadata = {
         "settings": {
@@ -239,18 +242,21 @@ async def test_local_model_metadata_uses_scoped_preferences(
         },
     }
     monkeypatch.setattr(
-        backend._model_settings, "describe", AsyncMock(return_value=metadata)
+        backend._model_settings,
+        "describe",
+        AsyncMock(return_value=metadata),
     )
     calls = []
 
     async def read(method, path, *, user_id):
+        assert method == "GET"
         calls.append(user_id)
         if path.endswith("active-models"):
             return {
                 "active_models": {
                     "default_provider_id": "openai",
                     "default_model_id": "saved-model",
-                }
+                },
             }
         return {
             "providers": [
@@ -259,8 +265,8 @@ async def test_local_model_metadata_uses_scoped_preferences(
                     "configured": True,
                     "api_key_masked": "never-forward-this",
                     "models": [{"id": "saved-model"}],
-                }
-            ]
+                },
+            ],
         }
 
     monkeypatch.setattr(backend._engine_gateway, "json", read)

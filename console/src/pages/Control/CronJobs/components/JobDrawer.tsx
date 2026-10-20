@@ -103,7 +103,11 @@ export function JobDrawer({
   );
 
   const isEdit = !!editingJob;
-  const { schedule: scheduleSave, flush } = useAutoSave(async () => {
+  const {
+    schedule: scheduleSave,
+    flush,
+    requestClose,
+  } = useAutoSave(async () => {
     if (!isEdit) return;
     const values = form.getFieldsValue(true);
     try {
@@ -114,9 +118,7 @@ export function JobDrawer({
     return onSubmit(values);
   });
   const close = () => {
-    void flush().then((saved) => {
-      if (saved) onClose();
-    });
+    void requestClose(onClose);
   };
   const importReviewRequired =
     editingJob !== null && requiresCronImportReview(editingJob);

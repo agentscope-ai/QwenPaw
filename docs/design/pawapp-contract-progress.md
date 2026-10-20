@@ -1,9 +1,10 @@
-# PawApp contract implementation status — 2026-10-15
+# PawApp contract implementation status — 2026-10-20
 
 The contract now supports managed small Apps and existing external adapters on
-one Host task model. The compatible Engine revision is published; Host browser acceptance has passed against the exact pairing below.
-Hosted contract CI passed; the final full-repository lint cleanup is being
-verified separately.
+one Host task model. The Host branch now includes upstream main through
+`210f5aaac`, including the merged Data app 1.0.3 release (#8266). The Engine
+pairing below includes Data #85 merged with its latest main. Earlier browser
+acceptance and hosted CI evidence is dated separately below.
 
 | Area | Implementation |
 | --- | --- |
@@ -20,7 +21,7 @@ verified separately.
 
 The machine-readable source is
 [`tests/fixtures/pawapp-compatibility.json`](../../tests/fixtures/pawapp-compatibility.json).
-The Engine is fork revision `4bb93f345f5217b51494bcf2d74e0b927b909ab4`,
+The Engine is fork revision `a7fdc606c6bb73efdb688389380dd7ec6f24c783`,
 which includes scoped-session ownership and per-run Host model bindings. CI checks out and verifies
 that exact revision. No compatibility patch is required. Run
 `scripts/prepare-pawapp-engine.py <checkout>` to verify the pairing locally.
@@ -49,6 +50,25 @@ Artifact access remains user/workspace/App scoped, with exact-version grants
 for cross-App handoffs. Sessions provide provenance, not a blanket isolation
 boundary within that scope. The Engine's Host-supplied identity encodes user and
 workspace; its legacy routes now enforce the same ownership as submissions.
+
+## Main synchronization — 2026-10-20
+
+- Preserve Main Chat's session transition/retry changes inside the PawApp task
+  surface, and preserve failed-plugin inventory/removal alongside explicit App
+  activation.
+- Keep the released model-configuration HTTP 409 errors and map them to blocked
+  task readiness; unrelated HTTP errors retain their original failure behavior.
+- Data uses the vNext SDK's native per-service environment factory. The stable
+  launcher's Windows PID/lifecycle fixes and regression tests are also retained.
+- Verify the updated pairing with 22 separate-process Host–Engine tests,
+  1,036 Console task/SDK/chat tests, 412 platform contract tests (one skip),
+  and the Data UI tests/build. Full-suite collection requires separate runs
+  because the repository has integration and unit files named `test_backup.py`.
+- The full unit run passed 17,721 tests with 24 skips. Its only failure was the
+  unchanged upstream epoch-format test under the local Pacific timezone; all 23
+  tests in that module passed when rerun with `TZ=UTC`. Console production build,
+  CSS verification and bundle-size checks passed.
+- No services were redeployed, and live-provider acceptance was not repeated.
 
 ## Verification and limits
 

@@ -356,7 +356,8 @@ async def _runtime_models(scope):
             if not model["configured"]:
                 raise TaskStoreError(f"{role}_model_missing")
     if models.get("databridge") is not None or "databridge" in models.get(
-        "inherit_analysis", []
+        "inherit_analysis",
+        [],
     ):
         from qwenpaw.pawapp.tasks import TaskStoreError
 
@@ -747,10 +748,14 @@ async def _describe_models(scope):
     try:
         identity = DataTaskAdapter.identity_namespace(scope)
         active_response = await _engine_gateway.json(
-            "GET", "/api/v1/preferences/active-models", user_id=identity
+            "GET",
+            "/api/v1/preferences/active-models",
+            user_id=identity,
         )
         provider_response = await _engine_gateway.json(
-            "GET", "/api/v1/preferences/providers", user_id=identity
+            "GET",
+            "/api/v1/preferences/providers",
+            user_id=identity,
         )
         active = active_response["active_models"]
         providers = provider_response["providers"]
@@ -938,8 +943,8 @@ async def context_proxy(path: str, request: Request) -> Any:
                         "model": model["model_id"],
                         "base_url": model["base_url"],
                         "api_key": model["api_key"],
-                    }
-                ).encode()
+                    },
+                ).encode(),
             ).decode()
     return await _gateway.proxy(path, request, model_binding=binding)
 

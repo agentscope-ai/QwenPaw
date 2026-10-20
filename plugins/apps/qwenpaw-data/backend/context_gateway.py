@@ -99,7 +99,11 @@ class ContextGateway:
         return response.json()
 
     async def proxy(
-        self, path: str, request: Request, *, model_binding: str | None = None
+        self,
+        path: str,
+        request: Request,
+        *,
+        model_binding: str | None = None,
     ) -> Response:
         upstream_path = self._proxy_upstream_path(path)
         headers = {

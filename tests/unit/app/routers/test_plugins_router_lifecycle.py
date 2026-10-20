@@ -126,10 +126,11 @@ def _loader_stub(
     *,
     record: Any = None,
     registry: Any = None,
-    load_result: Any = "LOADED",
+    load_result: Any = None,
 ) -> MagicMock:
     """A PluginLoader stand-in recording lifecycle and load calls."""
     loader = MagicMock(name="PluginLoader")
+    loader.requires_explicit_activation.return_value = False
     loader.get_loaded_plugin.return_value = record
     loader.get_all_loaded_plugins.return_value = (
         {record.manifest.id: record} if record is not None else {}
@@ -150,7 +151,7 @@ def _loader_stub(
             f"before={kwargs.get('before_force_unload') is not None}:"
             f"after={kwargs.get('after_force_unload') is not None}",
         )
-        return load_result
+        return load_result if load_result is not None else _record("plug")
 
     loader.load_plugin_from_path = AsyncMock(side_effect=_load)
     return loader
@@ -936,6 +937,13 @@ def _client(loader: Any = None, provider_manager: Any = None):
 
 
 class TestListPluginsRoute:
+    @pytest.fixture(autouse=True)
+    def isolate_plugins_dir(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(
+            "qwenpaw.config.utils.get_plugins_dir",
+            lambda: tmp_path,
+        )
+
     def test_without_loader_falls_back_to_disk_scan(self, tmp_path):
         monkey = tmp_path / "plugins"
         monkey.mkdir()
@@ -959,6 +967,8 @@ class TestListPluginsRoute:
                 "author": "",
                 "enabled": True,
                 "loaded": False,
+                "requires_activation": False,
+                "activation_status": "active",
                 "plugin_type": "general",
                 "frontend_entry": None,
             },
@@ -967,6 +977,7 @@ class TestListPluginsRoute:
     def test_with_loader_reports_loaded_records(self):
         record = _record("plug", meta={"tool_name": "alpha"})
         loader = MagicMock()
+        loader.requires_explicit_activation.return_value = False
         loader.get_all_loaded_plugins.return_value = {"plug": record}
         response = _client(loader).get("/api/plugins")
         assert response.status_code == 200
@@ -979,6 +990,8 @@ class TestListPluginsRoute:
                 "author": "auth",
                 "enabled": True,
                 "loaded": True,
+                "requires_activation": False,
+                "activation_status": "active",
                 "plugin_type": "general",
                 "frontend_entry": "ui/index.js",
             },
@@ -993,6 +1006,7 @@ class TestListPluginsRoute:
 class TestGetPluginStatusRoute:
     def test_loaded_plugin_reports_runtime_state(self):
         loader = MagicMock()
+        loader.requires_explicit_activation.return_value = False
         loader.get_loaded_plugin.return_value = _record("plug")
         response = _client(loader).get("/api/plugins/plug/status")
         assert response.status_code == 200
@@ -1001,6 +1015,8 @@ class TestGetPluginStatusRoute:
             "loaded": True,
             "enabled": True,
             "version": "1.2.3",
+            "requires_activation": False,
+            "activation_status": "active",
         }
 
     def test_on_disk_but_not_loaded(self, tmp_path):
@@ -1100,7 +1116,8 @@ class TestLoadPluginWithOptionalForceReinstall:
                 tmp_path,
                 force=False,
             )
-        assert result == "LOADED"
+        assert result.manifest.id == "plug"
+        assert result.enabled is True
         kwargs = loader.load_plugin_from_path.call_args.kwargs
         assert kwargs["force"] is False
         assert kwargs["before_force_unload"] is None
@@ -1138,7 +1155,7 @@ class TestLoadPluginWithOptionalForceReinstall:
             log.append("load")
             kwargs["after_force_unload"]("plug")
             await kwargs["after_load"]("RECORD")
-            return "LOADED"
+            return _record("plug")
 
         loader.load_plugin_from_path = AsyncMock(side_effect=_capture_load)
 
@@ -1163,7 +1180,8 @@ class TestLoadPluginWithOptionalForceReinstall:
                 pawport_owner={"id": "owner"},
                 recover_incomplete=True,
             )
-        assert result == "LOADED"
+        assert result.manifest.id == "plug"
+        assert result.enabled is True
         assert captured["ids"] == ("plug", ["prov"], ["mycmd"])
         kwargs = captured["kwargs"]
         assert kwargs["force"] is True
@@ -1186,7 +1204,7 @@ class TestLoadPluginWithOptionalForceReinstall:
             kwargs["before_force_unload"]("plug")
             captured["kwargs"] = kwargs
             await kwargs["after_load"]("RECORD")
-            return "LOADED"
+            return _record("plug")
 
         loader.load_plugin_from_path = AsyncMock(side_effect=_capture_load)
         with patch(
@@ -1230,7 +1248,8 @@ class TestInstallPluginSource:
                 force=True,
                 reload_agents=False,
             )
-        assert result == "LOADED"
+        assert result.manifest.id == "plug"
+        assert result.enabled is True
         kwargs = loader.load_plugin_from_path.call_args.kwargs
         assert kwargs["source_path"] == tmp_path
         assert kwargs["force"] is True
@@ -1269,7 +1288,7 @@ class TestInstallPluginSource:
             seen_at_load["manifest"] = (source / "plugin.json").read_text(
                 encoding="utf-8",
             )
-            return "LOADED"
+            return _record("plug")
 
         loader.load_plugin_from_path = AsyncMock(side_effect=_capture_load)
         with patch(
@@ -1338,6 +1357,43 @@ class TestInstallPluginSource:
 
 
 class TestUninstallPluginSource:
+    async def test_failed_plugin_removal_preserves_tool_config(
+        self,
+        tmp_path,
+    ):
+        tool_names = [
+            "other_plugin_tool",
+            "execute_shell_command",
+            "previous_plugin_tool",
+        ]
+        source_path = tmp_path / "installed-directory"
+        source_path.mkdir()
+        manifest = _record(
+            "failed-plugin",
+            meta={
+                "tool_name": tool_names[0],
+                "tools": [{"name": name} for name in tool_names[1:]],
+            },
+        ).manifest
+        loader = _loader_stub([], record=None)
+        loader.discover_plugins.return_value = [(manifest, source_path)]
+        settings = {
+            name: {"enabled": True, "config": {"timeout": 42}}
+            for name in tool_names
+        }
+        cfg = _AgentCfg(settings.copy())
+        with _ConfigLayer({"a": {}}, {"a": cfg}) as layer, patch(
+            "qwenpaw.app.routers.plugins._schedule_all_agents_reload",
+            new_callable=AsyncMock,
+        ) as reload_agents:
+            await uninstall_plugin_source("failed-plugin", app=_app(loader))
+
+        assert not source_path.exists()
+        assert cfg.tools.builtin_tools == settings
+        assert layer.saved == []
+        loader.unload_plugin.assert_not_called()
+        reload_agents.assert_not_awaited()
+
     async def test_unloads_cleans_up_and_reloads(self):
         log: list[str] = []
         record = _record("plug", meta={"tool_name": "alpha"})
@@ -1428,6 +1484,7 @@ class TestInstallPluginRoute:
             "author": "auth",
             "loaded": True,
             "message": "Plugin 'plug display name' installed successfully.",
+            "activation_required": False,
         }
 
     @pytest.mark.parametrize(

@@ -235,3 +235,12 @@ DataBridge 启用 **复用 QwenPaw 已配置的模型** 后，保存配置或启
 - `qwenpaw-data-cli`：独立生命周期和诊断工具（`doctor`、`datasource`、`semantic`）；是唯一被设计为拥有本地基础设施命令的 QwenPaw Data 包。数据源服务器本身仍属于外部基础设施。
 
 托管模式下，用户只需启动 QwenPaw 这一个 UI / 后端入口。PawApp 生命周期会自动启动和停止 Context 服务及 `qwenpaw-data-host-core` 分析引擎。内嵌 Data Console 通过 PawApp 网关访问该引擎；`/data` 通过渠道桥接将 QwenPaw 渠道对话路由到同一引擎。
+
+## 独立应用 1.0.3
+
+本次发布基于稳定版 QwenPaw 2.2.2，配套 QwenPaw-Data 运行时 0.3.3。
+Data 分析默认使用主聊天当前工作区的模型，摘要和 DataBridge 默认继承分析模型。
+在 Data 的「设置 → 模型」中选择覆盖；供应商凭据仍在主聊天中管理。
+Embedding 与图索引属于共享数据服务，单独配置。
+应用通过 Engine 原生 Console API 运行，不依赖 Host vNext 的通用任务协议。
+发布顺序及边界见 [RELEASE.md](RELEASE.md)。

@@ -326,7 +326,16 @@ def _pick_model_free_text(prompt_text: str, current_model: str = "") -> str:
 
 
 def _filter_eligible(all_providers: list[Provider]) -> list[Provider]:
-    return [d for d in all_providers if _is_configured(d)]
+    return [
+        d
+        for d in all_providers
+        if _is_configured(d)
+        and d.chat_model
+        and (
+            not d.all_models()
+            or any(m.model_type == "chat" for m in d.all_models())
+        )
+    ]
 
 
 def _select_llm_model(defn, pid, current_slot, *, use_defaults):
@@ -337,7 +346,7 @@ def _select_llm_model(defn, pid, current_slot, *, use_defaults):
         else ""
     )
 
-    all_models = defn.all_models()
+    all_models = [m for m in defn.all_models() if m.model_type == "chat"]
 
     if use_defaults:
         return cur or (all_models[0].id if all_models else "")

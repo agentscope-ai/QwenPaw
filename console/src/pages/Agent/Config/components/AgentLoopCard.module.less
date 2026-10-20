@@ -350,19 +350,31 @@
 
 .ruleList {
   display: grid;
+  container-type: inline-size;
   gap: 9px;
   margin-bottom: 14px;
 }
 
 .ruleRow {
   display: grid;
-  grid-template-columns: 90px 170px minmax(220px, 1fr) 32px;
+  grid-template-columns: 180px 170px minmax(220px, 1fr) 32px;
   align-items: start;
   gap: 8px;
 }
 
 .ruleRow > :global(.ant-btn) {
   margin-top: 30px;
+}
+
+@container (max-width: 640px) {
+  .ruleRow {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .ruleRow > :global(.ant-btn) {
+    justify-self: end;
+    margin-top: 0;
+  }
 }
 
 .gateDetails :global(.ant-form-item:last-child) {
@@ -537,15 +549,6 @@
     padding-left: 13px;
   }
 
-  .ruleRow {
-    grid-template-columns: 1fr;
-  }
-
-  .ruleRow > :global(.ant-btn) {
-    justify-self: end;
-    margin-top: 0;
-  }
-
   .gateActions > :nth-child(-n + 2) {
     display: none;
   }
@@ -553,4 +556,21 @@
   .toolLimitRow {
     grid-template-columns: minmax(0, 1fr) 88px 32px;
   }
+}
+
+.gateSummaryRow {
+  display: flex;
+  align-items: center;
+}
+
+.gateSummaryRow .gateSummary {
+  flex: 1;
+  min-width: 0;
+}
+
+.gateExtra {
+  display: flex;
+  flex: none;
+  align-items: center;
+  padding-right: 14px;
 }

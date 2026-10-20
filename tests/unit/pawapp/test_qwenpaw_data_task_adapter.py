@@ -11,6 +11,7 @@ from pathlib import Path
 
 import httpx
 import pytest
+from fastapi import HTTPException
 
 from qwenpaw.pawapp.artifacts import ArtifactStore
 from qwenpaw.pawapp.tasks import (
@@ -956,7 +957,8 @@ async def test_runtime_binding_is_resolved_for_scope_and_sent_privately(
         requests.append(request)
         if request.url.path.endswith("/capabilities/submissions"):
             return httpx.Response(
-                200, json={**CAPS, "runtime_model_bindings": True}
+                200,
+                json={**CAPS, "runtime_model_bindings": True},
             )
         return httpx.Response(200, json=receipt(submission))
 
@@ -982,7 +984,8 @@ async def test_runtime_binding_is_resolved_for_scope_and_sent_privately(
 
 @pytest.mark.parametrize("supported", [True, False])
 async def test_session_without_datasource_checks_model_and_engine_capability(
-    submission, supported
+    submission,
+    supported,
 ):
     def handler(request):
         if request.url.path.endswith("/capabilities/submissions"):
@@ -998,7 +1001,8 @@ async def test_session_without_datasource_checks_model_and_engine_capability(
             return httpx.Response(200, json={"ready": True})
         assert request.url.path.endswith("/capabilities/analysis")
         return httpx.Response(
-            200, json={"readiness_version": 1, "model_configured": True}
+            200,
+            json={"readiness_version": 1, "model_configured": True},
         )
 
     adapter = BRIDGE.DataTaskAdapter(
@@ -1020,7 +1024,8 @@ async def test_session_without_datasource_checks_model_and_engine_capability(
 
 
 async def test_optional_datasource_does_not_bypass_restricted_grant(
-    tmp_path, submission
+    tmp_path,
+    submission,
 ):
     from qwenpaw.pawapp.tasks.policy import (
         TaskGrant,
@@ -1033,7 +1038,7 @@ async def test_optional_datasource_does_not_bypass_restricted_grant(
     action.validate_inputs(inputs)
     with pytest.raises(ValueError):
         BRIDGE.data_action_descriptor().validate_inputs(
-            {"text": "check model"}
+            {"text": "check model"},
         )
     path = tmp_path / "policy.json"
     path.write_text(
@@ -1045,20 +1050,23 @@ async def test_optional_datasource_does_not_bypass_restricted_grant(
                     descriptor_digest=action.descriptor_digest,
                     input_values={"datasource_id": ["sales"]},
                 ),
-            )
-        ).model_dump_json()
+            ),
+        ).model_dump_json(),
     )
     policy = FileTaskPolicy(path)
     with pytest.raises(TaskStoreError, match="action_forbidden"):
         await policy.check(submission.handle.scope, action, inputs)
     await policy.check(
-        submission.handle.scope, action, {**inputs, "datasource_id": "sales"}
+        submission.handle.scope,
+        action,
+        {**inputs, "datasource_id": "sales"},
     )
 
 
 @pytest.mark.parametrize("supported", [True, False])
 async def test_dataset_selection_requires_engine_support(
-    submission, supported
+    submission,
+    supported,
 ):
     action = BRIDGE.data_session_action_descriptor()
     scoped = submission.model_copy(
@@ -1070,7 +1078,7 @@ async def test_dataset_selection_requires_engine_support(
                 "datasource_id": "sales",
                 "dataset_names": ["dws_gaap_di"],
             },
-        }
+        },
     )
     requests = []
     adapter = client(
@@ -1086,13 +1094,65 @@ async def test_dataset_selection_requires_engine_support(
         if supported:
             assert await adapter.submit(scoped) == REF
             assert json.loads(requests[-1].content)["dataset_names"] == [
-                "dws_gaap_di"
+                "dws_gaap_di",
             ]
         else:
             with pytest.raises(
-                TaskStoreError, match="dataset_context_unsupported"
+                TaskStoreError,
+                match="dataset_context_unsupported",
             ):
                 await adapter.submit(scoped)
             assert all(request.method == "GET" for request in requests)
     finally:
         await adapter.aclose()
+
+
+@pytest.mark.parametrize("status", [409, 503])
+async def test_runtime_model_http_errors_preserve_admission_boundary(
+    submission,
+    status,
+):
+    requests = []
+
+    async def resolve(_scope):
+        raise HTTPException(status, "Model unavailable")
+
+    def handler(request):
+        requests.append(request)
+        assert request.method == "GET"
+        assert request.url.path.endswith("/capabilities/submissions")
+        return httpx.Response(
+            200,
+            json={**CAPS, "runtime_model_bindings": True},
+        )
+
+    adapter = BRIDGE.DataTaskAdapter(
+        lambda: ("http://engine.test", "token"),
+        executor_id=REF.executor_id,
+        model_resolver=resolve,
+        transport=httpx.MockTransport(handler),
+    )
+    try:
+        if status == 409:
+            readiness = await adapter.readiness(
+                submission.handle.scope,
+                submission.inputs,
+            )
+            assert readiness.state == "blocked"
+            assert readiness.reason == "analysis_model_missing"
+            with pytest.raises(TaskStoreError) as error:
+                await adapter.submit(submission)
+            assert error.value.code == "analysis_model_missing"
+        else:
+            with pytest.raises(HTTPException) as error:
+                await adapter.readiness(
+                    submission.handle.scope,
+                    submission.inputs,
+                )
+            assert error.value.status_code == status
+            with pytest.raises(HTTPException) as error:
+                await adapter.submit(submission)
+            assert error.value.status_code == status
+    finally:
+        await adapter.aclose()
+    assert len(requests) == 2

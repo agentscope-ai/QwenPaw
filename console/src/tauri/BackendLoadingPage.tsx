@@ -48,7 +48,11 @@ export default function BackendLoadingPage({
   return (
     <div className={styles.page}>
       <div className={styles.card}>
-        <img src="/qwenpaw.png" alt="QwenPaw" className={styles.logo} />
+        <img
+          src={`${import.meta.env.BASE_URL}qwenpaw.png`}
+          alt="QwenPaw"
+          className={styles.logo}
+        />
 
         <Progress
           type="dashboard"

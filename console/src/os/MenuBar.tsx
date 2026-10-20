@@ -108,7 +108,7 @@ export default function MenuBar({ hidden = false }: { hidden?: boolean }) {
             title={t("os.qwenpawMenu", "QwenPaw menu")}
             aria-label={t("os.qwenpawMenu", "QwenPaw menu")}
           >
-            <img src="/qwenpaw.png" alt="QwenPaw" />
+            <img src={`${import.meta.env.BASE_URL}qwenpaw.png`} alt="QwenPaw" />
           </button>
         </Dropdown>
         <Tooltip

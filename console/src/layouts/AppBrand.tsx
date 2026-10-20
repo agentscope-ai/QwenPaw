@@ -296,7 +296,9 @@ export default function AppBrand({
         <span className={styles.appBrandLogo} onClick={handleLogoClick}>
           <Slot name="header.logo" kind="replace">
             <img
-              src={isDark ? "/logo-dark.svg" : "/logo-light.svg"}
+              src={`${import.meta.env.BASE_URL}${
+                isDark ? "logo-dark.svg" : "logo-light.svg"
+              }`}
               alt="QwenPaw"
               className={styles.logoImg}
             />

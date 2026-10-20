@@ -1,8 +1,8 @@
 {
   "contract_version": 1,
-  "host_base_revision": "6841e6e339973778023c474345d970e78427681a",
+  "host_base_revision": "210f5aaac285a495836b0c6e1a85fe033cafd422",
   "engine_repository": "cyruszhang/QwenPaw-Data",
-  "engine_revision": "4bb93f345f5217b51494bcf2d74e0b927b909ab4",
+  "engine_revision": "a7fdc606c6bb73efdb688389380dd7ec6f24c783",
   "patches": [],
   "required_capabilities": [
     "durable_submissions",

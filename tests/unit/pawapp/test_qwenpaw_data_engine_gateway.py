@@ -297,6 +297,6 @@ async def test_proxy_refuses_engine_without_session_scope_capability():
                 user_id="alice-sales",
             )
         assert error.value.status_code == 503
-        assert seen == ["/api/v1/capabilities/submissions"]
+        assert seen == ["/api/v1/console/capabilities"]
     finally:
         await gateway.stop()

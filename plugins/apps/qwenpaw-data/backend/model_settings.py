@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """Workspace model references. Credentials are resolved only for a new run."""
 
 from __future__ import annotations
@@ -26,7 +27,7 @@ class ModelChoice(BaseModel):
                 raise ValueError("Choose a provider and model")
         elif self.provider_id is not None or self.model_id is not None:
             raise ValueError(
-                "Inherited/local choices do not accept model references"
+                "Inherited/local choices do not accept model references",
             )
         return self
 
@@ -46,7 +47,7 @@ class ModelSettingsService:
 
     def _path(self, scope):
         digest = hashlib.sha256(
-            json.dumps(scope.model_dump(mode="json"), sort_keys=True).encode()
+            json.dumps(scope.model_dump(mode="json"), sort_keys=True).encode(),
         ).hexdigest()
         return self.root / f"{digest}.json"
 
@@ -60,10 +61,11 @@ class ModelSettingsService:
         async with self.lock:
             if settings.revision != self.load(scope).revision:
                 raise HTTPException(
-                    409, "Settings changed. Reload before saving."
+                    409,
+                    "Settings changed. Reload before saving.",
                 )
             settings = settings.model_copy(
-                update={"revision": settings.revision + 1}
+                update={"revision": settings.revision + 1},
             )
             self.root.mkdir(parents=True, exist_ok=True)
             path = self._path(scope)
@@ -150,11 +152,11 @@ class ModelSettingsService:
                 role
                 for role in ("lightweight", "databridge")
                 if getattr(settings, role).source == "inherit"
-            ]
+            ],
         }
         for role, (model, error) in effective.items():
             if error:
-                raise ValueError(error)
+                raise HTTPException(409, error)
             if (
                 selections[role] is not None
                 and selections[role].source == "local"
@@ -214,7 +216,7 @@ class ModelSettingsService:
                         "models": [
                             {"id": k, "name": v} for k, v in models.items()
                         ],
-                    }
+                    },
                 )
         return {
             "workspace_id": scope.workspace_id,

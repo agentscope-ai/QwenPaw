@@ -9,7 +9,12 @@
  *   • csv    – parsed table
  */
 
-import { ExternalLink, FileWarning, LoaderCircle } from "lucide-react";
+import {
+  ExternalLink,
+  FileCode2,
+  FileWarning,
+  LoaderCircle,
+} from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import ReactMarkdown from "react-markdown";
@@ -342,14 +347,35 @@ function MarkdownPreview({ content }: { content: string }) {
   );
 }
 
-function buildReadOnlyHtml(content: string): string {
+function buildReadOnlyHtml(content: string): {
+  html: string;
+  hasDynamicContent: boolean;
+  hasStaticContent: boolean;
+} {
   const document = new DOMParser().parseFromString(content, "text/html");
+  let hasDynamicContent = Array.from(document.querySelectorAll("script")).some(
+    (script) => {
+      const type = (script.getAttribute("type") ?? "")
+        .split(";")[0]
+        .trim()
+        .toLowerCase();
+      return [
+        "",
+        "module",
+        "text/javascript",
+        "application/javascript",
+        "text/ecmascript",
+        "application/ecmascript",
+      ].includes(type);
+    },
+  );
   document
     .querySelectorAll("script, meta[http-equiv='refresh']")
     .forEach((element) => element.remove());
   document.querySelectorAll("*").forEach((element) => {
     Array.from(element.attributes).forEach((attribute) => {
       if (attribute.name.toLowerCase().startsWith("on")) {
+        hasDynamicContent ||= Boolean(attribute.value.trim());
         element.removeAttribute(attribute.name);
       }
     });
@@ -368,13 +394,26 @@ function buildReadOnlyHtml(content: string): string {
     .querySelectorAll("button, input, select, textarea")
     .forEach((element) => element.setAttribute("disabled", ""));
 
+  const staticBody = document.body.cloneNode(true) as HTMLElement;
+  staticBody
+    .querySelectorAll("style, template")
+    .forEach((element) => element.remove());
+  const hasStaticContent = Boolean(
+    staticBody.textContent?.trim() ||
+      staticBody.querySelector("img, svg, video, audio, iframe, object, embed"),
+  );
+
   const style = document.createElement("style");
   style.textContent = [
     "a, button, input, select, textarea, form, iframe, object, embed,",
     "audio, video, [contenteditable] { pointer-events: none !important; }",
   ].join(" ");
   document.head.appendChild(style);
-  return `<!doctype html>\n${document.documentElement.outerHTML}`;
+  return {
+    html: `<!doctype html>\n${document.documentElement.outerHTML}`,
+    hasDynamicContent,
+    hasStaticContent,
+  };
 }
 
 function HtmlPreview({
@@ -386,36 +425,72 @@ function HtmlPreview({
   workspaceBacked,
 }: FilePreviewProps) {
   const { t } = useTranslation();
-  const readOnlyHtml = useMemo(() => buildReadOnlyHtml(content), [content]);
+  const { html, hasDynamicContent, hasStaticContent } = useMemo(
+    () => buildReadOnlyHtml(content),
+    [content],
+  );
+  const showFallback = hasDynamicContent && !hasStaticContent;
+  const openButton = (
+    <button
+      type="button"
+      className={
+        showFallback
+          ? `${styles.htmlOpenButton} ${styles.htmlFallbackButton}`
+          : styles.htmlOpenButton
+      }
+      onClick={() =>
+        openHtmlFile({
+          content,
+          filePath,
+          chatId,
+          projectDirOverride,
+          root,
+          workspaceBacked,
+        })
+      }
+    >
+      <ExternalLink size={14} strokeWidth={1.5} aria-hidden="true" />
+      {t("files.openHtmlInBrowser")}
+    </button>
+  );
 
   return (
     <div className={styles.htmlWrap}>
-      <div className={styles.htmlToolbar}>
-        <button
-          type="button"
-          className={styles.htmlOpenButton}
-          onClick={() =>
-            openHtmlFile({
-              content,
-              filePath,
-              chatId,
-              projectDirOverride,
-              root,
-              workspaceBacked,
-            })
-          }
+      {!showFallback && <div className={styles.htmlToolbar}>{openButton}</div>}
+      {hasDynamicContent && (
+        <div
+          className={showFallback ? styles.htmlFallback : styles.htmlNotice}
+          role="status"
         >
-          <ExternalLink size={14} />
-          {t("files.openHtmlInBrowser")}
-        </button>
-      </div>
-      <iframe
-        className={styles.htmlFrame}
-        srcDoc={readOnlyHtml}
-        sandbox=""
-        tabIndex={-1}
-        title={t("files.htmlPreview")}
-      />
+          {showFallback && (
+            <span className={styles.htmlFallbackIcon}>
+              <FileCode2 size={28} strokeWidth={1.5} aria-hidden="true" />
+            </span>
+          )}
+          <div className={showFallback ? styles.htmlFallbackText : undefined}>
+            {showFallback && (
+              <h3 className={styles.htmlFallbackTitle}>
+                {t("files.htmlReadOnlyTitle")}
+              </h3>
+            )}
+            <p className={styles.htmlNoticeText}>
+              {t("files.htmlReadOnlyNotice", {
+                context: showFallback ? "fallback" : undefined,
+              })}
+            </p>
+          </div>
+          {showFallback && openButton}
+        </div>
+      )}
+      {!showFallback && (
+        <iframe
+          className={styles.htmlFrame}
+          srcDoc={html}
+          sandbox=""
+          tabIndex={-1}
+          title={t("files.htmlPreview")}
+        />
+      )}
     </div>
   );
 }

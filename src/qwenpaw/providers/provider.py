@@ -14,8 +14,9 @@ from typing import TYPE_CHECKING, Any, ClassVar, Dict, List, Literal, Type
 from agentscope.model import ChatModelBase
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, model_validator
 
-from qwenpaw.exceptions import ProviderError
+from qwenpaw.exceptions import ModelNotFoundException, ProviderError
 
+from ..config.config import ModelType
 from ..utils.io_utils import run_sync_io
 from .context_windows import DEFAULT_CONTEXT_WINDOW
 from .thinking import ThinkingControl, ThinkingPreference, resolve_thinking
@@ -360,6 +361,42 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
 
     async def close(self) -> None:
         """Release resources owned by this runtime provider instance."""
+
+    def validate_model_selection(
+        self,
+        model_id: str,
+        model_type: ModelType = "chat",
+    ) -> None:
+        """Check a configured model before assigning it to a model slot."""
+        model = self.get_model_info(model_id)
+        if model is None:
+            raise ModelNotFoundException(
+                model_name=f"{self.id}/{model_id}",
+                details={"provider_id": self.id, "model_id": model_id},
+            )
+        if model.model_type != model_type:
+            raise ProviderError(
+                message=f"Model '{model_id}' is not a {model_type} model",
+            )
+        if model.availability_status in {
+            "permission_denied",
+            "model_not_found",
+            "incompatible_api",
+        }:
+            reason = model.availability_message or model.availability_status
+            raise ProviderError(
+                message=f"Model '{model_id}' cannot be activated: {reason}",
+            )
+
+    def validate_chat_model(self, model_id: str) -> None:
+        """Reject decision models before sending a chat request."""
+        model = self.get_model_info(model_id)
+        if model is None:
+            model = self.get_discovered_model_info(model_id)
+        if model is not None and model.model_type != "chat":
+            raise ProviderError(
+                message=f"Model '{model_id}' is not a chat model",
+            )
 
     def model_protocol(self, model_id: str) -> str:
         """Return this service's protocol for one model."""
@@ -1081,6 +1118,12 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
         for model in Provider.all_models(self) + self.discovered_models:
             if model.id == model_id:
                 changed_fields: list[str] = []
+                if "model_type" in config:
+                    value = config["model_type"]
+                    if value not in ("chat", "decision"):
+                        raise ValueError("model_type must be chat or decision")
+                    model.model_type = value
+                    changed_fields.append("model_type")
                 for field in (
                     f"supports_image",
                     f"supports_video",
@@ -1350,10 +1393,12 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
         """Alias of :meth:`get_context_size` kept for provider internals."""
         return self.get_context_size(model_id)
 
-    @abstractmethod
     def get_chat_model_instance(self, model_id: str) -> ChatModelBase:
         """Return an instance of the chat model associated with this
         provider and model_id."""
+        raise ProviderError(
+            message=f"Provider '{self.id}' has no chat model adapter",
+        )
 
     async def probe_model_multimodal(
         self,

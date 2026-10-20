@@ -11,7 +11,7 @@ import tempfile
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Dict, Literal
 
-from ..config.config import ModelSlotConfig
+from ..config.config import ModelSlotConfig, ModelType
 from ..exceptions import ProviderError
 from ..security.secret_store import (
     PROVIDER_SECRET_FIELDS,
@@ -355,6 +355,7 @@ class ProviderManagerPersistenceMixin(
             provider_id,
             snapshot,
         )
+        await self.clear_invalid_default_models(provider_id, snapshot)
         if current is not None:
             try:
                 await current.close()
@@ -880,9 +881,44 @@ class ProviderManagerPersistenceMixin(
         apply_custom_discovery_policy(provider)
         return provider
 
-    def save_active_model(self, active_model: ModelSlotConfig):
+    async def clear_invalid_default_models(
+        self,
+        provider_id: str,
+        provider: Provider | None,
+    ) -> None:
+        for model_type, slot in self.default_models.items():
+            if (
+                slot is None
+                or self._normalize_provider_id(slot.provider_id) != provider_id
+            ):
+                continue
+            model = provider.get_model_info(slot.model) if provider else None
+            if (
+                not provider
+                or not provider.enabled
+                or not model
+                or model.model_type != model_type
+            ):
+                await self.clear_active_model_async(
+                    provider_id,
+                    model_type=model_type,
+                )
+
+    def _default_model_path(self, model_type: ModelType) -> Path:
+        filename = (
+            "active_model.json"
+            if model_type == "chat"
+            else f"default_{model_type}_model.json"
+        )
+        return self.root_path / filename
+
+    def save_active_model(
+        self,
+        active_model: ModelSlotConfig,
+        model_type: ModelType = "chat",
+    ):
         """Atomically save the active provider/model configuration."""
-        active_path = self.root_path / "active_model.json"
+        active_path = self._default_model_path(model_type)
         fd, temp_name = tempfile.mkstemp(
             prefix=".active_model.",
             suffix=".tmp",
@@ -917,55 +953,65 @@ class ProviderManagerPersistenceMixin(
     async def save_active_model_async(
         self,
         active_model: ModelSlotConfig,
+        model_type: ModelType = "chat",
     ) -> None:
         """Persist and commit the active model as one transaction."""
         lock = self._provider_save_locks.setdefault(
-            "__active_model__",
+            f"__default_model_{model_type}__",
             asyncio.Lock(),
         )
         snapshot = active_model.model_copy(deep=True)
 
         async def save_and_commit() -> None:
             async with lock:
-                await run_sync_io(self.save_active_model, snapshot)
-                self.active_model = snapshot
+                await run_sync_io(self.save_active_model, snapshot, model_type)
+                self.default_models[model_type] = snapshot
 
         await run_async_to_completion(save_and_commit())
 
     async def clear_active_model_async(
         self,
         provider_id: str | None = None,
+        *,
+        model_type: ModelType = "chat",
+        model_id: str | None = None,
     ) -> bool:
         """Clear the active model without blocking the event loop."""
         if provider_id is not None:
             provider_id = self._normalize_provider_id(provider_id)
         lock = self._provider_save_locks.setdefault(
-            "__active_model__",
+            f"__default_model_{model_type}__",
             asyncio.Lock(),
         )
 
         async def clear_model() -> bool:
             async with lock:
-                if self.active_model is None:
+                slot = self.default_models[model_type]
+                if slot is None:
                     return False
                 if (
                     provider_id is not None
                     and self._normalize_provider_id(
-                        self.active_model.provider_id,
+                        slot.provider_id,
                     )
                     != provider_id
                 ):
                     return False
-                active_path = self.root_path / "active_model.json"
+                if model_id is not None and slot.model != model_id:
+                    return False
+                active_path = self._default_model_path(model_type)
                 await run_sync_io(active_path.unlink, missing_ok=True)
-                self.active_model = None
+                self.default_models[model_type] = None
                 return True
 
         return await run_async_to_completion(clear_model())
 
-    def load_active_model(self) -> ModelSlotConfig | None:
+    def load_active_model(
+        self,
+        model_type: ModelType = "chat",
+    ) -> ModelSlotConfig | None:
         """Load the active provider/model configuration from disk."""
-        active_path = self.root_path / "active_model.json"
+        active_path = self._default_model_path(model_type)
         if not active_path.exists():
             return None
         try:
@@ -1161,9 +1207,10 @@ class ProviderManagerPersistenceMixin(
                     continue
                 self.custom_providers[provider_key] = provider
         # Load active model config
-        active_model = self.load_active_model()
-        if active_model:
-            self.active_model = active_model
+        for model_type in self.default_models:
+            self.default_models[model_type] = self.load_active_model(
+                model_type,
+            )
 
         # Migrate copaw-local to qwenpaw-local for backwards compatibility
         self._migrate_copaw_config()

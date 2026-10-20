@@ -7,6 +7,7 @@ import {
   AgentScopeRuntimeRunStatus,
 } from "@agentscope-ai/chat";
 import { HostRequestCard, HostResponseCard } from "./HostBubbles";
+import * as assistantMarkdown from "./AssistantMarkdown";
 import { ChatScalar, ChatList } from "../../plugins/registry/slotKeys";
 import {
   setAssistantMessageDisplayPreference,
@@ -139,6 +140,62 @@ afterEach(() => {
 });
 
 describe("merged host bubbles behavior", () => {
+  it.each([
+    [undefined, AgentScopeRuntimeRunStatus.InProgress, true],
+    [null, AgentScopeRuntimeRunStatus.InProgress, true],
+    [undefined, AgentScopeRuntimeRunStatus.Completed, false],
+    [
+      AgentScopeRuntimeRunStatus.Completed,
+      AgentScopeRuntimeRunStatus.InProgress,
+      false,
+    ],
+  ])(
+    "uses message status when text status is %s (message %s)",
+    async (status, messageStatus, isStreaming) => {
+      const markdown = vi
+        .spyOn(assistantMarkdown, "AssistantMarkdown")
+        .mockImplementation(() => <></>);
+      try {
+        setAssistantMessageDisplayPreference("expanded");
+        render(
+          provider(
+            <HostResponseCard
+              id="sdk-message"
+              data={{
+                id: "response",
+                status: messageStatus,
+                output: [
+                  {
+                    id: "text-message",
+                    type: AgentScopeRuntimeMessageType.MESSAGE,
+                    role: "assistant",
+                    status: messageStatus,
+                    content: [
+                      { type: "text", text: "```openui-lang\nroot =", status },
+                    ],
+                  },
+                ],
+              }}
+              isLast
+            />,
+          ),
+        );
+        await act(async () => {});
+        const props = markdown.mock.calls[markdown.mock.calls.length - 1][0];
+        expect({
+          isStreaming: props.isStreaming,
+          cursor: props.cursor,
+        }).toEqual({
+          isStreaming,
+          // Preserve the existing vendor cursor behavior for users without plugins.
+          cursor: false,
+        });
+      } finally {
+        markdown.mockRestore();
+      }
+    },
+  );
+
   it("delegates response actions without injecting regenerate", async () => {
     setAssistantMessageDisplayPreference("expanded");
     const output = [

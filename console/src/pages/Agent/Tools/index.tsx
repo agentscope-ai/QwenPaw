@@ -135,8 +135,8 @@ function ToolConfigModal({
     };
   }, [visible, tool.name, form]);
 
-  const { schedule, flush } = useAutoSave(async () => {
-    if (loadingConfig) return;
+  const { schedule, requestClose } = useAutoSave(async () => {
+    if (loadingConfig) return false;
     const values = form.getFieldsValue(true);
     try {
       await form.validateFields();
@@ -155,11 +155,7 @@ function ToolConfigModal({
           : t(`tools.catalog.${tool.name}.name`, tool.name)
       }`}
       open={visible}
-      onCancel={() => {
-        void flush().then((saved) => {
-          if (saved) onClose();
-        });
-      }}
+      onCancel={() => void requestClose(onClose)}
       footer={null}
     >
       <Spin spinning={loadingConfig}>

@@ -18,6 +18,13 @@
  * Both surfaces share the single audit log in `./audit.ts`.
  */
 import type React from "react";
+import type { ChatCodeBlockProps } from "../types/qwenpaw";
+
+export interface ChatCodeBlockItem {
+  id: string;
+  language: string;
+  render: React.ComponentType<ChatCodeBlockProps>;
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Disposable

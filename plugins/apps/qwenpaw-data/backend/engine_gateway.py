@@ -95,11 +95,19 @@ class EngineGateway:
         upstream_path = self._upstream_path(path)
         # Legacy session APIs require Engine ownership checks.
         if upstream_path.startswith("/api/v1/"):
-            caps = await self.json(
-                "GET",
-                "/api/v1/capabilities/submissions",
-                user_id=user_id,
-            )
+            try:
+                caps = await self.json(
+                    "GET",
+                    "/api/v1/console/capabilities",
+                    user_id=user_id,
+                )
+            except HTTPException as exc:
+                if exc.status_code == 404:
+                    raise HTTPException(
+                        503,
+                        "Update the Data Engine runtime to 0.3.3 or later",
+                    ) from None
+                raise
             if (
                 not isinstance(caps, dict)
                 or caps.get("scoped_sessions") is not True

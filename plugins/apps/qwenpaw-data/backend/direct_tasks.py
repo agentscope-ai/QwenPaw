@@ -20,6 +20,8 @@ async def console_scope(request: Request):
     return await task_scope(request, "qwenpaw-data", workspace)
 
 
+# Durable admission keeps validation and recovery decisions together.
+# pylint: disable-next=too-many-branches
 async def dispatch_console_chat(request: Request, gateway):
     """Persist first; never fall back to raw chat after uncertainty."""
     scope = await console_scope(request)
@@ -35,7 +37,8 @@ async def dispatch_console_chat(request: Request, gateway):
         raise HTTPException(422, "Invalid analysis inputs")
     if inputs.get("enable_clarification") is False:
         raise HTTPException(
-            422, "Disabled clarification is not supported by this Engine"
+            422,
+            "Disabled clarification is not supported by this Engine",
         )
     if inputs.get("dataset_names") is None:
         inputs.pop("dataset_names", None)

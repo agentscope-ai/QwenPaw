@@ -137,6 +137,18 @@ def _extract_placeholder_name(content_parts: list) -> tuple[str, str]:
 
 async def _persist_pending_model_settings(workspace, chat, request_context):
     """Bind first-turn model and reasoning before building the runtime."""
+    pending_decision = request_context.pop("session_decision_enabled", None)
+    if pending_decision is not None:
+        if not isinstance(pending_decision, bool):
+            raise HTTPException(422, "Invalid decision preference")
+        chat = await workspace.chat_manager.set_session_decision(
+            chat.id,
+            pending_decision,
+            only_if_unset=True,
+        )
+        if chat is None:
+            raise HTTPException(409, "Session disappeared before saving")
+
     pending_model = request_context.pop(f"session_model", None)
     if pending_model is not None and session_model(chat.meta) is None:
         try:

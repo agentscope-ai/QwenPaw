@@ -150,11 +150,12 @@ function EnvironmentsPage() {
       setSaving(false);
     }
   };
-  const { schedule, flush } = useAutoSave(() => saveEditor(false));
+  const { schedule, requestClose } = useAutoSave(() => saveEditor(false));
   const closeEditor = async () => {
-    if (!(await flush())) return;
-    setEditorOpen(false);
-    if (!editor?.isNew) await fetchAll();
+    await requestClose(async () => {
+      setEditorOpen(false);
+      if (!editor?.isNew) await fetchAll();
+    });
   };
 
   const executeRemove = async (key: string, reset = false) => {

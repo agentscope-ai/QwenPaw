@@ -4,6 +4,7 @@ import {
   ReadyChatWelcome,
 } from "./components/ChatSessionTransition";
 import { ChatWelcome } from "./components/ChatWelcome";
+import { useChatRouteResolution } from "./hooks/useChatRouteResolution";
 import { loadSessionModel } from "../../features/session-settings/sessionModel";
 import {
   migratePendingSessionSettings,
@@ -40,6 +41,8 @@ import {
   Settings as SettingOutlined,
 } from "lucide-react";
 import { usePlugins } from "../../plugins/PluginContext";
+import { bindChatSubmit } from "../../plugins/hostSdk/chatSubmit";
+import { enqueuePluginSubmission } from "./pluginSubmission";
 import { useTranslation } from "react-i18next";
 import { AnimatePresence } from "motion/react";
 import i18n from "../../i18n";
@@ -70,6 +73,10 @@ import { getApiUrl } from "../../api/config";
 import { buildAuthHeaders } from "../../api/authHeaders";
 import { providerApi } from "../../api/modules/provider";
 import type { ProviderInfo, ModelInfo, SkillSpec } from "../../api/types";
+import {
+  AdvisorModelsPill,
+  useIsAdvisorConversation,
+} from "./ModelSelector/AdvisorModelsPill";
 import { useTheme } from "../../contexts/ThemeContext";
 import { useAgentStore } from "../../stores/agentStore";
 import {
@@ -244,7 +251,6 @@ import {
   getActiveSenderTextarea,
   getSenderTextareaFromTarget,
   setTextareaValue,
-  clearSubmittedSenderInput,
   formatMessageTime,
   type CopyableResponse,
   type RuntimeLoadingBridgeApi,
@@ -1303,11 +1309,18 @@ export default function ChatPage() {
   const isAgentTransition =
     prevSelectedAgentRef.current !== selectedAgent ||
     agentTransitionTarget !== null;
+  const routeResolution = useChatRouteResolution(
+    isAgentTransition ? undefined : routeChatId,
+    selectedAgent,
+  );
+  const { agentSwitchTarget, retry: retryRouteResolution } = routeResolution;
+  const isSessionTransition = isAgentTransition || routeResolution.blocked;
   // All host consumers, including Files and loop hooks, must wait for the
   // target Agent's route. The raw URL still belongs to the previous Agent.
-  const isAgentTransitionRef = useRef(isAgentTransition);
-  isAgentTransitionRef.current = isAgentTransition;
-  const chatId = isAgentTransition ? undefined : routeChatId;
+  const isSessionTransitionRef = useRef(isSessionTransition);
+  isSessionTransitionRef.current = isSessionTransition;
+  const chatId =
+    isSessionTransition || routeChatId === "new" ? undefined : routeChatId;
   // The explicit /chat route is a fresh draft, even if history remembers an
   // older active Chat. Storage identity must follow the same route as the SDK.
   const queueSessionId = chatId ?? "new";
@@ -1469,6 +1482,8 @@ export default function ChatPage() {
   const selectedAgentBackend = selectedAgentInfo?.backend ?? "qwenpaw";
   const backendCapabilities = selectedAgentInfo?.backend_capabilities;
   const usesQwenPawBackend = requiresQwenPawModel(selectedAgentBackend);
+  // An Advisor conversation runs two models, so its pill shows the pair.
+  const advisorConversation = useIsAdvisorConversation();
   const backendCommands = backendCapabilities?.commands ?? [];
   const approvalPresets = backendCapabilities?.approval_presets ?? [];
   const supportsAttachments = supportsAgentAttachments(
@@ -1479,6 +1494,10 @@ export default function ChatPage() {
   const extScalar = useChatScalarSnapshot();
   const extLists = useChatListSnapshot();
   const [refreshKey, setRefreshKey] = useState(0);
+  const retrySession = useCallback(() => {
+    retryRouteResolution();
+    setRefreshKey((version) => version + 1);
+  }, [retryRouteResolution]);
   const chatRef = useRef<IAgentScopeRuntimeWebUIRef>(null);
   const runtimeLoadingBridgeRef = useRef<RuntimeLoadingBridgeApi | null>(null);
   const headlineStreamFilterRef = useRef<HeadlineStreamFilterState>(
@@ -1538,13 +1557,6 @@ export default function ChatPage() {
       size?: number;
     }[]
   >([]);
-  // Keep the original composer text across new-session allocation. Creating a
-  // Chat can replace the SDK Input before its acceptance callback runs, so the
-  // callback may clear an unmounted instance instead of the visible composer.
-  const pendingDirectInputRef = useRef<{
-    original: string;
-    prepared: string;
-  } | null>(null);
 
   // Build SDK fileList from QueueItem.attachments
   // SDK reads file.response.url for image_url / file_url (see AgentScopeRuntimeRequestBuilder)
@@ -1757,6 +1769,7 @@ export default function ChatPage() {
       if (
         requested ||
         ctrl.signal.aborted ||
+        isSessionTransition ||
         !sdkSessionAdapter.isReady(chatId)
       )
         return;
@@ -1787,10 +1800,10 @@ export default function ChatPage() {
       unsubscribe();
       clearTimeout(fallbackTimer);
     };
-  }, [chatId, queueKey, sdkSessionAdapter]);
+  }, [chatId, queueKey, sdkSessionAdapter, isSessionTransition]);
 
   const syncLoopModeStatus = useCallback(() => {
-    if (isAgentTransition) return Promise.resolve();
+    if (isSessionTransition) return Promise.resolve();
     const sessionReference =
       chatId ?? (queueSessionId !== "new" ? queueSessionId : undefined);
     const verifiedChatId = resolveBackendChatId(sessionReference);
@@ -1801,14 +1814,14 @@ export default function ChatPage() {
       chatId: verifiedChatId,
       sessionId: backendSessionId,
     });
-  }, [queueSessionId, chatId, isAgentTransition]);
+  }, [queueSessionId, chatId, isSessionTransition]);
 
   useEffect(() => {
     const controller = new AbortController();
     useLoopStore.getState().resetSessionMode();
     void fetchAvailableLoopModes(controller.signal);
     const verifiedChatId = resolveBackendChatId(chatId);
-    if (verifiedChatId && !isAgentTransition) {
+    if (verifiedChatId && !isSessionTransition) {
       void fetchActiveLoopMode({
         chatId: verifiedChatId,
         sessionId: sessionApi.getSessionIdentity(chatId).sessionId,
@@ -1816,7 +1829,7 @@ export default function ChatPage() {
       });
     }
     return () => controller.abort();
-  }, [chatId, isAgentTransition, selectedAgent]);
+  }, [chatId, isSessionTransition, selectedAgent]);
 
   // Whether this tab is confirmed to be a non-owner (queue-only) tab.
   // Stays false until ownership check completes, preventing a flash of
@@ -2074,7 +2087,7 @@ export default function ChatPage() {
 
   const isChatActiveRef = useRef(false);
   const isChatActivePage =
-    !isAgentTransition &&
+    !isSessionTransition &&
     (location.pathname === "/" || location.pathname.startsWith("/chat"));
   isChatActiveRef.current = isChatActivePage;
 
@@ -2137,7 +2150,7 @@ export default function ChatPage() {
         },
         selectedAgent,
         currentSessionId,
-        isAgentTransition,
+        isSessionTransition,
       ),
     );
 
@@ -2176,7 +2189,7 @@ export default function ChatPage() {
     }
 
     setApprovalRequests(newMap);
-  }, [approvals, chatId, isAgentTransition, selectedAgent]);
+  }, [approvals, chatId, isSessionTransition, selectedAgent]);
 
   const approvalRenderers = useMemo(() => {
     const renderers = new Map<
@@ -2223,7 +2236,7 @@ export default function ChatPage() {
           },
           selectedAgentRef.current,
           currentRootSessionId,
-          isAgentTransitionRef.current,
+          isSessionTransitionRef.current,
         )
       ) {
         console.warn("[Chat] Ignoring stale approval action target");
@@ -2287,7 +2300,7 @@ export default function ChatPage() {
           },
           selectedAgentRef.current,
           currentRootSessionId,
-          isAgentTransitionRef.current,
+          isSessionTransitionRef.current,
         )
       ) {
         console.warn("[Chat] Ignoring stale approval action target");
@@ -2475,6 +2488,35 @@ export default function ChatPage() {
     }
   }, [isOwner, queueSessionId, scheduleNextSend, queueKey]);
 
+  // Plugin actions use the same durable queue without consuming composer drafts.
+  useEffect(() => {
+    if (!isChatActivePage) return;
+    const binding = bindChatSubmit((input) => {
+      enqueuePluginSubmission(input, {
+        active: isChatActiveRef.current && !isSessionTransitionRef.current,
+        ready: sdkSessionAdapter.isReady(chatIdRef.current),
+        agentId: selectedAgent,
+        currentSessionId: chatIdRef.current || "",
+        queueKey,
+        resolveIdentity: (id) => sessionApi.getSessionIdentity(id),
+        prepareQuery: (query) =>
+          usesQwenPawBackend ? prepareLoopModeMessage(query) : query,
+        requestContext: captureRequestContext(),
+        queueFullMessage: t("chat.queue.queueFull", { max: MAX_QUEUE_SIZE }),
+        staleMessage: t("chat.pluginSubmission.staleConversation"),
+      });
+    });
+    return () => binding.dispose();
+  }, [
+    isChatActivePage,
+    selectedAgent,
+    queueKey,
+    sdkSessionAdapter,
+    captureRequestContext,
+    usesQwenPawBackend,
+    t,
+  ]);
+
   // Intercept Enter to enqueue:
   //  - Ctrl/Meta+Enter: always enqueue (even when idle)
   //  - Plain Enter while loading: enqueue (SDK blocks triggerSend when loading)
@@ -2485,7 +2527,7 @@ export default function ChatPage() {
   useEffect(() => {
     const handleEnterEnqueue = (e: KeyboardEvent) => {
       if (!isChatActive() || e.key !== "Enter" || e.shiftKey) return;
-      if (!sdkSessionAdapter.isReady(chatIdRef.current) || isAgentTransition)
+      if (!sdkSessionAdapter.isReady(chatIdRef.current) || isSessionTransition)
         return;
       const hasCtrl = e.ctrlKey || e.metaKey;
       const queueBusy =
@@ -2546,7 +2588,7 @@ export default function ChatPage() {
     captureRequestContext,
     queueKey,
     sdkSessionAdapter,
-    isAgentTransition,
+    isSessionTransition,
   ]);
 
   const handleQueueRemove = useCallback(
@@ -2865,7 +2907,7 @@ export default function ChatPage() {
   const safeLastStored = isLocalTimestampId(getLastChatId(selectedAgent))
     ? null
     : getLastChatId(selectedAgent);
-  const effectiveChatId = isAgentTransition
+  const effectiveChatId = isSessionTransition
     ? undefined
     : chatId || safeLastActive || safeLastStored;
   if (effectiveChatId && sessionApi.preferredChatId !== effectiveChatId) {
@@ -3128,24 +3170,35 @@ export default function ChatPage() {
       // Save current chat ID for the agent we're leaving.
       // Skip temporary local timestamp ids — they are not real backend
       // sessions and should not be restored later.
-      const currentChatId =
-        routeChatId || lastSessionIdRef.current || undefined;
+      const currentChatId = lastSessionIdRef.current;
       if (currentChatId && prevAgent && !isLocalTimestampId(currentChatId)) {
         setLastChatId(prevAgent, currentChatId);
       }
 
-      // Start the new Agent on a blank composer. SDK 1.2 allocates the Chat
-      // on the first send, so switching Agents does not create empty Chats.
-      setAgentTransitionTarget({ agentId: selectedAgent });
-      sessionApi.preferredChatId = null;
-      sessionApi.lastActiveChatId = null;
-      navigateRef.current(CHAT_BASE_PATH, { replace: true });
+      // Deep-link resolution carries an explicit target. Manual switches
+      // continue to start on a blank composer without allocating a Chat.
+      const resolvedTarget = agentSwitchTarget.current;
+      const targetChatId =
+        resolvedTarget?.agentId === selectedAgent &&
+        resolvedTarget.referenceId === routeChatId
+          ? resolvedTarget.chatId
+          : undefined;
+      agentSwitchTarget.current = null;
+      setAgentTransitionTarget({
+        agentId: selectedAgent,
+        chatId: targetChatId,
+      });
+      sessionApi.preferredChatId = targetChatId ?? null;
+      sessionApi.lastActiveChatId = targetChatId ?? null;
+      navigateRef.current(
+        targetChatId ? buildChatPath(targetChatId) : CHAT_BASE_PATH,
+        { replace: true },
+      );
       // Mark the current session as stale so late-arriving onSessionSelected
       // callbacks from the OLD library instance are suppressed (Bug: after
       // agent switch, old library's in-flight getSession may complete and
       // trigger onSessionSelected for the wrong session).
-      staleAutoSelectedIdRef.current =
-        lastSessionIdRef.current || routeChatId || null;
+      staleAutoSelectedIdRef.current = lastSessionIdRef.current;
       lastSessionIdRef.current = null;
 
       setRefreshKey((prev) => prev + 1);
@@ -3156,7 +3209,7 @@ export default function ChatPage() {
     if (prevAgent === undefined) {
       prevSelectedAgentRef.current = selectedAgent;
     }
-  }, [selectedAgent, setLastChatId, getLastChatId]);
+  }, [selectedAgent, setLastChatId, getLastChatId, agentSwitchTarget]);
 
   useEffect(() => {
     if (
@@ -3229,19 +3282,6 @@ export default function ChatPage() {
       // Every turn goes through this fetch, including the SDK's own regenerate.
       // Clear only this session: another session may still have a stopped turn.
       clearTurnStopped(entrySnapshot.sessionId);
-      const directSubmission =
-        !data.submission || data.submission.source === "direct";
-      const pendingDirectInput = directSubmission
-        ? pendingDirectInputRef.current
-        : null;
-      if (directSubmission) pendingDirectInputRef.current = null;
-      const draftStorageKey = getDraftStorageKey(entrySnapshot.agentId);
-      const submittedDraft = directSubmission
-        ? localStorage.getItem(draftStorageKey)
-        : null;
-      const submittedFiles = directSubmission
-        ? new Set(pendingFileListRef.current)
-        : new Set();
       const approvalAtSubmission =
         typeof entrySnapshot.context.approval_level === "string"
           ? normalizeLevel(entrySnapshot.context.approval_level)
@@ -3280,13 +3320,6 @@ export default function ChatPage() {
       const session: SessionInfo = input[input.length - 1]?.session || {};
       const lastInput = input.slice(-1);
       const lastMsg = lastInput[0];
-      const submittedSenderValue =
-        directSubmission &&
-        pendingDirectInput &&
-        lastMsg?.role === "user" &&
-        extractUserMessageText(lastMsg) === pendingDirectInput.prepared
-          ? pendingDirectInput.original
-          : null;
       const clientMessageId =
         lastMsg?.role === "user"
           ? data.clientRequestId ||
@@ -3432,23 +3465,6 @@ export default function ChatPage() {
         sessionApi.discardLastUserMessage(pendingSessionIds, clientMessageId);
       }
 
-      // Session allocation can replace the SDK Input before its own acceptance
-      // callback clears it. Clear the current composer only when it still holds
-      // this submission, then retire the matching host draft and attachments.
-      if (response.ok && directSubmission) {
-        if (submittedSenderValue !== null) {
-          clearSubmittedSenderInput(submittedSenderValue);
-        }
-        if (
-          submittedDraft !== null &&
-          localStorage.getItem(draftStorageKey) === submittedDraft
-        ) {
-          localStorage.removeItem(draftStorageKey);
-        }
-        pendingFileListRef.current = pendingFileListRef.current.filter(
-          (file) => !submittedFiles.has(file),
-        );
-      }
       const localIdToResolve = fallbackLocalChatId;
       if (response.ok && projectSessionId) {
         setPendingThinking(requestSnapshot.agentId, projectSessionId, null);
@@ -3620,7 +3636,7 @@ export default function ChatPage() {
     ): Promise<boolean | IAgentScopeRuntimeWebUISenderBeforeSubmitResult> => {
       if (
         isComposingRef.current ||
-        isAgentTransition ||
+        isSessionTransition ||
         !sdkSessionAdapter.isReady(chatIdRef.current)
       )
         return false;
@@ -3635,6 +3651,9 @@ export default function ChatPage() {
       const backendChatId = resolveBackendChatId(chatIdRef.current);
       const textarea = getActiveSenderTextarea();
       const val = data.query.trim() || textarea?.value.trim() || "";
+      const draftStorageKey = getDraftStorageKey(selectedAgent);
+      const submittedDraft = localStorage.getItem(draftStorageKey);
+      const submittedFiles = new Set(pendingFileListRef.current);
       const submittedAttachments = getSubmissionAttachments(data);
       const queueAttachments =
         submittedAttachments.length > 0
@@ -3715,10 +3734,14 @@ export default function ChatPage() {
       const prepared = usesQwenPawBackend
         ? beginLoopModeSubmission(data.query)
         : data.query;
-      pendingDirectInputRef.current = {
-        original: data.query,
-        prepared,
-      };
+      // Consume this submission before model lookup, session allocation or
+      // transport. Preserve any draft and files added during the status check.
+      if (localStorage.getItem(draftStorageKey) === submittedDraft) {
+        localStorage.removeItem(draftStorageKey);
+      }
+      pendingFileListRef.current = pendingFileListRef.current.filter(
+        (file) => !submittedFiles.has(file),
+      );
       // beforeSubmit runs before the SDK allocates a new session. An empty
       // route therefore has no runtime identity yet; let the SDK supply the
       // new local ID instead of freezing a stale history/global identity.
@@ -3728,6 +3751,7 @@ export default function ChatPage() {
 
       return {
         proceed: true,
+        clear: true,
         query: prepared,
         session_id: identity.sessionId || undefined,
         context: buildChatSubmissionContext(
@@ -4000,13 +4024,17 @@ export default function ChatPage() {
         rightHeader: (
           <>
             <ChatSessionInitializer />
-            <ChatSessionActivation sessionId={chatId} sdkRef={chatRef} />
+            <ChatSessionActivation
+              sessionId={chatId}
+              sdkRef={chatRef}
+              adapter={sdkSessionAdapter}
+            />
             <RuntimeLoadingBridge
               bridgeRef={runtimeLoadingBridgeRef}
               onLoadingChange={setChatLoading}
               sessionAdapter={sdkSessionAdapter}
               sessionId={chatId}
-              agentTransition={isAgentTransition}
+              agentTransition={isSessionTransition}
             />
             <ChatHeaderTitle />
             <span className={styles.headerSpacer} />
@@ -4025,7 +4053,7 @@ export default function ChatPage() {
       welcome: {
         ...i18nConfig.welcome,
         nick: extNick ?? "QwenPaw",
-        avatar: extAvatar ?? "/qwenpaw.png",
+        avatar: extAvatar ?? `${import.meta.env.BASE_URL}qwenpaw.png`,
         ...(extGreeting !== undefined ? { greeting: extGreeting } : {}),
         ...(extDescription !== undefined
           ? { description: extDescription }
@@ -4033,7 +4061,11 @@ export default function ChatPage() {
         ...(extPrompts !== undefined ? { prompts: extPrompts } : {}),
         // SDK uses `render` if present and ignores the other fields.
         render: (props: WelcomeRenderProps) => (
-          <ReadyChatWelcome adapter={sdkSessionAdapter} sessionId={chatId}>
+          <ReadyChatWelcome
+            adapter={sdkSessionAdapter}
+            sessionId={chatId}
+            pending={isSessionTransition}
+          >
             {wrappedWelcomeRender ? (
               wrappedWelcomeRender(props)
             ) : (
@@ -4083,14 +4115,20 @@ export default function ChatPage() {
               <LoopModeSelector
                 className={isMobile ? styles.mobileComposerControl : undefined}
                 compact={isMobile}
+                chatId={backendChatId}
+                agentId={selectedAgent}
               />
             )}
-            {usesQwenPawBackend ? (
-              <SessionThinking
-                agentId={selectedAgent}
-                sessionId={queueSessionId}
-                chatId={backendChatId}
-              />
+            {usesQwenPawBackend && !isSessionTransition ? (
+              advisorConversation ? (
+                <AdvisorModelsPill />
+              ) : (
+                <SessionThinking
+                  agentId={selectedAgent}
+                  sessionId={queueSessionId}
+                  chatId={backendChatId}
+                />
+              )
             ) : backendCapabilities?.model_selection ? (
               <HarnessModelSelector providerId={selectedAgentBackend} />
             ) : null}
@@ -4111,7 +4149,7 @@ export default function ChatPage() {
                 />
               </span>
             )}
-            {usesQwenPawBackend && (
+            {usesQwenPawBackend && !isSessionTransition && (
               <SessionProjectDirectory
                 scope={sessionScope}
                 compact={isMobile || compactSender}
@@ -4505,6 +4543,8 @@ export default function ChatPage() {
     scheduleHistoryClear,
     consoleSkills,
     loopAvailableModes,
+    advisorConversation,
+    backendChatId,
     selectedAgent,
     selectedAgentBackend,
     backendCapabilities,
@@ -4549,7 +4589,7 @@ export default function ChatPage() {
     chatId,
     sdkSessionApi,
     sdkSessionAdapter,
-    isAgentTransition,
+    isSessionTransition,
     queueKey,
   ]);
 
@@ -4564,7 +4604,7 @@ export default function ChatPage() {
     <TerminalDock
       scope={sessionScope}
       isDark={isDark}
-      open={terminalEnabled && terminalOpen}
+      open={!isSessionTransition && terminalEnabled && terminalOpen}
       setOpen={setTerminalOpen}
     >
       <div
@@ -4575,11 +4615,13 @@ export default function ChatPage() {
         <div className={styles.chatMainArea}>
           <div
             ref={chatMessagesAreaRef}
-            className={
-              isWideMode
-                ? `${styles.chatMessagesArea} ${styles.wideMode}`
-                : styles.chatMessagesArea
-            }
+            className={[
+              styles.chatMessagesArea,
+              isWideMode && styles.wideMode,
+              advisorConversation && styles.advisorComposer,
+            ]
+              .filter(Boolean)
+              .join(" ")}
           >
             <LongTextPasteProvider
               enabled={supportsAttachments}
@@ -4593,18 +4635,21 @@ export default function ChatPage() {
                 <PawAppTaskSurfaceProvider
                   scopeKey={`${selectedAgent}:${queueSessionId}`}
                 >
-                  {!isAgentTransition && (
-                    <ChatSessionTransition
-                      adapter={sdkSessionAdapter}
-                      sessionId={chatId}
-                    >
+                  <ChatSessionTransition
+                    adapter={sdkSessionAdapter}
+                    sessionId={chatId}
+                    pending={isSessionTransition}
+                    error={routeResolution.error}
+                    onRetry={retrySession}
+                  >
+                    {!isAgentTransition && (
                       <AgentScopeRuntimeWebUI
                         ref={chatRef}
                         key={refreshKey}
                         options={options}
                       />
-                    </ChatSessionTransition>
-                  )}
+                    )}
+                  </ChatSessionTransition>
                 </PawAppTaskSurfaceProvider>
               </RichFileReferenceInputProvider>
             </LongTextPasteProvider>
@@ -4658,7 +4703,7 @@ export default function ChatPage() {
 
           {/* Render approval cards as overlays */}
           {Array.from(
-            chatId && !isAgentTransition ? approvalRequests.values() : [],
+            chatId && !isSessionTransition ? approvalRequests.values() : [],
           ).map((request) => {
             const renderer = approvalRenderers.get(request.sourceType);
             const CustomApprovalCard = renderer?.item.render;
@@ -4691,7 +4736,7 @@ export default function ChatPage() {
                   const resolvedChatId = resolveBackendChatId(routeChatId);
 
                   if (
-                    !isAgentTransitionRef.current &&
+                    !isSessionTransitionRef.current &&
                     rootSessionId &&
                     routeIdentity.sessionId === rootSessionId &&
                     resolvedChatId
@@ -4813,7 +4858,7 @@ export default function ChatPage() {
         </div>
         {/* End of main chat area */}
         <AnimatePresence initial={false} mode="popLayout">
-          {filesDrawerState.kind !== "closed" ? (
+          {!isSessionTransition && filesDrawerState.kind !== "closed" ? (
             <FilesDrawer
               key="session-files-drawer"
               state={filesDrawerState}

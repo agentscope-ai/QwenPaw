@@ -7,6 +7,7 @@ import re
 from typing import Any, AsyncGenerator, Awaitable, Callable
 
 import httpx
+from fastapi import HTTPException
 
 from qwenpaw.pawapp.tasks import (
     ActionDescriptor,
@@ -386,7 +387,7 @@ class DataTaskAdapter:
         """Read-only durable submission protocol probe."""
         await self._check_protocol(self._connection(scope))
 
-    # pylint: disable-next=too-many-return-statements
+    # pylint: disable-next=too-many-return-statements,too-many-branches
     async def readiness(self, scope: TaskScope, inputs: dict):
         """Check analysis model configuration and DataBridge source presence.
 
@@ -434,13 +435,22 @@ class DataTaskAdapter:
             if self._model_resolver is not None:
                 if caps.get("runtime_model_bindings") is not True:
                     return Readiness(
-                        state="blocked", reason="model_bindings_unsupported"
+                        state="blocked",
+                        reason="model_bindings_unsupported",
                     )
                 try:
                     runtime_models = await self._model_resolver(scope)
+                except HTTPException as exc:
+                    if exc.status_code != 409:
+                        raise
+                    return Readiness(
+                        state="blocked",
+                        reason="analysis_model_missing",
+                    )
                 except ValueError:
                     return Readiness(
-                        state="blocked", reason="analysis_model_missing"
+                        state="blocked",
+                        reason="analysis_model_missing",
                     )
             if (
                 runtime_models is None
@@ -475,7 +485,8 @@ class DataTaskAdapter:
                 and caps.get("dataset_context") is not True
             ):
                 return Readiness(
-                    state="blocked", reason="dataset_context_unsupported"
+                    state="blocked",
+                    reason="dataset_context_unsupported",
                 )
             if "session_id" in inputs and "datasource_id" not in inputs:
                 if caps.get("optional_session_datasource") is not True:
@@ -595,8 +606,12 @@ class DataTaskAdapter:
                 raise TaskStoreError("model_bindings_unsupported")
             try:
                 body["runtime_models"] = await self._model_resolver(
-                    submission.handle.scope
+                    submission.handle.scope,
                 )
+            except HTTPException as exc:
+                if exc.status_code != 409:
+                    raise
+                raise TaskStoreError("analysis_model_missing") from exc
             except ValueError as exc:
                 raise TaskStoreError("analysis_model_missing") from exc
         if self._capability_bridge is not None:

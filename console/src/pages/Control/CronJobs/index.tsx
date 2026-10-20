@@ -309,6 +309,7 @@ function CronJobsPage() {
       }
     }
 
+    form.resetFields();
     form.setFieldsValue(
       formValues as Parameters<typeof form.setFieldsValue>[0],
     );
