@@ -707,18 +707,20 @@ class QwenPawACPAgent(Agent):
         try:
             pending = asyncio.ensure_future(stream.__anext__())
             while True:
+                current = pending
+                assert current is not None
                 timeout = max(
                     0.0,
                     _ACP_KEEPALIVE_SECONDS - (loop.time() - last_emit),
                 )
-                done, _ = await asyncio.wait({pending}, timeout=timeout)
+                done, _ = await asyncio.wait({current}, timeout=timeout)
                 if not done:
                     await self._emit_keepalive(session_id)
                     last_emit = loop.time()
                     continue
 
                 try:
-                    event = pending.result()
+                    event = current.result()
                 except StopAsyncIteration:
                     pending = None
                     break
