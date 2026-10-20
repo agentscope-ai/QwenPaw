@@ -15,23 +15,48 @@ import os
 import pathlib
 from types import SimpleNamespace
 
+import httpx
+import openai
+
 from qwenpaw.agents.acp import server
 from qwenpaw.providers.retry_chat_model import StreamIdleTimeoutError
 
 _SCENARIO = os.environ.get("QWENPAW_FAULT_SCENARIO", "ok")
 
 
+def _provider_error(message: str) -> openai.BadRequestError:
+    request = httpx.Request(
+        "POST",
+        "https://example.test/v1/chat/completions",
+    )
+    response = httpx.Response(400, request=request)
+    return openai.BadRequestError(
+        message,
+        response=response,
+        body={"error": {"message": message}},
+    )
+
+
 class _FaultWorkspace:
     async def stream_query(self, request):
         del request
         if _SCENARIO == "moderation":
-            raise RuntimeError(
+            raise _provider_error(
                 "400 data_inspection_failed: inappropriate content",
             )
         if _SCENARIO == "idle":
             raise StreamIdleTimeoutError("policy", 600.0)
         if _SCENARIO == "internal":
             raise RuntimeError("internal secret-token")
+        if _SCENARIO == "hang":
+            yield SimpleNamespace(
+                object="content",
+                text="started",
+                delta=False,
+                msg_id="m1",
+            )
+            await asyncio.sleep(60)
+            return
         if _SCENARIO == "disconnect":
             await asyncio.sleep(30)
         yield SimpleNamespace(

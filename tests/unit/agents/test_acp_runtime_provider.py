@@ -8,6 +8,8 @@ from __future__ import annotations
 import asyncio
 from types import SimpleNamespace
 
+import httpx
+import openai
 import pytest
 from acp import RequestError, text_block
 
@@ -21,6 +23,19 @@ from qwenpaw.agents.acp.server import (
     QwenPawACPAgent,
 )
 from qwenpaw.config.config import ModelSlotConfig
+
+
+def _provider_error(message: str) -> openai.BadRequestError:
+    request = httpx.Request(
+        "POST",
+        "https://example.test/v1/chat/completions",
+    )
+    response = httpx.Response(400, request=request)
+    return openai.BadRequestError(
+        message,
+        response=response,
+        body={"error": {"message": message}},
+    )
 
 
 class _FakeManager:
@@ -363,7 +378,7 @@ async def test_prompt_content_safety_is_refusal(monkeypatch, message):
         async def stream_query(self, request):  # noqa: ANN001
             del request
             if message:
-                raise RuntimeError(message)
+                raise _provider_error(message)
             yield None
 
     agent = QwenPawACPAgent(

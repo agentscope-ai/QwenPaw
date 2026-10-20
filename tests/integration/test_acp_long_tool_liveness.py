@@ -19,12 +19,16 @@ benchmark harness classifies as ``NonZeroAgentExitCodeError``.
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import contextvars
 import os
 import pathlib
 import sys
 import time
 from types import SimpleNamespace
 
+import httpx
+import openai
 import pytest
 from acp import PROTOCOL_VERSION, RequestError, text_block
 from acp.stdio import spawn_agent_process
@@ -34,6 +38,22 @@ from qwenpaw.agents.acp import server as acp_server
 from qwenpaw.agents.acp.server import QwenPawACPAgent
 from qwenpaw.providers.retry_chat_model import StreamIdleTimeoutError
 from qwenpaw.schemas import MessageType, RunStatus
+
+pytestmark = pytest.mark.p1
+
+
+def _provider_error(message: str) -> openai.BadRequestError:
+    request = httpx.Request(
+        "POST",
+        "https://example.test/v1/chat/completions",
+    )
+    response = httpx.Response(400, request=request)
+    return openai.BadRequestError(
+        message,
+        response=response,
+        body={"error": {"message": message}},
+    )
+
 
 # The baseline revision does not define these constants; keeping the
 # lookups lazy lets the same file run as the A/B control.
@@ -88,6 +108,15 @@ def _tool_output_event(call_id: str = "call-1"):
         type=MessageType.PLUGIN_CALL_OUTPUT.value,
         status=RunStatus.Completed,
         content=[SimpleNamespace(data=data)],
+    )
+
+
+def _content_event(text: str = "ok"):
+    return SimpleNamespace(
+        object="content",
+        text=text,
+        delta=False,
+        msg_id="m1",
     )
 
 
@@ -201,6 +230,102 @@ async def test_keepalive_covers_wait_before_first_event(monkeypatch):
 
 
 @pytest.mark.integration
+async def test_keepalive_covers_workspace_initialization(monkeypatch):
+    """Workspace creation and its lock wait must also emit keepalives."""
+
+    monkeypatch.setattr(acp_server, "_ACP_KEEPALIVE_SECONDS", 0.1)
+
+    async def _normal_stream():
+        yield _content_event("ok")
+
+    agent = QwenPawACPAgent(agent_id="default")
+    conn = _RecordingConn()
+    agent.on_connect(conn)
+
+    async def _slow_workspace():
+        await asyncio.sleep(0.45)
+        return _FakeWorkspace(_normal_stream)
+
+    monkeypatch.setattr(agent, "_ensure_workspace", _slow_workspace)
+    session = await agent.new_session(cwd="/task")
+
+    response = await agent.prompt(
+        prompt=[text_block("hello")],
+        session_id=session.session_id,
+    )
+
+    keepalives = [
+        update
+        for _, update in conn.updates
+        if (getattr(update, "field_meta", None) or {}).get(
+            KEEPALIVE_META_KEY,
+        )
+    ]
+    assert response.stop_reason == "end_turn"
+    assert len(keepalives) >= 2
+
+
+@pytest.mark.integration
+async def test_ready_unmapped_events_do_not_starve_keepalive(monkeypatch):
+    """Keepalive is based on emit time, not only on an empty wait timeout."""
+
+    monkeypatch.setattr(acp_server, "_ACP_KEEPALIVE_SECONDS", 0.05)
+
+    async def _stream():
+        deadline = time.monotonic() + 0.25
+        while time.monotonic() < deadline:
+            await asyncio.sleep(0.001)
+            yield _unmapped_event()
+
+    agent, conn, session_id = await _agent_with_stream(
+        monkeypatch,
+        _stream,
+    )
+
+    response = await agent.prompt(
+        prompt=[text_block("hello")],
+        session_id=session_id,
+    )
+
+    keepalives = [
+        update
+        for _, update in conn.updates
+        if (getattr(update, "field_meta", None) or {}).get(
+            KEEPALIVE_META_KEY,
+        )
+    ]
+    assert response.stop_reason == "end_turn"
+    assert keepalives
+
+
+@pytest.mark.integration
+async def test_contextvars_persist_across_stream_events(monkeypatch):
+    """The whole turn must run in one task so ContextVars survive yields."""
+
+    marker = contextvars.ContextVar("marker", default=None)
+    seen: list[str | None] = []
+
+    async def _stream():
+        marker.set("set-by-runtime-hook")
+        yield _content_event("one")
+        seen.append(marker.get())
+        yield _content_event("two")
+
+    agent, _conn, session_id = await _agent_with_stream(
+        monkeypatch,
+        _stream,
+    )
+
+    response = await agent.prompt(
+        prompt=[text_block("hello")],
+        session_id=session_id,
+    )
+
+    assert response.stop_reason == "end_turn"
+    assert seen == ["set-by-runtime-hook"]
+
+
+@pytest.mark.integration
 async def test_keepalive_does_not_cancel_pending_event(monkeypatch):
     """Keepalive timeouts must reuse the pending ``__anext__`` future."""
 
@@ -291,7 +416,7 @@ async def test_content_moderation_returns_refusal(monkeypatch):
     """Aliyun moderation errors must end as an ACP refusal, not an error."""
 
     async def _stream():
-        raise RuntimeError(
+        raise _provider_error(
             "400 data_inspection_failed: inappropriate content",
         )
         yield  # pragma: no cover
@@ -396,9 +521,11 @@ async def _prompt_via_subprocess(scenario: str, tmp_path):
 class _SubprocessClient:
     def __init__(self) -> None:
         self.updates: list[object] = []
+        self.first_update = asyncio.Event()
 
     async def session_update(self, session_id, update, **kwargs) -> None:
         self.updates.append(update)
+        self.first_update.set()
 
     async def request_permission(
         self,
@@ -547,5 +674,40 @@ async def test_subprocess_pipe_close_runs_shutdown_and_exits_zero(tmp_path):
         session = await conn.new_session(cwd=str(tmp_path))
         assert session.session_id
 
+    assert process.returncode == 0
+    assert marker.read_text(encoding="utf-8") == "shutdown"
+
+
+@pytest.mark.integration
+async def test_subprocess_active_prompt_pipe_close_exits(tmp_path):
+    """Closing the pipe during an active prompt must cancel and clean up."""
+
+    marker = tmp_path / "shutdown.marker"
+    env = _driver_env("hang", tmp_path)
+    env["QWENPAW_FAULT_MARKER"] = str(marker)
+    client = _SubprocessClient()
+
+    async with spawn_agent_process(
+        client,
+        sys.executable,
+        str(DRIVER),
+        env=env,
+        cwd=str(pathlib.Path(__file__).resolve().parents[2]),
+        transport_kwargs={"shutdown_timeout": 5.0},
+    ) as (conn, process):
+        await conn.initialize(protocol_version=PROTOCOL_VERSION)
+        session = await conn.new_session(cwd=str(tmp_path))
+        prompt_task = asyncio.create_task(
+            conn.prompt(
+                prompt=[text_block("hello")],
+                session_id=session.session_id,
+            ),
+        )
+        await asyncio.wait_for(client.first_update.wait(), timeout=5)
+
+    with contextlib.suppress(Exception):
+        await asyncio.wait_for(prompt_task, timeout=2)
+
+    await asyncio.wait_for(process.wait(), timeout=10)
     assert process.returncode == 0
     assert marker.read_text(encoding="utf-8") == "shutdown"

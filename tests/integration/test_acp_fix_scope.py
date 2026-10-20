@@ -15,6 +15,8 @@ import asyncio
 import time
 from types import SimpleNamespace
 
+import httpx
+import openai
 import pytest
 from acp import RequestError, text_block
 
@@ -28,6 +30,21 @@ from qwenpaw.agents.acp.server import (
 )
 from qwenpaw.providers.retry_chat_model import StreamIdleTimeoutError
 from qwenpaw.schemas import MessageType, RunStatus
+
+pytestmark = pytest.mark.p1
+
+
+def _provider_error(message: str) -> openai.BadRequestError:
+    request = httpx.Request(
+        "POST",
+        "https://example.test/v1/chat/completions",
+    )
+    response = httpx.Response(400, request=request)
+    return openai.BadRequestError(
+        message,
+        response=response,
+        body={"error": {"message": message}},
+    )
 
 
 class _RecordingConn:
@@ -135,7 +152,18 @@ def test_only_evidence_backed_moderation_markers_return_refusal(
     expected: str,
 ):
     """Content-safety markers map to refusal, including the new OSS markers."""
-    assert _prompt_failure_stop_reason(RuntimeError(message)) == expected
+    assert _prompt_failure_stop_reason(_provider_error(message)) == expected
+
+
+def test_internal_error_text_is_not_content_safety():
+    """Keyword-like text in internal exceptions must not become a refusal."""
+    assert _prompt_failure_stop_reason(KeyError("moderation")) is None
+    assert (
+        _prompt_failure_stop_reason(
+            NameError("name 'content_policy' is not defined"),
+        )
+        is None
+    )
 
 
 def test_stream_idle_timeout_is_not_normalized():
@@ -164,6 +192,30 @@ def test_stream_idle_timeout_is_not_normalized():
 def test_unconfirmed_errors_are_not_normalized(exc: Exception):
     """Unexpected exceptions must keep the JSON-RPC internal-error path."""
     assert _prompt_failure_stop_reason(exc) is None
+
+
+@pytest.mark.integration
+async def test_existing_request_error_keeps_code_and_data(monkeypatch):
+    """A RequestError raised by the runtime must pass through unchanged."""
+    error = RequestError.invalid_params({"model_id": "x"})
+
+    async def _stream():
+        raise error
+        yield  # pragma: no cover
+
+    agent, _conn, session_id = await _agent_with_stream(
+        monkeypatch,
+        _stream,
+    )
+
+    with pytest.raises(RequestError) as caught:
+        await agent.prompt(
+            prompt=[text_block("hello")],
+            session_id=session_id,
+        )
+
+    assert caught.value.code == -32602
+    assert caught.value.data == {"model_id": "x"}
 
 
 def test_tool_output_still_maps_after_heartbeat_support():
@@ -403,7 +455,7 @@ async def test_moderation_returns_refusal_and_hides_marker(monkeypatch):
     """Moderation ends normally without leaking its details."""
 
     async def _stream():
-        raise RuntimeError(
+        raise _provider_error(
             "400 data_inspection_failed: inappropriate content",
         )
         yield  # pragma: no cover

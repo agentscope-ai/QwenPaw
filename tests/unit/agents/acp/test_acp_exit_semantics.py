@@ -7,6 +7,8 @@ from __future__ import annotations
 import asyncio
 from types import SimpleNamespace
 
+import httpx
+import openai
 import pytest
 
 from qwenpaw.agents.acp.server import (
@@ -17,6 +19,19 @@ from qwenpaw.agents.acp.server import (
 )
 from qwenpaw.providers.retry_chat_model import StreamIdleTimeoutError
 from qwenpaw.schemas import MessageType, RunStatus
+
+
+def _provider_error(message: str) -> openai.BadRequestError:
+    request = httpx.Request(
+        "POST",
+        "https://example.test/v1/chat/completions",
+    )
+    response = httpx.Response(400, request=request)
+    return openai.BadRequestError(
+        message,
+        response=response,
+        body={"error": {"message": message}},
+    )
 
 
 def _tool_start(call_id: str = "call-1"):
@@ -84,11 +99,21 @@ def test_completed_tool_stops_heartbeats():
 
 
 def test_content_moderation_returns_refusal():
-    error = RuntimeError(
+    error = _provider_error(
         "400 data_inspection_failed: inappropriate content",
     )
 
     assert _prompt_failure_stop_reason(error) == "refusal"
+
+
+def test_internal_error_text_is_not_content_safety():
+    assert _prompt_failure_stop_reason(KeyError("moderation")) is None
+    assert (
+        _prompt_failure_stop_reason(
+            NameError("name 'content_policy' is not defined"),
+        )
+        is None
+    )
 
 
 def test_stream_idle_timeout_is_not_normalized():

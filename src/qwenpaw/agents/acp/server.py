@@ -129,6 +129,16 @@ def _is_transport_close(exc: BaseException) -> bool:
     return False
 
 
+def _is_provider_error(exc: BaseException) -> bool:
+    """Return whether *exc* came from a supported model provider SDK."""
+    try:
+        import anthropic
+        import openai
+    except ImportError:  # pragma: no cover - optional provider SDK
+        return False
+    return isinstance(exc, (openai.APIError, anthropic.APIError))
+
+
 def _prompt_failure_stop_reason(exc: BaseException) -> str | None:
     """Return a stop reason only for confirmed task-level failures.
 
@@ -137,7 +147,7 @@ def _prompt_failure_stop_reason(exc: BaseException) -> str | None:
     """
     if isinstance(exc, ACPClientDisconnected):
         return f"end_turn"
-    if isinstance(exc, Exception):
+    if _is_provider_error(exc):
         from ...providers.model_error_policy import classify_model_error
 
         if classify_model_error(exc).kind == f"content_safety":
@@ -658,7 +668,6 @@ class QwenPawACPAgent(Agent):
         if not text:
             return PromptResponse(stop_reason="end_turn")
 
-        workspace = await self._ensure_workspace()
         session_info = self._sessions.get(
             session_id,
             {},
@@ -701,38 +710,42 @@ class QwenPawACPAgent(Agent):
         was_cancelled = False
         loop = asyncio.get_running_loop()
         last_emit = loop.time()
-        stream = workspace.stream_query(request).__aiter__()
-        pending: asyncio.Future[Any] | None = None
+        queue: asyncio.Queue[tuple[str, Any]] = asyncio.Queue()
+
+        async def _pump() -> None:
+            """Consume the whole turn in one task so ContextVars persist."""
+            try:
+                workspace = await self._ensure_workspace()
+                async for event in workspace.stream_query(request):
+                    queue.put_nowait(("event", event))
+            except Exception as exc:
+                queue.put_nowait(("error", exc))
+            finally:
+                queue.put_nowait(("end", None))
+
+        pump_task = asyncio.create_task(_pump())
 
         try:
-            pending = asyncio.ensure_future(stream.__anext__())
             while True:
-                current = pending
-                assert current is not None
                 timeout = max(
                     0.0,
                     _ACP_KEEPALIVE_SECONDS - (loop.time() - last_emit),
                 )
-                done, _ = await asyncio.wait({current}, timeout=timeout)
-                if not done:
+                try:
+                    kind, payload = await asyncio.wait_for(
+                        queue.get(),
+                        timeout=timeout,
+                    )
+                except asyncio.TimeoutError:
                     await self._emit_keepalive(session_id)
                     last_emit = loop.time()
                     continue
 
-                try:
-                    event = current.result()
-                except StopAsyncIteration:
-                    pending = None
+                if kind == f"end":
                     break
-                pending = asyncio.ensure_future(stream.__anext__())
-
-                if cancel_event.is_set():
-                    was_cancelled = True
-                    logger.info(
-                        "ACP prompt cancelled: session=%s",
-                        session_id,
-                    )
-                    break
+                if kind == f"error":
+                    raise payload
+                event = payload
 
                 updates = tracker.process(event)
                 for upd in updates:
@@ -741,12 +754,30 @@ class QwenPawACPAgent(Agent):
 
                 if await self._emit_usage_if_available(session_id):
                     last_emit = loop.time()
+
+                if loop.time() - last_emit >= _ACP_KEEPALIVE_SECONDS:
+                    await self._emit_keepalive(session_id)
+                    last_emit = loop.time()
+
+                if cancel_event.is_set():
+                    was_cancelled = True
+                    logger.info(
+                        "ACP prompt cancelled: session=%s",
+                        session_id,
+                    )
+                    break
         except asyncio.CancelledError:
             was_cancelled = True
             logger.info(
                 "ACP prompt task cancelled: session=%s",
                 session_id,
             )
+        except RequestError:
+            logger.exception(
+                "ACP prompt request error: session=%s",
+                session_id,
+            )
+            raise
         except Exception as exc:
             logger.exception(
                 "ACP prompt error: session=%s",
@@ -760,18 +791,9 @@ class QwenPawACPAgent(Agent):
                 ) from None
             return PromptResponse(stop_reason=stop_reason)
         finally:
-            if pending is not None and not pending.done():
-                pending.cancel()
-                await asyncio.gather(pending, return_exceptions=True)
-            close = getattr(stream, f"aclose", None)
-            if close is not None:
-                try:
-                    await close()
-                except Exception:
-                    logger.exception(
-                        "ACP: failed to close prompt stream: session=%s",
-                        session_id,
-                    )
+            if not pump_task.done():
+                pump_task.cancel()
+                await asyncio.gather(pump_task, return_exceptions=True)
             await self._stop_approval_bridge(approval_bridge)
             self._cancel_events.pop(session_id, None)
             self._prompt_tasks.pop(session_id, None)
@@ -935,6 +957,11 @@ class QwenPawACPAgent(Agent):
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
+
+    async def _cancel_all_prompts(self) -> None:
+        """Cancel every active prompt before workspace shutdown."""
+        for session_id in list(self._prompt_tasks):
+            await self._cancel_active_prompt(session_id)
 
     async def _cancel_active_prompt(self, session_id: str) -> None:
         """Cancel and await the active prompt for one ACP session."""
@@ -1712,4 +1739,9 @@ async def run_qwenpaw_agent(
                 raise
             logger.info("ACP client disconnected; shutting down cleanly")
     finally:
+        try:
+            # pylint: disable=protected-access
+            await agent._cancel_all_prompts()
+        except Exception:
+            logger.exception("ACP: failed to cancel active prompts")
         await agent._shutdown_workspace()  # pylint: disable=protected-access
