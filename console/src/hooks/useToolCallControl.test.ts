@@ -32,6 +32,7 @@ vi.mock("../stores/backgroundTasksStore", () => ({
 }));
 
 import { useToolCallControl } from "./useToolCallControl";
+import { HttpRequestError } from "../api/request";
 
 describe("useToolCallControl", () => {
   beforeEach(() => {
@@ -246,5 +247,52 @@ describe("useToolCallControl", () => {
         alreadyCompleted: true,
       }),
     );
+  });
+
+  it("converges a stable missing record instead of polling forever", async () => {
+    getInfo.mockRejectedValue(
+      new HttpRequestError("Tool call not found", 404, "not found"),
+    );
+
+    const { result } = renderHook(() =>
+      useToolCallControl("backend-sid", "tc-missing", true, "shell"),
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+      for (let attempt = 1; attempt < 20; attempt += 1) {
+        vi.advanceTimersByTime(250);
+        await Promise.resolve();
+        await Promise.resolve();
+      }
+    });
+
+    expect(result.current.recordMissing).toBe(true);
+    const callsAfterGrace = getInfo.mock.calls.length;
+
+    await act(async () => {
+      vi.advanceTimersByTime(10_000);
+      await Promise.resolve();
+    });
+
+    expect(getInfo).toHaveBeenCalledTimes(callsAfterGrace);
+  });
+
+  it("keeps retrying transient lookup failures", async () => {
+    getInfo.mockRejectedValue(new Error("network unavailable"));
+
+    const { result } = renderHook(() =>
+      useToolCallControl("backend-sid", "tc-network", true, "shell"),
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+      vi.advanceTimersByTime(10_000);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(result.current.recordMissing).toBe(false);
+    expect(getInfo.mock.calls.length).toBeGreaterThan(1);
   });
 });

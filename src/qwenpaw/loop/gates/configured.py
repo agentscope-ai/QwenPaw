@@ -41,6 +41,10 @@ class ConfiguredGate(StopGate):
         """Delegate turn reset."""
         self._gate.reset_turn()
 
+    def reset_reply_cycle(self) -> None:
+        """Delegate the narrow independent-reply reset."""
+        self._gate.reset_reply_cycle()
+
     def reset_session(self) -> None:
         """Delegate session reset."""
         self._gate.reset_session()

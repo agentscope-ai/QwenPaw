@@ -104,6 +104,22 @@ function waitForRetry(
   });
 }
 
+export class HttpRequestError extends ApiError {
+  readonly body: string;
+
+  constructor(message: string, status: number, body: string) {
+    super(status, message);
+    this.name = "HttpRequestError";
+    this.body = body;
+  }
+}
+
+export function isHttpRequestError(
+  reason: unknown,
+): reason is HttpRequestError {
+  return reason instanceof HttpRequestError;
+}
+
 export async function request<T = unknown>(
   path: string,
   options: RequestOptions = {},
@@ -174,7 +190,7 @@ export async function request<T = unknown>(
           ? `${errorMessage} - ${text}`
           : `Request failed: ${response.status} ${response.statusText}`;
 
-        throw new ApiError(response.status, finalMessage);
+        throw new HttpRequestError(finalMessage, response.status, text);
       }
 
       if (response.status === 204) {

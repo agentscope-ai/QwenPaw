@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import logging
 from typing import Dict, List, Literal, Optional
+
 from fastapi import (
     APIRouter,
     BackgroundTasks,
@@ -15,17 +16,18 @@ from fastapi import (
     Query,
     Request,
 )
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from qwenpaw.exceptions import (
     AppBaseException,
 )
 
-from ..agent_context import get_agent_for_request
-from ..utils import schedule_agent_reload
 from ...config.config import (
+    ActiveModelsInfo,
     AgentProfileConfig,
+    ModelSlotConfig,
     load_agent_config,
+    save_agent_config,
     update_agent_config_async,
 )
 from ...hub.model_service.runtime_policy import require_model_route
@@ -35,6 +37,7 @@ from ...providers.model_pool import (
     ModelPoolQuery,
     model_pool_page,
 )
+from ...providers.openrouter_provider import OpenRouterProvider
 from ...providers.provider import (
     ModelInfo,
     ProviderInfo,
@@ -44,8 +47,11 @@ from ...providers.provider_discovery_policy import (
     CUSTOM_CHAT_MODEL_NAMES,
     CustomChatModelName,
 )
-from ...config.config import ActiveModelsInfo
 from ...providers.provider_manager import ProviderManager
+from ...providers.realtime_voice import (
+    RealtimeVoiceModelConfig,
+    RealtimeVoiceVadConfig,
+)
 from ...providers.model_metadata import list_model_templates
 from ...providers.model_resolution import resolve_model_info
 from ...providers.hub_managed import (
@@ -55,11 +61,10 @@ from ...providers.hub_managed import (
     managed_slot,
 )
 from ...utils.io_utils import run_sync_io
-from ...utils.logging import sanitize_log_value
-from ...providers.openrouter_provider import OpenRouterProvider
-from ...config.config import ModelSlotConfig, ModelType
-
+from ...config.config import ModelType
 from .model_validation import validate_model_slot as _validate_model_slot
+from ..agent_context import get_agent_for_request
+from ..utils import schedule_agent_reload
 
 logger = logging.getLogger(__name__)
 
@@ -87,6 +92,7 @@ ModelAvailabilityStatus = Literal[
     "transient_error",
     "unverified",
 ]
+ModelSlotKind = Literal["llm", "realtime_voice"]
 
 
 @router.get("/hub-status")
@@ -113,6 +119,7 @@ async def get_provider_manager(request: Request) -> ProviderManager:
 def _active_models_info(
     manager: ProviderManager,
     active_llm: ModelSlotConfig | None,
+    active_realtime_voice: ModelSlotConfig | None = None,
 ) -> ActiveModelsInfo:
     """Build active-model metadata using the runtime context resolver."""
     effective_max_input_length = None
@@ -125,6 +132,7 @@ def _active_models_info(
     return ActiveModelsInfo(
         active_llm=active_llm,
         default_models=manager.default_models,
+        active_realtime_voice=active_realtime_voice,
         effective_max_input_length=effective_max_input_length,
     )
 
@@ -196,6 +204,25 @@ class ModelSlotRequest(BaseModel):
         default=None,
         description="Target agent ID when scope is 'agent'",
     )
+    slot: ModelSlotKind = Field(
+        default="llm",
+        description="Model slot to update",
+    )
+
+
+class RealtimeVoiceModelConfigRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    region: str = Field(min_length=1, max_length=64)
+    realtime_model: str = Field(min_length=1, max_length=256)
+    endpoint: str | None = Field(default=None, max_length=2048)
+    voice: str = Field(min_length=1, max_length=128)
+    language: str = Field(min_length=1, max_length=64)
+    vad: RealtimeVoiceVadConfig
+    presentation_capacity: int = Field(default=32, ge=1, le=128)
+    playback_timeout_seconds: int = Field(default=90, ge=10, le=300)
+    max_history_turns: int = Field(ge=1, le=50)
+    max_session_seconds: int = Field(ge=60, le=14400)
 
 
 class CreateCustomProviderRequest(BaseModel):
@@ -302,17 +329,33 @@ class ModelConfigRequest(BaseModel):
     )
 
 
-async def _load_agent_model(
+async def _load_agent_model_slots(
     request: Request,
     agent_id: str,
-) -> ModelSlotConfig | None:
-    """Load the model configured for a specific agent."""
+) -> tuple[ModelSlotConfig | None, ModelSlotConfig | None,]:
+    """Load Agent model slots from one configuration snapshot."""
     workspace = await get_agent_for_request(request, agent_id=agent_id)
     agent_config = await run_sync_io(
         load_agent_config,
         workspace.agent_id,
     )
-    return agent_config.active_model
+    return (
+        agent_config.active_model,
+        agent_config.active_realtime_model,
+    )
+
+
+def _validate_realtime_model_slot(
+    manager: ProviderManager,
+    provider_id: str,
+    model_id: str,
+) -> None:
+    try:
+        manager.resolve_realtime_voice_config(
+            ModelSlotConfig(provider_id=provider_id, model=model_id),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.get(
@@ -549,9 +592,7 @@ class DiscoverModelsResponse(BaseModel):
     )
     discovered_count: int = Field(
         default=0,
-        description=(
-            "How many new model candidates were discovered in the catalog"
-        ),
+        description=("How many new model candidates were discovered in the catalog"),
     )
     last_synced_at: Optional[str] = Field(default=None)
     used_static_fallback: bool = Field(default=False)
@@ -590,9 +631,7 @@ async def test_provider(
         ok, msg = await tmp_provider.check_connection()
         return TestConnectionResponse(
             success=ok,
-            message=(
-                "Connection successful" if ok else f"Connection failed: {msg}"
-            ),
+            message=("Connection successful" if ok else f"Connection failed: {msg}"),
         )
     except (ValueError, AppBaseException) as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -890,9 +929,7 @@ async def configure_model(
     """Update per-model generate_kwargs that override provider-level
     settings."""
     try:
-        config = {
-            field: getattr(body, field) for field in body.model_fields_set
-        }
+        config = {field: getattr(body, field) for field in body.model_fields_set}
         provider_info = await manager.update_model_config(
             provider_id=provider_id,
             model_id=model_id,
@@ -903,10 +940,31 @@ async def configure_model(
     return provider_info
 
 
+@router.put(
+    "/{provider_id}/realtime-models/{model_id:path}/config",
+    response_model=RealtimeVoiceModelConfig,
+    summary="Configure one realtime voice model",
+)
+async def configure_realtime_voice_model(
+    manager: ProviderManager = Depends(get_provider_manager),
+    provider_id: str = Path(...),
+    model_id: str = Path(...),
+    body: RealtimeVoiceModelConfigRequest = Body(...),
+) -> RealtimeVoiceModelConfig:
+    try:
+        return await manager.update_realtime_voice_model(
+            provider_id,
+            model_id,
+            body.model_dump(),
+        )
+    except (ValueError, AppBaseException) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @router.get(
     "/active",
     response_model=ActiveModelsInfo,
-    summary="Get effective active LLM",
+    summary="Get effective active model slots",
 )
 async def get_active_models(
     request: Request,
@@ -914,7 +972,7 @@ async def get_active_models(
     scope: ActiveModelReadScope = Query(default="effective"),
     agent_id: Optional[str] = Query(default=None),
 ) -> ActiveModelsInfo:
-    """Get active model by scope.
+    """Get LLM and realtime voice slots with the same scope semantics.
 
     - effective: agent-specific first, otherwise global fallback
     - global: ProviderManager global model only
@@ -926,8 +984,9 @@ async def get_active_models(
             if agent_id is None:
                 workspace = await get_agent_for_request(request)
                 agent_id = workspace.agent_id
-            selected = await _load_agent_model(request, agent_id) or selected
-        if selected is not None and selected.provider_id == PROVIDER_ID:
+            agent_llm, _ = await _load_agent_model_slots(request, agent_id)
+            selected = agent_llm or selected
+        if selected is None or selected.provider_id == PROVIDER_ID:
             catalog = await run_sync_io(directory)
             if selected and selected.model not in {
                 model["id"] for model in catalog["models"]
@@ -940,10 +999,10 @@ async def get_active_models(
             )
             return await run_sync_io(_active_models_info, manager, slot)
     if scope == "global":
-        return await run_sync_io(
-            _active_models_info,
+        return _active_models_info(
             manager,
-            await run_sync_io(manager.get_active_model),
+            manager.get_active_model(),
+            manager.get_active_realtime_model(),
         )
 
     if scope == "agent":
@@ -952,10 +1011,14 @@ async def get_active_models(
                 status_code=400,
                 detail="agent_id is required when scope is 'agent'",
             )
-        return await run_sync_io(
-            _active_models_info,
+        agent_llm, agent_realtime = await _load_agent_model_slots(
+            request,
+            agent_id,
+        )
+        return _active_models_info(
             manager,
-            await _load_agent_model(request, agent_id),
+            agent_llm,
+            agent_realtime,
         )
 
     try:
@@ -964,14 +1027,10 @@ async def get_active_models(
             workspace = await get_agent_for_request(request)
             target_agent_id = workspace.agent_id
 
-        agent_model = await _load_agent_model(request, target_agent_id)
-        if agent_model:
-            logger.info(
-                "Returning agent-specific model for %s: %s",
-                sanitize_log_value(target_agent_id),
-                agent_model,
-            )
-            return await run_sync_io(_active_models_info, manager, agent_model)
+        agent_llm, agent_realtime = await _load_agent_model_slots(
+            request,
+            target_agent_id,
+        )
     except (
         HTTPException,
         OSError,
@@ -980,14 +1039,19 @@ async def get_active_models(
         AppBaseException,
     ) as exc:
         logger.warning(
-            "Failed to get agent-specific model: %s",
+            "Failed to get agent-specific model slots: %s",
             exc,
             exc_info=True,
         )
+        agent_llm = None
+        agent_realtime = None
 
-    global_model = await run_sync_io(manager.get_active_model)
-    logger.info("Returning global model: %s", global_model)
-    return await run_sync_io(_active_models_info, manager, global_model)
+    effective_llm = agent_llm or manager.get_active_model()
+    return _active_models_info(
+        manager,
+        effective_llm,
+        agent_realtime or manager.get_active_realtime_model(),
+    )
 
 
 @router.put(
@@ -1017,6 +1081,52 @@ async def set_active_model(
             slot,
             explicit=True,
         )
+    if slot is None and body.slot == "realtime_voice":
+        raise HTTPException(
+            status_code=400,
+            detail="provider_id and model are required for this voice slot",
+        )
+    if body.slot == "realtime_voice":
+        _validate_realtime_model_slot(manager, body.provider_id, body.model)
+        if body.scope == "global":
+            manager.activate_realtime_model(body.provider_id, body.model)
+            return _active_models_info(
+                manager,
+                manager.get_active_model(),
+                manager.get_active_realtime_model(),
+            )
+        if not body.agent_id:
+            raise HTTPException(
+                status_code=400,
+                detail="agent_id is required when scope is 'agent'",
+            )
+        try:
+            workspace = await get_agent_for_request(
+                request,
+                agent_id=body.agent_id,
+            )
+            agent_config = load_agent_config(workspace.agent_id)
+            agent_config.active_realtime_model = slot
+            save_agent_config(workspace.agent_id, agent_config)
+            workspace.config.active_realtime_model = slot
+            schedule_agent_reload(request, workspace.agent_id)
+            agent_llm = agent_config.active_model
+        except (OSError, ValueError, TypeError, AppBaseException) as exc:
+            logger.warning(
+                "Failed to save active realtime model: %s",
+                exc,
+                exc_info=True,
+            )
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to save active realtime model",
+            ) from exc
+        return _active_models_info(
+            manager,
+            agent_llm or manager.get_active_model(),
+            slot,
+        )
+
     if body.scope == "global":
         try:
             await manager.set_default_model(body.model_type, slot)
@@ -1035,7 +1145,8 @@ async def set_active_model(
         return await run_sync_io(
             _active_models_info,
             manager,
-            await run_sync_io(manager.get_active_model),
+            manager.get_active_model(),
+            manager.get_active_realtime_model(),
         )
 
     if not body.agent_id:
@@ -1067,7 +1178,7 @@ async def set_active_model(
         def apply_active_model(agent_config: AgentProfileConfig) -> None:
             agent_config.active_model = slot
 
-        await update_agent_config_async(
+        agent_config = await update_agent_config_async(
             workspace.agent_id,
             apply_active_model,
         )
@@ -1098,6 +1209,7 @@ async def set_active_model(
         _active_models_info,
         manager,
         slot,
+        agent_config.active_realtime_model or manager.get_active_realtime_model(),
     )
 
 
@@ -1298,9 +1410,7 @@ async def filter_openrouter_models(
         filtered_models = provider.filter_models(
             models=models,
             providers=body.providers if body.providers else None,
-            input_modalities=(
-                body.input_modalities if body.input_modalities else None
-            ),
+            input_modalities=(body.input_modalities if body.input_modalities else None),
             output_modalities=(
                 body.output_modalities if body.output_modalities else None
             ),

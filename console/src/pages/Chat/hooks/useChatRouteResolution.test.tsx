@@ -335,10 +335,12 @@ describe("chat route ownership resolution", () => {
       vi.spyOn(api, "listChats").mockResolvedValue([
         { ...chat(original), session_id: TARGET },
       ]);
-      const get = vi.spyOn(api, "getChat").mockResolvedValue({
+      const get = vi.spyOn(api, "getChat").mockImplementation(async (id) => ({
+        ...chat(id),
+        session_id: id === original ? TARGET : `runtime-${id}`,
         messages: [],
         status: "idle",
-      });
+      }));
       sessionApi.preferredChatId = TARGET;
       await sessionApi.getSessionList();
       expect(sessionApi.getSessionIdentity(TARGET).chatId).toBe(original);
@@ -377,10 +379,12 @@ describe("chat route ownership resolution", () => {
       const list = vi
         .spyOn(api, "listChats")
         .mockResolvedValue([{ ...chat(original), session_id: alias }]);
-      const get = vi.spyOn(api, "getChat").mockResolvedValue({
+      const get = vi.spyOn(api, "getChat").mockImplementation(async (id) => ({
+        ...chat(id),
+        session_id: alias,
         messages: [],
         status: "idle",
-      });
+      }));
       sessionApi.preferredChatId = alias;
       await sessionApi.getSessionList();
       expect(sessionApi.getSessionIdentity(alias).chatId).toBe(original);
@@ -389,7 +393,7 @@ describe("chat route ownership resolution", () => {
       get.mockClear();
       get.mockImplementation(async (id) => {
         if (id === original) throw new ApiError(404, "Chat not found");
-        return { messages: [], status: "idle" };
+        return { ...chat(id), session_id: alias, messages: [], status: "idle" };
       });
       vi.spyOn(api, "resolveChat").mockResolvedValue({
         agent_id: "a",
@@ -447,7 +451,7 @@ describe("chat route ownership resolution", () => {
     const pending = deferred<ChatHistory>();
     const get = vi.spyOn(api, "getChat").mockImplementation(async (id) => {
       if (id === original) return pending.promise;
-      return { messages: [], status: "idle" };
+      return { ...chat(id), session_id: alias, messages: [], status: "idle" };
     });
     const stale = Promise.allSettled([sessionApi.preloadSession(alias)]);
     vi.spyOn(api, "resolveChat").mockResolvedValue({
@@ -458,7 +462,12 @@ describe("chat route ownership resolution", () => {
     await waitFor(() => expect(result.current.blocked).toBe(false));
     const fresh = sessionApi.getSession(alias);
     const requestedTarget = get.mock.calls.some(([id]) => id === TARGET);
-    pending.resolve({ messages: [], status: "idle" });
+    pending.resolve({
+      ...chat(original),
+      session_id: alias,
+      messages: [],
+      status: "idle",
+    });
 
     expect(requestedTarget).toBe(true);
     await expect(fresh).resolves.toMatchObject({ realId: TARGET });
@@ -481,7 +490,7 @@ describe("chat route ownership resolution", () => {
     const pending = deferred<ChatHistory>();
     const get = vi.spyOn(api, "getChat").mockImplementation(async (id) => {
       if (id === original) return pending.promise;
-      return { messages: [], status: "idle" };
+      return { ...chat(id), messages: [], status: "idle" };
     });
     const stale = Promise.allSettled([sessionApi.preloadSession(TARGET)]);
     vi.spyOn(api, "resolveChat").mockResolvedValue({
@@ -491,7 +500,12 @@ describe("chat route ownership resolution", () => {
     const { result } = mount(TARGET);
     await waitFor(() => expect(result.current.blocked).toBe(false));
     const fresh = sessionApi.getSession(TARGET);
-    pending.resolve({ messages: [], status: "idle" });
+    pending.resolve({
+      ...chat(original),
+      session_id: TARGET,
+      messages: [],
+      status: "idle",
+    });
 
     await expect(fresh).resolves.toMatchObject({ realId: TARGET });
     expect(await stale).toMatchObject([

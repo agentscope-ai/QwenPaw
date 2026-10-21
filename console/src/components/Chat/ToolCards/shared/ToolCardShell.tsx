@@ -90,9 +90,6 @@ const ToolCardShell: React.FC<ToolCardShellProps> = ({
     },
     [],
   );
-  const isLoading = content.status === "calling" && isStreaming;
-  const isError = content.status === "error";
-  const errorText = isError ? stringifyResult(content.result) : "";
   const inputProgress = content.inputProgress;
   const inputPreview = inputProgress
     ? `${inputProgress.truncated ? "…\n" : ""}${inputProgress.preview}`
@@ -118,13 +115,23 @@ const ToolCardShell: React.FC<ToolCardShellProps> = ({
     content.name || title,
   );
   // Only calls the backend coordinator knows can be controlled.
-  const showGear = isExecuting && !!sessionId && control.managed;
+  const showGear = isExecuting && !!sessionId && !control.recordMissing;
+  const isLoading = content.status === "calling" && isStreaming;
+  const isInterrupted =
+    content.status === "interrupted" || !!content.interrupted;
+  const isError = content.status === "error" && !isInterrupted;
+  const errorText = isError ? stringifyResult(content.result) : "";
+  const interruptionOutput =
+    isInterrupted && bodyMounted
+      ? typeof content.result === "string"
+        ? content.result
+        : JSON.stringify(content.result ?? null, null, 2)
+      : "";
 
   const gearDotClass = useMemo(() => {
     if (!control.bannerVisible) return "";
     return `${bannerStyles.show}`;
   }, [control.bannerVisible]);
-
   const hasKillCountdown = control.killRemaining !== null;
   const staticMetadata = useMemo(() => {
     if (!content.params || Object.keys(content.params).length === 0)
@@ -193,9 +200,14 @@ const ToolCardShell: React.FC<ToolCardShellProps> = ({
             {title}
             {isLoading && ` ${t("tool.loading")}`}
           </span>
-          {summaryAction}
-          {!isLoading && !isError && badges}
-          {inlineResult && (
+          {isInterrupted && (
+            <span className={styles.toolCallInterruptedLabel}>
+              {t("tool.interrupted")}
+            </span>
+          )}
+          {!isInterrupted && summaryAction}
+          {!isLoading && !isError && !isInterrupted && badges}
+          {!isInterrupted && inlineResult && (
             <span className={styles.toolCallInlineResult} title={inlineResult}>
               {inlineResult}
             </span>
@@ -225,6 +237,26 @@ const ToolCardShell: React.FC<ToolCardShellProps> = ({
               <DefaultBlock title="Input" content={rawInput} />
               {content.result !== undefined && (
                 <DefaultBlock title="Output" content={rawOutput} />
+              )}
+            </>
+          ) : isInterrupted ? (
+            <>
+              <p className={styles.toolCallInterruption}>
+                {t("tool.interruptedDescription")}
+              </p>
+              <DefaultBlock
+                title="Input"
+                content={JSON.stringify(content.params, null, 2)}
+              />
+              {content.result != null && interruptionOutput && (
+                <details className={styles.toolCallDiagnostics}>
+                  <summary>{t("tool.interruptedOutput")}</summary>
+                  <DefaultBlock
+                    title="Output"
+                    content={interruptionOutput}
+                    language="text"
+                  />
+                </details>
               )}
             </>
           ) : isError ? (

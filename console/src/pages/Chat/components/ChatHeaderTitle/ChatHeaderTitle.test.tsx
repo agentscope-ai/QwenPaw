@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { renderWithProviders } from "@/test/common_setup";
+import i18n from "@/i18n";
 import ChatHeaderTitle from "./index";
 import styles from "./index.module.less";
 
@@ -35,12 +36,51 @@ vi.mock("../../../../stores/sessionListStore", () => ({
 }));
 
 describe("ChatHeaderTitle", () => {
+  it("keeps the new-chat title when SDK selection still points to old history", () => {
+    mockUseChatAnywhereSessionsState.mockReturnValue({
+      sessions: [{ id: "old", name: "Voice Chat" }],
+      currentSessionId: "old",
+    });
+    renderWithProviders(<ChatHeaderTitle />, { initialEntries: ["/chat"] });
+    expect(screen.queryAllByText("Voice Chat")).toHaveLength(0);
+    expect(screen.getAllByText("New Chat")[0]).toBeInTheDocument();
+  });
+
+  it("does not call a routed Chat new while the session list is pending", () => {
+    mockUseChatAnywhereSessionsState.mockReturnValue({
+      sessions: [],
+      currentSessionId: null,
+    });
+    renderWithProviders(<ChatHeaderTitle />, {
+      initialEntries: ["/chat/existing"],
+    });
+    expect(screen.queryAllByText("New Chat")).toHaveLength(0);
+    expect(screen.getAllByText("Loading...")[0]).toBeInTheDocument();
+  });
+
+  it("uses the routed session title before SDK selection catches up", () => {
+    mockUseChatAnywhereSessionsState.mockReturnValue({
+      sessions: [
+        { id: "old", name: "Previous" },
+        { id: "local", realId: "target", name: "Target Chat" },
+      ],
+      currentSessionId: "old",
+    });
+    renderWithProviders(<ChatHeaderTitle />, {
+      initialEntries: ["/chat/target"],
+    });
+    expect(screen.getAllByText("Target Chat")[0]).toBeInTheDocument();
+    expect(screen.queryByText("Previous")).not.toBeInTheDocument();
+  });
+
   it("displays the current session name", () => {
     mockUseChatAnywhereSessionsState.mockReturnValue({
       sessions: [{ id: "sess-1", name: "My Chat" }],
       currentSessionId: "sess-1",
     });
-    renderWithProviders(<ChatHeaderTitle />);
+    renderWithProviders(<ChatHeaderTitle />, {
+      initialEntries: ["/chat/sess-1"],
+    });
     expect(screen.getAllByText("My Chat")[0]).toBeInTheDocument();
   });
 
@@ -49,7 +89,9 @@ describe("ChatHeaderTitle", () => {
       sessions: [{ id: "sess-1", name: "" }],
       currentSessionId: "sess-1",
     });
-    renderWithProviders(<ChatHeaderTitle />);
+    renderWithProviders(<ChatHeaderTitle />, {
+      initialEntries: ["/chat/sess-1"],
+    });
     expect(screen.getAllByText("New Chat")[0]).toBeInTheDocument();
   });
 
@@ -62,7 +104,7 @@ describe("ChatHeaderTitle", () => {
     expect(screen.getAllByText("New Chat")[0]).toBeInTheDocument();
   });
 
-  it("displays the correct session name after switching currentSessionId", () => {
+  it("displays the correct session name after switching the route", () => {
     mockUseChatAnywhereSessionsState.mockReturnValue({
       sessions: [
         { id: "sess-1", name: "Chat A" },
@@ -70,7 +112,9 @@ describe("ChatHeaderTitle", () => {
       ],
       currentSessionId: "sess-2",
     });
-    renderWithProviders(<ChatHeaderTitle />);
+    renderWithProviders(<ChatHeaderTitle />, {
+      initialEntries: ["/chat/sess-2"],
+    });
     expect(screen.getAllByText("Chat B")[0]).toBeInTheDocument();
     expect(screen.queryByText("Chat A")).not.toBeInTheDocument();
   });
@@ -86,8 +130,12 @@ describe("ChatHeaderTitle", () => {
       setCurrentSessionId: vi.fn(),
     });
 
-    renderWithProviders(<ChatHeaderTitle />);
-    const trigger = screen.getByRole("button", { name: "chat.switchSession" });
+    renderWithProviders(<ChatHeaderTitle />, {
+      initialEntries: ["/chat/sess-0"],
+    });
+    const trigger = screen.getByRole("button", {
+      name: i18n.t("chat.switchSession"),
+    });
     await user.click(trigger);
 
     expect(trigger).toHaveAttribute("aria-expanded", "true");
@@ -115,10 +163,12 @@ describe("Conversation title editing", () => {
       ],
       currentSessionId: "chat-rename",
     });
-    renderWithProviders(<ChatHeaderTitle />);
+    renderWithProviders(<ChatHeaderTitle />, {
+      initialEntries: ["/chat/chat-rename"],
+    });
     await user.click(screen.getByRole("button", { name: "Old title" }));
     const input = screen.getByRole("textbox", {
-      name: "chat.contextMenu.rename",
+      name: i18n.t("chat.contextMenu.rename"),
     });
     await user.clear(input);
     await user.type(input, " New title {Enter}");
@@ -135,7 +185,9 @@ describe("Conversation title editing", () => {
       sessions: [{ id: "chat-cancel", name: "Keep name" }],
       currentSessionId: "chat-cancel",
     });
-    renderWithProviders(<ChatHeaderTitle />);
+    renderWithProviders(<ChatHeaderTitle />, {
+      initialEntries: ["/chat/chat-cancel"],
+    });
     await user.click(screen.getByRole("button", { name: "Keep name" }));
     await user.type(screen.getByRole("textbox"), "changed{Escape}");
     expect(updateChat).not.toHaveBeenCalled();
@@ -163,9 +215,11 @@ it("distinguishes duplicate titles with activity time and channel", async () => 
     ],
     currentSessionId: "sess-1",
   });
-  renderWithProviders(<ChatHeaderTitle />);
+  renderWithProviders(<ChatHeaderTitle />, {
+    initialEntries: ["/chat/sess-1"],
+  });
   await userEvent.click(
-    screen.getByRole("button", { name: "chat.switchSession" }),
+    screen.getByRole("button", { name: i18n.t("chat.switchSession") }),
   );
   const menu = await screen.findByRole("menu");
   expect(

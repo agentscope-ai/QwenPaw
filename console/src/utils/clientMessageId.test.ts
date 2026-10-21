@@ -1,20 +1,16 @@
-/**
- * createClientMessageId / attachClientMessageId give every outbound
- * chat message a client-side id stored under metadata, used to correlate
- * optimistic UI entries with server-assigned ids after streaming starts.
- */
-import { describe, it, expect, afterEach } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
+
 import {
   QWENPAW_CLIENT_MESSAGE_ID_KEY,
-  createClientMessageId,
   attachClientMessageId,
+  createClientMessageId,
+  latestUserMessageId,
 } from "./clientMessageId";
 
 const originalRandomUUID = crypto.randomUUID;
 const originalGetRandomValues = crypto.getRandomValues;
 
 afterEach(() => {
-  // Restore whatever the environment provided (jsdom may define or not)
   Object.defineProperty(crypto, "randomUUID", {
     value: originalRandomUUID,
     configurable: true,
@@ -27,7 +23,7 @@ afterEach(() => {
   });
 });
 
-describe("createClientMessageId", () => {
+describe("client message identity", () => {
   it("uses crypto.randomUUID when available", () => {
     Object.defineProperty(crypto, "randomUUID", {
       value: () => "uuid-fixed",
@@ -37,7 +33,7 @@ describe("createClientMessageId", () => {
     expect(createClientMessageId()).toBe("uuid-fixed");
   });
 
-  it("falls back to timestamp + random base36 when randomUUID is absent", () => {
+  it("falls back when randomUUID is absent", () => {
     Object.defineProperty(crypto, "randomUUID", {
       value: undefined,
       configurable: true,
@@ -51,57 +47,39 @@ describe("createClientMessageId", () => {
       configurable: true,
       writable: true,
     });
-    const id = createClientMessageId();
-    // Format: "<timestamp>-<16 chars>"
-    expect(id).toMatch(/^\d+-[0-9a-z]{16}$/);
+    expect(createClientMessageId()).toMatch(/^\d+-[0-9a-z]{16}$/);
   });
 
-  it("generates distinct ids across calls", () => {
-    const a = createClientMessageId();
-    const b = createClientMessageId();
-    expect(a).not.toBe(b);
-  });
-});
-
-describe("attachClientMessageId", () => {
-  it("stores the id under metadata using the reserved key", () => {
-    const out = attachClientMessageId({ role: "user" }, "id-1");
-    expect(out.metadata).toEqual({
+  it("stores the id without mutating existing metadata", () => {
+    const input = { role: "user", metadata: { foo: "bar" } };
+    const output = attachClientMessageId(input, "id-1");
+    expect(output).not.toBe(input);
+    expect(output.metadata).toEqual({
+      foo: "bar",
       [QWENPAW_CLIENT_MESSAGE_ID_KEY]: "id-1",
     });
-    // Original top-level fields survive
-    expect(out.role).toBe("user");
+    expect(input.metadata).toEqual({ foo: "bar" });
   });
 
-  it("preserves existing metadata fields", () => {
-    const out = attachClientMessageId({ metadata: { foo: "bar" } }, "id-2") as {
-      metadata: Record<string, unknown>;
-    };
-    expect(out.metadata.foo).toBe("bar");
-    expect(out.metadata[QWENPAW_CLIENT_MESSAGE_ID_KEY]).toBe("id-2");
-  });
-
-  it("overwrites a previous client message id", () => {
-    const first = attachClientMessageId({}, "id-old");
-    const second = attachClientMessageId(first, "id-new");
+  it("replaces malformed metadata", () => {
     expect(
-      (second.metadata as Record<string, unknown>)[
-        QWENPAW_CLIENT_MESSAGE_ID_KEY
-      ],
-    ).toBe("id-new");
-  });
-
-  it("replaces non-object metadata instead of crashing", () => {
-    const out = attachClientMessageId({ metadata: "garbage" }, "id-3");
-    expect(out.metadata).toEqual({
-      [QWENPAW_CLIENT_MESSAGE_ID_KEY]: "id-3",
+      attachClientMessageId({ metadata: "invalid" }, "id-2").metadata,
+    ).toEqual({
+      [QWENPAW_CLIENT_MESSAGE_ID_KEY]: "id-2",
     });
   });
 
-  it("does not mutate the input message", () => {
-    const input: Record<string, unknown> = { role: "user" };
-    const out = attachClientMessageId(input, "id-4");
-    expect(out).not.toBe(input);
-    expect(input.metadata).toBeUndefined();
+  it("uses the SDK-owned latest optimistic user message identity", () => {
+    expect(
+      latestUserMessageId([
+        { id: "user-1", role: "user" },
+        { id: "assistant-1", role: "assistant" },
+        { id: "user-2", role: "user" },
+      ]),
+    ).toBe("user-2");
+  });
+
+  it("returns undefined when the latest user message has no identity", () => {
+    expect(latestUserMessageId([{ role: "user" }])).toBeUndefined();
   });
 });

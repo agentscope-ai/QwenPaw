@@ -18,6 +18,7 @@ from functools import wraps
 from typing import Any, AsyncGenerator, Callable, Dict
 
 from .message_convert import _media_type_to_block_type
+from .reply_cycle import reply_item_id
 
 logger = logging.getLogger(__name__)
 
@@ -89,7 +90,11 @@ class Envelope:
     ``stream_query`` produced.
     """
 
-    def __init__(self, session_id: str = "") -> None:
+    def __init__(
+        self,
+        session_id: str = "",
+        reply_cycle_context: Any = None,
+    ) -> None:
         from ..schemas import (
             AgentResponse,
             Message,
@@ -124,6 +129,14 @@ class Envelope:
         self._data_blocks: Dict[str, Dict[str, Any]] = {}
 
         self._seq_counter = 0
+        self._timeline_group_id: str | None = None
+        self._reply_cycle_context = reply_cycle_context
+        self._active_reply_cycle = (
+            reply_cycle_context.snapshot
+            if reply_cycle_context is not None
+            else None
+        )
+        self._event_reply_cycle = self._active_reply_cycle
 
         self._error_text: str | None = None
         self._error_code: str = "error"
@@ -138,7 +151,28 @@ class Envelope:
         self._seq_counter += 1
         return self._seq_counter
 
+    def _block_message_id(self, block_type: str, block_id: str) -> str:
+        cycle = self._event_reply_cycle
+        return reply_item_id(
+            block_type, block_id, cycle.run_id if cycle is not None else ""
+        )
+
+    def _identify_text_message(self, block_type: str, block_id: str) -> None:
+        self._message_id = self._block_message_id(block_type, block_id)
+        self._completed_message.id = self._message_id
+
     def _tag_seq(self, obj: Any) -> Any:
+        metadata = dict(getattr(obj, "metadata", None) or {})
+        reply_cycle = self._event_reply_cycle
+        if reply_cycle is not None:
+            metadata.update(reply_cycle.metadata())
+        elif self._timeline_group_id:
+            metadata.setdefault(
+                "timeline_group_id",
+                self._timeline_group_id,
+            )
+        if metadata:
+            obj.metadata = metadata
         obj.sequence_number = self._next_seq()
         return obj
 
@@ -171,8 +205,12 @@ class Envelope:
         self._response.output.append(self._completed_message)
         yield self._tag_seq(self._completed_message)
 
+        self._reset_text_message()
+
+    def _reset_text_message(self) -> None:
+        """Start a new assistant message without emitting an empty one."""
         self._message_id = _gen_msg_id()
-        from ..schemas import Message, MessageType, Role
+        from ..schemas import Message, MessageType, Role, RunStatus
 
         self._completed_message = Message(
             id=self._message_id,
@@ -185,6 +223,36 @@ class Envelope:
         self._completed_message.object = "message"
         self._message_started = False
         self._text_blocks = {}
+
+    def _reply_cycle_for_event(self, event: Any, evt_type: str | None) -> Any:
+        """Resolve current or stable tool-owner identity for one event."""
+        context = self._reply_cycle_context
+        if context is None:
+            return None
+        from agentscope.event import EventType
+
+        call_id = getattr(event, "tool_call_id", None)
+        if evt_type == EventType.TOOL_CALL_START.value and call_id:
+            return context.bind_call(call_id)
+        if call_id:
+            owner = context.owner_of_call(call_id)
+            if owner is not None:
+                return owner
+        return context.output_snapshot
+
+    async def _switch_reply_cycle(self, snapshot: Any):
+        """Rotate assistant accumulation when the Agent activates a cycle."""
+        active = self._active_reply_cycle
+        if active is not None and snapshot.revision <= active.revision:
+            return
+        self._event_reply_cycle = active
+        if self._should_finalize_text_message():
+            async for output in self._finalize_text_message():
+                yield output
+        else:
+            self._reset_text_message()
+        self._active_reply_cycle = snapshot
+        self._event_reply_cycle = snapshot
 
     # ------------------------------------------------------------------
     # Event translation
@@ -218,9 +286,28 @@ class Envelope:
         if hasattr(evt_type, "value"):
             evt_type = evt_type.value
 
+        reply_id = getattr(event, "reply_id", None)
+        if self._reply_cycle_context is None:
+            if isinstance(reply_id, str) and reply_id:
+                self._timeline_group_id = reply_id
+        else:
+            event_cycle = self._reply_cycle_for_event(event, evt_type)
+            current_cycle = self._reply_cycle_context.snapshot
+            if event_cycle.revision == current_cycle.revision and (
+                self._active_reply_cycle is None
+                or current_cycle.revision > self._active_reply_cycle.revision
+            ):
+                async for output in self._switch_reply_cycle(current_cycle):
+                    yield _EventMetadataExcludedOutput(output)
+            self._event_reply_cycle = event_cycle
+
         # === TEXT BLOCK ===
         if evt_type == EventType.TEXT_BLOCK_START.value:
+            if self._should_finalize_text_message():
+                async for output in self._finalize_text_message():
+                    yield _EventMetadataExcludedOutput(output)
             if not self._message_started:
+                self._identify_text_message("text", event.block_id)
                 yield self._tag_seq(self._completed_message)
                 self._message_started = True
             block_id = event.block_id
@@ -231,7 +318,14 @@ class Envelope:
             }
 
         elif evt_type == EventType.TEXT_BLOCK_DELTA.value:
+            if (
+                event.block_id not in self._text_blocks
+                and self._should_finalize_text_message()
+            ):
+                async for output in self._finalize_text_message():
+                    yield _EventMetadataExcludedOutput(output)
             if not self._message_started:
+                self._identify_text_message("text", event.block_id)
                 yield self._tag_seq(self._completed_message)
                 self._message_started = True
             block_id = event.block_id
@@ -292,7 +386,7 @@ class Envelope:
                 async for obj in self._finalize_text_message():
                     yield _EventMetadataExcludedOutput(obj)
             block_id = event.block_id
-            r_msg_id = _gen_msg_id()
+            r_msg_id = self._block_message_id("thinking", block_id)
             r_envelope = Message(
                 id=r_msg_id,
                 type=MessageType.REASONING,
@@ -320,7 +414,7 @@ class Envelope:
                 if self._should_finalize_text_message():
                     async for obj in self._finalize_text_message():
                         yield _EventMetadataExcludedOutput(obj)
-                r_msg_id = _gen_msg_id()
+                r_msg_id = self._block_message_id("thinking", block_id)
                 r_envelope = Message(
                     id=r_msg_id,
                     type=MessageType.REASONING,
@@ -382,7 +476,7 @@ class Envelope:
                     yield _EventMetadataExcludedOutput(obj)
 
             call_id = event.tool_call_id
-            msg_id = _gen_msg_id()
+            msg_id = self._block_message_id("tool_call", call_id)
             plugin_call_message = Message(
                 id=msg_id,
                 type=MessageType.PLUGIN_CALL,
@@ -454,6 +548,7 @@ class Envelope:
                 ).model_dump(),
                 delta=False,
             )
+            final_content.msg_id = state["message"].id
             state["message"].add_content(new_content=final_content)
             yield self._tag_seq(final_content.completed())
             self._response.output.append(state["message"])
@@ -472,7 +567,7 @@ class Envelope:
                 }
                 self._tool_calls[call_id] = state
 
-            out_msg_id = _gen_msg_id()
+            out_msg_id = self._block_message_id("tool_result", call_id)
             out_message = Message(
                 id=out_msg_id,
                 type=MessageType.PLUGIN_CALL_OUTPUT,
@@ -587,7 +682,7 @@ class Envelope:
             out_message = state.get("output_message")
             if out_message is None:
                 out_message = Message(
-                    id=_gen_msg_id(),
+                    id=self._block_message_id("tool_result", call_id),
                     type=MessageType.PLUGIN_CALL_OUTPUT,
                     role=Role.TOOL,
                     content=[],
@@ -596,6 +691,7 @@ class Envelope:
                 out_message.name = "assistant"
                 out_message.object = "message"
 
+            final_content.msg_id = out_message.id
             out_message.add_content(new_content=final_content)
             yield self._tag_seq(final_content.completed())
             self._response.output.append(out_message)
@@ -607,7 +703,11 @@ class Envelope:
             block_id = event.block_id
             media_type = getattr(event, "media_type", "")
 
+            if self._should_finalize_text_message():
+                async for output in self._finalize_text_message():
+                    yield _EventMetadataExcludedOutput(output)
             if not self._message_started:
+                self._identify_text_message("data", block_id)
                 yield self._tag_seq(self._completed_message)
                 self._message_started = True
 
@@ -791,11 +891,15 @@ class Envelope:
     # ------------------------------------------------------------------
 
     async def from_msg(self, cmd_msg: Any) -> AsyncGenerator[Any, None]:
-        """Translate a completed ``Msg`` from a slash
-        command into a full envelope sequence.
-        """
+        """Translate a completed ``Msg`` from a slash command."""
+        if self._reply_cycle_context is not None:
+            await self._reply_cycle_context.ensure_occurrence()
+            self._event_reply_cycle = self._reply_cycle_context.output_snapshot
         from ..schemas import ContentType, RunStatus, TextContent
 
+        command_id = getattr(cmd_msg, "id", None)
+        if isinstance(command_id, str) and command_id:
+            self._timeline_group_id = command_id
         cmd_text = cmd_msg.get_text_content() or ""
 
         if not self._message_started:
@@ -835,6 +939,9 @@ class Envelope:
         error_text: str,
         error_code: str = "error",
     ) -> AsyncGenerator[Any, None]:
+        if self._reply_cycle_context is not None:
+            await self._reply_cycle_context.ensure_occurrence()
+            self._event_reply_cycle = self._reply_cycle_context.output_snapshot
         self._error_text = error_text
         self._error_code = error_code
         async for obj in self._finalize_response():

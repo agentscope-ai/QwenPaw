@@ -17,7 +17,7 @@ describe("ChatActionGroup", () => {
     expect(document.querySelector(".anticon-more")).not.toBeInTheDocument();
   });
 
-  it("replaces the new task action with the terminal before the workspace toggle", () => {
+  it("keeps the terminal before the workspace toggle alongside new chat", () => {
     const onToggleTerminal = vi.fn();
     renderWithProviders(
       <ChatActionGroup
@@ -34,7 +34,11 @@ describe("ChatActionGroup", () => {
     const workspace = screen.getByRole("button", {
       name: "files.openWorkspace",
     });
-    expect(screen.getAllByRole("button")).toEqual([terminal, workspace]);
+    expect(screen.getAllByRole("button")).toEqual([
+      screen.getByRole("button", { name: "chat.newTask" }),
+      terminal,
+      workspace,
+    ]);
     expect(terminal).toHaveAttribute("aria-expanded", "false");
     expect(terminal).toHaveStyle({
       width: "32px",
@@ -47,6 +51,26 @@ describe("ChatActionGroup", () => {
     });
     fireEvent.click(terminal);
     expect(onToggleTerminal).toHaveBeenCalledOnce();
+  });
+
+  it("offers normal and Voice Chat from the new-chat split menu", async () => {
+    const onCreateVoiceChat = vi.fn();
+    renderWithProviders(
+      <ChatActionGroup onCreateVoiceChat={onCreateVoiceChat} />,
+    );
+
+    expect(
+      document.querySelector('[data-icon="SparkVoiceChat01Line"]'),
+    ).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "chat.newChatMenu" }));
+    fireEvent.click(
+      await screen.findByRole("menuitem", {
+        name: "realtimeVoice.newChat",
+      }),
+    );
+
+    expect(onCreateVoiceChat).toHaveBeenCalledOnce();
   });
 
   it("renders the Session workspace toggle next to essential actions", () => {

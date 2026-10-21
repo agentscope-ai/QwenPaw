@@ -220,6 +220,60 @@ async def _wait_for_thread_event(event: threading.Event) -> None:
 
 
 @pytest.mark.asyncio
+async def test_http_background_result_reaches_trusted_owner(
+    monkeypatch, tmp_path
+):
+    import httpx
+    from fastapi import FastAPI
+    from qwenpaw.app.chats.background_results import ChatBackgroundResults
+    from qwenpaw.app.task_tracker import TaskTracker
+    from qwenpaw.runtime.reply_cycle import ReplyCycleContext
+
+    owner = ChatBackgroundResults(TaskTracker(), "parent-chat")
+    route = owner.bind_call(
+        ReplyCycleContext("parent-run", "original-input").snapshot,
+        SimpleNamespace(id="parent-call", name="spawn_subagent"),
+    )
+    token = await asyncio.to_thread(route.issue_ticket, "test-agent")
+
+    async def get_workspace(_request):
+        return _Workspace(tmp_path)
+
+    monkeypatch.setattr(console, "get_agent_for_request", get_workspace)
+    monkeypatch.setattr(
+        "qwenpaw.config.config.load_agent_config",
+        lambda _: SimpleNamespace(project_dir=None),
+    )
+    app = FastAPI()
+    app.include_router(console.router)
+    payload = {
+        "channel": "console",
+        "session_id": "child-session",
+        "user_id": "user",
+        "input": [
+            {"role": "user", "content": [{"type": "text", "text": "work"}]}
+        ],
+        "background_result_token": token,
+    }
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        response = await client.post("/console/chat/task", json=payload)
+        assert response.status_code == 200
+        task_id = response.json()["task_id"]
+        await console._bg_tasks[task_id].asyncio_task
+        await asyncio.sleep(0)  # task done callbacks
+        work = route.works[0]
+        assert work.status == "completed"
+        assert work.message.metadata["background_task_id"] == task_id
+        assert work.input_ids == ("original-input",)
+        assert not work.ready and work.submit_task is None
+        repeated = await client.post("/console/chat/task", json=payload)
+        assert repeated.status_code == 400
+    owner.cancel_inputs(("original-input",))
+
+
+@pytest.mark.asyncio
 async def test_forked_task_reports_failed_when_worktree_cannot_be_finalized(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

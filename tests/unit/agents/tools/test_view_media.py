@@ -20,12 +20,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
-from agentscope.message import (
-    Base64Source,
-    DataBlock,
-    Msg,
-    TextBlock,
-)
+from agentscope.message import Base64Source, DataBlock, Msg, TextBlock
 from PIL import Image
 
 from qwenpaw.agents.tools import view_media

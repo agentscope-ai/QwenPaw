@@ -34,6 +34,7 @@ function makeProvider(overrides: Partial<ProviderInfo>): ProviderInfo {
     chat_model: "test-model",
     models: [],
     extra_models: [],
+    realtime_models: [],
     is_custom: false,
     is_local: false,
     support_model_discovery: false,

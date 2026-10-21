@@ -8,9 +8,93 @@ from typing import Any, AsyncGenerator
 
 import pytest
 from agentscope.event import EventType
+from agentscope.message import Msg
 
+from qwenpaw.app.chats.utils import agentscope_msg_to_message
 from qwenpaw.runtime.envelope import Envelope, _propagate_event_metadata
+from qwenpaw.runtime.reply_cycle import ReplyCycleContext
 from qwenpaw.schemas import ContentType, MessageType, RunStatus, TextContent
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("run_id", ["", "run-1", "run-2"])
+async def test_stream_and_restored_history_share_producer_item_ids(run_id):
+    cycle = ReplyCycleContext(run_id, "input") if run_id else None
+    envelope = Envelope(reply_cycle_context=cycle)
+    blocks = []
+    streamed = []
+
+    async def emit(event_type, **fields):
+        streamed.extend(
+            await _translate(envelope, _event(event_type, **fields))
+        )
+
+    # Adjacent reasoning blocks and explicitly repeated tools stay distinct.
+    for block_id in ("think-1", "think-2"):
+        blocks.append({"type": "thinking", "id": block_id, "thinking": "plan"})
+        await emit(EventType.THINKING_BLOCK_START, block_id=block_id)
+        await emit(
+            EventType.THINKING_BLOCK_DELTA, block_id=block_id, delta="plan"
+        )
+        await emit(EventType.THINKING_BLOCK_END, block_id=block_id)
+    for call_id in ("call-1", "call-2"):
+        blocks.extend(
+            [
+                {
+                    "type": "tool_call",
+                    "id": call_id,
+                    "name": "write_file",
+                    "input": "{}",
+                },
+                {
+                    "type": "tool_result",
+                    "id": call_id,
+                    "name": "write_file",
+                    "output": "ok",
+                },
+            ]
+        )
+        await emit(
+            EventType.TOOL_CALL_START,
+            tool_call_id=call_id,
+            tool_call_name="write_file",
+        )
+        await emit(EventType.TOOL_CALL_DELTA, tool_call_id=call_id, delta="{}")
+        await emit(EventType.TOOL_CALL_END, tool_call_id=call_id)
+        await emit(
+            EventType.TOOL_RESULT_START,
+            tool_call_id=call_id,
+            tool_call_name="write_file",
+        )
+        await emit(
+            EventType.TOOL_RESULT_TEXT_DELTA, tool_call_id=call_id, delta="ok"
+        )
+        await emit(EventType.TOOL_RESULT_END, tool_call_id=call_id)
+    for block_id in ("text-1", "text-2"):
+        blocks.append({"type": "text", "id": block_id, "text": "done"})
+        await emit(EventType.TEXT_BLOCK_START, block_id=block_id)
+        await emit(EventType.TEXT_BLOCK_DELTA, block_id=block_id, delta="done")
+        await emit(EventType.TEXT_BLOCK_END, block_id=block_id)
+    streamed.extend(await _dump(envelope.finalize()))
+    saved = Msg(
+        name="assistant",
+        role="assistant",
+        content=blocks,
+        metadata={"run_id": run_id} if run_id else {},
+    )
+    restored = agentscope_msg_to_message(
+        Msg.from_dict(saved.model_dump(mode="json"))
+    )
+    live = streamed[-1]["output"]
+    ids = [item["id"] for item in live]
+    assert ids == [item.id for item in restored]
+    assert len(set(ids)) == 8
+    assert {
+        item["msg_id"] for item in streamed if item.get("object") == "content"
+    } <= set(ids)
+    assert [
+        item["id"] for item in streamed if item.get("object") == "message"
+    ] == [identity for identity in ids for _ in range(2)]
 
 
 class _SyntheticEnvelope(Envelope):
@@ -320,3 +404,199 @@ async def test_empty_metadata_keeps_existing_content_shape():
 
     assert message["metadata"] is None
     assert "metadata" not in delta
+
+
+@pytest.mark.asyncio
+async def test_reply_id_is_preserved_as_timeline_group_metadata():
+    envelope = Envelope()
+    for event in (
+        _event(
+            EventType.TEXT_BLOCK_START,
+            metadata={},
+            reply_id="reply-stable",
+            block_id="text",
+        ),
+        _event(
+            EventType.TEXT_BLOCK_DELTA,
+            metadata={},
+            reply_id="reply-stable",
+            block_id="text",
+            delta="hello",
+        ),
+        _event(
+            EventType.TEXT_BLOCK_END,
+            metadata={},
+            reply_id="reply-stable",
+            block_id="text",
+        ),
+    ):
+        payloads = await _translate(envelope, event)
+        assert all(
+            payload.get("metadata", {}).get("timeline_group_id")
+            == "reply-stable"
+            for payload in payloads
+            if payload.get("object") == "message"
+        )
+
+    completed = await _dump(envelope.finalize())
+    response = completed[-1]
+    assert response["metadata"]["timeline_group_id"] == "reply-stable"
+    assert all(
+        message["metadata"]["timeline_group_id"] == "reply-stable"
+        for message in response["output"]
+    )
+
+
+@pytest.mark.asyncio
+async def test_envelope_can_rotate_assistant_message_inside_one_response():
+    """Characterize the primitive a reply-cycle revision can reuse."""
+    envelope = Envelope()
+    [first_message] = await _translate(
+        envelope,
+        _event(
+            EventType.TEXT_BLOCK_START,
+            metadata={},
+            reply_id="reply-stable",
+            block_id="text-a",
+        ),
+    )
+    await _translate(
+        envelope,
+        _event(
+            EventType.TEXT_BLOCK_DELTA,
+            metadata={},
+            reply_id="reply-stable",
+            block_id="text-a",
+            delta="answer A",
+        ),
+    )
+    await _translate(
+        envelope,
+        _event(
+            EventType.TEXT_BLOCK_END,
+            metadata={},
+            reply_id="reply-stable",
+            block_id="text-a",
+        ),
+    )
+
+    thinking_outputs = await _translate(
+        envelope,
+        _event(
+            EventType.THINKING_BLOCK_START,
+            metadata={},
+            reply_id="reply-stable",
+            block_id="thinking-b",
+        ),
+    )
+    completed_first = next(
+        payload
+        for payload in thinking_outputs
+        if payload.get("type") == MessageType.MESSAGE
+    )
+    [second_message] = await _translate(
+        envelope,
+        _event(
+            EventType.TEXT_BLOCK_START,
+            metadata={},
+            reply_id="reply-stable",
+            block_id="text-b",
+        ),
+    )
+
+    assert completed_first["id"] == first_message["id"]
+    assert completed_first["status"] == RunStatus.Completed
+    assert second_message["id"] != first_message["id"]
+
+
+@pytest.mark.asyncio
+async def test_reply_cycle_overrides_reply_id_and_rotates_message():
+    context = ReplyCycleContext("run-1", "input-a")
+    envelope = Envelope(reply_cycle_context=context)
+    [first] = await _translate(
+        envelope,
+        _event(
+            EventType.TEXT_BLOCK_START,
+            metadata={},
+            reply_id="agentscope-reply",
+            block_id="text-a",
+        ),
+    )
+    await _translate(
+        envelope,
+        _event(
+            EventType.TEXT_BLOCK_DELTA,
+            metadata={},
+            reply_id="agentscope-reply",
+            block_id="text-a",
+            delta="answer A",
+        ),
+    )
+    await _translate(
+        envelope,
+        _event(
+            EventType.TEXT_BLOCK_END,
+            metadata={},
+            reply_id="agentscope-reply",
+            block_id="text-a",
+        ),
+    )
+
+    context.activate(["input-b", "input-c"])
+    switched = await _translate(
+        envelope,
+        _event(
+            EventType.TEXT_BLOCK_START,
+            metadata={},
+            reply_id="agentscope-reply",
+            block_id="text-c",
+        ),
+    )
+
+    completed_a, started_c = switched
+    assert completed_a["id"] == first["id"]
+    assert completed_a["metadata"]["timeline_group_id"] == "input-a"
+    assert started_c["id"] != first["id"]
+    assert started_c["metadata"] == context.snapshot.metadata()
+
+
+@pytest.mark.asyncio
+async def test_late_tool_result_keeps_call_owner_after_cycle_switch():
+    orders = iter((2, 4))
+
+    async def reserve_order():
+        return next(orders)
+
+    context = ReplyCycleContext("run-1", "input-a", reserve_order)
+    await context.start_occurrence()
+    envelope = Envelope(reply_cycle_context=context)
+    await _translate(
+        envelope,
+        _event(
+            EventType.TOOL_CALL_START,
+            metadata={},
+            reply_id="agentscope-reply",
+            tool_call_id="call-a",
+            tool_call_name="slow_tool",
+        ),
+    )
+
+    context.activate(["input-b"])
+    await context.start_occurrence()
+    outputs = await _translate(
+        envelope,
+        _event(
+            EventType.TOOL_RESULT_START,
+            metadata={},
+            reply_id="agentscope-reply",
+            tool_call_id="call-a",
+            tool_call_name="slow_tool",
+        ),
+    )
+
+    assert outputs
+    assert all(
+        output["metadata"]["timeline_group_id"] == "input-a"
+        for output in outputs
+    )
+    assert all(output["metadata"]["timeline_order"] == 2 for output in outputs)

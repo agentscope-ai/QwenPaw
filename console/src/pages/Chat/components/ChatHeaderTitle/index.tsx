@@ -2,10 +2,13 @@ import React, { useEffect, useRef, useState } from "react";
 import { Dropdown } from "antd";
 import { useChatAnywhereSessionsState } from "@agentscope-ai/chat";
 import { Check, ChevronDown, Pencil, X, Clock3 } from "lucide-react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { useCodingMode } from "../../../../stores/codingModeStore";
 import type { ExtendedSession } from "../../../../stores/sessionListStore";
-import { buildChatPath } from "../../../../utils/sessionRoute";
+import {
+  buildChatPath,
+  getSessionIdFromPath,
+} from "../../../../utils/sessionRoute";
 import sessionApi from "../../sessionApi";
 import styles from "./index.module.less";
 import { useTranslation } from "react-i18next";
@@ -15,8 +18,9 @@ import { getBackendId } from "../../../../layouts/useSidebarSessionListData";
 import { useAppMessage } from "../../../../hooks/useAppMessage";
 
 const ChatHeaderTitle: React.FC = () => {
-  const { sessions, currentSessionId } = useChatAnywhereSessionsState();
+  const { sessions } = useChatAnywhereSessionsState();
   const navigate = useNavigate();
+  const currentSessionId = getSessionIdFromPath(useLocation().pathname);
   const { t, i18n } = useTranslation();
   const { message } = useAppMessage();
   const [editing, setEditing] = useState(false);
@@ -41,13 +45,21 @@ const ChatHeaderTitle: React.FC = () => {
     return () => window.clearInterval(timer);
   }, []);
   const { codingMode } = useCodingMode();
-  const currentSession = sessions.find(
-    (s) =>
-      !!currentSessionId &&
-      (s.id === currentSessionId ||
-        (s as ExtendedSession).realId === currentSessionId),
-  );
-  const chatName = currentSession?.name || "New Chat";
+  // The route is the display source of truth. ChatPage writes the SDK
+  // selection from the route in an effect, so it lags by at least one render.
+  const routeChatId = currentSessionId;
+  const currentSession = routeChatId
+    ? (sessions as ExtendedSession[]).find(
+        (s) =>
+          s.id === routeChatId ||
+          s.realId === routeChatId ||
+          s.sessionId === routeChatId,
+      )
+    : undefined;
+  const chatName =
+    !currentSession && routeChatId
+      ? t("common.loading")
+      : currentSession?.name || "New Chat";
 
   const [open, setOpen] = useState(false);
 

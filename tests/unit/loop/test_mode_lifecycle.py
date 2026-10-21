@@ -5,7 +5,7 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import pytest
 
@@ -15,7 +15,10 @@ from qwenpaw.loop.gates.base import (
 )
 from qwenpaw.loop.gates.handler import StopHandler
 from qwenpaw.loop.gates.rubric import QualitativeRubricGate
-from qwenpaw.loop.gates.runner import _filter_by_scope
+from qwenpaw.loop.gates.runner import (
+    _filter_by_scope,
+    reset_reply_cycle_handlers,
+)
 from qwenpaw.modes.goal.goal_mode import GoalMode, GoalSession
 from qwenpaw.modes.mission import MissionMode
 from qwenpaw.modes.mission.gates import MissionGate
@@ -66,6 +69,18 @@ def test_unscoped_plugin_handler_is_always_selected():
     selected = _filter_by_scope([plugin, default, goal])
 
     assert selected == [plugin, goal]
+
+
+def test_reply_cycle_reset_only_targets_active_scope():
+    default = _registration("default")
+    goal = _registration("goal", is_active=lambda: True)
+    default.handler.reset_reply_cycle = Mock()
+    goal.handler.reset_reply_cycle = Mock()
+
+    reset_reply_cycle_handlers([default, goal])
+
+    default.handler.reset_reply_cycle.assert_not_called()
+    goal.handler.reset_reply_cycle.assert_called_once_with()
 
 
 @pytest.mark.asyncio

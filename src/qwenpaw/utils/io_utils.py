@@ -32,6 +32,7 @@ import os
 import secrets
 import stat
 import threading
+import time
 import weakref
 from collections.abc import Awaitable, Callable
 from pathlib import Path
@@ -65,11 +66,18 @@ def get_path_lock(path: Path | str) -> asyncio.Lock:
     QwenPaw currently runs one application worker, so all supported writers
     share this lock registry. No OS-level file lock is needed in that model.
     """
+    requested_key = os.path.normcase(os.path.abspath(path))
+    lock = _PATH_LOCKS.get(requested_key)
+    if lock is not None:
+        return lock
+    # Windows realpath opens a handle. Do not resolve an already active path
+    # while its writer is replacing the file in another thread.
     key = _path_lock_key(path)
     lock = _PATH_LOCKS.get(key)
     if lock is None:
         lock = asyncio.Lock()
         _PATH_LOCKS[key] = lock
+    _PATH_LOCKS[requested_key] = lock
     return lock
 
 
@@ -317,7 +325,7 @@ def write_text_atomic(
             handle.flush()
             os.fsync(handle.fileno())
         temp_path.chmod(final_mode)
-        os.replace(temp_path, target)
+        _replace_atomic(temp_path, target)
         temp_path = None
     finally:
         if temp_path is not None:
@@ -325,6 +333,23 @@ def write_text_atomic(
                 temp_path.unlink(missing_ok=True)
             except OSError:
                 pass
+
+
+def _replace_atomic(source: Path, target: Path) -> None:
+    """Bound transient Windows sharing failures at the commit boundary only."""
+    delays = (0.01, 0.02, 0.04)
+    for attempt in range(len(delays) + 1):
+        try:
+            os.replace(source, target)
+            return
+        except OSError as exc:
+            if (
+                os.name != "nt"
+                or getattr(exc, "winerror", None) not in {5, 32}
+                or attempt == len(delays)
+            ):
+                raise
+            time.sleep(delays[attempt])
 
 
 def _open_atomic_temp(

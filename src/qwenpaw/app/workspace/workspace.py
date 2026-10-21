@@ -719,8 +719,8 @@ class Workspace:
                 f"{sanitize_log_value(self.agent_id)}",
             )
 
-            # 2. Run legacy weixin -> wechat data migrations BEFORE services
-            # start so ChatManager / Runner see the canonical layout.
+            # 2. Run legacy data migrations BEFORE services start so
+            # ChatManager / Runner see the canonical layout.
             self._migrate_legacy_weixin_data()
 
             # 3. Start all services via ServiceManager
@@ -758,7 +758,10 @@ class Workspace:
             raise
 
     def _migrate_legacy_weixin_data(self) -> None:
-        """Eagerly migrate legacy weixin -> wechat data on workspace start.
+        """Eagerly migrate legacy persisted data on workspace start.
+
+        The historical method name is retained for compatibility with tests
+        and integrations that replace this startup hook.
 
         Each step is guarded so a failure logs a warning instead of
         blocking startup; affected files stay in their legacy state.
@@ -767,7 +770,10 @@ class Workspace:
             migrate_final_mode_to_stream,
             migrate_legacy_weixin_jobs_file,
         )
-        from ..chats.repo.json_repo import migrate_legacy_weixin_chats_file
+        from ..chats.repo.json_repo import (
+            migrate_legacy_realtime_voice_sources_file,
+            migrate_legacy_weixin_chats_file,
+        )
         from ..chats.session import migrate_legacy_weixin_session_files
 
         try:
@@ -778,6 +784,17 @@ class Workspace:
             logger.warning(
                 "weixin->wechat chats.json migration failed for "
                 "agent %s: %s",
+                sanitize_log_value(self.agent_id),
+                sanitize_log_value(exc),
+            )
+
+        try:
+            migrate_legacy_realtime_voice_sources_file(
+                self.workspace_dir / "chats.json",
+            )
+        except Exception as exc:
+            logger.warning(
+                "Voice Chat source migration failed for agent %s: %s",
                 sanitize_log_value(self.agent_id),
                 sanitize_log_value(exc),
             )
@@ -841,10 +858,18 @@ class Workspace:
         )
 
         # Stop all services via ServiceManager (handles reuse automatically)
+        if final:
+            for results in self._task_tracker.background_results.values():
+                await results.close()
         await self._service_manager.stop_all(
             final=final,
             preserve_reused=preserve_reused,
         )
+        if final:
+            for view in self._task_tracker.conversation_views.values():
+                await view.close()
+            self._task_tracker.conversation_views.clear()
+            self._task_tracker.close_input_contexts()
 
         if self._harness_runtime is not None:
             await self._harness_runtime.stop()

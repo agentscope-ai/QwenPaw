@@ -266,12 +266,27 @@ class ConsoleChannel(BaseChannel):
         content_parts = payload.get("content_parts") or []
         meta = payload.get("meta") or {}
         session_id = self.resolve_session_id(sender_id, meta)
-        request = self.build_agent_request_from_user_content(
-            channel_id=channel_id,
-            sender_id=sender_id,
-            session_id=session_id,
-            content_parts=content_parts,
-            channel_meta=meta,
+        from ....runtime.reply_cycle import InternalResultInput
+        from ....schemas import AgentRequest
+
+        internal_result = (meta.get("request_context") or {}).get(
+            "_internal_result"
+        )
+        request = (
+            AgentRequest(
+                session_id=session_id,
+                user_id=sender_id,
+                channel=channel_id,
+                input=[],
+            )
+            if isinstance(internal_result, InternalResultInput)
+            else self.build_agent_request_from_user_content(
+                channel_id=channel_id,
+                sender_id=sender_id,
+                session_id=session_id,
+                content_parts=content_parts,
+                channel_meta=meta,
+            )
         )
         message_metadata = payload.get("message_metadata")
         if isinstance(message_metadata, dict) and request.input:
@@ -367,7 +382,19 @@ class ConsoleChannel(BaseChannel):
 
     async def stream_one(self, payload: Any) -> AsyncGenerator[str, None]:
         """Process one payload and yield SSE-formatted events"""
-        if isinstance(payload, dict) and "content_parts" in payload:
+        from ....runtime.reply_cycle import InternalResultInput
+
+        internal_result = (
+            payload.get("meta", {})
+            .get("request_context", {})
+            .get("_internal_result")
+            if isinstance(payload, dict)
+            else None
+        )
+        if isinstance(internal_result, InternalResultInput):
+            request = self.build_agent_request_from_native(payload)
+            session_id = request.session_id
+        elif isinstance(payload, dict) and "content_parts" in payload:
             session_id = self.resolve_session_id(
                 payload.get("sender_id") or "",
                 payload.get("meta"),
@@ -423,10 +450,10 @@ class ConsoleChannel(BaseChannel):
                     exc_info=True,
                 )
 
+        last_response = None
         try:
             send_meta = getattr(request, "channel_meta", None) or {}
             send_meta.setdefault("bot_prefix", self.bot_prefix)
-            last_response = None
             event_count = 0
             last_usage = None
             headline_stream_states: dict[str, Any] = {}
@@ -557,6 +584,8 @@ class ConsoleChannel(BaseChannel):
             logger.exception("console process/reply failed")
             err_msg = str(e).strip() or "An error occurred while processing."
             self._print_error(err_msg)
+            if not self._get_response_error_message(last_response):
+                yield f"data: {_json.dumps({'error': err_msg})}\n\n"
         finally:
             try:
                 await self._on_response_cycle_end(session_id)
