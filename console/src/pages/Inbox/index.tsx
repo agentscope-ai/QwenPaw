@@ -636,11 +636,9 @@ export default function InboxPage() {
           <Badge dot={pendingCount > 0} offset={[-4, 4]}>
             <Button
               icon={<SafetyOutlined size="1em" />}
-              className={
-                mailAclNewArrival && wobbleEnabled
-                  ? styles.mailAclShake
-                  : undefined
-              }
+              className={`${styles.mailAclButton} ${
+                mailAclNewArrival && wobbleEnabled ? styles.mailAclShake : ""
+              }`}
               onMouseEnter={markMailAclSeen}
               onClick={() => {
                 markMailAclSeen();
@@ -671,9 +669,9 @@ export default function InboxPage() {
                 size="small"
                 icon={<BellRing size={16} />}
                 onClick={toggleWobble}
-                className={
-                  wobbleEnabled ? styles.wobbleToggleActive : undefined
-                }
+                className={`${styles.wobbleToggle} ${
+                  wobbleEnabled ? styles.wobbleToggleActive : ""
+                }`}
               />
             </Tooltip>
           }

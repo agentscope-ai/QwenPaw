@@ -230,8 +230,13 @@ describe("ModelsPage", () => {
     // Default tab is cloud
     expect(screen.getByTestId("provider-card:openai")).toBeInTheDocument();
 
-    await user.click(screen.getByText(/models\.localCustomGroup/));
+    const localTab = screen.getByRole("tab", {
+      name: /models\.localCustomGroup/,
+    });
+    expect(localTab).toHaveAttribute("aria-selected", "false");
+    await user.click(localTab);
     expect(screen.getByTestId("provider-card:loc")).toBeInTheDocument();
+    expect(localTab).toHaveAttribute("aria-selected", "true");
     expect(localStorage.getItem("models_tab")).toBe("local");
   });
 
@@ -293,7 +298,7 @@ describe("ModelsPage", () => {
     ]);
     renderWithProviders(<ModelsPage />, { initialEntries: ["/models"] });
 
-    await user.click(screen.getByTitle("common.refresh"));
+    await user.click(screen.getByRole("button", { name: "common.refresh" }));
     expect(providersMock.fetchAll).toHaveBeenCalled();
   });
 

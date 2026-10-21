@@ -340,7 +340,7 @@ export default function AgentSelector({
         onOpenChange={setDropdownOpen}
         placement="rightTop"
         trigger="click"
-        overlayClassName={styles.collapsedAgentPopover}
+        classNames={{ root: styles.collapsedAgentPopover }}
         content={
           <div
             className={`${styles.dropdownContent} ${styles.collapsedAgentContent}`}

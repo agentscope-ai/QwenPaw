@@ -8,7 +8,6 @@ import {
   InputNumber,
   Segmented,
   Select,
-  Slider,
   Switch,
 } from "antd";
 import {
@@ -69,12 +68,11 @@ import {
   THEME_PRESETS,
   type ThemePreset,
 } from "./themePresets";
-import sliderStyles from "@/components/interaction/NumberSlider.module.less";
+import { NumberStepper } from "@/components/interaction/NumberStepper";
 import NavigationSettings from "./NavigationSettings";
 import baseStyles from "./index.module.less";
 import polish from "./GeneralSettings.module.less";
 import { LayoutGroup, motion, useReducedMotion } from "motion/react";
-import NumberFlow from "@number-flow/react";
 import { InteractiveCard } from "@/components/interaction/InteractiveCard";
 import { RunningGlow } from "@/components/interaction/RunningGlow";
 import { Cascade } from "@/components/interaction/Cascade";
@@ -312,26 +310,22 @@ export default function GeneralSettings() {
           />
         </label>
         <label className={styles.themeField}>
-          <span>
-            {t("settingsCenter.cornerRadius", "Corner radius")}
-            <output>
-              <NumberFlow
-                value={Number.parseFloat(draftTheme.radius ?? "8")}
-                suffix="px"
-                animated={!reduced}
-              />
-            </output>
-          </span>
-          <div className={sliderStyles.control}>
-            <Slider
-              aria-label={t("settingsCenter.cornerRadius", "Corner radius")}
-              min={0}
-              max={20}
-              value={Number.parseFloat(draftTheme.radius ?? "8")}
-              onChange={(value) => updateDraftTheme({ radius: `${value}px` })}
-              style={{ flex: 1 }}
-            />
-          </div>
+          <span>{t("settingsCenter.cornerRadius", "Corner radius")}</span>
+          <NumberStepper
+            aria-label={t("settingsCenter.cornerRadius", "Corner radius")}
+            min={0}
+            max={20}
+            step={1}
+            precision={0}
+            suffix="px"
+            value={Number.parseFloat(draftTheme.radius ?? "8")}
+            onChange={(value) => {
+              if (typeof value === "number") {
+                updateDraftTheme({ radius: `${value}px` });
+              }
+            }}
+            style={{ width: "100%" }}
+          />
         </label>
         <label className={styles.themeField}>
           <span>{t("settingsCenter.darkAccentColor", "Dark accent")}</span>

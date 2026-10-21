@@ -742,7 +742,7 @@ function CronJobsPage() {
                   key={job.id}
                   className={styles.mobileJobCard}
                   size="small"
-                  bodyStyle={{ padding: 16 }}
+                  styles={{ body: { padding: 16 } }}
                 >
                   <div className={styles.mobileJobHeader}>
                     <button
@@ -842,7 +842,7 @@ function CronJobsPage() {
             </div>
           </Spin>
         ) : (
-          <Card className={styles.tableCard} bodyStyle={{ padding: 0 }}>
+          <Card className={styles.tableCard} styles={{ body: { padding: 0 } }}>
             <Table
               columns={columns}
               dataSource={filteredListJobs}
@@ -859,7 +859,7 @@ function CronJobsPage() {
           </Card>
         )
       ) : (
-        <Card className={styles.calendarCard} bodyStyle={{ padding: 0 }}>
+        <Card className={styles.calendarCard} styles={{ body: { padding: 0 } }}>
           <div className={styles.calendarHeader}>
             <Button
               type="text"
@@ -981,7 +981,7 @@ function CronJobsPage() {
                         onOpenChange={(open) =>
                           setActivePopoverDate(open ? dateKey : null)
                         }
-                        overlayClassName={styles.dayJobPopoverOverlay}
+                        classNames={{ root: styles.dayJobPopoverOverlay }}
                         content={popoverContent}
                       >
                         <button className={styles.calendarMoreBtn}>

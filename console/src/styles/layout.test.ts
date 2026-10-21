@@ -59,8 +59,12 @@ describe("global link accessibility", () => {
     );
 
     expect(focusStart).toBeGreaterThanOrEqual(0);
-    expect(focusRule).toContain("outline: 2px solid var(--app-focus-ring);");
-    expect(focusRule).toContain("outline-offset: 2px;");
+    expect(focusRule).toContain(
+      "outline: var(--app-focus-ring-width) solid var(--app-focus-ring);",
+    );
+    expect(focusRule).toContain(
+      "outline-offset: var(--app-focus-ring-offset);",
+    );
   });
 
   it("defines contrast-safe focus rings in the correct theme scopes", () => {

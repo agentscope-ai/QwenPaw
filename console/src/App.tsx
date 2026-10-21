@@ -99,8 +99,8 @@ export function getAppThemeToken(
   fontSize: number = UI_FONT_SIZE_DEFAULT,
 ): NonNullable<AntThemeConfig["token"]> {
   // Grow control heights with the font size so text never outgrows its
-  // control box. Clamp the multiplier at 1 so smaller sizes keep the default
-  // click targets (antd defaults: 32 / 24 / 40).
+  // control box. Clamp the multiplier at 1 so smaller sizes keep the shared
+  // semantic control ladder (medium / small / large: 36 / 32 / 44).
   const controlScale = Math.max(1, fontSize / UI_FONT_SIZE_DEFAULT);
   return {
     colorPrimary:
@@ -112,9 +112,9 @@ export function getAppThemeToken(
     fontFamily:
       "system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif",
     fontSize,
-    controlHeight: Math.round(32 * controlScale),
-    controlHeightSM: Math.round(24 * controlScale),
-    controlHeightLG: Math.round(40 * controlScale),
+    controlHeight: Math.round(36 * controlScale),
+    controlHeightSM: Math.round(32 * controlScale),
+    controlHeightLG: Math.round(44 * controlScale),
     ...(userTheme.radius
       ? { borderRadius: Number.parseFloat(userTheme.radius) }
       : {}),

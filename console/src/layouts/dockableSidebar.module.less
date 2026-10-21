@@ -20,7 +20,7 @@
 .transport {
   position: absolute;
   inset: auto 48px 20px;
-  height: 28px;
+  height: var(--app-hit-desktop);
   display: flex;
   justify-content: flex-end;
   z-index: 20;
@@ -40,14 +40,14 @@
     background: var(--app-fill);
   }
   &:focus-visible {
-    outline: 2px solid var(--app-accent);
-    outline-offset: 1px;
+    outline: var(--app-focus-ring-width) solid var(--app-focus-ring);
+    outline-offset: var(--app-focus-ring-offset);
   }
 }
 .handle {
   pointer-events: auto;
-  width: 28px;
-  height: 28px;
+  width: var(--app-hit-desktop);
+  height: var(--app-hit-desktop);
   cursor: grab;
   touch-action: none;
   user-select: none;
@@ -55,9 +55,9 @@
 .dockButton {
   position: absolute;
   pointer-events: auto;
-  right: 32px;
-  width: 28px;
-  height: 28px;
+  right: var(--app-hit-desktop);
+  width: var(--app-hit-desktop);
+  height: var(--app-hit-desktop);
   cursor: pointer;
 }
 .floating {
@@ -124,4 +124,12 @@
   inset: 0;
   z-index: 89;
   background: rgb(0 0 0 / 12%);
+}
+
+@media (any-pointer: coarse) {
+  .handle,
+  .dockButton {
+    width: var(--app-hit-touch);
+    height: var(--app-hit-touch);
+  }
 }

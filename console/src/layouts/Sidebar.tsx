@@ -772,7 +772,7 @@ export default function Sidebar({
                 placement="rightTop"
                 trigger="click"
                 arrow={false}
-                overlayClassName={styles.collapsedAgentPopover}
+                classNames={{ root: styles.collapsedAgentPopover }}
                 content={
                   <div className={styles.collapsedAgentPanel}>
                     <div className={styles.collapsedPanelTitle}>
@@ -848,7 +848,7 @@ export default function Sidebar({
                 placement="rightTop"
                 trigger="click"
                 arrow={false}
-                overlayClassName={styles.collapsedHistoryPopover}
+                classNames={{ root: styles.collapsedHistoryPopover }}
                 content={
                   <div className={styles.collapsedHistoryPanel}>
                     <SidebarSessionList

@@ -65,6 +65,9 @@ describe("ProviderCloseButton", () => {
         name: "models.disableBtn: AgentScope Platform",
       }),
     ).toBeInTheDocument();
+    for (const button of screen.getAllByRole("button")) {
+      expect(button).toHaveAttribute("data-icon-button");
+    }
   });
 
   it("keeps the provider-specific name while a disable request is pending", async () => {

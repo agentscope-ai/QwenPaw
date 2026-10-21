@@ -412,9 +412,18 @@
 }
 
 .brandCollapseToggle {
-  width: max(28px, calc(28px * var(--app-font-scale))) !important;
-  min-width: max(28px, calc(28px * var(--app-font-scale))) !important;
-  height: max(28px, calc(28px * var(--app-font-scale))) !important;
+  width: max(
+    var(--app-hit-desktop),
+    calc(var(--app-hit-desktop) * var(--app-font-scale))
+  ) !important;
+  min-width: max(
+    var(--app-hit-desktop),
+    calc(var(--app-hit-desktop) * var(--app-font-scale))
+  ) !important;
+  height: max(
+    var(--app-hit-desktop),
+    calc(var(--app-hit-desktop) * var(--app-font-scale))
+  ) !important;
   padding: 0 !important;
 
   > svg {
@@ -440,7 +449,8 @@
 
   &:disabled,
   &[aria-disabled="true"] {
-    opacity: 0.45;
+    color: var(--app-disabled-text);
+    opacity: var(--app-disabled-opacity);
     cursor: not-allowed;
   }
 }
@@ -715,7 +725,8 @@
 
   &:disabled,
   &[aria-disabled="true"] {
-    opacity: 0.45;
+    color: var(--app-disabled-text);
+    opacity: var(--app-disabled-opacity);
     cursor: not-allowed;
   }
 }
@@ -1583,9 +1594,9 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 30px !important;
-    min-width: 30px !important;
-    height: 30px !important;
+    width: var(--app-hit-desktop) !important;
+    min-width: var(--app-hit-desktop) !important;
+    height: var(--app-hit-desktop) !important;
     padding: 0 !important;
     border-radius: 9px;
     color: var(--app-text-secondary);
@@ -1599,6 +1610,14 @@
   .headerDivider {
     height: 14px;
     margin: 0 5px;
+  }
+}
+@media (any-pointer: coarse) {
+  .brandCollapseToggle,
+  .header .utilityGroup button {
+    width: var(--app-hit-touch) !important;
+    min-width: var(--app-hit-touch) !important;
+    height: var(--app-hit-touch) !important;
   }
 }
 @media (max-width: 768px) {

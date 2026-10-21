@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Power, Settings } from "lucide-react";
-import { Tooltip } from "antd";
 import { useTranslation } from "react-i18next";
+import { IconButton } from "@/components/interaction/IconButton";
 import { providerApi } from "@/api/modules/provider";
 import { useAppMessage } from "@/hooks/useAppMessage";
 import styles from "../../index.module.less";
@@ -25,45 +25,37 @@ export function ProviderCloseButton({
   return (
     <>
       {onConfigure && (
-        <Tooltip title={settingsLabel}>
-          <button
-            type="button"
-            className={styles.providerSettings}
-            aria-label={settingsLabel}
-            onClick={onConfigure}
-          >
-            <Settings size={16} strokeWidth={1.6} />
-          </button>
-        </Tooltip>
+        <IconButton
+          icon={Settings}
+          label={settingsLabel}
+          className={styles.providerSettings}
+          onClick={onConfigure}
+        />
       )}
-      <Tooltip title={disableLabel}>
-        <button
-          type="button"
-          className={styles.providerClose}
-          aria-label={disableLabel}
-          disabled={busy}
-          onClick={async () => {
-            setBusy(true);
-            try {
-              const results = await Promise.allSettled(
-                ids.map((id) =>
-                  providerApi.configureProvider(id, { enabled: false }),
-                ),
-              );
-              onSaved();
-              const failure = results.find(
-                (result) => result.status === "rejected",
-              );
-              if (failure?.status === "rejected")
-                message.error(String(failure.reason));
-            } finally {
-              setBusy(false);
-            }
-          }}
-        >
-          <Power size={16} strokeWidth={1.6} />
-        </button>
-      </Tooltip>
+      <IconButton
+        icon={Power}
+        label={disableLabel}
+        className={styles.providerClose}
+        loading={busy}
+        onClick={async () => {
+          setBusy(true);
+          try {
+            const results = await Promise.allSettled(
+              ids.map((id) =>
+                providerApi.configureProvider(id, { enabled: false }),
+              ),
+            );
+            onSaved();
+            const failure = results.find(
+              (result) => result.status === "rejected",
+            );
+            if (failure?.status === "rejected")
+              message.error(String(failure.reason));
+          } finally {
+            setBusy(false);
+          }
+        }}
+      />
     </>
   );
 }

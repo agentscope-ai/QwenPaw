@@ -312,3 +312,16 @@
 .rowActions > .toggleButton {
   border-radius: 20px;
 }
+
+@media (max-width: 768px) {
+  .batchActions > button,
+  .helpButton,
+  .toggleButton {
+    min-height: var(--app-hit-touch);
+  }
+
+  .helpButton {
+    width: var(--app-hit-touch);
+    min-width: var(--app-hit-touch);
+  }
+}

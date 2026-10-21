@@ -528,7 +528,7 @@ export default function DesktopOS() {
           open
           trigger={[]}
           placement="bottomLeft"
-          overlayClassName={styles.desktopContextMenu}
+          classNames={{ root: styles.desktopContextMenu }}
           menu={{ items: desktopMenuItems }}
           popupRender={(menu) => (
             <div

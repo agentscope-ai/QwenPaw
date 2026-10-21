@@ -51,7 +51,9 @@ export function SettingsDrawer({
       surfaceId={surfaceId}
       centered
       width={
-        typeof width === "number" ? Math.max(480, Math.min(width, 960)) : 760
+        typeof width === "number"
+          ? Math.max(480, Math.min(width, 960))
+          : "var(--app-overlay-drawer-width)"
       }
       title={<div className={styles.editor}>{title}</div>}
       open={open}
@@ -64,7 +66,7 @@ export function SettingsDrawer({
           maxHeight: "min(68dvh, 720px)",
           overflowY: "auto",
           overscrollBehavior: "contain",
-          padding: "8px 2px",
+          padding: "var(--app-space-2) 2px",
         },
       }}
     >

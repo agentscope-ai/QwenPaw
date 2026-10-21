@@ -47,6 +47,11 @@
   color: var(--app-accent) !important;
 }
 
+.mailAclButton,
+.wobbleToggle {
+  flex-shrink: 0;
+}
+
 .tabContent {
   padding-bottom: 8px;
 
@@ -587,13 +592,37 @@
     flex-wrap: wrap;
     width: 100%;
 
-    :global(.ant-select) {
+    :global(.ant-select),
+    :global(.qwenpaw-select) {
       width: 100% !important;
     }
 
-    :global(.ant-btn) {
+    :global(.ant-btn),
+    :global(.qwenpaw-btn) {
       flex-shrink: 0;
+      min-height: var(--app-hit-touch);
     }
+
+    :global(.ant-select-selector),
+    :global(.qwenpaw-select-selector) {
+      min-height: var(--app-hit-touch) !important;
+    }
+
+    :global(.ant-select-selection-search-input),
+    :global(.qwenpaw-select-selection-search-input) {
+      height: var(--app-hit-touch) !important;
+    }
+  }
+
+  .mailAclButton,
+  .wobbleToggle,
+  .inboxTabs :global(.ant-tabs-tab-btn),
+  .inboxTabs :global(.qwenpaw-tabs-tab-btn),
+  .messageDetailTitle > button {
+    min-width: var(--app-hit-touch);
+    min-height: var(--app-hit-touch);
+    display: inline-flex;
+    align-items: center;
   }
 
   .messagesError {
