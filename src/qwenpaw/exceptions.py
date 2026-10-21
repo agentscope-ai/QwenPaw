@@ -41,10 +41,18 @@ class ConfigurationException(AppBaseException):
         super().__init__(message=message, **kwargs)
 
 
+# Stable codes clients branch on. Keep them here, beside the exceptions that
+# raise them, so a router can report one without importing the runtime.
+AGENT_CONFIG_STALE = "AGENT_CONFIG_STALE"
+AGENT_CONFIG_UNAVAILABLE = "AGENT_CONFIG_UNAVAILABLE"
+MODEL_NOT_CONFIGURED = "MODEL_NOT_CONFIGURED"
+CONFIGURATION_REQUIRED = "CONFIGURATION_REQUIRED"
+
+
 class AgentConfigConflictError(ConfigurationException):
     """An agent configuration changed after it was loaded."""
 
-    ERROR_CODE = "AGENT_CONFIG_STALE"
+    ERROR_CODE = AGENT_CONFIG_STALE
 
     def __init__(self, agent_id: str) -> None:
         self.agent_id = agent_id

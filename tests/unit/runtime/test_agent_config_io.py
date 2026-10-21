@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """Tests for agent configuration I/O in the runtime builder."""
 
+import sys
 import threading
 from types import SimpleNamespace
 
@@ -224,6 +225,49 @@ async def test_build_constructs_prompt_in_worker_thread(monkeypatch):
         await builder.build(ctx)
 
     assert prompt_threads[0] != caller_thread
+
+
+@pytest.mark.asyncio
+async def test_build_reuses_the_request_config_snapshot(monkeypatch):
+    """A request-scoped snapshot means the builder reads nothing."""
+    config = SimpleNamespace(
+        id="agent-1",
+        active_model=None,
+        coding_mode=None,
+    )
+
+    def load_agent_config(agent_id):
+        raise AssertionError(f"unexpected reload for {agent_id}")
+
+    monkeypatch.setattr(
+        config_module,
+        "load_agent_config",
+        load_agent_config,
+    )
+    monkeypatch.setattr(
+        provider_manager,
+        "ProviderManager",
+        SimpleNamespace(
+            get_instance=lambda: SimpleNamespace(
+                get_active_model=lambda: None,
+            ),
+        ),
+    )
+    # Stub the agent class so this test exercises configuration resolution
+    # only, independent of the installed agentscope surface.
+    monkeypatch.setitem(
+        sys.modules,
+        "qwenpaw.agents.react_agent",
+        SimpleNamespace(QwenPawAgent=type("QwenPawAgent", (), {})),
+    )
+    builder = AgentBuilder.__new__(AgentBuilder)
+    ctx = SimpleNamespace(agent_id="agent-1", agent_config=config)
+
+    with pytest.raises(
+        ConfigurationException,
+        match="No active model configured",
+    ):
+        await builder.build(ctx)
 
 
 def test_build_model_reuses_preloaded_agent_config(monkeypatch):

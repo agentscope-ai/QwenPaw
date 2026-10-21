@@ -35,8 +35,10 @@ async def test_coding_mode_routes_directly_to_harness(
         backend="codex",
         coding_mode=SimpleNamespace(enabled=False),
     )
+    # ``stream_query`` reads the configuration through the async loader, so
+    # the seam is the loader's own sync reader.
     monkeypatch.setattr(
-        "qwenpaw.app.workspace.workspace.load_agent_config",
+        "qwenpaw.config.config.load_agent_config",
         lambda _agent_id: config,
     )
     workspace = Workspace("agent-1", str(tmp_path / "workspace"))
@@ -68,7 +70,7 @@ async def test_portability_adaptation_cannot_route_to_harness(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
-        "qwenpaw.app.workspace.workspace.load_agent_config",
+        "qwenpaw.config.config.load_agent_config",
         lambda _agent_id: SimpleNamespace(backend="codex"),
     )
     workspace = Workspace("agent-1", str(tmp_path / "workspace"))
