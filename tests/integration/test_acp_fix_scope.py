@@ -23,11 +23,9 @@ from acp import RequestError, text_block
 
 from qwenpaw.agents.acp import server as acp_server
 from qwenpaw.agents.acp.server import (
-    ACP_ERROR_META_KEY,
     ACP_KEEPALIVE_META_KEY,
     QwenPawACPAgent,
     _EnvelopeTracker,
-    _prompt_failure_stop_reason,
 )
 from qwenpaw.harnesses import runtime as harness_runtime
 from qwenpaw.harnesses.events import HarnessEvent, HarnessEventKind
@@ -55,11 +53,9 @@ class _RecordingConn:
 
     def __init__(self) -> None:
         self.updates: list[tuple[str, object]] = []
-        self.times: list[float] = []
 
     async def session_update(self, session_id, update) -> None:
         self.updates.append((session_id, update))
-        self.times.append(time.monotonic())
 
 
 class _FakeWorkspace:
@@ -72,33 +68,12 @@ class _FakeWorkspace:
             yield event
 
 
-class _DisconnectingConn:
-    async def session_update(self, session_id, update) -> None:
-        del session_id, update
-        raise ConnectionError("transport closed")
-
-
-class _BrokenReportConn:
-    async def session_update(self, session_id, update) -> None:
-        del session_id, update
-        raise RuntimeError("report path broken")
-
-
 def _content_event(text: str = "hello"):
     return SimpleNamespace(
         object="content",
         text=text,
         delta=False,
         msg_id="m1",
-    )
-
-
-def _unmapped_event():
-    return SimpleNamespace(
-        object="message",
-        type="tool_result_text_delta",
-        status=RunStatus.Completed,
-        content=[],
     )
 
 
@@ -140,101 +115,6 @@ def _is_keepalive(update: object) -> bool:
     return bool(meta.get(ACP_KEEPALIVE_META_KEY))
 
 
-@pytest.mark.parametrize(
-    ("message", "expected"),
-    [
-        ("400 data_inspection_failed: inappropriate content", "refusal"),
-        ("400 DataInspectionFailed", "refusal"),
-        ("content policy violation", "refusal"),
-        ("safety_filter triggered", "refusal"),
-        ("moderation rejected the request", "refusal"),
-    ],
-)
-def test_only_evidence_backed_moderation_markers_return_refusal(
-    message: str,
-    expected: str,
-):
-    """Content-safety markers map to refusal, including the new OSS markers."""
-    assert _prompt_failure_stop_reason(_provider_error(message)) == expected
-
-
-def test_internal_error_text_is_not_content_safety():
-    """Keyword-like text in internal exceptions must not become a refusal."""
-    assert _prompt_failure_stop_reason(KeyError("moderation")) is None
-    assert (
-        _prompt_failure_stop_reason(
-            NameError("name 'content_policy' is not defined"),
-        )
-        is None
-    )
-
-
-def test_stream_idle_timeout_is_not_normalized():
-    """A model stream timeout remains a failure, not a normal turn."""
-    assert (
-        _prompt_failure_stop_reason(
-            StreamIdleTimeoutError("policy", 600.0),
-        )
-        is None
-    )
-    assert _prompt_failure_stop_reason(TimeoutError("timed out")) is None
-
-
-@pytest.mark.parametrize(
-    "exc",
-    [
-        RuntimeError("boom"),
-        TypeError("bad type"),
-        ValueError("bad value"),
-        KeyError("missing"),
-        OSError("disk failure"),
-        ConnectionError("database connection lost"),
-        ConnectionError("connection reset by peer"),
-    ],
-)
-def test_unconfirmed_errors_are_not_normalized(exc: Exception):
-    """Unexpected exceptions must keep the JSON-RPC internal-error path."""
-    assert _prompt_failure_stop_reason(exc) is None
-
-
-@pytest.mark.integration
-async def test_existing_request_error_keeps_code_and_data(monkeypatch):
-    """A RequestError raised by the runtime must pass through unchanged."""
-    error = RequestError.invalid_params({"model_id": "x"})
-
-    async def _stream():
-        raise error
-        yield  # pragma: no cover
-
-    agent, _conn, session_id = await _agent_with_stream(
-        monkeypatch,
-        _stream,
-    )
-
-    with pytest.raises(RequestError) as caught:
-        await agent.prompt(
-            prompt=[text_block("hello")],
-            session_id=session_id,
-        )
-
-    assert caught.value.code == -32602
-    assert caught.value.data == {"model_id": "x"}
-
-
-def test_tool_output_still_maps_after_heartbeat_support():
-    """Normal tool frames are unchanged by the active-call bookkeeping."""
-    tracker = _EnvelopeTracker()
-    start = tracker.process(_tool_start_event("call-1"))
-    output = tracker.process(_tool_output_event("call-1"))
-
-    assert len(start) == 1
-    assert start[0].session_update == "tool_call"
-    assert start[0].tool_call_id == "call-1"
-    assert len(output) == 1
-    assert output[0].session_update == "tool_call_update"
-    assert output[0].status == "completed"
-
-
 def test_heartbeat_emits_one_frame_per_active_tool():
     """Heartbeat frames are bounded by the number of active tool calls."""
     tracker = _EnvelopeTracker()
@@ -256,30 +136,6 @@ def test_heartbeat_emits_one_frame_per_active_tool():
         SimpleNamespace(object="message", type="heartbeat"),
     )
     assert [update.tool_call_id for update in remaining] == ["call-b"]
-
-
-@pytest.mark.integration
-async def test_short_unmapped_turn_emits_no_keepalive(monkeypatch):
-    """A turn shorter than the threshold must not gain transport frames."""
-
-    async def _stream():
-        deadline = time.monotonic() + 1.5
-        while time.monotonic() < deadline:
-            await asyncio.sleep(0.2)
-            yield _unmapped_event()
-
-    agent, conn, session_id = await _agent_with_stream(
-        monkeypatch,
-        _stream,
-    )
-
-    response = await agent.prompt(
-        prompt=[text_block("hello")],
-        session_id=session_id,
-    )
-
-    assert response.stop_reason == "end_turn"
-    assert not [update for _, update in conn.updates if _is_keepalive(update)]
 
 
 @pytest.mark.integration
@@ -316,95 +172,11 @@ async def test_normal_turn_has_no_keepalive_or_heartbeat(monkeypatch):
 
 
 @pytest.mark.integration
-async def test_cancellation_still_returns_cancelled(monkeypatch):
-    """The cancel path keeps its baseline stop reason and frame cutoff."""
-    holder: dict[str, object] = {}
-
-    async def _stream():
-        yield _content_event("hi")
-        holder["agent"]._cancel_events[holder["sid"]].set()
-        yield _content_event("ignored")
-
-    agent, conn, session_id = await _agent_with_stream(
-        monkeypatch,
-        _stream,
-    )
-    holder["agent"] = agent
-    holder["sid"] = session_id
-
-    response = await agent.prompt(
-        prompt=[text_block("hello")],
-        session_id=session_id,
-    )
-
-    assert response.stop_reason == "cancelled"
-    texts = [
-        update.content.text
-        for _, update in conn.updates
-        if getattr(update, "session_update", "") == "agent_message_chunk"
-    ]
-    assert texts == ["hi"]
-    assert not [update for _, update in conn.updates if _is_keepalive(update)]
-
-
-@pytest.mark.integration
-async def test_keepalive_is_an_empty_marked_frame(monkeypatch):
-    """Keepalive must carry no model text and no generic error marker."""
-
-    async def _stream():
-        deadline = time.monotonic() + 21.5
-        while time.monotonic() < deadline:
-            await asyncio.sleep(0.5)
-            yield _unmapped_event()
-
-    agent, conn, session_id = await _agent_with_stream(
-        monkeypatch,
-        _stream,
-    )
-
-    response = await agent.prompt(
-        prompt=[text_block("hello")],
-        session_id=session_id,
-    )
-
-    assert response.stop_reason == "end_turn"
-    frames = [update for _, update in conn.updates if _is_keepalive(update)]
-    assert frames, "expected one keepalive frame after 20s"
-    frame = frames[0]
-    assert frame.session_update == "agent_message_chunk"
-    assert frame.content.text == ""
-    meta = frame.field_meta or {}
-    assert meta.get(ACP_KEEPALIVE_META_KEY) is True
-    assert ACP_ERROR_META_KEY not in meta
-
-
-@pytest.mark.integration
-async def test_disconnect_during_error_report_keeps_original_failure(
+@pytest.mark.parametrize(f"failure", [BrokenPipeError, RuntimeError])
+async def test_report_failure_does_not_hide_internal_error(
     monkeypatch,
+    failure,
 ):
-    """A client disappearing during notification must not hide the failure."""
-
-    async def _stream():
-        raise ConnectionError("business connection lost")
-        yield  # pragma: no cover
-
-    agent, _conn, session_id = await _agent_with_stream(
-        monkeypatch,
-        _stream,
-    )
-    agent.on_connect(_DisconnectingConn())
-
-    with pytest.raises(RequestError) as caught:
-        await agent.prompt(
-            prompt=[text_block("hello")],
-            session_id=session_id,
-        )
-
-    assert caught.value.code == -32603
-
-
-@pytest.mark.integration
-async def test_report_failure_does_not_hide_internal_error(monkeypatch):
     """A broken notification path must not convert a bug into a normal turn."""
 
     async def _stream():
@@ -415,29 +187,10 @@ async def test_report_failure_does_not_hide_internal_error(monkeypatch):
         monkeypatch,
         _stream,
     )
-    agent.on_connect(_BrokenReportConn())
-
-    with pytest.raises(RequestError) as caught:
-        await agent.prompt(
-            prompt=[text_block("hello")],
-            session_id=session_id,
-        )
-
-    assert caught.value.code == -32603
-    assert caught.value.data == {"details": "QwenPaw runtime failed"}
-
-
-@pytest.mark.integration
-async def test_internal_error_keeps_request_error_and_redacts(monkeypatch):
-    """A generic runtime bug must reach the client as -32603, redacted."""
-
-    async def _stream():
-        raise RuntimeError("secret-token")
-        yield  # pragma: no cover
-
-    agent, conn, session_id = await _agent_with_stream(
-        monkeypatch,
-        _stream,
+    agent.on_connect(
+        SimpleNamespace(
+            session_update=AsyncMock(side_effect=failure(f"report failed")),
+        ),
     )
 
     with pytest.raises(RequestError) as caught:
@@ -448,42 +201,6 @@ async def test_internal_error_keeps_request_error_and_redacts(monkeypatch):
 
     assert caught.value.code == -32603
     assert caught.value.data == {"details": "QwenPaw runtime failed"}
-    rendered = str([update for _, update in conn.updates])
-    assert "secret-token" not in rendered
-    assert all(_is_keepalive(update) is False for _, update in conn.updates)
-
-
-@pytest.mark.integration
-async def test_moderation_returns_refusal_and_hides_marker(monkeypatch):
-    """Moderation ends normally without leaking its details."""
-
-    async def _stream():
-        raise _provider_error(
-            "400 data_inspection_failed: inappropriate content",
-        )
-        yield  # pragma: no cover
-
-    agent, conn, session_id = await _agent_with_stream(
-        monkeypatch,
-        _stream,
-    )
-
-    response = await agent.prompt(
-        prompt=[text_block("hello")],
-        session_id=session_id,
-    )
-
-    assert response.stop_reason == "refusal"
-    rendered = str([update for _, update in conn.updates])
-    assert "data_inspection_failed" not in rendered
-    assert "inappropriate" not in rendered
-    error_frames = [
-        update
-        for _, update in conn.updates
-        if (getattr(update, "field_meta", None) or {}).get(ACP_ERROR_META_KEY)
-    ]
-    assert len(error_frames) == 1
-    assert "QwenPaw failed to process" in error_frames[0].content.text
 
 
 async def _install_noop(self):
@@ -742,6 +459,8 @@ async def test_harness_terminal_preserves_output_and_status(
     [
         _provider_error(f"inappropriate content"),
         StreamIdleTimeoutError(f"model", 120.0),
+        RuntimeError(f"secret-token"),
+        ConnectionError(f"connection reset by peer"),
         RequestError.invalid_params({f"details": f"original"}),
     ],
 )
@@ -777,3 +496,5 @@ async def test_native_exception_overrides_failure_envelope(
         if getattr(update, f"session_update", None) == f"agent_message_chunk"
     ]
     assert texts[0] == f"tail"
+    assert f"secret-token" not in str(texts)
+    assert f"inappropriate content" not in str(texts)

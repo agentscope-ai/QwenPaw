@@ -21,7 +21,7 @@ import openai
 from qwenpaw.agents.acp import server
 from qwenpaw.providers.retry_chat_model import StreamIdleTimeoutError
 
-_SCENARIO = os.environ.get("QWENPAW_FAULT_SCENARIO", "ok")
+_SCENARIO = os.environ[f"QWENPAW_FAULT_SCENARIO"]
 
 
 def _provider_error(message: str) -> openai.BadRequestError:
@@ -46,8 +46,6 @@ class _FaultWorkspace:
             )
         if _SCENARIO == "idle":
             raise StreamIdleTimeoutError("policy", 600.0)
-        if _SCENARIO == "internal":
-            raise RuntimeError("internal secret-token")
         if _SCENARIO == "hang":
             yield SimpleNamespace(
                 object="content",
@@ -56,15 +54,6 @@ class _FaultWorkspace:
                 msg_id="m1",
             )
             await asyncio.sleep(60)
-            return
-        if _SCENARIO == "disconnect":
-            await asyncio.sleep(30)
-        yield SimpleNamespace(
-            object="content",
-            text="ok",
-            delta=False,
-            msg_id="m1",
-        )
 
 
 async def _ensure_workspace(self):

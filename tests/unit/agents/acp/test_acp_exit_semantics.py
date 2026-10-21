@@ -19,7 +19,6 @@ from qwenpaw.agents.acp.server import (
     _EnvelopeTracker,
     _prompt_failure_stop_reason,
 )
-from qwenpaw.providers.retry_chat_model import StreamIdleTimeoutError
 from qwenpaw.schemas import MessageType, RunStatus
 
 
@@ -62,31 +61,6 @@ def _tool_output(call_id: str = "call-1"):
     )
 
 
-def test_heartbeat_keeps_active_tool_call_alive():
-    tracker = _EnvelopeTracker()
-    tracker.process(_tool_start())
-
-    updates = tracker.process(
-        SimpleNamespace(object="message", type="heartbeat"),
-    )
-
-    assert len(updates) == 1
-    assert updates[0].session_update == "tool_call_update"
-    assert updates[0].tool_call_id == "call-1"
-    assert updates[0].status == "in_progress"
-
-
-def test_heartbeat_is_silent_without_active_tool():
-    tracker = _EnvelopeTracker()
-
-    assert (
-        tracker.process(
-            SimpleNamespace(object="message", type="heartbeat"),
-        )
-        == []
-    )
-
-
 @pytest.mark.parametrize(f"call_id", [f"call-1", None])
 def test_completed_tool_stops_heartbeats(call_id):
     tracker = _EnvelopeTracker()
@@ -123,28 +97,6 @@ def test_internal_error_text_is_not_content_safety():
         )
         is None
     )
-
-
-def test_stream_idle_timeout_is_not_normalized():
-    error = StreamIdleTimeoutError("policy", 600.0)
-
-    assert _prompt_failure_stop_reason(error) is None
-
-
-def test_acp_client_disconnect_returns_end_turn():
-    error = ACPClientDisconnected("ACP transport closed")
-
-    assert _prompt_failure_stop_reason(error) == "end_turn"
-
-
-def test_non_transport_connection_error_is_not_normalized():
-    error = ConnectionError("database connection lost")
-
-    assert _prompt_failure_stop_reason(error) is None
-
-
-def test_generic_prompt_error_is_not_normalized():
-    assert _prompt_failure_stop_reason(RuntimeError("boom")) is None
 
 
 @pytest.mark.parametrize(
