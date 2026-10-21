@@ -11,18 +11,10 @@ from agentscope.classifier import (
     ClassifierQuestion,
     ClassifierResponse,
     JevClassifierModel,
-    RefusalAnswer,
 )
 from agentscope.credential import TypeSafeCredential
 
 from .provider import ModelConnectionResult, ModelInfo, Provider
-
-# Answer type produced by AgentScope for each supported question type.
-_ANSWER_TYPES = {
-    "binary": "binary_answer",
-    "choice": "choice_answer",
-    "score": "score_answer",
-}
 
 
 class TypeSafeEvaluationError(RuntimeError):
@@ -114,7 +106,10 @@ class TypeSafeProvider(Provider):
         model: str = "jev-latest",
         timeout: float = 4.0,
     ) -> ClassifierResponse:
-        """Submit typed questions and validate the classifier response."""
+        """Submit typed questions to the Jev classifier.
+
+        Interpreting (and validating) the answers is left to the caller.
+        """
         if (
             not questions
             or not model.strip()
@@ -124,24 +119,12 @@ class TypeSafeProvider(Provider):
             raise ValueError(
                 "model, state, questions, and timeout are required",
             )
-        for name, question in questions.items():
-            if not name or getattr(question, "type", None) not in (
-                _ANSWER_TYPES
-            ):
-                raise ValueError(f"invalid question: {name}")
         async with self._classifier(model, timeout) as classifier:
-            response = await classifier(
+            return await classifier(
                 state,
                 questions,
                 **self._call_options(),
             )
-        for name, question in questions.items():
-            answer = response.content.get(name)
-            if isinstance(answer, RefusalAnswer):
-                raise TypeSafeEvaluationError(f"Question refused: {name}")
-            if getattr(answer, "type", None) != _ANSWER_TYPES[question.type]:
-                raise TypeSafeEvaluationError("Invalid response envelope")
-        return response
 
     async def fetch_models(self, timeout: float = 5) -> List[ModelInfo]:
         async with self._classifier("jev-latest", timeout) as classifier:

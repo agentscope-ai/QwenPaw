@@ -96,41 +96,6 @@ async def test_missing_key_is_explicit_error(provider):
 
 
 @pytest.mark.asyncio
-async def test_invalid_question_is_rejected(provider):
-    with pytest.raises(ValueError, match="invalid question"):
-        await provider.evaluate(
-            state="x",
-            questions={"q": {"type": "noul", "instructions": "x"}},
-        )
-
-
-@pytest.mark.asyncio
-async def test_mismatched_answer_is_rejected(provider, mock_typesafe):
-    mock_typesafe(
-        lambda _request: httpx2.Response(
-            200,
-            json={
-                "model": "jev-2",
-                "answers": {
-                    "keep_in_context": {
-                        "type": "choice",
-                        "choice": "yes",
-                        "confidence": 0.9,
-                        "probabilities": {"yes": 0.9, "no": 0.1},
-                    },
-                },
-                "usage": {},
-            },
-        ),
-    )
-    with pytest.raises(
-        TypeSafeEvaluationError,
-        match="Invalid response envelope",
-    ):
-        await provider.evaluate(state="x", questions=_QUESTIONS)
-
-
-@pytest.mark.asyncio
 async def test_api_error_carries_http_status(provider, mock_typesafe):
     mock_typesafe(
         lambda _request: httpx2.Response(
