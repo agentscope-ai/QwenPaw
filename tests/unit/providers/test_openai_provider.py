@@ -1003,3 +1003,80 @@ async def test_update_config_does_not_update_base_url_when_frozen() -> None:
     assert provider.api_key == "sk-frozen"
     assert info.base_url == "https://mock-openai.local/v1"
     assert info.api_key == "sk-frozen"
+
+
+def _make_gateway_provider(**kwargs) -> OpenAIProvider:
+    return OpenAIProvider(
+        id="my-gateway",
+        name="demo",
+        base_url="https://gateway.example.com/v1",
+        api_key="sk-test",
+        is_custom=True,
+        chat_model="OpenAIResponseModel",
+        **kwargs,
+    )
+
+
+def test_custom_gateway_rejects_prompt_cache_key_by_default() -> None:
+    """A compatible wire format is not a verified cache service."""
+    provider = _make_gateway_provider()
+
+    assert provider.cache_capabilities("gpt-x") == frozenset()
+    with pytest.raises(ValueError, match="Unsupported cache control"):
+        provider.prepare_request(
+            "gpt-x",
+            "responses",
+            {"prompt_cache_key": "k"},
+        )
+
+
+def test_declared_capability_forwards_prompt_cache_parameters() -> None:
+    """The opt-in declaration exposes the documented wire parameters."""
+    provider = _make_gateway_provider(supports_openai_prompt_cache=True)
+
+    assert provider.cache_capabilities("gpt-x") == frozenset({"openai"})
+    for kwargs in (
+        {"prompt_cache_key": "my-stable-key"},
+        {"extra_body": {"prompt_cache_key": "my-stable-key"}},
+    ):
+        result = provider.prepare_request("gpt-x", "responses", kwargs)
+        assert result["prompt_cache_key"] == "my-stable-key"
+        assert "prompt_cache_key" not in result.get("extra_body", {})
+
+    retained = provider.prepare_request(
+        "gpt-x",
+        "responses",
+        {"prompt_cache_retention": "24h"},
+    )
+    assert retained["prompt_cache_retention"] == "24h"
+
+
+def test_declaration_does_not_unlock_explicit_cache_controls() -> None:
+    """Breakpoint/TTL controls still require the host model's capability."""
+    provider = _make_gateway_provider(supports_openai_prompt_cache=True)
+
+    with pytest.raises(ValueError, match="unsupported"):
+        provider.prepare_request(
+            "gpt-x",
+            "responses",
+            {"prompt_cache_options": {"mode": "explicit"}},
+        )
+    with pytest.raises(ValueError, match="unsupported"):
+        provider.prepare_request(
+            "gpt-x",
+            "responses",
+            {"enable_prompt_cache_breakpoint": True},
+        )
+
+
+def test_official_host_capabilities_are_unaffected() -> None:
+    """api.openai.com routing keeps its own model-gated capability set."""
+    provider = _make_gateway_provider()
+    provider.base_url = "https://api.openai.com/v1"
+
+    assert provider.cache_capabilities("gpt-4o") == frozenset(
+        {"implicit", "openai"},
+    )
+    assert provider.cache_capabilities("gpt-5.6") == frozenset(
+        {"implicit", "openai", "openai_explicit"},
+    )
