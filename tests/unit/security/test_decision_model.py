@@ -195,7 +195,7 @@ def test_narrow_read_only_shell_listing():
 async def test_read_only_listing_skips_model_but_not_existing_ask(
     monkeypatch,
 ):
-    async def unexpected(*args):
+    async def unexpected(*args, **kwargs):
         raise AssertionError(
             "verified read-only listing should not call decision model",
         )
@@ -237,7 +237,7 @@ async def test_target_free_builtin_read_skips_model_but_not_existing_ask(
         is True
     )
 
-    async def unexpected(*args):
+    async def unexpected(*args, **kwargs):
         raise AssertionError("target-free read must not call decision model")
 
     monkeypatch.setattr(TypeSafeProvider, "evaluate", unexpected)
@@ -302,7 +302,7 @@ async def test_declared_local_media_read_skips_decision_model(
         is True
     )
 
-    async def unexpected(*args):
+    async def unexpected(*args, **kwargs):
         raise AssertionError("local media read should not call decision model")
 
     monkeypatch.setattr(TypeSafeProvider, "evaluate", unexpected)
@@ -339,11 +339,16 @@ async def test_sips_existing_output_requires_approval_without_decision_model(
 ):
     output = tmp_path / "small.jpg"
     output.write_bytes(b"existing")
+    # as_posix() keeps the rendered command platform-neutral: shlex.split()
+    # runs in POSIX mode, so a Windows-style backslash path is eaten as an
+    # escape sequence and the --out token loses every separator, which makes
+    # os.path.isabs() reject it and the preflight silently return None.
     command = (
-        f"sips -Z 1600 -s format jpeg {tmp_path}/input.png --out {output}"
+        f"sips -Z 1600 -s format jpeg {tmp_path.as_posix()}/input.png"
+        f" --out {output.as_posix()}"
     )
 
-    async def unexpected(*args):
+    async def unexpected(*args, **kwargs):
         raise AssertionError(
             "verified overwrite should not call decision model",
         )
@@ -361,8 +366,13 @@ async def test_sips_existing_output_requires_approval_without_decision_model(
 @pytest.mark.asyncio
 async def test_sips_new_output_supplies_verified_fact(monkeypatch, tmp_path):
     output = tmp_path / "small.jpg"
+    # as_posix() keeps the rendered command platform-neutral: shlex.split()
+    # runs in POSIX mode, so a Windows-style backslash path is eaten as an
+    # escape sequence and the --out token loses every separator, which makes
+    # os.path.isabs() reject it and the preflight silently return None.
     command = (
-        f"sips -Z 1600 -s format jpeg {tmp_path}/input.png --out {output}"
+        f"sips -Z 1600 -s format jpeg {tmp_path.as_posix()}/input.png"
+        f" --out {output.as_posix()}"
     )
     seen = []
 
@@ -485,7 +495,7 @@ async def test_shell_write_is_available_to_decision_model(
 
 @pytest.mark.asyncio
 async def test_literal_secret_is_not_sent_to_decision_model(monkeypatch):
-    async def unexpected(*args):
+    async def unexpected(*args, **kwargs):
         raise AssertionError("secret must not reach service")
 
     monkeypatch.setattr(TypeSafeProvider, "evaluate", unexpected)
@@ -495,7 +505,7 @@ async def test_literal_secret_is_not_sent_to_decision_model(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_sensitive_target_never_reaches_service(monkeypatch):
-    async def unexpected(*args):
+    async def unexpected(*args, **kwargs):
         raise AssertionError("service should not be contacted")
 
     monkeypatch.setattr(TypeSafeProvider, "evaluate", unexpected)
