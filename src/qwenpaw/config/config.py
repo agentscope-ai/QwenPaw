@@ -967,6 +967,14 @@ class ReMeLightMemoryConfig(BaseModel):
         "background task burden.",
     )
 
+    auto_memory_include_images: bool = Field(
+        default=False,
+        description=(
+            "Include conversation images in auto-memory when the memory "
+            "model has confirmed image-input support"
+        ),
+    )
+
     dream_cron_enabled: bool = Field(
         default=True,
         description=(

@@ -501,6 +501,14 @@ def _base_config() -> dict[str, Any]:
                         },
                         "session_id": {"type": "string", "default": ""},
                         "memory_hint": {"type": "string"},
+                        "include_images": {
+                            "type": "boolean",
+                            "description": (
+                                "Include images only when enabled in QwenPaw "
+                                "and supported by its memory model. False "
+                                "disables images for this invocation."
+                            ),
+                        },
                     },
                     "required": ["messages"],
                 },

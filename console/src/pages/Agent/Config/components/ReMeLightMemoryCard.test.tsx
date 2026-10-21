@@ -197,9 +197,13 @@ function RerankerVisibilityForm({
 function MemoryForm({
   withRuntimeStatus = false,
   autoFinEnabled = false,
+  includeImages = false,
+  onValuesChange,
 }: {
   withRuntimeStatus?: boolean;
   autoFinEnabled?: boolean;
+  includeImages?: boolean;
+  onValuesChange?: (changedValues: unknown) => void;
 }) {
   const [form] = Form.useForm();
   const Provider = withRuntimeStatus ? RuntimeProvider : StaticMemoryProvider;
@@ -207,9 +211,11 @@ function MemoryForm({
     <Provider>
       <Form
         form={form}
+        onValuesChange={onValuesChange}
         initialValues={{
           reme_light_memory_config: {
             auto_memory_interval: 0,
+            auto_memory_include_images: includeImages,
             dream_cron_enabled: false,
             auto_fin_cron_enabled: autoFinEnabled,
             auto_fin_cron: "0 18 * * *",
@@ -707,6 +713,44 @@ describe("ReMe runtime status", () => {
 });
 
 describe("long-term memory defaults", () => {
+  it("persists the optional image setting through the memory form", () => {
+    const onValuesChange = vi.fn();
+    renderWithProviders(<MemoryForm onValuesChange={onValuesChange} />);
+
+    const control = screen.getByRole("switch", {
+      name: "agentConfig.memoryImagesTitle",
+    });
+    expect(control).toHaveAttribute("aria-checked", "false");
+
+    fireEvent.click(control);
+
+    expect(control).toHaveAttribute("aria-checked", "true");
+    expect(onValuesChange).toHaveBeenLastCalledWith(
+      { reme_light_memory_config: { auto_memory_include_images: true } },
+      expect.objectContaining({
+        reme_light_memory_config: expect.objectContaining({
+          auto_memory_include_images: true,
+        }),
+      }),
+    );
+  });
+
+  it("loads an enabled image setting and allows disabling it", () => {
+    const onValuesChange = vi.fn();
+    renderWithProviders(
+      <MemoryForm includeImages onValuesChange={onValuesChange} />,
+    );
+    const control = screen.getByRole("switch", {
+      name: "agentConfig.memoryImagesTitle",
+    });
+    expect(control).toHaveAttribute("aria-checked", "true");
+    fireEvent.click(control);
+    expect(control).toHaveAttribute("aria-checked", "false");
+    expect(onValuesChange.mock.lastCall?.[0]).toEqual({
+      reme_light_memory_config: { auto_memory_include_images: false },
+    });
+  });
+
   it("schedules autosave when auto memory is toggled programmatically", () => {
     const onEdit = vi.fn();
     renderWithProviders(

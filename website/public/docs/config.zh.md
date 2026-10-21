@@ -486,6 +486,7 @@ ADBPG 和 PowerContext 插件配置见[长期记忆](./memory)。
 | `daily_paper_inbox_push_enabled` | bool        | `true`                           | 是否将 Daily Paper 结果推送到收件箱                                                               |
 | `auto_fin_inbox_push_enabled`    | bool        | `true`                           | 是否将实际生成的 Auto Fin 报告或失败结果推送到收件箱；成功跳过时不推送                            |
 | `auto_memory_interval`           | int \| null | `5`                              | 每隔 N 次用户查询触发自动记忆。`None` 或 `<= 0` 表示禁用周期自动记忆                              |
+| `auto_memory_include_images`     | bool        | `false`                          | 记忆模型已确认支持图片输入时，在 Auto-Memory 中包含对话图片 |
 | `dream_cron_enabled`             | bool        | `true`                           | 是否启用按 Cron 定时执行的梦境记忆优化任务                                                        |
 | `dream_cron`                     | string      | `"0 23 * * *"`                   | 梦境记忆优化任务的有效 5 段 Cron 表达式（启用时必填）；触发后随机延迟 0–60 秒启动，以避免集中调用 |
 | `daily_paper_cron_enabled`       | bool        | `false`                          | 是否启用按 Cron 定时执行的每日论文任务                                                            |
@@ -500,6 +501,13 @@ ADBPG 和 PowerContext 插件配置见[长期记忆](./memory)。
 | `auto_memory_search_config`      | object      | _（见下方）_                     | 自动记忆搜索配置                                                                                  |
 | `embedding_model_config`         | object      | _（见下方）_                     | Embedding 模型配置                                                                                |
 | `needs_reindex`                  | bool        | `false`                          | 运行时维护的标记，表示已保存的向量空间发生变化，需要手动重建索引                                  |
+
+在智能体的记忆设置中开启**在自动记忆中包含图片**，即可记住图片中的视觉信息，默认关闭。ReMe 使用智能体配置的模型，
+继承时使用全局模型；聊天会话中临时选择的模型不会改变记忆模型。模型必须已识别为支持图片输入
+（`supports_image: true`），能力未知时不启用图片；处理图片时也只保留已确认支持图片的回退模型。
+ReMe wrapper 默认限制为**单次 Auto-Memory 最多 5 张图**，
+包含该次一并提交的所有对话轮次。
+需要模型的记忆任务按顺序运行，因此较长的 Dream 或 Daily Paper 任务可能延后 Auto-Memory；记忆检索仍可独立执行。
 
 > `rebuild_memory_index_on_start` 已不再支持。仅在确有需要时通过控制台或维护 API 重建索引，详见
 > [重建记忆搜索索引](./memory#状态与重建索引)。

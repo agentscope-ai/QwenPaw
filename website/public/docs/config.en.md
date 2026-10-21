@@ -558,6 +558,7 @@ See [JEV relevance compaction](./context#optional-jev-relevance-compaction) for 
 | `daily_paper_inbox_push_enabled` | bool        | `true`                           | Whether to push Daily Paper results to the inbox                                                                                                                                 |
 | `auto_fin_inbox_push_enabled`    | bool        | `true`                           | Whether to push generated Auto Fin reports or failures to the inbox; successful skips are not pushed                                                                             |
 | `auto_memory_interval`           | int \| null | `5`                              | Auto memory every N user queries. `None` or `<= 0` disables periodic auto memory                                                                                                 |
+| `auto_memory_include_images`     | bool        | `false`                          | Include conversation images in Auto-Memory when the memory model has confirmed image-input support |
 | `dream_cron_enabled`             | bool        | `true`                           | Whether to enable the scheduled dream-based memory optimization job                                                                                                              |
 | `dream_cron`                     | string      | `"0 23 * * *"`                   | Valid 5-field cron expression for dream-based memory optimization (required when enabled); scheduled runs start after a random delay of 0–60 seconds to avoid simultaneous calls |
 | `daily_paper_cron_enabled`       | bool        | `false`                          | Whether to enable the scheduled Daily Paper job                                                                                                                                  |
@@ -572,6 +573,13 @@ See [JEV relevance compaction](./context#optional-jev-relevance-compaction) for 
 | `auto_memory_search_config`      | object      | _(see below)_                    | Auto memory search configuration                                                                                                                                                 |
 | `embedding_model_config`         | object      | _(see below)_                    | Embedding model configuration                                                                                                                                                    |
 | `needs_reindex`                  | bool        | `false`                          | Runtime-maintained flag indicating that the saved vector space changed and a manual index rebuild is required                                                                    |
+
+Enable **Include images in auto-memory** in the Agent's memory settings to remember visual details. ReMe uses the Agent's
+configured model, or the global model when inherited; a chat session's temporary model selection does not change it.
+Image support must be recognized (`supports_image: true`); unknown capability leaves images disabled. Image jobs retain
+only fallback models with confirmed image support. The default ReMe
+wrapper limit is **5 images per Auto-Memory invocation**, including all conversation turns submitted together.
+LLM-backed memory jobs run sequentially, so a long Dream or Daily Paper job can delay Auto-Memory; memory searches remain independent.
 
 > `rebuild_memory_index_on_start` is no longer supported. Rebuild an index only when needed from the Console or the
 > maintenance API described in [Rebuilding the Memory Search Index](./memory#runtime-status-and-rebuilding-the-index).

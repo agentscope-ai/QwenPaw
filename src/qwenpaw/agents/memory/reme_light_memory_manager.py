@@ -74,6 +74,7 @@ from ...exceptions import ProviderError
 from ...utils.io_utils import run_sync_io
 
 if TYPE_CHECKING:
+    from agentscope.model import ChatModelBase
     from reme import ReMe
     from reme.application import Response
 
@@ -502,10 +503,10 @@ class ReMeLightMemoryManager(BaseMemoryManager, MemoryActionProvider):
             ),
         )
 
-    async def _update_qwenpaw_model(self) -> None:
+    async def _update_qwenpaw_model(self) -> "ChatModelBase | None":
         """Reuse QwenPaw's active model in ReMe's default LLM component."""
         if self._reme is None:
-            return
+            return None
 
         model, _formatter = await create_model_and_formatter_async(
             self.agent_id,
@@ -515,6 +516,46 @@ class ReMeLightMemoryManager(BaseMemoryManager, MemoryActionProvider):
             "default",
             model=model,
         )
+        return model
+
+    async def _auto_memory_image_options(
+        self,
+        model: "ChatModelBase | None",
+        kwargs: dict[str, Any],
+    ) -> None:
+        """Gate every auto-memory entry point against its injected LLM."""
+        from ..prompt import get_model_supports_image
+
+        config = await run_sync_io(self._load_memory_config)
+        enabled = bool(config.auto_memory_include_images)
+        # The chat request may have a session-local model override. ReMe uses
+        # the model created for this memory job, so inspect that exact model.
+        supports_images = bool(
+            model is not None
+            and await run_sync_io(get_model_supports_image, model),
+        )
+        requested = kwargs.get("include_images", True) is not False
+        kwargs["include_images"] = enabled and supports_images and requested
+
+        has_images = any(
+            isinstance(block, dict)
+            and isinstance(block.get("source"), dict)
+            and str(block["source"].get("media_type", "")).startswith("image/")
+            for message in kwargs.get("messages") or []
+            if isinstance(message, dict)
+            for block in message.get("content") or []
+        )
+        if has_images:
+            logger.info(
+                "ReMe auto-memory images: include_images=%s enabled=%s "
+                "model_supports_images=%s requested=%s model=%s",
+                kwargs["include_images"],
+                enabled,
+                supports_images,
+                requested,
+                getattr(model, "model_key", None)
+                or getattr(model, "model", "unknown"),
+            )
 
     async def test_and_stage_embedding(
         self,
@@ -615,8 +656,10 @@ class ReMeLightMemoryManager(BaseMemoryManager, MemoryActionProvider):
             logger.debug("ReMe job skipped; app not started: %s", name)
             return None
         try:
-            if needs_llm:
-                await self._update_qwenpaw_model()
+            if needs_llm or name == "auto_memory":
+                model = await self._update_qwenpaw_model()
+                if name == "auto_memory":
+                    await self._auto_memory_image_options(model, kwargs)
             response = await self._reme.run_job(name, **kwargs)
             await self._append_reme_job_result_to_inbox(
                 name,
@@ -852,6 +895,7 @@ class ReMeLightMemoryManager(BaseMemoryManager, MemoryActionProvider):
             messages=[message.model_dump(mode="json") for message in messages],
             session_id=_to_reme_session_id(session_id),
             memory_hint=str(kwargs.get("memory_hint") or ""),
+            include_images=kwargs.get("include_images") is not False,
         )
         if response is None:
             return ""

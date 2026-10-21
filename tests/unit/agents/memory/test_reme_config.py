@@ -34,6 +34,13 @@ def test_memory_search_indexes_only_memory_markdown() -> None:
     assert job["watch_suffixes"] == ["md"]
 
 
+def test_auto_memory_exposes_optional_boolean_image_control() -> None:
+    cfg = _config_for_embedding(EmbeddingModelConfig())
+    parameters = cfg["jobs"]["auto_memory"]["parameters"]
+    assert parameters["properties"]["include_images"]["type"] == "boolean"
+    assert "include_images" not in parameters["required"]
+
+
 def test_reme_watchers_use_private_threads() -> None:
     cfg = _config_for_embedding(EmbeddingModelConfig())
     watcher = cfg["jobs"]["index_update_loop"]["steps"][1]

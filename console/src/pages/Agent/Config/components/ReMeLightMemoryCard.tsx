@@ -374,6 +374,21 @@ export function ReMeLightMemoryCard() {
 
           <div className={styles.memoryToggleRow}>
             <div>
+              <strong>{t("agentConfig.memoryImagesTitle")}</strong>
+              <span>{t("agentConfig.memoryImagesDescription")}</span>
+            </div>
+            <SettingsField
+              name={["reme_light_memory_config", "auto_memory_include_images"]}
+              initialValue={false}
+              valuePropName="checked"
+              noStyle
+            >
+              <Switch aria-label={t("agentConfig.memoryImagesTitle")} />
+            </SettingsField>
+          </div>
+
+          <div className={styles.memoryToggleRow}>
+            <div>
               <strong>{t("agentConfig.memoryNotifyTitle")}</strong>
               <span>{t("agentConfig.memoryNotifyDescription")}</span>
             </div>
