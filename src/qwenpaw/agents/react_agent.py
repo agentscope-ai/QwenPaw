@@ -187,6 +187,15 @@ _MEDIA_PAYLOAD_REJECTION_SIGNALS = (
     "image too large",
     "image is too large",
     "image dimensions",
+    # OpenAI-compatible gateways (LM Studio, issue #8171) report a zero
+    # per-prompt media budget as "At most 0 video(s) may be provided ...".
+    "at most 0 image",
+    "at most 0 video",
+    "at most 0 audio",
+    # "Message content supports text content only. Images, audio and files
+    # are not enabled." (issue #8290). The media-noun gate above keeps
+    # unrelated "not enabled" errors out.
+    "are not enabled",
 )
 
 # A payload rejection only counts when the provider actually names the media
@@ -697,7 +706,31 @@ class QwenPawAgent(CodingModeMixin, Agent):
 
     @staticmethod
     def _is_audio_fallback_error(exc: Exception) -> bool:
-        """Return whether a provider rejected the current audio payload."""
+        """Return whether the provider rejected the current audio payload.
+
+        Recognized rejection shapes:
+
+        1. DashScope modality error — HTTP 400 with
+           ``InternalError.Algo.InvalidParameter`` and the
+           "incorrect modal ... audio ..." wording.
+        2. DashScope URL-shape error — HTTP 400 with
+           "The provided URL does not appear to be valid" when local
+           audio is serialized as raw base64 (issue #7015, first
+           failure mode).
+        3. llama.cpp ``llama-server`` (OpenAI-compatible) backed by a
+           vision-only mmproj — HTTP 500 with
+           "audio input is not supported".
+        4. Providers that reject the ``input_audio`` wire part as an
+           unknown / unexpected field or variant.
+        5. LM Studio (OpenAI-compatible) serving a model without audio
+           support — HTTP 400 "At most 0 audio(s) may be provided in one
+           prompt." (issue #8171).
+
+        Callers gate this classifier on ``_last_wire_request_had_audio()``,
+        so shape 2 cannot misclassify genuinely malformed image/video
+        URLs: those requests carry no audio blocks and never reach the
+        audio-strip retry.
+        """
         error_str = " ".join(str(exc).lower().split())
         status = extract_status_code(exc)
         has_bad_request_status = status == 400 or "<400>" in error_str
@@ -721,11 +754,24 @@ class QwenPawAgent(CodingModeMixin, Agent):
                 "wrong position",
             )
         )
-        return rejects_unknown_audio_part or (
+        if rejects_unknown_audio_part:
+            return True
+        if (
             has_bad_request_status
             and "internalerror.algo.invalidparameter" in error_str
             and invalid_modal
-        )
+        ):
+            return True
+        if (
+            has_bad_request_status
+            and "the provided url does not appear to be valid" in error_str
+        ):
+            return True
+        if "audio input is not supported" in error_str:
+            return True
+        if "at most 0 audio" in error_str and "may be provided" in error_str:
+            return True
+        return False
 
     async def _prepare_model_input(self) -> dict[str, Any]:
         """Freeze local images before they enter a provider request."""

@@ -30,10 +30,12 @@ export function SessionThinking({
   agentId,
   sessionId,
   chatId,
+  onDecisionEnabledChange,
 }: {
   agentId: string;
   sessionId: string;
   chatId?: string | null;
+  onDecisionEnabledChange?: (enabled: boolean | undefined) => void;
 }) {
   const { t } = useTranslation();
   const { message } = useAppMessage();
@@ -47,6 +49,7 @@ export function SessionThinking({
   const identityRef = useRef(identity);
   identityRef.current = identity;
   useEffect(() => {
+    onDecisionEnabledChange?.(undefined);
     setOpen(false);
     setChoosing(false);
     setView(undefined);
@@ -62,7 +65,7 @@ export function SessionThinking({
       revision.current += 1;
       window.removeEventListener("session-model-changed", refresh);
     };
-  }, [identity]);
+  }, [identity, onDecisionEnabledChange]);
   async function load() {
     const version = ++revision.current;
     setBusy(true);
@@ -75,6 +78,7 @@ export function SessionThinking({
           readPendingThinking(agentId, sessionId, next.model_key) ?? next.value;
       setPreview(undefined);
       setView(next);
+      onDecisionEnabledChange?.(next.decision?.enabled);
       useTurnUsageStore
         .getState()
         .setActiveMaxInputLength(next.effective_max_input_length ?? null);
@@ -106,6 +110,7 @@ export function SessionThinking({
           : { ...view, value, reason: null };
       if (identityRef.current === identity && revision.current === version) {
         setView(next);
+        onDecisionEnabledChange?.(next.decision?.enabled);
         if ("level" in value)
           setPendingThinking(
             agentId,

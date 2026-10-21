@@ -43,9 +43,12 @@ vi.mock("@/utils/freeModelSwitchWarning", () => ({
 }));
 
 vi.mock("@/stores/agentStore", () => ({
-  useAgentStore: vi.fn(() => ({
-    selectedAgent: agentStoreState.selectedAgent,
-  })),
+  useAgentStore: Object.assign(
+    vi.fn(() => ({
+      selectedAgent: agentStoreState.selectedAgent,
+    })),
+    { subscribe: vi.fn(() => () => undefined) },
+  ),
 }));
 
 vi.mock("react-router-dom", async (importOriginal) => {
@@ -212,6 +215,59 @@ describe("ModelSelector", () => {
       "openai",
     );
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("exits inline model management without changing the model pool", async () => {
+    renderWithProviders(<ModelSelector />);
+    await screen.findAllByText("GPT-4");
+    fireEvent.click(
+      screen.getByRole("button", { name: "chat.modelSelectTooltip" }),
+    );
+    fireEvent.click(
+      await screen.findByRole("button", { name: "modelSelector.manageModels" }),
+    );
+    expect(await screen.findByTestId("candidate-picker")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "common.done" }),
+    ).toHaveTextContent("common.done");
+
+    fireEvent.click(screen.getByRole("button", { name: "common.done" }));
+
+    expect(screen.queryByTestId("candidate-picker")).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", {
+        name: "modelSelector.removeFromSelector GPT-4",
+      }),
+    ).not.toBeInTheDocument();
+    expect(providerApi.updateModelPool).not.toHaveBeenCalled();
+    expect(
+      screen.getByRole("button", { name: "modelSelector.manageModels" }),
+    ).toBeInTheDocument();
+  });
+
+  it("collapses provider candidates without leaving model management", async () => {
+    renderWithProviders(<ModelSelector />);
+    await screen.findAllByText("GPT-4");
+    fireEvent.click(
+      screen.getByRole("button", { name: "chat.modelSelectTooltip" }),
+    );
+    const manageProvider = await screen.findByRole("button", {
+      name: "modelSelector.manageModels",
+    });
+    fireEvent.click(manageProvider);
+    expect(await screen.findByTestId("candidate-picker")).toBeInTheDocument();
+
+    fireEvent.click(manageProvider);
+
+    expect(screen.queryByTestId("candidate-picker")).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "common.done" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", {
+        name: "modelSelector.removeFromSelector GPT-4",
+      }),
+    ).toBeDisabled();
   });
 
   it("keeps the existing selector and toggles per-row editing controls", async () => {
@@ -1459,6 +1515,145 @@ describe("ModelSelector", () => {
         },
         thinking_level: "high",
       }),
+    );
+  });
+
+  it("auto-saves work-environment settings without a save button", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(
+      <AgentModelSettings
+        expanded
+        autoSave
+        surface="settings"
+        agentId="default"
+        providers={await providerApi.listProviders()}
+        activeProviderId="openai"
+        activeModelId="gpt-4"
+      />,
+    );
+
+    const fallback = await screen.findByLabelText(
+      "modelSelector.enableFallback",
+    );
+    expect(fallback).toBeChecked();
+    expect(
+      screen.queryByRole("button", { name: /common.save/ }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByText("thinkingControl.title")).toBeInTheDocument();
+
+    await user.click(fallback);
+
+    await waitFor(
+      () => expect(agentsApi.updateModelSettings).toHaveBeenCalledOnce(),
+      { timeout: 2000 },
+    );
+    expect(agentsApi.updateModelSettings).toHaveBeenCalledWith(
+      "default",
+      expect.objectContaining({
+        fallback_policy: {
+          enabled: false,
+          target_scope: "configured",
+        },
+      }),
+    );
+  });
+
+  it("auto-saves the decision model in the work environment", async () => {
+    const decisionModel = {
+      ...mockProvider.models[0],
+      id: "decision-v1",
+      name: "Decision V1",
+      model_type: "decision" as const,
+    };
+    vi.mocked(providerApi.listProviders).mockResolvedValue([
+      {
+        ...mockProvider,
+        models: [...mockProvider.models, decisionModel],
+      },
+    ]);
+    const user = userEvent.setup();
+    renderWithProviders(
+      <AgentModelSettings
+        expanded
+        autoSave
+        surface="settings"
+        agentId="default"
+        providers={await providerApi.listProviders()}
+        decisionProviders={[
+          {
+            id: mockProvider.id,
+            name: mockProvider.name,
+            models: [decisionModel],
+          },
+        ]}
+        activeProviderId="openai"
+        activeModelId="gpt-4"
+      />,
+    );
+
+    const choice = await screen.findByRole("button", {
+      name: "models.defaultDecisionModel",
+    });
+    await user.click(choice);
+    const popover = Array.from(document.querySelectorAll(".ant-popover")).slice(
+      -1,
+    )[0] as HTMLElement;
+    await user.click(await within(popover).findByText("Decision V1"));
+
+    await waitFor(
+      () => expect(agentsApi.updateModelSettings).toHaveBeenCalledOnce(),
+      { timeout: 2000 },
+    );
+    expect(agentsApi.updateModelSettings).toHaveBeenCalledWith(
+      "default",
+      expect.objectContaining({
+        decision_model: {
+          provider_id: "openai",
+          model: "decision-v1",
+        },
+      }),
+    );
+  });
+
+  it("enables fallback before the user opens model selection", async () => {
+    vi.mocked(agentsApi.getAgent).mockResolvedValue({
+      id: "default",
+      name: "Default",
+      fallback_models: [],
+      fallback_policy: { enabled: false, target_scope: "configured" },
+      subagent_model: null,
+      thinking_level: "inherit",
+    });
+    const user = userEvent.setup();
+    renderWithProviders(
+      <AgentModelSettings
+        expanded
+        autoSave
+        surface="settings"
+        agentId="default"
+        providers={await providerApi.listProviders()}
+        activeProviderId="openai"
+        activeModelId="gpt-4"
+      />,
+    );
+
+    const fallback = await screen.findByLabelText(
+      "modelSelector.enableFallback",
+    );
+    await user.click(fallback);
+
+    expect(fallback).toBeChecked();
+    const chooseModel = screen.getByRole("button", {
+      name: "modelSelector.chooseFallback",
+    });
+    expect(chooseModel).toHaveAttribute("aria-expanded", "false");
+
+    await user.click(chooseModel);
+    expect(chooseModel).toHaveAttribute("aria-expanded", "true");
+
+    await waitFor(
+      () => expect(agentsApi.updateModelSettings).toHaveBeenCalledOnce(),
+      { timeout: 2000 },
     );
   });
 

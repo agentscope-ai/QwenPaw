@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useAppMessage } from "@/hooks/useAppMessage";
+import { getApiUrl } from "@/api/config";
 import {
   buildMarketDownloadUrl,
   fetchMarketPlugins,
@@ -36,7 +37,7 @@ export function useOsAppMarket({ onInstalled }: UseOsAppMarketOptions) {
 
   useEffect(() => {
     const controller = new AbortController();
-    fetch("/api/version", { signal: controller.signal })
+    fetch(getApiUrl("/version"), { signal: controller.signal })
       .then((response) => {
         if (!response.ok) {
           throw new Error(`HTTP ${response.status}`);

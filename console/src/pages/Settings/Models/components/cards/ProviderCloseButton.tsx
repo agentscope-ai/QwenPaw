@@ -32,11 +32,11 @@ export function ProviderCloseButton({
           </button>
         </Tooltip>
       )}
-      <Tooltip title={t("common.disable")}>
+      <Tooltip title={t("models.disableBtn")}>
         <button
           type="button"
           className={styles.providerClose}
-          aria-label={t("common.disable")}
+          aria-label={t("models.disableBtn")}
           disabled={busy}
           onClick={async () => {
             setBusy(true);

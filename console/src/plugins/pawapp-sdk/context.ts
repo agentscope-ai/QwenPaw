@@ -1,7 +1,9 @@
+import { stripRouterBasename } from "../../utils/navigationMode";
+
 let activePawAppId = "";
 
 export function getPawAppIdFromPath(pathname: string): string {
-  const match = pathname.match(/^\/(?:console\/)?apps\/([^/?#]+)/);
+  const match = stripRouterBasename(pathname).match(/^\/apps\/([^/?#]+)/);
   return match?.[1] ?? "";
 }
 

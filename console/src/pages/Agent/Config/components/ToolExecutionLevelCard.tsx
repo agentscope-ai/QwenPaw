@@ -1,11 +1,14 @@
 import { Card, Space } from "antd";
+import { useEffect, useState } from "react";
+import { providerApi } from "@/api/modules/provider";
+import { Link } from "react-router-dom";
 import { Shield, ShieldCheck, ShieldQuestion, ShieldOff } from "lucide-react";
 import InlineHelp from "@/components/InlineHelp";
 import { PolicySelector } from "@/components/interaction/PolicySelector";
 import { useTranslation } from "react-i18next";
 import styles from "../index.module.less";
 
-export type ToolExecutionLevel = "STRICT" | "SMART" | "AUTO" | "OFF";
+export type ToolExecutionLevel = "STRICT" | "SMART" | "JEV" | "AUTO" | "OFF";
 
 interface LevelOption {
   value: ToolExecutionLevel;
@@ -26,6 +29,23 @@ export function ToolExecutionLevelCard({
   disabled = false,
 }: ToolExecutionLevelCardProps) {
   const { t } = useTranslation();
+  const [configured, setConfigured] = useState(false);
+
+  useEffect(() => {
+    void providerApi
+      .listProviders()
+      .then((providers) => {
+        const decisionModelProvider = providers.find(
+          (provider) => provider.id === "typesafe",
+        );
+        setConfigured(
+          Boolean(
+            decisionModelProvider?.enabled && decisionModelProvider.api_key,
+          ),
+        );
+      })
+      .catch(() => setConfigured(false));
+  }, []);
 
   const levelOptions: LevelOption[] = [
     {
@@ -39,6 +59,12 @@ export function ToolExecutionLevelCard({
       label: t("agentConfig.toolExecutionLevel.smart"),
       icon: <ShieldQuestion size={18} />,
       description: t("agentConfig.toolExecutionLevel.smartDesc"),
+    },
+    {
+      value: "JEV",
+      label: t("agentConfig.toolExecutionLevel.jev"),
+      icon: <ShieldQuestion size={18} />,
+      description: t("agentConfig.toolExecutionLevel.jevDesc"),
     },
     {
       value: "AUTO",
@@ -83,6 +109,21 @@ export function ToolExecutionLevelCard({
         options={levelOptions}
         showDescription={false}
       />
+      {level === "JEV" && (
+        <Space direction="vertical" style={{ width: "100%", marginTop: 16 }}>
+          <span>
+            {t("agentConfig.toolExecutionLevel.decisionModelPrivacy")}
+          </span>
+          <span>
+            {configured
+              ? t("agentConfig.toolExecutionLevel.decisionModelConnected")
+              : t("agentConfig.toolExecutionLevel.decisionModelNotConnected")}
+          </span>
+          <Link to="/settings/models">
+            {t("agentConfig.toolExecutionLevel.decisionModelConfigure")}
+          </Link>
+        </Space>
+      )}
     </Card>
   );
 }

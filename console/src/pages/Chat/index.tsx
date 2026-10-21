@@ -5,6 +5,7 @@ import {
 } from "./components/ChatSessionTransition";
 import { ChatWelcome } from "./components/ChatWelcome";
 import { useChatRouteResolution } from "./hooks/useChatRouteResolution";
+import { useAdvisorDecisionAvailability } from "./hooks/useAdvisorDecisionAvailability";
 import { loadSessionModel } from "../../features/session-settings/sessionModel";
 import {
   migratePendingSessionSettings,
@@ -1343,6 +1344,23 @@ export default function ChatPage() {
     confirmed: terminalCapabilityConfirmed,
   } = useTerminalEnabled(selectedAgent);
   const backendChatId = resolveBackendChatId(chatId);
+  const decisionScope = `${selectedAgent}:${queueSessionId}:${
+    backendChatId ?? ""
+  }`;
+  const [decisionAvailability, setDecisionAvailability] = useState<{
+    scope: string;
+    enabled: boolean | undefined;
+  }>();
+  const decisionModelEnabled =
+    decisionAvailability?.scope === decisionScope
+      ? decisionAvailability.enabled
+      : undefined;
+  const handleDecisionEnabledChange = useCallback(
+    (enabled: boolean | undefined) => {
+      setDecisionAvailability({ scope: decisionScope, enabled });
+    },
+    [decisionScope],
+  );
   useEffect(() => {
     sessionApi.setVisibleSession(
       queueSessionId === "new" ? null : queueSessionId,
@@ -1483,6 +1501,13 @@ export default function ChatPage() {
   const usesQwenPawBackend = requiresQwenPawModel(selectedAgentBackend);
   // An Advisor conversation runs two models, so its pill shows the pair.
   const advisorConversation = useIsAdvisorConversation();
+  useAdvisorDecisionAvailability({
+    active: usesQwenPawBackend && advisorConversation && !isSessionTransition,
+    agentId: selectedAgent,
+    sessionId: queueSessionId,
+    chatId: backendChatId,
+    onChange: handleDecisionEnabledChange,
+  });
   const backendCommands = backendCapabilities?.commands ?? [];
   const approvalPresets = backendCapabilities?.approval_presets ?? [];
   const supportsAttachments = supportsAgentAttachments(
@@ -1528,6 +1553,8 @@ export default function ChatPage() {
   const queueRunState = useMessageQueueStore((s) => s.runStates[queueKey]);
 
   const sessionApprovalLevelRef = useRef<ToolExecutionLevel | null>(null);
+  const decisionModelEnabledRef = useRef(decisionModelEnabled);
+  decisionModelEnabledRef.current = decisionModelEnabled;
   const backendControlsRef = useRef<Record<string, unknown>>({});
   const runningConfigApprovalLevel = useAgentRunningConfigApprovalLevel();
   const captureRequestContext = useCallback(
@@ -1536,7 +1563,11 @@ export default function ChatPage() {
       ...(usesQwenPawBackend
         ? {
             approval_level:
-              sessionApprovalLevelRef.current ?? runningConfigApprovalLevel,
+              decisionModelEnabledRef.current === false &&
+              (sessionApprovalLevelRef.current ??
+                runningConfigApprovalLevel) === "JEV"
+                ? "AUTO"
+                : sessionApprovalLevelRef.current ?? runningConfigApprovalLevel,
           }
         : Object.keys(backendControlsRef.current).length > 0
         ? { backend_controls: { ...backendControlsRef.current } }
@@ -3281,10 +3312,15 @@ export default function ChatPage() {
       // Every turn goes through this fetch, including the SDK's own regenerate.
       // Clear only this session: another session may still have a stopped turn.
       clearTurnStopped(entrySnapshot.sessionId);
-      const approvalAtSubmission =
+      const requestedApprovalLevel =
         typeof entrySnapshot.context.approval_level === "string"
           ? normalizeLevel(entrySnapshot.context.approval_level)
           : sessionApprovalLevelRef.current ?? runningConfigApprovalLevel;
+      const approvalAtSubmission =
+        requestedApprovalLevel === "JEV" &&
+        decisionModelEnabledRef.current === false
+          ? "AUTO"
+          : requestedApprovalLevel;
       const controlsAtSubmission = entrySnapshot.context.backend_controls ?? {
         ...backendControlsRef.current,
       };
@@ -4052,7 +4088,7 @@ export default function ChatPage() {
       welcome: {
         ...i18nConfig.welcome,
         nick: extNick ?? "QwenPaw",
-        avatar: extAvatar ?? "/qwenpaw.png",
+        avatar: extAvatar ?? `${import.meta.env.BASE_URL}qwenpaw.png`,
         ...(extGreeting !== undefined ? { greeting: extGreeting } : {}),
         ...(extDescription !== undefined
           ? { description: extDescription }
@@ -4126,6 +4162,7 @@ export default function ChatPage() {
                   agentId={selectedAgent}
                   sessionId={queueSessionId}
                   chatId={backendChatId}
+                  onDecisionEnabledChange={handleDecisionEnabledChange}
                 />
               )
             ) : backendCapabilities?.model_selection ? (
@@ -4166,6 +4203,7 @@ export default function ChatPage() {
               <ApprovalLevelToggle
                 sessionId={queueKey}
                 runningConfigApprovalLevel={runningConfigApprovalLevel}
+                decisionModelEnabled={decisionModelEnabled}
                 compact={isMobile || compactSender}
                 className={[
                   !isMobile && !compactSender
@@ -4544,6 +4582,8 @@ export default function ChatPage() {
     loopAvailableModes,
     advisorConversation,
     backendChatId,
+    decisionModelEnabled,
+    handleDecisionEnabledChange,
     selectedAgent,
     selectedAgentBackend,
     backendCapabilities,

@@ -65,6 +65,7 @@ def _guarded_tool_init(
     from agentscope.tool import FunctionTool
 
     FunctionTool.__init__(self, func, **kwargs)
+    self._qp_tool_func = func  # pylint: disable=protected-access
     self._qp_agent_id = agent_id  # pylint: disable=protected-access
     # pylint: disable=protected-access
     self._qp_request_context = request_context or {}
@@ -83,6 +84,14 @@ def _guarded_tool_resolve_execution_level(self: Any) -> str:
 
     # ① Session-level override from request_context
     request_ctx = getattr(self, "_qp_request_context", None) or {}
+    from ..config.context import (
+        get_current_session_id,
+        is_f1_active_for_session,
+    )
+
+    session_id = request_ctx.get("session_id") or get_current_session_id()
+    if is_f1_active_for_session(session_id):
+        return ToolExecutionLevel.STRICT.value
     session_raw = request_ctx.get("approval_level") if request_ctx else None
     if session_raw:
         return ToolExecutionLevel.from_config(session_raw).value
@@ -127,7 +136,7 @@ def _with_no_retry_instruction(body: str) -> str:
     return body + _NO_RETRY_INSTRUCTION
 
 
-# pylint: disable=too-many-return-statements
+# pylint: disable=too-many-return-statements,too-many-branches
 async def _guarded_tool_check_permissions(
     self: Any,
     input_data: dict[str, Any] | None = None,
@@ -178,6 +187,16 @@ async def _guarded_tool_check_permissions(
     exec_level = ToolExecutionLevel.from_config(level)
     engine = get_guard_engine()
 
+    # JEV cannot treat an unavailable deterministic baseline as permission.
+    if exec_level is ToolExecutionLevel.JEV and not engine.enabled:
+        return await _ask_user_approval(
+            agent_id=getattr(self, "_qp_agent_id", ""),
+            tool_name=tool_name,
+            input_data=input_data,
+            guard_result=_strict_info_guard_result(tool_name, input_data),
+            request_context=getattr(self, "_qp_request_context", None) or {},
+        )
+
     # OFF: bypass without engine.
     if exec_level.is_disabled() or not engine.enabled:
         return PermissionDecision(
@@ -226,6 +245,12 @@ async def _guarded_tool_check_permissions(
 
     # No findings on AUTO/SMART → allow.
     if guard_result is None or not guard_result.findings:
+        if exec_level is ToolExecutionLevel.JEV:
+            return await _decision_model_guard_decision(
+                self,
+                tool_name,
+                input_data,
+            )
         return PermissionDecision(
             behavior=PermissionBehavior.ALLOW,
             message="Tool guard: no findings.",
@@ -247,6 +272,12 @@ async def _guarded_tool_check_permissions(
     if exec_level.is_smart_mode():
         max_sev = guard_result.max_severity
         if max_sev in (GuardSeverity.INFO, GuardSeverity.LOW):
+            if exec_level is ToolExecutionLevel.JEV:
+                return await _decision_model_guard_decision(
+                    self,
+                    tool_name,
+                    input_data,
+                )
             return PermissionDecision(
                 behavior=PermissionBehavior.ALLOW,
                 message=(
@@ -266,6 +297,48 @@ async def _guarded_tool_check_permissions(
         request_context=request_context,
     )
     return decision
+
+
+async def _decision_model_guard_decision(
+    tool: Any,
+    tool_name: str,
+    input_data: dict[str, Any],
+) -> Any:
+    """Review deterministic ALLOW in the fallback Guard path."""
+    from agentscope.permission import PermissionBehavior, PermissionDecision
+
+    from ..security.decision_model import assess_tool_call
+
+    target = next(
+        (
+            str(input_data[key])
+            for key in ("command", "path", "target", "url")
+            if isinstance(input_data.get(key), str)
+        ),
+        "",
+    )
+    assessment = await assess_tool_call(
+        tool_name,
+        target,
+        params=input_data,
+        agent_id=getattr(tool, "_qp_agent_id", "") or "",
+        tool_func=getattr(tool, "_qp_tool_func", None),
+    )
+    if not assessment.needs_approval:
+        return PermissionDecision(
+            behavior=PermissionBehavior.ALLOW,
+            message=assessment.reason,
+        )
+    result = _strict_info_guard_result(tool_name, input_data)
+    result.findings[0].title = "Decision model assessment requires approval"
+    result.findings[0].description = assessment.reason
+    return await _ask_user_approval(
+        agent_id=getattr(tool, "_qp_agent_id", ""),
+        tool_name=tool_name,
+        input_data=input_data,
+        guard_result=result,
+        request_context=getattr(tool, "_qp_request_context", None) or {},
+    )
 
 
 def _strict_info_guard_result(

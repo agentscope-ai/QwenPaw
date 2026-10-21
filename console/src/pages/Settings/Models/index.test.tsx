@@ -172,6 +172,7 @@ describe("ModelsPage", () => {
       .closest("[data-page-header]");
     expect(header).toHaveClass(styles.pageHeader);
     expect(screen.queryByText("nav.settings")).not.toBeInTheDocument();
+    expect(screen.queryByText("models.scope.agent")).not.toBeInTheDocument();
   });
 
   it("shows the loading state while fetching", () => {
@@ -262,6 +263,23 @@ describe("ModelsPage", () => {
     expect(
       screen.queryByTestId("provider-card:anthropic"),
     ).not.toBeInTheDocument();
+  });
+
+  it("shows a search-specific empty state instead of setup guidance", async () => {
+    const user = userEvent.setup();
+    setProviders([
+      makeProvider({ id: "openai", name: "OpenAI", api_key: "sk-x" }),
+    ]);
+    renderWithProviders(<ModelsPage />, { initialEntries: ["/models"] });
+
+    const search = screen.getByPlaceholderText("models.searchPlaceholder");
+    await user.click(search);
+    await user.type(search, "missing");
+
+    await waitFor(() =>
+      expect(screen.getByText(/^models\.noSearchResults/)).toBeInTheDocument(),
+    );
+    expect(screen.queryByText("models.noConfigured")).not.toBeInTheDocument();
   });
 
   it("refreshes providers via the refresh button", async () => {

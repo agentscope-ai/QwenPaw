@@ -32,11 +32,13 @@ from qwenpaw.tool_calls import CancelReason
 from qwenpaw.utils.timeout import resolve_stream_task_timeout
 from ...providers.thinking import ThinkingPreference
 from ...services.session_thinking import (
+    decision_settings,
     session_model,
     session_preference,
     thinking_view,
 )
-from ...config.config import ModelSlotConfig
+from ...config.config import ModelSlotConfig, load_agent_config
+from ...utils.io_utils import run_sync_io
 from ...utils.logging import LOG_FILE_PATH, sanitize_log_value
 from ..agent_context import get_agent_for_request
 from ..approvals.display import approval_display_fields
@@ -225,6 +227,18 @@ async def _persist_pending_project_dirs(
         chat,
         request_context,
     )
+    if str(request_context.get("approval_level", "")).upper() == "JEV":
+        runtime = (chat.meta or {}).get("runtime_context") or {}
+        config = await run_sync_io(load_agent_config, workspace.agent_id)
+        enabled = await run_sync_io(
+            decision_settings,
+            config,
+            runtime.get("decision_enabled"),
+        )
+        if not enabled["enabled"]:
+            # A requested decision review must not become automatic execution
+            # when the model is unavailable or disabled.
+            request_context["approval_level"] = "STRICT"
 
     raw_list = request_context.pop("session_project_dirs", None)
     raw_single = request_context.pop("session_project_dir", None)
