@@ -79,6 +79,7 @@ from ...drivers.constants import DRIVER_SCOPE_CONTEXT_KEY
 from ...exceptions import AppBaseException
 from ...providers.provider_manager import ProviderManager
 from ...plugins.registry import PluginRegistry
+from ...modes.catalog import resolve_loop_mode
 from ...utils.io_utils import run_sync_io
 from .meta import (
     ACP_APPROVAL_EXPIRES_AT_META_KEY,
@@ -637,7 +638,7 @@ class QwenPawACPAgent(Agent):
             return PromptResponse(stop_reason="end_turn")
 
         workspace = await self._ensure_workspace()
-        text = self._apply_mode(text, session_id)
+        text = self._apply_mode(text, session_id, workspace)
         session_info = self._sessions.get(
             session_id,
             {},
@@ -722,7 +723,12 @@ class QwenPawACPAgent(Agent):
         stop_reason = "cancelled" if was_cancelled else "end_turn"
         return PromptResponse(stop_reason=stop_reason)
 
-    def _apply_mode(self, text: str, session_id: str) -> str:
+    def _apply_mode(
+        self,
+        text: str,
+        session_id: str,
+        workspace: Any,
+    ) -> str:
         """Prefix the session's first message with the mode command.
 
         Only the first user message of a session gets the prefix (for
@@ -734,10 +740,19 @@ class QwenPawACPAgent(Agent):
             return text
         if session_id in self._mode_started:
             return text
-        self._mode_started.add(session_id)
-        if text.lstrip().startswith("/"):
+        if text.lstrip().startswith(f"/"):
+            self._mode_started.add(session_id)
             return text
-        return f"/{self._mode} {text}"
+        try:
+            mode = resolve_loop_mode(workspace, self._mode)
+        except ValueError as exc:
+            raise RequestError.invalid_params(
+                {f"mode": self._mode, f"details": str(exc)},
+            ) from exc
+        self._mode_started.add(session_id)
+        if not mode.slash_command:
+            return text
+        return f"/{mode.slash_command} {text}"
 
     async def close_session(  # pylint: disable=unused-argument
         self,

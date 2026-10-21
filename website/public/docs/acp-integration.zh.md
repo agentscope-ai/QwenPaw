@@ -148,7 +148,11 @@ qwenpaw acp --mode goal
 
 进程通过 stdin/stdout 使用 ACP JSON-RPC 协议通信，stderr 用于日志输出。
 
-使用 `--mode goal` 时，每个新会话的第一条用户消息会自动加上 `/goal` 命令前缀，无界面客户端无需自行发送该命令即可进入 goal 模式。已以斜杠命令开头的消息不会被修改，加载或恢复的会话也不会重复添加前缀。
+`--mode MODE_ID` 使用与 Console 相同的工作区 loop 目录（`GET /api/loops`）。内置 ID 包括 `default`、`goal`、`mission`；已配置的自定义模式使用 `custom:<id>`，插件模式使用 `plugin:<name>`。
+
+例如，`--mode goal` 会为新会话的第一条消息加上 `/goal`。若自定义模式 `quality` 注册的是 `/verify`，则 `--mode custom:quality` 添加 `/verify`，而不是 `/custom:quality`。激活仍通过已有 Runtime slash-command registry 执行。未知、禁用或未成功注册的模式会返回请求错误，不会静默回退。
+
+首条消息若以斜杠命令开头，则保持原文并消耗首次消息机会。加载或恢复的会话不会重复添加前缀；此选项不额外提供模式状态持久化。`--mode default` 保持消息原文。loop 选择与 ACP 权限设置相互独立。
 
 ### 支持的 ACP 方法
 

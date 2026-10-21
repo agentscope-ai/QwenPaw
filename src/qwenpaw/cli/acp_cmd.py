@@ -47,12 +47,13 @@ import click
 )
 @click.option(
     "--mode",
-    type=click.Choice(["goal"]),
+    type=str,
+    metavar=f"MODE_ID",
     default=None,
     help=(
-        "Activate a runtime mode: the first user message of every "
-        "new session is prefixed with the mode's slash command "
-        "(e.g. /goal)."
+        f"Select a loop mode from the workspace catalog (e.g. goal, "
+        f"mission, custom:<id>, plugin:<name>). The first message of "
+        f"each new session uses its registered slash command."
     ),
 )
 def acp_cmd(

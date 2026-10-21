@@ -148,7 +148,11 @@ qwenpaw acp --mode goal
 
 The process communicates over stdin/stdout using the ACP JSON-RPC protocol. stderr is used for logging.
 
-With `--mode goal`, the first user message of every new session is automatically prefixed with the `/goal` command, so headless clients can activate goal mode without sending the command themselves. Messages that already start with a slash command are never modified, and loaded or resumed sessions are not re-prefixed.
+`--mode MODE_ID` selects from the same workspace loop catalog as the Console (`GET /api/loops`). Built-in IDs include `default`, `goal`, and `mission`; configured custom modes use `custom:<id>` and plugin modes use `plugin:<name>`.
+
+For example, `--mode goal` adds `/goal` to the first message of each new session. If custom mode `quality` registers `/verify`, `--mode custom:quality` adds `/verify`, not `/custom:quality`. Activation goes through the existing runtime slash-command registry. Unknown, disabled, or unregistered modes return a request error instead of silently falling back.
+
+Messages that already start with a slash command are never modified and consume the first-message slot. Loaded or resumed sessions are not re-prefixed; this option does not add mode-state persistence. `--mode default` leaves messages unchanged. Loop selection is separate from ACP permission settings.
 
 ### Supported ACP Methods
 
