@@ -91,7 +91,6 @@ from ...exceptions import AppBaseException
 from ...providers.provider_manager import ProviderManager
 from ...plugins.registry import PluginRegistry
 from ...modes.catalog import resolve_loop_mode
-from ...modes.goal import GoalMode
 from ...utils.io_utils import run_sync_io
 from .meta import (
     ACP_APPROVAL_EXPIRES_AT_META_KEY,
@@ -564,6 +563,9 @@ class QwenPawACPAgent(Agent):
             workspace = Workspace(
                 agent_id=agent_id,
                 workspace_dir=str(workspace_dir),
+                mode_config_overrides={
+                    f"goal": {f"max_tokens": self._goal_token_budget},
+                },
             )
             app_services = await self._ensure_app_services()
             workspace.bootstrap_plugins(
@@ -572,9 +574,6 @@ class QwenPawACPAgent(Agent):
             workspace.set_app_services(app_services)
             try:
                 await workspace.start()
-                for mode in workspace.plugins.modes:
-                    if isinstance(mode, GoalMode):
-                        mode.default_max_tokens = self._goal_token_budget
                 self._install_stop_gate_bridge(agent_id, workspace)
             except BaseException:
                 try:

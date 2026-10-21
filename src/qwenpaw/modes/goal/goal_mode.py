@@ -18,7 +18,9 @@ from typing import TYPE_CHECKING, Any, Optional
 
 from agentscope.message import Msg, TextBlock
 
+from ..catalog import LoopModeInfo
 from ..base import AgentMode, find_active_explicit_mode
+from ...config.config import GoalLoopModeConfig
 from ...app.agent_context import (
     get_current_session_id,
 )
@@ -104,6 +106,16 @@ class GoalMode(AgentMode):
     """
 
     name = "goal"
+
+    def describe_loop(self, workspace: object) -> LoopModeInfo | None:
+        """Expose this mode through the shared loop catalog."""
+        return LoopModeInfo(
+            id=self.name,
+            name=self.name,
+            slash_command=self.name,
+            description=f"Set a goal and work until it is done.",
+            source=f"builtin",
+        )
 
     def __init__(self) -> None:
         self._sessions: dict[str, GoalSession] = {}
@@ -249,6 +261,10 @@ class GoalMode(AgentMode):
         super().setup(workspace)
 
         goal_config = workspace.config.running.loop.goal
+        overrides = getattr(workspace, f"mode_config_overrides", {})
+        goal_config = GoalLoopModeConfig.model_validate(
+            goal_config.model_dump() | overrides.get(self.name, {}),
+        )
         self._default_max_iterations = goal_config.max_iterations
         self.default_max_tokens = goal_config.max_tokens
 

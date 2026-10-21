@@ -156,6 +156,8 @@ qwenpaw acp --agent-mode goal
 
 Goal token 预算默认无上限。使用 `--goal-token-budget 300000` 为每个目标设置上限；`-1` 和 `0` 均表示无上限。此参数只覆盖当前 ACP 进程的默认预算，不写回 agent 配置；迭代次数限制仍然有效。显式调用 `create_goal(token_budget=...)` 可覆盖该目标的预算，省略则沿用默认值。
 
+模式开发者在已有 `AgentMode` 上声明 `loop_entry`，明确指定入口命令；需要自定义 ID 或可用性规则时，实现 `describe_loop(workspace)`。HTTP 与 ACP 从已注册模式收集描述，不再根据命令排列顺序猜测入口。进程内的 `Workspace.mode_config_overrides` 由所属模式在初始化时读取、校验，不修改持久化 agent 配置。
+
 ### 支持的 ACP 方法
 
 | 方法                | 说明                                             |

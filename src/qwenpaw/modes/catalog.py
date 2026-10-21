@@ -22,124 +22,35 @@ class LoopModeInfo(BaseModel):
     description_i18n: dict[str, str] | None = None
 
 
-BUILTIN_LOOPS = (
-    LoopModeInfo(
-        id="default",
-        name="default",
-        slash_command="",
-        description="The standard guarded agent loop.",
-        source="builtin",
-    ),
-    LoopModeInfo(
-        id="goal",
-        name="goal",
-        slash_command="goal",
-        description="Set a goal and work until it is done.",
-        source="builtin",
-    ),
-    LoopModeInfo(
-        id="mission",
-        name="mission",
-        slash_command="mission",
-        description="Run a persistent multi-step mission.",
-        source="builtin",
-    ),
-)
-
-
-ADVISOR_LOOP = LoopModeInfo(
-    id="advisor",
-    name="advisor",
-    slash_command="advisor",
-    description=(
-        "Let a stronger model plan and step in while a cheaper one does "
-        "the work."
-    ),
-    source="builtin",
-)
-
-
-def _deduplicate(loops: list[LoopModeInfo]) -> list[LoopModeInfo]:
-    seen: set[str] = set()
-    result: list[LoopModeInfo] = []
-    for loop in loops:
-        key = loop.slash_command or loop.id
-        if key not in seen:
-            seen.add(key)
-            result.append(loop)
-    return result
-
-
 def build_loop_catalog(
     workspace: Any,
 ) -> tuple[list[LoopModeInfo], dict[str, str]]:
-    """Build one workspace's catalog and runtime-name lookup."""
-    result = list(BUILTIN_LOOPS)
-    runtime_modes = {
-        "default": "default",
-        "goal": "goal",
-        "mission": "mission",
-    }
-    # Advisor is bundled like goal and mission but only offered once it is
-    # switched on for the agent.
-    advisor_mode = getattr(workspace.config, "advisor_mode", None)
-    if getattr(advisor_mode, "enabled", False) is True:
-        result.append(ADVISOR_LOOP)
-        runtime_modes["advisor"] = "advisor"
-    for mode in workspace.config.running.loop.custom_modes:
-        if not mode.enabled:
-            continue
-        descriptor_id = f"custom:{mode.id}"
-        result.append(
-            LoopModeInfo(
-                id=descriptor_id,
-                name=mode.name,
-                slash_command=mode.slash_command,
-                description=mode.description,
-                source="custom",
-            ),
-        )
-        runtime_modes[descriptor_id] = descriptor_id
-
-    builtin_names = {"default", "goal", "mission", "advisor"}
-    for mode in getattr(workspace.plugins, "modes", []):
-        runtime_name = getattr(mode, "name", "")
-        if (
-            not runtime_name
-            or runtime_name in builtin_names
-            or runtime_name.startswith("custom:")
-            or runtime_name == "custom-loop-control"
-        ):
-            continue
+    """Collect selectable modes from registered workspace instances."""
+    result: list[LoopModeInfo] = []
+    runtime_modes: dict[str, str] = {}
+    seen: set[str] = set()
+    registry = workspace.plugins.slash_command_registry
+    for mode in workspace.plugins.modes:
         try:
-            commands = mode.commands()
+            descriptor = mode.describe_loop(workspace)
         except Exception:
             logger.warning(
-                "Failed to inspect plugin loop mode '%s'",
-                runtime_name,
+                f"Failed to describe loop mode '{mode.name}'",
                 exc_info=True,
             )
             continue
-        if not commands:
+        if descriptor is None:
             continue
-        command = commands[0]
-        metadata = command.metadata or {}
-        descriptor_id = f"plugin:{runtime_name}"
-        name_i18n = _as_str_dict(metadata.get("name_i18n"))
-        description_i18n = _as_str_dict(metadata.get("description_i18n"))
-        result.append(
-            LoopModeInfo(
-                id=descriptor_id,
-                name=str(metadata.get("loop_name") or runtime_name),
-                slash_command=command.name,
-                description=command.help_text,
-                source="plugin",
-                name_i18n=name_i18n or None,
-                description_i18n=description_i18n or None,
-            ),
-        )
-        runtime_modes[runtime_name] = descriptor_id
-    return _deduplicate(result), runtime_modes
+        command = descriptor.slash_command
+        if command and registry.resolve(f"/{command}") is None:
+            continue
+        key = command or descriptor.id
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(descriptor)
+        runtime_modes[mode.name] = descriptor.id
+    return result, runtime_modes
 
 
 def _as_str_dict(value: Any) -> dict[str, str]:
@@ -165,8 +76,4 @@ def resolve_loop_mode(workspace: Any, mode_id: str) -> LoopModeInfo:
         raise ValueError(
             f"Unknown loop mode '{mode_id}'. Available: {available}",
         )
-    if mode.slash_command:
-        registry = workspace.plugins.slash_command_registry
-        if registry.resolve(f"/{mode.slash_command}") is None:
-            raise ValueError(f"Loop mode '{mode_id}' is not registered")
     return mode

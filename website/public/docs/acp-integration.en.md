@@ -156,6 +156,8 @@ Messages that already start with a slash command are never modified and consume 
 
 Goal tokens are unlimited by default. Use `--goal-token-budget 300000` to cap each goal; `-1` and `0` both mean unlimited. This overrides the goal default only in this ACP process and does not write agent configuration. Iteration limits still apply. An explicit `create_goal(token_budget=...)` overrides the default for that goal; omitting it inherits the default.
 
+Mode authors declare `loop_entry` on their existing `AgentMode` to select an entry command explicitly. Override `describe_loop(workspace)` for custom IDs or availability rules. HTTP and ACP collect these descriptions from registered modes; command ordering does not select the entry. Process-local `Workspace.mode_config_overrides` are read and validated by the owning mode during setup and never modify persisted agent configuration.
+
 ### Supported ACP Methods
 
 | Method              | Description                                                  |

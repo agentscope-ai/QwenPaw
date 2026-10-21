@@ -148,13 +148,24 @@ class Workspace:
     to ``Runtime.run()``.
     """
 
-    def __init__(self, agent_id: str, workspace_dir: str):
+    def __init__(
+        self,
+        agent_id: str,
+        workspace_dir: str,
+        *,
+        mode_config_overrides: dict[str, dict[str, Any]] | None = None,
+    ):
         """Initialize agent instance.
 
         Args:
             agent_id: Unique agent identifier
             workspace_dir: Path to agent's workspace directory
+            mode_config_overrides: Process-local mode settings, never saved.
         """
+        self.mode_config_overrides = {
+            name: dict(values)
+            for name, values in (mode_config_overrides or {}).items()
+        }
         self.agent_id = agent_id
         self.workspace_dir = Path(workspace_dir).expanduser()
         self.workspace_dir.mkdir(parents=True, exist_ok=True)
