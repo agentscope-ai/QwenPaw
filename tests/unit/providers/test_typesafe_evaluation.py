@@ -1,13 +1,12 @@
 # -*- coding: utf-8 -*-
 """TypeSafe evaluation uses provider settings and validates responses."""
 
-# pylint: disable=protected-access
-
 import json
-from types import SimpleNamespace
 
-import httpx
+import httpx2
 import pytest
+import typesafe_sdk
+from agentscope.classifier import BinaryAnswer, BinaryQuestion
 
 from qwenpaw.providers.typesafe_provider import (
     TypeSafeEvaluationError,
@@ -21,37 +20,39 @@ def configured_provider():
         id="typesafe",
         name="TypeSafe",
         api_key="provider-key",
-        base_url="https://proxy.example/v1",
+        base_url="https://proxy.example",
         custom_headers={"X-Project": "demo"},
     )
 
 
-@pytest.mark.asyncio
-async def test_provider_key_precedes_legacy_credential(provider):
-    assert await provider._evaluation_api_key() == "provider-key"
+@pytest.fixture(name="mock_typesafe")
+def mock_typesafe_transport(monkeypatch):
+    """Route the SDK client created by JevClassifierModel to a handler."""
+
+    def install(handler):
+        original_client = typesafe_sdk.AsyncTypeSafeClient
+        monkeypatch.setattr(
+            typesafe_sdk,
+            "AsyncTypeSafeClient",
+            lambda **kwargs: original_client(
+                transport=httpx2.MockTransport(handler),
+                compression=False,
+                **kwargs,
+            ),
+        )
+
+    return install
+
+
+_QUESTIONS = {
+    "keep_in_context": BinaryQuestion(
+        instructions="Keep this in active context?",
+    ),
+}
 
 
 @pytest.mark.asyncio
-async def test_legacy_credential_remains_usable(monkeypatch, provider):
-    class LegacyStore:
-        def __init__(self, _path):
-            pass
-
-        async def get(self, _ref):
-            return SimpleNamespace(secrets={"api_key": "legacy-key"})
-
-    provider.api_key = ""
-    monkeypatch.setattr(
-        "qwenpaw.providers.typesafe_provider.AsyncCredentialStore",
-        LegacyStore,
-    )
-    assert await provider._evaluation_api_key() == "legacy-key"
-
-
-@pytest.mark.asyncio
-async def test_evaluate_uses_provider_settings(monkeypatch, provider):
-    original_client = httpx.AsyncClient
-
+async def test_evaluate_uses_provider_settings(provider, mock_typesafe):
     def handler(request):
         body = json.loads(request.content)
         assert request.url.host == "proxy.example"
@@ -68,7 +69,7 @@ async def test_evaluate_uses_provider_settings(monkeypatch, provider):
                 },
             },
         }
-        return httpx.Response(
+        return httpx2.Response(
             200,
             json={
                 "model": "jev-2",
@@ -77,34 +78,26 @@ async def test_evaluate_uses_provider_settings(monkeypatch, provider):
             },
         )
 
-    monkeypatch.setattr(
-        httpx,
-        "AsyncClient",
-        lambda **kwargs: original_client(
-            transport=httpx.MockTransport(handler),
-            **kwargs,
-        ),
-    )
+    mock_typesafe(handler)
     result = await provider.evaluate(
         state={"summary": "conversation segment"},
         model="jev-2",
-        questions={
-            "keep_in_context": {
-                "type": "noul",
-                "instructions": "Keep this in active context?",
-            },
-        },
+        questions=_QUESTIONS,
     )
-    assert result["answers"]["keep_in_context"]["noul"] == 0.8
+    assert result.model == "jev-2"
+    assert result.content["keep_in_context"] == BinaryAnswer(probability=0.8)
 
 
 @pytest.mark.asyncio
-async def test_missing_key_is_explicit_error(monkeypatch, provider):
-    async def no_key(_provider):
-        return None
-
-    monkeypatch.setattr(TypeSafeProvider, "_evaluation_api_key", no_key)
+async def test_missing_key_is_explicit_error(provider):
+    provider.api_key = ""
     with pytest.raises(TypeSafeEvaluationError, match="not configured"):
+        await provider.evaluate(state="x", questions=_QUESTIONS)
+
+
+@pytest.mark.asyncio
+async def test_invalid_question_is_rejected(provider):
+    with pytest.raises(ValueError, match="invalid question"):
         await provider.evaluate(
             state="x",
             questions={"q": {"type": "noul", "instructions": "x"}},
@@ -112,29 +105,68 @@ async def test_missing_key_is_explicit_error(monkeypatch, provider):
 
 
 @pytest.mark.asyncio
-async def test_invalid_response_envelope_is_rejected(monkeypatch, provider):
-    original_client = httpx.AsyncClient
-    monkeypatch.setattr(
-        httpx,
-        "AsyncClient",
-        lambda **kwargs: original_client(
-            transport=httpx.MockTransport(
-                lambda _request: httpx.Response(
-                    200,
-                    json={
-                        "model": "jev-2",
-                        "answers": {"q": {"type": "score"}},
+async def test_mismatched_answer_is_rejected(provider, mock_typesafe):
+    mock_typesafe(
+        lambda _request: httpx2.Response(
+            200,
+            json={
+                "model": "jev-2",
+                "answers": {
+                    "keep_in_context": {
+                        "type": "choice",
+                        "choice": "yes",
+                        "confidence": 0.9,
+                        "probabilities": {"yes": 0.9, "no": 0.1},
                     },
-                ),
-            ),
-            **kwargs,
+                },
+                "usage": {},
+            },
         ),
     )
     with pytest.raises(
         TypeSafeEvaluationError,
         match="Invalid response envelope",
     ):
-        await provider.evaluate(
-            state="x",
-            questions={"q": {"type": "noul", "instructions": "x"}},
+        await provider.evaluate(state="x", questions=_QUESTIONS)
+
+
+@pytest.mark.asyncio
+async def test_api_error_carries_http_status(provider, mock_typesafe):
+    mock_typesafe(
+        lambda _request: httpx2.Response(
+            401,
+            json={"error": {"message": "bad key"}},
+        ),
+    )
+    with pytest.raises(TypeSafeEvaluationError) as exc_info:
+        await provider.evaluate(state="x", questions=_QUESTIONS)
+    assert exc_info.value.http_status == 401
+
+    result = await provider.check_model_connection("jev-2")
+    assert not result.success
+    assert result.http_status == 401
+    assert result.message.startswith("status=401: ")
+
+
+@pytest.mark.asyncio
+async def test_fetch_models_uses_sdk_listing(provider, mock_typesafe):
+    def handler(request):
+        assert request.url.path == "/v1/models"
+        assert request.headers["X-Project"] == "demo"
+        return httpx2.Response(
+            200,
+            json={
+                "models": [
+                    {
+                        "name": "jev-2",
+                        "description": "Jev 2",
+                        "release_date": "2026-09-01",
+                    },
+                ],
+            },
         )
+
+    mock_typesafe(handler)
+    models = await provider.fetch_models()
+    assert [(m.id, m.model_type) for m in models] == [("jev-2", "decision")]
+    assert await provider.check_connection() == (True, "")
