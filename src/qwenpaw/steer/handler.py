@@ -12,10 +12,10 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
+from .store import put_guidance
+
 if TYPE_CHECKING:
     from agentscope.message import Msg
-
-from .store import put_guidance
 
 logger = logging.getLogger(__name__)
 
@@ -52,8 +52,8 @@ def make_steer_command_spec() -> Any:
                         type="text",
                         text=(
                             "**Steer Mode unavailable**\n\n"
-                            "This session has no id, so the guidance cannot be "
-                            "handed to the next turn."
+                            "This session has no id, so the guidance cannot "
+                            "be handed to the next turn."
                         ),
                     ),
                 ],
