@@ -5,10 +5,9 @@ HTTP dispatch and recovery through the Host lifecycle. Main Chat can discover
 granted actions, delegate tasks and follow their progress in Console task cards.
 Delegated waiting/terminal updates queue automatic, scoped Main Agent turns in
 the originating Main Chat.
-The Data
-[adapter](../../plugins/apps/qwenpaw-data/backend/task_bridge/adapter.py)
-implements this boundary against the Engine's durable submission API. Its
-server-owned descriptor matches the [example](pawapp-vnext-data-action.example.json).
+The Data App adapter and its external Engine compatibility suite are delivered
+separately from this SDK/Creator change. External adapters implement the same
+protocol described below; the Host conformance tests use an independent fixture.
 Creator's public delegated workflow is captured by the exact
 [`create-video` descriptor](pawapp-vnext-creator-create-video-action.example.json).
 The existing [storyboard](pawapp-vnext-creator-storyboard-action.example.json) and
@@ -19,7 +18,7 @@ permission grant.
 ## App integration update
 
 See the [small App quickstart](pawapp-app-quickstart.md) and
-[implementation status / compatibility pairing](pawapp-contract-progress.md).
+[implementation status](pawapp-contract-progress.md).
 Apps may now register an async handler with `app.action(...)`; the Host provides
 its durable adapter. External adapters retain the protocol described below.
 Typed events and schema-checked structured results share the generated
@@ -141,7 +140,7 @@ minimal scoped grant is:
     "scope": {
       "principal_id": "alice",
       "workspace_id": "sales",
-      "app_id": "qwenpaw-data"
+      "app_id": "example-analysis"
     },
     "action_id": "analyze",
     "descriptor_digest": "<reviewed-action-descriptor-digest>",
@@ -151,8 +150,7 @@ minimal scoped grant is:
 ```
 
 Compute the digest offline from the reviewed descriptor using
-`ActionDescriptor.model_validate_json(...).descriptor_digest`; public fixtures are
-`docs/design/pawapp-vnext-data-action.example.json` and
+`ActionDescriptor.model_validate_json(...).descriptor_digest`; a public fixture is
 `docs/design/pawapp-vnext-creator-create-video-action.example.json`. The Creator
 storyboard/video descriptor fixtures document App-private implementation actions
 and cannot receive new external grants. A changed descriptor requires a new grant. `input_values` constrains exact string input values; omitting
@@ -166,9 +164,8 @@ the principal is `default` when middleware supplies no authenticated user. That
 identity still requires its own explicit grant and owned chat. These APIs add no
 new authentication bypass. Same-process malicious plugin isolation is not claimed.
 
-Data readiness checks durable submission compatibility, the Engine's actual
-analysis-model configuration, and presence of the selected datasource in DataBridge.
-It makes no provider or SQL query. Apps can declare typed requirements and register
+External adapters can check protocol compatibility and App configuration without
+starting work. Apps can declare typed requirements and register
 bounded readiness checks plus setup entry handlers. Actionable blockers yield
 `setup: required`; undeclared legacy blockers retain `setup: unsupported_setup`.
 
@@ -319,12 +316,9 @@ Host task. An expired record cannot justify creating another execution.
 run stays unresolved. Changed descriptors block recovery until the compatible
 registration is restored. Query failures preserve task state and recorded output.
 
-Data's legacy `EngineClient.create_chat` remains the existing chat path. The
-task adapter uses `POST /api/v1/submissions` and requires the Engine's explicit
-protocol-1 capability probe. The verified development Engine is
-[`183bca7`](https://github.com/cyruszhang/QwenPaw-Data/commit/183bca7)
-on `dev/pawapp-vnext-engine`; no published minimum compatible version is claimed.
-See the [Data adapter contract and integration command](pawapp-data-task-adapter.md).
+App-specific submission endpoints, Engine version pins and migration instructions
+belong to each adapter integration. The SDK does not require a Data Engine
+checkout or a particular Data release.
 
 ## Main Chat tools and task cards
 
@@ -517,7 +511,7 @@ the replacement remains inert until it is opened again. Failed activation unload
 the partial runtime and leaves no marker. Uninstall removes both package files and
 the marker.
 
-## Validation and remaining P1a integration
+## Validation and separate App integrations
 
 `tests/unit/pawapp/test_task_store.py` exercises concurrent request retries,
 scope denial, SQLite rollback on injected outbox failure, event replay, result
@@ -527,28 +521,13 @@ acceptance but before confirmation, after partial output and after terminal comm
 but before destination acknowledgment. This verifies the Host implementation;
 it is not a real Data engine or Main Chat end-to-end test.
 
-`tests/integration/test_pawapp_data_tasks.py` additionally runs the adapter and
-coordinator against a separate Engine process with real HTTP/SSE, SQL receipt
-creation, and startup recovery. Its executor emits controlled text without a
-provider call. The tests verify both engagements, concurrent delegation,
-uncertain submissions, Host store reopen, forced Engine restart, a real
-clarification pause/answer/resume, idempotent command receipts, and cancellation
-that retains partial output. They do not exercise a live Main Agent, UI, or
-analytical tools.
-
 `test_task_runtime.py` verifies HTTP authentication, forged scope claims,
 cross-user reads, origin/resource denial, digest-pinned grant updates, resource
 constraint validation, concurrent policy revisions, revocation, blocked setup
 without latent work, idempotency, lifecycle recovery, unload and schema migration.
-`test_pawapp_task_dispatch.py` verifies authenticated Host HTTP dispatch through
-the real separate Engine process for both engagements, with controlled execution
-and a fixture datasource catalog. It also exercises Console chat ingress, channel
-request conversion, runtime context, bound agent tools and the card status API
-against that Engine, then delivers the result into the originating Main Chat
-session through the continuation worker. A controlled legacy summary path
-replaces the provider call in this integration fixture; unit coverage exercises
-the full Runtime turn, scoped task tools and atomic agent-state receipt. This is
-not a live-model or browser end-to-end test.
+The separate Data integration carries the real Host/Engine HTTP/SSE and
+SQLite recovery suites, including native Console dispatch and Main Chat
+continuation. Those checks are not part of this SDK-only conformance workflow.
 
 `test_task_continuation.py` covers busy-chat serialization, concurrent claims,
 expired-worker fencing, prepared-result replay, a crash between session commit

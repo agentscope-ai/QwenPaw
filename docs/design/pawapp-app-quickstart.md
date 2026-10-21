@@ -144,5 +144,6 @@ protocol-1 adapters may retain detail-based events, or adopt typed event fields.
 Do not send conflicting typed and legacy payloads. Optional artifact translation
 is documented by ArtifactMaterializingAdapter in `tasks.binding`.
 
-See [implementation status](pawapp-contract-progress.md) for the tested Engine
-pairing, migration rules and remaining production validation.
+See [implementation status](pawapp-contract-progress.md) for SDK migration rules
+and validation boundaries. Data App integration and its Engine pairing are
+tracked separately; they are not prerequisites for adopting this SDK.

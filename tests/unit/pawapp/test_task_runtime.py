@@ -48,15 +48,15 @@ from qwenpaw.pawapp.setup import (
     SetupStore,
 )
 from qwenpaw.pawapp.setup.routes import router as setup_router
-from tests.pawapp_data_task_support import load_data_task_bridge
+from tests.pawapp_task_support import analysis_action_descriptor
 
-ACTION = load_data_task_bridge().data_action_descriptor()
+ACTION = analysis_action_descriptor()
 SCOPE = TaskScope(
     principal_id="alice",
     workspace_id="sales",
-    app_id="qwenpaw-data",
+    app_id="example-analysis",
 )
-PREFIX = "/api/pawapps/qwenpaw-data/workspaces/sales"
+PREFIX = "/api/pawapps/example-analysis/workspaces/sales"
 BODY = {
     "request_id": "req-1",
     "engagement": "delegated",
@@ -165,7 +165,9 @@ class DeferredSetupExecutor(Executor):
 
 
 @pytest.fixture
-async def host(tmp_path, monkeypatch):
+async def host(tmp_path, monkeypatch, request):
+    action = getattr(request, "param", ACTION)
+    scope = SCOPE.model_copy(update={"app_id": action.app_id})
     monkeypatch.setattr(auth, "is_auth_enabled", lambda: True)
     monkeypatch.setattr(auth, "has_registered_users", lambda: True)
     monkeypatch.setattr(
@@ -199,8 +201,10 @@ async def host(tmp_path, monkeypatch):
         "direct": ChatSpec(
             id="direct",
             user_id="alice",
-            session_id="pawapp:qwenpaw-data:one",
-            meta={"pawapp": {"app_id": "qwenpaw-data", "agent_id": "sales"}},
+            session_id=f"pawapp:{scope.app_id}:one",
+            meta={
+                "pawapp": {"app_id": scope.app_id, "agent_id": "sales"},
+            },
         ),
         "bob": ChatSpec(id="bob", user_id="bob", session_id="bob-session"),
     }
@@ -216,9 +220,9 @@ async def host(tmp_path, monkeypatch):
         TaskPolicy(
             grants=(
                 TaskGrant(
-                    scope=SCOPE,
-                    action_id=ACTION.action_id,
-                    descriptor_digest=ACTION.descriptor_digest,
+                    scope=scope,
+                    action_id=action.action_id,
+                    descriptor_digest=action.descriptor_digest,
                     input_values={"datasource_id": ["sales"]},
                 ),
             ),
@@ -240,10 +244,10 @@ async def host(tmp_path, monkeypatch):
         return adapter
 
     registrations = {
-        (SCOPE.app_id, ACTION.action_id): ActionRegistration(
-            action=ACTION,
+        (scope.app_id, action.action_id): ActionRegistration(
+            action=action,
             factory=factory,
-            settings_entry="/apps/qwenpaw-data",
+            settings_entry=f"/apps/{scope.app_id}",
             capability_id="data_analysis",
             capability_label="Analyze data",
             capability_summary=(
@@ -283,13 +287,14 @@ async def host(tmp_path, monkeypatch):
     app.state.pawapp_artifacts = artifacts
     app.state.pawapp_setup = setup_holder[0]
     await app.state.pawapp_tasks.start()
-    await app.state.pawapp_tasks.describe(SCOPE, "analyze")
+    await app.state.pawapp_tasks.describe(scope, "analyze")
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app),
         base_url="http://host",
         headers={"Authorization": "Bearer alice-token"},
     ) as client:
         yield SimpleNamespace(
+            scope=scope,
             app=app,
             client=client,
             store=store,
@@ -310,7 +315,7 @@ async def host(tmp_path, monkeypatch):
 async def settled(host, task_id):
     async with asyncio.timeout(3):
         while True:
-            item = await host.store.get(SCOPE, task_id)
+            item = await host.store.get(host.scope, task_id)
             if item.handle.status == "succeeded":
                 return item
             await asyncio.sleep(0.01)
@@ -342,7 +347,7 @@ async def test_app_resolves_optional_input_before_scoped_authorization(host):
     host.registrations[(SCOPE.app_id, action.action_id)] = ActionRegistration(
         action=action,
         factory=lambda: Executor(host.runs),
-        settings_entry="/apps/qwenpaw-data",
+        settings_entry="/apps/example-analysis",
         input_resolver=resolve_inputs,
     )
     host.policy_path.write_text(
@@ -404,14 +409,14 @@ async def test_operator_manages_live_digest_pinned_action_grants(host):
     assert payload["revision"] == 0
     assert payload["actions"] == [
         {
-            "app_id": "qwenpaw-data",
+            "app_id": "example-analysis",
             "action_id": "analyze",
             "summary": ACTION.summary,
             "descriptor_digest": ACTION.descriptor_digest,
             "input_schema": ACTION.input_schema,
             "permissions": list(ACTION.permissions),
             "effects": list(ACTION.effects),
-            "settings_entry": "/apps/qwenpaw-data",
+            "settings_entry": "/apps/example-analysis",
             "enabled": True,
             "stale": False,
             "input_values": {"datasource_id": ["sales"]},
@@ -419,7 +424,7 @@ async def test_operator_manages_live_digest_pinned_action_grants(host):
     ]
 
     changed = await host.client.put(
-        path + "/actions/qwenpaw-data/analyze",
+        path + "/actions/example-analysis/analyze",
         json={
             "expected_revision": 0,
             "enabled": True,
@@ -436,14 +441,14 @@ async def test_operator_manages_live_digest_pinned_action_grants(host):
     }
 
     conflict = await host.client.put(
-        path + "/actions/qwenpaw-data/analyze",
+        path + "/actions/example-analysis/analyze",
         json={"expected_revision": 0, "enabled": False},
     )
     assert conflict.status_code == 409
     assert conflict.json()["detail"] == "task_policy_conflict"
 
     revoked = await host.client.put(
-        path + "/actions/qwenpaw-data/analyze",
+        path + "/actions/example-analysis/analyze",
         json={"expected_revision": 1, "enabled": False},
     )
     assert revoked.status_code == 200
@@ -467,7 +472,7 @@ async def test_capability_grant_updates_bundle_atomically(host):
     ] = ActionRegistration(
         action=second_action,
         factory=lambda: Executor(host.runs),
-        settings_entry="/apps/qwenpaw-data",
+        settings_entry="/apps/example-analysis",
         capability_id="data_analysis",
         capability_label="Analyze data",
         capability_summary=(
@@ -490,7 +495,7 @@ async def test_capability_grant_updates_bundle_atomically(host):
 
     path = "/api/pawapps/workspaces/sales/task-grants"
     granted = await host.client.put(
-        path + "/capabilities/qwenpaw-data/data_analysis",
+        path + "/capabilities/example-analysis/data_analysis",
         json={"expected_revision": 0, "enabled": True},
     )
     assert granted.status_code == 200
@@ -508,7 +513,7 @@ async def test_capability_grant_updates_bundle_atomically(host):
     assert saved.grants[1].input_values == {}
 
     revoked = await host.client.put(
-        path + "/capabilities/qwenpaw-data/data_analysis",
+        path + "/capabilities/example-analysis/data_analysis",
         json={"expected_revision": 1, "enabled": False},
     )
     assert revoked.status_code == 200
@@ -523,7 +528,7 @@ async def test_capability_grant_updates_bundle_atomically(host):
 
 async def test_grant_catalog_includes_manifest_host_skill_imports(host):
     expected = {
-        "app_id": "qwenpaw-data",
+        "app_id": "example-analysis",
         "skill_id": "guidance",
         "description": "Shared guidance",
         "tool_refs": [],
@@ -539,7 +544,7 @@ async def test_grant_catalog_includes_manifest_host_skill_imports(host):
             assert kwargs == {
                 "principal_id": "alice",
                 "workspace_id": "sales",
-                "app_ids": ("qwenpaw-data",),
+                "app_ids": ("example-analysis",),
             }
             return [expected]
 
@@ -563,7 +568,7 @@ async def test_grant_management_rejects_forged_scope_and_constraints(host):
     assert forged.json()["detail"] == "task_scope_mismatch"
 
     invalid = await host.client.put(
-        path + "/actions/qwenpaw-data/analyze",
+        path + "/actions/example-analysis/analyze",
         json={
             "expected_revision": 0,
             "enabled": True,
@@ -592,7 +597,7 @@ async def test_private_action_is_not_publicly_exposed_or_dispatchable(host):
     private_registration = ActionRegistration(
         action=private_action,
         factory=lambda: Executor(host.runs),
-        settings_entry="/apps/qwenpaw-data",
+        settings_entry="/apps/example-analysis",
         exposure="app_private",
     )
     private_key = (SCOPE.app_id, private_action.action_id)
@@ -669,7 +674,7 @@ async def test_create_video_grant_cannot_authorize_private_actions(host):
     host.registrations[public_key] = ActionRegistration(
         action=public_action,
         factory=lambda: Executor(host.runs),
-        settings_entry="/apps/qwenpaw-data",
+        settings_entry="/apps/example-analysis",
     )
     for private_action in private_actions:
         host.registrations[
@@ -677,7 +682,7 @@ async def test_create_video_grant_cannot_authorize_private_actions(host):
         ] = ActionRegistration(
             action=private_action,
             factory=lambda: Executor(host.runs),
-            settings_entry="/apps/qwenpaw-data",
+            settings_entry="/apps/example-analysis",
             exposure="app_private",
         )
     host.policy_path.write_text(
@@ -765,7 +770,7 @@ async def test_open_task_issues_scoped_handoff_to_existing_project(host):
     assert action["project_ref"] == submission.handle.project_ref.model_dump(
         mode="json",
     )
-    expected_path = f"/apps/qwenpaw-data?handoff={action['handoff_id']}"
+    expected_path = f"/apps/example-analysis?handoff={action['handoff_id']}"
     assert action["path"] == expected_path
     assert "private prompt" not in action["path"]
     replay = await host.client.post(PREFIX + f"/tasks/{task_id}/open")
@@ -956,7 +961,7 @@ async def test_blocked_setup_creates_no_task_or_latent_execution(host):
         "state": "blocked",
         "reason": "analysis_model_missing",
         "setup": "unsupported_setup",
-        "settings_entry": "/apps/qwenpaw-data",
+        "settings_entry": "/apps/example-analysis",
     }
     assert await host.store.find_request(SCOPE, BODY["request_id"]) is None
     host.adapters[0].ready = Readiness(state="ready")
@@ -1183,7 +1188,7 @@ async def test_read_scope_and_idempotency_conflict(host):
         for prefix, headers in (
             (PREFIX, {"Authorization": "Bearer bob-token"}),
             (PREFIX.replace("sales", "other"), {}),
-            (PREFIX.replace("qwenpaw-data", "another-app"), {}),
+            (PREFIX.replace("example-analysis", "another-app"), {}),
         ):
             read = await host.client.get(
                 prefix + f"/tasks/{task_id}" + suffix,
@@ -1272,18 +1277,18 @@ def test_action_registration_is_owned_lazy_and_removed_on_unload(monkeypatch):
 
     monkeypatch.setattr(PluginRegistry, "_instance", None)
     registry = PluginRegistry()
-    api = PluginApi(plugin_id="qwenpaw-data", config={})
+    api = PluginApi(plugin_id="example-analysis", config={})
     api.set_registry(registry)
     calls = []
     resolver = AsyncMock()
     registration = ActionRegistration(
         action=ACTION,
         factory=lambda: calls.append(True),
-        settings_entry="/apps/qwenpaw-data",
+        settings_entry="/apps/example-analysis",
         input_resolver=resolver,
         exposure="app_private",
     )
-    app = PawApp("Data", app_id="qwenpaw-data")
+    app = PawApp("Example analysis", app_id="example-analysis")
     app.task_action(registration).register(api)
     assert not calls
     stored = registry.get_task_actions()[(ACTION.app_id, ACTION.action_id)]
@@ -1293,7 +1298,7 @@ def test_action_registration_is_owned_lazy_and_removed_on_unload(monkeypatch):
     assert stored.exposure == "app_private"
     with pytest.raises(ValueError, match="belong"):
         registry.register_task_action("different-app", registration)
-    registry.unregister_plugin("qwenpaw-data")
+    registry.unregister_plugin("example-analysis")
     assert not registry.get_task_actions()
 
 
@@ -1344,7 +1349,7 @@ async def test_readiness_rechecked_before_engine_submission(host):
     task_id = response.json()["task"]["task_id"]
     async with asyncio.timeout(3):
         while True:
-            item = await host.store.get(SCOPE, task_id)
+            item = await host.store.get(host.scope, task_id)
             if item.handle.recovery_reason == "analysis_model_missing":
                 break
             await asyncio.sleep(0.01)
@@ -1384,7 +1389,7 @@ async def test_generic_setup_blocks_without_creating_latent_task(host):
             request_id=request.request_id,
             entry_id=request.entry_id,
             presentation=request.presentation,
-            path="/apps/qwenpaw-data/settings/models",
+            path="/apps/example-analysis/settings/models",
         )
 
     entry = SetupEntryRegistration(
@@ -1512,7 +1517,7 @@ async def test_generic_setup_blocks_without_creating_latent_task(host):
     assert opened.status_code == 200
     assert opened.json()["request"]["state"] == "opened"
     assert opened.json()["open_action"]["path"].startswith(
-        "/apps/qwenpaw-data/settings/models",
+        "/apps/example-analysis/settings/models",
     )
 
     saved = await setup.complete(
@@ -1595,7 +1600,7 @@ async def test_deferred_setup_retry_and_restart_recovery(
             request_id=request.request_id,
             entry_id=request.entry_id,
             presentation=request.presentation,
-            path="/apps/qwenpaw-data/settings/models",
+            path="/apps/example-analysis/settings/models",
         )
 
     entry = SetupEntryRegistration(

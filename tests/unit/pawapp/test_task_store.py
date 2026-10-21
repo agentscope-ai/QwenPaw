@@ -7,7 +7,6 @@ from __future__ import annotations
 import asyncio
 import os
 import sqlite3
-from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
@@ -26,14 +25,12 @@ from qwenpaw.pawapp.tasks import (
     TaskCoordinator,
 )
 
+from tests.pawapp_task_support import analysis_action_descriptor
+
 
 @pytest.fixture
 def action():
-    path = (
-        Path(__file__).resolve().parents[3]
-        / "docs/design/pawapp-vnext-data-action.example.json"
-    )
-    return ActionDescriptor.model_validate_json(path.read_text())
+    return analysis_action_descriptor()
 
 
 @pytest.fixture
@@ -41,7 +38,7 @@ def scope():
     return TaskScope(
         principal_id="alice",
         workspace_id="workspace-a",
-        app_id="qwenpaw-data",
+        app_id="example-analysis",
     )
 
 
@@ -71,7 +68,7 @@ async def create(store, scope, action, origin, request_id="request-1"):
 
 def run_ref(suffix="1"):
     return ExecutorRunRef(
-        executor_id="data-engine",
+        executor_id="fixture-engine",
         session_id=f"session-{suffix}",
         run_id=f"run-{suffix}",
     )

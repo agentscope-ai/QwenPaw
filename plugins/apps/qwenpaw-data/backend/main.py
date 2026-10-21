@@ -22,8 +22,6 @@ from urllib.parse import urlsplit
 from fastapi import APIRouter, HTTPException, Request, Response
 
 from qwenpaw.pawapp import DependencyHealth, DependencyProbe, PawApp
-from qwenpaw.pawapp.capabilities import task_capability_bridge
-from qwenpaw.pawapp.tasks.binding import ActionRegistration
 
 logger = logging.getLogger(__name__)
 
@@ -49,20 +47,15 @@ if __package__ and __package__.startswith("plugin_"):
         make_data_command,
         make_datasource_command,
     )
+    from .backend.standalone import (
+        console_scope,
+        identity_namespace,
+        dispatch_console_chat,
+    )
+    from .backend.service_compat import managed_service
     from .backend.model_settings import ModelSettings, ModelSettingsService
     from .backend.context_gateway import ContextGateway
     from .backend.engine_gateway import EngineGateway
-    from .backend.direct_tasks import (
-        console_scope,
-        dispatch_console_chat,
-        command_console_chat,
-    )
-    from .backend.task_bridge import (
-        DataTaskAdapter,
-        data_action_descriptor,
-        data_task_experience,
-        data_session_action_descriptor,
-    )
     from .backend.runtime import (
         context_python,
         context_working_dir,
@@ -94,20 +87,15 @@ else:
         make_data_command,
         make_datasource_command,
     )
+    from backend.standalone import (
+        console_scope,
+        identity_namespace,
+        dispatch_console_chat,
+    )
+    from backend.service_compat import managed_service
     from backend.model_settings import ModelSettings, ModelSettingsService
     from backend.context_gateway import ContextGateway  # noqa: E402
     from backend.engine_gateway import EngineGateway  # noqa: E402
-    from backend.direct_tasks import (
-        console_scope,
-        dispatch_console_chat,
-        command_console_chat,
-    )
-    from backend.task_bridge import (  # noqa: E402
-        DataTaskAdapter,
-        data_action_descriptor,
-        data_task_experience,
-        data_session_action_descriptor,
-    )
     from backend.runtime import (  # noqa: E402
         context_python,
         context_working_dir,
@@ -171,7 +159,8 @@ async def _on_before_start() -> None:
     await on_before_start()
 
 
-_context_service = app.managed_service(
+_context_service = managed_service(
+    app,
     "context",
     command=(
         str(context_python()),
@@ -273,7 +262,8 @@ def _engine_env() -> dict[str, str]:
     return environment
 
 
-_engine_service = app.managed_service(
+_engine_service = managed_service(
+    app,
     "engine",
     command=(
         str(context_python()),
@@ -349,66 +339,22 @@ async def _runtime_models(scope):
         models.get(role) is None
         for role in ("analysis", "lightweight", "databridge")
     ):
-        from qwenpaw.pawapp.tasks import TaskStoreError
-
         effective = (await _describe_models(scope))["effective"]
         for role, model in effective.items():
             if not model["configured"]:
-                raise TaskStoreError(f"{role}_model_missing")
+                raise HTTPException(409, f"{role}_model_missing")
     if models.get("databridge") is not None or "databridge" in models.get(
         "inherit_analysis",
         [],
     ):
-        from qwenpaw.pawapp.tasks import TaskStoreError
-
         try:
             health = await _gateway.json("GET", "/api/health")
         except HTTPException as exc:
-            raise TaskStoreError("context_unavailable") from exc
+            raise HTTPException(503, "context_unavailable") from exc
         if health.get("runtime_model_bindings") is not True:
-            raise TaskStoreError("context_model_bindings_unsupported")
+            raise HTTPException(503, "context_model_bindings_unsupported")
     return models
 
-
-app.task_action(
-    ActionRegistration(
-        action=data_action_descriptor(),
-        factory=lambda: DataTaskAdapter(
-            _engine_endpoint,
-            executor_id="qwenpaw-data.engine",
-            capability_bridge=task_capability_bridge,
-            model_resolver=_runtime_models,
-        ),
-        settings_entry="/apps/qwenpaw-data",
-        capability_id="data_analysis",
-        capability_label="Analyze data",
-        capability_summary=(
-            "Run governed analysis against an approved data source."
-        ),
-        capability_risk="analysis",
-        experience=data_task_experience(),
-    ),
-)
-
-app.task_action(
-    ActionRegistration(
-        action=data_session_action_descriptor(),
-        factory=lambda: DataTaskAdapter(
-            _engine_endpoint,
-            executor_id="qwenpaw-data.engine",
-            capability_bridge=task_capability_bridge,
-            model_resolver=_runtime_models,
-        ),
-        settings_entry="/apps/qwenpaw-data",
-        capability_id="data_analysis",
-        capability_label="Analyze data",
-        capability_summary=(
-            "Run governed analysis against an approved data source."
-        ),
-        capability_risk="analysis",
-        experience=data_task_experience("analyze-session"),
-    ),
-)
 
 _bridge_store = BridgeSessionStore(path=APP_DATA_DIR / "bridge_sessions.json")
 _bridge_client = EngineClient(_engine_endpoint)
@@ -546,9 +492,7 @@ _skill_count = sum(
     for child in layer.iterdir()
     if child.is_dir() and (child / "SKILL.md").is_file()
 )
-if _skills is not None:
-    for _layer in _skill_layers:
-        app.local_skills(_layer)
+# Engine workspaces load Data skills directly; they are not Host-global skills.
 
 
 app.prompt_section(
@@ -746,7 +690,7 @@ async def _describe_models(scope):
     if not any(role["source"] == "app-local" for role in roles.values()):
         return result
     try:
-        identity = DataTaskAdapter.identity_namespace(scope)
+        identity = identity_namespace(scope)
         active_response = await _engine_gateway.json(
             "GET",
             "/api/v1/preferences/active-models",
@@ -959,37 +903,21 @@ async def engine_proxy(path: str, request: Request) -> Any:
     # pylint: disable-next=protected-access
     normalized = _engine_gateway._upstream_path(path).rstrip("/")
     if request.method == "POST" and normalized == "/api/v1/console/chat":
-        return await dispatch_console_chat(request, _engine_gateway)
-    if request.method == "POST" and normalized == "/api/v1/console/chat/stop":
-        return await command_console_chat(
+        return await dispatch_console_chat(
             request,
             _engine_gateway,
-            request.query_params.get("session_id", ""),
-            request.query_params.get("chat_id", ""),
-            "cancel",
-        )
-    command_path = re.fullmatch(
-        r"/api/v1/sessions/([^/]+)/chats/([^/]+)/(stop|clarification/answer)",
-        normalized,
-    )
-    if request.method == "POST" and command_path:
-        return await command_console_chat(
-            request,
-            _engine_gateway,
-            command_path[1],
-            command_path[2],
-            "cancel" if command_path[3] == "stop" else "answer",
+            _runtime_models,
         )
     if request.method == "POST" and re.fullmatch(
         r"/api/v1/sessions/[^/]+/chats",
         normalized,
     ):
-        raise HTTPException(409, "Use the governed Console chat endpoint")
+        raise HTTPException(409, "Use the Data console to start an analysis")
     scope = await console_scope(request)
     return await _engine_gateway.proxy(
         path,
         request,
-        user_id=DataTaskAdapter.identity_namespace(scope),
+        user_id=identity_namespace(scope),
     )
 
 
@@ -1259,14 +1187,6 @@ async def test_config_target(
 app.include_router(router)
 
 
-@app.local_tool(
-    "qwenpaw_data_search_context",
-    description=(
-        "Retrieve QwenPaw-Data semantic, metric, dataset, and graph "
-        "context for a question."
-    ),
-    is_read_only=True,
-)
 async def qwenpaw_data_search_context(
     query: str,
     datasource_id: str = "",
@@ -1280,24 +1200,11 @@ async def qwenpaw_data_search_context(
     return await _gateway.json("POST", "/api/v1/cm/search_context", body=body)
 
 
-@app.local_tool(
-    "qwenpaw_data_list_domains",
-    description="List QwenPaw-Data business domains available for analysis.",
-    is_read_only=True,
-)
 async def qwenpaw_data_list_domains(datasource_id: str = "") -> Any:
     params = {"datasource_id": datasource_id} if datasource_id else None
     return await _gateway.json("GET", "/api/v1/cm/domains", params=params)
 
 
-@app.local_tool(
-    "qwenpaw_data_explore_entity",
-    description=(
-        "Explore a metric or business entity across QwenPaw-Data "
-        "context graphs."
-    ),
-    is_read_only=True,
-)
 async def qwenpaw_data_explore_entity(
     entity_name: str,
     datasource_id: str = "",
@@ -1311,14 +1218,6 @@ async def qwenpaw_data_explore_entity(
     return await _gateway.json("POST", "/api/v1/cm/explore_entity", body=body)
 
 
-@app.local_tool(
-    "qwenpaw_data_execute_sql",
-    description=(
-        "Execute a read-only SQL query through the selected "
-        "QwenPaw-Data source."
-    ),
-    is_read_only=True,
-)
 async def qwenpaw_data_execute_sql(
     sql: str,
     datasource_id: str = "",

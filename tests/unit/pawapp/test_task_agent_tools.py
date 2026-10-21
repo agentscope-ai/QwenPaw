@@ -125,7 +125,9 @@ async def test_discover_describe_delegate_and_read(host):
         await bound["open_app"](app_id=SCOPE.app_id, task_id=task_id),
     )
     assert opened["kind"] == "pawapp_open_app"
-    assert opened["action"]["path"].startswith("/apps/qwenpaw-data?handoff=")
+    assert opened["action"]["path"].startswith(
+        "/apps/example-analysis?handoff=",
+    )
     assert len(host.runs) == 1
 
 
@@ -383,7 +385,7 @@ async def test_delegate_setup_result_and_retry_after_configuration(
                 request_id=request.request_id,
                 entry_id=request.entry_id,
                 presentation=request.presentation,
-                path="/apps/qwenpaw-data/settings/models",
+                path="/apps/example-analysis/settings/models",
             ),
         ),
     )
@@ -417,7 +419,8 @@ async def test_delegate_setup_result_and_retry_after_configuration(
     request_id = "agent_" + content_digest(["main", args["request_id"]])
 
     prepared_response = await host.client.post(
-        "/api/pawapps/qwenpaw-data/workspaces/sales/actions/analyze/prepare",
+        "/api/pawapps/example-analysis/workspaces/sales/"
+        "actions/analyze/prepare",
         json=BODY,
     )
     assert prepared_response.status_code == 200
@@ -459,7 +462,7 @@ async def test_delegate_setup_result_and_retry_after_configuration(
     if prior_prompts:
         setup_id = prior_prompts[0]["request_id"]
         url = (
-            "/api/pawapps/qwenpaw-data/workspaces/sales/setup-requests/"
+            "/api/pawapps/example-analysis/workspaces/sales/setup-requests/"
             + setup_id
         )
         denied = await host.client.post(
@@ -470,7 +473,7 @@ async def test_delegate_setup_result_and_retry_after_configuration(
         opened = await host.client.post(url + "/open")
         assert opened.status_code == 200
         assert opened.json()["open_action"]["path"] == (
-            "/apps/qwenpaw-data/settings/models"
+            "/apps/example-analysis/settings/models"
         )
         cancelled = await host.client.post(url + "/cancel")
         assert cancelled.status_code == 200
@@ -562,7 +565,7 @@ async def test_task_identity_and_reads_are_bound_to_the_originating_chat(host):
         {"channel": "discord"},
         {"user_id": "bob"},
         {"meta": {"pawapp": {}}},
-        {"session_id": "pawapp:qwenpaw-data:one"},
+        {"session_id": "pawapp:example-analysis:one"},
     ],
 )
 async def test_only_owned_active_main_chats_receive_task_tools(host, changes):

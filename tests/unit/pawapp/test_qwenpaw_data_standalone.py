@@ -147,7 +147,7 @@ async def test_stable_sdk_sidecar_environment_is_isolated_and_refreshed(
     monkeypatch,
 ):
     monkeypatch.syspath_prepend(str(APP))
-    service_compat = importlib.import_module("backend.service_compat")
+    from backend import service_compat
 
     monkeypatch.setattr(service_compat, "APP_DATA_DIR", tmp_path)
     monkeypatch.setenv("UNGRANTED_SECRET", "never-in-child")

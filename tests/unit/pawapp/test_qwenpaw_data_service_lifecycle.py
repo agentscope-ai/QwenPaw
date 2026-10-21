@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 """Exercise the real supervisor and the Windows in-process module launcher."""
 
-import importlib
 import sys
 import textwrap
 from dataclasses import replace
@@ -24,7 +23,7 @@ async def test_sidecar_retains_supervised_pid_and_stops_on_restart(
     in_process,
 ):
     monkeypatch.syspath_prepend(str(APP))
-    service_compat = importlib.import_module("backend.service_compat")
+    from backend import service_compat
 
     monkeypatch.setattr(service_compat, "APP_DATA_DIR", tmp_path)
     monkeypatch.setenv("UNGRANTED_SECRET", "host-only")
