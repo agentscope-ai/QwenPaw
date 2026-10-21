@@ -5,14 +5,12 @@ from __future__ import annotations
 
 import os
 from contextlib import asynccontextmanager
-from collections.abc import AsyncIterator, Mapping
-from typing import Any, List
+from collections.abc import AsyncIterator
+from typing import List
 
 from agentscope.classifier import (
     BinaryAnswer,
     BinaryQuestion,
-    ClassifierQuestion,
-    ClassifierResponse,
     JevClassifierModel,
 )
 from agentscope.credential import TypeSafeCredential
@@ -21,30 +19,6 @@ from typesafe_sdk.constants import API_KEY_ENV, DEFAULT_MODEL
 
 from ..exceptions import ProviderError
 from .provider import ModelConnectionResult, ModelInfo, Provider
-
-
-class _ConfiguredJevClassifier(JevClassifierModel):
-    """Bind provider custom headers to AgentScope calls."""
-
-    def __init__(self, *, headers: Mapping[str, str], **kwargs: Any) -> None:
-        super().__init__(**kwargs)
-        self._headers = dict(headers)
-
-    async def __call__(
-        self,
-        state: str | dict,
-        questions: Mapping[str, ClassifierQuestion],
-        **kwargs: Any,
-    ) -> ClassifierResponse:
-        kwargs["extra_headers"] = {
-            **self._headers,
-            **(kwargs.get("extra_headers") or {}),
-        }
-        return await super().__call__(
-            state=state,
-            questions=questions,
-            **kwargs,
-        )
 
 
 class TypeSafeProvider(Provider):
@@ -61,7 +35,7 @@ class TypeSafeProvider(Provider):
         *,
         timeout: float,
         max_retries: int,
-    ) -> AsyncIterator[_ConfiguredJevClassifier]:
+    ) -> AsyncIterator[JevClassifierModel]:
         """Use AgentScope's client for classification and model discovery."""
         if not model_id.strip():
             raise ValueError("invalid classifier model")
@@ -72,7 +46,7 @@ class TypeSafeProvider(Provider):
                 details={"error_type": "not_configured"},
             )
         try:
-            classifier = _ConfiguredJevClassifier(
+            classifier = JevClassifierModel(
                 credential=TypeSafeCredential(
                     api_key=key,
                     base_url=self.base_url or None,
@@ -80,7 +54,6 @@ class TypeSafeProvider(Provider):
                 model=model_id,
                 timeout=timeout,
                 max_retries=max_retries,
-                headers=self.custom_headers,
             )
             async with classifier.client:
                 yield classifier
@@ -126,6 +99,7 @@ class TypeSafeProvider(Provider):
             ) as classifier:
                 response = await classifier(
                     state="Hello",
+                    extra_headers=self.custom_headers,
                     questions={
                         "greeting": BinaryQuestion(
                             instructions="Is the state a greeting?",

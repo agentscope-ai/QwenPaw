@@ -457,7 +457,11 @@ async def assess_tool_call(
             timeout=_REQUEST_TIMEOUT,
             max_retries=_MAX_RETRIES,
         ) as classifier:
-            response = await classifier(state=state, questions=_QUESTIONS)
+            response = await classifier(
+                state=state,
+                questions=_QUESTIONS,
+                extra_headers=provider.custom_headers,
+            )
         result = _interpret(
             response,
             baseline_ask=baseline_ask,

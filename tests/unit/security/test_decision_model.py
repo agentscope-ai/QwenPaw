@@ -209,6 +209,7 @@ async def test_configured_classifier_is_provider_independent(
     provider = SimpleNamespace(
         enabled=True,
         open_classifier_model=open_classifier,
+        custom_headers={"X-Project": "other-provider"},
     )
     selected = SimpleNamespace(provider_id="other", model="other-model")
     manager = SimpleNamespace(
@@ -235,6 +236,9 @@ async def test_configured_classifier_is_provider_independent(
     assert result.needs_approval is refused
     assert closed == [True]
     classifier.assert_awaited_once()
+    assert classifier.await_args.kwargs["extra_headers"] == {
+        "X-Project": "other-provider",
+    }
     questions = classifier.await_args.kwargs["questions"]
     assert isinstance(questions["impact"], ChoiceQuestion)
     assert isinstance(questions["destructive"], BinaryQuestion)
@@ -628,11 +632,13 @@ async def test_typed_request_and_response(
     risk,
 ):
     typesafe_provider.base_url = f"https://proxy.example{base_path}"
+    typesafe_provider.custom_headers = {"X-Project": "demo"}
     original_client = httpx2.AsyncClient
 
     def handler(request):
         assert request.url.path == base_path + "/v1/systemone"
         assert request.headers["Authorization"] == "Bearer test-key"
+        assert request.headers["X-Project"] == "demo"
         import json
 
         body = json.loads(request.content)

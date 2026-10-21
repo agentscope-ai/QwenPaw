@@ -1408,11 +1408,10 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
         timeout: float,
         max_retries: int,
     ) -> AbstractAsyncContextManager[ClassifierModelBase]:
-        """Open a classifier with provider settings and caller-owned budgets.
+        """Open an AgentScope classifier with provider credentials and URL.
 
         Implementations manage client cleanup and translate SDK failures to
-        ProviderError. Callers use AgentScope questions and responses without
-        depending on the provider's transport or resource lifecycle.
+        ProviderError. Callers pass custom_headers via extra_headers per call.
         """
         raise ProviderError(
             message=f"Provider '{self.id}' has no classifier model adapter",

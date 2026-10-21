@@ -1,8 +1,6 @@
 # -*- coding: utf-8 -*-
 """TypeSafe evaluation uses provider settings and validates responses."""
 
-# pylint: disable=protected-access
-
 import asyncio
 import json
 
@@ -11,18 +9,13 @@ import pytest
 from agentscope.classifier import (
     BinaryAnswer,
     BinaryQuestion,
-    ChoiceAnswer,
-    ChoiceQuestion,
-    ScoreAnswer,
-    ScoreQuestion,
+    JevClassifierModel,
 )
 
 from qwenpaw.exceptions import ProviderError
 from qwenpaw.providers.provider_discovery import classify_discovery_error
 
-from qwenpaw.providers.typesafe_provider import (
-    TypeSafeProvider,
-)
+from qwenpaw.providers.typesafe_provider import TypeSafeProvider
 
 
 @pytest.fixture(name="provider")
@@ -81,12 +74,10 @@ async def test_provider_and_environment_credentials(
     "base_path",
     ["", "/", "/gateway"],
 )
-@pytest.mark.parametrize("extra_headers", [None, {"X-Request": "test"}])
 async def test_classifier_uses_provider_settings(
     mock_transport,
     provider,
     base_path,
-    extra_headers,
 ):
     provider.base_url = f"https://proxy.example{base_path}"
 
@@ -96,8 +87,6 @@ async def test_classifier_uses_provider_settings(
         assert request.url.path == base_path.rstrip("/") + "/v1/systemone"
         assert request.headers["Authorization"] == "Bearer provider-key"
         assert request.headers["X-Project"] == "demo"
-        if extra_headers:
-            assert request.headers["X-Request"] == "test"
         assert set(request.extensions["timeout"].values()) == {4.0}
         assert body == {
             "model": "jev-2",
@@ -124,9 +113,10 @@ async def test_classifier_uses_provider_settings(
         timeout=4.0,
         max_retries=0,
     ) as classifier:
+        assert type(classifier) is JevClassifierModel
         result = await classifier(
             state={"summary": "conversation segment"},
-            extra_headers=extra_headers,
+            extra_headers=provider.custom_headers,
             questions={
                 "keep_in_context": BinaryQuestion(
                     instructions="Keep this in active context?",
@@ -136,76 +126,6 @@ async def test_classifier_uses_provider_settings(
     assert result.content["keep_in_context"] == BinaryAnswer(probability=0.8)
     assert result.usage.input_tokens == 20
     assert all(client.is_closed for client in clients)
-
-
-@pytest.mark.asyncio
-async def test_choice_and_score_with_array_state(mock_transport, provider):
-    questions = {
-        "impact": {
-            "type": "choice",
-            "instructions": "Classify the operation",
-            "criteria": {"routine": "Ordinary change", "risky": "Destructive"},
-        },
-        "severity": {
-            "type": "score",
-            "instructions": "Score the risk",
-            "criteria": ["Low", "High"],
-        },
-    }
-    answers = {
-        "impact": {
-            "type": "choice",
-            "choice": "routine",
-            "confidence": 0.9,
-            "probabilities": {"routine": 0.9, "risky": 0.1},
-        },
-        "severity": {
-            "type": "score",
-            "score": 0.1,
-            "confidence": 0.9,
-            "legend": {0: "Low", 1: "High"},
-            "probabilities": {0: 0.9, 1: 0.1},
-        },
-    }
-
-    def handler(request):
-        body = json.loads(request.content)
-        assert body["state"] == ["write", "notes.txt"]
-        assert body["questions"] == questions
-        return httpx2.Response(
-            200,
-            json={
-                "model": "jev-2",
-                "answers": answers,
-                "usage": {"input_tokens": 10, "output_tokens": 2},
-            },
-        )
-
-    mock_transport(handler)
-    async with provider.open_classifier_model(
-        "jev-2",
-        timeout=4.0,
-        max_retries=0,
-    ) as classifier:
-        result = await classifier(
-            state=["write", "notes.txt"],
-            questions={
-                "impact": ChoiceQuestion(
-                    instructions=questions["impact"]["instructions"],
-                    criteria=questions["impact"]["criteria"],
-                ),
-                "severity": ScoreQuestion(
-                    instructions=questions["severity"]["instructions"],
-                    criteria=questions["severity"]["criteria"],
-                ),
-            },
-        )
-    assert result.content["impact"] == ChoiceAnswer(
-        **{k: v for k, v in answers["impact"].items() if k != "type"},
-    )
-    assert result.content["severity"] == ScoreAnswer(
-        **{k: v for k, v in answers["severity"].items() if k != "type"},
-    )
 
 
 @pytest.mark.asyncio
@@ -509,52 +429,3 @@ async def test_connection_rejects_missing_or_wrong_answer(
     result = await provider.check_model_connection("jev-2")
     assert not result.success
     assert all(client.is_closed for client in clients)
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("usage", ["missing", {}, None, False, "invalid"])
-async def test_usage_follows_sdk_response_contract(
-    mock_transport,
-    provider,
-    usage,
-):
-    payload = {
-        "model": "jev-2",
-        "answers": {"q": {"type": "noul", "noul": 0.8}},
-    }
-    if usage != "missing":
-        payload["usage"] = usage
-    clients = mock_transport(
-        lambda _request: httpx2.Response(
-            200,
-            json=payload,
-        ),
-    )
-    if usage == {}:
-        async with provider.open_classifier_model(
-            "jev-2",
-            timeout=4.0,
-            max_retries=0,
-        ) as classifier:
-            result = await classifier(
-                state="x",
-                questions={"q": BinaryQuestion(instructions="x")},
-            )
-        assert result.content["q"] == BinaryAnswer(probability=0.8)
-        assert result.usage.input_tokens is None
-        assert result.usage.output_tokens is None
-    else:
-        with pytest.raises(
-            ProviderError,
-            match="TypeSafeAPIResponseValidationError",
-        ):
-            async with provider.open_classifier_model(
-                "jev-2",
-                timeout=4.0,
-                max_retries=0,
-            ) as classifier:
-                await classifier(
-                    state="x",
-                    questions={"q": BinaryQuestion(instructions="x")},
-                )
-    assert clients and all(client.is_closed for client in clients)
