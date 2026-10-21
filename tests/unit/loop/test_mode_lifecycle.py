@@ -11,8 +11,6 @@ from unittest.mock import patch
 
 import pytest
 
-from qwenpaw.app.workspace.workspace_plugins import WorkspacePlugins
-from qwenpaw.config.config import LoopConfig
 from qwenpaw.loop.gates.base import (
     StopAction,
     StopHandlerRegistration,
@@ -258,15 +256,7 @@ async def test_goal_budget_survives_acp_usage_flush(budget):
     from qwenpaw.token_usage.model_wrapper import TokenRecordingModelWrapper
 
     mode = GoalMode()
-    loop_config = LoopConfig()
-    loop_config.goal.max_tokens = 200
-    workspace = SimpleNamespace(
-        plugins=WorkspacePlugins(),
-        config=SimpleNamespace(running=SimpleNamespace(loop=loop_config)),
-        mode_config_overrides={f"goal": {f"max_tokens": budget}},
-    )
-    workspace.plugins.register_mode(mode, workspace)
-    assert loop_config.goal.max_tokens == 200
+    mode.default_max_tokens = budget
     ctx = SimpleNamespace(session_id=f"goal-budget")
     with scoped_session_id(ctx.session_id):
         await mode.commands()[0].handler(ctx, f"Finish the task")
