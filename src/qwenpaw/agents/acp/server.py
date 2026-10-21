@@ -469,6 +469,7 @@ class QwenPawACPAgent(Agent):
 
             self._workspace = workspace
             self._workspace_ready = True
+            self._install_stop_gate_bridge(agent_id, workspace)
             logger.info(
                 "QwenPaw ACP Agent workspace started:"
                 " agent_id=%s workspace=%s",
@@ -477,8 +478,30 @@ class QwenPawACPAgent(Agent):
             )
             return workspace
 
+    def _install_stop_gate_bridge(self, agent_id: str, workspace: Any) -> None:
+        """Expose the workspace to PluginRegistry stop-gate lookups.
+
+        Mode stop gates (goal/mission/custom loop) register into
+        ``workspace.plugins.stop_handlers``, but the ReAct loop looks
+        them up through the global PluginRegistry, which needs a
+        workspace manager attached. The web app attaches its
+        WorkspaceRegistry at startup; without an equivalent bridge
+        here every ACP run resolves an empty gate list and modes run
+        under default ReAct semantics.
+        """
+        from types import SimpleNamespace
+
+        from ...plugins.registry import PluginRegistry
+
+        PluginRegistry().set_workspace_manager(
+            SimpleNamespace(agents={agent_id: workspace})
+        )
+
     async def _shutdown_workspace(self) -> None:
         """Gracefully stop the workspace."""
+        from ...plugins.registry import PluginRegistry
+
+        PluginRegistry().set_workspace_manager(None)
         if self._workspace is not None:
             try:
                 await self._workspace.stop(final=True)
