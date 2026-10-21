@@ -5,7 +5,7 @@
 
 from types import SimpleNamespace
 
-import httpx
+import httpx2
 import pytest
 
 from qwenpaw.providers.provider_manager import ProviderManager
@@ -488,7 +488,7 @@ async def test_unconfigured_effectful_call_requires_approval(
 
 @pytest.mark.asyncio
 async def test_typed_request_and_response(monkeypatch):
-    original_client = httpx.AsyncClient
+    original_client = httpx2.AsyncClient
 
     def handler(request):
         assert request.url.path == "/v1/systemone"
@@ -506,19 +506,30 @@ async def test_typed_request_and_response(monkeypatch):
         assert body["state"]["parameter_names"] == ["content"]
         assert body["state"]["target"] == "notes.txt"
         assert "private content" not in str(body)
-        return httpx.Response(200, json=_response())
+        return httpx2.Response(200, json=_response())
 
-    monkeypatch.setattr(
-        httpx,
-        "AsyncClient",
-        lambda **kwargs: original_client(
-            transport=httpx.MockTransport(handler),
-            **kwargs,
-        ),
-    )
+    def create_client(**kwargs):
+        kwargs["transport"] = httpx2.MockTransport(handler)
+        return original_client(**kwargs)
+
+    monkeypatch.setattr(httpx2, "AsyncClient", create_client)
     result = await assess_tool_call(
         "Write",
         "notes.txt",
         params={"content": "private content"},
     )
     assert not result.needs_approval
+
+
+@pytest.mark.asyncio
+async def test_sdk_timeout_requires_approval(monkeypatch):
+    from agentscope.classifier import JevClassifierModel
+    from typesafe_sdk import TypeSafeAPITimeoutError
+
+    async def timeout(*_args, **_kwargs):
+        raise TypeSafeAPITimeoutError(4.0)
+
+    monkeypatch.setattr(JevClassifierModel, "__call__", timeout)
+    result = await assess_tool_call("Write", "notes.txt")
+    assert result.needs_approval
+    assert result.error_type == "TypeSafeEvaluationError"

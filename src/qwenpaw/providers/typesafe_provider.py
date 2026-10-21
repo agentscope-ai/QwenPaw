@@ -4,13 +4,36 @@
 from __future__ import annotations
 
 import os
-from typing import Any, List, Mapping
+from dataclasses import asdict
+from typing import Any, List, Mapping, cast
 
 import httpx
+from agentscope.classifier import (
+    BinaryAnswer,
+    BinaryQuestion,
+    ChoiceAnswer,
+    ChoiceQuestion,
+    JevClassifierModel,
+    ScoreAnswer,
+    ScoreQuestion,
+)
+from agentscope.credential import TypeSafeCredential
+from typesafe_sdk import TypeSafeAPIResponseValidationError, TypeSafeError
 
 from ..config.utils import get_config_path
 from ..drivers.credentials.store import AsyncCredentialStore
 from .provider import ModelConnectionResult, ModelInfo, Provider
+
+_QUESTION_TYPES = {
+    "noul": BinaryQuestion,
+    "choice": ChoiceQuestion,
+    "score": ScoreQuestion,
+}
+_ANSWER_TYPES = {
+    "noul": BinaryAnswer,
+    "choice": ChoiceAnswer,
+    "score": ScoreAnswer,
+}
 
 
 class TypeSafeEvaluationError(RuntimeError):
@@ -22,16 +45,11 @@ class TypeSafeProvider(Provider):
 
     chat_model: str = ""
 
-    def _client(
-        self,
-        timeout: float,
-        *,
-        api_key: str | None = None,
-    ) -> httpx.AsyncClient:
+    def _client(self, timeout: float) -> httpx.AsyncClient:
         return httpx.AsyncClient(
             headers={
                 **self.custom_headers,
-                "Authorization": f"Bearer {api_key or self.api_key}",
+                "Authorization": f"Bearer {self.api_key}",
             },
             timeout=timeout,
         )
@@ -73,9 +91,10 @@ class TypeSafeProvider(Provider):
             raise ValueError(
                 "model, state, questions, and timeout are required",
             )
+        typed_questions = {}
         for name, question in questions.items():
             question_type = question.get("type")
-            if not name or question_type not in {"noul", "choice", "score"}:
+            if not name or question_type not in _QUESTION_TYPES:
                 raise ValueError(f"invalid question: {name}")
             if "instructions" not in question:
                 raise ValueError(f"missing instructions: {name}")
@@ -83,40 +102,58 @@ class TypeSafeProvider(Provider):
                 "criteria",
             ):
                 raise ValueError(f"missing criteria: {name}")
+            typed_questions[name] = _QUESTION_TYPES[question_type](
+                **{k: v for k, v in question.items() if k != "type"},
+            )
         key = await self._evaluation_api_key()
         if not key:
             raise TypeSafeEvaluationError("TypeSafe API key is not configured")
         try:
-            async with self._client(timeout, api_key=key) as client:
-                response = await client.post(
-                    self.base_url.rstrip("/") + "/systemone",
-                    json={
-                        "state": state,
-                        "model": model,
-                        "questions": questions,
-                    },
+            classifier = JevClassifierModel(
+                credential=TypeSafeCredential(
+                    api_key=key,
+                    # The SDK appends /v1 to its API root.
+                    base_url=self.base_url.rstrip("/").removesuffix("/v1"),
+                ),
+                model=model,
+                timeout=timeout,
+                max_retries=0,
+            )
+            async with classifier.client:
+                response = await classifier(
+                    # TypeSafe accepts arrays despite AgentScope's type hint.
+                    state=cast(str | dict, state),
+                    questions=typed_questions,
+                    extra_headers=self.custom_headers,
                 )
-                response.raise_for_status()
-                payload = response.json()
-        except (httpx.HTTPError, ValueError) as exc:
+        except TypeSafeAPIResponseValidationError as exc:
+            raise TypeSafeEvaluationError("Invalid response envelope") from exc
+        except (TypeSafeError, ValueError) as exc:
             raise TypeSafeEvaluationError(type(exc).__name__) from exc
-        if not isinstance(payload, dict):
-            raise TypeSafeEvaluationError("Invalid response envelope")
-        answers = payload.get("answers")
-        if (
-            not isinstance(payload.get("model"), str)
-            or not isinstance(answers, dict)
-            or not isinstance(payload.get("usage", {}), dict)
-            or any(
-                not isinstance(answers.get(name), dict) for name in questions
-            )
-            or any(
-                answers[name].get("type") != question.get("type")
-                for name, question in questions.items()
-            )
-        ):
-            raise TypeSafeEvaluationError("Invalid response envelope")
-        return payload
+        answers = {}
+        for name, question in questions.items():
+            answer = response.content.get(name)
+            question_type = question["type"]
+            if not isinstance(answer, _ANSWER_TYPES[question_type]):
+                raise TypeSafeEvaluationError("Invalid response envelope")
+            answers[name] = {
+                **(
+                    {"noul": answer.probability}
+                    if isinstance(answer, BinaryAnswer)
+                    else asdict(answer)
+                ),
+                "type": question_type,
+            }
+            if isinstance(answer, ScoreAnswer):
+                for field in ("legend", "probabilities"):
+                    answers[name][field] = {
+                        str(k): v for k, v in answers[name][field].items()
+                    }
+        return {
+            "model": response.model,
+            "answers": answers,
+            "usage": asdict(response.usage) if response.usage else {},
+        }
 
     async def fetch_models(self, timeout: float = 5) -> List[ModelInfo]:
         async with self._client(timeout) as client:
@@ -146,29 +183,24 @@ class TypeSafeProvider(Provider):
         timeout: float = 5,
     ) -> ModelConnectionResult:
         try:
-            async with self._client(timeout) as client:
-                response = await client.post(
-                    self.base_url.rstrip("/") + "/systemone",
-                    json={
-                        "model": model_id,
-                        "state": "Hello",
-                        "questions": {
-                            "greeting": {
-                                "type": "noul",
-                                "instructions": "Is the state a greeting?",
-                            },
-                        },
+            await self.evaluate(
+                model=model_id,
+                state="Hello",
+                questions={
+                    "greeting": {
+                        "type": "noul",
+                        "instructions": "Is the state a greeting?",
                     },
-                )
-                response.raise_for_status()
-        except httpx.HTTPError as exc:
+                },
+                timeout=timeout,
+            )
+        except (TypeSafeEvaluationError, ValueError) as exc:
+            cause = exc.__cause__
+            if not isinstance(cause, Exception):
+                cause = exc
             return ModelConnectionResult(
                 success=False,
-                message=self.connection_error_message(exc),
-                http_status=getattr(
-                    getattr(exc, "response", None),
-                    "status_code",
-                    None,
-                ),
+                message=self.connection_error_message(cause),
+                http_status=getattr(cause, "status", None),
             )
         return ModelConnectionResult(success=True)
