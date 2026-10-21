@@ -13,7 +13,7 @@
 # dependencies
 /.pnp
 .pnp.js
-node_modules
+node_modules/
 sessions_mount_dir/
 
 # testing
