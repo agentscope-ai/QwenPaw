@@ -3,6 +3,7 @@
 
 from typing import List
 
+from ..config.config import ModelSlotConfig
 from .anthropic_provider import AnthropicProvider
 from .dashscope_provider import DashScopeProvider
 from .gemini_provider import GeminiProvider
@@ -116,6 +117,12 @@ PROVIDER_TYPESAFE = TypeSafeProvider(
         ),
     ],
     meta={"api_key_url": "https://console.typesafe.ai/"},
+)
+
+# Preserve the implicit Jev selection for installations without a saved slot.
+DEFAULT_DECISION_MODEL = ModelSlotConfig(
+    provider_id=PROVIDER_TYPESAFE.id,
+    model=PROVIDER_TYPESAFE.models[0].id,
 )
 
 PROVIDER_ALIYUN_CODINGPLAN = AliyunPlanProvider(

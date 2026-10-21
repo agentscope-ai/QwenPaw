@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from contextlib import contextmanager
+from contextlib import AbstractAsyncContextManager, contextmanager
 from contextvars import ContextVar
 import re
 from uuid import uuid4
@@ -12,6 +12,7 @@ from collections.abc import Iterator
 from typing import TYPE_CHECKING, Any, ClassVar, Dict, List, Literal, Type
 
 from agentscope.model import ChatModelBase
+from agentscope.classifier import ClassifierModelBase
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, model_validator
 
 from qwenpaw.exceptions import ModelNotFoundException, ProviderError
@@ -1398,6 +1399,23 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
         provider and model_id."""
         raise ProviderError(
             message=f"Provider '{self.id}' has no chat model adapter",
+        )
+
+    def open_classifier_model(
+        self,
+        model_id: str,
+        *,
+        timeout: float,
+        max_retries: int,
+    ) -> AbstractAsyncContextManager[ClassifierModelBase]:
+        """Open a classifier with provider settings and caller-owned budgets.
+
+        Implementations manage client cleanup and translate SDK failures to
+        ProviderError. Callers use AgentScope questions and responses without
+        depending on the provider's transport or resource lifecycle.
+        """
+        raise ProviderError(
+            message=f"Provider '{self.id}' has no classifier model adapter",
         )
 
     async def probe_model_multimodal(

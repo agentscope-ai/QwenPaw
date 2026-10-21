@@ -3,10 +3,24 @@
 
 # pylint: disable=protected-access
 
+from contextlib import asynccontextmanager
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import httpx2
 import pytest
+from agentscope.classifier import (
+    BinaryAnswer,
+    BinaryQuestion,
+    ChoiceAnswer,
+    ChoiceQuestion,
+    ClassifierModelBase,
+    ClassifierResponse,
+    JevClassifierModel,
+    RefusalAnswer,
+)
+
+from qwenpaw.providers.openai_provider import OpenAIProvider
 
 from qwenpaw.providers.provider_manager import ProviderManager
 from qwenpaw.providers.typesafe_provider import TypeSafeProvider
@@ -46,18 +60,16 @@ def _response(*, choice="routine", confidence=0.95, risk=0.01):
         "unclear": 0.01,
     }
     other_probabilities[choice] = 0.95
-    return {
-        "model": "jev-1",
-        "usage": {"input_tokens": 10, "output_tokens": 2},
-        "answers": {
-            "impact": {
-                "type": "choice",
-                "choice": choice,
-                "confidence": confidence,
-                "probabilities": other_probabilities,
-            },
+    return ClassifierResponse(
+        model="jev-1",
+        content={
+            "impact": ChoiceAnswer(
+                choice=choice,
+                confidence=confidence,
+                probabilities=other_probabilities,
+            ),
             **{
-                name: {"type": "noul", "noul": risk}
+                name: BinaryAnswer(probability=risk)
                 for name in (
                     "destructive",
                     "secret_exposure",
@@ -65,7 +77,7 @@ def _response(*, choice="routine", confidence=0.95, risk=0.01):
                 )
             },
         },
-    }
+    )
 
 
 def test_decision_model_is_smart_baseline():
@@ -134,6 +146,125 @@ def test_malformed_response_fails_closed():
         _interpret({"answers": {"impact": {"type": "choice"}}})
 
 
+@pytest.mark.parametrize(
+    "field, invalid",
+    [
+        ("impact", None),
+        ("impact", RefusalAnswer()),
+        ("impact", BinaryAnswer(probability=0.99)),
+        ("destructive", None),
+        ("destructive", RefusalAnswer()),
+        ("destructive", BinaryAnswer(probability=True)),
+        ("destructive", BinaryAnswer(probability=float("nan"))),
+        ("destructive", BinaryAnswer(probability=1.1)),
+    ],
+)
+def test_invalid_typed_answer_fails_closed(field, invalid):
+    response = _response()
+    if invalid is None:
+        response.content.pop(field)
+    else:
+        response.content[field] = invalid
+    with pytest.raises(ValueError):
+        _interpret(response)
+
+
+@pytest.mark.parametrize("field", ["confidence", "probabilities"])
+@pytest.mark.parametrize("invalid", [True, -0.1, 1.1, float("nan")])
+def test_typed_choice_still_requires_valid_probabilities(field, invalid):
+    response = _response()
+    impact = response.content["impact"]
+    if field == "confidence":
+        impact.confidence = invalid
+    else:
+        impact.probabilities["routine"] = invalid
+    with pytest.raises(ValueError):
+        _interpret(response)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("source", ["global", "agent"])
+@pytest.mark.parametrize("refused", [False, True])
+async def test_configured_classifier_is_provider_independent(
+    monkeypatch,
+    source,
+    refused,
+):
+    response = _response()
+    if refused:
+        response.content["impact"] = RefusalAnswer()
+    classifier = AsyncMock(spec=ClassifierModelBase, return_value=response)
+    closed = []
+
+    @asynccontextmanager
+    async def open_classifier(model_id, *, timeout, max_retries):
+        assert model_id == "other-model"
+        assert timeout == 4.0
+        assert max_retries == 0
+        try:
+            yield classifier
+        finally:
+            closed.append(True)
+
+    provider = SimpleNamespace(
+        enabled=True,
+        open_classifier_model=open_classifier,
+    )
+    selected = SimpleNamespace(provider_id="other", model="other-model")
+    manager = SimpleNamespace(
+        get_provider=lambda provider_id: (
+            provider if provider_id == "other" else None
+        ),
+        default_models={
+            "decision": selected
+            if source == "global"
+            else SimpleNamespace(
+                provider_id="typesafe",
+                model="jev-global",
+            ),
+        },
+    )
+    monkeypatch.setattr(ProviderManager, "get_instance", lambda: manager)
+    monkeypatch.setattr(
+        "qwenpaw.config.config.load_agent_config",
+        lambda _agent_id: SimpleNamespace(
+            decision_model=selected if source == "agent" else None,
+        ),
+    )
+    result = await assess_tool_call("Write", "notes.txt", agent_id="agent")
+    assert result.needs_approval is refused
+    assert closed == [True]
+    classifier.assert_awaited_once()
+    questions = classifier.await_args.kwargs["questions"]
+    assert isinstance(questions["impact"], ChoiceQuestion)
+    assert isinstance(questions["destructive"], BinaryQuestion)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("unavailable", ["missing", "disabled", "unsupported"])
+async def test_unavailable_selected_provider_requires_approval(
+    monkeypatch,
+    unavailable,
+):
+    provider = OpenAIProvider(
+        id="other",
+        name="Other",
+        enabled=unavailable != "disabled",
+    )
+    manager = SimpleNamespace(
+        get_provider=lambda _provider_id: (
+            None if unavailable == "missing" else provider
+        ),
+        default_models={
+            "decision": SimpleNamespace(provider_id="other", model="other"),
+        },
+    )
+    monkeypatch.setattr(ProviderManager, "get_instance", lambda: manager)
+    result = await assess_tool_call("Write", "notes.txt")
+    assert result.needs_approval
+    assert result.error_type == "ProviderError"
+
+
 def test_narrow_read_only_shell_listing():
     assert _is_read_only_shell_listing(
         "Bash",
@@ -158,12 +289,12 @@ def test_narrow_read_only_shell_listing():
 async def test_read_only_listing_skips_model_but_not_existing_ask(
     monkeypatch,
 ):
-    async def unexpected(*args):
+    async def unexpected(*_args, **_kwargs):
         raise AssertionError(
             "verified read-only listing should not call decision model",
         )
 
-    monkeypatch.setattr(TypeSafeProvider, "evaluate", unexpected)
+    monkeypatch.setattr(JevClassifierModel, "__call__", unexpected)
     command = "ls -la ~/Desktop/ | grep -i '\\.pdf$'"
     result = await assess_tool_call(
         "Bash",
@@ -200,10 +331,10 @@ async def test_target_free_builtin_read_skips_model_but_not_existing_ask(
         is True
     )
 
-    async def unexpected(*args):
+    async def unexpected(*_args, **_kwargs):
         raise AssertionError("target-free read must not call decision model")
 
-    monkeypatch.setattr(TypeSafeProvider, "evaluate", unexpected)
+    monkeypatch.setattr(JevClassifierModel, "__call__", unexpected)
     assert not (
         await assess_tool_call(
             "GetCurrentTime",
@@ -265,10 +396,10 @@ async def test_declared_local_media_read_skips_decision_model(
         is True
     )
 
-    async def unexpected(*args):
+    async def unexpected(*_args, **_kwargs):
         raise AssertionError("local media read should not call decision model")
 
-    monkeypatch.setattr(TypeSafeProvider, "evaluate", unexpected)
+    monkeypatch.setattr(JevClassifierModel, "__call__", unexpected)
     target = str(tmp_path / "desktop_screenshot_small.jpg")
     assert not (await assess_tool_call("ViewImage", target)).needs_approval
     assert (
@@ -286,11 +417,11 @@ async def test_remote_media_read_still_reaches_decision_model(monkeypatch):
     )
     seen = []
 
-    async def evaluate(_provider, **request):
+    async def evaluate(_model, **request):
         seen.append(request)
         return _response()
 
-    monkeypatch.setattr(TypeSafeProvider, "evaluate", evaluate)
+    monkeypatch.setattr(JevClassifierModel, "__call__", evaluate)
     await assess_tool_call("ViewImage", "https://example.com/image.jpg")
     assert len(seen) == 1
 
@@ -306,12 +437,12 @@ async def test_sips_existing_output_requires_approval_without_decision_model(
         f"sips -Z 1600 -s format jpeg {tmp_path}/input.png --out {output}"
     )
 
-    async def unexpected(*args):
+    async def unexpected(*_args, **_kwargs):
         raise AssertionError(
             "verified overwrite should not call decision model",
         )
 
-    monkeypatch.setattr(TypeSafeProvider, "evaluate", unexpected)
+    monkeypatch.setattr(JevClassifierModel, "__call__", unexpected)
     result = await assess_tool_call(
         "Bash",
         command,
@@ -329,11 +460,11 @@ async def test_sips_new_output_supplies_verified_fact(monkeypatch, tmp_path):
     )
     seen = []
 
-    async def evaluate(_provider, **request):
+    async def evaluate(_model, **request):
         seen.append(request)
         return _response()
 
-    monkeypatch.setattr(TypeSafeProvider, "evaluate", evaluate)
+    monkeypatch.setattr(JevClassifierModel, "__call__", evaluate)
     result = await assess_tool_call(
         "Bash",
         command,
@@ -368,11 +499,11 @@ async def test_shell_syntax_reaches_model_instead_of_immediate_approval(
 ):
     seen = []
 
-    async def evaluate(_provider, **request):
+    async def evaluate(_model, **request):
         seen.append(request)
         return _response(choice="read_only")
 
-    monkeypatch.setattr(TypeSafeProvider, "evaluate", evaluate)
+    monkeypatch.setattr(JevClassifierModel, "__call__", evaluate)
     command = 'ls -lh ~/Desktop/*.pdf 2>/dev/null || echo "NO_PDF_FOUND"'
     result = await assess_tool_call(
         "Bash",
@@ -382,9 +513,9 @@ async def test_shell_syntax_reaches_model_instead_of_immediate_approval(
     assert not result.needs_approval
     assert len(seen) == 1
     assert seen[0]["state"]["target"] == command
-    assert "read_only" in seen[0]["questions"]["impact"]["criteria"]
+    assert "read_only" in seen[0]["questions"]["impact"].criteria
     assert "Listing filenames or file metadata alone does not count" in (
-        seen[0]["questions"]["secret_exposure"]["instructions"]
+        seen[0]["questions"]["secret_exposure"].instructions
     )
 
 
@@ -392,11 +523,11 @@ async def test_shell_syntax_reaches_model_instead_of_immediate_approval(
 async def test_shell_or_command_is_not_skipped_as_read_only(monkeypatch):
     seen = []
 
-    async def evaluate(_provider, **request):
+    async def evaluate(_model, **request):
         seen.append(request)
         return _response(choice="risky")
 
-    monkeypatch.setattr(TypeSafeProvider, "evaluate", evaluate)
+    monkeypatch.setattr(JevClassifierModel, "__call__", evaluate)
     command = "ls /missing || cp replacement.txt important.txt"
     result = await assess_tool_call(
         "Bash",
@@ -411,11 +542,11 @@ async def test_shell_or_command_is_not_skipped_as_read_only(monkeypatch):
 async def test_shell_command_is_available_to_decision_model(monkeypatch):
     seen = []
 
-    async def evaluate(_provider, **request):
+    async def evaluate(_model, **request):
         seen.append(request)
         return _response()
 
-    monkeypatch.setattr(TypeSafeProvider, "evaluate", evaluate)
+    monkeypatch.setattr(JevClassifierModel, "__call__", evaluate)
     command = "printf 'Quarterly revenue is 123456'"
     await assess_tool_call("Bash", command, params={"command": command})
     state = seen[0]["state"]
@@ -429,11 +560,11 @@ async def test_shell_write_is_available_to_decision_model(
 ):
     seen = []
 
-    async def evaluate(_provider, **request):
+    async def evaluate(_model, **request):
         seen.append(request)
         return _response(choice="risky")
 
-    monkeypatch.setattr(TypeSafeProvider, "evaluate", evaluate)
+    monkeypatch.setattr(JevClassifierModel, "__call__", evaluate)
     command = "printf 'Quarterly revenue is 123456' > report.txt"
     result = await assess_tool_call(
         "Bash",
@@ -448,20 +579,20 @@ async def test_shell_write_is_available_to_decision_model(
 
 @pytest.mark.asyncio
 async def test_literal_secret_is_not_sent_to_decision_model(monkeypatch):
-    async def unexpected(*args):
+    async def unexpected(*_args, **_kwargs):
         raise AssertionError("secret must not reach service")
 
-    monkeypatch.setattr(TypeSafeProvider, "evaluate", unexpected)
+    monkeypatch.setattr(JevClassifierModel, "__call__", unexpected)
     result = await assess_tool_call("Bash", "echo sk-1234567890abcdefghijkl")
     assert result.needs_approval
 
 
 @pytest.mark.asyncio
 async def test_sensitive_target_never_reaches_service(monkeypatch):
-    async def unexpected(*args):
+    async def unexpected(*_args, **_kwargs):
         raise AssertionError("service should not be contacted")
 
-    monkeypatch.setattr(TypeSafeProvider, "evaluate", unexpected)
+    monkeypatch.setattr(JevClassifierModel, "__call__", unexpected)
     result = await assess_tool_call(
         "Bash",
         "curl -H 'Authorization: Bearer abc'",
@@ -506,7 +637,34 @@ async def test_typed_request_and_response(monkeypatch):
         assert body["state"]["parameter_names"] == ["content"]
         assert body["state"]["target"] == "notes.txt"
         assert "private content" not in str(body)
-        return httpx2.Response(200, json=_response())
+        return httpx2.Response(
+            200,
+            json={
+                "model": "jev-1",
+                "usage": {"input_tokens": 10, "output_tokens": 2},
+                "answers": {
+                    "impact": {
+                        "type": "choice",
+                        "choice": "routine",
+                        "confidence": 0.95,
+                        "probabilities": {
+                            "read_only": 0.02,
+                            "routine": 0.95,
+                            "risky": 0.02,
+                            "unclear": 0.01,
+                        },
+                    },
+                    **{
+                        name: {"type": "noul", "noul": 0.01}
+                        for name in (
+                            "destructive",
+                            "secret_exposure",
+                            "privilege_change",
+                        )
+                    },
+                },
+            },
+        )
 
     def create_client(**kwargs):
         kwargs["transport"] = httpx2.MockTransport(handler)
@@ -523,7 +681,6 @@ async def test_typed_request_and_response(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_sdk_timeout_requires_approval(monkeypatch):
-    from agentscope.classifier import JevClassifierModel
     from typesafe_sdk import TypeSafeAPITimeoutError
 
     async def timeout(*_args, **_kwargs):
@@ -532,4 +689,4 @@ async def test_sdk_timeout_requires_approval(monkeypatch):
     monkeypatch.setattr(JevClassifierModel, "__call__", timeout)
     result = await assess_tool_call("Write", "notes.txt")
     assert result.needs_approval
-    assert result.error_type == "TypeSafeEvaluationError"
+    assert result.error_type == "ProviderError"

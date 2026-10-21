@@ -3,14 +3,24 @@
 
 # pylint: disable=protected-access
 
+import asyncio
 import json
 from types import SimpleNamespace
 
 import httpx2
 import pytest
+from agentscope.classifier import (
+    BinaryAnswer,
+    BinaryQuestion,
+    ChoiceAnswer,
+    ChoiceQuestion,
+    ScoreAnswer,
+    ScoreQuestion,
+)
+
+from qwenpaw.exceptions import ProviderError
 
 from qwenpaw.providers.typesafe_provider import (
-    TypeSafeEvaluationError,
     TypeSafeProvider,
 )
 
@@ -69,7 +79,7 @@ async def test_legacy_credential_remains_usable(monkeypatch, provider):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("base_path", ["/v1", "/v1/", "/gateway/v1/"])
-async def test_evaluate_uses_provider_settings(
+async def test_classifier_uses_provider_settings(
     mock_transport,
     provider,
     base_path,
@@ -103,18 +113,21 @@ async def test_evaluate_uses_provider_settings(
         )
 
     clients = mock_transport(handler)
-    result = await provider.evaluate(
-        state={"summary": "conversation segment"},
-        model="jev-2",
-        questions={
-            "keep_in_context": {
-                "type": "noul",
-                "instructions": "Keep this in active context?",
+    async with provider.open_classifier_model(
+        "jev-2",
+        timeout=4.0,
+        max_retries=0,
+    ) as classifier:
+        result = await classifier(
+            state={"summary": "conversation segment"},
+            questions={
+                "keep_in_context": BinaryQuestion(
+                    instructions="Keep this in active context?",
+                ),
             },
-        },
-    )
-    assert result["answers"]["keep_in_context"]["noul"] == 0.8
-    assert result["usage"]["input_tokens"] == 20
+        )
+    assert result.content["keep_in_context"] == BinaryAnswer(probability=0.8)
+    assert result.usage.input_tokens == 20
     assert all(client.is_closed for client in clients)
 
 
@@ -162,11 +175,30 @@ async def test_choice_and_score_with_array_state(mock_transport, provider):
         )
 
     mock_transport(handler)
-    result = await provider.evaluate(
-        state=["write", "notes.txt"],
-        questions=questions,
+    async with provider.open_classifier_model(
+        "jev-2",
+        timeout=4.0,
+        max_retries=0,
+    ) as classifier:
+        result = await classifier(
+            state=["write", "notes.txt"],
+            questions={
+                "impact": ChoiceQuestion(
+                    instructions=questions["impact"]["instructions"],
+                    criteria=questions["impact"]["criteria"],
+                ),
+                "severity": ScoreQuestion(
+                    instructions=questions["severity"]["instructions"],
+                    criteria=questions["severity"]["criteria"],
+                ),
+            },
+        )
+    assert result.content["impact"] == ChoiceAnswer(
+        **{k: v for k, v in answers["impact"].items() if k != "type"},
     )
-    assert result["answers"] == json.loads(json.dumps(answers))
+    assert result.content["severity"] == ScoreAnswer(
+        **{k: v for k, v in answers["severity"].items() if k != "type"},
+    )
 
 
 @pytest.mark.asyncio
@@ -175,28 +207,22 @@ async def test_missing_key_is_explicit_error(monkeypatch, provider):
         return None
 
     monkeypatch.setattr(TypeSafeProvider, "_evaluation_api_key", no_key)
-    with pytest.raises(TypeSafeEvaluationError, match="not configured"):
-        await provider.evaluate(
-            state="x",
-            questions={"q": {"type": "noul", "instructions": "x"}},
-        )
+    with pytest.raises(ProviderError, match="not configured") as error:
+        async with provider.open_classifier_model(
+            "jev-2",
+            timeout=4.0,
+            max_retries=0,
+        ):
+            pytest.fail("missing key must prevent model creation")
+    assert error.value.details["error_type"] == "not_configured"
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "answers",
     [
-        {},
         {"q": {"type": "score"}},
         {"q": {"type": "noul", "noul": False}},
-        {
-            "q": {
-                "type": "choice",
-                "choice": "safe",
-                "confidence": 1.0,
-                "probabilities": {"safe": 1.0},
-            },
-        },
     ],
 )
 async def test_invalid_response_envelope_is_rejected(
@@ -215,13 +241,18 @@ async def test_invalid_response_envelope_is_rejected(
         ),
     )
     with pytest.raises(
-        TypeSafeEvaluationError,
-        match="Invalid response envelope",
+        ProviderError,
+        match="TypeSafeAPIResponseValidationError",
     ):
-        await provider.evaluate(
-            state="x",
-            questions={"q": {"type": "noul", "instructions": "x"}},
-        )
+        async with provider.open_classifier_model(
+            "jev-2",
+            timeout=4.0,
+            max_retries=0,
+        ) as classifier:
+            await classifier(
+                state="x",
+                questions={"q": BinaryQuestion(instructions="x")},
+            )
     assert all(client.is_closed for client in clients)
 
 
@@ -241,18 +272,23 @@ async def test_sdk_failures_do_not_retry_and_close_client(
         return httpx2.Response(failure, json={"error": "Unavailable"})
 
     clients = mock_transport(handler)
-    with pytest.raises(TypeSafeEvaluationError):
-        await provider.evaluate(
-            state="x",
-            questions={"q": {"type": "noul", "instructions": "x"}},
-        )
+    with pytest.raises(ProviderError):
+        async with provider.open_classifier_model(
+            "jev-2",
+            timeout=4.0,
+            max_retries=0,
+        ) as classifier:
+            await classifier(
+                state="x",
+                questions={"q": BinaryQuestion(instructions="x")},
+            )
     assert len(requests) == 1
     assert all(client.is_closed for client in clients)
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("status", [200, 401])
-async def test_model_connection_uses_evaluation(
+async def test_model_connection_uses_classifier(
     mock_transport,
     provider,
     status,
@@ -278,4 +314,61 @@ async def test_model_connection_uses_evaluation(
     result = await provider.check_model_connection("jev-2", timeout=2.0)
     assert result.success is (status == 200)
     assert result.http_status == (None if status == 200 else status)
+    assert all(client.is_closed for client in clients)
+
+
+@pytest.mark.asyncio
+async def test_cancellation_closes_client(mock_transport, provider):
+    def handler(_request):
+        raise asyncio.CancelledError
+
+    clients = mock_transport(handler)
+    with pytest.raises(asyncio.CancelledError):
+        async with provider.open_classifier_model(
+            "jev-2",
+            timeout=4.0,
+            max_retries=0,
+        ) as classifier:
+            await classifier(
+                state="x",
+                questions={"q": BinaryQuestion(instructions="x")},
+            )
+    assert clients and all(client.is_closed for client in clients)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "answers",
+    [
+        {},
+        {
+            "greeting": {
+                "type": "choice",
+                "choice": "safe",
+                "confidence": 1.0,
+                "probabilities": {"safe": 1.0},
+            },
+        },
+    ],
+)
+async def test_connection_rejects_missing_or_wrong_answer(
+    mock_transport,
+    provider,
+    answers,
+):
+    clients = mock_transport(
+        lambda _request: httpx2.Response(
+            200,
+            json={
+                "model": "jev-2",
+                "answers": answers,
+                "usage": {
+                    "input_tokens": 10,
+                    "output_tokens": 2,
+                },
+            },
+        ),
+    )
+    result = await provider.check_model_connection("jev-2")
+    assert not result.success
     assert all(client.is_closed for client in clients)
