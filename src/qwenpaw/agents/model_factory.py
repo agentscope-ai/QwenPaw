@@ -604,6 +604,9 @@ def _normalize_messages_for_formatter(
     strip_audio = bool(
         getattr(formatter_instance, "_qwenpaw_force_strip_audio", False),
     )
+    strip_video = bool(
+        getattr(formatter_instance, "_qwenpaw_force_strip_video", False),
+    )
 
     if is_anthropic_formatter:
         target_family = "anthropic"
@@ -617,6 +620,7 @@ def _normalize_messages_for_formatter(
         supports_multimodal=supports_multimodal,
         target_family=target_family,
         strip_audio=strip_audio,
+        strip_video=strip_video,
     )
 
     return (
@@ -696,6 +700,21 @@ def _count_wire_audio_blocks(value: Any) -> int:
     if isinstance(media_type, str) and media_type.startswith("audio/"):
         return 1
     return sum(_count_wire_audio_blocks(item) for item in value.values())
+
+
+def _count_wire_video_blocks(value: Any) -> int:
+    """Count video parts actually emitted by any supported formatter."""
+    if isinstance(value, list):
+        return sum(_count_wire_video_blocks(item) for item in value)
+    if not isinstance(value, dict):
+        return 0
+
+    if value.get("type") in ("video", "video_url", "input_video"):
+        return 1
+    media_type = value.get("mime_type") or value.get("media_type")
+    if isinstance(media_type, str) and media_type.startswith("video/"):
+        return 1
+    return sum(_count_wire_video_blocks(item) for item in value.values())
 
 
 def _video_oversize_placeholder(
@@ -864,63 +883,12 @@ def _format_openai_video_block(
     }
 
 
-def _video_part_placeholder_text(video_block: dict, reason: str) -> str:
-    """Return a readable text stand-in for a video part the wire cannot carry.
-
-    The placeholder keeps the *evidence* — the file exists and here is its
-    path — while dropping the part type the endpoint refused.  Callers that
-    never see the bytes can still act on the path (inspect it, extract frames,
-    or re-send it to the user).
-    """
-    source = video_block.get("source") or {}
-    url = str(source.get("url") or "")
-    media_type = source.get("media_type") or "video/*"
-    path = _file_url_to_path(url) if url else ""
-    name = os.path.basename(path) if path else "video"
-    return (
-        f"[video not sent to the model: {name} ({media_type}) — {reason}; "
-        f"the file is still available at {path or url}. Use local tools to "
-        "inspect it or to re-send it to the user.]"
-    )
-
-
-def _video_wire_allows_video(
-    base_formatter_class: Type[FormatterBase],
-    *,
-    response_api: bool = False,
-    declared: bool | None = None,
-) -> bool:
-    """Return whether the target wire format can carry a video part.
-
-    ``video_url`` is not part of the OpenAI Chat Completions schema: it is a
-    vendor extension (DashScope and a few relay gateways).  Endpoints that do
-    not implement it answer ``422 unknown variant `video_url```, and because
-    the offending block is replayed from stored history on every later turn,
-    the session never recovers.  ``input_video`` is likewise an extension,
-    kept for the Responses API (Volcengine Ark and friends).
-
-    ``declared`` is the model's resolved ``supports_video`` flag: an explicit
-    ``True`` / ``False`` wins, ``None`` falls back to the wire-shape rule.
-    """
-    if declared is True:
-        return True
-    if declared is False:
-        return False
-    if response_api:
-        return True
-    return bool(
-        DashScopeChatFormatter is not None
-        and issubclass(base_formatter_class, DashScopeChatFormatter),
-    )
-
-
 def _replace_video_placeholders(
     messages: list[dict],
     video_subs: dict[str, dict],
     *,
     response_api: bool = False,
     max_inline_media_bytes: int = MAX_INLINE_MEDIA_BYTES,
-    allow_video: bool = True,
 ) -> None:
     """Replace video placeholder text blocks with formatted
     video blocks in OpenAI-formatted messages.
@@ -945,25 +913,13 @@ def _replace_video_placeholders(
                 and item.get("type") in _TEXT_TYPES
                 and item.get("text") in video_subs
             ):
-                video_block = video_subs[item["text"]]
-                if allow_video:
-                    new_content.append(
-                        _format_openai_video_block(
-                            video_block,
-                            response_api=response_api,
-                            max_inline_media_bytes=max_inline_media_bytes,
-                        ),
-                    )
-                else:
-                    new_content.append(
-                        {
-                            "type": ("input_text" if response_api else "text"),
-                            "text": _video_part_placeholder_text(
-                                video_block,
-                                "this endpoint accepts no video part",
-                            ),
-                        },
-                    )
+                new_content.append(
+                    _format_openai_video_block(
+                        video_subs[item["text"]],
+                        response_api=response_api,
+                        max_inline_media_bytes=max_inline_media_bytes,
+                    ),
+                )
             else:
                 new_content.append(item)
         fmt_msg["content"] = new_content
@@ -1072,7 +1028,6 @@ def _promote_tool_result_videos(
     *,
     response_api: bool = False,
     max_inline_media_bytes: int = MAX_INLINE_MEDIA_BYTES,
-    allow_video: bool = True,
 ) -> list[dict]:
     """Inject promoted video user messages after tool result messages.
 
@@ -1162,24 +1117,13 @@ def _promote_tool_result_videos(
                     "text": f"\n- The video from '{url}': ",
                 },
             )
-            if allow_video:
-                promoted.append(
-                    _format_openai_video_block(
-                        vid_block,
-                        response_api=response_api,
-                        max_inline_media_bytes=max_inline_media_bytes,
-                    ),
-                )
-            else:
-                promoted.append(
-                    {
-                        "type": txt_type,
-                        "text": _video_part_placeholder_text(
-                            vid_block,
-                            "this endpoint accepts no video part",
-                        ),
-                    },
-                )
+            promoted.append(
+                _format_openai_video_block(
+                    vid_block,
+                    response_api=response_api,
+                    max_inline_media_bytes=max_inline_media_bytes,
+                ),
+            )
         promoted.append(
             {
                 "type": txt_type,
@@ -1562,7 +1506,6 @@ def _create_file_block_support_formatter(
     model_id: str | None = None,
     *,
     supports_multimodal: bool = True,
-    supports_video: bool | None = None,
 ) -> Type[FormatterBase]:
     """Create a formatter class with file block support.
 
@@ -1579,9 +1522,6 @@ def _create_file_block_support_formatter(
             inferred from the shared formatter base class.
         supports_multimodal: Resolved capability of the selected model.
             Unknown capability preserves media for provider-side handling.
-        supports_video: Resolved ``supports_video`` capability of the
-            selected model.  ``None`` (unknown) keeps the wire-shape rule
-            used by :func:`_video_wire_allows_video`.
 
     Returns:
         Enhanced formatter class with file block support
@@ -1735,6 +1675,7 @@ def _create_file_block_support_formatter(
             # previous request behind for the capability fallback layer.
             self._qwenpaw_last_wire_media_count = 0
             self._qwenpaw_last_wire_audio_count = 0
+            self._qwenpaw_last_wire_video_count = 0
 
             def _battr(block, key, default=None):
                 """Get attribute from dict or Pydantic block."""
@@ -1834,25 +1775,6 @@ def _create_file_block_support_formatter(
 
                 messages = await super().format(normalized_msgs)
 
-                # A video part is emitted only when the wire shape (and the
-                # model's declared capability) can carry it; otherwise the
-                # block becomes a text placeholder.  Some endpoints answer an
-                # unsupported part with a hard 422 and, because the block is
-                # replayed from stored history, the session would stay broken.
-                allow_video = _video_wire_allows_video(
-                    base_formatter_class,
-                    response_api=_is_response_formatter,
-                    declared=getattr(
-                        self,
-                        "_qwenpaw_supports_video",
-                        supports_video,
-                    ),
-                ) and not getattr(
-                    self,
-                    "_qwenpaw_force_strip_video",
-                    False,
-                )
-
                 if video_subs:
                     _replace_video_placeholders(
                         messages,
@@ -1861,7 +1783,6 @@ def _create_file_block_support_formatter(
                         max_inline_media_bytes=(
                             getattr(self, "max_bytes", MAX_INLINE_MEDIA_BYTES)
                         ),
-                        allow_video=allow_video,
                     )
                     _restore_video_blocks(normalized_msgs, video_subs)
 
@@ -1877,7 +1798,6 @@ def _create_file_block_support_formatter(
                         max_inline_media_bytes=(
                             getattr(self, "max_bytes", MAX_INLINE_MEDIA_BYTES)
                         ),
-                        allow_video=allow_video,
                     )
             finally:
                 _FORMATTER_SEEN_MEDIA_KEYS.reset(seen_media_token)
@@ -1987,6 +1907,9 @@ def _create_file_block_support_formatter(
                 wire_messages,
             )
             self._qwenpaw_last_wire_audio_count = _count_wire_audio_blocks(
+                wire_messages,
+            )
+            self._qwenpaw_last_wire_video_count = _count_wire_video_blocks(
                 wire_messages,
             )
             return wire_messages
@@ -2504,7 +2427,6 @@ def _create_formatter_instance(
     provider_id: str | None = None,
     *,
     supports_multimodal: bool = True,
-    supports_video: bool | None = None,
 ) -> FormatterBase:
     """Wrap the model's native formatter with file-block support.
 
@@ -2541,7 +2463,6 @@ def _create_formatter_instance(
         provider_id=provider_id,
         model_id=str(getattr(model, "model", "") or ""),
         supports_multimodal=supports_multimodal,
-        supports_video=supports_video,
     )
     # Carry over all Pydantic field values (max_bytes,
     # relay_reasoning_content, etc.) from the provider-constructed
@@ -2584,9 +2505,6 @@ def _install_model_formatter(
             model_info is None
             or bool(model_info.supports_image or model_info.supports_video)
             or model_info.supports_multimodal is not False
-        ),
-        supports_video=(
-            None if model_info is None else model_info.supports_video
         ),
     )
     model.formatter = formatter

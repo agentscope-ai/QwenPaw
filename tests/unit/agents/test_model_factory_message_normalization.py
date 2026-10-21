@@ -11,7 +11,7 @@ from types import SimpleNamespace
 
 import httpx
 import pytest
-from agentscope.formatter import OpenAIChatFormatter
+from agentscope.formatter import OpenAIChatFormatter, OpenAIResponseFormatter
 from agentscope.message import (
     Base64Source,
     DataBlock,
@@ -59,6 +59,54 @@ def _base64_data_block(media_type: str, content: bytes) -> DataBlock:
             data=base64.b64encode(content).decode("ascii"),
         ),
     )
+
+
+@pytest.mark.parametrize(
+    "base_formatter",
+    [
+        _CappingOpenAIFormatter,
+        OpenAIResponseFormatter,
+        _CappingAnthropicFormatter,
+        _CappingGeminiFormatter,
+        _CappingDashScopeFormatter,
+    ],
+)
+async def test_video_strip_runs_before_local_media_preparation(
+    base_formatter,
+    tmp_path,
+    monkeypatch,
+) -> None:
+    """Video filtering must work across protocols without reading the file."""
+    path = tmp_path / "clip.mp4"
+    path.write_bytes(b"video")
+    messages = [
+        Msg(
+            name="user",
+            role="user",
+            content=[
+                TextBlock(text="keep this"),
+                _data_block("video/mp4", path.as_uri()),
+            ],
+        ),
+    ]
+    before = [msg.model_dump() for msg in messages]
+    formatter = model_factory._create_file_block_support_formatter(
+        base_formatter,
+    )()
+    first = await formatter.format(messages)
+    assert model_factory._count_wire_video_blocks(first) == 1
+    assert formatter._qwenpaw_last_wire_video_count == 1
+
+    def unexpected_read(*_args, **_kwargs):
+        pytest.fail("Filtered video must not be read or encoded")
+
+    monkeypatch.setattr(model_factory, "_read_local_media", unexpected_read)
+    formatter._qwenpaw_force_strip_video = True
+    second = await formatter.format(messages)
+    assert model_factory._count_wire_video_blocks(second) == 0
+    assert formatter._qwenpaw_last_wire_video_count == 0
+    assert "keep this" in json.dumps(second)
+    assert [msg.model_dump() for msg in messages] == before
 
 
 def _png_bytes(size: tuple[int, int]) -> bytes:
@@ -1540,17 +1588,11 @@ async def test_formatter_base_call_does_not_block_event_loop() -> None:
 async def test_openai_formatter_uses_prepared_local_video(
     tmp_path,
 ) -> None:
-    """The formatter must consume local video data prepared off-thread.
-
-    Video on Chat Completions is opt-in: ``video_url`` is a vendor
-    extension, so the formatter only emits it for a model that declares
-    ``supports_video=True`` (see ``test_video_part_wire_capability``).
-    """
+    """The formatter must consume local video data prepared off-thread."""
     video_path = tmp_path / "clip.mp4"
     video_path.write_bytes(b"video")
     formatter_class = model_factory._create_file_block_support_formatter(
         _CappingOpenAIFormatter,
-        supports_video=True,
     )
     formatter = formatter_class()
     msg = Msg(
