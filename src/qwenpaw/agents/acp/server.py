@@ -788,6 +788,7 @@ class QwenPawACPAgent(Agent):
             outcome: tuple[str, Any] = (f"end", None)
             try:
                 workspace = await self._ensure_workspace()
+                agent_id = await run_sync_io(self._resolve_agent_id)
                 prompt_text = self._apply_agent_mode(
                     text,
                     session_id,
@@ -806,7 +807,7 @@ class QwenPawACPAgent(Agent):
                     ],
                     session_id=session_id,
                     user_id=user_id,
-                    agent_id=await run_sync_io(self._resolve_agent_id),
+                    agent_id=agent_id,
                     request_context=request_context or None,
                     model_slot_override=session_info.get(
                         _ACP_RUNTIME_MODEL_SLOT_KEY,
