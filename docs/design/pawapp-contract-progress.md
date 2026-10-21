@@ -5,8 +5,8 @@ The Data App adapter, native Console task routing, adapter tests, external Engin
 pairing and Host–Engine CI suite are extracted into
 [Data integration #8363](https://github.com/agentscope-ai/QwenPaw/pull/8363).
 The existing released Data App remains at the upstream main implementation.
-File Browser is also extracted into its own dependent example-app PR. Neither
-app integration is required to run the SDK conformance suite.
+File Browser is extracted into [example-app PR #8364](https://github.com/agentscope-ai/QwenPaw/pull/8364).
+Neither app integration is required to run the SDK conformance suite.
 
 | Area | Implementation |
 | --- | --- |
