@@ -8,6 +8,7 @@ from typing import Any
 import pytest
 
 from qwenpaw.app.replay_store import ReplayStore
+from qwenpaw.schemas import ContentType, TextContent
 
 
 def _sse(payload: dict[str, Any], *, spaced: bool = False) -> str:
@@ -73,6 +74,32 @@ def _fold(*events: str) -> list[str]:
     for event in events:
         store.append(event)
     return list(store.replay())
+
+
+def test_real_schema_field_order_keeps_content_foldable() -> None:
+    """Schema fields needed for folding precede the unbounded text."""
+    first = TextContent(
+        type=ContentType.TEXT,
+        text="a" * 300,
+        delta=True,
+        index=0,
+        msg_id="message-a",
+    )
+    second = TextContent(
+        type=ContentType.TEXT,
+        text="b",
+        delta=True,
+        index=0,
+        msg_id="message-a",
+    )
+
+    folded = _fold(
+        f"data: {first.model_dump_json()}\n\n",
+        f"data: {second.model_dump_json()}\n\n",
+    )
+
+    assert len(folded) == 1
+    assert _decode(folded[0])["text"] == f"{'a' * 300}b"
 
 
 @pytest.mark.parametrize("spaced", [False, True])
