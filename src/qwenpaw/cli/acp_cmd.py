@@ -46,14 +46,15 @@ import click
     ),
 )
 @click.option(
-    "--mode",
+    f"--agent-mode",
     type=str,
     metavar=f"MODE_ID",
     default=None,
     help=(
-        f"Select a loop mode from the workspace catalog (e.g. goal, "
+        f"Select a QwenPaw agent loop mode (e.g. goal, "
         f"mission, custom:<id>, plugin:<name>). The first message of "
-        f"each new session uses its registered slash command."
+        f"each new session uses its registered slash command. "
+        f"This does not change ACP permission settings."
     ),
 )
 def acp_cmd(
@@ -62,7 +63,7 @@ def acp_cmd(
     debug: bool,
     local_diagnostics: bool,
     runtime_provider: str | None,
-    mode: str | None,
+    agent_mode: str | None,
 ) -> None:
     """Start QwenPaw as an ACP agent (stdio)."""
     from pathlib import Path
@@ -107,6 +108,6 @@ def acp_cmd(
             workspace_dir=workspace_dir,
             local_diagnostics=local_diagnostics,
             runtime_provider=provider_config,
-            mode=mode,
+            agent_mode=agent_mode,
         ),
     )

@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Tests for ACP ``--mode`` first-message prefixing."""
+"""Tests for ACP ``--agent-mode`` first-message prefixing."""
 # pylint: disable=protected-access,unused-argument
 from __future__ import annotations
 
@@ -46,7 +46,7 @@ async def test_restored_session_does_not_restart_mode(
     tmp_path,
     monkeypatch,
 ):
-    agent = QwenPawACPAgent(mode=f"goal")
+    agent = QwenPawACPAgent(agent_mode=f"goal")
     for name in (
         f"_cancel_active_prompt",
         f"_cancel_pending_approvals",
@@ -56,14 +56,14 @@ async def test_restored_session_does_not_restart_mode(
     ):
         monkeypatch.setattr(agent, name, AsyncMock())
     await getattr(agent, method)(cwd=str(tmp_path), session_id=f"restored")
-    assert agent._apply_mode(f"Continue", f"restored", _workspace()) == (
+    assert agent._apply_agent_mode(f"Continue", f"restored", _workspace()) == (
         f"Continue"
     )
 
 
 async def test_workspace_failure_does_not_consume_mode(monkeypatch):
     """Retrying initialization must still activate the requested mode."""
-    agent = QwenPawACPAgent(mode=f"goal")
+    agent = QwenPawACPAgent(agent_mode=f"goal")
 
     async def fail():
         raise OSError(f"Temporary workspace failure")
@@ -72,7 +72,8 @@ async def test_workspace_failure_does_not_consume_mode(monkeypatch):
     with pytest.raises(OSError):
         await agent.prompt([text_block(f"Solve")], f"retry")
     assert (
-        agent._apply_mode(f"Solve", f"retry", _workspace()) == f"/goal Solve"
+        agent._apply_agent_mode(f"Solve", f"retry", _workspace())
+        == f"/goal Solve"
     )
 
 
@@ -85,8 +86,8 @@ async def test_stop_bridge_preserves_other_workspaces():
     )
     manager = SimpleNamespace(agents={f"app": app})
     registry.set_workspace_manager(manager)
-    first, second = QwenPawACPAgent(mode=f"goal"), QwenPawACPAgent(
-        mode=f"goal",
+    first, second = QwenPawACPAgent(agent_mode=f"goal"), QwenPawACPAgent(
+        agent_mode=f"goal",
     )
     first._install_stop_gate_bridge(f"one", app)
     second._install_stop_gate_bridge(f"two", app)
@@ -114,9 +115,13 @@ async def test_custom_mode_uses_shared_catalog_and_existing_dispatch(
         gates=[GateInstanceConfig(id=f"limit", type=f"iteration")],
     )
     workspace = _workspace([config])
-    agent = QwenPawACPAgent(mode=f"custom:quality-id")
+    agent = QwenPawACPAgent(agent_mode=f"custom:quality-id")
     with pytest.raises(RequestError):
-        agent._apply_mode(f"Check the result", f"custom-session", workspace)
+        agent._apply_agent_mode(
+            f"Check the result",
+            f"custom-session",
+            workspace,
+        )
     config.enabled = True
     workspace = _workspace([config])
     monkeypatch.setattr(
@@ -130,7 +135,11 @@ async def test_custom_mode_uses_shared_catalog_and_existing_dispatch(
     )
     assert selected.slash_command == f"verify"
 
-    text = agent._apply_mode(f"Check the result", f"custom-session", workspace)
+    text = agent._apply_agent_mode(
+        f"Check the result",
+        f"custom-session",
+        workspace,
+    )
     assert text == f"/verify Check the result"
     ctx = SimpleNamespace(
         session_id=f"custom-session",
@@ -153,11 +162,11 @@ async def test_custom_mode_uses_shared_catalog_and_existing_dispatch(
         assert any(reg.is_active() for reg in workspace.plugins.stop_handlers)
         assert ctx.input_msgs[0].content[0].text == f"Check the result"
     assert (
-        agent._apply_mode(f"Continue", ctx.session_id, workspace)
+        agent._apply_agent_mode(f"Continue", ctx.session_id, workspace)
         == f"Continue"
     )
 
-    assert agent._apply_mode(f"/new", f"explicit", workspace) == f"/new"
-    assert agent._apply_mode(f"Follow up", f"explicit", workspace) == (
+    assert agent._apply_agent_mode(f"/new", f"explicit", workspace) == f"/new"
+    assert agent._apply_agent_mode(f"Follow up", f"explicit", workspace) == (
         f"Follow up"
     )

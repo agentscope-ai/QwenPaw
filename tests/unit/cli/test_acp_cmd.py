@@ -26,7 +26,7 @@ def test_acp_cmd_passes_local_diagnostics(monkeypatch, tmp_path):
             "--workspace",
             str(tmp_path),
             "--local-diagnostics",
-            f"--mode",
+            f"--agent-mode",
             f"custom:quality",
         ],
     )
@@ -35,4 +35,4 @@ def test_acp_cmd_passes_local_diagnostics(monkeypatch, tmp_path):
     assert captured["agent_id"] == "writer"
     assert captured["workspace_dir"] == tmp_path
     assert captured["local_diagnostics"] is True
-    assert captured[f"mode"] == f"custom:quality"
+    assert captured[f"agent_mode"] == f"custom:quality"
