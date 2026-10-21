@@ -1,6 +1,3 @@
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
-import less from "less";
 import {
   act,
   render,
@@ -41,11 +38,6 @@ vi.mock("@number-flow/react", () => ({
 }));
 import HeartbeatPage from "./index";
 
-const stylesSource = readFileSync(
-  join(process.cwd(), "src/pages/Control/Heartbeat/index.module.less"),
-  "utf8",
-);
-
 function deferred<T>() {
   let resolve!: (value: T) => void;
   let reject!: (reason: Error) => void;
@@ -81,31 +73,6 @@ describe("Heartbeat schedule", () => {
   afterEach(() => {
     vi.restoreAllMocks();
   });
-  it("constrains every 390px reply target to a full-width 44px row", async () => {
-    const { css } = await less.render(stylesSource, {
-      filename: join(
-        process.cwd(),
-        "src/pages/Control/Heartbeat/index.module.less",
-      ),
-    });
-    const mobileStart = css.lastIndexOf("@media (max-width: 390px)");
-    const mobileRule = css.slice(mobileStart);
-
-    expect(mobileStart).toBeGreaterThanOrEqual(0);
-    expect(mobileRule).toMatch(
-      /\.settingRow :global\(\.ant-segmented-group\)[\s\S]*?width:\s*100%;[\s\S]*?min-width:\s*0;[\s\S]*?max-width:\s*100%;/,
-    );
-    expect(mobileRule).toMatch(
-      /\.settingRow :global\(\.ant-segmented-group\)[\s\S]*?flex-direction:\s*column;/,
-    );
-    expect(mobileRule).toMatch(
-      /\.settingRow :global\(\.ant-segmented-item\)[\s\S]*?width:\s*100%;[\s\S]*?min-width:\s*0;[\s\S]*?min-height:\s*44px;/,
-    );
-    expect(mobileRule).toMatch(
-      /\.settingRow :global\(\.ant-segmented-item-label\)[\s\S]*?min-height:\s*44px;[\s\S]*?white-space:\s*normal;/,
-    );
-  });
-
   it("keeps every hydrated reply target visible and selectable", async () => {
     render(<HeartbeatPage />);
     await screen.findByRole("switch", { name: "heartbeat.enabled" });

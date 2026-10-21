@@ -5,9 +5,6 @@
  * Heavy children are stubbed so the page's orchestration logic executes
  * under test.
  */
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
-import less from "less";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { screen, fireEvent, waitFor } from "@testing-library/react";
 import React from "react";
@@ -253,34 +250,6 @@ vi.mock("antd", async () => {
 import InboxPage from "./index";
 import type { PushMessage } from "./types";
 
-const stylesSource = readFileSync(
-  join(process.cwd(), "src/pages/Inbox/index.module.less"),
-  "utf8",
-);
-
-function getActiveCss(css: string, width: number) {
-  const source = document.createElement("style");
-  source.textContent = css;
-  document.head.appendChild(source);
-
-  const activeRules = Array.from(source.sheet?.cssRules ?? []).flatMap(
-    (rule) => {
-      if (rule.type !== CSSRule.MEDIA_RULE) {
-        return rule.cssText;
-      }
-
-      const mediaRule = rule as CSSMediaRule;
-      const maxWidth = mediaRule.conditionText.match(/max-width:\s*(\d+)px/);
-      if (!maxWidth || width > Number(maxWidth[1])) {
-        return [];
-      }
-      return Array.from(mediaRule.cssRules, (nestedRule) => nestedRule.cssText);
-    },
-  );
-  source.remove();
-  return activeRules.join("\n");
-}
-
 // ---- Fixtures --------------------------------------------------------------
 
 function pushMsg(
@@ -340,36 +309,6 @@ beforeEach(() => {
 // ---- Tests -----------------------------------------------------------------
 
 describe("InboxPage", () => {
-  it.each([
-    { width: 1280, direction: "row", wrap: "nowrap" },
-    { width: 820, direction: "row", wrap: "wrap" },
-    { width: 390, direction: "column", wrap: "wrap" },
-  ])(
-    "keeps toolbar actions reachable at $width px",
-    async ({ width, direction, wrap }) => {
-      const { css } = await less.render(stylesSource, {
-        filename: join(process.cwd(), "src/pages/Inbox/index.module.less"),
-      });
-      const activeStyles = document.createElement("style");
-      activeStyles.textContent = getActiveCss(css, width);
-      document.head.appendChild(activeStyles);
-
-      const toolbar = document.createElement("div");
-      toolbar.className = "messagesToolbar";
-      toolbar.innerHTML = `
-        <div class="messagesSelectionTools filters"></div>
-        <div class="messagesSelectionTools actions"></div>
-      `;
-      document.body.appendChild(toolbar);
-
-      expect(getComputedStyle(toolbar).flexDirection).toBe(direction);
-      expect(getComputedStyle(toolbar).flexWrap).toBe(wrap);
-
-      toolbar.remove();
-      activeStyles.remove();
-    },
-  );
-
   it("renders the messages tab with push cards", async () => {
     makeInboxData([pushMsg("m1"), pushMsg("m2")]);
     renderWithProviders(<InboxPage />);

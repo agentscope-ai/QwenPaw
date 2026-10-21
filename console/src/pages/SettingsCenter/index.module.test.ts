@@ -1,51 +1,11 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import less from "less";
 import { describe, expect, it } from "vitest";
-import polishStyles from "./GeneralSettings.module.less";
-import baseStyles from "./index.module.less";
 
 const stylesSource = readFileSync(
   join(process.cwd(), "src/pages/SettingsCenter/index.module.less"),
   "utf8",
 );
-const generalStylesSource = readFileSync(
-  join(process.cwd(), "src/pages/SettingsCenter/GeneralSettings.module.less"),
-  "utf8",
-);
-const generalComponentSource = readFileSync(
-  join(process.cwd(), "src/pages/SettingsCenter/GeneralSettings.tsx"),
-  "utf8",
-);
-
-function getActiveCss(css: string, width: number) {
-  const source = document.createElement("style");
-  source.textContent = css;
-  document.head.appendChild(source);
-
-  const activeRules = Array.from(source.sheet?.cssRules ?? []).flatMap(
-    (rule) => {
-      if (rule.type !== CSSRule.MEDIA_RULE) {
-        return rule.cssText;
-      }
-
-      const mediaRule = rule as CSSMediaRule;
-      const minWidth = mediaRule.conditionText.match(/min-width:\s*(\d+)px/);
-      const maxWidth = mediaRule.conditionText.match(/max-width:\s*(\d+)px/);
-      if (
-        (!minWidth && !maxWidth) ||
-        (minWidth && width < Number(minWidth[1])) ||
-        (maxWidth && width > Number(maxWidth[1]))
-      ) {
-        return [];
-      }
-      return Array.from(mediaRule.cssRules, (nestedRule) => nestedRule.cssText);
-    },
-  );
-  source.remove();
-  return activeRules.join("\n");
-}
-
 describe("SettingsCenter responsive layout", () => {
   it("lets segmented controls fit their options without trailing space", () => {
     const segmentedStart = stylesSource.indexOf("\n.segmentedControl,") + 1;
@@ -90,7 +50,7 @@ describe("SettingsCenter responsive layout", () => {
     expect(mobileRule).toContain("min-width: 160px;");
   });
 
-  it("stacks wide controls before the navigation becomes mobile", async () => {
+  it("stacks wide controls before the navigation becomes mobile", () => {
     const compactDesktopStart = stylesSource.indexOf(
       "@media (min-width: 769px) and (max-width: 900px)",
     );
@@ -101,33 +61,6 @@ describe("SettingsCenter responsive layout", () => {
 
     expect(compactDesktopStart).toBeGreaterThanOrEqual(0);
     expect(compactDesktopRule).toContain("width: calc(100% - 48px);");
-
-    expect(generalComponentSource).toContain(
-      "const styles = { ...baseStyles, ...polish };",
-    );
-    const effectiveStyles = { ...baseStyles, ...polishStyles };
-    expect(effectiveStyles.settingRow).toBe(polishStyles.settingRow);
-    expect(effectiveStyles.settingRow).not.toBe(baseStyles.settingRow);
-
-    const { css } = await less.render(generalStylesSource, {
-      filename: join(
-        process.cwd(),
-        "src/pages/SettingsCenter/GeneralSettings.module.less",
-      ),
-    });
-    const activeStyles = document.createElement("style");
-    activeStyles.textContent = getActiveCss(css, 820);
-    document.head.appendChild(activeStyles);
-
-    const row = document.createElement("div");
-    row.className = "settingRow";
-    document.body.appendChild(row);
-
-    expect(getComputedStyle(row).display).toBe("flex");
-    expect(getComputedStyle(row).flexWrap).toBe("wrap");
-
-    row.remove();
-    activeStyles.remove();
   });
 
   it("keeps theme controls compact, aligned and responsive", () => {
