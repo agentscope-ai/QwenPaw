@@ -425,6 +425,29 @@ try:
 except (TypeError, ValueError):
     TOOL_GUARD_APPROVAL_HEARTBEAT_INTERVAL = 15.0
 
+# Tool result snapshot emission gate (geometric byte interval).
+# Each TOOL_RESULT_*_DELTA snapshot re-serializes everything the tool has
+# produced so far, so emitting one per delta makes the bytes retained for
+# reconnect replay quadratic in the delta count. A snapshot is emitted once
+# the accumulated output reaches max(MIN_BYTES, last_emitted * GROWTH),
+# which pins the amplification near GROWTH regardless of output size or of
+# how long the tool runs. Raising GROWTH trades refresh cadence for bytes.
+TOOL_RESULT_SNAPSHOT_MIN_BYTES_ENV = "QWENPAW_TOOL_RESULT_SNAPSHOT_MIN_BYTES"
+DEFAULT_TOOL_RESULT_SNAPSHOT_MIN_BYTES = 1024
+TOOL_RESULT_SNAPSHOT_MIN_BYTES = EnvVarLoader.get_int(
+    TOOL_RESULT_SNAPSHOT_MIN_BYTES_ENV,
+    default=DEFAULT_TOOL_RESULT_SNAPSHOT_MIN_BYTES,
+    min_value=1,
+)
+
+TOOL_RESULT_SNAPSHOT_GROWTH_ENV = "QWENPAW_TOOL_RESULT_SNAPSHOT_GROWTH"
+DEFAULT_TOOL_RESULT_SNAPSHOT_GROWTH = 2
+TOOL_RESULT_SNAPSHOT_GROWTH = EnvVarLoader.get_int(
+    TOOL_RESULT_SNAPSHOT_GROWTH_ENV,
+    default=DEFAULT_TOOL_RESULT_SNAPSHOT_GROWTH,
+    min_value=1,
+)
+
 # TTL for learned model capability cache entries (seconds).
 # 0 disables expiry. Stale entries from transient upstream failures
 # (e.g. a gateway routing a multimodal model to a text-only backend)

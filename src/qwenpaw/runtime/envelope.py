@@ -17,6 +17,10 @@ from datetime import datetime, timezone
 from functools import wraps
 from typing import Any, AsyncGenerator, Callable, Dict
 
+from ..constant import (
+    TOOL_RESULT_SNAPSHOT_GROWTH,
+    TOOL_RESULT_SNAPSHOT_MIN_BYTES,
+)
 from .message_convert import _media_type_to_block_type
 
 logger = logging.getLogger(__name__)
@@ -414,6 +418,8 @@ class Envelope:
                 "message": plugin_call_message,
                 "output_text_fragments": [],
                 "output_data_blocks": {},
+                "accumulated_bytes": 0,
+                "last_emitted_bytes": 0,
             }
 
         elif evt_type == EventType.TOOL_CALL_DELTA.value:
@@ -469,6 +475,8 @@ class Envelope:
                     "argument_fragments": [],
                     "output_text_fragments": [],
                     "output_data_blocks": {},
+                    "accumulated_bytes": 0,
+                    "last_emitted_bytes": 0,
                 }
                 self._tool_calls[call_id] = state
 
@@ -501,13 +509,18 @@ class Envelope:
             state["output_message"] = out_message
             state["output_text_fragments"] = []
             state["output_data_blocks"] = {}
+            state["accumulated_bytes"] = 0
+            state["last_emitted_bytes"] = 0
 
         elif evt_type == EventType.TOOL_RESULT_TEXT_DELTA.value:
             call_id = event.tool_call_id
             state = self._tool_calls.get(call_id)
             if state is None:
                 return
-            state["output_text_fragments"].append(event.delta or "")
+            delta = event.delta or ""
+            state["output_text_fragments"].append(delta)
+            if not self._should_emit_tool_snapshot(state, len(delta)):
+                return
 
             delta_content = self._build_tool_result_content(
                 call_id,
@@ -556,6 +569,12 @@ class Envelope:
                     "type": block_type,
                     "source": source,
                 }
+
+            if not self._should_emit_tool_snapshot(
+                state,
+                len(b64 or "") + len(url or ""),
+            ):
+                return
 
             delta_content = self._build_tool_result_content(
                 call_id,
@@ -725,6 +744,39 @@ class Envelope:
                 getattr(event, "block_id", "?"),
                 source,
             )
+
+    # ------------------------------------------------------------------
+    # Tool result snapshot emission gate
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _should_emit_tool_snapshot(
+        state: Dict[str, Any],
+        added_bytes: int,
+    ) -> bool:
+        """Return whether a full tool result snapshot should be emitted.
+
+        A snapshot re-serializes the whole accumulated output, so one per
+        delta makes the bytes retained for reconnect replay quadratic in
+        the delta count.  Emitting on a geometric byte interval pins the
+        amplification near the growth factor instead, and the first delta
+        always emits so output shows up as soon as there is any.
+
+        Only emission is gated: callers accumulate first, because the
+        cancel-save path and ``TOOL_RESULT_END`` read accumulated state.
+        """
+        accumulated = state.get("accumulated_bytes", 0) + added_bytes
+        state["accumulated_bytes"] = accumulated
+        last_emitted = state.get("last_emitted_bytes", 0)
+        if last_emitted:
+            threshold = max(
+                TOOL_RESULT_SNAPSHOT_MIN_BYTES,
+                last_emitted * TOOL_RESULT_SNAPSHOT_GROWTH,
+            )
+            if accumulated < threshold:
+                return False
+        state["last_emitted_bytes"] = accumulated
+        return True
 
     # ------------------------------------------------------------------
     # Tool result content builder
