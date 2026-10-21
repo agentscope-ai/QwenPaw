@@ -117,13 +117,24 @@ def test_rate_limit_status_precedes_context_heuristic() -> None:
     assert decision.retryable is True
 
 
-def test_content_safety_does_not_fallback() -> None:
+@pytest.mark.parametrize(
+    "message",
+    [
+        "content policy rejected this input",
+        "data_inspection_failed: provider rejected the input",
+        "Input text data may contain inappropriate content",
+    ],
+)
+def test_content_safety_allows_cross_model_fallback_without_retry(
+    message: str,
+) -> None:
     decision = classify_model_error(
-        HttpError(400, "content policy rejected this input"),
+        HttpError(400, message),
     )
 
     assert decision.kind == "content_safety"
-    assert decision.fallback_eligible is False
+    assert decision.retryable is False
+    assert decision.fallback_eligible is True
 
 
 @pytest.mark.parametrize(
