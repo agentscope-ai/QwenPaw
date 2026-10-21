@@ -603,11 +603,10 @@ async def test_sensitive_target_never_reaches_service(monkeypatch):
 @pytest.mark.asyncio
 async def test_unconfigured_effectful_call_requires_approval(
     monkeypatch,
+    typesafe_provider,
 ):
-    async def no_key(_provider):
-        return None
-
-    monkeypatch.setattr(TypeSafeProvider, "_resolve_api_key", no_key)
+    typesafe_provider.api_key = ""
+    monkeypatch.delenv("TYPESAFE_API_KEY", raising=False)
     result = await assess_tool_call("Write", "notes.txt")
     assert result.needs_approval
     assert result.error_type == "not_configured"
@@ -686,8 +685,8 @@ async def test_typed_request_and_response(
         "notes.txt",
         params={"content": "private content"},
     )
-    assert result.needs_approval is (risk > 0.1)
-    assert result.error_type is None
+    assert result.needs_approval is (not include_usage or risk > 0.1)
+    assert result.error_type == (None if include_usage else "ProviderError")
 
 
 @pytest.mark.asyncio

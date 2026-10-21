@@ -16,24 +16,15 @@ from agentscope.classifier import (
     JevClassifierModel,
 )
 from agentscope.credential import TypeSafeCredential
-from pydantic import Field
-from typesafe_sdk import SystemOneResponse, TypeSafeError, Usage
-from typesafe_sdk.constants import DEFAULT_MODEL
+from typesafe_sdk import TypeSafeError
+from typesafe_sdk.constants import API_KEY_ENV, DEFAULT_MODEL
 
 from ..exceptions import ProviderError
-from ..config.utils import get_config_path
-from ..drivers.credentials.store import AsyncCredentialStore
 from .provider import ModelConnectionResult, ModelInfo, Provider
 
 
-class _SystemOneResponse(SystemOneResponse):
-    """Allow omitted usage metadata while retaining SDK answer validation."""
-
-    usage: Usage = Field(default_factory=Usage)
-
-
 class _ConfiguredJevClassifier(JevClassifierModel):
-    """Bind provider headers and optional usage to AgentScope calls."""
+    """Bind provider custom headers to AgentScope calls."""
 
     def __init__(self, *, headers: Mapping[str, str], **kwargs: Any) -> None:
         super().__init__(**kwargs)
@@ -49,7 +40,6 @@ class _ConfiguredJevClassifier(JevClassifierModel):
             **self._headers,
             **(kwargs.get("extra_headers") or {}),
         }
-        kwargs.setdefault("response_model", _SystemOneResponse)
         return await super().__call__(
             state=state,
             questions=questions,
@@ -61,22 +51,6 @@ class TypeSafeProvider(Provider):
     """Manage TypeSafe models using the standard provider lifecycle."""
 
     chat_model: str = ""
-
-    async def _resolve_api_key(self) -> str | None:
-        """Use the provider key, then the legacy Jev key during migration."""
-        if self.api_key.strip():
-            return self.api_key.strip()
-        try:
-            store = AsyncCredentialStore(
-                get_config_path().parent / "credentials.yaml",
-            )
-            record = await store.get("services/typesafe_jev")
-            key = record.secrets.get("api_key")
-            if isinstance(key, str) and key.strip():
-                return key.strip()
-        except Exception:
-            pass
-        return os.getenv("TYPESAFE_API_KEY") or None
 
     @asynccontextmanager
     # The decorator returns a synchronous context-manager factory.
@@ -91,7 +65,7 @@ class TypeSafeProvider(Provider):
         """Use AgentScope's client for classification and model discovery."""
         if not model_id.strip():
             raise ValueError("invalid classifier model")
-        key = await self._resolve_api_key()
+        key = self.api_key.strip() or os.getenv(API_KEY_ENV, "").strip()
         if not key:
             raise ProviderError(
                 "TypeSafe API key is not configured",

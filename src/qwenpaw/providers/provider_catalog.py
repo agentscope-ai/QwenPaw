@@ -121,7 +121,7 @@ PROVIDER_TYPESAFE = TypeSafeProvider(
     meta={"api_key_url": "https://console.typesafe.ai/"},
 )
 
-# Preserve the implicit Jev selection for installations without a saved slot.
+# Default classifier when neither the agent nor global slot is configured.
 DEFAULT_DECISION_MODEL = ModelSlotConfig(
     provider_id=PROVIDER_TYPESAFE.id,
     model=PROVIDER_TYPESAFE.models[0].id,

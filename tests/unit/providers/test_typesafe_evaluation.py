@@ -5,7 +5,6 @@
 
 import asyncio
 import json
-from types import SimpleNamespace
 
 import httpx2
 import pytest
@@ -57,32 +56,19 @@ def install_sdk_transport(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_provider_key_precedes_legacy_credential(provider):
-    assert await provider._resolve_api_key() == "provider-key"
-
-
-@pytest.mark.asyncio
-async def test_legacy_credential_remains_usable(
+@pytest.mark.parametrize("provider_key", ["provider-key", ""])
+async def test_provider_and_environment_credentials(
     monkeypatch,
     mock_transport,
     provider,
+    provider_key,
 ):
-    class LegacyStore:
-        def __init__(self, _path):
-            pass
-
-        async def get(self, _ref):
-            return SimpleNamespace(secrets={"api_key": "legacy-key"})
-
-    provider.api_key = ""
-    monkeypatch.setattr(
-        "qwenpaw.providers.typesafe_provider.AsyncCredentialStore",
-        LegacyStore,
-    )
-    assert await provider._resolve_api_key() == "legacy-key"
+    provider.api_key = provider_key
+    monkeypatch.setenv("TYPESAFE_API_KEY", "environment-key")
 
     def handler(request):
-        assert request.headers["Authorization"] == "Bearer legacy-key"
+        expected_key = provider_key or "environment-key"
+        assert request.headers["Authorization"] == f"Bearer {expected_key}"
         return httpx2.Response(200, json={"models": []})
 
     clients = mock_transport(handler)
@@ -224,10 +210,8 @@ async def test_choice_and_score_with_array_state(mock_transport, provider):
 
 @pytest.mark.asyncio
 async def test_missing_key_is_explicit_error(monkeypatch, provider):
-    async def no_key(_provider):
-        return None
-
-    monkeypatch.setattr(TypeSafeProvider, "_resolve_api_key", no_key)
+    provider.api_key = ""
+    monkeypatch.delenv("TYPESAFE_API_KEY", raising=False)
     with pytest.raises(ProviderError, match="not configured") as error:
         async with provider.open_classifier_model(
             "jev-2",
@@ -239,7 +223,6 @@ async def test_missing_key_is_explicit_error(monkeypatch, provider):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("include_usage", [True, False])
 @pytest.mark.parametrize(
     "answers",
     [
@@ -251,11 +234,12 @@ async def test_invalid_response_envelope_is_rejected(
     mock_transport,
     provider,
     answers,
-    include_usage,
 ):
-    payload = {"model": "jev-2", "answers": answers}
-    if include_usage:
-        payload["usage"] = {"input_tokens": 10, "output_tokens": 2}
+    payload = {
+        "model": "jev-2",
+        "answers": answers,
+        "usage": {"input_tokens": 10, "output_tokens": 2},
+    }
     clients = mock_transport(
         lambda _request: httpx2.Response(
             200,
@@ -443,11 +427,8 @@ async def test_model_discovery_failures_close_client_without_retry(
     if failure == "invalid-key":
         provider.api_key = "invalid key"
     elif failure == "missing-key":
-
-        async def no_key(_provider):
-            return None
-
-        monkeypatch.setattr(TypeSafeProvider, "_resolve_api_key", no_key)
+        provider.api_key = ""
+        monkeypatch.delenv("TYPESAFE_API_KEY", raising=False)
 
     def handler(request):
         requests.append(request)
@@ -532,7 +513,7 @@ async def test_connection_rejects_missing_or_wrong_answer(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("usage", ["missing", {}, None, False, "invalid"])
-async def test_only_missing_usage_receives_a_default(
+async def test_usage_follows_sdk_response_contract(
     mock_transport,
     provider,
     usage,
@@ -549,7 +530,7 @@ async def test_only_missing_usage_receives_a_default(
             json=payload,
         ),
     )
-    if usage in ("missing", {}):
+    if usage == {}:
         async with provider.open_classifier_model(
             "jev-2",
             timeout=4.0,
@@ -563,7 +544,10 @@ async def test_only_missing_usage_receives_a_default(
         assert result.usage.input_tokens is None
         assert result.usage.output_tokens is None
     else:
-        with pytest.raises(ProviderError):
+        with pytest.raises(
+            ProviderError,
+            match="TypeSafeAPIResponseValidationError",
+        ):
             async with provider.open_classifier_model(
                 "jev-2",
                 timeout=4.0,

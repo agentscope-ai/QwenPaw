@@ -99,7 +99,7 @@ _QUESTIONS: dict[str, ClassifierQuestion] = {
 
 
 def _decision_provider(agent_id: str = "") -> tuple[Provider, str]:
-    """Resolve the Agent slot, global slot, then the legacy default."""
+    """Resolve the agent slot, global slot, then the catalog default."""
     try:
         manager = ProviderManager.get_instance()
         slot = None
