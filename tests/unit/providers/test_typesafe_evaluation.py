@@ -2,10 +2,16 @@
 """TypeSafe evaluation uses provider settings and validates responses."""
 
 import json
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, Mock
 
 import httpx2
 import pytest
-from agentscope.classifier import BinaryAnswer, BinaryQuestion
+from agentscope.classifier import (
+    BinaryAnswer,
+    BinaryQuestion,
+    JevClassifierModel,
+)
 
 from qwenpaw.providers.typesafe_provider import (
     TypeSafeEvaluationError,
@@ -140,3 +146,95 @@ async def test_fetch_models_uses_sdk_listing(provider, mock_typesafe):
     models = await provider.fetch_models()
     assert [(m.id, m.model_type) for m in models] == [("jev-2", "decision")]
     assert await provider.check_connection() == (True, "")
+
+
+@pytest.fixture(name="sdk_client")
+def configured_sdk_client(monkeypatch):
+    import typesafe_sdk as sdk
+
+    client = SimpleNamespace(
+        system_one=AsyncMock(
+            return_value=SimpleNamespace(
+                model="jev-2",
+                answers={"q": sdk.NoulAnswer(type="noul", noul=0.2)},
+                usage=sdk.Usage(input_tokens=20, output_tokens=1),
+            ),
+        ),
+        aclose=AsyncMock(),
+    )
+    factory = Mock(return_value=client)
+    monkeypatch.setattr(sdk, "AsyncTypeSafeClient", factory)
+    return factory, client
+
+
+@pytest.mark.asyncio
+async def test_as_model_injects_same_instance_and_preserves_host_headers(
+    provider,
+    sdk_client,
+):
+    from reme.components.as_decision_model import AgentScopeAsDecisionModel
+
+    factory, client = sdk_client
+    model = provider.as_decision_model("jev-2")
+    assert isinstance(model, JevClassifierModel)
+    factory.assert_called_once()
+    assert factory.call_args.kwargs["api_key"] == "provider-key"
+    assert factory.call_args.kwargs["base_url"] == provider.base_url
+    assert factory.call_args.kwargs["model"] == "jev-2"
+    component = AgentScopeAsDecisionModel()
+    component.model = model
+    assert component.model is model
+    response = await component(
+        state={"task": "current"},
+        questions={
+            "q": {"type": "binary", "instructions": "Keep this result?"},
+        },
+    )
+    assert response.content["q"].probability == 0.2
+    assert response.usage.input_tokens == 20
+    kwargs = client.system_one.await_args.kwargs
+    assert kwargs["questions"]["q"].type == "noul"
+    assert kwargs["extra_headers"] == provider.custom_headers
+    await model(
+        state="x",
+        questions={"q": BinaryQuestion()},
+        extra_headers={"X-Project": "override"},
+    )
+    assert client.system_one.await_args.kwargs["extra_headers"] == {
+        "X-Project": "override",
+    }
+    await component.close()
+    client.aclose.assert_not_awaited()
+    await model.client.aclose()
+    client.aclose.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("max_retries", [0, 1])
+async def test_as_model_preserves_timeout_and_retry_policy(
+    provider,
+    sdk_client,
+    max_retries,
+):
+    model = provider.as_decision_model(
+        "jev-2",
+        timeout=3.5,
+        max_retries=max_retries,
+    )
+    factory, _client = sdk_client
+    assert factory.call_args.kwargs["timeout"] == 3.5
+    assert factory.call_args.kwargs["retry"].max_retries == max_retries
+    await model.client.aclose()
+
+
+def test_as_model_requires_provider_key_before_constructing_sdk(
+    monkeypatch,
+    provider,
+    sdk_client,
+):
+    provider.api_key = "  "
+    monkeypatch.setenv("TYPESAFE_API_KEY", "environment-key")
+    with pytest.raises(TypeSafeEvaluationError, match="not configured"):
+        provider.as_decision_model("jev-2")
+    factory, _client = sdk_client
+    factory.assert_not_called()

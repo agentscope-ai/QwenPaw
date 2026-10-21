@@ -393,8 +393,19 @@ Visual Compact 更适合长时间持续的对话、频繁使用工具的任务�
 在 **智能体 → 配置 → 上下文管理 → JEV 相关性压缩** 中开启并设置参数。在模型设置中选择智能体决策模型，
 或配置全局默认决策模型。QwenPaw 用该供应商的已有凭据创建 JEV 客户端，将同一个实例注入 ReMe，
 无需额外配置 ReMe API Key。需要支持宿主模型注入的 ReMe 0.4.2.0。
-QwenPaw 通过自身的 `agentscope[classifier-jev,model-ollama]==2.0.10` 依赖安装 JEV 支持，
+QwenPaw 通过自身的 `agentscope[model-ollama,classifier-jev]==2.0.10` 依赖安装 JEV 支持，
 ReMe 依赖保持 `reme-ai==0.4.2.0`，是否使用由 QwenPaw 的模型配置和压缩开关控制。
+
+`TypeSafeProvider.as_decision_model()` 使用已配置的供应商 API Key 创建 AgentScope `JevClassifierModel` 实例，
+与现有 QwenPaw 决策调用共用同一个构造入口。
+模型保留供应商请求头，由 AS 处理问题与答案的格式转换；调用方负责关闭客户端。
+同一个实例直接借给 ReMe 使用，无需另建 ReMe 模型或配置凭据：
+
+```python
+model = provider.as_decision_model("jev-latest")
+await reme.update_component("as_decision_model", "compaction", model=model)
+```
+
 
 默认关闭，支持 `scroll` 和 `native`，独立于长期记忆及聊天决策开关，需要开启自动上下文压缩。
 仅在超过正常自动触发阈值时执行；手动 `/compact` 和紧急溢出恢复保持原有行为。

@@ -398,8 +398,19 @@ In **Agent → Configuration → Context management → JEV relevance compaction
 limits. Configure an agent decision model in Model settings, or select a global default decision model.
 QwenPaw creates the JEV client from that provider's saved credentials and injects the same instance into ReMe;
 no separate ReMe API key is needed. Requires ReMe 0.4.2.0 with host model injection.
-QwenPaw declares JEV support through its own `agentscope[classifier-jev,model-ollama]==2.0.10` dependency.
+QwenPaw declares JEV support through its own `agentscope[model-ollama,classifier-jev]==2.0.10` dependency.
 Its ReMe dependency stays `reme-ai==0.4.2.0`; model configuration and the opt-in compression switch control usage.
+
+`TypeSafeProvider.as_decision_model()` constructs an AgentScope `JevClassifierModel` instance using the
+configured provider API key, through the same factory as existing QwenPaw evaluation.
+It preserves provider request headers; AgentScope handles question and answer conversion. The caller owns the
+client. The same instance is lent to ReMe, without a separate ReMe model or credentials:
+
+```python
+model = provider.as_decision_model("jev-latest")
+await reme.update_component("as_decision_model", "compaction", model=model)
+```
+
 
 Disabled by default, this enhancement supports both `scroll` and `native`, independently of long-term memory
 and the chat decision toggle. Automatic context compaction must be enabled. JEV runs only above the normal

@@ -31,6 +31,30 @@ class TypeSafeProvider(Provider):
 
     chat_model: str = ""
 
+    def as_decision_model(
+        self,
+        model: str,
+        *,
+        timeout: float = 10,
+        max_retries: int = 1,
+    ) -> JevClassifierModel:
+        """Create a host-configured AS model; the caller owns its client."""
+        from .typesafe_decision_model import TypeSafeDecisionModel
+
+        key = self.api_key.strip()
+        if not key:
+            raise TypeSafeEvaluationError("TypeSafe API key is not configured")
+        return TypeSafeDecisionModel(
+            credential=TypeSafeCredential(
+                api_key=key,
+                base_url=self.base_url.strip() or None,
+            ),
+            model=model,
+            timeout=timeout,
+            max_retries=max_retries,
+            provider_headers=self.custom_headers,
+        )
+
     @asynccontextmanager
     async def _classifier(
         self,
@@ -38,17 +62,10 @@ class TypeSafeProvider(Provider):
         timeout: float,
     ) -> AsyncIterator[JevClassifierModel]:
         """Yield a Jev classifier, normalizing SDK failures."""
-        key = self.api_key.strip()
-        if not key:
-            raise TypeSafeEvaluationError("TypeSafe API key is not configured")
         classifier = None
         try:
-            classifier = JevClassifierModel(
-                credential=TypeSafeCredential(
-                    api_key=key,
-                    base_url=self.base_url.strip() or None,
-                ),
-                model=model,
+            classifier = self.as_decision_model(
+                model,
                 timeout=timeout,
                 # Approval decisions are latency-sensitive; fail fast and let
                 # the caller fall back to asking the user.
@@ -82,11 +99,7 @@ class TypeSafeProvider(Provider):
         if not questions or not model.strip():
             raise ValueError("model and questions are required")
         async with self._classifier(model, timeout) as classifier:
-            return await classifier(
-                state,
-                questions,
-                extra_headers=dict(self.custom_headers) or None,
-            )
+            return await classifier(state, questions)
 
     async def fetch_models(self, timeout: float = 5) -> List[ModelInfo]:
         async with self._classifier("jev-latest", timeout) as classifier:
