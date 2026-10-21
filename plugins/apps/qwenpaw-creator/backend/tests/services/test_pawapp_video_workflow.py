@@ -425,6 +425,8 @@ def test_normalization_rejects_internal_and_unknown_fields(field: str) -> None:
         ("description", "x" * 2001),
         ("language", "a" * 36),
     ],
+    # pytest stores node IDs in PYTEST_CURRENT_TEST; Windows caps env values.
+    ids=["brief", "name", "script", "description", "language"],
 )
 def test_normalization_rejects_oversized_strings(
     field: str,

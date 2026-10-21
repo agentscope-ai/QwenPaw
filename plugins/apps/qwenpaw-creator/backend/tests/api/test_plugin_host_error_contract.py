@@ -100,48 +100,54 @@ def test_plugin_rejects_unsafe_runtime_path_configuration(
 def test_plugin_registers_durable_actions(monkeypatch) -> None:
     module = _load_plugin_entrypoint(monkeypatch)
 
-    registrations = module.app._task_actions
+    registrations = {
+        item.action.action_id: item for item in module.app._task_actions
+    }
 
-    assert [item.action.action_id for item in registrations] == [
-        "create-project",
-        "create-video",
-        "generate-storyboard",
-        "generate-video",
-    ]
-    assert registrations[0].requirement_ids == ()
-    assert registrations[1].requirement_ids == ("creator-llm",)
-    assert registrations[1].deferred_requirement_ids == (
-        "storyboard-image",
-        "shot-video",
-    )
-    assert registrations[2].requirement_ids == ("storyboard-image",)
-    assert registrations[3].requirement_ids == ("shot-video",)
-    assert [item.exposure for item in registrations] == [
-        "host_public",
-        "host_public",
-        "app_private",
-        "app_private",
-    ]
+    assert len(module.app._task_actions) == len(registrations) == 7
+    assert {
+        action_id: (
+            item.requirement_ids,
+            item.deferred_requirement_ids,
+            item.exposure,
+        )
+        for action_id, item in registrations.items()
+    } == {
+        "prepare-production": ((), (), "host_public"),
+        "revise-story": ((), (), "host_public"),
+        "produce-video": (
+            ("creator-llm",),
+            ("storyboard-image", "shot-video"),
+            "host_public",
+        ),
+        "create-project": ((), (), "host_public"),
+        "create-video": (
+            ("creator-llm",),
+            ("storyboard-image", "shot-video"),
+            "host_public",
+        ),
+        "generate-storyboard": (("storyboard-image",), (), "app_private"),
+        "generate-video": (("shot-video",), (), "app_private"),
+    }
     assert all(
         item.settings_entry == "/apps/qwenpaw-creator"
-        for item in registrations
+        for item in registrations.values()
     )
-    assert isinstance(
-        registrations[0].factory(),
-        module.CreatorCreateProjectTaskAdapter,
-    )
-    assert isinstance(
-        registrations[1].factory(),
-        module.CreatorVideoWorkflowTaskAdapter,
-    )
-    assert isinstance(
-        registrations[2].factory(),
-        module.CreatorStoryboardTaskAdapter,
-    )
-    assert isinstance(
-        registrations[3].factory(),
-        module.CreatorVideoTaskAdapter,
-    )
+    for action_id in ("prepare-production", "revise-story"):
+        registration = registrations[action_id]
+        assert callable(registration.handler)
+        assert registration.factory is None
+        assert registration.recovery == "replay_safe"
+    for action_id, adapter_type in {
+        "produce-video": module.CreatorStoryProductionTaskAdapter,
+        "create-project": module.CreatorCreateProjectTaskAdapter,
+        "create-video": module.CreatorVideoWorkflowTaskAdapter,
+        "generate-storyboard": module.CreatorStoryboardTaskAdapter,
+        "generate-video": module.CreatorVideoTaskAdapter,
+    }.items():
+        registration = registrations[action_id]
+        assert registration.handler is None
+        assert isinstance(registration.factory(), adapter_type)
 
 
 def test_real_qwenpaw_host_mount_keeps_creator_errors_local_and_structured(
