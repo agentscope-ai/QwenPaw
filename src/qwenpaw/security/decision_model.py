@@ -338,11 +338,6 @@ def _interpret(
         or not 0 <= confidence <= 1
     ):
         raise ValueError("invalid confidence")
-    if isinstance(selected_probability, bool) or not isinstance(
-        selected_probability,
-        (float, int),
-    ):
-        raise ValueError("invalid selected probability")
     risks = []
     for name in ("destructive", "secret_exposure", "privilege_change"):
         answer = answers.get(name)

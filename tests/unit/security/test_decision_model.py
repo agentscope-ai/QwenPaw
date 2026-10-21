@@ -618,11 +618,21 @@ async def test_unconfigured_effectful_call_requires_approval(
 
 
 @pytest.mark.asyncio
-async def test_typed_request_and_response(monkeypatch):
+@pytest.mark.parametrize("base_path", ["/v1", "/gateway", ""])
+@pytest.mark.parametrize("include_usage", [True, False])
+@pytest.mark.parametrize("risk", [0.01, 0.11])
+async def test_typed_request_and_response(
+    monkeypatch,
+    typesafe_provider,
+    base_path,
+    include_usage,
+    risk,
+):
+    typesafe_provider.base_url = f"https://proxy.example{base_path}"
     original_client = httpx2.AsyncClient
 
     def handler(request):
-        assert request.url.path == "/v1/systemone"
+        assert request.url.path == base_path + "/systemone"
         assert request.headers["Authorization"] == "Bearer test-key"
         import json
 
@@ -637,34 +647,34 @@ async def test_typed_request_and_response(monkeypatch):
         assert body["state"]["parameter_names"] == ["content"]
         assert body["state"]["target"] == "notes.txt"
         assert "private content" not in str(body)
-        return httpx2.Response(
-            200,
-            json={
-                "model": "jev-1",
-                "usage": {"input_tokens": 10, "output_tokens": 2},
-                "answers": {
-                    "impact": {
-                        "type": "choice",
-                        "choice": "routine",
-                        "confidence": 0.95,
-                        "probabilities": {
-                            "read_only": 0.02,
-                            "routine": 0.95,
-                            "risky": 0.02,
-                            "unclear": 0.01,
-                        },
-                    },
-                    **{
-                        name: {"type": "noul", "noul": 0.01}
-                        for name in (
-                            "destructive",
-                            "secret_exposure",
-                            "privilege_change",
-                        )
+        payload = {
+            "model": "jev-1",
+            "usage": {"input_tokens": 10, "output_tokens": 2},
+            "answers": {
+                "impact": {
+                    "type": "choice",
+                    "choice": "routine",
+                    "confidence": 0.95,
+                    "probabilities": {
+                        "read_only": 0.02,
+                        "routine": 0.95,
+                        "risky": 0.02,
+                        "unclear": 0.01,
                     },
                 },
+                **{
+                    name: {"type": "noul", "noul": risk}
+                    for name in (
+                        "destructive",
+                        "secret_exposure",
+                        "privilege_change",
+                    )
+                },
             },
-        )
+        }
+        if not include_usage:
+            payload.pop("usage")
+        return httpx2.Response(200, json=payload)
 
     def create_client(**kwargs):
         kwargs["transport"] = httpx2.MockTransport(handler)
@@ -676,7 +686,8 @@ async def test_typed_request_and_response(monkeypatch):
         "notes.txt",
         params={"content": "private content"},
     )
-    assert not result.needs_approval
+    assert result.needs_approval is (risk > 0.1)
+    assert result.error_type is None
 
 
 @pytest.mark.asyncio

@@ -9,6 +9,7 @@ from collections.abc import AsyncIterator, Mapping
 from typing import Any, List
 
 import httpx
+import httpx2
 from agentscope.classifier import (
     BinaryAnswer,
     BinaryQuestion,
@@ -18,7 +19,14 @@ from agentscope.classifier import (
     JevClassifierModel,
 )
 from agentscope.credential import TypeSafeCredential
-from typesafe_sdk import TypeSafeError
+from pydantic import Field
+from typesafe_sdk import (
+    AsyncTypeSafeClient,
+    RetryPolicy,
+    SystemOneResponse,
+    TypeSafeError,
+    Usage,
+)
 
 from ..exceptions import ProviderError
 from ..config.utils import get_config_path
@@ -26,12 +34,25 @@ from ..drivers.credentials.store import AsyncCredentialStore
 from .provider import ModelConnectionResult, ModelInfo, Provider
 
 
-class _ConfiguredJevClassifier(JevClassifierModel):
-    """Bind provider headers without exposing SDK options to callers."""
+class _SystemOneResponse(SystemOneResponse):
+    """Allow omitted usage metadata while retaining SDK answer validation."""
 
-    def __init__(self, *, headers: Mapping[str, str], **kwargs: Any) -> None:
-        super().__init__(**kwargs)
-        self._headers = dict(headers)
+    usage: Usage = Field(default_factory=Usage)
+
+
+class _ConfiguredJevClassifier(JevClassifierModel):
+    """Use the provider's SDK client with AgentScope's typed conversion."""
+
+    def __init__(
+        self,
+        credential: TypeSafeCredential,
+        model: str,
+        client: AsyncTypeSafeClient,
+    ) -> None:
+        # JevClassifierModel does not support client injection. Initialize the
+        # shared model state without constructing a second, unused SDK client.
+        ClassifierModelBase.__init__(self, credential=credential, model=model)
+        self.client = client
 
     async def __call__(
         self,
@@ -39,10 +60,7 @@ class _ConfiguredJevClassifier(JevClassifierModel):
         questions: Mapping[str, ClassifierQuestion],
         **kwargs: Any,
     ) -> ClassifierResponse:
-        kwargs["extra_headers"] = {
-            **self._headers,
-            **kwargs.get("extra_headers", {}),
-        }
+        kwargs.setdefault("response_model", _SystemOneResponse)
         return await super().__call__(
             state=state,
             questions=questions,
@@ -99,20 +117,36 @@ class TypeSafeProvider(Provider):
                 "TypeSafe API key is not configured",
                 details={"error_type": "not_configured"},
             )
+        credential = TypeSafeCredential(
+            api_key=key,
+            base_url=self.base_url.rstrip("/"),
+        )
+        endpoint = httpx2.URL(f"{credential.base_url}/systemone")
+
+        async def use_provider_endpoint(request: httpx2.Request) -> None:
+            # The SDK assumes /v1/systemone. Saved provider URLs already
+            # include the API prefix, which may be a custom proxy path.
+            request.url = endpoint
+
         try:
-            classifier = _ConfiguredJevClassifier(
-                credential=TypeSafeCredential(
+            # Own the HTTP client even if SDK configuration fails on entry.
+            async with httpx2.AsyncClient(
+                event_hooks={"request": [use_provider_endpoint]},
+            ) as http_client:
+                async with AsyncTypeSafeClient(
                     api_key=key,
-                    # The SDK appends /v1 to its API root.
-                    base_url=self.base_url.rstrip("/").removesuffix("/v1"),
-                ),
-                model=model_id,
-                timeout=timeout,
-                max_retries=max_retries,
-                headers=self.custom_headers,
-            )
-            async with classifier.client:
-                yield classifier
+                    base_url=credential.base_url,
+                    model=model_id,
+                    timeout=timeout,
+                    retry=RetryPolicy(max_retries=max_retries),
+                    headers=self.custom_headers,
+                    http_client=http_client,
+                ) as client:
+                    yield _ConfiguredJevClassifier(
+                        credential=credential,
+                        model=model_id,
+                        client=client,
+                    )
         except TypeSafeError as exc:
             raise ProviderError(type(exc).__name__) from exc
 

@@ -78,7 +78,10 @@ async def test_legacy_credential_remains_usable(monkeypatch, provider):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("base_path", ["/v1", "/v1/", "/gateway/v1/"])
+@pytest.mark.parametrize(
+    "base_path",
+    ["/v1", "/v1/", "/gateway/v1/", "/gateway", "/gateway/", "", "/"],
+)
 async def test_classifier_uses_provider_settings(
     mock_transport,
     provider,
@@ -218,6 +221,7 @@ async def test_missing_key_is_explicit_error(monkeypatch, provider):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("include_usage", [True, False])
 @pytest.mark.parametrize(
     "answers",
     [
@@ -229,15 +233,15 @@ async def test_invalid_response_envelope_is_rejected(
     mock_transport,
     provider,
     answers,
+    include_usage,
 ):
+    payload = {"model": "jev-2", "answers": answers}
+    if include_usage:
+        payload["usage"] = {"input_tokens": 10, "output_tokens": 2}
     clients = mock_transport(
         lambda _request: httpx2.Response(
             200,
-            json={
-                "model": "jev-2",
-                "answers": answers,
-                "usage": {"input_tokens": 10, "output_tokens": 2},
-            },
+            json=payload,
         ),
     )
     with pytest.raises(
@@ -257,13 +261,15 @@ async def test_invalid_response_envelope_is_rejected(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("failure", [401, 429, 500, "timeout"])
+@pytest.mark.parametrize("failure", [401, 429, 500, "timeout", "invalid-key"])
 async def test_sdk_failures_do_not_retry_and_close_client(
     mock_transport,
     provider,
     failure,
 ):
     requests = []
+    if failure == "invalid-key":
+        provider.api_key = "invalid key"
 
     def handler(request):
         requests.append(request)
@@ -282,8 +288,8 @@ async def test_sdk_failures_do_not_retry_and_close_client(
                 state="x",
                 questions={"q": BinaryQuestion(instructions="x")},
             )
-    assert len(requests) == 1
-    assert all(client.is_closed for client in clients)
+    assert len(requests) == (0 if failure == "invalid-key" else 1)
+    assert clients and all(client.is_closed for client in clients)
 
 
 @pytest.mark.asyncio
@@ -293,7 +299,10 @@ async def test_model_connection_uses_classifier(
     provider,
     status,
 ):
+    provider.base_url = "https://proxy.example/gateway"
+
     def handler(request):
+        assert request.url.path == "/gateway/systemone"
         body = json.loads(request.content)
         assert body["model"] == "jev-2"
         assert body["state"] == "Hello"
@@ -372,3 +381,49 @@ async def test_connection_rejects_missing_or_wrong_answer(
     result = await provider.check_model_connection("jev-2")
     assert not result.success
     assert all(client.is_closed for client in clients)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("usage", ["missing", {}, None, False, "invalid"])
+async def test_only_missing_usage_receives_a_default(
+    mock_transport,
+    provider,
+    usage,
+):
+    payload = {
+        "model": "jev-2",
+        "answers": {"q": {"type": "noul", "noul": 0.8}},
+    }
+    if usage != "missing":
+        payload["usage"] = usage
+    clients = mock_transport(
+        lambda _request: httpx2.Response(
+            200,
+            json=payload,
+        ),
+    )
+    if usage in ("missing", {}):
+        async with provider.open_classifier_model(
+            "jev-2",
+            timeout=4.0,
+            max_retries=0,
+        ) as classifier:
+            result = await classifier(
+                state="x",
+                questions={"q": BinaryQuestion(instructions="x")},
+            )
+        assert result.content["q"] == BinaryAnswer(probability=0.8)
+        assert result.usage.input_tokens is None
+        assert result.usage.output_tokens is None
+    else:
+        with pytest.raises(ProviderError):
+            async with provider.open_classifier_model(
+                "jev-2",
+                timeout=4.0,
+                max_retries=0,
+            ) as classifier:
+                await classifier(
+                    state="x",
+                    questions={"q": BinaryQuestion(instructions="x")},
+                )
+    assert clients and all(client.is_closed for client in clients)
