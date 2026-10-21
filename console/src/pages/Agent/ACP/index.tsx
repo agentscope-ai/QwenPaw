@@ -144,6 +144,11 @@ function getSelectedNodeValue(
   return status.effective_node_path || undefined;
 }
 
+type ACPMutationOwner = {
+  agentId: string;
+  generation: number;
+};
+
 function ACPPage() {
   const { t } = useTranslation();
   const { message } = useAppMessage();
@@ -212,10 +217,19 @@ function ACPPage() {
     void fetchACP(selectedAgent);
   }, [fetchACP, selectedAgent]);
 
+  useEffect(
+    () => () => {
+      requestSequence.current += 1;
+      nodeRequestSequence.current += 1;
+    },
+    [],
+  );
+
   const ownerIsCurrent = useCallback(
-    (owner: string) =>
-      loadedConfigOwner === owner &&
-      useAgentStore.getState().selectedAgent === owner,
+    (owner: ACPMutationOwner) =>
+      requestSequence.current === owner.generation &&
+      loadedConfigOwner === owner.agentId &&
+      useAgentStore.getState().selectedAgent === owner.agentId,
     [loadedConfigOwner],
   );
 
@@ -225,19 +239,21 @@ function ACPPage() {
       void fetchACP(currentAgent);
       return null;
     }
-    return currentAgent;
+    return {
+      agentId: currentAgent,
+      generation: requestSequence.current,
+    };
   }, [fetchACP, loadedConfig, loadedConfigOwner]);
 
   const fetchNodeRuntime = useCallback(
-    async (requestedAgent: string) => {
+    async (owner: ACPMutationOwner) => {
       const requestId = ++nodeRequestSequence.current;
       const requestIsCurrent = () =>
-        requestId === nodeRequestSequence.current &&
-        useAgentStore.getState().selectedAgent === requestedAgent;
+        requestId === nodeRequestSequence.current && ownerIsCurrent(owner);
       if (!requestIsCurrent()) return;
       setNodeRuntimeLoading(true);
       try {
-        const status = await api.getACPNodeRuntime(requestedAgent);
+        const status = await api.getACPNodeRuntime(owner.agentId);
         if (requestIsCurrent()) setNodeRuntime(status);
       } catch (error) {
         if (!requestIsCurrent()) return;
@@ -247,7 +263,7 @@ function ACPPage() {
         if (requestIsCurrent()) setNodeRuntimeLoading(false);
       }
     },
-    [message, t],
+    [message, ownerIsCurrent, t],
   );
 
   const orderedKeys = useMemo(() => {
@@ -346,7 +362,7 @@ function ACPPage() {
       try {
         const status = await api.updateACPNodeRuntime(
           { node_path: nodePath },
-          ownerAgent,
+          ownerAgent.agentId,
         );
         if (!ownerIsCurrent(ownerAgent)) return;
         setNodeRuntime(status);
@@ -461,11 +477,18 @@ function ACPPage() {
         }
         nextAgents[targetKey] = updatedConfig;
         const nextConfig = { ...loadedConfig, agents: nextAgents };
-        const savedConfig = await api.updateACPConfig(nextConfig, ownerAgent);
+        const savedConfig = await api.updateACPConfig(
+          nextConfig,
+          ownerAgent.agentId,
+        );
         if (!ownerIsCurrent(ownerAgent)) return false;
         setLoadedConfig(savedConfig || nextConfig);
       } else {
-        await api.updateACPAgentConfig(targetKey, updatedConfig, ownerAgent);
+        await api.updateACPAgentConfig(
+          targetKey,
+          updatedConfig,
+          ownerAgent.agentId,
+        );
         if (!ownerIsCurrent(ownerAgent)) return false;
         setLoadedConfig((current) =>
           current
@@ -526,10 +549,13 @@ function ACPPage() {
           const nextAgents = { ...agents };
           delete nextAgents[activeKey];
           const nextConfig = { ...loadedConfig, agents: nextAgents };
-          const savedConfig = await api.updateACPConfig(nextConfig, ownerAgent);
+          const savedConfig = await api.updateACPConfig(
+            nextConfig,
+            ownerAgent.agentId,
+          );
           if (!ownerIsCurrent(ownerAgent)) return;
           setLoadedConfig(savedConfig || nextConfig);
-          await fetchACP(ownerAgent);
+          await fetchACP(ownerAgent.agentId);
           handleClose();
           message.success(t("acp.deleteSuccess"));
         } catch (error) {
@@ -681,7 +707,7 @@ function ACPPage() {
                           ...config,
                           enabled: !config.enabled,
                         },
-                        ownerAgent,
+                        ownerAgent.agentId,
                       );
                       if (!ownerIsCurrent(ownerAgent)) return;
                       setAgents((current) => ({

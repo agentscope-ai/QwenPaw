@@ -116,10 +116,12 @@ vi.mock("@/components/interaction/SharedModal", () => ({
 vi.mock("./components/ACPCard", () => ({
   ACPCard: ({
     agentKey,
+    config,
     onClick,
     onToggle,
   }: {
     agentKey: string;
+    config: ACPAgentConfig;
     onClick: () => void;
     onToggle: () => Promise<void>;
   }) => {
@@ -130,7 +132,11 @@ vi.mock("./components/ACPCard", () => ({
         <button type="button" onClick={onClick}>
           edit-{agentKey}
         </button>
-        <button type="button" onClick={() => void onToggle()}>
+        <button
+          type="button"
+          data-enabled={config.enabled}
+          onClick={() => void onToggle()}
+        >
           toggle-{agentKey}
         </button>
       </div>
@@ -405,4 +411,65 @@ describe("ACP load guard", () => {
     expect(mocks.getACPConfig).toHaveBeenCalledWith("new");
     expect(screen.getByRole("status")).toHaveTextContent("acp.loading");
   });
+
+  it.each(["resolve", "reject"] as const)(
+    "ignores an old A toggle that settles after A-B-A with %s",
+    async (settlement) => {
+      vi.spyOn(console, "error").mockImplementation(() => {});
+      agentStore.state.selectedAgent = "agent-a";
+      const staleToggle = deferred<void>();
+      const disabledAgent = { ...existingAgent, enabled: false };
+      mocks.getACPConfig
+        .mockReset()
+        .mockResolvedValueOnce(loadedConfig)
+        .mockResolvedValueOnce(newOwnerConfig)
+        .mockResolvedValueOnce({
+          ...loadedConfig,
+          agents: { "existing-custom": disabledAgent },
+        });
+      mocks.updateACPAgentConfig
+        .mockImplementationOnce(() => staleToggle.promise)
+        .mockResolvedValueOnce({});
+
+      const view = render(<ACPPage />);
+      const firstToggle = await screen.findByRole("button", {
+        name: "toggle-existing-custom",
+      });
+      fireEvent.click(firstToggle);
+      await waitFor(() =>
+        expect(mocks.updateACPAgentConfig).toHaveBeenCalledTimes(1),
+      );
+
+      agentStore.state.selectedAgent = "agent-b";
+      view.rerender(<ACPPage />);
+      expect(await screen.findByText("new-existing")).toBeInTheDocument();
+
+      agentStore.state.selectedAgent = "agent-a";
+      view.rerender(<ACPPage />);
+      const currentToggle = await screen.findByRole("button", {
+        name: "toggle-existing-custom",
+      });
+      expect(currentToggle).toHaveAttribute("data-enabled", "false");
+      fireEvent.click(currentToggle);
+      await waitFor(() =>
+        expect(mocks.updateACPAgentConfig).toHaveBeenCalledTimes(2),
+      );
+      await waitFor(() =>
+        expect(currentToggle).toHaveAttribute("data-enabled", "true"),
+      );
+
+      await act(async () => {
+        if (settlement === "resolve") {
+          staleToggle.resolve();
+          await staleToggle.promise;
+        } else {
+          staleToggle.reject(new Error("late toggle failure"));
+          await staleToggle.promise.catch(() => undefined);
+        }
+      });
+
+      expect(currentToggle).toHaveAttribute("data-enabled", "true");
+      expect(mocks.message.error).not.toHaveBeenCalled();
+    },
+  );
 });
