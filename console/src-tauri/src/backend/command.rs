@@ -1,7 +1,9 @@
 //! Backend command construction for development and packaged builds.
 
 use std::path::{Path, PathBuf};
-#[cfg(debug_assertions)]
+// StdCommand/Stdio are used by `command_exists` (dev) and
+// `resolve_login_shell_path` (packaged macOS).
+#[cfg(any(debug_assertions, target_os = "macos"))]
 use std::process::{Command as StdCommand, Stdio};
 
 #[cfg(not(debug_assertions))]
@@ -175,7 +177,15 @@ fn packaged_backend_executable(app: &tauri::AppHandle) -> Result<PathBuf, String
 
 #[cfg(not(debug_assertions))]
 fn path_with_backend_dir(backend_dir: &Path) -> Result<String, String> {
-    let mut paths = vec![backend_dir.to_path_buf()];
+    let mut paths: Vec<PathBuf> = vec![backend_dir.to_path_buf()];
+    // GUI apps on macOS inherit launchd's minimal PATH and skip the login
+    // shell, so user-installed version managers (Homebrew, nvm, mise, pyenv,
+    // asdf — usually exported in ~/.zshrc) are missing. Resolve the PATH a
+    // login+interactive shell would produce and prefer it over our own env.
+    #[cfg(target_os = "macos")]
+    if let Some(login) = resolve_login_shell_path() {
+        paths.extend(std::env::split_paths(&login));
+    }
     if let Some(existing) = std::env::var_os(path_env_key()) {
         paths.extend(std::env::split_paths(&existing));
     }
@@ -184,6 +194,85 @@ fn path_with_backend_dir(backend_dir: &Path) -> Result<String, String> {
         .map_err(|err| format!("failed to join backend PATH entries: {err}"))?
         .into_string()
         .map_err(|_| "backend PATH contains non-Unicode data".to_string())
+}
+
+#[cfg(all(not(debug_assertions), target_os = "macos"))]
+fn wait_child_with_timeout(
+    child: &mut std::process::Child,
+    timeout: std::time::Duration,
+) -> Option<std::process::ExitStatus> {
+    use std::time::{Duration, Instant};
+
+    let deadline = Instant::now() + timeout;
+
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => return Some(status),
+            Ok(None) => {
+                if Instant::now() >= deadline {
+                    log::warn!("[backend] login shell PATH resolution timed out");
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return None;
+                }
+                std::thread::sleep(Duration::from_millis(50));
+            }
+            Err(err) => {
+                log::warn!("[backend] failed to check login shell status: {err}");
+                return None;
+            }
+        }
+    }
+}
+
+/// Marker pair wrapping the PATH printed by the login-shell probe: rc
+/// files may write arbitrary stdout, so only text between them is trusted.
+#[cfg(any(test, all(not(debug_assertions), target_os = "macos")))]
+const LOGIN_PATH_BEGIN: &str = "__QWENPAW_LOGIN_PATH_BEGIN__";
+#[cfg(any(test, all(not(debug_assertions), target_os = "macos")))]
+const LOGIN_PATH_END: &str = "__QWENPAW_LOGIN_PATH_END__";
+
+/// Extracts the marked PATH from raw login-shell stdout, ignoring any
+/// noise the rc files printed before or after the markers.
+#[cfg(any(test, all(not(debug_assertions), target_os = "macos")))]
+fn parse_marked_login_path(stdout: &str) -> Option<String> {
+    stdout
+        .split_once(LOGIN_PATH_BEGIN)
+        .and_then(|(_, rest)| rest.split_once(LOGIN_PATH_END))
+        .map(|(path, _)| path.trim())
+        .filter(|path| !path.is_empty())
+        .map(str::to_owned)
+}
+
+/// Spawns a login+interactive shell (`$SHELL -l -i`) and captures its PATH.
+///
+/// `-i` loads interactive rc files where nvm/mise/asdf/pyenv usually add
+/// their shims. PATH is wrapped with markers because rc files may write
+/// arbitrary stdout. Timeout/failure falls back to inherited PATH.
+#[cfg(all(not(debug_assertions), target_os = "macos"))]
+fn resolve_login_shell_path() -> Option<String> {
+    use std::time::Duration;
+
+    const TIMEOUT: Duration = Duration::from_secs(5);
+
+    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
+    let cmd = format!("printf '{LOGIN_PATH_BEGIN}%s{LOGIN_PATH_END}' \"$PATH\"");
+    let mut child = StdCommand::new(&shell)
+        .args(["-l", "-i", "-c", &cmd])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .stdin(Stdio::null())
+        .spawn()
+        .ok()?;
+
+    let status = wait_child_with_timeout(&mut child, TIMEOUT)?;
+    if !status.success() {
+        log::warn!("[backend] login shell exited unsuccessfully: {status}");
+        return None;
+    }
+
+    let stdout = String::from_utf8(child.wait_with_output().ok()?.stdout).ok()?;
+    parse_marked_login_path(&stdout)
 }
 
 #[cfg(all(not(debug_assertions), windows))]
@@ -241,5 +330,38 @@ fn python_command(repo_root: &Path) -> (String, Vec<&'static str>) {
         ("python3".to_string(), vec![])
     } else {
         ("python".to_string(), vec![])
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{parse_marked_login_path, LOGIN_PATH_BEGIN, LOGIN_PATH_END};
+
+    #[test]
+    fn marked_path_is_extracted_with_noise_before_and_after_markers() {
+        let stdout = format!(
+            "profile-banner-before\n\
+             {LOGIN_PATH_BEGIN}/custom/version-manager/bin:/usr/bin:/bin{LOGIN_PATH_END}\n\
+             profile-banner-after\n"
+        );
+        assert_eq!(
+            parse_marked_login_path(&stdout).as_deref(),
+            Some("/custom/version-manager/bin:/usr/bin:/bin")
+        );
+    }
+
+    #[test]
+    fn marked_path_is_extracted_from_clean_output() {
+        let stdout = format!("{LOGIN_PATH_BEGIN}/usr/bin:/bin{LOGIN_PATH_END}");
+        assert_eq!(
+            parse_marked_login_path(&stdout).as_deref(),
+            Some("/usr/bin:/bin")
+        );
+    }
+
+    #[test]
+    fn output_without_markers_is_rejected() {
+        assert_eq!(parse_marked_login_path("profile-banner-only\n"), None);
+        assert_eq!(parse_marked_login_path(""), None);
     }
 }
