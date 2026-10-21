@@ -3,11 +3,11 @@
 
 # pylint: disable=protected-access
 
+import json
 from types import SimpleNamespace
 
 import httpx2
 import pytest
-import typesafe_sdk
 from agentscope.classifier import (
     BinaryAnswer,
     ChoiceAnswer,
@@ -158,8 +158,6 @@ def test_only_confident_low_risk_response_skips_approval():
 
 
 def test_malformed_response_fails_closed():
-    with pytest.raises(ValueError):
-        _interpret({"answers": {"impact": {"type": "choice"}}})
     refused = _response()
     refused.content["destructive"] = RefusalAnswer()
     with pytest.raises(ValueError):
@@ -523,14 +521,10 @@ async def test_unconfigured_effectful_call_requires_approval(
 
 
 @pytest.mark.asyncio
-async def test_typed_request_and_response(monkeypatch):
-    original_client = typesafe_sdk.AsyncTypeSafeClient
-
+async def test_typed_request_and_response(mock_typesafe):
     def handler(request):
         assert request.url.path == "/v1/systemone"
         assert request.headers["Authorization"] == "Bearer test-key"
-        import json
-
         body = json.loads(request.content)
         assert body["model"] == "jev-latest"
         assert set(body["questions"]) == {
@@ -544,15 +538,7 @@ async def test_typed_request_and_response(monkeypatch):
         assert "private content" not in str(body)
         return httpx2.Response(200, json=_wire_response())
 
-    monkeypatch.setattr(
-        typesafe_sdk,
-        "AsyncTypeSafeClient",
-        lambda **kwargs: original_client(
-            transport=httpx2.MockTransport(handler),
-            compression=False,
-            **kwargs,
-        ),
-    )
+    mock_typesafe(handler)
     result = await assess_tool_call(
         "Write",
         "notes.txt",

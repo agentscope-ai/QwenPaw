@@ -5,7 +5,6 @@ import json
 
 import httpx2
 import pytest
-import typesafe_sdk
 from agentscope.classifier import BinaryAnswer, BinaryQuestion
 
 from qwenpaw.providers.typesafe_provider import (
@@ -23,25 +22,6 @@ def configured_provider():
         base_url="https://proxy.example",
         custom_headers={"X-Project": "demo"},
     )
-
-
-@pytest.fixture(name="mock_typesafe")
-def mock_typesafe_transport(monkeypatch):
-    """Route the SDK client created by JevClassifierModel to a handler."""
-
-    def install(handler):
-        original_client = typesafe_sdk.AsyncTypeSafeClient
-        monkeypatch.setattr(
-            typesafe_sdk,
-            "AsyncTypeSafeClient",
-            lambda **kwargs: original_client(
-                transport=httpx2.MockTransport(handler),
-                compression=False,
-                **kwargs,
-            ),
-        )
-
-    return install
 
 
 _QUESTIONS = {
@@ -105,7 +85,7 @@ async def test_api_error_carries_http_status(provider, mock_typesafe):
     )
     with pytest.raises(TypeSafeEvaluationError) as exc_info:
         await provider.evaluate(state="x", questions=_QUESTIONS)
-    assert exc_info.value.http_status == 401
+    assert exc_info.value.status_code == 401
 
     result = await provider.check_model_connection("jev-2")
     assert not result.success

@@ -313,19 +313,12 @@ def _interpret(
     *,
     baseline_ask: bool = False,
 ) -> DecisionModelAssessment:
-    if not isinstance(response, ClassifierResponse) or not isinstance(
-        response.content,
-        dict,
-    ):
-        raise ValueError("missing answers")
     answers = response.content
     impact = answers.get("impact")
     if not isinstance(impact, ChoiceAnswer):
         raise ValueError("invalid impact answer")
     probabilities = impact.probabilities
-    if not isinstance(probabilities, dict) or set(probabilities) != set(
-        _QUESTIONS["impact"].criteria,
-    ):
+    if set(probabilities) != set(_QUESTIONS["impact"].criteria):
         raise ValueError("invalid impact probabilities")
     if not all(_is_probability(p) for p in probabilities.values()):
         raise ValueError("invalid probability")

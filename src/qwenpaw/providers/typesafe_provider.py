@@ -13,6 +13,7 @@ from agentscope.classifier import (
     JevClassifierModel,
 )
 from agentscope.credential import TypeSafeCredential
+from typesafe_sdk import TypeSafeError
 
 from .provider import ModelConnectionResult, ModelInfo, Provider
 
@@ -20,25 +21,9 @@ from .provider import ModelConnectionResult, ModelInfo, Provider
 class TypeSafeEvaluationError(RuntimeError):
     """Configuration, transport, or response-shape failure."""
 
-    def __init__(self, message: str, http_status: int | None = None) -> None:
+    def __init__(self, message: str, status_code: int | None = None) -> None:
         super().__init__(message)
-        self.http_status = http_status
-
-
-def _from_sdk_error(exc: Exception) -> TypeSafeEvaluationError | None:
-    """Translate a ``typesafe_sdk`` failure, or return None for others."""
-    try:
-        from typesafe_sdk import TypeSafeError
-    except ImportError:
-        return None
-    if not isinstance(exc, TypeSafeError):
-        return None
-    # API errors carry the HTTP status as ``status``.
-    status = getattr(exc, "status", None)
-    return TypeSafeEvaluationError(
-        f"{type(exc).__name__}: {exc}",
-        http_status=status if isinstance(status, int) else None,
-    )
+        self.status_code = status_code
 
 
 class TypeSafeProvider(Provider):
@@ -52,14 +37,11 @@ class TypeSafeProvider(Provider):
         model: str,
         timeout: float,
     ) -> AsyncIterator[JevClassifierModel]:
-        """Build a Jev classifier and release its HTTP client afterwards.
-
-        SDK failures raised while building or using the classifier are
-        normalized to :class:`TypeSafeEvaluationError`.
-        """
+        """Yield a Jev classifier, normalizing SDK failures."""
         key = self.api_key.strip()
         if not key:
             raise TypeSafeEvaluationError("TypeSafe API key is not configured")
+        classifier = None
         try:
             classifier = JevClassifierModel(
                 credential=TypeSafeCredential(
@@ -72,31 +54,17 @@ class TypeSafeProvider(Provider):
                 # the caller fall back to asking the user.
                 max_retries=0,
             )
-        except ImportError as exc:
-            raise TypeSafeEvaluationError(
-                "typesafe-sdk is not installed",
-            ) from exc
-        except Exception as exc:
-            error = _from_sdk_error(exc)
-            if error is None:
-                raise
-            raise error from exc
-        try:
             yield classifier
-        except Exception as exc:
-            error = _from_sdk_error(exc)
-            if error is None:
-                raise
-            raise error from exc
+        except TypeSafeError as exc:
+            # API errors carry the HTTP status as ``status``.
+            status = getattr(exc, "status", None)
+            raise TypeSafeEvaluationError(
+                f"{type(exc).__name__}: {exc}",
+                status_code=status if isinstance(status, int) else None,
+            ) from exc
         finally:
-            await classifier.client.aclose()
-
-    def _call_options(self) -> dict[str, Any]:
-        return (
-            {"extra_headers": dict(self.custom_headers)}
-            if self.custom_headers
-            else {}
-        )
+            if classifier is not None:
+                await classifier.client.aclose()
 
     async def evaluate(
         self,
@@ -110,26 +78,19 @@ class TypeSafeProvider(Provider):
 
         Interpreting (and validating) the answers is left to the caller.
         """
-        if (
-            not questions
-            or not model.strip()
-            or not isinstance(state, (str, dict))
-            or timeout <= 0
-        ):
-            raise ValueError(
-                "model, state, questions, and timeout are required",
-            )
+        if not questions or not model.strip():
+            raise ValueError("model and questions are required")
         async with self._classifier(model, timeout) as classifier:
             return await classifier(
                 state,
                 questions,
-                **self._call_options(),
+                extra_headers=dict(self.custom_headers) or None,
             )
 
     async def fetch_models(self, timeout: float = 5) -> List[ModelInfo]:
         async with self._classifier("jev-latest", timeout) as classifier:
             response = await classifier.client.models.list(
-                **self._call_options(),
+                extra_headers=dict(self.custom_headers) or None,
             )
         return [
             ModelInfo(
@@ -167,14 +128,6 @@ class TypeSafeProvider(Provider):
             return ModelConnectionResult(
                 success=False,
                 message=self.connection_error_message(exc),
-                http_status=exc.http_status,
+                http_status=exc.status_code,
             )
         return ModelConnectionResult(success=True)
-
-    @classmethod
-    def connection_error_message(cls, exc: Exception) -> str:
-        status = getattr(exc, "http_status", None)
-        detail = cls.sanitize_connection_message(
-            str(exc) or exc.__class__.__name__,
-        )
-        return f"status={status}: {detail}" if status is not None else detail
