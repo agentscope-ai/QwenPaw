@@ -1138,7 +1138,7 @@
       "subagentShort": "Subagen"
     },
     "fileReference": {
-      "codeSnippet": "Cuplikan kode · {{count}} baris"
+      "codeSnippet_other": "Cuplikan kode · {{count}} baris"
     },
     "modelSelectTooltip": "Pilih model",
     "chatHistoryTooltip": "Riwayat chat",
