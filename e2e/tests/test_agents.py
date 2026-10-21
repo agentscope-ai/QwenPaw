@@ -18,8 +18,10 @@ from __future__ import annotations
 import json
 import logging
 import time
+import uuid
+
 import pytest
-from playwright.sync_api import Page, expect
+from playwright.sync_api import APIRequestContext, Page, expect
 
 from config.settings import config
 from pages.agents_page import AgentsPage
@@ -35,6 +37,42 @@ def navigate_to_agents(page: Page):
     page.goto(AGENTS_URL)
     page.wait_for_load_state("domcontentloaded")
     page.wait_for_timeout(2000)
+
+
+def _create_test_agent(
+    api_context: APIRequestContext,
+    prefix: str,
+) -> dict:
+    """Create a uniquely identified agent through the public API."""
+    suffix = uuid.uuid4().hex[:8]
+    agent_id = f"{prefix}_{suffix}"
+    response = api_context.post(
+        "/api/agents",
+        data={
+            "id": agent_id,
+            "name": f"{prefix} {suffix}",
+            "description": "E2E fixture agent",
+            "language": "en",
+            "backend": "qwenpaw",
+        },
+    )
+    assert response.ok, response.text()
+    return {"id": agent_id, "name": f"{prefix} {suffix}"}
+
+
+def _delete_test_agent(
+    api_context: APIRequestContext,
+    agent_id: str,
+) -> None:
+    """Delete an agent fixture after asynchronous startup finishes."""
+    deadline = time.monotonic() + 30
+    while True:
+        response = api_context.delete(f"/api/agents/{agent_id}")
+        if response.ok or response.status == 404:
+            return
+        if response.status != 409 or time.monotonic() >= deadline:
+            raise AssertionError(response.text())
+        time.sleep(0.5)
 
 
 # ============================================================================
@@ -800,99 +838,97 @@ class TestAgentProtection:
 @pytest.mark.p1
 @pytest.mark.agents_reorder
 class TestAgentDragReorder:
-    """
-    AGENT-P1-001: Agent drag-and-drop reorder.
+    """AGENT-P1-001: Agent drag reorder persists through the API."""
 
-    Coverage:
-    1. Identify drag handles in the agent list
-    2. Perform drag operation (from position A to position B)
-    3. Verify the new order
-    4. Refresh the page to verify persistence
-    """
-
-    def test_agent_drag_reorder(self, page: Page):
-        """Test agent drag-and-drop reordering."""
-        log_test_step("Navigate to the Agents management page")
-        navigate_to_agents(page)
-
-        log_test_step("Find rows in the agent list")
-        agent_rows = page.locator("tr[data-row-key]").all()
-
-        if len(agent_rows) < 2:
-            pytest.skip(f"Not enough agents ({len(agent_rows)}); cannot run drag test")
-
-        # Post-#6198 the default agent is pinned at the top and its drag handle
-        # is disabled (aria-disabled="true"); only rows with an enabled
-        # MenuOutlined handle can be reordered.
-        draggable_rows = [
-            r for r in agent_rows
-            if r.locator(
-                "button:has(.anticon-menu):not([aria-disabled='true'])"
-            ).count() > 0
-        ]
-        if len(draggable_rows) < 2:
-            pytest.skip(
-                f"Need >=2 reorderable (non-default) agents; got {len(draggable_rows)}"
+    def test_agent_drag_reorder(
+        self,
+        page: Page,
+        api_context: APIRequestContext,
+    ):
+        """Reorder two isolated unpinned agents and verify persistence."""
+        first = _create_test_agent(api_context, "e2e_reorder_a")
+        second = _create_test_agent(api_context, "e2e_reorder_b")
+        try:
+            navigate_to_agents(page)
+            cards = page.locator(
+                'div[class*="grid"] article[class*="card"]'
             )
+            first_card = cards.filter(
+                has=page.get_by_text(first["id"], exact=True)
+            )
+            second_card = cards.filter(
+                has=page.get_by_text(second["id"], exact=True)
+            )
+            expect(first_card).to_have_count(1, timeout=10000)
+            expect(second_card).to_have_count(1, timeout=10000)
 
-        log_test_step(
-            f"Found {len(agent_rows)} agent(s), {len(draggable_rows)} reorderable"
-        )
+            def visible_order() -> list[str]:
+                return [
+                    item.inner_text().strip()
+                    for item in page.locator(
+                        'div[class*="grid"] article[class*="card"] '
+                        'span[class*="identity"] code'
+                    ).all()
+                ]
 
-        first_row = draggable_rows[0]
-        second_row = draggable_rows[1]
+            before = visible_order()
+            assert before.index(first["id"]) < before.index(second["id"])
+            handle = first_card.get_by_role(
+                "button",
+                name="Drag to reorder agents",
+                exact=True,
+            ).or_(
+                first_card.get_by_role(
+                    "button",
+                    name="拖拽调整智能体顺序",
+                    exact=True,
+                )
+            )
+            expect(handle).to_be_enabled(timeout=config.browser.timeout)
+            source_box = handle.bounding_box()
+            target_box = second_card.bounding_box()
+            assert source_box is not None
+            assert target_box is not None
+            with page.expect_response(
+                lambda response: response.url.endswith("/api/agents/order")
+                and response.request.method == "PUT"
+            ) as response_info:
+                page.mouse.move(
+                    source_box["x"] + source_box["width"] / 2,
+                    source_box["y"] + source_box["height"] / 2,
+                )
+                page.mouse.down()
+                page.mouse.move(
+                    target_box["x"] + target_box["width"] / 2,
+                    target_box["y"] + target_box["height"] / 2,
+                    steps=20,
+                )
+                page.mouse.up()
+            assert response_info.value.ok
 
-        log_test_step("Capture agent order before drag")
-        before_order = [r.get_attribute("data-row-key") for r in agent_rows]
-        assert len([k for k in before_order if k]) >= 2, "Could not read >=2 agent keys"
-        logger.info(f"Order before drag: {before_order}")
+            page.wait_for_function(
+                "([first, second]) => {"
+                "const ids = [...document.querySelectorAll("
+                "'[class*=identity] code')].map((node) => "
+                "node.textContent.trim());"
+                "return ids.indexOf(second) < ids.indexOf(first);"
+                "}",
+                arg=[first["id"], second["id"]],
+            )
+            after = visible_order()
+            assert after.index(second["id"]) < after.index(first["id"])
 
-        log_test_step("Find the drag handle (enabled, non-default row)")
-        drag_handle = first_row.locator("button:has(.anticon-menu)").first
-        if drag_handle.count() == 0:
-            pytest.skip("Drag handle not found; this page may not support drag reordering")
-
-        log_test_step("Drag handle found; starting drag operation")
-        drag_handle.hover()
-        time.sleep(0.5)
-
-        page.mouse.down()
-        time.sleep(0.3)
-
-        second_row_center = second_row.bounding_box()
-        assert second_row_center is not None, "Could not read the position of the second row"
-
-        target_y = second_row_center["y"] + second_row_center["height"] / 2
-        target_x = second_row_center["x"] + second_row_center["width"] / 2
-
-        page.mouse.move(target_x, target_y, steps=10)
-        time.sleep(0.5)
-
-        page.mouse.up()
-        time.sleep(2)
-
-        log_test_step("Drag finished; verifying the new order")
-        refreshed_rows = page.locator("tr[data-row-key]").all()
-        after_order = [r.get_attribute("data-row-key") for r in refreshed_rows]
-
-        logger.info(f"Order after drag: {after_order}")
-        assert before_order != after_order, "Agent order did not change after drag; reorder did not take effect"
-        logger.info("Agent order changed; drag reorder succeeded")
-
-        log_test_step("Refresh page to verify persistence")
-        page.reload()
-        page.wait_for_load_state("domcontentloaded")
-        time.sleep(2)
-
-        persisted_rows = page.locator("tr[data-row-key]").all()
-        persisted_order = [r.get_attribute("data-row-key") for r in persisted_rows]
-
-        logger.info(f"Order after refresh: {persisted_order}")
-        assert after_order == persisted_order, \
-            f"Drag reorder did not persist: after drag {after_order}, after refresh {persisted_order}"
-        logger.info("Drag reorder persisted; test passed")
-
-        logger.info("Agent drag reorder test complete")
+            page.reload(wait_until="domcontentloaded")
+            page.wait_for_function(
+                "expected => JSON.stringify(["
+                "...document.querySelectorAll('[class*=identity] code')"
+                "].map((node) => node.textContent.trim())) === "
+                "JSON.stringify(expected)",
+                arg=after,
+            )
+        finally:
+            _delete_test_agent(api_context, first["id"])
+            _delete_test_agent(api_context, second["id"])
 
 
 # ============================================================================
