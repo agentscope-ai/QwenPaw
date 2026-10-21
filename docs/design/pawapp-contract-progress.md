@@ -5,7 +5,8 @@ The Data App adapter, native Console task routing, adapter tests, external Engin
 pairing and Host–Engine CI suite are extracted into
 [Data integration #8363](https://github.com/agentscope-ai/QwenPaw/pull/8363).
 The existing released Data App remains at the upstream main implementation.
-Data integration is not required to run the SDK conformance suite.
+File Browser is also extracted into its own dependent example-app PR. Neither
+app integration is required to run the SDK conformance suite.
 
 | Area | Implementation |
 | --- | --- |
@@ -15,7 +16,7 @@ Data integration is not required to run the SDK conformance suite.
 | Scoped SDKs | Python and frontend task/setup/artifact clients, Host-managed Direct origins and explicit request IDs |
 | Main Chat | Generic action discovery, task cards, setup guidance and durable continuation |
 | Creator | Story-writing handoff, prepare/revise/produce actions and verified final-film publication |
-| Reference App | File Browser managed action, structured result and frontend SDK |
+| Small-App example | App-independent word-counter quickstart and managed-handler conformance tests |
 | Conformance | Generated schema drift checks and Host/frontend tests without an external Data Engine checkout |
 
 ## Migration and scope invariants
@@ -25,10 +26,9 @@ digest. Guidance is not authorization material. Shared typed event fields retain
 legacy replay meaning. SQLite v4 adds managed execution journals without changing
 accepted task or submission identities.
 
-File Browser's old `list-directory` action remains private for recovery. Its
-new `browse-directory` action requires its own grant. Creator actions likewise
-require action-specific grants; setup completion does not grant execution or
-approve media spending.
+Creator actions require action-specific grants. Setup completion does not grant
+execution or approve media spending. File Browser action migration is documented
+with its separate App implementation.
 
 Artifacts remain user/workspace/App scoped. Sessions record provenance and do
 not prevent reuse within that scope. Cross-App access requires an explicit grant
@@ -45,22 +45,33 @@ Host runtime and task-store tests now use an App-independent descriptor. The
 contract CI workflow no longer checks out or installs the external Data Engine.
 Data-specific docs, fixtures and integration tests move with the adapter.
 
+## File Browser integration split
+
+The complete File Browser App is delivered separately: its managed directory
+listing, App-owned default-directory setup, frontend SDK client, persistence,
+private legacy recovery adapter and App tests move together. The SDK retains
+its word-counter quickstart and generic managed-handler, setup and authorization
+tests. No shared runtime code imports the File Browser implementation.
+
 ## Validation boundaries
 
-After extraction, the standalone Host/PawApp/plugin/CLI/config and File Browser
-suite passed 627 tests. Generated-contract drift and changed-file pre-commit
-checks passed. This run did not install or start an external Data Engine.
+After both App extractions, 617 standalone Host/PawApp/plugin/CLI/config tests
+passed. Generated-contract drift and changed-file pre-commit checks passed.
+
+The standalone Host/PawApp/plugin/CLI/config conformance suite runs without
+installing or importing either extracted App implementation. Generated-contract
+checks and the frontend contract suite remain in the SDK workflow. Each App
+integration carries its own focused CI workflow.
 
 The SDK tests cover authorization, scoped resources, idempotence, commands,
-setup, artifacts, restart recovery and continuation receipts. Creator has its
-own workflow and final-film tests; File Browser exercises the managed-App path.
-See the [App quickstart](pawapp-app-quickstart.md), [task runtime](pawapp-task-runtime.md)
-and [Creator story handoff](pawapp-creator-story-handoff.md).
+setup, artifacts, restart recovery and continuation receipts. Creator retains
+its workflow and final-film tests. See the [App quickstart](pawapp-app-quickstart.md),
+[task runtime](pawapp-task-runtime.md) and [Creator story handoff](pawapp-creator-story-handoff.md).
 
 The dated Creator entries below record the state observed at each checkpoint;
 earlier configuration blockers are historical, not a statement of current local
 service readiness. No service restart or live-provider execution is part of the
-Data PR extraction.
+App PR extractions.
 
 ## Main Chat story writing and Creator handoff — 2026-10-20
 

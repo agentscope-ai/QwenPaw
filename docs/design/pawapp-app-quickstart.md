@@ -145,5 +145,6 @@ Do not send conflicting typed and legacy payloads. Optional artifact translation
 is documented by ArtifactMaterializingAdapter in `tasks.binding`.
 
 See [implementation status](pawapp-contract-progress.md) for SDK migration rules
-and validation boundaries. Data App integration and its Engine pairing are
-tracked separately; they are not prerequisites for adopting this SDK.
+and validation boundaries. Data App integration and the complete File Browser
+reference App are delivered in separate PRs. The word-counter example and
+generic managed-handler tests do not require either App.

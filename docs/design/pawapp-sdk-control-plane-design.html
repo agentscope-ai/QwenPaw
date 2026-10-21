@@ -695,7 +695,7 @@ Production constraints:
   <li><strong>入口与呈现</strong>：任务卡只显示 planning、preparing storyboard、generating video、composing、publishing 等语义阶段，以及 setup、approval、Open Creator 和最终 artifact 控件；不显示 Creator 内部 ID。Direct 继续从 Creator 项目独立编辑与生成，完成不自动唤醒 Main Chat；打开 delegated 项目也不转移原任务对话权。</li>
 </ul>
 
-<h3>13.3 文件浏览器（P2 通用性验证）</h3>
+<h3>13.3 文件浏览器（P2 通用性验证，独立 App PR）</h3>
 <p>选用 Marketplace 的 <a href="https://platform.agentscope.io/plugins/qwenpaw-file-browser">@archigram/qwenpaw-file-browser</a>，以不依赖模型的目录操作验证配置契约。适配范围仅为一个 <code>list-directory</code> action 与 App 默认目录设置，不包含文件写入、终端执行或现有 AI 助手改造。</p>
 <ul>
   <li><strong>两种入口</strong>：Delegated 请求目录清单，摘要回原 Chat；Direct 从 App 浏览目录，结果留在 App。显式目录作为 action 输入；未指定时使用 AppLocal 默认目录，没有默认值时可补问本次目录，或由用户明确选择保存默认设置。</li>
@@ -843,7 +843,7 @@ Production constraints:
 <p>设计可按阶段进入实施。P1a 的发布门槛是引擎幂等提交与命令协议、固定兼容版本及恢复验收；P1b 的 artifact 配额、P2 的真实 provider 预算各自在阶段开始前明确。证据索引的历史源码基线不代表这些能力已经交付；上段状态仅描述当前 worktree，仍受对应验收门槛约束。</p>
 
 <h3>证据索引</h3>
-<p><strong>2026-10-21 PR 范围调整</strong>：Data App 适配、原生 Console 任务路由和独立 Engine 兼容性验收拆到单独的后续 PR，依赖本 PR 的公共 SDK。本文中的 Data 方案与历史验收记录保留为架构背景，不代表 #7874 包含该迁移；本 PR 的交付范围是 SDK / Host、Creator 与 File Browser 示例。</p>
+<p><strong>2026-10-21 PR 范围调整</strong>：Data App 适配、原生 Console 任务路由和独立 Engine 兼容性验收拆到单独的后续 PR，依赖本 PR 的公共 SDK。File Browser 完整示例 App 也拆到独立的后续 PR。本文中的 Data / File Browser 方案与历史验收记录保留为架构背景，不代表 #7874 包含这两个 App 的迁移；本 PR 的交付范围是 SDK / Host 与 Creator，保留通用小型 App 示例和契约测试。</p>
 <p><strong>2026-09-23 Data 补齐状态（开发分支）</strong>：新增 Engine 显式 <code>analysis.progress</code> 与 artifact presentation；自动发现的文件默认留在 App，领域 Agent 显式发布成果。Data Console 的 evidence/diagnostics 已映射到 artifacts/trace。原生 Console 通过 Direct-only <code>analyze-session</code> 和同一 durable submission/command 协议保留既有 session、附件与批注；新 action 需要单独授权，旧 unscoped session 不自动迁移。Host↔独立 Engine 的受控集成测试不调用真实 provider，不等于生产验收。具体升级约束见 <a href="https://github.com/cyruszhang/QwenPaw/blob/dev/data-app-task-integration/docs/design/pawapp-data-task-adapter.md">Data adapter contract</a>；历史状态段不应作为当前发布证明。</p>
 <p> 基线：Host checkout <code>4be5b4dd</code>（分支 <code>dev/qwenpaw-data-app</code>）；QwenPaw-Data 引擎源码 HEAD <code>1cbd681</code>（<code>/Users/yilei.z/dev/QwenPaw-Data</code>，仅审阅源码，运行/安装版本未核实）；行号对应上述源码基线。</p>
 <table>

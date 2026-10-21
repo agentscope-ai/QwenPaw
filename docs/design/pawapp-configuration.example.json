@@ -633,7 +633,7 @@
     },
     {
       "app_id": "qwenpaw-file-browser",
-      "$comment": "Implemented as a narrow Host 2.2 adaptation. The changed Marketplace archive was not executed; the read-only implementation is derived from the inspected Apache-2.0 upstream commit and keeps default configuration separate from Host authorization.",
+      "$comment": "Illustrative contract for the separately delivered File Browser adaptation, not an App shipped in SDK PR #7874. The changed Marketplace archive was not executed; the read-only implementation is derived from the inspected Apache-2.0 upstream commit and keeps default configuration separate from Host authorization.",
       "source": {
         "marketplace_id": "@archigram/qwenpaw-file-browser",
         "version": "0.2.3",

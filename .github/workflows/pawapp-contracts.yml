@@ -37,7 +37,7 @@ jobs:
       - name: Check generated contract drift and Host conformance
         run: |
           python scripts/generate-pawapp-contracts.py --check
-          python -m pytest -q tests/unit/pawapp tests/unit/plugins/test_plugin_api_extensions.py tests/unit/cli/test_plugin_commands.py tests/unit/config/test_config_utils.py plugins/apps/qwenpaw-file-browser/backend/tests
+          python -m pytest -q tests/unit/pawapp tests/unit/plugins/test_plugin_api_extensions.py tests/unit/cli/test_plugin_commands.py tests/unit/config/test_config_utils.py
       - name: Check frontend contract clients and task cards
         working-directory: console
         run: |
