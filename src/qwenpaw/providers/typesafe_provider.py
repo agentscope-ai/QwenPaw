@@ -55,8 +55,9 @@ class TypeSafeProvider(Provider):
                 max_retries=0,
             )
             yield classifier
-        except TypeSafeError as exc:
-            # API errors carry the HTTP status as ``status``.
+        except (TypeSafeError, ValueError) as exc:
+            # API errors carry the HTTP status as ``status``; ValueError
+            # comes from answer types AgentScope cannot convert.
             status = getattr(exc, "status", None)
             raise TypeSafeEvaluationError(
                 f"{type(exc).__name__}: {exc}",

@@ -94,6 +94,31 @@ async def test_api_error_carries_http_status(provider, mock_typesafe):
 
 
 @pytest.mark.asyncio
+async def test_unsupported_answer_type_is_evaluation_error(
+    provider,
+    mock_typesafe,
+):
+    box = {
+        "type": "box",
+        "box": {"top": 0.1, "left": 0.1, "bottom": 0.9, "right": 0.9},
+        "confidence": None,
+    }
+    mock_typesafe(
+        lambda _request: httpx2.Response(
+            200,
+            json={
+                "model": "jev-2",
+                "answers": {"greeting": box},
+                "usage": {"input_tokens": 1, "output_tokens": 1},
+            },
+        ),
+    )
+    result = await provider.check_model_connection("jev-2")
+    assert not result.success
+    assert "Unsupported TypeSafe answer type" in result.message
+
+
+@pytest.mark.asyncio
 async def test_fetch_models_uses_sdk_listing(provider, mock_typesafe):
     def handler(request):
         assert request.url.path == "/v1/models"
