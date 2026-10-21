@@ -37,6 +37,7 @@ interface RuleModalProps {
   open: boolean;
   editingRule: ToolGuardRule | null;
   existingRuleIds: string[];
+  saving?: boolean;
   onOk: () => void;
   onCancel: () => void;
   form: FormInstance;
@@ -46,6 +47,7 @@ export function RuleModal({
   open,
   editingRule,
   existingRuleIds,
+  saving = false,
   onOk,
   onCancel,
   form,
@@ -88,9 +90,12 @@ export function RuleModal({
       }
       open={open}
       onOk={onOk}
-      onCancel={onCancel}
+      onCancel={saving ? undefined : onCancel}
       okText={t("common.confirm")}
       cancelText={t("common.cancel")}
+      confirmLoading={saving}
+      okButtonProps={{ disabled: saving }}
+      cancelButtonProps={{ disabled: saving }}
       width={640}
       destroyOnHidden
     >
