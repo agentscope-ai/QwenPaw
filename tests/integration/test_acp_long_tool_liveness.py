@@ -279,7 +279,6 @@ async def test_ready_unmapped_events_do_not_starve_keepalive(monkeypatch):
     async def _stream():
         deadline = time.monotonic() + 0.25
         while time.monotonic() < deadline:
-            await asyncio.sleep(0.001)
             yield _unmapped_event()
 
     agent, conn, session_id = await _agent_with_stream(

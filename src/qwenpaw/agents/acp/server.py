@@ -76,7 +76,12 @@ from qwenpaw.schemas import (
 
 from ...__version__ import __version__
 from ...constant import WORKING_DIR
-from ...config.config import ModelSlotConfig, load_agent_config
+from ...config.config import (
+    AgentProfileConfig,
+    ModelSlotConfig,
+    load_agent_config,
+    update_agent_config_async,
+)
 from ...drivers.constants import DRIVER_SCOPE_CONTEXT_KEY
 from ...exceptions import AppBaseException
 from ...providers.provider_manager import ProviderManager
@@ -528,7 +533,7 @@ class QwenPawACPAgent(Agent):
 
             from ...app.workspace.workspace import Workspace
 
-            agent_id = self._resolve_agent_id()
+            agent_id = await run_sync_io(self._resolve_agent_id)
             workspace_dir = self._resolve_workspace_dir(agent_id)
 
             workspace = Workspace(
@@ -540,7 +545,14 @@ class QwenPawACPAgent(Agent):
                 **self._build_bootstrap_kwargs(app_services),
             )
             workspace.set_app_services(app_services)
-            await workspace.start()
+            try:
+                await workspace.start()
+            except BaseException:
+                try:
+                    await workspace.stop(final=True)
+                except Exception:
+                    logger.exception(f"ACP workspace startup cleanup failed")
+                raise
 
             self._workspace = workspace
             self._workspace_ready = True
@@ -636,7 +648,7 @@ class QwenPawACPAgent(Agent):
             session_id=session_id,
             config_options=self._build_config_options(session_id),
             models=await self._build_model_state(),
-            field_meta=self._session_meta(),
+            field_meta=await run_sync_io(self._session_meta),
         )
 
     async def load_session(  # pylint: disable=unused-argument
@@ -646,6 +658,7 @@ class QwenPawACPAgent(Agent):
         mcp_servers: list[ACP_MCP_SERVER_TYPES] | None = None,
         **kwargs: Any,
     ) -> LoadSessionResponse | None:
+        session_meta = await run_sync_io(self._session_meta)
         previous_session = self._sessions.get(session_id)
         self._sessions[session_id] = self._session_info(
             cwd=cwd,
@@ -666,7 +679,7 @@ class QwenPawACPAgent(Agent):
             cwd,
         )
         asyncio.create_task(self._advertise_commands(session_id))
-        return LoadSessionResponse(field_meta=self._session_meta())
+        return LoadSessionResponse(field_meta=session_meta)
 
     async def prompt(  # pylint: disable=too-many-locals,unused-argument
         # pylint: disable=too-many-branches,too-many-statements
@@ -694,6 +707,12 @@ class QwenPawACPAgent(Agent):
             f"acp_{session_id[:8]}",
         )
 
+        active_prompt = self._prompt_tasks.get(session_id)
+        if active_prompt is not None and not active_prompt.done():
+            raise RequestError.invalid_params(
+                {f"details": f"This session already has an active prompt"},
+            )
+
         cancel_event = asyncio.Event()
         self._cancel_events[session_id] = cancel_event
         prompt_task = asyncio.current_task()
@@ -701,26 +720,6 @@ class QwenPawACPAgent(Agent):
             self._prompt_tasks[session_id] = prompt_task
         approval_bridge = asyncio.create_task(
             self._bridge_approval_requests(session_id),
-        )
-
-        request_context = self._build_request_context(session_info)
-
-        request = AgentRequest(
-            input=[
-                Message(
-                    role="user",
-                    content=[
-                        {"type": "text", "text": text},
-                    ],
-                ),
-            ],
-            session_id=session_id,
-            user_id=user_id,
-            agent_id=self._resolve_agent_id(),
-            request_context=request_context or None,
-            model_slot_override=session_info.get(
-                _ACP_RUNTIME_MODEL_SLOT_KEY,
-            ),
         )
 
         was_cancelled = False
@@ -742,10 +741,36 @@ class QwenPawACPAgent(Agent):
             tracker = _EnvelopeTracker()
             terminal_sent = False
             try:
+                request_context = self._build_request_context(session_info)
+
+                request = AgentRequest(
+                    input=[
+                        Message(
+                            role="user",
+                            content=[
+                                {"type": "text", "text": text},
+                            ],
+                        ),
+                    ],
+                    session_id=session_id,
+                    user_id=user_id,
+                    agent_id=await run_sync_io(self._resolve_agent_id),
+                    request_context=request_context or None,
+                    model_slot_override=session_info.get(
+                        _ACP_RUNTIME_MODEL_SLOT_KEY,
+                    ),
+                )
+
                 workspace = await self._ensure_workspace()
+                events_since_yield = 0
                 async for event in workspace.stream_query(request):
                     for upd in tracker.process(event):
                         await queue.put(("update", upd))
+                    events_since_yield += 1
+                    if events_since_yield >= 64:
+                        # Ready, unmapped events need explicit fairness too.
+                        events_since_yield = 0
+                        await asyncio.sleep(0)
             except asyncio.CancelledError:
                 if consumer_stopped:
                     raise
@@ -798,10 +823,6 @@ class QwenPawACPAgent(Agent):
                 if await self._emit_usage_if_available(session_id):
                     last_emit = loop.time()
 
-                if loop.time() - last_emit >= _ACP_KEEPALIVE_SECONDS:
-                    await self._emit_keepalive(session_id)
-                    last_emit = loop.time()
-
                 if cancel_event.is_set():
                     was_cancelled = True
                     logger.info(
@@ -842,7 +863,10 @@ class QwenPawACPAgent(Agent):
             self._cancel_events.pop(session_id, None)
             self._prompt_tasks.pop(session_id, None)
 
-        await self._emit_usage_if_available(session_id)
+        try:
+            await self._emit_usage_if_available(session_id)
+        except ACPClientDisconnected:
+            logger.info(f"ACP client disconnected before final usage")
 
         stop_reason = "cancelled" if was_cancelled else "end_turn"
         return PromptResponse(stop_reason=stop_reason)
@@ -948,7 +972,7 @@ class QwenPawACPAgent(Agent):
         logger.info(
             "Model switched to %s for agent %s",
             model_id,
-            self._resolve_agent_id(),
+            await run_sync_io(self._resolve_agent_id),
         )
         return SetSessionModelResponse()
 
@@ -1151,6 +1175,7 @@ class QwenPawACPAgent(Agent):
             channel=pending.channel,
             agent_id=pending.agent_id,
         )
+        permission_task: asyncio.Task | None = None
         try:
             permission_task = asyncio.create_task(
                 self._conn.request_permission(
@@ -1203,6 +1228,10 @@ class QwenPawACPAgent(Agent):
                 actor=actor,
             )
             return
+        finally:
+            if permission_task is not None and not permission_task.done():
+                permission_task.cancel()
+                await asyncio.gather(permission_task, return_exceptions=True)
 
         option_id = self._permission_option_id(response)
         if option_id == "allow_once":
@@ -1517,7 +1546,7 @@ class QwenPawACPAgent(Agent):
                 )
 
             manager = await run_sync_io(ProviderManager.get_instance)
-            agent_id = self._resolve_agent_id()
+            agent_id = await run_sync_io(self._resolve_agent_id)
             agent_config = await run_sync_io(load_agent_config, agent_id)
             provider_infos = await manager.list_provider_info()
 
@@ -1715,7 +1744,7 @@ class QwenPawACPAgent(Agent):
         else:
             provider_id, model_id = "", model_spec
 
-        manager = ProviderManager.get_instance()
+        manager = await run_sync_io(ProviderManager.get_instance)
 
         if provider_id:
             provider = await run_sync_io(manager.get_provider, provider_id)
@@ -1744,18 +1773,14 @@ class QwenPawACPAgent(Agent):
                     f"Model {model_id!r} not found in any provider",
                 )
 
-        from ...config.config import (
-            save_agent_config,
-        )
+        agent_id = await run_sync_io(self._resolve_agent_id)
+        slot = ModelSlotConfig(provider_id=provider_id, model=model_id)
 
-        agent_id = self._resolve_agent_id()
-        agent_config = load_agent_config(agent_id)
-        agent_config.active_model = ModelSlotConfig(
-            provider_id=provider_id,
-            model=model_id,
-        )
-        save_agent_config(agent_id, agent_config)
-        return agent_config.active_model
+        def select_model(config: AgentProfileConfig) -> None:
+            config.active_model = slot
+
+        await update_agent_config_async(agent_id, select_model)
+        return slot
 
 
 async def run_qwenpaw_agent(

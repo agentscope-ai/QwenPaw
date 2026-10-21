@@ -546,3 +546,88 @@ async def test_entry_point_swallows_verified_disconnect(monkeypatch):
 
     await acp_server.run_qwenpaw_agent()
     assert calls == ["shutdown"]
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(f"failure", [BrokenPipeError, RuntimeError])
+async def test_final_usage_preserves_failure_boundary(monkeypatch, failure):
+    """Only a transport failure may be ignored during the final flush."""
+    from qwenpaw.token_usage.model_wrapper import TokenRecordingModelWrapper
+
+    async def stream():
+        TokenRecordingModelWrapper._usage_by_session[session_id] = {
+            f"total_tokens": 20,
+        }
+        for event in ():
+            yield event
+
+    agent, conn, session_id = await _agent_with_stream(monkeypatch, stream)
+
+    async def fail_send(*args, **kwargs):
+        raise failure(f"Final usage failed")
+
+    monkeypatch.setattr(conn, f"session_update", fail_send)
+    if failure is BrokenPipeError:
+        response = await agent.prompt([text_block(f"hello")], session_id)
+        assert response.stop_reason == f"end_turn"
+    else:
+        with pytest.raises(RuntimeError, match=f"Final usage failed"):
+            await agent.prompt([text_block(f"hello")], session_id)
+    assert session_id not in agent._prompt_tasks
+
+
+@pytest.mark.integration
+async def test_overlapping_prompt_does_not_replace_cancel_target(monkeypatch):
+    """Reject overlap while retaining the original prompt's cleanup owner."""
+    started = asyncio.Event()
+
+    async def stream():
+        started.set()
+        await asyncio.Event().wait()
+        for event in ():
+            yield event
+
+    agent, _, session_id = await _agent_with_stream(monkeypatch, stream)
+    task = asyncio.create_task(
+        agent.prompt([text_block(f"first")], session_id),
+    )
+    try:
+        await asyncio.wait_for(started.wait(), 2)
+        with pytest.raises(RequestError):
+            await agent.prompt([text_block(f"second")], session_id)
+        assert agent._prompt_tasks[session_id] is task
+        await agent._cancel_active_prompt(session_id)
+        assert (await task).stop_reason == f"cancelled"
+        assert session_id not in agent._prompt_tasks
+    finally:
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+
+
+@pytest.mark.integration
+async def test_config_resolution_runs_off_loop_and_reports_failure(
+    monkeypatch,
+):
+    """Slow config reads keep the transport alive and preserve real errors."""
+    import threading
+
+    loop_thread = threading.get_ident()
+
+    async def stream():
+        for event in ():
+            yield event
+
+    agent, conn, session_id = await _agent_with_stream(monkeypatch, stream)
+    monkeypatch.setattr(acp_server, f"_ACP_KEEPALIVE_SECONDS", 0.01)
+
+    def resolve():
+        assert threading.get_ident() != loop_thread
+        time.sleep(0.08)
+        raise OSError(f"Configuration unreadable")
+
+    monkeypatch.setattr(agent, f"_resolve_agent_id", resolve)
+    with pytest.raises(RequestError):
+        await agent.prompt([text_block(f"hello")], session_id)
+    assert any(_is_keepalive(update) for _, update in conn.updates)
+    assert session_id not in agent._prompt_tasks
+    assert session_id not in agent._cancel_events

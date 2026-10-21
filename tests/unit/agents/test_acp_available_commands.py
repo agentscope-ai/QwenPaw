@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import asyncio
 
+import pytest
+
 from acp.schema import AllowedOutcome, RequestPermissionResponse
 
 from qwenpaw.agents.acp.meta import ACP_APPROVAL_EXPIRES_AT_META_KEY
@@ -472,7 +474,11 @@ async def test_approval_bridge_resolves_pattern_scope(monkeypatch):
     }
 
 
-async def test_approval_bridge_expires_when_pending_times_out(monkeypatch):
+@pytest.mark.parametrize(f"cancel_bridge", [False, True])
+async def test_approval_bridge_expires_when_pending_times_out(
+    monkeypatch,
+    cancel_bridge,
+):
     from qwenpaw.app.approvals.service import ApprovalService
     from qwenpaw.security.tool_guard.approval import ApprovalDecision
     from qwenpaw.security.tool_guard.models import (
@@ -530,10 +536,18 @@ async def test_approval_bridge_expires_when_pending_times_out(monkeypatch):
     )
     await asyncio.wait_for(conn.started.wait(), timeout=1.0)
 
+    if cancel_bridge:
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await asyncio.wait_for(task, timeout=1.0)
+        assert conn.cancelled is True
+
     await approval_svc.resolve_request(
         pending.request_id,
         ApprovalDecision.TIMEOUT,
     )
+    if cancel_bridge:
+        return
     await asyncio.wait_for(task, timeout=1.0)
 
     assert conn.cancelled is True
