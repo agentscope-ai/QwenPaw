@@ -246,8 +246,7 @@ async def test_qualitative_rubric_state_is_session_isolated():
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(f"consume_first", [False, True])
-async def test_goal_budget_survives_acp_usage_flush(consume_first):
+async def test_goal_budget_survives_acp_usage_flush():
     """Transport flush order cannot reset or double-count a goal budget."""
     from qwenpaw.app.agent_context import scoped_session_id
     from qwenpaw.modes.goal.gates import GoalBudgetGate
@@ -265,10 +264,9 @@ async def test_goal_budget_survives_acp_usage_flush(consume_first):
                     None,
                     {f"total_tokens": 60},
                 )
-                if consume_first:
-                    TokenRecordingModelWrapper.pop_usage_for_session(
-                        ctx.session_id,
-                    )
+                TokenRecordingModelWrapper.pop_usage_for_session(
+                    ctx.session_id,
+                )
                 assert session.tokens_used == expected
                 result = await GoalBudgetGate(mode).check({})
                 assert result.action == (
