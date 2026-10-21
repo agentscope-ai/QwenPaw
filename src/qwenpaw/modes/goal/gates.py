@@ -3,9 +3,8 @@
 
 Separated from goal_mode.py for maintainability.
 
-GoalTurnGate tracks cross-request goal turns (outer
-loop), distinct from IterationGate which tracks
-per-request ReAct iterations (inner loop).
+GoalTurnGate counts text-only exit attempts across requests. Tool-call
+iterations do not consume the goal turn limit.
 """
 from __future__ import annotations
 
@@ -30,9 +29,8 @@ DEFAULT_MAX_ITERATIONS = 20
 class GoalTurnGate(LoopGate):
     """Goal-mode turn gate (outer loop).
 
-    Tracks cross-request goal turns via GoalSession.
-    NOT the same as IterationGate which tracks
-    per-request ReAct iterations (inner loop).
+    Counts text-only exit attempts via GoalSession. Tool-call iterations
+    continue naturally without consuming the goal turn limit.
 
     Returns:
         INTERRUPT_AND_CONTINUE — active, under limit.
@@ -74,6 +72,9 @@ class GoalTurnGate(LoopGate):
                 action=StopAction.TERMINATE,
                 reason=(f"Goal completed: " f"{session.last_verdict}"),
             )
+
+        if ctx.get("has_tool_calls", False):
+            return StopHandlerResult(action=StopAction.BYPASS)
 
         session.iteration += 1
         logger.debug(
