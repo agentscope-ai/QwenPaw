@@ -4,6 +4,7 @@
 # pylint: disable=protected-access
 
 import asyncio
+from dataclasses import replace
 from datetime import timedelta
 import hashlib
 from pathlib import Path
@@ -687,7 +688,7 @@ def _node(
 def _install_final_video(
     services: CreatorFileServices,
     record: CreatorVideoWorkflowSubmission,
-    run: CreatorAgentRunRecord,
+    run: CreatorAgentRunRecord | None,
     suffix: str,
 ) -> tuple[WorkGraph, bytes]:
     snapshot = services.projects.read(record.project_id)
@@ -726,7 +727,7 @@ def _install_final_video(
             target_refs=[f"timeline:{timeline_id}"],
             input_generation=snapshot.generation,
             input_etag=snapshot.etag,
-            related_run_id=run.run_id,
+            related_run_id=run.run_id if run is not None else None,
             caused_by_request_id=dispatch_key,
         ),
     )
@@ -744,6 +745,7 @@ def _install_final_video(
             metadata={
                 "commandType": "COMPOSE_FINAL_VIDEO",
                 "targetRef": f"timeline:{timeline_id}",
+                "automaticWorkNodeId": f"compose:{timeline_id}",
             },
         ),
     )
@@ -830,7 +832,7 @@ def _install_final_video(
                     label="Compose final video",
                     status=WorkNodeStatus.DONE,
                     timeline_id=timeline_id,
-                    task_id=task_id,
+                    command="COMPOSE_FINAL_VIDEO",
                     target_ref=f"timeline:{timeline_id}",
                     dispatch_fingerprint=compose_fingerprint,
                 ),
@@ -2019,6 +2021,244 @@ async def test_observer_distinguishes_cancellation_from_supersession(
 
     observed = _workflow_record(services, record.submission_id)
     assert observed.stage == expected_stage
+
+
+def _scheduler_work(services, record, *, suffix="", **task_updates):
+    snapshot = services.projects.read(record.project_id)
+    node = WorkNode(
+        node_id="video:shot-1",
+        kind="video",
+        label="Automatic video",
+        status=WorkNodeStatus.RUNNING,
+        task_id=f"scheduler-task{suffix}",
+        command="GENERATE_R2V_VIDEO",
+        target_ref="element:shot-1",
+        dispatch_fingerprint="0123456789abcdef",
+    )
+    ledger = dispatch_ledger_fingerprint(
+        node.dispatch_fingerprint,
+        dispatch_model_scope(
+            node.kind,
+            (
+                pawapp_video_workflow.get_image_model_name(),
+                pawapp_video_workflow.get_video_model_name(),
+            ),
+        ),
+    )
+    key = f"dag-{node.node_id}-{dispatch_slot(ledger)}"
+    run = SpecialistRunRecord(
+        run_id=f"scheduler-run{suffix}",
+        project_id=record.project_id,
+        round_id=f"scheduler-round{suffix}",
+        role=SpecialistRole.R2V_GENERATION_DIRECTOR,
+        input_generation=snapshot.generation,
+        input_etag=snapshot.etag,
+        caused_by_request_id=key,
+    )
+    task = TaskRecord(
+        task_id=node.task_id,
+        project_id=record.project_id,
+        run_id=run.run_id,
+        round_id=run.round_id,
+        kind=TaskKind.R2V_GENERATION,
+        request_fingerprint="scheduler-render-fingerprint",
+        idempotency_key=key,
+        caused_by_request_id=key,
+        metadata={
+            "automaticWorkNodeId": node.node_id,
+            "targetRef": node.target_ref,
+            "commandType": node.command,
+        },
+    ).model_copy(update=task_updates)
+    return node, run, task
+
+
+@pytest.mark.asyncio
+# pylint: disable-next=too-many-statements
+async def test_unattended_work_outlives_agent_and_publishes_after_restart(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    services = _services(tmp_path / "creator")
+    adapter = CreatorVideoWorkflowTaskAdapter(lambda: services)
+    submission = _submission("unattended-workflow")
+    monkeypatch.setattr(
+        pawapp_video_workflow,
+        "notify_creator_agent_runtime",
+        lambda _: True,
+    )
+    run_ref = await adapter.submit(submission)
+    record = _workflow_record(services, submission.handle.submission_id)
+    _agent_run(services, record, status=AgentRunStatus.SUCCEEDED)
+    services.sessions.set_goal_status(
+        record.project_id,
+        record.goal_id,
+        "COMPLETED",
+    )
+    node, run, task = _scheduler_work(services, record)
+    executions = ProjectExecutionStore(services.root)
+    executions.create_specialist_run(run)
+    executions.create_task(task)
+    current_graph = [_graph(node)]
+    monkeypatch.setattr(
+        pawapp_video_workflow,
+        "derive_work_graph",
+        lambda *_args, **_kwargs: current_graph[0],
+    )
+
+    await adapter.query(submission)
+    observed = _workflow_record(services, record.submission_id)
+    assert observed.stage == "generating_video"
+    assert observed.correlated_task_ids == (task.task_id,)
+    assert run.run_id in observed.correlated_run_ids
+
+    executions.transition_task(
+        record.project_id,
+        task.task_id,
+        expected_status="QUEUED",
+        status="RUNNING",
+    )
+    executions.transition_task(
+        record.project_id,
+        task.task_id,
+        expected_status="RUNNING",
+        status="SUCCEEDED",
+    )
+    executions.transition_specialist_run(
+        record.project_id,
+        run.run_id,
+        expected_status="QUEUED",
+        status="RUNNING_MODEL",
+    )
+    executions.transition_specialist_run(
+        record.project_id,
+        run.run_id,
+        expected_status="RUNNING_MODEL",
+        status="SUCCEEDED",
+    )
+    final_graph, content = _install_final_video(
+        services,
+        record,
+        None,
+        "unattended",
+    )
+    current_graph[0] = final_graph
+    # DONE graph nodes no longer carry task_id. Their durable dispatch and
+    # completion notification must still bind to this workflow after restart.
+    assert final_graph.nodes[0].task_id is None
+    notification = services.sessions.append_message(
+        record.project_id,
+        record.creator_session_id,
+        record.conversation_id,
+        role="user",
+        content_parts=[{"type": "text", "text": "Composition completed."}],
+        source=pawapp_video_workflow.NOTIFICATION_SOURCE,
+        metadata={"nodeId": final_graph.nodes[0].node_id},
+    ).message
+    goal = services.sessions.create_goal(
+        record.project_id,
+        record.creator_session_id,
+        record.conversation_id,
+        root_message_seq=notification.message_seq,
+        intent="Verify the completed film.",
+        goal_id="completion-notification-goal",
+    )
+    _agent_run(
+        services,
+        record,
+        run_id="verify-film",
+        status=AgentRunStatus.SUCCEEDED,
+        goal_id=goal.goal_id,
+        message_id=notification.message_id,
+        message_seq=notification.message_seq,
+    )
+    adapter = CreatorVideoWorkflowTaskAdapter(lambda: services)
+    await adapter.query(submission)
+    observed = _workflow_record(services, record.submission_id)
+    assert observed.stage == "publishing"
+    assert goal.goal_id in observed.correlated_goal_ids
+    assert task.task_id in observed.correlated_task_ids
+    assert "compose-task-unattended" in observed.correlated_task_ids
+    accepted = _accepted_submission(submission, run_ref)
+    artifacts = await ArtifactStore.open(tmp_path / "host-artifacts")
+    event = [event async for event in adapter.attach(accepted)][-1]
+    await adapter.materialize_event(accepted, event, artifacts)
+    final = _workflow_record(services, record.submission_id)
+    assert final.stage == "succeeded"
+    resumed = _accepted_submission(
+        submission,
+        run_ref,
+        executor_sequence=event.sequence,
+    )
+    terminal = [event async for event in adapter.attach(resumed)]
+    assert len(terminal) == 1
+    result = await adapter.materialize_event(resumed, terminal[0], artifacts)
+    assert result.status == "succeeded"
+    ref = final.publication.artifact_ref
+    _ref, published = await artifacts.read(
+        submission.handle.scope,
+        ref.artifact_id,
+        ref.version,
+    )
+    assert published == content
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "old",
+        "other_project",
+        "other_parent",
+        "manual",
+        "wrong_input",
+        "wrong_target",
+        "wrong_node",
+        "wrong_round",
+    ],
+)
+async def test_scheduler_binding_excludes_unrelated_work(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    mutation: str,
+) -> None:
+    services = _services(tmp_path)
+    adapter = CreatorVideoWorkflowTaskAdapter(lambda: services)
+    submission = _submission("scheduler-binding-boundary")
+    monkeypatch.setattr(
+        pawapp_video_workflow,
+        "notify_creator_agent_runtime",
+        lambda _: True,
+    )
+    await adapter.submit(submission)
+    record = _workflow_record(services, submission.handle.submission_id)
+    node, run, task = _scheduler_work(services, record)
+    if mutation == "old":
+        task = task.model_copy(
+            update={"created_at": utc_now() - timedelta(days=1)},
+        )
+    elif mutation == "other_project":
+        task = task.model_copy(update={"project_id": "other-project"})
+    elif mutation == "other_parent":
+        run = run.model_copy(update={"related_run_id": "unrelated-agent"})
+    elif mutation == "manual":
+        task = task.model_copy(
+            update={"caused_by_message_id": "manual-message"},
+        )
+    elif mutation == "wrong_input":
+        node = replace(node, dispatch_fingerprint="different-inputs")
+    elif mutation == "wrong_target":
+        node = replace(node, target_ref="element:other-shot")
+    elif mutation == "wrong_node":
+        node = replace(node, node_id="video:other-shot")
+    elif mutation == "wrong_round":
+        task = task.model_copy(update={"round_id": "unrelated-round"})
+    assert not pawapp_video_workflow._scheduler_run_ids(
+        record,
+        _graph(node),
+        [task],
+        [run],
+    )
 
 
 @pytest.mark.asyncio

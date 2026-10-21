@@ -1207,13 +1207,81 @@ def _correlated_agent_runs(
     )
 
 
+def _scheduler_run_ids(
+    record: CreatorVideoWorkflowSubmission,
+    graph: WorkGraph,
+    tasks: Sequence[TaskRecord],
+    runs: Sequence[SpecialistRunRecord],
+) -> frozenset[str]:
+    """Bind unattended work by its durable graph dispatch identity.
+
+    The scheduler outlives an Agent turn and deliberately has no parent
+    Agent run. Only adopt its exact current node/input dispatches admitted
+    after this workflow, never arbitrary work in the same project. Retain
+    already observed bindings as the graph advances to new selections.
+    """
+    nodes = graph.by_id
+    runs_by_id = {run.run_id: run for run in runs}
+    retained = set(record.correlated_run_ids)
+    models = (get_image_model_name(), get_video_model_name())
+    linked: set[str] = set()
+    for task in tasks:
+        run = runs_by_id.get(task.run_id)
+        if run is None:
+            continue
+        if (
+            task.project_id != record.project_id
+            or run.project_id != record.project_id
+            or task.round_id != run.round_id
+            or task.created_at.timestamp() < record.created_at
+        ):
+            continue
+        if any(
+            value is not None
+            for value in (
+                run.related_run_id,
+                run.metadata.get("parentRunId"),
+                task.caused_by_message_id,
+                task.caused_by_message_seq,
+                run.caused_by_message_id,
+                run.caused_by_message_seq,
+            )
+        ):
+            continue
+        if run.run_id in retained:
+            linked.add(run.run_id)
+            continue
+        node = nodes.get(task.metadata.get("automaticWorkNodeId"))
+        if (
+            node is None
+            or not node.dispatch_fingerprint
+            or task.metadata.get("targetRef") != node.target_ref
+            or task.metadata.get("commandType") != node.command
+            or task.caused_by_request_id != task.idempotency_key
+        ):
+            continue
+        ledger = dispatch_ledger_fingerprint(
+            node.dispatch_fingerprint,
+            dispatch_model_scope(node.kind, models),
+        )
+        key = f"dag-{node.node_id}-{dispatch_slot(ledger)}"
+        if re.fullmatch(
+            rf"{re.escape(key)}(?:-regen-[a-f0-9]{{16}})?"
+            r"(?::transient-retry-[1-8]|-r[1-8])?",
+            task.idempotency_key or "",
+        ):
+            linked.add(run.run_id)
+    return frozenset(linked)
+
+
 def _correlated_specialist_runs(
     runs: Sequence[SpecialistRunRecord],
     *,
     agent_run_ids: frozenset[str],
     round_ids: frozenset[str],
+    scheduler_run_ids: frozenset[str] = frozenset(),
 ) -> tuple[SpecialistRunRecord, ...]:
-    correlated_ids: set[str] = set()
+    correlated_ids = set(scheduler_run_ids)
     changed = True
     while changed:
         changed = False
@@ -1272,12 +1340,18 @@ def _correlated_runtime_notifications(
         metadata = message.metadata
         node_id = metadata.get("nodeId")
         node = node_by_id.get(node_id) if isinstance(node_id, str) else None
+        node_task_id = node.task_id if node is not None else None
+        scheduler_notification = isinstance(node_id, str) and any(
+            task.metadata.get("automaticWorkNodeId") == node_id
+            and task.created_at <= message.created_at
+            for task in tasks
+        )
         if (
             metadata.get("specialistRunId") in specialist_run_ids
             or metadata.get("taskId") in task_ids
             or metadata.get("requestId") in task_request_ids
-            or node is not None
-            and node.task_id in task_ids
+            or node_task_id in task_ids
+            or scheduler_notification
         ):
             linked.add(message.message_id)
     return frozenset(linked)
@@ -2278,6 +2352,12 @@ class CreatorVideoWorkflowTaskAdapter:
         all_specialist_runs = executions.list_specialist_runs(
             record.project_id,
         )
+        scheduler_run_ids = _scheduler_run_ids(
+            record,
+            graph,
+            all_tasks,
+            all_specialist_runs,
+        )
 
         notification_message_ids: frozenset[str] = frozenset()
         while True:
@@ -2298,6 +2378,7 @@ class CreatorVideoWorkflowTaskAdapter:
                 all_specialist_runs,
                 agent_run_ids=agent_run_ids,
                 round_ids=agent_round_ids,
+                scheduler_run_ids=scheduler_run_ids,
             )
             all_run_ids = frozenset(
                 (*agent_run_ids, *(run.run_id for run in specialist_runs)),
