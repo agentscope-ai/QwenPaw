@@ -6,6 +6,7 @@ from __future__ import annotations
 import importlib
 import logging
 import threading
+from collections.abc import Collection
 from typing import TYPE_CHECKING
 
 from .base import BaseChannel
@@ -43,13 +44,17 @@ _BUILTIN_CHANNEL_CACHE: dict[str, type[BaseChannel]] | None = None
 _BUILTIN_CHANNEL_CACHE_LOCK = threading.Lock()
 
 
-def _load_builtin_channels() -> dict[str, type[BaseChannel]]:
+def _load_builtin_channels(
+    channel_keys: Collection[str] | None = None,
+) -> dict[str, type[BaseChannel]]:
     """Load built-in channels safely.
 
     A single optional dependency failure should not break CLI startup.
     """
     out: dict[str, type[BaseChannel]] = {}
     for key, (module_name, class_name) in _BUILTIN_SPECS.items():
+        if channel_keys is not None and key not in channel_keys:
+            continue
         try:
             mod = importlib.import_module(module_name, package=__package__)
             cls = getattr(mod, class_name)
@@ -119,10 +124,18 @@ def _get_plugin_channels() -> dict[str, type[BaseChannel]]:
         return {}
 
 
-def get_channel_registry() -> dict[str, type[BaseChannel]]:
-    """Built-in + plugin-registered channels."""
-    out = _get_cached_builtin_channels()
+def get_channel_registry(
+    channel_keys: Collection[str] | None = None,
+) -> dict[str, type[BaseChannel]]:
+    """Built-in + plugin channels, optionally loading only requested SDKs."""
+    out = (
+        _get_cached_builtin_channels()
+        if channel_keys is None
+        else _load_builtin_channels(channel_keys)
+    )
     for key, ch_cls in _get_plugin_channels().items():
+        if channel_keys is not None and key not in channel_keys:
+            continue
         if key in out:
             logger.warning(
                 "Plugin channel '%s' skipped: key already exists in "

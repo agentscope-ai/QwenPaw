@@ -25,6 +25,7 @@ from .command_registry import CommandRegistry
 from .registry import get_channel_registry
 from .unified_queue_manager import UnifiedQueueManager
 from ...config import get_available_channels
+from ...constant import EnvVarLoader
 
 if TYPE_CHECKING:
     from ...config.config import Config
@@ -129,13 +130,33 @@ class ChannelManager:
             on_last_dispatch: Callback for dispatch events
             workspace_dir: Agent workspace directory for channel state files
         """
-        available = get_available_channels()
         ch = config.channels
+        enabled_keys = {
+            key
+            for key, value in ch
+            if (
+                value.get("enabled", False)
+                if isinstance(value, dict)
+                else getattr(value, "enabled", False)
+            )
+        }
+        # Keep explicit environment filtering (including its fallback) intact.
+        # Normal configured startup need not import every disabled channel SDK.
+        has_env_filter = any(
+            EnvVarLoader.get_str(name, "").strip()
+            for name in (
+                "QWENPAW_ENABLED_CHANNELS",
+                "QWENPAW_DISABLED_CHANNELS",
+            )
+        )
+        available = (
+            get_available_channels() if has_env_filter else enabled_keys
+        )
         show_tool_details = getattr(config, "show_tool_details", True)
         extra = getattr(ch, "__pydantic_extra__", None) or {}
 
         channels: list[BaseChannel] = []
-        for key, ch_cls in get_channel_registry().items():
+        for key, ch_cls in get_channel_registry(enabled_keys).items():
             if key not in available:
                 continue
             ch_cfg = getattr(ch, key, None)
