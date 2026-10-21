@@ -2,7 +2,8 @@
 
 PR #7874 delivers the shared PawApp SDK/control plane and Creator integration.
 The Data App adapter, native Console task routing, adapter tests, external Engine
-pairing and Host–Engine CI suite are extracted into a separate dependent PR.
+pairing and Host–Engine CI suite are extracted into
+[Data integration #8363](https://github.com/agentscope-ai/QwenPaw/pull/8363).
 The existing released Data App remains at the upstream main implementation.
 Data integration is not required to run the SDK conformance suite.
 
