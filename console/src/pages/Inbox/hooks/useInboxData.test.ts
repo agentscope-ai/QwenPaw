@@ -271,6 +271,43 @@ describe("useInboxData", () => {
     vi.useRealTimers();
   });
 
+  it("reuses a slow request instead of invalidating it on every poll", async () => {
+    vi.useFakeTimers();
+    const slowRequest = deferred<{
+      events: ReturnType<typeof event>[];
+      total: number;
+      unread_count: number;
+    }>();
+    mocks.getInboxEvents.mockReturnValue(slowRequest.promise);
+    const { result } = renderHook(() => useInboxData());
+
+    await act(async () => {
+      vi.advanceTimersByTime(18000);
+    });
+    expect(mocks.getInboxEvents).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      slowRequest.resolve({
+        events: [event({ id: "slow-success" })],
+        total: 1,
+        unread_count: 1,
+      });
+      await slowRequest.promise;
+    });
+    expect(result.current.pushMessages.map((message) => message.id)).toEqual([
+      "slow-success",
+    ]);
+    expect(result.current.pushMessagesLoading).toBe(false);
+
+    mocks.getInboxEvents.mockResolvedValue({ events: [], total: 0 });
+    await act(async () => {
+      vi.advanceTimersByTime(6000);
+      await Promise.resolve();
+    });
+    expect(mocks.getInboxEvents).toHaveBeenCalledTimes(2);
+    vi.useRealTimers();
+  });
+
   it("marks a single message as read and decrements unread", async () => {
     mocks.getInboxEvents.mockResolvedValue({
       events: [event({ id: "m1", read: false })],
@@ -522,10 +559,13 @@ describe("useInboxData", () => {
       await Promise.resolve();
       vi.advanceTimersByTime(6000);
     });
-    // Refreshed on visible + one poll tick
-    expect(mocks.getInboxEvents.mock.calls.length).toBeGreaterThanOrEqual(
-      callsBefore + 2,
-    );
+    // The visibility refresh and simultaneous poll tick share one request.
+    expect(mocks.getInboxEvents.mock.calls.length).toBe(callsBefore + 1);
+    await act(async () => {
+      await Promise.resolve();
+      vi.advanceTimersByTime(6000);
+    });
+    expect(mocks.getInboxEvents.mock.calls.length).toBe(callsBefore + 2);
     vi.useRealTimers();
   });
 });
