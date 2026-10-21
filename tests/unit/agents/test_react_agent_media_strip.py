@@ -693,6 +693,45 @@ async def test_video_rejection_recovers_and_next_turn_skips_video(
     assert [msg.model_dump() for msg in agent.state.context] == before
 
 
+@pytest.mark.parametrize("other_type", ["image", "audio"])
+async def test_mixed_media_rejection_uses_media_free_retry(
+    video_session,
+    other_type,
+):
+    session = video_session
+    before = _dump_context(session.agent.state.context)
+    session.errors.append(
+        _error(
+            400,
+            f"This model does not support video or {other_type} input",
+        ),
+    )
+    events = [event async for event in session.agent._reasoning()]
+
+    assert events[-1].content[0].text == "done"
+    assert [
+        [part["type"] for part in _parts(request) if part["type"] != "text"]
+        for request in session.requests
+    ] == [["image_url", "input_audio", "video_url", "video_url"], []]
+    assert _dump_context(session.agent.state.context) == before
+    assert {
+        key: session.cache.get("test:video", key, False)
+        for key in ("rejects_video", "rejects_audio", "rejects_media")
+    } == {
+        "rejects_video": False,
+        "rejects_audio": False,
+        "rejects_media": False,
+    }
+    assert {
+        kind: getattr(
+            session.agent.formatter,
+            f"_qwenpaw_force_strip_{kind}",
+            False,
+        )
+        for kind in ("video", "audio", "media")
+    } == {"video": False, "audio": False, "media": False}
+
+
 async def test_positive_video_limit_does_not_disable_next_valid_input(
     video_session,
 ):

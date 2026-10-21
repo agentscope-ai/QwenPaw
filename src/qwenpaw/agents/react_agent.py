@@ -819,9 +819,18 @@ class QwenPawAgent(CodingModeMixin, Agent):
         if QwenPawAgent._is_content_safety_error(exc):
             return False
         error_str = " ".join(str(exc).lower().split())
+        # Schema errors can list image/audio parts as accepted alternatives.
+        if _VIDEO_PART_REJECTION_RE.search(error_str):
+            return True
+        # Broader rejections must retain the existing media-free fallback.
+        if re.search(
+            r"\b(?:images?|image_url|input_image|audios?|input_audio|"
+            r"files?|input_file|pdf|vision|media|multimodal)\b",
+            error_str,
+        ):
+            return False
         return bool(
-            _VIDEO_PART_REJECTION_RE.search(error_str)
-            or _VIDEO_COUNT_LIMIT_RE.search(error_str)
+            _VIDEO_COUNT_LIMIT_RE.search(error_str)
             or "video input is not supported" in error_str
             or re.search(
                 r"\bmodel\b.{0,40}\b(?:does not|doesn't|cannot|can't) "
