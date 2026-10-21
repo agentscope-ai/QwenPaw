@@ -20,6 +20,10 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+import anthropic
+import openai
+from google.genai import errors as genai_errors
+
 from acp import (
     Agent,
     InitializeResponse,
@@ -120,10 +124,18 @@ class ACPClientDisconnected(ConnectionError):
 
 def _is_transport_close(exc: BaseException) -> bool:
     """Return whether *exc* is an ACP transport closure at the entry point."""
-    if isinstance(exc, (ACPClientDisconnected, BrokenPipeError)):
+    if isinstance(
+        exc,
+        (
+            ACPClientDisconnected,
+            BrokenPipeError,
+            ConnectionResetError,
+            ConnectionAbortedError,
+        ),
+    ):
         return True
     if isinstance(exc, OSError):
-        if exc.errno in {22, 32, 10053, 10054, 10058}:
+        if exc.errno in {32, 10053, 10054, 10058}:
             return True
         message = str(exc).lower()
         return any(
@@ -153,12 +165,10 @@ def silence_stdout() -> None:
 
 def _is_provider_error(exc: BaseException) -> bool:
     """Return whether *exc* came from a supported model provider SDK."""
-    try:
-        import anthropic
-        import openai
-    except ImportError:  # pragma: no cover - optional provider SDK
-        return False
-    return isinstance(exc, (openai.APIError, anthropic.APIError))
+    return isinstance(
+        exc,
+        (openai.APIError, anthropic.APIError, genai_errors.APIError),
+    )
 
 
 def _prompt_failure_stop_reason(exc: BaseException) -> str | None:
@@ -285,25 +295,29 @@ class _EnvelopeTracker:
                     for call_id in self._active_tool_calls
                 ]
 
-            if msg_type == MessageType.PLUGIN_CALL.value:
-                if status == RunStatus.Completed:
-                    for c in getattr(event, "content", []) or []:
-                        data = getattr(c, "data", None)
-                        if isinstance(data, dict):
-                            call_id = str(
-                                data.get("call_id") or uuid4().hex[:8],
-                            )
+            if (
+                msg_type == MessageType.PLUGIN_CALL.value
+                and status == RunStatus.Completed
+            ):
+                for c in getattr(event, "content", []) or []:
+                    data = getattr(c, "data", None)
+                    if isinstance(data, dict):
+                        call_id = str(
+                            data.get("call_id") or uuid4().hex[:8],
+                        )
+                        # Only stable IDs can match completion events.
+                        if data.get(f"call_id"):
                             self._active_tool_calls[call_id] = str(
                                 data.get("name") or "tool",
                             )
-                            return [
-                                start_tool_call(
-                                    call_id,
-                                    str(data.get("name") or "tool"),
-                                    status="in_progress",
-                                    raw_input=self._tool_raw_input(data),
-                                ),
-                            ]
+                        return [
+                            start_tool_call(
+                                call_id,
+                                str(data.get("name") or "tool"),
+                                status="in_progress",
+                                raw_input=self._tool_raw_input(data),
+                            ),
+                        ]
                 return []
 
             if msg_type == MessageType.PLUGIN_CALL_OUTPUT.value:
@@ -739,7 +753,7 @@ class QwenPawACPAgent(Agent):
         async def _pump() -> None:
             """Consume the whole turn in one task so ContextVars persist."""
             tracker = _EnvelopeTracker()
-            terminal_sent = False
+            outcome: tuple[str, Any] = (f"end", None)
             try:
                 request_context = self._build_request_context(session_info)
 
@@ -764,6 +778,17 @@ class QwenPawACPAgent(Agent):
                 workspace = await self._ensure_workspace()
                 events_since_yield = 0
                 async for event in workspace.stream_query(request):
+                    if getattr(event, f"object", None) == f"response":
+                        status = getattr(event, f"status", None)
+                        if status == RunStatus.Failed:
+                            outcome = (
+                                f"error",
+                                RuntimeError(
+                                    f"Workspace failed: {event.error}",
+                                ),
+                            )
+                        elif status == RunStatus.Cancelled:
+                            outcome = (f"cancelled", None)
                     for upd in tracker.process(event):
                         await queue.put(("update", upd))
                     events_since_yield += 1
@@ -774,15 +799,14 @@ class QwenPawACPAgent(Agent):
             except asyncio.CancelledError:
                 if consumer_stopped:
                     raise
-                terminal_sent = True
-                _finish("cancelled")
-                return
+                outcome = (f"cancelled", None)
             except Exception as exc:
-                terminal_sent = True
-                _finish("error", exc)
+                # Native runtimes may emit a failure then re-raise its cause.
+                # Preserve typed errors rather than classifying envelope text.
+                outcome = (f"error", exc)
             finally:
-                if not terminal_sent and not consumer_stopped:
-                    _finish("end")
+                if not consumer_stopped:
+                    _finish(*outcome)
 
         pump_task = asyncio.create_task(_pump())
 
@@ -847,7 +871,8 @@ class QwenPawACPAgent(Agent):
                 "ACP prompt error: session=%s",
                 session_id,
             )
-            await self._report_prompt_error(session_id, exc)
+            if not isinstance(exc, ACPClientDisconnected):
+                await self._report_prompt_error(session_id, exc)
             stop_reason = _prompt_failure_stop_reason(exc)
             if stop_reason is None:
                 raise RequestError.internal_error(
@@ -1411,7 +1436,9 @@ class QwenPawACPAgent(Agent):
                 update=update,
             )
         except OSError as exc:
-            raise ACPClientDisconnected("ACP transport closed") from exc
+            if not _is_transport_close(exc):
+                raise
+            raise ACPClientDisconnected(f"ACP transport closed") from exc
 
     async def _emit_usage_if_available(
         self,

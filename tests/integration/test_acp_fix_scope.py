@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import time
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import httpx
 import openai
@@ -28,6 +29,8 @@ from qwenpaw.agents.acp.server import (
     _EnvelopeTracker,
     _prompt_failure_stop_reason,
 )
+from qwenpaw.harnesses import runtime as harness_runtime
+from qwenpaw.harnesses.events import HarnessEvent, HarnessEventKind
 from qwenpaw.providers.retry_chat_model import StreamIdleTimeoutError
 from qwenpaw.schemas import MessageType, RunStatus
 
@@ -490,7 +493,11 @@ async def _install_noop(self):
 @pytest.mark.integration
 @pytest.mark.parametrize(
     "exc",
-    [ConnectionError("database lost"), RuntimeError("boom")],
+    [
+        ConnectionError("database lost"),
+        RuntimeError("boom"),
+        OSError(22, f"Invalid argument"),
+    ],
 )
 async def test_entry_point_reraises_unrelated_errors(monkeypatch, exc):
     """Only verified transport disconnects may be swallowed at the entry."""
@@ -631,3 +638,142 @@ async def test_config_resolution_runs_off_loop_and_reports_failure(
     assert any(_is_keepalive(update) for _, update in conn.updates)
     assert session_id not in agent._prompt_tasks
     assert session_id not in agent._cancel_events
+
+
+@pytest.mark.integration
+async def test_disconnect_does_not_write_an_error_frame(monkeypatch):
+    """Stop writing as soon as the transport reports a disconnect."""
+
+    async def stream():
+        yield _content_event(f"tail")
+
+    monkeypatch.setattr(
+        QwenPawACPAgent,
+        f"_advertise_commands",
+        AsyncMock(),
+    )
+    agent, conn, session_id = await _agent_with_stream(monkeypatch, stream)
+    send = AsyncMock(side_effect=BrokenPipeError())
+    monkeypatch.setattr(conn, f"session_update", send)
+    response = await agent.prompt([text_block(f"hello")], session_id)
+    assert response.stop_reason == f"end_turn"
+    assert send.await_count == 1
+    assert session_id not in agent._prompt_tasks
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(
+    f"outcome",
+    [f"error", f"cancelled", f"completed", f"exception"],
+)
+async def test_harness_terminal_preserves_output_and_status(
+    monkeypatch,
+    tmp_path,
+    outcome,
+):
+    """Exercise real harness envelopes, including errors caught by it."""
+    runtime = harness_runtime.HarnessRuntime(tmp_path)
+    monkeypatch.setattr(
+        runtime._capability_resolver,
+        f"resolve",
+        AsyncMock(return_value={}),
+    )
+    monkeypatch.setattr(
+        harness_runtime,
+        f"record_agent_activity",
+        AsyncMock(),
+    )
+
+    async def run_turn(**kwargs):
+        del kwargs
+        yield HarnessEvent(kind=HarnessEventKind.TEXT_DELTA, text=f"tail")
+        if outcome == f"exception":
+            raise RuntimeError(f"backend secret")
+        yield HarnessEvent(
+            kind=HarnessEventKind(outcome),
+            text=f"backend secret",
+        )
+
+    monkeypatch.setattr(
+        runtime,
+        f"adapter",
+        AsyncMock(return_value=SimpleNamespace(run_turn=run_turn)),
+    )
+    agent = QwenPawACPAgent(agent_id=f"default")
+    conn = _RecordingConn()
+    agent.on_connect(conn)
+    session_id = f"harness-review"
+    agent._sessions[session_id] = {f"user_id": session_id}
+
+    async def stream_query(request):
+        async for event in runtime.stream(
+            backend=f"codex",
+            request=request,
+            cwd=tmp_path,
+        ):
+            yield event
+
+    monkeypatch.setattr(
+        agent,
+        f"_ensure_workspace",
+        AsyncMock(return_value=SimpleNamespace(stream_query=stream_query)),
+    )
+    if outcome in {f"error", f"exception"}:
+        with pytest.raises(RequestError) as caught:
+            await agent.prompt([text_block(f"hello")], session_id)
+        assert caught.value.code == -32603
+    else:
+        response = await agent.prompt([text_block(f"hello")], session_id)
+        expected = f"cancelled" if outcome == f"cancelled" else f"end_turn"
+        assert response.stop_reason == expected
+    texts = [
+        update.content.text
+        for _, update in conn.updates
+        if getattr(update, f"session_update", None) == f"agent_message_chunk"
+    ]
+    assert texts[0] == f"tail"
+    assert f"backend secret" not in str(texts)
+    assert session_id not in agent._prompt_tasks
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(
+    f"failure",
+    [
+        _provider_error(f"inappropriate content"),
+        StreamIdleTimeoutError(f"model", 120.0),
+        RequestError.invalid_params({f"details": f"original"}),
+    ],
+)
+async def test_native_exception_overrides_failure_envelope(
+    monkeypatch,
+    failure,
+):
+    """Keep original exception semantics after draining queued output."""
+
+    async def stream():
+        yield _content_event(f"tail")
+        yield SimpleNamespace(
+            object=f"response",
+            status=RunStatus.Failed,
+            error={f"message": f"inappropriate content"},
+        )
+        raise failure
+
+    agent, conn, session_id = await _agent_with_stream(monkeypatch, stream)
+    if isinstance(failure, openai.APIError):
+        response = await agent.prompt([text_block(f"hello")], session_id)
+        assert response.stop_reason == f"refusal"
+    else:
+        with pytest.raises(RequestError) as caught:
+            await agent.prompt([text_block(f"hello")], session_id)
+        if isinstance(failure, RequestError):
+            assert caught.value is failure
+        else:
+            assert caught.value.code == -32603
+    texts = [
+        update.content.text
+        for _, update in conn.updates
+        if getattr(update, f"session_update", None) == f"agent_message_chunk"
+    ]
+    assert texts[0] == f"tail"

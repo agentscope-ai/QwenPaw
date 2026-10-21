@@ -6,10 +6,12 @@ from __future__ import annotations
 
 import asyncio
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import httpx
 import openai
 import pytest
+from google.genai import errors as genai_errors
 
 from qwenpaw.agents.acp.server import (
     ACPClientDisconnected,
@@ -85,10 +87,11 @@ def test_heartbeat_is_silent_without_active_tool():
     )
 
 
-def test_completed_tool_stops_heartbeats():
+@pytest.mark.parametrize(f"call_id", [f"call-1", None])
+def test_completed_tool_stops_heartbeats(call_id):
     tracker = _EnvelopeTracker()
-    tracker.process(_tool_start())
-    tracker.process(_tool_output())
+    tracker.process(_tool_start(call_id))
+    tracker.process(_tool_output(call_id))
 
     assert (
         tracker.process(
@@ -98,12 +101,18 @@ def test_completed_tool_stops_heartbeats():
     )
 
 
-def test_content_moderation_returns_refusal():
-    error = _provider_error(
-        "400 data_inspection_failed: inappropriate content",
-    )
-
-    assert _prompt_failure_stop_reason(error) == "refusal"
+@pytest.mark.parametrize(
+    f"error",
+    [
+        _provider_error(f"400 data_inspection_failed: inappropriate content"),
+        genai_errors.ClientError(
+            400,
+            {f"error": {f"message": f"inappropriate content"}},
+        ),
+    ],
+)
+def test_content_moderation_returns_refusal(error):
+    assert _prompt_failure_stop_reason(error) == f"refusal"
 
 
 def test_internal_error_text_is_not_content_safety():
@@ -138,15 +147,24 @@ def test_generic_prompt_error_is_not_normalized():
     assert _prompt_failure_stop_reason(RuntimeError("boom")) is None
 
 
-class _ClosedConn:
-    async def session_update(self, session_id, update):
-        del session_id, update
-        raise ConnectionError("connection closed")
+@pytest.mark.parametrize(
+    (f"error", f"expected"),
+    [
+        (ConnectionError(f"connection closed"), ACPClientDisconnected),
+        (BrokenPipeError(), ACPClientDisconnected),
+        (ConnectionResetError(), ACPClientDisconnected),
+        (OSError(22, f"Invalid argument"), OSError),
+    ],
+)
+def test_send_update_wraps_transport_failure(error, expected):
+    agent = QwenPawACPAgent(agent_id=f"default")
+    agent.on_connect(
+        SimpleNamespace(
+            session_update=AsyncMock(side_effect=error),
+        ),
+    )
 
-
-def test_send_update_wraps_transport_failure():
-    agent = QwenPawACPAgent(agent_id="default")
-    agent.on_connect(_ClosedConn())
-
-    with pytest.raises(ACPClientDisconnected):
-        asyncio.run(agent._send_update("session", object()))
+    with pytest.raises(expected) as caught:
+        asyncio.run(agent._send_update(f"session", object()))
+    if expected is OSError:
+        assert caught.value is error
