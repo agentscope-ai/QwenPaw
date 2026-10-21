@@ -8,6 +8,7 @@ vi.mock("@/api/modules/chat", () => ({
 }));
 
 import {
+  toDisplayUrl,
   extractUrlFromText,
   formatAgentList,
   formatMemorySearch,
@@ -337,4 +338,22 @@ describe("formatAgentList", () => {
     );
     expect(formattedResult).not.toContain("|  | `` |  |  |");
   });
+});
+
+describe("file URI versus filesystem path", () => {
+  it("decodes a file URI once before passing a filesystem path to preview", () => {
+    expect(toDisplayUrl("file:///tmp/literal%2520name.txt")).toBe(
+      "/api/files/preview/tmp/literal%20name.txt",
+    );
+  });
+  it("keeps a raw filesystem percent escape literal", () => {
+    expect(toDisplayUrl("/tmp/literal%20name.txt")).toBe(
+      "/api/files/preview/tmp/literal%20name.txt",
+    );
+  });
+});
+
+it("keeps reserved characters in raw tool filenames", () => {
+  expect(shortFileName("/tmp/literal%20name.txt")).toBe("literal%20name.txt");
+  expect(shortFileName("/tmp/report#1.txt")).toBe("report#1.txt");
 });
