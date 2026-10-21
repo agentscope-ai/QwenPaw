@@ -401,7 +401,7 @@ export function useSkills() {
           message.success(
             t("skills.importedSkill", { name: status.result.name }),
           );
-          invalidateSkillCache({ agentId: selectedAgent }); // Clear cache after mutation
+          invalidateSkillCache({ agentId: mutation.agentId });
           await fetchSkills();
           if (!ownsMutation(mutation)) return { success: false };
           if (status.result.name) {
