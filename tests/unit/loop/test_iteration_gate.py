@@ -30,7 +30,7 @@ def gate():
 @pytest.mark.asyncio
 async def test_check_increments(gate):
     """check() increments the counter each call."""
-    for _ in range(4):
+    for _ in range(5):
         result = await gate.check({})
         assert result.action == StopAction.BYPASS
     result = await gate.check({})
@@ -62,7 +62,7 @@ async def test_reset_allows_full_budget(gate):
     for _ in range(3):
         await gate.check({})
     gate.reset_turn()
-    for _ in range(4):
+    for _ in range(5):
         result = await gate.check({})
         assert result.action == StopAction.BYPASS
     result = await gate.check({})
@@ -139,3 +139,20 @@ def test_reset_session_removes_only_current_session(gate_pair):
         return_value="session-b",
     ):
         assert gate_pair._state() is not None
+
+
+@pytest.mark.asyncio
+async def test_allows_max_iterations_bypass_for_finalization_slot(gate):
+    """Exactly max_iterations checks BYPASS so AgentScope can finalize.
+
+    AgentScope forces one text-only call at ``cur_iter == max_iters``.
+    Terminating on ``>=`` would park a pending stop after the last
+    tool-call round and abort that finalization in ``_reasoning``.
+    """
+    for i in range(5):
+        result = await gate.check({})
+        assert result.action == StopAction.BYPASS, f"round {i + 1}"
+        assert gate._state().iteration == i + 1
+    result = await gate.check({})
+    assert result.action == StopAction.TERMINATE
+    assert result.reason == "Max iterations (5) reached"
