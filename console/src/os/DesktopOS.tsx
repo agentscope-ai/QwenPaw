@@ -528,7 +528,7 @@ export default function DesktopOS() {
           open
           trigger={[]}
           placement="bottomLeft"
-          classNames={{ root: styles.desktopContextMenu }}
+          rootClassName={styles.desktopContextMenu}
           menu={{ items: desktopMenuItems }}
           popupRender={(menu) => (
             <div
