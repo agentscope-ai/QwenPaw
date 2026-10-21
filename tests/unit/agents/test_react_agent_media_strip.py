@@ -6,6 +6,7 @@ _strip_media_blocks_from_memory (top-level media removal, nested
 tool_result output filtering, empty-content placeholder insertion), plus
 request-only recovery from provider media-payload rejections.
 """
+
 # pylint: disable=protected-access,redefined-outer-name,unused-argument
 from __future__ import annotations
 
@@ -206,6 +207,22 @@ class TestIsMediaBlock:
             )
             is False
         )
+
+
+class TestMediaCapabilityErrors:
+    def test_nested_file_error_allows_media_fallback(self):
+        error = RuntimeError(
+            "Error code: 400 - file must have a file_id or file_data",
+        )
+
+        assert QwenPawAgent._is_explicit_media_capability_error(error) is True
+
+    def test_nested_file_error_does_not_poison_global_capability(self):
+        error = RuntimeError(
+            "Error code: 400 - file must have a file_id or file_data",
+        )
+
+        assert QwenPawAgent._is_global_media_capability_error(error) is False
 
 
 # ---------------------------------------------------------------------------
