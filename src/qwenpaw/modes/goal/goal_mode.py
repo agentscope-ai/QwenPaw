@@ -51,7 +51,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 DEFAULT_MAX_ITERATIONS = 20
-DEFAULT_MAX_TOKENS = 300000
+DEFAULT_MAX_TOKENS = 0
 
 
 @dataclass
@@ -69,6 +69,18 @@ class GoalSession:
     started_at: float = field(
         default_factory=time.time,
     )
+
+    @property
+    def remaining_tokens(self) -> int | None:
+        """Return remaining tokens, or None for an unlimited budget."""
+        if self.max_tokens <= 0:
+            return None
+        return max(0, self.max_tokens - self.tokens_used)
+
+    @property
+    def budget_label(self) -> str:
+        """Render the budget without presenting unlimited as zero tokens."""
+        return f"{self.max_tokens}" if self.max_tokens > 0 else f"unlimited"
 
 
 class GoalMode(AgentMode):
@@ -349,20 +361,19 @@ class GoalMode(AgentMode):
             return INITIAL_GOAL_PROMPT.format(
                 objective=session.goal,
                 max_iterations=(session.max_iterations),
-                token_budget=session.max_tokens,
+                token_budget=session.budget_label,
             )
 
-        remaining = max(
-            0,
-            session.max_tokens - session.tokens_used,
-        )
+        remaining = session.remaining_tokens
         return CONTINUATION_PROMPT.format(
             objective=session.goal,
             iteration=session.iteration,
             max_iterations=(session.max_iterations),
             tokens_used=session.tokens_used,
-            token_budget=session.max_tokens,
-            remaining_tokens=remaining,
+            token_budget=session.budget_label,
+            remaining_tokens=(
+                remaining if remaining is not None else f"unlimited"
+            ),
         )
 
     @staticmethod

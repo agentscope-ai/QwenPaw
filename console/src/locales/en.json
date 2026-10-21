@@ -3221,7 +3221,7 @@
       "goalTurnDescription": "Limit turns within one active goal.",
       "maxGoalTurns": "Maximum goal turns",
       "goalBudgetTitle": "Goal token budget",
-      "goalBudgetDescription": "Stop when the complete goal reaches its budget.",
+      "goalBudgetDescription": "Stop at the goal token budget. 0 or -1 means unlimited (default).",
       "maxGoalTokens": "Maximum goal tokens",
       "goalCompletionTitle": "Goal completion check",
       "goalCompletionDescription": "Read the explicit goal status before stopping.",

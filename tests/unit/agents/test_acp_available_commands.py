@@ -15,6 +15,8 @@ import pytest
 
 from acp.schema import AllowedOutcome, RequestPermissionResponse
 
+from qwenpaw.modes.goal import GoalMode
+
 from qwenpaw.agents.acp.meta import ACP_APPROVAL_EXPIRES_AT_META_KEY
 from qwenpaw.agents.acp.server import (
     _EnvelopeTracker,
@@ -640,6 +642,8 @@ def test_acp_bootstrap_includes_runtime_slash_commands():
     command_names = {
         spec.name for spec in kwargs.get("builtin_command_specs", [])
     }
+    assert GoalMode in kwargs[f"builtin_mode_clses"]
+    assert GoalMode().default_max_tokens == 0
 
     # Verify that builtin commands are collected via the shared factory.
     # The exact set depends on what's registered in builtin_commands.py.

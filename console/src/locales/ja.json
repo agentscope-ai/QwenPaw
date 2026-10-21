@@ -2479,7 +2479,7 @@
       "goalTurnDescription": "アクティブなゴール内のターン数を制限します。",
       "maxGoalTurns": "ゴールの最大ターン数",
       "goalBudgetTitle": "ゴールのトークン予算",
-      "goalBudgetDescription": "ゴール全体が予算に達したら停止します。",
+      "goalBudgetDescription": "ゴールのトークン予算に達すると停止します。0 または -1 は無制限です（既定）。",
       "maxGoalTokens": "ゴールの最大トークン数",
       "goalCompletionTitle": "ゴール完了チェック",
       "goalCompletionDescription": "停止前に明示的なゴール状態を確認します。",

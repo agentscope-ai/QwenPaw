@@ -2573,7 +2573,7 @@
       "goalTurnDescription": "Giới hạn lượt trong một mục tiêu đang hoạt động.",
       "maxGoalTurns": "Số lượt mục tiêu tối đa",
       "goalBudgetTitle": "Ngân sách token mục tiêu",
-      "goalBudgetDescription": "Dừng khi toàn bộ mục tiêu đạt ngân sách.",
+      "goalBudgetDescription": "Dừng khi đạt ngân sách token của mục tiêu. 0 hoặc -1 nghĩa là không giới hạn (mặc định).",
       "maxGoalTokens": "Số token mục tiêu tối đa",
       "goalCompletionTitle": "Kiểm tra hoàn thành mục tiêu",
       "goalCompletionDescription": "Đọc trạng thái mục tiêu rõ ràng trước khi dừng.",

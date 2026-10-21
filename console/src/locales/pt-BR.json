@@ -2721,7 +2721,7 @@
       "goalTurnDescription": "Limita os turnos em uma meta ativa.",
       "maxGoalTurns": "Máximo de turnos da meta",
       "goalBudgetTitle": "Orçamento de tokens da meta",
-      "goalBudgetDescription": "Para quando a meta completa atinge o orçamento.",
+      "goalBudgetDescription": "Para ao atingir o orçamento de tokens da meta. 0 ou -1 significa sem limite (padrão).",
       "maxGoalTokens": "Máximo de tokens da meta",
       "goalCompletionTitle": "Verificação de conclusão da meta",
       "goalCompletionDescription": "Lê o status explícito da meta antes de parar.",

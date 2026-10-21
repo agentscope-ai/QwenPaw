@@ -25,7 +25,6 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 DEFAULT_MAX_ITERATIONS = 20
-DEFAULT_MAX_TOKENS = 300000
 
 
 def _update_goal_tokens(
@@ -138,17 +137,16 @@ class GoalTurnGate(LoopGate):
         session = self._mode.session_by_ctx_var()
         if session is None:
             return ""
-        remaining = max(
-            0,
-            session.max_tokens - session.tokens_used,
-        )
+        remaining = session.remaining_tokens
         return CONTINUATION_PROMPT.format(
             objective=session.goal,
             iteration=session.iteration,
             max_iterations=session.max_iterations,
             tokens_used=session.tokens_used,
-            token_budget=session.max_tokens,
-            remaining_tokens=remaining,
+            token_budget=session.budget_label,
+            remaining_tokens=(
+                remaining if remaining is not None else f"unlimited"
+            ),
         )
 
 
@@ -183,7 +181,7 @@ class GoalBudgetGate(LoopGate):
         session = self._mode.session_by_ctx_var()
         if session is None or not session.active:
             return _bypass
-        if session.tokens_used < session.max_tokens:
+        if session.remaining_tokens != 0:
             return _bypass
 
         session.active = False

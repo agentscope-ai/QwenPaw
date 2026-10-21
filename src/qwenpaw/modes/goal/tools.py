@@ -37,10 +37,7 @@ def make_get_goal(owner: "GoalMode") -> Any:
                 "max_iterations": session.max_iterations,
                 "tokens_used": session.tokens_used,
                 "token_budget": session.max_tokens,
-                "remaining_tokens": max(
-                    0,
-                    session.max_tokens - session.tokens_used,
-                ),
+                "remaining_tokens": session.remaining_tokens,
                 "elapsed_seconds": round(elapsed, 1),
                 "last_verdict": session.last_verdict,
             },
@@ -102,7 +99,7 @@ def make_create_goal(owner: "GoalMode") -> Any:
 
     def create_goal(
         objective: str,
-        token_budget: int = 0,
+        token_budget: int | None = None,
     ) -> str:
         """Create a goal only when explicitly requested.
 
@@ -110,8 +107,9 @@ def make_create_goal(owner: "GoalMode") -> Any:
 
         Args:
             objective: The concrete objective to pursue.
-            token_budget: Positive token budget. Omit
-                unless explicitly requested.
+            token_budget: Positive token limit, or 0/-1 for unlimited.
+                Set only when explicitly requested; otherwise omit
+                to use the configured default.
         """
         from .goal_mode import GoalSession
 
@@ -127,7 +125,11 @@ def make_create_goal(owner: "GoalMode") -> Any:
         )
 
         key = f"__tool__{int(time.time())}"
-        budget = token_budget if token_budget > 0 else owner.default_max_tokens
+        if token_budget is not None and token_budget < -1:
+            return f"Token budget must be -1, 0, or a positive integer."
+        budget = (
+            owner.default_max_tokens if token_budget is None else token_budget
+        )
         session = GoalSession(
             goal=objective.strip(),
             max_tokens=budget,
@@ -141,7 +143,7 @@ def make_create_goal(owner: "GoalMode") -> Any:
         return (
             f"Goal created: {objective.strip()}\n"
             f"Budget: {session.max_iterations} "
-            f"iterations, {budget} tokens"
+            f"iterations, {session.budget_label} tokens"
         )
 
     return create_goal
