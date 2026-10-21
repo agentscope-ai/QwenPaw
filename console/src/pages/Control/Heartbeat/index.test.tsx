@@ -297,6 +297,37 @@ describe("Heartbeat schedule", () => {
       { timeout: 2500 },
     );
   });
+  it("saves a newer edit made while the previous save is running", async () => {
+    const firstSave = deferred<void>();
+    api.updateHeartbeatConfig
+      .mockImplementationOnce(() => firstSave.promise)
+      .mockResolvedValueOnce({});
+    render(<HeartbeatPage />);
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "3 heartbeat.unitHours" }),
+    );
+    await waitFor(
+      () => expect(api.updateHeartbeatConfig).toHaveBeenCalledTimes(1),
+      { timeout: 2500 },
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "12 heartbeat.unitHours" }),
+    );
+    await act(async () => {
+      firstSave.resolve();
+      await firstSave.promise;
+    });
+
+    await waitFor(() =>
+      expect(api.updateHeartbeatConfig).toHaveBeenLastCalledWith(
+        expect.objectContaining({ every: "12h" }),
+        "default",
+      ),
+    );
+    expect(api.updateHeartbeatConfig).toHaveBeenCalledTimes(2);
+  });
   it("keeps the interval read-only while disabled and restores it on enable", async () => {
     api.getHeartbeatConfig.mockResolvedValue({
       enabled: false,

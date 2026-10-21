@@ -55,6 +55,11 @@ type HeartbeatFormValues = Omit<HeartbeatConfig, "every"> & {
   activeHoursEnd?: string;
 };
 
+type PendingHeartbeatSave = {
+  agentId: string;
+  revision: number;
+};
+
 const TARGET_OPTIONS = [
   { value: "main", labelKey: "heartbeat.targetMain" },
   { value: "last", labelKey: "heartbeat.targetLast" },
@@ -70,7 +75,8 @@ function HeartbeatPage() {
   const latestRequestRef = useRef(0);
   const requestedAgentRef = useRef<string | null>(null);
   const loadedAgentRef = useRef<string | null>(null);
-  const pendingSaveAgentRef = useRef<string | null>(null);
+  const pendingSaveRef = useRef<PendingHeartbeatSave | null>(null);
+  const saveRevisionRef = useRef(0);
   const agentId = selectedAgent || "default";
   const intervalMinutes = Form.useWatch("intervalMinutes", form) ?? 360;
   const enabled = Form.useWatch("enabled", form) ?? false;
@@ -142,9 +148,14 @@ function HeartbeatPage() {
     loadedAgentRef.current === ownerAgentId &&
     (useAgentStore.getState().selectedAgent || "default") === ownerAgentId;
   const { schedule, flush } = useAutoSave(async () => {
-    const saveAgentId = pendingSaveAgentRef.current;
-    if (!saveAgentId || !isScheduleOwner(saveAgentId)) {
-      pendingSaveAgentRef.current = null;
+    const pendingSave = pendingSaveRef.current;
+    const saveIsCurrent = () =>
+      pendingSaveRef.current?.agentId === pendingSave?.agentId &&
+      pendingSaveRef.current?.revision === pendingSave?.revision;
+    if (!pendingSave || !isScheduleOwner(pendingSave.agentId)) {
+      if (saveIsCurrent()) {
+        pendingSaveRef.current = null;
+      }
       return true;
     }
     const values = form.getFieldsValue(true);
@@ -153,19 +164,24 @@ function HeartbeatPage() {
     } catch {
       return false;
     }
-    if (!isScheduleOwner(saveAgentId)) {
-      pendingSaveAgentRef.current = null;
+    if (!isScheduleOwner(pendingSave.agentId)) {
+      if (saveIsCurrent()) {
+        pendingSaveRef.current = null;
+      }
       return true;
     }
-    await onFinish(values, saveAgentId);
-    if (pendingSaveAgentRef.current === saveAgentId) {
-      pendingSaveAgentRef.current = null;
+    await onFinish(values, pendingSave.agentId);
+    if (saveIsCurrent()) {
+      pendingSaveRef.current = null;
     }
   });
   const scheduleCurrentAgent = () => {
     const currentAgent = useAgentStore.getState().selectedAgent || "default";
     if (!isScheduleOwner(currentAgent)) return;
-    pendingSaveAgentRef.current = currentAgent;
+    pendingSaveRef.current = {
+      agentId: currentAgent,
+      revision: ++saveRevisionRef.current,
+    };
     schedule();
   };
   const requestMatchesAgent = requestedAgentRef.current === agentId;
