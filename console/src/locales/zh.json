@@ -3169,6 +3169,7 @@
     "iterationEnabledTooltip": "在固定轮次后停止 Agent 循环",
     "iterationMaxIterations": "最大迭代次数",
     "iterationMaxIterationsTooltip": "循环执行的最大轮次",
+    "iterationMaxIterationsRange": "最大迭代次数需在 1 到 500 之间",
     "rubricTitle": "定性完成度检查",
     "rubricEnabled": "启用定性完成度检查",
     "rubricEnabledTooltip": "仅在 Agent 给出不包含工具调用的文本答复时触发。",

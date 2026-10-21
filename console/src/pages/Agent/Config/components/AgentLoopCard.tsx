@@ -11,6 +11,7 @@ import {
 } from "./agentLoopHelpers";
 import { NumberStepper as InputNumber } from "@/components/interaction/NumberStepper";
 import { SettingsField } from "@/components/interaction/SettingsField";
+import { ITERATION_LIMIT_MAX, ITERATION_LIMIT_MIN } from "../iterationLimits";
 import { useState } from "react";
 import {
   Card,
@@ -92,8 +93,23 @@ function IterationSection() {
             "agentConfig.iterationMaxIterationsTooltip",
             "Maximum number of loop turns before stopping",
           )}
+          rules={[
+            {
+              type: "number",
+              min: ITERATION_LIMIT_MIN,
+              max: ITERATION_LIMIT_MAX,
+              message: t(
+                "agentConfig.iterationMaxIterationsRange",
+                "Maximum iterations must be between 1 and 500",
+              ),
+            },
+          ]}
         >
-          <InputNumber min={1} max={500} style={{ width: 200 }} />
+          <InputNumber
+            min={ITERATION_LIMIT_MIN}
+            max={ITERATION_LIMIT_MAX}
+            style={{ width: 200 }}
+          />
         </SettingsField>
       )}
     </div>

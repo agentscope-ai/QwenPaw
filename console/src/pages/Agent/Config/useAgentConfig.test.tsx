@@ -261,6 +261,66 @@ describe("useAgentConfig", () => {
     expect(view.result.current.loading).toBe(false);
   });
 
+  const iterationConfig = (max_iterations: number | null) =>
+    ({
+      iteration: { enabled: true, max_iterations },
+    }) as unknown as Config["loop"];
+
+  const loadedIterationLimit = () => {
+    const callArg = mockSetFieldsValue.mock.calls[0][0] as {
+      loop: { iteration: { max_iterations: number | null } };
+    };
+    return callArg.loop.iteration.max_iterations;
+  };
+
+  it("keeps an out-of-range legacy max_iters out of the iteration field", async () => {
+    // max_iters has no upper bound but max_iterations stops at 500; seeding the
+    // field with 9999 made every save of the page fail schema validation.
+    apiMocks.getAgentRunningConfig.mockResolvedValue(
+      makeConfig({ max_iters: 9999, loop: iterationConfig(null) }),
+    );
+    renderConfigHook();
+    await waitFor(() => {
+      expect(mockSetFieldsValue).toHaveBeenCalled();
+    });
+    expect(loadedIterationLimit()).toBeNull();
+  });
+
+  it("still surfaces a legacy max_iters that fits the iteration bounds", async () => {
+    apiMocks.getAgentRunningConfig.mockResolvedValue(
+      makeConfig({ max_iters: 120, loop: iterationConfig(null) }),
+    );
+    renderConfigHook();
+    await waitFor(() => {
+      expect(mockSetFieldsValue).toHaveBeenCalled();
+    });
+    expect(loadedIterationLimit()).toBe(120);
+  });
+
+  it("keeps an explicit iteration limit untouched", async () => {
+    apiMocks.getAgentRunningConfig.mockResolvedValue(
+      makeConfig({ max_iters: 9999, loop: iterationConfig(30) }),
+    );
+    renderConfigHook();
+    await waitFor(() => {
+      expect(mockSetFieldsValue).toHaveBeenCalled();
+    });
+    expect(loadedIterationLimit()).toBe(30);
+  });
+
+  it("normalizes an out-of-range persisted iteration limit", async () => {
+    // agent.json can be edited by hand, so the stored gate value is not
+    // guaranteed to fit the schema bounds either.
+    apiMocks.getAgentRunningConfig.mockResolvedValue(
+      makeConfig({ max_iters: 9999, loop: iterationConfig(9999) }),
+    );
+    renderConfigHook();
+    await waitFor(() => {
+      expect(mockSetFieldsValue).toHaveBeenCalled();
+    });
+    expect(loadedIterationLimit()).toBeNull();
+  });
+
   it("falls back context_manager_backend to 'light' when not in MAPPINGS", async () => {
     apiMocks.getAgentRunningConfig.mockResolvedValue(
       makeConfig({ context_manager_backend: "unknown-backend" }),
@@ -372,6 +432,38 @@ describe("useAgentConfig", () => {
     const saved = apiMocks.updateAgentRunningConfig.mock.calls[0][0] as Config;
     expect(saved.loop.iteration?.max_iterations).toBe(99);
     expect(saved.max_iters).toBe(99);
+  });
+
+  it("handleSave drops an out-of-range iteration limit instead of failing", async () => {
+    // Submitting 9999 made the PUT return 422, which blocked every other
+    // section of the page from saving as well.
+    apiMocks.getAgentRunningConfig.mockResolvedValue(
+      makeConfig({ max_iters: 9999, loop: iterationConfig(null) }),
+    );
+    const loaded = makeConfig({
+      max_iters: 9999,
+      loop: iterationConfig(null),
+    });
+    mockGetFieldsValue.mockReturnValue({
+      ...loaded,
+      loop: {
+        ...loaded.loop,
+        iteration: { enabled: true, max_iterations: 9999 },
+      },
+    });
+    apiMocks.updateAgentRunningConfig.mockResolvedValue(makeConfig());
+    const { result } = renderConfigHook();
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+    });
+
+    await act(async () => {
+      await result.current.handleSave();
+    });
+
+    const saved = apiMocks.updateAgentRunningConfig.mock.calls[0][0] as Config;
+    expect(saved.loop.iteration?.max_iterations).toBeNull();
+    expect(saved.max_iters).toBe(9999);
   });
 
   it("handleSave includes unmounted custom loop template values", async () => {

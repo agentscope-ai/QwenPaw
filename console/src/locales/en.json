@@ -3309,6 +3309,7 @@
     "iterationEnabledTooltip": "Stop the agent after a fixed number of loop turns",
     "iterationMaxIterations": "Maximum Iterations",
     "iterationMaxIterationsTooltip": "Maximum number of loop turns before stopping",
+    "iterationMaxIterationsRange": "Maximum iterations must be between 1 and 500",
     "rubricTitle": "Qualitative Completion Check",
     "rubricEnabled": "Enable Qualitative Completion Check",
     "rubricEnabledTooltip": "Triggered only when the agent produces a text response without tool calls.",

@@ -12,6 +12,7 @@ import {
   parseErrorDetail,
   summarizeValidationDetail,
 } from "../../../utils/error";
+import { normalizeIterationLimit } from "./iterationLimits";
 
 export function useAgentConfig(
   onConfigLoaded?: (config: AgentsRunningConfig) => void,
@@ -64,6 +65,11 @@ export function useAgentConfig(
           ? config.context_manager_backend
           : "light";
       const memoryBackend = config.memory_manager_backend || "remelight";
+      // Only a limit the schema accepts may reach the bounded field; the
+      // backend falls back to `max_iters` while the gate value stays unset.
+      const iterationMaxIterations =
+        normalizeIterationLimit(config.loop?.iteration?.max_iterations) ??
+        normalizeIterationLimit(config.max_iters);
       form.setFieldsValue({
         shell_command_timeout: config.shell_command_timeout ?? 60.0,
         shell_command_executable: config.shell_command_executable ?? "",
@@ -71,8 +77,7 @@ export function useAgentConfig(
           ...config.loop,
           iteration: {
             ...config.loop?.iteration,
-            max_iterations:
-              config.loop?.iteration?.max_iterations ?? config.max_iters ?? 100,
+            max_iterations: iterationMaxIterations,
           },
         },
         llm_retry_enabled: config.llm_retry_enabled,
@@ -164,9 +169,22 @@ export function useAgentConfig(
           return result as T;
         };
 
+        // A limit the schema rejects fails the whole PUT, which would lock
+        // every other section of the page behind the same 422. Submit the
+        // gate unset instead; the backend then falls back to `max_iters`.
+        const loopConfig = formValues.loop ?? original.loop;
+        const iterationGate = loopConfig?.iteration ?? { enabled: true };
+        const iterationLimit = normalizeIterationLimit(
+          iterationGate.max_iterations,
+        );
+
         const configToSave: AgentsRunningConfig = {
           ...original,
           ...formValues,
+          loop: {
+            ...loopConfig,
+            iteration: { ...iterationGate, max_iterations: iterationLimit },
+          },
           // Deep-merge nested config sections to preserve collapsed fields
           reme_light_memory_config: deepMergeConfig(
             original.reme_light_memory_config,
@@ -187,8 +205,7 @@ export function useAgentConfig(
           ) as typeof original.auto_title_config,
           approval_level: approvalLevel,
           // Keep legacy max_iters aligned with the UI-bound iteration limit.
-          max_iters:
-            formValues.loop?.iteration?.max_iterations ?? original.max_iters,
+          max_iters: iterationLimit ?? original.max_iters,
         };
 
         const savedConfig = automatic
