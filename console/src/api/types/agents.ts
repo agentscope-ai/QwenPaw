@@ -109,6 +109,7 @@ export interface AgentProfileConfig {
   };
   approval_level?: string;
   active_model?: ModelSlotConfig | null;
+  decision_model?: ModelSlotConfig | null;
   fallback_models?: ModelSlotConfig[];
   fallback_policy?: {
     enabled: boolean;
@@ -130,6 +131,7 @@ export interface AgentProfileConfig {
 
 export interface AgentModelSettingsPatch {
   active_model?: ModelSlotConfig | null;
+  decision_model?: ModelSlotConfig | null;
   fallback_models?: ModelSlotConfig[];
   fallback_policy?: {
     enabled: boolean;

@@ -175,6 +175,7 @@ class Workspace:
         # Non-service state
         self._config = None  # Loaded before start()
         self._config_mtime: float | None = None
+        self.cron_start_paused = False
         self._started = False
         self._start_attempted = False
         self._manager = None  # Reference to MultiAgentManager
@@ -605,6 +606,7 @@ class Workspace:
                     )
                     or "UTC",
                     "agent_id": ws.agent_id,
+                    "start_paused": ws.cron_start_paused,
                 },
                 start_method="start",
                 stop_method="stop",

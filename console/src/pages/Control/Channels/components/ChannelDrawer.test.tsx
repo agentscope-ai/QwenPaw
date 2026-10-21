@@ -10,7 +10,13 @@
  * gating, and the doc-link button (builtin EN/ZH + plugin schema doc_url).
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import {
+  act,
+  render,
+  screen,
+  fireEvent,
+  waitFor,
+} from "@testing-library/react";
 import { Form } from "antd";
 import type { FormInstance } from "antd";
 
@@ -18,6 +24,7 @@ import type { FormInstance } from "antd";
 
 const langRef = vi.hoisted(() => ({ current: "en" }));
 const mockOpenExternalLink = vi.hoisted(() => vi.fn());
+const mockConfirm = vi.hoisted(() => vi.fn());
 const mockMessage = vi.hoisted(() => ({
   destroy: vi.fn(),
   success: vi.fn(),
@@ -67,7 +74,10 @@ vi.mock("../../../../utils/openExternalLink", () => ({
 }));
 
 vi.mock("../../../../hooks/useAppMessage", () => ({
-  useAppMessage: () => ({ message: mockMessage }),
+  useAppMessage: () => ({
+    message: mockMessage,
+    modal: { confirm: mockConfirm },
+  }),
 }));
 
 // Capture QR-code auth callbacks so tests can drive success/error paths.
@@ -154,6 +164,7 @@ function renderDrawer(
 beforeEach(() => {
   langRef.current = "en";
   mockOpenExternalLink.mockClear();
+  mockConfirm.mockClear();
   mockMessage.success.mockClear();
   mockMessage.error.mockClear();
   mockMessage.warning.mockClear();
@@ -693,5 +704,72 @@ describe("ChannelDrawer matrix submit", () => {
     fireEvent.click(screen.getByRole("button", { name: "common.close" }));
     await waitFor(() => expect(onClose).toHaveBeenCalled());
     expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it("lets users continue or discard a Telegram draft without its required token", async () => {
+    const onClose = vi.fn();
+    const onSubmit = vi.fn();
+    renderDrawer({
+      activeKey: "telegram",
+      initialValues: { enabled: false, bot_token: "" },
+      onClose,
+      onSubmit,
+    });
+    fireEvent.change(document.querySelector("input#http_proxy_auth")!, {
+      target: { value: "1" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "common.close" }));
+    await waitFor(() => expect(mockConfirm).toHaveBeenCalledOnce());
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
+    await act(async () => mockConfirm.mock.calls[0][0].onCancel());
+    expect(document.querySelector("input#http_proxy_auth")).toHaveValue("1");
+    expect(onClose).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "common.close" }));
+    await waitFor(() => expect(mockConfirm).toHaveBeenCalledTimes(2));
+    await act(async () => mockConfirm.mock.calls[1][0].onOk());
+    expect(onClose).toHaveBeenCalledOnce();
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it("offers to discard a valid draft when the save request fails", async () => {
+    const onClose = vi.fn();
+    const onSubmit = vi.fn().mockRejectedValue(new Error("offline"));
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const view = renderDrawer({
+      activeKey: "telegram",
+      initialValues: { enabled: false, bot_token: "test-token" },
+      onClose,
+      onSubmit,
+    });
+    fireEvent.change(document.querySelector("input#http_proxy_auth")!, {
+      target: { value: "draft" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "common.close" }));
+    await waitFor(() => expect(mockConfirm).toHaveBeenCalledOnce());
+    await act(async () => mockConfirm.mock.calls[0][0].onOk());
+    expect(onClose).toHaveBeenCalledOnce();
+    view.unmount();
+    await act(async () => {});
+    expect(onSubmit).toHaveBeenCalledOnce();
+  });
+
+  it("offers to discard when submission reports an unsuccessful save", async () => {
+    const onClose = vi.fn();
+    const onSubmit = vi.fn().mockResolvedValue(false);
+    renderDrawer({
+      activeKey: "telegram",
+      initialValues: { bot_token: "test-token" },
+      onClose,
+      onSubmit,
+    });
+    fireEvent.change(document.querySelector("input#http_proxy_auth")!, {
+      target: { value: "draft" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "common.close" }));
+    await waitFor(() => expect(mockConfirm).toHaveBeenCalledOnce());
+    expect(onClose).not.toHaveBeenCalled();
+    await act(async () => mockConfirm.mock.calls[0][0].onOk());
+    expect(onClose).toHaveBeenCalledOnce();
   });
 });

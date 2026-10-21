@@ -40,6 +40,7 @@ const {
   mockRuntimeMount,
   mockFetchActiveLoopMode,
   mockSessionProjectDirectory,
+  mockApprovalLevelToggle,
   mockHydrateBackgroundTasksForSession,
 } = vi.hoisted(() => ({
   mockListProviders: vi.fn(),
@@ -59,6 +60,7 @@ const {
   mockRuntimeMount: vi.fn(),
   mockFetchActiveLoopMode: vi.fn(() => Promise.resolve(null)),
   mockSessionProjectDirectory: vi.fn(),
+  mockApprovalLevelToggle: vi.fn(),
   mockHydrateBackgroundTasksForSession: vi.fn(() => Promise.resolve()),
 }));
 
@@ -165,7 +167,11 @@ vi.mock("@/api/modules/provider", () => ({
 }));
 
 vi.mock("@/api/modules/chat", () => ({
+  sessionApi: {},
   chatApi: {
+    resolveChat: vi.fn(async () => {
+      throw new Error("Chat not found");
+    }),
     uploadFile: mockUploadFile,
     filePreviewUrl: mockFilePreviewUrl,
     getChatStatus: mockGetChatStatus,
@@ -220,6 +226,15 @@ vi.mock("./sessionApi", () => ({
     onSessionCreated: null,
     invalidateSessionCreation: vi.fn(),
     activateCreatedSession: vi.fn(),
+    getActiveOwner: vi.fn(() => ({
+      agentId: mockSelectedAgent(),
+      generation: 0,
+    })),
+    isActiveOwner: vi.fn(
+      (owner: { agentId: string }) => owner.agentId === mockSelectedAgent(),
+    ),
+    registerResolvedChat: vi.fn(),
+    getRouteResolutionVersion: vi.fn(() => 0),
     bindToOwner: vi.fn(() => ({
       getSession: vi.fn(async (id: string) => ({ id, name: id, messages: [] })),
       getSessionList: vi.fn(async () => []),
@@ -420,7 +435,10 @@ vi.mock("./components/ChatSenderTabsPanel", () => ({
 }));
 
 vi.mock("./components/ApprovalLevelToggle", () => ({
-  default: () => <div data-testid="approval-toggle" />,
+  default: (props: unknown) => {
+    mockApprovalLevelToggle(props);
+    return <div data-testid="approval-toggle" />;
+  },
 }));
 
 vi.mock("../../features/project-directory/SessionProjectDirectory", () => ({
@@ -539,7 +557,6 @@ vi.mock("./utils", async () => {
     getActiveSenderTextarea: vi.fn(() => null),
     getSenderTextareaFromTarget: vi.fn(() => null),
     setTextareaValue: vi.fn(),
-    clearSubmittedSenderInput: vi.fn(),
   };
 });
 
@@ -559,6 +576,7 @@ describe("ChatPage coverage", () => {
     mockSelectedAgent.mockReturnValue("default");
     mockFetchActiveLoopMode.mockClear();
     mockSessionProjectDirectory.mockClear();
+    mockApprovalLevelToggle.mockClear();
     mockHydrateBackgroundTasksForSession.mockClear();
     mockHoldOwnershipLock.mockReset();
     mockHoldOwnershipLock.mockImplementation((_key: string, cb: () => void) => {
@@ -687,7 +705,7 @@ describe("ChatPage coverage", () => {
     expect(mockFetchActiveLoopMode).not.toHaveBeenCalledWith(
       expect.objectContaining({ chatId: staleChatId }),
     );
-    expect(mockSessionProjectDirectory).toHaveBeenCalled();
+    expect(mockSessionProjectDirectory).not.toHaveBeenCalled();
     expect(
       mockSessionProjectDirectory.mock.calls.some(
         ([props]) =>
@@ -1526,6 +1544,7 @@ describe("ChatPage coverage", () => {
     vi.mocked(sessionApi.getSessionIdentity).mockReturnValue({
       sessionId: "source-session",
       sdkSessionId: "source-session",
+      chatId,
       userId: "source-user",
       channel: "console",
     });
@@ -1544,6 +1563,7 @@ describe("ChatPage coverage", () => {
     vi.mocked(sessionApi.getSessionIdentity).mockReturnValue({
       sessionId: "target-session",
       sdkSessionId: "target-session",
+      chatId,
       userId: "target-user",
       channel: "console",
     });
@@ -1894,6 +1914,35 @@ describe("ChatPage coverage", () => {
         expect(body.input).toBeDefined();
       }
     }
+  });
+
+  it("keeps a requested JEV level while decision settings are loading", async () => {
+    renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/test-session"],
+    });
+    await screen.findByTestId("chat-ui");
+    await act(async () => {});
+
+    const toggle = mockApprovalLevelToggle.mock.lastCall?.[0] as {
+      decisionModelEnabled?: boolean;
+      onChange: (level: string) => void;
+    };
+    expect(toggle.decisionModelEnabled).toBeUndefined();
+    act(() => toggle.onChange("JEV"));
+
+    await capturedOptions.api.fetch({
+      input: [{ role: "user", content: "hello" }],
+      signal: undefined,
+    });
+    const request = vi
+      .mocked(fetch)
+      .mock.calls.find(
+        ([url, options]) =>
+          String(url).includes("/console/chat") && options?.method === "POST",
+      );
+    expect(request).toBeDefined();
+    const body = JSON.parse(String(request?.[1]?.body));
+    expect(body.request_context.approval_level).toBe("JEV");
   });
 
   // ── customFetch: with biz_params ───────────────────────────────────────

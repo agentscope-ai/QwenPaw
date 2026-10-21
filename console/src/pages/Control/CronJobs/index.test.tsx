@@ -657,7 +657,180 @@ describe("CronJobsPage drawer submit", () => {
     expect(submitted.schedule.repeat_end_type).toBe("count");
     expect(submitted.schedule.repeat_count).toBe(3);
     expect(submitted.schedule.repeat_until).toBeUndefined();
+    expect(updateJob).toHaveBeenCalledWith("job-1", submitted);
+    expect(screen.queryByTestId("job-drawer")).not.toBeInTheDocument();
   });
+
+  it.each(["same task", "another task", "new task", "template"] as const)(
+    "keeps the %s editor open after an earlier save succeeds",
+    async (nextEditor) => {
+      let resolveSave!: (success: boolean) => void;
+      const updateJob = vi.fn(
+        () => new Promise<boolean>((resolve) => (resolveSave = resolve)),
+      );
+      await renderPage({ updateJob });
+      act(() => capturedColumns.handlers!.onEdit(recurringJob));
+
+      let pendingSave!: Promise<unknown>;
+      act(() => {
+        pendingSave = capturedDrawer.props!.onSubmit({
+          ...recurringJob,
+          scheduleType: "cron",
+          cronType: "daily",
+        }) as Promise<unknown>;
+      });
+      expect(capturedDrawer.props!.saving).toBe(true);
+      act(() => capturedDrawer.props!.onClose());
+
+      const nextJob = {
+        ...recurringJob,
+        id: nextEditor === "same task" ? recurringJob.id : "job-next",
+        name: "Next draft",
+      };
+      if (nextEditor === "new task") {
+        fireEvent.click(
+          screen.getByRole("button", { name: "cronJobs.createJob" }),
+        );
+      } else if (nextEditor === "template") {
+        act(() => {
+          capturedTemplate.props!.onUseTemplate({ name: "Next draft" });
+        });
+      } else {
+        act(() => capturedColumns.handlers!.onEdit(nextJob));
+      }
+
+      const nextEditingJob = capturedDrawer.props!.editingJob;
+      expect(capturedDrawer.props!.open).toBe(true);
+      await act(async () => {
+        resolveSave(true);
+        await pendingSave;
+      });
+      expect(capturedDrawer.props!.open).toBe(true);
+      expect(capturedDrawer.props!.editingJob).toBe(nextEditingJob);
+      expect(capturedDrawer.props!.saving).toBe(false);
+    },
+  );
+
+  it.each([false, true])(
+    "preserves current saving state when an older save resolves with %s",
+    async (success) => {
+      let resolvePreviousSave!: (success: boolean) => void;
+      let resolveCurrentSave!: (success: boolean) => void;
+      const updateJob = vi
+        .fn()
+        .mockReturnValueOnce(
+          new Promise<boolean>((resolve) => (resolvePreviousSave = resolve)),
+        )
+        .mockReturnValueOnce(
+          new Promise<boolean>((resolve) => (resolveCurrentSave = resolve)),
+        );
+      await renderPage({ updateJob });
+      act(() => capturedColumns.handlers!.onEdit(recurringJob));
+
+      let previousSave!: Promise<unknown>;
+      act(() => {
+        previousSave = capturedDrawer.props!.onSubmit({
+          ...recurringJob,
+          scheduleType: "cron",
+          cronType: "daily",
+        }) as Promise<unknown>;
+      });
+      act(() => capturedDrawer.props!.onClose());
+      const nextJob = { ...recurringJob, id: "job-next" };
+      act(() => capturedColumns.handlers!.onEdit(nextJob));
+      expect(capturedDrawer.props!.saving).toBe(false);
+
+      let currentSave!: Promise<unknown>;
+      act(() => {
+        currentSave = capturedDrawer.props!.onSubmit({
+          ...nextJob,
+          scheduleType: "cron",
+          cronType: "daily",
+        }) as Promise<unknown>;
+      });
+      expect(capturedDrawer.props!.saving).toBe(true);
+      await act(async () => {
+        resolvePreviousSave(success);
+        await previousSave;
+      });
+      expect(capturedDrawer.props!.open).toBe(true);
+      expect(capturedDrawer.props!.editingJob).toBe(nextJob);
+      expect(capturedDrawer.props!.saving).toBe(true);
+
+      await act(async () => {
+        resolveCurrentSave(true);
+        await currentSave;
+      });
+      expect(capturedDrawer.props!.open).toBe(false);
+      expect(capturedDrawer.props!.editingJob).toBeNull();
+      expect(capturedDrawer.props!.saving).toBe(false);
+    },
+  );
+
+  it.each([null, { provider_id: "provider", model: "model" }])(
+    "preserves the request draft when saving fails and retries with model %j",
+    async (modelSlot) => {
+      const updateJob = vi
+        .fn()
+        .mockResolvedValueOnce(false)
+        .mockResolvedValueOnce(true);
+      await renderPage({ updateJob });
+      act(() => capturedColumns.handlers!.onEdit(recurringJob));
+      const messages = [
+        {
+          role: "user",
+          content: [{ type: "text", text: "Original report" }],
+        },
+      ];
+      const values = {
+        name: "Edited agent",
+        task_type: "agent",
+        scheduleType: "cron",
+        cronType: "daily",
+        cronTime: dayjs().hour(9).minute(45),
+        schedule: { timezone: "Asia/Shanghai" },
+        request: {
+          input: JSON.stringify(messages, null, 2),
+          model_slot_override: modelSlot,
+          request_context: {
+            model_slot_override: { provider_id: "old", model: "old" },
+            project_dir: "/workspace/project",
+          },
+        },
+      };
+      const originalRequest = structuredClone(values.request);
+
+      await act(async () => {
+        await capturedDrawer.props!.onSubmit(values);
+      });
+      expect(values.request).toEqual(originalRequest);
+      expect(screen.getByTestId("job-drawer")).toBeInTheDocument();
+      expect(capturedDrawer.props!.saving).toBe(false);
+
+      await act(async () => {
+        await capturedDrawer.props!.onSubmit(values);
+      });
+      expect(values.request).toEqual(originalRequest);
+      expect(updateJob).toHaveBeenCalledTimes(2);
+      for (const [, payload] of updateJob.mock.calls) {
+        expect(payload.request).not.toBe(values.request);
+        expect(payload.request.input).toEqual(messages);
+        expect(payload.schedule.cron).toBe("45 9 * * *");
+        expect(payload.request.model_slot_override).toEqual(
+          modelSlot ?? undefined,
+        );
+        expect(payload.request.request_context.project_dir).toBe(
+          "/workspace/project",
+        );
+        if (modelSlot === null) {
+          expect(
+            payload.request.request_context.model_slot_override,
+          ).toBeUndefined();
+        }
+      }
+      expect(screen.queryByTestId("job-drawer")).not.toBeInTheDocument();
+    },
+  );
 
   it("builds an until-bounded repeat and leaves a missing run_at empty", async () => {
     const createJob = vi.fn().mockResolvedValue(false);

@@ -19,6 +19,7 @@ from .model_catalog import models_for_catalog_key
 from .openai_response_provider import OpenAIResponseProvider
 from .openrouter_provider import OpenRouterProvider
 from .provider import ModelInfo, Provider
+from .typesafe_provider import TypeSafeProvider
 from .services.agentscope_platform import AgentScopePlatformProvider
 from .services.deepseek import DeepSeekProvider
 from .services.kimi import KimiProvider
@@ -101,6 +102,20 @@ PROVIDER_DASHSCOPE = DashScopeProvider(
             },
         ],
     },
+)
+
+PROVIDER_TYPESAFE = TypeSafeProvider(
+    id="typesafe",
+    name="TypeSafe",
+    base_url="https://api.typesafe.ai/v1",
+    models=[
+        ModelInfo(
+            id="jev-latest",
+            name="Jev Latest",
+            model_type="decision",
+        ),
+    ],
+    meta={"api_key_url": "https://console.typesafe.ai/"},
 )
 
 PROVIDER_ALIYUN_CODINGPLAN = AliyunPlanProvider(
@@ -515,6 +530,7 @@ PROVIDER_MIMO = MiMoProvider(
 
 
 BUILTIN_PROVIDERS: tuple[Provider, ...] = (
+    PROVIDER_TYPESAFE,
     PROVIDER_QWENPAW,
     PROVIDER_OLLAMA,
     PROVIDER_LMSTUDIO,

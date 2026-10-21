@@ -110,7 +110,6 @@ const ToolCardShell: React.FC<ToolCardShellProps> = ({
     content.status === "calling" &&
     !inputProgress &&
     !!content.executionStarted;
-  const showGear = isExecuting && !!sessionId;
 
   const control = useToolCallControl(
     sessionId,
@@ -118,6 +117,8 @@ const ToolCardShell: React.FC<ToolCardShellProps> = ({
     isExecuting,
     content.name || title,
   );
+  // Only calls the backend coordinator knows can be controlled.
+  const showGear = isExecuting && !!sessionId && control.managed;
 
   const gearDotClass = useMemo(() => {
     if (!control.bannerVisible) return "";

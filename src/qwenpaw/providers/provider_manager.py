@@ -9,13 +9,13 @@ import asyncio
 import logging
 import os
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, get_args
 
 from agentscope.model import ChatModelBase
 
 from qwenpaw.exceptions import ModelNotFoundException
 
-from ..config.config import ModelSlotConfig
+from ..config.config import ModelSlotConfig, ModelType
 from ..constant import EnvVarLoader, SECRET_DIR
 from ..exceptions import ProviderError
 from ..utils.logging import sanitize_log_value
@@ -102,7 +102,10 @@ class ProviderManager(
         self.builtin_providers: Dict[str, Provider] = {}
         self.custom_providers: Dict[str, Provider] = {}
         self.plugin_providers: Dict[str, Dict] = {}  # Plugin providers
-        self.active_model: ModelSlotConfig | None = None
+        self.default_models: dict[
+            ModelType,
+            ModelSlotConfig | None,
+        ] = dict.fromkeys(get_args(ModelType))
         self._provider_save_locks: dict[str, asyncio.Lock] = {}
         self._discovery_generations: dict[str, int] = {}
         self._provider_revisions: dict[str, int] = {}
@@ -265,6 +268,36 @@ class ProviderManager(
     async def get_provider_info(self, provider_id: str) -> ProviderInfo | None:
         provider = await run_sync_io(self.get_provider, provider_id)
         return await provider.get_info() if provider else None
+
+    @property
+    def active_model(self) -> ModelSlotConfig | None:
+        return self.default_models["chat"]
+
+    @active_model.setter
+    def active_model(self, value: ModelSlotConfig | None) -> None:
+        self.default_models["chat"] = value
+
+    async def set_default_model(
+        self,
+        model_type: ModelType,
+        slot: ModelSlotConfig | None,
+    ) -> None:
+        if slot is None:
+            await self.clear_active_model_async(model_type=model_type)
+        else:
+            provider_id = self._normalize_provider_id(slot.provider_id)
+            lock = self._provider_save_locks.setdefault(
+                provider_id,
+                asyncio.Lock(),
+            )
+            async with lock:
+                await run_async_to_completion(
+                    self.activate_model(
+                        provider_id,
+                        slot.model,
+                        model_type=model_type,
+                    ),
+                )
 
     def get_active_model(self) -> ModelSlotConfig | None:
         """Resolve the active model; Hub resolution refreshes its catalog."""
@@ -606,15 +639,19 @@ class ProviderManager(
                 await run_sync_io(provider_path.unlink, missing_ok=True)
                 self._bump_provider_revision(provider_id)
                 del self.custom_providers[provider_id]
+                await self.clear_invalid_default_models(provider_id, None)
                 return True
 
         return await run_async_to_completion(remove_provider())
 
-    async def activate_model(self, provider_id: str, model_id: str):
-        # Set the active provider and model for the agent. This will update
-        # providers.json and determine which provider/model is used when the
-        # agent creates chat model instances.
-        # Normalize provider ID for backward compatibility
+    async def activate_model(
+        self,
+        provider_id: str,
+        model_id: str,
+        *,
+        model_type: ModelType = "chat",
+    ):
+        """Select a typed global default; only chat triggers media probing."""
         provider_id = self._normalize_provider_id(provider_id)
         provider = await run_sync_io(self.get_provider, provider_id)
         if not provider:
@@ -623,32 +660,15 @@ class ProviderManager(
             )
         if not provider.enabled:
             raise ProviderError(message=f"Provider is disabled")
-        if not provider.has_model(model_id):
-            raise ModelNotFoundException(
-                model_name=f"{provider_id}/{model_id}",
-                details={"provider_id": provider_id, "model_id": model_id},
-            )
-        model_info = provider.get_model_info(model_id)
-        if model_info and model_info.availability_status in {
-            "permission_denied",
-            "model_not_found",
-            "incompatible_api",
-        }:
-            reason = (
-                model_info.availability_message
-                or model_info.availability_status
-            )
-            raise ProviderError(
-                message=(
-                    f"Model '{model_id}' cannot be activated: " f"{reason}"
-                ),
-            )
+        provider.validate_model_selection(model_id, model_type)
         provider_id = provider.id
         active_model = ModelSlotConfig(
             provider_id=provider_id,
             model=model_id,
         )
-        await self.save_active_model_async(active_model)
+        await self.save_active_model_async(active_model, model_type=model_type)
+        if model_type != "chat":
+            return
 
         # Drop a stale ``rejects_media`` entry for this model so that a
         # transient upstream failure (e.g. a gateway misroute) does not
@@ -885,6 +905,13 @@ class ProviderManager(
                 await run_async_to_completion(save_read_state())
         else:
             await self._mutate_provider_async(provider_id, update)
+            if selected is False:
+                for model_type in self.default_models:
+                    await self.clear_active_model_async(
+                        provider_id,
+                        model_type=model_type,
+                        model_id=model_id,
+                    )
         provider = await run_sync_io(self.get_provider, provider_id)
         if provider is None:
             raise ProviderError(message=f"Provider '{provider_id}' not found")
@@ -945,7 +972,11 @@ class ProviderManager(
 
         await self._mutate_provider_async(provider_id, update)
         if not selected:
-            await self.clear_active_model_async(provider_id)
+            for model_type in self.default_models:
+                await self.clear_active_model_async(
+                    provider_id,
+                    model_type=model_type,
+                )
         provider = await run_sync_io(self.get_provider, provider_id)
         if provider is None:
             raise ProviderError(message=f"Provider '{provider_id}' not found")
@@ -1088,6 +1119,7 @@ class ProviderManager(
             return {"error": f"Provider '{provider_id}' not found"}
 
         async def probe_model(candidate: Provider) -> Any:
+            candidate.validate_chat_model(model_id)
             probe_result = await candidate.probe_model_multimodal(
                 model_id,
                 image_only=image_only,
@@ -1266,4 +1298,5 @@ class ProviderManager(
             )
         if not provider.enabled:
             raise ProviderError(message=f"Provider is disabled")
+        provider.validate_chat_model(model.model)
         return provider.get_chat_model_instance(model.model)

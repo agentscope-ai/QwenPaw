@@ -7,7 +7,9 @@ the single entry point that pushes those four pieces into the host
 workspace's plugins / service_manager — there is no other registration
 path, which keeps "which mode owns what" trivially derivable from
 ``mode.commands()`` / ``.tools()`` / ``.hooks()`` /
-``.prompt_contributors()``.
+``.prompt_contributors()``. A fifth, request-scoped contribution —
+``middlewares(ctx, agent_config)`` — is collected by ``AgentBuilder``
+while assembling the agent, for active modes only.
 
 ``ModeGatedHook`` is the base every mode-scoped hook should inherit
 from: it auto-skips when the owning mode's ``is_active(ctx)`` returns
@@ -17,7 +19,7 @@ from: it auto-skips when the owning mode's ``is_active(ctx)`` returns
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import Any, TYPE_CHECKING
 
 from ..runtime.hooks import HookBase, HookContext, HookResult
 
@@ -65,6 +67,19 @@ class AgentMode:
     def prompt_contributors(self) -> list["PromptContributor"]:
         return []
 
+    def middlewares(  # noqa: ARG002
+        self,
+        ctx: HookContext,  # pylint: disable=unused-argument
+        agent_config: object,  # pylint: disable=unused-argument
+    ) -> list[Any]:
+        """AgentScope middlewares this mode adds to the agent.
+
+        Unlike the ``setup``-time registrations these are built per
+        request by ``AgentBuilder._build_middlewares`` and only for modes
+        whose ``is_active(ctx)`` is ``True``. Default: none.
+        """
+        return []
+
     async def on_turn_start(
         self,
         ctx: HookContext,  # noqa: ARG002
@@ -95,11 +110,15 @@ class AgentMode:
 
 
 def find_active_explicit_mode(ctx: HookContext) -> str | None:
-    """Return the active non-default mode for one request context."""
+    """Return the active loop mode for one request context.
+
+    The internal ``coding`` plugin adds optional code tools and context;
+    it is not a competing loop mode.
+    """
     plugins = getattr(getattr(ctx, "workspace", None), "plugins", None)
     for mode in getattr(plugins, "modes", []):
         name = getattr(mode, "name", "")
-        if not name or name in {"default", "custom-loop-control"}:
+        if not name or name in {"default", "custom-loop-control", "coding"}:
             continue
         try:
             if mode.is_active(ctx):

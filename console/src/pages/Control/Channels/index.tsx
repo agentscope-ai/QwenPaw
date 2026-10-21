@@ -93,6 +93,7 @@ function ChannelsPage() {
         key,
         channels[key] || { enabled: false, bot_prefix: "" },
       );
+      form.resetFields();
       // Migrate legacy allowlist policy to new access control fields
       const accessControlDm =
         channelConfig.access_control_dm ||
@@ -120,7 +121,7 @@ function ChannelsPage() {
   };
 
   const handleSubmit = async (values: Record<string, unknown>) => {
-    if (!activeKey) return;
+    if (!activeKey) return false;
 
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { isBuiltin: _isBuiltin, ...savedConfig } = channels[activeKey] || {};
@@ -171,7 +172,7 @@ function ChannelsPage() {
                 afterClose: () => settle(false),
               });
             });
-            if (!shouldSave) return;
+            if (!shouldSave) return false;
           }
         } catch (error) {
           console.warn("Failed to check channel Bot conflicts:", error);
@@ -187,6 +188,7 @@ function ChannelsPage() {
         ...current,
         [activeKey]: { ...current[activeKey], ...updatedChannel },
       }));
+      return true;
     } catch (error) {
       console.error("Failed to update channel config:", error);
       throw error;

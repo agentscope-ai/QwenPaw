@@ -3,7 +3,7 @@ import { Empty, Input, Pagination, Spin } from "antd";
 import { Plus, Search } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { providerApi } from "../../../api/modules/provider";
-import type { ModelPoolPage } from "../../../api/types";
+import type { ModelPoolPage, ModelType } from "../../../api/types";
 import { useAppMessage } from "../../../hooks/useAppMessage";
 import {
   BillingTag,
@@ -13,10 +13,12 @@ import styles from "./index.module.less";
 
 export default function ProviderCandidatePicker({
   providerId,
+  modelType = "chat",
   tier,
   onSaved,
 }: {
   providerId: string;
+  modelType?: ModelType;
   tier?: "free";
   onSaved: (modelId: string) => Promise<void>;
 }) {
@@ -35,6 +37,7 @@ export default function ProviderCandidatePicker({
       providerApi
         .getModelPool(providerId, {
           tab: "candidates",
+          model_type: modelType,
           ...(tier ? { billing: tier } : {}),
           search,
           offset,
@@ -54,7 +57,7 @@ export default function ProviderCandidatePicker({
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [providerId, tier, search, offset, revision]);
+  }, [providerId, modelType, tier, search, offset, revision]);
   return (
     <section
       className={styles.candidatePicker}

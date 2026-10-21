@@ -16,7 +16,7 @@
  * replaces individual Markdown/media/tool rendering rather than only framing
  * the default response bubble.
  */
-import React, { useDeferredValue, useMemo, useSyncExternalStore } from "react";
+import React, { useMemo, useSyncExternalStore } from "react";
 import VendorRequestCard from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/AgentScopeRuntime/Request/Card";
 import AgentScopeRuntimeResponseBuilder from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/AgentScopeRuntime/Response/Builder";
 import ResponseActions from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/AgentScopeRuntime/Response/Actions";
@@ -36,7 +36,7 @@ import {
 import { useChatAnywhereOptions } from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/Context/ChatAnywhereOptionsContext";
 import { Avatar, Flex } from "antd";
 import { useTranslation } from "react-i18next";
-import { renderableCodeComponents } from "../../components/RenderableCodeBlock";
+import { AssistantMarkdown } from "./AssistantMarkdown";
 import { useEffectiveFontSize } from "@/contexts/FontSizeContext";
 import {
   useChatScalarSnapshot,
@@ -78,29 +78,6 @@ function sortByOrder<T extends { item: { order?: number } }>(arr: T[]): T[] {
     .sort((a, b) => (a.item.order ?? 100) - (b.item.order ?? 100));
 }
 
-function DeferredMarkdown({
-  content,
-  cursor,
-}: {
-  content: string;
-  cursor: boolean;
-}) {
-  // Parsing Markdown, code fences, and diagrams is substantially more
-  // expensive than appending stream text. A deferred value lets React skip
-  // obsolete intermediate parses while keeping input and scrolling responsive.
-  const deferredContent = useDeferredValue(content);
-  const baseFontSize = useEffectiveFontSize();
-
-  return (
-    <Markdown
-      baseFontSize={baseFontSize}
-      components={renderableCodeComponents}
-      content={deferredContent}
-      cursor={cursor}
-    />
-  );
-}
-
 const HostMessage = React.memo(function HostMessage({
   data,
 }: {
@@ -124,10 +101,17 @@ const HostMessage = React.memo(function HostMessage({
         switch (item.type) {
           case AgentScopeRuntimeContentType.TEXT:
             return (
-              <DeferredMarkdown
+              <AssistantMarkdown
                 key={index}
+                messageId={`${data.id}:${index}`}
                 content={item.text}
                 cursor={item.status === AgentScopeRuntimeRunStatus.InProgress}
+                // Native text deltas omit content.status; the message owns
+                // their lifecycle. Keep the legacy Markdown cursor separate.
+                isStreaming={
+                  (item.status ?? data.status) ===
+                  AgentScopeRuntimeRunStatus.InProgress
+                }
               />
             );
           case AgentScopeRuntimeContentType.REFUSAL:

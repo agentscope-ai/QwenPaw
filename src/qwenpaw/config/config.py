@@ -197,6 +197,9 @@ def _assert_agent_config_unchanged(
 # ============================================================================
 
 
+ModelType = Literal["chat", "decision"]
+
+
 class ModelSlotConfig(BaseModel):
     """Model slot configuration for LLM routing."""
 
@@ -208,6 +211,9 @@ class ActiveModelsInfo(BaseModel):
     """Active models information for provider manager."""
 
     active_llm: ModelSlotConfig | None
+    default_models: Dict[ModelType, ModelSlotConfig | None] = Field(
+        default_factory=dict,
+    )
     effective_max_input_length: int | None = None
 
 
@@ -2093,6 +2099,123 @@ class CodingModeConfig(BaseModel):
     )
 
 
+AdvisorThinkingLevel = Literal["inherit", "off", "low", "medium", "high"]
+
+
+class AdvisorInterventionConfig(BaseModel):
+    """When the advisor is called back in mid-run (Advisor Mode).
+
+    The trigger fires on ``consecutive_failures`` failed tool calls in a
+    row, or ``window_failures`` failures within the last ``window_size``
+    steps. Counters reset after each intervention.
+    """
+
+    consecutive_failures: int = Field(
+        default=3,
+        ge=1,
+        description=(
+            "Failed tool calls in a row before the advisor is consulted"
+        ),
+    )
+    window_size: int = Field(
+        default=10,
+        ge=1,
+        description="Number of recent steps the failure window spans",
+    )
+    window_failures: int = Field(
+        default=4,
+        ge=1,
+        description=(
+            "Failed tool calls within the window before the advisor is "
+            "consulted"
+        ),
+    )
+    cooldown_steps: int = Field(
+        default=0,
+        ge=0,
+        description="Steps to wait after an intervention before the next",
+    )
+    max_interventions: int = Field(
+        default=3,
+        ge=0,
+        description="Maximum automatic interventions per run",
+    )
+
+
+class AdvisorModeConfig(BaseModel):
+    """Configuration for Advisor Mode (stored in agent.json).
+
+    In Advisor Mode the agent's primary model acts as the advisor: it
+    writes a strategic plan before the agent's first step and is consulted
+    again when the agent keeps failing. The agent itself (the worker) runs
+    on the cheaper ``subagent_model`` when one is configured.
+    """
+
+    enabled: bool = Field(
+        default=False,
+        description="Enable Advisor Mode for this agent",
+    )
+    plan_enabled: bool = Field(
+        default=True,
+        description=(
+            "Ask the advisor for a plan before the agent's first step"
+        ),
+    )
+    followup_enabled: bool = Field(
+        default=True,
+        description=(
+            "Consult the advisor again mid-run when repeated tool "
+            "failures are detected"
+        ),
+    )
+    on_demand_enabled: bool = Field(
+        default=True,
+        description=(
+            "Expose a consult_advisor tool so the agent can ask the "
+            "advisor on its own"
+        ),
+    )
+    max_consults: int = Field(
+        default=32,
+        ge=0,
+        description="Maximum on-demand consultations per conversation",
+    )
+    recent_messages: int = Field(
+        default=20,
+        ge=1,
+        description=(
+            "How many of the agent's latest messages the advisor sees at "
+            "each intervention or consultation. Every text, tool call and "
+            "tool result counts as one"
+        ),
+    )
+    intervention: AdvisorInterventionConfig = Field(
+        default_factory=AdvisorInterventionConfig,
+        description="Thresholds for the mid-run auto intervention",
+    )
+    advisor_model: Optional[ModelSlotConfig] = Field(
+        default=None,
+        description=(
+            "Model that answers as the advisor. None means the agent's "
+            "primary model"
+        ),
+    )
+    worker_model: Optional[ModelSlotConfig] = Field(
+        default=None,
+        description=(
+            "Model the agent runs on while Advisor Mode is on. None means "
+            "the sub-agent model, or the primary model when none is set"
+        ),
+    )
+    advisor_thinking: AdvisorThinkingLevel = Field(
+        default="off",
+        description=(
+            "Thinking level for the advisor's own calls. 'inherit' "
+            "follows the agent and model defaults"
+        ),
+    )
+
+
 class FallbackPolicyConfig(BaseModel):
     """Policy controlling cross-model fallback targets."""
 
@@ -2368,13 +2491,19 @@ class AgentProfileConfig(BaseModel):
         default=None,
         description="Active model for this agent (provider_id + model)",
     )
+    decision_model: Optional["ModelSlotConfig"] = Field(
+        default=None,
+        description=(
+            "Decision model for this agent; None disables it by default"
+        ),
+    )
     fallback_models: List["ModelSlotConfig"] = Field(
         default_factory=list,
-        description="Ordered model fallback chain for transient failures",
+        description="Ordered chat model fallback chain for transient failures",
     )
     fallback_policy: FallbackPolicyConfig = Field(
         default_factory=FallbackPolicyConfig,
-        description="Cross-model fallback policy",
+        description="Chat model fallback policy",
     )
     subagent_model: Optional["ModelSlotConfig"] = Field(
         default=None,
@@ -2439,6 +2568,10 @@ class AgentProfileConfig(BaseModel):
     coding_mode: CodingModeConfig = Field(
         default_factory=CodingModeConfig,
         description="Coding Mode configuration for this agent",
+    )
+    advisor_mode: AdvisorModeConfig = Field(
+        default_factory=AdvisorModeConfig,
+        description="Advisor Mode configuration for this agent",
     )
     mail: Optional[AgentMailConfig] = Field(
         default=None,

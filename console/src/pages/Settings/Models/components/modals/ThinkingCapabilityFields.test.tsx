@@ -39,4 +39,28 @@ describe("manual thinking declarations", () => {
     ).toBeInTheDocument();
     expect(screen.queryByRole("spinbutton")).not.toBeInTheDocument();
   });
+
+  it("keeps budget bounds valid when the minimum crosses the maximum", () => {
+    const onChange = vi.fn();
+    render(
+      <ThinkingCapabilityFields
+        value={{
+          kind: "budget",
+          efforts: [],
+          supports_off: false,
+          budget_min: 10,
+          budget_max: 8000,
+        }}
+        onChange={onChange}
+      />,
+    );
+    fireEvent.click(screen.getByText("thinkingControl.declaration"));
+    fireEvent.change(screen.getByLabelText("thinkingControl.minimum"), {
+      target: { value: "9000" },
+    });
+
+    expect(onChange).toHaveBeenCalledWith(
+      expect.objectContaining({ budget_min: 9000, budget_max: 9000 }),
+    );
+  });
 });

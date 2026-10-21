@@ -52,6 +52,8 @@ class _FakeChatModel:
 class _FakeProvider(SimpleNamespace):
     """Provider stub with no additional catalog metadata to resolve."""
 
+    validate_chat_model = provider_module.Provider.validate_chat_model
+
     def resolve_model_info(self, model_id):
         """Return the stub's already configured model information."""
         return self.get_model_info(model_id)
@@ -387,6 +389,7 @@ def test_global_model_switch_during_construction_keeps_context(
         for provider_id in ("dashscope", next_provider_id)
     }
     manager = object.__new__(ProviderManager)
+    manager.default_models = {"chat": None, "decision": None}
     manager.active_model = ModelSlotConfig(
         provider_id="dashscope",
         model="model-a",
@@ -548,7 +551,10 @@ def test_preloaded_agent_config_preserves_model_settings(monkeypatch):
         ),
         "fallback-provider": _FakeProvider(
             enabled=True,
-            get_model_info=lambda _model_name: SimpleNamespace(is_free=False),
+            get_model_info=lambda _model_name: SimpleNamespace(
+                is_free=False,
+                model_type="chat",
+            ),
             get_chat_model_instance=lambda model_name: (
                 _FakeChatModel(f"fallback-provider/{model_name}")
             ),
@@ -642,7 +648,10 @@ def test_each_fallback_model_gets_its_own_formatter(monkeypatch):
         ),
         "fallback-provider": _FakeProvider(
             enabled=True,
-            get_model_info=lambda _model_name: SimpleNamespace(is_free=False),
+            get_model_info=lambda _model_name: SimpleNamespace(
+                is_free=False,
+                model_type="chat",
+            ),
             get_chat_model_instance=lambda model_name: (
                 _FakeChatModel(f"fallback-provider/{model_name}")
             ),
@@ -714,7 +723,10 @@ def test_model_override_disables_persisted_fallback_chain(monkeypatch):
         ),
         "fallback-provider": _FakeProvider(
             enabled=True,
-            get_model_info=lambda _model_name: SimpleNamespace(is_free=False),
+            get_model_info=lambda _model_name: SimpleNamespace(
+                is_free=False,
+                model_type="chat",
+            ),
             get_chat_model_instance=lambda model_name: (
                 _FakeChatModel(f"fallback-provider/{model_name}")
             ),

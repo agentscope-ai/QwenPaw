@@ -743,6 +743,18 @@ window.QwenPaw.chat.request.render("my-plugin", ({ data, fallback }) => {
 });
 ```
 
+### Assistant 代码块与消息提交
+
+`chat.codeBlock(pluginId, language, Component)` 可以将回答中的代码块显示为交互组件。例如，注册 `openui-lang` 后，回答中标记为该语言的代码块就会交给你的组件渲染。
+
+组件通过 `source` 获取截至当前收到的源码，通过 `isStreaming` 判断代码块是否仍在生成。宿主在流式更新时保留组件的局部状态；请使用固定的组件类型，并在组件中处理尚未生成完整的内容。组件还会收到 `language`、`messageId`、`blockId`、`agentId`、`sessionId` 和默认代码展示函数 `fallback()`。
+
+同一语言以最后注册的组件为准，调用返回值的 `dispose()` 可恢复前一个注册。`chat.disposeAll(pluginId)` 可清理该插件的全部聊天扩展。
+
+`await chat.submit(pluginId, { query, agentId, sessionId })` 可将用户在组件中的选择作为新消息提交。请传入组件收到的 `agentId` 和 `sessionId`。消息会加入原会话的发送队列，输入框中的草稿和附件会保留。Promise 在入队成功后完成；对话尚未就绪、用户已切换会话或 Agent、队列已满时会返回错误。
+
+`host.openExternalLink(url)` 可在浏览器或桌面端打开外部链接。
+
 ### 工具调用渲染 — `chat.toolRender`
 
 ```tsx

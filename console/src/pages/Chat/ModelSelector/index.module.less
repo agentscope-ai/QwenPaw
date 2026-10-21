@@ -1418,6 +1418,18 @@
   }
 }
 
+.manageDoneButton {
+  width: auto;
+  min-width: 64px;
+  gap: 5px;
+  padding-inline: 10px;
+  background: var(--app-accent-soft);
+  color: var(--app-accent);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+}
+
 .providerHeading {
   display: flex;
   align-items: center;
@@ -1684,6 +1696,16 @@
     background: var(--app-accent-soft);
   }
 
+  .thinkingSettingLine {
+    > section {
+      box-sizing: border-box;
+      min-width: 0;
+      width: min(440px, 62%);
+      margin-left: auto;
+      padding: 0;
+    }
+  }
+
   .modelChoiceButton:hover,
   .modelChoiceButton:focus-visible {
     background: transparent;
@@ -1699,6 +1721,17 @@
   }
 }
 
+.agentModelSettings[data-surface="settings"][data-auto-save="true"] {
+  margin-top: 8px;
+  padding-top: 0;
+  border-top: 0;
+
+  .agentSettingsBody > section {
+    margin-bottom: 2px;
+    padding: 10px 12px;
+  }
+}
+
 @media (max-width: 600px) {
   .agentModelSettings[data-surface="settings"] {
     .settingLine {
@@ -1709,6 +1742,17 @@
 
     .settingLine > span:first-child {
       width: 100%;
+    }
+
+    .thinkingSettingLine > section {
+      width: auto;
+      max-width: 100%;
+      flex: 1 1 100%;
+      margin-left: 0;
+    }
+
+    .settingLine > .pickerAnchor {
+      max-width: calc(100% - 36px);
     }
   }
 }
@@ -1733,6 +1777,12 @@
     background: var(--app-accent-soft);
     color: var(--app-accent);
   }
+}
+
+.embedded .manageButton.manageDoneButton {
+  width: auto;
+  min-width: 60px;
+  padding-inline: 8px;
 }
 
 .manageModelsEntry {

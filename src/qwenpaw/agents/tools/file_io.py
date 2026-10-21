@@ -118,6 +118,7 @@ def _get_encoding_for_file(file_path: str) -> str:
     policy_name="Read",
     default_policy="allow",
     policy_reason="Read-only file access (global)",
+    decision_model_local_read=True,
     ui_description="Read file contents",
     ui_icon="📄",
 )
