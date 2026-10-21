@@ -69,7 +69,8 @@ async def test_workspace_failure_does_not_consume_mode(monkeypatch):
         raise OSError(f"Temporary workspace failure")
 
     monkeypatch.setattr(agent, f"_ensure_workspace", fail)
-    with pytest.raises(OSError):
+    monkeypatch.setattr(agent, f"_report_prompt_error", AsyncMock())
+    with pytest.raises(RequestError):
         await agent.prompt([text_block(f"Solve")], f"retry")
     assert (
         agent._apply_agent_mode(f"Solve", f"retry", _workspace())

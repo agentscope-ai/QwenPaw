@@ -99,6 +99,9 @@ def classify_model_error(exc: Exception) -> ModelErrorDecision:
             "content safety",
             "safety_filter",
             "moderation",
+            "inappropriate content",
+            "data_inspection_failed",
+            "datainspectionfailed",
         )
     ):
         kind = "content_safety"

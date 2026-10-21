@@ -1315,6 +1315,8 @@ export default function ChatPage() {
   );
   const { agentSwitchTarget, retry: retryRouteResolution } = routeResolution;
   const isSessionTransition = isAgentTransition || routeResolution.blocked;
+  const isAgentTransitionRef = useRef(isAgentTransition);
+  isAgentTransitionRef.current = isAgentTransition;
   // All host consumers, including Files and loop hooks, must wait for the
   // target Agent's route. The raw URL still belongs to the previous Agent.
   const isSessionTransitionRef = useRef(isSessionTransition);
