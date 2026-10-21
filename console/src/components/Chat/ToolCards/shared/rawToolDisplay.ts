@@ -202,10 +202,7 @@ export function formatRawToolValue(value: unknown): string {
   if (typeof value === "string") {
     if (report?.kind === "character") {
       // Oversized raw text: show its head without parsing or copying it.
-      return (
-        truncateText(value, RAW_DISPLAY_CHAR_BUDGET) +
-        `\n${truncationNotice(value.length, RAW_DISPLAY_CHAR_BUDGET)}`
-      );
+      return capOutput(value);
     }
     const parsed = parseJsonString(value);
     if (typeof parsed === "string") {

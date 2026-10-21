@@ -82,6 +82,8 @@ describe("formatRawToolValue", () => {
     expect(parseCalls).toBe(0);
     expect(formatted.length).toBeLessThanOrEqual(100_500);
     expect(formatted).toContain("Raw value truncated");
+    expect(formatted.match(/Raw value truncated/g) ?? []).toHaveLength(1);
+    expect(formatted).not.toContain("…[truncated");
     expect(formatted).toContain("Switch to Current view for the full value");
   });
 
