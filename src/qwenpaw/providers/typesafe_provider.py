@@ -8,7 +8,6 @@ from contextlib import asynccontextmanager
 from collections.abc import AsyncIterator, Mapping
 from typing import Any, List
 
-import httpx
 import httpx2
 from agentscope.classifier import (
     BinaryAnswer,
@@ -73,16 +72,7 @@ class TypeSafeProvider(Provider):
 
     chat_model: str = ""
 
-    def _client(self, timeout: float) -> httpx.AsyncClient:
-        return httpx.AsyncClient(
-            headers={
-                **self.custom_headers,
-                "Authorization": f"Bearer {self.api_key}",
-            },
-            timeout=timeout,
-        )
-
-    async def _evaluation_api_key(self) -> str | None:
+    async def _resolve_api_key(self) -> str | None:
         """Use the provider key, then the legacy Jev key during migration."""
         if self.api_key.strip():
             return self.api_key.strip()
@@ -99,6 +89,50 @@ class TypeSafeProvider(Provider):
         return os.getenv("TYPESAFE_API_KEY") or None
 
     @asynccontextmanager
+    async def _open_client(
+        self,
+        *,
+        timeout: float,
+        max_retries: int,
+    ) -> AsyncIterator[tuple[TypeSafeCredential, AsyncTypeSafeClient]]:
+        """Share SDK configuration and lifetime across all TypeSafe calls."""
+        if timeout <= 0 or max_retries < 0:
+            raise ValueError("invalid request budget")
+        key = await self._resolve_api_key()
+        if not key:
+            raise ProviderError(
+                "TypeSafe API key is not configured",
+                details={"error_type": "not_configured"},
+            )
+        credential = TypeSafeCredential(
+            api_key=key,
+            base_url=self.base_url.rstrip("/"),
+        )
+
+        async def use_provider_endpoint(request: httpx2.Request) -> None:
+            # Both SDK endpoints append /v1. Saved provider URLs already
+            # include the API prefix, which may be a custom proxy path.
+            resource = request.url.path.rsplit("/", 1)[-1]
+            request.url = httpx2.URL(f"{credential.base_url}/{resource}")
+
+        try:
+            # Own the HTTP client even if SDK configuration fails on entry.
+            async with httpx2.AsyncClient(
+                event_hooks={"request": [use_provider_endpoint]},
+            ) as http_client:
+                async with AsyncTypeSafeClient(
+                    api_key=key,
+                    base_url=credential.base_url,
+                    timeout=timeout,
+                    retry=RetryPolicy(max_retries=max_retries),
+                    headers=self.custom_headers,
+                    http_client=http_client,
+                ) as client:
+                    yield credential, client
+        except TypeSafeError as exc:
+            raise ProviderError(type(exc).__name__) from exc
+
+    @asynccontextmanager
     # The decorator returns a synchronous context-manager factory.
     # pylint: disable-next=invalid-overridden-method
     async def open_classifier_model(
@@ -109,67 +143,40 @@ class TypeSafeProvider(Provider):
         max_retries: int,
     ) -> AsyncIterator[ClassifierModelBase]:
         """Create a configured Jev classifier and close it on every exit."""
-        if not model_id.strip() or timeout <= 0 or max_retries < 0:
-            raise ValueError("invalid classifier model or request budget")
-        key = await self._evaluation_api_key()
-        if not key:
-            raise ProviderError(
-                "TypeSafe API key is not configured",
-                details={"error_type": "not_configured"},
+        if not model_id.strip():
+            raise ValueError("invalid classifier model")
+        async with self._open_client(
+            timeout=timeout,
+            max_retries=max_retries,
+        ) as (credential, client):
+            yield _ConfiguredJevClassifier(
+                credential=credential,
+                model=model_id,
+                client=client,
             )
-        credential = TypeSafeCredential(
-            api_key=key,
-            base_url=self.base_url.rstrip("/"),
-        )
-        endpoint = httpx2.URL(f"{credential.base_url}/systemone")
-
-        async def use_provider_endpoint(request: httpx2.Request) -> None:
-            # The SDK assumes /v1/systemone. Saved provider URLs already
-            # include the API prefix, which may be a custom proxy path.
-            request.url = endpoint
-
-        try:
-            # Own the HTTP client even if SDK configuration fails on entry.
-            async with httpx2.AsyncClient(
-                event_hooks={"request": [use_provider_endpoint]},
-            ) as http_client:
-                async with AsyncTypeSafeClient(
-                    api_key=key,
-                    base_url=credential.base_url,
-                    model=model_id,
-                    timeout=timeout,
-                    retry=RetryPolicy(max_retries=max_retries),
-                    headers=self.custom_headers,
-                    http_client=http_client,
-                ) as client:
-                    yield _ConfiguredJevClassifier(
-                        credential=credential,
-                        model=model_id,
-                        client=client,
-                    )
-        except TypeSafeError as exc:
-            raise ProviderError(type(exc).__name__) from exc
 
     async def fetch_models(self, timeout: float = 5) -> List[ModelInfo]:
-        async with self._client(timeout) as client:
-            response = await client.get(
-                self.base_url.rstrip("/") + "/models",
-            )
-            response.raise_for_status()
+        async with self._open_client(
+            timeout=timeout,
+            max_retries=0,
+        ) as (_, client):
+            response = await client.models.list()
             return [
                 ModelInfo(
-                    id=row["name"],
-                    name=row["name"],
+                    id=model.name,
+                    name=model.name,
                     model_type="decision",
                 )
-                for row in response.json()["models"]
+                for model in response.models
             ]
 
     async def check_connection(self, timeout: float = 5) -> tuple[bool, str]:
         try:
             await self.fetch_models(timeout)
-        except (httpx.HTTPError, ValueError, KeyError) as exc:
-            return False, self.connection_error_message(exc)
+        except (ProviderError, ValueError) as exc:
+            return False, self.connection_error_message(
+                exc.__cause__ if isinstance(exc.__cause__, Exception) else exc,
+            )
         return True, ""
 
     async def check_model_connection(

@@ -161,10 +161,10 @@ def classify_discovery_error(
         r"\bstatus\s*[=:]\s*(\d{3})\b",
         normalized,
     )
-    status = getattr(exc, f"status_code", None) or getattr(
-        getattr(exc, f"response", None),
-        f"status_code",
-        None,
+    status = (
+        getattr(exc, f"status_code", None)
+        or getattr(exc, f"status", None)
+        or getattr(getattr(exc, f"response", None), f"status_code", None)
     )
     if status is None and status_match:
         status = int(status_match.group(1))
@@ -190,6 +190,8 @@ def classify_discovery_error(
         return "invalid_response"
     if isinstance(exc, (ConnectionError, OSError)):
         return "network"
+    if isinstance(exc.__cause__, Exception):
+        return classify_discovery_error(exc.__cause__, str(exc.__cause__))
     return "provider_unavailable"
 
 

@@ -607,7 +607,7 @@ async def test_unconfigured_effectful_call_requires_approval(
     async def no_key(_provider):
         return None
 
-    monkeypatch.setattr(TypeSafeProvider, "_evaluation_api_key", no_key)
+    monkeypatch.setattr(TypeSafeProvider, "_resolve_api_key", no_key)
     result = await assess_tool_call("Write", "notes.txt")
     assert result.needs_approval
     assert result.error_type == "not_configured"

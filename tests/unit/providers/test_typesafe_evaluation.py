@@ -19,6 +19,7 @@ from agentscope.classifier import (
 )
 
 from qwenpaw.exceptions import ProviderError
+from qwenpaw.providers.provider_discovery import classify_discovery_error
 
 from qwenpaw.providers.typesafe_provider import (
     TypeSafeProvider,
@@ -57,11 +58,15 @@ def install_sdk_transport(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_provider_key_precedes_legacy_credential(provider):
-    assert await provider._evaluation_api_key() == "provider-key"
+    assert await provider._resolve_api_key() == "provider-key"
 
 
 @pytest.mark.asyncio
-async def test_legacy_credential_remains_usable(monkeypatch, provider):
+async def test_legacy_credential_remains_usable(
+    monkeypatch,
+    mock_transport,
+    provider,
+):
     class LegacyStore:
         def __init__(self, _path):
             pass
@@ -74,7 +79,15 @@ async def test_legacy_credential_remains_usable(monkeypatch, provider):
         "qwenpaw.providers.typesafe_provider.AsyncCredentialStore",
         LegacyStore,
     )
-    assert await provider._evaluation_api_key() == "legacy-key"
+    assert await provider._resolve_api_key() == "legacy-key"
+
+    def handler(request):
+        assert request.headers["Authorization"] == "Bearer legacy-key"
+        return httpx2.Response(200, json={"models": []})
+
+    clients = mock_transport(handler)
+    assert await provider.fetch_models() == []
+    assert clients and all(client.is_closed for client in clients)
 
 
 @pytest.mark.asyncio
@@ -209,7 +222,7 @@ async def test_missing_key_is_explicit_error(monkeypatch, provider):
     async def no_key(_provider):
         return None
 
-    monkeypatch.setattr(TypeSafeProvider, "_evaluation_api_key", no_key)
+    monkeypatch.setattr(TypeSafeProvider, "_resolve_api_key", no_key)
     with pytest.raises(ProviderError, match="not configured") as error:
         async with provider.open_classifier_model(
             "jev-2",
@@ -327,22 +340,148 @@ async def test_model_connection_uses_classifier(
 
 
 @pytest.mark.asyncio
-async def test_cancellation_closes_client(mock_transport, provider):
+@pytest.mark.parametrize(
+    "operation",
+    ["classify", "fetch_models", "check_connection"],
+)
+async def test_cancellation_closes_client(mock_transport, provider, operation):
     def handler(_request):
         raise asyncio.CancelledError
 
     clients = mock_transport(handler)
     with pytest.raises(asyncio.CancelledError):
-        async with provider.open_classifier_model(
-            "jev-2",
-            timeout=4.0,
-            max_retries=0,
-        ) as classifier:
-            await classifier(
-                state="x",
-                questions={"q": BinaryQuestion(instructions="x")},
-            )
+        if operation == "classify":
+            async with provider.open_classifier_model(
+                "jev-2",
+                timeout=4.0,
+                max_retries=0,
+            ) as classifier:
+                await classifier(
+                    state="x",
+                    questions={"q": BinaryQuestion(instructions="x")},
+                )
+        else:
+            await getattr(provider, operation)()
     assert clients and all(client.is_closed for client in clients)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "base_path",
+    ["/v1", "/v1/", "/gateway/v1/", "/gateway", "/gateway/", "", "/"],
+)
+async def test_model_discovery_uses_provider_settings(
+    mock_transport,
+    provider,
+    base_path,
+):
+    provider.base_url = f"https://proxy.example{base_path}"
+    requests = []
+
+    def handler(request):
+        requests.append(request)
+        assert request.method == "GET"
+        assert request.url.host == "proxy.example"
+        assert request.url.path == base_path.rstrip("/") + "/models"
+        assert request.headers["Authorization"] == "Bearer provider-key"
+        assert request.headers["X-Project"] == "demo"
+        assert set(request.extensions["timeout"].values()) == {2.0}
+        return httpx2.Response(
+            200,
+            json={
+                "models": [
+                    {
+                        "name": "jev-2",
+                        "description": "Decision model",
+                        "release_date": "2026-09-15",
+                    },
+                ],
+            },
+        )
+
+    clients = mock_transport(handler)
+    models = await provider.fetch_models(timeout=2.0)
+    assert [(m.id, m.name, m.model_type) for m in models] == [
+        ("jev-2", "jev-2", "decision"),
+    ]
+    assert await provider.check_connection(timeout=2.0) == (True, "")
+    assert len(requests) == 2
+    assert len(clients) == 2 and all(client.is_closed for client in clients)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("operation", ["fetch_models", "check_connection"])
+@pytest.mark.parametrize(
+    "failure",
+    [
+        401,
+        403,
+        404,
+        429,
+        500,
+        "timeout",
+        "network",
+        "invalid-response",
+        "invalid-key",
+        "missing-key",
+    ],
+)
+async def test_model_discovery_failures_close_client_without_retry(
+    monkeypatch,
+    mock_transport,
+    provider,
+    operation,
+    failure,
+):
+    requests = []
+    if failure == "invalid-key":
+        provider.api_key = "invalid key"
+    elif failure == "missing-key":
+
+        async def no_key(_provider):
+            return None
+
+        monkeypatch.setattr(TypeSafeProvider, "_resolve_api_key", no_key)
+
+    def handler(request):
+        requests.append(request)
+        if failure == "timeout":
+            raise httpx2.ReadTimeout("Timed out", request=request)
+        if failure == "network":
+            raise httpx2.ConnectError("Connection failed", request=request)
+        if failure == "invalid-response":
+            # Metadata requirements come from the SDK's response model.
+            return httpx2.Response(200, json={"models": [{"name": "jev-2"}]})
+        return httpx2.Response(failure, json={"error": "Unavailable"})
+
+    clients = mock_transport(handler)
+    if operation == "fetch_models":
+        with pytest.raises(ProviderError) as error:
+            await provider.fetch_models()
+        expected_kind = {
+            401: "authentication",
+            403: "authorization",
+            404: "unsupported",
+            "timeout": "timeout",
+            "network": "network",
+            "invalid-response": "invalid_response",
+        }.get(failure, "provider_unavailable")
+        assert (
+            classify_discovery_error(error.value, str(error.value))
+            == expected_kind
+        )
+    else:
+        success, message = await provider.check_connection()
+        assert not success
+        assert message
+        if isinstance(failure, int):
+            assert str(failure) in message
+        assert "provider-key" not in message
+    assert len(requests) == (
+        0 if failure in ("invalid-key", "missing-key") else 1
+    )
+    assert len(clients) == (0 if failure == "missing-key" else 1)
+    assert all(client.is_closed for client in clients)
 
 
 @pytest.mark.asyncio
