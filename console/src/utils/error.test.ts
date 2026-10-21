@@ -4,7 +4,7 @@
  * so the UI can show server-provided details instead of opaque text.
  */
 import { describe, it, expect } from "vitest";
-import { parseErrorDetail } from "./error";
+import { parseErrorDetail, summarizeValidationDetail } from "./error";
 
 describe("parseErrorDetail", () => {
   it("returns null for non-Error values", () => {
@@ -52,5 +52,51 @@ describe("parseErrorDetail", () => {
   it("returns null when the whole message parses to a non-object", () => {
     const error = new Error("42");
     expect(parseErrorDetail(error)).toBeNull();
+  });
+});
+
+describe("summarizeValidationDetail", () => {
+  it("names the field a schema rejection came from", () => {
+    expect(
+      summarizeValidationDetail([
+        {
+          type: "int_type",
+          loc: ["body", "reme_light_memory_config", "proactive_max_items"],
+          msg: "Input should be a valid integer",
+          input: null,
+        },
+      ]),
+    ).toBe(
+      "reme_light_memory_config.proactive_max_items: Input should be a valid integer",
+    );
+  });
+
+  it("joins every failure and skips unreadable entries", () => {
+    expect(
+      summarizeValidationDetail([
+        { loc: ["body", "a"], msg: "too small" },
+        { loc: ["query"], msg: "missing" },
+        null,
+        "junk",
+        {},
+      ]),
+    ).toBe("a: too small; query: missing");
+  });
+
+  it("returns null when there is nothing to show", () => {
+    expect(summarizeValidationDetail(null)).toBeNull();
+    expect(summarizeValidationDetail([])).toBeNull();
+    expect(summarizeValidationDetail("already a string")).toBeNull();
+    expect(summarizeValidationDetail({ nested: { a: 1 } })).toBeNull();
+  });
+
+  it("reads the object detail of a semantic rejection", () => {
+    expect(
+      summarizeValidationDetail({
+        backend: "remelight",
+        reason: "plugin_not_installed",
+      }),
+    ).toBe("backend: remelight; reason: plugin_not_installed");
+    expect(summarizeValidationDetail({ nested: { a: 1 } })).toBeNull();
   });
 });

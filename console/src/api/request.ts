@@ -1,6 +1,7 @@
 import { getApiUrl, clearAuthToken } from "./config";
 import { buildAuthHeaders } from "./authHeaders";
 import { getLoginHref, isLoginPath } from "../utils/navigationMode";
+import { summarizeValidationDetail } from "../utils/error";
 
 function getErrorMessageFromBody(
   text: string,
@@ -23,6 +24,12 @@ function getErrorMessageFromBody(
 
     if (typeof payload.detail === "string" && payload.detail) {
       return payload.detail;
+    }
+    // FastAPI reports schema failures as a list of {loc, msg} objects; without
+    // this the caller would surface the raw JSON body to the user.
+    const summary = summarizeValidationDetail(payload.detail);
+    if (summary) {
+      return summary;
     }
     if (typeof payload.message === "string" && payload.message) {
       return payload.message;

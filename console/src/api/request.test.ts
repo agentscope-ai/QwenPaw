@@ -145,6 +145,23 @@ describe("request", () => {
     await expect(request("/models")).rejects.toThrow("server exploded");
   });
 
+  it("names the rejected field for schema validation failures", async () => {
+    mockFetch(422, {
+      detail: [
+        {
+          type: "int_type",
+          loc: ["body", "reme_light_memory_config", "proactive_max_items"],
+          msg: "Input should be a valid integer",
+          input: null,
+        },
+      ],
+    });
+
+    await expect(request("/models")).rejects.toThrow(
+      "reme_light_memory_config.proactive_max_items: Input should be a valid integer",
+    );
+  });
+
   it("injects Authorization header when token is present", async () => {
     vi.mocked(buildAuthHeaders).mockReturnValue({
       Authorization: "Bearer test-token",

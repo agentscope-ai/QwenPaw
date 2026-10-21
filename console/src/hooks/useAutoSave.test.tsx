@@ -1,4 +1,4 @@
-import { act, renderHook } from "@testing-library/react";
+import { act, render, renderHook } from "@testing-library/react";
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 const feedback = vi.hoisted(() => ({ error: vi.fn(), destroy: vi.fn() }));
 vi.mock("./useAppMessage", () => ({
@@ -74,6 +74,31 @@ describe("settings autosave", () => {
     await act(() => vi.advanceTimersByTimeAsync(1000));
     expect(feedback.error).toHaveBeenCalledWith(
       expect.objectContaining({ duration: 0 }),
+    );
+    unmount();
+  });
+
+  it("names the rejected field in the failure notice", async () => {
+    const save = vi
+      .fn()
+      .mockRejectedValue(
+        new Error(
+          "reme_light_memory_config.proactive_max_items: Input should be a valid integer" +
+            ' - {"detail":[{"loc":["body","reme_light_memory_config","proactive_max_items"],' +
+            '"msg":"Input should be a valid integer"}]}',
+        ),
+      );
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const { result, unmount } = renderHook(() => useAutoSave(save));
+    act(() => result.current.schedule());
+    await act(() => vi.advanceTimersByTimeAsync(1000));
+
+    expect(feedback.error).toHaveBeenCalledOnce();
+    const notice = feedback.error.mock.calls[0][0].content;
+    const { container } = render(<>{notice}</>);
+    expect(container.textContent).toContain("common.autoSaveFailed");
+    expect(container.textContent).toContain(
+      "reme_light_memory_config.proactive_max_items: Input should be a valid integer",
     );
     unmount();
   });

@@ -8,6 +8,10 @@ import { useAppMessage } from "../../../hooks/useAppMessage";
 import { useAgentStore } from "../../../stores/agentStore";
 import { CONTEXT_MANAGER_BACKEND_MAPPINGS } from "../../../constants/backendMappings";
 import type { ToolExecutionLevel } from "./components/ToolExecutionLevelCard";
+import {
+  parseErrorDetail,
+  summarizeValidationDetail,
+} from "../../../utils/error";
 
 export function useAgentConfig(
   onConfigLoaded?: (config: AgentsRunningConfig) => void,
@@ -202,9 +206,11 @@ export function useAgentConfig(
         if (err && typeof err === "object" && "errorFields" in err)
           return false;
         if (automatic) throw err;
-        const errMsg =
-          err instanceof Error ? err.message : t("agentConfig.saveFailed");
-        message.error(errMsg);
+        const detail = summarizeValidationDetail(parseErrorDetail(err));
+        message.error(
+          detail ??
+            (err instanceof Error ? err.message : t("agentConfig.saveFailed")),
+        );
       } finally {
         setSaving(false);
       }

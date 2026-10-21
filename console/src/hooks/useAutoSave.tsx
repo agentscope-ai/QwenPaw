@@ -2,6 +2,7 @@ import { useAgentStore } from "@/stores/agentStore";
 import { useCallback, useEffect, useLayoutEffect, useRef, useId } from "react";
 import { useTranslation } from "react-i18next";
 import { useAppMessage } from "./useAppMessage";
+import { parseErrorDetail, summarizeValidationDetail } from "@/utils/error";
 
 type Save = () => Promise<void | boolean>;
 
@@ -37,12 +38,16 @@ export function useAutoSave(save: Save, delay = 1000) {
         // Keep the failed job in the retry closure, including after unmount.
         const { message, t } = feedback.current;
         if (taskRevision !== revision.current) return false;
+        // Name the rejected field, otherwise the toast gives the user nothing
+        // to act on and the same write keeps failing silently.
+        const reason = summarizeValidationDetail(parseErrorDetail(error));
         message.error({
           key: errorKey,
           duration: 0,
           content: (
             <span>
-              {t("common.autoSaveFailed")}{" "}
+              {t("common.autoSaveFailed")}
+              {reason ? ` (${reason})` : ""}{" "}
               <button
                 type="button"
                 onClick={() => {
