@@ -3102,7 +3102,7 @@
       "goalTurnDescription": "限制单个活动目标内的执行轮次。",
       "maxGoalTurns": "最大目标轮次",
       "goalBudgetTitle": "目标 Token 预算",
-      "goalBudgetDescription": "完整目标达到预算时停止。",
+      "goalBudgetDescription": "目标达到预算时停止；-1 或 0 表示无上限。",
       "maxGoalTokens": "最大目标 Token 数",
       "goalCompletionTitle": "目标完成检查",
       "goalCompletionDescription": "停止前读取明确的目标状态。",

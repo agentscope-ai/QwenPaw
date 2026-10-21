@@ -52,7 +52,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 DEFAULT_MAX_ITERATIONS = 20
-DEFAULT_MAX_TOKENS = 300000
+DEFAULT_MAX_TOKENS = 0
 
 
 @dataclass
@@ -75,6 +75,18 @@ class GoalSession:
     def tokens_used(self) -> int:
         """Return usage since this goal started, across transport flushes."""
         return self.token_counter.tokens
+
+    @property
+    def remaining_tokens(self) -> int | None:
+        """Return remaining budget, or None when tokens are unlimited."""
+        if self.max_tokens <= 0:
+            return None
+        return max(0, self.max_tokens - self.tokens_used)
+
+    @property
+    def token_budget_display(self) -> str:
+        """Describe the budget without presenting unlimited as exhausted."""
+        return f"{self.max_tokens}" if self.max_tokens > 0 else f"unlimited"
 
 
 class GoalMode(AgentMode):
@@ -108,6 +120,13 @@ class GoalMode(AgentMode):
     def default_max_tokens(self) -> int:
         """Default token budget for new goals."""
         return self._default_max_tokens
+
+    @default_max_tokens.setter
+    def default_max_tokens(self, value: int) -> None:
+        """Set the budget used by subsequent goals in this workspace."""
+        if value < -1:
+            raise ValueError(f"Goal token budget must be -1 or greater")
+        self._default_max_tokens = max(0, value)
 
     def active_session(
         self,
@@ -231,7 +250,7 @@ class GoalMode(AgentMode):
 
         goal_config = workspace.config.running.loop.goal
         self._default_max_iterations = goal_config.max_iterations
-        self._default_max_tokens = goal_config.max_tokens
+        self.default_max_tokens = goal_config.max_tokens
 
         handler = StopHandler()
         self._handler = handler
@@ -356,20 +375,19 @@ class GoalMode(AgentMode):
             return INITIAL_GOAL_PROMPT.format(
                 objective=session.goal,
                 max_iterations=(session.max_iterations),
-                token_budget=session.max_tokens,
+                token_budget=session.token_budget_display,
             )
 
-        remaining = max(
-            0,
-            session.max_tokens - session.tokens_used,
-        )
+        remaining = session.remaining_tokens
         return CONTINUATION_PROMPT.format(
             objective=session.goal,
             iteration=session.iteration,
             max_iterations=(session.max_iterations),
             tokens_used=session.tokens_used,
-            token_budget=session.max_tokens,
-            remaining_tokens=remaining,
+            token_budget=session.token_budget_display,
+            remaining_tokens=remaining
+            if remaining is not None
+            else f"unlimited",
         )
 
     @staticmethod

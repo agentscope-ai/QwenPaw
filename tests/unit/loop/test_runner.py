@@ -9,19 +9,12 @@ from qwenpaw.loop.gates.base import StopAction, StopHandlerResult
 from qwenpaw.loop.gates.handler import StopHandler
 from qwenpaw.loop.gates.runner import apply_stop_result, check_pending_gates
 from qwenpaw.modes.goal.gates import GoalTurnGate
+from qwenpaw.modes.goal.goal_mode import GoalSession
 
 
 def _goal_handler() -> StopHandler:
     """Build an active goal handler for continuation tests."""
-    session = SimpleNamespace(
-        active=True,
-        goal="Ship the feature",
-        iteration=0,
-        last_verdict="",
-        max_iterations=20,
-        max_tokens=300000,
-        tokens_used=0,
-    )
+    session = GoalSession(goal=f"Ship the feature")
     mode: Any = SimpleNamespace(session_by_ctx_var=lambda: session)
     handler = StopHandler()
     handler.register(GoalTurnGate(mode))

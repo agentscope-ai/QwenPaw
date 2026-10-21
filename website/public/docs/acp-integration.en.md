@@ -154,6 +154,8 @@ For example, `--agent-mode goal` adds `/goal` to the first message of each new s
 
 Messages that already start with a slash command are never modified and consume the first-message slot. Loaded or resumed sessions are not re-prefixed; this option does not add mode-state persistence. `--agent-mode default` leaves messages unchanged. Loop selection is separate from ACP permission settings.
 
+Goal tokens are unlimited by default. Use `--goal-token-budget 300000` to cap each goal; `-1` and `0` both mean unlimited. This overrides the goal default only in this ACP process and does not write agent configuration. Iteration limits still apply. An explicit `create_goal(token_budget=...)` overrides the default for that goal; omitting it inherits the default.
+
 ### Supported ACP Methods
 
 | Method              | Description                                                  |

@@ -154,6 +154,8 @@ qwenpaw acp --agent-mode goal
 
 首条消息若以斜杠命令开头，则保持原文并消耗首次消息机会。加载或恢复的会话不会重复添加前缀；此选项不额外提供模式状态持久化。`--agent-mode default` 保持消息原文。loop 选择与 ACP 权限设置相互独立。
 
+Goal token 预算默认无上限。使用 `--goal-token-budget 300000` 为每个目标设置上限；`-1` 和 `0` 均表示无上限。此参数只覆盖当前 ACP 进程的默认预算，不写回 agent 配置；迭代次数限制仍然有效。显式调用 `create_goal(token_budget=...)` 可覆盖该目标的预算，省略则沿用默认值。
+
 ### 支持的 ACP 方法
 
 | 方法                | 说明                                             |

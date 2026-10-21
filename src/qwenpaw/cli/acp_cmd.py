@@ -57,6 +57,13 @@ import click
         f"This does not change ACP permission settings."
     ),
 )
+@click.option(
+    f"--goal-token-budget",
+    type=click.IntRange(min=-1),
+    default=0,
+    show_default=True,
+    help=f"Token budget per goal. -1 or 0 means unlimited.",
+)
 def acp_cmd(
     agent: str | None,
     workspace: str | None,
@@ -64,6 +71,7 @@ def acp_cmd(
     local_diagnostics: bool,
     runtime_provider: str | None,
     agent_mode: str | None,
+    goal_token_budget: int,
 ) -> None:
     """Start QwenPaw as an ACP agent (stdio)."""
     from pathlib import Path
@@ -109,5 +117,6 @@ def acp_cmd(
             local_diagnostics=local_diagnostics,
             runtime_provider=provider_config,
             agent_mode=agent_mode,
+            goal_token_budget=goal_token_budget,
         ),
     )

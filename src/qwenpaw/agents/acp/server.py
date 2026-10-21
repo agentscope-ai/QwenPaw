@@ -80,6 +80,7 @@ from ...exceptions import AppBaseException
 from ...providers.provider_manager import ProviderManager
 from ...plugins.registry import PluginRegistry
 from ...modes.catalog import resolve_loop_mode
+from ...modes.goal import GoalMode
 from ...utils.io_utils import run_sync_io
 from .meta import (
     ACP_APPROVAL_EXPIRES_AT_META_KEY,
@@ -275,6 +276,7 @@ class QwenPawACPAgent(Agent):
         local_diagnostics: bool = False,
         runtime_provider: OpenAIRuntimeProviderConfig | None = None,
         agent_mode: str | None = None,
+        goal_token_budget: int = 0,
     ):
         self._agent_id = agent_id
         self._workspace_dir = workspace_dir
@@ -283,6 +285,7 @@ class QwenPawACPAgent(Agent):
         # Runtime loop mode (e.g. "goal"); distinct from the ACP session
         # config option "mode" (MODE_CONFIG_ID), which is a permission mode.
         self._agent_mode = agent_mode
+        self._goal_token_budget = goal_token_budget
         self._agent_mode_started: set[str] = set()
         self._stop_gate_workspace: tuple[str, Any] | None = None
         self._runtime_provider_manager: ProviderManager | None = None
@@ -470,6 +473,9 @@ class QwenPawACPAgent(Agent):
             workspace.set_app_services(app_services)
             try:
                 await workspace.start()
+                for mode in workspace.plugins.modes:
+                    if isinstance(mode, GoalMode):
+                        mode.default_max_tokens = self._goal_token_budget
                 self._install_stop_gate_bridge(agent_id, workspace)
             except BaseException:
                 try:
@@ -1642,6 +1648,7 @@ async def run_qwenpaw_agent(
     local_diagnostics: bool = False,
     runtime_provider: OpenAIRuntimeProviderConfig | None = None,
     agent_mode: str | None = None,
+    goal_token_budget: int = 0,
 ) -> None:
     """Entry point: run QwenPaw as an ACP agent over stdio."""
     agent = QwenPawACPAgent(
@@ -1650,6 +1657,7 @@ async def run_qwenpaw_agent(
         local_diagnostics=local_diagnostics,
         runtime_provider=runtime_provider,
         agent_mode=agent_mode,
+        goal_token_budget=goal_token_budget,
     )
     try:
         # pylint: disable=protected-access
