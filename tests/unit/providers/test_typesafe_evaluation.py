@@ -32,7 +32,7 @@ def configured_provider():
         id="typesafe",
         name="TypeSafe",
         api_key="provider-key",
-        base_url="https://proxy.example/v1",
+        base_url="https://proxy.example",
         custom_headers={"X-Project": "demo"},
     )
 
@@ -93,21 +93,25 @@ async def test_legacy_credential_remains_usable(
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "base_path",
-    ["/v1", "/v1/", "/gateway/v1/", "/gateway", "/gateway/", "", "/"],
+    ["", "/", "/gateway"],
 )
+@pytest.mark.parametrize("extra_headers", [None, {"X-Request": "test"}])
 async def test_classifier_uses_provider_settings(
     mock_transport,
     provider,
     base_path,
+    extra_headers,
 ):
     provider.base_url = f"https://proxy.example{base_path}"
 
     def handler(request):
         body = json.loads(request.content)
         assert request.url.host == "proxy.example"
-        assert request.url.path == base_path.rstrip("/") + "/systemone"
+        assert request.url.path == base_path.rstrip("/") + "/v1/systemone"
         assert request.headers["Authorization"] == "Bearer provider-key"
         assert request.headers["X-Project"] == "demo"
+        if extra_headers:
+            assert request.headers["X-Request"] == "test"
         assert set(request.extensions["timeout"].values()) == {4.0}
         assert body == {
             "model": "jev-2",
@@ -136,6 +140,7 @@ async def test_classifier_uses_provider_settings(
     ) as classifier:
         result = await classifier(
             state={"summary": "conversation segment"},
+            extra_headers=extra_headers,
             questions={
                 "keep_in_context": BinaryQuestion(
                     instructions="Keep this in active context?",
@@ -302,7 +307,8 @@ async def test_sdk_failures_do_not_retry_and_close_client(
                 questions={"q": BinaryQuestion(instructions="x")},
             )
     assert len(requests) == (0 if failure == "invalid-key" else 1)
-    assert clients and all(client.is_closed for client in clients)
+    assert len(clients) == (0 if failure == "invalid-key" else 1)
+    assert all(client.is_closed for client in clients)
 
 
 @pytest.mark.asyncio
@@ -315,7 +321,7 @@ async def test_model_connection_uses_classifier(
     provider.base_url = "https://proxy.example/gateway"
 
     def handler(request):
-        assert request.url.path == "/gateway/systemone"
+        assert request.url.path == "/gateway/v1/systemone"
         body = json.loads(request.content)
         assert body["model"] == "jev-2"
         assert body["state"] == "Hello"
@@ -368,7 +374,7 @@ async def test_cancellation_closes_client(mock_transport, provider, operation):
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "base_path",
-    ["/v1", "/v1/", "/gateway/v1/", "/gateway", "/gateway/", "", "/"],
+    ["", "/", "/gateway"],
 )
 async def test_model_discovery_uses_provider_settings(
     mock_transport,
@@ -382,7 +388,7 @@ async def test_model_discovery_uses_provider_settings(
         requests.append(request)
         assert request.method == "GET"
         assert request.url.host == "proxy.example"
-        assert request.url.path == base_path.rstrip("/") + "/models"
+        assert request.url.path == base_path.rstrip("/") + "/v1/models"
         assert request.headers["Authorization"] == "Bearer provider-key"
         assert request.headers["X-Project"] == "demo"
         assert set(request.extensions["timeout"].values()) == {2.0}
@@ -480,7 +486,9 @@ async def test_model_discovery_failures_close_client_without_retry(
     assert len(requests) == (
         0 if failure in ("invalid-key", "missing-key") else 1
     )
-    assert len(clients) == (0 if failure == "missing-key" else 1)
+    assert len(clients) == (
+        0 if failure in ("invalid-key", "missing-key") else 1
+    )
     assert all(client.is_closed for client in clients)
 
 

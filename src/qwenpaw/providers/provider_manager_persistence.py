@@ -11,6 +11,8 @@ import tempfile
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Dict, Literal
 
+from typesafe_sdk.constants import DEFAULT_BASE_URL as TYPESAFE_BASE_URL
+
 from ..config.config import ModelSlotConfig, ModelType
 from ..exceptions import ProviderError
 from ..security.secret_store import (
@@ -792,6 +794,18 @@ class ProviderManagerPersistenceMixin(
                 data = json.load(f)
 
             needs_rewrite = migrate_provider_snapshot(data)
+            if (
+                is_builtin
+                and provider_id == "typesafe"
+                and data.get("base_url")
+                in {
+                    "https://api.typesafe.ai/v1",
+                    "https://api.typesafe.ai/v1/",
+                }
+            ):
+                # Migrate the old official URL once; SDK paths stay untouched.
+                data["base_url"] = TYPESAFE_BASE_URL
+                needs_rewrite = True
             needs_rewrite = (
                 self._maybe_migrate_plaintext(
                     data,

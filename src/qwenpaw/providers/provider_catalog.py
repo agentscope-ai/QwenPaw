@@ -3,6 +3,8 @@
 
 from typing import List
 
+from typesafe_sdk.constants import DEFAULT_BASE_URL, DEFAULT_MODEL
+
 from ..config.config import ModelSlotConfig
 from .anthropic_provider import AnthropicProvider
 from .dashscope_provider import DashScopeProvider
@@ -108,10 +110,10 @@ PROVIDER_DASHSCOPE = DashScopeProvider(
 PROVIDER_TYPESAFE = TypeSafeProvider(
     id="typesafe",
     name="TypeSafe",
-    base_url="https://api.typesafe.ai/v1",
+    base_url=DEFAULT_BASE_URL,
     models=[
         ModelInfo(
-            id="jev-latest",
+            id=DEFAULT_MODEL,
             name="Jev Latest",
             model_type="decision",
         ),

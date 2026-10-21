@@ -39,7 +39,7 @@ def configured_typesafe_provider(monkeypatch):
     provider = TypeSafeProvider(
         id="typesafe",
         name="TypeSafe",
-        base_url="https://api.typesafe.ai/v1",
+        base_url="https://api.typesafe.ai",
         api_key="test-key",
     )
     manager = SimpleNamespace(
@@ -618,7 +618,7 @@ async def test_unconfigured_effectful_call_requires_approval(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("base_path", ["/v1", "/gateway", ""])
+@pytest.mark.parametrize("base_path", ["/gateway", ""])
 @pytest.mark.parametrize("include_usage", [True, False])
 @pytest.mark.parametrize("risk", [0.01, 0.11])
 async def test_typed_request_and_response(
@@ -632,7 +632,7 @@ async def test_typed_request_and_response(
     original_client = httpx2.AsyncClient
 
     def handler(request):
-        assert request.url.path == base_path + "/systemone"
+        assert request.url.path == base_path + "/v1/systemone"
         assert request.headers["Authorization"] == "Bearer test-key"
         import json
 

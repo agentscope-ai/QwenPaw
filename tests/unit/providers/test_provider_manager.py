@@ -1203,6 +1203,51 @@ async def test_update_model_write_failure_preserves_provider_state(
     assert provider_path.read_bytes() == disk_before
 
 
+@pytest.mark.parametrize(
+    ("saved_url", "expected_url"),
+    [
+        ("https://api.typesafe.ai/v1", "https://api.typesafe.ai"),
+        ("https://api.typesafe.ai/v1/", "https://api.typesafe.ai"),
+        ("https://api.typesafe.ai", "https://api.typesafe.ai"),
+        (
+            "https://proxy.example/gateway/v1",
+            "https://proxy.example/gateway/v1",
+        ),
+    ],
+)
+def test_typesafe_official_url_migrates_once_on_load(
+    isolated_secret_dir,
+    saved_url,
+    expected_url,
+) -> None:
+    manager = ProviderManager()
+    provider = manager.get_provider("typesafe")
+    assert provider.base_url == "https://api.typesafe.ai"
+    provider_path = manager._provider_config_path("typesafe")
+    snapshot = provider.model_dump(mode="json")
+    snapshot.update(
+        base_url=saved_url,
+        api_key="legacy-typesafe-key",
+        custom_headers={"X-Project": "kept"},
+    )
+    provider_path.write_text(json.dumps(snapshot), encoding="utf-8")
+
+    reloaded = ProviderManager()
+    migrated = reloaded.get_provider("typesafe")
+    assert migrated.base_url == expected_url
+    assert migrated.api_key == "legacy-typesafe-key"
+    assert migrated.custom_headers == {"X-Project": "kept"}
+    assert (
+        json.loads(provider_path.read_text(encoding="utf-8"))["base_url"]
+        == expected_url
+    )
+
+    rewritten = provider_path.read_bytes()
+    loaded_again = reloaded.load_provider("typesafe", is_builtin=True)
+    assert loaded_again.base_url == expected_url
+    assert provider_path.read_bytes() == rewritten
+
+
 def test_load_provider_migrates_v210_builtin_snapshot(
     isolated_secret_dir,
 ) -> None:
