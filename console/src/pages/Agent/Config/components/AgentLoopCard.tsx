@@ -473,14 +473,14 @@ function GoalModeTab() {
         title={t("agentConfig.loopMode.goalBudgetTitle", "Goal token budget")}
         description={t(
           "agentConfig.loopMode.goalBudgetDescription",
-          "Stop at the goal token budget. 0 or -1 means unlimited (default).",
+          "Stop when the complete goal reaches its budget.",
         )}
       >
         <SettingsField
           name={["loop", "goal", "max_tokens"]}
           label={t("agentConfig.loopMode.maxGoalTokens", "Maximum goal tokens")}
         >
-          <InputNumber min={-1} precision={0} style={{ width: 220 }} />
+          <InputNumber min={1} style={{ width: 220 }} />
         </SettingsField>
       </LockedGateCard>
       <LockedGateCard

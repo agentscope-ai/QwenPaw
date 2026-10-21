@@ -4270,7 +4270,7 @@
       "goalTurnDescription": "Membatasi giliran dalam satu tujuan aktif.",
       "maxGoalTurns": "Maksimum giliran tujuan",
       "goalBudgetTitle": "Anggaran token tujuan",
-      "goalBudgetDescription": "Berhenti saat anggaran token tujuan tercapai. 0 atau -1 berarti tanpa batas (default).",
+      "goalBudgetDescription": "Berhenti saat tujuan mencapai anggarannya.",
       "maxGoalTokens": "Maksimum token tujuan",
       "goalCompletionTitle": "Pemeriksaan penyelesaian tujuan",
       "goalCompletionDescription": "Membaca status tujuan eksplisit sebelum berhenti.",

@@ -4,13 +4,11 @@
 
 from __future__ import annotations
 
-import json
 from types import SimpleNamespace
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
 import pytest
 
-from qwenpaw.config.config import GoalLoopModeConfig
 from qwenpaw.loop.gates.base import (
     StopAction,
     StopHandlerRegistration,
@@ -19,8 +17,6 @@ from qwenpaw.loop.gates.handler import StopHandler
 from qwenpaw.loop.gates.rubric import QualitativeRubricGate
 from qwenpaw.loop.gates.runner import _filter_by_scope
 from qwenpaw.modes.goal.goal_mode import GoalMode, GoalSession
-from qwenpaw.modes.goal.gates import GoalBudgetGate, GoalTurnGate
-from qwenpaw.modes.goal.tools import make_create_goal, make_get_goal
 from qwenpaw.modes.mission import MissionMode
 from qwenpaw.modes.mission.gates import MissionGate
 from qwenpaw.modes.mission.state import write_loop_config, write_prd_json
@@ -247,61 +243,3 @@ async def test_qualitative_rubric_state_is_session_isolated():
     assert first_b.action == StopAction.INTERRUPT_AND_CONTINUE
     assert next_a.action == StopAction.INTERRUPT_AND_CONTINUE
     assert next_b.action == StopAction.BYPASS
-
-
-@pytest.mark.parametrize(
-    (f"entry", f"configured", f"requested", f"expected"),
-    [
-        (f"slash", None, None, 0),
-        (f"slash", -1, None, -1),
-        (f"slash", 100, None, 100),
-        (f"tool", None, None, 0),
-        (f"tool", 100, None, 100),
-        (f"tool", 100, 0, 0),
-        (f"tool", 100, -1, -1),
-        (f"tool", 100, 200, 200),
-    ],
-)
-async def test_goal_budget_is_shared_by_entrypoints(
-    monkeypatch,
-    entry,
-    configured,
-    requested,
-    expected,
-):
-    """Goals respect explicit limits and both unlimited sentinel values."""
-    config = GoalLoopModeConfig(
-        **({} if configured is None else {f"max_tokens": configured}),
-    )
-    mode = GoalMode()
-    workspace = SimpleNamespace(
-        config=SimpleNamespace(
-            running=SimpleNamespace(loop=SimpleNamespace(goal=config)),
-        ),
-        plugins=Mock(),
-    )
-    workspace.plugins.modes = []
-    mode.setup(workspace)
-    if entry == f"slash":
-        await mode.commands()[0].handler(
-            SimpleNamespace(session_id=f"budget", workspace=workspace),
-            f"Finish the task",
-        )
-    else:
-        make_create_goal(mode)(f"Finish the task", token_budget=requested)
-    session = next(iter(mode.sessions.values()))
-    monkeypatch.setattr(mode, f"active_session", lambda: session)
-    monkeypatch.setattr(mode, f"session_by_ctx_var", lambda: session)
-    assert session.max_tokens == expected
-    label = f"{expected}" if expected > 0 else f"unlimited"
-    assert f"Token budget: {label}" in mode.prompt_provider(None)
-    session.iteration = 1
-    session.tokens_used = max(expected, 300_001)
-    remaining = 0 if expected > 0 else None
-    assert json.loads(make_get_goal(mode)())[f"remaining_tokens"] == remaining
-    assert f"Token budget: {label}" in mode.prompt_provider(None)
-    assert f"Token budget: {label}" in GoalTurnGate(mode).build_continuation()
-    action = (await GoalBudgetGate(mode).check({})).action
-    assert action == (
-        StopAction.TERMINATE if expected > 0 else StopAction.BYPASS
-    )

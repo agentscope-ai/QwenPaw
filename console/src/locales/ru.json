@@ -2494,7 +2494,7 @@
       "goalTurnDescription": "Ограничивает ходы внутри активной цели.",
       "maxGoalTurns": "Максимум ходов цели",
       "goalBudgetTitle": "Бюджет токенов цели",
-      "goalBudgetDescription": "Останавливает цель при достижении бюджета токенов. 0 или -1 — без ограничений (по умолчанию).",
+      "goalBudgetDescription": "Останавливает цель при достижении бюджета.",
       "maxGoalTokens": "Максимум токенов цели",
       "goalCompletionTitle": "Проверка завершения цели",
       "goalCompletionDescription": "Читает явный статус цели перед остановкой.",
