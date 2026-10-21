@@ -417,3 +417,23 @@ The local Creator backend was updated and the Host restarted. The previously
 accepted task recovered to `running` / `plan`, with executor sequence 2 and its
 original task, submission and project identities. The Creator agent is active;
 final video generation and rendering are not yet validated by this check.
+
+### Creator model reasoning disabled — 2026-10-20
+
+The recovered production run later exhausted the 600-second model-turn limit.
+Subsequent local retries streamed roughly 49–51 thousand reasoning characters
+without completing a tool call. Creator's planning and vision clients forced
+`thinking_enable=True` independently of Main Chat settings and supplied no
+reasoning budget.
+
+Both clients now explicitly disable thinking on the DashScope/OpenAI-compatible
+path. Four request-level regression cases exercise both clients and protocols
+through the real SDK with a mock HTTP transport, asserting the serialized JSON
+contains `enable_thinking: false` and retains tool definitions. All 142
+model-client/runtime tests and changed-file pre-commit checks passed.
+
+A live probe using the configured `qwen3.8-max` model captured that same flag,
+returned a `read_project` tool call in 2.08 seconds, and emitted zero reasoning
+characters. The probe executed no tools. The installed Creator backend was
+updated and the Host restarted; this verifies model-request behavior, not a
+completed production or rendered video.
