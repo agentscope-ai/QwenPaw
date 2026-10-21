@@ -393,6 +393,8 @@ Visual Compact 更适合长时间持续的对话、频繁使用工具的任务�
 在 **智能体 → 配置 → 上下文管理 → JEV 相关性压缩** 中开启并设置参数。在模型设置中选择智能体决策模型，
 或配置全局默认决策模型。QwenPaw 用该供应商的已有凭据创建 JEV 客户端，将同一个实例注入 ReMe，
 无需额外配置 ReMe API Key。需要支持宿主模型注入的 ReMe 0.4.2.0。
+QwenPaw 通过自身的 `agentscope[classifier-jev,model-ollama]==2.0.10` 依赖安装 JEV 支持，
+ReMe 依赖保持 `reme-ai==0.4.2.0`，是否使用由 QwenPaw 的模型配置和压缩开关控制。
 
 默认关闭，支持 `scroll` 和 `native`，独立于长期记忆及聊天决策开关，需要开启自动上下文压缩。
 仅在超过正常自动触发阈值时执行；手动 `/compact` 和紧急溢出恢复保持原有行为。
@@ -434,4 +436,4 @@ QwenPaw 验证提案仅修改允许的输出，并确认实际模型输入 token
 0.4.2.0 发布前，`tool.uv.sources` 固定
 [ReMe 模型注入改动](https://github.com/agentscope-ai/ReMe/pull/652)的提交，使用 `uv sync` 安装该源码；本仓库忽略生成的本地 `uv.lock`。
 该改动合并并发布后，删除 `tool.uv.sources` 中的 `reme-ai` 条目，执行
-`uv lock --upgrade-package reme-ai` 和 `uv sync --locked`，保留依赖 `reme-ai[decision]==0.4.2.0`。
+`uv lock --upgrade-package reme-ai` 和 `uv sync --locked`，保留依赖 `reme-ai==0.4.2.0`。
