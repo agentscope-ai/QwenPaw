@@ -44,7 +44,8 @@ def cron_workspace(tmp_path, monkeypatch):
 
     def make(name):
         workspace = Workspace(
-            agent_id="agent-1", workspace_dir=str(tmp_path / name)
+            agent_id="agent-1",
+            workspace_dir=str(tmp_path / name),
         )
         workspace._service_manager = ServiceManager(workspace)
         repo = JsonJobRepository(tmp_path / name / "jobs.json")
@@ -54,7 +55,7 @@ def cron_workspace(tmp_path, monkeypatch):
                 name="cron_manager",
                 stop_method="stop",
                 reusable=False,
-            )
+            ),
         )
 
         async def start():
@@ -139,9 +140,9 @@ async def test_reload_preserves_scheduled_run_until_history_saved(
             agents=SimpleNamespace(
                 profiles={
                     "agent-1": SimpleNamespace(
-                        workspace_dir=str(new.workspace_dir)
-                    )
-                }
+                        workspace_dir=str(new.workspace_dir),
+                    ),
+                },
             ),
         ),
     )
@@ -233,9 +234,9 @@ async def test_candidate_cannot_run_crons_before_commit(
             agents=SimpleNamespace(
                 profiles={
                     "agent-1": SimpleNamespace(
-                        workspace_dir=str(new.workspace_dir)
-                    )
-                }
+                        workspace_dir=str(new.workspace_dir),
+                    ),
+                },
             ),
         ),
     )
@@ -327,9 +328,9 @@ async def test_consecutive_reloads_wait_only_for_each_outgoing_workspace(
             agents=SimpleNamespace(
                 profiles={
                     "agent-1": SimpleNamespace(
-                        workspace_dir=str(first.workspace_dir)
-                    )
-                }
+                        workspace_dir=str(first.workspace_dir),
+                    ),
+                },
             ),
         ),
     )
@@ -351,7 +352,9 @@ async def test_consecutive_reloads_wait_only_for_each_outgoing_workspace(
         assert len(cleanups) == 2
         release[0].set()
         done, pending = await asyncio.wait(
-            cleanups, timeout=3, return_when=asyncio.FIRST_COMPLETED
+            cleanups,
+            timeout=3,
+            return_when=asyncio.FIRST_COMPLETED,
         )
         assert len(done) == 1
         assert len(pending) == 1
@@ -388,10 +391,10 @@ def reload_pair(cron_workspace, monkeypatch):
             agents=SimpleNamespace(
                 profiles={
                     "agent-1": SimpleNamespace(
-                        workspace_dir=str(new.workspace_dir)
+                        workspace_dir=str(new.workspace_dir),
                     ),
-                }
-            )
+                },
+            ),
         ),
     )
     job = CronJobSpec(
@@ -468,7 +471,7 @@ async def test_manual_request_crossing_handoff_runs_on_new_workspace(
     reading, read_release = asyncio.Event(), asyncio.Event()
     running, run_release = asyncio.Event(), asyncio.Event()
     old.stream_query = MagicMock(
-        side_effect=AssertionError("retired workspace used")
+        side_effect=AssertionError("retired workspace used"),
     )
 
     async def stream(_request):
