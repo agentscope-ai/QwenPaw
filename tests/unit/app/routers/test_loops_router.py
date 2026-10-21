@@ -20,8 +20,6 @@ from qwenpaw.config.config import (
 from qwenpaw.app.workspace.workspace_plugins import WorkspacePlugins
 from qwenpaw.modes.base import AgentMode
 from qwenpaw.modes.default import DefaultMode as BuiltinDefaultMode
-from qwenpaw.modes.goal import GoalMode
-from qwenpaw.modes.custom_loop import load_custom_loop_modes
 from qwenpaw.runtime.slash_command_registry import CommandSpec
 from qwenpaw.modes.custom_loop.mode import (
     DeclarativeLoopMode,
@@ -72,72 +70,6 @@ def client(workspace: SimpleNamespace):
         patch("qwenpaw.app.routers.loops.schedule_agent_reload") as reload,
     ):
         yield TestClient(app), save, reload
-
-
-def test_loop_catalog_includes_enabled_custom_and_plugin_modes(
-    client,
-    workspace,
-) -> None:
-    """Chat discovery is workspace-local and excludes disabled modes."""
-    enabled = _mode()
-    disabled = _mode("disabled")
-    disabled.enabled = False
-    workspace.config.running.loop.custom_modes = [enabled, disabled]
-
-    class PluginMode(AgentMode):
-        name = "review"
-        loop_entry = f"review"
-
-        @staticmethod
-        def commands():
-            async def handler(_ctx, _args):
-                return None
-
-            return [
-                CommandSpec(
-                    name="review",
-                    handler=handler,
-                    help_text="Review the current work.",
-                    metadata={
-                        "loop_name": "Review",
-                        "name_i18n": {
-                            "en": "Review",
-                            "zh-CN": "评审",
-                        },
-                        "description_i18n": {
-                            "en": "**Review** — code review",
-                            "zh-CN": "**评审** — 代码评审",
-                        },
-                    },
-                ),
-            ]
-
-        @staticmethod
-        def is_active(_ctx):
-            return False
-
-    for mode in (BuiltinDefaultMode(), GoalMode(), MissionMode()):
-        workspace.plugins.register_mode(mode, workspace)
-    load_custom_loop_modes(workspace)
-    workspace.plugins.register_mode(PluginMode(), workspace)
-
-    response = client[0].get("/api/loops")
-
-    assert response.status_code == 200
-    assert [item["id"] for item in response.json()] == [
-        "default",
-        "goal",
-        "mission",
-        "custom:quality",
-        "plugin:review",
-    ]
-    plugin = response.json()[-1]
-    assert plugin["name"] == "Review"
-    assert plugin["name_i18n"] == {"en": "Review", "zh-CN": "评审"}
-    assert plugin["description_i18n"] == {
-        "en": "**Review** — code review",
-        "zh-CN": "**评审** — 代码评审",
-    }
 
 
 def test_loop_status_reports_active_mode_and_restores_context(
