@@ -78,6 +78,7 @@ from ...config.config import ModelSlotConfig, load_agent_config
 from ...drivers.constants import DRIVER_SCOPE_CONTEXT_KEY
 from ...exceptions import AppBaseException
 from ...providers.provider_manager import ProviderManager
+from ...plugins.registry import PluginRegistry
 from ...utils.io_utils import run_sync_io
 from .meta import (
     ACP_APPROVAL_EXPIRES_AT_META_KEY,
@@ -282,6 +283,7 @@ class QwenPawACPAgent(Agent):
         # config option "mode" (MODE_CONFIG_ID), which is a permission mode.
         self._mode = mode
         self._mode_started: set[str] = set()
+        self._stop_gate_workspace: tuple[str, Any] | None = None
         self._runtime_provider_manager: ProviderManager | None = None
         self._runtime_provider_instance: Any | None = None
         self._previous_active_model: ModelSlotConfig | None = None
@@ -465,11 +467,18 @@ class QwenPawACPAgent(Agent):
                 **self._build_bootstrap_kwargs(app_services),
             )
             workspace.set_app_services(app_services)
-            await workspace.start()
+            try:
+                await workspace.start()
+                self._install_stop_gate_bridge(agent_id, workspace)
+            except BaseException:
+                try:
+                    await workspace.stop(final=True)
+                except Exception:
+                    logger.exception(f"ACP workspace startup cleanup failed")
+                raise
 
             self._workspace = workspace
             self._workspace_ready = True
-            self._install_stop_gate_bridge(agent_id, workspace)
             logger.info(
                 "QwenPaw ACP Agent workspace started:"
                 " agent_id=%s workspace=%s",
@@ -479,29 +488,21 @@ class QwenPawACPAgent(Agent):
             return workspace
 
     def _install_stop_gate_bridge(self, agent_id: str, workspace: Any) -> None:
-        """Expose the workspace to PluginRegistry stop-gate lookups.
+        """Register ACP stop gates without replacing the app's manager.
 
-        Mode stop gates (goal/mission/custom loop) register into
-        ``workspace.plugins.stop_handlers``, but the ReAct loop looks
-        them up through the global PluginRegistry, which needs a
-        workspace manager attached. The web app attaches its
-        WorkspaceRegistry at startup; without an equivalent bridge
-        here every ACP run resolves an empty gate list and modes run
-        under default ReAct semantics.
+        ReAct resolves handlers by agent ID through PluginRegistry. ACP
+        owns this standalone workspace registration until shutdown.
         """
-        from types import SimpleNamespace
-
-        from ...plugins.registry import PluginRegistry
-
-        PluginRegistry().set_workspace_manager(
-            SimpleNamespace(agents={agent_id: workspace})
-        )
+        PluginRegistry().register_stop_workspace(agent_id, workspace)
+        self._stop_gate_workspace = (agent_id, workspace)
 
     async def _shutdown_workspace(self) -> None:
         """Gracefully stop the workspace."""
-        from ...plugins.registry import PluginRegistry
-
-        PluginRegistry().set_workspace_manager(None)
+        if self._stop_gate_workspace is not None:
+            PluginRegistry().unregister_stop_workspace(
+                *self._stop_gate_workspace,
+            )
+            self._stop_gate_workspace = None
         if self._workspace is not None:
             try:
                 await self._workspace.stop(final=True)
@@ -600,9 +601,6 @@ class QwenPawACPAgent(Agent):
             session_id=session_id,
             meta=kwargs,
         )
-        # A loaded session already had its first message, so the mode
-        # prefix must not apply to any subsequent prompt.
-        self._mode_started.add(session_id)
         try:
             await self._sync_session_mcp(session_id, mcp_servers)
         except BaseException:
@@ -611,6 +609,9 @@ class QwenPawACPAgent(Agent):
             else:
                 self._sessions[session_id] = previous_session
             raise
+        # A loaded session already had its first message, so the mode
+        # prefix must not apply to any subsequent prompt.
+        self._mode_started.add(session_id)
         logger.info(
             "ACP load_session: id=%s cwd=%s",
             session_id,
@@ -635,9 +636,8 @@ class QwenPawACPAgent(Agent):
         if not text:
             return PromptResponse(stop_reason="end_turn")
 
-        text = self._apply_mode(text, session_id)
-
         workspace = await self._ensure_workspace()
+        text = self._apply_mode(text, session_id)
         session_info = self._sessions.get(
             session_id,
             {},
@@ -801,9 +801,6 @@ class QwenPawACPAgent(Agent):
             if isinstance(project_dir, str) and project_dir.strip():
                 candidate_session[ACP_PROJECT_DIR_META_KEY] = project_dir
         self._sessions[session_id] = candidate_session
-        # A resumed session already had its first message, so the mode
-        # prefix must not apply to any subsequent prompt.
-        self._mode_started.add(session_id)
         try:
             await self._sync_session_mcp(session_id, mcp_servers)
         except BaseException:
@@ -812,6 +809,9 @@ class QwenPawACPAgent(Agent):
             else:
                 self._sessions[session_id] = previous_session
             raise
+        # A resumed session already had its first message, so the mode
+        # prefix must not apply to any subsequent prompt.
+        self._mode_started.add(session_id)
         return ResumeSessionResponse()
 
     async def set_session_model(  # pylint: disable=unused-argument

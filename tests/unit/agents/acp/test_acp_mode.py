@@ -103,7 +103,7 @@ def test_stop_gate_bridge_exposes_workspace_handlers():
         ) == [handler]
         assert not PluginRegistry.get_stop_handlers(agent_id="other")
     finally:
-        PluginRegistry().set_workspace_manager(None)
+        PluginRegistry().unregister_stop_workspace("default", workspace)
 
 
 def test_stop_gate_bridge_cleared_on_shutdown():
@@ -120,4 +120,45 @@ def test_stop_gate_bridge_cleared_on_shutdown():
         asyncio.run(agent._shutdown_workspace())
         assert not PluginRegistry.get_stop_handlers(agent_id="default")
     finally:
-        PluginRegistry().set_workspace_manager(None)
+        PluginRegistry().unregister_stop_workspace("default", workspace)
+
+
+async def test_workspace_failure_does_not_consume_mode(monkeypatch):
+    """Retrying initialization must still activate the requested mode."""
+    import pytest
+    from acp import text_block
+
+    agent = _make_agent()
+
+    async def fail():
+        raise OSError(f"Temporary workspace failure")
+
+    monkeypatch.setattr(agent, f"_ensure_workspace", fail)
+    with pytest.raises(OSError):
+        await agent.prompt([text_block(f"Solve")], f"retry")
+    assert agent._apply_mode(f"Solve", f"retry") == f"/goal Solve"
+
+
+async def test_stop_bridge_preserves_other_workspaces():
+    """Closing one ACP agent must not clear another agent or the app."""
+    from qwenpaw.plugins.registry import PluginRegistry
+
+    registry = PluginRegistry()
+    previous = registry.get_workspace_manager()
+    app = SimpleNamespace(
+        plugins=SimpleNamespace(stop_handlers=[object()]),
+    )
+    manager = SimpleNamespace(agents={f"app": app})
+    registry.set_workspace_manager(manager)
+    first, second = _make_agent(), _make_agent()
+    first._install_stop_gate_bridge(f"one", app)
+    second._install_stop_gate_bridge(f"two", app)
+    try:
+        await first._shutdown_workspace()
+        assert registry.get_workspace_manager() is manager
+        assert registry.get_stop_handlers(f"app") == app.plugins.stop_handlers
+        assert registry.get_stop_handlers(f"two") == app.plugins.stop_handlers
+    finally:
+        await first._shutdown_workspace()
+        await second._shutdown_workspace()
+        registry.set_workspace_manager(previous)

@@ -28,6 +28,7 @@ from ...loop.gates import (
     StopHandlerRegistration,
 )
 from ...runtime.hooks import HookBase, HookContext
+from ...token_usage.counter import TokenCounter, track_session_tokens
 from ...runtime.slash_command_registry import (
     CommandSpec,
 )
@@ -63,12 +64,17 @@ class GoalSession:
     iteration: int = 0
     max_iterations: int = DEFAULT_MAX_ITERATIONS
     max_tokens: int = DEFAULT_MAX_TOKENS
-    tokens_used: int = 0
+    token_counter: TokenCounter = field(default_factory=TokenCounter)
     last_verdict: str = ""
     last_feedback: str = ""
     started_at: float = field(
         default_factory=time.time,
     )
+
+    @property
+    def tokens_used(self) -> int:
+        """Return usage since this goal started, across transport flushes."""
+        return self.token_counter.tokens
 
 
 class GoalMode(AgentMode):
@@ -316,6 +322,7 @@ class GoalMode(AgentMode):
         )
         session = GoalSession(
             goal=goal_text,
+            token_counter=track_session_tokens(session_key),
             max_iterations=self._default_max_iterations,
             max_tokens=self._default_max_tokens,
         )

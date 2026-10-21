@@ -173,17 +173,22 @@ async def test_new_session_advertises_commands():
     conn = _FakeConn()
     agent.on_connect(conn)
 
-    response = await agent.new_session(cwd="/tmp")
-    await _drain(conn)
+    try:
+        response = await agent.new_session(cwd="/tmp")
+        await _drain(conn)
 
-    assert conn.updates, "expected an available_commands_update notification"
-    session_id, update = conn.updates[0]
-    assert session_id == response.session_id
-    assert update.session_update == "available_commands_update"
+        assert (
+            conn.updates
+        ), "expected an available_commands_update notification"
+        session_id, update = conn.updates[0]
+        assert session_id == response.session_id
+        assert update.session_update == "available_commands_update"
 
-    # Commands are now dynamically queried from registry; verify structure
-    # All advertised commands should have descriptions
-    assert all(c.description for c in update.available_commands)
+        # Commands are now dynamically queried from registry; verify structure
+        # All advertised commands should have descriptions
+        assert all(c.description for c in update.available_commands)
+    finally:
+        await agent._shutdown_workspace()
 
 
 async def test_load_session_advertises_commands():
@@ -191,13 +196,16 @@ async def test_load_session_advertises_commands():
     conn = _FakeConn()
     agent.on_connect(conn)
 
-    await agent.load_session(cwd="/tmp", session_id="sess-123")
-    await _drain(conn)
+    try:
+        await agent.load_session(cwd="/tmp", session_id="sess-123")
+        await _drain(conn)
 
-    assert conn.updates
-    session_id, update = conn.updates[0]
-    assert session_id == "sess-123"
-    assert update.session_update == "available_commands_update"
+        assert conn.updates
+        session_id, update = conn.updates[0]
+        assert session_id == "sess-123"
+        assert update.session_update == "available_commands_update"
+    finally:
+        await agent._shutdown_workspace()
 
 
 async def test_new_session_reports_agent_id_in_meta():

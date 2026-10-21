@@ -28,41 +28,6 @@ DEFAULT_MAX_ITERATIONS = 20
 DEFAULT_MAX_TOKENS = 300000
 
 
-def _update_goal_tokens(
-    session: Any,
-    ctx: Any,
-) -> None:
-    """Accumulate token usage from model wrapper."""
-    try:
-        from ...token_usage.model_wrapper import (
-            TokenRecordingModelWrapper,
-        )
-
-        agent = ctx.get("agent") if isinstance(ctx, dict) else None
-        if agent is None:
-            return
-        rc = getattr(agent, "_request_context", {})
-        sid = rc.get("session_id", "")
-        if not sid:
-            return
-        store = getattr(
-            TokenRecordingModelWrapper,
-            "_usage_by_session",
-            {},
-        )
-        usage = store.get(sid)
-        if usage:
-            session.tokens_used = usage.get(
-                "total_tokens",
-                session.tokens_used,
-            )
-    except Exception:  # noqa: BLE001
-        logger.debug(
-            "Failed to update goal tokens",
-            exc_info=True,
-        )
-
-
 class GoalTurnGate(LoopGate):
     """Goal-mode turn gate (outer loop).
 
@@ -112,7 +77,6 @@ class GoalTurnGate(LoopGate):
             )
 
         session.iteration += 1
-        _update_goal_tokens(session, ctx)
         logger.debug(
             "GoalTurn: iter=%d/%d tokens=%d/%d",
             session.iteration,

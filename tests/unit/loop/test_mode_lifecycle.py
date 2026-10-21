@@ -243,3 +243,62 @@ async def test_qualitative_rubric_state_is_session_isolated():
     assert first_b.action == StopAction.INTERRUPT_AND_CONTINUE
     assert next_a.action == StopAction.INTERRUPT_AND_CONTINUE
     assert next_b.action == StopAction.BYPASS
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(f"consume_first", [False, True])
+async def test_goal_budget_survives_acp_usage_flush(consume_first):
+    """Transport flush order cannot reset or double-count a goal budget."""
+    from qwenpaw.app.agent_context import scoped_session_id
+    from qwenpaw.modes.goal.gates import GoalBudgetGate
+    from qwenpaw.token_usage.model_wrapper import TokenRecordingModelWrapper
+
+    mode = GoalMode()
+    ctx = SimpleNamespace(session_id=f"goal-budget")
+    with scoped_session_id(ctx.session_id):
+        await mode.commands()[0].handler(ctx, f"Finish the task")
+        session = mode.active_session()
+        session.max_tokens = 100
+        try:
+            for expected in (60, 120):
+                TokenRecordingModelWrapper._store_usage(
+                    None,
+                    {f"total_tokens": 60},
+                )
+                if consume_first:
+                    TokenRecordingModelWrapper.pop_usage_for_session(
+                        ctx.session_id,
+                    )
+                assert session.tokens_used == expected
+                result = await GoalBudgetGate(mode).check({})
+                assert result.action == (
+                    StopAction.BYPASS
+                    if expected < 100
+                    else StopAction.TERMINATE
+                )
+                TokenRecordingModelWrapper.pop_usage_for_session(
+                    ctx.session_id,
+                )
+            assert not session.active
+            await mode.on_conversation_reset(ctx)
+            await mode.commands()[0].handler(ctx, f"A new goal")
+            assert mode.active_session().tokens_used == 0
+        finally:
+            TokenRecordingModelWrapper.pop_usage_for_session(ctx.session_id)
+
+
+def test_create_goal_keeps_request_session():
+    """Tool activation must share the runtime and model usage context."""
+    from qwenpaw.app.agent_context import (
+        get_current_session_id,
+        scoped_session_id,
+    )
+    from qwenpaw.modes.goal.tools import make_create_goal
+    from qwenpaw.token_usage.counter import record_session_tokens
+
+    mode = GoalMode()
+    with scoped_session_id(f"goal-tool"):
+        make_create_goal(mode)(f"Finish", token_budget=100)
+        assert get_current_session_id() == f"goal-tool"
+        record_session_tokens(f"goal-tool", 25)
+        assert mode.active_session().tokens_used == 25

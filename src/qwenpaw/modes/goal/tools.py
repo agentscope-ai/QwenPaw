@@ -12,6 +12,9 @@ import logging
 import time
 from typing import TYPE_CHECKING, Any
 
+from ...app.agent_context import get_current_session_id
+from ...token_usage.counter import track_session_tokens
+
 if TYPE_CHECKING:
     from .goal_mode import GoalMode
 
@@ -122,18 +125,16 @@ def make_create_goal(owner: "GoalMode") -> Any:
         if existing is not None:
             return "A goal is already active. " "Cancel it first with /cancel."
 
-        from ...app.agent_context import (
-            set_current_session_id,
-        )
-
-        key = f"__tool__{int(time.time())}"
+        key = get_current_session_id()
+        if key is None:
+            return f"An active conversation is required to create a goal."
         budget = token_budget if token_budget > 0 else owner.default_max_tokens
         session = GoalSession(
             goal=objective.strip(),
+            token_counter=track_session_tokens(key),
             max_tokens=budget,
         )
         owner.sessions[key] = session
-        set_current_session_id(key)
         logger.info(
             "Goal created via tool: %s",
             objective.strip()[:80],
