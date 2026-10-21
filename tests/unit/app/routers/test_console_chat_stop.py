@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import logging
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
@@ -191,3 +192,91 @@ async def test_stop_keeps_backward_compatibility_without_app_services(
         "unknown-chat",
         reason="user",
     )
+
+
+class _Capture(logging.Handler):
+    """Direct-attach capture; immune to propagate=False configurations."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.messages: list[str] = []
+
+    def emit(self, record: logging.LogRecord) -> None:
+        self.messages.append(record.getMessage())
+
+
+@pytest.mark.asyncio
+async def test_stop_audit_log_carries_reason_and_initiator(
+    app,
+    stop_workspace,
+) -> None:
+    """GH-8252: one INFO line must attribute WHO stopped the chat and WHY,
+    with CR/LF neutralized so untrusted IDs cannot forge log lines."""
+    chat = SimpleNamespace(id="chat-uuid", session_id="runtime-session")
+    stop_workspace.chat_manager.get_chat = AsyncMock(return_value=chat)
+    stop_workspace.chat_manager.get_chat_id_by_session = AsyncMock()
+
+    capture = _Capture()
+    logger = logging.getLogger("qwenpaw.app.routers.console")
+    logger.addHandler(capture)
+    logger.setLevel(logging.INFO)
+    try:
+        async with AsyncClient(
+            transport=ASGITransport(app=app),
+            base_url="http://test",
+        ) as client:
+            response = await client.post(
+                "/api/console/chat/stop",
+                params={
+                    "chat_id": "chat-uuid",
+                    "cancel_reason": "timeout",
+                    "initiator": "caller:session\r\nfake forged line",
+                },
+            )
+    finally:
+        logger.removeHandler(capture)
+
+    assert response.status_code == 200
+    audit = [m for m in capture.messages if "[STOP API] chat stop" in m]
+    assert len(audit) == 1, capture.messages
+    line = audit[0]
+    assert "chat_id=chat-uuid" in line
+    assert "reason=timeout" in line
+    assert "initiator=caller:session\\r\\nfake forged line" in line
+    assert "stopped=True" in line
+    # the raw CR/LF must never reach the formatted line
+    assert "\n" not in line and "\r" not in line
+
+
+@pytest.mark.asyncio
+async def test_stop_audit_log_defaults_without_initiator(
+    app,
+    stop_workspace,
+) -> None:
+    """Backward compatibility: callers that do not send initiator still
+    get an auditable line with reason=user and initiator placeholder."""
+    chat = SimpleNamespace(id="chat-uuid", session_id="runtime-session")
+    stop_workspace.chat_manager.get_chat = AsyncMock(return_value=chat)
+    stop_workspace.chat_manager.get_chat_id_by_session = AsyncMock()
+
+    capture = _Capture()
+    logger = logging.getLogger("qwenpaw.app.routers.console")
+    logger.addHandler(capture)
+    logger.setLevel(logging.INFO)
+    try:
+        async with AsyncClient(
+            transport=ASGITransport(app=app),
+            base_url="http://test",
+        ) as client:
+            response = await client.post(
+                "/api/console/chat/stop",
+                params={"chat_id": "chat-uuid"},
+            )
+    finally:
+        logger.removeHandler(capture)
+
+    assert response.status_code == 200
+    audit = [m for m in capture.messages if "[STOP API] chat stop" in m]
+    assert len(audit) == 1, capture.messages
+    assert "reason=user" in audit[0]
+    assert "initiator=-" in audit[0]

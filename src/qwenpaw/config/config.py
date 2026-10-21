@@ -1610,7 +1610,7 @@ class GoalLoopModeConfig(BaseModel):
     """Editable values for the fixed built-in Goal pipeline."""
 
     max_iterations: int = Field(default=20, ge=1, le=500)
-    max_tokens: int = Field(default=300_000, ge=1)
+    max_tokens: int = Field(default=0, ge=-1)
 
 
 class MissionLoopModeConfig(BaseModel):

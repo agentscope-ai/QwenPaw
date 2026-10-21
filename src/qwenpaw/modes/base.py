@@ -22,6 +22,7 @@ from __future__ import annotations
 from typing import Any, TYPE_CHECKING
 
 from ..runtime.hooks import HookBase, HookContext, HookResult
+from .catalog import LoopModeInfo, _as_str_dict
 
 if TYPE_CHECKING:
     from ..runtime.prompt_manager import PromptContributor
@@ -38,6 +39,30 @@ class AgentMode:
     """
 
     name: str
+    loop_entry: str | None = None
+
+    def describe_loop(self, workspace: Any) -> LoopModeInfo | None:
+        """Describe an explicitly declared plugin entry command."""
+        if self.loop_entry is None:
+            return None
+        resolved = workspace.plugins.slash_command_registry.resolve(
+            f"/{self.loop_entry}",
+        )
+        if resolved is None:
+            return None
+        command, _ = resolved
+        metadata = command.metadata or {}
+        return LoopModeInfo(
+            id=f"plugin:{self.name}",
+            name=str(metadata.get(f"loop_name") or self.name),
+            slash_command=command.name,
+            description=command.help_text,
+            source=f"plugin",
+            name_i18n=_as_str_dict(metadata.get(f"name_i18n")) or None,
+            description_i18n=(
+                _as_str_dict(metadata.get(f"description_i18n")) or None
+            ),
+        )
 
     def setup(self, workspace: object) -> None:
         """Register every contribution into ``workspace``'s plugins.
