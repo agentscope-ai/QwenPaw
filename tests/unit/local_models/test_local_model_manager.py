@@ -77,16 +77,19 @@ class _FakeLlamaCppBackend:
                 ),
             ),
         )
+        model_info_kwargs: dict = {
+            "id": model_name,
+            "name": model_name,
+            "supports_multimodal": False,
+            "supports_image": False,
+            "supports_video": False,
+            "probe_source": "documentation",
+        }
+        if max_context_length is not None:
+            model_info_kwargs["max_input_length"] = max_context_length
         return LlamaCppServerSetupResult(
             port=8080,
-            model_info=ModelInfo(
-                id=model_name,
-                name=model_name,
-                supports_multimodal=False,
-                supports_image=False,
-                supports_video=False,
-                probe_source="documentation",
-            ),
+            model_info=ModelInfo(**model_info_kwargs),
         )
 
     async def shutdown_server(self) -> None:
@@ -216,6 +219,7 @@ async def test_local_model_manager_forwards_async_server_calls(
         supports_image=False,
         supports_video=False,
         probe_source="documentation",
+        max_input_length=131072,
     )
     assert fake_llamacpp_backend.calls == [
         ("server_ready", 7.5),
