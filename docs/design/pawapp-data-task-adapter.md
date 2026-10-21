@@ -14,7 +14,8 @@ submission and commands, scoped Engine event/result mapping, App-local tools
 and skills, and native SDK managed-service registration. Existing released
 model settings and Data UI behavior are preserved.
 
-The generic SDK, Creator adaptation and File Browser example remain in #7874.
+The generic SDK and Creator adaptation remain in #7874. File Browser is a
+separate example-app PR; neither App integration depends on the other.
 App-owned typed setup-entry migration is a separate follow-up: this adapter
 retains its existing readiness checks and generic App settings link.
 
