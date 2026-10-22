@@ -200,6 +200,9 @@ export function formatRawToolValue(value: unknown): string {
   if (report?.kind === "node") return budgetSummary();
 
   if (typeof value === "string") {
+    if (isLargeBase64DataUrl(value)) {
+      return base64Placeholder(value.length);
+    }
     if (report?.kind === "character") {
       // Oversized raw text: show its head without parsing or copying it.
       return capOutput(value);
