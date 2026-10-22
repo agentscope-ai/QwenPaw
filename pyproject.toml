@@ -108,6 +108,9 @@ include-package-data = true
     "security/skill_scanner/data/**",
     "browser/control_link/injected/*.js",
     "providers/data/**",
+    "plugins/frontend/**",
+    "plugins/py.typed",
+    "plugins/templates/**",
     "docs/*.md",
     "app/channels/yuanbao/proto/**",
 ]
@@ -133,6 +136,8 @@ test = [
     "pytest-cov>=6.2.1",
     "pytest-timeout>=2.3.0",
     "pytest-xdist>=3.5.0",
+    # SDK dependency-plan tests exercise the verified uv dry-run protocol.
+    "uv==0.8.15",
     "hypothesis>=6.0.0",
     "respx>=0.22.0",
     "qoder-agent-sdk==1.0.9",
