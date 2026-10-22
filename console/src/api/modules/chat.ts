@@ -5,6 +5,8 @@ import type {
   ChatSpec,
   ChatHistory,
   ChatResolution,
+  ChatSearchRequest,
+  ChatSearchResponse,
   ChatDeleteResponse,
   ChatUpdateRequest,
   ChatGroup,
@@ -26,6 +28,18 @@ export interface ChatStatusResponse {
 const FILES_PREVIEW = "/files/preview";
 
 export const chatApi = {
+  searchChats: (
+    search: ChatSearchRequest,
+    options: { agentId: string; signal?: AbortSignal },
+  ) =>
+    request<ChatSearchResponse>("/chats/search", {
+      method: "POST",
+      body: JSON.stringify(search),
+      headers: { "X-Agent-Id": options.agentId },
+      signal: options.signal,
+      timeout: search.mode === "agent" ? 120000 : 30000,
+    }),
+
   resolveChat: (
     chatId: string,
     options?: { currentAgentId?: string; signal?: AbortSignal },
@@ -62,7 +76,7 @@ export const chatApi = {
     if (!filename) return "";
     if (filename.startsWith("http://") || filename.startsWith("https://"))
       return filename;
-    let cleaned = filename.replace(/^\/+/, "");
+    const cleaned = filename.replace(/^\/+/, "");
     const path = `${FILES_PREVIEW}/${cleaned}`;
     const url = getApiUrl(path);
 

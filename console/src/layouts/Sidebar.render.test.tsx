@@ -177,7 +177,7 @@ vi.mock("./SidebarSessionList", () => ({
     onSessionClick,
   }: {
     onNewChat?: () => void;
-    onSessionClick?: (id: string) => void;
+    onSessionClick?: (id: string, options?: { canonical?: boolean }) => void;
   }) => (
     <div data-testid="session-list">
       <button data-testid="sl-new-chat" onClick={onNewChat}>
@@ -185,6 +185,12 @@ vi.mock("./SidebarSessionList", () => ({
       </button>
       <button data-testid="sl-click" onClick={() => onSessionClick?.("s-1")}>
         open
+      </button>
+      <button
+        data-testid="sl-search-click"
+        onClick={() => onSessionClick?.("s-1", { canonical: true })}
+      >
+        open search result
       </button>
     </div>
   ),
@@ -575,6 +581,29 @@ describe("Sidebar", () => {
       );
     });
   });
+
+  it.each([false, true])(
+    "keeps canonical search result IDs intact with collapsed=%s",
+    async (collapsed) => {
+      renderSidebar();
+      if (collapsed) {
+        fireEvent.click(
+          screen.getByRole("button", { name: "Collapse sidebar" }),
+        );
+        fireEvent.click(
+          await screen.findByRole("button", {
+            name: "chat.chatHistoryTooltip",
+          }),
+        );
+      }
+      // The mocked resolver rewrites s-1 to real-s-1, representing an SDK
+      // alias collision while the returned canonical Chat is not listed yet.
+      fireEvent.click(await screen.findByTestId("sl-search-click"));
+      await waitFor(() => {
+        expect(screen.getByTestId("probe-path").textContent).toBe("/chat/s-1");
+      });
+    },
+  );
 
   it("dispatches the new-chat flow from the session list", async () => {
     renderSidebar();

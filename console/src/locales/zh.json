@@ -4141,6 +4141,23 @@
       "deleteTitle": "删除这个分组？",
       "deleteHint": "组内会话将返回各自的系统分组。"
     },
+    "historySearch": {
+      "mode": "搜索方式",
+      "keyword": "关键词",
+      "agent": "AI 搜索",
+      "label": "搜索对话历史",
+      "keywordPlaceholder": "搜索标题和消息…",
+      "agentPlaceholder": "描述你想找的对话…",
+      "submit": "搜索",
+      "results": "对话搜索结果",
+      "agentHint": "描述你记得的内容，按回车使用当前智能体的模型搜索。",
+      "searching": "正在搜索对话…",
+      "count": "{{count}} 个对话",
+      "partial": "当前仅显示部分结果，可尝试更具体的搜索内容。",
+      "agentError": "AI 搜索失败，请检查当前智能体的模型配置，或尝试关键词搜索。",
+      "error": "搜索对话失败，请重试。",
+      "loadMore": "加载更多"
+    },
     "sessionPanel": {
       "searchConversations": "搜索对话…",
       "noConversations": "暂无对话",

@@ -31,7 +31,9 @@ import {
   ChevronLeft as SparkOperateLeftLine,
   ChevronRight as SparkOperateRightLine,
 } from "lucide-react";
-import SidebarSessionList from "./SidebarSessionList";
+import SidebarSessionList, {
+  type SidebarSessionNavigationOptions,
+} from "./SidebarSessionList";
 import DockableSidebar from "./DockableSidebar";
 import skin from "./sidebarA.module.less";
 import SidebarUsage from "./SidebarUsage";
@@ -539,8 +541,10 @@ export default function Sidebar({
    * Resolve realId (backend UUID) to avoid exposing local timestamp in URL.
    */
   const handleSidebarSessionClick = useCallback(
-    (sessionId: string) => {
-      const effectiveId = sessionApi.getEffectiveSessionId(sessionId);
+    (sessionId: string, options?: SidebarSessionNavigationOptions) => {
+      const effectiveId = options?.canonical
+        ? sessionId
+        : sessionApi.getEffectiveSessionId(sessionId);
       const targetPath = buildChatPath(effectiveId);
       navigate(targetPath);
     },
@@ -861,9 +865,9 @@ export default function Sidebar({
                         setHistoryPopoverOpen(false);
                         handleNewChat();
                       }}
-                      onSessionClick={(sessionId) => {
+                      onSessionClick={(sessionId, options) => {
                         setHistoryPopoverOpen(false);
-                        handleSidebarSessionClick(sessionId);
+                        handleSidebarSessionClick(sessionId, options);
                       }}
                     />
                   </div>
