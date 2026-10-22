@@ -174,6 +174,13 @@ class _SafeRotatingFileHandler(logging.handlers.RotatingFileHandler):
     size-exceeding emit.
     """
 
+    def shouldRollover(self, record):
+        # Without backups, doRollover() would only close and reopen the
+        # stream, so the standard emit path must not trigger it either.
+        if self.backupCount <= 0:
+            return False
+        return super().shouldRollover(record)
+
     def doRollover(self):
         try:
             super().doRollover()

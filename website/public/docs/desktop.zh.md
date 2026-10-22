@@ -176,7 +176,7 @@ xattr -cr "/Applications/QwenPaw Desktop.app"
 - 应用会在后台运行，打开应用窗口
 - 应用日志输出到：`~/Library/Logs/io.agentscope.qwenpaw.desktop/qwenpaw-desktop.log`
 - 后端 sidecar 日志位于工作目录：`~/.qwenpaw/desktop.log`
-- Python 原生崩溃堆栈写入 `~/.qwenpaw/desktop-crash.log`；启动时会将上次运行产生的非空崩溃日志按 `QWENPAW_LOG_MAX_BACKUPS` 轮转为编号备份。设置为 `0` 会禁用备份并删除上次的崩溃日志。
+- Python 原生崩溃堆栈写入 `~/.qwenpaw/desktop-crash.log`；启动时会将上次运行产生的非空崩溃日志按 `QWENPAW_LOG_MAX_BACKUPS` 轮转为编号备份。设置为 `0` 会禁用备份并删除当前及编号的崩溃日志。
 
 #### 终端启动（查看实时日志）
 

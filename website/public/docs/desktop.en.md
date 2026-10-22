@@ -176,7 +176,7 @@ When first launched, macOS may request the following permissions:
 - The app runs in the background and opens its window
 - App logs are written to: `~/Library/Logs/io.agentscope.qwenpaw.desktop/qwenpaw-desktop.log`
 - Backend sidecar logs live in the working directory: `~/.qwenpaw/desktop.log`
-- Native Python crash traces are written to `~/.qwenpaw/desktop-crash.log`; at startup, a non-empty crash log from the previous run rotates to numbered backups according to `QWENPAW_LOG_MAX_BACKUPS`. Setting it to `0` disables backups and discards the previous crash log.
+- Native Python crash traces are written to `~/.qwenpaw/desktop-crash.log`; at startup, a non-empty crash log from the previous run rotates to numbered backups according to `QWENPAW_LOG_MAX_BACKUPS`. Setting it to `0` disables backups and deletes the current and numbered crash logs.
 
 #### Terminal Launch (View real-time logs)
 

@@ -318,6 +318,44 @@ def test_rotating_handler_skips_rollover_without_backups(
         handler.close()
 
 
+def test_rotating_handler_skips_emit_rollover_without_backups(
+    tmp_path,
+    monkeypatch,
+):
+    log_path = tmp_path / "desktop.log"
+    handler = _SafeRotatingFileHandler(
+        log_path,
+        encoding="utf-8",
+        maxBytes=1,
+        backupCount=0,
+    )
+    rollovers = []
+    monkeypatch.setattr(
+        handler,
+        "doRollover",
+        lambda: rollovers.append(True),
+    )
+    logger = logging.getLogger("qwenpaw.test.zero_backups")
+    logger.setLevel(logging.INFO)
+    logger.propagate = False
+    logger.addHandler(handler)
+
+    try:
+        for index in range(10):
+            logger.info(f"entry {index}")
+
+        assert not rollovers
+        assert (
+            len(
+                log_path.read_text(encoding="utf-8").splitlines(),
+            )
+            == 10
+        )
+    finally:
+        logger.removeHandler(handler)
+        handler.close()
+
+
 def test_rotating_handler_reports_a_deferred_rollover_once(
     tmp_path,
     monkeypatch,

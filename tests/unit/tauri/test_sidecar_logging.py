@@ -23,6 +23,22 @@ class _ListHandler(logging.Handler):
         self.records.append(record)
 
 
+def _cleanup_sidecar_logging(log_path: Path) -> None:
+    crash_log_file = tauri_logging._CRASH_LOG_FILE
+    if crash_log_file is not None:
+        crash_log_file.close()
+        tauri_logging._CRASH_LOG_FILE = None
+
+    resolved = str(log_path.resolve())
+    for logger_name in ("qwenpaw", "apscheduler"):
+        logger = logging.getLogger(logger_name)
+        for handler in list(logger.handlers):
+            base = getattr(handler, "baseFilename", None)
+            if base is not None and base == resolved:
+                logger.removeHandler(handler)
+                handler.close()
+
+
 def test_tee_stream_writes_text_to_both_streams():
     primary = io.StringIO()
     secondary = io.StringIO()
@@ -79,16 +95,7 @@ def test_install_sidecar_logging_writes_startup_context_and_tees_output(
             encoding="utf-8",
         ) == "previous crash\n"
     finally:
-        crash_log_file = getattr(tauri_logging, "_CRASH_LOG_FILE", None)
-        if crash_log_file is not None:
-            crash_log_file.close()
-            tauri_logging._CRASH_LOG_FILE = None
-        logger = logging.getLogger("qwenpaw")
-        for handler in list(logger.handlers):
-            base = getattr(handler, "baseFilename", None)
-            if base is not None and base == str(log_path.resolve()):
-                logger.removeHandler(handler)
-                handler.close()
+        _cleanup_sidecar_logging(log_path)
 
 
 def test_sidecar_tee_output_triggers_log_rotation(monkeypatch, tmp_path):
@@ -98,38 +105,19 @@ def test_sidecar_tee_output_triggers_log_rotation(monkeypatch, tmp_path):
 
     monkeypatch.setattr(sys, "stdout", primary_stdout)
     monkeypatch.setattr(sys, "stderr", primary_stderr)
+    monkeypatch.setenv("QWENPAW_LOG_MAX_BACKUPS", "3")
     monkeypatch.setattr(
         tauri_logging.faulthandler,
         "enable",
         lambda **kwargs: None,
     )
-    original_rename = logging.handlers.os.rename
-    rename_sources = []
-
-    def deny_rename_while_legacy_tee_is_open(source, destination):
-        legacy_handle = getattr(tauri_logging, "_LOG_FILE", None)
-        if (
-            source == str(log_path)
-            and legacy_handle is not None
-            and not legacy_handle.closed
-        ):
-            raise PermissionError("legacy tee handle denies delete sharing")
-        original_rename(source, destination)
-        rename_sources.append(source)
-
-    monkeypatch.setattr(
-        logging.handlers.os,
-        "rename",
-        deny_rename_while_legacy_tee_is_open,
-    )
 
     try:
         tauri_logging.install_sidecar_logging(log_path)
         handler = next(
-            handler
-            for handler in logging.getLogger("qwenpaw").handlers
-            if getattr(handler, "baseFilename", None)
-            == str(log_path.resolve())
+            item
+            for item in logging.getLogger("qwenpaw").handlers
+            if getattr(item, "baseFilename", None) == str(log_path.resolve())
         )
         handler.maxBytes = handler.stream.tell() + 3
 
@@ -139,8 +127,6 @@ def test_sidecar_tee_output_triggers_log_rotation(monkeypatch, tmp_path):
         sys.stdout.flush()
 
         assert (tmp_path / "desktop.log.1").exists()
-        assert getattr(tauri_logging, "_LOG_FILE", None) is None
-        assert str(log_path) in rename_sources
         log_contents = "\n".join(
             path.read_text(encoding="utf-8")
             for path in tmp_path.glob("desktop.log*")
@@ -152,20 +138,56 @@ def test_sidecar_tee_output_triggers_log_rotation(monkeypatch, tmp_path):
             "sidecar line\nunpaired surrogate: \udcff\n"
         )
     finally:
-        legacy_handle = getattr(tauri_logging, "_LOG_FILE", None)
-        if legacy_handle is not None:
-            legacy_handle.close()
-            tauri_logging._LOG_FILE = None
-        crash_log_file = getattr(tauri_logging, "_CRASH_LOG_FILE", None)
-        if crash_log_file is not None:
-            crash_log_file.close()
-            tauri_logging._CRASH_LOG_FILE = None
-        logger = logging.getLogger("qwenpaw")
-        for handler in list(logger.handlers):
-            base = getattr(handler, "baseFilename", None)
-            if base is not None and base == str(log_path.resolve()):
-                logger.removeHandler(handler)
-                handler.close()
+        _cleanup_sidecar_logging(log_path)
+
+
+def test_sidecar_tee_defers_locked_rotation_and_warns_once(
+    monkeypatch,
+    tmp_path,
+):
+    log_path = tmp_path / "desktop.log"
+
+    monkeypatch.setattr(sys, "stdout", io.StringIO())
+    monkeypatch.setattr(sys, "stderr", io.StringIO())
+    monkeypatch.setenv("QWENPAW_LOG_MAX_BACKUPS", "3")
+    monkeypatch.setattr(
+        tauri_logging.faulthandler,
+        "enable",
+        lambda **kwargs: None,
+    )
+    original_rename = logging.handlers.os.rename
+
+    def deny_active_log_rename(source, destination):
+        if source == str(log_path):
+            raise PermissionError("log file is open elsewhere")
+        original_rename(source, destination)
+
+    monkeypatch.setattr(
+        logging.handlers.os,
+        "rename",
+        deny_active_log_rename,
+    )
+
+    try:
+        tauri_logging.install_sidecar_logging(log_path)
+        handler = next(
+            item
+            for item in logging.getLogger("qwenpaw").handlers
+            if getattr(item, "baseFilename", None) == str(log_path.resolve())
+        )
+        handler.maxBytes = handler.stream.tell() + 3
+
+        print("first line")
+        print("second line")
+        sys.stdout.flush()
+
+        content = log_path.read_text(encoding="utf-8")
+        assert not (tmp_path / "desktop.log.1").exists()
+        assert content.count("WARNING: log rotation deferred") == 1
+        assert "first line" in content
+        assert "second line" in content
+    finally:
+        _cleanup_sidecar_logging(log_path)
 
 
 def test_backend_ready_survives_handler_close_during_startup(
@@ -204,16 +226,7 @@ def test_backend_ready_survives_handler_close_during_startup(
             encoding="utf-8",
         )
     finally:
-        crash_log_file = getattr(tauri_logging, "_CRASH_LOG_FILE", None)
-        if crash_log_file is not None:
-            crash_log_file.close()
-            tauri_logging._CRASH_LOG_FILE = None
-        logger = logging.getLogger("qwenpaw")
-        for item in list(logger.handlers):
-            base = getattr(item, "baseFilename", None)
-            if base is not None and base == str(log_path.resolve()):
-                logger.removeHandler(item)
-                item.close()
+        _cleanup_sidecar_logging(log_path)
 
 
 def test_locked_previous_crash_log_does_not_block_sidecar_startup(
@@ -261,21 +274,21 @@ def test_locked_previous_crash_log_does_not_block_sidecar_startup(
     finally:
         project_logger.removeHandler(capture)
         capture.close()
-        if tauri_logging._CRASH_LOG_FILE is not None:
-            tauri_logging._CRASH_LOG_FILE.close()
-            tauri_logging._CRASH_LOG_FILE = None
-        logger = logging.getLogger("qwenpaw")
-        for handler in list(logger.handlers):
-            base = getattr(handler, "baseFilename", None)
-            if base is not None and base == str(log_path.resolve()):
-                logger.removeHandler(handler)
-                handler.close()
+        _cleanup_sidecar_logging(log_path)
 
 
 def test_zero_backups_discard_previous_crash_log(monkeypatch, tmp_path):
     log_path = tmp_path / "desktop.log"
     crash_log_path = tmp_path / "desktop-crash.log"
     crash_log_path.write_text("previous crash\n", encoding="utf-8")
+    (tmp_path / "desktop-crash.log.1").write_text(
+        "older crash\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "desktop-crash.log.2").write_text(
+        "oldest crash\n",
+        encoding="utf-8",
+    )
 
     monkeypatch.setenv("QWENPAW_LOG_MAX_BACKUPS", "0")
     monkeypatch.setattr(sys, "stdout", io.StringIO())
@@ -292,17 +305,9 @@ def test_zero_backups_discard_previous_crash_log(monkeypatch, tmp_path):
         assert crash_log_path.exists()
         assert crash_log_path.read_text(encoding="utf-8") == ""
         assert not (tmp_path / "desktop-crash.log.1").exists()
+        assert not (tmp_path / "desktop-crash.log.2").exists()
     finally:
-        crash_log_file = tauri_logging._CRASH_LOG_FILE
-        if crash_log_file is not None:
-            crash_log_file.close()
-            tauri_logging._CRASH_LOG_FILE = None
-        logger = logging.getLogger("qwenpaw")
-        for handler in list(logger.handlers):
-            base = getattr(handler, "baseFilename", None)
-            if base is not None and base == str(log_path.resolve()):
-                logger.removeHandler(handler)
-                handler.close()
+        _cleanup_sidecar_logging(log_path)
 
 
 def test_clean_startups_keep_the_last_crash_trace(monkeypatch, tmp_path):
@@ -330,13 +335,4 @@ def test_clean_startups_keep_the_last_crash_trace(monkeypatch, tmp_path):
             encoding="utf-8",
         ) == "fatal trace\n"
     finally:
-        crash_log_file = tauri_logging._CRASH_LOG_FILE
-        if crash_log_file is not None:
-            crash_log_file.close()
-            tauri_logging._CRASH_LOG_FILE = None
-        logger = logging.getLogger("qwenpaw")
-        for handler in list(logger.handlers):
-            base = getattr(handler, "baseFilename", None)
-            if base is not None and base == str(log_path.resolve()):
-                logger.removeHandler(handler)
-                handler.close()
+        _cleanup_sidecar_logging(log_path)

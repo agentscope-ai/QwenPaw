@@ -155,6 +155,9 @@ def _rotate_previous_crash_log(log_path: Path) -> None:
     _, backup_count = resolve_log_rotation_settings()
     if backup_count == 0:
         log_path.unlink(missing_ok=True)
+        for backup in log_path.parent.glob(f"{log_path.name}.*"):
+            if backup.suffix[1:].isdigit():
+                backup.unlink(missing_ok=True)
         return
 
     # Empty files come from clean startups; rotating them would push real
