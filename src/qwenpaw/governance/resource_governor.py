@@ -325,6 +325,17 @@ class ResourceGovernor:
     # Core interface 3: Compile sandbox config
     # ------------------------------------------------------------------
 
+    def execution_sandbox_config(
+        self,
+        tc_spec: ToolCallSpec,
+    ) -> SandboxConfig | None:
+        """Resolve the live global switch for a process execution."""
+        if not self._sandbox_globally_enabled():
+            return None
+        if not self.sandbox_available:
+            raise RuntimeError(f"Sandbox is enabled but unavailable")
+        return self.compile_sandbox_config(tc_spec)
+
     def compile_sandbox_config(  # pylint: disable=unused-argument
         self,
         tc_spec: ToolCallSpec,

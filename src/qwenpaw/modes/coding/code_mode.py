@@ -23,6 +23,9 @@ from agentscope.permission import PermissionEngine
 from agentscope.state import AgentState
 from agentscope.tool import Toolkit, ToolBase, ToolChunk, ToolResponse
 
+from ...config import load_config
+from ...governance.policy import ToolCallSpec
+from ...utils.io_utils import run_sync_io
 from ...config.context import get_current_recent_max_bytes
 from ...config.context import current_script_tool_call
 from ._process import WorkerProcess
@@ -32,6 +35,15 @@ _execution_toolkit: ContextVar[Toolkit | None] = ContextVar(
     "code_execution_toolkit",
     default=None,
 )
+
+
+def _media_source_key(source) -> str:
+    """Hash native media provenance outside the event loop."""
+    return hashlib.sha256(
+        json.dumps(source.model_dump(mode=f"json"), sort_keys=True).encode(
+            f"utf-8",
+        ),
+    ).hexdigest()
 
 
 async def _tool_catalog(toolkit: Toolkit, groups=None) -> dict[str, dict]:
@@ -100,10 +112,11 @@ def build_code_mode_toolkit(
     *,
     tools: list,
     skills_or_loaders: list,
+    governor=None,
 ) -> Toolkit:
     """Expose one Python entry while retaining all enabled native tools."""
     catalog = Toolkit(tools=tools, skills_or_loaders=skills_or_loaders)
-    code = CodeModeTool(catalog)
+    code = CodeModeTool(catalog, governor=governor)
     return CodeModeToolkit(code)
 
 
@@ -170,9 +183,10 @@ class CodeModeTool(ToolBase):
     }
     description = CODE_DESCRIPTION
 
-    def __init__(self, toolkit: Toolkit) -> None:
+    def __init__(self, toolkit: Toolkit, *, governor=None) -> None:
         super().__init__()
         self.toolkit = toolkit
+        self.governor = governor
         self.check_permission: Callable[
             ...,
             Awaitable[PermissionDecision],
@@ -240,6 +254,16 @@ class CodeModeTool(ToolBase):
             behavior=PermissionBehavior.ALLOW,
             message="Script computation; nested tools retain permissions.",
         )
+
+    def sandbox_config(self):
+        """Use the same switch and policy compiler as native tools."""
+        if self.governor is not None:
+            return self.governor.execution_sandbox_config(
+                ToolCallSpec(f"run_code", f"", f"", f""),
+            )
+        if load_config().security.sandbox_enabled:
+            raise RuntimeError(f"Sandbox is enabled but no governor is bound")
+        return None
 
     async def call(self, code: str, _agent_state: AgentState) -> ToolChunk:
         """Execute a fresh script without sharing mutable invocation state."""
@@ -312,13 +336,17 @@ class _Script:
             },
         }
 
-    def text(self, value: Any) -> None:
+    async def text(self, value: Any) -> None:
         rendered = (
             value
             if isinstance(value, str)
-            else json.dumps(value, ensure_ascii=False)
+            else await asyncio.to_thread(
+                json.dumps,
+                value,
+                ensure_ascii=False,
+            )
         )
-        encoded = rendered.encode("utf-8")
+        encoded = await asyncio.to_thread(rendered.encode, f"utf-8")
         if self.budget <= 0:
             return
         if len(encoded) > self.budget:
@@ -327,16 +355,11 @@ class _Script:
         self.budget -= len(encoded)
         self.output.append(TextBlock(text=rendered))
 
-    def media(self, kind: str, block: dict) -> None:
-        data = DataBlock.model_validate(block)
+    async def media(self, kind: str, block: dict) -> None:
+        data = await asyncio.to_thread(DataBlock.model_validate, block)
         if not data.source.media_type.startswith(f"{kind}/"):
             raise ValueError(f"{kind}() expects a data block of type {kind}/*")
-        source = hashlib.sha256(
-            json.dumps(
-                data.source.model_dump(mode="json"),
-                sort_keys=True,
-            ).encode("utf-8"),
-        ).hexdigest()
+        source = await asyncio.to_thread(_media_source_key, data.source)
         if (
             data.source.type == "url"
             and data.source.url.scheme != "data"
@@ -346,7 +369,9 @@ class _Script:
                 f"{kind}() expects inline data or media returned by a tool; "
                 f"read host media through the enabled tools first.",
             )
-        self.media_budget -= len(json.dumps(block).encode("utf-8"))
+        serialized = await asyncio.to_thread(json.dumps, block)
+        encoded = await asyncio.to_thread(serialized.encode, f"utf-8")
+        self.media_budget -= len(encoded)
         if self.media_budget < 0:
             raise ValueError(f"Code media output exceeded 16 MiB")
         self.output.append(data)
@@ -370,7 +395,11 @@ class _Script:
                 raise ValueError(
                     f"External-only tool cannot run in code: {name}",
                 )
-            jsonschema.validate(arguments, tool.input_schema)
+            await asyncio.to_thread(
+                jsonschema.validate,
+                arguments,
+                tool.input_schema,
+            )
             call = ToolCallBlock(
                 id=f"code_{uuid.uuid4().hex}",
                 name=name,
@@ -393,19 +422,19 @@ class _Script:
             record["state"] = response.state.value
             if response.state == ToolResultState.INTERRUPTED:
                 raise asyncio.CancelledError()
-            result = response.model_dump(mode="json")
+            result = await asyncio.to_thread(
+                response.model_dump,
+                mode=f"json",
+            )
             if response.state != ToolResultState.SUCCESS:
                 raise RuntimeError(json.dumps(result, ensure_ascii=False))
             for block in response.content:
                 if isinstance(block, DataBlock) and block.source.type == "url":
-                    self.media_sources.add(
-                        hashlib.sha256(
-                            json.dumps(
-                                block.source.model_dump(mode="json"),
-                                sort_keys=True,
-                            ).encode("utf-8"),
-                        ).hexdigest(),
+                    source = await asyncio.to_thread(
+                        _media_source_key,
+                        block.source,
                     )
+                    self.media_sources.add(source)
             return {
                 key: result[key]
                 for key in (
@@ -444,6 +473,11 @@ class _Script:
                     **packet["kwargs"],
                 )
             response = {"id": packet["id"], "result": result}
+        except asyncio.CancelledError:
+            task = asyncio.current_task()
+            if task is not None and task.cancelling():
+                raise
+            response = {f"id": packet[f"id"], f"cancelled": True}
         except Exception as exc:
             response = {
                 "id": packet["id"],
@@ -470,11 +504,14 @@ class _Script:
                     raise RuntimeError(f"Code exceeded 1000 host calls")
                 task = asyncio.create_task(self._respond(worker, packet))
                 self.pending.add(task)
+                task.add_done_callback(self.pending.discard)
             elif packet["kind"] == "text":
-                self.text(packet["value"])
+                await self.text(packet["value"])
             elif packet["kind"] in ("image", "audio", "video"):
-                self.media(packet["kind"], packet["value"])
+                await self.media(packet["kind"], packet["value"])
             elif packet["kind"] == "done":
+                if packet.get(f"cancelled"):
+                    raise asyncio.CancelledError()
                 if packet.get("error"):
                     raise RuntimeError(packet["error"])
                 return
@@ -486,31 +523,37 @@ class _Script:
         await self._load_catalog()
         tasks = []
         try:
-            async with WorkerProcess() as worker:
-                await worker.send({"code": code, "tools": self._tool_list()})
-                receiver = asyncio.create_task(self._receive(worker))
-                watchdog = asyncio.create_task(worker.watch())
-                tasks = [receiver, watchdog]
-                done, _ = await asyncio.wait(
-                    tasks,
-                    timeout=600,
-                    return_when=asyncio.FIRST_COMPLETED,
-                )
-                if not done:
-                    raise TimeoutError(f"Code exceeded 600 seconds")
-                if watchdog in done:
-                    await watchdog
-                await receiver
+            config = await run_sync_io(self.tool.sandbox_config)
+            async with WorkerProcess(config) as worker:
+                try:
+                    async with asyncio.timeout(600):
+                        await self._execute(worker, code, tasks)
+                finally:
+                    pending = [*tasks, *self.pending]
+                    for task in pending:
+                        task.cancel()
+                    await asyncio.gather(*pending, return_exceptions=True)
+        except TimeoutError:
+            status = ToolResultState.ERROR
+            self.output.append(TextBlock(text=f"Code exceeded 600 seconds"))
         except Exception as exc:
             status = ToolResultState.ERROR
             self.output.append(TextBlock(text=f"Script failed: {exc}"[:4096]))
-        finally:
-            pending = [*tasks, *self.pending]
-            for task in pending:
-                task.cancel()
-            await asyncio.gather(*pending, return_exceptions=True)
         return ToolChunk(
             content=self.output or [TextBlock(text=f"Script completed.")],
             state=status,
             metadata={"code_mode": {"calls": self.calls}},
         )
+
+    async def _execute(self, worker, code, tasks):
+        await worker.send({f"code": code, f"tools": self._tool_list()})
+        receiver = asyncio.create_task(self._receive(worker))
+        watchdog = asyncio.create_task(worker.watch())
+        tasks.extend([receiver, watchdog])
+        done, _ = await asyncio.wait(
+            tasks,
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+        if watchdog in done:
+            await watchdog
+        await receiver

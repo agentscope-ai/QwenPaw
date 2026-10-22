@@ -45,7 +45,9 @@ class Worker:
         future = self.pending.pop(packet["id"], None)
         if future is None or future.done():
             return
-        if "error" in packet:
+        if packet.get(f"cancelled"):
+            future.cancel()
+        elif "error" in packet:
             future.set_exception(RuntimeError(packet["error"]))
         else:
             future.set_result(packet["result"])
@@ -142,8 +144,12 @@ class Worker:
             if namespace.get("_code_result") is not None:
                 self.text(namespace["_code_result"])
             self.emit("done")
-        except BaseException:  # Include script SystemExit without losing IPC.
-            self.emit("done", error=traceback.format_exc()[-4096:])
+        except BaseException as exc:
+            self.emit(
+                f"done",
+                error=traceback.format_exc()[-4096:],
+                cancelled=isinstance(exc, asyncio.CancelledError),
+            )
 
 
 async def main() -> None:
