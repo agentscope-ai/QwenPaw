@@ -24,7 +24,7 @@ from qwenpaw.utils.logging import (
     _LOG_MAX_BYTES,
     _LEVEL_MAP,
     _parse_log_size,
-    _resolve_log_rotation_settings,
+    resolve_log_rotation_settings,
     _SafeRotatingFileHandler,
 )
 
@@ -288,6 +288,36 @@ def test_rotating_handler_writes_raw_text_with_rotation(tmp_path):
         handler.close()
 
 
+def test_rotating_handler_skips_rollover_without_backups(
+    tmp_path,
+    monkeypatch,
+):
+    log_path = tmp_path / "desktop.log"
+    handler = _SafeRotatingFileHandler(
+        log_path,
+        encoding="utf-8",
+        maxBytes=1,
+        backupCount=0,
+    )
+    rollovers = []
+    monkeypatch.setattr(
+        handler,
+        "doRollover",
+        lambda: rollovers.append(True),
+    )
+
+    try:
+        handler.write_text("first entry\n")
+        handler.write_text("second entry\n")
+
+        assert not rollovers
+        assert log_path.read_text(encoding="utf-8") == (
+            "first entry\nsecond entry\n"
+        )
+    finally:
+        handler.close()
+
+
 def test_rotating_handler_reports_a_deferred_rollover_once(
     tmp_path,
     monkeypatch,
@@ -343,7 +373,7 @@ def test_invalid_rotation_environment_uses_defaults(monkeypatch):
     monkeypatch.setenv("QWENPAW_LOG_MAX_SIZE", "unbounded")
     monkeypatch.setenv("QWENPAW_LOG_MAX_BACKUPS", "-2")
 
-    assert _resolve_log_rotation_settings() == (
+    assert resolve_log_rotation_settings() == (
         _LOG_MAX_BYTES,
         _LOG_BACKUP_COUNT,
     )
@@ -353,7 +383,7 @@ def test_zero_log_backups_is_supported(monkeypatch):
     monkeypatch.delenv("QWENPAW_LOG_MAX_SIZE", raising=False)
     monkeypatch.setenv("QWENPAW_LOG_MAX_BACKUPS", "0")
 
-    assert _resolve_log_rotation_settings() == (_LOG_MAX_BYTES, 0)
+    assert resolve_log_rotation_settings() == (_LOG_MAX_BYTES, 0)
 
 
 class TestLogConstants:

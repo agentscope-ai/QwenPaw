@@ -270,3 +270,73 @@ def test_locked_previous_crash_log_does_not_block_sidecar_startup(
             if base is not None and base == str(log_path.resolve()):
                 logger.removeHandler(handler)
                 handler.close()
+
+
+def test_zero_backups_discard_previous_crash_log(monkeypatch, tmp_path):
+    log_path = tmp_path / "desktop.log"
+    crash_log_path = tmp_path / "desktop-crash.log"
+    crash_log_path.write_text("previous crash\n", encoding="utf-8")
+
+    monkeypatch.setenv("QWENPAW_LOG_MAX_BACKUPS", "0")
+    monkeypatch.setattr(sys, "stdout", io.StringIO())
+    monkeypatch.setattr(sys, "stderr", io.StringIO())
+    monkeypatch.setattr(
+        tauri_logging.faulthandler,
+        "enable",
+        lambda **kwargs: None,
+    )
+
+    try:
+        tauri_logging.install_sidecar_logging(log_path)
+
+        assert crash_log_path.exists()
+        assert crash_log_path.read_text(encoding="utf-8") == ""
+        assert not (tmp_path / "desktop-crash.log.1").exists()
+    finally:
+        crash_log_file = tauri_logging._CRASH_LOG_FILE
+        if crash_log_file is not None:
+            crash_log_file.close()
+            tauri_logging._CRASH_LOG_FILE = None
+        logger = logging.getLogger("qwenpaw")
+        for handler in list(logger.handlers):
+            base = getattr(handler, "baseFilename", None)
+            if base is not None and base == str(log_path.resolve()):
+                logger.removeHandler(handler)
+                handler.close()
+
+
+def test_clean_startups_keep_the_last_crash_trace(monkeypatch, tmp_path):
+    log_path = tmp_path / "desktop.log"
+    crash_log_path = tmp_path / "desktop-crash.log"
+    crash_log_path.write_text("fatal trace\n", encoding="utf-8")
+
+    monkeypatch.setenv("QWENPAW_LOG_MAX_BACKUPS", "1")
+    monkeypatch.setattr(sys, "stdout", io.StringIO())
+    monkeypatch.setattr(sys, "stderr", io.StringIO())
+    monkeypatch.setattr(
+        tauri_logging.faulthandler,
+        "enable",
+        lambda **kwargs: None,
+    )
+
+    try:
+        for _ in range(3):
+            tauri_logging.install_sidecar_logging(log_path)
+            crash_log_file = tauri_logging._CRASH_LOG_FILE
+            if crash_log_file is not None:
+                crash_log_file.close()
+
+        assert (tmp_path / "desktop-crash.log.1").read_text(
+            encoding="utf-8",
+        ) == "fatal trace\n"
+    finally:
+        crash_log_file = tauri_logging._CRASH_LOG_FILE
+        if crash_log_file is not None:
+            crash_log_file.close()
+            tauri_logging._CRASH_LOG_FILE = None
+        logger = logging.getLogger("qwenpaw")
+        for handler in list(logger.handlers):
+            base = getattr(handler, "baseFilename", None)
+            if base is not None and base == str(log_path.resolve()):
+                logger.removeHandler(handler)
+                handler.close()

@@ -14,6 +14,8 @@ from typing import Protocol, TextIO, cast
 
 _CRASH_LOG_FILE: TextIO | None = None
 
+logger = logging.getLogger(__name__)
+
 
 class _RotatingTextHandler(Protocol):
     encoding: str | None
@@ -118,12 +120,12 @@ def install_sidecar_logging(log_path: Path) -> Path:
     faulthandler.enable(file=_CRASH_LOG_FILE, all_threads=True)
     sys.stdout = _TeeStream(sys.stdout, log_stream)  # type: ignore[assignment]
     sys.stderr = _TeeStream(sys.stderr, log_stream)  # type: ignore[assignment]
-    logging.getLogger("qwenpaw.tauri").info(
+    logger.info(
         "Tauri sidecar logging enabled: %s",
         log_path,
     )
     if rotation_error is not None:
-        logging.getLogger("qwenpaw.tauri").warning(
+        logger.warning(
             "Could not rotate previous crash logs; appending to %s: %s",
             crash_log_path,
             rotation_error,
@@ -133,11 +135,11 @@ def install_sidecar_logging(log_path: Path) -> Path:
 
 def _add_project_file_handler(log_path: Path) -> _RotatingTextHandler:
     # Import lazily so qwenpaw.constant is loaded only after desktop env setup.
-    from qwenpaw.utils.logging import add_project_file_handler
+    from qwenpaw.utils.logging import LOG_NAMESPACE, add_project_file_handler
 
     add_project_file_handler(log_path)
     resolved_path = str(log_path.resolve())
-    for handler in logging.getLogger("qwenpaw").handlers:
+    for handler in logging.getLogger(LOG_NAMESPACE).handlers:
         if getattr(handler, "baseFilename", None) == resolved_path:
             if not callable(getattr(handler, "write_text", None)):
                 raise TypeError(
@@ -148,11 +150,19 @@ def _add_project_file_handler(log_path: Path) -> _RotatingTextHandler:
 
 
 def _rotate_previous_crash_log(log_path: Path) -> None:
-    from qwenpaw.utils.logging import _resolve_log_rotation_settings
+    from qwenpaw.utils.logging import resolve_log_rotation_settings
 
-    _, backup_count = _resolve_log_rotation_settings()
+    _, backup_count = resolve_log_rotation_settings()
     if backup_count == 0:
         log_path.unlink(missing_ok=True)
+        return
+
+    # Empty files come from clean startups; rotating them would push real
+    # crash traces out of the backup ring.
+    try:
+        if log_path.stat().st_size == 0:
+            return
+    except FileNotFoundError:
         return
 
     for index in range(backup_count, 0, -1):

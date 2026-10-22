@@ -67,7 +67,7 @@ def _parse_log_size(value: str) -> int:
     return amount * factor
 
 
-def _resolve_log_rotation_settings() -> tuple[int, int]:
+def resolve_log_rotation_settings() -> tuple[int, int]:
     """Resolve rotation settings from the environment with safe defaults."""
     logger = logging.getLogger(LOG_NAMESPACE)
     max_bytes = _LOG_MAX_BYTES
@@ -199,7 +199,9 @@ class _SafeRotatingFileHandler(logging.handlers.RotatingFileHandler):
                 # working after uvicorn reconfigures logging.
                 self.stream = self._open()
             max_bytes = int(self.maxBytes)
-            if max_bytes > 0:
+            # With no backups, doRollover() only closes and reopens the
+            # stream, so checking the size would churn on every write.
+            if max_bytes > 0 and self.backupCount > 0:
                 self.stream.seek(0, 2)
                 size = self.stream.tell() + len(
                     text.encode(self.encoding or "utf-8", errors="replace"),
@@ -349,7 +351,7 @@ def add_project_file_handler(log_path: Path) -> None:
             )
             return
 
-    max_bytes, backup_count = _resolve_log_rotation_settings()
+    max_bytes, backup_count = resolve_log_rotation_settings()
     file_handler = _SafeRotatingFileHandler(
         log_path,
         encoding="utf-8",

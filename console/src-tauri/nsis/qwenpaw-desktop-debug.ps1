@@ -55,8 +55,13 @@ if ($desktop) {
     -PassThru
 }
 
+$crashLogPaths = @()
+if ($env:QWENPAW_DEBUG_DIR) {
+  $crashLogPaths = @(Join-Path $env:QWENPAW_DEBUG_DIR "desktop-crash.log")
+}
 $specs = @(
   [pscustomobject]@{ Label = "backend"; Paths = $env:QWENPAW_BACKEND_LOGS -split ";" },
+  [pscustomobject]@{ Label = "crash"; Paths = $crashLogPaths },
   [pscustomobject]@{ Label = "shell"; Paths = $env:QWENPAW_SHELL_LOGS -split ";" }
 )
 $states = @()
