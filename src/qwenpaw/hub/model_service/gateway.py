@@ -24,8 +24,6 @@ from .protocol import (
     usage_tokens,
 )
 
-_TIMEOUT = 120
-
 
 class ModelGateway:
     """Keep upstream keys, request attribution, and settlement in Hub."""
@@ -45,7 +43,8 @@ class ModelGateway:
             ).fetchone()
         self.budgets.recover()
         if orphan:
-            self.limiter.cooldown_until = time.monotonic() + 2 * _TIMEOUT
+            timeout = self.catalog.store.settings()[f"gateway_timeout_seconds"]
+            self.limiter.cooldown_until = time.monotonic() + 2 * timeout
 
     @staticmethod
     def _prepare(model, connection, body, cap):
@@ -105,7 +104,7 @@ class ModelGateway:
             payload,
         )
 
-    async def _open(self, attempt, model, connection, prepared):
+    async def _open(self, attempt, model, connection, prepared, timeout):
         bridge, url, headers, payload = prepared
         stack = attempt.stack
         await stack.enter_async_context(
@@ -115,7 +114,7 @@ class ModelGateway:
             httpx.AsyncClient(
                 transport=self.transport,
                 follow_redirects=False,
-                timeout=httpx.Timeout(_TIMEOUT, connect=10),
+                timeout=httpx.Timeout(timeout, connect=10),
                 trust_env=False,
             ),
         )
@@ -136,7 +135,7 @@ class ModelGateway:
         await attempt.dispatch()
         response = await asyncio.wait_for(
             client.send(request, stream=True),
-            timeout=_TIMEOUT,
+            timeout=timeout,
         )
         stack.push_async_callback(response.aclose)
         if response.status_code != 200:
@@ -162,6 +161,8 @@ class ModelGateway:
                 body,
                 admin_test=admin_test,
             )
+            settings = await run_sync_io(self.catalog.store.settings)
+            timeout = settings[f"gateway_timeout_seconds"]
             context = {**identity, f"session_id": session_id}
             with model_session(context, attempt.request_id):
                 prepared = await run_sync_io(
@@ -177,6 +178,7 @@ class ModelGateway:
                     model,
                     connection,
                     prepared,
+                    timeout,
                 )
         except BaseException as exc:
             await attempt.close(error="upstream_failed")
@@ -193,7 +195,13 @@ class ModelGateway:
             ) from None
         if body.get("stream", False):
             return GatewayStreamingResponse(
-                self._stream(response, attempt, body["model"], bridge),
+                self._stream(
+                    response,
+                    attempt,
+                    body["model"],
+                    timeout,
+                    bridge,
+                ),
                 attempt,
                 media_type="text/event-stream",
                 headers={
@@ -201,14 +209,20 @@ class ModelGateway:
                     "Cache-Control": "no-store",
                 },
             )
-        return await self._complete(response, attempt, body["model"], bridge)
+        return await self._complete(
+            response,
+            attempt,
+            body["model"],
+            timeout,
+            bridge,
+        )
 
-    async def _complete(self, response, attempt, model_id, bridge=None):
+    async def _complete(self, response, attempt, model_id, timeout, bridge):
         actual = None
         error = "response_incomplete"
         try:
             raw = bytearray()
-            async with asyncio.timeout(_TIMEOUT):
+            async with asyncio.timeout(timeout):
                 async for chunk in response.aiter_bytes():
                     raw.extend(chunk)
                     if len(raw) > 16 * 1024 * 1024:
@@ -231,11 +245,11 @@ class ModelGateway:
         finally:
             await attempt.close(actual, error)
 
-    async def _stream(self, response, attempt, model_id, bridge=None):
+    async def _stream(self, response, attempt, model_id, timeout, bridge):
         actual = None
         complete = False
         try:
-            async with asyncio.timeout(_TIMEOUT):
+            async with asyncio.timeout(timeout):
                 async for line in response.aiter_lines():
                     if len(line) > 4 * 1024 * 1024:
                         raise ValueError("Stream event too large")

@@ -21,6 +21,7 @@ export async function governanceRequest<T>(
 }
 
 export interface ModelPolicy {
+  gateway_timeout_seconds: number;
   default_model_id: string | null;
   member_token_limit: number | null;
   timezone: string;
