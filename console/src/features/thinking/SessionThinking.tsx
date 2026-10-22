@@ -1,6 +1,6 @@
 import { ModelPickerPopover } from "../../pages/Chat/ModelSelector/ModelPickerPopover";
 import { useEffect, useRef, useState } from "react";
-import { Spin, Tooltip } from "antd";
+import { Collapse, Flex, Spin, Switch, Tooltip } from "antd";
 import { ChevronDown, ArrowLeft, RotateCcw, Plug } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useAppMessage } from "@/hooks/useAppMessage";
@@ -11,10 +11,15 @@ import {
   sessionThinkingApi,
   setPendingThinking,
 } from "./sessionThinkingApi";
-import type { ThinkingPreference, ThinkingView } from "./types";
+import type {
+  DecisionSettings,
+  ThinkingPreference,
+  ThinkingView,
+} from "./types";
 import {
   readPendingModel,
   resetSessionModel,
+  saveDecisionSettings,
 } from "../session-settings/sessionModel";
 import ModelSelector from "../../pages/Chat/ModelSelector";
 import { ProviderIcon } from "../../pages/Settings/Models/components/ProviderIconComponent";
@@ -25,10 +30,12 @@ export function SessionThinking({
   agentId,
   sessionId,
   chatId,
+  onDecisionEnabledChange,
 }: {
   agentId: string;
   sessionId: string;
   chatId?: string | null;
+  onDecisionEnabledChange?: (enabled: boolean | undefined) => void;
 }) {
   const { t } = useTranslation();
   const { message } = useAppMessage();
@@ -42,6 +49,7 @@ export function SessionThinking({
   const identityRef = useRef(identity);
   identityRef.current = identity;
   useEffect(() => {
+    onDecisionEnabledChange?.(undefined);
     setOpen(false);
     setChoosing(false);
     setView(undefined);
@@ -57,7 +65,7 @@ export function SessionThinking({
       revision.current += 1;
       window.removeEventListener("session-model-changed", refresh);
     };
-  }, [identity]);
+  }, [identity, onDecisionEnabledChange]);
   async function load() {
     const version = ++revision.current;
     setBusy(true);
@@ -70,6 +78,7 @@ export function SessionThinking({
           readPendingThinking(agentId, sessionId, next.model_key) ?? next.value;
       setPreview(undefined);
       setView(next);
+      onDecisionEnabledChange?.(next.decision?.enabled);
       useTurnUsageStore
         .getState()
         .setActiveMaxInputLength(next.effective_max_input_length ?? null);
@@ -80,27 +89,35 @@ export function SessionThinking({
         setBusy(false);
     }
   }
-  async function save(value: ThinkingPreference) {
+  async function save(value: ThinkingPreference | DecisionSettings) {
     if (!view || busy) return;
-    setPreview(value);
+    if ("level" in value) setPreview(value);
     const version = ++revision.current;
-    if (!chatId) {
-      setPendingThinking(agentId, sessionId, value, view.model_key);
-      setView({ ...view, value, reason: null });
-      setPreview(undefined);
-      return;
-    }
     setBusy(true);
     try {
-      const next = await sessionThinkingApi.set(
-        agentId,
-        chatId,
-        value,
-        view.model_key,
-      );
+      const next =
+        "enabled" in value
+          ? {
+              ...view,
+              decision: await saveDecisionSettings(
+                agentId,
+                { sessionId, chatId },
+                value,
+              ),
+            }
+          : chatId
+          ? await sessionThinkingApi.set(agentId, chatId, value, view.model_key)
+          : { ...view, value, reason: null };
       if (identityRef.current === identity && revision.current === version) {
         setView(next);
-        setPendingThinking(agentId, sessionId, null, view.model_key);
+        onDecisionEnabledChange?.(next.decision?.enabled);
+        if ("level" in value)
+          setPendingThinking(
+            agentId,
+            sessionId,
+            chatId ? null : value,
+            view.model_key,
+          );
       }
     } catch (error) {
       if (identityRef.current === identity) message.error(String(error));
@@ -211,6 +228,40 @@ export function SessionThinking({
                   disabled={busy}
                 />
               )}
+              <Collapse
+                key={identity}
+                ghost
+                expandIconPosition="end"
+                items={[
+                  {
+                    key: "advanced",
+                    label: t("chat.sessionSettings.advanced"),
+                    children: (
+                      <Flex
+                        component="label"
+                        align="center"
+                        justify="space-between"
+                      >
+                        {t("chat.sessionSettings.decisionEnabled")}
+                        <Switch
+                          size="small"
+                          aria-label={t("chat.sessionSettings.decisionEnabled")}
+                          checked={view?.decision?.enabled ?? false}
+                          disabled={busy || !view?.decision?.configured}
+                          onChange={(enabled) =>
+                            view?.decision &&
+                            void save({
+                              ...view.decision,
+                              enabled,
+                              override: enabled,
+                            })
+                          }
+                        />
+                      </Flex>
+                    ),
+                  },
+                ]}
+              />
             </Spin>
           )}
         </div>

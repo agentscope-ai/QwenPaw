@@ -63,6 +63,8 @@ import type {
   CustomLoopModeConfig,
   GateInstanceConfig,
 } from "@/api/types";
+import { AdvisorModeTab } from "./AdvisorModeTab";
+import { BuiltInIntro, LockedGateCard } from "./LoopModeShared";
 import styles from "../index.module.less";
 import loopStyles from "./AgentLoopCard.module.less";
 
@@ -331,62 +333,6 @@ function RubricSection() {
   );
 }
 
-function LockedGateCard({
-  icon,
-  title,
-  description,
-  children,
-}: {
-  icon: React.ReactNode;
-  title: string;
-  description: string;
-  children: React.ReactNode;
-}) {
-  const [expanded, setExpanded] = useState(false);
-  return (
-    <div className={loopStyles.gateCard}>
-      <button
-        type="button"
-        className={loopStyles.gateSummary}
-        onClick={() => setExpanded((value) => !value)}
-      >
-        <span className={loopStyles.lockSlot}>
-          <Lock size={14} />
-        </span>
-        <span className={loopStyles.gateIcon}>{icon}</span>
-        <span className={loopStyles.gateCopy}>
-          <strong>{title}</strong>
-          <small>{description}</small>
-        </span>
-        {expanded ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
-      </button>
-      {expanded && <div className={loopStyles.gateDetails}>{children}</div>}
-    </div>
-  );
-}
-
-function BuiltInIntro({ description }: { description: string }) {
-  const { t } = useTranslation();
-  return (
-    <div className={loopStyles.builtInIntro}>
-      <div className={loopStyles.builtInIntroMain}>
-        <Tag className={loopStyles.builtInTag}>
-          <Lock size={11} />
-          {t("agentConfig.loopMode.builtIn", "Built-in")}
-        </Tag>
-        <p>{description}</p>
-      </div>
-      <span className={loopStyles.builtInNote}>
-        <Lock size={12} />
-        {t(
-          "agentConfig.loopMode.builtInNote",
-          "Pipeline locked · Values editable",
-        )}
-      </span>
-    </div>
-  );
-}
-
 function DefaultModeTab() {
   const { t } = useTranslation();
   return (
@@ -473,14 +419,14 @@ function GoalModeTab() {
         title={t("agentConfig.loopMode.goalBudgetTitle", "Goal token budget")}
         description={t(
           "agentConfig.loopMode.goalBudgetDescription",
-          "Stop when the complete goal reaches its budget.",
+          "Stop when the goal reaches its budget. -1 or 0 means unlimited.",
         )}
       >
         <SettingsField
           name={["loop", "goal", "max_tokens"]}
           label={t("agentConfig.loopMode.maxGoalTokens", "Maximum goal tokens")}
         >
-          <InputNumber min={1} style={{ width: 220 }} />
+          <InputNumber min={-1} style={{ width: 220 }} />
         </SettingsField>
       </LockedGateCard>
       <LockedGateCard
@@ -1418,6 +1364,16 @@ export function AgentLoopCard() {
         </span>
       ),
       children: <MissionModeTab />,
+    },
+    {
+      key: "advisor",
+      label: (
+        <span className={loopStyles.builtInTab}>
+          <Lock size={12} />
+          {t("agentConfig.loopMode.advisorTab", "Advisor")}
+        </span>
+      ),
+      children: <AdvisorModeTab />,
     },
     ...customModes.map((mode, index) => ({
       key: `custom:${mode.id}`,

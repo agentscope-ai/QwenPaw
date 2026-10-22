@@ -33,6 +33,7 @@ from ..mail.driver_config import (
     sync_qwenpawmail_driver_card as _sync_qwenpawmail_driver_card,
 )
 from ..utils import safe_join, schedule_agent_reload
+from .model_validation import validate_model_slot
 from ...config.config import (
     AgentMailConfig,
     AgentProfileConfig,
@@ -147,6 +148,7 @@ class AgentModelSettingsPatch(BaseModel):
     """Model-routing fields editable from the model settings page."""
 
     active_model: ModelSlotConfig | None = None
+    decision_model: ModelSlotConfig | None = None
 
     fallback_models: list[ModelSlotConfig] | None = None
     fallback_policy: FallbackPolicyConfig | None = None
@@ -1323,12 +1325,34 @@ async def update_agent_model_settings(
     values = {field: getattr(body, field) for field in body.model_fields_set}
 
     def apply_settings(existing_config: AgentProfileConfig) -> None:
-        AgentProfileConfig.model_validate(
+        updated = AgentProfileConfig.model_validate(
             {
                 **existing_config.model_dump(),
                 **values,
             },
         )
+        for field in (
+            "active_model",
+            "decision_model",
+            "subagent_model",
+            "fallback_models",
+        ):
+            value = values.get(field)
+            if field == "fallback_models":
+                if not updated.fallback_policy.enabled:
+                    continue
+                if "fallback_policy" in values:
+                    value = updated.fallback_models
+            slots = value if isinstance(value, list) else [value]
+            for slot in slots:
+                if slot is not None:
+                    validate_model_slot(
+                        request.app.state.provider_manager,
+                        slot.provider_id,
+                        slot.model,
+                        "decision" if field == "decision_model" else "chat",
+                    )
+
         for key, value in values.items():
             setattr(existing_config, key, value)
 

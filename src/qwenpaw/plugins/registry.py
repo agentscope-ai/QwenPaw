@@ -166,6 +166,7 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
         self._prompt_sections: List[PromptSectionRegistration] = []
         self._prompt_section_names: set = set()
         self._workspace_manager: Optional[Any] = None
+        self._stop_workspaces: dict[str, Any] = {}
 
         self._initialized = True
 
@@ -425,6 +426,18 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
         """
         return self._workspace_manager
 
+    def register_stop_workspace(self, agent_id: str, workspace: Any) -> None:
+        """Expose a standalone workspace without replacing the app manager."""
+        existing = self._stop_workspaces.get(agent_id)
+        if existing is not None and existing is not workspace:
+            raise ValueError(f"Stop workspace already registered: {agent_id}")
+        self._stop_workspaces[agent_id] = workspace
+
+    def unregister_stop_workspace(self, agent_id: str, workspace: Any) -> None:
+        """Remove only the registration owned by this workspace."""
+        if self._stop_workspaces.get(agent_id) is workspace:
+            self._stop_workspaces.pop(agent_id)
+
     @classmethod
     def get_stop_handlers(
         cls,
@@ -444,13 +457,15 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
         if inst is None:
             return []
         mgr = inst.get_workspace_manager()
-        if mgr is None:
-            return []
-        workspaces = getattr(
-            mgr,
-            "agents",
-            getattr(mgr, "workspaces", {}),
+        workspaces = dict(
+            getattr(
+                mgr,
+                "agents",
+                getattr(mgr, "workspaces", {}),
+            ),
         )
+        # pylint: disable=protected-access
+        workspaces.update(inst._stop_workspaces)
         if agent_id is not None:
             ws = workspaces.get(agent_id)
             if ws is None:

@@ -22,7 +22,8 @@ Goal tools available:
 the objective is fully achieved.
 
 Budget:
-- Max iterations: {max_iterations}
+- Max text-only exit attempts: {max_iterations}
+- Tool-call rounds do not count toward this limit.
 - Token budget: {token_budget}
 
 Work from evidence: use the current worktree and \
@@ -63,7 +64,7 @@ end state.
 moves in the right direction.
 
 Budget:
-- Iteration: {iteration}/{max_iterations}
+- Text-only exit attempts: {iteration}/{max_iterations}
 - Tokens used: {tokens_used}
 - Token budget: {token_budget}
 - Tokens remaining: {remaining_tokens}
@@ -81,7 +82,7 @@ The active goal has reached its token budget.
 </untrusted_objective>
 
 Budget:
-- Iterations used: {iteration}/{max_iterations}
+- Text-only exit attempts: {iteration}/{max_iterations}
 - Tokens used: {tokens_used}
 - Token budget: {token_budget}
 

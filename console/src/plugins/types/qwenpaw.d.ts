@@ -105,7 +105,35 @@ export type ChatRequestPayloadTransform = (ctx: {
   selectedAgent: string;
 }) => Record<string, unknown> | void;
 
+/** An assistant fenced block. Identity stays stable as source grows. */
+export interface ChatCodeBlockProps {
+  source: string;
+  language: string;
+  isStreaming: boolean;
+  messageId: string;
+  /** Stable during append-only streaming and Markdown reparsing, not a persistence key. */
+  blockId: string;
+  agentId: string;
+  /** SDK session identity; the host resolves the backend identity on submit. */
+  sessionId: string;
+  fallback: () => React.ReactElement;
+}
+
+export interface ChatSubmitInput {
+  query: string;
+  agentId: string;
+  sessionId: string;
+}
+
 export interface QwenPawChatNamespace {
+  /** Last registration for a language wins; disposing it restores the previous one. */
+  codeBlock(
+    pluginId: string,
+    language: string,
+    component: React.ComponentType<ChatCodeBlockProps>,
+  ): Disposable;
+  /** Resolves on queue admission, not on completion. Never consumes the composer. */
+  submit(pluginId: string, input: ChatSubmitInput): Promise<void>;
   welcome: {
     set(
       pluginId: string,
@@ -277,6 +305,7 @@ export interface QwenPawHostNamespace {
   // ── Imperative getters (safe outside React render) ────────────────────────
   getSelectedAgentId(): string;
   getCurrentSessionId(): string | null;
+  openExternalLink(url: string): void;
 
   /** Auth-aware fetch. Automatically injects `Authorization` and `X-Agent-Id`. */
   fetch(path: string, init?: RequestInit): Promise<Response>;

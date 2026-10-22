@@ -1,6 +1,7 @@
 import { getFrontendBuildId } from "./chunkRecovery";
 import type { ChunkReloadDecision, ErrorLike } from "./chunkRecovery";
 import { getLazyImportFailure } from "./lazyImportFailure";
+import type { ChunkServerReadiness } from "./chunkServerReadiness";
 
 const STORAGE_KEY = "qwenpaw:chunk-diagnostic";
 const BEFORE_RELOAD_KEY = "qwenpaw:chunk-diagnostic-before-reload";
@@ -37,6 +38,7 @@ export interface ChunkDiagnostic {
   resourceUrl: string | null;
   originalResourceStatus: number | null;
   recheck: ResourceRecheck | null;
+  serverReadiness?: ChunkServerReadiness;
   automaticReloadAttempted: boolean;
   automaticReload: ChunkReloadDecision | null;
   phase?: "startup";

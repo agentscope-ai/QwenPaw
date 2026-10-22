@@ -11,6 +11,7 @@ PROVIDER_SNAPSHOT_SCHEMA_VERSION = 2
 
 PERSISTED_MODEL_STATE_FIELDS = (
     f"source",
+    "model_type",
     "generate_kwargs",
     "max_output_length",
     "max_output_length_source",

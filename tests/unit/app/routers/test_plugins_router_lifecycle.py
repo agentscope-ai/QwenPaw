@@ -936,6 +936,13 @@ def _client(loader: Any = None, provider_manager: Any = None):
 
 
 class TestListPluginsRoute:
+    @pytest.fixture(autouse=True)
+    def isolate_plugins_dir(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(
+            "qwenpaw.config.utils.get_plugins_dir",
+            lambda: tmp_path,
+        )
+
     def test_without_loader_falls_back_to_disk_scan(self, tmp_path):
         monkey = tmp_path / "plugins"
         monkey.mkdir()
@@ -1338,6 +1345,43 @@ class TestInstallPluginSource:
 
 
 class TestUninstallPluginSource:
+    async def test_failed_plugin_removal_preserves_tool_config(
+        self,
+        tmp_path,
+    ):
+        tool_names = [
+            "other_plugin_tool",
+            "execute_shell_command",
+            "previous_plugin_tool",
+        ]
+        source_path = tmp_path / "installed-directory"
+        source_path.mkdir()
+        manifest = _record(
+            "failed-plugin",
+            meta={
+                "tool_name": tool_names[0],
+                "tools": [{"name": name} for name in tool_names[1:]],
+            },
+        ).manifest
+        loader = _loader_stub([], record=None)
+        loader.discover_plugins.return_value = [(manifest, source_path)]
+        settings = {
+            name: {"enabled": True, "config": {"timeout": 42}}
+            for name in tool_names
+        }
+        cfg = _AgentCfg(settings.copy())
+        with _ConfigLayer({"a": {}}, {"a": cfg}) as layer, patch(
+            "qwenpaw.app.routers.plugins._schedule_all_agents_reload",
+            new_callable=AsyncMock,
+        ) as reload_agents:
+            await uninstall_plugin_source("failed-plugin", app=_app(loader))
+
+        assert not source_path.exists()
+        assert cfg.tools.builtin_tools == settings
+        assert layer.saved == []
+        loader.unload_plugin.assert_not_called()
+        reload_agents.assert_not_awaited()
+
     async def test_unloads_cleans_up_and_reloads(self):
         log: list[str] = []
         record = _record("plug", meta={"tool_name": "alpha"})

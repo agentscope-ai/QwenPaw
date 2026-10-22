@@ -30,6 +30,7 @@
     "download": "Download",
     "refresh": "Refresh",
     "retry": "Retry",
+    "switchError": "Could not switch modes. Please try again.",
     "search": "Search",
     "enable": "Enable",
     "disable": "Disable",
@@ -57,6 +58,10 @@
     "advancedSettings": "Advanced",
     "done": "Done",
     "autoSaveFailed": "Could not save changes",
+    "discardChangesTitle": "Discard unsaved changes?",
+    "discardChangesContent": "Some changes could not be saved. You can continue editing or discard the unsaved changes and close.",
+    "discardAndClose": "Discard and close",
+    "keepEditing": "Continue editing",
     "configure": "Configure",
     "all": "All",
     "decrease": "Decrease",
@@ -91,6 +96,10 @@
     "copied": "Error information copied",
     "copyFailed": "Copy failed. Expand the details and copy them manually.",
     "checking": "Rechecking the failed resource…",
+    "serverReadiness": {
+      "checking": "Waiting for the local service and page resources to become available…",
+      "timeout": "The local service or page resources are still unavailable. Try reloading again shortly."
+    },
     "recheckNote": "originalError is the initial exception; recheck is a later resource check, not the original response. Unknown values remain null. The recheck cannot distinguish DNS, TLS, CORS, or proxy failures.",
     "observations": {
       "missing": "Resource recheck: the resource is currently missing (404).",
@@ -2430,6 +2439,7 @@
     "configuredModels": "Configured models",
     "freeModelsOnly": "Free models only",
     "chooseFallback": "Backup model",
+    "noFallback": "None",
     "moveFallbackUp": "Move {{model}} up",
     "moveFallbackDown": "Move {{model}} down",
     "removeFallback": "Remove {{model}}",
@@ -2520,6 +2530,10 @@
     "retry": "Retry"
   },
   "models": {
+    "modelType": "Model type",
+    "modelTypeChat": "Chat",
+    "modelTypeDecision": "Decision",
+    "decisionModelHint": "Decision models are configured here for future automation features and cannot be used for chat.",
     "connectProviderTitle": "Connect your first model",
     "cardStatus": {
       "configured": "Configured",
@@ -2544,9 +2558,11 @@
     "providersTitle": "Providers",
     "providersDescription": "Configure API keys and endpoints for each provider.",
     "llmTitle": "Models",
-    "defaultLlm": "Default LLM",
+    "defaultModels": "Default models",
+    "defaultChatModel": "Chat model",
+    "defaultDecisionModel": "Decision model",
+    "defaultLlm": "Global default model",
     "notConfiguredYet": "Not configured",
-    "llmDescription": "Set the global default LLM model from an authorized provider. You can choose a specific model for each Agent in the Chat page.",
     "configureProvider": "Configure {{name}}",
     "baseURL": "Base URL",
     "getApiKey": "Get API Key",
@@ -2666,9 +2682,25 @@
     "paidGroup": "Paid",
     "localCustomGroup": "Local & Custom",
     "cloudGroup": "Cloud Providers",
+    "providerVariants": {
+      "dashscope": "DashScope",
+      "chat_completions": "Chat Completions",
+      "responses": "Responses API",
+      "open_platform": "Open Platform",
+      "open_platform_cn": "Open Platform (China)",
+      "open_platform_intl": "Open Platform (International)",
+      "coding_plan": "Coding Plan",
+      "coding_plan_cn": "Coding (China)",
+      "coding_plan_intl": "Coding (International)",
+      "token_plan": "Token Plan",
+      "token_plan_intl": "Token (International)",
+      "china": "China",
+      "international": "International"
+    },
     "configuredGroup": "Configured",
     "configuredOnline": "providers online",
     "noConfigured": "No providers configured yet. Select one below to get started.",
+    "noSearchResults": "No providers match \"{{query}}\". Try another search.",
     "goConfigureBtn": "Configure a Provider",
     "availableGroup": "Available Providers",
     "clickToConfigure": "Click to configure",
@@ -2968,6 +3000,9 @@
     },
     "includesFreeModels": "Includes free models",
     "agentDefaults": "Agent defaults",
+    "primaryModel": "Primary model",
+    "agentRuntimeHint": "Configure the primary, sub-agent, and backup models for this agent. Changes save automatically. Thinking effort applies to all of them and adapts to each model's capabilities.",
+    "agentRuntimeLoadFailed": "Failed to load model data. Please retry.",
     "scope": {
       "global": "Global models",
       "agent": "Current agent"
@@ -3038,6 +3073,9 @@
     "sourceControl": "Source control",
     "preview": "Preview",
     "htmlPreview": "HTML preview",
+    "htmlReadOnlyTitle": "This page includes dynamic content",
+    "htmlReadOnlyNotice": "Dynamic content isn't available in this read-only preview. Open the file in your browser to view the full experience.",
+    "htmlReadOnlyNotice_fallback": "Click the button below to open the page in your browser for the full experience.",
     "openHtmlInBrowser": "Open in browser",
     "edit": "Edit",
     "selectFile": "Select a file to open",
@@ -3185,6 +3223,8 @@
       "defaultTab": "Standard",
       "goalTab": "Goal",
       "missionTab": "Mission",
+      "advisorTab": "Advisor",
+      "advisorPipeline": "Advisor pipeline",
       "defaultDescription": "The standard guarded ReAct loop used outside an explicit mode.",
       "goalDescription": "A bounded persistent loop for concrete, verifiable goals.",
       "missionDescription": "A persistent pipeline for longer-running, multi-step missions.",
@@ -3199,7 +3239,7 @@
       "goalTurnDescription": "Limit turns within one active goal.",
       "maxGoalTurns": "Maximum goal turns",
       "goalBudgetTitle": "Goal token budget",
-      "goalBudgetDescription": "Stop when the complete goal reaches its budget.",
+      "goalBudgetDescription": "Stop when the goal reaches its budget. -1 or 0 means unlimited.",
       "maxGoalTokens": "Maximum goal tokens",
       "goalCompletionTitle": "Goal completion check",
       "goalCompletionDescription": "Read the explicit goal status before stopping.",
@@ -3305,7 +3345,40 @@
       "safeTemplate": "Safe run",
       "researchTemplate": "Budgeted research",
       "qualityTemplate": "Quality first",
-      "blankTemplate": "Blank pipeline"
+      "blankTemplate": "Blank pipeline",
+      "advisor": "Advisor Mode",
+      "advisorDescription": "The primary model writes a plan before the agent starts and steps in when it keeps failing. The agent itself runs on the sub-agent model.",
+      "advisorEnableDescription": "Make Advisor Mode available for this agent (experimental).",
+      "advisorModels": "Advisor: {{advisor}} · Worker: {{worker}}",
+      "advisorEnableHelp": "Conversations still start in the default loop. With this on, Advisor appears in the Loop mode menu of the chat input and the /advisor command is available. Each conversation opts in by picking it. In channels and cron prompts, send /advisor on.",
+      "advisorModelsTitle": "Advisor and worker models",
+      "advisorModelsHelp": "By default the advisor uses the agent's primary model and the worker (the agent itself) runs on the sub-agent model. Both are set in the chat model selector, the sub-agent model under Agent model routing. To pin either role to another model, open the Advisor models panel from the Loop mode menu or the model pill next to it.",
+      "advisorSameAsAdvisor": "same as the advisor",
+      "advisorThinking": "Advisor thinking",
+      "advisorThinkingTooltip": "Thinking level for the advisor's own calls. Off keeps the plan fast. Model default follows the agent and model settings.",
+      "advisorPlanTitle": "Opening plan",
+      "advisorPlanDescription": "The advisor writes a plan before the agent's first step.",
+      "advisorPlanHelp": "The plan is injected into the agent's context as a consult_advisor call and result, and shown in the chat while it is being written.",
+      "advisorFollowupTitle": "Mid-run auto intervention",
+      "advisorFollowupDescription": "QwenPaw watches tool results and calls the advisor when the agent keeps failing.",
+      "advisorFollowupHelp": "Fires after several failures in a row, or several within the recent window (thresholds below), at most a set number of times per run. Counters reset after each intervention. The advisor answers CONTINUE, or ADJUST with a revised plan.",
+      "advisorOnDemandTitle": "On-demand consultation",
+      "advisorOnDemandDescription": "The agent may ask the advisor itself through the consult_advisor tool.",
+      "advisorOnDemandHelp": "The tool tells the agent to ask only at a real decision point. Past the cap below, it answers with a short notice and the agent carries on.",
+      "advisorMaxConsults": "Maximum consultations per conversation",
+      "advisorMaxConsultsTooltip": "Counts only the agent's own consult_advisor calls. The opening plan and automatic interventions are not counted.",
+      "advisorIntervention": {
+        "consecutive_failures": "Failures in a row",
+        "consecutive_failuresTooltip": "Failed tool calls in a row before the advisor is consulted.",
+        "window_failures": "Failures in the window",
+        "window_failuresTooltip": "Failed tool calls within the window before the advisor is consulted.",
+        "window_size": "Window size (steps)",
+        "window_sizeTooltip": "How many recent tool calls the failure window spans.",
+        "max_interventions": "Maximum interventions per run",
+        "max_interventionsTooltip": "Automatic interventions allowed in one run. 0 disables them.",
+        "cooldown_steps": "Cooldown (steps)",
+        "cooldown_stepsTooltip": "Tool calls to wait after an intervention before the next one can fire."
+      }
     },
     "doomLoopEnabled": "Repetition Protection",
     "doomLoopEnabledTooltip": "Automatically intervene when the agent gets stuck repeating the same actions",
@@ -3689,6 +3762,13 @@
       "strictDesc": "Every tool call and external file access requires approval",
       "smart": "Smart Mode",
       "smartDesc": "Low-risk tool calls and external file access run automatically; medium- and high-risk operations require approval",
+      "jev": "Decision Model Mode",
+      "jevDesc": "Apply local safety rules first; the decision model assesses operations outside those rules",
+      "jevRequiresDecision": "Turn on Use decision model first",
+      "decisionModelPrivacy": "Tool name, operation, target and parameter names may be sent to the Decision Model Provider. No conversation or file contents are sent.",
+      "decisionModelConnected": "Decision Model Provider API Key configured",
+      "decisionModelNotConnected": "Decision Model Provider has no API Key. A previously saved decision model key may still work; configure the provider to manage it here.",
+      "decisionModelConfigure": "Configure Decision Model Provider",
       "auto": "Auto Mode",
       "autoDesc": "Only operations matching tool and file approval rules require approval (default)",
       "off": "Off Mode",
@@ -3824,6 +3904,8 @@
     "webSearchApiKeyLabel": "API Key (optional)",
     "webSearchQuotaHintBefore": "Free: 100 calls/day. Register at ",
     "webSearchQuotaHintAfter": " for 1,000/day.",
+    "webSearchTavilyKeyHintBefore": "Optional. If unconfigured or authentication fails, free search will be used. Get a key at ",
+    "webSearchTavilyKeyHintAfter": ".",
     "active": "active",
     "available": "Available",
     "noEnabled": "No tools enabled",
@@ -3972,7 +4054,8 @@
     "filterAll": "All tools",
     "filterEnabled": "Enabled",
     "filterDisabled": "Disabled",
-    "enabledCount": "{{enabled}} / {{total}} enabled"
+    "enabledCount": "{{enabled}} / {{total}} enabled",
+    "webSearchConfigLoadError": "Failed to load this provider's credentials. Retry before saving."
   },
   "modelConfig": {
     "promptTitle": "LLM Model Required — Select in Chat After Configuration",
@@ -4000,13 +4083,19 @@
     "system": "System"
   },
   "chat": {
+    "sessionSettings": {
+      "advanced": "Advanced options",
+      "decisionEnabled": "Use decision model"
+    },
     "longTextPaste": {
       "title": "Paste long text",
       "asText": "Paste as text",
       "asFile": "Attach as file",
       "characters": "{{count}} characters"
     },
-    "historyLoadFailed": "Could not load this conversation. Please reopen it.",
+    "historyLoadFailed": "Could not load this conversation. Please retry.",
+    "routeNotFound": "This conversation is unavailable or has been deleted.",
+    "routeAmbiguous": "This link matches more than one conversation. Open a conversation from the sidebar.",
     "switchSession": "Switch conversation",
     "lastActive": "Last active · {{time}}",
     "fileReference": {
@@ -4130,6 +4219,10 @@
       "moveToGroup": "Move to group",
       "copyId": "Copy conversation ID",
       "delete": "Delete"
+    },
+    "pluginSubmission": {
+      "staleConversation": "Open the original conversation before submitting this action.",
+      "notReady": "Chat is not ready. Open the original conversation and retry."
     },
     "queue": {
       "title": "Message Queue",
@@ -5591,13 +5684,28 @@
       "mission": {
         "name": "Mission",
         "description": "Run a structured, persistent multi-step task."
+      },
+      "advisor": {
+        "name": "Advisor",
+        "description": "Let a stronger model plan and step in while a cheaper one does the work."
       }
+    },
+    "advisorSetup": {
+      "title": "Advisor models",
+      "hint": "Defaults follow the agent's primary model (advisor) and sub-agent model (worker). A choice here is saved for this agent.",
+      "advisorModel": "Advisor model",
+      "workerModel": "Worker model",
+      "subagentDefault": "{{model}} · default: sub-agent model",
+      "noSubagent": "Same as the advisor · default: no sub-agent model set",
+      "pairTooltip": "Advisor → worker models of this conversation",
+      "primaryModelDefault": "{{model}} · default: primary model"
     }
   },
   "thinkingControl": {
     "default": "Default",
     "resetModel": "Restore default model",
     "title": "Thinking intensity",
+    "modelSettingHint": "Sets this model's default thinking intensity. Default follows model or provider settings; conversation and agent settings can override it. Saved changes apply to subsequent requests.",
     "reset": "Restore defaults",
     "inherit": "Use default",
     "off": "Off",
@@ -5645,7 +5753,7 @@
     "modelSource": {
       "session": "Conversation model",
       "agent": "Agent default",
-      "global": "Default LLM"
+      "global": "Use global model"
     }
   },
   "runtimeDesign": {

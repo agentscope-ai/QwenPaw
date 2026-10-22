@@ -144,7 +144,7 @@ jobs:
           repository: agentscope-ai/QwenPaw-Data
           # Pinned for reproducible vendoring; bump together with the
           # plugin version, or override per-run via the data_ref input.
-          ref: ${{ github.event.inputs.data_ref || 'v0.3.0' }}
+          ref: ${{ github.event.inputs.data_ref || 'v0.3.3' }}
           path: qwenpaw-data
 
       - name: Set up Python
@@ -197,7 +197,7 @@ jobs:
             --cdn-prefix /files/plugins \
             --only "${PLUGIN_ID}"
 
-      - name: Verify packaged zip is runtime-only
+      - name: Verify packaged zip contents and size
         env:
           VERSION: ${{ needs.check-version.outputs.version }}
         run: |
@@ -206,6 +206,12 @@ jobs:
           zip_path="dist/plugins/apps/${PLUGIN_ID}/${PLUGIN_ID}-${VERSION}.zip"
           if [[ ! -f "$zip_path" ]]; then
             echo "ERROR: expected zip not found: $zip_path" >&2
+            exit 1
+          fi
+          # Stay within both decimal 10 MB and binary 10 MiB upload limits.
+          zip_bytes=$(wc -c < "$zip_path")
+          if (( zip_bytes > 10000000 )); then
+            echo "ERROR: app zip is ${zip_bytes} bytes; maximum is 10000000." >&2
             exit 1
           fi
           names=$(unzip -Z1 "$zip_path")
@@ -231,7 +237,7 @@ jobs:
             exit 1
           fi
           if forbidden=$(grep -E \
-            "^${PLUGIN_ID}/(ui/(src|public|node_modules)/|\.venv-qwenpaw-data/|\.qwenpaw-data-dev/)" \
+            "^${PLUGIN_ID}/(assets/screenshots/|ui/(src|public|node_modules)/|\.venv-qwenpaw-data/|\.qwenpaw-data-dev/)" \
             <<< "$names"); then
             echo "ERROR: dev-only files leaked into the zip:" >&2
             echo "$forbidden" | head -20 >&2

@@ -6,7 +6,7 @@
  * reused verbatim — no changes to the settings pages themselves. Items whose
  * route is not currently registered are hidden automatically.
  */
-import { Suspense, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Spin } from "antd";
 import {
@@ -24,6 +24,7 @@ import {
 } from "lucide-react";
 import { useRoutes } from "../plugins/registry/hooks";
 import { ChunkErrorBoundary } from "../components/ChunkErrorBoundary";
+import { ChunkRecoverySuspense } from "../components/ChunkRecoverySuspense";
 import { useOsRoute } from "./osRouteStore";
 import { SETTINGS_APP_ID, baseFromRoutePath } from "./osRouteMap";
 import WindowRouter from "./WindowRouter";
@@ -154,7 +155,7 @@ export default function SettingsApp() {
       <div className={styles.settingsPane}>
         {Active ? (
           <ChunkErrorBoundary resetKey={current}>
-            <Suspense
+            <ChunkRecoverySuspense
               fallback={
                 <div className={styles.loading}>
                   <Spin tip={t("common.loading")} />
@@ -167,7 +168,7 @@ export default function SettingsApp() {
                 base={baseFromRoutePath(routePathById.get(current))}
                 element={<Active />}
               />
-            </Suspense>
+            </ChunkRecoverySuspense>
           </ChunkErrorBoundary>
         ) : (
           <div className={styles.ncEmpty}>

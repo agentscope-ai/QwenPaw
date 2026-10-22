@@ -40,7 +40,7 @@ class TestAgentStatsPageDisplay:
 
     Functional coverage:
     1. /agent-stats page access and load
-    2. Breadcrumb validation (Settings / Agent Stats)
+    2. Page header validation (Agent Stats)
     3. Summary cards display (6 statistic cards)
     4. Card title and value validation
     """
@@ -58,20 +58,21 @@ class TestAgentStatsPageDisplay:
             page.wait_for_timeout(2000)
             logger.info("Agent stats page loaded")
 
-            # 2. Verify breadcrumb
-            log_test_step("2. Verify breadcrumb")
-            breadcrumb = page.locator('[class*="breadcrumb"], [class*="Breadcrumb"]').first
-            if breadcrumb.is_visible(timeout=3000):
-                breadcrumb_text = breadcrumb.inner_text().strip()
-                logger.info(f"Breadcrumb content: {breadcrumb_text}")
-                assert ("Settings" in breadcrumb_text or "设置" in breadcrumb_text), \
-                    "Breadcrumb should contain Settings"
-                assert ("Agent Stats" in breadcrumb_text or "Statistics" in breadcrumb_text
-                        or "统计" in breadcrumb_text or "Stats" in breadcrumb_text), \
-                    "Breadcrumb should contain Agent Stats/Statistics"
-                logger.info("Breadcrumb validation passed")
-            else:
-                logger.warning("Breadcrumb element not found, skipping validation")
+            # 2. Verify page header
+            log_test_step("2. Verify page header")
+            page_title = page.locator(
+                'span[class*="breadcrumbCurrent"]'
+            ).first
+            expect(page_title).to_be_visible(timeout=5000)
+            page_title_text = page_title.inner_text().strip()
+            logger.info(f"Page header content: {page_title_text}")
+            assert (
+                "Agent Stats" in page_title_text
+                or "Statistics" in page_title_text
+                or "统计" in page_title_text
+                or "Stats" in page_title_text
+            ), "Page header should contain Agent Stats/Statistics"
+            logger.info("Page header validation passed")
 
             # 3. Verify summary cards area
             log_test_step("3. Verify summary cards area")

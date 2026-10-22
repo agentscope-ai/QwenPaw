@@ -68,11 +68,15 @@ function Composer({
   submit = vi.fn(),
   attachments = true,
   scopeKey = "session-a",
+  beforeSubmit,
 }: {
   upload: UploadRequest;
   submit?: ComponentProps<typeof SdkInput>["onSubmit"];
   attachments?: boolean;
   scopeKey?: string;
+  beforeSubmit?: NonNullable<
+    IAgentScopeRuntimeWebUIOptions["sender"]
+  >["beforeSubmit"];
 }) {
   return (
     <ConfigProvider theme={{ token: { motion: false } }}>
@@ -84,6 +88,7 @@ function Composer({
             session: {},
             sender: {
               ...defaultConfig.sender,
+              beforeSubmit,
               attachments: attachments ? { customRequest: upload } : undefined,
               components: {
                 input: LongTextPasteInput,
@@ -318,4 +323,61 @@ describe("long-text paste with the installed SDK", () => {
     expect(textarea).toHaveValue("draft");
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
+
+  it.each(["hello", "next message"])(
+    "clears a submitted input before acceptance and preserves the next draft (%s)",
+    async (nextDraft) => {
+      let finish!: () => void;
+      const request = new Promise<void>((resolve) => {
+        finish = resolve;
+      });
+      const submit = vi.fn<ComponentProps<typeof SdkInput>["onSubmit"]>(
+        () => request,
+      );
+      const upload = vi.fn<UploadRequest>();
+      render(
+        <Composer
+          upload={upload}
+          submit={submit}
+          beforeSubmit={async () => ({ proceed: true, clear: true })}
+        />,
+      );
+      const textarea = screen.getByRole("textbox");
+      fireEvent.change(textarea, { target: { value: "hello" } });
+      fireEvent.paste(textarea, {
+        clipboardData: {
+          files: [new File(["submitted"], "notes.txt")],
+          getData: () => "",
+        },
+      });
+      await waitFor(() => expect(upload).toHaveBeenCalledOnce());
+      await act(async () => {
+        upload.mock.calls[0][0].onSuccess?.({ url: "notes.txt" });
+      });
+      fireEvent.keyDown(textarea, { key: "Enter", code: "Enter" });
+      await waitFor(() => expect(submit).toHaveBeenCalledOnce());
+      expect(textarea).toHaveValue("");
+      expect(screen.queryByText("notes.txt")).not.toBeInTheDocument();
+      expect(submit.mock.calls[0][0]).toMatchObject({
+        query: "hello",
+        fileList: [{ name: "notes.txt", response: { url: "notes.txt" } }],
+      });
+
+      fireEvent.change(textarea, { target: { value: nextDraft } });
+      fireEvent.paste(textarea, {
+        clipboardData: {
+          files: [new File(["next"], "next.txt")],
+          getData: () => "",
+        },
+      });
+      await waitFor(() => expect(upload).toHaveBeenCalledTimes(2));
+      await act(async () => {
+        upload.mock.calls[1][0].onSuccess?.({ url: "next.txt" });
+        submit.mock.calls[0][1]?.onAccepted?.();
+        finish();
+      });
+      expect(textarea).toHaveValue(nextDraft);
+      expect(screen.getByText("next.txt")).toBeInTheDocument();
+    },
+  );
 });

@@ -324,6 +324,17 @@ class TestStripMediaBlocksFromMemory:
         ("Error code: 400 - invalid image data in messages[3].image[0]", True),
         ("Error code: 400 - failed to decode the audio payload", True),
         ("Error code: 400 - multiple image inputs are not supported", True),
+        (
+            "[400] At most 0 video(s) may be provided in one prompt. "
+            "(parameter=video)",
+            True,
+        ),
+        (
+            "[400] [unsupported_request] Message content supports text "
+            "content only. Images, audio and files are not enabled.",
+            True,
+        ),
+        ("Error code: 400 - streaming is not enabled for this key", False),
         (_MODEL_CAPABILITY_ERROR, False),
         (
             "Error code: 400 - image is sensitive: invalid image content",

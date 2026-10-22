@@ -1,4 +1,4 @@
-import { Suspense, useMemo } from "react";
+import { useMemo } from "react";
 import { Layout, Spin } from "antd";
 import { Routes, Route, useLocation } from "react-router-dom";
 import { useTranslation } from "react-i18next";
@@ -8,6 +8,7 @@ import Header from "../Header";
 import ConsolePollService from "../../components/ConsolePollService";
 import { AgentStatusPollingController } from "../../components/AgentStatusPollingController";
 import { ChunkErrorBoundary } from "../../components/ChunkErrorBoundary";
+import { ChunkRecoverySuspense } from "../../components/ChunkRecoverySuspense";
 import { useSyncCodingMode } from "../../stores/useSyncCodingMode";
 import styles from "../index.module.less";
 import { useRoutes } from "../../plugins/registry/hooks";
@@ -68,7 +69,7 @@ export default function MainLayout({ hubMode = false }: { hubMode?: boolean }) {
                 resetKey={currentPath}
                 canRestartRuntime={hubMode}
               >
-                <Suspense
+                <ChunkRecoverySuspense
                   fallback={
                     <Spin
                       tip={t("common.loading")}
@@ -92,7 +93,7 @@ export default function MainLayout({ hubMode = false }: { hubMode?: boolean }) {
                       />
                     ))}
                   </Routes>
-                </Suspense>
+                </ChunkRecoverySuspense>
               </ChunkErrorBoundary>
             </div>
           </Content>

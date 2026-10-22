@@ -8,7 +8,7 @@ including lazy loading, lifecycle management, and hot reloading.
 import asyncio
 import logging
 import time
-from typing import Callable, Dict, Set
+from typing import Callable, Dict
 
 from qwenpaw.exceptions import (
     ConfigurationException,
@@ -55,7 +55,8 @@ class MultiAgentManager:
         self._custom_startup_semaphore = asyncio.Semaphore(
             CUSTOM_AGENT_STARTUP_CONCURRENCY,
         )
-        self._cleanup_tasks: Set[asyncio.Task] = set()
+        self._cleanup_tasks: dict[asyncio.Task, Workspace] = {}
+        self._retired_instances: set[Workspace] = set()
         self._config_generations: Dict[str, int] = {}
         logger.debug("MultiAgentManager initialized")
 
@@ -134,6 +135,7 @@ class MultiAgentManager:
                     f"{list(reusable.keys())}",
                 )
 
+        candidate.cron_start_paused = True
         await candidate.start()
         candidate.set_manager(self)
         await self._setup_workspace_plugins(candidate, str(workspace_dir))
@@ -389,7 +391,12 @@ class MultiAgentManager:
                 )
             )
 
+        cron_manager = getattr(old_instance, "cron_manager", None)
+        if cron_manager is not None:
+            active_tasks.update(cron_manager.snapshot_active_tasks())
+
         if active_tasks:
+            self._retired_instances.add(old_instance)
             # Active tasks - schedule delayed cleanup in background
             logger.info(
                 f"Old workspace instance has {len(active_tasks)} active "
@@ -428,6 +435,7 @@ class MultiAgentManager:
                             f"a resource leak.",
                         )
                     await old_instance.stop(final=False)
+                    self._retired_instances.discard(old_instance)
                     logger.info(
                         f"Old workspace instance stopped: {agent_id}. "
                         f"Delayed cleanup completed.",
@@ -440,11 +448,11 @@ class MultiAgentManager:
 
             # Create background task for delayed cleanup and track it
             cleanup_task = asyncio.create_task(delayed_cleanup())
-            self._cleanup_tasks.add(cleanup_task)
+            self._cleanup_tasks[cleanup_task] = old_instance
 
             def _on_cleanup_done(task: asyncio.Task) -> None:
                 """Remove task from tracking set and log errors."""
-                self._cleanup_tasks.discard(task)
+                self._cleanup_tasks.pop(task, None)
                 if task.cancelled():
                     logger.info(
                         f"Delayed cleanup task for {agent_id} was cancelled.",
@@ -470,6 +478,7 @@ class MultiAgentManager:
             )
             try:
                 await old_instance.stop(final=False)
+                self._retired_instances.discard(old_instance)
                 logger.info(
                     f"Old workspace instance stopped: {agent_id}. "
                     f"Zero-downtime reload completed.",
@@ -496,6 +505,7 @@ class MultiAgentManager:
                 return False
 
             instance = self.agents[agent_id]
+            await self._cancel_cleanup_tasks(agent_id)
             await instance.stop()
             del self.agents[agent_id]
             self._agent_startup_statuses[
@@ -634,7 +644,13 @@ class MultiAgentManager:
                     discard_reason = "stale"
                 else:
                     old_instance = self.agents[agent_id]
+                    cron_manager = getattr(new_instance, "cron_manager", None)
+                    if cron_manager is not None:
+                        cron_manager.handoff_from(
+                            getattr(old_instance, "cron_manager", None),
+                        )
                     self.agents[agent_id] = new_instance
+                    self._retired_instances.add(old_instance)
                     candidate_committed = True
         except BaseException as error:
             if candidate_committed:
@@ -681,20 +697,10 @@ class MultiAgentManager:
             reusable,
         )
 
-        # Snapshot only runs owned by the old workspace. Runs started through
-        # the new workspace after the swap must not delay old resource cleanup.
-        old_active_tasks = (
-            await old_instance.task_tracker.snapshot_active_tasks(
-                owner=old_instance,
-            )
-        )
-
-        # Step 5: Gracefully stop old instance (outside lock)
-        # Delegates to helper method to avoid too-many-statements
-        await self._graceful_stop_old_instance(
-            old_instance,
-            agent_id,
-            active_tasks=old_active_tasks,
+        # Once committed, cleanup must take ownership even if the reload
+        # request is cancelled while capturing outgoing tasks.
+        await run_async_to_completion(
+            self._graceful_stop_old_instance(old_instance, agent_id),
         )
 
         return True
@@ -706,15 +712,24 @@ class MultiAgentManager:
         completed or cleanly cancelled before the manager is torn down.
         Called by stop_all() during shutdown.
         """
-        if not self._cleanup_tasks:
+        await self._cancel_cleanup_tasks()
+
+    async def _cancel_cleanup_tasks(self, agent_id: str | None = None) -> None:
+        """Release outgoing instances, optionally for just one agent."""
+        if not self._cleanup_tasks and not self._retired_instances:
             return
 
         logger.info(
             f"Cancelling {len(self._cleanup_tasks)} pending cleanup "
             f"task(s)...",
         )
-        tasks = list(self._cleanup_tasks)
-        self._cleanup_tasks.clear()
+        tasks = [
+            task
+            for task, instance in self._cleanup_tasks.items()
+            if agent_id is None or instance.agent_id == agent_id
+        ]
+        for task in tasks:
+            self._cleanup_tasks.pop(task, None)
 
         for task in tasks:
             if not task.done():
@@ -722,6 +737,16 @@ class MultiAgentManager:
 
         # Await completion of all tasks, collecting exceptions
         await asyncio.gather(*tasks, return_exceptions=True)
+        retired = [
+            instance
+            for instance in self._retired_instances
+            if agent_id is None or instance.agent_id == agent_id
+        ]
+        self._retired_instances.difference_update(retired)
+        await asyncio.gather(
+            *(instance.stop(final=False) for instance in retired),
+            return_exceptions=True,
+        )
         logger.info("All cleanup tasks cancelled/completed")
 
     async def stop_all(self):

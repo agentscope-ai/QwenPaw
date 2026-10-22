@@ -134,22 +134,30 @@ class ChatPage(BasePage):
     # SessionItem actions live behind a "more" button. The current console
     # renders a custom Popover menu with role-based action buttons.
     SESSION_MORE_BTN = '[class*=moreBtn]'
-    # ``:text-is`` is exact so "Pin" does not also match "Unpin".
+    # Match the exact label span so "Pin" does not also match "Unpin".
     SESSION_MENU_PIN = (
-        'div[role="menu"] button[role="menuitem"]:text-is("Pin"), '
-        'div[role="menu"] button[role="menuitem"]:text-is("置顶")'
+        'div[role="menu"]:visible button[role="menuitem"]'
+        ':has(span:text-is("Pin")), '
+        'div[role="menu"]:visible button[role="menuitem"]'
+        ':has(span:text-is("置顶"))'
     )
     SESSION_MENU_UNPIN = (
-        'div[role="menu"] button[role="menuitem"]:text-is("Unpin"), '
-        'div[role="menu"] button[role="menuitem"]:text-is("取消置顶")'
+        'div[role="menu"]:visible button[role="menuitem"]'
+        ':has(span:text-is("Unpin")), '
+        'div[role="menu"]:visible button[role="menuitem"]'
+        ':has(span:text-is("取消置顶"))'
     )
     SESSION_MENU_RENAME = (
-        'div[role="menu"] button[role="menuitem"]:has-text("Rename"), '
-        'div[role="menu"] button[role="menuitem"]:has-text("重命名")'
+        'div[role="menu"]:visible '
+        'button[role="menuitem"]:has-text("Rename"), '
+        'div[role="menu"]:visible '
+        'button[role="menuitem"]:has-text("重命名")'
     )
     SESSION_MENU_DELETE = (
-        'div[role="menu"] button[role="menuitem"]:has-text("Delete"), '
-        'div[role="menu"] button[role="menuitem"]:has-text("删除")'
+        'div[role="menu"]:visible '
+        'button[role="menuitem"]:has-text("Delete"), '
+        'div[role="menu"]:visible '
+        'button[role="menuitem"]:has-text("删除")'
     )
     # Inline rename input rendered when a SessionItem enters edit mode.
     SESSION_RENAME_INPUT = 'input[class*=renameInput]'
@@ -1088,7 +1096,9 @@ class ChatPage(BasePage):
         # nth() right before each interaction attempt instead.
         target = self.page.locator(self.SESSION_ITEM).nth(index)
 
-        open_menu_item = 'div[role="menu"] button[role="menuitem"]'
+        open_menu_item = (
+            'div[role="menu"]:visible button[role="menuitem"]'
+        )
 
         def _menu_visible(timeout: int) -> bool:
             try:
@@ -1214,8 +1224,11 @@ class ChatPage(BasePage):
 
         pin_item = self.page.locator(self.SESSION_MENU_PIN).first
         if pin_item.count() == 0 or not pin_item.is_visible():
-            # No "Pin" item means it is already pinned ("Unpin" shown).
-            logger.info("Pin menu item not present (already pinned?)")
+            target = self.page.locator(self.SESSION_ITEM).nth(index)
+            if target.get_attribute("data-pinned") == "true":
+                logger.info("Session is already pinned")
+            else:
+                logger.warning("Pin menu item not found")
             self.page.keyboard.press("Escape")
             return self
         pin_item.click()
@@ -1264,21 +1277,19 @@ class ChatPage(BasePage):
         return self
 
     def verify_pinned_session(self) -> bool:
-        """Verify the top session is pinned.
-
-        A pinned session's more-menu shows "Unpin" instead of "Pin"; we
-        re-open the first session's menu and look for that item.
-        """
-        if not self._open_session_menu(0):
+        """Verify the first session exposes its pinned state."""
+        first_session = self.page.locator(self.SESSION_ITEM).first
+        if first_session.count() == 0:
             return False
-        unpin = self.page.locator(self.SESSION_MENU_UNPIN).first
-        result = unpin.count() > 0 and unpin.is_visible()
         try:
-            self.page.keyboard.press("Escape")
-        except Exception:
-            pass
-        self.wait(300)
-        return result
+            expect(first_session).to_have_attribute(
+                "data-pinned",
+                "true",
+                timeout=5000,
+            )
+        except AssertionError:
+            return False
+        return True
 
     def open_session_search(self) -> "ChatPage":
         """Reveal the conversation search box in the sidebar session list.

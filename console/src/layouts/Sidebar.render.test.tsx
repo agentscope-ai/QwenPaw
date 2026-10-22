@@ -5,13 +5,24 @@
  * The existing Sidebar.test.tsx only covers menu data; these tests render
  * the full component with mocked registries/child panels.
  */
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import {
+  describe,
+  it,
+  expect,
+  vi,
+  beforeEach,
+  afterEach,
+  afterAll,
+} from "vitest";
 import { act, screen, fireEvent, waitFor } from "@testing-library/react";
 import React from "react";
 import { renderWithProviders } from "@/test/common_setup";
 import { useLocation } from "react-router-dom";
 
 // ---- Hoisted mocks ---------------------------------------------------------
+
+vi.hoisted(() => vi.stubEnv("VITE_CONSOLE_BASENAME", "/qwenpaw"));
+afterAll(() => vi.unstubAllEnvs());
 
 const mocks = vi.hoisted(() => ({
   sidebar: {
@@ -180,9 +191,16 @@ vi.mock("./SidebarSessionList", () => ({
 }));
 
 vi.mock("./SidebarSettingsPanel", () => ({
-  default: ({ onOpenAccount }: { onOpenAccount?: () => void }) => (
+  default: ({
+    onOpenAccount,
+    onLogout,
+  }: {
+    onOpenAccount?: () => void;
+    onLogout?: () => void;
+  }) => (
     <div data-testid="settings-panel">
       <button onClick={onOpenAccount}>account.title</button>
+      <button onClick={onLogout}>login.logout</button>
     </div>
   ),
 }));
@@ -233,6 +251,7 @@ vi.mock("lucide-react", async () => {
 });
 
 import Sidebar from "./Sidebar";
+import { clearAuthToken } from "../api/config";
 
 /** Renders the location so navigation can be asserted. */
 function LocationProbe() {
@@ -725,6 +744,79 @@ describe("Sidebar", () => {
     await waitFor(() => {
       expect(mocks.updateProfile).not.toHaveBeenCalled();
     });
+  });
+
+  describe("authentication navigation", () => {
+    const originalLocation = Object.getOwnPropertyDescriptor(
+      window,
+      "location",
+    )!;
+    let location: { pathname: string; href: string };
+
+    beforeEach(() => {
+      mocks.authStatus = { enabled: true, mode: "normal" };
+      vi.mocked(clearAuthToken).mockClear();
+      location = { pathname: "/qwenpaw/chat", href: "" };
+      Object.defineProperty(window, "location", {
+        configurable: true,
+        value: location,
+      });
+    });
+
+    afterEach(() => {
+      Object.defineProperty(window, "location", originalLocation);
+    });
+
+    it.each([
+      ["/chat", "/login"],
+      ["/qwenpaw/chat", "/qwenpaw/login"],
+    ])(
+      "logs out from %s without losing the deployment prefix",
+      async (pathname, target) => {
+        location.pathname = pathname;
+        renderSidebar();
+        const username = await screen.findByText("testuser");
+        fireEvent.click(username.closest("button")!);
+        fireEvent.click(
+          await screen.findByRole("button", { name: "login.logout" }),
+        );
+
+        expect(clearAuthToken).toHaveBeenCalledOnce();
+        expect(location.href).toBe(target);
+      },
+    );
+
+    it.each([false, true])(
+      "preserves the deployment prefix after an account update (Hub: %s)",
+      async (hubMode) => {
+        renderSidebar({ hubMode });
+        await openAccountModal();
+        if (!hubMode) {
+          fireEvent.change(screen.getByLabelText("account.currentPassword"), {
+            target: { value: "current-pw" },
+          });
+        }
+        fireEvent.change(screen.getByLabelText("account.newPassword"), {
+          target: { value: "new-password" },
+        });
+        fireEvent.change(screen.getByLabelText("account.confirmPassword"), {
+          target: { value: "new-password" },
+        });
+        fireEvent.click(screen.getByText("account.save"));
+
+        await waitFor(() => expect(location.href).toBe("/qwenpaw/login"));
+        expect(clearAuthToken).toHaveBeenCalledOnce();
+        if (hubMode) {
+          expect(mocks.changePassword).toHaveBeenCalledWith("new-password");
+        } else {
+          expect(mocks.updateProfile).toHaveBeenCalledWith(
+            "current-pw",
+            undefined,
+            "new-password",
+          );
+        }
+      },
+    );
   });
 
   it("opens quick settings from the authenticated user area", async () => {

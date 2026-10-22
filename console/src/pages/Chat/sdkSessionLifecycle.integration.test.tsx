@@ -16,15 +16,19 @@ import SdkRef from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/Ref";
  * Observed-path regression tests independently require loading=false.
  * Run: npm run test:run -- src/pages/Chat/sdkSessionLifecycle.integration.test.tsx
  */
-import { useLayoutEffect, useMemo } from "react";
-import { act, cleanup, render, waitFor } from "@testing-library/react";
+import { useLayoutEffect, useMemo, useRef } from "react";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter, useLocation, useNavigate } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { useContextSelector } from "use-context-selector";
 import {
   useChatAnywhereInput,
   useChatAnywhereSessionsState,
 } from "@agentscope-ai/chat";
-import { useChatAnywhereMessages } from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/Context/ChatAnywhereMessagesContext";
+import {
+  ChatAnywhereMessagesContext,
+  useChatAnywhereMessages,
+} from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/Context/ChatAnywhereMessagesContext";
 import ComposedProvider from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/ChatAnywhere/ComposedProvider";
 import useChatController from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/Chat/hooks/useChatController";
 import { useChatAnywhereSessionLoader } from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/Context/ChatAnywhereSessionsContext";
@@ -34,8 +38,16 @@ import type {
 } from "@agentscope-ai/chat";
 import api, { type ChatSpec } from "../../api";
 import { useAgentStore } from "../../stores/agentStore";
+import {
+  syncSessionsGlobal,
+  useSessionListStore,
+} from "../../stores/sessionListStore";
+import { ApiError } from "../../api/request";
 import { useMessageQueueStore } from "../../stores/messageQueueStore";
 import { useCreateNewSession } from "./hooks/useCreateNewSession";
+import { useChatRouteResolution } from "./hooks/useChatRouteResolution";
+import { ChatSessionTransition } from "./components/ChatSessionTransition";
+import { menuRegistry } from "../../plugins/registry/store";
 import sessionApi from "./sessionApi";
 import { createSdkSessionAdapter } from "./sdkSessionAdapter";
 import { cancelSdkChatRequest } from "./sdkCancellation";
@@ -289,7 +301,11 @@ function mountHost(
     );
     return (
       <ComposedProvider options={options} cards={{}}>
-        <ChatSessionActivation sessionId={currentSessionId} sdkRef={sdkRef} />
+        <ChatSessionActivation
+          sessionId={currentSessionId}
+          sdkRef={sdkRef}
+          adapter={adapter}
+        />
         <ProbeView />
         <SdkRef ref={sdkRef} />
       </ComposedProvider>
@@ -317,6 +333,7 @@ let gates: Array<ReturnType<typeof deferred>>;
 
 beforeEach(() => {
   sessionApi.resetForTests();
+  useSessionListStore.setState({ sessions: [], _setLibrarySessions: null });
   useAgentStore.setState({ selectedAgent: AGENT, lastChatIdByAgent: {} });
   useMessageQueueStore.setState({ queues: {}, runStates: {} });
   localStorage.clear();
@@ -374,6 +391,450 @@ async function startA(host: ReturnType<typeof mountHost>) {
   expect(host.current().controller.inputQueueEnabled).toBe(false);
   expect(host.current().controller.inputQueue).toEqual([]);
 }
+
+function mountLinkedHost(initialPath: string) {
+  let probe!: Pick<Probe, "navigate" | "sessions" | "messages" | "path">;
+
+  function LinkedProbe() {
+    useChatAnywhereSessionLoader();
+    const sessions = useChatAnywhereSessionsState();
+    const messages = useChatAnywhereMessages();
+    const visibleMessages = useContextSelector(
+      ChatAnywhereMessagesContext,
+      (state) => state.messages,
+    );
+    const navigate = useNavigate();
+    const { pathname: path } = useLocation();
+    useLayoutEffect(() => {
+      probe = { navigate, sessions, messages, path };
+    });
+    return (
+      <output data-testid="linked-messages">
+        {JSON.stringify(visibleMessages)}
+      </output>
+    );
+  }
+
+  function LinkedHost() {
+    const { pathname } = useLocation();
+    const { selectedAgent } = useAgentStore();
+    const referenceId = pathname.split("/")[2] || undefined;
+    const resolution = useChatRouteResolution(referenceId, selectedAgent);
+    const currentSessionId = resolution.blocked ? undefined : referenceId;
+    const sdkRef = useRef<IAgentScopeRuntimeWebUIRef>(null);
+    const adapter = useMemo(
+      () => createSdkSessionAdapter(sessionApi.bindToOwner()),
+      // SessionApi's store subscription advances ownership synchronously.
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+      [selectedAgent],
+    );
+    const options = useMemo<IAgentScopeRuntimeWebUIOptions>(
+      () => ({
+        session: {
+          multiple: true,
+          currentSessionId,
+          api: adapter.api,
+        },
+        sender: { queue: false },
+        api: { fetch: fixture.transport },
+      }),
+      [currentSessionId, adapter],
+    );
+    return (
+      <ChatSessionTransition
+        adapter={adapter}
+        sessionId={currentSessionId}
+        pending={resolution.blocked}
+        error={resolution.error}
+      >
+        <ComposedProvider key={selectedAgent} options={options} cards={{}}>
+          <ChatSessionActivation
+            sessionId={currentSessionId}
+            sdkRef={sdkRef}
+            adapter={adapter}
+          />
+          <LinkedProbe />
+          <SdkRef ref={sdkRef} />
+        </ComposedProvider>
+      </ChatSessionTransition>
+    );
+  }
+
+  vi.spyOn(menuRegistry, "refresh").mockImplementation(() => {});
+  render(
+    <MemoryRouter initialEntries={[initialPath]}>
+      <LinkedHost />
+    </MemoryRouter>,
+  );
+  return { current: () => probe };
+}
+
+function linkedHistory(id: string) {
+  return {
+    status: "idle" as const,
+    messages: [
+      {
+        id: `message-${id}`,
+        role: "user",
+        type: "message",
+        content: `linked-history-${id}`,
+        metadata: null,
+      },
+    ],
+  };
+}
+
+describe("installed SDK activation after route ownership resolution", () => {
+  it.each(["1788357954784-abc123", "9a8f4757-69c8-4179-b8a4-f02471bba385"])(
+    "loads persisted history through a resolved runtime alias (%s)",
+    async (alias) => {
+      vi.spyOn(api, "resolveChat").mockResolvedValue({
+        agent_id: AGENT,
+        chat: { ...record(B), session_id: alias },
+      });
+      vi.mocked(api.listChats).mockResolvedValue([]);
+      fixture.history.mockResolvedValue(linkedHistory(B));
+      const host = mountLinkedHost(`/chat/${alias}`);
+
+      await waitFor(() => {
+        expect(screen.getByTestId("linked-messages")).toHaveTextContent(
+          `linked-history-${B}`,
+        );
+        expect(screen.getByTestId("linked-messages")).toBeVisible();
+      });
+      expect(host.current().sessions.currentSessionId).toBe(alias);
+      expect(fixture.history).toHaveBeenCalledWith(B, expect.any(Object));
+      expect(fixture.create).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([false, true])(
+    "loads reassigned runtime history over a stale sidebar (preloaded=%s)",
+    async (preloaded) => {
+      const alias = "9a8f4757-69c8-4179-b8a4-f02471bba385";
+      vi.mocked(api.listChats).mockResolvedValue([
+        { ...record(A), session_id: alias },
+      ]);
+      sessionApi.preferredChatId = alias;
+      await sessionApi.getSessionList();
+      fixture.history.mockResolvedValue(linkedHistory(A));
+      if (preloaded) await sessionApi.preloadSession(alias);
+      fixture.history.mockClear();
+      fixture.history.mockImplementation(async (id) => {
+        if (id === A) throw new ApiError(404, "Chat not found");
+        return linkedHistory(id);
+      });
+      vi.spyOn(api, "resolveChat").mockResolvedValue({
+        agent_id: AGENT,
+        chat: { ...record(B), session_id: alias },
+      });
+      const host = mountLinkedHost(`/chat/${alias}`);
+
+      await waitFor(() => {
+        expect(screen.getByTestId("linked-messages")).toHaveTextContent(
+          `linked-history-${B}`,
+        );
+        expect(screen.getByTestId("linked-messages")).toBeVisible();
+      });
+      expect(screen.getByTestId("linked-messages")).not.toHaveTextContent(
+        `linked-history-${A}`,
+      );
+      expect(host.current().sessions.currentSessionId).toBe(alias);
+      expect(fixture.history).toHaveBeenCalledWith(B, expect.any(Object));
+      expect(fixture.history).not.toHaveBeenCalledWith(A, expect.any(Object));
+      expect(fixture.create).not.toHaveBeenCalled();
+    },
+  );
+
+  it("keeps archived history when a runtime alias becomes its canonical route", async () => {
+    const alias = "9a8f4757-69c8-4179-b8a4-f02471bba385";
+    vi.spyOn(api, "resolveChat").mockResolvedValue({
+      agent_id: AGENT,
+      chat: { ...record(B), session_id: alias, archived: true },
+    });
+    vi.mocked(api.listChats).mockResolvedValue([]);
+    fixture.history.mockResolvedValue(linkedHistory(B));
+    const host = mountLinkedHost(`/chat/${alias}`);
+    await waitFor(() =>
+      expect(screen.getByTestId("linked-messages")).toHaveTextContent(
+        `linked-history-${B}`,
+      ),
+    );
+
+    await act(async () =>
+      host.current().navigate(`/chat/${B}`, { replace: true }),
+    );
+
+    await waitFor(() =>
+      expect(host.current().sessions.currentSessionId).toBe(B),
+    );
+    expect(screen.getByTestId("linked-messages")).toHaveTextContent(
+      `linked-history-${B}`,
+    );
+    expect(fixture.history).toHaveBeenCalledOnce();
+  });
+
+  it("displays same-Agent cold-link history before its session list arrives", async () => {
+    const listGate = deferred();
+    const resolveGate = deferred();
+    gates.push(listGate, resolveGate);
+    let listReturned = false;
+    vi.mocked(api.listChats).mockImplementation(async () => {
+      await listGate.promise;
+      listReturned = true;
+      return fixture.records;
+    });
+    vi.spyOn(api, "resolveChat").mockImplementation(async () => {
+      await resolveGate.promise;
+      return { agent_id: AGENT, chat: record(B) };
+    });
+    fixture.history.mockResolvedValue(linkedHistory(B));
+    const host = mountLinkedHost(`/chat/${B}`);
+
+    expect(fixture.history).not.toHaveBeenCalled();
+    expect(screen.getByTestId("linked-messages")).not.toBeVisible();
+    await act(async () => resolveGate.resolve());
+    await waitFor(() => {
+      expect(screen.getByTestId("linked-messages")).toHaveTextContent(
+        `linked-history-${B}`,
+      );
+      expect(screen.getByTestId("linked-messages")).toBeVisible();
+    });
+    expect(host.current().sessions.currentSessionId).toBe(B);
+    expect(host.current().path).toBe(`/chat/${B}`);
+    expect(listReturned).toBe(false);
+    expect(fixture.create).not.toHaveBeenCalled();
+  });
+
+  it("restores visible history when an already-known Chat is archived elsewhere", async () => {
+    vi.mocked(api.listChats).mockResolvedValue([record(B)]);
+    await sessionApi.getSessionList();
+    const resolve = vi.spyOn(api, "resolveChat").mockResolvedValue({
+      agent_id: AGENT,
+      chat: { ...record(B), archived: true },
+    });
+    fixture.history.mockResolvedValue(linkedHistory(B));
+    const host = mountLinkedHost(`/chat/${B}`);
+    await waitFor(() => {
+      expect(screen.getByTestId("linked-messages")).toHaveTextContent(
+        `linked-history-${B}`,
+      );
+      expect(screen.getByTestId("linked-messages")).toBeVisible();
+    });
+    expect(resolve).not.toHaveBeenCalled();
+
+    vi.mocked(api.listChats).mockResolvedValue([]);
+    await act(async () => {
+      const list = await sessionApi.getSessionList();
+      syncSessionsGlobal(list);
+    });
+
+    await waitFor(() => expect(resolve).toHaveBeenCalledOnce());
+    await waitFor(() => {
+      expect(screen.getByTestId("linked-messages")).toHaveTextContent(
+        `linked-history-${B}`,
+      );
+      expect(screen.getByTestId("linked-messages")).toBeVisible();
+    });
+    expect(host.current().path).toBe(`/chat/${B}`);
+    expect(host.current().sessions.currentSessionId).toBe(B);
+    expect(fixture.create).not.toHaveBeenCalled();
+  });
+
+  it.each([false, true])(
+    "shows a deletion error after sidebar polling (cold-resolved=%s)",
+    async (coldResolved) => {
+      vi.mocked(api.listChats).mockResolvedValue(
+        coldResolved ? [] : [record(B)],
+      );
+      if (!coldResolved) await sessionApi.getSessionList();
+      const resolve = vi.spyOn(api, "resolveChat");
+      if (coldResolved) {
+        resolve.mockResolvedValueOnce({ agent_id: AGENT, chat: record(B) });
+      }
+      resolve.mockRejectedValue(new ApiError(404, "Chat not found"));
+      fixture.history.mockResolvedValue(linkedHistory(B));
+      const host = mountLinkedHost(`/chat/${B}`);
+      await waitFor(() => {
+        expect(screen.getByTestId("linked-messages")).toHaveTextContent(
+          `linked-history-${B}`,
+        );
+        expect(screen.getByTestId("linked-messages")).toBeVisible();
+      });
+      expect(resolve).toHaveBeenCalledTimes(coldResolved ? 1 : 0);
+
+      if (coldResolved) {
+        vi.mocked(api.listChats).mockResolvedValue([record(B)]);
+        await act(async () => {
+          syncSessionsGlobal(await sessionApi.getSessionList());
+        });
+      }
+      vi.mocked(api.listChats).mockResolvedValue([]);
+      await act(async () => {
+        syncSessionsGlobal(await sessionApi.getSessionList());
+      });
+
+      await waitFor(() => expect(screen.getByRole("alert")).toBeVisible());
+      expect(resolve).toHaveBeenCalledTimes(coldResolved ? 2 : 1);
+      expect(screen.getByTestId("linked-messages")).not.toBeVisible();
+      expect(host.current().path).toBe(`/chat/${B}`);
+      expect(fixture.create).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([AGENT, "linked-agent"])(
+    "loads canonical history over a preloaded SDK alias (owner=%s)",
+    async (owner) => {
+      const aliased = { ...record(A), session_id: B };
+      vi.mocked(api.listChats).mockImplementation(async () =>
+        useAgentStore.getState().selectedAgent === AGENT ? [aliased] : [],
+      );
+      sessionApi.preferredChatId = B;
+      await sessionApi.getSessionList();
+      expect(sessionApi.getSessionIdentity(B)).toMatchObject({
+        sdkSessionId: B,
+        chatId: A,
+      });
+      await sessionApi.preloadSession(B);
+      fixture.history.mockClear();
+      const resolve = vi.spyOn(api, "resolveChat").mockResolvedValue({
+        agent_id: owner,
+        chat: { ...record(B), archived: true },
+      });
+      const historyOwners: string[] = [];
+      fixture.history.mockImplementation(async (id) => {
+        historyOwners.push(useAgentStore.getState().selectedAgent);
+        return linkedHistory(id);
+      });
+      const host = mountLinkedHost(`/chat/${B}`);
+
+      await waitFor(() => {
+        expect(screen.getByTestId("linked-messages")).toHaveTextContent(
+          `linked-history-${B}`,
+        );
+        expect(screen.getByTestId("linked-messages")).toBeVisible();
+      });
+      expect(resolve).toHaveBeenCalledOnce();
+      expect(useAgentStore.getState().selectedAgent).toBe(owner);
+      expect(historyOwners).toEqual([owner]);
+      expect(fixture.history).toHaveBeenCalledWith(B, expect.any(Object));
+      expect(fixture.history).not.toHaveBeenCalledWith(A, expect.any(Object));
+      expect(host.current().path).toBe(`/chat/${B}`);
+      expect(host.current().sessions.currentSessionId).toBe(B);
+      expect(fixture.create).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([404, 409])(
+    "hides repeated-alias history while a new resolution awaits %s",
+    async (status) => {
+      const alias = `runtime-${B}`;
+      const gate = deferred();
+      gates.push(gate);
+      const resolve = vi
+        .spyOn(api, "resolveChat")
+        .mockResolvedValueOnce({
+          agent_id: AGENT,
+          chat: { ...record(B), session_id: alias },
+        })
+        .mockImplementationOnce(async () => {
+          await gate.promise;
+          throw new ApiError(status, "Unavailable Chat reference");
+        });
+      vi.mocked(api.listChats).mockResolvedValue([]);
+      fixture.history.mockResolvedValue(linkedHistory(B));
+      const host = mountLinkedHost(`/chat/${alias}`);
+      await waitFor(() => {
+        expect(screen.getByTestId("linked-messages")).toHaveTextContent(
+          `linked-history-${B}`,
+        );
+        expect(screen.getByTestId("linked-messages")).toBeVisible();
+      });
+      await act(async () => host.current().navigate("/chat"));
+      await act(async () => host.current().navigate(`/chat/${alias}`));
+
+      expect(resolve).toHaveBeenCalledTimes(2);
+      expect(screen.getByRole("status")).toBeVisible();
+      expect(screen.getByTestId("linked-messages")).not.toBeVisible();
+      expect(fixture.history).toHaveBeenCalledOnce();
+      await act(async () => gate.resolve());
+      await waitFor(() => expect(screen.getByRole("alert")).toBeVisible());
+      expect(screen.getByTestId("linked-messages")).not.toBeVisible();
+      expect(host.current().path).toBe(`/chat/${alias}`);
+      expect(fixture.create).not.toHaveBeenCalled();
+    },
+  );
+
+  it("opens a foreign Agent's archived Chat with its actual SDK messages", async () => {
+    vi.spyOn(api, "resolveChat").mockResolvedValue({
+      agent_id: "linked-agent",
+      chat: { ...record(B), archived: true },
+    });
+    vi.mocked(api.listChats).mockResolvedValue([]);
+    const historyOwners: string[] = [];
+    fixture.history.mockImplementation(async (id) => {
+      historyOwners.push(useAgentStore.getState().selectedAgent);
+      return linkedHistory(id);
+    });
+    const host = mountLinkedHost(`/chat/${B}`);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("linked-messages")).toHaveTextContent(
+        `linked-history-${B}`,
+      );
+      expect(screen.getByTestId("linked-messages")).toBeVisible();
+    });
+    expect(useAgentStore.getState().selectedAgent).toBe("linked-agent");
+    expect(historyOwners).toEqual(["linked-agent"]);
+    expect(host.current().sessions.currentSessionId).toBe(B);
+    expect(host.current().path).toBe(`/chat/${B}`);
+    expect(sessionApi.getSessionIdentity(B).sessionId).toBe(`runtime-${B}`);
+    expect(fixture.create).not.toHaveBeenCalled();
+  });
+
+  it("restores cross-Agent back/forward navigation and ignores late history", async () => {
+    const historyGate = deferred();
+    gates.push(historyGate);
+    vi.spyOn(api, "resolveChat").mockImplementation(async (id) => ({
+      agent_id: id === A ? AGENT : "linked-agent",
+      chat: record(id),
+    }));
+    vi.mocked(api.listChats).mockImplementation(async () => [
+      record(useAgentStore.getState().selectedAgent === AGENT ? A : B),
+    ]);
+    fixture.history.mockImplementation(async (id) => {
+      if (id === B) await historyGate.promise;
+      return linkedHistory(id);
+    });
+    const host = mountLinkedHost(`/chat/${A}`);
+    const visibleMessages = () =>
+      JSON.stringify(host.current().messages.getMessages());
+    await waitFor(() =>
+      expect(visibleMessages()).toContain(`linked-history-${A}`),
+    );
+
+    await act(async () => host.current().navigate(`/chat/${B}`));
+    await waitFor(() =>
+      expect(fixture.history).toHaveBeenCalledWith(B, expect.any(Object)),
+    );
+    await act(async () => host.current().navigate(-1));
+    await waitFor(() =>
+      expect(visibleMessages()).toContain(`linked-history-${A}`),
+    );
+    await act(async () => historyGate.resolve());
+    expect(host.current().path).toBe(`/chat/${A}`);
+    expect(host.current().sessions.currentSessionId).toBe(A);
+    expect(visibleMessages()).not.toContain(`linked-history-${B}`);
+
+    await act(async () => host.current().navigate(1));
+    await waitFor(() =>
+      expect(visibleMessages()).toContain(`linked-history-${B}`),
+    );
+    expect(host.current().sessions.currentSessionId).toBe(B);
+    expect(visibleMessages()).not.toContain(`linked-history-${A}`);
+    expect(fixture.create).not.toHaveBeenCalled();
+  });
+});
 
 describe("installed SDK session lifecycle with CoPaw's blank-new hook", () => {
   it("lets the original SDK clear the target while the host waits for readiness", async () => {

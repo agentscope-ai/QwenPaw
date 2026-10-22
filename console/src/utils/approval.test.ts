@@ -1,5 +1,5 @@
 /**
- * normalizeLevel maps raw tool-execution-level strings to the four
+ * normalizeLevel maps raw tool-execution-level strings to the five
  * canonical levels, falling back to "AUTO" for anything unrecognized.
  * This guards settings round-trips (missing/corrupted values must never
  * crash the approval UI or lock users out of tool execution).
@@ -8,13 +8,13 @@ import { describe, it, expect } from "vitest";
 import { LEVELS, normalizeLevel } from "./approval";
 
 describe("LEVELS", () => {
-  it("exposes the four levels in strictness order", () => {
-    expect(LEVELS).toEqual(["STRICT", "SMART", "AUTO", "OFF"]);
+  it("exposes the five levels in strictness order", () => {
+    expect(LEVELS).toEqual(["STRICT", "SMART", "JEV", "AUTO", "OFF"]);
   });
 });
 
 describe("normalizeLevel", () => {
-  it.each(["STRICT", "SMART", "AUTO", "OFF"])(
+  it.each(["STRICT", "SMART", "JEV", "AUTO", "OFF"])(
     "passes through the valid level %s",
     (level) => {
       expect(normalizeLevel(level)).toBe(level);

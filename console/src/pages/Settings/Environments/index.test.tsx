@@ -21,7 +21,10 @@ const mockMessage = vi.hoisted(() => ({
 const mockConfirm = vi.hoisted(() => vi.fn());
 vi.mock("../../../api", () => ({ default: mockApi }));
 vi.mock("../../../hooks/useAppMessage", () => ({
-  useAppMessage: () => ({ message: mockMessage }),
+  useAppMessage: () => ({
+    message: mockMessage,
+    modal: { confirm: mockConfirm },
+  }),
 }));
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({

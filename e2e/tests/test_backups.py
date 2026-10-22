@@ -42,7 +42,7 @@ class TestBackupPageDisplay:
 
     Covers:
     1. /backups page navigation and load
-    2. Breadcrumb verification (Settings / Backups)
+    2. Page header verification (Backups)
     3. Create-backup and import button display
     4. Backup list table display or empty state
     """
@@ -60,19 +60,18 @@ class TestBackupPageDisplay:
             page.wait_for_timeout(1500)
             logger.info("Backups page loaded")
 
-            # 2. Verify breadcrumb
-            log_test_step("2. Verify breadcrumb")
-            breadcrumb = page.locator('[class*="breadcrumb"], [class*="Breadcrumb"]').first
-            if breadcrumb.is_visible(timeout=3000):
-                breadcrumb_text = breadcrumb.inner_text().strip()
-                logger.info(f"Breadcrumb text: {breadcrumb_text}")
-                assert ("Settings" in breadcrumb_text or "设置" in breadcrumb_text), \
-                    "Breadcrumb should contain Settings"
-                assert ("Backups" in breadcrumb_text or "备份" in breadcrumb_text), \
-                    "Breadcrumb should contain Backups"
-                logger.info("Breadcrumb verification passed")
-            else:
-                logger.warning("Breadcrumb element not found, skipping verification")
+            # 2. Verify page header
+            log_test_step("2. Verify page header")
+            page_title = page.locator(
+                'span[class*="breadcrumbCurrent"]'
+            ).first
+            expect(page_title).to_be_visible(timeout=5000)
+            page_title_text = page_title.inner_text().strip()
+            logger.info(f"Page header text: {page_title_text}")
+            assert (
+                "Backups" in page_title_text or "备份" in page_title_text
+            ), "Page header should contain Backups"
+            logger.info("Page header verification passed")
 
             # 3. Verify action buttons
             log_test_step("3. Verify action buttons")

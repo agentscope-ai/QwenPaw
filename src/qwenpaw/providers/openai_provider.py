@@ -286,6 +286,16 @@ class OpenAIProvider(Provider):
                 message="Empty model ID",
             )
 
+        model = self.get_model_info(model_id)
+        if model is None:
+            model = self.get_discovered_model_info(model_id)
+        if model is not None and model.model_type == "decision":
+            success, message = await self.check_connection(timeout=timeout)
+            return ModelConnectionResult(
+                success=success,
+                message=message or "Only provider connectivity was checked",
+                verification="provider_only",
+            )
         if _is_non_chat_model(model_id):
             return await self._check_non_chat_model_connection(
                 model_id,
@@ -323,25 +333,25 @@ class OpenAIProvider(Provider):
             return ModelConnectionResult(success=True)
         except APIError as exc:
             detail = self.connection_error_message(exc)
-            if any(
+            dedicated_api = any(
                 marker in detail.lower()
                 for marker in _API_TYPE_MISMATCH_MARKERS
-            ):
-                return ModelConnectionResult(
-                    success=True,
-                    message=(
-                        f"Model '{model_id}' requires a dedicated non-chat "
-                        "API; endpoint and credentials verified"
-                    ),
-                )
+            )
             status = getattr(exc, "status_code", "unknown")
             return ModelConnectionResult(
-                success=False,
+                success=dedicated_api,
                 message=(
-                    f"API error when connecting to model '{model_id}' "
+                    f"Model '{model_id}' requires a dedicated non-chat "
+                    "API; endpoint and credentials verified"
+                    if dedicated_api
+                    else f"API error when connecting to model '{model_id}' "
                     f"(status={status}): {detail}"
                 ),
-                http_status=status if isinstance(status, int) else None,
+                http_status=(
+                    status
+                    if not dedicated_api and isinstance(status, int)
+                    else None
+                ),
             )
         except Exception as exc:
             return ModelConnectionResult(

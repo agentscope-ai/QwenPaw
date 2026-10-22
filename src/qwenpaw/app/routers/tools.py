@@ -104,7 +104,7 @@ _BUILTIN_TOOL_CONFIG_FIELDS: dict[str, list[dict]] = {
             "name": "provider",
             "label": "Provider",
             "type": "select",
-            "options": ["tavily", "anysearch"],
+            "options": ["tavily", "anysearch", "firecrawl"],
             "default": "tavily",
         },
         {
@@ -118,12 +118,14 @@ _BUILTIN_TOOL_CONFIG_FIELDS: dict[str, list[dict]] = {
 
 def _builtin_credential_ref(tool_name: str, config: dict) -> str:
     """Return the credential-store ref for a builtin tool's password field,
-    or "" when provider is missing/blank or keyless (caller must skip
-    credential I/O)."""
+    or "" when provider is missing/blank (caller must skip credential I/O).
+
+    Tavily is included: a key is optional (keyless remains the default),
+    but when present it lives under ``tool/web_search/tavily`` like any
+    other provider slot.
+    """
     provider = str(config.get("provider") or "").strip()
     if not provider:
-        return ""
-    if tool_name == "web_search" and provider == "tavily":
         return ""
     return f"tool/{tool_name}/{provider}"
 

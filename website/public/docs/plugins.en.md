@@ -761,6 +761,18 @@ window.QwenPaw.chat.request.render("my-plugin", ({ data, fallback }) => {
 });
 ```
 
+### Assistant Code Blocks and Message Submission
+
+`chat.codeBlock(pluginId, language, Component)` lets you display code blocks in assistant replies as interactive components. For example, registering `openui-lang` sends code blocks marked with that language to your component for rendering.
+
+The component receives the current source in `source` and uses `isStreaming` to check whether the code block is still being generated. The host preserves local component state during streaming updates; use a stable component type and handle incomplete content in your component. Other props include `language`, `messageId`, `blockId`, `agentId`, `sessionId`, and `fallback()`, which displays the default code view.
+
+The latest registration for a language takes precedence. Calling the returned `dispose()` restores the previous registration. Use `chat.disposeAll(pluginId)` to remove all chat extensions registered by the plugin.
+
+`await chat.submit(pluginId, { query, agentId, sessionId })` submits the user's choices as a new message. Pass the `agentId` and `sessionId` received by your component. The message joins the originating conversation's send queue, preserving drafts and attachments in the composer. The promise resolves when the message is queued and rejects if Chat is not ready, the user has switched conversations or Agents, or the queue is full.
+
+`host.openExternalLink(url)` opens an external link in the browser or desktop app.
+
 ### Tool-Call Rendering — `chat.toolRender`
 
 ```tsx

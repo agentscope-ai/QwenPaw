@@ -33,6 +33,12 @@
     "total": "合計 {{count}} 件",
     "clear": "クリア",
     "paste": "貼り付け",
+    "done": "完了",
+    "autoSaveFailed": "変更を保存できませんでした",
+    "discardChangesTitle": "未保存の変更を破棄しますか？",
+    "discardChangesContent": "一部の変更を保存できませんでした。編集を続けるか、未保存の変更を破棄して閉じることができます。",
+    "discardAndClose": "破棄して閉じる",
+    "keepEditing": "編集を続ける",
     "configure": "設定",
     "all": "すべて",
     "decrease": "減らす",
@@ -78,6 +84,10 @@
     "copied": "エラー情報をコピーしました",
     "copyFailed": "コピーに失敗しました。詳細を開いて手動でコピーしてください。",
     "checking": "読み込みに失敗したリソースを再確認しています…",
+    "serverReadiness": {
+      "checking": "ローカルサービスとページのリソースが利用可能になるのを待っています…",
+      "timeout": "ローカルサービスまたはページのリソースがまだ利用できません。しばらくしてから再読み込みしてください。"
+    },
     "recheckNote": "originalError は最初に発生した例外、recheck は障害発生後のリソースの再確認結果であり、最初の応答ではありません。不明な値は null のままです。再確認では DNS、TLS、CORS、プロキシの問題を区別できません。",
     "observations": {
       "missing": "リソースの再確認：リソースは現在存在しません（404）。",
@@ -1849,6 +1859,7 @@
     "retry": "再試行"
   },
   "modelSelector": {
+    "noFallback": "使用しない",
     "selectModel": "モデルを選択",
     "noConfiguredModels": "設定済みモデルがありません",
     "noFreeModels": "利用可能な無料モデルがありません",
@@ -1883,6 +1894,10 @@
     "searchCandidates": "Search candidate models..."
   },
   "models": {
+    "modelType": "モデルタイプ",
+    "modelTypeChat": "チャット",
+    "modelTypeDecision": "判定",
+    "decisionModelHint": "今後の自動化機能向けに判定モデルを設定します。チャットには使用できません。",
     "discoveryOriginApi": "API 検出",
     "discoveryOriginCatalog": "公式カタログ",
     "discoveryOriginBoth": "API + カタログ",
@@ -1898,8 +1913,10 @@
     "providersTitle": "プロバイダー",
     "providersDescription": "各プロバイダーのAPIキーとエンドポイントを設定します。",
     "llmTitle": "モデル",
+    "defaultModels": "デフォルトモデル",
+    "defaultChatModel": "チャットモデル",
+    "defaultDecisionModel": "判定モデル",
     "defaultLlm": "デフォルト LLM",
-    "llmDescription": "ここではグローバル既定の LLM モデルを設定します。Chat ページでは各 Agent ごとに使用するモデルを個別に選択できます。",
     "configureProvider": "{{name}} を設定",
     "baseURL": "ベースURL",
     "apiKey": "APIキー",
@@ -2300,6 +2317,11 @@
     "noSystemPromptCandidates": "一致するファイルはありません。",
     "sourceControl": "ソース管理",
     "preview": "プレビュー",
+    "htmlPreview": "HTML プレビュー",
+    "htmlReadOnlyTitle": "このページには動的なコンテンツが含まれています",
+    "htmlReadOnlyNotice": "この読み取り専用プレビューでは動的なコンテンツを表示できません。すべての機能を利用するには、ブラウザーでファイルを開いてください。",
+    "htmlReadOnlyNotice_fallback": "下のボタンをクリックしてブラウザーでページを開くと、本来の表示と動作を確認できます。",
+    "openHtmlInBrowser": "ブラウザーで開く",
     "edit": "編集",
     "selectFile": "開くファイルを選択",
     "closeTab": "タブを閉じる",
@@ -2439,6 +2461,8 @@
       "defaultTab": "標準",
       "goalTab": "ゴール",
       "missionTab": "ミッション",
+      "advisorTab": "アドバイザー",
+      "advisorPipeline": "アドバイザーパイプライン",
       "defaultDescription": "明示的なモード以外で使用する標準の保護付き ReAct Loop。",
       "goalDescription": "具体的で検証可能なゴール向けの持続 Loop。",
       "missionDescription": "長時間の複数ステップミッション向けパイプライン。",
@@ -2559,7 +2583,40 @@
       "safeTemplate": "安全な実行",
       "researchTemplate": "予算付き調査",
       "qualityTemplate": "品質優先",
-      "blankTemplate": "空のパイプライン"
+      "blankTemplate": "空のパイプライン",
+      "advisor": "アドバイザーモード",
+      "advisorDescription": "メインモデルがエージェントの開始前に計画を作成し、失敗が続くと介入します。エージェント自体はサブエージェントモデルで動作します。",
+      "advisorEnableDescription": "このエージェントでアドバイザーモードを使えるようにする（実験的）。",
+      "advisorModels": "アドバイザー：{{advisor}} · ワーカー：{{worker}}",
+      "advisorEnableHelp": "会話は引き続きデフォルトループで始まります。オンにするとチャット入力の Loop モードメニューに「アドバイザー」が現れ、/advisor コマンドが使えます。会話ごとに選んで有効にします。チャネルや cron のプロンプトでは /advisor on を送ります。",
+      "advisorModelsTitle": "アドバイザーとワーカーのモデル",
+      "advisorModelsHelp": "デフォルトではアドバイザーはエージェントのメインモデルを、ワーカー（エージェント自身）はサブエージェントモデルを使います。どちらもチャットのモデルセレクターで設定し、サブエージェントモデルはその中の「エージェントモデルルーティング」にあります。どちらかの役割を別のモデルに固定するには、Loop モードメニューまたはその隣のモデルピルから「アドバイザーモデル」パネルを開きます。",
+      "advisorSameAsAdvisor": "アドバイザーと同じ",
+      "advisorThinking": "アドバイザーの思考",
+      "advisorThinkingTooltip": "アドバイザー自身の呼び出しの思考レベル。オフにすると計画が最も速く出ます。「モデルのデフォルト」はエージェントとモデルの設定に従います。",
+      "advisorPlanTitle": "開始時の計画",
+      "advisorPlanDescription": "エージェントの最初のステップの前に、アドバイザーが計画を書きます。",
+      "advisorPlanHelp": "計画は consult_advisor の呼び出しと結果としてエージェントのコンテキストに注入され、書かれている途中からチャットに表示されます。",
+      "advisorFollowupTitle": "実行中の自動介入",
+      "advisorFollowupDescription": "QwenPaw がツール結果を監視し、エージェントが失敗し続けるとアドバイザーを呼びます。",
+      "advisorFollowupHelp": "連続失敗、または直近ウィンドウ内の失敗が下の設定回数に達すると発動し、1 回の実行につき設定回数までです。介入のたびにカウンターはリセットされます。アドバイザーは CONTINUE か、修正計画付きの ADJUST で答えます。",
+      "advisorOnDemandTitle": "オンデマンド相談",
+      "advisorOnDemandDescription": "エージェントが consult_advisor ツールで自らアドバイザーに質問できます。",
+      "advisorOnDemandHelp": "ツールはエージェントに、本当の判断ポイントでのみ質問するよう指示します。下の上限を超えると短い通知を返し、エージェントは続行します。",
+      "advisorMaxConsults": "会話あたりの最大相談回数",
+      "advisorMaxConsultsTooltip": "エージェント自身の consult_advisor 呼び出しのみを数えます。開始時の計画と自動介入は含まれません。",
+      "advisorIntervention": {
+        "consecutive_failures": "連続失敗回数",
+        "consecutive_failuresTooltip": "アドバイザーに相談するまでのツール呼び出しの連続失敗回数。",
+        "window_failures": "ウィンドウ内の失敗回数",
+        "window_failuresTooltip": "アドバイザーに相談するまでのウィンドウ内のツール呼び出し失敗回数。",
+        "window_size": "ウィンドウサイズ（ステップ）",
+        "window_sizeTooltip": "失敗ウィンドウが対象とする直近のツール呼び出し数。",
+        "max_interventions": "実行あたりの最大介入回数",
+        "max_interventionsTooltip": "1 回の実行で許可される自動介入の回数。0 で無効。",
+        "cooldown_steps": "クールダウン（ステップ）",
+        "cooldown_stepsTooltip": "介入後、次の発動までに待つツール呼び出し数。"
+      }
     },
     "doomLoopEnabled": "繰り返し行動保護",
     "doomLoopEnabledTooltip": "エージェントが同じ操作を繰り返している場合に自動的に介入します",
@@ -2865,6 +2922,8 @@
       "strictDesc": "すべてのツール呼び出しと外部ファイルへのアクセス前に承認が必要です",
       "smart": "スマートモード",
       "smartDesc": "低リスクのツール呼び出しと外部ファイルアクセスは自動実行され、中〜高リスクの操作には承認が必要です",
+      "jev": "判断モデルモード",
+      "jevRequiresDecision": "先に判断モデルを有効にしてください",
       "auto": "自動モード",
       "autoDesc": "ツールとファイルの承認ルールに一致する操作のみ承認が必要です（デフォルト）",
       "off": "オフモード",
@@ -2910,6 +2969,8 @@
     "webSearchApiKeyLabel": "APIキー（任意）",
     "webSearchQuotaHintBefore": "未登録時は1日100回まで。",
     "webSearchQuotaHintAfter": "で登録すると1日1,000回無料に。",
+    "webSearchTavilyKeyHintBefore": "任意。未設定または認証に失敗した場合は無料検索を使用します。キーは ",
+    "webSearchTavilyKeyHintAfter": " で取得。",
     "active": "個が有効",
     "available": "利用可能",
     "noEnabled": "有効なツールはありません",
@@ -3061,7 +3122,8 @@
       "runtime": "実行と自動化",
       "migration": "アプリの移行",
       "other": "未分類"
-    }
+    },
+    "webSearchConfigLoadError": "このプロバイダーの認証情報を読み込めませんでした。保存前に再試行してください。"
   },
   "modelConfig": {
     "promptTitle": "LLMモデルが必要です — 設定後にChatページで選択",
@@ -3239,7 +3301,9 @@
       "asFile": "ファイルとして添付",
       "characters": "{{count}} 文字"
     },
-    "historyLoadFailed": "会話を読み込めませんでした。もう一度開いてください。",
+    "historyLoadFailed": "会話を読み込めませんでした。再試行してください。",
+    "routeNotFound": "この会話は利用できないか、削除されています。",
+    "routeAmbiguous": "このリンクは複数の会話に一致します。サイドバーから会話を開いてください。",
     "newTask": "新しいタスク",
     "newChat": "新しいチャット",
     "groups": {
@@ -4956,7 +5020,21 @@
       "mission": {
         "name": "ミッション",
         "description": "構造化された複数ステップのタスクを継続的に実行します。"
+      },
+      "advisor": {
+        "name": "アドバイザー",
+        "description": "強いモデルに計画と介入を任せ、安いモデルに作業させます。"
       }
+    },
+    "advisorSetup": {
+      "title": "アドバイザーのモデル",
+      "hint": "デフォルトはエージェントのメインモデル（アドバイザー）とサブエージェントモデル（ワーカー）に従います。ここでの選択はこのエージェントに保存されます。",
+      "advisorModel": "アドバイザーモデル",
+      "workerModel": "ワーカーモデル",
+      "subagentDefault": "{{model}} · デフォルト：サブエージェントモデル",
+      "noSubagent": "アドバイザーと同じ · デフォルト：サブエージェントモデル未設定",
+      "pairTooltip": "この会話のアドバイザー → ワーカーのモデル",
+      "primaryModelDefault": "{{model}} · デフォルト：メインモデル"
     }
   },
   "runtimeDesign": {

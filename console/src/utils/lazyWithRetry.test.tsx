@@ -4,9 +4,10 @@
  * navigation on a flaky network or hide plugin module patches.
  *
  */
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render } from "@testing-library/react";
-import React, { Suspense } from "react";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { act, cleanup, render, screen } from "@testing-library/react";
+import React from "react";
+import { ChunkRecoverySuspense } from "../components/ChunkRecoverySuspense";
 
 const registryMock = vi.hoisted(() => ({
   get: vi.fn(),
@@ -22,13 +23,14 @@ vi.mock("../pages/Settings/Debug", () => ({
 }));
 
 import { lazyWithRetry, lazyImportWithRetry } from "./lazyWithRetry";
+import { getFrontendBuildId } from "./chunkRecovery";
 
 const Dummy = () => React.createElement("div", null, "loaded-page");
 
 function renderLazy(Comp: React.ComponentType<unknown>) {
   return render(
     React.createElement(
-      Suspense,
+      ChunkRecoverySuspense,
       { fallback: React.createElement("div", null, "loading...") },
       React.createElement(Comp),
     ),
@@ -129,4 +131,42 @@ describe("lazyImportWithRetry", () => {
       findByText("glob-patched", {}, { timeout: 6000 }),
     ).resolves.toBeTruthy();
   }, 15000);
+});
+
+describe("reload allowance after a healthy page", () => {
+  const reloadKey = "qwenpaw:chunk-reload-build";
+
+  beforeEach(() => {
+    registryMock.get.mockReset().mockReturnValue(undefined);
+    sessionStorage.clear();
+    vi.useFakeTimers();
+    vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it("restores the allowance only after 60 seconds of committed content", async () => {
+    const guard = JSON.stringify({
+      build: getFrontendBuildId(),
+      attempts: 2,
+    });
+    sessionStorage.setItem(reloadKey, guard);
+    const Page = lazyWithRetry(() => Promise.resolve({ default: Dummy }));
+    await act(async () => {
+      renderLazy(Page);
+    });
+    expect(screen.getByText("loaded-page")).toBeVisible();
+    await act(async () => {
+      vi.advanceTimersByTime(59_999);
+    });
+    expect(sessionStorage.getItem(reloadKey)).toBe(guard);
+    await act(async () => {
+      vi.advanceTimersByTime(1);
+    });
+    expect(sessionStorage.getItem(reloadKey)).toBeNull();
+  });
 });

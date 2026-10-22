@@ -106,6 +106,13 @@
       height: var(--app-icon-default);
     }
 
+    // The SDK stop square occupies only a quarter of its SVG canvas.
+    [class$="-sender-actions-btn-loading-icon"] rect {
+      transform-box: fill-box;
+      transform-origin: center;
+      transform: scale(2);
+    }
+
     [class$="-sender-prefix"] button [data-spark-icon],
     [class$="-sender-actions-list"] button [data-spark-icon],
     [class$="-sender-actions-btn"] [data-spark-icon] {
@@ -213,6 +220,25 @@
 
 .senderApprovalControl {
   flex: 0 0 auto !important;
+}
+
+@media (min-width: 1000px) {
+  .chatMessagesArea.advisorComposer :global {
+    [class$="-sender-content-bottom"] {
+      flex-wrap: nowrap;
+    }
+
+    [class$="-sender-prefix"] {
+      flex: 1 1 0;
+      overflow-x: auto;
+      overflow-y: hidden;
+      scrollbar-width: none;
+
+      &::-webkit-scrollbar {
+        display: none;
+      }
+    }
+  }
 }
 
 @media (max-width: 1024px) {

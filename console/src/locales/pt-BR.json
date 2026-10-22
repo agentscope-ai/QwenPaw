@@ -35,6 +35,12 @@
     "paste": "Colar",
     "yes": "Sim",
     "no": "Nao",
+    "done": "Concluir",
+    "autoSaveFailed": "Não foi possível salvar as alterações",
+    "discardChangesTitle": "Descartar alterações não salvas?",
+    "discardChangesContent": "Algumas alterações não puderam ser salvas. Você pode continuar editando ou descartar as alterações não salvas e fechar.",
+    "discardAndClose": "Descartar e fechar",
+    "keepEditing": "Continuar editando",
     "configure": "Configurar",
     "all": "Todos",
     "decrease": "Diminuir",
@@ -80,6 +86,10 @@
     "copied": "Informações do erro copiadas",
     "copyFailed": "Não foi possível copiar. Expanda os detalhes e copie manualmente.",
     "checking": "Verificando novamente o recurso que não pôde ser carregado…",
+    "serverReadiness": {
+      "checking": "Aguardando o serviço local e os recursos da página ficarem disponíveis…",
+      "timeout": "O serviço local ou os recursos da página ainda estão indisponíveis. Tente recarregar novamente em breve."
+    },
     "recheckNote": "originalError é a exceção inicial; recheck é uma verificação posterior do recurso, não a resposta original. Valores desconhecidos permanecem null. Essa verificação não permite distinguir falhas de DNS, TLS, CORS ou proxy.",
     "observations": {
       "missing": "Nova verificação do recurso: o recurso não existe no momento (404).",
@@ -2018,6 +2028,7 @@
     "emptyValue": "String vazia"
   },
   "modelSelector": {
+    "noFallback": "Não usar",
     "selectModel": "Selecionar Modelo",
     "noConfiguredModels": "Nenhum modelo configurado",
     "noFreeModels": "Nenhum modelo gratuito disponível",
@@ -2129,8 +2140,10 @@
     "providersTitle": "Providers",
     "providersDescription": "Configure API keys and endpoints for each provider.",
     "llmTitle": "Modelos",
+    "defaultModels": "Modelos padrão",
+    "defaultChatModel": "Modelo de conversa",
+    "defaultDecisionModel": "Modelo de decisão",
     "defaultLlm": "Padrao LLM",
-    "llmDescription": "Set the global default LLM model from an authorized provider. You can choose a specific model for each Agent in the Chat page.",
     "configureProvider": "Configure {{name}}",
     "baseURL": "URL Base",
     "apiKey": "Chave da API",
@@ -2546,6 +2559,11 @@
     "noSystemPromptCandidates": "Nenhum arquivo correspondente está disponível.",
     "sourceControl": "Controle de código-fonte",
     "preview": "Preview",
+    "htmlPreview": "Prévia de HTML",
+    "htmlReadOnlyTitle": "Esta página contém conteúdo dinâmico",
+    "htmlReadOnlyNotice": "O conteúdo dinâmico não pode ser exibido nesta prévia somente leitura. Abra o arquivo no navegador para acessar todos os recursos.",
+    "htmlReadOnlyNotice_fallback": "Clique no botão abaixo para abrir a página no navegador e ter a experiência completa.",
+    "openHtmlInBrowser": "Abrir no navegador",
     "edit": "Editar",
     "selectFile": "Selecione um arquivo para abrir",
     "closeTab": "Fechar aba",
@@ -2685,6 +2703,8 @@
       "defaultTab": "Padrão",
       "goalTab": "Meta",
       "missionTab": "Missão",
+      "advisorTab": "Conselheiro",
+      "advisorPipeline": "Pipeline do conselheiro",
       "defaultDescription": "Loop ReAct protegido padrão usado fora de um modo explícito.",
       "goalDescription": "Loop persistente e limitado para metas verificáveis.",
       "missionDescription": "Pipeline persistente para missões longas e com várias etapas.",
@@ -2805,7 +2825,40 @@
       "safeTemplate": "Execução segura",
       "researchTemplate": "Pesquisa com orçamento",
       "qualityTemplate": "Qualidade primeiro",
-      "blankTemplate": "Pipeline vazio"
+      "blankTemplate": "Pipeline vazio",
+      "advisor": "Modo Conselheiro",
+      "advisorDescription": "O modelo principal escreve um plano antes de o agente começar e intervém quando ele continua falhando. O agente em si roda no modelo de subagente.",
+      "advisorEnableDescription": "Disponibilizar o Modo Conselheiro para este agente (experimental).",
+      "advisorModels": "Conselheiro: {{advisor}} · Trabalhador: {{worker}}",
+      "advisorEnableHelp": "As conversas continuam começando no loop padrão. Com isto ligado, Conselheiro aparece no menu de modo Loop da entrada do chat e o comando /advisor fica disponível. Cada conversa entra ao escolhê-lo. Em canais e prompts de cron, envie /advisor on.",
+      "advisorModelsTitle": "Modelos do conselheiro e do trabalhador",
+      "advisorModelsHelp": "Por padrão o conselheiro usa o modelo principal do agente e o trabalhador (o próprio agente) roda no modelo de subagente. Ambos são definidos no seletor de modelo do chat, o modelo de subagente em Roteamento de modelo do agente. Para fixar qualquer papel em outro modelo, abra o painel Modelos do conselheiro no menu de modo Loop ou na pílula de modelo ao lado.",
+      "advisorSameAsAdvisor": "igual ao conselheiro",
+      "advisorThinking": "Raciocínio do conselheiro",
+      "advisorThinkingTooltip": "Nível de raciocínio das chamadas do próprio conselheiro. Desligado mantém o plano rápido. Padrão do modelo segue as configurações do agente e do modelo.",
+      "advisorPlanTitle": "Plano inicial",
+      "advisorPlanDescription": "O conselheiro escreve um plano antes do primeiro passo do agente.",
+      "advisorPlanHelp": "O plano é injetado no contexto do agente como uma chamada e resultado de consult_advisor, e aparece no chat enquanto está sendo escrito.",
+      "advisorFollowupTitle": "Intervenção automática no meio da execução",
+      "advisorFollowupDescription": "O QwenPaw observa os resultados das ferramentas e chama o conselheiro quando o agente continua falhando.",
+      "advisorFollowupHelp": "Dispara quando as falhas seguidas, ou as falhas dentro da janela recente, atingem os limites abaixo, no máximo um número definido de vezes por execução. Os contadores zeram após cada intervenção. O conselheiro responde CONTINUE, ou ADJUST com um plano revisado.",
+      "advisorOnDemandTitle": "Consulta sob demanda",
+      "advisorOnDemandDescription": "O agente pode perguntar ao conselheiro por conta própria pela ferramenta consult_advisor.",
+      "advisorOnDemandHelp": "A ferramenta orienta o agente a perguntar apenas em um ponto de decisão real. Acima do limite abaixo ela responde com um aviso curto e o agente segue em frente.",
+      "advisorMaxConsults": "Máximo de consultas por conversa",
+      "advisorMaxConsultsTooltip": "Conta apenas as chamadas consult_advisor do próprio agente. O plano inicial e as intervenções automáticas não contam.",
+      "advisorIntervention": {
+        "consecutive_failures": "Falhas seguidas",
+        "consecutive_failuresTooltip": "Chamadas de ferramenta falhas seguidas antes de o conselheiro ser consultado.",
+        "window_failures": "Falhas na janela",
+        "window_failuresTooltip": "Chamadas de ferramenta falhas dentro da janela antes de o conselheiro ser consultado.",
+        "window_size": "Tamanho da janela (passos)",
+        "window_sizeTooltip": "Quantas chamadas de ferramenta recentes a janela de falhas abrange.",
+        "max_interventions": "Máximo de intervenções por execução",
+        "max_interventionsTooltip": "Intervenções automáticas permitidas em uma execução. 0 desativa.",
+        "cooldown_steps": "Resfriamento (passos)",
+        "cooldown_stepsTooltip": "Chamadas de ferramenta a esperar após uma intervenção antes da próxima poder disparar."
+      }
     },
     "doomLoopEnabled": "Proteção contra Repetição",
     "doomLoopEnabledTooltip": "Intervir automaticamente quando o agente fica preso repetindo as mesmas ações",
@@ -3169,6 +3222,8 @@
     "webSearchApiKeyLabel": "Chave de API (opcional)",
     "webSearchQuotaHintBefore": "Grátis: 100 chamadas/dia. Registre-se em ",
     "webSearchQuotaHintAfter": " para 1.000/dia.",
+    "webSearchTavilyKeyHintBefore": "Opcional. Se não configurado ou se a autenticação falhar, a busca gratuita será usada. Obtenha uma chave em ",
+    "webSearchTavilyKeyHintAfter": ".",
     "active": "ativo(s)",
     "available": "Disponível",
     "noEnabled": "Nenhuma ferramenta ativada",
@@ -3320,7 +3375,8 @@
       "runtime": "Execução e automação",
       "migration": "Migração de aplicativos",
       "other": "Sem categoria"
-    }
+    },
+    "webSearchConfigLoadError": "Falha ao carregar as credenciais deste provedor. Tente novamente antes de salvar."
   },
   "modelConfig": {
     "promptTitle": "LLM Model Required — Select in Chat After Configuration",
@@ -3498,7 +3554,9 @@
       "asFile": "Anexar como arquivo",
       "characters": "{{count}} caracteres"
     },
-    "historyLoadFailed": "Não foi possível carregar a conversa. Abra-a novamente.",
+    "historyLoadFailed": "Não foi possível carregar a conversa. Tente novamente.",
+    "routeNotFound": "Esta conversa não está disponível ou foi excluída.",
+    "routeAmbiguous": "Este link corresponde a mais de uma conversa. Abra uma conversa na barra lateral.",
     "newTask": "Nova tarefa",
     "newChat": "Novo chat",
     "groups": {
@@ -5014,7 +5072,21 @@
       "mission": {
         "name": "Missão",
         "description": "Execute uma tarefa estruturada e persistente em várias etapas."
+      },
+      "advisor": {
+        "name": "Conselheiro",
+        "description": "Deixe um modelo mais forte planejar e intervir enquanto um mais barato faz o trabalho."
       }
+    },
+    "advisorSetup": {
+      "title": "Modelos do conselheiro",
+      "hint": "Os padrões seguem o modelo principal do agente (conselheiro) e o modelo de subagente (trabalhador). A escolha aqui é salva para este agente.",
+      "advisorModel": "Modelo do conselheiro",
+      "workerModel": "Modelo do trabalhador",
+      "subagentDefault": "{{model}} · padrão: modelo de subagente",
+      "noSubagent": "Igual ao conselheiro · padrão: sem modelo de subagente",
+      "pairTooltip": "Modelos conselheiro → trabalhador desta conversa",
+      "primaryModelDefault": "{{model}} · padrão: modelo principal"
     }
   },
   "runtimeDesign": {
