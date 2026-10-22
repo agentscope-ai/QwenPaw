@@ -11,7 +11,8 @@ import { animate } from "motion/mini";
 import { invoke } from "@tauri-apps/api/core";
 import { Moon, Sun, Power, RotateCw, CircleAlert } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { useTheme } from "../contexts/ThemeContext";
+import { ThemeProvider, useTheme } from "../contexts/ThemeContext";
+import CloseWindowPrompt from "./CloseWindowPrompt";
 import {
   connectAgentHost,
   initialHostState,
@@ -86,10 +87,26 @@ function LoadingAvatar({ active }: { active: boolean }) {
 }
 
 export default function DesktopClient() {
+  const [connected, setConnected] = useState(false);
+
+  return (
+    <ThemeProvider syncRemote={connected}>
+      <CloseWindowPrompt />
+      <DesktopContent connected={connected} setConnected={setConnected} />
+    </ThemeProvider>
+  );
+}
+
+function DesktopContent({
+  connected,
+  setConnected,
+}: {
+  connected: boolean;
+  setConnected: (connected: boolean) => void;
+}) {
   const { t } = useTranslation();
   const { isDark, toggleTheme } = useTheme();
   const [host, setHost] = useState(initialHostState);
-  const [connected, setConnected] = useState(false);
   const [error, setError] = useState("");
   const [restarting, setRestarting] = useState(false);
   const [subscription, setSubscription] = useState(0);
@@ -114,7 +131,7 @@ export default function DesktopClient() {
       disposed = true;
       disconnect?.();
     };
-  }, [subscription]);
+  }, [subscription, setConnected]);
 
   useEffect(() => {
     let preload = 0;

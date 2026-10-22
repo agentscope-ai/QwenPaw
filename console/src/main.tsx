@@ -1,6 +1,7 @@
 import { createRoot } from "react-dom/client";
 import App from "./ConsoleApp";
 import { i18nReady } from "./i18n";
+import { ThemeProvider } from "./contexts/ThemeContext";
 
 const INITIAL_RENDER_TIMEOUT_MS = 3000;
 
@@ -55,5 +56,9 @@ const i18nSettled = Promise.race([
 ]);
 
 void i18nSettled.then(() => {
-  createRoot(document.getElementById("root")!).render(<App />);
+  createRoot(document.getElementById("root")!).render(
+    <ThemeProvider>
+      <App />
+    </ThemeProvider>,
+  );
 });

@@ -33,7 +33,7 @@ import "dayjs/locale/ru";
 import "dayjs/locale/id";
 dayjs.extend(relativeTime);
 import MainLayout from "./layouts/MainLayout";
-import { ThemeProvider, useTheme } from "./contexts/ThemeContext";
+import { useTheme } from "./contexts/ThemeContext";
 import { FontSizeProvider } from "./contexts/FontSizeContext";
 import { PluginProvider } from "./plugins/PluginContext";
 import { ApprovalProvider } from "./contexts/ApprovalContext";
@@ -593,18 +593,6 @@ function AppInner({
 
 function App({
   loadingFallback = null,
-}: {
-  loadingFallback?: React.ReactNode;
-}) {
-  return (
-    <ThemeProvider>
-      <BackendModeRouter loadingFallback={loadingFallback} />
-    </ThemeProvider>
-  );
-}
-
-function BackendModeRouter({
-  loadingFallback,
 }: {
   loadingFallback?: React.ReactNode;
 }) {
