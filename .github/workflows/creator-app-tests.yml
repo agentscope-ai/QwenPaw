@@ -47,9 +47,12 @@ jobs:
           python-version: "3.11"
           cache: "pip"
 
+      - name: Secure Python certificate dependencies
+        shell: bash
+        run: python src/qwenpaw/security/tls_bootstrap.py
+
       - name: Install dependencies
         run: |
-          python -m pip install --upgrade pip
           # Host package supplies the shared framework deps (fastapi, httpx,
           # pydantic, agentscope, ...); the plugin requirements add the
           # Creator-specific extras (oss2, imageio-ffmpeg).

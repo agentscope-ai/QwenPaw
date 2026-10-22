@@ -133,10 +133,13 @@ jobs:
           python-version: ${{ matrix.python-version }}
           cache: 'pip'
 
+      - name: Secure Python certificate dependencies
+        shell: bash
+        run: python src/qwenpaw/security/tls_bootstrap.py
+
       - name: Install dependencies
         shell: bash
         run: |
-          python -m pip install --upgrade pip
           pip install -e ".[dev,test,full]"
 
       - name: Run unit tests
@@ -197,10 +200,13 @@ jobs:
           python-version: ${{ matrix.python-version }}
           cache: 'pip'
 
+      - name: Secure Python certificate dependencies
+        shell: bash
+        run: python src/qwenpaw/security/tls_bootstrap.py
+
       - name: Install dependencies
         shell: bash
         run: |
-          python -m pip install --upgrade pip
           pip install -e ".[dev,test,full]"
 
       - name: Check channel contract coverage
@@ -277,10 +283,13 @@ jobs:
           python-version: ${{ matrix.python-version }}
           cache: 'pip'
 
+      - name: Secure Python certificate dependencies
+        shell: bash
+        run: python src/qwenpaw/security/tls_bootstrap.py
+
       - name: Install dependencies
         shell: bash
         run: |
-          python -m pip install --upgrade pip
           # The macOS runner ships setuptools 65.5.0, which pip's resolver
           # upgrades to the latest release (84.x) while backtracking the
           # dependency graph. setuptools >= 82 no longer ships

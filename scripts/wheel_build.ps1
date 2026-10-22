@@ -36,6 +36,8 @@ New-Item -ItemType Directory -Force -Path $DocsDest | Out-Null
 Copy-Item -Path (Join-Path $DocsSrc "*.md") -Destination $DocsDest -Force
 
 Write-Host "[wheel_build] Building wheel + sdist..."
+python src/qwenpaw/security/tls_bootstrap.py
+if ($LASTEXITCODE -ne 0) { throw "TLS bootstrap failed" }
 python -m pip install --quiet build
 $DistDir = Join-Path $RepoRoot "dist"
 if (Test-Path $DistDir) {

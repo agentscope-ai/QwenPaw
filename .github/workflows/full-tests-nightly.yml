@@ -115,10 +115,13 @@ jobs:
           python-version: ${{ matrix.python-version }}
           cache: 'pip'
 
+      - name: Secure Python certificate dependencies
+        shell: bash
+        run: python src/qwenpaw/security/tls_bootstrap.py
+
       - name: Install dependencies
         shell: bash
         run: |
-          python -m pip install --upgrade pip
           # Pin setuptools <82 on EVERY platform. setuptools >= 82 removes
           # pkg_resources entirely, and lark-oapi's namespace packages still
           # call pkg_resources.declare_namespace at import time. On a fresh
@@ -212,10 +215,13 @@ jobs:
           python-version: ${{ matrix.python-version }}
           cache: 'pip'
 
+      - name: Secure Python certificate dependencies
+        shell: bash
+        run: python src/qwenpaw/security/tls_bootstrap.py
+
       - name: Install dependencies
         shell: bash
         run: |
-          python -m pip install --upgrade pip
           # Pin setuptools <82 on EVERY platform. setuptools >= 82 removes
           # pkg_resources entirely, and lark-oapi's namespace packages still
           # call pkg_resources.declare_namespace at import time. On a fresh
@@ -307,10 +313,13 @@ jobs:
           python-version: ${{ matrix.python-version }}
           cache: 'pip'
 
+      - name: Secure Python certificate dependencies
+        shell: bash
+        run: python src/qwenpaw/security/tls_bootstrap.py
+
       - name: Install dependencies
         shell: bash
         run: |
-          python -m pip install --upgrade pip
           # Pin setuptools <82 on EVERY platform. setuptools >= 82 removes
           # pkg_resources entirely, and lark-oapi's namespace packages still
           # call pkg_resources.declare_namespace at import time. On a fresh
@@ -578,10 +587,13 @@ jobs:
           python-version: "3.12"
           cache: 'pip'
 
+      - name: Secure Python certificate dependencies
+        shell: bash
+        run: python src/qwenpaw/security/tls_bootstrap.py
+
       - name: Install coverage tool
         shell: bash
         run: |
-          python -m pip install --upgrade pip
           # Only the coverage tool is needed for combine / report; no need
           # to install the full project (the per-tier .coverage data files
           # arrive via download-artifact below).

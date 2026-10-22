@@ -27,6 +27,7 @@ mkdir -p "$DOCS_DEST"
 cp "$DOCS_SRC/"*.md "$DOCS_DEST/"
 
 echo "[wheel_build] Building wheel + sdist..."
+python3 src/qwenpaw/security/tls_bootstrap.py
 python3 -m pip install --quiet build
 rm -rf dist/*
 python3 -m build --outdir dist .

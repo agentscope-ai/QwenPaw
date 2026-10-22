@@ -138,6 +138,12 @@ def main() -> int:
                 "-y",
             ],
         )
+        _run(
+            [
+                conda, "run", "-n", env_name, "python",
+                str(REPO_ROOT / "src/qwenpaw/security/tls_bootstrap.py"),
+            ],
+        )
         # Install qwenpaw with all dependencies
         # Scope CMAKE_ARGS to this specific command to avoid affecting other
         # CMake-based packages. Only set if we need to compile from source.
@@ -157,7 +163,7 @@ def main() -> int:
             ],
             env=install_env,
         )
-        print("Verifying certifi is installed (required for SSL)...")
+        print("Verifying TLS dependency versions before packaging...")
         _run(
             [
                 conda,
@@ -165,8 +171,8 @@ def main() -> int:
                 "-n",
                 env_name,
                 "python",
-                "-c",
-                "import certifi; print(f'certifi OK: {certifi.where()}')",
+                str(REPO_ROOT / "src/qwenpaw/security/tls_bootstrap.py"),
+                "--check",
             ],
         )
         if args.cache_wheels:

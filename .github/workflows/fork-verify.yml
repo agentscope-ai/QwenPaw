@@ -26,6 +26,10 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Secure Python certificate dependencies
+        shell: bash
+        run: python src/qwenpaw/security/tls_bootstrap.py
+
       - name: Set up Node (for console build)
         uses: actions/setup-node@v4
         with:
@@ -51,7 +55,6 @@ jobs:
 
       - name: Install build dependencies
         run: |
-          python -m pip install --upgrade pip
           pip install setuptools wheel build
 
       - name: Build package
@@ -80,4 +83,4 @@ jobs:
       verify_docker: true
       verify_script_install: true
       docker_node_image: "node:20-slim"
-      docker_uv_image: "ghcr.io/astral-sh/uv:latest"
+      docker_uv_image: "ghcr.io/astral-sh/uv:0.13.4"

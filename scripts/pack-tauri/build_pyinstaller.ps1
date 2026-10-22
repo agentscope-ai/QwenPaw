@@ -60,6 +60,14 @@ if (-not $BOOTSTRAP_PYTHON -or -not (Test-Path $BOOTSTRAP_PYTHON)) {
 }
 
 New-Item -ItemType Directory -Force -Path $BINARIES_DIR | Out-Null
+$TLS_BOOTSTRAP = Join-Path $REPO_ROOT "src\qwenpaw\security\tls_bootstrap.py"
+# The PATH interpreter only downloads the runtime; do not mutate system pip.
+& $BOOTSTRAP_PYTHON $TLS_BOOTSTRAP --system-certs
+Assert-LastExit "Bootstrap Python CA store requires an update"
+if ($UV_BIN) {
+    & $BOOTSTRAP_PYTHON $TLS_BOOTSTRAP --uv $UV_BIN
+    Assert-LastExit "uv >= 0.13.4 is required"
+}
 
 # The staged python-build-standalone runtime is the canonical source for both
 # the helper interpreter and the PyInstaller build environment. The PATH
@@ -74,8 +82,12 @@ if (-not (Test-Path $NATIVE_HOST_PYTHON -PathType Leaf)) {
 }
 
 Write-Host "== Creating PyInstaller build environment ==" -ForegroundColor Yellow
+& $NATIVE_HOST_PYTHON $TLS_BOOTSTRAP
+Assert-LastExit "Failed to secure bundled Python"
 & $NATIVE_HOST_PYTHON -m venv --clear $BUILD_VENV
 Assert-LastExit "Failed to create PyInstaller environment from bundled Python"
+& $PYTHON_BIN $TLS_BOOTSTRAP
+Assert-LastExit "Failed to secure PyInstaller environment"
 
 $pythonVersion = & $PYTHON_BIN --version
 Write-Host "Python: $pythonVersion" -ForegroundColor Green
@@ -151,6 +163,8 @@ Write-Host "== Installing project dependencies ==" -ForegroundColor Yellow
 # raises an AttributeError the fallback does not catch — crashing the Feishu
 # channel. The pin keeps every environment in the known-good state.
 Install-PythonPackages -Packages @("-e", ".[full]", "setuptools<82")
+& $PYTHON_BIN $TLS_BOOTSTRAP --check
+Assert-LastExit "PyInstaller environment TLS verification failed"
 Write-Host "Project dependencies installed with full extras" -ForegroundColor Green
 
 # Fix agent-client-protocol namespace collision
@@ -237,6 +251,10 @@ Assert-LastExit "Failed to install Chrome Native Messaging host dependencies"
     (Join-Path $REPO_ROOT "plugins\bundle\chrome\assets\scripts\nm_host.py") `
     --check-runtime
 Assert-LastExit "Bundled Python runtime cannot run the Native Messaging host"
+& $NATIVE_HOST_PYTHON $TLS_BOOTSTRAP --check
+Assert-LastExit "Bundled Python TLS verification failed"
+& $PYTHON_BIN $TLS_BOOTSTRAP --check
+Assert-LastExit "PyInstaller environment TLS verification failed"
 Write-Host ""
 
 Write-Host "== Staging bundled Node runtime ==" -ForegroundColor Yellow

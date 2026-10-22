@@ -57,6 +57,10 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Secure Python certificate dependencies
+        shell: bash
+        run: python src/qwenpaw/security/tls_bootstrap.py
+
       - name: Install dependencies
         run: pip install pyyaml requests
 

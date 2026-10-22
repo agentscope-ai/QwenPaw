@@ -54,6 +54,10 @@ jobs:
         with:
           python-version: '3.12'
 
+      - name: Secure Python certificate dependencies
+        shell: bash
+        run: python src/qwenpaw/security/tls_bootstrap.py
+
       - name: Cache pip
         uses: actions/cache@v4
         with:

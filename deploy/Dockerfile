@@ -1,6 +1,6 @@
 # Base images — override with --build-arg for environments without ACR access.
 ARG NODE_IMAGE=agentscope-registry.ap-southeast-1.cr.aliyuncs.com/agentscope/node:slim
-ARG UV_IMAGE=agentscope-registry.ap-southeast-1.cr.aliyuncs.com/agentscope/uv:latest
+ARG UV_IMAGE=agentscope-registry.ap-southeast-1.cr.aliyuncs.com/agentscope/uv:0.13.4
 
 # -----------------------------------------------------------------------------
 # Stage 1: build console frontend (dist not committed in repo).
@@ -39,9 +39,9 @@ ENV QWENPAW_ENABLED_CHANNELS=${QWENPAW_ENABLED_CHANNELS}
 ARG DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update && apt-get install -y --fix-missing \
+    ca-certificates \
     curl  \
     python3  \
-    python3-pip  \
     python3-venv \
     build-essential  \
     libssl-dev  \
@@ -55,6 +55,7 @@ RUN apt-get update && apt-get install -y --fix-missing \
     dbus-x11 \
     fonts-wqy-zenhei \
     fonts-wqy-microhei \
+  && update-ca-certificates \
   && rm -rf /var/lib/apt/lists/* \
   && apt-get clean
 
@@ -92,10 +93,14 @@ ENV QWENPAW_RUNNING_IN_CONTAINER=1
 WORKDIR ${WORKSPACE_DIR}
 
 # Keep Debian's Python for system services; use the desktop runtime for QwenPaw.
+COPY src/qwenpaw/security/tls_bootstrap.py /opt/qwenpaw-tls-bootstrap.py
+RUN python3 /opt/qwenpaw-tls-bootstrap.py --system-certs
 COPY scripts/pack-tauri/stage_python_runtime.py /tmp/stage_python_runtime.py
 RUN python3 /tmp/stage_python_runtime.py \
     --dest /opt/qwenpaw-python --python-version 3.11 \
+  && /opt/qwenpaw-python/python/bin/python3 /opt/qwenpaw-tls-bootstrap.py \
   && /opt/qwenpaw-python/python/bin/python3 -m venv /app/venv \
+  && /app/venv/bin/python /opt/qwenpaw-tls-bootstrap.py \
   && rm /tmp/stage_python_runtime.py
 ENV PATH="/app/venv/bin:$PATH"
 
@@ -108,6 +113,7 @@ COPY website/public/docs/ ./src/qwenpaw/docs/
 COPY --from=console-builder /app/console/dist/ ./src/qwenpaw/console/
 # Speed up Python package installation with uv.
 COPY --from=uv-src /uv /bin/uv
+RUN python /opt/qwenpaw-tls-bootstrap.py --uv /bin/uv
 # Pin setuptools <82: lark-oapi still calls pkg_resources.declare_namespace
 # at import time. A *fresh* install of setuptools >= 82 removes pkg_resources
 # wholesale, so lark-oapi's except-ImportError fallback (pkgutil.extend_path)
@@ -118,7 +124,9 @@ COPY --from=uv-src /uv /bin/uv
 # raises an AttributeError the fallback does not catch — crashing the Feishu
 # channel. The pin keeps every environment in the known-good state.
 RUN uv pip install --python /app/venv/bin/python \
-    --no-cache-dir . "setuptools<82" && rm -rf ./build
+    --no-cache-dir . "setuptools<82" \
+  && python /opt/qwenpaw-tls-bootstrap.py --check \
+  && rm -rf ./build
 
 
 # QwenPaw app port (default 8088). Override at runtime with -e QWENPAW_PORT=3000.

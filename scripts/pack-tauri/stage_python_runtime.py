@@ -33,7 +33,7 @@ RELEASES_API_BASE = (
     "https://api.github.com/repos/astral-sh/"
     "python-build-standalone/releases"
 )
-DEFAULT_RELEASE = "20260623"
+DEFAULT_RELEASE = "20261021"
 RELEASE_ENV = "QWENPAW_PYTHON_BUILD_STANDALONE_RELEASE"
 HTTP_ATTEMPTS = 4
 HTTP_TIMEOUT_SECONDS = 120

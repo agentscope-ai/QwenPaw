@@ -43,6 +43,12 @@ else
 fi
 
 mkdir -p "${BINARIES_DIR}"
+TLS_BOOTSTRAP="${REPO_ROOT}/src/qwenpaw/security/tls_bootstrap.py"
+# The PATH interpreter only downloads the runtime; do not mutate system pip.
+"$BOOTSTRAP_PYTHON" "$TLS_BOOTSTRAP" --system-certs
+if command -v uv >/dev/null 2>&1; then
+    "$BOOTSTRAP_PYTHON" "$TLS_BOOTSTRAP" --uv "$(command -v uv)"
+fi
 
 # The staged python-build-standalone runtime is the canonical source for both
 # the helper interpreter and the PyInstaller build environment. The PATH
@@ -56,7 +62,9 @@ if [ ! -f "$NATIVE_HOST_PYTHON" ]; then
 fi
 
 echo "== Creating PyInstaller build environment =="
+"$NATIVE_HOST_PYTHON" "$TLS_BOOTSTRAP"
 "$NATIVE_HOST_PYTHON" -m venv --clear "$BUILD_VENV"
+"$PYTHON_BIN" "$TLS_BOOTSTRAP"
 
 echo "Python: $("$PYTHON_BIN" --version)"
 echo ""
@@ -97,6 +105,7 @@ echo "== Installing project dependencies =="
 # raises an AttributeError the fallback does not catch — crashing the Feishu
 # channel. The pin keeps every environment in the known-good state.
 install_python_packages -e ".[full]" "setuptools<82"
+"$PYTHON_BIN" "$TLS_BOOTSTRAP" --check
 echo "Project dependencies installed with full extras"
 
 # Fix agent-client-protocol namespace collision
@@ -176,6 +185,7 @@ echo "== Installing bundled Python helper dependencies =="
 "$NATIVE_HOST_PYTHON" \
     "${REPO_ROOT}/plugins/bundle/chrome/assets/scripts/nm_host.py" \
     --check-runtime
+"$NATIVE_HOST_PYTHON" "$TLS_BOOTSTRAP" --check
 echo ""
 
 echo "== Staging bundled Node runtime =="

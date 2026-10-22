@@ -53,6 +53,11 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Secure Python certificate dependencies
+        if: steps.draft.outputs.value != 'true'
+        shell: bash
+        run: python src/qwenpaw/security/tls_bootstrap.py
+
       - name: Update setuptools and wheel
         if: steps.draft.outputs.value != 'true'
         run: |
