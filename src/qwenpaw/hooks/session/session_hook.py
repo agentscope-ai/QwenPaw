@@ -11,6 +11,8 @@ from __future__ import annotations
 import asyncio
 import logging
 
+from agentscope.event import ReplyFinishedReason
+
 from ..base import LifecycleHook
 from ..cron.cron_hook import restore_cron_context
 from ...agents.acp.meta import ACP_EPHEMERAL_META_KEY
@@ -114,7 +116,16 @@ class SessionSaveHook(LifecycleHook):
             restore_cron_context(ctx)
             proxy = StateProxy()
             proxy.data = ctx.agent.state_dict()
-            stamp_console_turn(proxy.data, request, "completed")
+            stamp_console_turn(
+                proxy.data,
+                request,
+                (
+                    "canceled"
+                    if getattr(ctx, "reply_finished_reason", None)
+                    == ReplyFinishedReason.INTERRUPTED
+                    else "completed"
+                ),
+            )
             proxy.data["mode_state"] = ctx.mode_state
             await session.save_session_state(
                 session_id=ctx.session_id,
