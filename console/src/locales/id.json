@@ -58,6 +58,15 @@
     "cliAuthenticated": "{{type}} CLI telah diautentikasi"
   },
   "desktop": {
+    "update": {
+      "title": "Perbarui QwenPaw?",
+      "otherWindows": "Ada {{count}} jendela lain yang terbuka.",
+      "otherWindows_one": "Ada {{count}} jendela lain yang terbuka.",
+      "otherWindows_other": "Ada {{count}} jendela lain yang terbuka.",
+      "description": "Pembaruan akan menutup semua jendela QwenPaw dan menghentikan tugas yang sedang berjalan.",
+      "confirm": "Tutup dan perbarui",
+      "preparing": "Menutup jendela…"
+    },
     "closeWindow": {
       "title": "Tutup QwenPaw?",
       "description": "Tetap berjalan di latar belakang untuk melanjutkan tugas. Keluar sepenuhnya akan mengakhiri tugas yang sedang berjalan.",

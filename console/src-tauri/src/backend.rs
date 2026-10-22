@@ -14,7 +14,7 @@ use tauri_plugin_log::{Target, TargetKind};
 
 mod command;
 pub(crate) mod daemon;
-mod runtime;
+pub(crate) mod runtime;
 mod status;
 
 use status::{Phase, Snapshot, Status};
@@ -126,7 +126,7 @@ pub(crate) async fn stop_and_wait(app: &tauri::AppHandle) -> Result<(), String> 
     state
         .status
         .publish(app, generation, Phase::Stopping, Some(runtime.port), None);
-    let result = runtime.stop().await;
+    let result = runtime.stop().await.map(|_| ());
     state.stopping.store(false, Ordering::SeqCst);
     match &result {
         Ok(()) => detach(app),
@@ -228,5 +228,45 @@ fn desktop_log_level() -> log::LevelFilter {
         log::LevelFilter::Debug
     } else {
         log::LevelFilter::Info
+    }
+}
+
+pub(crate) fn runtime_for_update(
+    app: &tauri::AppHandle,
+    directory: &std::path::Path,
+) -> Result<Option<runtime::Runtime>, String> {
+    let state = app.state::<BackendState>();
+    if let Some(runtime) = state
+        .runtime
+        .lock()
+        .expect("backend runtime poisoned")
+        .as_ref()
+    {
+        if runtime.uses_directory(directory) {
+            return Ok(Some(runtime.clone()));
+        }
+    }
+    runtime::Runtime::read(directory)
+}
+
+pub(crate) fn suspend_for_update(app: &tauri::AppHandle) {
+    app.state::<BackendState>()
+        .stopping
+        .store(true, Ordering::SeqCst);
+}
+
+pub(crate) async fn recover_after_update(app: &tauri::AppHandle) {
+    if !app
+        .state::<BackendState>()
+        .stopping
+        .swap(false, Ordering::SeqCst)
+    {
+        return;
+    }
+    if let Err(error) = crate::computer_use_runtime::prepare(app) {
+        log::warn!("[updates] Computer Use recovery failed: {error}");
+    }
+    if let Err(error) = restart_backend(app.clone()).await {
+        log::warn!("[updates] runtime recovery failed: {error}");
     }
 }

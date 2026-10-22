@@ -26,6 +26,15 @@ fn open_devtools(window: WebviewWindow) {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 /// Build the desktop app, wire native plugins/commands, and attach to the shared runtime.
 pub fn run() {
+    let context = tauri::generate_context!();
+    let registration = match updates::coordination::register_desktop(&context.config().identifier) {
+        Ok(Some(registration)) => registration,
+        Ok(None) => return,
+        Err(error) => {
+            eprintln!("[QwenPaw Desktop] Cannot register this window: {error}");
+            std::process::exit(1);
+        }
+    };
     let build_result = tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
@@ -42,6 +51,7 @@ pub fn run() {
             backend::restart_backend,
             external_link::open_external_link,
             external_link::open_workspace_html,
+            updates::coordination::confirm_desktop_update,
             updates::check_desktop_update,
             updates::install_desktop_update,
             updates::download_desktop_update,
@@ -55,10 +65,13 @@ pub fn run() {
             tray::set_close_action,
             tray::get_close_action,
         ])
+        .manage(registration)
+        .manage(updates::coordination::Confirmation::default())
         .manage(backend::BackendState::default())
         .manage(computer_use_runtime::ComputerUseRuntimeState::default())
         .manage(tray::TrayState::default())
         .setup(|app| {
+            updates::coordination::setup(app.handle())?;
             backend::setup(app)?;
             tray::setup(app)?;
             #[cfg(windows)]
@@ -75,7 +88,7 @@ pub fn run() {
                 tray::request_close(window.app_handle());
             }
         })
-        .build(tauri::generate_context!());
+        .build(context);
 
     match build_result {
         Ok(app) => {

@@ -41,6 +41,7 @@ class ClientConnection(BaseModel):
     """A native client's optional loopback Computer Use endpoint."""
 
     client: str = Field(default="client", min_length=1, max_length=64)
+    installation: str = Field(default="", max_length=4096)
     control_port: int | None = Field(default=None, ge=1, le=65535)
     control_token: str = Field(default="", max_length=256)
 
@@ -56,7 +57,7 @@ async def connect(
         raise HTTPException(status_code=503, detail="Backend unavailable")
     client_id = uuid.uuid4().hex
     clients = request.app.state.runtime_clients
-    clients[client_id] = connection.client
+    clients[client_id] = (connection.client, connection.installation)
 
     async def events():
         HostRuntimeProvider.register_host(
@@ -91,7 +92,15 @@ async def connected_clients(
 ):
     """Report other clients before presenting a last-client close choice."""
     others = request.app.state.runtime_clients.keys() - {x_qwenpaw_client}
-    return {"other_clients": len(others)}
+    return {
+        "other_clients": len(others),
+        "clients": [
+            {"client": client, "installation": installation}
+            for client, installation in (
+                request.app.state.runtime_clients[key] for key in others
+            )
+        ],
+    }
 
 
 @router.post("/shutdown")

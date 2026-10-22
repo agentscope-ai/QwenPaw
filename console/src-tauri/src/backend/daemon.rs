@@ -33,8 +33,20 @@ pub(crate) fn run() -> Result<(), String> {
     if stop_request.exists() {
         std::fs::remove_file(&stop_request).map_err(|err| err.to_string())?;
     }
+    let installation = PathBuf::from(
+        std::env::var_os("QWENPAW_DESKTOP_INSTALLATION_DIR")
+            .ok_or("Missing desktop installation directory")?,
+    );
+    let _registration =
+        crate::updates::coordination::register(&installation, directory.clone(), true)?;
     let mut failures = 0u32;
     loop {
+        while crate::updates::coordination::maintenance(&installation)? {
+            if stop_request.exists() {
+                return Ok(());
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        }
         let started = Instant::now();
         let mut command = Command::new(&program);
         command.args(&arguments).stdin(Stdio::null());

@@ -56,6 +56,15 @@
     "cliAuthenticated": "{{type}} CLI 認証済み"
   },
   "desktop": {
+    "update": {
+      "title": "QwenPaw を更新しますか？",
+      "otherWindows": "他に {{count}} 個のウィンドウが開いています。",
+      "otherWindows_one": "他に {{count}} 個のウィンドウが開いています。",
+      "otherWindows_other": "他に {{count}} 個のウィンドウが開いています。",
+      "description": "更新すると、すべての QwenPaw ウィンドウが閉じられ、実行中のタスクが中断されます。",
+      "confirm": "閉じて更新",
+      "preparing": "ウィンドウを閉じています…"
+    },
     "closeWindow": {
       "title": "QwenPaw を閉じますか？",
       "description": "バックグラウンドではタスクが続行されます。完全に終了すると、実行中のタスクも終了します。",

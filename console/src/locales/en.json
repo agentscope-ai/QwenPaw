@@ -68,6 +68,15 @@
     "increase": "Increase"
   },
   "desktop": {
+    "update": {
+      "title": "Update QwenPaw?",
+      "otherWindows": "{{count}} other windows are open.",
+      "otherWindows_one": "{{count}} other window is open.",
+      "otherWindows_other": "{{count}} other windows are open.",
+      "description": "Updating will close all QwenPaw windows and interrupt running tasks.",
+      "confirm": "Close and update",
+      "preparing": "Closing windows…"
+    },
     "closeWindow": {
       "title": "Close QwenPaw?",
       "description": "Keep running in the background to continue your tasks. Quitting completely ends running tasks.",

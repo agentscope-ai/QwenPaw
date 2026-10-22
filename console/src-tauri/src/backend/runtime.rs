@@ -8,7 +8,7 @@ use serde::Deserialize;
 const TOKEN_HEADER: &str = "X-QwenPaw-Control-Token";
 
 #[derive(Clone, Deserialize)]
-pub(super) struct Runtime {
+pub(crate) struct Runtime {
     protocol: u32,
     instance: String,
     token: String,
@@ -45,7 +45,7 @@ impl Runtime {
         Ok(clients.other_clients)
     }
 
-    pub async fn stop(&self) -> Result<(), String> {
+    pub async fn stop(&self) -> Result<File, String> {
         let operation = lock_file(self.directory.join("launch.lock"))?;
         let deadline = std::time::Instant::now();
         while !try_lock(&operation)? {
@@ -70,14 +70,18 @@ impl Runtime {
         }
         response.error_for_status().map_err(|err| err.to_string())?;
         let started = std::time::Instant::now();
-        let lock = lock_file(self.directory.join("daemon.lock"))?;
-        while !try_lock(&lock)? {
-            if started.elapsed() >= Duration::from_secs(60) {
-                return Err("Runtime did not finish shutting down within 60 seconds".into());
+        // A supervisor can have exited while Python is still alive. Both
+        // leases must be released before replacing the bundled runtime files.
+        for name in ["daemon.lock", "runtime.lock"] {
+            let lock = lock_file(self.directory.join(name))?;
+            while !try_lock(&lock)? {
+                if started.elapsed() >= Duration::from_secs(60) {
+                    return Err("Runtime did not finish shutting down within 60 seconds".into());
+                }
+                tokio::time::sleep(Duration::from_millis(100)).await;
             }
-            tokio::time::sleep(Duration::from_millis(100)).await;
         }
-        Ok(())
+        Ok(operation)
     }
 }
 
@@ -89,7 +93,7 @@ pub(super) fn client() -> Result<reqwest::Client, String> {
         .map_err(|err| err.to_string())
 }
 
-fn directory() -> Result<PathBuf, String> {
+pub(crate) fn directory() -> Result<PathBuf, String> {
     let home = dirs::home_dir().ok_or("Home directory unavailable")?;
     let working = std::env::var("QWENPAW_WORKING_DIR")
         .or_else(|_| std::env::var("COPAW_WORKING_DIR"))
@@ -160,6 +164,7 @@ pub(super) async fn connect(
         }
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
+    crate::updates::coordination::ensure_available(app, &directory)?;
     let runtime_lock = lock_file(directory.join("daemon.lock"))?;
     if try_lock(&runtime_lock)? {
         FileExt::unlock(&runtime_lock).map_err(|err| err.to_string())?;
@@ -173,6 +178,7 @@ pub(super) async fn connect(
         crate::runtime_env::collect(app).into_iter().collect();
     let payload = serde_json::json!({
         "client": "desktop",
+        "installation": crate::updates::coordination::installation(app)?,
         "control_port": environment.get("QWENPAW_COMPUTER_USE_CONTROL_PORT").and_then(|port| port.parse::<u16>().ok()),
         "control_token": environment.get("QWENPAW_COMPUTER_USE_CONTROL_TOKEN").cloned().unwrap_or_default(),
     });
@@ -244,6 +250,10 @@ fn launch(app: &tauri::AppHandle, directory: &std::path::Path) -> Result<(), Str
         }
     }
     command.env("QWENPAW_DESKTOP_DAEMON_DIR", directory);
+    command.env(
+        "QWENPAW_DESKTOP_INSTALLATION_DIR",
+        crate::updates::coordination::installation(app)?,
+    );
     let log = File::options()
         .create(true)
         .append(true)
@@ -294,4 +304,72 @@ fn launch(app: &tauri::AppHandle, directory: &std::path::Path) -> Result<(), Str
         }
     });
     Ok(())
+}
+
+impl Runtime {
+    pub(crate) fn read(directory: &std::path::Path) -> Result<Option<Self>, String> {
+        if try_lock(&lock_file(directory.join("daemon.lock"))?)?
+            && try_lock(&lock_file(directory.join("runtime.lock"))?)?
+        {
+            return Ok(None);
+        }
+        let bytes = std::fs::read(directory.join("runtime.json")).map_err(|e| e.to_string())?;
+        let mut runtime: Self = serde_json::from_slice(&bytes).map_err(|e| e.to_string())?;
+        if runtime.mode != "shared" || runtime.protocol != 1 {
+            return Err("The existing runtime cannot coordinate an update".into());
+        }
+        runtime.directory = directory.to_path_buf();
+        Ok(Some(runtime))
+    }
+
+    pub(crate) fn uses_directory(&self, directory: &std::path::Path) -> bool {
+        self.directory == directory
+    }
+
+    pub(crate) async fn check_update_clients(&self, installation: &str) -> Result<(), String> {
+        #[derive(Deserialize)]
+        struct Client {
+            client: String,
+            installation: String,
+        }
+        #[derive(Deserialize)]
+        struct Clients {
+            clients: Vec<Client>,
+        }
+        let clients: Clients = client()?
+            .get(format!(
+                "http://127.0.0.1:{}/api/runtime/clients",
+                self.port
+            ))
+            .header(TOKEN_HEADER, &self.token)
+            .header("X-QwenPaw-Client", &self.client_id)
+            .timeout(Duration::from_secs(3))
+            .send()
+            .await
+            .map_err(|e| e.to_string())?
+            .error_for_status()
+            .map_err(|e| e.to_string())?
+            .json()
+            .await
+            .map_err(|e| e.to_string())?;
+        if clients
+            .clients
+            .iter()
+            .any(|c| c.client != "desktop" || c.installation != installation)
+        {
+            return Err(
+                "QwenPaw is connected to another app. Disconnect it before updating.".into(),
+            );
+        }
+        Ok(())
+    }
+
+    #[cfg(windows)]
+    pub(crate) fn mark_update(&self, installation: &std::path::Path) -> Result<(), String> {
+        std::fs::write(
+            self.directory.join("update-installation"),
+            installation.to_string_lossy().as_bytes(),
+        )
+        .map_err(|e| e.to_string())
+    }
 }

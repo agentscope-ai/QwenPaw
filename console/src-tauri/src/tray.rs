@@ -342,7 +342,9 @@ pub(crate) fn exit_app(app: &tauri::AppHandle, code: i32) {
         backend::detach(&app);
         let handle = app.clone();
         let _ = tauri::async_runtime::spawn_blocking(move || {
-            crate::computer_use_runtime::stop(&handle)
+            if let Err(error) = crate::computer_use_runtime::stop(&handle) {
+                log::warn!("[computer-use] failed to stop helper: {error}");
+            }
         })
         .await;
         app.state::<TrayState>()

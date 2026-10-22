@@ -493,7 +493,10 @@ async def test_shared_stop_preserves_other_clients(runtime_request):
         runtime_request,
         first_id,
         state.uvicorn_server,
-    ) == {"other_clients": 1}
+    ) == {
+        "other_clients": 1,
+        "clients": [{"client": "vscode", "installation": ""}],
+    }
     try:
         with pytest.raises(HTTPException) as error:
             await runtime_router.shutdown(
@@ -510,7 +513,7 @@ async def test_shared_stop_preserves_other_clients(runtime_request):
             runtime_request,
             first_id,
             state.uvicorn_server,
-        ) == {"other_clients": 0}
+        ) == {"other_clients": 0, "clients": []}
         result = await runtime_router.shutdown(
             runtime_request,
             first.headers["X-QwenPaw-Client"],

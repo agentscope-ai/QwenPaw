@@ -68,6 +68,15 @@
     "increase": "增加"
   },
   "desktop": {
+    "update": {
+      "title": "更新 QwenPaw？",
+      "otherWindows": "还有 {{count}} 个窗口正在使用。",
+      "otherWindows_one": "还有 {{count}} 个窗口正在使用。",
+      "otherWindows_other": "还有 {{count}} 个窗口正在使用。",
+      "description": "更新将关闭所有 QwenPaw 窗口，并中断正在运行的任务。",
+      "confirm": "关闭并更新",
+      "preparing": "正在关闭窗口…"
+    },
     "closeWindow": {
       "title": "退出 QwenPaw？",
       "description": "后台继续运行会保留任务；完全退出会结束正在运行的任务。",

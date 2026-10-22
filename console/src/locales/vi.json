@@ -58,6 +58,15 @@
     "cliAuthenticated": "{{type}} CLI đã xác thực"
   },
   "desktop": {
+    "update": {
+      "title": "Cập nhật QwenPaw?",
+      "otherWindows": "Còn {{count}} cửa sổ khác đang mở.",
+      "otherWindows_one": "Còn {{count}} cửa sổ khác đang mở.",
+      "otherWindows_other": "Còn {{count}} cửa sổ khác đang mở.",
+      "description": "Cập nhật sẽ đóng tất cả cửa sổ QwenPaw và ngắt các tác vụ đang chạy.",
+      "confirm": "Đóng và cập nhật",
+      "preparing": "Đang đóng cửa sổ…"
+    },
     "closeWindow": {
       "title": "Đóng QwenPaw?",
       "description": "Tiếp tục chạy nền để duy trì tác vụ. Thoát hoàn toàn sẽ kết thúc các tác vụ đang chạy.",

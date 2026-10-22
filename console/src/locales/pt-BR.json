@@ -58,6 +58,14 @@
     "cliAuthenticated": "{{type}} CLI autenticado"
   },
   "desktop": {
+    "update": {
+      "title": "Atualizar o QwenPaw?",
+      "otherWindows_one": "Há mais {{count}} janela aberta.",
+      "otherWindows_other": "Há mais {{count}} janelas abertas.",
+      "description": "A atualização fechará todas as janelas do QwenPaw e interromperá as tarefas em execução.",
+      "confirm": "Fechar e atualizar",
+      "preparing": "Fechando janelas…"
+    },
     "closeWindow": {
       "title": "Fechar o QwenPaw?",
       "description": "Continue em segundo plano para manter suas tarefas. Sair completamente encerra as tarefas em execução.",
