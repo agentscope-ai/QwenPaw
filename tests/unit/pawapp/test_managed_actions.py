@@ -188,6 +188,67 @@ async def test_terminal_commit_between_stream_reads(harness, monkeypatch):
     assert done.handle.result_data == {"answer": "complete"}
 
 
+async def test_reattach_does_not_restart_job_finishing_during_record_read(
+    harness,
+    monkeypatch,
+):
+    from qwenpaw.pawapp.tasks import TaskCoordinator
+    from qwenpaw.pawapp.tasks.managed import ManagedHandlerAdapter
+
+    entered = asyncio.Event()
+    finish = asyncio.Event()
+    calls = []
+
+    async def handler(_ctx):
+        calls.append(True)
+        entered.set()
+        await finish.wait()
+        return ActionResult("Done", {"answer": "complete"})
+
+    adapter = ManagedHandlerAdapter(
+        harness.store,
+        ActionRegistration(
+            action=ACTION,
+            handler=handler,
+            recovery="replay_safe",
+        ),
+    )
+    coordinator = TaskCoordinator(harness.store, authorize=AsyncMock())
+    coordinator.register(ACTION, adapter)
+    submission = await coordinator.dispatch(
+        SCOPE,
+        ACTION.action_id,
+        request_id="finishing-job",
+        inputs={},
+        origin=ORIGIN,
+    )
+    try:
+        await adapter._ensure_job(submission)
+        async with asyncio.timeout(2):
+            await entered.wait()
+        job = adapter._jobs[submission.handle.task_id]
+        original_record = adapter.record
+
+        async def finish_after_snapshot(current):
+            record = await original_record(current)
+            # The database read returns a running snapshot, but the job
+            # commits completion and leaves _jobs before its caller resumes.
+            finish.set()
+            await job
+            assert submission.handle.task_id not in adapter._jobs
+            return record
+
+        monkeypatch.setattr(adapter, "record", finish_after_snapshot)
+        await adapter._ensure_job(submission)
+        finish.set()
+        await job
+        await asyncio.gather(*list(adapter._jobs.values()))
+        assert calls == [True]
+        assert (await original_record(submission))["state"] == "succeeded"
+    finally:
+        await adapter.aclose()
+
+
 async def test_explicit_failure_is_public_terminal_and_stops_handler(harness):
     continued = []
 

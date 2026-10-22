@@ -357,8 +357,13 @@ class ManagedHandlerAdapter:
     async def _ensure_job(self, submission):
         async with self._lock:
             task_id = submission.handle.task_id
+            # Check ownership before awaiting the database snapshot. A job
+            # can commit completion and remove itself from _jobs during that
+            # await, leaving a stale running snapshot we must not replay.
+            if task_id in self._jobs:
+                return
             record = await self.record(submission)
-            if record["state"] in TERMINAL_STATUSES or task_id in self._jobs:
+            if record["state"] in TERMINAL_STATUSES:
                 return
             if (
                 record["state"] != "ready"
