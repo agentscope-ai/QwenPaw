@@ -229,17 +229,13 @@ export default function DesktopClient() {
           <ConsoleApp loadingFallback={fallback} />
         </Suspense>
       </ConsoleBoundary>
-      {(host.phase !== "ready" || error) && (
+      {(host.phase === "starting" || failed) && (
         <aside className={styles.banner} role="status">
           <CircleAlert size={18} />
           <span>{status}</span>
           <button
             type="button"
-            disabled={
-              restarting ||
-              host.phase === "starting" ||
-              host.phase === "stopping"
-            }
+            disabled={restarting || host.phase === "starting"}
             onClick={() => void restart()}
           >
             <RotateCw size={16} />
