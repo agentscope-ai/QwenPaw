@@ -248,6 +248,8 @@ class PluginManifest(BaseModel):
     max_version: Optional[str] = None
     qwenpaw_version: Optional[QwenPawVersionConstraint] = None
     pawapp: Optional[PawAppSection] = None
+
+    sdk: Optional[Dict[str, Any]] = None
     meta: Dict[str, Any] = Field(default_factory=dict)
     plugin_type: PluginType = PluginType.GENERAL
 
@@ -337,3 +339,4 @@ class PluginRecord:
     enabled: bool
     instance: Optional[Any] = None
     diagnostics: List[str] = field(default_factory=list)
+    status: str = "active"

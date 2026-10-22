@@ -3,6 +3,7 @@
 
 import logging
 import logging.handlers
+import json
 import os
 import platform
 import re
@@ -131,6 +132,20 @@ def _enable_windows_ansi() -> None:
 _enable_windows_ansi()
 
 
+def _sdk_log_suffix(record: logging.LogRecord) -> str:
+    identity = getattr(record, "sdk_context", None)
+    if not isinstance(identity, dict):
+        return ""
+    return " | " + json.dumps(
+        {
+            "sdk_context": identity,
+            "sdk_fields": getattr(record, "sdk_fields", {}),
+        },
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
+
+
 class ColorFormatter(logging.Formatter):
     COLORS = {
         logging.DEBUG: "\033[34m",
@@ -158,7 +173,9 @@ class ColorFormatter(logging.Formatter):
             # Different drives on Windows (e.g., C: vs D:) are not comparable.
             pass
 
-        prefix = f"{level} {full_path}:{record.lineno}"
+        prefix = f"{level} {full_path}:{record.lineno}" + _sdk_log_suffix(
+            record,
+        )
         original_msg = super().format(record)
 
         return f"{prefix} | {original_msg}"
@@ -194,7 +211,12 @@ class PlainFormatter(logging.Formatter):
         except ValueError:
             pass
 
-        prefix = f"{record.levelname} | {full_path}:{record.lineno}"
+        prefix = (
+            f"{record.levelname} | {full_path}:{record.lineno}"
+            + _sdk_log_suffix(
+                record,
+            )
+        )
         formatted_time = self.formatTime(record, self.datefmt)
         msg = f"{formatted_time} | {prefix} | {record.getMessage()}"
 

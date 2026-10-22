@@ -5308,6 +5308,19 @@
     "details": "Details"
   },
   "pluginManager": {
+    "busyTitle": "Plugin tasks are running",
+    "busy": {
+      "update": {
+        "warning": "Forcing this update will interrupt running tasks. Unfinished tasks may fail.",
+        "confirm": "Force update",
+        "cancel": "Not now"
+      },
+      "uninstall": {
+        "warning": "Forcing this uninstall will interrupt running tasks. Unfinished tasks may fail.",
+        "confirm": "Force uninstall",
+        "cancel": "Not now"
+      }
+    },
     "title": "Plugin Manager",
     "description": "Install, manage, and remove plugins without restarting the service.",
     "installed": "Installed Plugins",
@@ -5338,6 +5351,7 @@
     "uninstalling": "Uninstalling...",
     "uninstallSuccess": "Plugin uninstalled successfully",
     "uninstallFailed": "Plugin uninstallation failed",
+    "statusError": "Error",
     "statusLoaded": "Running",
     "statusUnloaded": "Not loaded",
     "type": "Type",

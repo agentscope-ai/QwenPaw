@@ -1,6 +1,8 @@
 import { notifyPluginChange } from "../../utils/pluginChangeEvents";
 import { getApiUrl } from "../config";
 import { buildAuthHeaders } from "../authHeaders";
+import { responseErrorMessage } from "../error";
+import { requestWithPluginBusyConfirmation } from "../pluginBusy";
 
 /** Matches the backend ``PluginType`` enum values. */
 export type PluginType =
@@ -29,6 +31,8 @@ export interface PluginInfo {
   loaded: boolean;
   requires_activation?: boolean;
   activation_status?: "installed" | "activated" | "active" | "unavailable";
+
+  status?: string;
   /** Primary capability type declared in plugin.json. */
   plugin_type: PluginType;
   /** Frontend JS entry-point path (if any). */
@@ -49,6 +53,7 @@ export interface InstallPluginResult {
 export interface PluginStatus {
   id: string;
   loaded: boolean;
+  status?: string;
   enabled: boolean;
   version?: string;
   requires_activation?: boolean;
@@ -111,9 +116,11 @@ export async function fetchPluginCatalog(): Promise<OfficialPluginCatalog> {
   });
 
   if (!response.ok) {
-    const body = await response.json().catch(() => ({}));
     throw new Error(
-      body.detail ?? `Failed to load plugin catalog (${response.status})`,
+      await responseErrorMessage(
+        response,
+        `Failed to load plugin catalog (${response.status})`,
+      ),
     );
   }
 
@@ -124,18 +131,30 @@ export async function installPlugin(
   source: string,
   options?: { force?: boolean },
 ): Promise<InstallPluginResult> {
-  const response = await fetch(getApiUrl("/plugins/install"), {
-    method: "POST",
-    headers: {
-      ...buildAuthHeaders(),
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ source, force: options?.force ?? false }),
-  });
+  const response = await requestWithPluginBusyConfirmation(
+    (interruptTasks) =>
+      fetch(getApiUrl("/plugins/install"), {
+        method: "POST",
+        headers: {
+          ...buildAuthHeaders(),
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          source,
+          force: options?.force ?? false,
+          ...(interruptTasks ? { interrupt_tasks: true } : {}),
+        }),
+      }),
+    "update",
+  );
 
   if (!response.ok) {
-    const body = await response.json().catch(() => ({}));
-    throw new Error(body.detail ?? `Install failed (${response.status})`);
+    throw new Error(
+      await responseErrorMessage(
+        response,
+        `Install failed (${response.status})`,
+      ),
+    );
   }
 
   const result = await response.json();
@@ -150,15 +169,28 @@ export async function uploadPlugin(file: File): Promise<InstallPluginResult> {
   const form = new FormData();
   form.append("file", file);
 
-  const response = await fetch(getApiUrl("/plugins/upload"), {
-    method: "POST",
-    headers: buildAuthHeaders(),
-    body: form,
-  });
+  const response = await requestWithPluginBusyConfirmation(
+    (interruptTasks) =>
+      fetch(
+        getApiUrl(
+          `/plugins/upload${interruptTasks ? "?interrupt_tasks=true" : ""}`,
+        ),
+        {
+          method: "POST",
+          headers: buildAuthHeaders(),
+          body: form,
+        },
+      ),
+    "update",
+  );
 
   if (!response.ok) {
-    const body = await response.json().catch(() => ({}));
-    throw new Error(body.detail ?? `Upload failed (${response.status})`);
+    throw new Error(
+      await responseErrorMessage(
+        response,
+        `Upload failed (${response.status})`,
+      ),
+    );
   }
 
   const result = await response.json();
@@ -170,14 +202,26 @@ export async function uploadPlugin(file: File): Promise<InstallPluginResult> {
  * Uninstall (hot-unload + delete) a plugin by ID.
  */
 export async function uninstallPlugin(pluginId: string): Promise<void> {
-  const response = await fetch(getApiUrl(`/plugins/${pluginId}`), {
-    method: "DELETE",
-    headers: buildAuthHeaders(),
-  });
+  const response = await requestWithPluginBusyConfirmation(
+    (interruptTasks) =>
+      fetch(
+        getApiUrl(
+          `/plugins/${pluginId}${
+            interruptTasks ? "?interrupt_tasks=true" : ""
+          }`,
+        ),
+        { method: "DELETE", headers: buildAuthHeaders() },
+      ),
+    "uninstall",
+  );
 
   if (!response.ok) {
-    const body = await response.json().catch(() => ({}));
-    throw new Error(body.detail ?? `Uninstall failed (${response.status})`);
+    throw new Error(
+      await responseErrorMessage(
+        response,
+        `Uninstall failed (${response.status})`,
+      ),
+    );
   }
   notifyPluginChange();
 }
@@ -193,8 +237,12 @@ export async function fetchPluginStatus(
   });
 
   if (!response.ok) {
-    const body = await response.json().catch(() => ({}));
-    throw new Error(body.detail ?? `Status fetch failed (${response.status})`);
+    throw new Error(
+      await responseErrorMessage(
+        response,
+        `Status fetch failed (${response.status})`,
+      ),
+    );
   }
 
   return response.json();

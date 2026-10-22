@@ -106,10 +106,12 @@ def write_configured_pawapp(source: Path) -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("offline", [False, True])
 async def test_install_is_static_until_explicit_activation(
     tmp_path,
     fresh_registry,
     monkeypatch,
+    offline,
 ):
     source = tmp_path / "source"
     installed = tmp_path / "installed"
@@ -120,14 +122,19 @@ async def test_install_is_static_until_explicit_activation(
         activation_dir=tmp_path / "activations",
     )
     loader.registry = fresh_registry
-    dependency_install = AsyncMock()
+    dependency_install = AsyncMock(
+        wraps=loader._ensure_dependencies_installed,
+    )
     loader._ensure_dependencies_installed = dependency_install
 
-    record = await loader.load_plugin_from_path(
-        source,
-        install_dir=installed,
-        defer_pawapp_activation=True,
-    )
+    if offline:
+        record = await loader.install_plugin_files(source)
+    else:
+        record = await loader.load_plugin_from_path(
+            source,
+            install_dir=installed,
+            defer_pawapp_activation=True,
+        )
 
     assert record.enabled is False
     assert record.diagnostics == ["installed_not_activated"]
@@ -237,10 +244,10 @@ async def test_authenticated_activation_route_marks_success(
         install_dir=installed,
         defer_pawapp_activation=True,
     )
-    finish = AsyncMock()
+    finish = AsyncMock(wraps=loader.run_plugin_startup_hooks)
     monkeypatch.setattr(
-        plugin_routes,
-        "_finish_plugin_install_after_load",
+        loader,
+        "run_plugin_startup_hooks",
         finish,
     )
     monkeypatch.setattr(
@@ -291,8 +298,8 @@ async def test_activation_failure_rolls_back_without_marker(
         defer_pawapp_activation=True,
     )
     monkeypatch.setattr(
-        plugin_routes,
-        "_finish_plugin_install_after_load",
+        loader,
+        "run_plugin_startup_hooks",
         AsyncMock(side_effect=RuntimeError("post-load failed")),
     )
     monkeypatch.setattr(
@@ -313,6 +320,105 @@ async def test_activation_failure_rolls_back_without_marker(
     with pytest.raises(HTTPException) as caught:
         await plugin_routes.activate_plugin("review-app", request)
 
-    assert caught.value.status_code == 400
-    assert loader.get_loaded_plugin("review-app") is None
+    assert caught.value.status_code == 409
+    failed = loader.get_loaded_plugin("review-app")
+    assert failed.status == "failed"
+    assert failed.enabled is False
+    assert fresh_registry.get_plugin_manifest("review-app") is None
     assert not loader.is_plugin_activated(record.manifest)
+
+
+@pytest.mark.asyncio
+async def test_activation_starts_once_and_force_reinstall_stays_inert(
+    tmp_path,
+    fresh_registry,
+):
+    source = tmp_path / "source"
+    installed = tmp_path / "installed"
+    sentinel = tmp_path / "executed"
+    starts = tmp_path / "starts"
+    write_pawapp(source, sentinel)
+    (source / "plugin.py").write_text(
+        "from pathlib import Path\n"
+        f"Path({str(sentinel)!r}).write_text('executed')\n"
+        "def start():\n"
+        f"    path = Path({str(starts)!r})\n"
+        "    previous = path.read_text() if path.exists() else ''\n"
+        "    path.write_text(previous + 'x')\n"
+        "class Plugin:\n"
+        "    def register(self, api):\n"
+        "        api.register_startup_hook('start', start)\n"
+        "plugin = Plugin()\n",
+    )
+    loader = PluginLoader([installed], activation_dir=tmp_path / "activations")
+    loader.registry = fresh_registry
+    await loader.load_plugin_from_path(source, defer_pawapp_activation=True)
+    first = await loader.activate_plugin("review-app")
+    second = await loader.activate_plugin("review-app")
+    assert first is second
+    assert starts.read_text() == "x"
+    sentinel.unlink()
+
+    replacement = await loader.load_plugin_from_path(
+        source,
+        force=True,
+        defer_pawapp_activation=True,
+    )
+    assert replacement.status == "inactive"
+    assert loader.get_loaded_plugin("review-app") is None
+    assert not loader.is_plugin_activated(replacement.manifest)
+    assert not sentinel.exists()
+    assert starts.read_text() == "x"
+
+    await loader.activate_plugin("review-app")
+    assert starts.read_text() == "xx"
+    await loader.unload_plugin("review-app", delete_files=False)
+    await loader.unload_plugin("review-app", delete_files=True)
+    assert not loader.is_plugin_activated(replacement.manifest)
+
+
+@pytest.mark.asyncio
+async def test_setup_contracts_survive_config_reregistration(
+    tmp_path,
+    fresh_registry,
+):
+    source = tmp_path / "configured-source"
+    write_configured_pawapp(source)
+    loader = PluginLoader([tmp_path / "installed"])
+    loader.registry = fresh_registry
+    record = await loader.load_plugin_from_path(source)
+    assert record.status == "active"
+    key = ("configured-app", "models")
+    assert key in fresh_registry.get_pawapp_setup_entries()
+
+    await loader.lifecycle.update_config("configured-app", {"example": True})
+    assert loader.get_loaded_plugin("configured-app").status == "active"
+    assert list(fresh_registry.get_pawapp_setup_entries()) == [key]
+    await loader.unload_plugin("configured-app", delete_files=False)
+    assert fresh_registry.get_pawapp_setup_entries() == {}
+
+
+def test_optional_sdk_field_preserves_existing_activation_receipt(tmp_path):
+    import hashlib
+
+    source = tmp_path / "source"
+    write_pawapp(source, tmp_path / "executed")
+    loader = PluginLoader([tmp_path], activation_dir=tmp_path / "activations")
+    _, manifest = loader._read_source_manifest(source)
+    previous_payload = manifest.model_dump(mode="json")
+    previous_payload.pop("sdk")
+    digest = hashlib.sha256(
+        json.dumps(
+            previous_payload,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+        ).encode("utf-8"),
+    ).hexdigest()
+    loader.activation_dir.mkdir()
+    loader._activation_path(manifest.id).write_text(
+        json.dumps(
+            {"plugin_id": manifest.id, "manifest_digest": f"sha256:{digest}"},
+        ),
+    )
+    assert loader.is_plugin_activated(manifest)
