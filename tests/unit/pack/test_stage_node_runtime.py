@@ -48,6 +48,7 @@ def test_docker_images_verify_the_repository_node_version() -> None:
             / f"Dockerfile"
         ),
     ]
+    creator_dockerfile = dockerfiles[1]
     dockerignore = (
         REPO_ROOT
         / f"plugins"
@@ -62,8 +63,30 @@ def test_docker_images_verify_the_repository_node_version() -> None:
         assert f"node --version" in content
         assert f"Node version mismatch" in content
 
+    creator_content = creator_dockerfile.read_text(encoding=f"utf-8")
+    node_version = (REPO_ROOT / f".nvmrc").read_text(encoding=f"utf-8").strip()
+    assert f"FROM ${{NODE_IMAGE}} AS node-runtime" in creator_content
+    assert f"COPY --from=node-runtime" in creator_content
+    assert f"/usr/local/bin/node" in creator_content
+    assert f"/usr/local/lib/node_modules/npm" in creator_content
+    assert f"ARG NODE_IMAGE=node:{node_version}-slim" in creator_content
+    assert f"ENV NODE_VERSION={node_version}" in creator_content
+
     ignored = dockerignore.read_text(encoding=f"utf-8")
     assert f"!.nvmrc" in ignored
+
+
+def test_release_pr_workflows_include_release_branches() -> None:
+    workflow_names = [
+        f"tests.yml",
+        f"frontend-tests.yml",
+        f"creator-app-tests.yml",
+    ]
+    workflow_dir = REPO_ROOT / f".github" / f"workflows"
+
+    for workflow_name in workflow_names:
+        content = (workflow_dir / workflow_name).read_text(encoding=f"utf-8")
+        assert f"release/**" in content
 
 
 @pytest.mark.parametrize(f"system", [f"Windows", f"Darwin", f"Linux"])

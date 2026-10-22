@@ -2,7 +2,7 @@ name: Tests
 
 on:
   push:
-    branches: [main, master, dev, develop]
+    branches: [main, master, dev, develop, "release/**"]
     paths:
       - 'src/**'
       - 'tests/**'
@@ -18,7 +18,7 @@ on:
     # ready must re-trigger this workflow so the real tiers run on the
     # current head right after the author leaves draft state.
     types: [opened, synchronize, reopened, ready_for_review]
-    branches: [main, master, dev, develop]
+    branches: [main, master, dev, develop, "release/**"]
   workflow_dispatch:
     inputs:
       integration_marker:

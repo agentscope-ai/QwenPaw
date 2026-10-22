@@ -2,7 +2,7 @@ name: Creator App Tests
 
 on:
   push:
-    branches: [main, master, dev, develop, "dev/**"]
+    branches: [main, master, dev, develop, "dev/**", "release/**"]
     paths:
       - "plugins/apps/qwenpaw-creator/**"
       - ".github/workflows/creator-app-tests.yml"
@@ -11,7 +11,7 @@ on:
     # ready must re-trigger this workflow so the checks really run
     # right after the author leaves draft state.
     types: [opened, synchronize, reopened, ready_for_review]
-    branches: [main, master, dev, develop, "dev/**"]
+    branches: [main, master, dev, develop, "dev/**", "release/**"]
     paths:
       - "plugins/apps/qwenpaw-creator/**"
       - ".github/workflows/creator-app-tests.yml"

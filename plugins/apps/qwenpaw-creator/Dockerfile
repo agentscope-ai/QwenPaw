@@ -33,12 +33,34 @@ COPY plugins/apps/qwenpaw-creator/ui /app/creator-ui
 COPY plugins/apps/qwenpaw-creator/templates /app/templates
 RUN cd /app/creator-ui && npm ci --include=dev && npm run build
 
+# Keep the pinned Node distribution available for the runtime stage.
+FROM ${NODE_IMAGE} AS node-runtime
+
 # -----------------------------------------------------------------------------
 # Final stage: runtime image with Creator plugin on top of official QwenPaw.
 # -----------------------------------------------------------------------------
 FROM ${QWENPAW_BASE_IMAGE}
 
 ARG PYPI_INDEX_URL
+
+# The QwenPaw base image may not be rebuilt with the repository Node pin yet.
+# Overlay Node-owned files so the final runtime always matches .nvmrc.
+COPY --from=node-runtime \
+  /usr/local/bin/node \
+  /usr/local/bin/npm \
+  /usr/local/bin/npx \
+  /usr/local/bin/corepack \
+  /usr/local/bin/
+COPY --from=node-runtime \
+  /usr/local/lib/node_modules/npm \
+  /usr/local/lib/node_modules/npm
+COPY --from=node-runtime \
+  /usr/local/lib/node_modules/corepack \
+  /usr/local/lib/node_modules/corepack
+RUN ln -sf node /usr/local/bin/nodejs
+
+# Keep image metadata consistent with the overlaid runtime.
+ENV NODE_VERSION=22.23.4
 
 # Fail if the final runtime's Node does not match the repository pin.
 COPY .nvmrc /tmp/qwenpaw-node-version

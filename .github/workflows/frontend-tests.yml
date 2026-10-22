@@ -2,7 +2,7 @@ name: Frontend Tests
 
 on:
   push:
-    branches: [main, master, dev, develop]
+    branches: [main, master, dev, develop, "release/**"]
     paths:
       - 'console/**'
       - '.github/workflows/frontend-tests.yml'
@@ -11,7 +11,7 @@ on:
     # ready must re-trigger this workflow so vitest really runs right
     # after the author leaves draft state.
     types: [opened, synchronize, reopened, ready_for_review]
-    branches: [main, master, dev, develop]
+    branches: [main, master, dev, develop, "release/**"]
 
 jobs:
   spam-gate:
