@@ -141,7 +141,7 @@ def main() -> int:
         _run(
             [
                 conda, "run", "-n", env_name, "python",
-                str(REPO_ROOT / "src/qwenpaw/security/tls_bootstrap.py"),
+                "-m", "pip", "install", "--upgrade", "pip>=26.2.2",
             ],
         )
         # Install qwenpaw with all dependencies
@@ -160,20 +160,9 @@ def main() -> int:
                 "pip",
                 "install",
                 f"qwenpaw[full] @ {wheel_uri}",
+                "certifi>=2026.10.19",
             ],
             env=install_env,
-        )
-        print("Verifying TLS dependency versions before packaging...")
-        _run(
-            [
-                conda,
-                "run",
-                "-n",
-                env_name,
-                "python",
-                str(REPO_ROOT / "src/qwenpaw/security/tls_bootstrap.py"),
-                "--check",
-            ],
         )
         if args.cache_wheels:
             # Store outside dist/ to avoid being deleted by wheel_build cleanup
@@ -210,7 +199,7 @@ def main() -> int:
                 "install",
                 "-y",
                 "--force-reinstall",
-                "pip",
+                "pip>=26.2.2",
                 "setuptools",
                 "wheel",
             ],

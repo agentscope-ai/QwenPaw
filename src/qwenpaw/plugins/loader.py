@@ -22,7 +22,7 @@ from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as _dist_version
 from packaging.requirements import Requirement
 
-from ..security.tls_bootstrap import MIN_CERTIFI, require_pip, require_uv
+from ..utils.runtime_environment import require_pip, require_uv
 from .architecture import PluginManifest, PluginRecord
 from .api import PluginApi
 from .module_isolation import (
@@ -971,7 +971,7 @@ class PluginLoader:
                     "install",
                     "--disable-pip-version-check",
                     "--no-input",
-                    f"certifi>={MIN_CERTIFI}",
+                    "certifi>=2026.10.19",
                     "-r",
                     req,
                 ],
@@ -1023,7 +1023,7 @@ class PluginLoader:
                     "install",
                     "--python",
                     sys.executable,
-                    f"certifi>={MIN_CERTIFI}",
+                    "certifi>=2026.10.19",
                     "-r",
                     req,
                 ],
@@ -1084,7 +1084,7 @@ class PluginLoader:
                     "--target",
                     target,
                     "--upgrade",
-                    f"certifi>={MIN_CERTIFI}",
+                    "certifi>=2026.10.19",
                     "-r",
                     req,
                 ],

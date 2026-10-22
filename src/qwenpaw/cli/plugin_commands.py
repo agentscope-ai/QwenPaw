@@ -19,7 +19,7 @@ import click
 import httpx
 
 from ..config import utils as config_utils
-from ..security.tls_bootstrap import MIN_CERTIFI, require_pip, require_uv
+from ..utils.runtime_environment import require_pip, require_uv
 from ..utils.runtime_api import api_client, read_runtime_api
 
 from ..plugins.validation import (
@@ -270,7 +270,7 @@ def _install_requirements_cli(
                 "-m",
                 "pip",
                 "install",
-                f"certifi>={MIN_CERTIFI}",
+                "certifi>=2026.10.19",
                 "-r",
                 req,
             ],
@@ -322,7 +322,7 @@ def _install_requirements_cli(
                 "install",
                 "--python",
                 sys.executable,
-                f"certifi>={MIN_CERTIFI}",
+                "certifi>=2026.10.19",
                 "-r",
                 req,
             ],

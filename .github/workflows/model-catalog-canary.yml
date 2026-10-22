@@ -27,7 +27,9 @@ jobs:
           python-version: "3.12"
       - name: Secure Python certificate dependencies
         shell: bash
-        run: python src/qwenpaw/security/tls_bootstrap.py
+        run: |
+          python -m pip install --upgrade "pip>=26.2.2"
+          python -m pip install --upgrade "certifi>=2026.10.19"
 
       - run: python -m pip install httpx==0.28.1
       - name: Check catalogs and pinned free models

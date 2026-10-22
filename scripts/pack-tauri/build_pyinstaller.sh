@@ -43,11 +43,15 @@ else
 fi
 
 mkdir -p "${BINARIES_DIR}"
-TLS_BOOTSTRAP="${REPO_ROOT}/src/qwenpaw/security/tls_bootstrap.py"
-# The PATH interpreter only downloads the runtime; do not mutate system pip.
-"$BOOTSTRAP_PYTHON" "$TLS_BOOTSTRAP" --system-certs
+# Check an existing uv before it downloads build dependencies.
 if command -v uv >/dev/null 2>&1; then
-    "$BOOTSTRAP_PYTHON" "$TLS_BOOTSTRAP" --uv "$(command -v uv)"
+    uv_version=$(uv --version | awk '{print $2}')
+    if [[ ! "$uv_version" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]] ||
+       ! (( 10#${BASH_REMATCH[1]} > 0 || 10#${BASH_REMATCH[2]} > 13 ||
+            (10#${BASH_REMATCH[2]} == 13 && 10#${BASH_REMATCH[3]} >= 4) )); then
+        echo "ERROR: uv >= 0.13.4 is required; update uv and retry"
+        exit 1
+    fi
 fi
 
 # The staged python-build-standalone runtime is the canonical source for both
@@ -62,9 +66,11 @@ if [ ! -f "$NATIVE_HOST_PYTHON" ]; then
 fi
 
 echo "== Creating PyInstaller build environment =="
-"$NATIVE_HOST_PYTHON" "$TLS_BOOTSTRAP"
+"$NATIVE_HOST_PYTHON" -m pip install --upgrade "pip>=26.2.2"
+"$NATIVE_HOST_PYTHON" -m pip install --upgrade "certifi>=2026.10.19"
 "$NATIVE_HOST_PYTHON" -m venv --clear "$BUILD_VENV"
-"$PYTHON_BIN" "$TLS_BOOTSTRAP"
+"$PYTHON_BIN" -m pip install --upgrade "pip>=26.2.2"
+"$PYTHON_BIN" -m pip install --upgrade "certifi>=2026.10.19"
 
 echo "Python: $("$PYTHON_BIN" --version)"
 echo ""
@@ -105,7 +111,6 @@ echo "== Installing project dependencies =="
 # raises an AttributeError the fallback does not catch — crashing the Feishu
 # channel. The pin keeps every environment in the known-good state.
 install_python_packages -e ".[full]" "setuptools<82"
-"$PYTHON_BIN" "$TLS_BOOTSTRAP" --check
 echo "Project dependencies installed with full extras"
 
 # Fix agent-client-protocol namespace collision
@@ -185,7 +190,6 @@ echo "== Installing bundled Python helper dependencies =="
 "$NATIVE_HOST_PYTHON" \
     "${REPO_ROOT}/plugins/bundle/chrome/assets/scripts/nm_host.py" \
     --check-runtime
-"$NATIVE_HOST_PYTHON" "$TLS_BOOTSTRAP" --check
 echo ""
 
 echo "== Staging bundled Node runtime =="

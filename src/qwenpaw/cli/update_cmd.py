@@ -21,7 +21,7 @@ from packaging.version import InvalidVersion, Version
 from ..__version__ import __version__
 from ..constant import WORKING_DIR
 from ..config.utils import read_last_api
-from ..security.tls_bootstrap import require_pip, require_uv
+from ..utils.runtime_environment import require_pip, require_uv
 from ..utils.runtime_api import api_client
 from .process_utils import (
     _base_url,

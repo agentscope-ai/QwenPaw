@@ -135,7 +135,9 @@ jobs:
 
       - name: Secure Python certificate dependencies
         shell: bash
-        run: python src/qwenpaw/security/tls_bootstrap.py
+        run: |
+          python -m pip install --upgrade "pip>=26.2.2"
+          python -m pip install --upgrade "certifi>=2026.10.19"
 
       - name: Install dependencies
         shell: bash
@@ -202,7 +204,9 @@ jobs:
 
       - name: Secure Python certificate dependencies
         shell: bash
-        run: python src/qwenpaw/security/tls_bootstrap.py
+        run: |
+          python -m pip install --upgrade "pip>=26.2.2"
+          python -m pip install --upgrade "certifi>=2026.10.19"
 
       - name: Install dependencies
         shell: bash
@@ -285,7 +289,9 @@ jobs:
 
       - name: Secure Python certificate dependencies
         shell: bash
-        run: python src/qwenpaw/security/tls_bootstrap.py
+        run: |
+          python -m pip install --upgrade "pip>=26.2.2"
+          python -m pip install --upgrade "certifi>=2026.10.19"
 
       - name: Install dependencies
         shell: bash

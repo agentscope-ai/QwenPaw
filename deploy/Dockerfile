@@ -93,14 +93,14 @@ ENV QWENPAW_RUNNING_IN_CONTAINER=1
 WORKDIR ${WORKSPACE_DIR}
 
 # Keep Debian's Python for system services; use the desktop runtime for QwenPaw.
-COPY src/qwenpaw/security/tls_bootstrap.py /opt/qwenpaw-tls-bootstrap.py
-RUN python3 /opt/qwenpaw-tls-bootstrap.py --system-certs
 COPY scripts/pack-tauri/stage_python_runtime.py /tmp/stage_python_runtime.py
 RUN python3 /tmp/stage_python_runtime.py \
     --dest /opt/qwenpaw-python --python-version 3.11 \
-  && /opt/qwenpaw-python/python/bin/python3 /opt/qwenpaw-tls-bootstrap.py \
+  && /opt/qwenpaw-python/python/bin/python3 -m pip install --upgrade "pip>=26.2.2" \
+  && /opt/qwenpaw-python/python/bin/python3 -m pip install --upgrade "certifi>=2026.10.19" \
   && /opt/qwenpaw-python/python/bin/python3 -m venv /app/venv \
-  && /app/venv/bin/python /opt/qwenpaw-tls-bootstrap.py \
+  && /app/venv/bin/python -m pip install --upgrade "pip>=26.2.2" \
+  && /app/venv/bin/python -m pip install --upgrade "certifi>=2026.10.19" \
   && rm /tmp/stage_python_runtime.py
 ENV PATH="/app/venv/bin:$PATH"
 
@@ -113,7 +113,12 @@ COPY website/public/docs/ ./src/qwenpaw/docs/
 COPY --from=console-builder /app/console/dist/ ./src/qwenpaw/console/
 # Speed up Python package installation with uv.
 COPY --from=uv-src /uv /bin/uv
-RUN python /opt/qwenpaw-tls-bootstrap.py --uv /bin/uv
+# Validate the binary, including when UV_IMAGE points at an internal mirror.
+RUN python -c 'import re, subprocess, sys; \
+    output = subprocess.check_output(["/bin/uv", "--version"], text=True); \
+    match = re.match(r"uv (\d+)\.(\d+)\.(\d+)(?:\s|$)", output); \
+    sys.exit(0 if match and tuple(map(int, match.groups())) >= (0, 13, 4) \
+    else "uv >= 0.13.4 is required")'
 # Pin setuptools <82: lark-oapi still calls pkg_resources.declare_namespace
 # at import time. A *fresh* install of setuptools >= 82 removes pkg_resources
 # wholesale, so lark-oapi's except-ImportError fallback (pkgutil.extend_path)
@@ -125,7 +130,6 @@ RUN python /opt/qwenpaw-tls-bootstrap.py --uv /bin/uv
 # channel. The pin keeps every environment in the known-good state.
 RUN uv pip install --python /app/venv/bin/python \
     --no-cache-dir . "setuptools<82" \
-  && python /opt/qwenpaw-tls-bootstrap.py --check \
   && rm -rf ./build
 
 
