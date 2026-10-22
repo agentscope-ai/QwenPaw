@@ -69,12 +69,16 @@
   },
   "desktop": {
     "closeWindow": {
-      "title": "关闭窗口",
-      "description": "关闭窗口时您希望执行什么操作？退出应用将停止所有正在运行的任务和定时任务。",
+      "title": "退出 QwenPaw？",
+      "description": "后台继续运行会保留任务；完全退出会结束正在运行的任务。",
       "remember": "记住我的选择",
       "showWindow": "显示窗口",
       "minimizeToTray": "最小化到托盘",
       "quitApp": "退出应用",
+      "keepRunning": "后台运行",
+      "quitting": "正在退出…",
+      "stopService": "完全退出",
+      "stopBlocked": "QwenPaw 仍在其他窗口或应用中使用，请先关闭它们，再完全退出。",
       "preference": "关闭窗口",
       "askEveryTime": "每次询问"
     },

@@ -85,12 +85,37 @@ class _ControlEndpoint:
 class HostRuntimeProvider:
     """Obtain a desktop-host capability without exposing it to tool inputs."""
 
+    _hosts: ClassVar[dict[str, _ControlEndpoint]] = {}
+    _control: ClassVar[_ControlEndpoint | None] = None
     _capability: ClassVar[RuntimeCapability | None] = None
     # Set once the capability handed over in the environment has proven dead,
     # so
     # it stops being returned in place of asking the host for a live one.
     _environment_spent: ClassVar[bool] = False
     _lock: ClassVar[threading.Lock] = threading.Lock()
+
+    @classmethod
+    def register_host(cls, client_id: str, port: int | None, token: str):
+        """Register a native connection without replacing an active host."""
+        if port is None or not token:
+            return
+        with cls._lock:
+            cls._hosts[client_id] = _ControlEndpoint("127.0.0.1", port, token)
+            cls._control = next(iter(cls._hosts.values()))
+
+    @classmethod
+    def unregister_host(cls, client_id: str):
+        """Release this client and select a remaining host."""
+        with cls._lock:
+            endpoint = cls._hosts.pop(client_id, None)
+            if endpoint is not None and endpoint == cls._control:
+                cls._capability = None
+                cls._control = next(iter(cls._hosts.values()), None)
+
+    @classmethod
+    def registered_endpoint(cls) -> _ControlEndpoint | None:
+        """Read the immutable endpoint selected from connected clients."""
+        return cls._control
 
     @classmethod
     def get_capability(cls) -> RuntimeCapability | None:
@@ -179,6 +204,8 @@ class HostRuntimeProvider:
 
 def _environment_capability() -> RuntimeCapability | None:
     """Return a capability injected when the backend was restarted."""
+    if os.environ.get("QWENPAW_RUNTIME_MODE") == "shared":
+        return None
     pipe_name = os.environ.get(_PIPE_ENV, "").strip()
     secret = os.environ.get(_CAPABILITY_ENV, "").strip()
     raw_version = os.environ.get(
@@ -199,6 +226,11 @@ def _environment_capability() -> RuntimeCapability | None:
 
 
 def _control_endpoint() -> _ControlEndpoint | None:
+    registered = HostRuntimeProvider.registered_endpoint()
+    if registered is not None:
+        return registered
+    if os.environ.get("QWENPAW_RUNTIME_MODE") == "shared":
+        return None
     host = os.environ.get(_CONTROL_HOST_ENV, "").strip()
     token = os.environ.get(_CONTROL_TOKEN_ENV, "").strip()
     try:

@@ -57,12 +57,16 @@
   },
   "desktop": {
     "closeWindow": {
-      "title": "ウィンドウを閉じる",
-      "description": "ウィンドウを閉じるときに実行する操作を選択してください。アプリを終了すると、実行中のすべてのタスクとスケジュール済みタスクが停止します。",
+      "title": "QwenPaw を閉じますか？",
+      "description": "バックグラウンドではタスクが続行されます。完全に終了すると、実行中のタスクも終了します。",
       "remember": "選択を記憶する",
       "showWindow": "ウィンドウを表示",
       "minimizeToTray": "トレイに最小化",
       "quitApp": "アプリを終了",
+      "keepRunning": "バックグラウンドで続行",
+      "quitting": "終了中…",
+      "stopService": "完全に終了",
+      "stopBlocked": "QwenPaw は他のウィンドウやアプリで使用中です。完全に終了する前に、それらを閉じてください。",
       "preference": "ウィンドウを閉じる",
       "askEveryTime": "毎回確認する"
     }

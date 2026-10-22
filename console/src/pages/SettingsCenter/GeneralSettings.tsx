@@ -742,7 +742,11 @@ export default function GeneralSettings() {
                       },
                       {
                         value: "quit",
-                        label: t("desktop.closeWindow.quitApp"),
+                        label: t("desktop.closeWindow.keepRunning"),
+                      },
+                      {
+                        value: "stop-service",
+                        label: t("desktop.closeWindow.stopService"),
                       },
                     ]}
                   />

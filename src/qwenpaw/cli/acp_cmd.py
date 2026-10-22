@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import sys
 
 import click
@@ -75,6 +76,8 @@ def acp_cmd(
 ) -> None:
     """Start QwenPaw as an ACP agent (stdio)."""
     from pathlib import Path
+
+    os.environ["QWENPAW_RUNTIME_MODE"] = "stdio"
 
     level = logging.DEBUG if debug else logging.WARNING
     logging.basicConfig(

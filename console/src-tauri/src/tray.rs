@@ -30,6 +30,7 @@ pub(crate) const CLOSE_REQUESTED_EVENT: &str = "qwenpaw-close-requested";
 struct TrayMenuItems {
     show: MenuItem<tauri::Wry>,
     quit: MenuItem<tauri::Wry>,
+    stop_blocked: String,
 }
 
 #[derive(Clone, Copy, Deserialize, Serialize)]
@@ -37,6 +38,7 @@ struct TrayMenuItems {
 pub(crate) enum CloseAction {
     MinimizeToTray,
     Quit,
+    StopService,
 }
 
 #[derive(Default)]
@@ -64,7 +66,7 @@ pub(crate) fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Erro
         .lock()
         .expect("tray state poisoned") = preference;
     let show = MenuItem::with_id(app, SHOW_MENU_ID, "Show Window", true, None::<&str>)?;
-    let quit = MenuItem::with_id(app, QUIT_MENU_ID, "Quit", true, None::<&str>)?;
+    let quit = MenuItem::with_id(app, QUIT_MENU_ID, "Quit App", true, None::<&str>)?;
     let menu = Menu::with_items(app, &[&show, &quit])?;
 
     {
@@ -76,6 +78,9 @@ pub(crate) fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Erro
         *menu_items = Some(TrayMenuItems {
             show: show.clone(),
             quit: quit.clone(),
+            stop_blocked:
+                "QwenPaw is still in use in other windows or apps. Close them before quitting completely."
+                    .into(),
         });
     }
 
@@ -84,7 +89,7 @@ pub(crate) fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Erro
         .tooltip("QwenPaw Desktop")
         .on_menu_event(|app, event| match event.id().as_ref() {
             SHOW_MENU_ID => show_main_window(app),
-            QUIT_MENU_ID => exit_app(app, 0),
+            QUIT_MENU_ID => request_close(app),
             _ => {}
         })
         .on_tray_icon_event(|tray, event| {
@@ -124,21 +129,44 @@ pub(crate) fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Erro
 /// To avoid leaving the window unclosable when no listener is attached, a
 /// fallback minimizes to tray if the frontend does not `ack_close` in time.
 pub(crate) fn request_close(app: &tauri::AppHandle) {
-    let action = *app
+    let seq = app
         .state::<TrayState>()
-        .close_action
-        .lock()
-        .expect("tray state poisoned");
-    match action {
-        Some(CloseAction::MinimizeToTray) => return hide_main_window(app),
-        Some(CloseAction::Quit) => return exit_app(app, 0),
-        None => {}
-    }
-    let seq = {
-        let state = app.state::<TrayState>();
-        state.close_seq.fetch_add(1, Ordering::SeqCst) + 1
-    };
+        .close_seq
+        .fetch_add(1, Ordering::SeqCst)
+        + 1;
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let others = backend::other_clients(&app).await;
+        if app.state::<TrayState>().close_seq.load(Ordering::SeqCst) != seq || is_quitting(&app) {
+            return;
+        }
+        if matches!(others, Ok(count) if count > 0) {
+            exit_app(&app, 0);
+            return;
+        }
+        // If the runtime is unavailable, keep both choices accessible.
+        let action = *app
+            .state::<TrayState>()
+            .close_action
+            .lock()
+            .expect("tray state poisoned");
+        match action {
+            Some(CloseAction::MinimizeToTray) => hide_main_window(&app),
+            Some(CloseAction::Quit) => exit_app(&app, 0),
+            Some(CloseAction::StopService) => {
+                if stop_service(app.clone()).await.is_ok() {
+                    exit_app(&app, 0);
+                } else {
+                    show_close_prompt(&app, seq);
+                }
+            }
+            None => show_close_prompt(&app, seq),
+        }
+    });
+}
 
+fn show_close_prompt(app: &tauri::AppHandle, seq: u64) {
+    show_main_window(app);
     let _ = app.emit(CLOSE_REQUESTED_EVENT, ());
 
     let app = app.clone();
@@ -179,12 +207,30 @@ pub(crate) fn quit_app(app: tauri::AppHandle) {
     exit_app(&app, 0);
 }
 
+#[tauri::command]
+pub(crate) async fn stop_service(app: tauri::AppHandle) -> Result<(), String> {
+    backend::stop_and_wait(&app).await.map_err(|error| {
+        if error == backend::OTHER_CLIENTS_ERROR {
+            app.state::<TrayState>()
+                .menu_items
+                .lock()
+                .expect("tray state poisoned")
+                .as_ref()
+                .map(|items| items.stop_blocked.clone())
+                .unwrap_or(error)
+        } else {
+            error
+        }
+    })
+}
+
 /// Updates the tray menu labels with frontend-provided translations.
 #[tauri::command]
 pub(crate) fn set_tray_labels(
     app: tauri::AppHandle,
     show_window: String,
     quit: String,
+    stop_blocked: String,
 ) -> Result<(), String> {
     let menu_items = {
         let tray_state = app.state::<TrayState>();
@@ -196,6 +242,15 @@ pub(crate) fn set_tray_labels(
     };
 
     if let Some(items) = menu_items {
+        if let Some(stored) = app
+            .state::<TrayState>()
+            .menu_items
+            .lock()
+            .expect("tray state poisoned")
+            .as_mut()
+        {
+            stored.stop_blocked = stop_blocked;
+        }
         items
             .show
             .set_text(show_window)
@@ -275,8 +330,7 @@ pub(crate) fn exit_app(app: &tauri::AppHandle, code: i32) {
     {
         return;
     }
-    // Destroying the client closes SSE/WebSocket connections before Uvicorn
-    // drains requests. Hiding a live WebView would retain those connections.
+    // Destroy the document and release this client without stopping shared work.
     if let Some(window) = app.get_webview_window("main") {
         if let Err(err) = window.destroy() {
             log::warn!("[desktop] failed to destroy window: {err}");
@@ -285,9 +339,7 @@ pub(crate) fn exit_app(app: &tauri::AppHandle, code: i32) {
     }
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
-        if let Err(err) = backend::stop_and_wait(&app).await {
-            log::warn!("[backend] graceful shutdown did not complete: {err}");
-        }
+        backend::detach(&app);
         let handle = app.clone();
         let _ = tauri::async_runtime::spawn_blocking(move || {
             crate::computer_use_runtime::stop(&handle)

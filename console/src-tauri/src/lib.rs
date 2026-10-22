@@ -24,7 +24,7 @@ fn open_devtools(window: WebviewWindow) {
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
-/// Build the desktop app, wire native plugins/commands, and stop the backend on exit.
+/// Build the desktop app, wire native plugins/commands, and attach to the shared runtime.
 pub fn run() {
     let build_result = tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
@@ -49,6 +49,7 @@ pub fn run() {
             updates::check_cached_update,
             tray::minimize_to_tray,
             tray::quit_app,
+            tray::stop_service,
             tray::set_tray_labels,
             tray::ack_close,
             tray::set_close_action,
@@ -112,4 +113,9 @@ pub fn run() {
             std::process::exit(1);
         }
     }
+}
+
+/// Run the detached desktop supervisor without constructing a WebView.
+pub fn run_agent_host() -> Result<(), String> {
+    backend::daemon::run()
 }

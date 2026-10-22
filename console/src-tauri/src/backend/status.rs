@@ -49,7 +49,8 @@ impl Status {
         }
         // A late readiness probe cannot revive a failed/stopped generation.
         if phase == Phase::Ready
-            && (generation != state.generation || state.phase != Phase::Starting)
+            && (generation != state.generation
+                || !matches!(state.phase, Phase::Starting | Phase::Stopping))
         {
             return;
         }

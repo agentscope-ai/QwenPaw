@@ -59,12 +59,16 @@
   },
   "desktop": {
     "closeWindow": {
-      "title": "Fechar Janela",
-      "description": "O que deseja fazer ao fechar a janela? Sair do aplicativo interrompe todas as tarefas em execução e tarefas agendadas.",
+      "title": "Fechar o QwenPaw?",
+      "description": "Continue em segundo plano para manter suas tarefas. Sair completamente encerra as tarefas em execução.",
       "remember": "Lembrar minha escolha",
       "showWindow": "Mostrar janela",
       "minimizeToTray": "Minimizar para a bandeja",
       "quitApp": "Sair do aplicativo",
+      "keepRunning": "Continuar em segundo plano",
+      "quitting": "Saindo…",
+      "stopService": "Sair completamente",
+      "stopBlocked": "O QwenPaw ainda está em uso em outras janelas ou aplicativos. Feche-os antes de sair completamente.",
       "preference": "Fechar Janela",
       "askEveryTime": "Perguntar sempre"
     }
