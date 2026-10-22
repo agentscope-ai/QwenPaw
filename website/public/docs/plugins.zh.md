@@ -1814,6 +1814,9 @@ def register(self, api: PluginApi):
   `config` 参数是 `SimpleNamespace`，不是 dict。
 - `config_fields` 定义控制台设置面板中显示的表单字段，支持类型：`text`、
   `password`、`number`、`switch`、`select`。
+- 未提供 `config_fields` 或其为空时，控制台根据现有配置值推断控件类型。
+  数组和对象使用格式化的 JSON 编辑框；编辑内容必须是有效 JSON，且保持
+  原来的数组或对象类型才能保存。嵌套值会完整保留。
 - 每个字段的 `label`、`help`、`placeholder` 既可以是纯字符串，也可以是
   本地化字典。字典的键**同时支持长编码（如 `zh-CN`、`en-US`）和短编码
   （如 `zh`、`en`），两者可混用**。取值按优先级回退（当前语言精确码 →

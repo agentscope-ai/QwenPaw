@@ -1852,6 +1852,10 @@ def register(self, api: PluginApi):
   `SimpleNamespace`, not a dict.
 - `config_fields` defines the form fields shown in the Console settings
   drawer. Supported types: `text`, `password`, `number`, `switch`, `select`.
+- When `config_fields` is omitted or empty, the Console infers controls from
+  existing configuration values. Arrays and objects use a formatted JSON
+  editor; edits must remain valid JSON of the same type before they can be
+  saved. Nested values are preserved.
 - The `label`, `help`, and `placeholder` of each field accept either a
   plain string or a localized dict. Dict keys support **both long codes
   (e.g. `zh-CN`, `en-US`) and short codes (e.g. `zh`, `en`), which can be

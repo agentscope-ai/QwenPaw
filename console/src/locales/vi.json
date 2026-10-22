@@ -3189,6 +3189,8 @@
     "sandboxEnabled": "Bảo vệ sandbox"
   },
   "channels": {
+    "customFieldJsonArray": "Vui lòng nhập mảng JSON hợp lệ.",
+    "customFieldJsonObject": "Vui lòng nhập đối tượng JSON hợp lệ.",
     "title": "Kênh",
     "description": "Quản lý và cấu hình các kênh nhắn tin",
     "loading": "Đang tải kênh...",
