@@ -13,6 +13,7 @@ from pathlib import Path
 from unittest.mock import Mock
 
 import pytest
+import yaml
 
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -87,6 +88,44 @@ def test_release_pr_workflows_include_release_branches() -> None:
     for workflow_name in workflow_names:
         content = (workflow_dir / workflow_name).read_text(encoding=f"utf-8")
         assert f"release/**" in content
+
+
+@pytest.mark.parametrize(
+    f"workflow_name",
+    [f"tests.yml", f"frontend-tests.yml"],
+)
+def test_node_version_changes_trigger_changedetection_workflows(
+    workflow_name: str,
+) -> None:
+    workflow_path = REPO_ROOT / f".github" / f"workflows" / workflow_name
+    workflow = yaml.safe_load(
+        workflow_path.read_text(encoding=f"utf-8"),
+    )
+
+    # PyYAML 1.1 normalizes the unquoted workflow key "on" to True.
+    push_paths = workflow[True][f"push"][f"paths"]
+    assert f".nvmrc" in push_paths
+
+    changes_steps = workflow[f"jobs"][f"changes"][f"steps"]
+    paths_filter = next(
+        step[f"with"][f"filters"]
+        for step in changes_steps
+        if step.get(f"uses", "").startswith(f"dorny/paths-filter@")
+    )
+    assert f".nvmrc" in paths_filter
+
+
+def test_node_version_changes_trigger_creator_tests() -> None:
+    workflow_path = (
+        REPO_ROOT / f".github" / f"workflows" / f"creator-app-tests.yml"
+    )
+    workflow = yaml.safe_load(
+        workflow_path.read_text(encoding=f"utf-8"),
+    )
+    triggers = workflow[True]
+
+    assert f".nvmrc" in triggers[f"push"][f"paths"]
+    assert f".nvmrc" in triggers[f"pull_request"][f"paths"]
 
 
 @pytest.mark.parametrize(f"system", [f"Windows", f"Darwin", f"Linux"])

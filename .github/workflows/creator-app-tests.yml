@@ -5,6 +5,7 @@ on:
     branches: [main, master, dev, develop, "dev/**", "release/**"]
     paths:
       - "plugins/apps/qwenpaw-creator/**"
+      - ".nvmrc"
       - ".github/workflows/creator-app-tests.yml"
   pull_request:
     # Default types plus ready_for_review: converting a draft PR to
@@ -14,6 +15,7 @@ on:
     branches: [main, master, dev, develop, "dev/**", "release/**"]
     paths:
       - "plugins/apps/qwenpaw-creator/**"
+      - ".nvmrc"
       - ".github/workflows/creator-app-tests.yml"
 
 jobs:

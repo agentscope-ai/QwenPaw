@@ -12,6 +12,7 @@ on:
       - 'pyproject.toml'
       - 'setup.py'
       - 'deploy/Dockerfile'
+      - '.nvmrc'
       - '.github/workflows/tests.yml'
   pull_request:
     # Default types plus ready_for_review: converting a draft PR to
@@ -67,6 +68,7 @@ jobs:
               - '.gitattributes'
               - 'pyproject.toml'
               - 'setup.py'
+              - '.nvmrc'
               - '.github/workflows/tests.yml'
 
   approval-gate:

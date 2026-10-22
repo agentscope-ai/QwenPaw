@@ -5,6 +5,7 @@ on:
     branches: [main, master, dev, develop, "release/**"]
     paths:
       - 'console/**'
+      - '.nvmrc'
       - '.github/workflows/frontend-tests.yml'
   pull_request:
     # Default types plus ready_for_review: converting a draft PR to
@@ -40,6 +41,7 @@ jobs:
           filters: |
             code:
               - 'console/**'
+              - '.nvmrc'
               - '.github/workflows/frontend-tests.yml'
 
   vitest:
