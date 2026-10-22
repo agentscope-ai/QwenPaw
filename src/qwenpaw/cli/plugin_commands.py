@@ -19,6 +19,7 @@ import click
 import httpx
 
 from ..config import utils as config_utils
+from ..utils.runtime_environment import require_pip, require_uv
 from ..utils.runtime_api import api_client, read_runtime_api
 
 from ..plugins.validation import (
@@ -262,14 +263,27 @@ def _install_requirements_cli(
 
     # ── Attempt 1: python -m pip ──────────────────────────────────────
     try:
+        require_pip(sys.executable)
         result = subprocess.run(  # pylint: disable=subprocess-run-check
-            [sys.executable, "-m", "pip", "install", "-r", req],
+            [
+                sys.executable,
+                "-m",
+                "pip",
+                "install",
+                "certifi>=2026.10.19",
+                "-r",
+                req,
+            ],
             capture_output=True,
             text=True,
             timeout=timeout,
         )
     except subprocess.TimeoutExpired:
         click.echo("❌ Dependency installation timed out.", err=True)
+        shutil.rmtree(target_dir, ignore_errors=True)
+        return False
+    except (RuntimeError, subprocess.CalledProcessError) as exc:
+        click.echo(f"Dependency installer rejected: {exc}", err=True)
         shutil.rmtree(target_dir, ignore_errors=True)
         return False
 
@@ -300,8 +314,18 @@ def _install_requirements_cli(
 
     click.echo("pip not found, retrying with uv...")
     try:
+        require_uv(uv)
         uv_result = subprocess.run(  # pylint: disable=subprocess-run-check
-            [uv, "pip", "install", "--python", sys.executable, "-r", req],
+            [
+                uv,
+                "pip",
+                "install",
+                "--python",
+                sys.executable,
+                "certifi>=2026.10.19",
+                "-r",
+                req,
+            ],
             capture_output=True,
             text=True,
             timeout=timeout,
@@ -311,6 +335,10 @@ def _install_requirements_cli(
             "❌ Dependency installation timed out (via uv).",
             err=True,
         )
+        shutil.rmtree(target_dir, ignore_errors=True)
+        return False
+    except (RuntimeError, subprocess.CalledProcessError) as exc:
+        click.echo(f"Dependency installer rejected: {exc}", err=True)
         shutil.rmtree(target_dir, ignore_errors=True)
         return False
 

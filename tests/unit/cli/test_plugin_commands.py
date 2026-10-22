@@ -335,6 +335,12 @@ class _Completed:
 
 
 class TestInstallRequirementsCli:
+    @pytest.fixture(autouse=True)
+    def safe_installers(self, monkeypatch):
+        """Installer rejection is covered separately from install failures."""
+        monkeypatch.setattr(pc, "require_pip", lambda _: True)
+        monkeypatch.setattr(pc, "require_uv", lambda _: None)
+
     def test_pip_success(self, monkeypatch, tmp_path, capsys):
         req = tmp_path / "requirements.txt"
         req.write_text("x==1\n")

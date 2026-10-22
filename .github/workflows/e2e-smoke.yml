@@ -54,6 +54,12 @@ jobs:
         with:
           python-version: '3.12'
 
+      - name: Secure Python certificate dependencies
+        shell: bash
+        run: |
+          python -m pip install --upgrade "pip>=26.2.2"
+          python -m pip install --upgrade "certifi>=2026.10.19"
+
       - name: Cache pip
         uses: actions/cache@v4
         with:

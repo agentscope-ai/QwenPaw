@@ -22,6 +22,7 @@ from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as _dist_version
 from packaging.requirements import Requirement
 
+from ..utils.runtime_environment import require_pip, require_uv
 from .architecture import PluginManifest, PluginRecord
 from .api import PluginApi
 from .module_isolation import (
@@ -960,6 +961,7 @@ class PluginLoader:
             return
 
         # ── Attempt 1: python -m pip ──────────────────────────────────
+        require_pip(sys.executable)
         try:
             result = self._run_subprocess_with_streaming_log(
                 [
@@ -969,6 +971,7 @@ class PluginLoader:
                     "install",
                     "--disable-pip-version-check",
                     "--no-input",
+                    "certifi>=2026.10.19",
                     "-r",
                     req,
                 ],
@@ -1011,6 +1014,7 @@ class PluginLoader:
         logger.info(
             f"pip not available; retrying with uv for plugin '{plugin_id}'",
         )
+        require_uv(uv)
         try:
             uv_result = self._run_subprocess_with_streaming_log(
                 [
@@ -1019,6 +1023,7 @@ class PluginLoader:
                     "install",
                     "--python",
                     sys.executable,
+                    "certifi>=2026.10.19",
                     "-r",
                     req,
                 ],
@@ -1063,6 +1068,10 @@ class PluginLoader:
                 "Desktop, or install the plugin's dependencies manually.",
             )
         target = str(_plugin_site_dir())
+        if not require_pip(python):
+            raise RuntimeError(
+                "Bundled pip is missing; update QwenPaw Desktop",
+            )
         try:
             result = self._run_subprocess_with_streaming_log(
                 [
@@ -1074,6 +1083,8 @@ class PluginLoader:
                     "--no-input",
                     "--target",
                     target,
+                    "--upgrade",
+                    "certifi>=2026.10.19",
                     "-r",
                     req,
                 ],
