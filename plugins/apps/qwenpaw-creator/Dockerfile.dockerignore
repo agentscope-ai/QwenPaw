@@ -1,6 +1,7 @@
 # Creator's build only consumes this plugin. Keep its runtime Markdown skills;
 # the repository-wide Docker context excludes Markdown for the host image.
 **
+!.nvmrc
 !plugins/
 !plugins/apps/
 !plugins/apps/qwenpaw-creator/

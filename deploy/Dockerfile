@@ -1,5 +1,6 @@
-# Base images — override with --build-arg for environments without ACR access.
-ARG NODE_IMAGE=agentscope-registry.ap-southeast-1.cr.aliyuncs.com/agentscope/node:slim
+# Use the pinned official Node image by default. Override NODE_IMAGE to use
+# an ACR mirror where Docker Hub is unavailable.
+ARG NODE_IMAGE=node:22.23.4-slim
 ARG UV_IMAGE=agentscope-registry.ap-southeast-1.cr.aliyuncs.com/agentscope/uv:latest
 
 # -----------------------------------------------------------------------------
@@ -21,6 +22,16 @@ FROM ${NODE_IMAGE}
 ARG QWENPAW_MANAGED_RUNTIME_BOUNDARY_VERSION
 LABEL io.qwenpaw.managed-runtime-boundary.version=\
 ${QWENPAW_MANAGED_RUNTIME_BOUNDARY_VERSION}
+
+# Fail the build when NODE_IMAGE does not match the repository runtime pin.
+COPY .nvmrc /tmp/qwenpaw-node-version
+RUN expected_version="v$(tr -d '[:space:]' < /tmp/qwenpaw-node-version)" \
+  && actual_version="$(node --version)" \
+  && if [ "${actual_version}" != "${expected_version}" ]; then \
+       echo "Node version mismatch: expected ${expected_version}, got ${actual_version}" >&2; \
+       exit 1; \
+     fi \
+  && rm /tmp/qwenpaw-node-version
 
 # ENV variables
 ENV NODE_ENV=production

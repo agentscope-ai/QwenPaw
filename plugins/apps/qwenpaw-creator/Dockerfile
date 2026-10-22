@@ -15,9 +15,10 @@
 
 # Image ARGs must be declared before the first FROM; RUN arguments are
 # redeclared in the stage that consumes them.
-# Use ACR registry for users in China; override with --build-arg for Docker Hub.
+# The base image uses ACR for users in China. Node uses the pinned official
+# image by default; override NODE_IMAGE to use an ACR Node mirror.
 ARG QWENPAW_BASE_IMAGE=agentscope-registry.ap-southeast-1.cr.aliyuncs.com/agentscope/qwenpaw:latest
-ARG NODE_IMAGE=agentscope-registry.ap-southeast-1.cr.aliyuncs.com/agentscope/node:slim
+ARG NODE_IMAGE=node:22.23.4-slim
 
 # PyPI mirror for faster package downloads in China.
 # Override with --build-arg PYPI_INDEX_URL=https://pypi.org/simple/ for global mirror.
@@ -38,6 +39,16 @@ RUN cd /app/creator-ui && npm ci --include=dev && npm run build
 FROM ${QWENPAW_BASE_IMAGE}
 
 ARG PYPI_INDEX_URL
+
+# Fail if the final runtime's Node does not match the repository pin.
+COPY .nvmrc /tmp/qwenpaw-node-version
+RUN expected_version="v$(tr -d '[:space:]' < /tmp/qwenpaw-node-version)" \
+  && actual_version="$(node --version)" \
+  && if [ "${actual_version}" != "${expected_version}" ]; then \
+       echo "Node version mismatch: expected ${expected_version}, got ${actual_version}" >&2; \
+       exit 1; \
+     fi \
+  && rm /tmp/qwenpaw-node-version
 
 # Install Creator's editing, media-probing, and GIS system dependencies.
 # These are not included in the official QwenPaw image.

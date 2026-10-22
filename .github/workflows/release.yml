@@ -334,7 +334,7 @@ jobs:
       - name: Set up Node (for console build)
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version-file: .nvmrc
           cache: "npm"
           cache-dependency-path: console/package-lock.json
 
@@ -386,7 +386,7 @@ jobs:
       ref: ${{ needs.resolve.outputs.sha }}
       # On dry_run (fork) the private ACR base images are unreachable, so fall
       # back to public images for the Docker health-check build.
-      docker_node_image: ${{ inputs.dry_run && 'node:20-slim' || '' }}
+      docker_node_image: ${{ inputs.dry_run && 'node:22.23.4-slim' || '' }}
       docker_uv_image: ${{ inputs.dry_run && 'ghcr.io/astral-sh/uv:latest' || '' }}
     secrets: inherit
 
@@ -413,7 +413,7 @@ jobs:
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version-file: .nvmrc
 
       - name: Build memory plugin frontends
         shell: bash
@@ -479,7 +479,7 @@ jobs:
 
       - name: Build multi-arch image
         env:
-          DOCKER_NODE_IMAGE: ${{ inputs.dry_run && 'node:20-slim' || '' }}
+          DOCKER_NODE_IMAGE: ${{ inputs.dry_run && 'node:22.23.4-slim' || '' }}
           DOCKER_UV_IMAGE: ${{ inputs.dry_run && 'ghcr.io/astral-sh/uv:latest' || '' }}
           QWENPAW_DISABLED_CHANNELS: "imessage"
           QWENPAW_VERSION: ${{ steps.version.outputs.version }}

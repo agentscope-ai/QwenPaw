@@ -91,7 +91,7 @@ jobs:
       - name: Set up Node.js (for console build)
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version-file: .nvmrc
           cache: 'npm'
           cache-dependency-path: console/package-lock.json
 
@@ -188,7 +188,7 @@ jobs:
       - name: Set up Node.js (for console build)
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version-file: .nvmrc
           cache: 'npm'
           cache-dependency-path: console/package-lock.json
 
@@ -283,7 +283,7 @@ jobs:
       - name: Set up Node.js (for console build)
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version-file: .nvmrc
           cache: 'npm'
           cache-dependency-path: console/package-lock.json
 
@@ -523,7 +523,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version-file: .nvmrc
           cache: 'npm'
           cache-dependency-path: console/package-lock.json
 

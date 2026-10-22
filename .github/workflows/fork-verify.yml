@@ -1,7 +1,7 @@
 # One-click release verification for fork repositories.
 # Builds the wheel, then runs all verification jobs (pip, Docker, script install).
 #
-# Docker uses public base images (node:20-slim, ghcr.io/astral-sh/uv) instead of
+# Docker uses public base images (node:22.23.4-slim, ghcr.io/astral-sh/uv) instead of
 # the private ACR registry, so forks can validate the full pipeline without credentials.
 #
 # Usage: trigger manually via Actions → Fork Release Verification → Run workflow.
@@ -29,7 +29,7 @@ jobs:
       - name: Set up Node (for console build)
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version-file: .nvmrc
           cache: "npm"
           cache-dependency-path: console/package-lock.json
 
@@ -79,5 +79,5 @@ jobs:
       verify_pip: true
       verify_docker: true
       verify_script_install: true
-      docker_node_image: "node:20-slim"
+      docker_node_image: "node:22.23.4-slim"
       docker_uv_image: "ghcr.io/astral-sh/uv:latest"

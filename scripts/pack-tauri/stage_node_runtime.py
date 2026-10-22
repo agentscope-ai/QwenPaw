@@ -13,7 +13,7 @@ import urllib.request
 import zipfile
 from pathlib import Path
 
-DEFAULT_NODE_VERSION = "v22.20.0"
+DEFAULT_NODE_VERSION = f"v22.23.4"
 NODE_DIST_URL = "https://nodejs.org/dist"
 
 

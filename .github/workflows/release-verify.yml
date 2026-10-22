@@ -20,7 +20,7 @@ on:
         type: boolean
         default: false
       docker_node_image:
-        description: "Override Dockerfile NODE_IMAGE build-arg (for fork without ACR access)"
+        description: "Override Dockerfile NODE_IMAGE build-arg for a registry mirror"
         type: string
         default: ""
       docker_uv_image:
@@ -287,7 +287,7 @@ jobs:
       - name: Set up Node.js (for console build during from-source install)
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version-file: .nvmrc
           cache: "npm"
           cache-dependency-path: console/package-lock.json
 
