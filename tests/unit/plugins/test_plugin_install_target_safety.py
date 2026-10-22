@@ -7,6 +7,11 @@ from pathlib import Path
 
 import pytest
 
+from qwenpaw.installation_origin import (
+    origin_from_platform_url,
+    read_plugin_origin,
+    write_plugin_origin,
+)
 from qwenpaw.plugins.architecture import PluginManifest
 from qwenpaw.plugins.loader import PluginLoader
 
@@ -48,6 +53,12 @@ async def test_existing_plugin_target_is_not_replaced_without_force(
     marker.write_text("must survive", encoding="utf-8")
     loader = PluginLoader([install_root])
 
+    origin = origin_from_platform_url(
+        "https://platform.agentscope.io/plugins/alice/demo",
+        "plugin",
+    )
+    write_plugin_origin(install_root, "demo", origin)
+
     with pytest.raises(ValueError, match="already exists"):
         # pylint: disable-next=protected-access
         await loader._load_plugin_from_path_unlocked(
@@ -57,6 +68,7 @@ async def test_existing_plugin_target_is_not_replaced_without_force(
         )
 
     assert marker.read_text(encoding="utf-8") == "must survive"
+    assert read_plugin_origin(install_root, "demo") == origin
 
 
 @pytest.mark.asyncio

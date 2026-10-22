@@ -1,0 +1,1180 @@
+.content {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-height: 68vh;
+  overflow-y: auto;
+  padding: 4px 8px 8px 0;
+}
+
+.field,
+.materials {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.field > label {
+  font-weight: 500;
+}
+
+.hint {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--app-text-secondary);
+}
+
+.fileInput {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+
+  input {
+    max-width: 100%;
+  }
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.screenshot {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--app-border);
+  border-radius: 8px;
+}
+
+.maskCanvas {
+  position: relative;
+  align-self: flex-start;
+  max-width: 100%;
+  line-height: 0;
+  overflow: hidden;
+  border: 1px solid var(--app-border);
+}
+.maskSelection {
+  position: absolute;
+  pointer-events: none;
+  box-sizing: border-box;
+  border: 2px dashed #fff;
+  outline: 1px solid #242424;
+  background: rgb(0 0 0 / 25%);
+}
+.canvas {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  align-self: flex-start;
+  cursor: crosshair;
+  touch-action: none;
+}
+
+.coordinate {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+}
+
+@media (max-width: 600px) {
+  .content {
+    max-height: 65dvh;
+  }
+}
+
+// Composer rhythm uses the existing 4/8px spacing scale and app colour tokens.
+.composerModal {
+  :global(:is(.ant-modal-content, .qwenpaw-modal-content)) {
+    padding: 0;
+    overflow: hidden;
+    border-radius: 16px;
+  }
+  :global(:is(.ant-modal-header, .qwenpaw-modal-header)) {
+    margin: 0;
+    padding: 22px 28px 18px;
+    border-bottom: 1px solid var(--app-border);
+  }
+  :global(:is(.ant-modal-title, .qwenpaw-modal-title)) {
+    font-size: 19px;
+    letter-spacing: -0.3px;
+  }
+  :global(:is(.ant-modal-close, .qwenpaw-modal-close)) {
+    top: 18px;
+    right: 20px;
+  }
+  :global(:is(.ant-modal-body, .qwenpaw-modal-body)) {
+    padding: 0;
+  }
+  :global(:is(.ant-modal-footer, .qwenpaw-modal-footer)) {
+    margin: 0;
+    padding: 16px 28px;
+    border-top: 1px solid var(--app-border);
+    background: var(--app-surface);
+  }
+}
+.composer {
+  max-height: calc(100dvh - 238px);
+  overflow-y: auto;
+}
+.composer > :global(:is(.ant-alert, .qwenpaw-alert)),
+.composer > :global(:is(.ant-spin, .qwenpaw-spin)),
+.composer > :global(:is(.ant-btn, .qwenpaw-btn)) {
+  margin: 24px;
+}
+.composerLayout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+}
+.composerLayout[data-assisting="true"] {
+  grid-template-columns: minmax(0, 1fr) 12px minmax(
+      300px,
+      var(--assist-width, 35%)
+    );
+}
+.writingPane {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+  padding: 24px 28px;
+
+  // The pane scrolls as a whole. Flex shrinking can otherwise make Markdown
+  // paint beyond its border and over the hint/character count below it.
+  > * {
+    flex-shrink: 0;
+  }
+}
+.composeIntro {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--app-text-secondary);
+}
+.typePicker {
+  padding: 4px;
+  background: var(--app-surface-sunken);
+  border-radius: 10px;
+  :global(:is(.ant-segmented-item-label, .qwenpaw-segmented-item-label)) {
+    padding: 0;
+  }
+  :global(:is(.ant-segmented-item-selected, .qwenpaw-segmented-item-selected)) {
+    color: var(--app-accent-text);
+    box-shadow: none;
+    outline: 1px solid var(--app-accent-border);
+    border-radius: 7px;
+  }
+}
+.typeOption {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 12px;
+  padding: 12px 16px;
+  text-align: left;
+  line-height: 1.5;
+  strong {
+    display: block;
+    font-size: 14px;
+    font-weight: 600;
+  }
+  small {
+    display: block;
+    margin-top: 2px;
+    color: var(--app-text-secondary);
+    font-size: 12px;
+    font-weight: 400;
+  }
+  svg {
+    flex-shrink: 0;
+  }
+}
+.boardRow {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  label {
+    font-size: 13px;
+    color: var(--app-text-secondary);
+  }
+  :global(:is(.ant-select, .qwenpaw-select)) {
+    min-width: 180px;
+    flex: 1;
+  }
+}
+.resourceRow {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--app-border-subtle);
+  :global(:is(.ant-tag, .qwenpaw-tag)) {
+    margin: 0;
+    border-color: var(--app-border);
+    background: var(--app-surface-subtle);
+  }
+}
+.resourceLabel {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  font-size: 12px;
+  color: var(--app-text-secondary);
+  margin-right: 4px;
+}
+.titleInput {
+  font-size: 17px;
+  font-weight: 500;
+  padding: 10px 12px;
+}
+.editorActions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  > label {
+    margin-right: auto;
+  }
+}
+.assistToggle[aria-expanded="true"] {
+  color: var(--app-accent-text);
+  border-color: var(--app-accent-border);
+  background: var(--app-accent-faint);
+}
+.bodyInput {
+  line-height: 1.85;
+  padding: 14px;
+  font-size: 14px;
+  resize: none;
+}
+.editorHint {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 11px;
+  color: var(--app-text-secondary);
+  line-height: 1.6;
+
+  > :last-child {
+    margin-left: auto;
+    white-space: nowrap;
+  }
+}
+.assistancePane {
+  background: var(--app-surface-subtle);
+  min-width: 0;
+}
+.assistance {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 24px 20px;
+  > :global(:is(.ant-typography, .qwenpaw-typography)) {
+    font-size: 12px;
+    line-height: 1.75;
+  }
+}
+.assistHeading {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 15px;
+  svg {
+    color: var(--app-accent-text);
+  }
+}
+.diagnostics {
+  border: 1px solid var(--app-border);
+  border-radius: 8px;
+  background: var(--app-surface);
+  :global(:is(.ant-collapse-header, .qwenpaw-collapse-header)) {
+    padding: 12px !important;
+    align-items: center !important;
+  }
+  :global(:is(.ant-collapse-content-box, .qwenpaw-collapse-content-box)) {
+    padding: 0 12px 12px !important;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  :global(:is(.ant-typography, .qwenpaw-typography)) {
+    font-size: 12px;
+  }
+}
+.diagnosticFields {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: minmax(0, 1fr);
+}
+.imageMaterials {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.sectionLabel {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  color: var(--app-text-secondary);
+}
+.pasteArea {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 6px;
+  padding: 20px 12px;
+  width: 100%;
+  border: 1px dashed var(--app-border-strong);
+  background: var(--app-surface);
+  border-radius: 10px;
+  color: var(--app-text-secondary);
+  cursor: pointer;
+  font: inherit;
+  strong {
+    font-size: 13px;
+    color: var(--app-text);
+    font-weight: 500;
+  }
+  span {
+    font-size: 11px;
+  }
+  svg {
+    margin-bottom: 4px;
+  }
+  &:hover:not([aria-disabled="true"]),
+  &:focus,
+  &:focus-within {
+    border-color: var(--app-accent);
+    background: var(--app-accent-faint);
+    outline: 2px solid var(--app-accent-ring);
+    outline-offset: 2px;
+  }
+  &[aria-disabled="true"] {
+    cursor: not-allowed;
+    opacity: 0.6;
+  }
+}
+.assistancePane[hidden] {
+  display: none;
+}
+.revisionPanel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--app-border);
+  border-radius: 10px;
+  background: var(--app-surface);
+  > label {
+    font-weight: 500;
+  }
+}
+.publishFooter {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  text-align: left;
+  :global(:is(.ant-checkbox-wrapper, .qwenpaw-checkbox-wrapper)) {
+    font-size: 12px;
+  }
+}
+.footerActions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  > :global(:is(.ant-btn, .qwenpaw-btn)) {
+    min-width: 116px;
+    flex-shrink: 0;
+  }
+}
+.preview {
+  flex: none;
+  min-width: 0;
+  max-width: 100%;
+  min-height: 250px;
+  padding: 14px;
+  border: 1px solid var(--app-border);
+  border-radius: 8px;
+  overflow-wrap: anywhere;
+  line-height: 1.85;
+  pre {
+    overflow-x: auto;
+  }
+  img {
+    max-width: 100%;
+  }
+}
+.maskOptions {
+  font-size: 12px;
+  summary {
+    cursor: pointer;
+    color: var(--app-text-secondary);
+    padding: 6px 0;
+  }
+}
+@media (max-width: 900px) {
+  .composerLayout[data-assisting="true"] {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .assistancePane {
+    border-left: 0;
+    border-top: 1px solid var(--app-border);
+  }
+}
+@media (max-width: 600px) {
+  .writingPane {
+    padding: 20px 16px;
+  }
+  .composerModal :global(:is(.ant-modal-header, .qwenpaw-modal-header)),
+  .composerModal :global(:is(.ant-modal-footer, .qwenpaw-modal-footer)) {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+  .typeOption {
+    gap: 8px;
+    padding: 10px 8px;
+  }
+  .typeOption small {
+    font-size: 11px;
+  }
+  .footerActions .hint {
+    max-width: 60%;
+  }
+}
+
+.generateActions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  :global(:is(.ant-typography, .qwenpaw-typography)) {
+    font-size: 12px;
+    line-height: 1.7;
+  }
+}
+
+// Keep the writing context in view when reference materials grow.
+@media (min-width: 901px) {
+  .composerLayout[data-assisting="true"] {
+    > .writingPane,
+    > .assistancePane {
+      max-height: calc(100dvh - 238px);
+      overflow-y: auto;
+      overscroll-behavior: contain;
+    }
+  }
+}
+
+.resourcePicker {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.resourcePickerHint {
+  color: var(--app-text-secondary);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.assistStart {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  text-align: left;
+  cursor: pointer;
+  border: 1px solid var(--app-accent-border);
+  border-radius: 8px;
+  background: var(--app-accent-faint);
+  color: var(--app-text);
+  font: inherit;
+  svg {
+    color: var(--app-accent-text);
+    flex-shrink: 0;
+  }
+  strong {
+    display: block;
+    font-size: 13px;
+    font-weight: 500;
+  }
+  small {
+    display: block;
+    margin-top: 4px;
+    color: var(--app-text-secondary);
+    font-size: 12px;
+  }
+  &:hover {
+    background: var(--app-fill-subtle);
+  }
+  &:focus-visible {
+    outline: 2px solid var(--app-accent);
+    outline-offset: 2px;
+  }
+}
+.writingPreferences {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 8px;
+  > * {
+    min-width: 0;
+  }
+}
+.mobilePaneSwitch {
+  display: none;
+}
+@media (max-width: 900px) {
+  .mobilePaneSwitch {
+    display: block;
+    padding: 12px 16px;
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    background: var(--app-surface);
+    border-bottom: 1px solid var(--app-border);
+  }
+  .composerLayout[data-assisting="true"][data-mobile-pane="assist"]
+    > .writingPane,
+  .composerLayout[data-assisting="true"][data-mobile-pane="write"]
+    > .assistancePane {
+    display: none;
+  }
+  .assistancePane {
+    border-top: 0;
+  }
+}
+@media (max-width: 600px) {
+  .composerModal {
+    top: 0 !important;
+    margin: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    padding-bottom: 0;
+  }
+  .composerModal :global(:is(.ant-modal-content, .qwenpaw-modal-content)) {
+    height: 100dvh;
+    display: flex;
+    flex-direction: column;
+    border-radius: 0;
+  }
+  .composerModal :global(:is(.ant-modal-header, .qwenpaw-modal-header)) {
+    flex: none;
+    padding: 16px;
+  }
+  .composerModal :global(:is(.ant-modal-body, .qwenpaw-modal-body)) {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  .composerModal :global(:is(.ant-modal-footer, .qwenpaw-modal-footer)) {
+    flex: none;
+    padding: 12px 16px max(12px, env(safe-area-inset-bottom));
+  }
+  .composer {
+    max-height: none;
+    min-height: 0;
+    flex: 1;
+  }
+  .writingPane,
+  .assistance {
+    padding: 16px;
+    gap: 14px;
+  }
+  .composeIntro > span:first-child {
+    display: none;
+  }
+  .typeOption {
+    white-space: normal;
+    padding: 8px;
+    gap: 8px;
+  }
+  .typeOption small {
+    display: none;
+  }
+  .typeOption strong {
+    font-size: 13px;
+  }
+  .boardRow {
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .boardRow > *:last-child {
+    width: 100%;
+  }
+  .footerActions {
+    gap: 8px;
+  }
+  .footerActions .hint {
+    max-width: none;
+    font-size: 11px;
+  }
+  .preview {
+    min-height: 180px;
+    padding: 12px;
+  }
+  .preview h1 {
+    font-size: 22px;
+  }
+  .preview h2 {
+    font-size: 19px;
+  }
+}
+
+.sectionHeading {
+  margin: 4px 0 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--app-text-secondary);
+}
+.consentAction {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--app-border);
+  border-radius: 10px;
+  background: var(--app-surface);
+  :global(:is(.ant-checkbox-wrapper, .qwenpaw-checkbox-wrapper)) {
+    font-size: 12px;
+    line-height: 1.7;
+    font-weight: 400;
+    align-items: flex-start;
+  }
+}
+.resizeHandle {
+  cursor: col-resize;
+  touch-action: none;
+  background: var(--app-surface-subtle);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  &::after {
+    content: "";
+    width: 3px;
+    height: 40px;
+    border-radius: 3px;
+    background: var(--app-border-strong);
+  }
+  &:hover::after,
+  &:focus-visible::after {
+    background: var(--app-accent);
+  }
+  &:focus-visible {
+    outline: 2px solid var(--app-accent);
+    outline-offset: -2px;
+  }
+}
+@media (max-width: 900px) {
+  .resizeHandle {
+    display: none;
+  }
+}
+
+.writingConversation {
+  flex: 1;
+  min-height: 0;
+  max-height: none;
+  overflow-y: auto;
+  padding: 20px;
+  h1,
+  h2,
+  h3 {
+    font-size: 18px;
+    line-height: 1.5;
+    margin: 8px 0;
+  }
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  overflow-wrap: anywhere;
+  pre {
+    overflow-x: auto;
+  }
+  img {
+    max-width: 100%;
+  }
+}
+.userTurn,
+.assistantTurn {
+  flex-shrink: 0;
+  min-width: 0;
+  border-radius: 14px;
+  line-height: 1.75;
+}
+.userTurn {
+  align-self: flex-end;
+  max-width: 88%;
+  padding: 12px 16px;
+  background: var(--app-fill-subtle);
+  border: 1px solid var(--app-border-subtle);
+  border-bottom-right-radius: 4px;
+  .turnHeader {
+    padding: 0 0 8px;
+  }
+  .turnContent {
+    padding: 0;
+  }
+  .turnAvatar {
+    background: var(--app-surface);
+    color: var(--app-text-secondary);
+  }
+}
+.assistantTurn {
+  align-self: stretch;
+  border: 1px solid var(--app-border);
+  background: var(--app-surface);
+  .turnHeader {
+    position: sticky;
+    top: -20px;
+    z-index: 1;
+    border-bottom: 1px solid var(--app-border-subtle);
+    border-radius: 14px 14px 0 0;
+    background: var(--app-surface);
+  }
+}
+.turnHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 12px 16px;
+}
+.turnIdentity {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--app-text);
+}
+.turnAvatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  color: var(--app-accent-text);
+  background: var(--app-accent-faint);
+}
+.applyDraftButton {
+  min-height: 36px;
+  font-weight: 600;
+  white-space: normal;
+  height: auto;
+  &:not(:disabled):not(:global(.ant-btn-disabled)) {
+    color: var(--app-accent-text);
+    background: var(--app-accent-soft);
+    border-color: var(--app-accent-border);
+    box-shadow: none;
+    &:hover,
+    &:active {
+      color: var(--app-accent-text);
+      background: var(--app-accent-soft-hover);
+      border-color: var(--app-accent-border);
+    }
+  }
+}
+.turnContent {
+  padding: 16px;
+  margin: 0;
+  > :first-child {
+    margin-top: 0;
+  }
+  > :last-child {
+    margin-bottom: 0;
+  }
+}
+
+// The route-based editor fills the extension workspace without a modal overlay.
+.composerPage {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 1440px;
+  margin: 0 auto;
+
+  .composer {
+    flex: 1;
+    min-height: 0;
+    max-height: none;
+    padding: 0;
+  }
+  .pageHeader {
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    padding: 16px 24px;
+    border-bottom: 1px solid var(--app-border);
+    h1 {
+      margin: 0;
+      font-size: 18px;
+      font-weight: 600;
+    }
+  }
+  .pageFooter {
+    flex: none;
+    padding: 16px 28px;
+    border-top: 1px solid var(--app-border);
+    background: var(--app-surface);
+  }
+  @media (min-width: 901px) {
+    .composerLayout {
+      height: 100%;
+    }
+    .composerLayout > .writingPane,
+    .composerLayout > .assistancePane {
+      min-height: 0;
+      max-height: none;
+      overflow-y: auto;
+      overscroll-behavior: contain;
+    }
+  }
+  @media (max-width: 600px) {
+    .pageHeader {
+      padding: 10px 12px;
+      gap: 12px;
+    }
+    .pageHeader h1 {
+      font-size: 16px;
+    }
+    .pageFooter {
+      padding: 12px 16px max(12px, env(safe-area-inset-bottom));
+    }
+  }
+}
+
+.draftLibrary {
+  max-width: 1000px;
+  margin: 0 auto;
+  padding: 24px;
+  h1 {
+    font-size: 24px;
+    margin: 20px 0 8px;
+  }
+  > .hint {
+    margin-bottom: 24px;
+  }
+}
+.draftCard {
+  padding: 20px;
+  margin: 16px 0;
+  border: 1px solid var(--app-border);
+  border-radius: 12px;
+  background: var(--app-surface);
+  h2 {
+    font-size: 17px;
+    margin: 12px 0 8px;
+    overflow-wrap: anywhere;
+  }
+  p {
+    color: var(--app-text-secondary);
+    overflow-wrap: anywhere;
+  }
+}
+@media (max-width: 600px) {
+  .draftLibrary {
+    padding: 16px;
+  }
+  .footerActions {
+    flex-wrap: wrap;
+  }
+  .footerActions .hint {
+    flex-basis: 100%;
+  }
+}
+
+// A stable chat frame: only the active conversation or materials workspace scrolls.
+.composerLayout[data-assisting="true"] {
+  height: calc(100dvh - 238px);
+  min-height: 0;
+}
+.composerPage .composerLayout {
+  height: 100%;
+}
+.composerPage .composerLayout > .assistancePane,
+.composerLayout[data-assisting="true"] > .assistancePane {
+  overflow: hidden;
+  min-height: 0;
+  height: 100%;
+}
+.assistance {
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  padding: 0;
+  gap: 0;
+  background: var(--app-surface);
+}
+.assistantHeader {
+  flex: none;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--app-border);
+  background: var(--app-surface-subtle);
+  .assistHeading {
+    font-size: 14px;
+  }
+}
+.assistantSettings {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  width: min(320px, calc(100vw - 64px));
+  padding: 8px 0;
+}
+.writingConversation[hidden],
+.materialWorkspace[hidden] {
+  display: none;
+}
+.writingConversation {
+  overscroll-behavior: contain;
+}
+.conversationEmpty {
+  margin: auto;
+  max-width: 320px;
+  padding: 20px 8px;
+  text-align: center;
+  line-height: 1.8;
+  svg {
+    color: var(--app-accent-text);
+    margin-bottom: 12px;
+  }
+  strong {
+    display: block;
+    font-size: 16px;
+  }
+  p {
+    font-size: 13px;
+    color: var(--app-text-secondary);
+    margin: 8px 0 0;
+  }
+}
+.materialWorkspace {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 16px;
+  .materialHeader {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+    margin-bottom: 16px;
+  }
+  .materialHeader strong {
+    font-size: 14px;
+  }
+  .imageMaterials {
+    margin-top: 20px;
+  }
+}
+.chatComposer {
+  flex: none;
+  max-height: 55%;
+  overflow-y: auto;
+  padding: 12px 16px;
+  border-top: 1px solid var(--app-border);
+  background: var(--app-surface);
+  .generateActions {
+    gap: 8px;
+  }
+  .field {
+    gap: 8px;
+  }
+  .field > label {
+    font-size: 12px;
+    color: var(--app-text-secondary);
+  }
+  :global(.ant-checkbox-wrapper) {
+    font-size: 12px;
+    line-height: 1.6;
+  }
+  :global(textarea) {
+    font-size: 14px;
+  }
+}
+.chatToolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  > :first-child {
+    margin-right: auto;
+  }
+}
+.writingPane {
+  background: var(--app-surface-subtle);
+  gap: 20px;
+  padding: 20px;
+}
+.writingSection {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+  padding: 20px;
+  border: 1px solid var(--app-border);
+  border-radius: 12px;
+  background: var(--app-surface);
+  > * {
+    flex-shrink: 0;
+  }
+  .sectionHeading {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 15px;
+    margin: 0;
+    color: var(--app-text);
+  }
+  .resourceRow {
+    padding-bottom: 0;
+    border-bottom: 0;
+  }
+}
+.sectionNumber {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  color: var(--app-accent-text);
+  background: var(--app-accent-faint);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+@media (max-width: 900px) {
+  .composer {
+    display: flex;
+    flex-direction: column;
+  }
+  .mobilePaneSwitch {
+    flex: none;
+    position: static;
+  }
+  .composerLayout,
+  .composerPage .composerLayout {
+    flex: 1;
+    min-height: 0;
+    height: auto;
+    overflow: hidden;
+  }
+  .composerLayout > .writingPane {
+    min-height: 0;
+    overflow-y: auto;
+  }
+  .composerLayout[data-assisting="true"] {
+    height: 100%;
+  }
+  .composerLayout > .assistancePane {
+    height: 100%;
+  }
+}
+@media (max-width: 600px) {
+  .writingPane {
+    padding: 12px;
+    gap: 12px;
+  }
+  .writingSection {
+    padding: 14px;
+    gap: 14px;
+  }
+  .assistantHeader {
+    padding: 10px 12px;
+  }
+  .writingConversation {
+    padding: 16px;
+  }
+  .chatComposer {
+    padding: 10px 12px;
+  }
+  .chatToolbar :global(.ant-btn) {
+    min-height: 36px;
+  }
+  .applyDraftButton {
+    min-height: 44px;
+  }
+  .assistantTurn .turnHeader {
+    top: -16px;
+  }
+}
+
+.resourceSummary {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid var(--app-border-subtle);
+  border-radius: 10px;
+  background: var(--app-surface-subtle);
+  > div {
+    flex: 1;
+    min-width: 160px;
+  }
+  strong {
+    font-size: 14px;
+    color: var(--app-text);
+  }
+  p {
+    margin: 4px 0 0;
+    font-size: 12px;
+    color: var(--app-text-secondary);
+    line-height: 1.6;
+  }
+}
+.resourceSummaryIcon {
+  display: inline-flex;
+  padding: 10px;
+  border-radius: 10px;
+  background: var(--app-surface);
+  color: var(--app-accent-text);
+}
+.addResourcesButton {
+  min-height: 36px;
+  font-weight: 500;
+  &:not(:disabled) {
+    color: var(--app-accent-text);
+    border-color: var(--app-accent-border);
+    background: var(--app-surface);
+    &:hover {
+      background: var(--app-accent-soft);
+    }
+  }
+}
+@media (max-width: 600px) {
+  .resourceSummary {
+    padding: 12px;
+  }
+  .addResourcesButton {
+    width: 100%;
+    min-height: 44px;
+  }
+}

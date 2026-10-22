@@ -968,6 +968,7 @@ class TestListPluginsRoute:
                 "loaded": False,
                 "plugin_type": "general",
                 "frontend_entry": None,
+                "installation_origin": None,
             },
         ]
 
@@ -988,6 +989,7 @@ class TestListPluginsRoute:
                 "loaded": True,
                 "plugin_type": "general",
                 "frontend_entry": "ui/index.js",
+                "installation_origin": None,
             },
         ]
 
@@ -1472,6 +1474,7 @@ class TestInstallPluginRoute:
             "author": "auth",
             "loaded": True,
             "message": "Plugin 'plug display name' installed successfully.",
+            "installation_origin": None,
         }
 
     @pytest.mark.parametrize(

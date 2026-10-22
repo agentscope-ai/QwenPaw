@@ -21,6 +21,10 @@ import {
 } from "./osNotifyStore";
 import { useOsStyles, ACCENT } from "./useOsStyles";
 import { buttonRoleProps } from "./a11y";
+import {
+  INBOX_OPEN_EVENT,
+  INBOX_SOURCE_STORAGE_KEY,
+} from "../utils/inboxEvents";
 
 const INBOX_ROUTE = "core.inbox";
 const INBOX_TAB_KEY = "qwenpaw.inbox.activeTab";
@@ -44,18 +48,24 @@ function formatTime(ms: number): string {
 /** Open the Inbox window on the tab that matches the notification kind. */
 function useOpenInbox() {
   const open = useOsWindows((s) => s.open);
-  return (kind: NotifyKind) => {
+  return (item: OsNotifyItem) => {
+    const tab = item.kind === "approval" ? "approvals" : "messages";
+    const sourceType =
+      item.sourceType === "community" ? "community" : undefined;
     try {
-      window.localStorage.setItem(
-        INBOX_TAB_KEY,
-        kind === "approval" ? "approvals" : "messages",
-      );
+      window.localStorage.setItem(INBOX_TAB_KEY, tab);
+      if (sourceType)
+        window.localStorage.setItem(INBOX_SOURCE_STORAGE_KEY, sourceType);
+      else window.localStorage.removeItem(INBOX_SOURCE_STORAGE_KEY);
     } catch {
       /* storage unavailable — Inbox falls back to its default tab */
     }
     if (INBOX_ROUTE === STORE_APP.routeId) return; // guard (never true)
     // Geometry comes from the app registry manifest, like every entry point.
     open(INBOX_ROUTE);
+    window.dispatchEvent(
+      new CustomEvent(INBOX_OPEN_EVENT, { detail: { tab, sourceType } }),
+    );
   };
 }
 
@@ -132,7 +142,7 @@ function Toast({ item }: { item: OsNotifyItem }) {
       role="status"
       aria-live="polite"
       onClick={() => {
-        openInbox(item.kind);
+        openInbox(item);
         dismiss(item.id);
       }}
     >
@@ -145,6 +155,8 @@ function Toast({ item }: { item: OsNotifyItem }) {
         <div className={styles.toastMeta}>
           {item.kind === "approval"
             ? t("os.notifyApproval", "Approval")
+            : item.sourceType === "community"
+            ? t("communityFeedback.community")
             : t("os.notifyInbox", "Inbox")}
           {" · "}
           {formatTime(item.createdAt)}
@@ -229,11 +241,11 @@ export default function NotificationCenter() {
                   key={item.id}
                   className={styles.ncItem}
                   onClick={() => {
-                    openInbox(item.kind);
+                    openInbox(item);
                     setCenter(false);
                   }}
                   {...buttonRoleProps(() => {
-                    openInbox(item.kind);
+                    openInbox(item);
                     setCenter(false);
                   }, item.title)}
                 >
