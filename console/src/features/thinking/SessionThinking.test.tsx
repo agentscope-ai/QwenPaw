@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor } from "@testing-library/react";
 import { expect, it, vi } from "vitest";
 import { renderWithProviders } from "@/test/common_setup";
 import {
@@ -216,4 +216,35 @@ it("keeps the new depth visible while saving instead of reverting the indicator"
   expect(
     screen.getByRole("img", { name: "thinkingControl.intensive" }),
   ).toBeInTheDocument();
+});
+
+it("ignores a scoped model change for another Chat", async () => {
+  vi.mocked(sessionThinkingApi.get).mockResolvedValue({
+    model: "qwen",
+    model_name: "Qwen",
+    provider_id: "dashscope",
+    model_key: "dashscope:qwen",
+    model_source: "session",
+    control: { kind: "unsupported", efforts: [], supports_off: false },
+    value: { level: "inherit" },
+    effective: { level: "inherit" },
+    source: "model",
+    reason: null,
+  });
+  renderWithProviders(
+    <SessionThinking agentId="agent" sessionId="old" chatId="old-chat" />,
+  );
+  await waitFor(() => expect(sessionThinkingApi.get).toHaveBeenCalled());
+  const calls = vi.mocked(sessionThinkingApi.get).mock.calls.length;
+
+  act(() => {
+    window.dispatchEvent(
+      new CustomEvent("session-model-changed", {
+        detail: { agentId: "agent", sessionId: "new", chatId: null },
+      }),
+    );
+  });
+  await act(async () => {});
+
+  expect(sessionThinkingApi.get).toHaveBeenCalledTimes(calls);
 });

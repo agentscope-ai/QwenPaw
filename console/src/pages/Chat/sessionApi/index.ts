@@ -741,6 +741,22 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
   /** Route metadata survives lists that exclude the selected archived Chat. */
   private resolvedRouteSession: ExtendedSession | null = null;
   private routeResolutionVersion = 0;
+  private removedRouteIds = new Set<string>();
+
+  /** Prevent a deleted route from resolving while navigation settles. */
+  markRouteRemoved(...ids: Array<string | null | undefined>): void {
+    for (const id of ids) {
+      if (id) this.removedRouteIds.add(id);
+    }
+  }
+
+  isRouteRemoved(id?: string | null): boolean {
+    return !!id && this.removedRouteIds.has(id);
+  }
+
+  clearRouteRemoval(id?: string | null): void {
+    if (id) this.removedRouteIds.delete(id);
+  }
 
   /** Notify route aliases when their cached existence proof is invalidated. */
   getRouteResolutionVersion(): number {
@@ -829,6 +845,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     // agent's local id / backend UUID onto a different chat.
     this.sessionList = [];
     this.resolvedRouteSession = null;
+    this.removedRouteIds.clear();
     this._prevReturnedList = null;
     this.lastSelectedIds.clear();
     // Release the switch lock: the switch it belonged to is owned by the
@@ -928,6 +945,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     this.activeOwner = { agentId: "", generation: 0 };
     this.resolvedRouteSession = null;
     this.routeResolutionVersion = 0;
+    this.removedRouteIds.clear();
     this.sessionListRequest = null;
     this.invalidateSessionCreation();
     this.resolvePromise = null;

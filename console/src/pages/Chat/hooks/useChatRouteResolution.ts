@@ -58,7 +58,18 @@ export function useChatRouteResolution(
   const resolved = known || (currentResolution !== null && error === null);
 
   useEffect(() => {
-    if (!referenceId || referenceId === "new" || known) return;
+    if (!referenceId) return;
+    return () => sessionApi.clearRouteRemoval(referenceId);
+  }, [referenceId]);
+
+  useEffect(() => {
+    if (
+      !referenceId ||
+      referenceId === "new" ||
+      known ||
+      sessionApi.isRouteRemoved(referenceId)
+    )
+      return;
     const controller = new AbortController();
     const owner = sessionApi.getActiveOwner();
     const isCurrent = () =>

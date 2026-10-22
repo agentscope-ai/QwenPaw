@@ -571,6 +571,8 @@ describe("useSessionListData delete extras", () => {
     expect(clearSpy).toHaveBeenCalledWith(A_CHAT);
     expect(clearSpy).toHaveBeenCalledWith(REAL);
     expect(newChatListener).toHaveBeenCalled();
+    expect(sessionApi.isRouteRemoved(A_CHAT)).toBe(true);
+    expect(sessionApi.isRouteRemoved(REAL)).toBe(true);
 
     window.removeEventListener("qwenpaw:sidebar-new-chat", newChatListener);
     lsSpy.mockRestore();
@@ -972,6 +974,28 @@ describe("useSessionListData owner guards and misc edges", () => {
     });
 
     expect(newChatListener).not.toHaveBeenCalled();
+    window.removeEventListener("qwenpaw:sidebar-new-chat", newChatListener);
+  });
+
+  it("leaves the deleted route before refreshing the session list", async () => {
+    const order: string[] = [];
+    vi.spyOn(chatApi, "deleteChat").mockImplementation(async () => {
+      order.push("delete");
+      return {} as Awaited<ReturnType<typeof chatApi.deleteChat>>;
+    });
+    vi.spyOn(sessionApi, "getSessionList").mockImplementation(async () => {
+      order.push("refresh");
+      return [] as Awaited<ReturnType<typeof sessionApi.getSessionList>>;
+    });
+    const newChatListener = vi.fn(() => order.push("new-chat"));
+    window.addEventListener("qwenpaw:sidebar-new-chat", newChatListener);
+
+    const { hook } = renderListData([makeSession(A_CHAT)]);
+    await act(async () => {
+      await hook.result.current.handleDelete(A_CHAT);
+    });
+
+    expect(order).toEqual(["delete", "new-chat", "refresh"]);
     window.removeEventListener("qwenpaw:sidebar-new-chat", newChatListener);
   });
 

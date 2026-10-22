@@ -21,6 +21,7 @@ import {
   resetSessionModel,
   saveDecisionSettings,
 } from "../session-settings/sessionModel";
+import { isSessionModelChangedFor } from "../session-settings/sessionModelEvents";
 import ModelSelector from "../../pages/Chat/ModelSelector";
 import { ProviderIcon } from "../../pages/Settings/Models/components/ProviderIconComponent";
 import { useTurnUsageStore } from "../../pages/Chat/turnUsageStore";
@@ -57,8 +58,9 @@ export function SessionThinking({
     setBusy(false);
     revision.current += 1;
     void load();
-    const refresh = () => {
-      void load();
+    const refresh = (event: Event) => {
+      if (isSessionModelChangedFor(event, { agentId, sessionId, chatId }))
+        void load();
     };
     window.addEventListener("session-model-changed", refresh);
     return () => {

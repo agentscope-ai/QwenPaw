@@ -2,6 +2,7 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { sessionThinkingApi } from "@/features/thinking/sessionThinkingApi";
+import { dispatchSessionModelChanged } from "@/features/session-settings/sessionModelEvents";
 import { useAdvisorDecisionAvailability } from "./useAdvisorDecisionAvailability";
 
 vi.mock("@/features/thinking/sessionThinkingApi", () => ({
@@ -74,5 +75,33 @@ describe("useAdvisorDecisionAvailability", () => {
     await act(async () => {});
     expect(onChange).toHaveBeenLastCalledWith(false);
     expect(onChange).not.toHaveBeenCalledWith(true);
+  });
+
+  it("ignores a scoped model change for another session", async () => {
+    vi.mocked(sessionThinkingApi.get).mockResolvedValue(view(true));
+    const onChange = vi.fn();
+    const { unmount } = renderHook(() =>
+      useAdvisorDecisionAvailability({
+        active: true,
+        agentId: "agent",
+        sessionId: "old",
+        chatId: "old-chat",
+        onChange,
+      }),
+    );
+    await waitFor(() => expect(onChange).toHaveBeenLastCalledWith(true));
+    const calls = vi.mocked(sessionThinkingApi.get).mock.calls.length;
+
+    act(() => {
+      dispatchSessionModelChanged({
+        agentId: "agent",
+        sessionId: "new",
+        chatId: null,
+      });
+    });
+    await act(async () => {});
+
+    expect(sessionThinkingApi.get).toHaveBeenCalledTimes(calls);
+    unmount();
   });
 });

@@ -107,6 +107,16 @@ describe("useCreateNewSession", () => {
       sessionStorage.getItem("qwenpaw-session-model:other-agent:new"),
     ).toBe(model);
     expect(changed).toHaveBeenCalledOnce();
+    const event = changed.mock.calls[0][0] as CustomEvent<{
+      agentId: string;
+      sessionId: string;
+      chatId: string | null;
+    }>;
+    expect(event.detail).toEqual({
+      agentId: agent,
+      sessionId: "new",
+      chatId: null,
+    });
     window.removeEventListener("session-model-changed", changed);
   });
 });

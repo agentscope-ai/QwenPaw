@@ -293,7 +293,21 @@ export function useSessionListData(
       // navigation). A delete that finished after an agent switch must not
       // touch the new agent's state.
       if (!sessionApi.isActiveOwner(owner)) return;
+      sessionApi.markRouteRemoved(
+        sessionId,
+        backendId,
+        session?.sessionId,
+      );
       sessionApi.onSessionRemoved?.(backendId ?? sessionId);
+
+      // Leave the deleted route before publishing the refreshed list. Otherwise
+      // route resolution can request the removed Chat while navigation settles.
+      if (
+        currentSessionId &&
+        (sessionId === currentSessionId || backendId === currentSessionId)
+      ) {
+        window.dispatchEvent(new CustomEvent("qwenpaw:sidebar-new-chat"));
+      }
 
       // Fetch fresh session list after deletion
       const freshList =
@@ -301,21 +315,6 @@ export function useSessionListData(
       if (!sessionApi.isActiveOwner(owner)) return;
       setSessions(freshList);
       syncSessionsGlobal(freshList);
-
-      // Post-deletion check: if the currently displayed session no longer
-      // exists in the refreshed list, navigate to a new blank chat.
-      // This avoids all ID-format mismatch issues between URL chatId,
-      // session.id, and session.realId.
-      if (currentSessionId) {
-        const stillExists = freshList.some(
-          (s) =>
-            s.id === currentSessionId ||
-            (s as ExtendedChatSession).realId === currentSessionId,
-        );
-        if (!stillExists) {
-          window.dispatchEvent(new CustomEvent("qwenpaw:sidebar-new-chat"));
-        }
-      }
     },
     [sessions, currentSessionId, setSessions],
   );
