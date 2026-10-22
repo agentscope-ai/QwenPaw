@@ -296,6 +296,29 @@ class ManagedService:
         if not task.cancelled():
             task.exception()
 
+    def _build_environment(self, port: int) -> dict[str, str]:
+        """Build fresh child configuration after the preparation hook."""
+        environment = {
+            key: os.environ[key]
+            for key in _BASE_ENV_KEYS.union(self.spec.inherit_env)
+            if key in os.environ
+        }
+        environment.update(
+            {
+                key: _replace_placeholders(
+                    value,
+                    host=self.spec.host,
+                    port=port,
+                )
+                for key, value in self.spec.env.items()
+            },
+        )
+        if self.spec.env_factory is not None:
+            # Runtime configuration is literal: a credential containing
+            # {host}/{port} must not be rewritten as a command template.
+            environment.update(dict(self.spec.env_factory()))
+        return environment
+
     async def _start(self) -> None:
         if self.is_ready:
             return
@@ -370,25 +393,7 @@ class ManagedService:
                 f"managed service '{self.spec.name}' executable does not "
                 f"exist: {command[0]}. Provision the service runtime{hint}",
             )
-        environment = {
-            key: os.environ[key]
-            for key in _BASE_ENV_KEYS.union(self.spec.inherit_env)
-            if key in os.environ
-        }
-        environment.update(
-            {
-                key: _replace_placeholders(
-                    value,
-                    host=self.spec.host,
-                    port=port,
-                )
-                for key, value in self.spec.env.items()
-            },
-        )
-        if self.spec.env_factory is not None:
-            # Runtime configuration is literal: a credential containing
-            # {host}/{port} must not be rewritten as a command template.
-            environment.update(dict(self.spec.env_factory()))
+        environment = self._build_environment(port)
         self._base_url = f"http://{_url_host(self.spec.host)}:{port}"
         try:
             self._process = await asyncio.create_subprocess_exec(
