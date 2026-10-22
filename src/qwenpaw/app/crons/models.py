@@ -21,37 +21,154 @@ from ..channels.schema import DEFAULT_CHANNEL
 # 5th cron field to abbreviations at validation time.
 # ---------------------------------------------------------------------------
 
+# Crontab DOW numbering: 0/7=Sun … 6=Sat. APScheduler CronTrigger uses
+# ISO weekdays (0=Mon … 6=Sun). Named abbreviations are unambiguous in both
+# systems; numeric ranges/steps must be expanded to names so we never emit
+# APS-invalid forms like ``sun-sat`` or leave ``*/2`` on the ISO calendar.
+_CRONTAB_DOW_NAMES: tuple[str, ...] = (
+    "sun",
+    "mon",
+    "tue",
+    "wed",
+    "thu",
+    "fri",
+    "sat",
+)
 _CRONTAB_NUM_TO_NAME: dict[str, str] = {
-    "0": "sun",
-    "1": "mon",
-    "2": "tue",
-    "3": "wed",
-    "4": "thu",
-    "5": "fri",
-    "6": "sat",
-    "7": "sun",
+    str(index): name for index, name in enumerate(_CRONTAB_DOW_NAMES)
+}
+_CRONTAB_NUM_TO_NAME["7"] = "sun"
+_CRONTAB_NAME_TO_NUM: dict[str, int] = {
+    name: index for index, name in enumerate(_CRONTAB_DOW_NAMES)
 }
 
 
-def _crontab_dow_to_name(field: str) -> str:
-    """Convert the day-of-week field from crontab numbers to abbreviations.
+def _parse_crontab_dow_atom(atom: str) -> int:
+    """Parse one crontab DOW atom (digit or abbreviation).
 
-    Handles: ``*``, single values, comma-separated lists, and ranges.
-    Already-named values (``mon``, ``tue``, …) are passed through unchanged.
+    Named days and ``0``–``6`` map to 0=Sun…6=Sat. Numeric ``7`` is kept as
+    7 so range expansion can include Sunday at the end of a span like
+    ``1-7``; callers map 7 → 0 afterwards.
+    """
+    key = atom.strip().lower()
+    if key in _CRONTAB_NAME_TO_NUM:
+        return _CRONTAB_NAME_TO_NUM[key]
+    if key == "7":
+        return 7
+    if key in _CRONTAB_NUM_TO_NAME:
+        return _CRONTAB_NAME_TO_NUM[_CRONTAB_NUM_TO_NAME[key]]
+    raise ValueError(f"invalid cron day-of-week value: {atom}")
+
+
+def _crontab_dow_token_is_named(tok: str) -> bool:
+    """True when the token's DOW endpoints are weekday names, not numbers.
+
+    The step (if any) is ignored: ``fri-sun/1`` is still a named range and
+    must pass through unchanged. ``*`` / ``*/n`` are numeric expansions.
+    """
+    raw = tok.strip()
+    if not raw:
+        return False
+    if "/" in raw:
+        base, step_s = raw.rsplit("/", 1)
+        if not step_s.isdigit() or int(step_s) < 1 or base == "":
+            return False
+    else:
+        base = raw
+    if base == "*":
+        return False
+    parts = base.split("-", 1) if "-" in base else [base]
+    return all(part.strip().lower() in _CRONTAB_NAME_TO_NUM for part in parts)
+
+
+def _map_crontab_dow_index(day: int) -> int:
+    """Map a crontab DOW int (0–7) to 0=Sun…6=Sat (both 0 and 7 → Sunday)."""
+    if day == 7:
+        return 0
+    if 0 <= day <= 6:
+        return day
+    raise ValueError(f"invalid cron day-of-week value: {day}")
+
+
+def _expand_crontab_dow_token(tok: str) -> list[int]:
+    """Expand one numeric DOW token (value / range / step) to 0=Sun…6=Sat.
+
+    Numeric ``7`` is preserved through ``range()`` / step, then mapped to 0
+    with duplicates dropped (so ``0-7`` is a full week, not a reversed
+    ``1-0`` range).
+    """
+    raw = tok.strip()
+    if not raw:
+        raise ValueError("empty cron day-of-week token")
+
+    step = 1
+    base = raw
+    if "/" in raw:
+        base, step_s = raw.rsplit("/", 1)
+        if not step_s.isdigit() or int(step_s) < 1:
+            raise ValueError(f"invalid cron day-of-week step: {tok}")
+        step = int(step_s)
+        if base == "":
+            raise ValueError(f"invalid cron day-of-week token: {tok}")
+
+    if base == "*":
+        start, end = 0, 6
+    elif "-" in base:
+        left, right = base.split("-", 1)
+        start = _parse_crontab_dow_atom(left)
+        end = _parse_crontab_dow_atom(right)
+        if start > end:
+            raise ValueError(f"invalid cron day-of-week range: {tok}")
+    else:
+        start = _parse_crontab_dow_atom(base)
+        if "/" not in raw:
+            return [_map_crontab_dow_index(start)]
+        end = 6
+
+    mapped: list[int] = []
+    seen: set[int] = set()
+    for day in range(start, end + 1, step):
+        idx = _map_crontab_dow_index(day)
+        if idx not in seen:
+            seen.add(idx)
+            mapped.append(idx)
+    return mapped
+
+
+def _crontab_dow_to_name(field: str) -> str:
+    """Convert crontab DOW numbers to APS-safe weekday abbreviations.
+
+    Handles ``*``, singles, comma lists, ranges, and steps. Numeric forms
+    (including ``*`` / ``*/n``) are expanded to an explicit comma list
+    (crontab 0=Sun) so APScheduler never sees ISO-ambiguous ``*/2`` or
+    invalid ``sun-sat`` ranges. Named tokens (``mon``, ``mon-fri``,
+    ``fri-sun/1``, …) pass through unchanged — a digit in the step does
+    not make a named range numeric.
     """
     if field == "*":
         return field
 
-    def _convert_token(tok: str) -> str:
-        if "/" in tok:
-            base, step = tok.rsplit("/", 1)
-            return f"{_convert_token(base)}/{step}"
-        if "-" in tok:
-            parts = tok.split("-", 1)
-            return "-".join(_CRONTAB_NUM_TO_NAME.get(p, p) for p in parts)
-        return _CRONTAB_NUM_TO_NAME.get(tok, tok)
-
-    return ",".join(_convert_token(t) for t in field.split(","))
+    names: list[str] = []
+    saw_named = False
+    for token in field.split(","):
+        raw = token.strip()
+        if not raw:
+            raise ValueError("empty cron day-of-week token")
+        if _crontab_dow_token_is_named(raw):
+            saw_named = True
+            names.append(raw)
+            continue
+        days = _expand_crontab_dow_token(raw)
+        if not days:
+            raise ValueError(f"cron day-of-week matched no days: {raw}")
+        names.extend(_CRONTAB_DOW_NAMES[day] for day in days)
+    if not names:
+        raise ValueError(f"cron day-of-week matched no days: {field}")
+    # Full week in crontab Sunday-first order (``0-6``, ``0-7``, …).
+    # ``1-7`` is also all days but Monday-first, so keep the explicit list.
+    if not saw_named and names == list(_CRONTAB_DOW_NAMES):
+        return "*"
+    return ",".join(names)
 
 
 class ScheduleSpec(BaseModel):
