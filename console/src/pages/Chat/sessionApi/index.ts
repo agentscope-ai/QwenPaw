@@ -742,20 +742,33 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
   private resolvedRouteSession: ExtendedSession | null = null;
   private routeResolutionVersion = 0;
   private removedRouteIds = new Set<string>();
+  private removedCurrentRouteIds = new Set<string>();
 
-  /** Prevent a deleted route from resolving while navigation settles. */
+  /** Prevent canonical deleted routes from resolving while navigation settles. */
   markRouteRemoved(...ids: Array<string | null | undefined>): void {
     for (const id of ids) {
       if (id) this.removedRouteIds.add(id);
     }
   }
 
+  /** Temporarily suppress aliases only while their deleted route is current. */
+  markCurrentRouteRemoved(...ids: Array<string | null | undefined>): void {
+    for (const id of ids) {
+      if (id) this.removedCurrentRouteIds.add(id);
+    }
+  }
+
   isRouteRemoved(id?: string | null): boolean {
-    return !!id && this.removedRouteIds.has(id);
+    return (
+      !!id &&
+      (this.removedRouteIds.has(id) || this.removedCurrentRouteIds.has(id))
+    );
   }
 
   clearRouteRemoval(id?: string | null): void {
-    if (id) this.removedRouteIds.delete(id);
+    if (!id) return;
+    this.removedRouteIds.delete(id);
+    this.removedCurrentRouteIds.delete(id);
   }
 
   /** Notify route aliases when their cached existence proof is invalidated. */
@@ -846,6 +859,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     this.sessionList = [];
     this.resolvedRouteSession = null;
     this.removedRouteIds.clear();
+    this.removedCurrentRouteIds.clear();
     this._prevReturnedList = null;
     this.lastSelectedIds.clear();
     // Release the switch lock: the switch it belonged to is owned by the
@@ -946,6 +960,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     this.resolvedRouteSession = null;
     this.routeResolutionVersion = 0;
     this.removedRouteIds.clear();
+    this.removedCurrentRouteIds.clear();
     this.sessionListRequest = null;
     this.invalidateSessionCreation();
     this.resolvePromise = null;

@@ -75,7 +75,8 @@ export function useChatRouteResolution(
     const isCurrent = () =>
       !controller.signal.aborted &&
       visitRef.current === visit &&
-      sessionApi.isActiveOwner(owner);
+      sessionApi.isActiveOwner(owner) &&
+      !sessionApi.isRouteRemoved(referenceId);
 
     void api
       .resolveChat(referenceId, {
@@ -83,7 +84,7 @@ export function useChatRouteResolution(
         signal: controller.signal,
       })
       .then(({ agent_id: agentId, chat }) => {
-        if (!isCurrent()) return;
+        if (!isCurrent() || sessionApi.isRouteRemoved(chat.id)) return;
         if (agentId !== selectedAgent) {
           agentSwitchTarget.current = {
             agentId,

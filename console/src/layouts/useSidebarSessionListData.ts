@@ -295,17 +295,23 @@ export function useSessionListData(
       // navigation). A delete that finished after an agent switch must not
       // touch the new agent's state.
       if (!sessionApi.isActiveOwner(owner)) return;
-      sessionApi.markRouteRemoved(sessionId, backendId, session?.sessionId);
+      const latestCurrentSessionId = currentSessionIdRef.current;
+      const canonicalId = backendId ?? sessionId;
+      sessionApi.markRouteRemoved(canonicalId);
+      const currentRouteAlias = [sessionId, session?.sessionId].find(
+        (id) => id && id !== canonicalId && id === latestCurrentSessionId,
+      );
+      if (currentRouteAlias) {
+        sessionApi.markCurrentRouteRemoved(currentRouteAlias);
+      }
       sessionApi.onSessionRemoved?.(backendId ?? sessionId);
 
       // Leave the deleted route before publishing the refreshed list. Otherwise
       // route resolution can request the removed Chat while navigation settles.
-      const latestCurrentSessionId = currentSessionIdRef.current;
       if (
         latestCurrentSessionId &&
-        (sessionId === latestCurrentSessionId ||
-          backendId === latestCurrentSessionId ||
-          session?.sessionId === latestCurrentSessionId)
+        (canonicalId === latestCurrentSessionId ||
+          currentRouteAlias === latestCurrentSessionId)
       ) {
         window.dispatchEvent(new CustomEvent("qwenpaw:sidebar-new-chat"));
       }

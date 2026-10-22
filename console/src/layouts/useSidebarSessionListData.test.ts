@@ -1093,6 +1093,35 @@ describe("useSessionListData owner guards and misc edges", () => {
     window.removeEventListener("qwenpaw:sidebar-new-chat", newChatListener);
   });
 
+  it("does not globally remove a runtime alias shared by another Chat", async () => {
+    const sharedRuntimeId = "runtime-shared";
+    const nextSessionId = "44444444-bbbb-4bbb-8bbb-444444444444";
+    vi.spyOn(chatApi, "deleteChat").mockResolvedValue(
+      {} as Awaited<ReturnType<typeof chatApi.deleteChat>>,
+    );
+    vi.spyOn(sessionApi, "getSessionList").mockResolvedValue([]);
+    const sessions = [
+      {
+        ...makeSession(A_CHAT),
+        realId: A_CHAT,
+        sessionId: sharedRuntimeId,
+      },
+      {
+        ...makeSession(nextSessionId),
+        realId: nextSessionId,
+        sessionId: sharedRuntimeId,
+      },
+    ] as ExtendedChatSession[];
+    const { hook } = renderListData(sessions);
+
+    await act(async () => {
+      await hook.result.current.handleDelete(nextSessionId);
+    });
+
+    expect(sessionApi.isRouteRemoved(sharedRuntimeId)).toBe(false);
+    expect(sessionApi.isRouteRemoved(nextSessionId)).toBe(true);
+  });
+
   it("handleEditSubmit skips the refetch when the owner changed mid-rename", async () => {
     const dUpdate = deferred<Awaited<ReturnType<typeof chatApi.updateChat>>>();
     const updateSpy = vi
