@@ -132,12 +132,20 @@ def _read_candidate(corpus: SearchCorpus, result: ChatSearchResult) -> dict:
     matched_message = next(
         (
             message
-            for message in messages
-            if (result.message_id and message.message_id == result.message_id)
-            or result.snippet.strip("…") in message.text
+            for message in reversed(messages)
+            if result.message_id and message.message_id == result.message_id
         ),
         None,
     )
+    if matched_message is None:
+        matched_message = next(
+            (
+                message
+                for message in reversed(messages)
+                if result.snippet.strip("…") in message.text
+            ),
+            None,
+        )
     matched = None
     if matched_message is not None:
         position = matched_message.text.find(result.snippet.strip("…"))

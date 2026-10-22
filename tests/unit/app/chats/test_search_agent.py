@@ -290,3 +290,29 @@ def test_read_context_caps_message_count_and_marks_omitted_history():
     assert len(observation["messages"]) <= search_agent.MAX_READ_MESSAGES
     assert observation["truncated"]
     assert len(json.dumps(observation)) < 12000
+
+
+@pytest.mark.parametrize("message_ids", [True, False])
+def test_read_prioritizes_the_matching_turn_over_an_older_shared_excerpt(
+    message_ids,
+):
+    corpus = make_corpus()
+    prefix = "deadline " + "details " * 40
+    corpus.messages["chat-0"] = [
+        TranscriptText(
+            prefix + "OLD DECISION: canceled",
+            "user",
+            "older" if message_ids else None,
+        ),
+        TranscriptText(
+            prefix + "LATEST DECISION: approved",
+            "assistant",
+            "latest" if message_ids else None,
+        ),
+    ]
+    result = corpus.search("deadline")[0]
+    observation = search_agent._read_candidate(corpus, result)
+    assert observation["matched_message"]["role"] == "assistant"
+    assert observation["matched_message"]["text"].endswith(
+        "LATEST DECISION: approved",
+    )
