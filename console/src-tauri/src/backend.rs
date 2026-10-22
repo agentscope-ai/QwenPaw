@@ -16,6 +16,9 @@ use uuid::Uuid;
 
 mod command;
 mod events;
+mod status;
+
+use status::{Phase, Snapshot, Status};
 
 /// Path of the desktop-only graceful shutdown endpoint on the backend.
 const DESKTOP_SHUTDOWN_PATH: &str = "/api/desktop/shutdown";
@@ -35,6 +38,8 @@ const FORCED_SHUTDOWN_EXIT_TIMEOUT: Duration = Duration::from_secs(5);
 pub(crate) struct BackendState {
     inner: Mutex<BackendInner>,
     generation: AtomicU64,
+    lifecycle: tokio::sync::Mutex<()>,
+    status: Status,
 }
 
 #[derive(Default)]
@@ -87,18 +92,20 @@ impl BackendState {
     }
 
     fn set_error_if_current(&self, generation: u64, message: String) {
-        if self.is_current(generation) {
-            self.set_error(message);
-        }
+        self.with_inner(|inner| {
+            if self.is_current(generation) {
+                inner.error = Some(message);
+            }
+        });
     }
 
     fn set_port_if_current(&self, generation: u64, port: u16) {
-        if self.is_current(generation) {
-            self.with_inner(|inner| {
+        self.with_inner(|inner| {
+            if self.is_current(generation) {
                 inner.port = Some(port);
                 inner.error = None;
-            });
-        }
+            }
+        });
     }
 
     fn clear_startup_state(&self) {
@@ -112,14 +119,14 @@ impl BackendState {
     }
 
     fn clear_child_if_current(&self, generation: u64) {
-        if self.is_current(generation) {
-            self.with_inner(|inner| {
+        self.with_inner(|inner| {
+            if self.is_current(generation) {
                 inner.child.take();
                 inner.shutdown_token = None;
                 inner.terminated = None;
                 inner.stopping = false;
-            });
-        }
+            }
+        });
     }
 
     fn begin_stop(&self) -> StopPlan {
@@ -224,7 +231,9 @@ impl BackendState {
                 self.force_kill();
                 match wait_for_termination(terminated, FORCED_SHUTDOWN_EXIT_TIMEOUT).await {
                     Ok(()) => {
-                        log::warn!("[backend] sidecar force-terminated after graceful shutdown failure");
+                        log::warn!(
+                            "[backend] sidecar force-terminated after graceful shutdown failure"
+                        );
                         self.finish_stop();
                         Ok(())
                     }
@@ -247,6 +256,7 @@ impl BackendState {
 async fn request_graceful_shutdown(port: u16, shutdown_token: &str) -> Result<(), String> {
     let url = format!("http://127.0.0.1:{port}{DESKTOP_SHUTDOWN_PATH}");
     let client = reqwest::Client::builder()
+        .no_proxy()
         .timeout(GRACEFUL_SHUTDOWN_TIMEOUT)
         .build()
         .map_err(|err| format!("failed to create shutdown HTTP client: {err}"))?;
@@ -283,31 +293,25 @@ async fn wait_for_termination(
     }
 }
 
+/// A newly attached window receives the same state as existing clients.
 #[tauri::command]
-pub(crate) fn backend_port(state: tauri::State<'_, BackendState>) -> Option<u16> {
-    state.port()
+pub(crate) fn agent_host_state(state: tauri::State<'_, BackendState>) -> Snapshot {
+    state.status.snapshot()
 }
 
-/// Returns startup failures consumed by the bootstrap gate.
-///
-/// This is not a long-lived backend health signal after the WebView navigates to
-/// the backend-hosted console.
-#[tauri::command]
-pub(crate) fn backend_startup_error(state: tauri::State<'_, BackendState>) -> Option<String> {
-    state.error()
-}
-
-/// Stops the current sidecar, starts a fresh one, and returns its API port.
 #[tauri::command]
 pub(crate) async fn restart_backend(app: tauri::AppHandle) -> Result<(), String> {
-    stop_and_wait(&app).await?;
-    start(&app);
-
     let state = app.state::<BackendState>();
-    match state.error() {
-        Some(err) => Err(err),
-        None => Ok(()),
+    let _operation = state.lifecycle.lock().await;
+    if crate::tray::is_quitting(&app) {
+        return Err("Application is shutting down".into());
     }
+    stop_host(&app).await?;
+    let handle = app.clone();
+    tauri::async_runtime::spawn_blocking(move || start(&handle))
+        .await
+        .map_err(|err| err.to_string())?;
+    state.error().map_or(Ok(()), Err)
 }
 
 /// Installs backend-related plugins and starts the sidecar during app setup.
@@ -329,13 +333,46 @@ pub(crate) fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Erro
         log::warn!("[computer-use] control endpoint unavailable: {err}");
     }
 
-    start(app.handle());
+    let handle = app.handle().clone();
+    tauri::async_runtime::spawn(async move {
+        let state = handle.state::<BackendState>();
+        let _operation = state.lifecycle.lock().await;
+        if crate::tray::is_quitting(&handle) {
+            return;
+        }
+        let app = handle.clone();
+        if let Err(err) = tauri::async_runtime::spawn_blocking(move || start(&app)).await {
+            log::error!("[backend] startup task failed: {err}");
+        }
+    });
     Ok(())
 }
 
 /// Gracefully stops the current sidecar and waits for its process to exit.
 pub(crate) async fn stop_and_wait(app: &tauri::AppHandle) -> Result<(), String> {
-    app.state::<BackendState>().stop_and_wait().await
+    let state = app.state::<BackendState>();
+    let _operation = state.lifecycle.lock().await;
+    stop_host(app).await
+}
+
+async fn stop_host(app: &tauri::AppHandle) -> Result<(), String> {
+    let state = app.state::<BackendState>();
+    state.status.publish(
+        app,
+        state.generation.load(Ordering::SeqCst),
+        Phase::Stopping,
+        None,
+        None,
+    );
+    let result = state.stop_and_wait().await;
+    state.status.publish(
+        app,
+        state.generation.load(Ordering::SeqCst),
+        Phase::Stopped,
+        None,
+        result.as_ref().err().cloned(),
+    );
+    result
 }
 
 fn desktop_log_level() -> log::LevelFilter {
@@ -353,15 +390,24 @@ fn desktop_log_level() -> log::LevelFilter {
 
 /// Starts the sidecar and records startup failures for the frontend retry UI.
 fn start(app: &tauri::AppHandle) {
+    if crate::tray::is_quitting(app) {
+        return;
+    }
     let state = app.state::<BackendState>();
     let generation = state.next_generation();
     state.clear_startup_state();
+    state
+        .status
+        .publish(app, generation, Phase::Starting, None, None);
     let shutdown_token = Uuid::new_v4().to_string();
 
     let command = match command::create(app) {
         Ok(command) => command,
         Err(message) => {
-            state.set_error(message);
+            state.set_error(message.clone());
+            state
+                .status
+                .publish(app, generation, Phase::Failed, None, Some(message));
             return;
         }
     }
@@ -377,7 +423,11 @@ fn start(app: &tauri::AppHandle) {
     let (rx, child) = match command.spawn() {
         Ok(child) => child,
         Err(err) => {
-            state.set_error(format!("failed to spawn backend: {err}"));
+            let message = format!("failed to spawn backend: {err}");
+            state.set_error(message.clone());
+            state
+                .status
+                .publish(app, generation, Phase::Failed, None, Some(message));
             return;
         }
     };
@@ -392,4 +442,48 @@ fn start(app: &tauri::AppHandle) {
         inner.stopping = false;
     });
     events::watch(app.clone(), generation, rx, terminated_sender);
+    monitor_readiness(app.clone(), generation);
+}
+
+/// Probe only during startup; process events report later termination.
+fn monitor_readiness(app: tauri::AppHandle, generation: u64) {
+    tauri::async_runtime::spawn(async move {
+        let started = std::time::Instant::now();
+        let client = reqwest::Client::builder()
+            .no_proxy()
+            .timeout(Duration::from_secs(1))
+            .build()
+            .expect("local readiness client");
+        loop {
+            let state = app.state::<BackendState>();
+            if !state.is_current(generation) || state.error().is_some() {
+                return;
+            }
+            if started.elapsed() >= Duration::from_secs(180) {
+                let error = "Agent Host did not become ready within 180 seconds".to_string();
+                state.set_error_if_current(generation, error.clone());
+                state
+                    .status
+                    .publish(&app, generation, Phase::Failed, None, Some(error));
+                return;
+            }
+            if let Some(port) = state.port() {
+                let url = format!("http://127.0.0.1:{port}/api/version");
+                if client
+                    .get(url)
+                    .send()
+                    .await
+                    .is_ok_and(|response| response.status().is_success())
+                {
+                    if state.is_current(generation) {
+                        state
+                            .status
+                            .publish(&app, generation, Phase::Ready, Some(port), None);
+                    }
+                    return;
+                }
+            }
+            tokio::time::sleep(Duration::from_millis(250)).await;
+        }
+    });
 }

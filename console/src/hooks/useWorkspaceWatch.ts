@@ -47,12 +47,11 @@ async function _runLoop(
   root: WorkspaceRoot,
   signal: AbortSignal,
 ) {
-  const url = workspaceApi.getWatchUrl(root);
   let retryDelay = 1_000;
 
   while (!signal.aborted) {
     try {
-      const response = await fetch(url, {
+      const response = await fetch(workspaceApi.getWatchUrl(root), {
         method: "GET",
         headers: {
           ...buildAuthHeaders(),

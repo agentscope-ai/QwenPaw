@@ -39,6 +39,11 @@ pub(super) fn create(app: &tauri::AppHandle) -> Result<Command, String> {
             .current_dir(repo_root)
             .env("PYTHONPATH", source_path.display().to_string())
     };
+    let origins = std::env::var("QWENPAW_CORS_ORIGINS").unwrap_or_default();
+    let command = command.env(
+        "QWENPAW_CORS_ORIGINS",
+        format!("{origins},http://localhost:5173,http://127.0.0.1:5173"),
+    );
     Ok(apply_contributed_environment(app, command))
 }
 

@@ -77,6 +77,14 @@
       "quitApp": "退出应用",
       "preference": "关闭窗口",
       "askEveryTime": "每次询问"
+    },
+    "host": {
+      "connecting": "正在准备…",
+      "failed": "暂时无法打开，请重试",
+      "details": "查看详情",
+      "retry": "重试",
+      "theme": "切换外观",
+      "controls": "桌面控制"
     }
   },
   "chunkError": {

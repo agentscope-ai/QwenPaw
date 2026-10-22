@@ -1,19 +1,24 @@
 import { createRoot } from "react-dom/client";
 import "../i18n";
+import "../styles/tokens.css";
 import { ThemeProvider } from "../contexts/ThemeContext";
-import BackendReadyGate from "./BackendReadyGate";
 import CloseWindowPrompt from "./CloseWindowPrompt";
+import DesktopClient from "./DesktopClient";
 
-// Native drag-drop interception is disabled on the window, so OS file
-// drags arrive as HTML5 drag events. Block the default "navigate to
-// dropped file" behavior on this bootstrap page; the console app installs
-// its own guard in main.tsx after navigation.
-window.addEventListener("dragover", (e) => e.preventDefault());
-window.addEventListener("drop", (e) => e.preventDefault());
+window.addEventListener("dragover", (event) => event.preventDefault());
+window.addEventListener("drop", (event) => event.preventDefault());
 
+// The desktop document never navigates to the host. Its controls and close
+// listener stay available during startup, host restarts, and connection loss.
+if (
+  window.location.pathname.endsWith("/tauri.html") ||
+  window.location.pathname.endsWith("/index.html")
+) {
+  window.history.replaceState(null, "", "/");
+}
 createRoot(document.getElementById("root")!).render(
-  <ThemeProvider>
+  <ThemeProvider syncRemote={false}>
     <CloseWindowPrompt />
-    <BackendReadyGate>{null}</BackendReadyGate>
+    <DesktopClient />
   </ThemeProvider>,
 );

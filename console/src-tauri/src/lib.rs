@@ -38,8 +38,7 @@ pub fn run() {
             open_devtools,
             backend_download::download_backend_file,
             backend_download::read_workspace_binary_file,
-            backend::backend_port,
-            backend::backend_startup_error,
+            backend::agent_host_state,
             backend::restart_backend,
             external_link::open_external_link,
             external_link::open_workspace_html,
@@ -52,6 +51,8 @@ pub fn run() {
             tray::quit_app,
             tray::set_tray_labels,
             tray::ack_close,
+            tray::set_close_action,
+            tray::get_close_action,
         ])
         .manage(backend::BackendState::default())
         .manage(computer_use_runtime::ComputerUseRuntimeState::default())
@@ -78,34 +79,23 @@ pub fn run() {
     match build_result {
         Ok(app) => {
             app.run(|app_handle, event| match event {
-                // `code` is `None` only for OS-initiated quits (e.g. macOS
-                // Cmd+Q / app menu Quit). On macOS we route those through the
-                // same close prompt as the window's red button, so the choice
-                // (minimize-to-tray vs. quit) stays consistent with Windows
-                // Alt+F4. Programmatic exits from `quit_app` carry a `code` and
-                // fall through to the normal shutdown path below.
                 RunEvent::ExitRequested { api, code, .. } => {
                     #[cfg(windows)]
                     if code.is_none() && webview_recovery::is_active() {
                         api.prevent_exit();
-                        log::warn!("[webview] keeping the app alive while the main window recovers");
                         return;
                     }
                     #[cfg(target_os = "macos")]
-                    if code.is_none() {
+                    if code.is_none() && !tray::is_quitting(app_handle) {
                         api.prevent_exit();
-                        // The window may be hidden in the tray; bring it back so
-                        // the close prompt is actually visible before asking.
                         tray::show_main_window(app_handle);
                         tray::request_close(app_handle);
                         return;
                     }
-                    #[cfg(not(target_os = "macos"))]
-                    let _ = (&api, &code);
-                    if let Err(err) = tauri::async_runtime::block_on(backend::stop_and_wait(app_handle)) {
-                        log::warn!("[backend] graceful shutdown did not complete: {err}");
+                    if !tray::shutdown_complete(app_handle) {
+                        api.prevent_exit();
+                        tray::exit_app(app_handle, code.unwrap_or(0));
                     }
-                    computer_use_runtime::stop(app_handle);
                 }
                 // macOS emits this when the user clicks the Dock icon. Without
                 // it, a window hidden via "minimize to tray" can only be

@@ -5,7 +5,7 @@ use tauri::Manager;
 use tauri_plugin_shell::process::{CommandEvent, TerminatedPayload};
 use tokio::sync::watch;
 
-use super::BackendState;
+use super::{status::Phase, BackendState};
 
 const MAX_CAPTURED_STDERR_CHARS: usize = 4000;
 const STDERR_TRUNCATION_MARKER: &str = "\n[...stderr truncated...]\n";
@@ -42,10 +42,13 @@ pub(super) fn watch(
                 }
                 CommandEvent::Error(message) => {
                     log::error!("[backend:{generation}] process event error: {message}");
-                    app.state::<BackendState>().set_error_if_current(
-                        generation,
-                        format!("backend process error: {message}"),
-                    );
+                    let state = app.state::<BackendState>();
+                    state.set_error_if_current(generation, message.clone());
+                    if state.is_current(generation) {
+                        state
+                            .status
+                            .publish(&app, generation, Phase::Failed, None, Some(message));
+                    }
                 }
                 CommandEvent::Terminated(payload) => {
                     let message = termination_message(payload, &last_stderr);
@@ -58,7 +61,10 @@ pub(super) fn watch(
                         );
                     } else {
                         log::warn!("[backend:{generation}] {message}");
-                        state.set_error_if_current(generation, message);
+                        state.set_error_if_current(generation, message.clone());
+                        state
+                            .status
+                            .publish(&app, generation, Phase::Failed, None, Some(message));
                     }
                 }
                 _ => {}
@@ -66,8 +72,17 @@ pub(super) fn watch(
         }
 
         log::warn!("[backend:{generation}] process event stream closed");
-        app.state::<BackendState>()
-            .clear_child_if_current(generation);
+        let state = app.state::<BackendState>();
+        if *terminated.borrow() {
+            state.clear_child_if_current(generation);
+        } else if state.is_current(generation) {
+            // Keep the process handle so retry/quit can still terminate it.
+            let message = "Agent Host process event stream closed unexpectedly".to_string();
+            state.set_error_if_current(generation, message.clone());
+            state
+                .status
+                .publish(&app, generation, Phase::Failed, None, Some(message));
+        }
     });
 }
 

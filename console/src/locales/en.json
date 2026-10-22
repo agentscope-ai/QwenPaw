@@ -77,6 +77,14 @@
       "quitApp": "Quit App",
       "preference": "Close Window",
       "askEveryTime": "Ask every time"
+    },
+    "host": {
+      "connecting": "Getting ready…",
+      "failed": "Something went wrong. Please try again.",
+      "details": "View details",
+      "retry": "Try again",
+      "theme": "Switch appearance",
+      "controls": "Desktop controls"
     }
   },
   "chunkError": {

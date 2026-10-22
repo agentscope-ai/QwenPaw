@@ -6,4 +6,6 @@ commands.allow = [
   "quit_app",
   "set_tray_labels",
   "ack_close",
+  "set_close_action",
+  "get_close_action",
 ]
