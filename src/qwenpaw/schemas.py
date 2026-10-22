@@ -6,14 +6,14 @@ types that ``stream_query`` produces and all channels consume.  These are
 qwenpaw's own envelope protocol — independent of agentscope's internal
 event types.
 """
+
 from __future__ import annotations
 
 from enum import Enum
 from typing import Any, Dict, List, Optional, Union
 from uuid import uuid4
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
-
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, field_validator
 
 # ---------------------------------------------------------------------------
 # Enums.
@@ -254,6 +254,13 @@ class AgentRequest(BaseModel):
     """
 
     model_config = ConfigDict(extra="allow")
+
+    # Set only by Console ingress; never serialized into history or payloads.
+    _pawapp_task_context: Any = PrivateAttr(default=None)
+    # Set only by the Host continuation worker. The object carries the
+    # leased queue claim used to atomically persist an automatic Main Chat
+    # turn; JSON callers cannot construct it.
+    _pawapp_continuation_context: Any = PrivateAttr(default=None)
 
     input: List[Message] = Field(default_factory=list)
     session_id: Optional[str] = None

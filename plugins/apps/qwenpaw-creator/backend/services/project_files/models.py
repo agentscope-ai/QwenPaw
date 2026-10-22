@@ -280,6 +280,7 @@ ARTIFACT_SLOT_KINDS = frozenset(
         "r2v_storyboard_image",
         "research_report",
         "timeline_script",
+        "story_package",
         "visual_asset_image",
     },
 )

@@ -73,9 +73,14 @@ def _api_install_plugin(source: str, force: bool = False) -> bool:
             response.raise_for_status()
             body = response.json()
         name = body.get("name", source)
-        click.echo(
-            f"✅ Plugin '{name}' installed and loaded (hot reload).",
-        )
+        if body.get("activation_required"):
+            click.echo(
+                f"✅ Plugin '{name}' installed; activate it in the web UI.",
+            )
+        else:
+            click.echo(
+                f"✅ Plugin '{name}' installed and loaded (hot reload).",
+            )
         for diagnostic in body.get("diagnostics", []):
             click.echo(diagnostic)
         return True
@@ -141,9 +146,14 @@ def _api_upload_plugin(zip_path: Path, force: bool = False) -> bool:
             response.raise_for_status()
             result = response.json()
         name = result.get("name", zip_path.name)
-        click.echo(
-            f"✅ Plugin '{name}' installed and loaded (hot reload).",
-        )
+        if result.get("activation_required"):
+            click.echo(
+                f"✅ Plugin '{name}' installed; activate it in the web UI.",
+            )
+        else:
+            click.echo(
+                f"✅ Plugin '{name}' installed and loaded (hot reload).",
+            )
         for diagnostic in result.get("diagnostics", []):
             click.echo(diagnostic)
         return True
@@ -370,8 +380,12 @@ def install(source: str, force: bool):
     for diagnostic in record.diagnostics:
         click.echo(diagnostic)
     click.echo("\nNext steps:")
-    click.echo("   1. Start QwenPaw to load the plugin")
-    click.echo("   2. Configure the plugin in the web UI")
+    if loader.requires_explicit_activation(record.manifest):
+        click.echo("   1. Start QwenPaw and activate the App in the web UI")
+        click.echo("   2. Configure the App before use")
+    else:
+        click.echo("   1. Start QwenPaw to load the plugin")
+        click.echo("   2. Configure the plugin in the web UI")
 
 
 @plugin.command()

@@ -39,7 +39,9 @@ export default function PluginManagerPage() {
 
   const handleInstalled = async (result: InstallPluginResult) => {
     try {
-      await reloadFrontendPlugin(result.id);
+      if (!result.activation_required) {
+        await reloadFrontendPlugin(result.id);
+      }
     } finally {
       await refresh();
     }

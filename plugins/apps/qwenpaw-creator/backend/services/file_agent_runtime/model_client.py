@@ -837,7 +837,7 @@ class AgentScopeAgentChatClient:
             else:
                 parameters = DashScopeChatModel.Parameters(
                     temperature=self.temperature,
-                    thinking_enable=True,
+                    thinking_enable=False,
                     parallel_tool_calls=False,
                 )
                 self.model = _build_chat_model(
@@ -1491,7 +1491,7 @@ class AgentScopeVlmChatClient(AgentScopeAgentChatClient):
             else:
                 parameters = DashScopeChatModel.Parameters(
                     temperature=self.temperature,
-                    thinking_enable=True,
+                    thinking_enable=False,
                     parallel_tool_calls=False,
                 )
                 self.model = _build_chat_model(

@@ -14,6 +14,7 @@ from fastapi import APIRouter, Request
 
 from .plugins import (
     _list_plugins_from_disk,
+    _list_plugins_with_runtime,
     serve_plugin_ui_file,
 )
 
@@ -22,15 +23,16 @@ router = APIRouter(prefix="/frontend_plugin", tags=["frontend-plugin"])
 
 @router.get(
     "",
-    summary="List plugins (public)",
+    summary="List installed plugins (public)",
     description=(
-        "Return all loaded plugins with frontend metadata. "
+        "Return installed plugins with static frontend metadata and runtime "
+        "status. "
         "This endpoint is public so the frontend can load plugin bundles "
         "before the user has authenticated."
     ),
 )
 async def list_frontend_plugins(request: Request):
-    """Return every plugin that has a frontend entry point.
+    """Return installed plugin metadata without importing package code.
 
     Only fields required by the frontend loader are included.  Sensitive
     management data (install paths, etc.) is not exposed here.
@@ -40,24 +42,7 @@ async def list_frontend_plugins(request: Request):
     if loader is None:
         return _list_plugins_from_disk()
 
-    result = []
-    for _plugin_id, record in loader.get_all_loaded_plugins().items():
-        manifest = record.manifest
-        result.append(
-            {
-                "id": manifest.id,
-                "name": manifest.name,
-                "version": manifest.version,
-                "description": manifest.description,
-                "author": manifest.author,
-                "enabled": record.enabled,
-                "loaded": True,
-                "plugin_type": manifest.plugin_type,
-                "frontend_entry": manifest.entry.frontend,
-            },
-        )
-
-    return result
+    return _list_plugins_with_runtime(loader)
 
 
 @router.get(

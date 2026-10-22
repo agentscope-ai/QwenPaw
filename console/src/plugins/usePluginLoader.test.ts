@@ -2,6 +2,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { routeRegistry } from "./registry/store";
+import { installHostSdk } from "./hostSdk/install";
+vi.mock("./hostSdk/install", () => ({ installHostSdk: vi.fn() }));
 import {
   loadAllPlugins,
   loadPawApp,
@@ -33,6 +35,7 @@ describe("frontend plugin loader", () => {
     resetPawAppLoaderForTests();
     routeRegistry.__resetForTests();
     vi.restoreAllMocks();
+    vi.mocked(installHostSdk).mockClear();
     URL.createObjectURL = vi.fn(
       () => `data:text/javascript,${encodeURIComponent("export default true")}`,
     );
@@ -55,7 +58,10 @@ describe("frontend plugin loader", () => {
           plugin("notes", "app"),
         ]),
       )
-      .mockImplementation(async () => new Response("export default true"));
+      .mockImplementation(async () => {
+        expect(installHostSdk).toHaveBeenCalled();
+        return new Response("export default true");
+      });
 
     await expect(loadAllPlugins()).resolves.toEqual({
       loaded: 2,
@@ -78,7 +84,7 @@ describe("frontend plugin loader", () => {
     URL.createObjectURL = vi.fn(
       () =>
         `data:text/javascript,${encodeURIComponent(
-          "globalThis.__registerNotes()",
+          "globalThis.__registerNotes(); // activation-test",
         )}`,
     );
     const fetchMock = vi.spyOn(globalThis, "fetch");
@@ -90,6 +96,66 @@ describe("frontend plugin loader", () => {
     expect(routeRegistry.snapshot()).toMatchObject([
       { id: "notes.page", path: "/apps/notes", source: "notes" },
     ]);
+  });
+
+  it("activates a versioned PawApp before executing its frontend", async () => {
+    const runtimeGlobal = globalThis as typeof globalThis & {
+      __registerNotes?: () => void;
+    };
+    runtimeGlobal.__registerNotes = () => {
+      routeRegistry.add("notes", {
+        id: "notes.page",
+        path: "/apps/notes",
+        component: () => null,
+      });
+    };
+    URL.createObjectURL = vi.fn(
+      () =>
+        `data:text/javascript,${encodeURIComponent(
+          "globalThis.__registerNotes()",
+        )}`,
+    );
+    const fetchMock = vi.spyOn(globalThis, "fetch");
+    fetchMock
+      .mockResolvedValueOnce(
+        jsonResponse([
+          {
+            ...plugin("notes", "app"),
+            loaded: false,
+            enabled: false,
+            requires_activation: true,
+          },
+        ]),
+      )
+      .mockResolvedValueOnce(jsonResponse({ status: "active" }))
+      .mockResolvedValueOnce(new Response("globalThis.__registerNotes()"));
+
+    await expect(loadPawApp("notes")).resolves.toBeUndefined();
+    expect(fetchMock.mock.calls.map(([url]) => String(url))).toEqual([
+      expect.stringContaining("/api/frontend_plugin"),
+      expect.stringContaining("/api/plugins/notes/activate"),
+      expect.stringContaining("/api/frontend_plugin/notes/files/dist/index.js"),
+    ]);
+  });
+
+  it("does not auto-execute an inactive versioned PawApp", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch");
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse([
+        plugin("legacy", "frontend"),
+        {
+          ...plugin("notes", "app"),
+          loaded: false,
+          enabled: false,
+          requires_activation: true,
+        },
+      ]),
+    );
+    fetchMock.mockResolvedValueOnce(new Response("export default true"));
+
+    await expect(loadAllPlugins()).resolves.toEqual({ loaded: 1, failed: [] });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(String(fetchMock.mock.calls[1][0])).toContain("legacy");
   });
 
   it("deduplicates concurrent loads and allows retry after failure", async () => {

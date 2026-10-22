@@ -12,6 +12,7 @@
   const CREATOR_BUILD_ID = "__CREATOR_BUILD_ID__";
   const NAVIGATION_MESSAGE = "qwenpaw-creator:navigation";
   const RESTORE_ROUTE_MESSAGE = "qwenpaw-creator:restore-route";
+  const paw = QwenPaw.paw?.forApp?.(pluginId);
 
   function normalizeCreatorRoute(path) {
     if (
@@ -26,20 +27,59 @@
     return `${parsed.pathname}${parsed.search}`;
   }
 
+  function setupRouteFromHost() {
+    const outer = new URLSearchParams(window.location.search);
+    const purpose = outer.get("setup");
+    if (purpose !== "llm" && purpose !== "image" && purpose !== "video") {
+      return null;
+    }
+    const inner = new URLSearchParams({ setup: purpose });
+    const requestId = outer.get("setupRequest");
+    if (requestId) inner.set("setupRequest", requestId);
+    return `/?${inner.toString()}`;
+  }
+
   function creatorRouteFromHost() {
+    const outer = new URLSearchParams(window.location.search);
+    if (!setupRouteFromHost() && outer.get("handoff")) return "/";
     const route = window.location.hash.slice(1);
-    return normalizeCreatorRoute(route || "/") || "/";
+    return normalizeCreatorRoute(setupRouteFromHost() || route || "/") || "/";
+  }
+
+  function hostSearchAfterHandoff() {
+    const outer = new URLSearchParams(window.location.search);
+    outer.delete("setup");
+    outer.delete("setupRequest");
+    outer.delete("handoff");
+    const query = outer.toString();
+    return query ? `?${query}` : "";
   }
 
   function hostUrlForCreatorRoute(path) {
     const route = normalizeCreatorRoute(path);
     if (!route) return null;
-    return `${window.location.pathname}${window.location.search}#${route}`;
+    return `${window.location.pathname}${hostSearchAfterHandoff()}#${route}`;
+  }
+
+  function routeFromHandoff(handoff) {
+    const project = handoff?.context?.project_ref;
+    if (
+      handoff?.target_app_id !== pluginId ||
+      project?.app_id !== pluginId ||
+      project?.kind !== "creator-project" ||
+      typeof project?.project_id !== "string" ||
+      !project.project_id ||
+      project.project_id.length > 256
+    ) {
+      return null;
+    }
+    return `/project/${encodeURIComponent(project.project_id)}`;
   }
 
   function CreatorFrame() {
     const frameRef = React.useRef(null);
     const initialSrcRef = React.useRef(null);
+    const pendingHandoffRouteRef = React.useRef(null);
 
     if (!initialSrcRef.current) {
       const appUrl = host.getApiUrl(
@@ -56,7 +96,21 @@
         ) {
           return;
         }
-        const nextUrl = hostUrlForCreatorRoute(event.data.path);
+        if (new URLSearchParams(window.location.search).has("handoff")) return;
+        const route = normalizeCreatorRoute(event.data.path);
+        if (!route) return;
+        const pendingHandoffRoute = pendingHandoffRouteRef.current;
+        if (pendingHandoffRoute && route !== pendingHandoffRoute) {
+          frameRef.current?.contentWindow?.postMessage(
+            { type: RESTORE_ROUTE_MESSAGE, path: pendingHandoffRoute },
+            "*",
+          );
+          return;
+        }
+        if (route === pendingHandoffRoute) {
+          pendingHandoffRouteRef.current = null;
+        }
+        const nextUrl = hostUrlForCreatorRoute(route);
         if (!nextUrl) return;
         const currentUrl = `${window.location.pathname}${window.location.search}${window.location.hash}`;
         if (nextUrl !== currentUrl) {
@@ -84,6 +138,41 @@
       };
     }, []);
 
+    React.useEffect(() => {
+      const outer = new URLSearchParams(window.location.search);
+      const handoffId = setupRouteFromHost() ? null : outer.get("handoff");
+      if (!handoffId) return undefined;
+      if (!paw?.apps?.resolveHandoff) {
+        console.warn("[qwenpaw-creator] Host handoff API is unavailable.");
+        return undefined;
+      }
+      let active = true;
+      void paw.apps
+        .resolveHandoff(handoffId)
+        .then((handoff) => {
+          if (!active) return;
+          const route = routeFromHandoff(handoff);
+          const nextUrl = route && hostUrlForCreatorRoute(route);
+          if (!route || !nextUrl) {
+            throw new Error("invalid_creator_handoff");
+          }
+          pendingHandoffRouteRef.current = route;
+          window.history.replaceState(window.history.state, "", nextUrl);
+          frameRef.current?.contentWindow?.postMessage(
+            { type: RESTORE_ROUTE_MESSAGE, path: route },
+            "*",
+          );
+        })
+        .catch(() => {
+          if (active) {
+            console.warn("[qwenpaw-creator] Could not resolve Host handoff.");
+          }
+        });
+      return () => {
+        active = false;
+      };
+    }, []);
+
     // Fill the App Center embed frame (which is itself full-screen) instead
     // of overlaying the whole viewport with a fixed-position layer.
     return React.createElement(
@@ -101,6 +190,15 @@
         ref: frameRef,
         title: "QwenPaw Creator",
         src: initialSrcRef.current,
+        onLoad() {
+          frameRef.current?.contentWindow?.postMessage(
+            {
+              type: RESTORE_ROUTE_MESSAGE,
+              path: creatorRouteFromHost(),
+            },
+            "*",
+          );
+        },
         style: {
           width: "100%",
           height: "100%",

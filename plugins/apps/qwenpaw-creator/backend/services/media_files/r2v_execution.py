@@ -31,7 +31,7 @@ import socket
 import stat
 import threading
 import time
-from typing import Any, Literal, Protocol
+from typing import TYPE_CHECKING, Any, Literal, Protocol
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from uuid import NAMESPACE_URL, uuid4, uuid5
 
@@ -141,6 +141,9 @@ from .secure_video_stream import (
     PeerAddressMismatchError,
     materialize_r2v_video,
 )
+
+if TYPE_CHECKING:
+    from .image_execution import ImageProvider
 
 _MAX_VIDEO_BYTES = 256 * 1024 * 1024
 _SUBMIT_TIMEOUT_SECONDS = 180.0
@@ -2071,6 +2074,7 @@ class FileR2VExecutionService:
         arguments: Mapping[str, Any],
         idempotency_key: str,
         expected_object_versions: Sequence[str] = (),
+        related_run_id: str | None = None,
         start: bool = True,
         s2v: bool = False,
     ) -> FileR2VDispatch:
@@ -2210,6 +2214,7 @@ class FileR2VExecutionService:
             command_hash=command_hash,
             idempotency_key=idempotency_key,
             stable=stable,
+            related_run_id=related_run_id,
         )
         del run
         if start and task.status not in _TERMINAL_TASKS:
@@ -2291,6 +2296,7 @@ class FileR2VExecutionService:
         command_hash: str,
         idempotency_key: str,
         stable: Mapping[str, str],
+        related_run_id: str | None,
     ) -> tuple[SpecialistRunRecord, TaskRecord]:
         run_candidate = SpecialistRunRecord(
             run_id=stable["run_id"],
@@ -2302,6 +2308,7 @@ class FileR2VExecutionService:
             input_etag=base.etag,
             request_fingerprint=request_fingerprint,
             read_set=list(resolved.read_set),
+            related_run_id=related_run_id,
             caused_by_request_id=idempotency_key,
             review_policy=ReviewPolicy.AUTO_FIX,
             metadata={
@@ -5498,6 +5505,7 @@ async def start_file_media_execution_services(
     services: CreatorFileServices,
     *,
     provider: R2VProvider | None = None,
+    image_provider: ImageProvider | None = None,
     poll_interval_seconds: float = 2.0,
     poll_lease_seconds: float = 120.0,
     submit_timeout_seconds: float = _SUBMIT_TIMEOUT_SECONDS,
@@ -5528,6 +5536,9 @@ async def start_file_media_execution_services(
             raise RuntimeError(
                 "R2V execution service already uses another provider",
             )
+    from .image_execution import start_file_image_execution_service
+
+    start_file_image_execution_service(services, provider=image_provider)
     await recover_interrupted_image_tasks(services)
     from .local_execution import recover_file_local_media_project
     from services.project_files.store import ProjectIntegrityError
@@ -5587,6 +5598,7 @@ async def execute_file_r2v_command(
     arguments: Mapping[str, Any],
     idempotency_key: str,
     expected_object_versions: Sequence[str] = (),
+    related_run_id: str | None = None,
 ) -> FileR2VDispatch:
     # Wallet fuse: every dispatch path (specialist delegation, work-graph
     # scheduler, manual retry) funnels through here.
@@ -5597,6 +5609,7 @@ async def execute_file_r2v_command(
         arguments=arguments,
         idempotency_key=idempotency_key,
         expected_object_versions=expected_object_versions,
+        related_run_id=related_run_id,
     )
 
 
@@ -5608,6 +5621,7 @@ async def execute_file_s2v_command(
     arguments: Mapping[str, Any],
     idempotency_key: str,
     expected_object_versions: Sequence[str] = (),
+    related_run_id: str | None = None,
 ) -> FileR2VDispatch:
     """Digital-human (wan2.2-s2v) dispatch through the R2V durable poller."""
 
@@ -5620,6 +5634,7 @@ async def execute_file_s2v_command(
         arguments=arguments,
         idempotency_key=idempotency_key,
         expected_object_versions=expected_object_versions,
+        related_run_id=related_run_id,
         s2v=True,
     )
 

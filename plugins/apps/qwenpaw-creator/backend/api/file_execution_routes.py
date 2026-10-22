@@ -24,6 +24,7 @@ from domain.enums import (
 )
 from domain.errors import ConflictError, NotFoundError, StorageIntegrityError
 from schemas.common import StrictModel
+from services.execution_authorization import decide_execution_authorization
 from services.project_files.facade import CreatorFileServices
 from services.runtime_files.errors import RecordNotFoundError
 from services.runtime_files.execution_models import (
@@ -46,7 +47,6 @@ from .dependencies import (
     resolve_idempotency_key,
     semantic_etag,
 )
-
 
 router = APIRouter(
     prefix="/projects/{project_id}",
@@ -721,7 +721,7 @@ async def _rebind_workgraph_authorization(
     # GET/304 carry HTTP entity tags; PATCH returns the raw project digest.
     # Normalize before both the edit-grace exemption and the snapshot CAS.
     project_etag = semantic_etag(project_etag)
-    from services.file_agent_runtime.driver import _execution_provider_model
+    from services.execution_authorization import execution_provider_model
     from services.file_agent_runtime.work_scheduler import WorkGraphScheduler
     from services.file_agent_runtime.workgraph_execution import (
         ready_request_context,
@@ -767,7 +767,7 @@ async def _rebind_workgraph_authorization(
     if (
         plan.spec.name != current.operation
         or plan.parameters != scope["parameters"]
-        or _execution_provider_model(plan.spec, plan.parameters)
+        or execution_provider_model(plan.spec, plan.parameters)
         != (current.requested_provider, current.requested_model)
     ):
         raise ConflictError(
@@ -869,11 +869,12 @@ async def _decide_authorization(
                         **saved,
                     }
         record = await asyncio.to_thread(
-            store.decide_execution_authorization,
+            decide_execution_authorization,
+            store,
             project_id,
             authorization_id,
             authorization_token=authorization_token,
-            status=target_status,
+            target_status=target_status,
             decision=decision,
         )
     except BaseException as error:
