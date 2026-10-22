@@ -1548,38 +1548,20 @@ async def test_approval_prompt_is_bounded_and_approval_replays_after_progress(
 
     events = [event async for event in adapter.attach(submission)]
     approval = events[-1]
-    request = approval.detail["input_request"]
+    request = approval.detail["approval_request"]
 
     assert approval.status == "waiting_for_approval"
-    assert request == {
-        "request_id": request["request_id"],
-        "title": "Creator generation approval",
-        "questions": [
-            {
-                "question": "Run this Creator generation operation once?",
-                "description": (
-                    "Operation: Generate a video shot. Target: current "
-                    "storyboard shot. Provider: video-provider. Model: "
-                    "video-model. Candidate count: 2. Duration: 5 seconds. "
-                    "Resolution: 1080P. Aspect ratio: 9:16. Mode: fast. "
-                    "Audio: enabled."
-                ),
-                "multi_select": False,
-                "options": [
-                    {
-                        "label": "Approve once",
-                        "description": "Approve only this immutable request.",
-                    },
-                    {
-                        "label": "Do not run",
-                        "description": (
-                            "Reject this request without starting it."
-                        ),
-                    },
-                ],
-            },
-        ],
-    }
+    assert request["kind"] == "execution"
+    assert request["subject_digest"].startswith("sha256:")
+    assert [choice["decision_id"] for choice in request["choices"]] == [
+        "approve_once",
+        "reject",
+    ]
+    assert (
+        "Provider: video-provider. Model: video-model." in request["summary"]
+    )
+    assert "Duration: 5 seconds." in request["summary"]
+    assert request["cost"]["amount"] is None
     assert request["request_id"] != authorization.authorization_id
     exposed = str(request)
     for hidden in (
@@ -1596,6 +1578,26 @@ async def test_approval_prompt_is_bounded_and_approval_replays_after_progress(
         submission,
         request["request_id"],
         "Approve once",
+    )
+    command = TaskCommand(
+        task_id=submission.handle.task_id,
+        command_id="typed-decision",
+        kind="decide",
+        request_id=request["request_id"],
+        payload={
+            "decision": {
+                "request_id": request["request_id"],
+                "subject_digest": request["subject_digest"],
+                "decision_id": "approve_once",
+                "comment": None,
+            },
+            "actor": {
+                "principal_id": submission.handle.scope.principal_id,
+                "source": "user_interface",
+            },
+        },
+        created_at=1001,
+        updated_at=1001,
     )
     assert (await adapter.command(submission, command)).state == "accepted"
     stored = ProjectExecutionStore(
@@ -1660,7 +1662,7 @@ async def test_approval_rejects_conflicting_and_expired_answers(
     rejected_events = [
         event async for event in adapter.attach(rejected_submission)
     ]
-    request_id = rejected_events[-1].detail["input_request"]["request_id"]
+    request_id = rejected_events[-1].detail["approval_request"]["request_id"]
     reject = _answer_command(
         rejected_submission,
         request_id,
@@ -1722,7 +1724,7 @@ async def test_approval_rejects_conflicting_and_expired_answers(
         expired_submission,
         _answer_command(
             expired_submission,
-            expired_events[-1].detail["input_request"]["request_id"],
+            expired_events[-1].detail["approval_request"]["request_id"],
             "Approve once",
         ),
     )
@@ -1762,7 +1764,7 @@ async def test_sequential_approvals_get_distinct_host_requests(
         submission,
     )
     first_event = [event async for event in adapter.attach(submission)][-1]
-    first_request_id = first_event.detail["input_request"]["request_id"]
+    first_request_id = first_event.detail["approval_request"]["request_id"]
     await adapter.command(
         submission,
         _answer_command(submission, first_request_id, "Approve once"),
@@ -1788,7 +1790,9 @@ async def test_sequential_approvals_get_distinct_host_requests(
             ),
         )
     ]
-    second_request_id = second_events[-1].detail["input_request"]["request_id"]
+    second_request_id = second_events[-1].detail["approval_request"][
+        "request_id"
+    ]
 
     assert second_request_id != first_request_id
     assert second_request_id != second.authorization_id
@@ -3310,3 +3314,165 @@ async def test_cancellation_linearizes_before_publication_intent_only(
     assert (
         await adapter.command(after, cancel_after)
     ).reason == "publication_committed"
+
+
+def _fail_receipt_write(real_store):
+    def factory(*args):
+        store = real_store(*args)
+
+        def fail(*_args):
+            raise OSError("lost receipt")
+
+        store.try_create = fail
+        return store
+
+    return factory
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "choice",
+    ["approve_once", "reject", "request_changes"],
+)
+@pytest.mark.parametrize(
+    "interruption",
+    ["none", "app_decided", "lost_receipt"],
+)
+async def test_manual_review_is_actionable_in_host_and_replays(
+    monkeypatch,
+    tmp_path,
+    choice,
+    interruption,
+):
+    from services import pawapp_approvals
+    from services.runtime_files.models import (
+        ReviewBoundary,
+        ReviewOperationDecision,
+    )
+
+    services = _services(tmp_path)
+    adapter = CreatorVideoWorkflowTaskAdapter(lambda: services)
+    submission = _submission("manual-review")
+    monkeypatch.setattr(
+        pawapp_video_workflow,
+        "notify_creator_agent_runtime",
+        lambda _: True,
+    )
+    monkeypatch.setattr(
+        pawapp_approvals,
+        "notify_creator_agent_runtime",
+        lambda _: True,
+    )
+    await adapter.submit(submission)
+    record = _workflow_record(services, submission.handle.submission_id)
+    run = _agent_run(services, record)
+    base = services.projects.read(record.project_id)
+    candidate = base.project.model_dump(mode="json")
+    candidate["name"] = "Reviewed story"
+    review = services.commits.commit(
+        base=base,
+        candidate=candidate,
+        round_id=run.round_id,
+        origin="agentdock_interrupt",
+        review_policy="require_review",
+        review_boundary=ReviewBoundary(
+            request_id=record.initial_message_id,
+            request_message_seq=run.caused_by_message_seq,
+            interrupted_run_id=run.run_id,
+            accepted_generation=base.generation,
+            accepted_etag=base.etag,
+        ),
+        caused_by_request_id=record.initial_message_id,
+        caused_by_message_seq=run.caused_by_message_seq,
+    ).review
+    assert review is not None
+    await adapter.query(submission)
+    record = _workflow_record(services, record.submission_id)
+    assert record.stage == "waiting_approval"
+    events = [event async for event in adapter.attach(submission)]
+    request = events[-1].detail["approval_request"]
+    assert request["kind"] == "review"
+    assert review.decision_token not in str(request)
+    command = TaskCommand(
+        task_id=submission.handle.task_id,
+        command_id="review-decision",
+        kind="decide",
+        request_id=request["request_id"],
+        payload={
+            "decision": {
+                "request_id": request["request_id"],
+                "subject_digest": request["subject_digest"],
+                "decision_id": choice,
+                "comment": "Make the title warmer"
+                if choice == "request_changes"
+                else None,
+            },
+            "actor": {
+                "principal_id": submission.handle.scope.principal_id,
+                "source": "user_interface",
+            },
+        },
+        created_at=1001,
+        updated_at=1001,
+    )
+    if interruption == "app_decided":
+        from services.project_files.review import ReviewDecisionItem
+
+        await services.decide_review(
+            project_id=record.project_id,
+            review_id=review.review_id,
+            decision_token=review.decision_token,
+            decision_id="app-ui-decision",
+            decisions=[
+                ReviewDecisionItem(
+                    operation_id=op.operation_id,
+                    decision="ACCEPT",
+                )
+                for op in review.operations
+            ],
+        )
+        generation = services.projects.read(record.project_id).generation
+        rejected = await adapter.command(submission, command)
+        assert rejected.state == "rejected"
+        assert rejected.reason == "stale_approval"
+        assert (
+            services.projects.read(record.project_id).generation == generation
+        )
+        return
+    if interruption == "lost_receipt":
+        real_store = pawapp_approvals._receipt_store
+
+        with monkeypatch.context() as patch:
+            patch.setattr(
+                pawapp_approvals,
+                "_receipt_store",
+                _fail_receipt_write(real_store),
+            )
+            with pytest.raises(OSError, match="lost receipt"):
+                await adapter.command(submission, command)
+        generation_before_replay = services.projects.read(
+            record.project_id,
+        ).generation
+
+    assert (
+        await adapter.query_command(submission, command)
+    ).state == "not_found"
+    assert (await adapter.command(submission, command)).state == "accepted"
+    generation = services.projects.read(record.project_id).generation
+    if interruption == "lost_receipt":
+        assert generation == generation_before_replay
+    assert (
+        await adapter.query_command(submission, command)
+    ).state == "accepted"
+    assert (await adapter.command(submission, command)).state == "accepted"
+    assert services.projects.read(record.project_id).generation == generation
+    resolved = services.reviews.get(record.project_id, review.review_id)
+    assert all(
+        operation.decision
+        == (
+            ReviewOperationDecision.ACCEPTED
+            if choice == "approve_once"
+            else ReviewOperationDecision.REJECTED
+        )
+        for operation in resolved.operations
+    )

@@ -2,7 +2,7 @@
 import { hostFetch } from "../hostSdk/fetch";
 import type { PawHostNamespace } from "./types";
 import { assertContract } from "./contracts";
-import type { TaskAnswer, TaskHandle } from "./contracts";
+import type { ApprovalDecision, TaskAnswer, TaskHandle } from "./contracts";
 
 export interface DurableOptions {
   workspaceId?: string;
@@ -164,6 +164,26 @@ export function createDurableNamespaces(
       });
       const command = assertContract("TaskCommand", result.command);
       if (command.task_id !== taskId || command.command_id !== commandId)
+        throw new Error("command_identity_mismatch");
+      return command;
+    },
+    async decide(
+      taskId: string,
+      decision: ApprovalDecision,
+      commandId: string,
+      options: DurableOptions = {},
+    ) {
+      const result = await call(`/tasks/${segment(taskId)}/decide`, options, {
+        command_id: commandId,
+        decision: assertContract("ApprovalDecision", decision),
+      });
+      const command = assertContract("TaskCommand", result.command);
+      if (
+        command.task_id !== taskId ||
+        command.command_id !== commandId ||
+        command.kind !== "decide" ||
+        command.request_id !== decision.request_id
+      )
         throw new Error("command_identity_mismatch");
       return command;
     },

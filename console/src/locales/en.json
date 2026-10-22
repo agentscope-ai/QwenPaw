@@ -5503,6 +5503,12 @@
   },
   "tool": {
     "pawappTask": {
+      "approvalComment": "Feedback (required for: {{choices}})",
+      "approvalRetry": "Retry the same decision",
+      "approvalAccepted": "Decision received. Waiting for the app to continue.",
+      "approvalExpired": "This approval has expired. Refresh the task to see the current request.",
+      "approvalFailed": "The decision could not be confirmed. Retry the same decision or check the app.",
+      "approvalRejected": "This decision is no longer available. Refresh the task or open the app.",
       "title": "{{app}} task",
       "creatorTitle": "Creator task",
       "defaultTitle": "Delegate to App",

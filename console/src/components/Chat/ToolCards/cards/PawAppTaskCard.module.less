@@ -297,11 +297,15 @@
   display: grid;
   gap: 4px;
 
-  input {
+  input,
+  textarea {
     border: 1px solid var(--app-border);
     border-radius: 6px;
     color: var(--app-text);
     font: inherit;
+    background: var(--app-bg);
+    min-width: 0;
+    max-width: 100%;
     padding: 6px 8px;
   }
 }

@@ -20,6 +20,7 @@ from .contracts import (
     ANSWERABLE_STATUSES,
     TERMINAL_STATUSES,
     WAITING_STATUSES,
+    ApprovalRequest,
     ActionDescriptor,
     ArtifactRef,
     ExecutorEvent,
@@ -454,6 +455,8 @@ class TaskStore:
                 or handle.input_request.request_id != request_id
             ):
                 raise TaskStoreError("stale_request")
+            if handle.approval_request is not None:
+                raise TaskStoreError("approval_decision_required")
             questions = {
                 question.question: question
                 for question in handle.input_request.questions
@@ -540,6 +543,12 @@ class TaskStore:
             handle = handle.model_copy(
                 update={
                     "cancel_requested": True,
+                    "approval_receipt": None
+                    if terminal_before_submit
+                    else handle.approval_receipt,
+                    "approval_request": None
+                    if terminal_before_submit
+                    else handle.approval_request,
                     "status": (
                         "cancelled"
                         if terminal_before_submit
@@ -602,7 +611,7 @@ class TaskStore:
             raise ValueError("invalid command result")
 
         def operation(connection):
-            self._get(connection, scope, task_id)
+            submission = self._get(connection, scope, task_id)
             found = self._command(connection, task_id, command_id)
             if found is None:
                 raise TaskStoreError("command_not_found")
@@ -621,6 +630,9 @@ class TaskStore:
                 WHERE task_id = ? AND command_id = ?""",
                 (command.model_dump_json(), task_id, command_id),
             )
+            from .approvals import record_receipt
+
+            record_receipt(self, connection, submission, command)
             return command
 
         return await self._run(operation, write=True)
@@ -976,8 +988,28 @@ class TaskStore:
                 and result_data is None
             ):
                 raise TaskStoreError("result_required")
+            approval_request = handle.approval_request
             input_request = handle.input_request
-            if event.status in ANSWERABLE_STATUSES:
+            if (
+                event.status == "waiting_for_approval"
+                and event.detail.get("approval_request") is not None
+            ):
+                try:
+                    approval_request = ApprovalRequest.model_validate(
+                        event.detail["approval_request"],
+                    )
+                except ValueError:
+                    raise TaskStoreError("invalid_approval_request") from None
+                from .approvals import validate_request_identity
+
+                validate_request_identity(
+                    connection,
+                    task_id,
+                    approval_request,
+                )
+                input_request = None
+            elif event.status in ANSWERABLE_STATUSES:
+                approval_request = None
                 try:
                     input_request = TaskInputRequest.model_validate(
                         event.detail["input_request"],
@@ -986,6 +1018,7 @@ class TaskStore:
                     raise TaskStoreError("invalid_input_request") from None
             elif event.status is not None:
                 input_request = None
+                approval_request = None
             experience = handle.experience
             experience_payload = event.detail.get("experience_update")
             if experience_payload is not None:
@@ -1003,8 +1036,8 @@ class TaskStore:
                     raise TaskStoreError("invalid_experience_update") from None
             wake = (
                 status != handle.status
-                and status in TERMINAL_STATUSES | WAITING_STATUSES
-            )
+                or approval_request != handle.approval_request
+            ) and status in TERMINAL_STATUSES | WAITING_STATUSES
             handle = handle.model_copy(
                 update={
                     "status": status,
@@ -1014,6 +1047,13 @@ class TaskStore:
                     "project_ref": project_ref,
                     "experience": experience,
                     "input_request": input_request,
+                    "approval_request": approval_request,
+                    "approval_receipt": (
+                        handle.approval_receipt
+                        if approval_request is not None
+                        and approval_request == handle.approval_request
+                        else None
+                    ),
                     "setup_request_id": next_setup_request_id,
                     "setup_attempt": next_setup_attempt,
                     "replay_cursor": event.cursor,

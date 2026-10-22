@@ -65,6 +65,13 @@ from services.file_agent_runtime.work_graph import (
     dispatch_slot,
 )
 from services.file_agent_runtime.workgraph_execution import requested_work_node
+from services.pawapp_approvals import (
+    generation_request,
+    review_request,
+    review_command,
+    query_review_command,
+    validate_generation_command,
+)
 from services.pawapp_artifacts import (
     CreatorArtifactMismatch,
     CreatorArtifactUnavailable,
@@ -87,6 +94,7 @@ from services.runtime_files.execution_store import (
     ProjectExecutionStore,
 )
 from services.runtime_files.models import (
+    ReviewRecord,
     CreatorGoalRecord,
     CreatorMessageRecord,
     CreatorSessionRecord,
@@ -100,6 +108,8 @@ from services.setup_coordination import (
 )
 
 from qwenpaw.pawapp.tasks import (
+    ApprovalRequest,
+    ApprovalDecision,
     ActionDescriptor,
     ArtifactRef,
     CommandLookup,
@@ -507,6 +517,8 @@ class CreatorVideoWorkflowEvent(_FrozenWorkflowModel):
         min_length=1,
         max_length=256,
     )
+    approval_request: ApprovalRequest | None = None
+    review_snapshot: ReviewRecord | None = None
     created_at: float = Field(default_factory=time.time, ge=0)
 
     @model_validator(mode="after")
@@ -1068,6 +1080,8 @@ def _workflow_event(
     evidence: Mapping[str, Any] | None = None,
     setup_requirement_id: str | None = None,
     approval_request_id: str | None = None,
+    approval_request: ApprovalRequest | None = None,
+    review_snapshot: ReviewRecord | None = None,
     text_result: str | None = None,
     created_at: float | None = None,
 ) -> CreatorVideoWorkflowEvent:
@@ -1080,6 +1094,8 @@ def _workflow_event(
         evidence_digest=content_digest(dict(evidence or {"stage": stage})),
         setup_requirement_id=setup_requirement_id,
         approval_request_id=approval_request_id,
+        approval_request=approval_request,
+        review_snapshot=review_snapshot,
         created_at=time.time() if created_at is None else created_at,
     )
 
@@ -1114,6 +1130,8 @@ class _ObservedWorkflowState:
     correlated_task_ids: tuple[str, ...]
     setup_requirement_id: str | None = None
     approval_request_id: str | None = None
+    approval_request: ApprovalRequest | None = None
+    review_snapshot: ReviewRecord | None = None
     failure_code: str | None = None
     source_receipt: CreatorVideoSourceReceipt | None = None
 
@@ -1709,6 +1727,8 @@ def _classify_observed_state(
         *,
         setup_requirement_id: str | None = None,
         approval_request_id: str | None = None,
+        approval_request: ApprovalRequest | None = None,
+        review_snapshot: ReviewRecord | None = None,
         failure_code: str | None = None,
         source_receipt: CreatorVideoSourceReceipt | None = None,
     ) -> _ObservedWorkflowState:
@@ -1726,6 +1746,8 @@ def _classify_observed_state(
             correlated_task_ids=task_ids,
             setup_requirement_id=setup_requirement_id,
             approval_request_id=approval_request_id,
+            approval_request=approval_request,
+            review_snapshot=review_snapshot,
             failure_code=failure_code,
             source_receipt=source_receipt,
         )
@@ -1800,11 +1822,29 @@ def _classify_observed_state(
         return observed(
             "waiting_approval",
             approval_request_id=pending_authorizations[0].authorization_id,
+            approval_request=generation_request(
+                record,
+                pending_authorizations[0],
+                request_id=_approval_request_id(
+                    record,
+                    pending_authorizations[0],
+                ),
+                summary=_approval_description(pending_authorizations[0]),
+            ),
+        )
+
+    if pending_reviews:
+        review = pending_reviews[0]
+        proposal = review_request(record, review)
+        return observed(
+            "waiting_approval",
+            approval_request_id=proposal.request_id,
+            approval_request=proposal,
+            review_snapshot=review,
         )
 
     recoverable = bool(
-        pending_reviews
-        or pending_resume
+        pending_resume
         or model_required_nodes
         or session.status
         in {
@@ -2208,6 +2248,8 @@ class CreatorVideoWorkflowTaskAdapter:
             authorization_id = event.approval_request_id
             if authorization_id is None:
                 continue
+            if event.review_snapshot is not None:
+                continue
             authorization = cls._authorization(
                 services,
                 record,
@@ -2219,6 +2261,15 @@ class CreatorVideoWorkflowTaskAdapter:
 
     @staticmethod
     def _approval_target(command: TaskCommand) -> ExecutionAuthorizationStatus:
+        if command.kind == "decide":
+            decision = ApprovalDecision.model_validate(
+                command.payload["decision"],
+            )
+            if decision.decision_id == "approve_once":
+                return ExecutionAuthorizationStatus.APPROVED
+            if decision.decision_id == "reject":
+                return ExecutionAuthorizationStatus.REJECTED
+            raise TaskStoreError("invalid_approval_decision")
         if command.kind != "answer":
             raise TaskStoreError("creator_video_workflow_answer_required")
         answers = command.payload.get("answers")
@@ -2534,6 +2585,8 @@ class CreatorVideoWorkflowTaskAdapter:
                 current.stage != stage
                 or current.setup_request_id != setup_request_id
                 or current.approval_request_id != approval_request_id
+                or current.events[-1].approval_request
+                != observed.approval_request
                 or current.failure_code != failure_code
                 or current.source_receipt != source_receipt
                 or current.publication != publication
@@ -2566,7 +2619,18 @@ class CreatorVideoWorkflowTaskAdapter:
                         else None
                     ),
                     approval_request_id=approval_request_id,
-                    text_result=event_text,
+                    approval_request=observed.approval_request
+                    if stage == "waiting_approval"
+                    else None,
+                    review_snapshot=observed.review_snapshot
+                    if stage == "waiting_approval"
+                    else None,
+                    text_result=(
+                        observed.approval_request.title
+                        if stage == "waiting_approval"
+                        and observed.approval_request
+                        else event_text
+                    ),
                     created_at=now,
                 )
                 events = (*events, event)[-_MAX_WORKFLOW_EVENTS:]
@@ -3200,7 +3264,11 @@ class CreatorVideoWorkflowTaskAdapter:
                         reason_code=reason_code,
                         reason=reason,
                     )
-                if workflow_event.approval_request_id is not None:
+                if workflow_event.approval_request is not None:
+                    event_detail[
+                        "approval_request"
+                    ] = workflow_event.approval_request.model_dump(mode="json")
+                elif workflow_event.approval_request_id is not None:
                     authorization = await asyncio.to_thread(
                         self._authorization,
                         services,
@@ -3499,6 +3567,7 @@ class CreatorVideoWorkflowTaskAdapter:
         record: CreatorVideoWorkflowSubmission,
         request_id: str,
         target: ExecutionAuthorizationStatus,
+        subject_digest: str | None = None,
     ) -> CommandLookup:
         store = self._store(services, record.submission_id)
         result = CommandLookup(state="not_found")
@@ -3518,6 +3587,21 @@ class CreatorVideoWorkflowTaskAdapter:
                 result = CommandLookup(
                     state="rejected",
                     reason="stale_request",
+                )
+                return current
+            if (
+                subject_digest is not None
+                and generation_request(
+                    current,
+                    authorization,
+                    request_id=request_id,
+                    summary=_approval_description(authorization),
+                ).subject_digest
+                != subject_digest
+            ):
+                result = CommandLookup(
+                    state="rejected",
+                    reason="stale_approval",
                 )
                 return current
             command_state = self._authorization_command_state(
@@ -3597,7 +3681,12 @@ class CreatorVideoWorkflowTaskAdapter:
                 state="rejected",
                 reason="invalid_task_answer",
             )
+        if command.kind == "decide" and command.request_id.startswith(
+            "creator-review-",
+        ):
+            return await review_command(services, record, command)
         try:
+            subject_digest = validate_generation_command(record, command)
             target = self._approval_target(command)
         except TaskStoreError:
             return CommandLookup(
@@ -3610,6 +3699,7 @@ class CreatorVideoWorkflowTaskAdapter:
             record,
             command.request_id,
             target,
+            subject_digest,
         )
 
     # pylint: disable-next=too-many-return-statements
@@ -3646,7 +3736,12 @@ class CreatorVideoWorkflowTaskAdapter:
                 state="rejected",
                 reason="command_unsupported",
             )
+        if command.kind == "decide" and command.request_id.startswith(
+            "creator-review-",
+        ):
+            return await query_review_command(services, record, command)
         try:
+            validate_generation_command(record, command)
             target = self._approval_target(command)
         except TaskStoreError:
             return CommandLookup(

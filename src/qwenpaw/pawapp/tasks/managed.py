@@ -20,6 +20,8 @@ from typing import Any, NoReturn
 from .binding import Readiness
 from .contracts import (
     TERMINAL_STATUSES,
+    ApprovalRequest,
+    ApprovalDecision,
     ArtifactRef,
     ExecutorEvent,
     ExecutorRunRef,
@@ -138,6 +140,27 @@ class TaskExecution:
                     "waiting_for_approval" if approval else "waiting_for_input"
                 ),
                 input_request=request,
+            )
+            await asyncio.sleep(0.1)
+
+    async def request_approval(
+        self,
+        request: ApprovalRequest,
+    ) -> ApprovalDecision:
+        """Wait for a user decision. Handlers must honor rejection."""
+        request = ApprovalRequest.model_validate(request)
+        while True:
+            record = await self._adapter.record(self.submission)
+            answer = json.loads(record["answers_json"]).get(request.request_id)
+            if answer is not None:
+                if answer["request"] != request.model_dump(mode="json"):
+                    raise TaskStoreError("managed_input_conflict")
+                return ApprovalDecision.model_validate(answer["decision"])
+            await self._adapter.emit(
+                self.submission,
+                "approval:" + request.request_id,
+                status="waiting_for_approval",
+                approval_request=request,
             )
             await asyncio.sleep(0.1)
 
@@ -456,7 +479,12 @@ class ManagedHandlerAdapter:
                     (task_id,),
                 ).fetchone()
                 pending = (
-                    ExecutorEvent.model_validate_json(event[0]).input_request
+                    getattr(
+                        ExecutorEvent.model_validate_json(event[0]),
+                        "approval_request"
+                        if command.kind == "decide"
+                        else "input_request",
+                    )
                     if event
                     else None
                 )
@@ -471,10 +499,23 @@ class ManagedHandlerAdapter:
                         reason="stale_request",
                     )
                 else:
+                    if command.kind == "decide":
+                        from .approvals import validate_decision
+
+                        validate_decision(
+                            pending,
+                            ApprovalDecision.model_validate(
+                                command.payload["decision"],
+                            ),
+                        )
                     answers = json.loads(row["answers_json"])
                     answers[pending.request_id] = {
                         "request": pending.model_dump(mode="json"),
-                        "answers": command.payload["answers"],
+                        **(
+                            {"decision": command.payload["decision"]}
+                            if command.kind == "decide"
+                            else {"answers": command.payload["answers"]}
+                        ),
                     }
                     connection.execute(
                         (

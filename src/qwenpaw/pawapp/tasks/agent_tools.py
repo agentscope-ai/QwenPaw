@@ -398,6 +398,8 @@ def make_task_tools(context: TaskToolContext):
     ) -> ToolChunk:
         """Answer the current input request for a delegated App task.
 
+        Approval waits require the user to act on the task card. Never answer
+        them on the user's behalf.
         Read request_id, exact question text and option labels from the task's
         input_request. Reuse command_id and identical answers on an uncertain
         retry. A stale request or changed retry is rejected without affecting
@@ -411,6 +413,8 @@ def make_task_tools(context: TaskToolContext):
                 or submission.handle.origin.origin_ref != context.chat_id
             ):
                 raise TaskStoreError("task_not_found")
+            if submission.handle.status == "waiting_for_approval":
+                raise TaskStoreError("human_approval_required")
             command = await context.runtime.answer(
                 scope,
                 task_id,

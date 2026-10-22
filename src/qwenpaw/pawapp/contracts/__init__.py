@@ -6,6 +6,11 @@ data exchanged with the Host; they do not grant authority or execute code.
 """
 
 from ..tasks.contracts import (
+    ApprovalRequest,
+    ApprovalChoice,
+    ApprovalCost,
+    ApprovalReceipt,
+    ApprovalDecision,
     ActionDescriptor,
     ArtifactCollection,
     ArtifactRef,
@@ -26,6 +31,11 @@ from ..handoffs import OpenAppAction
 
 VERSION = 1
 MODELS = (
+    ApprovalRequest,
+    ApprovalChoice,
+    ApprovalCost,
+    ApprovalReceipt,
+    ApprovalDecision,
     ActionDescriptor,
     ArtifactCollection,
     ArtifactRef,

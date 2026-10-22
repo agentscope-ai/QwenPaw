@@ -1,3 +1,4 @@
+import TaskApprovalForm from "./TaskApprovalForm";
 import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ArrowRightOutlined, RocketOutlined } from "@ant-design/icons";
@@ -645,6 +646,17 @@ function TaskCard({
           {setupFailed && <p>{t("tool.pawappTask.setupOpenFailed")}</p>}
           {experience && (
             <TaskExperience experience={experience} language={language} />
+          )}
+          {task?.approval_request && appId && workspaceId && taskId && (
+            <TaskApprovalForm
+              key={`${taskId}:${task.approval_request.request_id}:${task.approval_request.subject_digest}`}
+              appId={appId}
+              workspaceId={workspaceId}
+              taskId={taskId}
+              request={task.approval_request}
+              receipt={task.approval_receipt}
+              onSettled={() => setRefresh((value) => value + 1)}
+            />
           )}
           {task?.input_request && appId && workspaceId && taskId && (
             <TaskInputForm

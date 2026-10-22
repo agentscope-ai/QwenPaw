@@ -1,4 +1,4 @@
-# PawApp contract implementation status — 2026-10-21
+# PawApp contract implementation status — 2026-10-22
 
 PR #7874 delivers the shared PawApp SDK/control plane and Creator integration.
 The Data App adapter, native Console task routing, adapter tests, external Engine
@@ -15,7 +15,8 @@ Neither app integration is required to run the SDK conformance suite.
 | Small Apps | `app.action`, Host-owned execution journal and explicit restart policy |
 | Scoped SDKs | Python and frontend task/setup/artifact clients, Host-managed Direct origins and explicit request IDs |
 | Main Chat | Generic action discovery, task cards, setup guidance and durable continuation |
-| Creator | Story-writing handoff, prepare/revise/produce actions and verified final-film publication |
+| Approvals | Typed execution/review requests, authenticated decisions, persisted receipts, Main Chat cards and managed-handler SDK; [contract](pawapp-approvals.md) |
+| Creator | Story-writing handoff, prepare/revise/produce actions, generation/content-review approval mapping and verified final-film publication |
 | Small-App example | App-independent word-counter quickstart and managed-handler conformance tests |
 | Conformance | Generated schema drift checks and Host/frontend tests without an external Data Engine checkout |
 

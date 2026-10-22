@@ -1924,7 +1924,10 @@ def browser_acceptance(
 
     approve = visible_locator(page, "Approve once", timeout=120.0)
     image_approval_task = task_payload(client, base_url, task_id)
-    image_input_request = find_value(image_approval_task, ("input_request",))
+    image_input_request = find_value(
+        image_approval_task,
+        ("approval_request",),
+    )
     require(
         isinstance(image_input_request, dict)
         and isinstance(image_input_request.get("request_id"), str),
@@ -1936,13 +1939,12 @@ def browser_acceptance(
         "image generated before image approval",
     )
     approve.click()
-    visible_locator(page, "Submit answer").click()
 
     def image_generation_outcome() -> tuple[str, Any] | None:
         if acceptance_event_names(event_log).count("image.generate") == 1:
             return "generated", None
         current_task = task_payload(client, base_url, task_id)
-        current_input_request = find_value(current_task, ("input_request",))
+        current_input_request = find_value(current_task, ("approval_request",))
         current_request_id = (
             current_input_request.get("request_id")
             if isinstance(current_input_request, dict)
@@ -2029,7 +2031,7 @@ def browser_acceptance(
         observations,
         "pre-handoff approval",
     )
-    video_input_request = find_value(before_handoff, ("input_request",))
+    video_input_request = find_value(before_handoff, ("approval_request",))
     require(
         isinstance(video_input_request, dict)
         and isinstance(video_input_request.get("request_id"), str),
@@ -2079,13 +2081,12 @@ def browser_acceptance(
         "approval reload",
     )
     approve.click()
-    visible_locator(page, "Submit answer").click()
 
     def video_generation_outcome() -> tuple[str, Any] | None:
         if acceptance_event_names(event_log).count("video.submit") == 1:
             return "generated", None
         current_task = task_payload(client, base_url, task_id)
-        current_input_request = find_value(current_task, ("input_request",))
+        current_input_request = find_value(current_task, ("approval_request",))
         current_request_id = (
             current_input_request.get("request_id")
             if isinstance(current_input_request, dict)

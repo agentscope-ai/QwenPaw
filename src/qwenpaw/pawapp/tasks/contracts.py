@@ -515,11 +515,88 @@ class TaskAnswer(Contract):
         return self
 
 
+class ApprovalChoice(Contract):
+    """Stable machine decision, independent of the translated button label."""
+
+    decision_id: Literal["approve_once", "reject", "request_changes"]
+    label: Annotated[str, Field(min_length=1, max_length=200)]
+    description: Annotated[str, Field(max_length=2000)] = ""
+    requires_comment: bool = False
+
+
+class ApprovalCost(Contract):
+    """An estimate is informational, never an implicit budget grant."""
+
+    amount: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+    currency: Annotated[str, Field(min_length=1, max_length=16)] | None = None
+    description: Annotated[str, Field(max_length=1000)] = ""
+
+    @model_validator(mode="after")
+    def validate_amount(self) -> ApprovalCost:
+        if (self.amount is None) != (self.currency is None):
+            raise ValueError(
+                "cost amount and currency must be supplied together",
+            )
+        return self
+
+
+class ApprovalRequest(Contract):
+    """App-owned immutable proposal. The Host never infers an approval."""
+
+    schema_version: Literal[1] = 1
+    request_id: Identity
+    kind: Literal["execution", "review"]
+    subject_digest: Annotated[str, Field(pattern=r"^sha256:[0-9a-f]{64}$")]
+    title: Annotated[str, Field(min_length=1, max_length=200)]
+    summary: Annotated[str, Field(min_length=1, max_length=4000)]
+    effects: tuple[
+        Annotated[str, Field(min_length=1, max_length=500)],
+        ...,
+    ] = Field(
+        default=(),
+        max_length=16,
+    )
+    choices: tuple[ApprovalChoice, ...] = Field(min_length=1, max_length=3)
+    cost: ApprovalCost | None = None
+    expires_at: float | None = Field(default=None, gt=0, allow_inf_nan=False)
+
+    @model_validator(mode="after")
+    def validate_choices(self) -> ApprovalRequest:
+        ids = [choice.decision_id for choice in self.choices]
+        if len(set(ids)) != len(ids):
+            raise ValueError("approval decision IDs must be unique")
+        return self
+
+
+class ApprovalDecision(Contract):
+    request_id: Identity
+    subject_digest: Annotated[str, Field(pattern=r"^sha256:[0-9a-f]{64}$")]
+    decision_id: Literal["approve_once", "reject", "request_changes"]
+    comment: Annotated[str, Field(max_length=2000)] | None = None
+
+
+class ApprovalActor(Contract):
+    """Host-derived identity; never accepted in a decision HTTP payload."""
+
+    principal_id: Identity
+    source: Literal["user_interface"] = "user_interface"
+
+
+class ApprovalReceipt(Contract):
+    """Decision delivery state shared across authenticated surfaces."""
+
+    command_id: Identity
+    decision: ApprovalDecision
+    actor: ApprovalActor
+    state: CommandState
+    reason: Identity | None = None
+
+
 class TaskCommand(Contract):
     protocol_version: Literal[1] = 1
     task_id: Identity
     command_id: Identity
-    kind: Literal["answer", "cancel"]
+    kind: Literal["answer", "cancel", "decide"]
     request_id: Identity | None = None
     payload: dict[str, Any] = Field(default_factory=dict)
     state: CommandState = "prepared"
@@ -538,6 +615,16 @@ class TaskCommand(Contract):
                 raise ValueError(
                     "answer commands require request_id and answers",
                 )
+        elif self.kind == "decide":
+            decision = ApprovalDecision.model_validate(
+                self.payload.get("decision"),
+            )
+            ApprovalActor.model_validate(self.payload.get("actor"))
+            if self.request_id != decision.request_id or set(self.payload) != {
+                "decision",
+                "actor",
+            }:
+                raise ValueError("invalid approval command")
         elif self.request_id is not None or set(self.payload) - {"reason"}:
             raise ValueError("cancel commands accept only a reason")
         if self.state == "rejected" and not self.reason:
@@ -567,6 +654,8 @@ class TaskHandle(Contract):
     project_ref: ProjectRef | None = None
     experience: TaskExperienceSnapshot | None = None
     input_request: TaskInputRequest | None = None
+    approval_request: ApprovalRequest | None = None
+    approval_receipt: ApprovalReceipt | None = None
     setup_request_id: Identity | None = None
     setup_attempt: int = Field(default=0, ge=0)
     cancel_requested: bool = False
@@ -581,6 +670,23 @@ class TaskHandle(Contract):
             raise ValueError(
                 "setup request links require a waiting task and positive "
                 "attempt",
+            )
+        if self.approval_request is not None and (
+            self.status != "waiting_for_approval"
+            or self.input_request is not None
+        ):
+            raise ValueError(
+                "approval request requires an exclusive approval wait",
+            )
+        if self.approval_receipt is not None and (
+            self.approval_request is None
+            or self.approval_receipt.decision.request_id
+            != self.approval_request.request_id
+            or self.approval_receipt.decision.subject_digest
+            != self.approval_request.subject_digest
+        ):
+            raise ValueError(
+                "approval receipt must match the current proposal",
             )
         return self
 
@@ -607,12 +713,23 @@ class ExecutorEvent(Contract):
     project_ref: ProjectRef | None = None
     artifact_ref: ArtifactRef | None = None
     input_request: TaskInputRequest | None = None
+    approval_request: ApprovalRequest | None = None
     experience_update: TaskExperienceUpdate | None = None
     result_data: dict[str, Any] | None = None
 
     @model_validator(mode="after")
     def validate_typed_payload(self) -> ExecutorEvent:
         self.payload()
+        approval = self.payload().get("approval_request")
+        if approval is not None:
+            ApprovalRequest.model_validate(approval)
+            if (
+                self.status != "waiting_for_approval"
+                or self.payload().get("input_request") is not None
+            ):
+                raise ValueError(
+                    "approval requests require an exclusive approval wait",
+                )
         if (
             self.input_request is not None
             and self.status not in ANSWERABLE_STATUSES
@@ -630,6 +747,7 @@ class ExecutorEvent(Contract):
             "project_ref",
             "artifact_ref",
             "input_request",
+            "approval_request",
             "experience_update",
         ):
             value = getattr(self, key)
@@ -650,6 +768,7 @@ class ExecutorEvent(Contract):
                 "project_ref",
                 "artifact_ref",
                 "input_request",
+                "approval_request",
                 "experience_update",
                 "result_data",
             },

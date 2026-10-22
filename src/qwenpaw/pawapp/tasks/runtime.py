@@ -827,9 +827,15 @@ class HostTaskRuntime:
         command_id,
         request_id,
         answers,
+        user_interface=False,
     ):
         await self._sync()
         submission = await self.get(scope, task_id)
+        if (
+            submission.handle.status == "waiting_for_approval"
+            and not user_interface
+        ):
+            raise TaskStoreError("human_approval_required")
         command = await self.store.prepare_answer(
             scope,
             task_id,
@@ -847,6 +853,36 @@ class HostTaskRuntime:
             scope,
             submission.handle.action_id,
             "answer",
+            command.state,
+            request_id=command_id,
+            task_id=task_id,
+        )
+        self._wake(await self.store.get(scope, task_id), force=True)
+        return command
+
+    async def decide(self, scope, task_id, *, command_id, decision):
+        """User-interface boundary; deliberately absent from agent tools."""
+        from .approvals import prepare_decision
+
+        await self._sync()
+        submission = await self.get(scope, task_id)
+        command = await prepare_decision(
+            self.store,
+            scope,
+            task_id,
+            command_id=command_id,
+            decision=decision,
+        )
+        binding = self._binding(scope, submission.handle.action_id)
+        command = await binding.coordinator.deliver_command(
+            scope,
+            task_id,
+            command.command_id,
+        )
+        await self.store.audit(
+            scope,
+            submission.handle.action_id,
+            "decide",
             command.state,
             request_id=command_id,
             task_id=task_id,

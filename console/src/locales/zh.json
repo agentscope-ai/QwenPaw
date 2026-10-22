@@ -5523,6 +5523,12 @@
   },
   "tool": {
     "pawappTask": {
+      "approvalComment": "反馈（选择 {{choices}} 时必填）",
+      "approvalRetry": "重试同一个决定",
+      "approvalAccepted": "决定已接收，等待应用继续。",
+      "approvalExpired": "此审批已过期，请刷新任务查看当前请求。",
+      "approvalFailed": "尚未确认决定是否收到，请重试同一个决定或查看应用。",
+      "approvalRejected": "此决定已无法提交，请刷新任务或打开应用。",
       "title": "{{app}} 任务",
       "creatorTitle": "Creator 任务",
       "defaultTitle": "委派给 App",

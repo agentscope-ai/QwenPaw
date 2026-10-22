@@ -332,6 +332,28 @@ class TaskCoordinator:
                     state="unknown",
                     reason="command_unknown",
                 )
+        if command.kind == "decide":
+            from .approvals import validate_decision
+            from .contracts import ApprovalDecision
+
+            latest = await self.store.get(scope, task_id)
+            try:
+                if latest.handle.cancel_requested:
+                    raise TaskStoreError("stale_approval")
+                validate_decision(
+                    latest.handle.approval_request,
+                    ApprovalDecision.model_validate(
+                        command.payload["decision"],
+                    ),
+                )
+            except TaskStoreError as exc:
+                return await self.store.mark_command(
+                    scope,
+                    task_id,
+                    command_id,
+                    state="rejected",
+                    reason=str(exc),
+                )
         try:
             lookup = await binding.adapter.command(submission, command)
         except Exception:

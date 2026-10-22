@@ -2,6 +2,301 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "urn:qwenpaw:pawapp:contracts:1",
   "$defs": {
+    "ApprovalChoice": {
+      "additionalProperties": false,
+      "description": "Stable machine decision, independent of the translated button label.",
+      "properties": {
+        "decision_id": {
+          "enum": [
+            "approve_once",
+            "reject",
+            "request_changes"
+          ],
+          "title": "Decision Id",
+          "type": "string"
+        },
+        "label": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Label",
+          "type": "string"
+        },
+        "description": {
+          "default": "",
+          "maxLength": 2000,
+          "title": "Description",
+          "type": "string"
+        },
+        "requires_comment": {
+          "default": false,
+          "title": "Requires Comment",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "decision_id",
+        "label"
+      ],
+      "title": "ApprovalChoice",
+      "type": "object"
+    },
+    "ApprovalCost": {
+      "additionalProperties": false,
+      "description": "An estimate is informational, never an implicit budget grant.",
+      "properties": {
+        "amount": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Amount"
+        },
+        "currency": {
+          "anyOf": [
+            {
+              "maxLength": 16,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Currency"
+        },
+        "description": {
+          "default": "",
+          "maxLength": 1000,
+          "title": "Description",
+          "type": "string"
+        }
+      },
+      "title": "ApprovalCost",
+      "type": "object"
+    },
+    "ApprovalRequest": {
+      "additionalProperties": false,
+      "description": "App-owned immutable proposal. The Host never infers an approval.",
+      "properties": {
+        "schema_version": {
+          "const": 1,
+          "default": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "request_id": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Request Id",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "execution",
+            "review"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "subject_digest": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "title": "Subject Digest",
+          "type": "string"
+        },
+        "title": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        },
+        "summary": {
+          "maxLength": 4000,
+          "minLength": 1,
+          "title": "Summary",
+          "type": "string"
+        },
+        "effects": {
+          "default": [],
+          "items": {
+            "maxLength": 500,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 16,
+          "title": "Effects",
+          "type": "array"
+        },
+        "choices": {
+          "items": {
+            "$ref": "#/$defs/ApprovalChoice"
+          },
+          "maxItems": 3,
+          "minItems": 1,
+          "title": "Choices",
+          "type": "array"
+        },
+        "cost": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ApprovalCost"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "expires_at": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Expires At"
+        }
+      },
+      "required": [
+        "request_id",
+        "kind",
+        "subject_digest",
+        "title",
+        "summary",
+        "choices"
+      ],
+      "title": "ApprovalRequest",
+      "type": "object"
+    },
+    "ApprovalActor": {
+      "additionalProperties": false,
+      "description": "Host-derived identity; never accepted in a decision HTTP payload.",
+      "properties": {
+        "principal_id": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Principal Id",
+          "type": "string"
+        },
+        "source": {
+          "const": "user_interface",
+          "default": "user_interface",
+          "title": "Source",
+          "type": "string"
+        }
+      },
+      "required": [
+        "principal_id"
+      ],
+      "title": "ApprovalActor",
+      "type": "object"
+    },
+    "ApprovalDecision": {
+      "additionalProperties": false,
+      "properties": {
+        "request_id": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Request Id",
+          "type": "string"
+        },
+        "subject_digest": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "title": "Subject Digest",
+          "type": "string"
+        },
+        "decision_id": {
+          "enum": [
+            "approve_once",
+            "reject",
+            "request_changes"
+          ],
+          "title": "Decision Id",
+          "type": "string"
+        },
+        "comment": {
+          "anyOf": [
+            {
+              "maxLength": 2000,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Comment"
+        }
+      },
+      "required": [
+        "request_id",
+        "subject_digest",
+        "decision_id"
+      ],
+      "title": "ApprovalDecision",
+      "type": "object"
+    },
+    "ApprovalReceipt": {
+      "additionalProperties": false,
+      "description": "Decision delivery state shared across authenticated surfaces.",
+      "properties": {
+        "command_id": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Command Id",
+          "type": "string"
+        },
+        "decision": {
+          "$ref": "#/$defs/ApprovalDecision"
+        },
+        "actor": {
+          "$ref": "#/$defs/ApprovalActor"
+        },
+        "state": {
+          "enum": [
+            "prepared",
+            "in_flight",
+            "accepted",
+            "rejected",
+            "unknown"
+          ],
+          "title": "State",
+          "type": "string"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reason"
+        }
+      },
+      "required": [
+        "command_id",
+        "decision",
+        "actor",
+        "state"
+      ],
+      "title": "ApprovalReceipt",
+      "type": "object"
+    },
     "ActionDescriptor": {
       "additionalProperties": false,
       "description": "Registered server-owned action; callers never supply an adapter ref.",
@@ -843,6 +1138,17 @@
           ],
           "default": null
         },
+        "approval_request": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ApprovalRequest"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "experience_update": {
           "anyOf": [
             {
@@ -939,7 +1245,8 @@
         "kind": {
           "enum": [
             "answer",
-            "cancel"
+            "cancel",
+            "decide"
           ],
           "title": "Kind",
           "type": "string"
@@ -1468,6 +1775,28 @@
           "anyOf": [
             {
               "$ref": "#/$defs/TaskInputRequest"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "approval_request": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ApprovalRequest"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "approval_receipt": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ApprovalReceipt"
             },
             {
               "type": "null"

@@ -11,6 +11,7 @@ from pydantic import Field
 
 from ..deps import get_scoped_ctx
 from .contracts import (
+    ApprovalDecision,
     Contract,
     Engagement,
     Identity,
@@ -37,6 +38,11 @@ class AnswerTaskRequest(Contract):
     command_id: Identity
     request_id: Identity
     answers: tuple[TaskAnswer, ...]
+
+
+class DecideTaskRequest(Contract):
+    command_id: Identity
+    decision: ApprovalDecision
 
 
 class DirectDispatchRequest(Contract):
@@ -354,9 +360,29 @@ async def answer_task(
             task_id,
             command_id=body.command_id,
             request_id=body.request_id,
+            user_interface=True,
             answers=[
                 answer.model_dump(mode="json") for answer in body.answers
             ],
+        )
+        return {"command": command}
+    except (TaskStoreError, ValueError) as exc:
+        raise _error(exc) from None
+
+
+@router.post("/tasks/{task_id}/decide")
+async def decide_task(
+    request: Request,
+    task_id: str,
+    scope: Scope,
+    body: DecideTaskRequest,
+):
+    try:
+        command = await request.app.state.pawapp_tasks.decide(
+            scope,
+            task_id,
+            command_id=body.command_id,
+            decision=body.decision,
         )
         return {"command": command}
     except (TaskStoreError, ValueError) as exc:

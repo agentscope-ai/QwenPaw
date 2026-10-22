@@ -56,6 +56,12 @@ def enqueue(connection, handle, *, sequence=None, status=None, text=None):
         "output_refs": [
             ref.model_dump(mode="json") for ref in handle.output_refs
         ],
+        "approval_request": (
+            handle.approval_request.model_dump(mode="json")
+            if (status or handle.status) == "waiting_for_approval"
+            and handle.approval_request is not None
+            else None
+        ),
         "input_request": (
             handle.input_request.model_dump(mode="json")
             if (status or handle.status) in ANSWERABLE_STATUSES

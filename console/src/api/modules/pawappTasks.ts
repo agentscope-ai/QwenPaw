@@ -1,3 +1,10 @@
+import { assertContract } from "../../plugins/pawapp-sdk/contracts";
+import type {
+  ApprovalRequest,
+  ApprovalDecision,
+  ApprovalReceipt,
+} from "../../plugins/pawapp-sdk/contracts";
+export type { ApprovalRequest, ApprovalDecision, ApprovalReceipt };
 import { request } from "../request";
 import { getApiUrl } from "../config";
 
@@ -123,7 +130,7 @@ export interface PawAppTaskCommand {
   protocol_version: 1;
   task_id: string;
   command_id: string;
-  kind: "answer" | "cancel";
+  kind: "answer" | "cancel" | "decide";
   request_id: string | null;
   state: "prepared" | "in_flight" | "accepted" | "rejected" | "unknown";
   reason: string | null;
@@ -151,6 +158,8 @@ export interface PawAppTask {
   project_ref?: PawAppProjectRef | null;
   experience?: PawAppTaskExperienceSnapshot | null;
   input_request?: PawAppTaskInputRequest | null;
+  approval_request?: ApprovalRequest | null;
+  approval_receipt?: ApprovalReceipt | null;
   setup_request_id?: string | null;
   setup_attempt?: number;
 }
@@ -408,6 +417,24 @@ function boundedString(value: unknown, maxLength: number): value is string {
   return typeof value === "string" && value.length <= maxLength;
 }
 
+function isApprovalReceipt(value: unknown): value is ApprovalReceipt {
+  try {
+    assertContract("ApprovalReceipt", value);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function isApprovalRequest(value: unknown): value is ApprovalRequest {
+  try {
+    assertContract("ApprovalRequest", value);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function isTaskInputRequest(value: unknown): value is PawAppTaskInputRequest {
   if (
     !record(value) ||
@@ -480,7 +507,7 @@ function isTaskCommand(value: unknown): value is PawAppTaskCommand {
     value.protocol_version === 1 &&
     identity(value.task_id) &&
     identity(value.command_id) &&
-    ["answer", "cancel"].includes(String(value.kind)) &&
+    ["answer", "cancel", "decide"].includes(String(value.kind)) &&
     (value.request_id === null || identity(value.request_id)) &&
     ["prepared", "in_flight", "accepted", "rejected", "unknown"].includes(
       String(value.state),
@@ -517,6 +544,17 @@ export function isPawAppTask(value: unknown): value is PawAppTask {
       value.experience === null ||
       (isTaskExperience(value.experience) &&
         value.experience.definition.action_id === value.action_id)) &&
+    (value.approval_receipt == null ||
+      (isApprovalReceipt(value.approval_receipt) &&
+        record(value.approval_request) &&
+        value.approval_receipt.decision.request_id ===
+          value.approval_request.request_id &&
+        value.approval_receipt.decision.subject_digest ===
+          value.approval_request.subject_digest)) &&
+    (value.approval_request == null ||
+      (value.status === "waiting_for_approval" &&
+        value.input_request == null &&
+        isApprovalRequest(value.approval_request))) &&
     (value.input_request === undefined ||
       value.input_request === null ||
       isTaskInputRequest(value.input_request)) &&
@@ -810,5 +848,33 @@ export async function answerPawAppTask(
   ) {
     throw new Error("invalid_task_answer_response");
   }
+  return result.command;
+}
+
+export async function decidePawAppTask(
+  appId: string,
+  workspaceId: string,
+  taskId: string,
+  commandId: string,
+  decision: ApprovalDecision,
+): Promise<PawAppTaskCommand> {
+  const result = await request<{ command: unknown }>(
+    `/pawapps/${encodeURIComponent(appId)}/workspaces/${encodeURIComponent(
+      workspaceId,
+    )}/tasks/${encodeURIComponent(taskId)}/decide`,
+    {
+      method: "POST",
+      headers: { "X-Agent-Id": workspaceId },
+      body: JSON.stringify({ command_id: commandId, decision }),
+    },
+  );
+  if (
+    !isTaskCommand(result.command) ||
+    result.command.task_id !== taskId ||
+    result.command.command_id !== commandId ||
+    result.command.kind !== "decide" ||
+    result.command.request_id !== decision.request_id
+  )
+    throw new Error("invalid_approval_response");
   return result.command;
 }

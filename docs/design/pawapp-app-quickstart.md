@@ -91,7 +91,13 @@ Authenticated backend routes use `Depends(get_scoped_ctx)` from
 `qwenpaw.pawapp`, then `ctx.tasks`, `ctx.setup`, or `ctx.artifacts`. Legacy
 `get_ctx` does not receive these durable clients. Task execution itself receives
 `TaskExecution`, with trusted `scope`, immutable submission identity, `inputs`,
-`report(key, ...)`, `request_input(request)`, and `publish(...)`.
+`report(key, ...)`, `request_input(request)`, `request_approval(request)`, and
+`publish(...)`.
+
+For user authorization or content review, use the typed
+[approval contract](pawapp-approvals.md). Main Chat displays the proposal and
+submits a stable decision ID; ordinary agent answers cannot approve. An App UI
+uses `paw.tasks.decide(taskId, decision, commandId, options)` for the same task.
 
 ## Questions, artifacts and recovery
 

@@ -104,6 +104,7 @@ The base path is `/api/pawapps/{app_id}/workspaces/{workspace_id}`:
 | `GET /tasks/{task_id}` | Scoped task handle and current text snapshot. |
 | `POST /tasks/{task_id}/open` | Mint a local authenticated handoff for the task's published project reference. |
 | `POST /tasks/{task_id}/answer` | Persist and deliver an answer for the handle's current typed input request. |
+| `POST /tasks/{task_id}/decide` | Record an authenticated user decision for the current immutable approval proposal. |
 | `POST /tasks/{task_id}/cancel` | Persist cancellation intent and target the original submission/run. |
 | `GET /tasks/{task_id}/events?after=0&limit=100` | Ordered replay after the Host event sequence; maximum page size 1000. |
 | `POST /setup-requests/{request_id}/open` | Resolve one linked setup request to a validated local App path. |
@@ -250,7 +251,7 @@ A correlated pending execution authorization becomes a typed
 `waiting_for_approval` request with `Approve once` and `Do not run`. It shows the
 immutable operation, semantic target, provider/model, candidate count, duration,
 resolution, aspect ratio and other billing-relevant arguments without tokens or
-internal references. Answering uses Creator's existing authorization
+internal references. A typed user decision uses Creator's existing authorization
 compare-and-set. Readiness and the authorization fingerprint are rechecked
 immediately before dispatch; changed configuration or inputs require a new
 approval.
@@ -390,19 +391,22 @@ EOF and transport failure record recovery state without inferring success or
 interruption. Only an authoritative executor event can establish interruption.
 
 An `ask_user_question` tool call projects a bounded `input_request` onto the task
-and ends that attachment at an intentional waiting boundary. The same request is
-legal for `waiting_for_approval`, allowing an App adapter to project an immutable
-external authorization as ordinary typed questions. The Host validates request
-identity, exact question text, option labels and selection cardinality before
-persisting a command. Waiting tasks are not polled until a command exists; replay
-after an answer clears the request when the matching tool result arrives.
+and ends attachment at an intentional waiting boundary. Ordinary answers validate
+question identity and option labels. Approval waits instead carry an immutable
+`ApprovalRequest`, stable decision IDs and a scoped `ApprovalReceipt`; the
+separate `/decide` endpoint derives the user identity. Agent `answer_task` cannot
+approve. Creator content reviews use the same contract as generation approvals,
+with App-owned token validation and decision journals. Legacy question-shaped
+approval events retain their original replay meaning for the user interface.
+See [App approvals](pawapp-approvals.md) for policy boundaries, expiry,
+concurrent decisions, SDK examples and Creator migration.
 
 A `waiting_for_setup` event may carry exactly one bounded requirement ID, stable
 reason code and user-facing reason. The task atomically stores one opaque setup
 request ID and monotonic attempt. Setup and approval are independent: neither
 transition grants, answers or mutates the other, and neither changes action grants.
 
-The Host records each answer/cancel meaning under a stable command ID before
+The Host records each answer/decision/cancel meaning under a stable command ID before
 external I/O. Same-ID retries return the same receipt; changed answer content is
 `command_conflict`. A stale answer is rejected, while cancellation before
 submission terminalizes locally without dispatch. For ordinary adapters, terminal
