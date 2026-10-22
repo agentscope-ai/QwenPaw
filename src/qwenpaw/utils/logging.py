@@ -194,7 +194,10 @@ class _SafeRotatingFileHandler(logging.handlers.RotatingFileHandler):
         self.acquire()
         try:
             if self.stream is None:
-                raise ValueError("I/O operation on closed log stream")
+                # dictConfig() closes every existing handler. Reopen the
+                # stream like FileHandler.emit() does so sidecar stdout keeps
+                # working after uvicorn reconfigures logging.
+                self.stream = self._open()
             max_bytes = int(self.maxBytes)
             if max_bytes > 0:
                 self.stream.seek(0, 2)

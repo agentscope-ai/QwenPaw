@@ -281,7 +281,7 @@ def test_rotating_handler_writes_raw_text_with_rotation(tmp_path):
         handler.write_text("new\n")
 
         assert (tmp_path / "desktop.log.1").read_text(
-            encoding="utf-8"
+            encoding="utf-8",
         ) == "old\n"
         assert log_path.read_text(encoding="utf-8") == "new\n"
     finally:
@@ -289,7 +289,8 @@ def test_rotating_handler_writes_raw_text_with_rotation(tmp_path):
 
 
 def test_rotating_handler_reports_a_deferred_rollover_once(
-    tmp_path, monkeypatch
+    tmp_path,
+    monkeypatch,
 ):
     log_path = tmp_path / "desktop.log"
     handler = _SafeRotatingFileHandler(

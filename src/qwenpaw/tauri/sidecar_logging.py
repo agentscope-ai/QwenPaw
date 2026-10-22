@@ -141,7 +141,7 @@ def _add_project_file_handler(log_path: Path) -> _RotatingTextHandler:
         if getattr(handler, "baseFilename", None) == resolved_path:
             if not callable(getattr(handler, "write_text", None)):
                 raise TypeError(
-                    f"Handler for {log_path} cannot write raw text"
+                    f"Handler for {log_path} cannot write raw text",
                 )
             return cast(_RotatingTextHandler, handler)
     raise RuntimeError(f"No rotating log handler found for {log_path}")

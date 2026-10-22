@@ -9,6 +9,18 @@ import sys
 from pathlib import Path
 
 from qwenpaw.tauri import sidecar_logging as tauri_logging
+from qwenpaw.tauri.entry import _emit_backend_ready
+
+
+class _ListHandler(logging.Handler):
+    """Collect records emitted on a logger."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.records: list[logging.LogRecord] = []
+
+    def emit(self, record: logging.LogRecord) -> None:
+        self.records.append(record)
 
 
 def test_tee_stream_writes_text_to_both_streams():
@@ -156,10 +168,57 @@ def test_sidecar_tee_output_triggers_log_rotation(monkeypatch, tmp_path):
                 handler.close()
 
 
+def test_backend_ready_survives_handler_close_during_startup(
+    monkeypatch,
+    tmp_path,
+):
+    """uvicorn.Config() closes handlers before backend-ready is emitted."""
+    log_path = tmp_path / "desktop.log"
+    primary_stdout = io.StringIO()
+    primary_stderr = io.StringIO()
+
+    monkeypatch.setattr(sys, "stdout", primary_stdout)
+    monkeypatch.setattr(sys, "stderr", primary_stderr)
+    monkeypatch.setattr(
+        tauri_logging.faulthandler,
+        "enable",
+        lambda **kwargs: None,
+    )
+
+    try:
+        tauri_logging.install_sidecar_logging(log_path)
+        handler = next(
+            item
+            for item in logging.getLogger("qwenpaw").handlers
+            if getattr(item, "baseFilename", None) == str(log_path.resolve())
+        )
+        # logging.config.dictConfig() closes the handlers it finds.
+        handler.close()
+        assert handler.stream is None
+
+        _emit_backend_ready(54321)
+        sys.stdout.flush()
+
+        assert "QWENPAW_BACKEND_READY" in primary_stdout.getvalue()
+        assert "QWENPAW_BACKEND_READY" in log_path.read_text(
+            encoding="utf-8",
+        )
+    finally:
+        crash_log_file = getattr(tauri_logging, "_CRASH_LOG_FILE", None)
+        if crash_log_file is not None:
+            crash_log_file.close()
+            tauri_logging._CRASH_LOG_FILE = None
+        logger = logging.getLogger("qwenpaw")
+        for item in list(logger.handlers):
+            base = getattr(item, "baseFilename", None)
+            if base is not None and base == str(log_path.resolve()):
+                logger.removeHandler(item)
+                item.close()
+
+
 def test_locked_previous_crash_log_does_not_block_sidecar_startup(
     monkeypatch,
     tmp_path,
-    caplog,
 ):
     log_path = tmp_path / "desktop.log"
     crash_log_path = tmp_path / "desktop-crash.log"
@@ -176,21 +235,32 @@ def test_locked_previous_crash_log_does_not_block_sidecar_startup(
         return original_replace(path, target)
 
     monkeypatch.setattr(Path, "replace", deny_crash_log_replace)
+    monkeypatch.setenv("QWENPAW_LOG_MAX_BACKUPS", "3")
     monkeypatch.setattr(
         tauri_logging.faulthandler,
         "enable",
         lambda **kwargs: None,
     )
 
+    capture = _ListHandler()
+    project_logger = logging.getLogger("qwenpaw")
+    project_logger.addHandler(capture)
+
     try:
         tauri_logging.install_sidecar_logging(log_path)
 
         assert tauri_logging._CRASH_LOG_FILE is not None
-        assert "Could not rotate previous crash logs" in caplog.text
+        messages = [record.getMessage() for record in capture.records]
+        assert any(
+            "Could not rotate previous crash logs" in message
+            for message in messages
+        )
         assert (tmp_path / "desktop-crash.log.2").read_text(
             encoding="utf-8",
         ) == "older crash\n"
     finally:
+        project_logger.removeHandler(capture)
+        capture.close()
         if tauri_logging._CRASH_LOG_FILE is not None:
             tauri_logging._CRASH_LOG_FILE.close()
             tauri_logging._CRASH_LOG_FILE = None
