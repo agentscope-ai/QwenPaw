@@ -1026,6 +1026,73 @@ describe("useSessionListData owner guards and misc edges", () => {
     window.removeEventListener("qwenpaw:sidebar-new-chat", newChatListener);
   });
 
+  it("navigates when the current route uses the runtime session alias", async () => {
+    const runtimeId = `runtime-${A_CHAT}`;
+    vi.spyOn(chatApi, "deleteChat").mockResolvedValue(
+      {} as Awaited<ReturnType<typeof chatApi.deleteChat>>,
+    );
+    vi.spyOn(sessionApi, "getSessionList").mockResolvedValue([]);
+    const newChatListener = vi.fn();
+    window.addEventListener("qwenpaw:sidebar-new-chat", newChatListener);
+    const session = {
+      ...makeSession(A_CHAT),
+      realId: A_CHAT,
+      sessionId: runtimeId,
+    } as ExtendedChatSession;
+    const setSessions = vi.fn();
+    const hook = renderHook(
+      () =>
+        useSessionListData([session], setSessions, {
+          active: false,
+          currentSessionId: runtimeId,
+          onSessionClick: vi.fn(),
+        }),
+      { wrapper },
+    );
+
+    await act(async () => {
+      await hook.result.current.handleDelete(A_CHAT);
+    });
+
+    expect(newChatListener).toHaveBeenCalled();
+    expect(sessionApi.isRouteRemoved(runtimeId)).toBe(true);
+    window.removeEventListener("qwenpaw:sidebar-new-chat", newChatListener);
+  });
+
+  it("does not leave a session selected while deletion was pending", async () => {
+    const nextSessionId = "44444444-bbbb-4bbb-8bbb-444444444444";
+    const pendingDelete =
+      deferred<Awaited<ReturnType<typeof chatApi.deleteChat>>>();
+    vi.spyOn(chatApi, "deleteChat").mockReturnValue(pendingDelete.promise);
+    vi.spyOn(sessionApi, "getSessionList").mockResolvedValue([]);
+    const newChatListener = vi.fn();
+    window.addEventListener("qwenpaw:sidebar-new-chat", newChatListener);
+    const sessions = [makeSession(A_CHAT), makeSession(nextSessionId)];
+    const setSessions = vi.fn();
+    const hook = renderHook(
+      ({ current }: { current: string }) =>
+        useSessionListData(sessions, setSessions, {
+          active: false,
+          currentSessionId: current,
+          onSessionClick: vi.fn(),
+        }),
+      { wrapper, initialProps: { current: A_CHAT } },
+    );
+
+    let pending!: unknown;
+    act(() => {
+      pending = hook.result.current.handleDelete(A_CHAT);
+    });
+    hook.rerender({ current: nextSessionId });
+    pendingDelete.resolve({} as Awaited<ReturnType<typeof chatApi.deleteChat>>);
+    await act(async () => {
+      await pending;
+    });
+
+    expect(newChatListener).not.toHaveBeenCalled();
+    window.removeEventListener("qwenpaw:sidebar-new-chat", newChatListener);
+  });
+
   it("handleEditSubmit skips the refetch when the owner changed mid-rename", async () => {
     const dUpdate = deferred<Awaited<ReturnType<typeof chatApi.updateChat>>>();
     const updateSpy = vi

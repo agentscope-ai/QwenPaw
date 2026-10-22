@@ -157,6 +157,8 @@ export function useSessionListData(
 
   /** Cache last polled sessions to skip no-op state updates */
   const lastSessionsRef = useRef<ExtendedChatSession[]>([]);
+  const currentSessionIdRef = useRef(currentSessionId);
+  currentSessionIdRef.current = currentSessionId;
 
   const refreshSessions = useCallback(async () => {
     const owner = sessionApi.getActiveOwner();
@@ -293,18 +295,17 @@ export function useSessionListData(
       // navigation). A delete that finished after an agent switch must not
       // touch the new agent's state.
       if (!sessionApi.isActiveOwner(owner)) return;
-      sessionApi.markRouteRemoved(
-        sessionId,
-        backendId,
-        session?.sessionId,
-      );
+      sessionApi.markRouteRemoved(sessionId, backendId, session?.sessionId);
       sessionApi.onSessionRemoved?.(backendId ?? sessionId);
 
       // Leave the deleted route before publishing the refreshed list. Otherwise
       // route resolution can request the removed Chat while navigation settles.
+      const latestCurrentSessionId = currentSessionIdRef.current;
       if (
-        currentSessionId &&
-        (sessionId === currentSessionId || backendId === currentSessionId)
+        latestCurrentSessionId &&
+        (sessionId === latestCurrentSessionId ||
+          backendId === latestCurrentSessionId ||
+          session?.sessionId === latestCurrentSessionId)
       ) {
         window.dispatchEvent(new CustomEvent("qwenpaw:sidebar-new-chat"));
       }
@@ -316,7 +317,7 @@ export function useSessionListData(
       setSessions(freshList);
       syncSessionsGlobal(freshList);
     },
-    [sessions, currentSessionId, setSessions],
+    [sessions, setSessions],
   );
 
   const handleEditStart = useCallback(
