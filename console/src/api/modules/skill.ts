@@ -15,7 +15,6 @@ import type {
   WorkspaceSkillSummary,
 } from "../types";
 
-
 // Simple in-memory cache with TTL
 const CACHE_TTL_MS = 30000; // 30 seconds
 const LIST_REQUEST_OPTIONS: RequestOptions = {

@@ -39,10 +39,7 @@
   },
   "bundle": {
     "active": true,
-    "targets": [
-      "app",
-      "nsis"
-    ],
+    "targets": ["app", "nsis"],
     "icon": [
       "../../scripts/pack/assets/icon.icns",
       "../../scripts/pack/assets/icon.ico"

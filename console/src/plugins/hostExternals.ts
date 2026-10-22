@@ -43,7 +43,6 @@ import {
   type MemoryBackendNamespace,
 } from "./memoryBackends";
 
-
 // ─────────────────────────────────────────────────────────────────────────────
 // Public types
 // ─────────────────────────────────────────────────────────────────────────────
@@ -247,7 +246,6 @@ function ensurePluginsGroup(): void {
 }
 
 export function installHostExternals(): void {
-
   if (!window.QwenPaw) {
     (window as any).QwenPaw = {} as WindowNamespace;
   }
@@ -258,7 +256,9 @@ export function installHostExternals(): void {
       ReactDOM,
       antd,
       antdIcons,
-      get apiBaseUrl() { return getApiBaseUrl(); },
+      get apiBaseUrl() {
+        return getApiBaseUrl();
+      },
       getApiUrl,
       getApiToken,
       prepareBrowserSession,
