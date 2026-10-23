@@ -71,7 +71,12 @@ fn exclusive(file: &File) -> Result<bool, String> {
 }
 
 fn busy(path: &Path) -> Result<bool, String> {
-    Ok(!exclusive(&open_lock(path)?)?)
+    // Readers must not exclude new registrations or other status probes.
+    match FileExt::try_lock_shared(&open_lock(path)?) {
+        Ok(()) => Ok(false),
+        Err(e) if e.raw_os_error() == fs2::lock_contended_error().raw_os_error() => Ok(true),
+        Err(e) => Err(e.to_string()),
+    }
 }
 
 #[derive(Deserialize, Serialize)]
@@ -208,7 +213,16 @@ impl Installation {
         // own this request. Remove a crash remainder before locking admission.
         let _ = std::fs::remove_file(directory.join("closing"));
         let admission = open_lock(&directory.join("admission.lock"))?;
-        if !exclusive(&admission)? || installer_running(&directory)? {
+        // Registration and status probes hold short shared leases. Wait for
+        // those readers instead of mistaking them for another updater.
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while !exclusive(&admission)? {
+            if Instant::now() >= deadline {
+                return Err(UPDATING.into());
+            }
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+        if installer_running(&directory)? {
             return Err(UPDATING.into());
         }
         let peers = members(&directory)?;

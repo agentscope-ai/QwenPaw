@@ -57,15 +57,17 @@ async def connect(
         raise HTTPException(status_code=503, detail="Backend unavailable")
     client_id = uuid.uuid4().hex
     clients = request.app.state.runtime_clients
-    clients[client_id] = (connection.client, connection.installation)
 
     async def events():
-        HostRuntimeProvider.register_host(
-            client_id,
-            connection.control_port,
-            connection.control_token,
-        )
+        if server.should_exit:
+            return
         try:
+            clients[client_id] = (connection.client, connection.installation)
+            HostRuntimeProvider.register_host(
+                client_id,
+                connection.control_port,
+                connection.control_token,
+            )
             while not server.should_exit:
                 yield f": connected\n\n"
                 await asyncio.sleep(5)

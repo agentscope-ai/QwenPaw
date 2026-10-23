@@ -486,6 +486,13 @@ async def test_shared_stop_preserves_other_clients(runtime_request):
         runtime_request,
         state.uvicorn_server,
     )
+    abandoned = await runtime_router.connect(
+        runtime_router.ClientConnection(client="desktop"),
+        runtime_request,
+        state.uvicorn_server,
+    )
+    await abandoned.body_iterator.aclose()
+    assert not state.runtime_clients
     await anext(first.body_iterator)
     await anext(second.body_iterator)
     first_id = first.headers["X-QwenPaw-Client"]
@@ -514,6 +521,11 @@ async def test_shared_stop_preserves_other_clients(runtime_request):
             first_id,
             state.uvicorn_server,
         ) == {"other_clients": 0, "clients": []}
+        pending = await runtime_router.connect(
+            runtime_router.ClientConnection(client="desktop"),
+            runtime_request,
+            state.uvicorn_server,
+        )
         result = await runtime_router.shutdown(
             runtime_request,
             first.headers["X-QwenPaw-Client"],
@@ -521,6 +533,9 @@ async def test_shared_stop_preserves_other_clients(runtime_request):
         )
         assert result == {"ok": True}
         assert state.uvicorn_server.should_exit
+        with pytest.raises(StopAsyncIteration):
+            await anext(pending.body_iterator)
+        assert set(state.runtime_clients) == {first_id}
         with pytest.raises(HTTPException) as admission:
             await runtime_router.connect(
                 runtime_router.ClientConnection(client="vscode"),

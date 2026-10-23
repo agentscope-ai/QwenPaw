@@ -89,7 +89,7 @@ pub(crate) fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Erro
         .tooltip("QwenPaw Desktop")
         .on_menu_event(|app, event| match event.id().as_ref() {
             SHOW_MENU_ID => show_main_window(app),
-            QUIT_MENU_ID => request_close(app),
+            QUIT_MENU_ID => request_quit(app),
             _ => {}
         })
         .on_tray_icon_event(|tray, event| {
@@ -122,13 +122,17 @@ pub(crate) fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Erro
     Ok(())
 }
 
-/// Asks the frontend to handle a window close request. The frontend honors the
-/// remembered choice or shows the close prompt, then calls back into the
-/// `minimize_to_tray` / `quit_app` commands.
-///
-/// To avoid leaving the window unclosable when no listener is attached, a
-/// fallback minimizes to tray if the frontend does not `ack_close` in time.
+/// Window close honors the saved choice; explicit quit always offers the
+/// last client a choice between background tasks and quitting completely.
 pub(crate) fn request_close(app: &tauri::AppHandle) {
+    request_exit(app, true);
+}
+
+pub(crate) fn request_quit(app: &tauri::AppHandle) {
+    request_exit(app, false);
+}
+
+fn request_exit(app: &tauri::AppHandle, honor_preference: bool) {
     let seq = app
         .state::<TrayState>()
         .close_seq
@@ -145,11 +149,14 @@ pub(crate) fn request_close(app: &tauri::AppHandle) {
             return;
         }
         // If the runtime is unavailable, keep both choices accessible.
-        let action = *app
-            .state::<TrayState>()
-            .close_action
-            .lock()
-            .expect("tray state poisoned");
+        let action = if honor_preference {
+            *app.state::<TrayState>()
+                .close_action
+                .lock()
+                .expect("tray state poisoned")
+        } else {
+            None
+        };
         match action {
             Some(CloseAction::MinimizeToTray) => hide_main_window(&app),
             Some(CloseAction::Quit) => exit_app(&app, 0),

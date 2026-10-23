@@ -102,8 +102,7 @@ pub fn run() {
                     #[cfg(target_os = "macos")]
                     if code.is_none() && !tray::is_quitting(app_handle) {
                         api.prevent_exit();
-                        tray::show_main_window(app_handle);
-                        tray::request_close(app_handle);
+                        tray::request_quit(app_handle);
                         return;
                     }
                     if !tray::shutdown_complete(app_handle) {
