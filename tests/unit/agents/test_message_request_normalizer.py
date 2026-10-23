@@ -7,6 +7,7 @@ import json
 
 import pytest
 from agentscope.message import (
+    Base64Source,
     DataBlock,
     Msg,
     TextBlock,
@@ -20,6 +21,7 @@ from qwenpaw.agents.utils.message_request_normalizer import (
     _clone_msg,
     _clone_messages,
     _is_document_block,
+    _is_empty_media_block,
     _is_media_block,
     _strip_media_blocks_in_place,
     normalize_messages_for_model_request,
@@ -631,3 +633,105 @@ def test_raw_input_used_for_repair_before_stripping():
         "raw_input",
         None,
     )
+
+
+# -----------------------------------------------------------------------------
+# empty media blocks -> empty data URI (dropped before formatting)
+# -----------------------------------------------------------------------------
+
+
+def _empty_base64_block(media_type: str = "image/png") -> DataBlock:
+    return DataBlock(source=Base64Source(data="", media_type=media_type))
+
+
+def _nonempty_base64_block(media_type: str = "image/png") -> DataBlock:
+    return DataBlock(source=Base64Source(data="AAAA", media_type=media_type))
+
+
+def test_is_empty_media_block_detects_empty_base64_image():
+    assert _is_empty_media_block(_empty_base64_block()) is True
+
+
+def test_is_empty_media_block_ignores_nonempty_base64():
+    assert _is_empty_media_block(_nonempty_base64_block()) is False
+
+
+def test_is_empty_media_block_ignores_url_source():
+    assert _is_empty_media_block(_data_block("image/png")) is False
+
+
+def test_is_empty_media_block_ignores_text_block():
+    assert _is_empty_media_block(TextBlock(text="hi")) is False
+
+
+def test_is_empty_media_block_detects_dict_style_empty():
+    block = {
+        "type": "data",
+        "source": {
+            "type": "base64",
+            "media_type": "image/png",
+            "data": "",
+        },
+    }
+    assert _is_empty_media_block(block) is True
+
+
+def test_normalize_drops_empty_media_block_but_keeps_text():
+    msg = Msg(
+        name="user",
+        role="user",
+        content=[TextBlock(text="look:"), _empty_base64_block()],
+    )
+    normalized = normalize_messages_for_model_request(
+        [msg],
+        supports_multimodal=True,
+    )
+    assert len(normalized[0].content) == 1
+    assert normalized[0].content[0].type == "text"
+    assert normalized[0].content[0].text == "look:"
+
+
+def test_normalize_drops_empty_media_only_block_with_placeholder():
+    msg = Msg(name="user", role="user", content=[_empty_base64_block()])
+    normalized = normalize_messages_for_model_request(
+        [msg],
+        supports_multimodal=True,
+    )
+    assert len(normalized[0].content) == 1
+    assert normalized[0].content[0].type == "text"
+    assert normalized[0].content[0].text == MEDIA_UNSUPPORTED_PLACEHOLDER
+
+
+def test_normalize_drops_empty_media_in_tool_result():
+    msg = Msg(
+        name="assistant",
+        role="assistant",
+        content=[
+            ToolCallBlock(
+                type="tool_call",
+                id="call_1",
+                name="view_image",
+                input="{}",
+            ),
+            ToolResultBlock(
+                type="tool_result",
+                id="call_1",
+                name="view_image",
+                output=[_empty_base64_block()],
+            ),
+        ],
+    )
+    normalized = normalize_messages_for_model_request(
+        [msg],
+        supports_multimodal=True,
+    )
+    assert normalized[0].content[1].output == MEDIA_UNSUPPORTED_PLACEHOLDER
+
+
+def test_normalize_preserves_nonempty_media_for_multimodal():
+    msg = Msg(name="user", role="user", content=[_nonempty_base64_block()])
+    normalized = normalize_messages_for_model_request(
+        [msg],
+        supports_multimodal=True,
+    )
+    assert normalized[0].content[0].type == "data"
