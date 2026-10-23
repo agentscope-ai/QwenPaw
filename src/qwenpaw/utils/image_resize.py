@@ -10,7 +10,7 @@ import math
 import os
 import re
 
-from PIL import Image, UnidentifiedImageError
+from PIL import Image, ImageOps, UnidentifiedImageError
 
 MAX_IMAGE_PIXELS_ENV = "QWENPAW_MAX_IMAGE_PIXELS"
 
@@ -107,26 +107,38 @@ def resize_base64_image(
                     f"{image_format or 'unknown'}.",
                 )
 
-            resized_size = _resized_dimensions(
-                width,
-                height,
-                max_pixels,
-            )
             image.load()
             save_options = _image_save_options(image)
-            resized = image.resize(resized_size, Image.Resampling.LANCZOS)
+            oriented = ImageOps.exif_transpose(image)
             try:
-                if image_format == "JPEG" and resized.mode not in (
-                    "L",
-                    "RGB",
-                ):
-                    converted = resized.convert("RGB")
+                oriented_width, oriented_height = oriented.size
+                resized_size = _resized_dimensions(
+                    oriented_width,
+                    oriented_height,
+                    max_pixels,
+                )
+                resized = oriented.resize(
+                    resized_size,
+                    Image.Resampling.LANCZOS,
+                )
+                try:
+                    if image_format == "JPEG" and resized.mode not in (
+                        "L",
+                        "RGB",
+                    ):
+                        converted = resized.convert("RGB")
+                        resized.close()
+                        resized = converted
+                    output = BytesIO()
+                    resized.save(
+                        output,
+                        format=image_format,
+                        **save_options,
+                    )
+                finally:
                     resized.close()
-                    resized = converted
-                output = BytesIO()
-                resized.save(output, format=image_format, **save_options)
             finally:
-                resized.close()
+                oriented.close()
     except (
         binascii.Error,
         Image.DecompressionBombError,

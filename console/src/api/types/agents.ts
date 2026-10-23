@@ -1,3 +1,4 @@
+import type { ThinkingLevel } from "@/features/thinking/types";
 // Multi-agent management types
 
 import type { ModelSlotConfig } from "./provider";
@@ -108,13 +109,15 @@ export interface AgentProfileConfig {
   };
   approval_level?: string;
   active_model?: ModelSlotConfig | null;
+  decision_model?: ModelSlotConfig | null;
   fallback_models?: ModelSlotConfig[];
   fallback_policy?: {
     enabled: boolean;
     target_scope: "configured" | "free_only";
   };
   subagent_model?: ModelSlotConfig | null;
-  thinking_level?: "inherit" | "off" | "low" | "medium" | "high";
+  thinking_level?: ThinkingLevel;
+  thinking_budget?: number | null;
   channels?: unknown;
   mcp?: unknown;
   heartbeat?: unknown;
@@ -127,13 +130,16 @@ export interface AgentProfileConfig {
 }
 
 export interface AgentModelSettingsPatch {
+  active_model?: ModelSlotConfig | null;
+  decision_model?: ModelSlotConfig | null;
   fallback_models?: ModelSlotConfig[];
   fallback_policy?: {
     enabled: boolean;
     target_scope: "configured" | "free_only";
   };
   subagent_model?: ModelSlotConfig | null;
-  thinking_level?: "inherit" | "off" | "low" | "medium" | "high";
+  thinking_level?: ThinkingLevel;
+  thinking_budget?: number | null;
 }
 
 export interface CreateAgentRequest {

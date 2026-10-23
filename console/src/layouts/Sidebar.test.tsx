@@ -14,6 +14,13 @@
  *   4. Verify it has a route defined for navigation.
  */
 import { describe, expect, it, vi } from "vitest";
+import {
+  Mail,
+  MessagesSquare,
+  ShieldCheck,
+  Sparkles,
+  WandSparkles,
+} from "lucide-react";
 
 // Mock heavy dependencies before importing builtinMenu
 vi.mock("@agentscope-ai/icons", () => {
@@ -45,10 +52,25 @@ vi.mock("@agentscope-ai/icons", () => {
     SparkWifiLine: stub,
   };
 });
-vi.mock("i18next", () => ({
-  default: { t: (key: string, fallback?: string) => fallback ?? key },
-  t: (key: string, fallback?: string) => fallback ?? key,
-}));
+vi.mock("i18next", () => {
+  const t = (key: string, fallback?: string) => fallback ?? key;
+  const createInstance = () => {
+    const instance = {
+      t,
+      use: vi.fn(),
+      init: vi.fn(),
+    };
+    instance.use.mockReturnValue(instance);
+    instance.init.mockResolvedValue(instance);
+    return instance;
+  };
+
+  return {
+    createInstance,
+    default: { t },
+    t,
+  };
+});
 vi.mock("@/plugins/registry/store", () => ({
   menuRegistry: {
     addBuiltIn: vi.fn(),
@@ -59,13 +81,36 @@ vi.mock("@/plugins/registry/store", () => ({
 import { BUILTIN_MENU } from "./registry/builtinMenu";
 
 describe("Sidebar navigation — A#84552933 应用导航入口", () => {
+  it("uses a conversation icon for the sessions entry", () => {
+    expect(BUILTIN_MENU.find((item) => item.id === "core.sessions")?.icon).toBe(
+      MessagesSquare,
+    );
+  });
+
+  it("keeps navigation icons aligned with their product meaning", () => {
+    expect(BUILTIN_MENU.find((item) => item.id === "core.inbox")?.icon).toBe(
+      Mail,
+    );
+    expect(BUILTIN_MENU.find((item) => item.id === "core.security")?.icon).toBe(
+      ShieldCheck,
+    );
+    expect(
+      BUILTIN_MENU.find((item) => item.id === "core.skill-pool")?.icon,
+    ).toBe(Sparkles);
+    expect(BUILTIN_MENU.find((item) => item.id === "core.skills")?.icon).toBe(
+      WandSparkles,
+    );
+  });
+
   it("preserves the PawPort entry alongside the redesigned navigation", () => {
     expect(
       BUILTIN_MENU.find((item) => item.id === "core.import"),
     ).toMatchObject({
       location: "primary.agentScoped",
       route: "core.import",
-      icon: expect.any(Function),
+      icon: expect.objectContaining({
+        $$typeof: Symbol.for("react.forward_ref"),
+      }),
     });
   });
 

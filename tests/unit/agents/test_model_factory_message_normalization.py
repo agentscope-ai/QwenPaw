@@ -11,7 +11,7 @@ from types import SimpleNamespace
 
 import httpx
 import pytest
-from agentscope.formatter import OpenAIChatFormatter
+from agentscope.formatter import OpenAIChatFormatter, OpenAIResponseFormatter
 from agentscope.message import (
     Base64Source,
     DataBlock,
@@ -35,7 +35,7 @@ try:
 except ImportError:
     GeminiChatFormatter = None
 
-from PIL import Image
+from PIL import Image, ImageOps
 
 from qwenpaw.agents import model_factory
 from qwenpaw.constant import MEDIA_UNSUPPORTED_PLACEHOLDER
@@ -61,9 +61,72 @@ def _base64_data_block(media_type: str, content: bytes) -> DataBlock:
     )
 
 
+@pytest.mark.parametrize(
+    "base_formatter",
+    [
+        _CappingOpenAIFormatter,
+        OpenAIResponseFormatter,
+        _CappingAnthropicFormatter,
+        _CappingGeminiFormatter,
+        _CappingDashScopeFormatter,
+    ],
+)
+async def test_video_strip_runs_before_local_media_preparation(
+    base_formatter,
+    tmp_path,
+    monkeypatch,
+) -> None:
+    """Video filtering must work across protocols without reading the file."""
+    path = tmp_path / "clip.mp4"
+    path.write_bytes(b"video")
+    messages = [
+        Msg(
+            name="user",
+            role="user",
+            content=[
+                TextBlock(text="keep this"),
+                _data_block("video/mp4", path.as_uri()),
+            ],
+        ),
+    ]
+    before = [msg.model_dump() for msg in messages]
+    formatter = model_factory._create_file_block_support_formatter(
+        base_formatter,
+    )()
+    first = await formatter.format(messages)
+    assert model_factory._count_wire_video_blocks(first) == 1
+    assert formatter._qwenpaw_last_wire_video_count == 1
+
+    def unexpected_read(*_args, **_kwargs):
+        pytest.fail("Filtered video must not be read or encoded")
+
+    monkeypatch.setattr(model_factory, "_read_local_media", unexpected_read)
+    formatter._qwenpaw_force_strip_video = True
+    second = await formatter.format(messages)
+    assert model_factory._count_wire_video_blocks(second) == 0
+    assert formatter._qwenpaw_last_wire_video_count == 0
+    assert "keep this" in json.dumps(second)
+    assert [msg.model_dump() for msg in messages] == before
+
+
 def _png_bytes(size: tuple[int, int]) -> bytes:
     output = BytesIO()
     Image.new("RGB", size, color="red").save(output, format="PNG")
+    return output.getvalue()
+
+
+def _oriented_jpeg_bytes(
+    size: tuple[int, int],
+    orientation: int,
+) -> bytes:
+    output = BytesIO()
+    exif = Image.Exif()
+    exif[274] = orientation
+    Image.new("RGB", size, color="red").save(
+        output,
+        format="JPEG",
+        exif=exif,
+    )
     return output.getvalue()
 
 
@@ -247,6 +310,45 @@ async def test_request_time_image_resize_preserves_original(
         BytesIO(base64.b64decode(original.source.data)),
     ) as untouched:
         assert untouched.size == (100, 50)
+
+
+@pytest.mark.asyncio
+async def test_request_time_image_resize_applies_exif_orientation(
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("QWENPAW_MAX_IMAGE_PIXELS", "2400")
+    formatter_class = model_factory._create_file_block_support_formatter(
+        _CappingOpenAIFormatter,
+    )
+    formatter = formatter_class()
+    original_bytes = _oriented_jpeg_bytes((120, 80), 6)
+    original = _base64_data_block("image/jpeg", original_bytes)
+    msg = Msg(name="user", role="user", content=[original])
+
+    formatted = await formatter.format([msg])
+
+    image_url = formatted[0]["content"][0]["image_url"]["url"]
+    resized_data = image_url.split(",", 1)[1]
+    with Image.open(BytesIO(base64.b64decode(resized_data))) as resized:
+        assert {
+            "display_size": ImageOps.exif_transpose(resized).size,
+            "orientation": resized.getexif().get(274),
+        } == {
+            "display_size": (40, 60),
+            "orientation": None,
+        }
+    with Image.open(
+        BytesIO(base64.b64decode(original.source.data)),
+    ) as untouched:
+        assert {
+            "display_size": ImageOps.exif_transpose(untouched).size,
+            "orientation": untouched.getexif().get(274),
+            "bytes": original.source.data,
+        } == {
+            "display_size": (80, 120),
+            "orientation": 6,
+            "bytes": base64.b64encode(original_bytes).decode("ascii"),
+        }
 
 
 @pytest.mark.asyncio

@@ -33,11 +33,11 @@ class SecurityPage(BasePage):
     # ========== Selector definitions ==========
 
     # Page load indicator
-    PAGE_LOAD_INDICATOR = '.qwenpaw-tabs-tab-btn'
+    PAGE_LOAD_INDICATOR = '[role="tab"]'
 
     # Tabs
-    TOOL_GUARD_TAB = '[data-node-key="toolGuard"] .qwenpaw-tabs-tab-btn'
-    FILE_GUARD_TAB = '[data-node-key="fileGuard"] .qwenpaw-tabs-tab-btn'
+    TOOL_GUARD_TAB = '[role="tab"]:has-text("Tool Guard")'
+    FILE_GUARD_TAB = '[role="tab"]:has-text("File Guard")'
 
     # Active panel
     ACTIVE_PANEL = '.qwenpaw-tabs-tabpane-active'
@@ -146,16 +146,9 @@ class SecurityPage(BasePage):
     # ========== Save action ==========
 
     def click_save(self) -> "SecurityPage":
-        """Click the Save button."""
-        save_btn = self.page.locator(self.SAVE_BTN).first
-        if not save_btn.is_visible():
-            # Fall back to the footer
-            save_btn = self.page.locator('div[class*="footer"] button.qwenpaw-btn-primary').first
-
-        expect(save_btn).to_be_visible(timeout=self.timeout)
-        save_btn.click()
-        self.page.wait_for_timeout(2000)
-        logger.info("Save button clicked")
+        """Wait for the security workbench's debounced auto-save."""
+        self.page.wait_for_timeout(1500)
+        logger.info("Security configuration auto-save completed")
         return self
 
     # ========== Misc helpers ==========

@@ -11,7 +11,11 @@ import uuid
 from ...providers.openai_provider import token_limit_kwargs
 from ..database import utc_now
 from ..invitations import secret_digest
-from .provider_setup import model_provider, model_token_defaults
+from .provider_setup import (
+    model_provider,
+    model_token_defaults,
+    published_capabilities,
+)
 
 _SYSTEM = "__qwenpaw_hub_system__"
 _SCOPE = "organization-models"
@@ -172,21 +176,9 @@ class ModelCatalog:
             if connection is None:
                 raise ValueError("Connection does not exist")
             defaults = model_token_defaults(body.upstream_model, connection)
-            for field, known in (
-                ("input_token_limit", "input_limit_known"),
-                ("output_token_limit", "output_limit_known"),
-            ):
+            for field in (f"input_token_limit", f"output_token_limit"):
                 if field not in body.model_fields_set:
                     value[field] = defaults[field]
-                elif (
-                    value[field] is not None
-                    and defaults[known]
-                    and value[field] > defaults[field]
-                ):
-                    raise ValueError(
-                        f"{field} must not exceed the known model limit "
-                        f"of {defaults[field]}",
-                    )
             for user_id in body.user_ids:
                 if not db.execute(
                     "SELECT 1 FROM hub_users WHERE user_id = ? "
@@ -335,6 +327,10 @@ class ModelCatalog:
                                 "output_token_limit",
                             )
                         },
+                        **published_capabilities(
+                            model,
+                            connections[model[f"connection_id"]],
+                        ),
                     },
                 )
         return {

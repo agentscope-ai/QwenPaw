@@ -22,6 +22,13 @@ _AUDIO_MODAL_ERROR = (
     "'type': 'invalid_request_error'}}"
 )
 
+_AUDIO_INPUT_PART_ERROR = (
+    "Error code: 422 - {'error': {'message': "
+    '"Failed to deserialize the JSON body into the target type: '
+    "messages[88]: unknown variant `input_audio`, expected one of "
+    '`text`, `image_url`, `file`"}}'
+)
+
 
 class SeenTracker:
     """Minimal Scroll manager surface used by ``QwenPawAgent._reasoning``."""
@@ -233,3 +240,25 @@ async def test_audio_modal_error_strips_audio_and_retries_once(
         assert agent.formatter._qwenpaw_force_strip_media is False
     finally:
         cache.clear()
+
+
+@pytest.mark.parametrize(
+    ("error", "expected"),
+    [
+        (_AUDIO_MODAL_ERROR, True),
+        (_AUDIO_INPUT_PART_ERROR, True),
+        (
+            "Error code: 422 - unknown variant `input_text`, expected one of "
+            "`text`, `image_url`, `file`",
+            False,
+        ),
+    ],
+)
+def test_audio_fallback_error_classifies_unknown_audio_parts(
+    error: str,
+    expected: bool,
+) -> None:
+    """Recognize unsupported input_audio variants without broad 422 matches."""
+    assert (
+        QwenPawAgent._is_audio_fallback_error(RuntimeError(error)) is expected
+    )

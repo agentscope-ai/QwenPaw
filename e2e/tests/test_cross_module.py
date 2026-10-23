@@ -18,6 +18,7 @@ import time
 import pytest
 from playwright.sync_api import Page, expect, TimeoutError
 
+from pages.agents_page import AgentsPage
 from pages.chat_page import ChatPage
 from config.settings import config
 from utils.helpers import log_test_step, log_test_result
@@ -173,7 +174,7 @@ class TestSkillAgentChatFlow:
             page.wait_for_timeout(1500)
 
             log_test_step("3. Fill in skill information")
-            drawer = page.locator('.qwenpaw-drawer').first
+            drawer = page.locator('[role="dialog"]:visible')
             expect(drawer).to_be_visible(timeout=5000)
 
             name_input = drawer.locator('input[placeholder*="name"], input').first
@@ -221,16 +222,26 @@ When invoked, respond with: "Cross-module test skill executed successfully."
             navigate_to_agents(page)
 
             log_test_step("6. Verify the agent list loads")
-            agent_table = page.locator('.qwenpaw-table').first
+            # The settings redesign replaced the antd Table with a card
+            # gallery (Settings/Agents renders <AgentGallery> inside
+            # div[class*="grid"]; each agent is an <article class*="card">).
+            # ``.qwenpaw-table`` no longer exists on this page — the old
+            # anchor made this case fail with "element(s) not found" while
+            # the page itself was perfectly healthy (nightly 2026-10).
+            # Reuse the page object's adapted anchors instead of
+            # hard-coding DOM here.
+            agent_table = page.locator(AgentsPage.AGENT_TABLE).first
             expect(agent_table).to_be_visible(timeout=5000)
-            agent_rows = page.locator('.qwenpaw-table-tbody tr.qwenpaw-table-row').all()
+            agent_rows = page.locator(AgentsPage.AGENT_ITEM).all()
             assert len(agent_rows) > 0, "Agent list is empty"
             logger.info(f"Agent list loaded; {len(agent_rows)} agents")
 
             log_test_step("7. Find an editable agent and click edit")
             editable_agent_found = False
             for agent_row in agent_rows:
-                edit_btn = agent_row.locator('button:has(.anticon-edit)').first
+                # Card actions are icon buttons with aria-labels
+                # (common.edit => "Edit"/"编辑"); antd icon classes are gone.
+                edit_btn = agent_row.locator(AgentsPage.EDIT_BTN).first
                 if edit_btn.count() > 0 and edit_btn.is_enabled(timeout=1000):
                     edit_btn.click()
                     page.wait_for_timeout(1500)
@@ -447,7 +458,7 @@ class TestSecurityInterceptionInChat:
             navigate_to_security(page)
 
             log_test_step("2. Check the tool-guard tab")
-            tool_guard_tab = page.locator('[data-node-key="toolGuard"] .qwenpaw-tabs-tab-btn').first
+            tool_guard_tab = page.get_by_role("tab", name="Tool Guard")
             if tool_guard_tab.is_visible(timeout=5000):
                 tool_guard_tab.click()
                 page.wait_for_timeout(1500)
@@ -463,7 +474,7 @@ class TestSecurityInterceptionInChat:
                 logger.info("Tool-guard switch not found")
 
             log_test_step("4. Check the file-guard tab")
-            file_guard_tab = page.locator('[data-node-key="fileGuard"] .qwenpaw-tabs-tab-btn').first
+            file_guard_tab = page.get_by_role("tab", name="File Guard")
             if file_guard_tab.is_visible(timeout=3000):
                 file_guard_tab.click()
                 page.wait_for_timeout(1000)
@@ -526,7 +537,7 @@ class TestSecurityInterceptionInChat:
             log_test_step("8. Return to the security page and verify config consistency")
             navigate_to_security(page)
 
-            tool_guard_tab = page.locator('[data-node-key="toolGuard"] .qwenpaw-tabs-tab-btn').first
+            tool_guard_tab = page.get_by_role("tab", name="Tool Guard")
             if tool_guard_tab.is_visible(timeout=5000):
                 tool_guard_tab.click()
                 page.wait_for_timeout(1000)
@@ -772,8 +783,8 @@ class TestEnvAndRuntimeConfigFlow:
         # data-node-key anchors are already proven green in
         # e2e/tests/test_runtime_config.py, so no new selector idiom is
         # introduced here.
-        for tab_key in ("llmRetry", "llmRateLimiter"):
-            tab = page.locator(f'[data-node-key="{tab_key}"] .qwenpaw-tabs-tab-btn').first
+        for tab_key in ("Recovery", "Context budget"):
+            tab = page.get_by_role("tab", name=tab_key)
             expect(tab).to_be_visible(timeout=10000)
             logger.info(f"Agent config tab present: {tab_key}")
         # The two pages coexist as separate routes: #7538 unified how

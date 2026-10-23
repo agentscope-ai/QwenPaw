@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from ..agents.acp.meta import ACP_PROJECT_DIR_META_KEY
+from ..services.session_thinking import apply_session_thinking
 from ..utils.io_utils import run_sync_io
 from ..utils.logging import sanitize_log_value
 
@@ -346,6 +347,7 @@ class AgentBuilder:
             agent_config,
             request_context,
         )
+        agent_config = await apply_session_thinking(ctx, agent_config)
         ctx.agent_config = agent_config
 
         # Validate model availability.
@@ -458,6 +460,12 @@ class AgentBuilder:
             self.build_model,
             agent_config,
             model_slot_override=model_slot_override,
+        )
+
+        ctx.extras[f"active_model_display_name"] = getattr(
+            model,
+            f"display_name",
+            None,
         )
 
         # Built once and shared: the agent's native offloader, and (when
@@ -908,11 +916,8 @@ class AgentBuilder:
             or os.environ.get("SHELL")
             or ("cmd.exe" if sys.platform == "win32" else "/bin/sh")
         )
-        _active = getattr(agent_config, "active_model", None)
-        _model_name = (
-            _active.model
-            if _active and getattr(_active, "model", None)
-            else None
+        _model_name = (getattr(ctx, f"extras", None) or {}).get(
+            f"active_model_display_name",
         )
         return build_env_context(
             agent_id=getattr(agent_config, "id", None),
@@ -1334,7 +1339,9 @@ class AgentBuilder:
         1. ToolResultPruningMiddleware — tiered tool result pruning
         2. ToolCoordinatorMiddleware — tool call lifecycle management
         3. Plugin-registered middlewares (sorted by priority)
-        4. VisualCompressionMiddleware — innermost pre-provider transform
+        4. VisualCompressionMiddleware — pre-provider transform
+        5. Mode-contributed middlewares — e.g. AdvisorMiddleware from
+           Advisor Mode (innermost)
         """
         mws: list[Any] = []
 
@@ -1414,12 +1421,18 @@ class AgentBuilder:
             try:
                 mw = reg.factory(ctx, agent_config)
                 if mw is not None:
-                    mws.append(mw)
-            except Exception:
+                    mws.append(_wrap_plugin_middleware(mw, reg.plugin_id))
+            except Exception as exc:
                 _logger.warning(
                     "plugin %s middleware factory failed",
                     reg.plugin_id,
                     exc_info=True,
+                )
+                from qwenpaw.plugins.lifecycle import note_plugin_diagnostic
+
+                note_plugin_diagnostic(
+                    reg.plugin_id,
+                    f"middleware factory: {exc}",
                 )
 
         # Visual compression is a request-boundary middleware. It reads the
@@ -1433,7 +1446,79 @@ class AgentBuilder:
         )
         mws.append(VisualCompressionMiddleware(visual_config))
 
+        # Mode-contributed middlewares (innermost).
+        mws.extend(AgentBuilder._collect_mode_middlewares(ctx, agent_config))
+
         return mws
+
+    @staticmethod
+    def _collect_mode_middlewares(
+        ctx: Any,
+        agent_config: Any,
+    ) -> list[Any]:
+        """Return the middlewares of every mode active for ``ctx``."""
+        plugins = getattr(getattr(ctx, "workspace", None), "plugins", None)
+        collected: list[Any] = []
+        for mode in getattr(plugins, "modes", None) or []:
+            name = getattr(mode, "name", "?")
+            try:
+                if not mode.is_active(ctx):
+                    continue
+                collected.extend(mode.middlewares(ctx, agent_config) or [])
+            except Exception:
+                _logger.warning(
+                    "mode '%s' middleware build failed",
+                    name,
+                    exc_info=True,
+                )
+        return collected
+
+
+def _wrap_plugin_middleware(mw: Any, plugin_id: str) -> Any:
+    """Keep plugin middleware faults in the plugin, not the request loop."""
+
+    from agentscope.middleware import MiddlewareBase
+    from .plugin_middleware import PluginMiddlewareGuard
+
+    if isinstance(mw, MiddlewareBase):
+        return PluginMiddlewareGuard(mw, plugin_id)
+
+    if callable(mw) and not hasattr(mw, "wrap"):
+
+        def _guarded(*args: Any, **kwargs: Any) -> Any:
+            try:
+                return mw(*args, **kwargs)
+            except Exception:
+                _logger.exception(
+                    "Plugin '%s' middleware failed; skipping",
+                    plugin_id,
+                )
+                if args:
+                    return args[0]
+                return None
+
+        return _guarded
+
+    original_wrap = getattr(mw, "wrap", None)
+    if callable(original_wrap):
+
+        def _guarded_wrap(*args: Any, **kwargs: Any) -> Any:
+            try:
+                return original_wrap(*args, **kwargs)
+            except Exception:
+                _logger.exception(
+                    "Plugin '%s' middleware wrap failed; skipping",
+                    plugin_id,
+                )
+                if args:
+                    return args[0]
+                return None
+
+        try:
+            object.__setattr__(mw, "wrap", _guarded_wrap)
+        except Exception:
+            setattr(mw, "wrap", _guarded_wrap)
+    return mw
 
 
 __all__ = ["AgentBuilder"]

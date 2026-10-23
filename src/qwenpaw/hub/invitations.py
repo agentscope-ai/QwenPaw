@@ -18,6 +18,27 @@ def secret_digest(value: str) -> str:
     return hashlib.sha256(value.encode()).hexdigest()
 
 
+INVITATION_ERROR_MESSAGES = {
+    "registration_closed": "Invitation registration disabled",
+    "not_found": "Invitation code not found",
+    "revoked": "Invitation revoked",
+    "already_used": "Invitation already used",
+    "expired": "Invitation expired",
+}
+
+
+class InvitationError(PermissionError):
+    """Invitation rejection carrying one machine-readable reason.
+
+    Subclasses PermissionError so any caller that only knows the
+    legacy auth-failure contract still answers 403 instead of 500.
+    """
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(INVITATION_ERROR_MESSAGES[reason])
+        self.reason = reason
+
+
 class InvitationService:
     """Issue finite invitation batches and serialize their redemption."""
 
@@ -106,14 +127,20 @@ class InvitationService:
         try:
             with self.store.connect() as db:
                 db.execute("BEGIN IMMEDIATE")
+                if self.auth.registration_mode(db) != "invite":
+                    raise InvitationError("registration_closed")
                 row = db.execute(
-                    "SELECT * FROM hub_invites WHERE digest = ? "
-                    "AND revoked_at IS NULL AND redeemed_by IS NULL "
-                    "AND expires_at > ?",
-                    (secret_digest(code), utc_now()),
+                    "SELECT * FROM hub_invites WHERE digest = ?",
+                    (secret_digest(code),),
                 ).fetchone()
-                if self.auth.registration_mode(db) != "invite" or row is None:
-                    raise PermissionError("Invalid or unavailable invitation")
+                if row is None:
+                    raise InvitationError("not_found")
+                if row["revoked_at"] is not None:
+                    raise InvitationError("revoked")
+                if row["redeemed_by"] is not None:
+                    raise InvitationError("already_used")
+                if row["expires_at"] <= utc_now():
+                    raise InvitationError("expired")
                 user_id = self.auth.insert_user(db, prepared)
                 policy = json.loads(row["policy_json"])
                 for model_id in policy["model_ids"]:

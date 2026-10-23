@@ -30,6 +30,7 @@ from uuid import uuid4
 from services.runtime_files.atomic_store import (
     fsync_directory as runtime_fsync_directory,
 )
+from services.runtime_files.path_safety import is_link_stat
 
 from .models import AssetIndex, IndexedFile
 
@@ -437,7 +438,7 @@ class AssetFileStore:
         try:
             source_stat = source.lstat()
             if (
-                stat.S_ISLNK(source_stat.st_mode)
+                is_link_stat(source_stat)
                 or not stat.S_ISREG(source_stat.st_mode)
                 or not _matches_published_file(
                     source_stat,
@@ -473,7 +474,7 @@ class AssetFileStore:
 
             target_stat = target.lstat()
             if (
-                stat.S_ISLNK(target_stat.st_mode)
+                is_link_stat(target_stat)
                 or not stat.S_ISREG(target_stat.st_mode)
                 or not _matches_published_file(
                     target_stat,
@@ -816,7 +817,7 @@ class AssetFileStore:
                 except OSError:
                     unsafe.append(uri)
                     continue
-                if stat.S_ISLNK(entry_stat.st_mode):
+                if is_link_stat(entry_stat):
                     unsafe.append(uri)
                 elif stat.S_ISDIR(entry_stat.st_mode):
                     visit(Path(entry.path), (*relative_parts, entry.name))
@@ -894,7 +895,7 @@ def _require_real_directory(path: Path, *, label: str) -> None:
         path_stat = path.lstat()
     except FileNotFoundError:
         raise
-    if stat.S_ISLNK(path_stat.st_mode) or not stat.S_ISDIR(path_stat.st_mode):
+    if is_link_stat(path_stat) or not stat.S_ISDIR(path_stat.st_mode):
         raise AssetPathError(f"{label} must be a real, non-symlink directory")
 
 
@@ -925,7 +926,7 @@ def _open_regular(
         path_stat = path.lstat()
     except FileNotFoundError as exc:
         raise missing_error(f"Asset file is missing: {path}") from exc
-    if stat.S_ISLNK(path_stat.st_mode):
+    if is_link_stat(path_stat):
         raise AssetPathError(f"Asset file cannot be a symlink: {path}")
     if not stat.S_ISREG(path_stat.st_mode):
         raise AssetFileNotRegular(f"Asset must be a regular file: {path}")

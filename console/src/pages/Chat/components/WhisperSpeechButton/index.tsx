@@ -6,9 +6,9 @@ import React, {
   useImperativeHandle,
 } from "react";
 import { IconButton } from "@agentscope-ai/design";
-import { SparkMicLine } from "@agentscope-ai/icons";
+import { Mic as SparkMicLine } from "lucide-react";
 import { Tooltip, message } from "antd";
-import { LoadingOutlined } from "@ant-design/icons";
+import { LoaderCircle as LoadingOutlined } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { agentApi, TranscriptionError } from "@/api/modules/agent";
 import { useUploadLimitStore } from "@/stores/uploadLimitStore";
@@ -41,7 +41,7 @@ const RecordingIcon: React.FC<{ className?: string }> = ({ className }) => (
     xmlns="http://www.w3.org/2000/svg"
     className={className}
     style={{
-      color: "#1890ff",
+      color: "var(--app-accent-text)",
       height: "1.2em",
       width: "1.2em",
       verticalAlign: "top",
@@ -219,33 +219,30 @@ const WhisperSpeechButton = forwardRef<
   );
 
   const isDisabled = disabled || loading;
+  const accessibleLabel = loading
+    ? t("chat.speech.transcribing")
+    : recording
+    ? t("chat.speech.stopRecording")
+    : t("chat.speech.startRecording");
 
   return (
-    <Tooltip
-      title={
-        loading
-          ? t("chat.speech.transcribing")
-          : recording
-          ? t("chat.speech.stopRecording")
-          : t("chat.speech.startRecording")
-      }
-      mouseEnterDelay={0.5}
-    >
+    <Tooltip title={accessibleLabel} mouseEnterDelay={0.5}>
       <IconButton
+        aria-label={accessibleLabel}
         bordered={false}
         icon={
           loading ? (
-            <LoadingOutlined style={{ fontSize: "1.2em" }} />
+            <LoadingOutlined size="1em" style={{ fontSize: "1.2em" }} />
           ) : recording ? (
             <RecordingIcon />
           ) : (
-            <SparkMicLine />
+            <SparkMicLine size="1em" />
           )
         }
         onClick={toggleRecording}
         disabled={isDisabled}
         style={{
-          color: recording || loading ? "#1890ff" : undefined,
+          color: recording || loading ? "var(--app-accent-text)" : undefined,
         }}
       />
     </Tooltip>

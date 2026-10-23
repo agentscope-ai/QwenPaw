@@ -208,6 +208,11 @@ from .notifications import (
     RuntimeNotificationBus,
 )
 from .prompts import render_creator_system_prompt
+from .production_status import (
+    node_feedback,
+    production_evidence,
+    production_summary,
+)
 from .run_store import AgentRunStateConflict, CreatorAgentRunStore
 from .work_graph import WorkNodeStatus, derive_work_graph
 from .model_context import compact_conversation_history
@@ -2529,6 +2534,9 @@ class FileCreatorAgentRuntime:
                 # run to ride into on an idle session; the poll-driven
                 # reconcile is their bounded escape valve.
                 await self._maybe_flush_idle_notifications(project_id)
+                # Auto-wake for unfinished work: preparation failures,
+                # ready-but-undispatched nodes, etc.
+                await self._maybe_wake_for_unfinished_work(project_id, session)
             return
         message = user_messages[0]
         # An explicit human revision supersedes earlier automated followups
@@ -3286,6 +3294,9 @@ class FileCreatorAgentRuntime:
         tool_call_count = 0
         review_ids: list[str] = []
         waiting_review_summary: str | None = None
+        production_turn = request.source == self.YOLO_RESUME_SOURCE
+        production_node_ids: set[str] = set()
+        production_receipt = ""
         malformed_jq_attempts = 0
         malformed_jq_fingerprints: set[str] = set()
         deterministic_failure_counts: dict[str, int] = {}
@@ -3460,7 +3471,7 @@ class FileCreatorAgentRuntime:
                 # and resume contract. Suppress the model's free-form final
                 # CTA so it cannot ask the user to send "continue"; the
                 # canonical review summary is emitted after the turn ends.
-                if review_ids:
+                if review_ids or production_turn:
                     return
                 await persist_message_delta("text", delta)
 
@@ -3580,6 +3591,23 @@ class FileCreatorAgentRuntime:
                     usage=turn.usage,
                 )
                 await persist_message_delta("text", canonical_summary)
+            elif not turn.tool_calls and production_turn:
+                evidence = await self._production_evidence(
+                    project_id,
+                    production_node_ids,
+                )
+                canonical_summary = production_summary(
+                    evidence,
+                    production_receipt,
+                )
+                turn = AgentModelTurn(
+                    content=canonical_summary,
+                    thinking=turn.thinking,
+                    provider_message_id=turn.provider_message_id,
+                    finish_reason=turn.finish_reason,
+                    usage=turn.usage,
+                )
+                await persist_message_delta("text", canonical_summary)
             await self._persist_assistant_turn(
                 project_id,
                 session_id,
@@ -3607,6 +3635,8 @@ class FileCreatorAgentRuntime:
 
             for call in turn.tool_calls:
                 tool_call_count += 1
+                if call.name == REQUEST_WORKGRAPH_EXECUTION:
+                    production_turn = True
                 tool_failed = False
                 malformed_budget_exhausted = False
                 repeated_failure_exhausted = False
@@ -3780,6 +3810,13 @@ class FileCreatorAgentRuntime:
                             and candidate_summary.strip()
                         ):
                             waiting_review_summary = candidate_summary
+                    if call.name == REQUEST_WORKGRAPH_EXECUTION:
+                        production_receipt = str(result.get("summary") or "")
+                        production_node_ids.update(
+                            item["nodeId"]
+                            for item in result.get("items", [])
+                            if item.get("nodeId")
+                        )
                     await self._persist_tool_result(
                         project_id,
                         session_id,
@@ -4005,6 +4042,7 @@ class FileCreatorAgentRuntime:
             elif node.node_id in blocked:
                 items.append(
                     {
+                        **node_feedback(node, graph),
                         "nodeId": node.node_id,
                         "targetRef": node.target_ref,
                         "status": "BLOCKED",
@@ -4069,6 +4107,9 @@ class FileCreatorAgentRuntime:
                 if is_compose
                 else _execution_provider_model(plan.spec, plan.parameters)
             )
+            approved_fingerprint = plan.fingerprint
+            confirmed_project_etag = None
+            confirmed_node_id = None
             dispatch_fingerprint = self.work_scheduler._ledger_fingerprint(
                 node,
             )
@@ -4085,6 +4126,7 @@ class FileCreatorAgentRuntime:
                     "targetRef": node.target_ref,
                     "arguments": plan.parameters,
                     "workGraph": {
+                        "nodeId": node.node_id,
                         "fingerprint": plan.fingerprint,
                         "provider": provider,
                         "model": model,
@@ -4114,6 +4156,36 @@ class FileCreatorAgentRuntime:
                         )
                     )
                     identity["executionAuthorizationId"] = authorization_id
+                    authorization = await asyncio.to_thread(
+                        self.executions.get_execution_authorization,
+                        project_id,
+                        authorization_id,
+                    )
+                    rebound = (authorization.decision or {}).get("workGraph")
+                    if rebound is not None:
+                        if (
+                            not isinstance(rebound, dict)
+                            or rebound.get("nodeId") != node.node_id
+                            or any(
+                                not isinstance(rebound.get(field), str)
+                                or not rebound[field]
+                                for field in (
+                                    "fingerprint",
+                                    "ledgerFingerprint",
+                                    "etag",
+                                )
+                            )
+                        ):
+                            raise FileAgentRuntimeError("无效的 WorkGraph 授权快照")
+                        approved_fingerprint = rebound["fingerprint"]
+                        dispatch_fingerprint = rebound["ledgerFingerprint"]
+                        confirmed_project_etag = rebound["etag"]
+                        confirmed_node_id = rebound["nodeId"]
+                        # Replays must use the saved snapshot's slot too.
+                        key = (
+                            f"dag-{node.node_id}-"
+                            f"{self.work_scheduler._dispatch_slot(dispatch_fingerprint)}"
+                        )
                 fence.assert_alive()
                 (
                     fresh,
@@ -4125,6 +4197,8 @@ class FileCreatorAgentRuntime:
                     self.executions,
                     project_id,
                     check_media_budget=not is_compose,
+                    confirmed_project_etag=confirmed_project_etag,
+                    confirmed_node_id=confirmed_node_id,
                 )
                 # An already admitted slot must never enter the image
                 # executor's paid transient-retry slot search a second time.
@@ -4176,7 +4250,7 @@ class FileCreatorAgentRuntime:
                     return blocked_item
                 current_plan = requested_work_node(fresh, current_node)
                 if (
-                    current_plan.fingerprint != plan.fingerprint
+                    current_plan.fingerprint != approved_fingerprint
                     or (
                         not is_compose
                         and _execution_provider_model(
@@ -4221,11 +4295,20 @@ class FileCreatorAgentRuntime:
                             f"project:{fresh.etag}:work-graph",
                         ),
                     )
-                result = await self.work_scheduler.await_admitted_execution(
+                from .manual_regeneration_hold import automatic_node
+
+                with automatic_node(
+                    self.services.root,
                     project_id,
                     current_node.node_id,
-                    execution,
-                )
+                ):
+                    result = (
+                        await self.work_scheduler.await_admitted_execution(
+                            project_id,
+                            current_node.node_id,
+                            execution,
+                        )
+                    )
                 task_id = getattr(result, "task_id", None)
                 if task_id is None and isinstance(result, Mapping):
                     task_id = result.get("taskId")
@@ -4243,6 +4326,7 @@ class FileCreatorAgentRuntime:
                     "taskId": task_id,
                     "executionAuthorizationId": authorization_id,
                     "outputRefs": list(task.output_refs),
+                    "error": task.error,
                 }
             except ExecutionAuthorizationBlocked as exc:
                 return {
@@ -4264,6 +4348,7 @@ class FileCreatorAgentRuntime:
                     "status": "BLOCKED",
                     "reason": "EXECUTION_NOT_COMPLETED",
                     "executionAuthorizationId": authorization_id,
+                    "error": str(exc),
                 }
 
         async def await_running_compose(node):
@@ -4300,7 +4385,27 @@ class FileCreatorAgentRuntime:
             ),
             "items": items,
             "summary": summarize_workgraph_results(items),
+            "productionStatus": await self._production_evidence(
+                project_id,
+                [item["nodeId"] for item in items if item.get("nodeId")],
+            ),
         }
+
+    async def _production_evidence(
+        self,
+        project_id: str,
+        requested_node_ids=(),
+    ) -> dict[str, Any]:
+        snapshot, tasks = await asyncio.gather(
+            asyncio.to_thread(self.services.projects.read, project_id),
+            asyncio.to_thread(self.executions.list_tasks, project_id),
+        )
+        graph = derive_work_graph(
+            snapshot.project,
+            tasks=tasks,
+            media_models=(get_image_model_name(), get_video_model_name()),
+        )
+        return production_evidence(graph, snapshot.project, requested_node_ids)
 
     async def _run_mainline_character_voice(
         self,
@@ -6802,6 +6907,19 @@ class FileCreatorAgentRuntime:
                 project_id,
                 authorization_id,
             )
+            from services.project_files.approved_prompt import (
+                approved_specialist_arguments,
+            )
+
+            approved_snapshot = await asyncio.to_thread(
+                self.services.projects.read,
+                project_id,
+            )
+            arguments = approved_specialist_arguments(
+                approved_snapshot,
+                authorization,
+                arguments,
+            )
             active_provider, active_model = _execution_provider_model(
                 spec,
                 (
@@ -7030,6 +7148,19 @@ class FileCreatorAgentRuntime:
             role,
             timeline_count=timeline_count,
         ):
+            from services.project_files.production_stage import (
+                script_fingerprint,
+            )
+
+            if phase == "script":
+                confirmed = await asyncio.to_thread(
+                    self.services.projects.read,
+                    project_id,
+                )
+                if confirmed.project.settings.script_approval_fingerprint == (
+                    script_fingerprint(confirmed.project)
+                ):
+                    continue
             authorization = await self._creation_checkpoint_record(
                 project_id=project_id,
                 round_id=round_id,
@@ -7104,6 +7235,20 @@ class FileCreatorAgentRuntime:
                 is not ExecutionAuthorizationStatus.APPROVED
             ):
                 raise CreationCheckpointBlocked(phase, authorization.status)
+            if phase == "script":
+                latest = await asyncio.to_thread(
+                    self.services.projects.read,
+                    project_id,
+                )
+                if authorization.scope.get(
+                    "scriptFingerprint",
+                ) != script_fingerprint(
+                    latest.project,
+                ):
+                    raise CreationCheckpointBlocked(
+                        phase,
+                        ExecutionAuthorizationStatus.EXPIRED,
+                    )
 
     async def _creation_checkpoint_record(
         self,
@@ -7124,6 +7269,17 @@ class FileCreatorAgentRuntime:
         revised plan or designs instead of being locked out forever.
         """
 
+        revision = None
+        if phase == "script":
+            from services.project_files.production_stage import (
+                script_fingerprint,
+            )
+
+            snapshot = await asyncio.to_thread(
+                self.services.projects.read,
+                project_id,
+            )
+            revision = script_fingerprint(snapshot.project)
         attempt = 0
         while True:
             authorization_id = checkpoint_authorization_id(
@@ -7139,6 +7295,23 @@ class FileCreatorAgentRuntime:
                 )
             except RecordNotFoundError:
                 break
+            if (
+                revision is not None
+                and (record.scope or {}).get("scriptFingerprint") != revision
+            ):
+                if record.status is ExecutionAuthorizationStatus.PENDING:
+                    try:
+                        await asyncio.to_thread(
+                            self.executions.decide_execution_authorization,
+                            project_id,
+                            record.authorization_id,
+                            authorization_token=record.authorization_token,
+                            status=ExecutionAuthorizationStatus.EXPIRED,
+                        )
+                    except ExecutionStoreError:
+                        pass
+                attempt += 1
+                continue
             if record.status not in (
                 ExecutionAuthorizationStatus.REJECTED,
                 ExecutionAuthorizationStatus.EXPIRED,
@@ -7163,6 +7336,7 @@ class FileCreatorAgentRuntime:
                 "operation": checkpoint_operation(phase),
                 "checkpointPhase": phase,
                 "message": checkpoint_summary(phase),
+                **({"scriptFingerprint": revision} if revision else {}),
             },
             # The decision-tray card echoes provider/model back on approve,
             # and the API requires them to match the request exactly.
@@ -7407,6 +7581,22 @@ class FileCreatorAgentRuntime:
                 attempt += 1
                 continue
             existing = record
+            saved = (record.decision or {}).get("savedPrompt")
+            if (
+                record.status is ExecutionAuthorizationStatus.APPROVED
+                and saved
+            ):
+                from services.project_files.approved_prompt import (
+                    saved_prompt_is_current,
+                )
+
+                latest = await asyncio.to_thread(
+                    self.services.projects.read,
+                    project_id,
+                )
+                if not saved_prompt_is_current(latest, record):
+                    attempt += 1
+                    continue
             break
         if (
             existing is not None
@@ -7466,6 +7656,11 @@ class FileCreatorAgentRuntime:
                     "operation": spec.name,
                     "targetRefs": [target_ref],
                     "parameters": billing_arguments,
+                    **(
+                        {"workGraph": dict(arguments["workGraph"])}
+                        if isinstance(arguments.get("workGraph"), Mapping)
+                        else {}
+                    ),
                     # Keep the literal tool request when it differs, so the
                     # approval record shows both what was asked and what is
                     # billed.
@@ -7849,6 +8044,86 @@ class FileCreatorAgentRuntime:
     YOLO_RESUME_MAX_CONSECUTIVE = 5
     PROMPT_CONTRACT_RESUME_MAX_CONSECUTIVE = 5
 
+    async def _notify_auto_resume_paused(
+        self,
+        *,
+        project_id: str,
+        session_id: str,
+        conversation_id: str,
+        run_id: str,
+        reason: str,
+        explanation: str,
+        unfinished: list[str],
+    ) -> None:
+        """Persist a visible pause once per human request/reason.
+
+        This is an assistant notice, not another user-shaped runtime request:
+        it must neither wake the model nor reset the unattended resume fuse.
+        Existing message.completed delivery also restores it after reconnect.
+        """
+        messages = await asyncio.to_thread(
+            self.sessions.list_messages,
+            project_id,
+            session_id,
+            after_seq=0,
+            limit=None,
+        )
+        automatic_sources = {
+            self.YOLO_RESUME_SOURCE,
+            self.PROMPT_CONTRACT_RESUME_SOURCE,
+            self.MAINLINE_RESUME_SOURCE,
+            NOTIFICATION_SOURCE,
+        }
+        anchor = next(
+            (
+                item.message_seq
+                for item in reversed(messages)
+                if item.role == "user" and item.source not in automatic_sources
+            ),
+            0,
+        )
+        pause_key = f"{conversation_id}:{anchor}:{reason}"
+        if any(
+            item.metadata.get("executionPauseKey") == pause_key
+            for item in messages
+        ):
+            return
+        text = "自动创作已暂停，作品尚未完成。\n\n" + explanation
+        if unfinished:
+            text += "\n\n仍待处理：" + "、".join(unfinished[:6]) + "。"
+        text += "\n已提交的后台任务仍会继续处理，可在创作总览查看结果。" "修复阻塞后，发送新的创作指令即可继续。"
+        appended = await self._persist_session_append(
+            f"{project_id}: automatic creation paused",
+            self.sessions.append_message,
+            project_id,
+            session_id,
+            conversation_id,
+            role="assistant",
+            content_parts=[{"type": "text", "text": text}],
+            source="creator_execution_notice",
+            metadata={
+                "runId": run_id,
+                "executionPauseKey": pause_key,
+                "executionPause": {
+                    "reason": reason,
+                    "unfinishedElements": unfinished,
+                },
+            },
+        )
+        await self._event(
+            project_id,
+            session_id,
+            "message.completed",
+            run_id,
+            appended.message,
+            {
+                "runId": run_id,
+                "messageId": appended.message.message_id,
+                "messageSeq": appended.message.message_seq,
+                "openActionIds": [],
+            },
+        )
+
     async def _queue_yolo_completion_resume(  # pylint: disable=too-many-return-statements
         self,
         *,
@@ -7875,6 +8150,14 @@ class FileCreatorAgentRuntime:
         waiting for a human.
         """
 
+        from .manual_regeneration_hold import ManualRegenerationHoldStore
+
+        manual_hold = await asyncio.to_thread(
+            ManualRegenerationHoldStore(self.services.root).read,
+            project_id,
+        )
+        if manual_hold.node_ids:
+            return
         auto_approve = get_media_review_mode() == MEDIA_REVIEW_AUTO_APPROVE
         if not auto_approve and await asyncio.to_thread(
             self.services.reviews.all_pending,
@@ -7935,6 +8218,15 @@ class FileCreatorAgentRuntime:
                     "YOLO auto-resume stopped for %s: %s",
                     project_id,
                     exc,
+                )
+                await self._notify_auto_resume_paused(
+                    project_id=project_id,
+                    session_id=session_id,
+                    conversation_id=conversation_id,
+                    run_id=run_id,
+                    reason="media_budget_exhausted",
+                    explanation="本项目的媒体生成次数已达到上限，需要先调整生成预算。",
+                    unfinished=[node.label for node in unfinished_nodes],
                 )
                 return
         if (
@@ -8009,6 +8301,18 @@ class FileCreatorAgentRuntime:
                 project_id,
                 resume_streak,
             )
+            await self._notify_auto_resume_paused(
+                project_id=project_id,
+                session_id=session_id,
+                conversation_id=conversation_id,
+                run_id=run_id,
+                reason="consecutive_resume_limit",
+                explanation=(
+                    f"已连续自动处理 {resume_limit} 轮，仍有未解决的内容。"
+                    "为避免重复生成和继续消耗，本次停止自动续跑。"
+                ),
+                unfinished=unfinished,
+            )
             return
         # Fuse 2: the previous auto-resume produced no committed progress,
         # so another identical nudge would only burn model turns.
@@ -8018,6 +8322,15 @@ class FileCreatorAgentRuntime:
                 "previous resume (generation %d)",
                 project_id,
                 snapshot.generation,
+            )
+            await self._notify_auto_resume_paused(
+                project_id=project_id,
+                session_id=session_id,
+                conversation_id=conversation_id,
+                run_id=run_id,
+                reason="no_committed_progress",
+                explanation="上一轮自动处理没有保存新的进展，已停止重复尝试。",
+                unfinished=unfinished,
             )
             return
         if after_failure and auto_approve:
@@ -8115,6 +8428,73 @@ class FileCreatorAgentRuntime:
             },
         )
         self._wake.set()
+
+    async def _maybe_wake_for_unfinished_work(
+        self,
+        project_id: str,
+        session: Any,
+    ) -> None:
+        """Wake scheduler or queue resume for unfinished work on IDLE session.
+
+        The poll-driven reconcile observes IDLE sessions with no pending user
+        messages. If the work graph still has unfinished nodes (preparation
+        failures, ready-but-undispatched nodes, etc.), this method:
+        1. Wakes the scheduler for dispatchable items
+        2. Queues a YOLO resume for items requiring model intervention
+
+        The existing fuse mechanisms in `_queue_yolo_completion_resume`
+        (consecutive-resume cap, no-progress breaker) prevent runaway loops.
+        """
+
+        if not self.work_scheduler.enabled():
+            return
+        records = await asyncio.to_thread(self.runs.list, project_id)
+        if not records:
+            return
+        last = records[-1]
+        if last.status is not AgentRunStatus.SUCCEEDED:
+            # Only resume after a clean exit; failed/interrupted runs have
+            # their own recovery paths.
+            return
+        try:
+            snapshot = await asyncio.to_thread(
+                self.services.projects.read,
+                project_id,
+            )
+        except Exception:  # pylint: disable=broad-except
+            return
+        try:
+            task_records = await asyncio.to_thread(
+                self.executions.list_tasks,
+                project_id,
+            )
+        except Exception:  # pylint: disable=broad-except
+            task_records = []
+        graph = derive_work_graph(
+            snapshot.project,
+            tasks=task_records,
+            media_models=(get_image_model_name(), get_video_model_name()),
+        )
+        unfinished_nodes = graph.unfinished()
+        if not unfinished_nodes:
+            # Check for deterministic failures that may need scheduler wake-up
+            # for preparation retries.
+            deterministic_failures = (
+                self.work_scheduler.deterministic_failure_nodes_for_project(
+                    project_id,
+                )
+            )
+            if not deterministic_failures:
+                return
+        # Wake the scheduler to dispatch any READY nodes or retry preparations.
+        self.work_scheduler.wake(project_id)
+        # Queue a YOLO resume for items requiring model intervention.
+        await self._queue_yolo_completion_resume(
+            project_id=project_id,
+            session_id=session.session_id,
+            conversation_id=last.conversation_id,
+            run_id=last.run_id,
+        )
 
     async def _queue_mainline_resume(
         self,

@@ -40,6 +40,48 @@ def _is_data_block(block) -> bool:
     return getattr(block, "type", None) == "data"
 
 
+@pytest.mark.parametrize("strip_audio", [False, True])
+def test_video_strip_composes_with_audio_strip(strip_audio):
+    """Cached audio and video rejections must preserve images and text."""
+    image = _data_block("image/png")
+    audio = _data_block("audio/mp3")
+    video = _data_block("video/mp4")
+    message = Msg(
+        name="user",
+        role="user",
+        content=[TextBlock(text="keep this"), image, audio, video],
+    )
+    original = message.model_dump()
+    expected = deepcopy(original)
+    expected["content"] = original["content"][: 2 if strip_audio else 3]
+
+    result = normalize_messages_for_model_request(
+        [message],
+        supports_multimodal=True,
+        strip_audio=strip_audio,
+        strip_video=True,
+    )
+
+    assert [msg.model_dump() for msg in result] == [expected]
+    assert message.model_dump() == original
+
+
+def test_video_only_message_uses_existing_media_placeholder():
+    message = Msg(
+        name="user",
+        role="user",
+        content=[_data_block("video/mp4")],
+    )
+    result = normalize_messages_for_model_request(
+        [message],
+        supports_multimodal=True,
+        strip_video=True,
+    )
+    assert [(block.type, block.text) for block in result[0].content] == [
+        ("text", MEDIA_UNSUPPORTED_PLACEHOLDER),
+    ]
+
+
 # -----------------------------------------------------------------------------
 # Fixtures
 # -----------------------------------------------------------------------------

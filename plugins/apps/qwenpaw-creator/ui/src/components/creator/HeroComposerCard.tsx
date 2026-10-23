@@ -4,6 +4,7 @@ import { Input, Select, Tooltip } from "antd";
 import type { InputRef } from "antd";
 import {
   EyeOutlined,
+  MessageOutlined,
   PictureOutlined,
   VideoCameraOutlined,
 } from "@ant-design/icons";
@@ -197,6 +198,10 @@ export default function HeroComposerCard() {
               </span>
               {missingRequiredModels!.map((type) => {
                 const meta = {
+                  llm: {
+                    label: "LLM",
+                    icon: <MessageOutlined style={{ fontSize: 10 }} />,
+                  },
                   vlm: {
                     label: "VLM",
                     icon: <EyeOutlined style={{ fontSize: 10 }} />,

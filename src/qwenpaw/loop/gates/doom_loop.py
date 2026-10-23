@@ -38,7 +38,8 @@ class _DoomState:
     history: deque = field(default_factory=deque)
     consecutive_hits: int = 0
     prompt: str = ""
-    last_recorded_iter: int = -1
+    last_recorded_msg_id: str | None = None
+    history_dirty: bool = False
 
 
 class DoomLoopGate(LoopGate):
@@ -100,6 +101,7 @@ class DoomLoopGate(LoopGate):
                 args_hash=args_hash,
             ),
         )
+        state.history_dirty = True
 
     def reset_turn(self) -> None:
         """Clear history and counters for current session."""
@@ -108,7 +110,8 @@ class DoomLoopGate(LoopGate):
             state.history.clear()
             state.consecutive_hits = 0
             state.prompt = ""
-            state.last_recorded_iter = -1
+            state.last_recorded_msg_id = None
+            state.history_dirty = False
 
     async def check(
         self,
@@ -124,6 +127,9 @@ class DoomLoopGate(LoopGate):
         )
         state = self._ensure_state()
         self._auto_record_from_ctx(ctx, state)
+        if not state.history_dirty:
+            return _bypass
+        state.history_dirty = False
 
         is_looping = self._detect_repetition(state)
 
@@ -179,16 +185,14 @@ class DoomLoopGate(LoopGate):
         ctx: Any,
         state: _DoomState,
     ) -> None:
-        """Extract latest tool call from agent context."""
+        """Record each new message's tool calls in order."""
         if not isinstance(ctx, dict):
+            return
+        if ctx.get("has_tool_calls") is False:
             return
         agent = ctx.get("agent")
         if agent is None:
             return
-        cur_iter = ctx.get("iteration", 0)
-        if cur_iter <= state.last_recorded_iter:
-            return
-        state.last_recorded_iter = cur_iter
 
         context = getattr(
             getattr(agent, "state", None),
@@ -198,10 +202,13 @@ class DoomLoopGate(LoopGate):
         if not context:
             return
         last_msg = context[-1]
+        if last_msg.id == state.last_recorded_msg_id:
+            return
         content = getattr(last_msg, "content", None)
         if not content or not isinstance(content, list):
             return
-        for block in reversed(content):
+        state.last_recorded_msg_id = last_msg.id
+        for block in content:
             btype = getattr(block, "type", None)
             if isinstance(block, dict):
                 btype = block.get("type")
@@ -217,13 +224,7 @@ class DoomLoopGate(LoopGate):
                     else getattr(block, "input", "")
                 )
                 args_hash = self._hash_args(raw_input)
-                state.history.append(
-                    _ToolCallRecord(
-                        tool_name=name,
-                        args_hash=args_hash,
-                    ),
-                )
-                return
+                self.record(name, args_hash)
 
     @staticmethod
     def _hash_args(raw_input: Any) -> str:

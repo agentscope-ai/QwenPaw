@@ -1,0 +1,145 @@
+.section {
+  margin-top: 20px;
+  padding: 20px 0;
+  border-top: 1px solid var(--app-border-subtle);
+  border-bottom: 1px solid var(--app-border-subtle);
+}
+
+.heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  color: var(--app-text);
+  font-weight: 600;
+}
+
+.choice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 48px;
+  gap: 12px;
+  padding: 4px 10px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: transparent;
+  transition:
+    border-color 150ms ease,
+    background-color 150ms ease;
+
+  &:hover,
+  &:focus-within {
+    border-color: var(--app-accent-border);
+    background: var(--app-accent-soft);
+  }
+
+  > span:first-child {
+    flex-shrink: 0;
+    color: var(--app-text);
+    font-size: 13px;
+  }
+}
+
+.choiceControl {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  min-width: 0;
+  max-width: 100%;
+  margin-left: auto;
+
+  > span {
+    min-width: 0;
+    max-width: calc(100% - 36px);
+  }
+
+  > button {
+    width: 36px;
+    min-width: 36px;
+    height: 36px;
+    padding: 0;
+    border: 0;
+    border-radius: 8px;
+    color: var(--app-text-secondary);
+    background: transparent;
+    cursor: pointer;
+
+    &:hover:not(:disabled) {
+      background: var(--app-fill);
+    }
+
+    &:disabled {
+      cursor: not-allowed;
+      opacity: 0.45;
+    }
+  }
+}
+
+.loading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 52px;
+  color: var(--app-text-secondary);
+}
+
+.loadError {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 40px;
+  margin-bottom: 8px;
+  color: var(--app-text-secondary);
+  font-size: var(--app-font-secondary);
+
+  > button {
+    min-height: 36px;
+    padding: 0 10px;
+    border: 1px solid var(--app-border-strong);
+    border-radius: 8px;
+    color: var(--app-accent);
+    background: transparent;
+    cursor: pointer;
+  }
+}
+
+.spin {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (max-width: 600px) {
+  .choice {
+    align-items: stretch;
+    flex-wrap: wrap;
+
+    > span:first-child {
+      width: 100%;
+    }
+  }
+
+  .choiceControl {
+    width: 100%;
+  }
+
+  .loadError > button {
+    min-height: 44px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .choice {
+    transition: none;
+  }
+
+  .spin {
+    animation: none;
+  }
+}

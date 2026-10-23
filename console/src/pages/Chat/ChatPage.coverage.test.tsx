@@ -11,11 +11,13 @@ import { useNavigate } from "react-router-dom";
 import { renderWithProviders } from "@/test/common_setup";
 import { useMessageQueueStore } from "@/stores/messageQueueStore";
 import ChatPage from "./index";
+import { LongTextPasteInput } from "./LongTextPaste";
 import { ChatRunLifecycle } from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/Execution/runLifecycle";
 import sessionApi from "./sessionApi";
 import { stopBackgroundQueue } from "./backgroundQueueRegistry";
 import { chatExtensions } from "@/plugins/registry/chatExtensions";
 import { useSessionFilesDrawer } from "@/stores/filesSurfaceStore";
+import { useStoppedTurnsStore } from "./stoppedTurns";
 
 // ---------------------------------------------------------------------------
 // Hoisted mocks
@@ -38,6 +40,7 @@ const {
   mockRuntimeMount,
   mockFetchActiveLoopMode,
   mockSessionProjectDirectory,
+  mockApprovalLevelToggle,
   mockHydrateBackgroundTasksForSession,
 } = vi.hoisted(() => ({
   mockListProviders: vi.fn(),
@@ -57,6 +60,7 @@ const {
   mockRuntimeMount: vi.fn(),
   mockFetchActiveLoopMode: vi.fn(() => Promise.resolve(null)),
   mockSessionProjectDirectory: vi.fn(),
+  mockApprovalLevelToggle: vi.fn(),
   mockHydrateBackgroundTasksForSession: vi.fn(() => Promise.resolve()),
 }));
 
@@ -148,6 +152,13 @@ vi.mock(
   }),
 );
 
+vi.mock("../../features/session-settings/sessionModel", () => ({
+  loadSessionModel: (...args: unknown[]) => mockGetActiveModels(...args),
+  readPendingModel: () => null,
+  migratePendingModel: vi.fn(),
+  withPendingModel: (body: unknown) => body,
+}));
+
 vi.mock("@/api/modules/provider", () => ({
   providerApi: {
     listProviders: mockListProviders,
@@ -156,7 +167,11 @@ vi.mock("@/api/modules/provider", () => ({
 }));
 
 vi.mock("@/api/modules/chat", () => ({
+  sessionApi: {},
   chatApi: {
+    resolveChat: vi.fn(async () => {
+      throw new Error("Chat not found");
+    }),
     uploadFile: mockUploadFile,
     filePreviewUrl: mockFilePreviewUrl,
     getChatStatus: mockGetChatStatus,
@@ -211,6 +226,17 @@ vi.mock("./sessionApi", () => ({
     onSessionCreated: null,
     invalidateSessionCreation: vi.fn(),
     activateCreatedSession: vi.fn(),
+    getActiveOwner: vi.fn(() => ({
+      agentId: mockSelectedAgent(),
+      generation: 0,
+    })),
+    isActiveOwner: vi.fn(
+      (owner: { agentId: string }) => owner.agentId === mockSelectedAgent(),
+    ),
+    registerResolvedChat: vi.fn(),
+    getRouteResolutionVersion: vi.fn(() => 0),
+    isRouteRemoved: vi.fn(() => false),
+    clearRouteRemoval: vi.fn(),
     bindToOwner: vi.fn(() => ({
       getSession: vi.fn(async (id: string) => ({ id, name: id, messages: [] })),
       getSessionList: vi.fn(async () => []),
@@ -224,6 +250,8 @@ vi.mock("./sessionApi", () => ({
     getBackendSessionId: vi.fn(() => "backend-session-1"),
     setLastUserMessage: vi.fn(),
     discardLastUserMessage: vi.fn(),
+    setVisibleSession: vi.fn(),
+    getSession: vi.fn(async (id: string) => ({ id, messages: [] })),
     lastActiveChatId: "last-chat-1",
     patchLastUserMessage: vi.fn(),
     getSessionIdentity: vi.fn(() => ({
@@ -260,7 +288,7 @@ vi.mock("./OptionsPanel/defaultConfig", () => ({
       },
     },
     welcome: {},
-    sender: {},
+    sender: { longTextUpload: false },
   })),
 }));
 
@@ -409,7 +437,10 @@ vi.mock("./components/ChatSenderTabsPanel", () => ({
 }));
 
 vi.mock("./components/ApprovalLevelToggle", () => ({
-  default: () => <div data-testid="approval-toggle" />,
+  default: (props: unknown) => {
+    mockApprovalLevelToggle(props);
+    return <div data-testid="approval-toggle" />;
+  },
 }));
 
 vi.mock("../../features/project-directory/SessionProjectDirectory", () => ({
@@ -528,7 +559,6 @@ vi.mock("./utils", async () => {
     getActiveSenderTextarea: vi.fn(() => null),
     getSenderTextareaFromTarget: vi.fn(() => null),
     setTextareaValue: vi.fn(),
-    clearSubmittedSenderInput: vi.fn(),
   };
 });
 
@@ -548,6 +578,7 @@ describe("ChatPage coverage", () => {
     mockSelectedAgent.mockReturnValue("default");
     mockFetchActiveLoopMode.mockClear();
     mockSessionProjectDirectory.mockClear();
+    mockApprovalLevelToggle.mockClear();
     mockHydrateBackgroundTasksForSession.mockClear();
     mockHoldOwnershipLock.mockReset();
     mockHoldOwnershipLock.mockImplementation((_key: string, cb: () => void) => {
@@ -573,6 +604,7 @@ describe("ChatPage coverage", () => {
       currentSendingId: null,
       lastMigratedTo: null,
     });
+    useStoppedTurnsStore.setState({ stoppedSessionIds: new Set() });
     mockBeginLoopModeSubmission.mockReset();
     mockBeginLoopModeSubmission.mockImplementation((text: string) => text);
     mockRequiresQwenPawModel.mockReset();
@@ -675,7 +707,7 @@ describe("ChatPage coverage", () => {
     expect(mockFetchActiveLoopMode).not.toHaveBeenCalledWith(
       expect.objectContaining({ chatId: staleChatId }),
     );
-    expect(mockSessionProjectDirectory).toHaveBeenCalled();
+    expect(mockSessionProjectDirectory).not.toHaveBeenCalled();
     expect(
       mockSessionProjectDirectory.mock.calls.some(
         ([props]) =>
@@ -728,7 +760,7 @@ describe("ChatPage coverage", () => {
     });
     await screen.findByTestId("chat-ui");
     await act(async () => {});
-    expect(screen.getByTestId("model-selector")).toBeInTheDocument();
+    expect(screen.queryByTestId("model-selector")).not.toBeInTheDocument();
     expect(screen.getByTestId("action-group")).toBeInTheDocument();
     expect(screen.getByTestId("header-title")).toBeInTheDocument();
   });
@@ -1113,6 +1145,34 @@ describe("ChatPage coverage", () => {
     }
   });
 
+  it("marks the canceled session after switching to another session", async () => {
+    const { chatApi } = await import("@/api/modules/chat");
+    vi.mocked(sessionApi.getRealIdForSession).mockImplementation((id) =>
+      id === "chat-A" ? "chat-A" : null,
+    );
+    vi.mocked(sessionApi.getBackendSessionId).mockImplementation((id) =>
+      id === "chat-A" || id === "runtime-A" ? "runtime-A" : "runtime-B",
+    );
+
+    renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/chat-B"],
+    });
+    await screen.findByTestId("chat-ui");
+    sessionApi.lastActiveChatId = "chat-B";
+
+    await act(async () => {
+      await capturedOptions.api.cancel({
+        session_id: "runtime-A",
+        chatSessionId: "chat-A",
+      });
+    });
+
+    expect(chatApi.stopChat).toHaveBeenCalledWith("chat-A", "default");
+    expect(useStoppedTurnsStore.getState().stoppedSessionIds).toEqual(
+      new Set(["runtime-A"]),
+    );
+  });
+
   // ── reconnect callback → calls fetch ───────────────────────────────────
   it("reconnect callback invokes fetch with reconnect body", async () => {
     const chatId = "90000000-0000-4000-8000-000000000002";
@@ -1486,6 +1546,7 @@ describe("ChatPage coverage", () => {
     vi.mocked(sessionApi.getSessionIdentity).mockReturnValue({
       sessionId: "source-session",
       sdkSessionId: "source-session",
+      chatId,
       userId: "source-user",
       channel: "console",
     });
@@ -1504,6 +1565,7 @@ describe("ChatPage coverage", () => {
     vi.mocked(sessionApi.getSessionIdentity).mockReturnValue({
       sessionId: "target-session",
       sdkSessionId: "target-session",
+      chatId,
       userId: "target-user",
       channel: "console",
     });
@@ -1856,6 +1918,35 @@ describe("ChatPage coverage", () => {
     }
   });
 
+  it("keeps a requested JEV level while decision settings are loading", async () => {
+    renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/test-session"],
+    });
+    await screen.findByTestId("chat-ui");
+    await act(async () => {});
+
+    const toggle = mockApprovalLevelToggle.mock.lastCall?.[0] as {
+      decisionModelEnabled?: boolean;
+      onChange: (level: string) => void;
+    };
+    expect(toggle.decisionModelEnabled).toBeUndefined();
+    act(() => toggle.onChange("JEV"));
+
+    await capturedOptions.api.fetch({
+      input: [{ role: "user", content: "hello" }],
+      signal: undefined,
+    });
+    const request = vi
+      .mocked(fetch)
+      .mock.calls.find(
+        ([url, options]) =>
+          String(url).includes("/console/chat") && options?.method === "POST",
+      );
+    expect(request).toBeDefined();
+    const body = JSON.parse(String(request?.[1]?.body));
+    expect(body.request_context.approval_level).toBe("JEV");
+  });
+
   // ── customFetch: with biz_params ───────────────────────────────────────
   it("customFetch merges biz_params into request body", async () => {
     const mockResponse = { ok: true, status: 200, body: null };
@@ -1955,22 +2046,16 @@ describe("ChatPage coverage", () => {
     }
   });
 
-  // ── sender longTextUpload customRequest ────────────────────────────────
-  it("sender longTextUpload customRequest is available", async () => {
+  it("uses the host paste adapter without SDK draft conversion or truncation", async () => {
     renderWithProviders(<ChatPage />, {
       initialEntries: ["/chat/test-session"],
     });
     await screen.findByTestId("chat-ui");
     await act(async () => {});
 
-    const longTextUpload = capturedOptions?.sender?.longTextUpload;
-    if (longTextUpload) {
-      expect(typeof longTextUpload.customRequest).toBe("function");
-      expect(typeof longTextUpload.prompt).toBe("function");
-      // Exercise the prompt function
-      const promptText = longTextUpload.prompt();
-      expect(typeof promptText).toBe("string");
-    }
+    expect(capturedOptions?.sender?.longTextUpload).toBe(false);
+    expect(capturedOptions?.sender?.maxLength).toBeUndefined();
+    expect(capturedOptions?.sender?.components?.input).toBe(LongTextPasteInput);
   });
 
   // ── sender placeholder ─────────────────────────────────────────────────
@@ -2180,7 +2265,7 @@ describe("ChatPage coverage", () => {
   });
 
   // ── model-switched event with maxInputLength ───────────────────────────
-  it("model-switched event with maxInputLength patches context", async () => {
+  it("model-switched refreshes capabilities for the session model", async () => {
     renderWithProviders(<ChatPage />, {
       initialEntries: ["/chat/test-session"],
     });
@@ -2196,7 +2281,7 @@ describe("ChatPage coverage", () => {
       );
     });
 
-    // Should trigger both fetchMultimodalCaps and patchContextMaxInputLength
+    // Capability refresh uses the session model, without rewriting history.
     await waitFor(() => {
       expect(mockGetActiveModels).toHaveBeenCalled();
     });
@@ -2643,6 +2728,16 @@ describe("ChatPage coverage", () => {
       );
       expect(chatIndex).toBeGreaterThanOrEqual(0);
       expect(drawerIndex).toBeGreaterThan(chatIndex);
+      const conversationPanel = container.querySelector(
+        '[data-panel="true"][id="conversation"]',
+      );
+      expect(conversationPanel?.contains(children[chatIndex])).toBe(true);
+      expect(conversationPanel?.contains(children[drawerIndex])).toBe(true);
+      expect(
+        container
+          .querySelector('[data-panel="true"][id="terminal"]')
+          ?.contains(children[drawerIndex]),
+      ).toBe(false);
     } finally {
       drawerState.mockReturnValue({ kind: "closed" });
     }

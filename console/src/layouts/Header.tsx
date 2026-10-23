@@ -1,14 +1,13 @@
-import { Layout, message, Space, Tooltip, Dropdown } from "antd";
+import { Layout, message, Tooltip, Dropdown } from "antd";
 import type { MenuProps } from "antd";
 import { Button } from "@agentscope-ai/design";
 import {
-  DownOutlined,
-  FileTextOutlined,
-  GithubOutlined,
-  InfoCircleOutlined,
-  PlayCircleOutlined,
-  ReadOutlined,
-} from "@ant-design/icons";
+  FileText as FileTextOutlined,
+  Github as GithubOutlined,
+  Info as InfoCircleOutlined,
+  CirclePlay as PlayCircleOutlined,
+  BookOpen as ReadOutlined,
+} from "lucide-react";
 import { useTranslation } from "react-i18next";
 import LanguageSwitcher, {
   LANGUAGE_LIST,
@@ -41,25 +40,25 @@ export default function Header({ showBrand = false }: { showBrand?: boolean }) {
   const resourcesMenuItems: MenuProps["items"] = [
     {
       key: "tutorial",
-      icon: <ReadOutlined />,
+      icon: <ReadOutlined size="1em" />,
       label: t("header.tutorial"),
       onClick: () => handleNavClick(getDocsUrl(i18n.language)),
     },
     {
       key: "featureDemos",
-      icon: <PlayCircleOutlined />,
+      icon: <PlayCircleOutlined size="1em" />,
       label: t("header.featureDemos"),
       onClick: () => handleNavClick(getFeatureDemosUrl(i18n.language)),
     },
     {
       key: "changelog",
-      icon: <FileTextOutlined />,
+      icon: <FileTextOutlined size="1em" />,
       label: t("header.changelog"),
       onClick: () => handleNavClick(getReleaseNotesUrl(i18n.language)),
     },
     {
       key: "faq",
-      icon: <InfoCircleOutlined />,
+      icon: <InfoCircleOutlined size="1em" />,
       label: t("header.faq"),
       onClick: () => handleNavClick(getFaqUrl(i18n.language)),
     },
@@ -68,7 +67,7 @@ export default function Header({ showBrand = false }: { showBrand?: boolean }) {
   const githubMenuItem: MenuProps["items"] = [
     {
       key: "github",
-      icon: <GithubOutlined />,
+      icon: <GithubOutlined size="1em" />,
       label: t("header.github"),
       onClick: () => handleNavClick(GITHUB_URL),
     },
@@ -116,46 +115,58 @@ export default function Header({ showBrand = false }: { showBrand?: boolean }) {
   ];
 
   return (
-    <AntHeader className={styles.header}>
+    <AntHeader
+      className={`${styles.header} ${
+        showBrand ? styles.headerWithBrand : styles.headerPluginOnly
+      }`}
+    >
       <div className={styles.headerPluginLeft}>
         {showBrand && <AppBrand />}
         <Slot name="header.left" kind="fill" />
       </div>
-      <Space size="middle">
+      <div className={styles.headerActions}>
         <Slot name="header.right" kind="fill" />
-        {resourcesMenuItems.length > 0 && (
-          <Dropdown menu={{ items: resourcesMenuItems }}>
-            <Button type="text" className={styles.hideOnMobile}>
-              {t("header.resources")} <DownOutlined />
-            </Button>
-          </Dropdown>
+        {showBrand && (
+          <>
+            <div className={styles.utilityGroup}>
+              {resourcesMenuItems.length > 0 && (
+                <Dropdown menu={{ items: resourcesMenuItems }}>
+                  <Button
+                    type="text"
+                    className={styles.hideOnMobile}
+                    aria-label={t("header.resources")}
+                    icon={<ReadOutlined size={17} />}
+                  />
+                </Dropdown>
+              )}
+              <Tooltip title={t("header.github")}>
+                <Button
+                  type="text"
+                  icon={<GithubOutlined size="1em" />}
+                  onClick={() => handleNavClick(GITHUB_URL)}
+                  className={styles.hideOnMobile}
+                  aria-label={t("header.github")}
+                />
+              </Tooltip>
+              <div className={styles.headerDivider} />
+              <span className={styles.hideOnMobile}>
+                <LanguageSwitcher />
+              </span>
+              <span className={styles.hideOnMobile}>
+                <ThemeToggleButton />
+              </span>
+            </div>
+            <Dropdown menu={{ items: mobileMenuItems }} placement="bottomRight">
+              <Button
+                type="text"
+                icon={<InfoCircleOutlined size="1em" />}
+                className={styles.showOnMobile}
+                title={t("header.resources")}
+              />
+            </Dropdown>
+          </>
         )}
-        <Tooltip title={t("header.github")}>
-          <Button
-            type="text"
-            icon={<GithubOutlined />}
-            onClick={() => handleNavClick(GITHUB_URL)}
-            className={styles.hideOnMobile}
-          >
-            {t("header.github")}
-          </Button>
-        </Tooltip>
-        <div className={styles.headerDivider} />
-        <span className={styles.hideOnMobile}>
-          <LanguageSwitcher />
-        </span>
-        <span className={styles.hideOnMobile}>
-          <ThemeToggleButton />
-        </span>
-        <Dropdown menu={{ items: mobileMenuItems }} placement="bottomRight">
-          <Button
-            type="text"
-            icon={<InfoCircleOutlined />}
-            className={styles.showOnMobile}
-            title={t("header.resources")}
-          />
-        </Dropdown>
-      </Space>
+      </div>
     </AntHeader>
   );
 }

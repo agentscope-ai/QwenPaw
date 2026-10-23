@@ -388,18 +388,21 @@ export function useProjectLaunch(options?: {
   const modelConfig = useModelConfigStore((state) => state.config);
   const refreshModelConfig = useModelConfigStore((state) => state.refresh);
   const [modelConfigModalOpen, setModelConfigModalOpen] = useState(false);
+  // Match the server's launch policy: confirmation modes start with script
+  // review, while automatic/YOLO modes need the media models up front.
+  const scriptFirst = modelConfig?.executionAuthorization?.mode !== "allow_all";
   const hasUrl =
     urlDraft.trim().length > 0 || attachments.some((att) => att.kind === "url");
   const hasAttachments = attachments.length > 0 || hasUrl;
   const missingRequiredModels: string[] | null = useMemo(() => {
     if (!modelConfig) return null;
     const config = modelConfig as Partial<ModelConfigData>;
-    const required: ("vlm" | "image" | "video")[] =
-      scenario === "short_drama"
-        ? ["vlm", "image", "video"]
+    const required: ("llm" | "vlm" | "image" | "video")[] =
+      scenario === "short_drama" && !scriptFirst
+        ? ["llm", "vlm", "image", "video"]
         : scenario === "video_edit" || hasAttachments
-        ? ["vlm"]
-        : [];
+        ? ["llm", "vlm"]
+        : ["llm"];
     const missing: string[] = [];
     for (const type of required) {
       const item = config[type];
@@ -410,7 +413,7 @@ export function useProjectLaunch(options?: {
       if (!ok) missing.push(type);
     }
     return missing;
-  }, [modelConfig, scenario, hasAttachments]);
+  }, [modelConfig, scenario, hasAttachments, scriptFirst]);
   useEffect(() => {
     void refreshModelConfig();
   }, [refreshModelConfig]);
@@ -529,6 +532,8 @@ export function useProjectLaunch(options?: {
       const resolvedProjectName =
         projectName.trim() || projectNameFromDescription(projectDescription);
       const projectPayload = {
+        // Resolve the stage from the saved permission mode on the server,
+        // so a stale client snapshot cannot override the user's choice.
         name: resolvedProjectName,
         description: projectDescription.trim(),
         scenario,

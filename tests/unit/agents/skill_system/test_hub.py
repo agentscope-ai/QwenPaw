@@ -2505,6 +2505,159 @@ class TestProviderRouting:
 # ---------------------------------------------------------------------------
 
 
+class TestRegisteredMarketHub:
+    @pytest.fixture
+    def registered_hub(self):
+        from qwenpaw.market import MarketResult
+        from qwenpaw.market import market_registry
+        from qwenpaw.plugins.api import PluginApi
+
+        class TeamHub:
+            key = "team"
+            label = "Team Skills"
+            supports_browse = False
+
+            def available(self):
+                return True, None
+
+            async def search(self, query, limit, page):
+                return (
+                    [
+                        MarketResult(
+                            source=self.key,
+                            slug="demo-skill",
+                            name="Demo",
+                            description=None,
+                            source_url="https://team.example/skills/demo",
+                            version="v2",
+                            author=None,
+                            icon_url=None,
+                        ),
+                    ],
+                    False,
+                    1,
+                )
+
+            def matches_url(self, url):
+                return hub.urlparse(url).hostname == "team.example"
+
+            async def fetch_bundle(self, url, requested_version):
+                assert requested_version == "v2"
+                return {"files": {"SKILL.md": SKILL_MD}}, url
+
+        provider = TeamHub()
+        PluginApi("test-hub", {}).register_market_provider(provider)
+        try:
+            yield provider
+        finally:
+            market_registry.unregister_owner("test-hub")
+
+    def test_search_and_install_payload(self, registered_hub, monkeypatch):
+        from qwenpaw.app.routers.market import _result_to_spec
+        from qwenpaw.market import list_providers, search_market
+        from qwenpaw.market import market_registry
+
+        info = next(p for p in list_providers() if p.key == "team")
+        assert info.label == "Team Skills"
+        assert info.supports_browse is False
+        results, errors, pages = _run(search_market("demo", {"team": 1}))
+        assert not errors
+        assert pages == {"team": (False, 1)}
+        result = _result_to_spec(results[0])
+        assert result.source_label == "Team Skills"
+        payload = _run(
+            hub._prepare_install_payload(
+                result.source_url,
+                result.version,
+                None,
+            ),
+        )
+        assert payload.name == "demo-skill"
+        assert payload.content == SKILL_MD
+        assert payload.installed_from == "team"
+        assert payload.source_url == result.source_url
+
+        # Custom matchers cannot replace existing built-in URL routing.
+        monkeypatch.setattr(registered_hub, "matches_url", lambda url: True)
+        assert hub._match_provider("https://github.com/o/r")[0] == "github"
+        market_registry.unregister_owner("test-hub")
+        assert all(p.key != "team" for p in list_providers())
+        assert hub._match_provider(result.source_url) == ("url", None)
+
+    def test_download_failure_does_not_fall_back(
+        self,
+        registered_hub,
+        monkeypatch,
+    ):
+        async def fail(url, requested_version):
+            raise RuntimeError("team download failed")
+
+        monkeypatch.setattr(registered_hub, "fetch_bundle", fail)
+        with patch.object(hub, "_http_json_get") as fallback:
+            with pytest.raises(RuntimeError, match="team download failed"):
+                _run(
+                    hub._resolve_bundle_from_url(
+                        "https://team.example/skills/demo",
+                        "v2",
+                    ),
+                )
+            fallback.assert_not_called()
+
+    def test_invalid_registration(self, registered_hub, monkeypatch):
+        from qwenpaw.market import market_registry
+
+        with pytest.raises(ValueError, match="Duplicate hub key"):
+            market_registry.register("another-plugin", registered_hub)
+        monkeypatch.setattr(registered_hub, "fetch_bundle", None)
+        with pytest.raises(ValueError, match="download methods"):
+            market_registry.register("another-plugin", registered_hub)
+
+    @pytest.mark.parametrize("target", ["workspace", "pool"])
+    def test_explicit_market_install_and_unload(
+        self,
+        registered_hub,
+        monkeypatch,
+        tmp_path,
+        target,
+    ):
+        from qwenpaw.market import market_registry
+        from qwenpaw.market.registry import MarketProviderBusyError
+
+        created = []
+
+        class Service:
+            def __init__(self, *args):
+                pass
+
+            def create_skill(self, **kwargs):
+                # Hold the plugin lease through the host's installation too.
+                with pytest.raises(MarketProviderBusyError):
+                    market_registry.begin_unload("test-hub")
+                created.append(kwargs)
+                return kwargs["name"]
+
+        monkeypatch.setattr(hub, "SkillService", Service)
+        monkeypatch.setattr(hub, "SkillPoolService", Service)
+        install = (
+            hub.install_skill_from_hub
+            if target == "workspace"
+            else hub.import_pool_skill_from_hub
+        )
+        args = {"workspace_dir": tmp_path} if target == "workspace" else {}
+        args.update(
+            bundle_url="https://team.example/skills/demo",
+            version="v2",
+            provider_key="team",
+        )
+        result = _run(install(**args))
+        assert result.name == "demo-skill"
+        assert created[0]["installed_from"] == "team"
+        assert created[0]["content"] == SKILL_MD
+        market_registry.unregister_owner("test-hub")
+        with pytest.raises(ValueError, match="not loaded"):
+            _run(install(**args))
+
+
 class TestPrepareInstallPayload:
     def test_invalid_url(self):
         with pytest.raises(ConfigurationException, match="bundle_url"):
@@ -2565,7 +2718,8 @@ class TestPrepareInstallPayload:
 
 class TestInstallSkillFromHub:
     def test_success(self, monkeypatch, tmp_path):
-        async def _prepare(url, version, target):
+        async def _prepare(url, version, target, provider=None):
+            assert provider is None
             return hub._InstallPayload(
                 name="demo",
                 content=SKILL_MD,
@@ -2600,7 +2754,8 @@ class TestInstallSkillFromHub:
         assert result.installed_from == "github"
 
     def test_enable_failed(self, monkeypatch, tmp_path):
-        async def _prepare(url, version, target):
+        async def _prepare(url, version, target, provider=None):
+            assert provider is None
             return hub._InstallPayload(
                 name="demo",
                 content=SKILL_MD,
@@ -2633,7 +2788,8 @@ class TestInstallSkillFromHub:
         assert result.enabled is False
 
     def test_conflict(self, monkeypatch, tmp_path):
-        async def _prepare(url, version, target):
+        async def _prepare(url, version, target, provider=None):
+            assert provider is None
             return hub._InstallPayload(
                 name="demo",
                 content=SKILL_MD,
@@ -2674,7 +2830,8 @@ class TestInstallSkillFromHub:
 
 class TestImportPoolSkillFromHub:
     def test_success(self, monkeypatch):
-        async def _prepare(url, version, target):
+        async def _prepare(url, version, target, provider=None):
+            assert provider is None
             return hub._InstallPayload(
                 name="pool-skill",
                 content=SKILL_MD,
@@ -2699,7 +2856,8 @@ class TestImportPoolSkillFromHub:
         assert result.installed_from == "clawhub"
 
     def test_conflict(self, monkeypatch):
-        async def _prepare(url, version, target):
+        async def _prepare(url, version, target, provider=None):
+            assert provider is None
             return hub._InstallPayload(
                 name="dup",
                 content=SKILL_MD,

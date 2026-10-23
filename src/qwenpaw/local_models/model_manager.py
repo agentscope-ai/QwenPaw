@@ -128,6 +128,42 @@ class ModelManager:
                 ),
             ]
 
+        # Q4 may require a reduced context on smaller machines.
+        if memory_gb >= 24:
+            models.extend(
+                [
+                    LocalModelInfo(
+                        id="agentscope-ai/QwenPaw-Flash-27B-Q4_K_M",
+                        name="QwenPaw-Flash-27B-Q4_K_M",
+                        size_bytes=16547398880,
+                        source=DownloadSource.HUGGINGFACE,
+                    ),
+                    LocalModelInfo(
+                        id="agentscope-ai/QwenPaw-Flash-35B-A3B-Q4_K_M",
+                        name="QwenPaw-Flash-35B-A3B-Q4_K_M",
+                        size_bytes=21166757824,
+                        source=DownloadSource.HUGGINGFACE,
+                    ),
+                ],
+            )
+        if memory_gb >= 48:
+            models.extend(
+                [
+                    LocalModelInfo(
+                        id="agentscope-ai/QwenPaw-Flash-27B-Q8_0",
+                        name="QwenPaw-Flash-27B-Q8_0",
+                        size_bytes=28595762400,
+                        source=DownloadSource.HUGGINGFACE,
+                    ),
+                    LocalModelInfo(
+                        id="agentscope-ai/QwenPaw-Flash-35B-A3B-Q8_0",
+                        name="QwenPaw-Flash-35B-A3B-Q8_0",
+                        size_bytes=36903139264,
+                        source=DownloadSource.HUGGINGFACE,
+                    ),
+                ],
+            )
+
         # check local download status for each recommended model
         for model in models:
             model.downloaded = self.is_downloaded(model.id)

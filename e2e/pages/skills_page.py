@@ -44,7 +44,10 @@ class SkillsPage(BasePage):
     SWITCH_SELECTOR = '.qwenpaw-switch'
 
     # Search input
-    SEARCH_INPUT = 'input[placeholder*="搜索"], input[placeholder*="Search"], .ant-input-search input, .qwenpaw-input-search input'
+    SEARCH_INPUT = (
+        'input[aria-label="Search skills across platforms"], '
+        'input[aria-label="在多平台中搜索技能"]'
+    )
 
     # ========== Navigation methods ==========
 

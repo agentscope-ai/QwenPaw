@@ -101,12 +101,50 @@
   -webkit-overflow-scrolling: touch;
 }
 
+.mobileListState {
+  min-height: 200px;
+  padding: 32px 16px;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  color: var(--app-text-secondary);
+  font-size: var(--app-font-body);
+  text-align: center;
+}
+
+.mobileLoadingIcon {
+  color: var(--app-accent-text);
+  animation: sessions-spin 900ms linear infinite;
+}
+
+.mobileErrorState {
+  color: var(--app-error-text);
+}
+
+.mobileRetryButton {
+  min-width: 120px;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
 .mobileSessionCard {
   border-radius: var(--border-radius, 8px);
   background: var(--app-surface-raised);
   border: 1px solid var(--app-border);
   box-shadow: var(--app-shadow-sm);
-  transition: all 0.2s ease-in-out;
+  transition:
+    background-color 0.2s ease-in-out,
+    color 0.2s ease-in-out,
+    border-color 0.2s ease-in-out,
+    box-shadow 0.2s ease-in-out,
+    opacity 0.2s ease-in-out,
+    transform 0.2s ease-in-out;
 
   &:hover {
     border-color: var(--app-border-hover);
@@ -120,6 +158,15 @@
   align-items: flex-start;
   margin-bottom: 12px;
   gap: 12px;
+}
+
+.mobileSelection {
+  min-width: 44px;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
 }
 
 .mobileSessionName {
@@ -164,7 +211,8 @@
 
   .mobileActionBtn {
     font-size: 13px;
-    height: 28px;
+    min-width: 44px;
+    min-height: 44px;
     padding: 0 10px;
     color: var(--app-text-secondary);
     background: transparent;
@@ -194,17 +242,36 @@
   }
 }
 
-@media (max-width: 768px) {
-  .pageHeader {
+.mobileLoadMore {
+  display: flex;
+  justify-content: center;
+  padding-bottom: 8px;
+}
+
+.mobileLoadMoreButton {
+  min-width: 120px;
+  min-height: 44px;
+}
+
+@media (max-width: 1024px) {
+  .sessionsPage .pageHeader {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
     padding: 12px 16px;
-    flex-wrap: wrap;
-    gap: 8px;
+    gap: 12px;
     align-items: flex-start;
+
+    > div {
+      width: 100%;
+      min-width: 0;
+      grid-column: 1;
+      grid-row: auto;
+    }
   }
 
   .headerRight {
     width: 100%;
-    align-items: flex-start;
+    align-items: stretch;
     flex-direction: column;
     gap: 8px;
   }
@@ -261,5 +328,17 @@
     :global(.ant-select-arrow) {
       color: var(--app-text-tertiary) !important;
     }
+  }
+}
+
+@keyframes sessions-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mobileLoadingIcon {
+    animation: none;
   }
 }

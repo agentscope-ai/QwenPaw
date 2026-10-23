@@ -3,7 +3,7 @@
 in ``qwenpaw.app.routers.tools``.
 
 Covers:
-- ``_builtin_credential_ref`` ref derivation (provider present/blank)
+- ``_builtin_credential_ref`` ref derivation (provider present/blank/tavily)
 - ``GET /tools/web_search/config`` — credential-store readback + masking
 - ``POST /tools/web_search/config`` — the 4-way api_key semantics table:
   missing (preserve) / empty string (clear) / masked value (preserve) /
@@ -49,6 +49,11 @@ def _registry_mock(*, tool_config: dict | None = None) -> MagicMock:
 def test_builtin_credential_ref_with_provider() -> None:
     ref = _builtin_credential_ref("web_search", {"provider": "anysearch"})
     assert ref == "tool/web_search/anysearch"
+
+
+def test_builtin_credential_ref_firecrawl() -> None:
+    ref = _builtin_credential_ref("web_search", {"provider": "firecrawl"})
+    assert ref == "tool/web_search/firecrawl"
 
 
 def test_builtin_credential_ref_blank_provider_returns_empty() -> None:
@@ -144,6 +149,41 @@ async def test_get_tool_config_no_stored_key_omits_api_key() -> None:
 
     assert result == {"provider": "tavily"}
     assert "api_key" not in result
+
+
+@pytest.mark.asyncio
+async def test_get_tool_config_reads_tavily_credential_and_masks() -> None:
+    """Tavily optional key is read from tool/web_search/tavily (#8174)."""
+    registry = _registry_mock(tool_config={"provider": "tavily"})
+    record = CredentialRecord(
+        ref="tool/web_search/tavily",
+        kind="static",
+        secrets={"api_key": "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"},
+    )
+    load_credential = AsyncMock(return_value=record)
+
+    with (
+        patch(
+            "qwenpaw.plugins.registry.PluginRegistry",
+            return_value=registry,
+        ),
+        patch(
+            "qwenpaw.app.agent_context.get_agent_for_request",
+            AsyncMock(return_value=_workspace()),
+        ),
+        patch(
+            "qwenpaw.app.driver_config_service.DriverConfigService"
+            ".load_optional_credential",
+            load_credential,
+        ),
+    ):
+        result = await get_tool_config(tool_name="web_search", request=None)
+
+    load_credential.assert_awaited_once_with("tool/web_search/tavily")
+    assert result["provider"] == "tavily"
+    assert result["api_key"] == mask_secret_value(
+        "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",
+    )
 
 
 @pytest.mark.asyncio
@@ -453,26 +493,31 @@ async def test_update_tool_config_credential_failure_rolls_back_config() -> None
 
 
 @pytest.mark.asyncio
-async def test_update_tool_config_keyless_provider_skips_credential_io() -> None:
-    """provider=tavily is keyless: an api_key in the body must not land in
-    any credential slot (regression: switching anysearch->tavily used to
-    write the leftover key into tool/web_search/tavily)."""
+async def test_update_tool_config_tavily_stores_optional_api_key() -> None:
+    """provider=tavily now has an optional credential slot; a submitted
+    api_key must land under tool/web_search/tavily (#8174)."""
     registry = _registry_mock()
     credential_store = MagicMock()
     credential_store.put = AsyncMock()
     credential_store.delete = AsyncMock()
 
     resp = await _update(
-        config={"provider": "tavily", "api_key": "sk-should-be-ignored"},
+        config={"provider": "tavily", "api_key": "tvly-brand-new"},
         registry=registry,
         credential_store=credential_store,
-        load_optional_credential=AsyncMock(),
+        load_optional_credential=AsyncMock(return_value=None),
     )
 
     assert resp["status"] == "success"
-    credential_store.put.assert_not_called()
+    credential_store.put.assert_awaited_once()
+    put_call = credential_store.put.await_args.args[0]
+    assert put_call.ref == "tool/web_search/tavily"
+    assert put_call.secrets["api_key"] == "tvly-brand-new"
     credential_store.delete.assert_not_called()
 
 
-def test_builtin_credential_ref_keyless_provider_returns_empty() -> None:
-    assert _builtin_credential_ref("web_search", {"provider": "tavily"}) == ""
+def test_builtin_credential_ref_tavily_returns_slot() -> None:
+    assert (
+        _builtin_credential_ref("web_search", {"provider": "tavily"})
+        == "tool/web_search/tavily"
+    )

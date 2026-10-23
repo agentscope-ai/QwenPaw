@@ -12,7 +12,6 @@ import asyncio
 from array import array
 from contextlib import asynccontextmanager
 import math
-from pathlib import Path
 import wave
 
 import pytest
@@ -27,6 +26,7 @@ from models.video_capabilities import (
 )
 from services.runtime_files.runtime_dependencies import resolve_ffmpeg
 from utils.exceptions import ModelError
+from utils.paths import local_path_from_file_url
 
 
 class _FakeResponse:
@@ -301,7 +301,7 @@ def test_voice_excerpt_decodes_and_fits_total_budget(tmp_path, voice_count):
             source.as_uri(),
             voice_count=voice_count,
         ) as url:
-            excerpt = Path(url.removeprefix("file://"))
+            excerpt = local_path_from_file_url(url)
             with wave.open(str(excerpt), "rb") as audio:
                 seconds = audio.getnframes() / audio.getframerate()
                 assert audio.getframerate() == 24000

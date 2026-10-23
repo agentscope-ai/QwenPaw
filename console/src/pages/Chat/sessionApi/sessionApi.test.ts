@@ -49,6 +49,25 @@ describe("createSession owner-epoch singleflight", () => {
     sessionApi.resetForTests();
   });
 
+  it("keeps a live usage turn through first-send URL resolution and history loading", async () => {
+    const { useTurnUsageStore } = await import("../turnUsageStore");
+    sessionApi.setVisibleSession(null);
+    vi.spyOn(sessionApi, "getBackendSessionId").mockReturnValue("runtime-one");
+    const turn = useTurnUsageStore.getState().beginTurn("A", "runtime-one");
+    const live = { usage: { total_tokens: 125 }, context_usage: null };
+    useTurnUsageStore.getState().setSnapshotForTurn(live, turn);
+    sessionApi.setVisibleSession("one");
+    vi.spyOn(api, "getChat").mockResolvedValue({
+      messages: [],
+      status: "idle",
+    } as ChatHistory);
+    await sessionApi.getSession("one");
+    expect(useTurnUsageStore.getState().activeTurn).toEqual(turn);
+    expect(useTurnUsageStore.getState().snapshot).toEqual(live);
+    sessionApi.setVisibleSession(null);
+    expect(useTurnUsageStore.getState().activeTurn).toBeNull();
+  });
+
   it("shares concurrent first sends and publishes the created Chat once", async () => {
     const pending = deferred<ChatSpec>();
     const create = vi.spyOn(api, "createChat").mockReturnValue(pending.promise);
@@ -626,5 +645,86 @@ describe("creation visit isolation", () => {
     sessionApi.activateCreatedSession("fresh-chat");
     sessionApi.activateCreatedSession("fresh-chat");
     expect(selected).toHaveBeenCalledExactlyOnceWith("fresh-chat");
+  });
+});
+
+describe("visible session usage ownership", () => {
+  beforeEach(() => {
+    sessionApi.resetForTests();
+    sessionApi.setActiveAgent("A");
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+    sessionApi.resetForTests();
+  });
+  it("does not project a late history response over the selected session", async () => {
+    const { useTurnUsageStore } = await import("../turnUsageStore");
+    const history = (tokens: number): ChatHistory =>
+      ({
+        messages: [
+          {
+            role: "assistant",
+            content: [{ type: "text", text: "done" }],
+            metadata: {
+              qwenpaw_turn_usage: {
+                usage: { total_tokens: tokens },
+                context_usage: {
+                  estimated_tokens: tokens,
+                  max_input_length: 100000,
+                  context_usage_ratio: tokens / 1000,
+                },
+              },
+            },
+          },
+        ],
+        status: "idle",
+      }) as ChatHistory;
+    const slow = deferred<ChatHistory>();
+    vi.spyOn(api, "getChat").mockImplementation((id) =>
+      id === "one" ? slow.promise : Promise.resolve(history(200)),
+    );
+    sessionApi.setVisibleSession("one");
+    const first = sessionApi.getSession("one");
+    sessionApi.setVisibleSession("two");
+    await sessionApi.getSession("two");
+    expect(
+      useTurnUsageStore.getState().snapshot?.context_usage?.estimated_tokens,
+    ).toBe(200);
+    slow.resolve(history(100));
+    await first;
+    expect(
+      useTurnUsageStore.getState().snapshot?.context_usage?.estimated_tokens,
+    ).toBe(200);
+    sessionApi.setVisibleSession(null);
+    expect(useTurnUsageStore.getState().snapshot).toBeNull();
+  });
+  it("restores usage when selection hits the preload result cache", async () => {
+    const { useTurnUsageStore } = await import("../turnUsageStore");
+    vi.spyOn(api, "getChat").mockResolvedValue({
+      messages: [
+        {
+          role: "assistant",
+          content: [{ type: "text", text: "done" }],
+          metadata: {
+            qwenpaw_turn_usage: {
+              context_usage: {
+                estimated_tokens: 500,
+                max_input_length: 100000,
+                context_usage_ratio: 0.5,
+              },
+            },
+          },
+        },
+      ],
+      status: "idle",
+    } as ChatHistory);
+    sessionApi.setVisibleSession(null);
+    await sessionApi.preloadSession("cached");
+    expect(useTurnUsageStore.getState().snapshot).toBeNull();
+    sessionApi.setVisibleSession("cached");
+    await sessionApi.getSession("cached");
+    expect(
+      useTurnUsageStore.getState().snapshot?.context_usage?.estimated_tokens,
+    ).toBe(500);
   });
 });

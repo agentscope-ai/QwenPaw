@@ -256,10 +256,15 @@ def test_legacy_document_etag_survives_in_memory_schema_migration():
     del raw["visual"]["entities"]["items"]["char:hero"]["required_variant_ids"]
     # Legacy documents predate the character voice field entirely.
     del raw["visual"]["entities"]["items"]["char:hero"]["voice"]
+    # Production-stage controls also did not exist in the persisted schema.
+    del raw["settings"]["production_stage"]
+    del raw["settings"]["script_approval_fingerprint"]
 
     migrated = load_project_document(raw)
 
     assert migrated.schema_version == 9
+    assert migrated.settings.production_stage == "media"
+    assert migrated.settings.script_approval_fingerprint is None
     assert migrated.visual.entities.items[
         "char:hero"
     ].required_variant_ids == ["variant:peak"]

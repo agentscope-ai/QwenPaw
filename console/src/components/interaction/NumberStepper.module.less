@@ -1,0 +1,60 @@
+.stepper {
+  display: flex;
+  align-items: center;
+  gap: var(--app-space-2);
+  min-width: 0;
+  max-width: 100%;
+  padding: var(--app-space-1);
+  border-radius: var(--app-radius-card);
+  border: 1px solid var(--app-border-subtle);
+  background: var(--app-fill-faint);
+  &:focus-within {
+    border-color: var(--app-accent);
+  }
+  > button {
+    display: grid;
+    place-items: center;
+    flex: 0 0 var(--app-control-md);
+    height: var(--app-control-md);
+    border: 0;
+    border-radius: 11px;
+    background: var(--app-surface);
+    color: var(--app-text);
+    cursor: pointer;
+    &:disabled {
+      color: var(--app-disabled-text);
+      background: var(--app-disabled-bg);
+      cursor: not-allowed;
+    }
+    &:focus-visible {
+      outline: var(--app-focus-ring-width) solid var(--app-focus-ring);
+      outline-offset: var(--app-focus-ring-offset);
+    }
+  }
+  :global(.ant-input-number),
+  :global(.qwenpaw-input-number) {
+    flex: 1;
+    width: 100% !important;
+    min-width: 0;
+    font-size: 22px;
+    font-weight: 550;
+    font-variant-numeric: tabular-nums;
+  }
+  :global(.ant-input-number-input),
+  :global(.qwenpaw-input-number-input) {
+    font-size: 22px !important;
+    font-weight: 550;
+    text-align: center;
+    padding: 0;
+  }
+  &[data-disabled] {
+    opacity: var(--app-disabled-opacity);
+  }
+}
+
+@media (any-pointer: coarse) {
+  .stepper > button {
+    flex-basis: var(--app-hit-touch);
+    height: var(--app-hit-touch);
+  }
+}

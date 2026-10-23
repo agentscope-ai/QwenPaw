@@ -953,3 +953,34 @@ def test_update_worker_foreground_propagates_failure_exit_code(
     assert "installer: failing" in captured.out
     assert "[qwenpaw] Update failed with exit code 7." in captured.out
     assert not plan_path.exists()
+
+
+@pytest.mark.parametrize(
+    "command,guard",
+    [
+        (["python", "-m", "pip", "install", "qwenpaw"], "require_pip"),
+        (["uv", "pip", "install", "qwenpaw"], "require_uv"),
+    ],
+)
+def test_update_worker_rejects_unsafe_installer(
+    monkeypatch,
+    tmp_path,
+    capsys,
+    command,
+    guard,
+):
+    """No package download may start through an unsafe installer."""
+    plan_path = tmp_path / "plan.json"
+    _write_plan(plan_path, command=command)
+
+    def reject(_):
+        raise RuntimeError("Unsafe installer")
+
+    def unexpected(*_args, **_kwargs):
+        pytest.fail("Installer must not start")
+
+    monkeypatch.setattr(f"qwenpaw.cli.update_cmd.{guard}", reject)
+    monkeypatch.setattr("qwenpaw.cli.update_cmd.subprocess.Popen", unexpected)
+    assert run_update_worker(plan_path) == 1
+    assert not plan_path.exists()
+    assert "Unsafe installer" in capsys.readouterr().out

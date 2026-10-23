@@ -2,7 +2,8 @@ import { memo, useMemo } from "react";
 import { Button, Drawer } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
 import type { MarketResult } from "../../../../api/modules/market";
-import { SkillIcon, sourceLabel } from "./SkillIcon";
+import { SkillIcon } from "./SkillIcon";
+import { sourceLabel } from "./skillSources";
 import styles from "./DetailDrawer.module.less";
 
 interface DetailDrawerProps {
@@ -97,7 +98,7 @@ export const DetailDrawer = memo(function DetailDrawer({
               <h3 className={styles.detailTitle}>{item.name}</h3>
               <div className={styles.detailMeta}>
                 <span className={styles.sourceBadge}>
-                  {sourceLabel(item.source)}
+                  {sourceLabel(item.source, item.source_label)}
                 </span>
               </div>
             </div>

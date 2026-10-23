@@ -1,12 +1,12 @@
 import { Button, Dropdown } from "@agentscope-ai/design";
 import type { MenuProps } from "antd";
 import {
-  AppstoreOutlined,
-  DownloadOutlined,
-  ImportOutlined,
-  PlusOutlined,
-  UploadOutlined,
-} from "@ant-design/icons";
+  LayoutGrid as AppstoreOutlined,
+  Download as DownloadOutlined,
+  Import as ImportOutlined,
+  Plus as PlusOutlined,
+  Upload as UploadOutlined,
+} from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 interface AddSkillDropdownProps {
@@ -37,7 +37,7 @@ export function AddSkillDropdown({
     {
       key: "create",
       label: t("skills.createSkill"),
-      icon: <PlusOutlined />,
+      icon: <PlusOutlined size="1em" />,
       onClick: onCreate,
     },
     ...(onFromPool
@@ -45,7 +45,7 @@ export function AddSkillDropdown({
           {
             key: "from-pool",
             label: t("skills.downloadFromPool"),
-            icon: <DownloadOutlined />,
+            icon: <DownloadOutlined size="1em" />,
             onClick: onFromPool,
           },
         ]
@@ -53,28 +53,32 @@ export function AddSkillDropdown({
     {
       key: "upload-zip",
       label: t("skills.uploadZip"),
-      icon: <UploadOutlined />,
+      icon: <UploadOutlined size="1em" />,
       disabled: uploading,
       onClick: onUploadZip,
     },
     {
       key: "from-url",
       label: t("skills.importHub"),
-      icon: <ImportOutlined />,
+      icon: <ImportOutlined size="1em" />,
       onClick: onFromUrl,
     },
     { type: "divider" },
     {
       key: "market",
       label: t("market.browseMarket"),
-      icon: <AppstoreOutlined />,
+      icon: <AppstoreOutlined size="1em" />,
       onClick: onBrowseMarket,
     },
   ];
 
   return (
     <Dropdown menu={{ items }} placement="bottomRight">
-      <Button type="primary" icon={<PlusOutlined />} loading={uploading}>
+      <Button
+        type="primary"
+        icon={<PlusOutlined size="1em" />}
+        loading={uploading}
+      >
         {t("skills.addSkill")}
       </Button>
     </Dropdown>

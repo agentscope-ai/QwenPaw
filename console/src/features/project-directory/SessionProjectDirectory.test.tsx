@@ -208,6 +208,36 @@ describe("SessionProjectDirectory", () => {
     );
   });
 
+  it("enters a folder with its arrow without selecting or saving it", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<SessionProjectDirectory scope={scope} />);
+    await openPanel(user);
+    await user.click(
+      await screen.findByRole("button", {
+        name: "projectDirectory.openDirectory",
+      }),
+    );
+    expect(mockBrowseDirs).toHaveBeenLastCalledWith("/projects/custom", false);
+    expect(screen.getByRole("button", { name: /agentscope/ })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(mockSetSessionDirectory).not.toHaveBeenCalled();
+  });
+
+  it("jumps to an ancestor without changing the selected workspace", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<SessionProjectDirectory scope={scope} />);
+    await openPanel(user);
+    await user.click(await screen.findByRole("button", { name: "/" }));
+    expect(mockBrowseDirs).toHaveBeenLastCalledWith("/", false);
+    expect(mockSetSessionDirectory).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: /agentscope/ })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+  });
+
   it("creates a folder in the browsed directory and selects it", async () => {
     const user = userEvent.setup();
     renderWithProviders(<SessionProjectDirectory scope={scope} />);
@@ -589,8 +619,14 @@ describe("SessionProjectDirectory new-task Agent default", () => {
       screen.queryByText("projectDirectory.agentTitle"),
     ).not.toBeInTheDocument();
     expect(
-      screen.getByText("projectDirectory.primaryHint"),
-    ).toBeInTheDocument();
+      screen.queryByText("projectDirectory.primaryHint"),
+    ).not.toBeInTheDocument();
+    await userEvent.click(
+      screen.getByRole("button", { name: "projectDirectory.primaryHint" }),
+    );
+    expect(await screen.findByRole("tooltip")).toHaveTextContent(
+      "projectDirectory.primaryHint",
+    );
     expect(
       screen.queryByRole("button", {
         name: "projectDirectory.useWorkspace",
@@ -845,6 +881,78 @@ describe("SessionProjectDirectory session scope direct path input (#7588)", () =
 
     expect(await getPathInput()).toHaveValue("/projects/custom");
     expect(mockSetProjectDirs).not.toHaveBeenCalled();
+  });
+
+  it("applies a browsed directory without requiring Add", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<SessionProjectDirectory scope={sessionScope} />);
+
+    await openSessionPanel(user);
+    await user.click(await screen.findByRole("button", { name: /custom/ }));
+    const apply = screen.getByRole("button", { name: "common.apply" });
+
+    expect(apply).toBeEnabled();
+    await user.click(apply);
+
+    await waitFor(() => {
+      expect(mockSetProjectDirs).toHaveBeenCalledWith("chat-1", [
+        { path: "/projects/alpha", label: null },
+        { path: "/projects/beta", label: null },
+        { path: "/projects/custom", label: null },
+      ]);
+    });
+  });
+
+  it("applies a workspace project without requiring Add", async () => {
+    const user = userEvent.setup();
+    mockListProjects.mockResolvedValueOnce([
+      {
+        path: "/projects/catalog",
+        name: "catalog",
+        is_git: true,
+        is_active: false,
+      },
+    ]);
+    renderWithProviders(<SessionProjectDirectory scope={sessionScope} />);
+
+    await openSessionPanel(user);
+    await user.click(await screen.findByRole("button", { name: /catalog/ }));
+    await user.click(screen.getByRole("button", { name: "common.apply" }));
+
+    await waitFor(() => {
+      expect(mockSetProjectDirs).toHaveBeenCalledWith("chat-1", [
+        { path: "/projects/alpha", label: null },
+        { path: "/projects/beta", label: null },
+        { path: "/projects/catalog", label: null },
+      ]);
+    });
+  });
+
+  it("makes the first directly applied directory primary", async () => {
+    const user = userEvent.setup();
+    mockGetProjectDirs.mockResolvedValueOnce({
+      project_dirs: [],
+      source: "workspace_fallback",
+      agent_project_dir: null,
+    });
+    mockGetChatDirectory.mockResolvedValueOnce({
+      project_dir: "/projects/workspace",
+      source: "workspace_fallback",
+      agent_project_dir: null,
+      exists: true,
+    });
+    renderWithProviders(<SessionProjectDirectory scope={sessionScope} />);
+
+    await openSessionPanel(user);
+    await user.click(await screen.findByRole("button", { name: /custom/ }));
+    await user.click(screen.getByRole("button", { name: "common.apply" }));
+
+    await waitFor(() => {
+      expect(mockSetProjectDirs).toHaveBeenCalledWith("chat-1", [
+        { path: "/projects/custom", label: null },
+        { path: "/projects/workspace", label: null },
+      ]);
+    });
   });
 
   it("makes an already-bound typed path the primary", async () => {

@@ -1,0 +1,83 @@
+.root {
+  position: relative;
+  display: inline-flex;
+  vertical-align: middle;
+}
+.root button {
+  display: grid;
+  place-items: center;
+  width: var(--app-hit-desktop);
+  height: var(--app-hit-desktop);
+  border: 0;
+  border-radius: 10px;
+  cursor: pointer;
+  color: var(--app-text-secondary);
+  background: transparent;
+  &:hover {
+    color: var(--app-accent-text);
+    background: var(--app-accent-soft);
+  }
+  &:focus-visible {
+    outline: var(--app-focus-ring-width) solid var(--app-focus-ring);
+    outline-offset: var(--app-focus-ring-offset);
+  }
+  &:disabled {
+    cursor: wait;
+    opacity: var(--app-disabled-opacity);
+  }
+  span {
+    display: flex;
+  }
+}
+.panel {
+  position: absolute;
+  z-index: 20;
+  right: calc(var(--app-hit-desktop) + var(--app-space-1));
+  top: -5px;
+  display: flex;
+  align-items: center;
+  gap: var(--app-space-1);
+  padding: var(--app-space-1);
+  border-radius: var(--app-radius-card);
+  border: 1px solid var(--app-border);
+  background: var(--app-surface);
+  box-shadow: 0 8px 28px rgb(0 0 0 / 12%);
+  transform-origin: right center;
+}
+.label {
+  max-width: 180px;
+  padding: 0 var(--app-space-2);
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--app-text);
+}
+
+@media (any-pointer: coarse) {
+  .root button {
+    width: var(--app-hit-touch);
+    height: var(--app-hit-touch);
+  }
+
+  .panel {
+    right: calc(var(--app-hit-touch) + var(--app-space-1));
+  }
+}
+.root .confirm {
+  background: var(--app-accent-soft);
+  color: var(--app-accent-text);
+}
+.loading {
+  animation: spin 1s linear infinite;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .loading {
+    animation: none;
+  }
+}

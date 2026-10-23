@@ -1082,6 +1082,16 @@ class SkillPoolService:
         *,
         overwrite: bool = False,
     ) -> dict[str, Any]:
+        """Copy a pool skill into a workspace and register it.
+
+        Replacing the skill directory removes it for a moment, and a
+        concurrent ``POST /skills/refresh`` reconciles the manifest against
+        the filesystem — so the entry can be gone by the time the write below
+        runs. The write falls back to the entry this call read *before* the
+        copy, which keeps ``enabled`` / ``channels`` / ``config`` instead of
+        resetting them as if the skill were being installed for the first
+        time.
+        """
         try:
             skill_name = normalize_skill_dir_name(skill_name)
         except SkillsError:
@@ -1131,7 +1141,9 @@ class SkillPoolService:
 
         def _update(payload: dict[str, Any]) -> None:
             payload.setdefault("skills", {})
-            prior = payload["skills"].get(final_name) or {}
+            # ``existing`` is the entry read before the copy replaced the
+            # directory; a concurrent reconcile may have dropped it since.
+            prior = payload["skills"].get(final_name) or existing or {}
             metadata = build_skill_metadata(
                 final_name,
                 target_dir,

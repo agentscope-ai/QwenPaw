@@ -82,6 +82,84 @@ def test_explicit_image_backend_still_wins(monkeypatch) -> None:
     assert image_models.get_image_backend() == "OPENAI"
 
 
+def test_saved_minimax_image_protocol_outranks_image_model_env(
+    monkeypatch,
+) -> None:
+    """A saved MiniMax config must survive an ``IMAGE_MODEL`` deploy var.
+
+    This drives ``request_tool_configs``, the writer behind the highest
+    priority selector. It carried its own copy of the protocol rule, so
+    adding MiniMax left this path returning nothing and the env var
+    below picked OpenAI, which sent the MiniMax key and model to
+    ``/v1/images/generations``. The connection test still passed because
+    it reads the protocol through a separate branch, so the failure only
+    surfaced at generation time.
+    """
+    from api import model_routes
+    from api.model_routes import _defaults
+    from schemas.models import ImageConfig
+
+    monkeypatch.setenv("IMAGE_MODEL", "OPENAI")
+    defaults = _defaults()
+    monkeypatch.setattr(
+        model_routes,
+        "load_model_config",
+        lambda: defaults.model_copy(
+            update={
+                "image": ImageConfig(
+                    enabled=True,
+                    protocol="MiniMax（国内站）",
+                    model_name="image-01",
+                    api_key="sk-minimax",
+                    base_url="https://api.minimax.cn",
+                ),
+            },
+        ),
+    )
+
+    configs = model_routes.request_tool_configs()
+
+    tool_cfg = configs[config.CREATOR_IMAGE_CONFIG_TOOL]
+    assert tool_cfg["_image_backend"] == "MINIMAX"
+    with _tool_configs(configs):
+        assert isinstance(
+            image_models.get_image_model(),
+            image_models.MiniMaxImageModel,
+        )
+
+
+def test_every_image_protocol_resolves_to_a_registered_provider() -> None:
+    """Keep the protocol list and the provider registry from drifting.
+
+    An unmapped label makes ``request_tool_configs`` omit the selector
+    and lets ``IMAGE_MODEL`` win; a label mapped to an unregistered key
+    falls back to OpenAI. Neither shows up in a connection test, so the
+    whole list is asserted here.
+    """
+    # Mirrors IMAGE_PROTOCOLS in ui/.../creator/ModelConfigModal.tsx.
+    from models.image import _PROVIDERS
+
+    image_protocols = (
+        "OpenAI 协议",
+        "DashScope（百炼）",
+        "Google Gemini",
+        "Volcano Engine（火山引擎）",
+        "Black Forest Labs（FLUX）",
+        "Ideogram",
+        "MiniMax（国内站）",
+        "MiniMax（国际站）",
+        "Aliyun Token Plan",
+    )
+
+    unresolved = {
+        label: image_models.image_backend_for_protocol(label)
+        for label in image_protocols
+        if image_models.image_backend_for_protocol(label) not in _PROVIDERS
+    }
+
+    assert unresolved == {}
+
+
 def test_persisted_image_backend_log_never_contains_api_key(
     monkeypatch,
 ) -> None:

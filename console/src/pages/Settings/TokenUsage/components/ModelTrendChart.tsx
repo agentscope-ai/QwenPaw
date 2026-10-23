@@ -1,10 +1,11 @@
+import type { LineConfig } from "@ant-design/plots";
 import { Card } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
-import { Line } from "@ant-design/plots";
+import { SnapTrend } from "@/components/interaction/SnapTrend";
 import styles from "../index.module.less";
 
 interface ModelTrendChartProps {
-  chartConfig: any;
+  chartConfig: LineConfig | null;
 }
 
 export function ModelTrendChart({ chartConfig }: ModelTrendChartProps) {
@@ -19,7 +20,7 @@ export function ModelTrendChart({ chartConfig }: ModelTrendChartProps) {
         <span className={styles.chartTitle}>{t("tokenUsage.modelTrend")}</span>
       }
     >
-      <Line {...chartConfig} />
+      <SnapTrend config={chartConfig} label={t("tokenUsage.date")} />
     </Card>
   );
 }

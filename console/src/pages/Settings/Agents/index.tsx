@@ -1,33 +1,19 @@
+import { AgentGallery } from "./components/AgentGallery";
 import { useState, useRef, useCallback } from "react";
-import { Card, Button, Form } from "antd";
+import { Button, Form } from "antd";
 import { useAppMessage } from "../../../hooks/useAppMessage";
-import { PlusOutlined } from "@ant-design/icons";
+import { Plus as PlusOutlined } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { agentsApi } from "../../../api/modules/agents";
 import { invalidateSkillCache, skillApi } from "../../../api/modules/skill";
-import type {
-  AgentProfileConfig,
-  AgentSummary,
-  CopyAgentRequest,
-} from "../../../api/types/agents";
+import type { AgentSummary, CopyAgentRequest } from "../../../api/types/agents";
 import { useAgentStore } from "../../../stores/agentStore";
 import { useAgents } from "./useAgents";
-import { AgentTable, AgentModal, CopyAgentModal } from "./components";
+import { AgentModal, CopyAgentModal } from "./components";
 import { MAIL_DOMAIN_WHITELIST } from "./components/mailDomains";
 import { PageHeader } from "@/components/PageHeader";
 import { reorderAgents } from "./reorder";
 import styles from "./index.module.less";
-
-type ModelSettingsDraft = Pick<
-  AgentProfileConfig,
-  "fallback_models" | "fallback_policy" | "subagent_model"
->;
-
-const EMPTY_MODEL_SETTINGS: ModelSettingsDraft = {
-  fallback_models: [],
-  fallback_policy: { enabled: true, target_scope: "configured" },
-  subagent_model: null,
-};
 
 export default function AgentsPage() {
   const { t, i18n } = useTranslation();
@@ -46,24 +32,18 @@ export default function AgentsPage() {
   const [copyModalVisible, setCopyModalVisible] = useState(false);
   const [copyingAgent, setCopyingAgent] = useState<AgentSummary | null>(null);
   const [copying, setCopying] = useState(false);
-  const [reordering, setReordering] = useState(false);
+  const orderQueue = useRef<string[] | null>(null);
+  const orderSaving = useRef(false);
   const [form] = Form.useForm();
   const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
-  const [modelSettings, setModelSettings] =
-    useState<ModelSettingsDraft>(EMPTY_MODEL_SETTINGS);
-  const [modelSettingsResetToken, setModelSettingsResetToken] = useState(0);
   const installedSkillsRef = useRef<string[]>([]);
   const { message } = useAppMessage();
 
   const handleCreate = () => {
     setEditingAgent(null);
-    setModelSettings(EMPTY_MODEL_SETTINGS);
-    setModelSettingsResetToken((token) => token + 1);
     form.resetFields();
     form.setFieldsValue({
       workspace_dir: "",
-      active_model_provider: undefined,
-      active_model_model: undefined,
       mail_mode: "none",
       mail_credential: undefined,
       mail_push: undefined,
@@ -81,18 +61,9 @@ export default function AgentsPage() {
       invalidateSkillCache({ agentId: agent.id });
       const config = await agentsApi.getAgent(agent.id);
       setEditingAgent(agent);
-      setModelSettings({
-        fallback_models: config.fallback_models ?? [],
-        fallback_policy:
-          config.fallback_policy ?? EMPTY_MODEL_SETTINGS.fallback_policy,
-        subagent_model: config.subagent_model ?? null,
-      });
-      setModelSettingsResetToken((token) => token + 1);
       const { mail, ...configRest } = config;
       form.setFieldsValue({
         ...configRest,
-        active_model_provider: config.active_model?.provider_id || undefined,
-        active_model_model: config.active_model?.model || undefined,
         mail_mode: mail
           ? mail.is_new_account
             ? "dedicated"
@@ -197,25 +168,7 @@ export default function AgentsPage() {
           ? workspaceRaw.trim() || undefined
           : workspaceRaw;
 
-      const providerId = values.active_model_provider;
-      const modelId = values.active_model_model;
-      const active_model =
-        values.backend === "qwenpaw" && providerId && modelId
-          ? { provider_id: providerId, model: modelId }
-          : null;
-
-      const {
-        // Destructured only to keep them out of `rest` (already read
-        // above via `values.*`); underscore + disable per project style.
-        // eslint-disable-next-line @typescript-eslint/no-unused-vars
-        active_model_provider: _active_model_provider,
-        // eslint-disable-next-line @typescript-eslint/no-unused-vars
-        active_model_model: _active_model_model,
-        mail_mode,
-        mail_credential,
-        mail_push,
-        ...rest
-      } = values;
+      const { mail_mode, mail_credential, mail_push, ...rest } = values;
       // 0.2.0: the rules editor UI is hidden, so `mail_push.rules` is no
       // longer a registered form field and won't appear in validateFields()
       // results. Read the form store directly to pass legacy rules through
@@ -295,9 +248,7 @@ export default function AgentsPage() {
       const payload = {
         ...rest,
         workspace_dir,
-        active_model,
         mail,
-        ...(values.backend === "qwenpaw" ? modelSettings : {}),
       };
 
       if (editingAgent) {
@@ -347,37 +298,51 @@ export default function AgentsPage() {
   };
 
   const handleReorder = async (activeId: string, overId: string) => {
-    const nextAgents = reorderAgents(agents, activeId, overId);
-    if (nextAgents === agents) {
-      return;
-    }
-
-    const previousAgents = agents;
-    setAgents(nextAgents);
-    setReordering(true);
-
+    const current = useAgentStore.getState().agents;
+    const next = reorderAgents(current, activeId, overId);
+    if (next === current) return;
+    setAgents(next);
+    orderQueue.current = next.map((item) => item.id);
+    if (orderSaving.current) return;
+    orderSaving.current = true;
+    let confirmed = current.map((item) => item.id);
     try {
-      await agentsApi.reorderAgents(nextAgents.map((agent) => agent.id));
-      message.success(t("agent.reorderSuccess"));
-    } catch (error) {
-      console.error("Failed to reorder agents:", error);
-      setAgents(previousAgents);
-      message.error(t("agent.reorderFailed"));
+      while (orderQueue.current) {
+        const order = orderQueue.current;
+        orderQueue.current = null;
+        try {
+          await agentsApi.reorderAgents(order);
+          confirmed = order;
+        } catch (error) {
+          console.error("Failed to reorder agents:", error);
+          if (!orderQueue.current) {
+            const latest = useAgentStore.getState().agents;
+            const rank = new Map(confirmed.map((id, index) => [id, index]));
+            setAgents(
+              [...latest].sort(
+                (a, b) =>
+                  (rank.get(a.id) ?? confirmed.length) -
+                  (rank.get(b.id) ?? confirmed.length),
+              ),
+            );
+            message.error(t("agent.reorderFailed"));
+          }
+        }
+      }
     } finally {
-      setReordering(false);
+      orderSaving.current = false;
     }
   };
 
   return (
     <div className={styles.agentsPage}>
       <PageHeader
-        parent={t("agent.parent")}
         current={t("agent.agents")}
         extra={
           <div className={styles.headerRight}>
             <Button
               type="primary"
-              icon={<PlusOutlined />}
+              icon={<PlusOutlined size="1em" />}
               onClick={handleCreate}
             >
               {t("agent.create")}
@@ -386,11 +351,11 @@ export default function AgentsPage() {
         }
       />
 
-      <Card className={styles.tableCard}>
-        <AgentTable
+      <div className={styles.galleryContainer}>
+        <AgentGallery
           agents={agents}
-          loading={loading || reordering}
-          reordering={reordering}
+          loading={loading}
+          reordering={false}
           onEdit={handleEdit}
           onCopy={handleOpenCopy}
           onDelete={handleDelete}
@@ -398,7 +363,7 @@ export default function AgentsPage() {
           onPin={handlePin}
           onReorder={handleReorder}
         />
-      </Card>
+      </div>
 
       <AgentModal
         open={modalVisible}
@@ -407,9 +372,6 @@ export default function AgentsPage() {
         selectedSkills={selectedSkills}
         onSelectedSkillsChange={setSelectedSkills}
         onInstalledSkillsLoaded={handleInstalledSkillsLoaded}
-        modelSettings={modelSettings}
-        modelSettingsResetToken={modelSettingsResetToken}
-        onModelSettingsChange={(settings) => setModelSettings(settings)}
         onSave={handleSubmit}
         onCancel={() => setModalVisible(false)}
       />

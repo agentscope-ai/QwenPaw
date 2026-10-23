@@ -13,7 +13,12 @@ from typing import Any, AsyncGenerator, Awaitable, Callable
 from agentscope.message import TextBlock, ToolResultState
 from agentscope.tool import ToolChunk, ToolResponse
 
-from ._context import CancelReason, OffloadReason, ToolCallContext
+from ._context import (
+    CancelReason,
+    OffloadReason,
+    ToolCallContext,
+    format_cancel_message,
+)
 from ._ctxvars import reset_call_context, set_call_context
 from ._entry import ToolCallEntry, ToolCallStatus
 from ._hint import make_offload_hint_msg
@@ -169,6 +174,14 @@ class ToolCoordinator:
                 elif event.type == "kill_deadline_reached":
                     ctx.cancel_event.set()
                     ctx.cancel_reason = CancelReason.TIMEOUT
+                    logger.info(
+                        "Tool deadline fired: tool=%s call_id=%s "
+                        "session_id=%s reason=%s",
+                        ctx.tool_name,
+                        ctx.tool_call_id,
+                        ctx.session_id,
+                        ctx.cancel_reason.value,
+                    )
                     await self._await_grace_or_force_cancel(entry)
                     terminal = "completed"
                     break
@@ -212,17 +225,8 @@ class ToolCoordinator:
                 entry.background_task,
                 return_exceptions=True,
             )
-        entry.final_response = ToolResponse(
-            content=[
-                TextBlock(
-                    type="text",
-                    text=self._cancel_message_for_llm(ctx),
-                ),
-            ],
-            id=ctx.tool_call_id,
-            state=ToolResultState.INTERRUPTED,
-        )
-        entry.end_state = "interrupted"
+        entry.final_response = self._cancel_response(ctx)
+        entry.end_state = self._end_state(entry.final_response.state)
         await self._finalize_completed(entry)
 
     def _create_entry(
@@ -434,6 +438,15 @@ class ToolCoordinator:
         if entry is None:
             return False
         entry.ctx.cancel_reason = reason
+        logger.info(
+            "Tool cancellation requested: tool=%s call_id=%s "
+            "session_id=%s reason=%s force=%s",
+            entry.ctx.tool_name,
+            entry.ctx.tool_call_id,
+            entry.ctx.session_id,
+            reason.value,
+            force,
+        )
         if force:
             # Always signal cancel_event before task.cancel() so platforms
             # that bridge cancel → process kill (e.g. Windows host shell)
@@ -723,14 +736,22 @@ class ToolCoordinator:
         tool_call: Any,
         entry: ToolCallEntry,
     ) -> None:
+        terminal = False
         try:
             async for item in next_handler(tool_call=tool_call):
+                # Drain through EOF so toolkit finalizers and middleware
+                # finish normally. Keep the first terminal result intact.
+                if terminal:
+                    continue
                 if isinstance(item, ToolResponse):
+                    item = self._normalize_interrupted_result(item, entry.ctx)
                     entry.final_response = item
-                    await entry.stream.close()
-                    return
+                    entry.end_state = self._end_state(item.state)
+                    terminal = True
+                    continue
 
                 if isinstance(item, ToolChunk):
+                    item = self._normalize_interrupted_result(item, entry.ctx)
                     entry.final_response.append_chunk(item)
                     await entry.stream.append(item)
 
@@ -743,22 +764,19 @@ class ToolCoordinator:
                             if item.state == ToolResultState.ERROR
                             else "interrupted"
                         )
-                        await entry.stream.close()
-                        return
+                        terminal = True
 
         except asyncio.CancelledError:
-            entry.final_response = ToolResponse(
-                content=[
-                    TextBlock(
-                        type="text",
-                        text=self._cancel_message_for_llm(entry.ctx),
-                    ),
-                ],
-                id=entry.ctx.tool_call_id,
-                state=ToolResultState.INTERRUPTED,
-            )
-            entry.end_state = "interrupted"
+            entry.final_response = self._cancel_response(entry.ctx)
+            entry.end_state = self._end_state(entry.final_response.state)
         except Exception as exc:
+            if terminal:
+                logger.warning(
+                    f"Tool stream cleanup failed after terminal result: "
+                    f"{entry.ctx.tool_name}/{entry.ctx.tool_call_id}",
+                    exc_info=True,
+                )
+                return
             logger.exception(
                 "Tool handler failed for %s/%s",
                 entry.ctx.tool_name,
@@ -812,15 +830,9 @@ class ToolCoordinator:
                     return
 
             if entry.ctx.is_cancelled:
-                entry.final_response = ToolResponse(
-                    content=[
-                        TextBlock(
-                            type="text",
-                            text=self._cancel_message_for_llm(entry.ctx),
-                        ),
-                    ],
-                    id=entry.ctx.tool_call_id,
-                    state=ToolResultState.INTERRUPTED,
+                entry.final_response = self._cancel_response(entry.ctx)
+                entry.end_state = self._end_state(
+                    entry.final_response.state,
                 )
                 await entry.stream.close()
                 return
@@ -984,6 +996,10 @@ class ToolCoordinator:
                 id=entry.ctx.tool_call_id,
                 state=ToolResultState.ERROR,
             )
+        entry.final_response = self._normalize_interrupted_result(
+            entry.final_response,
+            entry.ctx,
+        )
         entry.status = ToolCallStatus.COMPLETED
         if entry.end_state is None:
             entry.end_state = (
@@ -994,23 +1010,98 @@ class ToolCoordinator:
         return entry.final_response
 
     @staticmethod
-    def _cancel_message_for_llm(ctx: ToolCallContext) -> str:
-        """LLM-facing text for a cancelled tool call."""
-        if ctx.cancel_reason == CancelReason.USER:
-            return (
-                f"Tool `{ctx.tool_name}` was cancelled by the user. "
-                "Do not retry this tool call unless the user explicitly asks."
-            )
-        if ctx.cancel_reason == CancelReason.TIMEOUT:
-            return (
-                f"Tool `{ctx.tool_name}` was cancelled due to timeout. "
-                "Do not retry with the same timeout unless the user asks; "
-                "consider a longer timeout or a different approach."
-            )
+    def _cancel_result_state(ctx: ToolCallContext) -> ToolResultState:
+        """Map cancellation ownership to the parent agent's control flow."""
+        if ctx.cancel_reason in (
+            CancelReason.TIMEOUT,
+            CancelReason.AGENT,
+        ):
+            return ToolResultState.ERROR
+        return ToolResultState.INTERRUPTED
+
+    @staticmethod
+    def _end_state(state: ToolResultState) -> str | None:
+        if state == ToolResultState.ERROR:
+            return "error"
+        if state == ToolResultState.INTERRUPTED:
+            return "interrupted"
+        return None
+
+    def _cancel_response(self, ctx: ToolCallContext) -> ToolResponse:
         reason = ctx.cancel_reason.value if ctx.cancel_reason else "unknown"
-        return (
-            f"Tool `{ctx.tool_name}` was cancelled (reason={reason}). "
-            "Do not retry unless appropriate for the new situation."
+        return ToolResponse(
+            content=[
+                TextBlock(
+                    type="text",
+                    text=format_cancel_message(
+                        ctx.tool_name,
+                        ctx.cancel_reason,
+                    ),
+                ),
+            ],
+            id=ctx.tool_call_id,
+            state=self._cancel_result_state(ctx),
+            metadata={"cancel_reason": reason},
+        )
+
+    def _normalize_interrupted_result(
+        self,
+        result: ToolChunk | ToolResponse,
+        ctx: ToolCallContext,
+    ) -> ToolChunk | ToolResponse:
+        """Restore the Coordinator-owned reason lost by tool wrappers."""
+        if result.state != ToolResultState.INTERRUPTED:
+            return result
+        if ctx.cancel_reason not in (
+            CancelReason.TIMEOUT,
+            CancelReason.AGENT,
+            CancelReason.SHUTDOWN,
+        ):
+            return result
+
+        false_user_marker = "interrupted by the user"
+        content = [
+            block
+            for block in result.content
+            if not (
+                isinstance(block, TextBlock)
+                and false_user_marker in block.text.lower()
+            )
+        ]
+        content.append(
+            TextBlock(
+                type="text",
+                text=format_cancel_message(
+                    ctx.tool_name,
+                    ctx.cancel_reason,
+                ),
+            ),
+        )
+        reason = ctx.cancel_reason.value
+        metadata = {**result.metadata, "cancel_reason": reason}
+        state = self._cancel_result_state(ctx)
+        logger.info(
+            "Normalized tool cancellation: tool=%s call_id=%s "
+            "incoming_state=%s outgoing_state=%s reason=%s",
+            ctx.tool_name,
+            ctx.tool_call_id,
+            result.state.value,
+            state.value,
+            reason,
+        )
+        if isinstance(result, ToolChunk):
+            return ToolChunk(
+                content=content,
+                state=state,
+                is_last=result.is_last,
+                metadata=metadata,
+                id=result.id,
+            )
+        return ToolResponse(
+            content=content,
+            state=state,
+            metadata=metadata,
+            id=result.id,
         )
 
     def _ensure_kill_deadline_for_offload(

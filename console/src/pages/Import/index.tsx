@@ -1,3 +1,4 @@
+import InlineHelp from "@/components/InlineHelp";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
@@ -16,7 +17,14 @@ import {
   Tag,
   Tooltip,
 } from "antd";
-import { CheckCircle2, CircleAlert, Download, PackageOpen } from "lucide-react";
+import {
+  ArrowRight,
+  CheckCircle2,
+  CircleAlert,
+  PackageOpen,
+} from "lucide-react";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+import { getAgentDisplayName } from "@/utils/agentDisplayName";
 import { PageHeader } from "@/components/PageHeader";
 import { useAgentStore } from "@/stores/agentStore";
 import { supportsPortabilityImport } from "@/utils/agentBackend";
@@ -187,6 +195,7 @@ function ImportWorkflow() {
     selectedAgent,
     loading,
     error,
+    detectError,
     detect,
     scan,
     start,
@@ -198,6 +207,14 @@ function ImportWorkflow() {
     Record<string, ImportSource[]>
   >({});
   const selectedSources = sourceSelections[selectedAgent] ?? [];
+  const reducedMotion = useReducedMotion();
+  const targetId = job?.agent_id ?? selectedAgent;
+  const targetAgent = useAgentStore(({ agents }) =>
+    agents.find((agent) => agent.id === targetId),
+  );
+  const routeSources = job
+    ? job.providers.map((provider) => provider.source)
+    : selectedSources;
   const [selections, setSelections] = useState<
     Record<string, Partial<Record<ImportSource, ImportSelection>>>
   >({});
@@ -227,14 +244,28 @@ function ImportWorkflow() {
     void detect().catch(() => undefined);
   }, [detect]);
   useEffect(() => {
-    if (!job && sources.length && !sourceSelections[selectedAgent]) {
+    if (
+      !job &&
+      !loading &&
+      !detectError &&
+      sources.length &&
+      !sourceSelections[selectedAgent]
+    ) {
       updateSources(() =>
         sources
           .filter((source) => source.detected)
           .map((source) => source.source),
       );
     }
-  }, [job, selectedAgent, sourceSelections, sources, updateSources]);
+  }, [
+    detectError,
+    job,
+    loading,
+    selectedAgent,
+    sourceSelections,
+    sources,
+    updateSources,
+  ]);
   useEffect(() => {
     if (
       job?.state !== "awaiting_selection" ||
@@ -258,7 +289,11 @@ function ImportWorkflow() {
     setPluginConfirmed(false);
   }, [selectionKey]);
 
-  const current = !job ? 0 : job.state === "awaiting_selection" ? 1 : 2;
+  const current = !job
+    ? 0
+    : ["scanning", "awaiting_selection"].includes(job.state)
+    ? 1
+    : 2;
   const isDone = Boolean(
     job &&
       ["completed", "completed_with_issues", "failed", "interrupted"].includes(
@@ -266,6 +301,7 @@ function ImportWorkflow() {
       ),
   );
   const isCancelling = job?.state === "cancelling";
+  const sourceDetectionFailed = !job && Boolean(detectError);
   const percent = useMemo(() => completion(job?.providers ?? []), [job]);
 
   const updateSelection = (
@@ -430,20 +466,13 @@ function ImportWorkflow() {
   return (
     <div className={styles.page}>
       <PageHeader
-        parent={t("nav.marketplace")}
         current={t("portabilityImport.title")}
+        extra={<InlineHelp>{t("portabilityImport.description")}</InlineHelp>}
       />
       <main className={styles.content}>
-        <div className={styles.intro}>
-          <Download size={28} />
-          <div>
-            <h2>{t("portabilityImport.title")}</h2>
-            <p>{t("portabilityImport.description")}</p>
-          </div>
-        </div>
-        {job && (
+        {job && job.agent_id !== selectedAgent && (
           <Alert
-            type={job.agent_id === selectedAgent ? "info" : "warning"}
+            type="warning"
             showIcon
             message={t("portabilityImport.targetAgent", {
               agent: job.agent_id,
@@ -458,7 +487,64 @@ function ImportWorkflow() {
             { title: t("portabilityImport.steps.progress") },
           ]}
         />
-        {error && <Alert type="error" showIcon message={error} />}
+        <section
+          className={styles.route}
+          aria-label={t("portabilityImport.title")}
+        >
+          <div className={styles.routeSources}>
+            <AnimatePresence initial={false}>
+              {routeSources.length ? (
+                routeSources.map((source) => (
+                  <motion.span
+                    key={source}
+                    layout
+                    className={styles.routeSource}
+                    initial={{ opacity: 0, scale: reducedMotion ? 1 : 0.96 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0, scale: reducedMotion ? 1 : 0.96 }}
+                    transition={
+                      reducedMotion
+                        ? { duration: 0 }
+                        : { type: "spring", stiffness: 360, damping: 38 }
+                    }
+                  >
+                    {sources.find((item) => item.source === source)?.name ??
+                      source}
+                  </motion.span>
+                ))
+              ) : (
+                <span key="empty" className={styles.routeEmpty}>
+                  {t("portabilityImport.chooseSources")}
+                </span>
+              )}
+            </AnimatePresence>
+          </div>
+          <ArrowRight size={20} aria-hidden="true" />
+          <div className={styles.routeTarget}>
+            <strong>QwenPaw</strong>
+            <span>
+              {t("portabilityImport.targetAgent", {
+                agent: targetAgent
+                  ? getAgentDisplayName(targetAgent, t)
+                  : targetId,
+              })}
+            </span>
+          </div>
+        </section>
+        {error && (
+          <Alert
+            type="error"
+            showIcon
+            message={sourceDetectionFailed ? detectError : error}
+            action={
+              sourceDetectionFailed ? (
+                <Button onClick={() => void detect().catch(() => undefined)}>
+                  {t("common.retry")}
+                </Button>
+              ) : undefined
+            }
+          />
+        )}
         {job && !isDone && (
           <div className={styles.actions}>
             <Button
@@ -474,11 +560,15 @@ function ImportWorkflow() {
           </div>
         )}
 
-        {!job && (
+        {!job && !sourceDetectionFailed && (
           <section className={styles.section}>
             <div className={styles.sectionHeading}>
-              <h3>{t("portabilityImport.chooseSources")}</h3>
-              <p>{t("portabilityImport.chooseSourcesHint")}</p>
+              <h3>
+                {t("portabilityImport.chooseSources")}{" "}
+                <InlineHelp>
+                  {t("portabilityImport.chooseSourcesHint")}
+                </InlineHelp>
+              </h3>
             </div>
             {loading && !sources.length ? (
               <div className={styles.center}>

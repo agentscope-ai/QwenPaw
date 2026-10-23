@@ -42,6 +42,7 @@ from services.media_files.image_execution import (
     recover_unclaimed_image_tasks,
 )
 from services.media_files.transient_errors import is_transient_error_message
+from services.file_agent_runtime import manual_regeneration_hold
 from services.file_agent_runtime.notifications import RuntimeEventKind
 from services.file_agent_runtime.work_graph import (
     dispatch_key_predates_digest_ledger,
@@ -289,6 +290,9 @@ class WorkGraphScheduler:
     ) -> None:
         self.services = services
         self.executions = ProjectExecutionStore(services.root)
+        self.manual_holds = (
+            manual_regeneration_hold.ManualRegenerationHoldStore(services.root)
+        )
         self._image_dispatch = image_dispatch
         self._r2v_dispatch = r2v_dispatch
         self._s2v_dispatch = s2v_dispatch
@@ -427,6 +431,7 @@ class WorkGraphScheduler:
         if task is None or task.done():
             self._loops[project_id] = asyncio.create_task(
                 self._project_loop(project_id),
+                context=manual_regeneration_hold.background_context(),
             )
 
     async def shutdown(self) -> None:
@@ -739,9 +744,18 @@ class WorkGraphScheduler:
         # dispatching inside it would hand a possibly half-finished prompt
         # to a paid provider. Recheck once the earliest window expires.
         held_recheck: float | None = None
+        manually_held = (
+            await asyncio.to_thread(self.manual_holds.read, project_id)
+        ).node_ids
         for node in self._dispatch_candidates(project_id, graph, tasks):
             if capacity <= 0:
                 break
+            if node.node_id in manually_held:
+                logger.info(
+                    "work-graph node %s held pending manual regeneration",
+                    node.node_id,
+                )
+                continue
             target_ref = node.target_ref or ""
             if target_ref.startswith("element:"):
                 held_for = frontend_edit_hold.hold_remaining(
@@ -869,6 +883,9 @@ class WorkGraphScheduler:
                 and graph.by_id[key[1]].prompt_sync_required
             )
         }
+        manually_held = (
+            await asyncio.to_thread(self.manual_holds.read, project_id)
+        ).node_ids
         for node in graph.nodes:
             if (
                 # pylint: disable-next=too-many-boolean-expressions
@@ -877,6 +894,7 @@ class WorkGraphScheduler:
                 or not node.timeline_id
                 or not node.target_ref
                 or node.node_id in self._inflight.get(project_id, set())
+                or node.node_id in manually_held
                 or any(
                     dep not in graph.by_id
                     or graph.by_id[dep].status is not WorkNodeStatus.DONE
@@ -971,6 +989,12 @@ class WorkGraphScheduler:
                     text=f"正在准备生成内容：{node.label}",
                     node=node,
                 )
+                if await asyncio.to_thread(
+                    self.manual_holds.is_held,
+                    project_id,
+                    node.node_id,
+                ):
+                    return
                 proposal = await service.propose(
                     project_id,
                     node.timeline_id,
@@ -1006,12 +1030,23 @@ class WorkGraphScheduler:
                     for other in latest_graph.nodes
                 ):
                     return
-                await service.accept(
+                if await asyncio.to_thread(
+                    self.manual_holds.is_held,
                     project_id,
-                    node.timeline_id,
-                    element_id,
-                    proposal["proposalId"],
-                )
+                    node.node_id,
+                ):
+                    return
+                with manual_regeneration_hold.automatic_node(
+                    self.services.root,
+                    project_id,
+                    node.node_id,
+                ):
+                    await service.accept(
+                        project_id,
+                        node.timeline_id,
+                        element_id,
+                        proposal["proposalId"],
+                    )
                 self._preparation_validation_errors.pop(
                     (project_id, node.node_id),
                     None,
@@ -1491,7 +1526,12 @@ class WorkGraphScheduler:
             node=node,
         )
         try:
-            await self.dispatch_node(project_id, node, fingerprint)
+            with manual_regeneration_hold.automatic_node(
+                self.services.root,
+                project_id,
+                node.node_id,
+            ):
+                await self.dispatch_node(project_id, node, fingerprint)
             self._deterministic_failure_nodes.pop(
                 (project_id, node.node_id, fingerprint),
                 None,
@@ -1511,6 +1551,8 @@ class WorkGraphScheduler:
                     text=f"生成完成：{node.label}",
                     node=node,
                 )
+        except manual_regeneration_hold.ManualHoldConflict:
+            self._dispatched.discard((project_id, node.node_id, fingerprint))
         except Exception as exc:  # pylint: disable=broad-except
             ledger_key = (project_id, node.node_id, fingerprint)
             if _is_transient_dispatch_error(
@@ -1716,6 +1758,7 @@ async def _default_script_dispatch(
     target_ref: str,
     arguments: dict[str, Any],
     idempotency_key: str,
+    expected_object_versions: Sequence[str] = (),
 ) -> Any:
     """Draft one timeline's script via the text model (free of media spend)."""
 
@@ -1726,6 +1769,15 @@ async def _default_script_dispatch(
 
     # The script entry point has a single command and takes no command kwarg.
     del command
+    if expected_object_versions:
+        from domain.errors import ConflictError
+
+        snapshot = await asyncio.to_thread(services.projects.read, project_id)
+        if any(
+            f"project:{snapshot.etag}:" not in value
+            for value in expected_object_versions
+        ):
+            raise ConflictError("剧本命令目标已被其他写者修改")
     return await execute_file_script_command(
         services,
         project_id=project_id,
@@ -1779,6 +1831,11 @@ async def _default_s2v_dispatch(
     )
 
     del command
+    await asyncio.to_thread(
+        manual_regeneration_hold.check_automatic,
+        services.root,
+        project_id,
+    )
     await preflight_s2v_face_detect(
         services,
         project_id=project_id,
@@ -1803,6 +1860,7 @@ async def _default_compose_dispatch(
     target_ref: str,
     arguments: dict[str, Any],
     idempotency_key: str,
+    expected_object_versions: Sequence[str] = (),
 ) -> Any:
     """Master render for an unattended project (same path as the UI button).
 
@@ -1895,6 +1953,11 @@ async def _default_compose_dispatch(
                 design_motion_overlays,
             )
 
+            await asyncio.to_thread(
+                manual_regeneration_hold.mark_untracked_admission,
+                services.root,
+                project_id,
+            )
             await design_motion_overlays(
                 services,
                 project_id=project_id,
@@ -1919,6 +1982,7 @@ async def _default_compose_dispatch(
         target_ref=target_ref,
         arguments=arguments,
         idempotency_key=idempotency_key,
+        expected_object_versions=expected_object_versions,
     )
 
 

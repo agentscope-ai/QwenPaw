@@ -28,6 +28,13 @@ from ...config.config import (
     load_agent_config,
     update_agent_config_async,
 )
+from ...hub.model_service.runtime_policy import require_model_route
+from ...providers.thinking import ThinkingControl
+from ...providers.model_pool import (
+    ModelPoolPage,
+    ModelPoolQuery,
+    model_pool_page,
+)
 from ...providers.provider import (
     ModelInfo,
     ProviderInfo,
@@ -39,6 +46,8 @@ from ...providers.provider_discovery_policy import (
 )
 from ...config.config import ActiveModelsInfo
 from ...providers.provider_manager import ProviderManager
+from ...providers.model_metadata import list_model_templates
+from ...providers.model_resolution import resolve_model_info
 from ...providers.hub_managed import (
     PROVIDER_ID,
     directory,
@@ -48,7 +57,9 @@ from ...providers.hub_managed import (
 from ...utils.io_utils import run_sync_io
 from ...utils.logging import sanitize_log_value
 from ...providers.openrouter_provider import OpenRouterProvider
-from ...config.config import ModelSlotConfig
+from ...config.config import ModelSlotConfig, ModelType
+
+from .model_validation import validate_model_slot as _validate_model_slot
 
 logger = logging.getLogger(__name__)
 
@@ -92,7 +103,10 @@ async def get_provider_manager(request: Request) -> ProviderManager:
         request: FastAPI request object
     """
     if hub_mode() and request.path_params.get("provider_id") == PROVIDER_ID:
-        raise HTTPException(403, "Organization model configuration is locked")
+        require_model_route(
+            request.url.path.removeprefix(f"/api/"),
+            request.method,
+        )
     return request.app.state.provider_manager
 
 
@@ -110,11 +124,13 @@ def _active_models_info(
             )
     return ActiveModelsInfo(
         active_llm=active_llm,
+        default_models=manager.default_models,
         effective_max_input_length=effective_max_input_length,
     )
 
 
 class ProviderConfigRequest(BaseModel):
+    enabled: bool | None = None
     api_key: Optional[str] = Field(default=None)
     base_url: Optional[str] = Field(default=None)
     name: Optional[str] = Field(
@@ -126,7 +142,7 @@ class ProviderConfigRequest(BaseModel):
         description="Chat model class name for protocol selection",
     )
     generate_kwargs: Optional[dict] = Field(
-        default_factory=dict,
+        default=None,
         description=(
             "Configuration in json format, will be expanded "
             "and passed to generation calls "
@@ -160,13 +176,18 @@ def _should_auto_discover(
     if not getattr(provider, "support_model_discovery", False):
         return False
     api_key = getattr(provider, "api_key", None)
-    require_api_key = getattr(provider, "require_api_key", True)
+    require_api_key = getattr(
+        provider,
+        f"discovery_requires_auth",
+        getattr(provider, f"require_api_key", True),
+    )
     return bool(api_key or not require_api_key)
 
 
 class ModelSlotRequest(BaseModel):
-    provider_id: str = Field(..., description="Provider to use")
-    model: str = Field(..., description="Model identifier")
+    provider_id: str | None = Field(..., description="Provider to use")
+    model: str | None = Field(..., description="Model identifier")
+    model_type: ModelType = "chat"
     scope: ActiveModelWriteScope = Field(
         ...,
         description="Whether to update the global model or a specific agent",
@@ -194,6 +215,8 @@ class CreateCustomProviderRequest(BaseModel):
 
 
 class AddModelRequest(BaseModel):
+    model_type: ModelType = "chat"
+    template_id: str | None = None
     id: str = Field(...)
     name: str = Field(...)
     is_free: bool = Field(
@@ -219,8 +242,17 @@ class AddModelRequest(BaseModel):
 
 
 class ModelConfigRequest(BaseModel):
+    model_type: ModelType = "chat"
+    thinking_control: ThinkingControl | None = None
+    supports_image: bool | None = None
+    supports_video: bool | None = None
+    supports_audio: bool | None = None
+    supports_tool_calling: bool | None = None
+    template_id: str | None = None
+    confirm_paid: bool = False
     max_input_length: Optional[int] = Field(
         default=None,
+        ge=1000,
         description="Maximum input context window size (tokens).",
     )
     generate_kwargs: Optional[dict] = Field(
@@ -270,41 +302,6 @@ class ModelConfigRequest(BaseModel):
     )
 
 
-def _validate_model_slot(
-    manager: ProviderManager,
-    provider_id: str,
-    model_id: str,
-) -> None:
-    """Validate that the provider and model exist without mutating state."""
-    provider = manager.get_provider(provider_id)
-    if provider is None:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Provider '{provider_id}' not found.",
-        )
-    if not provider.has_model(model_id):
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                f"Model '{model_id}' not found in provider "
-                f"'{provider_id}'."
-            ),
-        )
-    model_info = provider.get_model_info(model_id)
-    if model_info and model_info.availability_status in {
-        "permission_denied",
-        "model_not_found",
-        "incompatible_api",
-    }:
-        reason = (
-            model_info.availability_message or model_info.availability_status
-        )
-        raise HTTPException(
-            status_code=400,
-            detail=f"Model '{model_id}' cannot be activated: {reason}",
-        )
-
-
 async def _load_agent_model(
     request: Request,
     agent_id: str,
@@ -327,6 +324,53 @@ async def list_all_providers(
     manager: ProviderManager = Depends(get_provider_manager),
 ) -> List[ProviderInfo]:
     return await manager.list_provider_info()
+
+
+@router.get(
+    f"/{{provider_id}}/pool",
+    response_model=ModelPoolPage,
+    response_model_exclude_none=True,
+)
+async def provider_model_pool(
+    provider_id: str,
+    query: ModelPoolQuery = Depends(),
+    manager: ProviderManager = Depends(get_provider_manager),
+) -> ModelPoolPage:
+    """Load only the requested page without blocking the event loop."""
+    provider = await run_sync_io(manager.get_provider, provider_id)
+    if provider is None:
+        raise HTTPException(status_code=404, detail=f"Provider not found")
+    return await run_sync_io(model_pool_page, provider, query)
+
+
+@router.get(f"/model-templates")
+async def model_templates() -> list[dict[str, str]]:
+    """List exact model templates available for deployment aliases."""
+    return await run_sync_io(list_model_templates)
+
+
+@router.get(f"/{{provider_id}}/model-info", response_model=ModelInfo)
+async def preview_model_info(
+    provider_id: str,
+    model_id: str,
+    template_id: str | None = None,
+    manager: ProviderManager = Depends(get_provider_manager),
+) -> ModelInfo:
+    """Resolve model metadata locally before adding a deployment."""
+    provider = await run_sync_io(manager.get_provider, provider_id)
+    if provider is None:
+        raise HTTPException(status_code=404, detail=f"Provider not found")
+    model = provider.get_model_info(model_id) or ModelInfo(
+        id=model_id,
+        name=model_id,
+    )
+    model = model.model_copy(update={f"template_id": template_id})
+    return await run_sync_io(
+        resolve_model_info,
+        provider,
+        model,
+        provider.get_discovered_model_info(model_id),
+    )
 
 
 @router.put(
@@ -352,6 +396,7 @@ async def configure_provider(
             detail=f"Unsupported custom protocol: {body.chat_model}",
         )
     config = {
+        f"enabled": body.enabled,
         "api_key": body.api_key,
         "base_url": body.base_url,
         "chat_model": body.chat_model,
@@ -399,6 +444,7 @@ async def configure_provider(
     status_code=201,
 )
 async def create_custom_provider_endpoint(
+    background_tasks: BackgroundTasks,
     manager: ProviderManager = Depends(get_provider_manager),
     body: CreateCustomProviderRequest = Body(...),
 ) -> ProviderInfo:
@@ -417,6 +463,16 @@ async def create_custom_provider_endpoint(
     except (ValueError, AppBaseException) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
+    provider = await run_sync_io(manager.get_provider, body.id)
+    if _should_auto_discover(ProviderConfigRequest(), provider):
+        prepared = await manager.prepare_provider_model_discovery(body.id)
+        if prepared is not None:
+            background_tasks.add_task(
+                manager.discover_provider_models,
+                body.id,
+                prepared_discovery=prepared,
+            )
+            provider_info = await manager.get_provider_info(body.id)
     return provider_info
 
 
@@ -569,14 +625,18 @@ async def discover_models(
             "base_url": body.base_url if body else None,
             "chat_model": body.chat_model if body else None,
         }
-        if save:
+        overrides = {
+            key: value for key, value in overrides.items() if value is not None
+        }
+        if save and overrides:
             ok = await manager.update_provider_async(provider_id, overrides)
             if not ok:
                 raise HTTPException(
                     status_code=404,
                     detail=f"Provider '{provider_id}' not found",
                 )
-        provider_override = manager.materialize_discovery_provider(
+        provider_override = await run_sync_io(
+            manager.materialize_discovery_provider,
             provider_id,
             overrides,
         )
@@ -664,14 +724,18 @@ async def add_model_endpoint(
     try:
         model_payload = {"id": body.id, "name": body.name}
         for field in (
+            "model_type",
             "supports_multimodal",
             "supports_image",
             "supports_video",
             "probe_source",
             "is_free",
+            f"template_id",
         ):
             if field in body.model_fields_set:
                 model_payload[field] = getattr(body, field)
+        if "model_type" in body.model_fields_set:
+            model_payload["config_overrides"] = ["model_type"]
         provider = await manager.add_model_to_provider(
             provider_id=provider_id,
             model_info=ModelInfo(**model_payload),
@@ -679,6 +743,56 @@ async def add_model_endpoint(
     except (ValueError, AppBaseException) as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return provider
+
+
+class ModelPoolRequest(BaseModel):
+    selected: bool | None = None
+    seen: bool = False
+
+
+class ModelPoolSelectionRequest(BaseModel):
+    selected: bool
+
+
+@router.put(
+    f"/{{provider_id}}/pool/selection",
+    response_model=ProviderInfo,
+    summary=f"Enable or disable the entire model pool",
+)
+async def select_all_provider_models(
+    manager: ProviderManager = Depends(get_provider_manager),
+    provider_id: str = Path(...),
+    body: ModelPoolSelectionRequest = Body(...),
+) -> ProviderInfo:
+    try:
+        return await manager.select_all_models(
+            provider_id,
+            selected=body.selected,
+        )
+    except (ValueError, AppBaseException) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.put(
+    "/{provider_id}/models/{model_id:path}/pool",
+    response_model=ProviderInfo,
+    summary=f"Select a candidate or mark it as read",
+)
+async def update_model_pool(
+    manager: ProviderManager = Depends(get_provider_manager),
+    provider_id: str = Path(...),
+    model_id: str = Path(...),
+    body: ModelPoolRequest = Body(...),
+) -> ProviderInfo:
+    try:
+        return await manager.update_model_pool(
+            provider_id,
+            model_id,
+            selected=body.selected,
+            seen=body.seen,
+        )
+    except (ValueError, AppBaseException) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.put(
@@ -703,16 +817,16 @@ async def set_model_visibility(
 
 
 class ProbeMultimodalResponse(BaseModel):
-    supports_image: bool = Field(
-        default=False,
+    supports_image: bool | None = Field(
+        default=None,
         description="Whether the model supports image input",
     )
-    supports_video: bool = Field(
-        default=False,
+    supports_video: bool | None = Field(
+        default=None,
         description="Whether the model supports video input",
     )
-    supports_multimodal: bool = Field(
-        default=False,
+    supports_multimodal: bool | None = Field(
+        default=None,
         description="Whether the model supports any multimodal input",
     )
     image_message: str = Field(
@@ -813,7 +927,7 @@ async def get_active_models(
                 workspace = await get_agent_for_request(request)
                 agent_id = workspace.agent_id
             selected = await _load_agent_model(request, agent_id) or selected
-        if selected is None or selected.provider_id == PROVIDER_ID:
+        if selected is not None and selected.provider_id == PROVIDER_ID:
             catalog = await run_sync_io(directory)
             if selected and selected.model not in {
                 model["id"] for model in catalog["models"]
@@ -879,23 +993,33 @@ async def get_active_models(
 @router.put(
     "/active",
     response_model=ActiveModelsInfo,
-    summary="Set active LLM",
+    summary="Set or clear a model selection",
 )
 async def set_active_model(
     request: Request,
     manager: ProviderManager = Depends(get_provider_manager),
     body: ModelSlotRequest = Body(...),
 ) -> ActiveModelsInfo:
-    """Set active model by scope."""
-    if hub_mode() and body.provider_id == PROVIDER_ID:
+    """Set typed global defaults or an agent's chat model."""
+    if (body.provider_id is None) != (body.model is None):
+        raise HTTPException(
+            status_code=400,
+            detail="provider_id and model must be set or cleared together",
+        )
+    slot = (
+        ModelSlotConfig(provider_id=body.provider_id, model=body.model)
+        if body.provider_id is not None
+        else None
+    )
+    if slot and hub_mode() and slot.provider_id == PROVIDER_ID:
         await run_sync_io(
             managed_slot,
-            ModelSlotConfig(provider_id=body.provider_id, model=body.model),
+            slot,
             explicit=True,
         )
     if body.scope == "global":
         try:
-            await manager.activate_model(body.provider_id, body.model)
+            await manager.set_default_model(body.model_type, slot)
         except (
             FileNotFoundError,
             RuntimeError,
@@ -908,35 +1032,6 @@ async def set_active_model(
                 raise HTTPException(status_code=404, detail=message) from exc
             raise HTTPException(status_code=400, detail=message) from exc
 
-        # Sync to active agent if its active_model is unset (#4937)
-        try:
-            workspace = await get_agent_for_request(request)
-            changed = False
-
-            def apply_global_default(
-                agent_config: AgentProfileConfig,
-            ) -> None:
-                nonlocal changed
-                if (
-                    agent_config.active_model
-                    and agent_config.active_model.provider_id
-                ):
-                    return
-                agent_config.active_model = ModelSlotConfig(
-                    provider_id=body.provider_id,
-                    model=body.model,
-                )
-                changed = True
-
-            await update_agent_config_async(
-                workspace.agent_id,
-                apply_global_default,
-            )
-            if changed:
-                schedule_agent_reload(request, workspace.agent_id)
-        except Exception:
-            pass
-
         return await run_sync_io(
             _active_models_info,
             manager,
@@ -948,12 +1043,19 @@ async def set_active_model(
             status_code=400,
             detail="agent_id is required when scope is 'agent'",
         )
+    if body.model_type != "chat" or slot is None:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Use agent model settings to clear or select decision models"
+            ),
+        )
 
     await run_sync_io(
         _validate_model_slot,
         manager,
-        body.provider_id,
-        body.model,
+        slot.provider_id,
+        slot.model,
     )
 
     try:
@@ -963,10 +1065,7 @@ async def set_active_model(
         )
 
         def apply_active_model(agent_config: AgentProfileConfig) -> None:
-            agent_config.active_model = ModelSlotConfig(
-                provider_id=body.provider_id,
-                model=body.model,
-            )
+            agent_config.active_model = slot
 
         await update_agent_config_async(
             workspace.agent_id,
@@ -992,16 +1091,13 @@ async def set_active_model(
             detail="Failed to save active model to agent config",
         ) from exc
 
-    if body.provider_id != PROVIDER_ID:
-        manager.maybe_probe_multimodal(body.provider_id, body.model)
+    if slot.provider_id != PROVIDER_ID:
+        manager.maybe_probe_multimodal(slot.provider_id, slot.model)
 
     return await run_sync_io(
         _active_models_info,
         manager,
-        ModelSlotConfig(
-            provider_id=body.provider_id,
-            model=body.model,
-        ),
+        slot,
     )
 
 

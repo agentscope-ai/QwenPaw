@@ -32,6 +32,7 @@ import {
 } from "@/lib/agentProgressModel";
 import { reviewPendingUnits } from "./FileProjectReviewPanel";
 import AgentActivityIndicator from "./AgentActivityIndicator";
+import { WorkGraphManualHoldNotice } from "./WorkGraphPanel";
 
 type ProgressFilter = "all" | AgentProgressPhase;
 const filters: ProgressFilter[] = [
@@ -399,7 +400,7 @@ export default function AgentProgressOverview({
       <span>{t("progressOverview.reviewBelow")}</span>
     </p>
   );
-  return (
+  const overview = (
     <section
       ref={sectionRef}
       data-agent-progress-overview
@@ -513,5 +514,11 @@ export default function AgentProgressOverview({
         </div>
       )}
     </section>
+  );
+  return (
+    <>
+      <WorkGraphManualHoldNotice projectId={projectId} />
+      {overview}
+    </>
   );
 }

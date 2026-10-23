@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """Async background task that asks the LLM to generate a chat title.
 
-The console handler creates a chat with a placeholder name (truncated first
-message) so the UI has something to show immediately. Once the chat exists
+The console handler creates a chat with a placeholder name from the first
+message so the UI has something to show immediately. Once the chat exists
 we spawn :func:`generate_and_update_title` as an ``asyncio`` task that asks
 the active chat model for a concise title and persists it via
 ``ChatManager.patch_chat``. Failures are logged and swallowed so title
@@ -41,7 +41,6 @@ TITLE_PROMPT = (
 )
 
 MAX_INPUT_CHARS = 500
-MAX_TITLE_CHARS = 60
 _LEADING_REASONING_BLOCK_RE = re.compile(
     r"\A\s*<(?P<tag>think(?:ing)?|analysis|reasoning)\b[^>]*>"
     + r".*?</(?P=tag)\s*>",
@@ -64,8 +63,6 @@ def _clean_title(raw: str) -> str:
     title = title.strip().strip("\"'`“”‘’")
     while title and title[-1] in ".,;:!?":
         title = title[:-1].rstrip()
-    if len(title) > MAX_TITLE_CHARS:
-        title = title[:MAX_TITLE_CHARS].rstrip()
     return title
 
 

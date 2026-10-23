@@ -125,6 +125,11 @@ def test_anthropic_protocol_dispatches_to_messages_endpoint(
     monkeypatch,
 ) -> None:
     _patch_config(monkeypatch, protocol="Anthropic Claude", api_key="sk-test")
+    monkeypatch.setattr(
+        text_model.model_config,
+        "get_text_model_name",
+        lambda: "MiniMax-M2.7",
+    )
     captured: dict = {}
 
     class FakeResponse:

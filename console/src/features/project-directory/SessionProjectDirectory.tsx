@@ -1,10 +1,12 @@
-import { Alert, Button, Checkbox, Input, Popover, Tooltip } from "antd";
+import { directoryBreadcrumbs } from "./directoryBreadcrumbs";
+import { Button, Checkbox, Input, Popover, Tooltip } from "antd";
 import {
   ArrowUp,
   Check,
   ChevronDown,
   ChevronRight,
   CircleAlert,
+  CircleHelp,
   Eye,
   EyeOff,
   Folder,
@@ -33,6 +35,7 @@ import type {
   ProjectListItem,
 } from "../../api/modules/projectDirectory";
 import styles from "./SessionProjectDirectory.module.less";
+import InlineHelp from "../../components/InlineHelp";
 import { setPendingProjectDirectory } from "./pendingProjectDirectory";
 import { loadSessionProjectDirs } from "./loadSessionProjectDirs";
 import type { FilesWorkspaceScope } from "../files-workspace/filesWorkspaceScope";
@@ -422,6 +425,30 @@ export default function SessionProjectDirectory({
   const isBound = (path: string) =>
     dirs.some((entry) => exactSamePath(entry.path, path));
 
+  const pendingIsAddable =
+    !!pendingPath.trim() &&
+    !isBound(pendingPath.trim()) &&
+    dirs.length < MAX_PROJECT_DIRS;
+
+  const dirsWithPending = useMemo(() => {
+    if (!pendingIsAddable) return bindableDirs;
+    const entry: ProjectDirEntry = {
+      path: pendingPath.trim(),
+      label: null,
+      exists: true,
+      nested_with: null,
+      is_workspace: false,
+    };
+    if (!isUntouchedFallback) return [...bindableDirs, entry];
+    return multiAgentDefault ? [entry] : [entry, ...bindableDirs];
+  }, [
+    bindableDirs,
+    isUntouchedFallback,
+    multiAgentDefault,
+    pendingIsAddable,
+    pendingPath,
+  ]);
+
   /** Queue a single-clicked folder or a typed path as the next one to bind. */
   const selectPending = (path: string) => {
     setListError(null);
@@ -482,22 +509,8 @@ export default function SessionProjectDirectory({
    *  editor replaces the fallback because it must only persist folders the
    *  user selected. */
   const addPending = () => {
-    const path = pendingPath.trim();
-    if (!path || isBound(path) || dirs.length >= MAX_PROJECT_DIRS) return;
-    const entry: ProjectDirEntry = {
-      path,
-      label: null,
-      exists: true,
-      nested_with: null,
-      // A directory picked in the browser is a project directory. Only the
-      // server can say otherwise, and it will on the next load — the flag is
-      // read by the Files switcher, which has nothing to collapse until then.
-      is_workspace: false,
-    };
-    setDirs((current) => {
-      if (!isUntouchedFallback) return [...current, entry];
-      return multiAgentDefault ? [entry] : [entry, ...current];
-    });
+    if (!pendingIsAddable) return;
+    setDirs(dirsWithPending);
     setPendingPath("");
   };
 
@@ -613,7 +626,7 @@ export default function SessionProjectDirectory({
 
   /** Commit the edited list. Index 0 becomes the server's primary. */
   const saveSessionList = async () => {
-    if (isNoopSave && !syncAsAgentDefaultRef.current) {
+    if (isNoopSave && !pendingIsAddable && !syncAsAgentDefaultRef.current) {
       // Just dismiss: no request, no unsaved-changes warning, and no tab
       // teardown for a directory set that is already bound.
       setPendingPath("");
@@ -621,7 +634,7 @@ export default function SessionProjectDirectory({
       setOpen(false);
       return;
     }
-    await commitSessionList(bindableDirs);
+    await commitSessionList(dirsWithPending);
   };
 
   /** Switch the primary to the queued path, from a paste + Enter.
@@ -769,12 +782,10 @@ export default function SessionProjectDirectory({
     >
       {inline && multiAgentDefault ? (
         <div className={styles.inlineHeading}>
-          <Alert
-            className={styles.inlineHint}
-            message={t("projectDirectory.primaryHint")}
-            showIcon
-            type="info"
-          />
+          <strong className={styles.inlineHint}>
+            {t("projectDirectory.boundDirs")}
+          </strong>
+          <InlineHelp>{t("projectDirectory.primaryHint")}</InlineHelp>
           <span
             className={styles.headingCount}
             title={t("projectDirectory.countTitle")}
@@ -864,6 +875,21 @@ export default function SessionProjectDirectory({
             onChange={(event) => selectPending(event.target.value)}
             placeholder={t("projectDirectory.pathPlaceholder")}
             onPressEnter={() => submitPendingAsPrimary()}
+            suffix={
+              pendingPath ? (
+                isBound(pendingPath) ? (
+                  <small>{t("projectDirectory.alreadyBound")}</small>
+                ) : dirs.length >= MAX_PROJECT_DIRS ? (
+                  <small>
+                    {t("projectDirectory.tooMany", { max: MAX_PROJECT_DIRS })}
+                  </small>
+                ) : (
+                  <Button disabled={saving} onClick={addPending} size="small">
+                    {t("projectDirectory.add")}
+                  </Button>
+                )
+              ) : undefined
+            }
             allowClear
           />
           {dirs.length > 0 || pendingPath ? (
@@ -911,40 +937,6 @@ export default function SessionProjectDirectory({
                   />
                 </li>
               ))}
-
-              {/* A folder that was clicked but not bound yet sits at the end,
-                  where it will land once it is added. */}
-              {pendingPath && (
-                <li className={styles.pendingRow} data-pending="true">
-                  <span className={styles.boundIcon}>
-                    <Folder size={15} />
-                  </span>
-                  <span className={styles.boundCopy}>
-                    <strong>{basenameOf(pendingPath)}</strong>
-                    <small title={pendingPath}>{pendingPath}</small>
-                  </span>
-                  {isBound(pendingPath) ? (
-                    <em className={styles.boundTag}>
-                      {t("projectDirectory.alreadyBound")}
-                    </em>
-                  ) : dirs.length >= MAX_PROJECT_DIRS ? (
-                    <em className={styles.boundTag}>
-                      {t("projectDirectory.tooMany", {
-                        max: MAX_PROJECT_DIRS,
-                      })}
-                    </em>
-                  ) : (
-                    <Button
-                      disabled={saving}
-                      onClick={addPending}
-                      size="small"
-                      type="primary"
-                    >
-                      {t("projectDirectory.add")}
-                    </Button>
-                  )}
-                </li>
-              )}
             </ul>
           ) : (
             <small className={styles.emptyState}>
@@ -958,11 +950,21 @@ export default function SessionProjectDirectory({
       <div className={styles.splitBody}>
         <section className={styles.recentPane}>
           <div className={styles.sectionHeading}>
-            <strong>{t("projectDirectory.recentProjects")}</strong>
+            <strong className={styles.sectionTitle}>
+              {t("projectDirectory.workspaceProjects")}
+              <Tooltip title={t("projectDirectory.workspaceProjectsHint")}>
+                <CircleHelp
+                  aria-label={t("projectDirectory.workspaceProjectsHint")}
+                  className={styles.sectionHelp}
+                  role="img"
+                  size={12}
+                />
+              </Tooltip>
+            </strong>
             <span>{projects.length}</span>
           </div>
           <div className={styles.recent}>
-            {projects.slice(0, 6).map((project) => {
+            {projects.map((project) => {
               const selected = !isListScope
                 ? selectedRecentPath === project.path
                 : exactSamePath(pendingPath, project.path);
@@ -971,6 +973,7 @@ export default function SessionProjectDirectory({
                   type="button"
                   key={project.path}
                   className={selected ? styles.recentSelected : undefined}
+                  title={project.path}
                   aria-pressed={selected}
                   onClick={() =>
                     !isListScope
@@ -993,7 +996,7 @@ export default function SessionProjectDirectory({
             })}
             {projects.length === 0 && (
               <small className={styles.emptyState}>
-                {t("projectDirectory.noRecentProjects")}
+                {t("projectDirectory.noWorkspaceProjects")}
               </small>
             )}
           </div>
@@ -1003,9 +1006,6 @@ export default function SessionProjectDirectory({
           <div className={styles.browserHeading}>
             <div>
               <strong>{t("projectDirectory.browseDirectory")}</strong>
-              {browser && (
-                <code title={browser.current}>{browser.current}</code>
-              )}
             </div>
             <div className={styles.browserActions}>
               <Button
@@ -1061,6 +1061,31 @@ export default function SessionProjectDirectory({
             </div>
           </div>
 
+          {browser && (
+            <nav
+              className={styles.directoryBreadcrumbs}
+              aria-label={t("projectDirectory.browseDirectory")}
+            >
+              {directoryBreadcrumbs(browser.current).map(
+                (crumb, index, crumbs) => (
+                  <span key={crumb.path}>
+                    {index > 0 && <ChevronRight size={12} aria-hidden />}
+                    <button
+                      type="button"
+                      title={crumb.path}
+                      aria-current={
+                        index === crumbs.length - 1 ? "location" : undefined
+                      }
+                      onClick={() => void browse(crumb.path)}
+                    >
+                      {crumb.label}
+                    </button>
+                  </span>
+                ),
+              )}
+            </nav>
+          )}
+
           {createDirectoryOpen && (
             <div className={styles.createDirectoryForm}>
               <Input
@@ -1109,22 +1134,41 @@ export default function SessionProjectDirectory({
                 ? !selectedRecentPath && draft === directory.path
                 : exactSamePath(pendingPath, directory.path);
               return (
-                <button
-                  type="button"
+                <div
                   key={directory.path}
-                  className={selected ? styles.directorySelected : undefined}
-                  aria-pressed={selected}
-                  onClick={() =>
-                    !isListScope
-                      ? selectCustomPath(directory.path)
-                      : selectPending(directory.path)
-                  }
-                  onDoubleClick={() => void browse(directory.path, true)}
+                  className={`${styles.directoryRow} ${
+                    selected ? styles.directorySelected : ""
+                  }`}
                 >
-                  <Folder size={15} />
-                  <span>{directory.name}</span>
-                  {selected ? <Check size={12} /> : <ChevronRight size={13} />}
-                </button>
+                  <button
+                    type="button"
+                    className={styles.directoryPick}
+                    aria-pressed={selected}
+                    onClick={() =>
+                      !isListScope
+                        ? selectCustomPath(directory.path)
+                        : selectPending(directory.path)
+                    }
+                    onDoubleClick={() => void browse(directory.path, true)}
+                  >
+                    <Folder size={17} />
+                    <span>{directory.name}</span>
+                    {selected && <Check size={14} />}
+                  </button>
+                  <button
+                    type="button"
+                    className={styles.directoryEnter}
+                    aria-label={t("projectDirectory.openDirectory", {
+                      name: directory.name,
+                    })}
+                    title={t("projectDirectory.openDirectory", {
+                      name: directory.name,
+                    })}
+                    onClick={() => void browse(directory.path)}
+                  >
+                    <ChevronRight size={17} />
+                  </button>
+                </div>
               );
             })}
             {browser && browser.dirs.length === 0 && (
@@ -1147,11 +1191,7 @@ export default function SessionProjectDirectory({
         </Checkbox>
       )}
 
-      <div
-        className={`${styles.actions} ${
-          multiAgentDefault ? styles.actionsStart : ""
-        }`.trim()}
-      >
+      <div className={styles.actions}>
         {!multiAgentDefault && (
           <Button
             type="text"
@@ -1176,7 +1216,8 @@ export default function SessionProjectDirectory({
           disabled={
             !isListScope
               ? !draft.trim()
-              : bindableDirs.length === 0 || isUntouchedFallback
+              : dirsWithPending.length === 0 ||
+                (isUntouchedFallback && !pendingIsAddable)
           }
         >
           {t("common.apply")}
@@ -1294,7 +1335,7 @@ export default function SessionProjectDirectory({
         open={open}
         onOpenChange={handleOpenChange}
         placement={isAgentScope ? "rightTop" : "topRight"}
-        overlayClassName={styles.desktopPopover}
+        classNames={{ root: styles.desktopPopover }}
       >
         <span className={styles.hiddenAnchor} aria-hidden="true" />
       </Popover>
@@ -1308,7 +1349,7 @@ export default function SessionProjectDirectory({
       open={open}
       onOpenChange={handleOpenChange}
       placement={isAgentScope ? "rightTop" : "topRight"}
-      overlayClassName={styles.desktopPopover}
+      classNames={{ root: styles.desktopPopover }}
     >
       {trigger}
     </Popover>

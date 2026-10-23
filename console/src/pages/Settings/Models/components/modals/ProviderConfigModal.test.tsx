@@ -44,9 +44,11 @@ vi.mock("@agentscope-ai/design", async (importOriginal) => {
     React.createElement(
       "div",
       { role: "dialog" },
-      title ? React.createElement("div", null, title as any) : null,
-      children as any,
-      footer ? React.createElement("div", null, footer as any) : null,
+      title ? React.createElement("div", null, title as React.ReactNode) : null,
+      children as React.ReactNode,
+      footer
+        ? React.createElement("div", null, footer as React.ReactNode)
+        : null,
     );
 
   return {
@@ -76,6 +78,7 @@ vi.mock("../../../../../hooks/useAppMessage", () => ({
 }));
 
 import { ProviderConfigModal } from "./ProviderConfigModal";
+import type { ActiveModelsInfo } from "../../../../../api/types";
 import { renderWithProviders } from "@/test/common_setup";
 
 function makeProvider(overrides: Record<string, unknown> = {}) {
@@ -96,7 +99,7 @@ function makeProvider(overrides: Record<string, unknown> = {}) {
 
 function renderModal(
   provider = makeProvider(),
-  activeModels: unknown = null,
+  activeModels: ActiveModelsInfo | null = null,
   onSaved = vi.fn().mockResolvedValue(undefined),
 ) {
   const onClose = vi.fn();
@@ -126,6 +129,26 @@ describe("ProviderConfigModal", () => {
   });
 
   describe("render and hints", () => {
+    it("shows the platform API key link alongside the key field", () => {
+      renderModal(
+        makeProvider({
+          id: "agentscope-platform",
+          name: "AgentScope Platform",
+          is_custom: false,
+          base_url: "https://platform.agentscope.io/compatible-mode/v1",
+          meta: { api_key_url: "https://platform.agentscope.io/model-calls" },
+        }),
+      );
+      const link = screen.getByRole("link", { name: "models.getApiKey" });
+      expect(link).toHaveAttribute(
+        "href",
+        "https://platform.agentscope.io/model-calls",
+      );
+      expect(link).toHaveAttribute("target", "_blank");
+      expect(link).toHaveAttribute("rel", "noopener noreferrer");
+      expect(link.closest("label")).toHaveTextContent("models.apiKey");
+    });
+
     it("renders custom provider name and protocol fields", () => {
       renderModal();
       expect(
@@ -454,7 +477,7 @@ describe("ProviderConfigModal", () => {
     it("revokes through the confirm dialog (active llm provider)", async () => {
       const user = userEvent.setup();
       const { onSaved } = renderModal(makeProvider({ api_key: "sk-live" }), {
-        active_llm: { provider_id: "custom-provider" },
+        active_llm: { provider_id: "custom-provider", model: "test-model" },
       });
 
       await openConfirm(user);
@@ -472,7 +495,7 @@ describe("ProviderConfigModal", () => {
     it("uses the simple message for non-active providers", async () => {
       const user = userEvent.setup();
       renderModal(makeProvider({ api_key: "sk-live" }), {
-        active_llm: { provider_id: "another" },
+        active_llm: { provider_id: "another", model: "test-model" },
       });
 
       await openConfirm(user);
@@ -495,7 +518,7 @@ describe("ProviderConfigModal", () => {
     it("uses the active-llm confirm content variant", async () => {
       const user = userEvent.setup();
       renderModal(makeProvider({ api_key: "sk-live" }), {
-        active_llm: { provider_id: "custom-provider" },
+        active_llm: { provider_id: "custom-provider", model: "test-model" },
       });
 
       await user.click(screen.getAllByText("models.revokeAuthorization")[0]);

@@ -61,7 +61,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-KIND_DIRS = ("bundle", "tool", "memory", "apps")
+KIND_DIRS = ("bundle", "tool", "memory", "apps", "hub")
 
 EXCLUDE_PATTERNS = (
     "__pycache__",

@@ -202,6 +202,7 @@ class DockerRuntimeProvisioner(RuntimeProvisioner):
             {
                 "HOME": workspace,
                 "QWENPAW_RUNNING_IN_CONTAINER": "true",
+                "QWENPAW_AUTH_ENABLED": "true",
                 "QWENPAW_WORKING_DIR": workspace,
                 "QWENPAW_SECRET_DIR": "/app/working.secret",
                 "QWENPAW_BACKUP_DIR": "/app/working.backups",

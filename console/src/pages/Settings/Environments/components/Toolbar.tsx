@@ -1,5 +1,5 @@
 import { Checkbox, Button } from "@agentscope-ai/design";
-import { SparkDeleteLine } from "@agentscope-ai/icons";
+import { Trash2 as SparkDeleteLine } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import styles from "../index.module.less";
 
@@ -62,7 +62,7 @@ export function Toolbar({
           <Button
             danger
             size="small"
-            icon={<SparkDeleteLine />}
+            icon={<SparkDeleteLine size="1em" />}
             onClick={onRemoveSelected}
             disabled={saving}
           >

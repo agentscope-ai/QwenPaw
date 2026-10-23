@@ -1,3 +1,4 @@
+import { SettingsField } from "@/components/interaction/SettingsField";
 import { Form, Switch } from "@agentscope-ai/design";
 import { Segmented, Typography } from "antd";
 import { useTranslation } from "react-i18next";
@@ -29,15 +30,15 @@ export function VisualCompactSettings() {
         {t("agentConfig.visualCompactDescription")}
       </Paragraph>
 
-      <Form.Item
+      <SettingsField
         label={t("agentConfig.visualCompactEnabled")}
         name={["light_context_config", "visual_compact_config", "enabled"]}
         valuePropName="checked"
       >
         <Switch />
-      </Form.Item>
+      </SettingsField>
 
-      <Form.Item
+      <SettingsField
         initialValue="low"
         label={t("agentConfig.visualCompactEffort")}
         name={["light_context_config", "visual_compact_config", "effort"]}
@@ -62,7 +63,7 @@ export function VisualCompactSettings() {
             },
           ]}
         />
-      </Form.Item>
+      </SettingsField>
 
       <Text
         className={styles.visualCompactEffortDescription}

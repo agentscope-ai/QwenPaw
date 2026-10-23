@@ -13,6 +13,7 @@ import sys
 import zipfile
 
 from domain.errors import BadRequestError
+from services.runtime_files.path_safety import is_link_stat
 from .models import Project
 
 # Multi-episode Projects include media plus revision history. Keep explicit
@@ -156,8 +157,9 @@ def write_project_archive(
                 ]
                 for name in [*dirs, *files]:
                     path = current / name
-                    mode = path.lstat().st_mode
-                    if stat.S_ISLNK(mode) or not (
+                    details = path.lstat()
+                    mode = details.st_mode
+                    if is_link_stat(details) or not (
                         stat.S_ISREG(mode) or stat.S_ISDIR(mode)
                     ):
                         raise BadRequestError(

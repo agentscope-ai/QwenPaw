@@ -354,18 +354,41 @@ class TestRecommendedModels:
         assert models
         assert all("4B" in m.id for m in models)
 
-    def test_large_memory_tier_recommends_largest(
+    @pytest.mark.parametrize(
+        ("memory_gb", "large_quantizations"),
+        [
+            (16.01, ()),
+            (23.99, ()),
+            (24, ("Q4_K_M",)),
+            (32, ("Q4_K_M",)),
+            (47.99, ("Q4_K_M",)),
+            (48, ("Q4_K_M", "Q8_0")),
+            (64, ("Q4_K_M", "Q8_0")),
+        ],
+    )
+    def test_large_models_respect_memory_thresholds(
         self,
         manager,
         monkeypatch,
+        memory_gb,
+        large_quantizations,
     ):
         monkeypatch.setattr(
             manager,
             "_detect_available_memory_gb",
-            lambda: 64,
+            lambda: memory_gb,
         )
         models = manager.get_recommended_models()
-        assert models
+        expected = {
+            "AgentScope/QwenPaw-Flash-9B-Q4_K_M": DownloadSource.MODELSCOPE,
+            "AgentScope/QwenPaw-Flash-9B-Q8_0": DownloadSource.MODELSCOPE,
+        }
+        for size in ("27B", "35B-A3B"):
+            for quantization in large_quantizations:
+                model_id = f"agentscope-ai/QwenPaw-Flash-{size}-{quantization}"
+                expected[model_id] = DownloadSource.HUGGINGFACE
+        assert len(models) == len(expected)
+        assert {model.id: model.source for model in models} == expected
 
 
 # ---------------------------------------------------------------------------

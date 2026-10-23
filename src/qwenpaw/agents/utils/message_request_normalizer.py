@@ -208,10 +208,29 @@ def _is_document_block(block: Any) -> bool:
     return False
 
 
+def _is_video_block(block: Any) -> bool:
+    """Recognize legacy video blocks and current video DataBlocks."""
+    if isinstance(block, dict):
+        block_type = block.get("type")
+        source = block.get("source")
+    else:
+        block_type = getattr(block, "type", None)
+        source = getattr(block, "source", None)
+    media_type = (
+        source.get("media_type")
+        if isinstance(source, dict)
+        else getattr(source, "media_type", None)
+    ) or ""
+    return block_type == "video" or (
+        block_type == "data" and media_type.startswith("video/")
+    )
+
+
 def _strip_media_blocks_in_place(
     msgs: list[Msg],
     *,
     audio_only: bool = False,
+    video_only: bool = False,
     document_only: bool = False,
     tool_result_only: bool = False,
 ) -> int:
@@ -219,6 +238,7 @@ def _strip_media_blocks_in_place(
 
     Handles both 1.x dict blocks and 2.0 Pydantic block objects. When
     ``audio_only`` is true, image, video, and file blocks are preserved.
+    With ``video_only``, only video blocks are removed.
     When ``document_only`` is true, only PDF document blocks are removed
     (image/audio/video blocks are preserved). With ``tool_result_only``,
     stripping applies only to blocks nested inside tool results, so
@@ -229,6 +249,8 @@ def _strip_media_blocks_in_place(
         should_strip = _is_document_block
     elif audio_only:
         should_strip = _is_audio_block
+    elif video_only:
+        should_strip = _is_video_block
     else:
         should_strip = _is_media_block
 
@@ -330,6 +352,7 @@ def normalize_messages_for_model_request(
     supports_multimodal: bool,
     target_family: str = "openai",
     strip_audio: bool = False,
+    strip_video: bool = False,
 ) -> list[Msg]:
     """Return a normalized copy for provider request formatting.
 
@@ -340,6 +363,7 @@ def normalize_messages_for_model_request(
             (``"openai"`` | ``"anthropic"`` | ``"gemini"``).
             Used to strip fields that belong to other providers.
         strip_audio: Whether to remove only audio blocks from the request copy.
+        strip_video: Whether to remove video blocks before media preparation.
     """
     normalized = _clone_messages(msgs)
     # Sanitize first: _repair_empty_tool_inputs needs raw_input to fix
@@ -371,6 +395,8 @@ def normalize_messages_for_model_request(
             document_only=True,
             tool_result_only=True,
         )
+    if supports_multimodal and strip_video:
+        _strip_media_blocks_in_place(normalized, video_only=True)
     return normalized
 
 

@@ -25,7 +25,13 @@ from ..utils.io_utils import (
     run_sync_io,
 )
 from .adaptation_loop import run_adaptation_loop
-from .compatibility import mcp_inline_secret_risks
+from .compatibility import (
+    CompatibilityAsset,
+    failure_message,
+    mcp_inline_secret_risks,
+    redact_sensitive_text,
+    write_summary,
+)
 from .codex_plugin_adapter import (
     ADAPTER as CODEX_PLUGIN_ADAPTER,
     stage_codex_content_plugin,
@@ -77,11 +83,22 @@ async def _asset_items(
     zones: dict[str, str] | None = None,
     zone_prefix: str = "",
     enabled: bool | None = True,
+    *,
+    messages: dict[str, str] | None = None,
+    skipped: dict[str, str] | None = None,
 ) -> AsyncIterator[tuple[int, Any]]:
     async def report(item: Any) -> None:
         zone = (zones or {}).get(f"{zone_prefix}:{item.source_id}", "")
         state = states.get(item.source_id, "failed")
         active = None if enabled is None else enabled and zone == "migrate"
+        key = f"{zone_prefix or asset_type}:{item.source_id}"
+        details = ()
+        if state == "failed":
+            details = (
+                (messages or {}).get(key) or "未能完成该资产的导入，请检查来源配置和依赖后重试。",
+            )
+        elif messages is not None:
+            messages.pop(key, None)
         await report_result(
             progress,
             "asset",
@@ -89,12 +106,16 @@ async def _asset_items(
             state,
             "-" if active is None or state != "succeeded" else int(active),
             item.source_id,
+            *details,
         )
 
     for index, item in enumerate(values, start=1):
         if index > 1:
             await report(values[index - 2])
-        yield index, item
+        if f"{zone_prefix or asset_type}:{item.source_id}" not in (
+            skipped or {}
+        ):
+            yield index, item
     if values:
         await report(values[-1])
 
@@ -154,6 +175,32 @@ class ProviderImportService(ImportPlanningMixin):
             "cron": {},
         }
         adaptation_asset_zones: dict[str, str] = {}
+        asset_messages: dict[str, str] = {}
+        staging_errors: dict[str, str] = {}
+        native_failures: dict[str, CompatibilityAsset] = {}
+        adaptation = None
+        adaptation_error = ""
+
+        def fail(
+            key: str,
+            message: str,
+            error: BaseException | None = None,
+        ) -> None:
+            if error is not None:
+                analysis = native_failures.get(key)
+                if (
+                    analysis is not None
+                    and analysis.last_test is not None
+                    and not isinstance(error, OSError)
+                    and redact_sensitive_text(error, limit=1000)
+                    in analysis.last_test.evidence
+                ):
+                    message = f"{message}：{analysis.reason}"
+                else:
+                    message = failure_message(message, error)
+            asset_messages[key] = redact_sensitive_text(message, limit=1000)
+            logger.warning("%s", asset_messages[key])
+
         plugin_app = None
         skill_service = SkillService(self._workspace.workspace_dir)
         driver_config = DriverConfigService(self._workspace)
@@ -179,13 +226,27 @@ class ProviderImportService(ImportPlanningMixin):
                     item.asset_key: item.zone.value
                     for item in adaptation.manifest.assets
                 }
+                asset_messages.update(
+                    {
+                        item.asset_key: item.reason
+                        for item in adaptation.manifest.assets
+                        if item.zone.value == "repair" and item.reason
+                    },
+                )
+                staging_errors = adaptation.staging_errors
+                asset_messages.update(staging_errors)
+                native_failures = {
+                    item.asset_key: item
+                    for item in adaptation.manifest.assets
+                    if item.zone.value == "repair"
+                    and item.reason
+                    and item.last_test is not None
+                    and not item.last_test.passed
+                }
             except Exception as exc:  # pylint: disable=broad-except
                 logger.exception("Portability adaptation loop failed")
-                logger.warning(
-                    "工具和设置自动兼容 Loop 运行失败；迁移将继续，并保持"
-                    "相关资产禁用："
-                    f"{type(exc).__name__}: {exc}",
-                )
+                adaptation_error = failure_message("兼容性检查未能完成", exc)
+                logger.warning("%s", adaptation_error)
 
             registry_path = getattr(
                 self._workspace,
@@ -279,6 +340,8 @@ class ProviderImportService(ImportPlanningMixin):
                 asset_states["plugin"],
                 adaptation_asset_zones,
                 "plugins",
+                messages=asset_messages,
+                skipped=staging_errors,
             ):
                 if _progress_milestone(plugin_index, plugin_total):
                     await _report(
@@ -287,17 +350,17 @@ class ProviderImportService(ImportPlanningMixin):
                         f"{plugin_index}/{plugin_total}",
                     )
                 if marketplace_status.get(plugin.marketplace) == "conflict":
-                    logger.warning(
-                        f"Plugin {plugin.source_id!r} was not installed "
-                        "because its Marketplace conflicts with QwenPaw.",
+                    fail(
+                        f"plugins:{plugin.source_id}",
+                        f"插件 {plugin.name!r} 的 Marketplace 与已有来源冲突；"
+                        "原配置未覆盖，请核对 Marketplace 配置后重试。",
                     )
                     continue
                 if not plugin.install_source:
-                    logger.warning(
-                        f"Plugin {plugin.source_id!r} has no independent "
-                        "QwenPaw-compatible install source. Its installed "
-                        f"{inventory.provider_name} cache was not copied; "
-                        "portable Skills/MCP are handled separately.",
+                    fail(
+                        f"plugins:{plugin.source_id}",
+                        f"插件 {plugin.name!r} 缺少独立安装来源；"
+                        "不会复制来源平台的运行缓存，请恢复插件源码后重试。",
                     )
                     continue
                 compatibility_zone = adaptation_asset_zones.get(
@@ -305,11 +368,11 @@ class ProviderImportService(ImportPlanningMixin):
                     "failed_safe",
                 )
                 if compatibility_zone not in {"migrate", "repair"}:
-                    logger.warning(
-                        f"Plugin {plugin.source_id!r} was not installed: "
-                        f"compatibility zone is {compatibility_zone!r}. "
-                        "Its Marketplace provenance remains available for "
-                        "manual review.",
+                    fail(
+                        f"plugins:{plugin.source_id}",
+                        asset_messages.get(f"plugins:{plugin.source_id}")
+                        or adaptation_error
+                        or "插件未完成兼容性检查，请检查来源插件后重试。",
                     )
                     continue
                 if (
@@ -317,17 +380,19 @@ class ProviderImportService(ImportPlanningMixin):
                     and plugin.metadata.get("adapter")
                     not in _GENERATED_PLUGIN_ADAPTERS
                 ):
-                    logger.warning(
-                        f"Plugin {plugin.source_id!r} remains in the repair "
-                        "zone. Its source was preserved but executable code "
-                        "was not loaded.",
+                    fail(
+                        f"plugins:{plugin.source_id}",
+                        "插件未通过原生兼容检查，未加载代码。"
+                        + (
+                            asset_messages.get(f"plugins:{plugin.source_id}")
+                            or "请检查插件接口和依赖后重试。"
+                        ),
                     )
                     continue
                 if plugin_app is None:
-                    logger.warning(
-                        f"Plugin {plugin.source_id!r} is compatible, but the "
-                        "QwenPaw native plugin loader is not ready. Retry "
-                        "from the Import page after startup completes.",
+                    fail(
+                        f"plugins:{plugin.source_id}",
+                        "QwenPaw 插件加载器尚未就绪，未安装该插件；请在启动完成后重试。",
                     )
                     continue
                 staged_plugin: Path | None = None
@@ -411,10 +476,15 @@ class ProviderImportService(ImportPlanningMixin):
                                     plugin.source_id
                                 ] = candidate
                                 break
-                    logger.warning(
-                        f"Plugin {plugin.source_id!r} failed native "
-                        f"installation: {type(exc).__name__}: {exc}",
-                    )
+                    if (
+                        asset_states["plugin"].get(plugin.source_id)
+                        != "existing"
+                    ):
+                        fail(
+                            f"plugins:{plugin.source_id}",
+                            f"插件 {plugin.name!r} 安装失败",
+                            exc,
+                        )
                 finally:
                     if staged_plugin is not None:
                         await run_sync_io(
@@ -429,6 +499,7 @@ class ProviderImportService(ImportPlanningMixin):
                 "memory",
                 asset_states["memory"],
                 enabled=None,
+                messages=asset_messages,
             ):
                 if _progress_milestone(memory_index, memory_total):
                     await _report(
@@ -460,9 +531,10 @@ class ProviderImportService(ImportPlanningMixin):
                         record_memory,
                     )
                 except Exception as exc:  # pylint: disable=broad-except
-                    logger.warning(
-                        f"Memory project {project.project_key!r} was "
-                        f"quarantined/skipped: {type(exc).__name__}: {exc}",
+                    fail(
+                        f"memory:{project.source_id}",
+                        f"Memory 项目 {project.project_key!r} 写入失败",
+                        exc,
                     )
 
             skill_total = len(inventory.skills)
@@ -474,6 +546,8 @@ class ProviderImportService(ImportPlanningMixin):
                 adaptation_asset_zones,
                 "skills",
                 False,
+                messages=asset_messages,
+                skipped=staging_errors,
             ):
                 if _progress_milestone(skill_index, skill_total):
                     await _report(
@@ -485,10 +559,11 @@ class ProviderImportService(ImportPlanningMixin):
                     "failed_safe",
                 )
                 if compatibility_zone not in {"migrate", "repair"}:
-                    logger.warning(
-                        f"Skill {skill.name!r} 未写入 QwenPaw：兼容状态为 "
-                        f"{compatibility_zone!r}；源文件仍保留在兼容清单/"
-                        "隔离暂存区，可修复后重试。",
+                    fail(
+                        f"skills:{skill.source_id}",
+                        asset_messages.get(f"skills:{skill.source_id}")
+                        or adaptation_error
+                        or "Skill 未完成兼容性检查，请检查来源文件后重试。",
                     )
                     continue
                 try:
@@ -527,9 +602,16 @@ class ProviderImportService(ImportPlanningMixin):
                             f"Skill {skill.name!r} already exists; kept the "
                             "QwenPaw copy.",
                         )
+                    elif not names:
+                        fail(
+                            f"skills:{skill.source_id}",
+                            "没有可安装的 Skill，请检查 SKILL.md 的格式和目录结构后重试。",
+                        )
                 except Exception as exc:  # pylint: disable=broad-except
-                    logger.warning(
-                        f"Skill {skill.name!r} was quarantined/skipped: {exc}",
+                    fail(
+                        f"skills:{skill.source_id}",
+                        f"Skill {skill.name!r} 写入失败",
+                        exc,
                     )
 
             existing_cards = {
@@ -544,6 +626,7 @@ class ProviderImportService(ImportPlanningMixin):
                 asset_states["mcp"],
                 adaptation_asset_zones,
                 "mcp",
+                messages=asset_messages,
             ):
                 if _progress_milestone(mcp_index, mcp_total):
                     await _report(
@@ -555,10 +638,11 @@ class ProviderImportService(ImportPlanningMixin):
                     "failed_safe",
                 )
                 if compatibility_zone not in {"migrate", "repair"}:
-                    logger.warning(
-                        f"MCP {server.name!r} 未写入 DriverCard：兼容状态"
-                        f"为 {compatibility_zone!r}；请根据兼容清单修复"
-                        "后重试。",
+                    fail(
+                        f"mcp:{server.source_id}",
+                        asset_messages.get(f"mcp:{server.source_id}")
+                        or adaptation_error
+                        or "MCP 未完成兼容性检查，请检查连接配置后重试。",
                     )
                     continue
                 if server.name in existing_driver_names:
@@ -573,9 +657,10 @@ class ProviderImportService(ImportPlanningMixin):
                     "streamable_http",
                     "sse",
                 }:
-                    logger.warning(
-                        f"MCP {server.name!r} uses unsupported transport "
-                        f"{server.transport!r} and was skipped.",
+                    fail(
+                        f"mcp:{server.source_id}",
+                        f"MCP 的 transport {server.transport!r} 不受支持；"
+                        "请改用 stdio、streamable_http 或 sse 后重试。",
                     )
                     continue
                 inline_secret_risks = mcp_inline_secret_risks(
@@ -587,7 +672,8 @@ class ProviderImportService(ImportPlanningMixin):
                     server.cwd,
                 )
                 if inline_secret_risks:
-                    logger.warning(
+                    fail(
+                        f"mcp:{server.source_id}",
                         f"MCP {server.name!r} 的命令参数或 URL 可能包含"
                         "无法安全绑定的明文凭据，已拒绝写入 DriverCard；"
                         "请改用环境变量/请求头凭据或在 QwenPaw 中重新配置。",
@@ -739,12 +825,14 @@ class ProviderImportService(ImportPlanningMixin):
                         "DriverCard" in str(exc)
                     ):
                         asset_states["mcp"][server.source_id] = "existing"
-                    logger.warning(
-                        f"MCP {server.name!r} could not be translated and "
-                        f"was skipped: {type(exc).__name__}: {exc}",
-                    )
                     if not isinstance(exc, Exception):
                         raise
+                    if asset_states["mcp"].get(server.source_id) != "existing":
+                        fail(
+                            f"mcp:{server.source_id}",
+                            f"MCP {server.name!r} 配置写入失败",
+                            exc,
+                        )
 
             for plugin_id in sorted(
                 {
@@ -756,6 +844,23 @@ class ProviderImportService(ImportPlanningMixin):
                 },
             ):
                 asset_states["plugin"][plugin_id] = "failed"
+                details = [
+                    asset_messages.get(
+                        f"mcp:{server.source_id}",
+                        "绑定 MCP 未能导入，请检查其配置后重试。",
+                    )
+                    for server in inventory.mcp_servers
+                    if bound_mcp_plugin(server) == plugin_id
+                    and asset_states["mcp"].get(server.source_id)
+                    not in {"succeeded", "existing"}
+                ]
+                # Preserve a plugin's own failure; otherwise explain the
+                # missing dependency without implying its code was rolled back.
+                if f"plugins:{plugin_id}" not in asset_messages:
+                    fail(
+                        f"plugins:{plugin_id}",
+                        "插件关联的 MCP 未能全部导入：" + "；".join(details),
+                    )
                 await report_result(
                     progress,
                     "asset",
@@ -763,22 +868,25 @@ class ProviderImportService(ImportPlanningMixin):
                     "failed",
                     "-",
                     plugin_id,
+                    asset_messages[f"plugins:{plugin_id}"],
                 )
 
             cron_manager = getattr(self._workspace, "cron_manager", None)
             existing_task_jobs: dict[tuple[str, str], Any] = {}
+            cron_error = "目标智能体的 Cron 服务尚未就绪，请等待服务启动后重试。"
             if cron_manager is not None:
                 try:
                     existing_task_jobs = {
-                        key: job
+                        source_key: job
                         for job in await cron_manager.list_jobs()
-                        if (key := imported_job_source(job)) is not None
+                        if (source_key := imported_job_source(job)) is not None
                     }
                 except Exception as exc:  # pylint: disable=broad-except
-                    logger.warning(
-                        "无法读取 QwenPaw 定时任务列表；本次定时任务迁移已"
-                        f"安全跳过：{type(exc).__name__}: {exc}",
+                    cron_error = failure_message(
+                        "无法读取 QwenPaw 定时任务列表",
+                        exc,
                     )
+                    logger.warning("%s", cron_error)
                     cron_manager = None
             task_total = len(inventory.scheduled_tasks)
             async for task_index, task in _asset_items(
@@ -789,6 +897,7 @@ class ProviderImportService(ImportPlanningMixin):
                 adaptation_asset_zones,
                 "scheduled_tasks",
                 False,
+                messages=asset_messages,
             ):
                 if _progress_milestone(task_index, task_total):
                     await _report(
@@ -800,19 +909,17 @@ class ProviderImportService(ImportPlanningMixin):
                     "failed_safe",
                 )
                 if compatibility_zone not in {"migrate", "repair"}:
-                    logger.warning(
-                        f"定时任务 {task.name!r} 未写入 Cron：兼容状态"
-                        f"为 {compatibility_zone!r}；它只保留在兼容清单"
-                        "中，不会被“立即运行”绕过。",
+                    fail(
+                        f"scheduled_tasks:{task.source_id}",
+                        asset_messages.get(f"scheduled_tasks:{task.source_id}")
+                        or adaptation_error
+                        or "定时任务未完成兼容性检查，请核对任务配置后重试。",
                     )
                     continue
-                key = (inventory.provider_id, task.source_id)
-                existing_task = existing_task_jobs.get(key)
+                task_key = (inventory.provider_id, task.source_id)
+                existing_task = existing_task_jobs.get(task_key)
                 if cron_manager is None:
-                    logger.warning(
-                        f"定时任务 {task.name!r} 未写入：目标智能体的 Cron "
-                        "服务尚未初始化。聊天记录和其他资产不受影响。",
-                    )
+                    fail(f"scheduled_tasks:{task.source_id}", cron_error)
                     continue
                 if existing_task is not None:
                     asset_states["cron"][task.source_id] = "existing"
@@ -835,10 +942,10 @@ class ProviderImportService(ImportPlanningMixin):
                             (inventory.provider_id, target_thread_id),
                         )
                         if target_chat is None:
-                            logger.warning(
-                                f"Codex heartbeat {task.name!r} requires its"
-                                " source conversation; import that"
-                                " conversation before retrying the task.",
+                            fail(
+                                f"scheduled_tasks:{task.source_id}",
+                                f"Heartbeat {task.name!r} 依赖的来源会话尚未导入；"
+                                "请先迁移对应聊天记录，再重试此任务。",
                             )
                             continue
                         target_session_id = target_chat.session_id
@@ -858,16 +965,42 @@ class ProviderImportService(ImportPlanningMixin):
                     async def save_task() -> None:
                         if not await cron_manager.create_job_if_absent(job):
                             raise FileExistsError("Cron job already exists")
-                        existing_task_jobs[key] = job
+                        existing_task_jobs[task_key] = job
                         asset_states["cron"][task.source_id] = "succeeded"
 
                     await run_async_to_completion(save_task())
                 except Exception as exc:  # pylint: disable=broad-except
                     if isinstance(exc, FileExistsError):
                         asset_states["cron"][task.source_id] = "existing"
+                    if asset_states["cron"].get(task.source_id) != "existing":
+                        fail(
+                            f"scheduled_tasks:{task.source_id}",
+                            f"定时任务 {task.name!r} 写入失败",
+                            exc,
+                        )
+
+            if adaptation is not None:
+                failures: dict[str, str] = {}
+                for asset_key, message in asset_messages.items():
+                    kind, source_id = asset_key.split(":", 1)
+                    kind = {
+                        "skills": "skill",
+                        "plugins": "plugin",
+                        "scheduled_tasks": "cron",
+                    }.get(kind, kind)
+                    if asset_states[kind].get(source_id, "failed") == "failed":
+                        failures[asset_key] = message
+                try:
+                    await run_sync_io(
+                        write_summary,
+                        adaptation.summary_path,
+                        adaptation.manifest,
+                        failures,
+                    )
+                except Exception:  # pylint: disable=broad-except
                     logger.warning(
-                        f"定时任务 {task.name!r} 已保留在迁移清单中，但未"
-                        f"启用或写入：{type(exc).__name__}: {exc}",
+                        "Could not update migration summary",
+                        exc_info=True,
                     )
 
             await _report(progress, "迁移事务已安全提交。")

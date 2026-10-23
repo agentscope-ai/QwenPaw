@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars */
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { renderHook, act, waitFor } from "@testing-library/react";
 
@@ -1244,11 +1243,14 @@ describe("useSkillPool — handleBuiltinLanguageSwitch", () => {
 
     const skill = {
       name: "builtin-skill",
+      source: "builtin",
       content: "",
       config: {},
       tags: [],
       builtin_language: "en",
-    } as any;
+    } as Parameters<
+      ReturnType<typeof useSkillPool>["handleBuiltinLanguageSwitch"]
+    >[0];
 
     await act(async () => {
       await result.current.handleBuiltinLanguageSwitch(skill, "en");
@@ -1269,11 +1271,14 @@ describe("useSkillPool — handleBuiltinLanguageSwitch", () => {
 
     const skill = {
       name: "builtin-skill",
+      source: "builtin",
       content: "",
       config: {},
       tags: [],
       builtin_language: "en",
-    } as any;
+    } as Parameters<
+      ReturnType<typeof useSkillPool>["handleBuiltinLanguageSwitch"]
+    >[0];
 
     await act(async () => {
       await result.current.handleBuiltinLanguageSwitch(skill, "zh");
@@ -1301,11 +1306,14 @@ describe("useSkillPool — handleBuiltinLanguageSwitch", () => {
 
     const skill = {
       name: "builtin-skill",
+      source: "builtin",
       content: "",
       config: {},
       tags: [],
       builtin_language: "en",
-    } as any;
+    } as Parameters<
+      ReturnType<typeof useSkillPool>["handleBuiltinLanguageSwitch"]
+    >[0];
 
     await act(async () => {
       await result.current.handleBuiltinLanguageSwitch(skill, "zh");
@@ -1326,11 +1334,14 @@ describe("useSkillPool — handleBuiltinLanguageSwitch", () => {
 
     const skill = {
       name: "builtin-skill",
+      source: "builtin",
       content: "",
       config: {},
       tags: [],
       builtin_language: "en",
-    } as any;
+    } as Parameters<
+      ReturnType<typeof useSkillPool>["handleBuiltinLanguageSwitch"]
+    >[0];
 
     await act(async () => {
       await result.current.handleBuiltinLanguageSwitch(skill, "zh");
@@ -2280,7 +2291,7 @@ describe("useSkillPool — computed properties", () => {
     const { result } = renderHook(() => useSkillPool());
     await waitFor(() => expect(result.current.loading).toBe(false));
 
-    const names = result.current.sortedSkills.map((s: any) => s.name);
+    const names = result.current.sortedSkills.map((s) => s.name);
     expect(names).toEqual(["alpha", "mango", "zebra"]);
   });
 

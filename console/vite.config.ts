@@ -2,6 +2,8 @@
 import { defineConfig, loadEnv, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import path from "path";
+import { startupMonitorPlugin } from "./scripts/startup-monitor-plugin";
+import { normalizeConsoleBasename } from "./src/utils/consoleBasename";
 
 // Vitest-only plugin: transforms .css imports inside node_modules to empty
 // stubs. This prevents errors from packages like @agentscope-ai/icons that
@@ -28,14 +30,23 @@ export default defineConfig(({ command, mode }) => {
   // Empty = same-origin; frontend and backend served together, no hardcoded host.
   // Use a dedicated Vite-prefixed key so unrelated shell BASE_URL values don't leak into the build.
   const apiBaseUrl = env.VITE_API_BASE_URL ?? "";
+  const consoleBasename = env.VITE_CONSOLE_BASENAME?.trim();
 
   return {
+    // Preserve root asset URLs for existing root and /console deployments.
+    base: consoleBasename
+      ? `${normalizeConsoleBasename(consoleBasename)}/`
+      : "/",
     define: {
       VITE_API_BASE_URL: JSON.stringify(apiBaseUrl),
       TOKEN: JSON.stringify(env.TOKEN || ""),
       MOBILE: false,
     },
-    plugins: [react(), ...(isVitest ? [cssStubPlugin] : [])],
+    plugins: [
+      react(),
+      startupMonitorPlugin(),
+      ...(isVitest ? [cssStubPlugin] : []),
+    ],
     css: {
       modules: {
         localsConvention: "camelCase",
@@ -141,6 +152,15 @@ export default defineConfig(({ command, mode }) => {
       rollupOptions: {
         output: {
           manualChunks(id) {
+            // Charts and the UI's Markdown renderer share D3 and preload helpers.
+            // Keep those in the UI chunk so lazy trends cannot create a cycle.
+            if (
+              id.includes("node_modules/d3-") ||
+              id.includes("node_modules/d3/") ||
+              id.includes("vite/preload-helper")
+            ) {
+              return "ui-vendor";
+            }
             // React core
             if (
               id.includes("node_modules/react/") ||
@@ -162,12 +182,34 @@ export default defineConfig(({ command, mode }) => {
             ) {
               return "editor-vendor";
             }
+            // Keep the chat package's internally circular modules together,
+            // but leave its third-party dependencies in the lazy import graph.
+            const chatPackageRoot = "node_modules/@agentscope-ai/chat/";
+            const chatPackageIndex = id.indexOf(chatPackageRoot);
+            if (chatPackageIndex >= 0) {
+              const chatRelativePath = id.slice(
+                chatPackageIndex + chatPackageRoot.length,
+              );
+              if (!chatRelativePath.includes("node_modules/")) {
+                return "chat-vendor";
+              }
+            }
+            // XMarkdown is also lazy-only. Do not let the broad @ant-design
+            // rule below merge it into the initial UI vendor chunk.
+            if (id.includes("node_modules/@ant-design/x-markdown/")) {
+              return;
+            }
             // Ant Design + AgentScope design system (merged to avoid circular deps)
             if (
               id.includes("node_modules/antd/") ||
               id.includes("node_modules/antd-style/") ||
               id.includes("node_modules/@ant-design/") ||
-              id.includes("node_modules/@agentscope-ai/")
+              id.includes("node_modules/@babel/runtime/") ||
+              id.includes("node_modules/clsx/") ||
+              id.includes("node_modules/dompurify/") ||
+              id.includes("node_modules/lucide-react/") ||
+              (id.includes("node_modules/@agentscope-ai/") &&
+                !id.includes(chatPackageRoot))
             ) {
               return "ui-vendor";
             }

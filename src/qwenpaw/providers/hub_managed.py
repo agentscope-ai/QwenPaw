@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import os
+from typing import ClassVar
 
 import httpx
 
@@ -42,10 +43,33 @@ def directory() -> dict:
 class ManagedProvider(OpenAIProvider):
     """Use the existing OpenAI adapter while exporting only safe metadata."""
 
+    session_header_name: ClassVar[str] = f"x-qwenpaw-session"
+
+    def thinking_control(self, model_id: str):
+        """Hub cards describe the upstream, independent of our chat bridge."""
+        info = self.get_model_info(model_id)
+        if info and info.thinking_control:
+            return info.thinking_control.model_copy(deep=True)
+        return super().thinking_control(model_id)
+
     def supports_agent_thinking(self, model_id: str) -> bool:
         """Use the Hub's capability instead of guessing from opaque aliases."""
         info = self.get_model_info(model_id)
         return bool(info and info.supports_agent_thinking)
+
+    def get_agent_thinking_kwargs(
+        self,
+        model_id: str,
+        level: str,
+        budget: int | None = None,
+    ) -> dict:
+        """Forward neutral intent for translation by the trusted Hub."""
+        return {
+            f"extra_body": {
+                f"hub_thinking_level": level,
+                f"hub_thinking_budget": budget,
+            },
+        }
 
     def _map_agent_thinking_level(
         self,
@@ -66,14 +90,24 @@ class ManagedProvider(OpenAIProvider):
         model.client.max_retries = 0
         return model
 
-    async def get_info(self, mock_secret=True) -> ProviderInfo:
-        """Never expose even the runtime capability through model APIs."""
+    def automatically_listed(self, model: ModelInfo) -> bool:
+        """Organization grants are candidates until selected locally."""
+        return model.source == f"user"
+
+    async def get_info(self, mock_secret=True, *, include_candidates=True):
+        """Expose safe catalog metadata without the runtime credential."""
         return ProviderInfo(
+            model_count=len({m.id for m in self.discovery_candidates()}),
             id=PROVIDER_ID,
-            name="Hub",
-            models=self.models,
-            api_key="",
-            base_url="",
+            name=f"Hub",
+            models=self.configured_models(),
+            discovered_models=(
+                self.discovery_candidates() if include_candidates else []
+            ),
+            seen_model_ids=self.seen_model_ids,
+            hidden_model_ids=self.hidden_model_ids,
+            api_key=f"",
+            base_url=f"",
             require_api_key=False,
         )
 
@@ -93,6 +127,9 @@ def managed_provider(catalog=None) -> ManagedProvider:
                 name=m["name"],
                 supports_image=m["supports_image"],
                 supports_multimodal=m["supports_image"],
+                supports_audio=m.get(f"supports_audio"),
+                supports_video=m.get(f"supports_video"),
+                supports_tool_calling=m.get(f"supports_tool_calling"),
                 max_input_length=m["input_token_limit"],
                 max_input_length_configured=True,
                 max_output_length=m["output_token_limit"],
@@ -102,6 +139,7 @@ def managed_provider(catalog=None) -> ManagedProvider:
                     else "unknown"
                 ),
                 supports_agent_thinking=m["supports_agent_thinking"],
+                thinking_control=m.get(f"thinking_control"),
             )
             for m in catalog["models"]
         ],
@@ -110,16 +148,14 @@ def managed_provider(catalog=None) -> ManagedProvider:
 
 def managed_slot(selected=None, *, explicit=False, catalog=None):
     """Resolve and validate a selection within the organization catalog."""
-    catalog = catalog if catalog is not None else directory()
-    if selected and selected.provider_id != PROVIDER_ID:
+    if selected is None:
         if explicit:
-            raise ProviderError(
-                message="Only organization models are allowed",
-            )
-        selected = None
-    if not catalog["models"] and not explicit:
+            raise ProviderError(message=f"No organization model selected")
         return None, catalog
-    model_id = selected.model if selected else catalog["default_model_id"]
+    if selected.provider_id != PROVIDER_ID:
+        raise ProviderError(message=f"Not an organization model selection")
+    catalog = catalog if catalog is not None else directory()
+    model_id = selected.model
     if model_id not in {m["id"] for m in catalog["models"]}:
         raise ProviderError(
             message="Organization model is no longer available",

@@ -86,6 +86,28 @@ describe("Chat attachment preview styles", () => {
   });
 });
 
+describe("Chat composer responsive layout styles", () => {
+  it("wraps controls only when their content no longer fits", () => {
+    const rootStart = stylesSource.indexOf(".chatPageRoot {");
+    const rootRule = stylesSource.slice(
+      rootStart,
+      stylesSource.indexOf(".filesPreviewOpen,", rootStart),
+    );
+
+    expect(rootStart).toBeGreaterThanOrEqual(0);
+    expect(rootRule).toMatch(
+      /\[class\$="-sender-content-bottom"\][\s\S]*?flex-wrap:\s*wrap/,
+    );
+    expect(rootRule).toMatch(
+      /\[class\$="-sender-prefix"\][\s\S]*?flex:\s*1 1 max-content/,
+    );
+    expect(rootRule).toMatch(
+      /\[class\$="-sender-actions-list"\][\s\S]*?flex:\s*0 0 auto/,
+    );
+    expect(stylesSource).not.toContain("flex: 1 1 100%");
+  });
+});
+
 describe("Chat mobile layout styles", () => {
   it("keeps a fluid wide-mode gutter across desktop and mobile widths", () => {
     const wideModeStart = stylesSource.indexOf(
@@ -156,6 +178,25 @@ describe("Chat mobile layout styles", () => {
     expect(composerRule).toContain("flex-wrap: nowrap");
     expect(composerRule).toContain("overflow-x: auto");
     expect(composerRule).toContain("overflow: visible");
+  });
+
+  it("sizes only the bridged submit action to a 44px mobile target", () => {
+    const composerStart = stylesSource.indexOf(
+      "/* Mobile composer: keep the input row dominant",
+    );
+    const composerRule = stylesSource.slice(
+      composerStart,
+      stylesSource.indexOf("@media (max-width: 480px)", composerStart),
+    );
+
+    expect(composerRule).toContain('[data-qwenpaw-composer-submit="true"]');
+    expect(composerRule).toMatch(
+      /\[data-qwenpaw-composer-submit="true"\][\s\S]*?width:\s*44px\s*!important/,
+    );
+    expect(composerRule).toMatch(
+      /\[data-qwenpaw-composer-submit="true"\][\s\S]*?height:\s*44px\s*!important/,
+    );
+    expect(composerRule).not.toContain('[class$="-sender-actions-btn"]');
   });
 
   it("removes low-priority composer chrome on narrow phones", () => {

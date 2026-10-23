@@ -12,7 +12,7 @@
 .menuItem,
 .choiceItem {
   width: 100%;
-  min-height: 36px;
+  min-height: max(36px, calc(36px * var(--app-font-scale)));
   display: flex;
   align-items: center;
   gap: 10px;
@@ -22,7 +22,7 @@
   background: transparent;
   color: rgba(26, 23, 22, 0.82);
   font: inherit;
-  font-size: 13px;
+  font-size: var(--app-font-secondary);
   line-height: 1.25;
   text-align: left;
   cursor: pointer;
@@ -60,7 +60,7 @@
 
 .menuMeta {
   color: rgba(26, 23, 22, 0.34);
-  font-size: 10px;
+  font-size: var(--app-font-caption);
   font-weight: 600;
   white-space: nowrap;
 }

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 from pathlib import Path
 import threading
 import time
@@ -566,7 +567,8 @@ def test_model_config_is_single_file_native_and_idempotent(
     model_routes._decrypt_secret_fields(persisted)
     assert persisted["llm"]["api_key"] == "secret"
     assert persisted["oss"]["access_key_secret"] == "oss-access-secret"
-    assert config_path.stat().st_mode & 0o777 == 0o600
+    if os.name != "nt":
+        assert config_path.stat().st_mode & 0o777 == 0o600
     assert not config_path.with_name("model_config.secrets.json").exists()
 
 

@@ -113,11 +113,17 @@ export function acceptPromptProposal(
     { method: "POST", body: jsonBody({}) },
   );
 }
-export function confirmCurrentPrompts(scope: PromptSyncScope) {
+export function confirmCurrentPrompts(
+  scope: PromptSyncScope,
+  stage?: "storyboard" | "video",
+) {
   // Keep the current plan/prompts and only re-stamp the sync baseline, clearing
   // the gate without an AI rewrite (#7720 finding #3).
-  return creatorRequest(`${scopePath(scope)}/prompt-sync/confirm`, {
-    method: "POST",
-    body: jsonBody({}),
-  });
+  return creatorRequest(
+    `${scopePath(scope)}/prompt-sync/confirm${stage ? `?stage=${stage}` : ""}`,
+    {
+      method: "POST",
+      body: jsonBody({}),
+    },
+  );
 }

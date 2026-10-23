@@ -1,4 +1,4 @@
-import { screen, fireEvent, waitFor, within } from "@testing-library/react";
+import { screen, fireEvent, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { renderWithProviders } from "@/test/common_setup";
@@ -12,6 +12,10 @@ vi.mock("@/api/modules/language", () => ({
   settingsApi: { updateLanguage: mocks.updateLanguage },
 }));
 
+vi.mock("@/hooks/useIsMobile", () => ({
+  useIsMobile: () => true,
+}));
+
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
     i18n: {
@@ -19,7 +23,7 @@ vi.mock("react-i18next", () => ({
       resolvedLanguage: "en",
       changeLanguage: mocks.changeLanguage,
     },
-    t: (key: string) => key,
+    t: (key: string) => (key === "sidebar.settings.language" ? "语言" : key),
   }),
 }));
 
@@ -31,19 +35,27 @@ describe("GeneralSettings language persistence", () => {
     localStorage.removeItem("language");
   });
 
+  it("uses vertical segmented controls on mobile widths", () => {
+    const { container } = renderWithProviders(<GeneralSettings />);
+
+    expect(container.querySelectorAll(".ant-segmented-vertical")).toHaveLength(
+      3,
+    );
+  });
+
+  it("names the language selector from its visible heading", () => {
+    renderWithProviders(<GeneralSettings />);
+
+    expect(screen.getByRole("combobox", { name: "语言" })).toBeInTheDocument();
+  });
+
   it("surfaces a rejected remote write to the user", async () => {
     mocks.updateLanguage.mockRejectedValue(new Error("HTTP 400"));
     vi.spyOn(console, "error").mockImplementation(() => {});
 
     renderWithProviders(<GeneralSettings />);
 
-    // General Settings now hosts several Select controls (language,
-    // theme palette, close behaviour), so scope to the language row
-    // instead of querying the first combobox on the page.
-    const languageRow = screen
-      .getByText("sidebar.settings.language")
-      .closest("div")!;
-    fireEvent.mouseDown(within(languageRow).getByRole("combobox"));
+    fireEvent.mouseDown(screen.getByRole("combobox", { name: "语言" }));
     fireEvent.click(await screen.findByText("Tiếng Việt"));
 
     expect(mocks.changeLanguage).toHaveBeenCalledWith("vi");

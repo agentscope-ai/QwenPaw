@@ -10,6 +10,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from qwenpaw.providers.adapters.usage import cache_usage
 from qwenpaw.app.agent_context import peek_current_agent_id
 from qwenpaw.token_usage.buffer import (
     TokenUsageBuffer,
@@ -1028,6 +1029,60 @@ class TestTokenRecordingModelWrapper:
         )
         assert stored is not None
         assert stored["cache_hit_rate"] == 80
+
+    def test_live_usage_preserves_last_prompt_and_final_totals(
+        self,
+        tmp_path,
+        monkeypatch,
+    ):
+        monkeypatch.setattr(
+            f"qwenpaw.app.agent_context.get_current_session_id",
+            lambda: f"live-usage",
+        )
+        wrapper, _ = self._stream_harness(tmp_path, monkeypatch)
+        usage = MagicMock()
+        usage.input_tokens = 100
+        usage.output_tokens = 10
+        usage.cache_input_tokens = 0
+        usage.cache_creation_input_tokens = 0
+        wrapper._record_usage(usage)
+        first = wrapper.peek_usage_for_session(f"live-usage")
+        usage.input_tokens = 200
+        wrapper._record_usage(usage)
+        second = wrapper.peek_usage_for_session(f"live-usage")
+        assert first is not second
+        assert second[f"prompt_tokens"] == 300
+        assert second[f"last_prompt_tokens"] == 200
+        assert wrapper.pop_usage_for_session(f"live-usage") == second
+
+    @pytest.mark.parametrize(f"reported", [None, 0, 80])
+    def test_raw_cache_presence_controls_observation(
+        self,
+        tmp_path,
+        monkeypatch,
+        reported,
+    ):
+        monkeypatch.setattr(
+            f"qwenpaw.token_usage.model_wrapper._cache_usage_metrics",
+            lambda *_args: (True, 100),
+        )
+        wrapper, captured = self._stream_harness(tmp_path, monkeypatch)
+        usage = MagicMock()
+        usage.metadata = {}
+        usage.input_tokens = 100
+        usage.output_tokens = 10
+        usage.cache_input_tokens = 0
+        usage.cache_creation_input_tokens = 0
+        raw = {f"prompt_tokens": 100}
+        if reported is not None:
+            raw[f"prompt_tokens_details"] = {f"cached_tokens": reported}
+        cache_usage(usage, raw)
+        wrapper._record_usage(usage)
+        assert captured[0].cache_observed is (reported is not None)
+        assert captured[0].cache_read_tokens == (reported or 0)
+        assert captured[0].cache_eligible_input_tokens == (
+            100 if reported is not None else 0
+        )
 
     def test_record_usage_discards_unverified_cache_metrics(
         self,

@@ -360,6 +360,7 @@ class LocalProcessRuntimeProvisioner(RuntimeProvisioner):
         environment["QWENPAW_WORKING_DIR"] = str(record.working_dir)
         environment["QWENPAW_SECRET_DIR"] = str(record.secret_dir)
         environment["QWENPAW_DISABLE_KEYRING"] = "1"
+        environment["QWENPAW_AUTH_ENABLED"] = "true"
         environment["QWENPAW_BACKUP_DIR"] = str(record.backup_dir)
         environment[
             "QWENPAW_KEYRING_ACCOUNT"

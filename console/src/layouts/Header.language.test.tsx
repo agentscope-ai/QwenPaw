@@ -60,7 +60,7 @@ describe("Header mobile language menu persistence", () => {
   it("persists the choice remotely, which it previously never did", async () => {
     mocks.updateLanguage.mockResolvedValue({ language: "vi" });
 
-    renderWithProviders(<Header />);
+    renderWithProviders(<Header showBrand />);
     const option = await openMobileLanguageMenu();
     await userEvent.click(option);
 
@@ -76,7 +76,7 @@ describe("Header mobile language menu persistence", () => {
       .mockImplementation(() => ({}) as never);
     vi.spyOn(console, "error").mockImplementation(() => {});
 
-    renderWithProviders(<Header />);
+    renderWithProviders(<Header showBrand />);
     const option = await openMobileLanguageMenu();
     await userEvent.click(option);
 

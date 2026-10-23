@@ -43,9 +43,14 @@ export default function LanguageSwitcher({
     <Dropdown
       menu={{ items, selectedKeys: [currentLangKey] }}
       placement="bottomRight"
-      overlayClassName={styles.languageDropdown}
+      rootClassName={styles.languageDropdown}
     >
-      <Button icon={iconMap[currentLangKey]} type="text" />
+      <Button
+        aria-label={t("sidebar.settings.language")}
+        title={t("sidebar.settings.language")}
+        icon={iconMap[currentLangKey]}
+        type="text"
+      />
     </Dropdown>
   );
 }

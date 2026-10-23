@@ -1,12 +1,14 @@
 # -*- coding: utf-8 -*-
 """Ownership-boundary tests for the global chat API."""
 
+import asyncio
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi import HTTPException
 
+from qwenpaw.app.chats import api as chats_api
 from qwenpaw.app.chats.api import get_chat, get_chat_status, list_chats
 from qwenpaw.app.chats.models import ChatSpec
 
@@ -96,3 +98,45 @@ async def test_get_chat_status_treats_unknown_run_key_as_idle():
 
     assert result.status == "idle"
     tracker.get_status.assert_awaited_once_with("missing")
+
+
+@pytest.mark.asyncio
+async def test_delete_chat_stops_a_live_run():
+    """Deleting a running chat must not leave its run in the tracker.
+
+    A live run whose chat is deleted would otherwise stay in ``_runs``
+    for good, so ``get_global_status()['running_task_count']`` stays
+    inflated while the chat list can no longer show that chat (#7991).
+    """
+    from qwenpaw.app.task_tracker import TaskTracker
+
+    tracker = TaskTracker()
+    release = asyncio.Event()
+
+    async def stream(_payload):
+        await release.wait()
+        yield "data: done\n\n"
+
+    await tracker.attach_or_start("chat-live", None, stream)
+    assert (await tracker.get_global_status())["running_task_count"] == 1
+
+    manager = SimpleNamespace(
+        get_chat=AsyncMock(return_value=_chat("chat-live")),
+        delete_chats=AsyncMock(return_value=True),
+    )
+    workspace = SimpleNamespace(task_tracker=tracker)
+
+    with patch.object(
+        chats_api.CHECKPOINT_RUNTIME,
+        "delete_session_checkpoints",
+        new=AsyncMock(),
+    ):
+        result = await chats_api.delete_chat(
+            chat_id="chat-live",
+            mgr=manager,
+            workspace=workspace,
+        )
+
+    assert result == {"deleted": True}
+    assert await tracker.list_active_tasks() == []
+    assert (await tracker.get_global_status())["running_task_count"] == 0

@@ -1571,21 +1571,27 @@ async def test_manual_compact_skips_pretrim_and_performs_eviction(
 
 
 @pytest.mark.parametrize(
-    ("compress_stats", "expected"),
+    (f"compress_stats", f"tokens", f"expected"),
     [
-        ({"evicted": 1, "folded": 0}, True),
-        ({"evicted": 0, "folded": 1}, True),
-        ({"evicted": 0, "folded": 0}, False),
+        ({f"evicted": 1, f"folded": 0}, [900, 300], True),
+        ({f"evicted": 0, f"folded": 1}, [900, 300], True),
+        ({f"evicted": 0, f"folded": 0}, [900, 300], False),
+        ({f"evicted": 1, f"folded": 0}, [200, 200], False),
+        ({f"evicted": 0, f"folded": 1}, [200, 200], False),
+        ({f"evicted": 1, f"folded": 0}, [200, 300], False),
+        ({f"evicted": 1, f"folded": 0}, [900, 801], False),
+        ({f"evicted": 1, f"folded": 0}, [900, 800], True),
     ],
 )
 async def test_overflow_recovery_forces_compaction_and_reports_change(
     store: HistoryStore,
     compress_stats: dict[str, int],
+    tokens: list[int],
     expected: bool,
 ):
-    """Overflow recovery owns its force config and reports effective work."""
+    """Recovery requires actual token reduction and restored headroom."""
     mgr = make_manager(store)
-    agent = FakeAgent([user("current")])
+    agent = FakeAgent([user(f"current")], tokens=tokens)
     agent.context_config = _CopyableScrollConfig()
 
     async def fake_compress(actual_agent, context_config):
@@ -1600,6 +1606,7 @@ async def test_overflow_recovery_forces_compaction_and_reports_change(
     forced_config = mgr.compress.await_args.args[1]
     assert forced_config.trigger_ratio == pytest.approx(1e-6)
     assert forced_config.reserve_ratio == pytest.approx(0.1)
+    assert agent.context_config.trigger_ratio == pytest.approx(0.8)
 
 
 async def test_fold_not_triggered_between_reserve_and_trigger(

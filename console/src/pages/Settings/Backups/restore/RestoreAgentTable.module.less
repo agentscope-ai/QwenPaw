@@ -16,7 +16,13 @@
   color: var(--app-text-tertiary);
   display: flex;
   align-items: center;
-  padding: 2px 4px;
+  padding: 8px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  &:focus-visible {
+    outline: 2px solid var(--app-accent);
+  }
   user-select: none;
 }
 
@@ -30,9 +36,7 @@
 }
 
 .agentsContent {
-  margin-left: 24px;
-  padding-left: 12px;
-  border-left: 2px solid var(--app-border-subtle);
+  padding-top: 12px;
   margin-bottom: 6px;
 }
 
@@ -66,8 +70,9 @@
 }
 
 .agentTable {
-  border: 1px solid var(--app-border-strong);
-  border-radius: 6px;
+  border: 1px solid var(--app-border-subtle);
+  border-radius: 12px;
+  overflow: hidden;
 }
 
 .agentName {
@@ -86,5 +91,9 @@
 }
 
 .agentWorkspaceText {
+  margin-top: 4px;
   font-size: 12px;
+  line-height: 1.5;
+  color: var(--app-text-secondary);
+  overflow-wrap: anywhere;
 }

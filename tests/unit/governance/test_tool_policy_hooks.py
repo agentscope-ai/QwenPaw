@@ -285,6 +285,37 @@ def test_registration_rejects_sync_callback(registry):
         _register(registry, "gate", lambda _spec: None)
 
 
+async def test_policy_hook_follows_plugin_runtime_lifecycle(registry):
+    from qwenpaw.plugins.lifecycle import PluginInstance, UnloadMode
+
+    api = PluginApi("risk", {})
+    api.set_registry(registry)
+    instance = PluginInstance("risk")
+    api.bind_instance(instance)
+    api.register_tool_policy_hook("gate", AsyncMock())
+    assert len(registry.get_tool_policy_hooks()) == 1
+    report = await instance.dispose(UnloadMode.UNLOAD)
+    assert report.clean
+    assert not registry.get_tool_policy_hooks()
+    with pytest.raises(RuntimeError, match="registrations are forbidden"):
+        api.register_tool_policy_hook("late", AsyncMock())
+    assert not registry.get_tool_policy_hooks()
+
+
+@pytest.mark.parametrize("state", ["unloading", "disposed"])
+def test_policy_hook_rejects_registration_after_shutdown(registry, state):
+    from qwenpaw.plugins.lifecycle import PluginInstance, PluginState
+
+    api = PluginApi("risk", {})
+    api.set_registry(registry)
+    instance = PluginInstance("risk")
+    instance.state = PluginState(state)
+    api.bind_instance(instance)
+    with pytest.raises(RuntimeError, match="registrations are forbidden"):
+        api.register_tool_policy_hook("late", AsyncMock())
+    assert not registry.get_tool_policy_hooks()
+
+
 @pytest.mark.parametrize("static", [Action.ALLOW, Action.SANDBOX_FALLBACK])
 @pytest.mark.parametrize("f1_active", [False, True])
 @pytest.mark.parametrize("request_level", ["auto", None])
@@ -384,6 +415,82 @@ async def test_off_mode_keeps_existing_bypass(registry):
     assert result.behavior.value == "allow"
     callback.assert_not_called()
     governor.assert_policy.assert_not_called()
+
+
+@pytest.mark.parametrize("static", [Action.ASK, Action.SANDBOX_FALLBACK])
+@pytest.mark.parametrize("model_asks", [False, True])
+@pytest.mark.parametrize("hint", ["ask", "deny"])
+async def test_jev_hooks_preserve_consent_and_sandbox_boundary(
+    registry,
+    monkeypatch,
+    static,
+    model_asks,
+    hint,
+):
+    from agentscope.message import ToolResultState
+    from agentscope.permission import PermissionBehavior, PermissionDecision
+    from agentscope.tool import FunctionTool, ToolChunk
+    from qwenpaw.governance import tool_adapter
+    from qwenpaw.security.decision_model import DecisionModelAssessment
+
+    sandbox = object()
+    governor = MagicMock(spec=ResourceGovernor)
+    governor.policy = SimpleNamespace(execution_level="auto")
+    governor.sandbox_usable = True
+    governor.compile_sandbox_config.return_value = sandbox
+    governor.assert_policy.return_value = GovernanceDecision(
+        static,
+        "host risk",
+        sandbox_config=sandbox if static is Action.SANDBOX_FALLBACK else None,
+        approval_origin="soft_risk",
+    )
+    _register(registry, "risk", AsyncMock(return_value=PolicyHint(hint)))
+    assessment = AsyncMock(
+        return_value=DecisionModelAssessment(model_asks, "model assessment"),
+    )
+    monkeypatch.setattr(
+        "qwenpaw.security.decision_model.assess_tool_call",
+        assessment,
+    )
+    approval = AsyncMock(
+        return_value=PermissionDecision(
+            behavior=PermissionBehavior.ALLOW,
+            message="Approved",
+        ),
+    )
+    monkeypatch.setattr(tool_adapter, "_ask_user_approval", approval)
+
+    async def execute_shell_command(command: str):
+        """Test shell tool."""
+        return command
+
+    tool = tool_adapter.PolicyGuardedTool(
+        execute_shell_command,
+        governor=governor,
+        request_context={"approval_level": "JEV", "session_id": "s"},
+    )
+    permission = await tool.check_permissions({"command": "git status"})
+    assessment.assert_awaited_once()
+    assert tool._qp_policy_decision.action.value == hint
+    assert tool._qp_sandbox_config is sandbox
+    if hint == "deny":
+        assert permission.behavior is PermissionBehavior.DENY
+        approval.assert_not_awaited()
+        return
+
+    assert permission.behavior is PermissionBehavior.ALLOW
+    approval.assert_awaited_once()
+    if static is not Action.ASK and not model_asks:
+        return
+    denied = ToolChunk(state=ToolResultState.DENIED, content=[])
+    execute = AsyncMock(return_value=denied)
+    monkeypatch.setattr(FunctionTool, "__call__", execute)
+    result = await tool_adapter._policy_tool_call(tool, command="git status")
+    assert result is denied
+    # Model consent cannot become an unsandboxed retry after a plugin ASK.
+    execute.assert_awaited_once()
+    approval.assert_awaited_once()
+    assert execute.call_args.kwargs["sandbox_config"] is sandbox
 
 
 @pytest.mark.parametrize("approved", [True, False])

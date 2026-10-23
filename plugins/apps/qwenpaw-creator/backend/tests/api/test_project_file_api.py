@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 
+import pytest
 from fastapi import FastAPI
 
 import api.project_file_routes as project_file_routes
@@ -89,6 +91,135 @@ def _pending_review(services, base, *, interrupted_run_id="run-1"):
     )
     assert result.review is not None
     return result.review
+
+
+@pytest.mark.parametrize("already_selected", [False, True])
+@pytest.mark.parametrize("final_already_stale", [False, True])
+def test_video_selection_patch_accepts_history_and_only_invalidates_compose(
+    tmp_path,
+    run_scenario,
+    already_selected,
+    final_already_stale,
+):
+    from services.file_agent_runtime.work_graph import derive_work_graph
+
+    project = Project.new(project_id="project-1", name="Selected video")
+    document = project.model_dump(mode="json")
+    document["timelines"]["items"]["timeline:main"]["elements_by_id"] = {
+        "clip": {
+            "element_id": "clip",
+            "label": "Clip",
+            "span": {"start_tick": 0, "duration_tick": 4000},
+            "location": {},
+            "creation": {"type": "t2v", "video_prompt": "Current prompt"},
+            "outputs": {"main": {"slot_id": "element:clip:main"}},
+            "render_source": {
+                "type": "element_output",
+                "element_id": "clip",
+                "output_name": "main",
+            },
+        },
+    }
+    selected = "old" if already_selected else "new"
+    assets = document["assets"]
+    for kind, owner, slot_id, versions, current in (
+        (
+            "element_video",
+            "element:clip",
+            "element:clip:main",
+            ["old", "new"],
+            selected,
+        ),
+        (
+            "final_video",
+            "timeline:timeline:main",
+            "timeline:timeline:main:render",
+            ["final"],
+            "final",
+        ),
+    ):
+        assets["artifact_slots_by_id"][slot_id] = {
+            "slot_id": slot_id,
+            "kind": kind,
+            "owner_ref": owner,
+            "version_ids": versions,
+            "selected_version_id": current,
+        }
+        for version_id in versions:
+            checksum = hashlib.sha256(version_id.encode()).hexdigest()
+            assets["files_by_id"][version_id] = {
+                "file_id": version_id,
+                "kind": "artifact_payload",
+                "relative_uri": f"assets/{version_id}.mp4",
+                "sha256": checksum,
+                "size_bytes": len(version_id),
+                "media_type": "video/mp4",
+                "created_at": "2026-09-17T00:00:00Z",
+            }
+            assets["artifact_versions_by_id"][version_id] = {
+                "version_id": version_id,
+                "name": version_id,
+                "slot_id": slot_id,
+                "kind": kind,
+                "owner_ref": owner,
+                "file_id": version_id,
+                "checksum": checksum,
+                "based_on_generation": 0,
+                "stale": version_id == "old"
+                or (version_id == "final" and final_already_stale),
+                "stale_reason": "Old inputs" if version_id == "old" else None,
+                "created_at": "2026-09-17T00:00:00Z",
+            }
+
+    def initialize(root):
+        (root / "assets").mkdir(exist_ok=True)
+        for version_id in ("old", "new", "final"):
+            (root / f"assets/{version_id}.mp4").write_bytes(
+                version_id.encode(),
+            )
+
+    services = CreatorFileServices.create(tmp_path.resolve())
+    base = services.projects.create(
+        Project.model_validate(document),
+        initialize_staged_project=initialize,
+    )
+    app = FastAPI()
+    app.add_exception_handler(CreatorError, creator_error_handler)
+    app.include_router(router)
+    app.dependency_overrides[project_file_services] = lambda: services
+    payload = _patch_payload(
+        "choose-history",
+        "old",
+        base,
+        path=(
+            "/assets/artifact_slots_by_id/element:clip:main/"
+            "selected_version_id"
+        ),
+        expected=selected,
+    )
+
+    async def scenario(client):
+        return await client.patch(PROJECT_URL, json=payload)
+
+    response = run_scenario(app, scenario)
+    assert response.status_code == 200, response.text
+    saved = services.projects.read("project-1").project
+    assert (
+        saved.assets.artifact_slots_by_id[
+            "element:clip:main"
+        ].selected_version_id
+        == "old"
+    )
+    assert not saved.assets.artifact_versions_by_id["old"].stale
+    assert saved.assets.artifact_versions_by_id["final"].stale
+    graph = derive_work_graph(saved)
+    assert graph.by_id["video:clip"].status.value == "done"
+    assert graph.by_id["compose:timeline:main"].status.value == "ready"
+    assert not response.json()["editImpact"]["regenerationRequired"]
+    assert response.json()["editImpact"]["renderTimelineIds"] == [
+        "timeline:main",
+    ]
+    assert response.json()["editImpact"]["affectedElementIds"] == ["clip"]
 
 
 def _decisions_url(review):

@@ -293,6 +293,32 @@ def test_anthropic_compatible_protocol_constructs_anthropic_chat_model(
     )
 
 
+def test_anthropic_agent_uses_model_limit_instead_of_sdk_default(monkeypatch):
+    _configure_text_model(monkeypatch, protocol="Anthropic Claude")
+    monkeypatch.setattr(
+        model_client.model_config,
+        "get_text_model_name",
+        lambda: "MiniMax-M2.7",
+    )
+    client = AgentScopeAgentChatClient()
+    configured = client._configured_model()
+    captured = {}
+
+    async def capture(**kwargs):
+        captured.update(kwargs)
+        raise RuntimeError("request captured before transport")
+
+    monkeypatch.setattr(configured.client.messages, "create", capture)
+    with pytest.raises(AgentModelError, match="request captured"):
+        asyncio.run(
+            client.complete(
+                messages=[{"role": "user", "content": "ping"}],
+                tools=[],
+            ),
+        )
+    assert captured["max_tokens"] == 204800
+
+
 def test_gemini_protocol_constructs_gemini_chat_model(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

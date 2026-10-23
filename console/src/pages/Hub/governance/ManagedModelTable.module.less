@@ -118,3 +118,25 @@
   margin-top: 4px;
   font-size: 12px;
 }
+
+// The catalog is one quiet card; rows remain dense enough to compare.
+.catalog :global(.qwenpaw-table-container),
+.catalog :global(.ant-table-container) {
+  border: 0;
+  border-radius: 20px;
+  overflow: hidden;
+  box-shadow: var(--model-shadow);
+}
+.catalog :global(.qwenpaw-table),
+.catalog :global(.ant-table) {
+  background: var(--model-card, var(--app-surface));
+}
+.catalog :global(.ant-table-tbody) > tr > td {
+  padding: 18px 16px;
+}
+.catalog :global(.ant-table-thead) > tr > th {
+  background: var(--model-inset, var(--app-surface-subtle));
+  color: var(--app-text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+}

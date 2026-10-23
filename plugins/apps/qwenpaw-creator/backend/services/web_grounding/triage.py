@@ -653,7 +653,6 @@ async def classify_grounding_needs_llm(
         + json.dumps(user_payload, ensure_ascii=False, default=str),
         system_prompt=GROUNDING_DETECTOR_SYSTEM_PROMPT,
         temperature=0.0,
-        max_tokens=900,
         timeout=45.0,
     )
     return _normalize_llm_grounding_analysis(

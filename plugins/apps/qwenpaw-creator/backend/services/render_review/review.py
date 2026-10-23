@@ -683,7 +683,6 @@ async def review_render(  # pylint: disable=too-many-statements,too-many-branche
                     content,
                     system_prompt=review_system_prompt(),
                     temperature=0.2,
-                    max_tokens=2400,
                 )
             except ModelError as exc:
                 # Transient provider/network failures get one more

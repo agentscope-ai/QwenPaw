@@ -9,7 +9,7 @@ import shutil
 from pathlib import Path
 from typing import Any
 
-from .compatibility import AssetType
+from .compatibility import AssetType, failure_message
 from .codex_plugin_adapter import ADAPTER as CODEX_PLUGIN_ADAPTER
 from .compatibility_testing import discover_components
 from .models import ProviderInventory
@@ -27,9 +27,12 @@ def _target(root: Path, name: str, fallback: str) -> Path:
     return target
 
 
-def stage_local_assets(inventory: ProviderInventory, root: Path) -> list[str]:
+def stage_local_assets(
+    inventory: ProviderInventory,
+    root: Path,
+) -> dict[str, str]:
     """Copy local Skill and plugin inputs into the private staging tree."""
-    warnings: list[str] = []
+    errors: dict[str, str] = {}
     skills_root, plugins_root = root / "skills", root / "plugins"
     skills_root.mkdir(parents=True, mode=0o700, exist_ok=True)
     plugins_root.mkdir(parents=True, mode=0o700, exist_ok=True)
@@ -42,9 +45,9 @@ def stage_local_assets(inventory: ProviderInventory, root: Path) -> list[str]:
         except Exception as exc:  # pylint: disable=broad-except
             shutil.rmtree(target, ignore_errors=True)
             skill.directory = skills_root / f".failed-{secrets.token_hex(12)}"
-            warnings.append(
-                f"Skill {skill.name!r} 无法进入安全暂存区："
-                f"{type(exc).__name__}: {exc}",
+            errors[f"skills:{skill.source_id}"] = failure_message(
+                f"Skill {skill.name!r} 无法进入安全暂存区",
+                exc,
             )
 
     for index, plugin in enumerate(inventory.plugins, start=1):
@@ -79,11 +82,11 @@ def stage_local_assets(inventory: ProviderInventory, root: Path) -> list[str]:
             plugin.install_source = str(
                 plugins_root / f".failed-{secrets.token_hex(12)}",
             )
-            warnings.append(
-                f"Plugin {plugin.name!r} 无法进入安全暂存区："
-                f"{type(exc).__name__}: {exc}",
+            errors[f"plugins:{plugin.source_id}"] = failure_message(
+                f"Plugin {plugin.name!r} 无法进入安全暂存区",
+                exc,
             )
-    return warnings
+    return errors
 
 
 def component_map(inventory: ProviderInventory) -> dict[str, list[Any]]:

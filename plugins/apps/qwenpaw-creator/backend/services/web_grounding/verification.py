@@ -305,7 +305,6 @@ async def verify_visual_grounding_with_vlm(
                     content,
                     system_prompt=VISUAL_GROUNDING_VERIFIER_SYSTEM_PROMPT,
                     temperature=0.0,
-                    max_tokens=900,
                     timeout=attempt_timeout,
                     api_key_override=verification_api_key,
                     base_url_override=verification_base_url,

@@ -51,6 +51,7 @@ async function main() {
   ];
   const paths = [
     "docs",
+    "usage-policy",
     "docs/search",
     ...DOC_SLUGS.map((s) => `docs/${s}`),
     "blog",

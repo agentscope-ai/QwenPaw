@@ -8,7 +8,7 @@ import logging
 from pathlib import Path
 from typing import Literal, Optional
 from uuid import uuid4
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, ConfigDict, Field
 
 from agentscope.message import Msg
@@ -27,23 +27,30 @@ from .models import (
     ChatHistory,
 )
 from .utils import agentscope_msg_to_message, parse_legacy_memory_state
+from .resolver import (
+    ChatResolution,
+    find_chat_matches,
+    is_app_owned_chat as _is_app_owned_chat,
+)
+from ...config.utils import load_config
+from ...utils.io_utils import run_sync_io
 from ...services.project_directory import (
     agent_project_dirs_from_config,
     resolve_effective_project_dirs,
     session_project_dirs_raw_from_meta,
 )
+from ...providers.thinking import ThinkingPreference
+from ...services.session_thinking import (
+    session_model,
+    thinking_view,
+)
+from ...config.config import ModelSlotConfig
 from ...checkpoints.runtime import RUNTIME as CHECKPOINT_RUNTIME
 
 logger = logging.getLogger(__name__)
 
 
 router = APIRouter(prefix="/chats", tags=["chats"])
-
-
-def _is_app_owned_chat(chat: ChatSpec) -> bool:
-    """Return whether a chat belongs to a PawApp-owned dialogue surface."""
-    owner = chat.meta.get("pawapp") if isinstance(chat.meta, dict) else None
-    return isinstance(owner, dict) and bool(owner.get("app_id"))
 
 
 async def get_workspace(request: Request):
@@ -281,6 +288,21 @@ async def _project_dirs_response(chat: ChatSpec, workspace) -> dict:
     return await asyncio.to_thread(_build)
 
 
+@router.get(f"/resolve", response_model=ChatResolution)
+async def resolve_chat(
+    chat_id: str = Query(..., min_length=1),
+    current_agent_id: Optional[str] = Query(None),
+):
+    """Resolve a Console deep link using only persisted Chat metadata."""
+    config = await run_sync_io(load_config)
+    matches = await find_chat_matches(config, chat_id, current_agent_id)
+    if not matches:
+        raise HTTPException(404, f"Chat not found: {chat_id}")
+    if len(matches) != 1:
+        raise HTTPException(409, f"Chat reference is ambiguous: {chat_id}")
+    return matches[0]
+
+
 @router.get("", response_model=list[ChatSpec])
 async def list_chats(
     user_id: Optional[str] = Query(None, description="Filter by user ID"),
@@ -445,6 +467,10 @@ async def batch_delete_chats(
 
     """
     chats = {chat.id: chat for chat in await mgr.list_chats(archived=None)}
+    # Stop any live run first: a deleted chat must not leave a run behind
+    # in the tracker, or it inflates the aggregate running count forever.
+    for chat_id in chat_ids:
+        await workspace.task_tracker.request_stop(chat_id)
     deleted = await mgr.delete_chats(chat_ids=chat_ids)
     if deleted:
         await CHECKPOINT_RUNTIME.delete_session_checkpoints(
@@ -704,6 +730,121 @@ async def clear_chat_project_dirs(
     return await _project_dirs_response(updated, workspace)
 
 
+@router.put("/{chat_id}/decision-settings")
+async def set_decision_settings(
+    chat_id: str,
+    enabled: bool = Body(..., strict=True),
+    mgr: ChatManager = Depends(get_chat_manager),
+    workspace=Depends(get_workspace),
+):
+    """Save a decision preference for an existing session."""
+    from ...config.config import load_agent_config
+    from ...services.session_thinking import decision_settings
+
+    if await mgr.get_chat(chat_id) is None:
+        raise HTTPException(404, "Chat not found")
+    config = await asyncio.to_thread(load_agent_config, workspace.agent_id)
+    settings = await asyncio.to_thread(decision_settings, config, enabled)
+    if enabled and not settings["configured"]:
+        raise HTTPException(
+            422,
+            "No agent or global decision model configured",
+        )
+    if await mgr.set_session_decision(chat_id, enabled) is None:
+        raise HTTPException(404, "Chat not found")
+    return settings
+
+
+@router.get(f"/thinking-default")
+async def get_default_thinking(
+    provider_id: str | None = None,
+    model: str | None = None,
+    workspace=Depends(get_workspace),
+):
+    """Expose the agent default for a not-yet-created session."""
+    selected = (
+        ModelSlotConfig(provider_id=provider_id, model=model)
+        if provider_id and model
+        else None
+    )
+    return await thinking_view(workspace, model_override=selected)
+
+
+@router.get(f"/{{chat_id}}/thinking")
+async def get_chat_thinking(
+    chat_id: str,
+    mgr: ChatManager = Depends(get_chat_manager),
+    workspace=Depends(get_workspace),
+):
+    """Read the session override and effective model-specific setting."""
+    chat = await mgr.get_chat(chat_id)
+    if chat is None:
+        raise HTTPException(404, f"Chat not found")
+    return await thinking_view(
+        workspace,
+        model_override=session_model(chat.meta),
+        meta=chat.meta,
+    )
+
+
+@router.put(f"/{{chat_id}}/thinking")
+async def set_chat_thinking(
+    chat_id: str,
+    preference: ThinkingPreference,
+    mgr: ChatManager = Depends(get_chat_manager),
+    workspace=Depends(get_workspace),
+    model_key: str | None = None,
+):
+    """Persist a preference for subsequent turns of this session only."""
+    chat = await mgr.get_chat(chat_id)
+    if chat is None:
+        raise HTTPException(404, f"Chat not found")
+    view = await thinking_view(workspace, preference, session_model(chat.meta))
+    if model_key is not None and model_key != view[f"model_key"]:
+        raise HTTPException(409, f"Session model changed; reload its settings")
+    if preference.level != f"inherit" and view[f"reason"] is not None:
+        raise HTTPException(422, f"Thinking setting is invalid for this model")
+    chat = await mgr.set_session_thinking(
+        chat_id,
+        preference,
+        view[f"model_key"],
+    )
+    if chat is None:
+        raise HTTPException(404, f"Chat not found")
+    return await thinking_view(
+        workspace,
+        model_override=session_model(chat.meta),
+        meta=chat.meta,
+    )
+
+
+@router.put(f"/{{chat_id}}/model")
+async def set_chat_model(
+    chat_id: str,
+    model: ModelSlotConfig | None = Body(None),
+    mgr: ChatManager = Depends(get_chat_manager),
+    workspace=Depends(get_workspace),
+):
+    """Select the model for this conversation only."""
+    view = await thinking_view(workspace, model_override=model)
+    if model is not None and (view[f"provider_id"], view[f"model"]) != (
+        model.provider_id,
+        model.model,
+    ):
+        raise HTTPException(422, f"Model provider is unavailable")
+    chat = await mgr.set_session_model(
+        chat_id,
+        model.model_dump() if model else None,
+    )
+    if chat is None:
+        raise HTTPException(404, f"Chat not found")
+    return await thinking_view(
+        workspace,
+        model_override=session_model(chat.meta),
+        meta=chat.meta,
+    )
+
+
 # ----- Existing CRUD endpoints -----
 
 
@@ -808,7 +949,10 @@ async def get_chat(
         if memory_raw:
             memories, _summary = parse_legacy_memory_state(memory_raw)
 
-    messages = agentscope_msg_to_message(memories)
+    messages = agentscope_msg_to_message(
+        memories,
+        truncate_oversized_outputs=True,
+    )
     return ChatHistory(messages=messages, status=status)
 
 
@@ -865,6 +1009,9 @@ async def delete_chat(
         HTTPException: If chat not found (404)
     """
     chat = await mgr.get_chat(chat_id)
+    # Stop any live run first: a deleted chat must not leave a run behind
+    # in the tracker, or it inflates the aggregate running count forever.
+    await workspace.task_tracker.request_stop(chat_id)
     deleted = await mgr.delete_chats(chat_ids=[chat_id])
     if not deleted:
         raise HTTPException(

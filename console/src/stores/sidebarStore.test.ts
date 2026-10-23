@@ -22,6 +22,7 @@ describe("sidebarStore", () => {
       "core.files",
       "core.agent-config",
       "core.models",
+      "core.marketplace",
     ]);
   });
 
@@ -37,11 +38,12 @@ describe("sidebarStore", () => {
 
     expect(useSidebarStore.getState().focusItemIds).toEqual([
       "core.files",
+      "core.marketplace",
       "plugin.example",
     ]);
     expect(
       JSON.parse(localStorage.getItem(FOCUS_ITEMS_STORAGE_KEY) || "[]"),
-    ).toEqual(["core.files", "plugin.example"]);
+    ).toEqual(["core.files", "core.marketplace", "plugin.example"]);
   });
 
   it("restores the default sidebar items", () => {
@@ -118,10 +120,33 @@ describe("sidebarStore", () => {
 
     expect(useSidebarStore.getState().focusItemIds).toEqual([
       "core.files",
+      "core.marketplace",
       "core.debug",
     ]);
     expect(useSidebarStore.getState().hiddenPluginItemIds).toEqual([
       "plugin.visible",
     ]);
   });
+});
+
+it("lets scheduled tasks and extensions be removed while inbox stays fixed", () => {
+  useSidebarStore.getState().resetFocusItemIds();
+  useSidebarStore
+    .getState()
+    .setSidebarItemsVisible(
+      ["core.cron-jobs", "core.marketplace", "core.inbox"],
+      false,
+    );
+  expect(useSidebarStore.getState().focusItemIds).not.toContain(
+    "core.cron-jobs",
+  );
+  expect(useSidebarStore.getState().focusItemIds).not.toContain(
+    "core.marketplace",
+  );
+  useSidebarStore
+    .getState()
+    .setSidebarItemsVisible(["core.cron-jobs", "core.marketplace"], true);
+  expect(useSidebarStore.getState().focusItemIds).toEqual(
+    expect.arrayContaining(["core.cron-jobs", "core.marketplace"]),
+  );
 });

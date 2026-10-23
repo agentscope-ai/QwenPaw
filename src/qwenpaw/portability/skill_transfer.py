@@ -114,7 +114,11 @@ def read_bounded_tree(  # pylint: disable=too-many-branches
                 path = Path(item.path)
                 if item.is_symlink():
                     if reject_unsafe:
-                        raise ValueError("source contains a symbolic link")
+                        raise ValueError(
+                            "source contains a symbolic link: "
+                            f"{path.relative_to(root).as_posix()}；"
+                            "请移除链接，或将需要的内容整理为普通文件后重试",
+                        )
                     continue
                 if not path.resolve(strict=True).is_relative_to(root):
                     raise ValueError("source entry escapes its root")

@@ -197,6 +197,28 @@ class _NonCooperativeStreamModel:
             self.closed.set()
 
 
+class _RecoveringAfterNonCooperativeStreamModel(_NonCooperativeStreamModel):
+    """Model whose provider recovers while the first stream is still stuck."""
+
+    async def __call__(
+        self,
+        *_args: Any,
+        **_kwargs: Any,
+    ) -> AsyncGenerator[Any, None]:
+        self.calls += 1
+        if self.calls > 1:
+            return self._recovered_stream()
+        return self._stream()
+
+    async def _recovered_stream(self) -> AsyncGenerator[Any, None]:
+        self.active += 1
+        self.max_active = max(self.max_active, self.active)
+        try:
+            yield SimpleNamespace(content="recovered")
+        finally:
+            self.active -= 1
+
+
 class _IdleStreamModel:
     model = "idle-stream-test"
     stream = True
@@ -892,6 +914,66 @@ async def test_deferred_cleanup_quarantines_model_without_retry(
 
     assert inner.active == 0
     assert model._pending_provider_cleanup_tasks == set()
+
+
+@pytest.mark.asyncio
+async def test_deferred_cleanup_allows_recovery_after_quarantine_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "qwenpaw.providers.retry_chat_model._STREAM_CLEANUP_TIMEOUT",
+        0.01,
+    )
+    monkeypatch.setattr(
+        "qwenpaw.providers.retry_chat_model."
+        "_STREAM_CLEANUP_QUARANTINE_TIMEOUT",
+        0.02,
+    )
+    clock = {"now": 0.0}
+    monkeypatch.setattr(
+        "qwenpaw.providers.retry_chat_model.monotonic",
+        lambda: clock["now"],
+    )
+    _limiters.clear()
+    inner = _RecoveringAfterNonCooperativeStreamModel()
+    model = RetryChatModel(
+        inner,  # type: ignore[arg-type]
+        retry_config=RetryConfig(enabled=False),
+        rate_limit_config=RateLimitConfig(
+            max_concurrent=1,
+            max_qpm=0,
+            pause_seconds=1.0,
+            jitter_range=0.0,
+            acquire_timeout=10.0,
+        ),
+        stream_first_content_timeout=0.01,
+    )
+    try:
+        result = await model(messages=[])
+        stream = cast(AsyncGenerator[Any, None], result)
+        with pytest.raises(StreamIdleTimeoutError):
+            await anext(stream)
+
+        assert inner.active == 1
+        with pytest.raises(StreamCleanupPendingError):
+            await model(messages=[])
+        assert inner.calls == 1
+
+        clock["now"] = 0.03
+        result = await model(messages=[])
+        stream = cast(AsyncGenerator[Any, None], result)
+        response = await anext(stream)
+
+        assert response.content == "recovered"
+        assert inner.calls == 2
+        assert inner.active == 2
+        assert inner.max_active == 2
+        await stream.aclose()
+    finally:
+        inner.release.set()
+        if inner.active:
+            await asyncio.wait_for(inner.closed.wait(), timeout=1.0)
+        _limiters.clear()
 
 
 @pytest.mark.asyncio
