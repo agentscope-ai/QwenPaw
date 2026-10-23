@@ -297,22 +297,21 @@ export function useSessionListData(
       if (!sessionApi.isActiveOwner(owner)) return;
       const latestCurrentSessionId = currentSessionIdRef.current;
       const canonicalId = backendId ?? sessionId;
+      // Canonical IDs take precedence over shared runtime or display aliases.
+      const currentChatId =
+        sessionApi.getSessionIdentity(latestCurrentSessionId).chatId ??
+        latestCurrentSessionId;
+      const isCurrentRouteRemoved =
+        !!latestCurrentSessionId && currentChatId === canonicalId;
       sessionApi.markRouteRemoved(canonicalId);
-      const currentRouteAlias = [sessionId, session?.sessionId].find(
-        (id) => id && id !== canonicalId && id === latestCurrentSessionId,
-      );
-      if (currentRouteAlias) {
-        sessionApi.markCurrentRouteRemoved(currentRouteAlias);
+      if (isCurrentRouteRemoved && latestCurrentSessionId !== canonicalId) {
+        sessionApi.markCurrentRouteRemoved(latestCurrentSessionId);
       }
       sessionApi.onSessionRemoved?.(backendId ?? sessionId);
 
       // Leave the deleted route before publishing the refreshed list. Otherwise
       // route resolution can request the removed Chat while navigation settles.
-      if (
-        latestCurrentSessionId &&
-        (canonicalId === latestCurrentSessionId ||
-          currentRouteAlias === latestCurrentSessionId)
-      ) {
+      if (isCurrentRouteRemoved) {
         window.dispatchEvent(new CustomEvent("qwenpaw:sidebar-new-chat"));
       }
 

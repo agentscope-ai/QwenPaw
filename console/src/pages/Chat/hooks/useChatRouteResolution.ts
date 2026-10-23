@@ -59,6 +59,8 @@ export function useChatRouteResolution(
 
   useEffect(() => {
     if (!referenceId) return;
+    // A new visit must not inherit another route's deletion suppression.
+    sessionApi.clearRouteRemoval(referenceId);
     return () => sessionApi.clearRouteRemoval(referenceId);
   }, [referenceId]);
 
