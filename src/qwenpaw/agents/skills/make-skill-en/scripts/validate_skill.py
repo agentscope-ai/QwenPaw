@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import ast
 import hashlib
 import json
 import re
@@ -429,7 +430,7 @@ def validate_draft(
         path = skill_dir / relative
         if relative.startswith("scripts/") and path.suffix == ".py":
             try:
-                compile(path.read_bytes(), relative, "exec")
+                ast.parse(path.read_bytes(), filename=relative)
             except (OSError, SyntaxError) as exc:
                 errors.append(
                     create_plan.error("invalid-python", relative, str(exc)),
