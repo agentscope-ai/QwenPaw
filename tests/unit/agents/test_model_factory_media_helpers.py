@@ -844,3 +844,54 @@ def test_fixup_legacy_windows_file_url(url, path):
     items = [{"type": "file", "source": {"type": "url", "url": url}}]
     mf._fixup_media_list(items)
     assert items[0].text == f"File 'real.png' is available at: {path}"
+
+
+def test_sanitize_malformed_file_parts(caplog) -> None:
+    import logging
+
+    messages = [
+        {"role": "user", "content": "plain text"},
+        {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": "hello"},
+                {"type": "file", "file_id": "file-123"},
+                {"type": "file", "file_data": "data:text/plain;base64,abc"},
+                {
+                    "type": "file",
+                    "file": {"file_data": "data:text/plain;base64,def"},
+                },
+                {"type": "file", "file": {"filename": "missing.pdf"}},
+                {"type": "file"},
+            ],
+        },
+    ]
+    with caplog.at_level(logging.WARNING):
+        mf._sanitize_malformed_file_parts(messages)
+
+    assert messages[0]["content"] == "plain text"
+    content = messages[1]["content"]
+    assert content[0] == {"type": "text", "text": "hello"}
+    assert content[1] == {"type": "file", "file_id": "file-123"}
+    assert content[2] == {
+        "type": "file",
+        "file_data": "data:text/plain;base64,abc",
+    }
+    assert content[3] == {
+        "type": "file",
+        "file": {"file_data": "data:text/plain;base64,def"},
+    }
+    assert content[4] == {
+        "type": "text",
+        "text": (
+            "[File 'missing.pdf' unavailable — "
+            "data lost from conversation history]"
+        ),
+    }
+    assert content[5] == {
+        "type": "text",
+        "text": (
+            "[File unavailable — " "data lost from conversation history]"
+        ),
+    }
+    assert "missing.pdf" in caplog.text
