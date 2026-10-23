@@ -1112,7 +1112,10 @@
     "decisionIndex": "#{{index}}: {{label}}",
     "nextDecision": "Next decision",
     "keepAllReviewChanges": "Keep all review changes (production confirm needs separate decision)",
-    "keepAll": "Keep All"
+    "keepAll": "Keep All",
+    "showAllDecisions": "Show all pending decisions",
+    "approvalUnavailable": "This approval is no longer pending at the requested revision. Return to chat for the latest task status.",
+    "approvalLoading": "Loading the requested approval…"
   },
   "executionAuth": {
     "title": "High-cost Media Execution",

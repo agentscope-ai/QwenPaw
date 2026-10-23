@@ -73,7 +73,24 @@
     ) {
       return null;
     }
-    return `/project/${encodeURIComponent(project.project_id)}`;
+    const route = `/project/${encodeURIComponent(project.project_id)}`;
+    const approval = handoff.context.approval_request;
+    if (!approval) return route;
+    if (
+      !approval.inspection ||
+      typeof approval.inspection.target_id !== "string" ||
+      !approval.inspection.target_id ||
+      approval.inspection.target_id.length > 256 ||
+      !["execution", "review"].includes(approval.kind)
+    )
+      return null;
+    const params = new URLSearchParams({
+      approvalKind: approval.kind,
+      approvalTarget: approval.inspection.target_id,
+    });
+    if (approval.subject?.revision)
+      params.set("approvalRevision", approval.subject.revision);
+    return `${route}?${params}`;
   }
 
   function CreatorFrame() {

@@ -17,6 +17,8 @@ export default function TaskApprovalForm({
   request,
   receipt,
   onSettled,
+  onInspect,
+  inspecting = false,
 }: {
   appId: string;
   workspaceId: string;
@@ -24,6 +26,8 @@ export default function TaskApprovalForm({
   request: ApprovalRequest;
   receipt?: ApprovalReceipt | null;
   onSettled: () => void;
+  onInspect?: () => void;
+  inspecting?: boolean;
 }) {
   const { t } = useTranslation();
   const [comment, setComment] = useState("");
@@ -67,7 +71,12 @@ export default function TaskApprovalForm({
     return () => clearTimeout(timer);
   }, [request.expires_at]);
   const submit = async (decisionId: ApprovalDecision["decision_id"]) => {
-    if (state === "sending" || state === "accepted") return;
+    if (
+      request.decision_surface === "app" ||
+      state === "sending" ||
+      state === "accepted"
+    )
+      return;
     if (!intent.current) {
       const choice = request.choices.find(
         (item) => item.decision_id === decisionId,
@@ -110,6 +119,43 @@ export default function TaskApprovalForm({
     <section className={styles.inputRequest} aria-label={request.title}>
       <strong>{request.title}</strong>
       <p>{request.summary}</p>
+      {request.subject && (
+        <div className={styles.approvalSubject}>
+          <strong>{request.subject.label}</strong>
+          <p>{request.subject.operation}</p>
+          <p>
+            {t("tool.pawappTask.approvalOperationCount", {
+              count: request.subject.operation_count,
+            })}
+            {request.subject.revision &&
+              ` · ${t("tool.pawappTask.approvalRevision", {
+                revision: request.subject.revision,
+              })}`}
+          </p>
+          {!!request.subject.targets?.length && (
+            <ul>
+              {request.subject.targets.map((target, index) => (
+                <li key={index}>{target}</li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+      {request.inspection && (
+        <button
+          type="button"
+          className={styles.openApp}
+          onClick={onInspect}
+          disabled={!onInspect || inspecting}
+        >
+          {inspecting
+            ? t("tool.pawappTask.openingApp")
+            : request.inspection.label}
+        </button>
+      )}
+      {request.decision_surface === "app" && (
+        <p>{t("tool.pawappTask.approvalInApp")}</p>
+      )}
       {!!request.effects?.length && (
         <ul>
           {request.effects.map((effect) => (
@@ -124,39 +170,42 @@ export default function TaskApprovalForm({
           {request.cost.description}
         </p>
       )}
-      {request.choices.some((choice) => choice.requires_comment) && (
-        <label className={styles.customAnswer}>
-          {t("tool.pawappTask.approvalComment", {
-            choices: request.choices
-              .filter((choice) => choice.requires_comment)
-              .map((choice) => choice.label)
-              .join(", "),
-          })}
-          <textarea
-            value={comment}
-            maxLength={2000}
-            disabled={intent.current !== null}
-            onChange={(event) => setComment(event.target.value)}
-          />
-        </label>
+      {request.decision_surface !== "app" &&
+        request.choices.some((choice) => choice.requires_comment) && (
+          <label className={styles.customAnswer}>
+            {t("tool.pawappTask.approvalComment", {
+              choices: request.choices
+                .filter((choice) => choice.requires_comment)
+                .map((choice) => choice.label)
+                .join(", "),
+            })}
+            <textarea
+              value={comment}
+              maxLength={2000}
+              disabled={intent.current !== null}
+              onChange={(event) => setComment(event.target.value)}
+            />
+          </label>
+        )}
+      {request.decision_surface !== "app" && (
+        <div className={styles.answerOptions}>
+          {request.choices.map((choice) => (
+            <button
+              type="button"
+              key={choice.decision_id}
+              title={choice.description}
+              disabled={
+                expired ||
+                intent.current !== null ||
+                (choice.requires_comment && !comment.trim())
+              }
+              onClick={() => void submit(choice.decision_id)}
+            >
+              {choice.label}
+            </button>
+          ))}
+        </div>
       )}
-      <div className={styles.answerOptions}>
-        {request.choices.map((choice) => (
-          <button
-            type="button"
-            key={choice.decision_id}
-            title={choice.description}
-            disabled={
-              expired ||
-              intent.current !== null ||
-              (choice.requires_comment && !comment.trim())
-            }
-            onClick={() => void submit(choice.decision_id)}
-          >
-            {choice.label}
-          </button>
-        ))}
-      </div>
       {state === "failed" && (
         <button
           type="button"

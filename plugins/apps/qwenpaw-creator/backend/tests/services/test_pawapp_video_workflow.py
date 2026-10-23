@@ -1552,6 +1552,12 @@ async def test_approval_prompt_is_bounded_and_approval_replays_after_progress(
 
     assert approval.status == "waiting_for_approval"
     assert request["kind"] == "execution"
+    assert approval.detail["approval_progress"] == {
+        "completed": 0,
+        "pending": 1,
+        "future": None,
+        "forecast": "unknown",
+    }
     assert request["subject_digest"].startswith("sha256:")
     assert [choice["decision_id"] for choice in request["choices"]] == [
         "approve_once",
@@ -1564,8 +1570,9 @@ async def test_approval_prompt_is_bounded_and_approval_replays_after_progress(
     assert request["cost"]["amount"] is None
     assert request["request_id"] != authorization.authorization_id
     exposed = str(request)
+    assert request["inspection"]["target_id"] == authorization.authorization_id
+    assert request["subject"]["operation_count"] == 1
     for hidden in (
-        authorization.authorization_id,
         authorization.authorization_token,
         authorization.execution_request_id,
         authorization.target_scope[0],
@@ -1620,6 +1627,20 @@ async def test_approval_prompt_is_bounded_and_approval_replays_after_progress(
     )
     command_status = await adapter.query_command(submission, command)
     assert command_status.state == "accepted"
+    progress = (
+        _workflow_record(services, record.submission_id)
+        .events[-1]
+        .approval_progress
+    )
+    assert progress.completed == 1
+    assert progress.pending == 0
+    await adapter.query(submission)
+    assert (
+        _workflow_record(services, record.submission_id)
+        .events[-1]
+        .approval_progress
+        == progress
+    )
 
 
 @pytest.mark.asyncio
@@ -3391,8 +3412,7 @@ async def test_manual_review_is_actionable_in_host_and_replays(
     assert record.stage == "waiting_approval"
     events = [event async for event in adapter.attach(submission)]
     request = events[-1].detail["approval_request"]
-    assert request["kind"] == "review"
-    assert review.decision_token not in str(request)
+    _assert_review_inspection(events[-1], review)
     command = TaskCommand(
         task_id=submission.handle.task_id,
         command_id="review-decision",
@@ -3476,3 +3496,28 @@ async def test_manual_review_is_actionable_in_host_and_replays(
         )
         for operation in resolved.operations
     )
+
+
+def test_approval_progress_distinguishes_decisions_from_expired_proposals():
+    from types import SimpleNamespace
+    from services.pawapp_approvals import approval_progress
+
+    records = [
+        SimpleNamespace(status=SimpleNamespace(value=value))
+        for value in ["APPROVED", "REJECTED", "EXPIRED", "PENDING"]
+    ]
+    progress = approval_progress(records, [], 1)
+    assert progress.completed == 2
+    assert progress.pending == 1
+    assert progress.future is None
+    assert progress.forecast == "unknown"
+
+
+def _assert_review_inspection(event, review):
+    request = event.detail["approval_request"]
+    assert request["kind"] == "review"
+    assert request["decision_surface"] == "app"
+    assert request["inspection"]["target_id"] == review.review_id
+    assert request["subject"]["revision"] == str(review.candidate_generation)
+    assert event.detail["approval_progress"]["pending"] == 1
+    assert review.decision_token not in str(request)

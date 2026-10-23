@@ -100,6 +100,37 @@ const flush = () =>
   });
 
 describe("PawApp task cards", () => {
+  it.each(["unknown", "estimated", "exact"] as const)(
+    "shows %s approval forecast only while the task is active",
+    async (forecast) => {
+      const current: PawAppTask = {
+        ...task,
+        status: "running",
+        approval_progress: {
+          completed: 2,
+          pending: 1,
+          future: forecast === "unknown" ? null : 3,
+          forecast,
+        },
+      };
+      api.mockResolvedValue(current);
+      const view = render(<PawAppTaskCard content={content(current)} />);
+      await flush();
+      expect(
+        screen.getByText(`tool.pawappTask.approvalForecast.${forecast}`),
+      ).toBeTruthy();
+      view.unmount();
+      const completed = { ...current, status: "succeeded" as const };
+      api.mockResolvedValue(completed);
+      render(<PawAppTaskCard content={content(completed)} />);
+      await flush();
+      expect(
+        screen.queryByText(`tool.pawappTask.approvalForecast.${forecast}`),
+      ).toBeNull();
+      expect(screen.getByText("tool.pawappTask.approvalCounts")).toBeTruthy();
+    },
+  );
+
   it("renders one canonical surface and folds repeated status checks", async () => {
     const latest: PawAppTask = {
       ...task,

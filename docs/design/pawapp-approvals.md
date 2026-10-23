@@ -20,6 +20,33 @@ approval_request=ApprovalRequest(...))`. The request is distinct from
 | `choices` | Stable `approve_once`, `reject`, or `request_changes` IDs with independent display labels and optional required feedback. Apps advertise only supported choices. |
 | `cost` | Optional informational amount/currency and description. Missing estimates are unknown, not free. This is not a budget grant. |
 | `expires_at` | Optional UTC epoch deadline. New decisions and delivery attempts after the deadline are rejected. |
+| `subject` | Optional bounded object label, operation, operation count, revision and target labels. Counts describe the scope of this decision, not the number of approval requests. |
+| `inspection` | Optional button label and opaque App-owned target ID. The Host issues an authenticated handoff; the App resolves the ID to its authoritative review UI. No App-supplied URL is accepted. |
+| `decision_surface` | `chat` by default; `app` requires an inspection entry and disables Host decisions on the server as well as in the card. |
+
+## Approval progress and inspection
+
+`ExecutorEvent.approval_progress` projects mutable task-wide counts into
+`TaskHandle.approval_progress`: `completed` counts handled decisions (including
+rejections), and `pending` includes the currently displayed proposal. These
+count approval requests, not shots, candidates, or individual changed fields.
+`future` counts additional approvals after the currently pending requests.
+Its `forecast` must be `exact` or `estimated` when a number is supplied, and
+`unknown` when no number is known. Apps own this projection; the Host does not
+infer a fixed total from an agent's narrative. A forecast does not authorize work.
+
+Progress is separate from the immutable proposal and its digest. Updating counts
+does not invalidate a displayed decision or discard its receipt. Changing the
+operation, content, or approval scope still requires a new proposal identity.
+
+To inspect a particular approval, POST `{ "request_id": "…",
+"subject_digest": "sha256:…" }` to the existing scoped `/tasks/{task_id}/open`
+endpoint. The Host checks the current proposal and scope and places the proposal
+in `TaskContext.approval_request`. The frontend SDK exposes the same operation as
+`paw.tasks.open(taskId, { approval: { request_id, subject_digest } })`.
+Ordinary opens of a task with an inspectable approval share the same handoff.
+The App must check that the destination is still pending at the requested
+revision; it must not silently substitute a different pending review.
 
 The scoped UI endpoint is `POST /tasks/{task_id}/decide` under the usual
 `/api/pawapps/{app_id}/workspaces/{workspace_id}` prefix:
@@ -103,13 +130,23 @@ parameters; unknown provider cost is explicit. Approval applies Creator's
 existing authorization compare-and-set, with a fresh subject check. Actual
 provider dispatch still performs Creator's configuration/fingerprint checks.
 
-Correlated pending content reviews now produce a review card instead of appearing
-as `planning`. A card can accept all pending human-review operations in that
-snapshot, undo them, or request changes with feedback. It explicitly directs the
-user to open Creator for content inspection or individual operation decisions.
+Correlated pending content reviews produce a review card instead of appearing
+as `planning`. New review cards show the candidate revision and operation count
+and require inspection and a decision in Creator, where the actual content,
+diffs, and individual decisions are available. Generation requests can still be
+approved in Main Chat and offer an inspection entry to the exact authorization.
+Creator focuses that authorization or review in its decision tray, with a stale
+destination message instead of displaying an unrelated decision. The App's
+existing UI accepts, undoes, or requests changes with feedback.
 The App's existing review token, compensating commits, decision journal and
 follow-up mechanism perform the work. Tokens and private review snapshots remain
 in Creator. Exact command receipts survive reload and uncertain delivery.
+
+Creator counts correlated authoritative authorizations and reviews, including
+decisions made in its own UI. Expired or superseded proposals do not count as
+completed approvals. Future approvals remain unknown because the workflow can
+create additional generation, review, or revision work. Already-offered legacy
+proposals retain their original payload and behavior until resolved.
 
 Legacy persisted generation events retain their original `input_request` wire
 payload and replay digest. Their existing user-interface answer path remains

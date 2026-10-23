@@ -3,8 +3,14 @@ import type {
   ApprovalRequest,
   ApprovalDecision,
   ApprovalReceipt,
+  ApprovalProgress,
 } from "../../plugins/pawapp-sdk/contracts";
-export type { ApprovalRequest, ApprovalDecision, ApprovalReceipt };
+export type {
+  ApprovalRequest,
+  ApprovalDecision,
+  ApprovalReceipt,
+  ApprovalProgress,
+};
 import { request } from "../request";
 import { getApiUrl } from "../config";
 
@@ -159,6 +165,7 @@ export interface PawAppTask {
   experience?: PawAppTaskExperienceSnapshot | null;
   input_request?: PawAppTaskInputRequest | null;
   approval_request?: ApprovalRequest | null;
+  approval_progress?: ApprovalProgress | null;
   approval_receipt?: ApprovalReceipt | null;
   setup_request_id?: string | null;
   setup_attempt?: number;
@@ -426,6 +433,19 @@ function isApprovalReceipt(value: unknown): value is ApprovalReceipt {
   }
 }
 
+function isApprovalProgress(value: unknown): value is ApprovalProgress {
+  try {
+    assertContract("ApprovalProgress", value);
+    const progress = value as ApprovalProgress;
+    return (
+      (progress.forecast == null || progress.forecast === "unknown") ===
+      (progress.future == null)
+    );
+  } catch {
+    return false;
+  }
+}
+
 function isApprovalRequest(value: unknown): value is ApprovalRequest {
   try {
     assertContract("ApprovalRequest", value);
@@ -551,6 +571,8 @@ export function isPawAppTask(value: unknown): value is PawAppTask {
           value.approval_request.request_id &&
         value.approval_receipt.decision.subject_digest ===
           value.approval_request.subject_digest)) &&
+    (value.approval_progress == null ||
+      isApprovalProgress(value.approval_progress)) &&
     (value.approval_request == null ||
       (value.status === "waiting_for_approval" &&
         value.input_request == null &&
@@ -783,12 +805,17 @@ export async function openPawAppTask(
   appId: string,
   workspaceId: string,
   taskId: string,
+  approval?: Pick<ApprovalRequest, "request_id" | "subject_digest">,
 ): Promise<PawAppOpenAction> {
   const result = await request<{ action: unknown }>(
     `/pawapps/${encodeURIComponent(appId)}/workspaces/${encodeURIComponent(
       workspaceId,
     )}/tasks/${encodeURIComponent(taskId)}/open`,
-    { method: "POST", headers: { "X-Agent-Id": workspaceId } },
+    {
+      method: "POST",
+      headers: { "X-Agent-Id": workspaceId },
+      ...(approval ? { body: JSON.stringify(approval) } : {}),
+    },
   );
   if (
     !isOpenAction(result.action) ||

@@ -239,3 +239,54 @@ async def test_handoff_requires_project_and_rejects_rebinding(tmp_path):
                 },
             ),
         )
+
+
+@pytest.mark.asyncio
+async def test_approval_handoff_binds_exact_proposal_and_scope(tmp_path):
+    from qwenpaw.pawapp.tasks import ApprovalInspection
+    from tests.unit.pawapp.test_approvals import PROPOSAL
+
+    submission, artifacts, _ref, _content = await project_submission(tmp_path)
+    tasks = await TaskStore.open(tmp_path / "tasks.sqlite3")
+    scope = submission.handle.scope
+    proposal = PROPOSAL.model_copy(
+        update={
+            "inspection": ApprovalInspection(
+                target_id="review-7",
+                label="Inspect revision 7",
+            ),
+        },
+    )
+    submission = await tasks.apply_event(
+        scope,
+        submission.handle.task_id,
+        ExecutorEvent(
+            run_ref=submission.handle.executor_run_ref,
+            sequence=submission.handle.executor_sequence + 1,
+            cursor="approval",
+            status="waiting_for_approval",
+            approval_request=proposal,
+        ),
+    )
+    handoffs = await HandoffStore.open(
+        tmp_path / "handoffs.sqlite3",
+        artifacts,
+    )
+    action = await handoffs.create(
+        submission,
+        target_app_id=scope.app_id,
+        approval=proposal,
+    )
+    resolved = await handoffs.resolve(scope, action.handoff_id)
+    assert resolved.context.approval_request == proposal
+    with pytest.raises(TaskStoreError):
+        await handoffs.resolve(
+            scope.model_copy(update={"principal_id": "bob"}),
+            action.handoff_id,
+        )
+    with pytest.raises(TaskStoreError, match="stale_approval"):
+        await handoffs.create(
+            submission,
+            target_app_id=scope.app_id,
+            approval=proposal.model_copy(update={"request_id": "old"}),
+        )

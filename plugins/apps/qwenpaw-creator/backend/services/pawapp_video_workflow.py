@@ -67,7 +67,9 @@ from services.file_agent_runtime.work_graph import (
 from services.file_agent_runtime.workgraph_execution import requested_work_node
 from services.pawapp_approvals import (
     generation_request,
+    approval_progress,
     review_request,
+    review_operations,
     review_command,
     query_review_command,
     validate_generation_command,
@@ -109,6 +111,7 @@ from services.setup_coordination import (
 
 from qwenpaw.pawapp.tasks import (
     ApprovalRequest,
+    ApprovalProgress,
     ApprovalDecision,
     ActionDescriptor,
     ArtifactRef,
@@ -518,6 +521,7 @@ class CreatorVideoWorkflowEvent(_FrozenWorkflowModel):
         max_length=256,
     )
     approval_request: ApprovalRequest | None = None
+    approval_progress: ApprovalProgress | None = None
     review_snapshot: ReviewRecord | None = None
     created_at: float = Field(default_factory=time.time, ge=0)
 
@@ -1081,6 +1085,7 @@ def _workflow_event(
     setup_requirement_id: str | None = None,
     approval_request_id: str | None = None,
     approval_request: ApprovalRequest | None = None,
+    progress: ApprovalProgress | None = None,
     review_snapshot: ReviewRecord | None = None,
     text_result: str | None = None,
     created_at: float | None = None,
@@ -1095,6 +1100,7 @@ def _workflow_event(
         setup_requirement_id=setup_requirement_id,
         approval_request_id=approval_request_id,
         approval_request=approval_request,
+        approval_progress=progress,
         review_snapshot=review_snapshot,
         created_at=time.time() if created_at is None else created_at,
     )
@@ -1131,6 +1137,7 @@ class _ObservedWorkflowState:
     setup_requirement_id: str | None = None
     approval_request_id: str | None = None
     approval_request: ApprovalRequest | None = None
+    approval_progress: ApprovalProgress | None = None
     review_snapshot: ReviewRecord | None = None
     failure_code: str | None = None
     source_receipt: CreatorVideoSourceReceipt | None = None
@@ -1830,6 +1837,7 @@ def _classify_observed_state(
                     pending_authorizations[0],
                 ),
                 summary=_approval_description(pending_authorizations[0]),
+                project=project_snapshot.project,
             ),
         )
 
@@ -2464,17 +2472,18 @@ class CreatorVideoWorkflowTaskAdapter:
             for goal_id in goal_ids
         )
         task_ids = frozenset(task.task_id for task in tasks)
+        authorizations = _correlated_authorizations(
+            executions.list_execution_authorizations(record.project_id),
+            run_ids=all_run_ids,
+            round_ids=all_round_ids,
+            task_ids=task_ids,
+            message_ids=message_ids,
+            message_sequences=message_sequences,
+        )
         pending_authorizations = tuple(
-            authorization
-            for authorization in _correlated_authorizations(
-                executions.list_execution_authorizations(record.project_id),
-                run_ids=all_run_ids,
-                round_ids=all_round_ids,
-                task_ids=task_ids,
-                message_ids=message_ids,
-                message_sequences=message_sequences,
-            )
-            if authorization.status is ExecutionAuthorizationStatus.PENDING
+            item
+            for item in authorizations
+            if item.status is ExecutionAuthorizationStatus.PENDING
         )
         (
             pending_authorizations,
@@ -2490,11 +2499,16 @@ class CreatorVideoWorkflowTaskAdapter:
         review_ids = frozenset(
             review_id for run in agent_runs for review_id in run.review_ids
         )
-        pending_reviews = _correlated_reviews(
-            services.reviews.all_pending(record.project_id),
+        reviews = _correlated_reviews(
+            services.reviews.all_records(record.project_id),
             review_ids=review_ids,
             run_ids=all_run_ids,
             round_ids=all_round_ids,
+        )
+        pending_reviews = tuple(
+            review
+            for review in reviews
+            if review.status.value == "PENDING" and review_operations(review)
         )
         pending_resume = any(
             message.message_id in message_ids
@@ -2506,7 +2520,7 @@ class CreatorVideoWorkflowTaskAdapter:
             )
             for message in messages
         )
-        return _classify_observed_state(
+        observed_state = _classify_observed_state(
             record=record,
             project_snapshot=project,
             session=session,
@@ -2520,6 +2534,22 @@ class CreatorVideoWorkflowTaskAdapter:
             graph=graph,
             executor_sequence=executor_sequence,
         )
+        progress = approval_progress(
+            authorizations,
+            reviews,
+            len(pending_authorizations) + len(pending_reviews),
+        )
+        if (
+            not progress.completed
+            and not progress.pending
+            and not any(
+                event.approval_progress is not None for event in record.events
+            )
+        ):
+            progress = None
+        from dataclasses import replace
+
+        return replace(observed_state, approval_progress=progress)
 
     def _transition_observed_state(
         self,
@@ -2587,6 +2617,8 @@ class CreatorVideoWorkflowTaskAdapter:
                 or current.approval_request_id != approval_request_id
                 or current.events[-1].approval_request
                 != observed.approval_request
+                or current.events[-1].approval_progress
+                != observed.approval_progress
                 or current.failure_code != failure_code
                 or current.source_receipt != source_receipt
                 or current.publication != publication
@@ -2622,6 +2654,7 @@ class CreatorVideoWorkflowTaskAdapter:
                     approval_request=observed.approval_request
                     if stage == "waiting_approval"
                     else None,
+                    progress=observed.approval_progress,
                     review_snapshot=observed.review_snapshot
                     if stage == "waiting_approval"
                     else None,
@@ -3263,6 +3296,12 @@ class CreatorVideoWorkflowTaskAdapter:
                         requirement_id=workflow_event.setup_requirement_id,
                         reason_code=reason_code,
                         reason=reason,
+                    )
+                if workflow_event.approval_progress is not None:
+                    event_detail[
+                        "approval_progress"
+                    ] = workflow_event.approval_progress.model_dump(
+                        mode="json",
                     )
                 if workflow_event.approval_request is not None:
                     event_detail[

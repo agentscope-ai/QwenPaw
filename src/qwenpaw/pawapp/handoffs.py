@@ -12,10 +12,11 @@ from pathlib import Path
 from typing import Annotated, Callable, Literal, TypeVar
 from urllib.parse import quote
 
-from pydantic import Field
+from pydantic import Field, model_serializer
 
 from .artifacts import ArtifactStore
 from .tasks.contracts import (
+    ApprovalRequest,
     ArtifactRef,
     Contract,
     Engagement,
@@ -91,6 +92,14 @@ class TaskContext(Contract):
     project_ref: ProjectRef
     resume_ref: Identity
     view_id: Identity | None = None
+    approval_request: ApprovalRequest | None = None
+
+    @model_serializer(mode="wrap")
+    def preserve_legacy_wire(self, handler):
+        data = handler(self)
+        if data.get("approval_request") is None:
+            data.pop("approval_request", None)
+        return data
 
 
 class HandoffRequest(Contract):
@@ -195,7 +204,10 @@ class HandoffStore:
         return candidate[:16000]
 
     @staticmethod
-    def _context(submission: TaskSubmission) -> TaskContext:
+    def _context(
+        submission: TaskSubmission,
+        approval: ApprovalRequest | None = None,
+    ) -> TaskContext:
         handle = submission.handle
         if handle.project_ref is None:
             raise TaskStoreError("project_unavailable")
@@ -222,6 +234,7 @@ class HandoffStore:
             artifact_refs=handle.output_refs,
             project_ref=handle.project_ref,
             resume_ref=handle.task_id,
+            approval_request=approval,
             view_id=(
                 handle.experience.view_id
                 if handle.experience is not None
@@ -290,8 +303,22 @@ class HandoffStore:
         submission: TaskSubmission,
         *,
         target_app_id: str,
+        approval: ApprovalRequest | None = None,
     ) -> OpenAppAction:
-        context = self._context(submission)
+        if (
+            approval is None
+            and target_app_id == submission.handle.scope.app_id
+        ):
+            current = submission.handle.approval_request
+            if current is not None and current.inspection is not None:
+                approval = current
+        if approval is not None and (
+            approval != submission.handle.approval_request
+            or approval.inspection is None
+            or target_app_id != submission.handle.scope.app_id
+        ):
+            raise TaskStoreError("stale_approval")
+        context = self._context(submission, approval)
         # Validate the target independently of the eventual URL constructor.
         OpenAppAction(
             app_id=target_app_id,

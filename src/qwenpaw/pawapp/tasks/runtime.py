@@ -801,7 +801,7 @@ class HostTaskRuntime:
         )
         return submission
 
-    async def open_app(self, scope, task_id):
+    async def open_app(self, scope, task_id, *, approval=None):
         """Issue an authenticated handoff for the task's App-owned project."""
         if self.handoffs is None:
             raise TaskStoreError("handoff_store_unavailable")
@@ -809,9 +809,21 @@ class HostTaskRuntime:
         project = submission.handle.project_ref
         if project is None:
             raise TaskStoreError("project_unavailable")
+        proposal = None
+        if approval is not None:
+            proposal = submission.handle.approval_request
+            if (
+                proposal is None
+                or submission.handle.cancel_requested
+                or proposal.request_id != approval.request_id
+                or proposal.subject_digest != approval.subject_digest
+                or proposal.inspection is None
+            ):
+                raise TaskStoreError("stale_approval")
         return await self.handoffs.create(
             submission,
             target_app_id=project.app_id,
+            approval=proposal,
         )
 
     async def resolve_handoff(self, scope, handoff_id):

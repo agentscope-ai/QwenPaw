@@ -81,6 +81,85 @@
       "title": "ApprovalCost",
       "type": "object"
     },
+    "ApprovalInspection": {
+      "additionalProperties": false,
+      "description": "Opaque App-owned destination, resolved through a scoped handoff.",
+      "properties": {
+        "target_id": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Target Id",
+          "type": "string"
+        },
+        "label": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Label",
+          "type": "string"
+        }
+      },
+      "required": [
+        "target_id",
+        "label"
+      ],
+      "title": "ApprovalInspection",
+      "type": "object"
+    },
+    "ApprovalSubject": {
+      "additionalProperties": false,
+      "description": "Bounded, user-facing scope of one immutable decision.",
+      "properties": {
+        "label": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Label",
+          "type": "string"
+        },
+        "operation": {
+          "maxLength": 500,
+          "minLength": 1,
+          "title": "Operation",
+          "type": "string"
+        },
+        "operation_count": {
+          "minimum": 1,
+          "title": "Operation Count",
+          "type": "integer"
+        },
+        "revision": {
+          "anyOf": [
+            {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Revision"
+        },
+        "targets": {
+          "default": [],
+          "items": {
+            "maxLength": 300,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 12,
+          "title": "Targets",
+          "type": "array"
+        }
+      },
+      "required": [
+        "label",
+        "operation",
+        "operation_count"
+      ],
+      "title": "ApprovalSubject",
+      "type": "object"
+    },
     "ApprovalRequest": {
       "additionalProperties": false,
       "description": "App-owned immutable proposal. The Host never infers an approval.",
@@ -165,6 +244,37 @@
           ],
           "default": null,
           "title": "Expires At"
+        },
+        "subject": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ApprovalSubject"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "inspection": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ApprovalInspection"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "decision_surface": {
+          "default": "chat",
+          "enum": [
+            "chat",
+            "app"
+          ],
+          "title": "Decision Surface",
+          "type": "string"
         }
       },
       "required": [
@@ -176,6 +286,51 @@
         "choices"
       ],
       "title": "ApprovalRequest",
+      "type": "object"
+    },
+    "ApprovalProgress": {
+      "additionalProperties": false,
+      "description": "Mutable task-wide counts of decisions, not underlying operations.",
+      "properties": {
+        "completed": {
+          "minimum": 0,
+          "title": "Completed",
+          "type": "integer"
+        },
+        "pending": {
+          "minimum": 0,
+          "title": "Pending",
+          "type": "integer"
+        },
+        "future": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Future"
+        },
+        "forecast": {
+          "default": "unknown",
+          "enum": [
+            "unknown",
+            "estimated",
+            "exact"
+          ],
+          "title": "Forecast",
+          "type": "string"
+        }
+      },
+      "required": [
+        "completed",
+        "pending"
+      ],
+      "title": "ApprovalProgress",
       "type": "object"
     },
     "ApprovalActor": {
@@ -1149,6 +1304,17 @@
           ],
           "default": null
         },
+        "approval_progress": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ApprovalProgress"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "experience_update": {
           "anyOf": [
             {
@@ -1797,6 +1963,17 @@
           "anyOf": [
             {
               "$ref": "#/$defs/ApprovalReceipt"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "approval_progress": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ApprovalProgress"
             },
             {
               "type": "null"

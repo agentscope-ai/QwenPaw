@@ -1399,6 +1399,12 @@ def visible_locator(root: Any, name: str, *, timeout: float = 90.0) -> Any:
 def wait_task_card(page: Any, task_id: str, *, timeout: float = 90.0) -> None:
     def present() -> bool:
         locator = page.get_by_text(task_id, exact=False)
+        # Task identifiers live in collapsed details in the current card UI.
+        details = page.locator("details:not([open])").filter(has=locator)
+        for index in range(details.count()):
+            summary = details.nth(index).locator("summary")
+            if summary.is_visible():
+                summary.click()
         return any(
             locator.nth(index).is_visible() for index in range(locator.count())
         )
@@ -1846,8 +1852,13 @@ def browser_acceptance(
 
     context.route("**/*", route_request)
     downloads: list[Any] = []
+
+    def record_download(download: Any) -> None:
+        # Playwright attaches callback metadata, which list.append cannot hold.
+        downloads.append(download)
+
     page = context.new_page()
-    page.on("download", downloads.append)
+    page.on("download", record_download)
     chat_url = f"{base_url}/chat/{chat_id}"
     page.goto(
         require_loopback_url(chat_url),
@@ -1934,6 +1945,17 @@ def browser_acceptance(
         "image approval task has no input request ID",
     )
     image_approval_request_id = image_input_request["request_id"]
+    require(
+        image_input_request.get("subject", {}).get("operation_count", 0) > 0,
+        "image approval has no operation scope",
+    )
+    image_progress = find_value(image_approval_task, ("approval_progress",))
+    require(
+        isinstance(image_progress, dict)
+        and image_progress.get("pending", 0) > 0
+        and image_progress.get("forecast") == "unknown",
+        "image approval has no honest pending/future progress",
+    )
     require(
         "image.generate" not in acceptance_event_names(event_log),
         "image generated before image approval",
@@ -2039,7 +2061,7 @@ def browser_acceptance(
     )
     video_approval_request_id = video_input_request["request_id"]
     expected_project_id = project_id_from_task(before_handoff)
-    visible_locator(page, "Open App").click()
+    visible_locator(page, "Open project").click()
     _owner, frame = wait_creator_frame(context, timeout=60.0)
 
     def project_route() -> str | None:
@@ -2055,8 +2077,12 @@ def browser_acceptance(
     if expected_project_id is not None:
         require(
             opened_project_id == expected_project_id,
-            "Open App routed to a different project",
+            "Open project routed to a different project",
         )
+    approval_target = video_input_request["inspection"]["target_id"]
+    frame.locator(
+        f'[data-approval-target="{approval_target}"]',
+    ).wait_for(state="visible", timeout=60_000)
     assert_task_identity(
         client,
         base_url,

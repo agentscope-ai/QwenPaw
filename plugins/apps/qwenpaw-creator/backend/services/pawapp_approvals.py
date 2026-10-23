@@ -20,6 +20,9 @@ from qwenpaw.pawapp.tasks import (
     ApprovalCost,
     ApprovalDecision,
     ApprovalRequest,
+    ApprovalSubject,
+    ApprovalInspection,
+    ApprovalProgress,
     CommandLookup,
     TaskStoreError,
 )
@@ -31,7 +34,45 @@ class ReviewCommandReceipt(BaseModel):
     result: CommandLookup
 
 
-def generation_request(workflow, authorization, *, request_id, summary):
+def _existing_proposal(workflow, request_id):
+    return next(
+        (
+            event.approval_request
+            for event in reversed(workflow.events)
+            if event.approval_request is not None
+            and event.approval_request.request_id == request_id
+        ),
+        None,
+    )
+
+
+def _target_labels(authorization, project):
+    labels = []
+    for index, ref in enumerate(authorization.target_scope[:12]):
+        kind, _, target_id = ref.partition(":")
+        label = f"{kind.replace('_', ' ').title()} {index + 1}"
+        if project is not None and kind == "element":
+            for timeline in project.timelines.items.values():
+                element = timeline.elements_by_id.get(target_id)
+                if element is not None:
+                    label = getattr(element, "label", None) or label
+                    break
+        labels.append(str(label)[:300])
+    return tuple(labels)
+
+
+def generation_request(
+    workflow,
+    authorization,
+    *,
+    request_id,
+    summary,
+    project=None,
+):
+    # Keep already-offered proposals immutable across upgrades and renames.
+    existing = _existing_proposal(workflow, request_id)
+    if existing is not None and project is not None:
+        return existing
     # Exclude mutable decision bookkeeping; never expose the secret token,
     # raw prompt or source paths in the public card.
     subject = authorization.model_dump(
@@ -55,6 +96,21 @@ def generation_request(workflow, authorization, *, request_id, summary):
             },
         ),
         title="Creator generation approval",
+        subject=ApprovalSubject(
+            label=(project.name if project is not None else "Creator project")[
+                :200
+            ],
+            operation=(
+                "Generate media for the listed targets "
+                "using the current inputs."
+            ),
+            operation_count=len(authorization.target_scope),
+            targets=_target_labels(authorization, project),
+        ),
+        inspection=ApprovalInspection(
+            target_id=authorization.authorization_id,
+            label="Inspect generation in Creator",
+        ),
         summary=summary,
         effects=(
             "Generate media using the configured provider. "
@@ -89,18 +145,38 @@ def review_request(workflow, review):
             "review": review.model_dump(mode="json"),
         },
     )
+    existing = _existing_proposal(workflow, "creator-review-" + digest[:32])
+    if existing is not None:
+        return existing
     operations = review_operations(review)
     return ApprovalRequest(
         request_id="creator-review-" + digest[:32],
         kind="review",
         subject_digest="sha256:" + digest,
         title="Review Creator changes",
+        decision_surface="app",
+        subject=ApprovalSubject(
+            label="Creator content changes",
+            operation=(
+                "Inspect and accept, undo, or request changes in Creator."
+            ),
+            operation_count=len(operations),
+            revision=str(review.candidate_generation),
+            targets=tuple(
+                dict.fromkeys(
+                    (op.ui_locator.get("field") or op.kind.value)[:300]
+                    for op in operations
+                ),
+            )[:12],
+        ),
+        inspection=ApprovalInspection(
+            target_id=review.review_id,
+            label="Review these changes in Creator",
+        ),
         summary=(
             f"Review {len(operations)} proposed content changes at revision "
             f"{review.candidate_generation}. "
-            "Open the project to inspect the content. "
-            "Your decision applies to all changes in this review; "
-            "use Creator for individual decisions."
+            "Inspect each proposed change in Creator before deciding."
         ),
         effects=(
             "Accept the proposed changes and continue production, "
@@ -116,6 +192,23 @@ def review_request(workflow, review):
             ),
         ),
     )
+
+
+def approval_progress(authorizations, reviews, pending_count):
+    """Count decisions, excluding superseded and expired requests."""
+    completed = sum(
+        item.status.value in {"APPROVED", "REJECTED"}
+        for item in authorizations
+    ) + sum(
+        review.status.value == "RESOLVED"
+        and any(
+            op.decision.value in {"ACCEPTED", "REJECTED", "REVISED"}
+            and is_human_review_change(op)
+            for op in review.operations
+        )
+        for review in reviews
+    )
+    return ApprovalProgress(completed=completed, pending=pending_count)
 
 
 async def decide_review(services, workflow, event, command):

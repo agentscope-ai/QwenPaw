@@ -54,6 +54,7 @@ export interface PawTaskContext {
   decision_refs: PawArtifactRef[];
   project_ref: PawProjectRef;
   resume_ref: string;
+  approval_request?: import("./contracts").ApprovalRequest | null;
   /** Opaque view declared by the App's registered task experience. */
   view_id?: string | null;
 }

@@ -290,3 +290,121 @@ async def test_proposal_identity_is_immutable_after_replacement(harness):
                 ),
             ),
         )
+
+
+async def test_app_only_review_cannot_be_decided_through_host(harness):
+    from qwenpaw.pawapp.tasks import ApprovalInspection
+
+    proposal = PROPOSAL.model_copy(
+        update={
+            "decision_surface": "app",
+            "inspection": ApprovalInspection(
+                target_id="review-1",
+                label="Inspect changes",
+            ),
+        },
+    )
+    runtime, task, executed = await waiting(harness, proposal)
+    with pytest.raises(TaskStoreError, match="approval_requires_app"):
+        await runtime.decide(
+            SCOPE,
+            task.task_id,
+            command_id="blind-approval",
+            decision=decision(proposal),
+        )
+    assert not executed
+
+
+async def test_progress_update_does_not_replace_approval_or_receipt(harness):
+    from qwenpaw.pawapp.tasks import ApprovalProgress
+
+    _runtime, task, _executed = await waiting(harness)
+    await prepare_decision(
+        harness.store,
+        SCOPE,
+        task.task_id,
+        command_id="pending",
+        decision=decision(),
+    )
+    before = (await harness.store.get(SCOPE, task.task_id)).handle
+    updated = await harness.store.apply_event(
+        SCOPE,
+        task.task_id,
+        ExecutorEvent(
+            run_ref=before.executor_run_ref,
+            sequence=before.executor_sequence + 1,
+            cursor="progress-only",
+            approval_progress=ApprovalProgress(
+                completed=2,
+                pending=3,
+                future=4,
+                forecast="estimated",
+            ),
+        ),
+    )
+    assert updated.handle.approval_request == before.approval_request
+    assert updated.handle.approval_receipt == before.approval_receipt
+    assert updated.handle.approval_progress.pending == 3
+
+
+def test_progress_forecast_and_legacy_proposal_wire():
+    from qwenpaw.pawapp.tasks import ApprovalProgress
+
+    for fields in ({"future": 3}, {"forecast": "exact"}, {"completed": -1}):
+        with pytest.raises(ValidationError):
+            ApprovalProgress.model_validate(
+                {"completed": 0, "pending": 1, **fields},
+            )
+    wire = PROPOSAL.model_dump(mode="json")
+    assert "subject" not in wire
+    assert "inspection" not in wire
+    assert "decision_surface" not in wire
+    assert ApprovalRequest.model_validate(wire).model_dump(mode="json") == wire
+
+
+async def test_runtime_inspection_rejects_stale_proposal(harness, tmp_path):
+    from types import SimpleNamespace
+    from qwenpaw.pawapp.tasks import ApprovalInspection, ProjectRef
+    from qwenpaw.pawapp.handoffs import HandoffStore
+
+    proposal = PROPOSAL.model_copy(
+        update={
+            "inspection": ApprovalInspection(
+                target_id="review-7",
+                label="Inspect changes",
+            ),
+        },
+    )
+    runtime, task, _executed = await waiting(harness, proposal)
+    current = (await harness.store.get(SCOPE, task.task_id)).handle
+    await harness.store.apply_event(
+        SCOPE,
+        task.task_id,
+        ExecutorEvent(
+            run_ref=current.executor_run_ref,
+            sequence=current.executor_sequence + 1,
+            cursor="project-ref",
+            project_ref=ProjectRef(
+                app_id=SCOPE.app_id,
+                project_id="report",
+                kind="report",
+                revision=7,
+            ),
+        ),
+    )
+    runtime.handoffs = await HandoffStore.open(
+        tmp_path / "handoffs.db",
+        harness.artifacts,
+    )
+    reference = SimpleNamespace(
+        request_id=proposal.request_id,
+        subject_digest=proposal.subject_digest,
+    )
+    opened = await runtime.open_app(SCOPE, task.task_id, approval=reference)
+    ordinary = await runtime.open_app(SCOPE, task.task_id)
+    assert ordinary == opened
+    resolved = await runtime.resolve_handoff(SCOPE, opened.handoff_id)
+    assert resolved.context.approval_request == proposal
+    reference.subject_digest = "sha256:" + "b" * 64
+    with pytest.raises(TaskStoreError, match="stale_approval"):
+        await runtime.open_app(SCOPE, task.task_id, approval=reference)

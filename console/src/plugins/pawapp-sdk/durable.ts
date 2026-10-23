@@ -196,10 +196,21 @@ export function createDurableNamespaces(
         throw new Error("command_identity_mismatch");
       return command;
     },
-    async open(taskId: string, options: DurableOptions = {}) {
+    async open(
+      taskId: string,
+      options: DurableOptions & {
+        approval?: Pick<ApprovalDecision, "request_id" | "subject_digest">;
+      } = {},
+    ) {
       const action = assertContract(
         "OpenAppAction",
-        (await call(`/tasks/${segment(taskId)}/open`, options, {})).action,
+        (
+          await call(
+            `/tasks/${segment(taskId)}/open`,
+            options,
+            options.approval ?? {},
+          )
+        ).action,
       );
       if (
         action.app_id !== appId() ||

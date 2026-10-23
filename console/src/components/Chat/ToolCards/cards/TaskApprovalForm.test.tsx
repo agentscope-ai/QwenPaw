@@ -113,3 +113,32 @@ describe("explicit approval", () => {
     expect(api).not.toHaveBeenCalled();
   });
 });
+
+it("shows the exact scope and routes App-only review without offering blind approval", () => {
+  const onInspect = vi.fn();
+  render(
+    <TaskApprovalForm
+      {...props}
+      onInspect={onInspect}
+      request={{
+        ...request,
+        decision_surface: "app",
+        inspection: { target_id: "review-7", label: "Review revision 7" },
+        subject: {
+          label: "Opening storyboard",
+          operation: "Accept three revised shots",
+          operation_count: 3,
+          revision: "7",
+          targets: ["Rain on the leaf"],
+        },
+      }}
+    />,
+  );
+  expect(screen.getByText("Opening storyboard")).toBeTruthy();
+  expect(screen.getByText("Rain on the leaf")).toBeTruthy();
+  expect(screen.queryByText("通过")).toBeNull();
+  expect(screen.queryByRole("textbox")).toBeNull();
+  fireEvent.click(screen.getByText("Review revision 7"));
+  expect(onInspect).toHaveBeenCalledOnce();
+  expect(api).not.toHaveBeenCalled();
+});

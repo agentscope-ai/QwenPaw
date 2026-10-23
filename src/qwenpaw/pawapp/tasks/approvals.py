@@ -25,6 +25,8 @@ def validate_decision(request, decision):
         raise TaskStoreError("stale_approval")
     if request.expires_at is not None and request.expires_at <= time.time():
         raise TaskStoreError("approval_expired")
+    if request.decision_surface == "app":
+        raise TaskStoreError("approval_requires_app")
     choice = next(
         (c for c in request.choices if c.decision_id == decision.decision_id),
         None,

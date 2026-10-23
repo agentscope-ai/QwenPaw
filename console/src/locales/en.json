@@ -5576,6 +5576,16 @@
         "unsupported_engine_protocol": "This App version does not support independent tasks. Update the App before retrying.",
         "readiness_unsupported": "This App version cannot verify task readiness. Update the App before retrying.",
         "engine_unavailable": "The App service is unavailable. Open the App to check its status, then retry. No task was started."
+      },
+      "approvalOperationCount": "This decision covers {{count}} operation(s).",
+      "approvalRevision": "Revision {{revision}}",
+      "approvalInApp": "Inspect and decide in the App. This task will update after your decision.",
+      "approvalProgress": "Approval progress",
+      "approvalCounts": "{{completed}} handled · {{pending}} currently pending",
+      "approvalForecast": {
+        "unknown": "The number of later approvals is not yet known.",
+        "estimated": "An estimated {{count}} further approval(s); changes or regeneration may add more.",
+        "exact": "{{count}} further approval(s) in the current plan."
       }
     },
     "readFile": "Read {{file}}",

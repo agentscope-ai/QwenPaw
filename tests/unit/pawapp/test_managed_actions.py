@@ -412,6 +412,7 @@ def test_additive_models_preserve_old_grant_and_event_digests():
                 "artifact_ref",
                 "input_request",
                 "approval_request",
+                "approval_progress",
                 "experience_update",
                 "result_data",
             },

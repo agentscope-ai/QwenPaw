@@ -1,3 +1,4 @@
+import { assertContract } from "./contracts";
 import { hostFetch } from "../hostSdk/fetch";
 import type {
   PawAppsNamespace,
@@ -86,6 +87,16 @@ function artifactRef(value: unknown): value is PawArtifactRef {
   );
 }
 
+function approvalRequest(value: unknown): boolean {
+  if (value == null) return true;
+  try {
+    assertContract("ApprovalRequest", value);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function handoffRequest(
   value: unknown,
   appId: string,
@@ -124,6 +135,7 @@ function handoffRequest(
     context.decision_refs.length <= 128 &&
     context.decision_refs.every(artifactRef) &&
     projectRef(context.project_ref) &&
+    approvalRequest(context.approval_request) &&
     identity(context.resume_ref) &&
     (context.view_id === undefined ||
       context.view_id === null ||

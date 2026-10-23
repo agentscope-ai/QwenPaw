@@ -61,6 +61,7 @@ function seed({
 }
 
 afterEach(() => {
+  window.history.replaceState({}, "", "/");
   useAgentDockUiStore.getState().reset();
   useExecutionAuthorizationStore.getState().reset();
   useFileProjectReviewStore.getState().reset();
@@ -113,4 +114,33 @@ describe("DecisionTray", () => {
     fireEvent.click(screen.getByRole("button", { name: /^全部 3$/ }));
     expect(screen.getByText(/生成画面/)).toBeInTheDocument();
   });
+});
+
+it("opens the exact review instead of the first pending authorization", () => {
+  const review = textReview("review-specific", "/description");
+  seed({ reviews: [review] });
+  window.history.replaceState(
+    {},
+    "",
+    `/#/project/p1?approvalKind=review&approvalTarget=review-specific&approvalRevision=${review.candidate_generation}`,
+  );
+  render(<DecisionTray projectId="p1" />);
+  expect(
+    document.querySelector('[data-approval-target="review-specific"]'),
+  ).toBeTruthy();
+  expect(screen.getByText(/旧文案/)).toBeTruthy();
+  expect(screen.queryByText(/生成画面/)).toBeNull();
+});
+
+it("does not substitute another review for a stale revision", () => {
+  seed({ reviews: [textReview("review-specific", "/description")] });
+  useFileProjectReviewStore.setState({ syncStatus: "healthy" });
+  window.history.replaceState(
+    {},
+    "",
+    "/#/project/p1?approvalKind=review&approvalTarget=review-specific&approvalRevision=999",
+  );
+  render(<DecisionTray projectId="p1" />);
+  expect(screen.getByRole("status").textContent).toContain("已不再待处理");
+  expect(screen.queryByText(/旧文案/)).toBeNull();
 });

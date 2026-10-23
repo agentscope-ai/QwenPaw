@@ -5596,6 +5596,16 @@
         "unsupported_engine_protocol": "此 App 版本尚不支持独立任务，请更新 App 后重试。",
         "readiness_unsupported": "此 App 版本无法检查任务配置，请更新 App 后重试。",
         "engine_unavailable": "App 服务暂不可用，请打开 App 检查服务状态后重试。尚未启动任务。"
+      },
+      "approvalOperationCount": "本次决定覆盖 {{count}} 项操作。",
+      "approvalRevision": "版本 {{revision}}",
+      "approvalInApp": "请在应用中查看内容并决定；完成后，本任务将自动更新。",
+      "approvalProgress": "审批进度",
+      "approvalCounts": "已处理 {{completed}} 项 · 当前待审 {{pending}} 项",
+      "approvalForecast": {
+        "unknown": "后续审批数量尚未确定。",
+        "estimated": "预计后续还有 {{count}} 项；修改或重新生成可能增加审批。",
+        "exact": "当前计划后续还有 {{count}} 项审批。"
       }
     },
     "readFile": "阅读 {{file}}",

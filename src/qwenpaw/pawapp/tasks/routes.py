@@ -7,7 +7,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 from fastapi.encoders import jsonable_encoder
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from ..deps import get_scoped_ctx
 from .contracts import (
@@ -43,6 +43,21 @@ class AnswerTaskRequest(Contract):
 class DecideTaskRequest(Contract):
     command_id: Identity
     decision: ApprovalDecision
+
+
+class InspectApprovalRequest(Contract):
+    request_id: Identity | None = None
+    subject_digest: (
+        Annotated[str, Field(pattern=r"^sha256:[0-9a-f]{64}$")] | None
+    ) = None
+
+    @model_validator(mode="after")
+    def validate_reference(self):
+        if (self.request_id is None) != (self.subject_digest is None):
+            raise ValueError(
+                "approval identity and digest are required together",
+            )
+        return self
 
 
 class DirectDispatchRequest(Contract):
@@ -327,9 +342,22 @@ async def get_task(request: Request, task_id: str, scope: Scope):
 
 
 @router.post("/tasks/{task_id}/open")
-async def open_task_app(request: Request, task_id: str, scope: Scope):
+async def open_task_app(
+    request: Request,
+    task_id: str,
+    scope: Scope,
+    body: InspectApprovalRequest | None = None,
+):
     try:
-        action = await request.app.state.pawapp_tasks.open_app(scope, task_id)
+        action = await request.app.state.pawapp_tasks.open_app(
+            scope,
+            task_id,
+            **(
+                {"approval": body}
+                if body is not None and body.request_id is not None
+                else {}
+            ),
+        )
         return {"action": action}
     except (TaskStoreError, ValueError) as exc:
         raise _error(exc) from None

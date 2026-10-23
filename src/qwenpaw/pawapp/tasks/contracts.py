@@ -8,7 +8,13 @@ import json
 from typing import Annotated, Any, Literal
 
 from jsonschema import Draft202012Validator
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    model_serializer,
+    model_validator,
+)
 
 Identity = Annotated[str, Field(min_length=1, max_length=256)]
 Engagement = Literal["delegated", "direct"]
@@ -540,6 +546,41 @@ class ApprovalCost(Contract):
         return self
 
 
+class ApprovalSubject(Contract):
+    """Bounded, user-facing scope of one immutable decision."""
+
+    label: Annotated[str, Field(min_length=1, max_length=200)]
+    operation: Annotated[str, Field(min_length=1, max_length=500)]
+    operation_count: int = Field(ge=1)
+    revision: Identity | None = None
+    targets: tuple[
+        Annotated[str, Field(min_length=1, max_length=300)],
+        ...,
+    ] = Field(default=(), max_length=12)
+
+
+class ApprovalInspection(Contract):
+    """Opaque App-owned destination, resolved through a scoped handoff."""
+
+    target_id: Identity
+    label: Annotated[str, Field(min_length=1, max_length=200)]
+
+
+class ApprovalProgress(Contract):
+    """Mutable task-wide counts of decisions, not underlying operations."""
+
+    completed: int = Field(ge=0)
+    pending: int = Field(ge=0)
+    future: int | None = Field(default=None, ge=0)
+    forecast: Literal["unknown", "estimated", "exact"] = "unknown"
+
+    @model_validator(mode="after")
+    def validate_forecast(self) -> ApprovalProgress:
+        if (self.forecast == "unknown") != (self.future is None):
+            raise ValueError("future count requires an explicit forecast")
+        return self
+
+
 class ApprovalRequest(Contract):
     """App-owned immutable proposal. The Host never infers an approval."""
 
@@ -559,9 +600,24 @@ class ApprovalRequest(Contract):
     choices: tuple[ApprovalChoice, ...] = Field(min_length=1, max_length=3)
     cost: ApprovalCost | None = None
     expires_at: float | None = Field(default=None, gt=0, allow_inf_nan=False)
+    subject: ApprovalSubject | None = None
+    inspection: ApprovalInspection | None = None
+    decision_surface: Literal["chat", "app"] = "chat"
+
+    @model_serializer(mode="wrap")
+    def preserve_legacy_wire(self, handler):
+        data = handler(self)
+        for key in ("subject", "inspection"):
+            if data.get(key) is None:
+                data.pop(key, None)
+        if data.get("decision_surface") == "chat":
+            data.pop("decision_surface", None)
+        return data
 
     @model_validator(mode="after")
     def validate_choices(self) -> ApprovalRequest:
+        if self.decision_surface == "app" and self.inspection is None:
+            raise ValueError("App-only decisions require an inspection entry")
         ids = [choice.decision_id for choice in self.choices]
         if len(set(ids)) != len(ids):
             raise ValueError("approval decision IDs must be unique")
@@ -656,6 +712,7 @@ class TaskHandle(Contract):
     input_request: TaskInputRequest | None = None
     approval_request: ApprovalRequest | None = None
     approval_receipt: ApprovalReceipt | None = None
+    approval_progress: ApprovalProgress | None = None
     setup_request_id: Identity | None = None
     setup_attempt: int = Field(default=0, ge=0)
     cancel_requested: bool = False
@@ -714,6 +771,7 @@ class ExecutorEvent(Contract):
     artifact_ref: ArtifactRef | None = None
     input_request: TaskInputRequest | None = None
     approval_request: ApprovalRequest | None = None
+    approval_progress: ApprovalProgress | None = None
     experience_update: TaskExperienceUpdate | None = None
     result_data: dict[str, Any] | None = None
 
@@ -748,6 +806,7 @@ class ExecutorEvent(Contract):
             "artifact_ref",
             "input_request",
             "approval_request",
+            "approval_progress",
             "experience_update",
         ):
             value = getattr(self, key)
@@ -769,6 +828,7 @@ class ExecutorEvent(Contract):
                 "artifact_ref",
                 "input_request",
                 "approval_request",
+                "approval_progress",
                 "experience_update",
                 "result_data",
             },

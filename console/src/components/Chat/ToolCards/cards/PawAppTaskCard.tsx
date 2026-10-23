@@ -534,12 +534,18 @@ function TaskCard({
         (left.presentation?.rank ?? 100) - (right.presentation?.rank ?? 100)
       );
     });
-  const openApp = async () => {
+  const openApp = async (inspectApproval = false) => {
     if (!appId || !workspaceId || !taskId) return;
     setOpening(true);
     setOpenFailed(false);
     try {
-      const action = await openPawAppTask(appId, workspaceId, taskId);
+      const proposal = inspectApproval ? task?.approval_request : null;
+      const action = proposal
+        ? await openPawAppTask(appId, workspaceId, taskId, {
+            request_id: proposal.request_id,
+            subject_digest: proposal.subject_digest,
+          })
+        : await openPawAppTask(appId, workspaceId, taskId);
       navigateToApp(action.path);
     } catch {
       setOpenFailed(true);
@@ -647,6 +653,27 @@ function TaskCard({
           {experience && (
             <TaskExperience experience={experience} language={language} />
           )}
+          {task?.approval_progress && (
+            <div
+              className={styles.approvalProgress}
+              aria-label={t("tool.pawappTask.approvalProgress")}
+            >
+              <strong>{t("tool.pawappTask.approvalProgress")}</strong>
+              <p>
+                {t("tool.pawappTask.approvalCounts", task.approval_progress)}
+              </p>
+              {!isTerminalTask(task) && (
+                <p>
+                  {t(
+                    `tool.pawappTask.approvalForecast.${
+                      task.approval_progress.forecast ?? "unknown"
+                    }`,
+                    { count: task.approval_progress.future ?? 0 },
+                  )}
+                </p>
+              )}
+            </div>
+          )}
           {task?.approval_request && appId && workspaceId && taskId && (
             <TaskApprovalForm
               key={`${taskId}:${task.approval_request.request_id}:${task.approval_request.subject_digest}`}
@@ -655,6 +682,8 @@ function TaskCard({
               taskId={taskId}
               request={task.approval_request}
               receipt={task.approval_receipt}
+              onInspect={() => void openApp(true)}
+              inspecting={opening}
               onSettled={() => setRefresh((value) => value + 1)}
             />
           )}

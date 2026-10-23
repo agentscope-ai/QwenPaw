@@ -1019,6 +1019,16 @@ class TaskStore:
             elif event.status is not None:
                 input_request = None
                 approval_request = None
+            from .contracts import ApprovalProgress
+
+            approval_progress = handle.approval_progress
+            if event.detail.get("approval_progress") is not None:
+                try:
+                    approval_progress = ApprovalProgress.model_validate(
+                        event.detail["approval_progress"],
+                    )
+                except ValueError:
+                    raise TaskStoreError("invalid_approval_progress") from None
             experience = handle.experience
             experience_payload = event.detail.get("experience_update")
             if experience_payload is not None:
@@ -1048,6 +1058,7 @@ class TaskStore:
                     "experience": experience,
                     "input_request": input_request,
                     "approval_request": approval_request,
+                    "approval_progress": approval_progress,
                     "approval_receipt": (
                         handle.approval_receipt
                         if approval_request is not None

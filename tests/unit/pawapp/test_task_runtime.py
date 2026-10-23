@@ -976,7 +976,10 @@ async def test_blocked_setup_creates_no_task_or_latent_execution(host):
 
 
 @pytest.mark.asyncio
-async def test_answer_and_cancel_routes_use_scoped_durable_commands(host):
+async def test_answer_and_cancel_routes_use_scoped_durable_commands(
+    host,
+    monkeypatch,
+):
     origin = await host.app.state.pawapp_task_origins.resolve(
         SCOPE,
         "delegated",
@@ -1056,6 +1059,13 @@ async def test_answer_and_cancel_routes_use_scoped_durable_commands(host):
         )
     ).status_code == 404
 
+    # This branch tests cancellation before dispatch. Keep the recovery sweep
+    # from submitting the prepared row between creation and the HTTP request.
+    monkeypatch.setattr(
+        host.app.state.pawapp_tasks,
+        "_wake",
+        lambda *args, **kwargs: None,
+    )
     pending = await host.store.create(
         SCOPE,
         ACTION,
