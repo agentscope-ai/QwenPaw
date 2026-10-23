@@ -30,7 +30,12 @@ async def load_reranker_config(agent_id: str) -> RerankerConfig | None:
             "reranker_config",
             None,
         )
-        if config is not None and config.enabled and config.model_name:
+        if (
+            config is not None
+            and config.enabled
+            and config.model_name
+            and bool(config.api_key and config.api_key.strip())
+        ):
             return config
     except Exception:
         logger.warning("[rerank] failed to load config", exc_info=True)
@@ -45,6 +50,9 @@ async def call_reranker_api(
     """Return document indices ordered by an OpenAI-compatible reranker."""
     if not config.base_url:
         logger.warning("[rerank] base_url not configured")
+        return None
+    if not config.api_key or not config.api_key.strip():
+        logger.warning("[rerank] api_key not configured")
         return None
     if not query or not documents:
         return None
