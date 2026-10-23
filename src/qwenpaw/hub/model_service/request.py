@@ -24,6 +24,7 @@ class GatewayRequest:
         self.catalog = catalog
         self.stack = AsyncExitStack()
         self.reservation = None
+        self.upstream_key = None
         self._closing = None
 
     @property
