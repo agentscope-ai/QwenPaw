@@ -1489,6 +1489,51 @@ async def put_transcription_provider(
     return {"provider_id": provider_id}
 
 
+@router.get(
+    "/transcription-model",
+    summary="Get transcription model name",
+    description=(
+        "Get the model name used for Whisper API transcription. "
+        'Empty means the built-in default ("whisper-1").'
+    ),
+)
+async def get_transcription_model() -> dict:
+    """Get the Whisper API transcription model name."""
+    config = load_config()
+    return {"transcription_model": config.agents.transcription_model}
+
+
+@router.put(
+    "/transcription-model",
+    summary="Set transcription model name",
+    description=(
+        "Set the model name used for Whisper API transcription. "
+        "Non-OpenAI providers need their own model id, e.g. "
+        '"FunAudioLLM/SenseVoiceSmall" for SiliconFlow. '
+        'Use empty string "" to fall back to the default "whisper-1".'
+    ),
+)
+async def put_transcription_model(
+    body: dict = Body(
+        ...,
+        description=(
+            "Model name, e.g. "
+            '{"transcription_model": "FunAudioLLM/SenseVoiceSmall"} '
+            'or {"transcription_model": ""} to reset'
+        ),
+    ),
+) -> dict:
+    """Set the Whisper API transcription model name."""
+    raw = body.get("transcription_model")
+    model = (str(raw) if raw is not None else "").strip()
+
+    def apply_model(config: Any) -> None:
+        config.agents.transcription_model = model
+
+    await run_sync_io(mutate_config, apply_model)
+    return {"transcription_model": model}
+
+
 @router.post(
     "/transcribe",
     summary="Transcribe audio to text",

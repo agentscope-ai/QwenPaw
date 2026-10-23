@@ -619,6 +619,50 @@ def test_put_api_workspace_transcription_provider_27(app_server) -> None:
 
 @pytest.mark.integration
 @pytest.mark.p1
+def test_get_api_workspace_transcription_model(app_server) -> None:
+    """Contract: GET /api/workspace/transcription-model responds with a
+    parseable payload."""
+    resp = _req(app_server, "GET", "/api/workspace/transcription-model")
+    assert resp.status_code in (
+        200,
+        400,
+        404,
+        409,
+        415,
+        422,
+    ), app_server.logs_tail()
+    if resp.status_code == 200:
+        try:
+            resp.json()
+        except Exception:
+            pass  # binary / streaming payload
+
+
+@pytest.mark.integration
+@pytest.mark.p1
+def test_put_api_workspace_transcription_model(app_server) -> None:
+    """Contract: PUT /api/workspace/transcription-model with empty body is
+    rejected or safely handled."""
+    resp = _req(
+        app_server,
+        "PUT",
+        "/api/workspace/transcription-model",
+        json={},
+    )
+    assert resp.status_code in (
+        200,
+        400,
+        403,
+        404,
+        409,
+        422,
+        500,
+        503,
+    ), app_server.logs_tail()
+
+
+@pytest.mark.integration
+@pytest.mark.p1
 def test_post_api_workspace_transcribe_28(app_server) -> None:
     """Contract: POST /api/workspace/transcribe with empty body is rejected or
     safely handled."""
