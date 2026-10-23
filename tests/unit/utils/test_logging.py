@@ -7,6 +7,7 @@ High coverage expected as this is stable infrastructure.
 from __future__ import annotations
 
 import logging
+import logging.handlers
 import sys
 from unittest.mock import MagicMock, patch
 
@@ -23,7 +24,8 @@ from qwenpaw.utils.logging import (
     _LOG_MAX_BYTES,
     _LEVEL_MAP,
     _parse_log_size,
-    _resolve_log_rotation_settings,
+    resolve_log_rotation_settings,
+    _SafeRotatingFileHandler,
 )
 
 
@@ -265,6 +267,127 @@ class TestAddFileHandler:
             logger.handlers = original_handlers
 
 
+def test_rotating_handler_writes_raw_text_with_rotation(tmp_path):
+    log_path = tmp_path / "desktop.log"
+    log_path.write_text("old\n", encoding="utf-8")
+    handler = _SafeRotatingFileHandler(
+        log_path,
+        encoding="utf-8",
+        maxBytes=7,
+        backupCount=1,
+    )
+
+    try:
+        handler.write_text("new\n")
+
+        assert (tmp_path / "desktop.log.1").read_text(
+            encoding="utf-8",
+        ) == "old\n"
+        assert log_path.read_text(encoding="utf-8") == "new\n"
+    finally:
+        handler.close()
+
+
+def test_rotating_handler_skips_rollover_without_backups(
+    tmp_path,
+    monkeypatch,
+):
+    log_path = tmp_path / "desktop.log"
+    handler = _SafeRotatingFileHandler(
+        log_path,
+        encoding="utf-8",
+        maxBytes=1,
+        backupCount=0,
+    )
+    rollovers = []
+    monkeypatch.setattr(
+        handler,
+        "doRollover",
+        lambda: rollovers.append(True),
+    )
+
+    try:
+        handler.write_text("first entry\n")
+        handler.write_text("second entry\n")
+
+        assert not rollovers
+        assert log_path.read_text(encoding="utf-8") == (
+            "first entry\nsecond entry\n"
+        )
+    finally:
+        handler.close()
+
+
+def test_rotating_handler_skips_emit_rollover_without_backups(
+    tmp_path,
+    monkeypatch,
+):
+    log_path = tmp_path / "desktop.log"
+    handler = _SafeRotatingFileHandler(
+        log_path,
+        encoding="utf-8",
+        maxBytes=1,
+        backupCount=0,
+    )
+    rollovers = []
+    monkeypatch.setattr(
+        handler,
+        "doRollover",
+        lambda: rollovers.append(True),
+    )
+    logger = logging.getLogger("qwenpaw.test.zero_backups")
+    logger.setLevel(logging.INFO)
+    logger.propagate = False
+    logger.addHandler(handler)
+
+    try:
+        for index in range(10):
+            logger.info(f"entry {index}")
+
+        assert not rollovers
+        assert (
+            len(
+                log_path.read_text(encoding="utf-8").splitlines(),
+            )
+            == 10
+        )
+    finally:
+        logger.removeHandler(handler)
+        handler.close()
+
+
+def test_rotating_handler_reports_a_deferred_rollover_once(
+    tmp_path,
+    monkeypatch,
+):
+    log_path = tmp_path / "desktop.log"
+    handler = _SafeRotatingFileHandler(
+        log_path,
+        encoding="utf-8",
+        maxBytes=1,
+        backupCount=1,
+    )
+    original_rename = logging.handlers.os.rename
+
+    def deny_active_log_rename(source, destination):
+        if source == str(log_path):
+            raise PermissionError("log file is open elsewhere")
+        original_rename(source, destination)
+
+    monkeypatch.setattr(logging.handlers.os, "rename", deny_active_log_rename)
+
+    try:
+        handler.write_text("first entry\n")
+        handler.write_text("second entry\n")
+
+        content = log_path.read_text(encoding="utf-8")
+        assert content.count("WARNING: log rotation deferred") == 1
+        assert "first entry\n" in content
+        assert "second entry\n" in content
+    finally:
+        handler.close()
+
+
 @pytest.mark.parametrize(
     ("value", "expected"),
     [
@@ -288,7 +411,7 @@ def test_invalid_rotation_environment_uses_defaults(monkeypatch):
     monkeypatch.setenv("QWENPAW_LOG_MAX_SIZE", "unbounded")
     monkeypatch.setenv("QWENPAW_LOG_MAX_BACKUPS", "-2")
 
-    assert _resolve_log_rotation_settings() == (
+    assert resolve_log_rotation_settings() == (
         _LOG_MAX_BYTES,
         _LOG_BACKUP_COUNT,
     )
@@ -298,7 +421,7 @@ def test_zero_log_backups_is_supported(monkeypatch):
     monkeypatch.delenv("QWENPAW_LOG_MAX_SIZE", raising=False)
     monkeypatch.setenv("QWENPAW_LOG_MAX_BACKUPS", "0")
 
-    assert _resolve_log_rotation_settings() == (_LOG_MAX_BYTES, 0)
+    assert resolve_log_rotation_settings() == (_LOG_MAX_BYTES, 0)
 
 
 class TestLogConstants:

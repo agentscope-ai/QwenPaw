@@ -10,9 +10,34 @@ import os
 from pathlib import Path
 import platform
 import sys
-from typing import TextIO
+from typing import Protocol, TextIO, cast
 
-_LOG_FILE: TextIO | None = None
+_CRASH_LOG_FILE: TextIO | None = None
+
+logger = logging.getLogger(__name__)
+
+
+class _RotatingTextHandler(Protocol):
+    encoding: str | None
+
+    def write_text(self, text: str) -> int:
+        raise NotImplementedError
+
+    def flush(self) -> None:
+        raise NotImplementedError
+
+
+class _RotatingTextStream:
+    def __init__(self, handler: _RotatingTextHandler) -> None:
+        self._handler = handler
+
+    def write(self, data: str) -> int:
+        encoding = self._handler.encoding or "utf-8"
+        safe_text = data.encode(encoding, errors="replace").decode(encoding)
+        return self._handler.write_text(safe_text)
+
+    def flush(self) -> None:
+        self._handler.flush()
 
 
 class _TeeStream:
@@ -22,7 +47,11 @@ class _TeeStream:
     through the underlying file descriptor are not intercepted.
     """
 
-    def __init__(self, primary: TextIO, secondary: TextIO) -> None:
+    def __init__(
+        self,
+        primary: TextIO,
+        secondary: TextIO | _RotatingTextStream,
+    ) -> None:
         self._primary = primary
         self._secondary = secondary
         self.encoding = getattr(primary, "encoding", "utf-8")
@@ -62,36 +91,85 @@ def install_sidecar_logging(log_path: Path) -> Path:
     log_path = Path(log_path).expanduser()
     log_path.parent.mkdir(parents=True, exist_ok=True)
 
-    global _LOG_FILE  # pylint: disable=global-statement
-    _LOG_FILE = log_path.open(  # pylint: disable=consider-using-with
-        "a",
-        encoding="utf-8",
-        errors="replace",
-        buffering=1,
-    )
-    _LOG_FILE.write("\n")
-    _LOG_FILE.write(
+    handler = _add_project_file_handler(log_path)
+    log_stream = _RotatingTextStream(handler)
+    log_stream.write("\n")
+    log_stream.write(
         f"== qwenpaw tauri sidecar {datetime.now().isoformat()} ==\n",
     )
-    _LOG_FILE.write(f"platform={platform.platform()}\n")
-    _LOG_FILE.write(f"python={sys.executable}\n")
-    _LOG_FILE.write(f"argv={sys.argv!r}\n")
-    _LOG_FILE.write(f"cwd={os.getcwd()}\n")
-    _LOG_FILE.flush()
+    log_stream.write(f"platform={platform.platform()}\n")
+    log_stream.write(f"python={sys.executable}\n")
+    log_stream.write(f"argv={sys.argv!r}\n")
+    log_stream.write(f"cwd={os.getcwd()}\n")
 
-    sys.stdout = _TeeStream(sys.stdout, _LOG_FILE)  # type: ignore[assignment]
-    sys.stderr = _TeeStream(sys.stderr, _LOG_FILE)  # type: ignore[assignment]
-    faulthandler.enable(file=_LOG_FILE, all_threads=True)
-    _add_project_file_handler(log_path)
-    logging.getLogger("qwenpaw.tauri").info(
+    crash_log_path = log_path.with_name("desktop-crash.log")
+    rotation_error: PermissionError | None = None
+    try:
+        _rotate_previous_crash_log(crash_log_path)
+    except PermissionError as exc:
+        rotation_error = exc
+    global _CRASH_LOG_FILE  # pylint: disable=global-statement
+    _CRASH_LOG_FILE = (
+        crash_log_path.open(  # pylint: disable=consider-using-with
+            "a",
+            encoding="utf-8",
+            errors="replace",
+            buffering=1,
+        )
+    )
+    faulthandler.enable(file=_CRASH_LOG_FILE, all_threads=True)
+    sys.stdout = _TeeStream(sys.stdout, log_stream)  # type: ignore[assignment]
+    sys.stderr = _TeeStream(sys.stderr, log_stream)  # type: ignore[assignment]
+    logger.info(
         "Tauri sidecar logging enabled: %s",
         log_path,
     )
+    if rotation_error is not None:
+        logger.warning(
+            "Could not rotate previous crash logs; appending to %s: %s",
+            crash_log_path,
+            rotation_error,
+        )
     return log_path
 
 
-def _add_project_file_handler(log_path: Path) -> None:
+def _add_project_file_handler(log_path: Path) -> _RotatingTextHandler:
     # Import lazily so qwenpaw.constant is loaded only after desktop env setup.
-    from qwenpaw.utils.logging import add_project_file_handler
+    from qwenpaw.utils.logging import LOG_NAMESPACE, add_project_file_handler
 
     add_project_file_handler(log_path)
+    resolved_path = str(log_path.resolve())
+    for handler in logging.getLogger(LOG_NAMESPACE).handlers:
+        if getattr(handler, "baseFilename", None) == resolved_path:
+            if not callable(getattr(handler, "write_text", None)):
+                raise TypeError(
+                    f"Handler for {log_path} cannot write raw text",
+                )
+            return cast(_RotatingTextHandler, handler)
+    raise RuntimeError(f"No rotating log handler found for {log_path}")
+
+
+def _rotate_previous_crash_log(log_path: Path) -> None:
+    from qwenpaw.utils.logging import resolve_log_rotation_settings
+
+    _, backup_count = resolve_log_rotation_settings()
+    if backup_count == 0:
+        log_path.unlink(missing_ok=True)
+        for backup in log_path.parent.glob(f"{log_path.name}.*"):
+            if backup.suffix[1:].isdigit():
+                backup.unlink(missing_ok=True)
+        return
+
+    # Empty files come from clean startups; rotating them would push real
+    # crash traces out of the backup ring.
+    try:
+        if log_path.stat().st_size == 0:
+            return
+    except FileNotFoundError:
+        return
+
+    for index in range(backup_count, 0, -1):
+        source = log_path if index == 1 else Path(f"{log_path}.{index - 1}")
+        destination = Path(f"{log_path}.{index}")
+        if source.exists():
+            source.replace(destination)

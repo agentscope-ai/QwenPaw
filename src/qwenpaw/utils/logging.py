@@ -68,7 +68,7 @@ def _parse_log_size(value: str) -> int:
     return amount * factor
 
 
-def _resolve_log_rotation_settings() -> tuple[int, int]:
+def resolve_log_rotation_settings() -> tuple[int, int]:
     """Resolve rotation settings from the environment with safe defaults."""
     logger = logging.getLogger(LOG_NAMESPACE)
     max_bytes = _LOG_MAX_BYTES
@@ -187,10 +187,16 @@ class _SafeRotatingFileHandler(logging.handlers.RotatingFileHandler):
     On Windows, ``os.rename()`` inside ``doRollover()`` raises
     ``PermissionError`` when the log file is held open by another
     process (e.g. a log viewer or the debug-log console reader).
-    This subclass catches the error, reopens the stream so logging
-    continues without data loss, and defers rotation to the next
+    Reopen the stream so logging continues and defer rotation to the next
     size-exceeding emit.
     """
+
+    def shouldRollover(self, record):
+        # Without backups, doRollover() would only close and reopen the
+        # stream, so the standard emit path must not trigger it either.
+        if self.backupCount <= 0:
+            return False
+        return super().shouldRollover(record)
 
     def doRollover(self):
         try:
@@ -199,6 +205,38 @@ class _SafeRotatingFileHandler(logging.handlers.RotatingFileHandler):
             if self.stream:
                 self.stream.close()
             self.stream = self._open()
+            if not getattr(self, "_rotation_warning_emitted", False):
+                self._rotation_warning_emitted = True
+                warning = (
+                    f"WARNING: log rotation deferred for {self.baseFilename}\n"
+                )
+                self.stream.write(warning)
+                self.flush()
+
+    def write_text(self, text: str) -> int:
+        """Write raw text under the handler's rotation lock."""
+        self.acquire()
+        try:
+            if self.stream is None:
+                # dictConfig() closes every existing handler. Reopen the
+                # stream like FileHandler.emit() does so sidecar stdout keeps
+                # working after uvicorn reconfigures logging.
+                self.stream = self._open()
+            max_bytes = int(self.maxBytes)
+            # With no backups, doRollover() only closes and reopens the
+            # stream, so checking the size would churn on every write.
+            if max_bytes > 0 and self.backupCount > 0:
+                self.stream.seek(0, 2)
+                size = self.stream.tell() + len(
+                    text.encode(self.encoding or "utf-8", errors="replace"),
+                )
+                if size >= max_bytes:
+                    self.doRollover()
+            self.stream.write(text)
+            self.flush()
+        finally:
+            self.release()
+        return len(text)
 
 
 class PlainFormatter(logging.Formatter):
@@ -342,7 +380,7 @@ def add_project_file_handler(log_path: Path) -> None:
             )
             return
 
-    max_bytes, backup_count = _resolve_log_rotation_settings()
+    max_bytes, backup_count = resolve_log_rotation_settings()
     file_handler = _SafeRotatingFileHandler(
         log_path,
         encoding="utf-8",
