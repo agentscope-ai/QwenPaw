@@ -90,7 +90,9 @@ source of truth for new changes.
 | **activeHours**    | Optional daily window: `{ "start": "08:00", "end": "22:00" }`.                                                                                                                                                                                                            |
 
 If **every** is omitted, the built-in default applies (currently about **6
-hours** — confirm in your installed version).
+hours** — confirm in your installed version). If **every** is present but
+empty, unparsable, or not positive, the scheduler falls back to **30 minutes**
+(the unparsable case also logs a warning).
 
 Example (heartbeat on, QwenPaw only, no channel, every 30m) — in that agent’s
 **`agent.json`**:
@@ -119,8 +121,77 @@ Example (send to last conversation channel, every 1h, only 08:00–22:00):
 }
 ```
 
-After changes, save **config.json**; if the service is running, settings apply
-as implemented (some setups may need a restart — see what you actually run).
+Save the file; a running service applies the change in place, without a restart
+(see **Runtime semantics** below).
+
+---
+
+## Runtime semantics
+
+These behaviors follow from how heartbeat is implemented rather than from the
+fields above, and they are the ones users most often trip over.
+
+### Nothing to report is not filtered
+
+- **main** (default): the run happens, but its output is never delivered — the
+  silence is a side effect of not sending. The turn is still written to the
+  agent’s `main` session history.
+- **last**: every event of the run is streamed to the last channel/session, so
+  staying quiet is the model’s job — say so in HEARTBEAT.md.
+- **inbox**: no channel delivery; the run writes one Inbox entry —
+  `heartbeat_result` on success, `heartbeat_timeout` on timeout,
+  `heartbeat_error` on failure.
+
+A tick is skipped without any channel message (debug log only) when the current
+time is outside `activeHours`, when the heartbeat file does not exist, or when
+the file is empty. `target: "last"` with no usable last dispatch — none recorded,
+or recorded without a channel or a user/session — also falls back to running
+without delivery.
+
+### Overlapping runs
+
+The heartbeat job sets no concurrency limit of its own, so the scheduler default
+applies: a tick that comes due while the previous run is still executing is
+**skipped, not queued** (the job uses APScheduler’s default `max_instances=1`;
+its `misfire_grace_time` is 60s and governs only how late a firing may be). Ticks
+bypass the channel queue and the per-job concurrency limit that cron jobs use,
+and always run on the agent’s `main` session. If another turn is already running
+on that session (for example a Console request that passes an explicit session
+id), both runs proceed concurrently; each saves the session state, and the later
+save replaces the earlier one.
+
+### The agent does not answer its own messages
+
+Many bundled channels drop inbound events whose sender is the agent’s own
+account early in their message handlers — Matrix compares the event sender with
+the agent’s own user id, DingTalk skips messages flagged `is_bot`, and
+Mattermost compares the sender with the bot id. Not every channel does this. The
+drop is what keeps a heartbeat → reply → room echo from becoming a loop; it is a
+per-channel convention, not a heartbeat setting.
+
+### HEARTBEAT.md is not the AGENTS.md heartbeat section
+
+- **HEARTBEAT.md** is read on every tick: the whole trimmed file becomes one
+  **user** message on the `main` session. The turn is tagged as coming from
+  heartbeat, which also makes the agent skip automatic memory search for it.
+- The **`AGENTS.md` section** between `<!-- heartbeat:start -->` and
+  `<!-- heartbeat:end -->` is part of the system prompt. While heartbeat is
+  enabled the markers are removed and the text is kept; while it is disabled the
+  whole section is stripped, so an agent with heartbeat off never sees those
+  instructions.
+
+### Config changes apply without a restart
+
+Enabling, disabling, or editing any heartbeat field takes effect in place: a
+save from the Console reschedules the job, and a direct `agent.json` edit is
+picked up by the config watcher (about 2s) through an agent reload that
+re-registers the job. No service restart is needed.
+
+> **“Heartbeat” names several unrelated mechanisms.** Besides the agent
+> self-wake on this page, the codebase also calls an SSE idle keep-alive, a
+> tool-approval keep-alive, per-channel WebSocket pings, and a cron event-loop
+> watchdog “heartbeat”. Only the first is configured by `heartbeat` in
+> `agent.json`.
 
 ---
 
