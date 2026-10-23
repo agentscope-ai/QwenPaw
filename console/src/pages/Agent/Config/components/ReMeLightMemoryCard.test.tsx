@@ -713,6 +713,24 @@ describe("ReMe runtime status", () => {
 });
 
 describe("long-term memory defaults", () => {
+  it("keeps tag generation off by default and persists enabling it", () => {
+    const onValuesChange = vi.fn();
+    renderWithProviders(<MemoryForm onValuesChange={onValuesChange} />);
+    const control = screen.getByRole("switch", {
+      name: "agentConfig.memoryTagsTitle",
+    });
+    expect(control).toHaveAttribute("aria-checked", "false");
+    fireEvent.click(control);
+    expect(control).toHaveAttribute("aria-checked", "true");
+    expect(onValuesChange.mock.lastCall?.[0]).toEqual({
+      reme_light_memory_config: { auto_memory_generate_tags: true },
+    });
+    fireEvent.click(control);
+    expect(onValuesChange.mock.lastCall?.[0]).toEqual({
+      reme_light_memory_config: { auto_memory_generate_tags: false },
+    });
+  });
+
   it("persists the optional image setting through the memory form", () => {
     const onValuesChange = vi.fn();
     renderWithProviders(<MemoryForm onValuesChange={onValuesChange} />);

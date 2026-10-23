@@ -444,6 +444,8 @@ async def test_reme_help_lists_live_actions_and_adapter_arguments() -> None:
     assert "/reme status" in text
     assert "/reme auto_memory count=integer memory_hint=string" in text
     assert "show_metadata=true" in text
+    assert 'tags=\'["Alice","Project_A"]\'' in text
+    assert "JSON inside single quotes" in text
     memory_manager.run_action_mock.assert_not_awaited()
 
 

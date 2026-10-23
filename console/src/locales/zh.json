@@ -3580,6 +3580,8 @@
     "memoryAutoRecordDescription": "按设定轮次持续提取新的长期记忆",
     "memoryAutoRecordFrequency": "记录频率（对话轮数）",
     "memoryImagesTitle": "在自动记忆中包含图片",
+    "memoryTagsTitle": "生成记忆标签",
+    "memoryTagsDescription": "自动记忆保存笔记后生成实体标签，会增加模型调用。可用 memory_list_tags 查看标签，按需给 memory_search 传入 tags 筛选。",
     "memoryImagesDescription": "当智能体的记忆模型已识别为支持图片输入时，记住对话图片中的视觉信息。能力未知时，请先在模型设置中确认图片支持。聊天中临时选择的模型不会改变记忆模型。",
     "memoryNotifyTitle": "收件箱通知",
     "memoryNotifyDescription": "仅在对话日记有变化或任务失败时发送到收件箱",

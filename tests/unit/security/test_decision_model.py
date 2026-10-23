@@ -262,6 +262,22 @@ async def test_target_free_builtin_read_skips_model_but_not_existing_ask(
             tool_func=make_recall_context_tool(),
         )
     ).needs_approval
+    assert not (
+        await assess_tool_call(
+            "MemoryListTags",
+            "",
+            tool_func=ReMeLightMemoryManager.memory_list_tags,
+        )
+    ).needs_approval
+    assert (
+        await assess_tool_call(
+            "MemoryListTags",
+            "",
+            tool_func=ReMeLightMemoryManager.memory_list_tags,
+            baseline_ask=True,
+        )
+    ).needs_approval
+    assert (await assess_tool_call("MemoryListTags", "")).needs_approval
     assert (
         await assess_tool_call(
             "GetCurrentTime",

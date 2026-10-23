@@ -98,6 +98,16 @@ def memory_job(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_memory_formatter_resizes_request_images_only(memory_job):
+    from qwenpaw.providers.capping_formatter import _CappingOpenAIFormatter
+
+    formatter = _CappingOpenAIFormatter()
+    memory_job.factory.return_value = (memory_job.model, formatter)
+    await memory_job.manager._update_qwenpaw_model()
+    assert formatter.resize_images_to_max_bytes is True
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("entry_point", ["auto_memory", "run_action"])
 @pytest.mark.parametrize("enabled", [False, True])
 @pytest.mark.parametrize("supports_image", [False, None, True])
@@ -189,6 +199,36 @@ async def test_setting_and_model_changes_apply_without_restart(memory_job):
     assert manager._reme.run_job.await_args.kwargs["include_images"] is False
     assert memory_job.factory.await_count == 3
     assert manager._load_memory_config.call_count == 3
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("entry_point", ["auto_memory", "run_action"])
+async def test_tag_generation_follows_live_setting_without_enabling_images(
+    memory_job,
+    entry_point,
+):
+    for enabled in (False, True, False):
+        memory_job.config.auto_memory_generate_tags = enabled
+        if entry_point == "auto_memory":
+            await memory_job.manager.auto_memory(
+                [_image_message()],
+                session_id="tag-test",
+            )
+        else:
+            await memory_job.manager.run_action(
+                "auto_memory",
+                messages=[],
+                session_id="tag-test",
+            )
+        call = memory_job.manager._reme.run_job.await_args
+        assert call.args == (
+            "auto_memory_with_tags" if enabled else "auto_memory",
+        )
+        assert call.kwargs["include_images"] is False
+        notification = (
+            memory_job.manager._append_reme_job_result_to_inbox.await_args
+        )
+        assert notification.args == ("auto_memory",)
 
 
 @pytest.mark.asyncio

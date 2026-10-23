@@ -92,6 +92,7 @@ export interface ReMeLightMemoryConfig {
   auto_fin_inbox_push_enabled: boolean;
   auto_memory_interval: number;
   auto_memory_include_images: boolean;
+  auto_memory_generate_tags: boolean;
   dream_cron_enabled: boolean;
   dream_cron: string;
   daily_paper_cron_enabled: boolean;

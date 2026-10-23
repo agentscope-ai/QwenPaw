@@ -11,6 +11,7 @@ import types
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, AsyncGenerator
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 from agentscope.message import Msg, TextBlock, ToolResultBlock, ToolResultState
@@ -89,6 +90,33 @@ async def test_scroll_artifact_retention_uses_tool_result_setting():
     offloader.retention_days.clear()
     await QwenPawAgent.close(agent)
     assert offloader.retention_days == [7]
+
+
+@pytest.mark.asyncio
+async def test_jev_close_failure_does_not_skip_history_or_artifact_cleanup():
+    compactor = types.SimpleNamespace(
+        close=AsyncMock(side_effect=RuntimeError("close failed")),
+    )
+    context_manager = types.SimpleNamespace(close=Mock())
+    offloader = types.SimpleNamespace(cleanup_expired=Mock())
+    agent = types.SimpleNamespace(
+        _jev_compactor=compactor,
+        _context_manager=context_manager,
+        offloader=offloader,
+        _agent_config=types.SimpleNamespace(
+            running=types.SimpleNamespace(
+                light_context_config=LightContextConfig(),
+            ),
+        ),
+    )
+    agent._close_jev_compactor = types.MethodType(
+        QwenPawAgent._close_jev_compactor,
+        agent,
+    )
+    await QwenPawAgent.close(agent)
+    compactor.close.assert_awaited_once()
+    context_manager.close.assert_called_once()
+    offloader.cleanup_expired.assert_called_once()
 
 
 @pytest.mark.asyncio

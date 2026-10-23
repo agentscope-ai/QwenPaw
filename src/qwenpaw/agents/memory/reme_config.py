@@ -140,6 +140,11 @@ def _base_config() -> dict[str, Any]:
                             "type": "string",
                             "description": "search query",
                         },
+                        "tags": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "Optional memory entity tag filter",
+                        },
                         "limit": {
                             "type": "integer",
                             "description": "max results",
@@ -514,6 +519,32 @@ def _base_config() -> dict[str, Any]:
                 },
                 "steps": [{"backend": "auto_memory_step"}],
             },
+            # A separate job keeps each invocation's steps immutable while the
+            # host selects the current opt-in setting without a restart.
+            "auto_memory_with_tags": {
+                "backend": "base",
+                "enable_serve": False,
+                "steps": [
+                    {"backend": "auto_memory_step"},
+                    {"backend": "auto_tag_step"},
+                ],
+            },
+            "list_tags": {
+                "backend": "base",
+                "description": "List memory entity tags with file counts.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "page": {"type": "integer", "minimum": 1},
+                        "page_size": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": 1000,
+                        },
+                    },
+                },
+                "steps": [{"backend": "list_tags_step"}],
+            },
             "daily_paper": {
                 "backend": "base",
                 "description": (
@@ -650,6 +681,7 @@ def _base_components() -> dict[str, Any]:
         "keyword_index": {
             "default": {"backend": "bm25", "tokenizer": "default"},
         },
+        "tag_index": {"default": {"backend": "local"}},
         "as_embedding": {
             "default": {
                 "backend": "openai",
@@ -677,6 +709,7 @@ def _base_components() -> dict[str, Any]:
                 "embedding_store": "default",
                 "keyword_index": "default",
                 "file_graph": "default",
+                "tag_index": "default",
             },
         },
     }

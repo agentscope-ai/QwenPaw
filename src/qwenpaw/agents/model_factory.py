@@ -504,7 +504,11 @@ async def _prepare_media_sources(
         )
 
 
-def _resize_base64_images(items: list, max_pixels: int) -> int:
+def _resize_base64_images(
+    items: list,
+    max_pixels: int,
+    max_bytes: int = 0,
+) -> int:
     """Resize base64 images in a copied request message tree.
 
     Resize failures intentionally propagate so unsupported or corrupt
@@ -524,6 +528,7 @@ def _resize_base64_images(items: list, max_pixels: int) -> int:
             resized_data, changed = resize_base64_image(
                 str(data),
                 max_pixels,
+                max_bytes=max_bytes,
             )
             if changed:
                 if isinstance(source, dict):
@@ -551,32 +556,42 @@ def _resize_base64_images(items: list, max_pixels: int) -> int:
                 else getattr(block, "hint", None)
             )
         if isinstance(nested, list):
-            resized_count += _resize_base64_images(nested, max_pixels)
+            resized_count += _resize_base64_images(
+                nested,
+                max_pixels,
+                max_bytes,
+            )
     return resized_count
 
 
-async def _resize_request_images(msgs: list) -> int:
+async def _resize_request_images(msgs: list, max_bytes: int = 0) -> int:
     """Resize oversized images in request copies when explicitly enabled."""
     max_pixels = get_max_image_pixels()
-    if max_pixels <= 0:
+    if max_pixels <= 0 and max_bytes <= 0:
         return 0
     return await run_sync_io(
         _resize_base64_images_in_messages,
         msgs,
         max_pixels,
+        max_bytes,
     )
 
 
 def _resize_base64_images_in_messages(
     msgs: list,
     max_pixels: int,
+    max_bytes: int = 0,
 ) -> int:
     """Synchronously resize images across copied request messages."""
     resized_count = 0
     for msg in msgs:
         content = getattr(msg, "content", None)
         if isinstance(content, list):
-            resized_count += _resize_base64_images(content, max_pixels)
+            resized_count += _resize_base64_images(
+                content,
+                max_pixels,
+                max_bytes,
+            )
     return resized_count
 
 
@@ -1767,7 +1782,14 @@ def _create_file_block_support_formatter(
                     MAX_INLINE_MEDIA_BYTES,
                 ),
             )
-            await _resize_request_images(normalized_msgs)
+            await _resize_request_images(
+                normalized_msgs,
+                max_bytes=(
+                    self.max_bytes
+                    if getattr(self, "resize_images_to_max_bytes", False)
+                    else 0
+                ),
+            )
 
             # Per-wire-request dedup scope — second occurrence of the
             # same media source becomes a text placeholder. Set this only

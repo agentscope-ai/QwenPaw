@@ -9,6 +9,7 @@ ReMe's application/job framework.
 import asyncio
 from copy import deepcopy
 import hashlib
+import json
 from inspect import signature
 import logging
 import os
@@ -141,10 +142,23 @@ def _validate_reme_action_kwargs(
     location = "".join(f"[{part!r}]" for part in error.absolute_path)
     if location:
         location = f" at {location}"
-    raise ValueError(
+    message = (
         f"Invalid arguments for memory action '{action}'{location}: "
-        f"{error.message}",
+        f"{error.message}"
     )
+    if (
+        error.validator == "type"
+        and error.validator_value in ("array", "object")
+        and isinstance(error.instance, str)
+    ):
+        example = (
+            '["tag"]'
+            if error.validator_value == "array"
+            else '{"key":"value"}'
+        )
+        key = ".".join(map(str, error.absolute_path))
+        message += f" Use JSON in single quotes: {key}='{example}'."
+    raise ValueError(message)
 
 
 class _ReMeContractError(RuntimeError):
@@ -417,6 +431,7 @@ class ReMeLightMemoryManager(BaseMemoryManager, MemoryActionProvider):
         return build_memory_guidance_prompt(
             agent_config.language,
             memory_search_enabled=cfg.memory_search_enabled,
+            memory_tags_enabled=cfg.auto_memory_generate_tags,
             daily_dir=getattr(cfg, "daily_dir", "memory"),
             digest_dir=getattr(cfg, "digest_dir", "digest"),
         )
@@ -425,6 +440,13 @@ class ReMeLightMemoryManager(BaseMemoryManager, MemoryActionProvider):
         """Return ReMe Light memory configuration."""
         agent_config = load_agent_config(self.agent_id)
         return agent_config.running.reme_light_memory_config
+
+    def list_memory_tools(self) -> list:
+        """Add tag discovery when search and tag generation are enabled."""
+        tools = super().list_memory_tools()
+        if tools and self._load_memory_config().auto_memory_generate_tags:
+            tools.append(self.memory_list_tags)
+        return tools
 
     def list_cron_jobs(self) -> list[ServiceCronJob]:
         """Declare the scheduled maintenance jobs supported by ReMe."""
@@ -508,9 +530,13 @@ class ReMeLightMemoryManager(BaseMemoryManager, MemoryActionProvider):
         if self._reme is None:
             return None
 
-        model, _formatter = await create_model_and_formatter_async(
+        model, formatter = await create_model_and_formatter_async(
             self.agent_id,
         )
+        from ...providers.capping_formatter import CappingFormatterMixin
+
+        if isinstance(formatter, CappingFormatterMixin):
+            formatter.resize_images_to_max_bytes = True
         await self._reme.update_component(
             "as_llm",
             "default",
@@ -518,12 +544,12 @@ class ReMeLightMemoryManager(BaseMemoryManager, MemoryActionProvider):
         )
         return model
 
-    async def _auto_memory_image_options(
+    async def _auto_memory_options(
         self,
         model: "ChatModelBase | None",
         kwargs: dict[str, Any],
-    ) -> None:
-        """Gate every auto-memory entry point against its injected LLM."""
+    ) -> bool:
+        """Apply the live image gate and return the tag-generation opt-in."""
         from ..prompt import get_model_supports_image
 
         config = await run_sync_io(self._load_memory_config)
@@ -556,6 +582,7 @@ class ReMeLightMemoryManager(BaseMemoryManager, MemoryActionProvider):
                 getattr(model, "model_key", None)
                 or getattr(model, "model", "unknown"),
             )
+        return config.auto_memory_generate_tags
 
     async def test_and_stage_embedding(
         self,
@@ -656,11 +683,13 @@ class ReMeLightMemoryManager(BaseMemoryManager, MemoryActionProvider):
             logger.debug("ReMe job skipped; app not started: %s", name)
             return None
         try:
+            job_name = name
             if needs_llm or name == "auto_memory":
                 model = await self._update_qwenpaw_model()
                 if name == "auto_memory":
-                    await self._auto_memory_image_options(model, kwargs)
-            response = await self._reme.run_job(name, **kwargs)
+                    if await self._auto_memory_options(model, kwargs):
+                        job_name = "auto_memory_with_tags"
+            response = await self._reme.run_job(job_name, **kwargs)
             await self._append_reme_job_result_to_inbox(
                 name,
                 response=response,
@@ -732,6 +761,7 @@ class ReMeLightMemoryManager(BaseMemoryManager, MemoryActionProvider):
         query: str,
         max_results: int = 5,
         min_score: float = 0,
+        tags: list[str] | None = None,
         **kwargs: Any,
     ) -> ToolChunk:
         """Search memory files semantically.
@@ -754,6 +784,9 @@ class ReMeLightMemoryManager(BaseMemoryManager, MemoryActionProvider):
                 at 0 in normal use because ReMe search may mix BM25 and fused
                 scores with different scales, and raising it can hide valid
                 keyword matches.
+            tags (`list[str]`, optional):
+                Entity tags to filter by. Omit to search all memories;
+                use memory_list_tags to discover existing tag names.
 
         Returns:
             `ToolResponse`:
@@ -776,11 +809,13 @@ class ReMeLightMemoryManager(BaseMemoryManager, MemoryActionProvider):
             else cap
         )
 
+        tag_filter: dict[str, Any] = {"tags": tags} if tags is not None else {}
         response = await self._run_reme_job(
             "search",
             query=query,
             limit=effective_limit,
             min_score=max(0.0, min_score),
+            **tag_filter,
         )
         if response is None:
             return _tool_chunk("ReMe is not started.", ok=False)
@@ -796,6 +831,32 @@ class ReMeLightMemoryManager(BaseMemoryManager, MemoryActionProvider):
         if not answer:
             answer = NO_MEMORY_RESULTS
         return _tool_chunk(answer, ok=response.success)
+
+    async def memory_list_tags(
+        self,
+        page: int = 1,
+        page_size: int = 100,
+    ) -> ToolChunk:
+        """List entity tags and file counts before filtering memory_search.
+
+        Args:
+            page (`int`): 1-based page number.
+            page_size (`int`): Number of tags per page, between 1 and 1000.
+        """
+        response = await self.run_action(
+            "list_tags",
+            page=page,
+            page_size=page_size,
+        )
+        if response is None:
+            return _tool_chunk("ReMe is not started.", ok=False)
+        answer = response.answer
+        text = (
+            answer
+            if isinstance(answer, str)
+            else json.dumps(answer, ensure_ascii=False)
+        )
+        return _tool_chunk(text, ok=response.success)
 
     # ── reranker helpers ──────────────────────────────────────────────
 

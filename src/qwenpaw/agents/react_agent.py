@@ -578,7 +578,9 @@ class QwenPawAgent(CodingModeMixin, Agent):
             except Exception:
                 logger.debug("governor stop failed", exc_info=True)
 
-        await self._close_jev_compactor()
+        close_jev = getattr(self, "_close_jev_compactor", None)
+        if callable(close_jev):
+            await close_jev()
 
         # Scroll history: apply the retention window (if any) while the
         # connection is still open, then release it (db + -wal + -shm fds —

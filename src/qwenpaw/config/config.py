@@ -975,6 +975,11 @@ class ReMeLightMemoryConfig(BaseModel):
         ),
     )
 
+    auto_memory_generate_tags: bool = Field(
+        default=False,
+        description="Generate entity tags after auto-memory writes a note",
+    )
+
     dream_cron_enabled: bool = Field(
         default=True,
         description=(

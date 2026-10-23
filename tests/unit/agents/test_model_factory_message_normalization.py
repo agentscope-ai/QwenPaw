@@ -289,6 +289,32 @@ async def test_anthropic_dedup_omits_identical_media() -> None:
 
 
 @pytest.mark.asyncio
+async def test_memory_image_preview_fits_cap_without_modifying_original(
+    monkeypatch,
+):
+    monkeypatch.delenv("QWENPAW_MAX_IMAGE_PIXELS", raising=False)
+    formatter_class = model_factory._create_file_block_support_formatter(
+        _CappingOpenAIFormatter,
+    )
+    formatter = formatter_class(
+        max_bytes=1024,
+        resize_images_to_max_bytes=True,
+    )
+    original_bytes = _png_bytes((1000, 1000))
+    original = _base64_data_block("image/png", original_bytes)
+    message = Msg(name="user", role="user", content=[original])
+
+    formatted = await formatter.format([message])
+
+    image_url = formatted[0]["content"][0]["image_url"]["url"]
+    preview_bytes = base64.b64decode(image_url.split(",", 1)[1])
+    assert len(preview_bytes) <= formatter.max_bytes
+    with Image.open(BytesIO(preview_bytes)) as preview:
+        assert preview.width < 1000
+    assert base64.b64decode(original.source.data) == original_bytes
+
+
+@pytest.mark.asyncio
 async def test_request_time_image_resize_preserves_original(
     monkeypatch,
 ) -> None:

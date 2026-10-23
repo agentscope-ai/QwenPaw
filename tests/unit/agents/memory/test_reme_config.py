@@ -41,6 +41,25 @@ def test_auto_memory_exposes_optional_boolean_image_control() -> None:
     assert "include_images" not in parameters["required"]
 
 
+def test_tag_pipeline_and_optional_search_filters_are_available():
+    cfg = _config_for_embedding(EmbeddingModelConfig())
+    assert ReMeLightMemoryConfig().auto_memory_generate_tags is False
+    assert [s["backend"] for s in cfg["jobs"]["auto_memory"]["steps"]] == [
+        "auto_memory_step",
+    ]
+    tagged = cfg["jobs"]["auto_memory_with_tags"]
+    assert tagged["enable_serve"] is False
+    assert [s["backend"] for s in tagged["steps"]] == [
+        "auto_memory_step",
+        "auto_tag_step",
+    ]
+    search = cfg["jobs"]["search"]["parameters"]
+    assert search["properties"]["tags"]["items"] == {"type": "string"}
+    assert "tags" not in search.get("required", [])
+    assert cfg["components"]["file_store"]["default"]["tag_index"] == "default"
+    assert cfg["jobs"]["list_tags"]["steps"] == [{"backend": "list_tags_step"}]
+
+
 def test_reme_watchers_use_private_threads() -> None:
     cfg = _config_for_embedding(EmbeddingModelConfig())
     watcher = cfg["jobs"]["index_update_loop"]["steps"][1]

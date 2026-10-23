@@ -3721,6 +3721,8 @@
     "memoryAutoRecordDescription": "Continuously extract new memories at the chosen interval",
     "memoryAutoRecordFrequency": "Recording frequency (conversation turns)",
     "memoryImagesTitle": "Include images in auto-memory",
+    "memoryTagsTitle": "Generate memory tags",
+    "memoryTagsDescription": "Generate entity tags after auto-memory saves a note. Adds model calls. Discover tags with memory_list_tags and optionally filter memory_search by tags.",
     "memoryImagesDescription": "Remember visual details when the agent's memory model is recognized as supporting image input. Confirm image support in model settings if it is unknown. Chat-specific model choices do not change the memory model.",
     "memoryNotifyTitle": "Inbox notifications",
     "memoryNotifyDescription": "Notify the inbox only when the conversation journal changes or the job fails",

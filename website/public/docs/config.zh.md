@@ -487,6 +487,7 @@ ADBPG 和 PowerContext 插件配置见[长期记忆](./memory)。
 | `auto_fin_inbox_push_enabled`    | bool        | `true`                           | 是否将实际生成的 Auto Fin 报告或失败结果推送到收件箱；成功跳过时不推送                            |
 | `auto_memory_interval`           | int \| null | `5`                              | 每隔 N 次用户查询触发自动记忆。`None` 或 `<= 0` 表示禁用周期自动记忆                              |
 | `auto_memory_include_images`     | bool        | `false`                          | 记忆模型已确认支持图片输入时，在 Auto-Memory 中包含对话图片 |
+| `auto_memory_generate_tags`      | bool        | `false`                          | Auto-Memory 保存笔记后生成实体标签，会增加模型调用；无需重启，对后续记忆任务生效 |
 | `dream_cron_enabled`             | bool        | `true`                           | 是否启用按 Cron 定时执行的梦境记忆优化任务                                                        |
 | `dream_cron`                     | string      | `"0 23 * * *"`                   | 梦境记忆优化任务的有效 5 段 Cron 表达式（启用时必填）；触发后随机延迟 0–60 秒启动，以避免集中调用 |
 | `daily_paper_cron_enabled`       | bool        | `false`                          | 是否启用按 Cron 定时执行的每日论文任务                                                            |
