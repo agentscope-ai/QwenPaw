@@ -60,6 +60,7 @@ import sessionApi from "../pages/Chat/sessionApi";
 import { useInboxWobble } from "../hooks/useInboxWobble";
 import styles from "./index.module.less";
 import { useTheme } from "../contexts/ThemeContext";
+import { useApprovalContext } from "../contexts/ApprovalContext";
 import { useMenuItems, useRoutes } from "../plugins/registry/hooks";
 import { Slot } from "../plugins/registry/Slot";
 import { flattenMenu } from "./registry/adapter";
@@ -203,6 +204,7 @@ export default function Sidebar({
   const [hasPendingApprovals, setHasPendingApprovals] = useState(false);
   const [shakeInbox, setShakeInbox] = useState(false);
   const [wobbleEnabled] = useInboxWobble();
+  const { approvals } = useApprovalContext();
   const currentApprovalIdsRef = useRef<Set<string>>(new Set());
   const seenApprovalIdsRef = useRef<Set<string>>(new Set());
 
@@ -353,42 +355,33 @@ export default function Sidebar({
   }, [collapsed]);
 
   useEffect(() => {
+    const currentIds = new Set(
+      approvals.map((approval) => approval.request_id),
+    );
+    currentApprovalIdsRef.current = currentIds;
+    const hasNewApprovals =
+      currentIds.size > 0 &&
+      [...currentIds].some((id) => !seenApprovalIdsRef.current.has(id));
+    setShakeInbox(hasNewApprovals);
+    setHasPendingApprovals(currentIds.size > 0);
+  }, [approvals]);
+
+  useEffect(() => {
     let inFlight = false;
     const loadUnreadState = async () => {
       if (inFlight) return;
       inFlight = true;
       try {
-        const [inboxResult, pushResult] = await Promise.allSettled([
-          api.getInboxEvents({
-            unread_only: true,
-            limit: 1,
-          }),
-          api.getPushMessages(),
-        ]);
-        if (
-          inboxResult.status === "rejected" ||
-          pushResult.status === "rejected"
-        ) {
-          return;
-        }
-        const inboxRes = inboxResult.value;
-        const pushRes = pushResult.value;
+        const inboxRes = await api.getInboxEvents({
+          unread_only: true,
+          limit: 1,
+        });
         const hasUnreadEvents = (inboxRes?.events?.length || 0) > 0;
-        const approvals = pushRes?.pending_approvals || [];
-        const currentIds = new Set(
-          approvals.map((a: { request_id: string }) => a.request_id),
-        );
-        currentApprovalIdsRef.current = currentIds;
-        const hasNewApprovals =
-          currentIds.size > 0 &&
-          [...currentIds].some((id) => !seenApprovalIdsRef.current.has(id));
-        setShakeInbox(hasNewApprovals);
         setUnreadCount(
           inboxRes?.unread_count ??
             inboxRes?.total ??
             (hasUnreadEvents ? 1 : 0),
         );
-        setHasPendingApprovals(currentIds.size > 0);
       } catch {
         // Keep previous state when polling fails.
       } finally {
@@ -640,6 +633,7 @@ export default function Sidebar({
         <button
           type="button"
           aria-label={typeof item.label === "string" ? item.label : undefined}
+          aria-current={isActive ? "page" : undefined}
           className={`${styles.collapsedNavItem} ${
             isActive ? styles.collapsedNavItemActive : ""
           }`}
@@ -673,6 +667,7 @@ export default function Sidebar({
         title={toolsMode === 2 ? null : entry.label}
         placement="top"
         trigger={["hover", "focus"]}
+        styles={{ root: { pointerEvents: "none" } }}
       >
         <button
           aria-label={typeof entry.label === "string" ? entry.label : undefined}
@@ -777,7 +772,7 @@ export default function Sidebar({
                 placement="rightTop"
                 trigger="click"
                 arrow={false}
-                overlayClassName={styles.collapsedAgentPopover}
+                classNames={{ root: styles.collapsedAgentPopover }}
                 content={
                   <div className={styles.collapsedAgentPanel}>
                     <div className={styles.collapsedPanelTitle}>
@@ -853,7 +848,7 @@ export default function Sidebar({
                 placement="rightTop"
                 trigger="click"
                 arrow={false}
-                overlayClassName={styles.collapsedHistoryPopover}
+                classNames={{ root: styles.collapsedHistoryPopover }}
                 content={
                   <div className={styles.collapsedHistoryPanel}>
                     <SidebarSessionList
@@ -1058,7 +1053,7 @@ export default function Sidebar({
             onOpenChange={setSettingsOpen}
             placement={collapsed ? "rightBottom" : "topRight"}
             trigger="click"
-            overlayClassName={styles.quickSettingsPopover}
+            classNames={{ root: styles.quickSettingsPopover }}
             destroyOnHidden
             content={
               <SidebarSettingsPanel

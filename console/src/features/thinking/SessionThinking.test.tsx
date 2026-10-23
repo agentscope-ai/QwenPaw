@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
-import { fireEvent, screen, waitFor } from "@testing-library/react";
-import { expect, it, vi } from "vitest";
+import { act, fireEvent, screen, waitFor } from "@testing-library/react";
+import { beforeEach, expect, it, vi } from "vitest";
 import { renderWithProviders } from "@/test/common_setup";
 import {
   sessionThinkingApi,
@@ -8,8 +8,14 @@ import {
   clearPendingThinking,
 } from "./sessionThinkingApi";
 import { resetSessionModel } from "../session-settings/sessionModel";
+import { dispatchSessionModelChanged } from "../session-settings/sessionModelEvents";
 import { SessionThinking } from "./SessionThinking";
 
+const { messageError } = vi.hoisted(() => ({ messageError: vi.fn() }));
+
+vi.mock("@/hooks/useAppMessage", () => ({
+  useAppMessage: () => ({ message: { error: messageError } }),
+}));
 vi.mock("./sessionThinkingApi", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./sessionThinkingApi")>()),
   sessionThinkingApi: { get: vi.fn(), set: vi.fn() },
@@ -34,6 +40,21 @@ vi.mock("../../pages/Chat/ModelSelector/ModelPickerPopover", () => ({
     </>
   ),
 }));
+
+const thinkingView = {
+  model: "qwen",
+  model_name: "Qwen",
+  provider_id: "dashscope",
+  model_key: "dashscope:qwen",
+  model_source: "agent" as const,
+  control: { kind: "unsupported" as const, efforts: [], supports_off: false },
+  value: { level: "inherit" as const },
+  effective: { level: "inherit" as const },
+  source: "model" as const,
+  reason: null,
+};
+
+beforeEach(() => messageError.mockClear());
 
 it("shows the Hub catalog name in the trigger and panel instead of its routing ID", async () => {
   const model = "ddfc504d910c40d5afb25250933df0000";
@@ -216,4 +237,116 @@ it("keeps the new depth visible while saving instead of reverting the indicator"
   expect(
     screen.getByRole("img", { name: "thinkingControl.intensive" }),
   ).toBeInTheDocument();
+});
+
+it("ignores a scoped model change for another Chat", async () => {
+  vi.mocked(sessionThinkingApi.get).mockResolvedValue({
+    model: "qwen",
+    model_name: "Qwen",
+    provider_id: "dashscope",
+    model_key: "dashscope:qwen",
+    model_source: "session",
+    control: { kind: "unsupported", efforts: [], supports_off: false },
+    value: { level: "inherit" },
+    effective: { level: "inherit" },
+    source: "model",
+    reason: null,
+  });
+  renderWithProviders(
+    <SessionThinking agentId="agent" sessionId="old" chatId="old-chat" />,
+  );
+  await waitFor(() => expect(sessionThinkingApi.get).toHaveBeenCalled());
+  const calls = vi.mocked(sessionThinkingApi.get).mock.calls.length;
+
+  act(() => {
+    window.dispatchEvent(
+      new CustomEvent("session-model-changed", {
+        detail: { agentId: "agent", sessionId: "new", chatId: null },
+      }),
+    );
+  });
+  await act(async () => {});
+
+  expect(sessionThinkingApi.get).toHaveBeenCalledTimes(calls);
+});
+
+it("refreshes the blank draft model when its scoped model change matches", async () => {
+  vi.mocked(sessionThinkingApi.get)
+    .mockResolvedValueOnce({ ...thinkingView, model_name: "Draft model" })
+    .mockResolvedValue({ ...thinkingView, model_name: "Default model" });
+  renderWithProviders(
+    <SessionThinking agentId="agent" sessionId="new" chatId={null} />,
+  );
+  await screen.findAllByText("Draft model");
+  const calls = vi.mocked(sessionThinkingApi.get).mock.calls.length;
+
+  act(() => {
+    dispatchSessionModelChanged({
+      agentId: "agent",
+      sessionId: "new",
+      chatId: null,
+    });
+  });
+
+  expect(await screen.findAllByText("Default model")).toHaveLength(2);
+  expect(sessionThinkingApi.get).toHaveBeenCalledTimes(calls + 1);
+  expect(sessionThinkingApi.get).toHaveBeenLastCalledWith("agent", null, "new");
+});
+
+it("does not report a thinking load error after unmount", async () => {
+  let rejectLoad!: (error: Error) => void;
+  vi.mocked(sessionThinkingApi.get).mockImplementationOnce(
+    () =>
+      new Promise((_resolve, reject) => {
+        rejectLoad = reject;
+      }),
+  );
+  const { unmount } = renderWithProviders(
+    <SessionThinking agentId="agent" sessionId="session" chatId="chat" />,
+  );
+
+  unmount();
+  await act(async () => rejectLoad(new Error("404 Chat not found")));
+
+  expect(messageError).not.toHaveBeenCalled();
+});
+
+it("does not report a stale load error after a newer refresh succeeds", async () => {
+  let rejectLoad!: (error: Error) => void;
+  vi.mocked(sessionThinkingApi.get)
+    .mockImplementationOnce(
+      () =>
+        new Promise((_resolve, reject) => {
+          rejectLoad = reject;
+        }),
+    )
+    .mockResolvedValueOnce(thinkingView);
+  renderWithProviders(
+    <SessionThinking agentId="agent" sessionId="session" chatId="chat" />,
+  );
+
+  act(() => {
+    dispatchSessionModelChanged({
+      agentId: "agent",
+      sessionId: "session",
+      chatId: "chat",
+    });
+  });
+  await screen.findAllByText("Qwen");
+  await act(async () => rejectLoad(new Error("Stale request failed")));
+
+  expect(messageError).not.toHaveBeenCalled();
+});
+
+it("reports a thinking load error for the current request", async () => {
+  vi.mocked(sessionThinkingApi.get).mockRejectedValueOnce(
+    new Error("Current request failed"),
+  );
+  renderWithProviders(
+    <SessionThinking agentId="agent" sessionId="session" chatId="chat" />,
+  );
+
+  await waitFor(() =>
+    expect(messageError).toHaveBeenCalledWith("Error: Current request failed"),
+  );
 });

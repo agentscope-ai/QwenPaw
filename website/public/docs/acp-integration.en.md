@@ -141,9 +141,22 @@ qwenpaw acp --workspace /path/to/workspace
 
 # Enable debug logging to stderr
 qwenpaw acp --debug
+
+# Activate goal mode for headless sessions
+qwenpaw acp --agent-mode goal
 ```
 
 The process communicates over stdin/stdout using the ACP JSON-RPC protocol. stderr is used for logging.
+
+`--agent-mode MODE_ID` selects from the same workspace loop catalog as the Console (`GET /api/loops`). Built-in IDs include `default`, `goal`, and `mission`; configured custom modes use `custom:<id>` and plugin modes use `plugin:<name>`.
+
+For example, `--agent-mode goal` adds `/goal` to the first message of each new session. If custom mode `quality` registers `/verify`, `--agent-mode custom:quality` adds `/verify`, not `/custom:quality`. Activation goes through the existing runtime slash-command registry. Unknown, disabled, or unregistered modes return a request error instead of silently falling back.
+
+Messages that already start with a slash command are never modified and consume the first-message slot. Loaded or resumed sessions are not re-prefixed; this option does not add mode-state persistence. `--agent-mode default` leaves messages unchanged. Loop selection is separate from ACP permission settings.
+
+Goal tokens are unlimited by default. Use `--goal-token-budget 300000` to cap each goal; `-1` and `0` both mean unlimited. This overrides the goal default only in this ACP process and does not write agent configuration. Iteration limits still apply. An explicit `create_goal(token_budget=...)` overrides the default for that goal; omitting it inherits the default.
+
+Mode authors declare `loop_entry` on their existing `AgentMode` to select an entry command explicitly. Override `describe_loop(workspace)` for custom IDs or availability rules. HTTP and ACP collect these descriptions from registered modes; command ordering does not select the entry. Process-local `Workspace.mode_config_overrides` are read and validated by the owning mode during setup and never modify persisted agent configuration.
 
 ### Supported ACP Methods
 

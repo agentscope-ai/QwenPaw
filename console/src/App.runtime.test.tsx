@@ -105,11 +105,12 @@ describe("getAppThemeToken", () => {
     const small = getAppThemeToken({}, false, 12);
     const large = getAppThemeToken({}, false, 20);
 
-    expect(small.controlHeight).toBe(32);
-    expect(small.controlHeightSM).toBe(24);
-    expect(large.controlHeight).toBe(46);
-    expect(large.controlHeightSM).toBe(34);
-    expect(large.controlHeightLG).toBe(57);
+    expect(small.controlHeight).toBe(36);
+    expect(small.controlHeightSM).toBe(32);
+    expect(small.controlHeightLG).toBe(44);
+    expect(large.controlHeight).toBe(51);
+    expect(large.controlHeightSM).toBe(46);
+    expect(large.controlHeightLG).toBe(63);
   });
 });
 

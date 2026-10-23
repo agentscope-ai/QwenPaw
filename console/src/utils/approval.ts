@@ -1,8 +1,9 @@
-export type ToolExecutionLevel = "STRICT" | "SMART" | "AUTO" | "OFF";
+export type ToolExecutionLevel = "STRICT" | "SMART" | "JEV" | "AUTO" | "OFF";
 
 export const LEVELS: readonly ToolExecutionLevel[] = [
   "STRICT",
   "SMART",
+  "JEV",
   "AUTO",
   "OFF",
 ];

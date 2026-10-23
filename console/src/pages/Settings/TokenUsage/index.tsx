@@ -260,6 +260,9 @@ function TokenUsagePage() {
             />
           ) : (
             <DatePicker.RangePicker
+              classNames={{
+                popup: { root: styles.mobileRangePopup },
+              }}
               presets={[30, 90, 365].map((days) => ({
                 label: t("tokenUsage.lastDays", {
                   count: days,

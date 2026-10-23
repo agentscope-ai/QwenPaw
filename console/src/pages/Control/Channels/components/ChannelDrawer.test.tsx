@@ -120,6 +120,7 @@ vi.mock("./QrcodeAuthBlock", () => ({
 }));
 
 import { ChannelDrawer } from "./ChannelDrawer";
+import styles from "../index.module.less";
 
 // ---- Harness ---------------------------------------------------------------
 
@@ -177,6 +178,166 @@ afterEach(() => {
 // ---- Builtin channel field branches ---------------------------------------
 
 describe("ChannelDrawer builtin channel rendering", () => {
+  it.each([
+    {
+      activeKey: "sip",
+      adjacentValues: { sip_mode: "dev", sip_transport: "UDP" },
+    },
+    {
+      activeKey: "mqtt",
+      adjacentValues: { transport: "tcp", qos: "2" },
+    },
+  ])(
+    "binds the $activeKey no-text switch to its narrow-container layout without touching adjacent values",
+    async ({ activeKey, adjacentValues }) => {
+      const { form } = renderDrawer({ activeKey });
+      fireEvent.click(
+        screen.getByRole("button", { name: "collapsed Advanced settings" }),
+      );
+      const noTextSwitch = screen.getByRole("switch", {
+        name: /channels\.noTextDebounce/,
+      });
+      const formItem = noTextSwitch.closest(".ant-form-item");
+
+      expect(formItem).toHaveClass(styles.noTextDebounceItem);
+      fireEvent.click(noTextSwitch);
+      await waitFor(() => {
+        expect(form.getFieldValue("no_text_debounce")).toBe(false);
+      });
+      expect(form.getFieldsValue(true)).toMatchObject(adjacentValues);
+    },
+  );
+
+  it("keeps SIP defaults and explicit values without duplicate initial-value warnings", async () => {
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    const defaults = renderDrawer({ activeKey: "sip" });
+
+    await waitFor(() => {
+      expect(defaults.form.getFieldsValue(true)).toMatchObject({
+        sip_mode: "dev",
+        sip_transport: "UDP",
+        no_text_debounce: true,
+      });
+    });
+    defaults.unmount();
+
+    const explicit = renderDrawer({
+      activeKey: "sip",
+      initialValues: {
+        sip_mode: "livekit",
+        sip_transport: "TLS",
+        no_text_debounce: false,
+      },
+    });
+    await waitFor(() => {
+      expect(explicit.form.getFieldsValue(true)).toMatchObject({
+        sip_mode: "livekit",
+        sip_transport: "TLS",
+        no_text_debounce: false,
+      });
+      expect(screen.getByText("channels.livekitUrl")).toBeTruthy();
+    });
+    expect(
+      consoleError.mock.calls.some((call) =>
+        call.some((value) =>
+          String(value).includes("Form already set 'initialValues'"),
+        ),
+      ),
+    ).toBe(false);
+  });
+
+  it("preserves the unsaved LiveKit draft while SIP mode toggles", async () => {
+    const onSubmit = vi.fn();
+    const view = renderDrawer({
+      activeKey: "sip",
+      initialValues: {
+        sip_mode: "livekit",
+        livekit_url: "wss://draft.example.test",
+        livekit_api_key: "draft-key",
+        livekit_api_secret: "draft-secret",
+      },
+      onSubmit,
+    });
+
+    await waitFor(() =>
+      expect(view.form.getFieldValue("livekit_api_secret")).toBe(
+        "draft-secret",
+      ),
+    );
+    act(() => view.form.setFieldValue("sip_mode", "dev"));
+    await waitFor(() =>
+      expect(screen.queryByText("channels.livekitUrl")).toBeNull(),
+    );
+    expect(view.form.getFieldValue("livekit_api_secret")).toBe("draft-secret");
+
+    act(() => view.form.setFieldValue("sip_mode", "livekit"));
+    await screen.findByText("channels.livekitUrl");
+    expect(view.form.getFieldValue("livekit_url")).toBe(
+      "wss://draft.example.test",
+    );
+    expect(view.form.getFieldValue("livekit_api_key")).toBe("draft-key");
+    expect(view.form.getFieldValue("livekit_api_secret")).toBe("draft-secret");
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it("keeps MQTT defaults and explicit values in the submitted payload", async () => {
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    const defaults = renderDrawer({ activeKey: "mqtt" });
+
+    await waitFor(() => {
+      expect(defaults.form.getFieldsValue(true)).toMatchObject({
+        transport: "tcp",
+        qos: "2",
+        no_text_debounce: true,
+      });
+    });
+    defaults.unmount();
+
+    const onSubmit = vi.fn();
+    const explicit = renderDrawer({
+      activeKey: "mqtt",
+      initialValues: {
+        host: "broker.example.test",
+        port: 1883,
+        subscribe_topic: "server/+/up",
+        publish_topic: "client/{client_id}/down",
+        transport: "websockets",
+        qos: "1",
+        no_text_debounce: false,
+      },
+      onSubmit,
+    });
+    const botPrefixInputs =
+      document.querySelectorAll<HTMLInputElement>("input#bot_prefix");
+    fireEvent.change(botPrefixInputs.item(botPrefixInputs.length - 1), {
+      target: { value: "@sentinel" },
+    });
+    await waitFor(() =>
+      expect(explicit.form.getFieldValue("bot_prefix")).toBe("@sentinel"),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "common.close" }));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledOnce());
+    expect(onSubmit.mock.calls[0][0]).toMatchObject({
+      host: "broker.example.test",
+      transport: "websockets",
+      qos: "1",
+      no_text_debounce: false,
+      bot_prefix: "@sentinel",
+    });
+    expect(explicit.form.getFieldValue("transport")).toBe("websockets");
+    expect(
+      consoleError.mock.calls.some((call) =>
+        call.some((value) =>
+          String(value).includes("Form already set 'initialValues'"),
+        ),
+      ),
+    ).toBe(false);
+  });
+
   it("renders matrix fields and switches to password auth when a password exists", async () => {
     renderDrawer({
       activeKey: "matrix",

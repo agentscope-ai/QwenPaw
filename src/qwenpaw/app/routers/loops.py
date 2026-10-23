@@ -18,6 +18,7 @@ from ...config.config import (
 )
 from ...loop.catalog import get_gate_catalog
 from ...loop.compiler import compile_loop_mode
+from ...modes.catalog import LoopModeInfo, build_loop_catalog
 from ...utils.logging import sanitize_log_value
 from ..agent_context import get_agent_for_request, scoped_session_id
 from ..utils import schedule_agent_reload
@@ -27,59 +28,11 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/loops", tags=["loops"])
 
 
-class LoopModeInfo(BaseModel):
-    """One loop mode available in the chat composer."""
-
-    id: str
-    name: str
-    slash_command: str
-    description: str
-    source: Literal["builtin", "custom", "plugin"]
-    name_i18n: dict[str, str] | None = None
-    description_i18n: dict[str, str] | None = None
-
-
 class LoopModeStatus(BaseModel):
     """Active loop state for one conversation session."""
 
     state: Literal["idle", "running", "awaiting_user"]
     mode: LoopModeInfo | None = None
-
-
-BUILTIN_LOOPS = (
-    LoopModeInfo(
-        id="default",
-        name="default",
-        slash_command="",
-        description="The standard guarded agent loop.",
-        source="builtin",
-    ),
-    LoopModeInfo(
-        id="goal",
-        name="goal",
-        slash_command="goal",
-        description="Set a goal and work until it is done.",
-        source="builtin",
-    ),
-    LoopModeInfo(
-        id="mission",
-        name="mission",
-        slash_command="mission",
-        description="Run a persistent multi-step mission.",
-        source="builtin",
-    ),
-)
-
-ADVISOR_LOOP = LoopModeInfo(
-    id="advisor",
-    name="advisor",
-    slash_command="advisor",
-    description=(
-        "Let a stronger model plan and step in while a cheaper one does "
-        "the work."
-    ),
-    source="builtin",
-)
 
 
 def _session_context_state(
@@ -100,7 +53,7 @@ def _session_context_state(
 async def list_loops(request: Request) -> list[LoopModeInfo]:
     """List built-in, custom, and plugin-provided loops."""
     workspace = await get_agent_for_request(request)
-    catalog, _ = _build_loop_catalog(workspace)
+    catalog, _ = build_loop_catalog(workspace)
     return catalog
 
 
@@ -131,7 +84,7 @@ async def get_loop_status(
     if not session_id:
         return LoopModeStatus(state="idle")
 
-    catalog, runtime_modes = _build_loop_catalog(workspace)
+    catalog, runtime_modes = build_loop_catalog(workspace)
     by_id = {mode.id: mode for mode in catalog}
     agent_state, mode_state = _session_context_state(session_state)
     ctx = SimpleNamespace(
@@ -331,103 +284,6 @@ def _unique_value(
         candidate = f"{base[: max_length - len(suffix_text)]}{suffix_text}"
         suffix += 1
     return candidate
-
-
-def _deduplicate(loops: list[LoopModeInfo]) -> list[LoopModeInfo]:
-    seen: set[str] = set()
-    result: list[LoopModeInfo] = []
-    for loop in loops:
-        key = loop.slash_command or loop.id
-        if key not in seen:
-            seen.add(key)
-            result.append(loop)
-    return result
-
-
-def _build_loop_catalog(
-    workspace: Any,
-) -> tuple[list[LoopModeInfo], dict[str, str]]:
-    """Build one workspace's catalog and runtime-name lookup."""
-    result = list(BUILTIN_LOOPS)
-    runtime_modes = {
-        "default": "default",
-        "goal": "goal",
-        "mission": "mission",
-    }
-    # Advisor is bundled like goal and mission but only offered once it is
-    # switched on for the agent.
-    advisor_mode = getattr(workspace.config, "advisor_mode", None)
-    if getattr(advisor_mode, "enabled", False) is True:
-        result.append(ADVISOR_LOOP)
-        runtime_modes["advisor"] = "advisor"
-    for mode in workspace.config.running.loop.custom_modes:
-        if not mode.enabled:
-            continue
-        descriptor_id = f"custom:{mode.id}"
-        result.append(
-            LoopModeInfo(
-                id=descriptor_id,
-                name=mode.name,
-                slash_command=mode.slash_command,
-                description=mode.description,
-                source="custom",
-            ),
-        )
-        runtime_modes[descriptor_id] = descriptor_id
-
-    builtin_names = {"default", "goal", "mission", "advisor"}
-    for mode in getattr(workspace.plugins, "modes", []):
-        runtime_name = getattr(mode, "name", "")
-        if (
-            not runtime_name
-            or runtime_name in builtin_names
-            or runtime_name.startswith("custom:")
-            or runtime_name == "custom-loop-control"
-        ):
-            continue
-        try:
-            commands = mode.commands()
-        except Exception:
-            logger.warning(
-                "Failed to inspect plugin loop mode '%s'",
-                runtime_name,
-                exc_info=True,
-            )
-            continue
-        if not commands:
-            continue
-        command = commands[0]
-        metadata = command.metadata or {}
-        descriptor_id = f"plugin:{runtime_name}"
-        name_i18n = _as_str_dict(metadata.get("name_i18n"))
-        description_i18n = _as_str_dict(metadata.get("description_i18n"))
-        result.append(
-            LoopModeInfo(
-                id=descriptor_id,
-                name=str(metadata.get("loop_name") or runtime_name),
-                slash_command=command.name,
-                description=command.help_text,
-                source="plugin",
-                name_i18n=name_i18n or None,
-                description_i18n=description_i18n or None,
-            ),
-        )
-        runtime_modes[runtime_name] = descriptor_id
-    return _deduplicate(result), runtime_modes
-
-
-def _as_str_dict(value: Any) -> dict[str, str]:
-    """Normalize metadata i18n maps to ``dict[str, str]``."""
-    if not isinstance(value, dict):
-        return {}
-    result: dict[str, str] = {}
-    for key, item in value.items():
-        if item is None:
-            continue
-        text = str(item).strip()
-        if text:
-            result[str(key)] = text
-    return result
 
 
 __all__ = ["LoopModeInfo", "LoopModeStatus", "router"]

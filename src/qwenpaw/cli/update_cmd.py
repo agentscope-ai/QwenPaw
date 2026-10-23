@@ -21,6 +21,7 @@ from packaging.version import InvalidVersion, Version
 from ..__version__ import __version__
 from ..constant import WORKING_DIR
 from ..config.utils import read_last_api
+from ..utils.runtime_environment import require_pip, require_uv
 from ..utils.runtime_api import api_client
 from .process_utils import (
     _base_url,
@@ -594,6 +595,13 @@ def run_update_worker(plan_path: str | Path) -> int:
     click.echo(f"[qwenpaw] Using installer: {plan['installer_label']}")
 
     try:
+        if command[1:3] == ["-m", "pip"]:
+            if not require_pip(command[0]):
+                raise RuntimeError(
+                    "pip is missing from the update environment",
+                )
+        elif command[1:3] == ["pip", "install"]:
+            require_uv(command[0])
         with subprocess.Popen(
             command,
             stdout=subprocess.PIPE,
@@ -605,7 +613,7 @@ def run_update_worker(plan_path: str | Path) -> int:
                 for line in proc.stdout:
                     click.echo(line.rstrip())
             return_code = proc.wait()
-    except FileNotFoundError as exc:
+    except (OSError, RuntimeError, subprocess.SubprocessError) as exc:
         click.echo(f"[qwenpaw] Update failed: {exc}")
         return_code = 1
     finally:

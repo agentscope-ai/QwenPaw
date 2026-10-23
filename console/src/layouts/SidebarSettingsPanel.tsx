@@ -134,7 +134,7 @@ function FlyoutItem({ icon, label, content }: FlyoutItemProps) {
           {content}
         </FlyoutContext.Provider>
       }
-      overlayClassName={styles.nestedPopover}
+      classNames={{ root: styles.nestedPopover }}
       destroyOnHidden
       mouseEnterDelay={0.06}
       mouseLeaveDelay={0.18}

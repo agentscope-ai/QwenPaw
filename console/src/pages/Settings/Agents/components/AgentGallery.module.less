@@ -28,6 +28,11 @@
     box-shadow: var(--app-shadow-md);
     border-color: var(--app-accent);
   }
+
+  &[data-agent-status="disabled"] {
+    border-color: var(--app-border-subtle);
+    background: var(--app-disabled-bg);
+  }
 }
 .top {
   display: flex;
@@ -152,6 +157,12 @@
   }
   .identity {
     display: none;
+  }
+  .drag,
+  .quickActions :global(.ant-btn),
+  .quickActions :global(.qwenpaw-btn) {
+    min-width: var(--app-hit-touch);
+    min-height: var(--app-hit-touch);
   }
 }
 

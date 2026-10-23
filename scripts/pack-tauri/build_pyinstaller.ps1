@@ -60,6 +60,15 @@ if (-not $BOOTSTRAP_PYTHON -or -not (Test-Path $BOOTSTRAP_PYTHON)) {
 }
 
 New-Item -ItemType Directory -Force -Path $BINARIES_DIR | Out-Null
+# Check an existing uv before it downloads build dependencies.
+if ($UV_BIN) {
+    $uvVersion = & $UV_BIN --version
+    Assert-LastExit "Failed to read uv version"
+    if ($uvVersion -notmatch '^uv (\d+\.\d+\.\d+)(?:\s|$)' -or
+        [version]$Matches[1] -lt [version]"0.13.4") {
+        throw "uv >= 0.13.4 is required; update uv and retry"
+    }
+}
 
 # The staged python-build-standalone runtime is the canonical source for both
 # the helper interpreter and the PyInstaller build environment. The PATH
@@ -74,8 +83,16 @@ if (-not (Test-Path $NATIVE_HOST_PYTHON -PathType Leaf)) {
 }
 
 Write-Host "== Creating PyInstaller build environment ==" -ForegroundColor Yellow
+& $NATIVE_HOST_PYTHON -m pip install --upgrade "pip>=26.2.2"
+Assert-LastExit "Failed to upgrade pip"
+& $NATIVE_HOST_PYTHON -m pip install --upgrade "certifi>=2026.10.19"
+Assert-LastExit "Failed to secure bundled Python"
 & $NATIVE_HOST_PYTHON -m venv --clear $BUILD_VENV
 Assert-LastExit "Failed to create PyInstaller environment from bundled Python"
+& $PYTHON_BIN -m pip install --upgrade "pip>=26.2.2"
+Assert-LastExit "Failed to upgrade pip"
+& $PYTHON_BIN -m pip install --upgrade "certifi>=2026.10.19"
+Assert-LastExit "Failed to secure PyInstaller environment"
 
 $pythonVersion = & $PYTHON_BIN --version
 Write-Host "Python: $pythonVersion" -ForegroundColor Green

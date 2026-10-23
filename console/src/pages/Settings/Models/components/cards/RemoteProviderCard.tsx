@@ -83,6 +83,7 @@ export const RemoteProviderCard = React.memo(function RemoteProviderCard({
       {!isManaged && (
         <ProviderCloseButton
           ids={[provider.id]}
+          providerName={provider.name}
           onSaved={onSaved}
           onConfigure={() => onOpenConfig(provider)}
         />

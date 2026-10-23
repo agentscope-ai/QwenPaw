@@ -1,4 +1,7 @@
 {
+  "accessibility": {
+    "skipToContent": "跳到主要内容"
+  },
   "terminal": {
     "authRequired": "使用终端前，请设置 QWENPAW_AUTH_ENABLED=true，重启服务并登录。",
     "dependencyMissing": "终端不可用：请在后端 Python 环境安装 pywinpty 并重启服务。",
@@ -41,6 +44,7 @@
     "view": "查看",
     "content": "内容",
     "loading": "加载中...",
+    "loadMore": "加载更多",
     "saving": "保存中...",
     "copy": "复制",
     "copied": "已复制到剪贴板",
@@ -588,6 +592,7 @@
     "createSuccess": "Harvest 创建成功",
     "emptyApprovals": "暂无待审批项",
     "emptyPush": "暂无推送消息",
+    "loadFailed": "无法加载推送消息，请重试。",
     "wobbleEnable": "开启审批震动提醒",
     "wobbleDisable": "关闭审批震动提醒",
     "emptyHarvests": "暂无 Harvest 任务",
@@ -1042,6 +1047,7 @@
   "acp": {
     "title": "ACP 协议接入",
     "loading": "加载 ACP 配置中...",
+    "loadError": "ACP 配置加载失败。",
     "builtin": "预设",
     "custom": "自定义",
     "create": "添加 ACP 接入",
@@ -1802,6 +1808,7 @@
     "title": "频道",
     "description": "管理和配置消息频道",
     "loading": "正在加载频道...",
+    "loadFailed": "加载频道失败，请重试。",
     "configSaved": "配置保存成功",
     "configFailed": "配置保存失败",
     "botConflictTitle": "机器人已被使用",
@@ -2111,6 +2118,8 @@
     "title": "会话",
     "description": "查看和管理活动聊天会话",
     "loading": "正在加载会话...",
+    "selectSession": "选择 {{name}}",
+    "loadFailed": "加载会话失败，请重试。",
     "confirmDelete": "确认删除",
     "deleteConfirm": "确定要删除此会话吗？",
     "batchDeleteConfirm": "确定要删除选中的 {{count}} 个会话吗？",
@@ -3102,7 +3111,7 @@
       "goalTurnDescription": "限制单个活动目标内的执行轮次。",
       "maxGoalTurns": "最大目标轮次",
       "goalBudgetTitle": "目标 Token 预算",
-      "goalBudgetDescription": "完整目标达到预算时停止。",
+      "goalBudgetDescription": "目标达到预算时停止；-1 或 0 表示无上限。",
       "maxGoalTokens": "最大目标 Token 数",
       "goalCompletionTitle": "目标完成检查",
       "goalCompletionDescription": "停止前读取明确的目标状态。",
@@ -3625,6 +3634,13 @@
       "strictDesc": "每次工具调用和外部文件访问前均需审批",
       "smart": "智能模式",
       "smartDesc": "低风险工具调用和外部文件访问操作自动执行，中高风险需审批",
+      "jev": "决策模型模式",
+      "jevDesc": "先执行本地安全规则，规则外操作由决策模型评估风险",
+      "jevRequiresDecision": "请先打开「使用决策模型」",
+      "decisionModelPrivacy": "工具名、操作、目标和参数名可能发送给决策模型提供商；不会发送聊天记录或文件正文。",
+      "decisionModelConnected": "已配置决策模型提供商的 API Key",
+      "decisionModelNotConnected": "决策模型提供商尚未配置 API Key；旧版决策模型密钥仍可临时使用，请在模型页面统一管理。",
+      "decisionModelConfigure": "配置决策模型提供商",
       "auto": "自动模式",
       "autoDesc": "仅命中工具和文件审批规则的操作需审批（默认）",
       "off": "关闭模式",
@@ -3980,6 +3996,11 @@
     "prompt1": "让我们开启一段新的旅程吧！",
     "prompt2": "能告诉我你有哪些技能吗？",
     "inputPlaceholder": "\"↑↓\" 浏览消息 · \"/\" 快捷指令",
+    "composer": {
+      "attach": "添加附件",
+      "send": "发送消息",
+      "stop": "停止生成"
+    },
     "emptyOutputError": "助手返回了空响应。",
     "commands": {
       "clear": {
@@ -4806,6 +4827,9 @@
         "memberDefaultsHint": "新会话默认使用此模型，成员可切换到其他已授权模型。",
         "settingsSaved": "模型设置已保存",
         "defaultModel": "默认模型",
+        "gatewayTimeout": "网关超时（秒）",
+        "gatewayTimeoutHelp": "默认为 600 秒，最小为 60 秒。保存后对新请求生效，包括流式响应。连接超时保持为 10 秒。",
+        "gatewayTimeoutInvalid": "请输入不小于 60 的整数秒数。",
         "chooseDefault": "选择全体成员可用的模型",
         "saveSettings": "保存模型设置",
         "providers": "供应商连接",
@@ -5257,6 +5281,12 @@
   },
   "approval": {
     "title": "安全审批",
+    "queue": {
+      "title": "待审批队列",
+      "position": "{{current}} / {{total}}",
+      "previous": "上一条审批",
+      "next": "下一条审批"
+    },
     "agent": "Agent",
     "ownerAgent": "归属Agent",
     "executingAgent": "执行Agent",
@@ -5283,6 +5313,19 @@
     "details": "详细信息"
   },
   "pluginManager": {
+    "busyTitle": "插件正在执行任务",
+    "busy": {
+      "update": {
+        "warning": "强制更新将中断当前任务，未完成的任务可能失败。",
+        "confirm": "强制更新",
+        "cancel": "暂不更新"
+      },
+      "uninstall": {
+        "warning": "强制卸载将中断当前任务，未完成的任务可能失败。",
+        "confirm": "强制卸载",
+        "cancel": "暂不卸载"
+      }
+    },
     "title": "插件管理",
     "description": "安装、管理和卸载插件，无需重启服务。",
     "installed": "已安装插件",
@@ -5313,6 +5356,7 @@
     "uninstalling": "卸载中...",
     "uninstallSuccess": "插件卸载成功",
     "uninstallFailed": "插件卸载失败",
+    "statusError": "状态异常",
     "statusLoaded": "运行中",
     "statusUnloaded": "未加载",
     "type": "类型",

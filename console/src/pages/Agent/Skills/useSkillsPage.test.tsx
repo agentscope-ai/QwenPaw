@@ -37,7 +37,10 @@ const mocks = vi.hoisted(() => ({
   refreshSkills: vi.fn(),
   hardRefresh: vi.fn(),
   cancelImport: vi.fn(),
+  captureMutationOwner: vi.fn(),
+  ownsMutationOwner: vi.fn(),
   showConflictRenameModal: vi.fn(),
+  cancelConflictRenameModal: vi.fn(),
   // design surface
   modalConfirm: vi.fn(),
   message: {
@@ -134,6 +137,8 @@ vi.mock("./useSkills", () => ({
     uploadSkill: (...a: unknown[]) => mocks.uploadSkill(...a),
     importFromHub: (...a: unknown[]) => mocks.importFromHub(...a),
     cancelImport: mocks.cancelImport,
+    captureMutationOwner: (...a: unknown[]) => mocks.captureMutationOwner(...a),
+    ownsMutationOwner: (...a: unknown[]) => mocks.ownsMutationOwner(...a),
     toggleEnabled: (...a: unknown[]) => mocks.toggleEnabled(...a),
     deleteSkill: (...a: unknown[]) => mocks.deleteSkill(...a),
     refreshSkills: (...a: unknown[]) => mocks.refreshSkills(...a),
@@ -156,6 +161,7 @@ vi.mock("./components", () => ({
   useConflictRenameModal: () => ({
     showConflictRenameModal: (...a: unknown[]) =>
       mocks.showConflictRenameModal(...a),
+    cancelConflictRenameModal: mocks.cancelConflictRenameModal,
     conflictRenameModal: null,
   }),
 }));
@@ -176,6 +182,16 @@ async function flush() {
   });
 }
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((promiseResolve, promiseReject) => {
+    resolve = promiseResolve;
+    reject = promiseReject;
+  });
+  return { promise, resolve, reject };
+}
+
 /** Auto-confirm Modal.confirm dialogs (capture the config for inspection). */
 function autoConfirm() {
   mocks.modalConfirm.mockImplementation((cfg: { onOk?: () => void }) => {
@@ -193,6 +209,13 @@ function autoCancel() {
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.selectedAgent = "agent-1";
+  mocks.captureMutationOwner.mockImplementation(() => ({
+    agentId: mocks.selectedAgent,
+    generation: 1,
+  }));
+  mocks.ownsMutationOwner.mockImplementation(
+    (owner: { agentId: string }) => owner.agentId === mocks.selectedAgent,
+  );
   mocks.listChannelTypes.mockReset().mockResolvedValue([]);
   mocks.listChannelSchemas.mockReset().mockResolvedValue({});
   mocks.refreshSkills.mockResolvedValue(undefined);
@@ -273,6 +296,40 @@ describe("drawer lifecycle", () => {
     act(() => result.current.handleCreate());
     act(() => result.current.handleDrawerClose());
     expect(result.current.drawerOpen).toBe(false);
+    expect(result.current.editingSkillName).toBe("");
+  });
+
+  it("resets agent-owned layout and ignores late detail from agent A", async () => {
+    const detail = deferred<{ name: string; content: string }>();
+    mocks.getSkill.mockReturnValue(detail.promise);
+    const { result, rerender } = renderHook(() => useSkillsPage());
+    act(() => {
+      result.current.handleCreate();
+      result.current.setImportModalOpen(true);
+      result.current.setPoolModal("upload");
+      result.current.toggleBatchMode();
+      result.current.toggleSelect("alpha");
+    });
+    let pending!: Promise<void>;
+    act(() => {
+      pending = result.current.handleEdit(result.current.skills[0] as never);
+    });
+    await waitFor(() => expect(result.current.drawerLoading).toBe(true));
+
+    mocks.selectedAgent = "agent-2";
+    rerender();
+    expect(result.current.drawerOpen).toBe(false);
+    expect(result.current.drawerLoading).toBe(false);
+    expect(result.current.importModalOpen).toBe(false);
+    expect(result.current.poolModal).toBeNull();
+    expect(result.current.batchModeEnabled).toBe(false);
+    expect(result.current.selectedSkills.size).toBe(0);
+
+    await act(async () => {
+      detail.resolve({ name: "alpha", content: "agent-a" });
+      await pending;
+    });
+    expect(result.current.editingSkill).toBeNull();
     expect(result.current.editingSkillName).toBe("");
   });
 
@@ -580,6 +637,49 @@ describe("file upload", () => {
     );
   });
 
+  it.each([
+    ["A to B", false],
+    ["A to B to A", true],
+  ] as const)(
+    "does not retry a stale upload conflict after %s",
+    async (_label, switchBackToA) => {
+      mocks.uploadSkill.mockResolvedValueOnce({
+        success: false,
+        conflict: {
+          conflicts: [{ skill_name: "dup", suggested_name: "dup-2" }],
+        },
+      });
+      const rename = deferred<Record<string, string> | null>();
+      mocks.showConflictRenameModal.mockReturnValue(rename.promise);
+      const { result, rerender } = renderHook(() => useSkillsPage());
+
+      let pending!: Promise<void>;
+      act(() => {
+        pending = result.current.handleFileChange(
+          makeEvent({ name: "agent-a.zip", size: 1024 }),
+        );
+      });
+      await waitFor(() =>
+        expect(mocks.showConflictRenameModal).toHaveBeenCalledTimes(1),
+      );
+      mocks.cancelConflictRenameModal.mockClear();
+      mocks.selectedAgent = "agent-2";
+      rerender();
+      expect(mocks.cancelConflictRenameModal).toHaveBeenCalled();
+      if (switchBackToA) {
+        mocks.selectedAgent = "agent-1";
+        rerender();
+      }
+
+      await act(async () => {
+        rename.resolve({ dup: "dup-2" });
+        await pending;
+      });
+
+      expect(mocks.uploadSkill).toHaveBeenCalledTimes(1);
+    },
+  );
+
   it("stops when there are no conflicts to rename", async () => {
     mocks.uploadSkill.mockResolvedValue({
       success: false,
@@ -626,6 +726,45 @@ describe("hub import", () => {
     );
     expect(result.current.importModalOpen).toBe(false);
   });
+
+  it.each([
+    ["A to B", false],
+    ["A to B to A", true],
+  ] as const)(
+    "does not retry a stale hub conflict after %s",
+    async (_label, switchBackToA) => {
+      mocks.importFromHub.mockResolvedValueOnce({
+        success: false,
+        conflict: { skill_name: "s", suggested_name: "s-2" },
+      });
+      const rename = deferred<Record<string, string> | null>();
+      mocks.showConflictRenameModal.mockReturnValue(rename.promise);
+      const { result, rerender } = renderHook(() => useSkillsPage());
+
+      let pending!: Promise<void>;
+      act(() => {
+        pending = result.current.handleConfirmImport("https://hub/agent-a");
+      });
+      await waitFor(() =>
+        expect(mocks.showConflictRenameModal).toHaveBeenCalledTimes(1),
+      );
+      mocks.cancelConflictRenameModal.mockClear();
+      mocks.selectedAgent = "agent-2";
+      rerender();
+      expect(mocks.cancelConflictRenameModal).toHaveBeenCalled();
+      if (switchBackToA) {
+        mocks.selectedAgent = "agent-1";
+        rerender();
+      }
+
+      await act(async () => {
+        rename.resolve({ s: "s-2" });
+        await pending;
+      });
+
+      expect(mocks.importFromHub).toHaveBeenCalledTimes(1);
+    },
+  );
 
   it("keeps the modal open while an import is running", async () => {
     const { result } = renderHook(() => useSkillsPage());
@@ -906,6 +1045,29 @@ describe("batch enable/disable/delete", () => {
       await result.current.handleBatchDelete();
     });
     expect(mocks.batchDeleteSkills).not.toHaveBeenCalled();
+  });
+
+  it("does not batch-delete agent B from an agent A confirmation", async () => {
+    let confirm: { onOk?: () => void } | undefined;
+    mocks.modalConfirm.mockImplementation((cfg) => {
+      confirm = cfg as { onOk?: () => void };
+    });
+    const { result, rerender } = renderHook(() => useSkillsPage());
+    act(() => result.current.toggleSelect("alpha"));
+
+    let pending!: Promise<void>;
+    act(() => {
+      pending = result.current.handleBatchDelete();
+    });
+    await waitFor(() => expect(confirm).toBeDefined());
+
+    mocks.selectedAgent = "agent-2";
+    rerender();
+    act(() => confirm?.onOk?.());
+    await act(async () => pending);
+
+    expect(mocks.batchDeleteSkills).not.toHaveBeenCalled();
+    expect(result.current.selectedSkills.size).toBe(0);
   });
 
   it("is a no-op for batch delete without selection", async () => {

@@ -60,6 +60,7 @@ export const ProviderGroupCard = React.memo(function ProviderGroupCard({
     >
       <ProviderCloseButton
         ids={group.providers.map((provider) => provider.id)}
+        providerName={group.groupName}
         onSaved={onSaved}
         onConfigure={() => onOpenConfig(activeProvider)}
       />

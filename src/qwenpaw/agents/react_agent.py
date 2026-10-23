@@ -66,6 +66,15 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+_VIDEO_COUNT_LIMIT_RE = re.compile(
+    r"\bat most (\d+) video(?:\(s\)|s)?(?!\w)",
+)
+_VIDEO_PART_REJECTION_RE = re.compile(
+    r"\b(?:unknown|unexpected)\s+(?:variant|field|part|content(?: type)?)"
+    r"\s*[:=]?\s*[`'\"]?(?:video_url|input_video)\b",
+)
+
+
 _GLOBAL_MEDIA_CAPABILITY_PATTERNS = (
     re.compile(r"\bmodel\s+is\s+text[- ]only\b", re.IGNORECASE),
     re.compile(
@@ -617,6 +626,13 @@ class QwenPawAgent(CodingModeMixin, Agent):
             return False
         return get_capability_cache().get(key, "rejects_audio", False)
 
+    def _model_rejects_video(self) -> bool:
+        """Check the capability cache for a learned video rejection."""
+        key = self._get_model_key()
+        if key is None:
+            return False
+        return get_capability_cache().get(key, "rejects_video", False)
+
     def _proactive_strip_media_blocks(self) -> int:
         """Proactively strip media blocks from memory before model call.
 
@@ -663,6 +679,18 @@ class QwenPawAgent(CodingModeMixin, Agent):
             return
         setattr(formatter, "_qwenpaw_force_strip_audio", enabled)
 
+    def _set_formatter_video_strip(self, enabled: bool) -> None:
+        """Toggle request-time video stripping on the active formatter.
+
+        Narrower than ``_qwenpaw_force_strip_media``: images and audio in the
+        same request stay untouched, so a session that only tripped over an
+        unsupported ``video_url`` part keeps its other media.
+        """
+        formatter = self._get_active_formatter()
+        if formatter is None:
+            return
+        setattr(formatter, "_qwenpaw_force_strip_video", enabled)
+
     def _set_formatter_thinking_omit_ids(self, block_ids: set[str]) -> bool:
         """Propagate reasoning omissions through model wrappers."""
         model_setter = getattr(self.model, "set_thinking_omit_ids", None)
@@ -698,6 +726,18 @@ class QwenPawAgent(CodingModeMixin, Agent):
         if formatter is None:
             return False
         count = getattr(formatter, "_qwenpaw_last_wire_audio_count", 0)
+        return (
+            isinstance(count, int)
+            and not isinstance(count, bool)
+            and (count > 0)
+        )
+
+    def _last_wire_request_had_video(self) -> bool:
+        """Return whether the last completed formatting emitted video."""
+        formatter = self._get_active_formatter()
+        if formatter is None:
+            return False
+        count = getattr(formatter, "_qwenpaw_last_wire_video_count", 0)
         return (
             isinstance(count, int)
             and not isinstance(count, bool)
@@ -772,6 +812,41 @@ class QwenPawAgent(CodingModeMixin, Agent):
         if "at most 0 audio" in error_str and "may be provided" in error_str:
             return True
         return False
+
+    @staticmethod
+    def _is_video_fallback_error(exc: Exception) -> bool:
+        """Recognize video type/capability rejections and count limits."""
+        if QwenPawAgent._is_content_safety_error(exc):
+            return False
+        error_str = " ".join(str(exc).lower().split())
+        # Schema errors can list image/audio parts as accepted alternatives.
+        if _VIDEO_PART_REJECTION_RE.search(error_str):
+            return True
+        # Broader rejections must retain the existing media-free fallback.
+        if re.search(
+            r"\b(?:images?|image_url|input_image|audios?|input_audio|"
+            r"files?|input_file|pdf|vision|media|multimodal)\b",
+            error_str,
+        ):
+            return False
+        return bool(
+            _VIDEO_COUNT_LIMIT_RE.search(error_str)
+            or "video input is not supported" in error_str
+            or re.search(
+                r"\bmodel\b.{0,40}\b(?:does not|doesn't|cannot|can't) "
+                r"support videos?\b",
+                error_str,
+            )
+            or re.search(r"\bunsupported modality\s*:\s*video\b", error_str),
+        )
+
+    @staticmethod
+    def _is_video_capability_error(exc: Exception) -> bool:
+        """Allow learning only for rejected video types or zero budgets."""
+        if not QwenPawAgent._is_video_fallback_error(exc):
+            return False
+        limit = _VIDEO_COUNT_LIMIT_RE.search(str(exc).lower())
+        return limit is None or int(limit.group(1)) == 0
 
     async def _prepare_model_input(self) -> dict[str, Any]:
         """Freeze local images before they enter a provider request."""
@@ -1033,6 +1108,9 @@ class QwenPawAgent(CodingModeMixin, Agent):
         should_strip_audio = (
             not should_strip_media and self._model_rejects_audio()
         )
+        should_strip_video = (
+            not should_strip_media and self._model_rejects_video()
+        )
         if should_strip_media:
             if self._uses_request_time_media_normalization():
                 self._set_formatter_media_strip(True)
@@ -1049,6 +1127,12 @@ class QwenPawAgent(CodingModeMixin, Agent):
             and self._uses_request_time_media_normalization()
         ):
             self._set_formatter_audio_strip(True)
+
+        if (
+            should_strip_video
+            and self._uses_request_time_media_normalization()
+        ):
+            self._set_formatter_video_strip(True)
 
         # ── Model call with passive retry on media error ──
         final_msg: Msg | None = None
@@ -1101,6 +1185,10 @@ class QwenPawAgent(CodingModeMixin, Agent):
                     self._attach_fallback_notices(evt, fallback_sink)
                     yield evt
         except Exception as e:
+            video_fallback_retry = (
+                self._last_wire_request_had_video()
+                and self._is_video_fallback_error(e)
+            )
             audio_fallback_retry = (
                 self._last_wire_request_had_audio()
                 and self._is_audio_fallback_error(e)
@@ -1116,7 +1204,8 @@ class QwenPawAgent(CodingModeMixin, Agent):
                 and self._is_media_payload_rejection_error(e)
             )
             if not (
-                audio_fallback_retry
+                video_fallback_retry
+                or audio_fallback_retry
                 or media_capability_retry
                 or media_payload_retry
             ):
@@ -1125,6 +1214,8 @@ class QwenPawAgent(CodingModeMixin, Agent):
                         self._set_formatter_media_strip(False)
                     if should_strip_audio:
                         self._set_formatter_audio_strip(False)
+                    if should_strip_video:
+                        self._set_formatter_video_strip(False)
                 raise
 
             model_key = self._get_model_key()
@@ -1132,7 +1223,14 @@ class QwenPawAgent(CodingModeMixin, Agent):
                 media_capability_retry
                 and self._is_global_media_capability_error(e)
             )
-            if audio_fallback_retry:
+            if video_fallback_retry:
+                logger.warning(
+                    "_reasoning failed because the provider rejected a "
+                    "video input (%s); stripping only video and retrying.",
+                    e,
+                )
+                self._set_formatter_video_strip(True)
+            elif audio_fallback_retry:
                 logger.warning(
                     "_reasoning failed because the provider rejected an "
                     "audio payload (%s); stripping audio and retrying.",
@@ -1168,6 +1266,16 @@ class QwenPawAgent(CodingModeMixin, Agent):
                     else:
                         self._attach_fallback_notices(evt, fallback_sink)
                         yield evt
+                if (
+                    model_key
+                    and video_fallback_retry
+                    and self._is_video_capability_error(e)
+                ):
+                    get_capability_cache().learn(
+                        model_key,
+                        "rejects_video",
+                        True,
+                    )
                 if model_key and learn_global_rejection:
                     get_capability_cache().learn(
                         model_key,
@@ -1182,6 +1290,7 @@ class QwenPawAgent(CodingModeMixin, Agent):
                     )
             finally:
                 if self._uses_request_time_media_normalization():
+                    self._set_formatter_video_strip(False)
                     self._set_formatter_audio_strip(False)
                     self._set_formatter_media_strip(False)
         else:
@@ -1190,6 +1299,8 @@ class QwenPawAgent(CodingModeMixin, Agent):
                     self._set_formatter_media_strip(False)
                 if should_strip_audio:
                     self._set_formatter_audio_strip(False)
+                if should_strip_video:
+                    self._set_formatter_video_strip(False)
 
         # ── Stop Hook: run every iteration ──
         stop_result = await self._run_stop_handlers(final_msg)

@@ -192,8 +192,8 @@ class CodingPage(BasePage):
         """
         return (
             self.page.locator(
-                'button[aria-label*="navigator"], '
-                'button[aria-label*="Source control"]'
+                'nav button[aria-label*="navigator"], '
+                'nav button[aria-label*="Source control"]'
             ).count()
             > 0
         )
@@ -323,8 +323,8 @@ class CodingPage(BasePage):
         try:
             expect(
                 self.page.locator(
-                    'button[aria-label*="navigator"], '
-                    'button[aria-label*="Source control"]'
+                    'nav button[aria-label*="navigator"], '
+                    'nav button[aria-label*="Source control"]'
                 ).first
             ).to_be_visible(timeout=5000)
             return True

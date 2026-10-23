@@ -1,4 +1,7 @@
 {
+  "accessibility": {
+    "skipToContent": "Pular para o conteúdo"
+  },
   "common": {
     "save": "Salvar",
     "reset": "Redefinir",
@@ -22,6 +25,7 @@
     "view": "Visualizar",
     "content": "Conteudo",
     "loading": "Carregando...",
+    "loadMore": "Carregar mais",
     "saving": "Salvando...",
     "copy": "Copiar",
     "copied": "Copiado para a area de transferencia",
@@ -348,6 +352,7 @@
   "acp": {
     "title": "Integrações ACP",
     "loading": "Carregando configuracao ACP...",
+    "loadError": "Falha ao carregar a configuração ACP.",
     "builtin": "Predefinições",
     "custom": "Personalizadas",
     "create": "Adicionar integração ACP",
@@ -418,6 +423,7 @@
   "voiceTranscription": {
     "title": "Transcricao de Voz",
     "description": "Configure como mensagens de audio e voz recebidas sao processadas.",
+    "loadFailed": "Falha ao carregar as configuracoes de transcricao de voz",
     "saveSuccess": "Modo de audio salvo",
     "saveFailed": "Falha ao salvar modo de audio",
     "audioModeLabel": "Modo de Audio",
@@ -1616,6 +1622,7 @@
     "title": "Canais",
     "description": "Manage and configure message channels",
     "loading": "Carregando channels...",
+    "loadFailed": "Não foi possível carregar os canais. Tente novamente.",
     "configSaved": "Configuracao saved successfully",
     "configFailed": "Falhou to Salvar Configuracao",
     "botConflictTitle": "Bot já está em uso",
@@ -1909,6 +1916,8 @@
     "title": "Sessoes",
     "description": "View and manage active chat sessions",
     "loading": "Carregando sessions...",
+    "selectSession": "Selecionar {{name}}",
+    "loadFailed": "Falha ao carregar sessões. Tente novamente.",
     "confirmDelete": "Confirmar Excluir",
     "deleteConfirm": "Are you sure you want to delete this session?",
     "batchDeleteConfirm": "Are you sure you want to delete selected {{count}} sessions?",
@@ -2125,6 +2134,7 @@
     "retry": "Tentar novamente"
   },
   "models": {
+    "disableBtn": "Desativar",
     "discoveryOriginApi": "Detectado via API",
     "discoveryOriginCatalog": "Catálogo oficial",
     "discoveryOriginBoth": "API + catálogo",
@@ -3589,6 +3599,11 @@
     "prompt1": "Let's start a new journey!",
     "prompt2": "Can you tell me what skills you have?",
     "inputPlaceholder": "\"↑↓\" for message navigation · \"/\" for quick commands",
+    "composer": {
+      "attach": "Anexar arquivos",
+      "send": "Enviar mensagem",
+      "stop": "Parar geração"
+    },
     "emptyOutputError": "O assistente retornou uma resposta vazia.",
     "commands": {
       "clear": {
@@ -4364,6 +4379,9 @@
         "memberDefaultsHint": "Novas conversas começam com este modelo. Os membros podem mudar para outros modelos autorizados.",
         "settingsSaved": "Configurações de modelos salvas",
         "defaultModel": "Modelo padrão",
+        "gatewayTimeout": "Tempo limite do gateway (segundos)",
+        "gatewayTimeoutHelp": "O padrão é 600 segundos; mínimo de 60. Aplica-se a novas solicitações após salvar, incluindo respostas em streaming. O tempo limite de conexão permanece em 10 segundos.",
+        "gatewayTimeoutInvalid": "Insira um número inteiro de pelo menos 60 segundos.",
         "chooseDefault": "Escolha um modelo disponível para todos os membros",
         "saveSettings": "Salvar configurações de modelos",
         "providers": "Provedores",
@@ -4618,6 +4636,12 @@
     "runtimeRestartFailed": "Falha ao reiniciar o ambiente"
   },
   "approval": {
+    "queue": {
+      "title": "Aprovações pendentes",
+      "position": "{{current}} / {{total}}",
+      "previous": "Aprovação anterior",
+      "next": "Próxima aprovação"
+    },
     "title": "Seguranca Approval Obrigatorio",
     "tool": "Tool",
     "severity": "Severity",
@@ -4750,6 +4774,7 @@
     "createSuccess": "Colheita criada com sucesso",
     "emptyApprovals": "Nenhuma aprovação pendente",
     "emptyPush": "Nenhuma mensagem push",
+    "loadFailed": "Não foi possível carregar as mensagens push. Tente novamente.",
     "wobbleEnable": "Ativar notificação de aprovação por vibração",
     "wobbleDisable": "Desativar notificação de aprovação por vibração",
     "emptyHarvests": "Ainda não há colheitas",

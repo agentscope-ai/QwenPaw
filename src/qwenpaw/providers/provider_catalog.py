@@ -107,7 +107,7 @@ PROVIDER_DASHSCOPE = DashScopeProvider(
 PROVIDER_TYPESAFE = TypeSafeProvider(
     id="typesafe",
     name="TypeSafe",
-    base_url="https://api.typesafe.ai/v1",
+    base_url="https://api.typesafe.ai",
     models=[
         ModelInfo(
             id="jev-latest",

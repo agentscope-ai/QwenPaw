@@ -67,7 +67,7 @@ jobs:
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version-file: .nvmrc
           cache: "npm"
           cache-dependency-path: console/package-lock.json
 
@@ -130,7 +130,7 @@ jobs:
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version-file: .nvmrc
           cache: "npm"
           cache-dependency-path: console/package-lock.json
 
@@ -182,16 +182,24 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Secure Python certificate dependencies
+        shell: bash
+        run: |
+          python -m pip install --upgrade "pip>=26.2.2"
+          python -m pip install --upgrade "certifi>=2026.10.19"
+
       - name: Install packaging helper dependencies
         run: python -m pip install packaging
 
       - name: Set up uv
         uses: astral-sh/setup-uv@v5
+        with:
+          version: "0.13.4"
 
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version-file: .nvmrc
           cache: "npm"
           cache-dependency-path: console/package-lock.json
 
@@ -372,16 +380,24 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Secure Python certificate dependencies
+        shell: bash
+        run: |
+          python -m pip install --upgrade "pip>=26.2.2"
+          python -m pip install --upgrade "certifi>=2026.10.19"
+
       - name: Install packaging helper dependencies
         run: python -m pip install packaging
 
       - name: Set up uv
         uses: astral-sh/setup-uv@v5
+        with:
+          version: "0.13.4"
 
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version-file: .nvmrc
           cache: "npm"
           cache-dependency-path: console/package-lock.json
 
@@ -536,7 +552,9 @@ jobs:
           # revision that defined this emergency workflow instead.
           ref: ${{ github.workflow_sha }}
           path: .release-infra
-          sparse-checkout: scripts
+          sparse-checkout: |
+            scripts
+            src/qwenpaw/security
           persist-credentials: false
 
       - name: Download and verify desktop installers
@@ -611,13 +629,21 @@ jobs:
           # revision that defined this emergency workflow instead.
           ref: ${{ github.workflow_sha }}
           path: .release-infra
-          sparse-checkout: scripts
+          sparse-checkout: |
+            scripts
+            src/qwenpaw/security
           persist-credentials: false
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+
+      - name: Secure Python certificate dependencies
+        shell: bash
+        run: |
+          python -m pip install --upgrade "pip>=26.2.2"
+          python -m pip install --upgrade "certifi>=2026.10.19"
 
       - name: Install packaging helper dependencies
         run: python -m pip install packaging

@@ -74,6 +74,21 @@ from ..utils.media_paths import (
     local_media_path as _local_media_path,
 )
 
+# Only SDK single-request consumers opt into construction-time ownership.
+# Normal agent construction retains its existing provider lifecycle.
+_model_creation_observer = ContextVar("model_creation_observer", default=None)
+
+
+def _create_provider_model(provider, model_id):
+    observer = _model_creation_observer.get()
+    if observer is not None:
+        observer.before_create(provider)
+    model = provider.get_chat_model_instance(model_id)
+    if observer is not None:
+        observer.capture(model)
+    return model
+
+
 # TODO(AgentScope compatibility): This is a temporary workaround for
 # AgentScope releases that emit random promoted-media identifiers. Remove it
 # once QwenPaw's minimum AgentScope version provides stable, request-unique
@@ -604,6 +619,9 @@ def _normalize_messages_for_formatter(
     strip_audio = bool(
         getattr(formatter_instance, "_qwenpaw_force_strip_audio", False),
     )
+    strip_video = bool(
+        getattr(formatter_instance, "_qwenpaw_force_strip_video", False),
+    )
 
     if is_anthropic_formatter:
         target_family = "anthropic"
@@ -617,6 +635,7 @@ def _normalize_messages_for_formatter(
         supports_multimodal=supports_multimodal,
         target_family=target_family,
         strip_audio=strip_audio,
+        strip_video=strip_video,
     )
 
     return (
@@ -696,6 +715,21 @@ def _count_wire_audio_blocks(value: Any) -> int:
     if isinstance(media_type, str) and media_type.startswith("audio/"):
         return 1
     return sum(_count_wire_audio_blocks(item) for item in value.values())
+
+
+def _count_wire_video_blocks(value: Any) -> int:
+    """Count video parts actually emitted by any supported formatter."""
+    if isinstance(value, list):
+        return sum(_count_wire_video_blocks(item) for item in value)
+    if not isinstance(value, dict):
+        return 0
+
+    if value.get("type") in ("video", "video_url", "input_video"):
+        return 1
+    media_type = value.get("mime_type") or value.get("media_type")
+    if isinstance(media_type, str) and media_type.startswith("video/"):
+        return 1
+    return sum(_count_wire_video_blocks(item) for item in value.values())
 
 
 def _video_oversize_placeholder(
@@ -1656,6 +1690,7 @@ def _create_file_block_support_formatter(
             # previous request behind for the capability fallback layer.
             self._qwenpaw_last_wire_media_count = 0
             self._qwenpaw_last_wire_audio_count = 0
+            self._qwenpaw_last_wire_video_count = 0
 
             def _battr(block, key, default=None):
                 """Get attribute from dict or Pydantic block."""
@@ -1887,6 +1922,9 @@ def _create_file_block_support_formatter(
                 wire_messages,
             )
             self._qwenpaw_last_wire_audio_count = _count_wire_audio_blocks(
+                wire_messages,
+            )
+            self._qwenpaw_last_wire_video_count = _count_wire_video_blocks(
                 wire_messages,
             )
             return wire_messages
@@ -2183,7 +2221,8 @@ def _apply_model_fallbacks(
         try:
             with agent_thinking_level(thinking_level, thinking_budget):
                 fallback_provider.validate_chat_model(fallback_slot.model)
-                fallback_model = fallback_provider.get_chat_model_instance(
+                fallback_model = _create_provider_model(
+                    fallback_provider,
                     fallback_slot.model,
                 )
             fallback_provider_id = _bind_provider_id_to_model(
@@ -2244,7 +2283,7 @@ def _create_hub_model_and_formatter(settings, model_slot, *, explicit):
         settings.thinking_budget,
     ):
         provider.validate_chat_model(selected.model)
-        model = provider.get_chat_model_instance(selected.model)
+        model = _create_provider_model(provider, selected.model)
     _ensure_model_context_size(model, provider, selected.model)
     formatter = _install_model_formatter(
         model,
@@ -2328,7 +2367,7 @@ def create_model_and_formatter(
         settings.thinking_budget,
     ):
         provider.validate_chat_model(model_slot.model)
-        model = provider.get_chat_model_instance(model_slot.model)
+        model = _create_provider_model(provider, model_slot.model)
     provider_id = _resolved_provider_id(provider, model_slot.provider_id)
     selected_model_id = model_slot.model
 

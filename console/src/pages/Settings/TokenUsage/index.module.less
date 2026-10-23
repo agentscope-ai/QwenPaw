@@ -207,6 +207,32 @@
   }
 }
 
+@media (max-width: 600px) {
+  .mobileRangePopup {
+    :global(
+        .qwenpaw-picker-panel-container
+          .qwenpaw-picker-panel-layout
+          > .qwenpaw-picker-presets
+      ),
+    :global(
+        .ant-picker-panel-container
+          .ant-picker-panel-layout
+          > .ant-picker-presets
+      ),
+    :global(.qwenpaw-picker-panel:first-child),
+    :global(.ant-picker-panel:first-child) {
+      display: none;
+    }
+
+    :global(.qwenpaw-picker-header-super-prev-btn),
+    :global(.ant-picker-header-super-prev-btn),
+    :global(.qwenpaw-picker-header-prev-btn),
+    :global(.ant-picker-header-prev-btn) {
+      visibility: visible !important;
+    }
+  }
+}
+
 .summaryCards {
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 160px), 1fr));
   gap: 16px;

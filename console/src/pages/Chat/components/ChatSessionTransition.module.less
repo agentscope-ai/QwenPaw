@@ -11,6 +11,12 @@
   position: absolute;
   top: 64px;
   left: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  max-width: calc(100% - 32px);
   transform: translateX(-50%);
   padding: 6px 12px;
   border: 1px solid var(--app-border-subtle);
@@ -18,9 +24,9 @@
   background: var(--app-surface);
   color: var(--app-text-secondary);
   font-size: 12px;
+  text-align: center;
   pointer-events: none;
 }
-
 .error {
   display: flex;
   flex-direction: column;

@@ -1,4 +1,7 @@
 {
+  "accessibility": {
+    "skipToContent": "メインコンテンツへスキップ"
+  },
   "common": {
     "save": "保存",
     "reset": "リセット",
@@ -22,6 +25,7 @@
     "view": "閲覧",
     "content": "内容",
     "loading": "読み込み中...",
+    "loadMore": "さらに読み込む",
     "saving": "保存中...",
     "copy": "コピー",
     "copied": "クリップボードにコピーしました",
@@ -1381,6 +1385,7 @@
     "title": "チャンネル",
     "description": "メッセージチャンネルの管理と設定",
     "loading": "チャンネルを読み込み中...",
+    "loadFailed": "チャンネルを読み込めませんでした。もう一度お試しください。",
     "configSaved": "設定を保存しました",
     "configFailed": "設定の保存に失敗しました",
     "botConflictTitle": "Bot はすでに使用されています",
@@ -1674,6 +1679,8 @@
     "title": "セッション",
     "description": "アクティブなチャットセッションの表示と管理",
     "loading": "セッションを読み込み中...",
+    "selectSession": "{{name}} を選択",
+    "loadFailed": "セッションの読み込みに失敗しました。再試行してください。",
     "confirmDelete": "削除の確認",
     "deleteConfirm": "このセッションを削除してもよろしいですか？",
     "batchDeleteConfirm": "選択した {{count}} 件のセッションを削除してもよろしいですか？",
@@ -1894,6 +1901,7 @@
     "searchCandidates": "Search candidate models..."
   },
   "models": {
+    "disableBtn": "無効化",
     "modelType": "モデルタイプ",
     "modelTypeChat": "チャット",
     "modelTypeDecision": "判定",
@@ -2925,6 +2933,8 @@
       "strictDesc": "すべてのツール呼び出しと外部ファイルへのアクセス前に承認が必要です",
       "smart": "スマートモード",
       "smartDesc": "低リスクのツール呼び出しと外部ファイルアクセスは自動実行され、中〜高リスクの操作には承認が必要です",
+      "jev": "判断モデルモード",
+      "jevRequiresDecision": "先に判断モデルを有効にしてください",
       "auto": "自動モード",
       "autoDesc": "ツールとファイルの承認ルールに一致する操作のみ承認が必要です（デフォルト）",
       "off": "オフモード",
@@ -3334,6 +3344,11 @@
     "prompt1": "新しい旅を始めましょう！",
     "prompt2": "あなたのスキルを教えてください。",
     "inputPlaceholder": "\"↑↓\"でメッセージ移動 · \"/\"でクイックコマンド",
+    "composer": {
+      "attach": "ファイルを添付",
+      "send": "メッセージを送信",
+      "stop": "生成を停止"
+    },
     "emptyOutputError": "アシスタントが空のレスポンスを返しました。",
     "commands": {
       "clear": {
@@ -4079,6 +4094,9 @@
         "memberDefaultsHint": "新しい会話はこのモデルで開始します。メンバーは許可された他のモデルに切り替えられます。",
         "settingsSaved": "モデル設定を保存しました",
         "defaultModel": "既定モデル",
+        "gatewayTimeout": "ゲートウェイのタイムアウト（秒）",
+        "gatewayTimeoutHelp": "既定値は600秒、最小値は60秒です。保存後の新しいリクエストとストリーミング応答に適用されます。接続タイムアウトは10秒のままです。",
+        "gatewayTimeoutInvalid": "60秒以上の整数を入力してください。",
         "chooseDefault": "全メンバーが利用できるモデルを選択",
         "saveSettings": "モデル設定を保存",
         "providers": "プロバイダー",
@@ -4369,6 +4387,7 @@
   "acp": {
     "title": "ACP プロトコル連携",
     "loading": "ACP 設定を読み込み中...",
+    "loadError": "ACP 設定を読み込めませんでした。",
     "builtin": "プリセット",
     "custom": "カスタム",
     "create": "ACP 連携を追加",
@@ -4564,6 +4583,12 @@
     "localModelsNotice": "バックアップファイルにはローカルモデルファイルは含まれません。デバイス間の移行の場合は、対象デバイスで必要なローカルモデルを再ダウンロードしてください。"
   },
   "approval": {
+    "queue": {
+      "title": "保留中の承認",
+      "position": "{{current}} / {{total}}",
+      "previous": "前の承認",
+      "next": "次の承認"
+    },
     "title": "セキュリティ承認が必要です",
     "tool": "ツール",
     "severity": "重要度",
@@ -4696,6 +4721,7 @@
     "createSuccess": "Harvest を作成しました",
     "emptyApprovals": "保留中の承認はありません",
     "emptyPush": "通知はありません",
+    "loadFailed": "プッシュ通知を読み込めませんでした。もう一度お試しください。",
     "wobbleEnable": "承認の揺れ通知を有効にする",
     "wobbleDisable": "承認の揺れ通知を無効にする",
     "emptyHarvests": "Harvest はまだありません",

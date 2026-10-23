@@ -3,9 +3,8 @@
 
 Separated from goal_mode.py for maintainability.
 
-GoalTurnGate tracks cross-request goal turns (outer
-loop), distinct from IterationGate which tracks
-per-request ReAct iterations (inner loop).
+GoalTurnGate counts text-only exit attempts across requests. Tool-call
+iterations do not consume the goal turn limit.
 """
 from __future__ import annotations
 
@@ -25,50 +24,13 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 DEFAULT_MAX_ITERATIONS = 20
-DEFAULT_MAX_TOKENS = 300000
-
-
-def _update_goal_tokens(
-    session: Any,
-    ctx: Any,
-) -> None:
-    """Accumulate token usage from model wrapper."""
-    try:
-        from ...token_usage.model_wrapper import (
-            TokenRecordingModelWrapper,
-        )
-
-        agent = ctx.get("agent") if isinstance(ctx, dict) else None
-        if agent is None:
-            return
-        rc = getattr(agent, "_request_context", {})
-        sid = rc.get("session_id", "")
-        if not sid:
-            return
-        store = getattr(
-            TokenRecordingModelWrapper,
-            "_usage_by_session",
-            {},
-        )
-        usage = store.get(sid)
-        if usage:
-            session.tokens_used = usage.get(
-                "total_tokens",
-                session.tokens_used,
-            )
-    except Exception:  # noqa: BLE001
-        logger.debug(
-            "Failed to update goal tokens",
-            exc_info=True,
-        )
 
 
 class GoalTurnGate(LoopGate):
     """Goal-mode turn gate (outer loop).
 
-    Tracks cross-request goal turns via GoalSession.
-    NOT the same as IterationGate which tracks
-    per-request ReAct iterations (inner loop).
+    Counts text-only exit attempts via GoalSession. Tool-call iterations
+    continue naturally without consuming the goal turn limit.
 
     Returns:
         INTERRUPT_AND_CONTINUE — active, under limit.
@@ -111,8 +73,10 @@ class GoalTurnGate(LoopGate):
                 reason=(f"Goal completed: " f"{session.last_verdict}"),
             )
 
+        if ctx.get("has_tool_calls", False):
+            return StopHandlerResult(action=StopAction.BYPASS)
+
         session.iteration += 1
-        _update_goal_tokens(session, ctx)
         logger.debug(
             "GoalTurn: iter=%d/%d tokens=%d/%d",
             session.iteration,
@@ -138,17 +102,16 @@ class GoalTurnGate(LoopGate):
         session = self._mode.session_by_ctx_var()
         if session is None:
             return ""
-        remaining = max(
-            0,
-            session.max_tokens - session.tokens_used,
-        )
+        remaining = session.remaining_tokens
         return CONTINUATION_PROMPT.format(
             objective=session.goal,
             iteration=session.iteration,
             max_iterations=session.max_iterations,
             tokens_used=session.tokens_used,
-            token_budget=session.max_tokens,
-            remaining_tokens=remaining,
+            token_budget=session.token_budget_display,
+            remaining_tokens=remaining
+            if remaining is not None
+            else f"unlimited",
         )
 
 
@@ -183,7 +146,7 @@ class GoalBudgetGate(LoopGate):
         session = self._mode.session_by_ctx_var()
         if session is None or not session.active:
             return _bypass
-        if session.tokens_used < session.max_tokens:
+        if session.max_tokens <= 0 or session.tokens_used < session.max_tokens:
             return _bypass
 
         session.active = False

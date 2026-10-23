@@ -222,6 +222,8 @@ vi.mock("./sessionApi", () => ({
       mockResolvedRoutes.set(`${mockSelectedAgent()}:${chat.session_id}`, chat);
     }),
     getRouteResolutionVersion: vi.fn(() => 0),
+    isRouteRemoved: vi.fn(() => false),
+    clearRouteRemoval: vi.fn(),
     bindToOwner: vi.fn(() => ({
       getSession: (id: string) => mockSdkHistoryLoad(id),
       getSessionList: vi.fn(async () => []),
@@ -1911,17 +1913,17 @@ describe("ChatPage coverage", () => {
   });
 
   // ── sender attachments trigger renders ─────────────────────────────────
-  it("sender attachments trigger function renders tooltip", async () => {
+  it("sender attachments trigger has a localized accessible name", async () => {
     renderWithProviders(<ChatPage />, {
       initialEntries: ["/chat/test-session"],
     });
     await screen.findByTestId("chat-ui");
 
     const attachments = capturedOptions?.sender?.attachments;
-    if (attachments?.trigger) {
-      const element = attachments.trigger({ disabled: false });
-      expect(element).toBeTruthy();
-    }
+    expect(attachments?.trigger).toBeTypeOf("function");
+    const element = attachments.trigger({ disabled: false });
+    renderWithProviders(element);
+    expect(screen.getByRole("button", { name: "Attach files" })).toBeTruthy();
   });
 
   // ── file upload: multimodal warning path ───────────────────────────────

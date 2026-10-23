@@ -6,6 +6,10 @@ const stylesSource = readFileSync(
   join(process.cwd(), "src/layouts/index.module.less"),
   "utf8",
 );
+const sidebarAStylesSource = readFileSync(
+  join(process.cwd(), "src/layouts/sidebarA.module.less"),
+  "utf8",
+);
 const sidebarSource = readFileSync(
   join(process.cwd(), "src/layouts/Sidebar.tsx"),
   "utf8",
@@ -103,6 +107,117 @@ describe("Sidebar overflow layout", () => {
     expect(taskRule).toContain("color: var(--app-accent-text);");
     expect(taskRule).toContain("background: var(--app-accent-soft-hover);");
     expect(taskRule).not.toContain("#ff7f16");
+  });
+
+  it("maps expanded navigation interaction states to semantic tokens", () => {
+    const itemStart = stylesSource.indexOf("\n.navigationItem {") + 1;
+    const itemRule = stylesSource.slice(
+      itemStart,
+      stylesSource.indexOf(".navigationItemActive {", itemStart),
+    );
+    const activeStart = stylesSource.indexOf(".navigationItemActive {");
+    const activeRule = stylesSource.slice(
+      activeStart,
+      stylesSource.indexOf("/* Collapsed nav", activeStart),
+    );
+
+    expect(itemRule).toContain("color: var(--app-text-secondary);");
+    expect(itemRule).toContain(
+      '&:hover:not(:disabled):not([aria-disabled="true"])',
+    );
+    expect(itemRule).toContain("background: var(--app-fill-subtle);");
+    expect(itemRule).toContain(
+      '&:active:not(:disabled):not([aria-disabled="true"])',
+    );
+    expect(itemRule).toContain("background: var(--app-fill-strong);");
+    expect(itemRule).toContain('&[aria-disabled="true"]');
+    expect(itemRule).not.toContain("rgba(");
+    expect(activeRule).toContain("background: var(--app-nav-selected-bg);");
+    expect(activeRule).toContain("color: var(--app-nav-selected-text);");
+    expect(activeRule).toContain(
+      "background: var(--app-nav-selected-bg-hover);",
+    );
+  });
+
+  it("uses the selected navigation token for Sidebar A active routes", () => {
+    const navGridStart = sidebarAStylesSource.indexOf(".navGrid {");
+    const activeStart = sidebarAStylesSource.indexOf(
+      '&[aria-current="page"] {',
+      navGridStart,
+    );
+    const activeEnd = sidebarAStylesSource.indexOf("\n    }", activeStart);
+    const activeRule = sidebarAStylesSource.slice(activeStart, activeEnd);
+
+    expect(navGridStart).toBeGreaterThanOrEqual(0);
+    expect(activeStart).toBeGreaterThan(navGridStart);
+    expect(activeEnd).toBeGreaterThan(activeStart);
+    expect(activeRule).toContain("color: var(--app-nav-selected-text);");
+    expect(activeRule).not.toContain("color: var(--app-accent-text);");
+  });
+
+  it("keeps collapsed open and route-active states distinct", () => {
+    const itemStart = stylesSource.indexOf(".collapsedNavItem {");
+    const itemRule = stylesSource.slice(
+      itemStart,
+      stylesSource.indexOf(".collapsedNavItemActive {", itemStart),
+    );
+    const activeStart = stylesSource.indexOf(".collapsedNavItemActive {");
+    const activeRule = stylesSource.slice(
+      activeStart,
+      stylesSource.indexOf("@media (max-width: 768px)", activeStart),
+    );
+
+    const siderStart = stylesSource.indexOf(".sider {");
+    const siderRule = stylesSource.slice(
+      siderStart,
+      stylesSource.indexOf(".siderDark {", siderStart),
+    );
+
+    expect(siderRule).toContain('button[aria-expanded="true"]');
+    expect(siderRule).toContain("background: var(--app-accent-soft)");
+    expect(siderRule).toContain(
+      "box-shadow: inset 0 0 0 1px var(--app-accent-border) !important;",
+    );
+    expect(itemRule).toContain('&[aria-disabled="true"]');
+    expect(itemRule).not.toContain("rgba(");
+    expect(activeRule).toContain(
+      "background: var(--app-nav-selected-bg) !important;",
+    );
+    expect(activeRule).toContain(
+      "color: var(--app-nav-selected-text) !important;",
+    );
+    expect(activeRule).not.toContain('button[aria-expanded="true"]');
+  });
+
+  it("uses the same semantic feedback for sidebar utility buttons", () => {
+    const brandStart = stylesSource.indexOf(".brandCollapseToggle {");
+    const brandRule = stylesSource.slice(
+      brandStart,
+      stylesSource.indexOf(".appBrandUpdateIcon", brandStart),
+    );
+    const toggleStart = stylesSource.indexOf(".collapseToggle {");
+    const toggleRule = stylesSource.slice(
+      toggleStart,
+      stylesSource.indexOf(".quickSettingsPopover", toggleStart),
+    );
+
+    for (const rule of [brandRule, toggleRule]) {
+      expect(rule).toContain("color: var(--app-text-secondary)");
+      expect(rule).toContain("background: var(--app-fill-subtle)");
+      expect(rule).toContain("background: var(--app-fill-strong)");
+      expect(rule).toContain("&:disabled");
+    }
+    const darkStart = stylesSource.indexOf(":global(.dark-mode) {");
+    const darkRule = stylesSource.slice(
+      darkStart,
+      stylesSource.indexOf("// Primary navigation", darkStart),
+    );
+    expect(darkRule).not.toContain(".brandCollapseToggle");
+    expect(darkRule).not.toContain(".collapseToggle {");
+    expect(darkRule).not.toContain(".collapsedNavItem {");
+    expect(darkRule).not.toContain(".collapsedNavItemActive {");
+    expect(darkRule).not.toContain(".navigationItem {");
+    expect(darkRule).not.toContain(".navigationItemActive {");
   });
 
   it("separates conversation history from the shortcut panel", () => {

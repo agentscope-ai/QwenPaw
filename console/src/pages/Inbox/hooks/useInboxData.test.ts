@@ -36,6 +36,16 @@ vi.mock("../../../stores/agentStore", () => ({
 
 import { useInboxData } from "./useInboxData";
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, reject, resolve };
+}
+
 function event(overrides: Record<string, unknown> = {}) {
   return {
     id: "e-1",
@@ -261,6 +271,43 @@ describe("useInboxData", () => {
     vi.useRealTimers();
   });
 
+  it("reuses a slow request instead of invalidating it on every poll", async () => {
+    vi.useFakeTimers();
+    const slowRequest = deferred<{
+      events: ReturnType<typeof event>[];
+      total: number;
+      unread_count: number;
+    }>();
+    mocks.getInboxEvents.mockReturnValue(slowRequest.promise);
+    const { result } = renderHook(() => useInboxData());
+
+    await act(async () => {
+      vi.advanceTimersByTime(18000);
+    });
+    expect(mocks.getInboxEvents).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      slowRequest.resolve({
+        events: [event({ id: "slow-success" })],
+        total: 1,
+        unread_count: 1,
+      });
+      await slowRequest.promise;
+    });
+    expect(result.current.pushMessages.map((message) => message.id)).toEqual([
+      "slow-success",
+    ]);
+    expect(result.current.pushMessagesLoading).toBe(false);
+
+    mocks.getInboxEvents.mockResolvedValue({ events: [], total: 0 });
+    await act(async () => {
+      vi.advanceTimersByTime(6000);
+      await Promise.resolve();
+    });
+    expect(mocks.getInboxEvents).toHaveBeenCalledTimes(2);
+    vi.useRealTimers();
+  });
+
   it("marks a single message as read and decrements unread", async () => {
     mocks.getInboxEvents.mockResolvedValue({
       events: [event({ id: "m1", read: false })],
@@ -361,16 +408,124 @@ describe("useInboxData", () => {
     expect(mocks.deleteInboxEvent).not.toHaveBeenCalled();
   });
 
-  it("keeps state when fetching inbox events fails", async () => {
-    mocks.getInboxEvents.mockRejectedValue(new Error("offline"));
+  it("exposes an initial fetch failure and recovers on retry", async () => {
+    const failure = new Error("offline");
+    mocks.getInboxEvents.mockRejectedValueOnce(failure).mockResolvedValueOnce({
+      events: [event({ id: "recovered" })],
+      total: 1,
+      unread_count: 1,
+    });
     const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     const { result } = renderHook(() => useInboxData());
-    await act(async () => {
-      await Promise.resolve();
+    await waitFor(() => {
+      expect(result.current.pushMessagesLoading).toBe(false);
     });
     expect(result.current.pushMessages).toEqual([]);
+    expect(result.current.pushMessagesError).toBe(failure);
     expect(errSpy).toHaveBeenCalled();
+
+    const refresh = result.current.refreshPushMessages;
+    await act(async () => {
+      await refresh();
+    });
+    expect(result.current.refreshPushMessages).toBe(refresh);
+    expect(result.current.pushMessages.map((message) => message.id)).toEqual([
+      "recovered",
+    ]);
+    expect(result.current.pushMessagesError).toBeNull();
+    expect(result.current.pushMessagesLoading).toBe(false);
     errSpy.mockRestore();
+  });
+
+  it("ignores an older rejection after a newer retry succeeds", async () => {
+    const older = deferred<{
+      events: ReturnType<typeof event>[];
+      total: number;
+      unread_count: number;
+    }>();
+    const newer = deferred<{
+      events: ReturnType<typeof event>[];
+      total: number;
+      unread_count: number;
+    }>();
+    mocks.getInboxEvents
+      .mockReturnValueOnce(older.promise)
+      .mockReturnValueOnce(newer.promise);
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { result } = renderHook(() => useInboxData());
+    const refresh = result.current.refreshPushMessages;
+
+    let retry!: Promise<void>;
+    act(() => {
+      retry = refresh();
+    });
+    await act(async () => {
+      newer.resolve({
+        events: [event({ id: "newer" })],
+        total: 1,
+        unread_count: 1,
+      });
+      await retry;
+    });
+    await act(async () => {
+      older.reject(new Error("late failure"));
+      await older.promise.catch(() => undefined);
+    });
+
+    expect(result.current.refreshPushMessages).toBe(refresh);
+    expect(result.current.pushMessages.map((message) => message.id)).toEqual([
+      "newer",
+    ]);
+    expect(result.current.pushMessagesError).toBeNull();
+    expect(result.current.pushMessagesLoading).toBe(false);
+    expect(errSpy).not.toHaveBeenCalled();
+    errSpy.mockRestore();
+  });
+
+  it("keeps stale rows after failure and clears the error on the next poll", async () => {
+    vi.useFakeTimers();
+    const failure = new Error("offline");
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      mocks.getInboxEvents.mockResolvedValueOnce({
+        events: [event({ id: "stale" })],
+        total: 1,
+        unread_count: 1,
+      });
+      const { result } = renderHook(() => useInboxData());
+      await act(async () => {
+        for (let i = 0; i < 5; i += 1) await Promise.resolve();
+      });
+      expect(result.current.pushMessages.map((message) => message.id)).toEqual([
+        "stale",
+      ]);
+
+      mocks.getInboxEvents.mockRejectedValueOnce(failure);
+      await act(async () => {
+        await result.current.refreshPushMessages();
+      });
+      expect(result.current.pushMessages.map((message) => message.id)).toEqual([
+        "stale",
+      ]);
+      expect(result.current.pushMessagesError).toBe(failure);
+
+      mocks.getInboxEvents.mockResolvedValue({
+        events: [event({ id: "fresh" })],
+        total: 1,
+        unread_count: 1,
+      });
+      await act(async () => {
+        vi.advanceTimersByTime(6000);
+        for (let i = 0; i < 5; i += 1) await Promise.resolve();
+      });
+      expect(result.current.pushMessages.map((message) => message.id)).toEqual([
+        "fresh",
+      ]);
+      expect(result.current.pushMessagesError).toBeNull();
+    } finally {
+      errSpy.mockRestore();
+      vi.useRealTimers();
+    }
   });
 
   it("keeps polling across visibility changes", async () => {
@@ -404,10 +559,13 @@ describe("useInboxData", () => {
       await Promise.resolve();
       vi.advanceTimersByTime(6000);
     });
-    // Refreshed on visible + one poll tick
-    expect(mocks.getInboxEvents.mock.calls.length).toBeGreaterThanOrEqual(
-      callsBefore + 2,
-    );
+    // The visibility refresh and simultaneous poll tick share one request.
+    expect(mocks.getInboxEvents.mock.calls.length).toBe(callsBefore + 1);
+    await act(async () => {
+      await Promise.resolve();
+      vi.advanceTimersByTime(6000);
+    });
+    expect(mocks.getInboxEvents.mock.calls.length).toBe(callsBefore + 2);
     vi.useRealTimers();
   });
 });

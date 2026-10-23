@@ -1,5 +1,5 @@
 .form {
-  padding-top: 12px;
+  padding-top: var(--app-space-3);
 }
 .editor {
   :global(.ant-btn-icon),
@@ -14,18 +14,18 @@
   }
   :global(.ant-modal-content),
   :global(.qwenpaw-modal-content) {
-    padding: 28px;
-    border-radius: 28px;
+    padding: var(--app-space-6);
+    border-radius: var(--app-radius-panel);
   }
   :global(.ant-modal-title),
   :global(.qwenpaw-modal-title) {
-    padding-right: 28px;
+    padding-right: var(--app-space-6);
     font-size: calc(18px * var(--app-font-scale));
     background: transparent;
   }
   :global(.ant-modal-footer),
   :global(.qwenpaw-modal-footer) {
-    padding-top: 16px;
+    padding-top: var(--app-space-4);
     border-top: 1px solid var(--app-border-subtle);
   }
 }
@@ -33,7 +33,7 @@
 .editor {
   :global(.ant-alert-info),
   :global(.qwenpaw-alert-info) {
-    border-radius: 14px;
+    border-radius: var(--app-radius);
     border: 0;
     background: var(--app-fill-subtle);
     color: var(--app-text-secondary);

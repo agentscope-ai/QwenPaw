@@ -21,6 +21,7 @@ import {
   resetSessionModel,
   saveDecisionSettings,
 } from "../session-settings/sessionModel";
+import { isSessionModelChangedFor } from "../session-settings/sessionModelEvents";
 import ModelSelector from "../../pages/Chat/ModelSelector";
 import { ProviderIcon } from "../../pages/Settings/Models/components/ProviderIconComponent";
 import { useTurnUsageStore } from "../../pages/Chat/turnUsageStore";
@@ -30,10 +31,12 @@ export function SessionThinking({
   agentId,
   sessionId,
   chatId,
+  onDecisionEnabledChange,
 }: {
   agentId: string;
   sessionId: string;
   chatId?: string | null;
+  onDecisionEnabledChange?: (enabled: boolean | undefined) => void;
 }) {
   const { t } = useTranslation();
   const { message } = useAppMessage();
@@ -47,6 +50,7 @@ export function SessionThinking({
   const identityRef = useRef(identity);
   identityRef.current = identity;
   useEffect(() => {
+    onDecisionEnabledChange?.(undefined);
     setOpen(false);
     setChoosing(false);
     setView(undefined);
@@ -54,15 +58,16 @@ export function SessionThinking({
     setBusy(false);
     revision.current += 1;
     void load();
-    const refresh = () => {
-      void load();
+    const refresh = (event: Event) => {
+      if (isSessionModelChangedFor(event, { agentId, sessionId, chatId }))
+        void load();
     };
     window.addEventListener("session-model-changed", refresh);
     return () => {
       revision.current += 1;
       window.removeEventListener("session-model-changed", refresh);
     };
-  }, [identity]);
+  }, [identity, onDecisionEnabledChange]);
   async function load() {
     const version = ++revision.current;
     setBusy(true);
@@ -75,11 +80,13 @@ export function SessionThinking({
           readPendingThinking(agentId, sessionId, next.model_key) ?? next.value;
       setPreview(undefined);
       setView(next);
+      onDecisionEnabledChange?.(next.decision?.enabled);
       useTurnUsageStore
         .getState()
         .setActiveMaxInputLength(next.effective_max_input_length ?? null);
     } catch (error) {
-      if (identityRef.current === identity) message.error(String(error));
+      if (identityRef.current === identity && revision.current === version)
+        message.error(String(error));
     } finally {
       if (identityRef.current === identity && revision.current === version)
         setBusy(false);
@@ -106,6 +113,7 @@ export function SessionThinking({
           : { ...view, value, reason: null };
       if (identityRef.current === identity && revision.current === version) {
         setView(next);
+        onDecisionEnabledChange?.(next.decision?.enabled);
         if ("level" in value)
           setPendingThinking(
             agentId,

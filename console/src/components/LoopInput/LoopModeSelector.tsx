@@ -354,7 +354,7 @@ export function LoopModeSelector({
         content={content}
         onOpenChange={setOpen}
         open={open}
-        overlayClassName={styles.modePopover}
+        classNames={{ root: styles.modePopover }}
         placement="topLeft"
         trigger="click"
       >

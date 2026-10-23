@@ -1,11 +1,11 @@
 .stepper {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--app-space-2);
   min-width: 0;
   max-width: 100%;
-  padding: 6px;
-  border-radius: 16px;
+  padding: var(--app-space-1);
+  border-radius: var(--app-radius-card);
   border: 1px solid var(--app-border-subtle);
   background: var(--app-fill-faint);
   &:focus-within {
@@ -14,19 +14,21 @@
   > button {
     display: grid;
     place-items: center;
-    flex: 0 0 36px;
-    height: 36px;
+    flex: 0 0 var(--app-control-md);
+    height: var(--app-control-md);
     border: 0;
     border-radius: 11px;
     background: var(--app-surface);
     color: var(--app-text);
     cursor: pointer;
     &:disabled {
-      opacity: 0.3;
+      color: var(--app-disabled-text);
+      background: var(--app-disabled-bg);
       cursor: not-allowed;
     }
     &:focus-visible {
-      outline: 2px solid var(--app-focus-ring);
+      outline: var(--app-focus-ring-width) solid var(--app-focus-ring);
+      outline-offset: var(--app-focus-ring-offset);
     }
   }
   :global(.ant-input-number),
@@ -46,13 +48,13 @@
     padding: 0;
   }
   &[data-disabled] {
-    opacity: 0.5;
+    opacity: var(--app-disabled-opacity);
   }
 }
 
-@media (pointer: coarse) {
+@media (any-pointer: coarse) {
   .stepper > button {
-    flex-basis: 44px;
-    height: 44px;
+    flex-basis: var(--app-hit-touch);
+    height: var(--app-hit-touch);
   }
 }

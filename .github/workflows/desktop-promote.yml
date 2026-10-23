@@ -54,13 +54,21 @@ jobs:
           # even when the release target predates those helpers.
           ref: ${{ github.workflow_sha }}
           path: .release-infra
-          sparse-checkout: scripts
+          sparse-checkout: |
+            scripts
+            src/qwenpaw/security
           persist-credentials: false
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+
+      - name: Secure Python certificate dependencies
+        shell: bash
+        run: |
+          python -m pip install --upgrade "pip>=26.2.2"
+          python -m pip install --upgrade "certifi>=2026.10.19"
 
       - name: Install packaging helper dependencies
         run: python -m pip install packaging
