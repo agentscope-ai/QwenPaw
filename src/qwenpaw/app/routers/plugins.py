@@ -4,12 +4,15 @@
 static files.  Also provides runtime install / uninstall endpoints."""
 
 import asyncio
+import http.client
 import json
 import logging
 import mimetypes
 import re
 import shutil
+import ssl
 import tempfile
+import urllib.error
 import urllib.request
 import zipfile
 from pathlib import Path
@@ -1089,7 +1092,7 @@ async def search_market_plugins(
 # ── Internal async helpers ────────────────────────────────────────────────
 
 
-_DOWNLOAD_TIMEOUT = 60  # seconds per read chunk; total limit is implicit
+_DOWNLOAD_TIMEOUT = 60  # seconds per socket operation; no total limit
 
 _MAX_DOWNLOAD_BYTES = 500 * 1024 * 1024  # 500 MB safety cap
 
@@ -1097,15 +1100,16 @@ _MAX_DOWNLOAD_BYTES = 500 * 1024 * 1024  # 500 MB safety cap
 async def _async_download(url: str, dest: Path) -> None:
     """Download a URL to a file using a thread pool.
 
-    Streams the response in chunks with a per-operation socket timeout
-    so a stalled server cannot hang the request indefinitely.
+    Streams the response in chunks with a per-operation socket timeout.
+    This does not impose a total download time limit.
 
     Args:
         url: HTTP(S) URL to download
         dest: Destination file path
 
     Raises:
-        RuntimeError: If the download exceeds the size cap or times out.
+        RuntimeError: If the download exceeds the size cap, times out,
+            or fails with a network or HTTP protocol error.
     """
 
     def _download() -> None:
@@ -1127,4 +1131,13 @@ async def _async_download(url: str, dest: Path) -> None:
                         )
                     fh.write(chunk)
 
-    await asyncio.to_thread(_download)
+    try:
+        await asyncio.to_thread(_download)
+    except (
+        urllib.error.URLError,
+        TimeoutError,
+        ConnectionError,
+        ssl.SSLError,
+        http.client.HTTPException,
+    ) as exc:
+        raise RuntimeError(f"Plugin download failed: {exc}") from exc
