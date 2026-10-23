@@ -36,6 +36,7 @@ def _manager_with_jobs(jobs):
     manager._run_reme_job = AsyncMock(
         return_value=SimpleNamespace(success=True, answer="ok", metadata={}),
     )
+    manager._append_reme_job_result_to_inbox = AsyncMock()
     return manager
 
 
@@ -140,6 +141,7 @@ async def test_run_action_marks_llm_jobs_and_rejects_hidden_jobs() -> None:
         "needs_llm": True,
         "raise_on_error": True,
         "lifecycle_locked": True,
+        "notify_result": False,
         "hint": "recent topics",
     }
     manager._run_reme_job.assert_awaited_with(
@@ -207,6 +209,7 @@ async def test_failed_auto_dream_does_not_refresh_topics():
             needs_llm=True,
             raise_on_error=True,
             lifecycle_locked=True,
+            notify_result=False,
         )
 
 
