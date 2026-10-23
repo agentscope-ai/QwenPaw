@@ -24,6 +24,8 @@ import {
   Boxes,
   Plug,
   ArrowRight,
+  ChevronUp,
+  ChevronDown,
   X,
 } from "lucide-react";
 import {
@@ -69,6 +71,7 @@ export default function OrganizationModels({
   const [form] = Form.useForm();
   const [policyForm] = Form.useForm();
   const policySaving = useRef(false);
+  const policyDraft = useRef<Record<string, unknown>>({});
   const load = useCallback(async () => {
     try {
       const [p, c, m, u, presets] = await Promise.all([
@@ -84,7 +87,7 @@ export default function OrganizationModels({
       setConnections(c);
       setModels(m);
       setUsers(u.members);
-      policyForm.setFieldsValue(p);
+      policyForm.setFieldsValue({ ...p, ...policyDraft.current });
     } catch (e) {
       setError((e as Error).message);
     }
@@ -281,6 +284,9 @@ export default function OrganizationModels({
                         layout="inline"
                         disabled={busy}
                         className={styles.defaultModelForm}
+                        onValuesChange={(changedValues) => {
+                          Object.assign(policyDraft.current, changedValues);
+                        }}
                         onFinish={async (values) => {
                           if (policySaving.current) return;
                           policySaving.current = true;
@@ -297,6 +303,7 @@ export default function OrganizationModels({
                               },
                             );
                             setPolicy(next);
+                            policyDraft.current = {};
                             policyForm.setFieldsValue(next);
                             message.success(
                               t("hub.governance.models.settingsSaved"),
@@ -357,6 +364,10 @@ export default function OrganizationModels({
                             min={60}
                             step={1}
                             changeOnWheel={false}
+                            controls={{
+                              upIcon: <ChevronUp size={12} aria-hidden />,
+                              downIcon: <ChevronDown size={12} aria-hidden />,
+                            }}
                             aria-label={t(
                               "hub.governance.models.gatewayTimeout",
                             )}
