@@ -10,10 +10,14 @@ lifecycle tests rather than removed router bookkeeping helpers.
 # pylint: disable=use-implicit-booleaness-not-comparison
 from __future__ import annotations
 
+import http.client
 import io
 import json
+import ssl
 import tempfile
+import urllib.error
 import zipfile
+from email.message import Message
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -210,6 +214,54 @@ class _FakeResponse:
 
 
 class TestAsyncDownload:
+    @pytest.mark.parametrize("stage", ["connect", "read"])
+    @pytest.mark.parametrize(
+        "error",
+        [
+            urllib.error.URLError("dns"),
+            urllib.error.URLError(TimeoutError("connect timed out")),
+            urllib.error.HTTPError(
+                "https://example.test/p.zip",
+                404,
+                "Not Found",
+                Message(),
+                None,
+            ),
+            TimeoutError("timed out"),
+            ConnectionResetError("connection reset"),
+            BrokenPipeError("broken pipe"),
+            ssl.SSLError("TLS read failed"),
+            http.client.IncompleteRead(b"partial", 10),
+            http.client.RemoteDisconnected("connection closed"),
+        ],
+    )
+    async def test_network_failure_is_normalized(
+        self,
+        tmp_path,
+        stage,
+        error,
+    ):
+        dest = tmp_path / "out.bin"
+        response = MagicMock()
+        response.__enter__.return_value = response
+        response.read.side_effect = [b"partial", error]
+        with patch(
+            "qwenpaw.app.routers.plugins.urllib.request.urlopen",
+            return_value=response,
+            side_effect=error if stage == "connect" else None,
+        ):
+            with pytest.raises(RuntimeError) as caught:
+                await _async_download("https://example.test/p.zip", dest)
+        assert str(caught.value) == f"Plugin download failed: {error}"
+        # Python 3.11 asyncio recreates TimeoutError across futures.
+        assert type(caught.value.__cause__) is type(error)
+        assert caught.value.__cause__.args == error.args
+        if stage == "read":
+            assert dest.read_bytes() == b"partial"
+            response.__exit__.assert_called_once()
+        else:
+            assert not dest.exists()
+
     async def test_writes_the_full_payload(self, tmp_path):
         dest = tmp_path / "out.bin"
         response = _FakeResponse(b"hello world")
@@ -246,13 +298,14 @@ class TestAsyncDownload:
         # only what fit under the cap was written; the rest is dropped
         assert dest.stat().st_size == 4
 
-    async def test_urlopen_failure_propagates(self, tmp_path):
+    async def test_unclassified_os_error_propagates(self, tmp_path):
+        """Do not normalize OSError outside the known network types."""
         dest = tmp_path / "out.bin"
         with patch(
             "qwenpaw.app.routers.plugins.urllib.request.urlopen",
-            side_effect=OSError("network down"),
+            side_effect=OSError("unclassified failure"),
         ):
-            with pytest.raises(OSError, match="network down"):
+            with pytest.raises(OSError, match="unclassified failure"):
                 await _async_download("https://example.test/p.zip", dest)
         assert not dest.exists()
 
@@ -775,6 +828,61 @@ class TestUninstallPluginSource:
 
 
 class TestInstallPluginRoute:
+    @pytest.mark.parametrize(
+        "stage,error,status",
+        [
+            ("read", http.client.IncompleteRead(b"partial", 10), 400),
+            ("open", PermissionError("permission denied"), 500),
+            ("write", OSError("disk full"), 500),
+        ],
+    )
+    def test_download_failure_mapping_and_cleanup(
+        self,
+        tmp_path,
+        stage,
+        error,
+        status,
+    ):
+        download_dir = tmp_path / "download"
+        download_dir.mkdir()
+        loader = _loader_stub([])
+        response = MagicMock()
+        response.__enter__.return_value = response
+        response.read.side_effect = [b"partial", b""]
+        if stage == "read":
+            response.read.side_effect = [b"partial", error]
+        file = MagicMock()
+        file.__enter__.return_value = file
+        file.write.side_effect = error if stage == "write" else None
+        with (
+            patch(
+                "qwenpaw.app.routers.plugins.tempfile.mkdtemp",
+                return_value=str(download_dir),
+            ),
+            patch(
+                "qwenpaw.app.routers.plugins.urllib.request.urlopen",
+                return_value=response,
+            ),
+            patch(
+                "qwenpaw.app.routers.plugins.open",
+                return_value=file,
+                side_effect=error if stage == "open" else None,
+            ),
+        ):
+            result = _client(loader).post(
+                "/api/plugins/install",
+                json={"source": "https://example.test/p.zip"},
+            )
+        prefix = (
+            "Plugin download failed"
+            if status == 400
+            else "Plugin installation failed"
+        )
+        assert result.status_code == status
+        assert result.json() == {"detail": f"{prefix}: {error}"}
+        loader.load_plugin_from_path.assert_not_called()
+        assert not download_dir.exists()
+
     @pytest.mark.parametrize(
         "diagnostics",
         [[], ["Existing files preserved at: /plugins/.plug.bak"]],
