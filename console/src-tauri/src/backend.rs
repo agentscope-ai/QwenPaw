@@ -144,6 +144,33 @@ pub(crate) async fn stop_and_wait(app: &tauri::AppHandle) -> Result<(), String> 
     result
 }
 
+async fn connect(
+    app: &tauri::AppHandle,
+    generation: u64,
+) -> Result<(runtime::Runtime, reqwest::Response), String> {
+    let state = app.state::<BackendState>();
+    let mut waiting = false;
+    loop {
+        if !state.is_current(generation) || crate::tray::is_quitting(app) {
+            return Err("Desktop client is closing".into());
+        }
+        match runtime::connect(app).await {
+            Err(error) if error == crate::updates::coordination::UPDATING => {
+                if !waiting {
+                    state
+                        .status
+                        .publish(app, generation, Phase::Stopping, None, None);
+                    waiting = true;
+                }
+                // runtime::connect released the launch lock. Cancellation or
+                // a failed update can now unblock us without a manual retry.
+                tokio::time::sleep(Duration::from_millis(250)).await;
+            }
+            result => return result,
+        }
+    }
+}
+
 async fn attach(app: &tauri::AppHandle) -> Result<(), String> {
     if crate::tray::is_quitting(app) {
         return Err("Desktop client is closing".into());
@@ -153,7 +180,7 @@ async fn attach(app: &tauri::AppHandle) -> Result<(), String> {
     state
         .status
         .publish(app, generation, Phase::Starting, None, None);
-    let (runtime, response) = match runtime::connect(app).await {
+    let (runtime, response) = match connect(app, generation).await {
         Ok(connection) => connection,
         Err(message) => {
             if state.is_current(generation) {
@@ -187,7 +214,7 @@ async fn attach(app: &tauri::AppHandle) -> Result<(), String> {
             state
                 .status
                 .publish(&handle, generation, Phase::Starting, None, None);
-            match runtime::connect(&handle).await {
+            match connect(&handle, generation).await {
                 Ok((runtime, connected)) if state.is_current(generation) => {
                     state.status.publish(
                         &handle,

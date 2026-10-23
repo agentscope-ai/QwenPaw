@@ -15,7 +15,7 @@ use tauri::{Emitter, Manager};
 
 use crate::backend::{self, runtime::Runtime};
 
-const UPDATING: &str = "QwenPaw is updating. Please wait until the update finishes.";
+pub(crate) const UPDATING: &str = "QwenPaw is updating. Please wait until the update finishes.";
 
 pub(crate) fn installation(app: &tauri::AppHandle) -> Result<String, String> {
     Ok(installation_directory(&app.config().identifier)?

@@ -4,6 +4,8 @@ use std::{fs::File, path::PathBuf, process::Stdio, time::Duration};
 
 use fs2::FileExt;
 use serde::Deserialize;
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
 
 const TOKEN_HEADER: &str = "X-QwenPaw-Control-Token";
 
@@ -289,14 +291,22 @@ fn launch(app: &tauri::AppHandle, directory: &std::path::Path) -> Result<(), Str
     }
     #[cfg(windows)]
     {
-        use std::os::windows::process::CommandExt;
         // Detached console and breakaway prevent the launching shell's job or
         // console teardown from terminating a runtime used by other clients.
         command.creation_flags(0x00000008 | 0x00000200 | 0x01000000);
     }
-    let mut child = command
-        .spawn()
-        .map_err(|err| format!("Cannot launch shared runtime: {err}"))?;
+    let child = command.spawn();
+    #[cfg(windows)]
+    let child = child.or_else(|error| {
+        if error.raw_os_error() != Some(5) {
+            return Err(error);
+        }
+        // Some launchers forbid job breakaway. The daemon can still outlive
+        // its window, but remains subject to that launcher's job lifetime.
+        log::warn!("[backend] detached launch denied; retrying without job breakaway");
+        command.creation_flags(0x00000008 | 0x00000200).spawn()
+    });
+    let mut child = child.map_err(|err| format!("Cannot launch shared runtime: {err}"))?;
     log::info!("[backend] launched shared runtime pid={}", child.id());
     std::thread::spawn(move || {
         if let Err(err) = child.wait() {
