@@ -1186,6 +1186,84 @@ describe("useSessionListData owner guards and misc edges", () => {
     window.removeEventListener("qwenpaw:sidebar-new-chat", newChatListener);
   });
 
+  it.each(["unchanged", "route", "identity", "owner"] as const)(
+    "handles a %s route after polling clears identity during deletion",
+    async (change) => {
+      const runtimeId = `runtime-${A_CHAT}`;
+      const nextChatId = "44444444-bbbb-4bbb-8bbb-444444444444";
+      const chat = makeChat(A_CHAT, runtimeId);
+      const list = vi.spyOn(api, "listChats").mockResolvedValue([chat]);
+      const sessions =
+        (await sessionApi.getSessionList()) as ExtendedChatSession[];
+      sessionApi.registerResolvedChat(chat, sessionApi.getActiveOwner());
+      expect(sessionApi.getSessionIdentity(runtimeId).chatId).toBe(A_CHAT);
+
+      const pendingDelete =
+        deferred<Awaited<ReturnType<typeof chatApi.deleteChat>>>();
+      vi.spyOn(chatApi, "deleteChat").mockReturnValue(pendingDelete.promise);
+      const newChatListener = vi.fn();
+      window.addEventListener("qwenpaw:sidebar-new-chat", newChatListener);
+
+      try {
+        const hook = renderHook(
+          ({ current }: { current: string }) =>
+            useSessionListData(sessions, vi.fn(), {
+              active: false,
+              currentSessionId: current,
+              onSessionClick: vi.fn(),
+            }),
+          { wrapper, initialProps: { current: runtimeId } },
+        );
+        let pending!: unknown;
+        act(() => {
+          pending = hook.result.current.handleDelete(A_CHAT);
+        });
+
+        // Publish a real list refresh before the DELETE response arrives.
+        list.mockResolvedValue([]);
+        await act(async () => {
+          await hook.result.current.refreshSessions();
+        });
+        expect(sessionApi.getSessionIdentity(runtimeId).chatId).toBeUndefined();
+        expect(newChatListener).not.toHaveBeenCalled();
+
+        if (change === "route") {
+          hook.rerender({ current: `runtime-${nextChatId}` });
+        } else if (change === "identity") {
+          act(() => {
+            sessionApi.registerResolvedChat(
+              makeChat(nextChatId, runtimeId),
+              sessionApi.getActiveOwner(),
+            );
+          });
+          expect(sessionApi.getSessionIdentity(runtimeId).chatId).toBe(
+            nextChatId,
+          );
+        } else if (change === "owner") {
+          act(() => {
+            sessionApi.setActiveAgent("agent-b");
+          });
+        }
+
+        pendingDelete.resolve({ success: true, chat_id: A_CHAT });
+        await act(async () => {
+          await pending;
+        });
+
+        expect(newChatListener).toHaveBeenCalledTimes(
+          change === "unchanged" ? 1 : 0,
+        );
+        expect(sessionApi.isRouteRemoved(runtimeId)).toBe(
+          change === "unchanged",
+        );
+        expect(sessionApi.isRouteRemoved(A_CHAT)).toBe(change !== "owner");
+        expect(sessionApi.isRouteRemoved(`runtime-${nextChatId}`)).toBe(false);
+      } finally {
+        window.removeEventListener("qwenpaw:sidebar-new-chat", newChatListener);
+      }
+    },
+  );
+
   it("does not leave a session selected while deletion was pending", async () => {
     const nextSessionId = "44444444-bbbb-4bbb-8bbb-444444444444";
     const pendingDelete =

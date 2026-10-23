@@ -278,6 +278,10 @@ export function useSessionListData(
       const owner = sessionApi.getActiveOwner();
       const session = sessions.find((s) => s.id === sessionId);
       const backendId = session ? getBackendId(session) : null;
+      const originalCurrentSessionId = currentSessionIdRef.current;
+      const originalCurrentChatId = sessionApi.getSessionIdentity(
+        originalCurrentSessionId,
+      ).chatId;
       if (backendId) await chatApi.deleteChat(backendId);
 
       // Per-session cleanup is safe regardless of the active agent: it is
@@ -298,8 +302,13 @@ export function useSessionListData(
       const latestCurrentSessionId = currentSessionIdRef.current;
       const canonicalId = backendId ?? sessionId;
       // Canonical IDs take precedence over shared runtime or display aliases.
+      // Polling can clear identity while DELETE is pending. Reuse the snapshot
+      // only for the unchanged route, without overriding a newly known identity.
       const currentChatId =
         sessionApi.getSessionIdentity(latestCurrentSessionId).chatId ??
+        (latestCurrentSessionId === originalCurrentSessionId
+          ? originalCurrentChatId
+          : undefined) ??
         latestCurrentSessionId;
       const isCurrentRouteRemoved =
         !!latestCurrentSessionId && currentChatId === canonicalId;
