@@ -6,7 +6,7 @@
 > [AgentScope Runtime 协议文档（中文）](https://runtime.agentscope.io/zh/protocol.html)
 
 > ⚠️ **安全提醒**：
-> 如果您的 QwenPaw 实例对**公网开放**，强烈建议启用 [Web 登录认证](./security#Web-登录认证)！
+> 如果您的 QwenPaw 实例对**公网开放**，强烈建议启用 [Web 登录认证](./security#web-登录认证)！
 > 未启用认证的公网实例存在严重安全风险，任何人都可以访问和控制您的 Agent。
 > 详见文档末尾的 [Web 认证令牌](#web-认证令牌可选) 章节。
 
@@ -70,7 +70,7 @@ curl -X POST http://your-server.com:8088/api/console/chat \
   -d '{"input": [...]}'
 ```
 
-> **提示**：如果启用了 [Web 登录认证](./security#Web-登录认证)并从远程访问，需要提供身份验证令牌。详见文档末尾的 [Web 认证令牌](#web-认证令牌可选) 部分。
+> **提示**：如果启用了 [Web 登录认证](./security#web-登录认证)并从远程访问，需要提供身份验证令牌。详见文档末尾的 [Web 认证令牌](#web-认证令牌可选) 部分。
 
 ## 请求格式
 
@@ -605,7 +605,7 @@ curl -X POST http://localhost:8088/api/console/chat \
 
 ### Web 认证令牌（可选）
 
-如果启用了 [Web 登录认证](./security#Web-登录认证)（`QWENPAW_AUTH_ENABLED=true`），所有 API 请求都需要提供身份验证令牌。
+如果启用了 [Web 登录认证](./security#web-登录认证)（`QWENPAW_AUTH_ENABLED=true`），所有 API 请求都需要提供身份验证令牌。
 
 #### 注册账号
 
