@@ -251,9 +251,9 @@ class MatrixChannel(BaseChannel):
             access_control_group=access_control_group,
         )
         # Matrix connection
-        self.homeserver: str = homeserver.rstrip("/")
-        self.matrix_user_id: str = matrix_user_id
-        self.access_token: str = access_token
+        self.homeserver: str = homeserver.strip().rstrip("/")
+        self.matrix_user_id: str = matrix_user_id.strip()
+        self.access_token: str = access_token.strip()
         self.password: str = password
         self.device_name: str = device_name
         self.device_id: str = device_id
