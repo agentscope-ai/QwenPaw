@@ -304,7 +304,7 @@ senders remain pending until allowed, at which point every message saved in the
 pending record is processed; denied senders' later messages are marked read and
 skipped. Among the tools, `delete_message` is permanent, while `delete_thread`
 moves messages to Trash; verify the target before either action. See
-[Mailbox Management and Automation](./mailbox#Mail-Access-Control).
+[Mailbox Management and Automation](./mailbox#mail-access-control).
 
 ---
 
