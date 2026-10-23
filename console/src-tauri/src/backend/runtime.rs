@@ -166,7 +166,12 @@ pub(super) async fn connect(
         }
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
+    log::info!(
+        "[backend] discovery admitted after {}ms",
+        started.elapsed().as_millis()
+    );
     crate::updates::coordination::ensure_available(app, &directory)?;
+    let mut launched = false;
     let runtime_lock = lock_file(directory.join("daemon.lock"))?;
     if try_lock(&runtime_lock)? {
         FileExt::unlock(&runtime_lock).map_err(|err| err.to_string())?;
@@ -174,6 +179,7 @@ pub(super) async fn connect(
         if try_lock(&backend_lock)? {
             FileExt::unlock(&backend_lock).map_err(|err| err.to_string())?;
             launch(app, &directory)?;
+            launched = true;
         }
     }
     let environment: std::collections::HashMap<_, _> =
@@ -224,6 +230,10 @@ pub(super) async fn connect(
                             .ok_or("Missing desktop client identity")?
                             .to_owned();
                         runtime.directory = directory.clone();
+                        log::info!(
+                            "[backend] shared runtime connected after {}ms (launched={launched})",
+                            started.elapsed().as_millis()
+                        );
                         return Ok((runtime, response));
                     }
                 }

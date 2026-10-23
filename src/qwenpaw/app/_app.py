@@ -545,6 +545,7 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
             def _mark_core_agents_ready(_results: dict[str, bool]) -> None:
                 """Publish readiness after the core agent phase."""
                 core_elapsed = time.time() - startup_start_time
+                logger.info(f"Core agents ready in {core_elapsed:.3f}s")
                 startup_display.mark_core_ready(core_elapsed)
                 app.state.startup_ready.set()
 
