@@ -257,6 +257,18 @@ _LIFECYCLE_HELD: ContextVar[Optional[_LifecycleHoldKey]] = ContextVar(
 )
 
 
+def _invalidate_import_caches() -> None:
+    """Refresh the import system's caches; a failure here is not fatal.
+
+    Some distro-patched Python builds make ``importlib.invalidate_caches()``
+    raise ``TypeError``. The refresh is best effort, so keep installing.
+    """
+    try:
+        importlib.invalidate_caches()
+    except Exception:  # pylint: disable=broad-except
+        logger.debug("importlib.invalidate_caches() failed", exc_info=True)
+
+
 def _ensure_plugin_site_on_path() -> None:
     """Put the plugin-deps site dir on ``sys.path`` (idempotent).
 
@@ -280,7 +292,7 @@ def _ensure_plugin_site_on_path() -> None:
     _site.addsitedir(site_dir)
     if site_dir not in sys.path:
         sys.path.insert(0, site_dir)
-    importlib.invalidate_caches()
+    _invalidate_import_caches()
 
 
 class PluginLoader:  # pylint: disable=too-many-public-methods
@@ -632,7 +644,7 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
             # Another process may have installed while we waited; re-probe
             # with fresh import caches before spending resources on pip.
             _ensure_plugin_site_on_path()
-            importlib.invalidate_caches()
+            _invalidate_import_caches()
             missing = self._find_unsatisfied_dependencies(requirements_file)
             from ._sdk_dependencies import loaded_sdk_conflicts
 
@@ -1543,7 +1555,7 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
                 run=self._run_subprocess_with_streaming_log,
                 find_uv=self._find_uv,
             )
-            importlib.invalidate_caches()
+            _invalidate_import_caches()
             return
         logger.info(
             f"Installing dependencies for plugin '{plugin_id}'...",
@@ -1699,7 +1711,7 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
                 f"Dependency installation failed for '{plugin_id}': "
                 f"{result.stdout}",
             )
-        importlib.invalidate_caches()
+        _invalidate_import_caches()
         logger.info(
             "Dependencies installed for plugin '%s' into %s",
             plugin_id,
