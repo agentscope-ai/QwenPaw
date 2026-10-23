@@ -186,6 +186,25 @@ def _make_card_sdk() -> AsyncMock:
     return sdk
 
 
+def _long_pipe_table(rows: int = 200) -> str:
+    """GFM pipe table longer than DingTalk's markdown-safe budget."""
+    header = "| metric | value |"
+    separator = "| --- | --- |"
+    row = "| latency | 12345 |"
+    return "\n".join([header, separator, *([row] * rows)])
+
+
+def _expected_markdown_chunks(text: str) -> list[str]:
+    """Normalized chunks a >3500-char body should be sent as."""
+    from qwenpaw.app.channels.dingtalk import markdown as dt_md
+    from qwenpaw.app.channels.utils import split_text
+
+    return [
+        dt_md.normalize_dingtalk_markdown(chunk)
+        for chunk in split_text(text, max_len=3000)
+    ]
+
+
 # =============================================================================
 # P0: Initialization and Configuration
 # =============================================================================
@@ -892,6 +911,114 @@ class TestDingTalkSendMethods:
         )
 
         assert result is False
+
+    async def test_long_markdown_table_splits_on_session_webhook(
+        self,
+        dingtalk_channel,
+    ):
+        """A >3500-char pipe table is sent as several markdown messages.
+
+        @mention / ``at`` stays on the first chunk. No chunk uses
+        ``msgtype=text``.
+        """
+        body = _long_pipe_table()
+        bot_prefix = "[Bot]"
+        at_user_ids = ["staff1"]
+        composed = f"@{at_user_ids[0]}\n{bot_prefix}  {body}"
+        expected = _expected_markdown_chunks(composed)
+        assert len(composed) > 3500
+        assert len(expected) >= 2
+        assert sum(chunk.count("| --- |") for chunk in expected) >= 2
+
+        webhook = "https://oapi.dingtalk.com/robot/send?session=abc"
+        send_payload = AsyncMock(return_value=True)
+        dingtalk_channel._send_payload_via_session_webhook = send_payload
+
+        result = await dingtalk_channel._send_via_session_webhook(
+            session_webhook=webhook,
+            body=body,
+            bot_prefix=bot_prefix,
+            at_user_ids=at_user_ids,
+        )
+
+        assert result is True
+        calls = send_payload.await_args_list
+        assert len(calls) == len(expected)
+        for index, (call, norm) in enumerate(zip(calls, expected)):
+            assert call.args[0] == webhook
+            payload = call.args[1]
+            assert payload["msgtype"] == "markdown"
+            assert "text" not in payload
+            assert payload["markdown"]["text"] == norm
+            title = payload["markdown"]["title"]
+            assert title == f"💬{norm[:10]}..."
+            assert len(norm) <= 3500
+            if index == 0:
+                assert payload["at"] == {"atUserIds": at_user_ids}
+                assert norm.startswith("@staff1")
+            else:
+                assert "at" not in payload
+        sent_text = [call.args[1]["markdown"]["text"] for call in calls]
+        # Prefix is folded in before the split, so it survives in a chunk.
+        assert any("[Bot]" in text for text in sent_text)
+        table_chunks = [text for text in sent_text if "| --- |" in text]
+        assert len(table_chunks) >= 2
+
+    async def test_long_markdown_table_splits_on_open_api(
+        self,
+        dingtalk_channel,
+    ):
+        """Open API sends the same long table as sampleMarkdown chunks."""
+        body = _long_pipe_table()
+        bot_prefix = "[Bot]"
+        composed = f"{bot_prefix}  {body}"
+        expected = _expected_markdown_chunks(composed)
+        assert len(composed) > 3500
+        assert len(expected) >= 2
+
+        send_robot = AsyncMock(return_value=True)
+        dingtalk_channel._send_robot_message = send_robot
+
+        result = await dingtalk_channel._send_via_open_api(
+            body=body,
+            conversation_id="cid_group_123",
+            conversation_type="group",
+            sender_staff_id="",
+            bot_prefix=bot_prefix,
+        )
+
+        assert result is True
+        assert send_robot.await_count == len(expected)
+        for call, norm in zip(send_robot.await_args_list, expected):
+            assert call.kwargs["msg_key"] == "sampleMarkdown"
+            param = json.loads(call.kwargs["msg_param"])
+            assert "content" not in param
+            assert param["text"] == norm
+            assert param["title"] == f"💬{norm[:10]}..."
+            assert "| --- |" in param["text"]
+            assert len(param["text"]) <= 3500
+
+    async def test_long_markdown_fails_when_a_later_chunk_fails(
+        self,
+        dingtalk_channel,
+    ):
+        """Success is returned only when every markdown chunk is sent."""
+        body = "y" * 9000
+        send_payload = AsyncMock(side_effect=[True, False, True])
+        dingtalk_channel._send_payload_via_session_webhook = send_payload
+
+        result = await dingtalk_channel._send_via_session_webhook(
+            session_webhook="https://oapi.dingtalk.com/robot/send?session=abc",
+            body=body,
+            bot_prefix="",
+        )
+
+        assert result is False
+        assert send_payload.await_count == 2
+        for call in send_payload.await_args_list:
+            payload = call.args[1]
+            assert payload["msgtype"] == "markdown"
+            assert "text" not in payload
 
     async def test_send_disabled_channel_does_nothing(self, dingtalk_channel):
         """Send should return early when channel is disabled."""
