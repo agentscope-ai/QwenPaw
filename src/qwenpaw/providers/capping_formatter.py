@@ -22,6 +22,8 @@ model via the ``formatter=`` constructor kwarg.
 
 from __future__ import annotations
 
+from contextvars import ContextVar
+from dataclasses import dataclass
 from typing import Any, ClassVar
 
 # The capping formatters below override agentscope's ``_format_*_source``
@@ -52,12 +54,37 @@ from .adapters.cache_policy import mark_stable_prefix
 # rationale.
 MAX_INLINE_MEDIA_BYTES = 2 * 1024 * 1024  # 2 MB
 
+# Cumulative inline media allowed in a *single* request.  The per-file cap
+# alone does not bound the request body: media counts ~0 tokens, so
+# token-based context eviction never fires, and a design-review session that
+# accumulates ~20 MB of in-spec screenshots still trips a gateway's byte
+# limit (HTTP 413) on every later turn until the history is stripped by hand
+# (#7671).  Scoped per request so concurrent sessions sharing one formatter
+# instance cannot spend each other's budget.
+MAX_TOTAL_INLINE_MEDIA_BYTES = 8 * 1024 * 1024  # 8 MB
+
 _DASHSCOPE_AUDIO_FORMAT_BY_MIME = {
     "audio/mpeg": "mp3",
     "audio/mp3": "mp3",
     "audio/wav": "wav",
     "audio/x-wav": "wav",
 }
+
+
+@dataclass
+class _MediaBudget:
+    """Bytes still available for inlining in the current request."""
+
+    remaining: int
+
+
+# One budget per in-flight format() call.  A ContextVar (rather than
+# instance state) keeps concurrent requests on a shared formatter instance
+# from observing each other's running total.
+_request_media_budget: ContextVar[_MediaBudget | None] = ContextVar(
+    "qwenpaw_request_media_budget",
+    default=None,
+)
 
 
 def inline_media_size(source: Any) -> int | None:
@@ -83,16 +110,45 @@ class CappingFormatterMixin:  # pylint: disable=too-few-public-methods
     """
 
     max_bytes: int = Field(default=MAX_INLINE_MEDIA_BYTES, ge=0)
+    max_total_bytes: int = Field(
+        default=MAX_TOTAL_INLINE_MEDIA_BYTES,
+        ge=0,
+        description=(
+            "Cumulative inline media bytes allowed in one request. Media "
+            "beyond it is replaced with a text placeholder, oldest first, "
+            "so the request body cannot grow without bound. 0 disables the "
+            "cumulative budget (only the per-file cap applies)."
+        ),
+    )
     relay_reasoning_content: bool = Field(default=True)
     enable_prompt_cache_breakpoint: bool = Field(default=False)
 
     _inline_media_size = staticmethod(inline_media_size)
+
+    def _begin_media_budget(self) -> Any:
+        """Start a fresh per-request budget; returns its reset token."""
+        if self.max_bytes <= 0 or self.max_total_bytes <= 0:
+            return None
+        return _request_media_budget.set(
+            _MediaBudget(self.max_total_bytes),
+        )
+
+    def _end_media_budget(self, token: Any) -> None:
+        if token is not None:
+            _request_media_budget.reset(token)
 
     def _placeholder_text(self, kind: str, size: int) -> str:
         return (
             f"[{kind} omitted from model context: local file is "
             f"{size} bytes, exceeds inline limit of "
             f"{self.max_bytes} bytes]"
+        )
+
+    def _placeholder_total_text(self, kind: str, inlined: int) -> str:
+        return (
+            f"[{kind} omitted from model context: this request already "
+            f"inlines {inlined} bytes of media, exceeds the "
+            f"{self.max_total_bytes}-byte per-request limit]"
         )
 
     def _placeholder(self, kind: str, size: int) -> dict[str, Any]:
@@ -103,6 +159,13 @@ class CappingFormatterMixin:  # pylint: disable=too-few-public-methods
         to its ``{"text": ...}`` part shape.
         """
         return {"type": "text", "text": self._placeholder_text(kind, size)}
+
+    def _placeholder_total(self, kind: str, inlined: int) -> dict[str, Any]:
+        """Placeholder for media dropped by the cumulative budget."""
+        return {
+            "type": "text",
+            "text": self._placeholder_total_text(kind, inlined),
+        }
 
     def _maybe_cap(self, source: Any, kind: str) -> dict[str, Any] | None:
         """Return a placeholder dict if *source* exceeds the cap, else None.
@@ -115,6 +178,37 @@ class CappingFormatterMixin:  # pylint: disable=too-few-public-methods
         if size is None or size <= self.max_bytes:
             return None
         return self._placeholder(kind, size)
+
+    def _cap_media(self, source: Any, kind: str) -> dict[str, Any] | None:
+        """Apply the per-file cap, then spend the per-request budget."""
+        capped = self._maybe_cap(source, kind)
+        if capped is not None:
+            return capped
+        return self._maybe_cap_total(source, kind)
+
+    def _maybe_cap_total(
+        self,
+        source: Any,
+        kind: str,
+    ) -> dict[str, Any] | None:
+        """Spend the per-request budget, or cap once it is exhausted.
+
+        Formatting walks the conversation oldest-first, so exhausting the
+        budget as it is spent keeps the newest media and drops the oldest.
+        """
+        budget = _request_media_budget.get()
+        if budget is None:
+            return None
+        size = self._inline_media_size(source)
+        if size is None:
+            return None
+        if size > budget.remaining:
+            return self._placeholder_total(
+                kind,
+                self.max_total_bytes - budget.remaining,
+            )
+        budget.remaining -= size
+        return None
 
     def _unprepared_local_placeholder(
         self,
@@ -145,8 +239,12 @@ class _CappingOpenAIFormatter(OpenAIChatFormatter, CappingFormatterMixin):
     _qwenpaw_supports_reasoning_content_fallback: ClassVar[bool] = True
 
     async def format(self, *args: Any, **kwargs: Any) -> list:
-        """Mark a stable prefix only when the provider opted in."""
-        result = await super().format(*args, **kwargs)
+        """Scope the media budget, then mark a stable prefix if opted in."""
+        token = self._begin_media_budget()
+        try:
+            result = await super().format(*args, **kwargs)
+        finally:
+            self._end_media_budget(token)
         if self.enable_prompt_cache_breakpoint:
             return mark_stable_prefix(result, responses=False)
         return result
@@ -155,7 +253,7 @@ class _CappingOpenAIFormatter(OpenAIChatFormatter, CappingFormatterMixin):
         self,
         source: URLSource | Base64Source,
     ) -> dict[str, Any]:
-        capped = self._maybe_cap(source, "image")
+        capped = self._cap_media(source, "image")
         if capped is not None:
             return capped
         unprepared = self._unprepared_local_placeholder(source, "image")
@@ -167,7 +265,7 @@ class _CappingOpenAIFormatter(OpenAIChatFormatter, CappingFormatterMixin):
         self,
         source: URLSource | Base64Source,
     ) -> dict[str, Any]:
-        capped = self._maybe_cap(source, "audio")
+        capped = self._cap_media(source, "audio")
         if capped is not None:
             return capped
         unprepared = self._unprepared_local_placeholder(source, "audio")
@@ -182,12 +280,20 @@ class _CappingAnthropicFormatter(
 ):
     """Anthropic formatter that caps oversized image and PDF media."""
 
+    async def format(self, msgs: list) -> list:
+        """Scope the media budget to this request."""
+        token = self._begin_media_budget()
+        try:
+            return await super().format(msgs)
+        finally:
+            self._end_media_budget(token)
+
     def _format_source(
         self,
         source: URLSource | Base64Source,
         block_type: str,
     ) -> dict[str, Any]:
-        capped = self._maybe_cap(source, block_type)
+        capped = self._cap_media(source, block_type)
         if capped is not None:
             return capped
         unprepared = self._unprepared_local_placeholder(source, block_type)
@@ -205,8 +311,19 @@ class _CappingGeminiFormatter(GeminiChatFormatter, CappingFormatterMixin):
     so :meth:`_placeholder` is overridden accordingly.
     """
 
+    async def format(self, msgs: list) -> list:
+        """Scope the media budget to this request."""
+        token = self._begin_media_budget()
+        try:
+            return await super().format(msgs)
+        finally:
+            self._end_media_budget(token)
+
     def _placeholder(self, kind: str, size: int) -> dict[str, Any]:
         return {"text": self._placeholder_text(kind, size)}
+
+    def _placeholder_total(self, kind: str, inlined: int) -> dict[str, Any]:
+        return {"text": self._placeholder_total_text(kind, inlined)}
 
     def _placeholder_unprepared(self, kind: str) -> dict[str, Any]:
         return {
@@ -220,7 +337,7 @@ class _CappingGeminiFormatter(GeminiChatFormatter, CappingFormatterMixin):
         self,
         source: URLSource | Base64Source,
     ) -> dict[str, Any]:
-        capped = self._maybe_cap(source, "media")
+        capped = self._cap_media(source, "media")
         if capped is not None:
             return capped
         unprepared = self._unprepared_local_placeholder(source, "media")
@@ -237,11 +354,19 @@ class _CappingDashScopeFormatter(
 
     _qwenpaw_supports_reasoning_content_fallback: ClassVar[bool] = True
 
+    async def format(self, msgs: list) -> list:
+        """Scope the media budget to this request."""
+        token = self._begin_media_budget()
+        try:
+            return await super().format(msgs)
+        finally:
+            self._end_media_budget(token)
+
     def _format_video_source(
         self,
         source: URLSource | Base64Source,
     ) -> dict[str, Any]:
-        capped = self._maybe_cap(source, "video")
+        capped = self._cap_media(source, "video")
         if capped is not None:
             return capped
         unprepared = self._unprepared_local_placeholder(source, "video")
@@ -253,7 +378,7 @@ class _CappingDashScopeFormatter(
         self,
         source: URLSource | Base64Source,
     ) -> dict[str, Any]:
-        capped = self._maybe_cap(source, "image")
+        capped = self._cap_media(source, "image")
         if capped is not None:
             return capped
         unprepared = self._unprepared_local_placeholder(source, "image")
@@ -265,7 +390,7 @@ class _CappingDashScopeFormatter(
         self,
         source: URLSource | Base64Source,
     ) -> dict[str, Any]:
-        capped = self._maybe_cap(source, "audio")
+        capped = self._cap_media(source, "audio")
         if capped is not None:
             return capped
         # Local files reach the formatter as Base64Source via the async
@@ -300,8 +425,12 @@ class _CappingOpenAIResponseFormatter(
     """OpenAI Responses API formatter that caps oversized local media."""
 
     async def format(self, *args: Any, **kwargs: Any) -> list:
-        """Apply Responses breakpoints after content block conversion."""
-        result = await super().format(*args, **kwargs)
+        """Scope the media budget, then apply Responses breakpoints."""
+        token = self._begin_media_budget()
+        try:
+            result = await super().format(*args, **kwargs)
+        finally:
+            self._end_media_budget(token)
         if self.enable_prompt_cache_breakpoint:
             return mark_stable_prefix(result, responses=True)
         return result
@@ -316,6 +445,12 @@ class _CappingOpenAIResponseFormatter(
             "text": self._placeholder_text(kind, size),
         }
 
+    def _placeholder_total(self, kind: str, inlined: int) -> dict[str, Any]:
+        return {
+            "type": "input_text",
+            "text": self._placeholder_total_text(kind, inlined),
+        }
+
     def _placeholder_unprepared(self, kind: str) -> dict[str, Any]:
         return {
             "type": "input_text",
@@ -326,7 +461,7 @@ class _CappingOpenAIResponseFormatter(
         }
 
     def _format_image_source(self, source: Any) -> dict[str, Any]:
-        capped = self._maybe_cap(source, "image")
+        capped = self._cap_media(source, "image")
         if capped is not None:
             return capped
         unprepared = self._unprepared_local_placeholder(source, "image")
