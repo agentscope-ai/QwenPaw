@@ -1,0 +1,51 @@
+{
+  "id": "qwenpaw-file-browser",
+  "name": "QwenPaw File Browser",
+  "version": "0.2.3.1",
+  "type": "app",
+  "description": "Read-only, scope-authorized directory listings for QwenPaw tasks.",
+  "author": "QwenPaw Contributors",
+  "entry": {
+    "backend": "backend/main.py",
+    "frontend": "ui/index.js"
+  },
+  "dependencies": [],
+  "qwenpaw_version": {
+    "min": "2.2.1b2"
+  },
+  "pawapp": {
+    "schema_version": 1,
+    "configuration": {
+      "version": 1,
+      "setup_entries": [
+        {
+          "id": "file-browser-default-root",
+          "entry_ref": "file-browser.directory-settings",
+          "focus": "default-directory",
+          "presentations": ["app_entry"],
+          "context_schema_version": "pawapp:setup-context@1"
+        }
+      ]
+    }
+  },
+  "pack_exclude": [
+    "backend/tests"
+  ],
+  "meta": {
+    "pawapp": {
+      "icon": "📁",
+      "entry_page": "/apps/qwenpaw-file-browser",
+      "launch_scope": "page",
+      "category": "productivity"
+    },
+    "permissions": {
+      "chat": true,
+      "storage": true
+    },
+    "features": [
+      "read-only-directory-listing",
+      "durable-tasks",
+      "scoped-default-directory"
+    ]
+  }
+}

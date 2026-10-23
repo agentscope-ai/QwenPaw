@@ -1,0 +1,36 @@
+name: PawApp File Browser Tests
+on:
+  push:
+    branches: [main, dev/file-browser-pawapp-example]
+    paths:
+      - 'plugins/apps/qwenpaw-file-browser/**'
+      - 'src/qwenpaw/pawapp/**'
+      - 'src/qwenpaw/plugins/**'
+      - '.github/workflows/pawapp-file-browser.yml'
+  pull_request:
+    paths:
+      - 'plugins/apps/qwenpaw-file-browser/**'
+      - 'src/qwenpaw/pawapp/**'
+      - 'src/qwenpaw/plugins/**'
+      - '.github/workflows/pawapp-file-browser.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  file-browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install Host test environment
+        run: python -m pip install -e '.[test]'
+      - name: Check File Browser integration
+        run: python -m pytest -q plugins/apps/qwenpaw-file-browser/backend/tests
+      - name: Check frontend syntax
+        run: node --check plugins/apps/qwenpaw-file-browser/ui/index.js
