@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import io
 import logging
+import os
+from pathlib import Path
+import subprocess
 import sys
 
 import pytest
@@ -35,9 +38,9 @@ def sidecar_env(monkeypatch, tmp_path):
     yield log_path, faulthandler_calls
 
     tauri_logging._LOG_FILE = None
-    if tauri_logging._CRASH_LOG is not None:
-        tauri_logging._CRASH_LOG.close()
-        tauri_logging._CRASH_LOG = None
+    if tauri_logging._CRASH_FD is not None:
+        os.close(tauri_logging._CRASH_FD)
+        tauri_logging._CRASH_FD = None
     for name in ("qwenpaw", "apscheduler"):
         logger = logging.getLogger(name)
         for handler in list(logger.handlers):
@@ -85,9 +88,10 @@ def test_install_sidecar_logging_writes_startup_context_and_tees_output(
 
     assert faulthandler_calls
     assert faulthandler_calls[0]["all_threads"] is True
-    crash_file = faulthandler_calls[0]["file"]
+    crash_fd = faulthandler_calls[0]["file"]
+    assert crash_fd == tauri_logging._CRASH_FD
     crash_path = log_path.with_name("desktop-crash.log")
-    assert crash_file.name == str(crash_path)
+    assert os.path.samestat(os.fstat(crash_fd), os.stat(crash_path))
     assert "qwenpaw tauri sidecar" in crash_path.read_text(encoding="utf-8")
 
 
@@ -139,4 +143,50 @@ def test_oversized_crash_log_rotates_at_startup(monkeypatch, sidecar_env):
     assert "old trace" not in content
     assert "qwenpaw tauri sidecar" in content
     # faulthandler must get the fresh file, not the rotated one.
-    assert faulthandler_calls[0]["file"] is tauri_logging._CRASH_LOG.stream
+    assert os.path.samestat(
+        os.fstat(faulthandler_calls[0]["file"]),
+        os.stat(crash_path),
+    )
+
+
+_STARTUP_CRASH_SCRIPT = """
+import faulthandler, logging, sys
+from pathlib import Path
+import uvicorn
+from qwenpaw.tauri.sidecar_logging import install_sidecar_logging
+
+install_sidecar_logging(Path(sys.argv[1]))
+# Same order as the desktop entry point: uvicorn.Config runs dictConfig,
+# which closes every logging handler created so far.
+uvicorn.Config(lambda scope, receive, send: None, log_level="info")
+logging.getLogger("qwenpaw.tauri").info("record after uvicorn config")
+print("stdout after uvicorn config", flush=True)
+faulthandler._sigsegv()
+"""
+
+
+def test_logs_survive_uvicorn_logging_config_until_native_crash(tmp_path):
+    log_path = tmp_path / "desktop.log"
+    env = {**os.environ, "QWENPAW_WORKING_DIR": str(tmp_path / "home")}
+    src_dir = Path(tauri_logging.__file__).resolve().parents[2]
+    env["PYTHONPATH"] = os.pathsep.join(
+        filter(None, [str(src_dir), env.get("PYTHONPATH")]),
+    )
+
+    proc = subprocess.run(
+        [sys.executable, "-c", _STARTUP_CRASH_SCRIPT, str(log_path)],
+        env=env,
+        capture_output=True,
+        timeout=120,
+        check=False,
+    )
+
+    assert proc.returncode != 0
+    crash = log_path.with_name("desktop-crash.log").read_text(
+        encoding="utf-8",
+        errors="replace",
+    )
+    assert "most recent call first" in crash
+    content = log_path.read_text(encoding="utf-8")
+    assert "record after uvicorn config" in content
+    assert "stdout after uvicorn config" in content

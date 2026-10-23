@@ -13,7 +13,7 @@ import sys
 from typing import TextIO
 
 _LOG_FILE: _HandlerStream | None = None
-_CRASH_LOG: logging.FileHandler | None = None
+_CRASH_FD: int | None = None
 
 
 class _HandlerStream:
@@ -122,7 +122,7 @@ def install_sidecar_logging(log_path: Path) -> Path:
     log_path = Path(log_path).expanduser()
     log_path.parent.mkdir(parents=True, exist_ok=True)
 
-    global _LOG_FILE, _CRASH_LOG  # pylint: disable=global-statement
+    global _LOG_FILE, _CRASH_FD  # pylint: disable=global-statement
     _LOG_FILE = _HandlerStream(_add_project_file_handler(log_path))
     started = datetime.now().isoformat()
     _LOG_FILE.write("\n")
@@ -136,13 +136,19 @@ def install_sidecar_logging(log_path: Path) -> Path:
     sys.stderr = _TeeStream(sys.stderr, _LOG_FILE)  # type: ignore[assignment]
 
     crash_path = log_path.with_name(f"{log_path.stem}-crash{log_path.suffix}")
-    _CRASH_LOG = _create_rotating_file_handler(crash_path)
-    # Writing the header rotates an oversized crash log before faulthandler
-    # takes the stream; nothing else writes to it while the process runs.
-    _HandlerStream(_CRASH_LOG).write(
-        f"== qwenpaw tauri sidecar {started} pid={os.getpid()} ==\n",
-    )
-    faulthandler.enable(file=_CRASH_LOG.stream, all_threads=True)
+    # Writing the header through a rotating handler rotates an oversized
+    # crash log. The handler is released right away: logging reconfiguration
+    # (e.g. uvicorn's dictConfig) closes every handler ever created, so
+    # faulthandler gets a raw descriptor that logging does not own.
+    crash_handler = _create_rotating_file_handler(crash_path)
+    try:
+        _HandlerStream(crash_handler).write(
+            f"== qwenpaw tauri sidecar {started} pid={os.getpid()} ==\n",
+        )
+    finally:
+        crash_handler.close()
+    _CRASH_FD = os.open(crash_path, os.O_WRONLY | os.O_APPEND | os.O_CREAT)
+    faulthandler.enable(file=_CRASH_FD, all_threads=True)
 
     logging.getLogger("qwenpaw.tauri").info(
         "Tauri sidecar logging enabled: %s (native crash traces: %s)",
