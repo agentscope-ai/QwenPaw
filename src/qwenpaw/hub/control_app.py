@@ -33,7 +33,7 @@ from starlette.requests import ClientDisconnect
 
 from ..__version__ import __version__
 from ..app.exception_handlers import register_exception_handlers
-from ..constant import CORS_ORIGINS
+from ..constant import get_cors_origins
 from ..utils.http import is_loopback_host
 from ..utils.oauth_callback import HUB_OAUTH_CALLBACK_URL_HEADER
 from ..plugins.browser_access import PAWAPP_SCOPE_HEADER
@@ -266,8 +266,9 @@ def create_hub_app(  # pylint: disable=too-many-statements
 
     app = FastAPI(title="QwenPaw Hub", lifespan=lifespan)
     register_exception_handlers(app)
-    if CORS_ORIGINS:
-        origins = [item.strip() for item in CORS_ORIGINS.split(",")]
+    cors_origins = get_cors_origins()
+    if cors_origins:
+        origins = [item.strip() for item in cors_origins.split(",")]
         if "*" in origins:
             raise ValueError("Hub credentialed CORS requires explicit origins")
         app.add_middleware(

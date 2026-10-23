@@ -24,8 +24,8 @@ from ..cli.windows_shutdown import install_shutdown_handlers
 from ..config import load_config  # pylint: disable=no-name-in-module
 from ..config.utils import get_config_path, read_last_api
 from ..constant import (
-    CORS_ORIGINS,
     DOCS_ENABLED,
+    get_cors_origins,
     LOG_LEVEL_ENV,
     PROJECT_NAME,
     WORKING_DIR,
@@ -772,9 +772,11 @@ app.add_middleware(AgentContextMiddleware)
 app.add_middleware(AuthMiddleware)
 app.add_middleware(RuntimeBoundaryMiddleware)
 
-# Apply CORS middleware if CORS_ORIGINS is set
-if CORS_ORIGINS:
-    origins = [o.strip() for o in CORS_ORIGINS.split(",") if o.strip()]
+# Apply CORS middleware from the env value after persisted envs load.
+# get_cors_origins() is live; the import-time CORS_ORIGINS snapshot is not.
+cors_origins = get_cors_origins()
+if cors_origins:
+    origins = [o.strip() for o in cors_origins.split(",") if o.strip()]
     app.add_middleware(
         CORSMiddleware,
         allow_origins=origins,
