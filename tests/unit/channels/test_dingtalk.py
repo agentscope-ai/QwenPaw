@@ -1,64 +1,58 @@
 # -*- coding: utf-8 -*-
+"""Preserved DingTalk delivery/store/media behaviors on the artifact transport.
+
+Host session/ACL/Agent behaviors moved to B147/C2/C3 real worker tests.
+The fixture has no old Channel implementation.
 """
-DingTalk Channel Unit Tests
-
-Comprehensive unit tests for DingTalkChannel covering:
-- Initialization and configuration
-- Session webhook management (storage/retrieval/expiry)
-- Token caching mechanism
-- Message deduplication (thread safety)
-- Send methods (webhook, Open API, AI Card)
-- Utility functions
-
-Test Patterns:
-- Uses MockAiohttpSession for HTTP request mocking
-- Tests based on CHAN-D02 (webhook expiry), CHAN-D04 (file receiving)
-- Covers complex internal logic not covered by contract tests
-
-Run:
-    pytest tests/unit/channels/test_dingtalk.py -v
-    pytest tests/unit/channels/test_dingtalk.py::TestDingTalkSessionWebhook -v
-"""
-
-# pylint: disable=redefined-outer-name,protected-access,unused-argument
-# pylint: disable=broad-exception-raised,using-constant-test,unused-import
-# pylint: disable=reimported
+# pylint: disable=protected-access,redefined-outer-name,unused-argument
 from __future__ import annotations
-
-
+from concurrent.futures import Future
 import asyncio
 import json
-import threading
 import time
-from concurrent.futures import Future
 from pathlib import Path
-from typing import Generator
 from unittest.mock import AsyncMock, MagicMock, patch
-
 import pytest
-
-from qwenpaw.app.channels.renderer import ChannelDisplayConfig
-
-from qwenpaw.exceptions import ChannelError
+from tests.fixtures.channel_plugins.c6_artifacts import artifact_module
 from tests.fixtures.channels.mock_http import MockAiohttpSession
-
-# =============================================================================
-# Fixtures
-# =============================================================================
+from qwenpaw.exceptions import ChannelError
 
 
 @pytest.fixture
-def mock_process_handler() -> AsyncMock:
-    """Mock process handler that yields simple events."""
+def dingtalk_channel(temp_media_dir):
+    transport = artifact_module("dingtalk", "transport").DingTalkTransport()
+    transport.initialize(
+        {
+            "enabled": True,
+            "client_id": "test_client_id",
+            "client_secret": "test-only",
+            "workspace_dir": str(temp_media_dir.parent),
+            "media_dir": str(temp_media_dir),
+            "bot_prefix": "[TestBot] ",
+        },
+    )
+    transport._sdk = artifact_module("dingtalk", "sdk")
+    transport._state = "running"
+    transport._active = True
+    return transport
 
-    async def mock_process(*_args, **_kwargs):
-        mock_event = MagicMock()
-        mock_event.object = "message"
-        mock_event.status = "completed"
-        mock_event.type = "text"
-        yield mock_event
 
-    return AsyncMock(side_effect=mock_process)
+@pytest.fixture
+def dingtalk_channel_with_workspace(temp_workspace_dir):
+    transport = artifact_module("dingtalk", "transport").DingTalkTransport()
+    transport.initialize(
+        {
+            "enabled": True,
+            "client_id": "test_client_id",
+            "client_secret": "test-only",
+            "workspace_dir": str(temp_workspace_dir),
+            "bot_prefix": "[TestBot] ",
+        },
+    )
+    transport._sdk = artifact_module("dingtalk", "sdk")
+    transport._state = "running"
+    transport._active = True
+    return transport
 
 
 @pytest.fixture
@@ -75,76 +69,6 @@ def temp_workspace_dir(tmp_path) -> Path:
     workspace = tmp_path / ".copaw" / "workspace"
     workspace.mkdir(parents=True, exist_ok=True)
     return workspace
-
-
-@pytest.fixture
-def dingtalk_channel(
-    mock_process_handler,
-    temp_media_dir,
-) -> Generator:
-    """Create a DingTalkChannel instance for testing."""
-    from qwenpaw.app.channels.dingtalk.channel import DingTalkChannel
-
-    channel = DingTalkChannel(
-        process=mock_process_handler,
-        enabled=True,
-        client_id="test_client_id",
-        client_secret="test_client_secret",
-        bot_prefix="[TestBot] ",
-        media_dir=str(temp_media_dir),
-        display_config=ChannelDisplayConfig(
-            show_tool_calls=False,
-            show_tool_results=False,
-        ),
-    )
-    yield channel
-
-
-@pytest.fixture
-def dingtalk_channel_shared_group(
-    mock_process_handler,
-    temp_media_dir,
-) -> Generator:
-    """Create a DingTalkChannel sharing one session per group."""
-    from qwenpaw.app.channels.dingtalk.channel import DingTalkChannel
-
-    channel = DingTalkChannel(
-        process=mock_process_handler,
-        enabled=True,
-        client_id="test_client_id",
-        client_secret="test_client_secret",
-        bot_prefix="[TestBot] ",
-        media_dir=str(temp_media_dir),
-        share_session_in_group=True,
-        display_config=ChannelDisplayConfig(
-            show_tool_calls=False,
-            show_tool_results=False,
-        ),
-    )
-    yield channel
-
-
-@pytest.fixture
-def dingtalk_channel_with_workspace(
-    mock_process_handler,
-    temp_workspace_dir,
-) -> Generator:
-    """Create a DingTalkChannel with workspace for testing."""
-    from qwenpaw.app.channels.dingtalk.channel import DingTalkChannel
-
-    channel = DingTalkChannel(
-        process=mock_process_handler,
-        enabled=True,
-        client_id="test_client_id",
-        client_secret="test_client_secret",
-        bot_prefix="[TestBot] ",
-        workspace_dir=temp_workspace_dir,
-        display_config=ChannelDisplayConfig(
-            show_tool_calls=False,
-            show_tool_results=False,
-        ),
-    )
-    yield channel
 
 
 @pytest.fixture
@@ -184,264 +108,6 @@ def _make_card_sdk() -> AsyncMock:
         return_value=MagicMock(),
     )
     return sdk
-
-
-# =============================================================================
-# P0: Initialization and Configuration
-# =============================================================================
-
-
-class TestDingTalkChannelInit:
-    """
-    Tests for DingTalkChannel initialization and factory methods.
-    Verifies correct storage of configuration parameters.
-    """
-
-    def test_init_stores_basic_config(
-        self,
-        mock_process_handler,
-        temp_media_dir,
-    ):
-        """Constructor should store all basic configuration parameters."""
-        from qwenpaw.app.channels.dingtalk.channel import DingTalkChannel
-
-        channel = DingTalkChannel(
-            process=mock_process_handler,
-            enabled=True,
-            client_id="my_client_id",
-            client_secret="my_client_secret",
-            bot_prefix="[Bot] ",
-            message_type="text",
-            media_dir=str(temp_media_dir),
-        )
-
-        assert channel.enabled is True
-        assert channel.client_id == "my_client_id"
-        assert channel.client_secret == "my_client_secret"
-        assert channel.bot_prefix == "[Bot] "
-        assert channel.message_type == "text"
-        assert channel.channel == "dingtalk"
-
-    def test_init_stores_advanced_config(
-        self,
-        mock_process_handler,
-        temp_media_dir,
-    ):
-        """Constructor should store advanced configuration parameters."""
-        from qwenpaw.app.channels.dingtalk.channel import DingTalkChannel
-
-        channel = DingTalkChannel(
-            process=mock_process_handler,
-            enabled=True,
-            client_id="test_id",
-            client_secret="test_secret",
-            bot_prefix="",
-            card_template_id="template_123",
-            card_template_key="my_key",
-            robot_code="robot_456",
-            require_mention=True,
-            card_auto_layout=True,
-        )
-
-        assert channel.card_template_id == "template_123"
-        assert channel.card_template_key == "my_key"
-        assert channel.robot_code == "robot_456"
-        assert channel.require_mention is True
-        assert channel.card_auto_layout is True
-
-    def test_init_creates_required_data_structures(self, mock_process_handler):
-        """Constructor should initialize required internal data structures."""
-        from qwenpaw.app.channels.dingtalk.channel import DingTalkChannel
-
-        channel = DingTalkChannel(
-            process=mock_process_handler,
-            enabled=True,
-            client_id="test_id",
-            client_secret="test_secret",
-            bot_prefix="",
-        )
-
-        # Session webhook store
-        assert hasattr(channel, "_session_webhook_store")
-        assert isinstance(channel._session_webhook_store, dict)
-
-        # Processing message IDs set
-        assert hasattr(channel, "_processing_message_ids")
-        assert isinstance(channel._processing_message_ids, set)
-
-        # Token cache
-        assert hasattr(channel, "_token_value")
-        assert channel._token_value is None
-        assert hasattr(channel, "_token_expires_at")
-        assert channel._token_expires_at == 0.0
-
-    def test_init_creates_locks(self, mock_process_handler):
-        """Constructor should create required locks for thread safety."""
-        from qwenpaw.app.channels.dingtalk.channel import DingTalkChannel
-
-        channel = DingTalkChannel(
-            process=mock_process_handler,
-            enabled=True,
-            client_id="test_id",
-            client_secret="test_secret",
-            bot_prefix="",
-        )
-
-        # Session webhook lock
-        assert hasattr(channel, "_session_webhook_lock")
-        assert isinstance(channel._session_webhook_lock, asyncio.Lock)
-
-        # Token lock
-        assert hasattr(channel, "_token_lock")
-        assert isinstance(channel._token_lock, asyncio.Lock)
-
-        # Processing message IDs lock
-        assert hasattr(channel, "_processing_message_ids_lock")
-        lock_type = type(channel._processing_message_ids_lock).__name__
-        assert "lock" in lock_type.lower()
-
-    def test_channel_type_is_dingtalk(self, dingtalk_channel):
-        """Channel type must be 'dingtalk'."""
-        assert dingtalk_channel.channel == "dingtalk"
-
-
-class TestDingTalkChannelFromEnv:
-    """Tests for from_env factory method."""
-
-    def test_from_env_reads_basic_env_vars(
-        self,
-        mock_process_handler,
-        monkeypatch,
-    ):
-        """from_env should read basic environment variables."""
-        from qwenpaw.app.channels.dingtalk.channel import DingTalkChannel
-
-        monkeypatch.setenv("DINGTALK_CHANNEL_ENABLED", "0")
-        monkeypatch.setenv("DINGTALK_CLIENT_ID", "env_client_id")
-        monkeypatch.setenv("DINGTALK_CLIENT_SECRET", "env_client_secret")
-        monkeypatch.setenv("DINGTALK_BOT_PREFIX", "[EnvBot] ")
-
-        channel = DingTalkChannel.from_env(mock_process_handler)
-
-        assert channel.enabled is False
-        assert channel.client_id == "env_client_id"
-        assert channel.client_secret == "env_client_secret"
-        assert channel.bot_prefix == "[EnvBot] "
-
-    def test_from_env_reads_advanced_env_vars(
-        self,
-        mock_process_handler,
-        monkeypatch,
-    ):
-        """from_env should read advanced environment variables."""
-        from qwenpaw.app.channels.dingtalk.channel import DingTalkChannel
-
-        monkeypatch.setenv("DINGTALK_CLIENT_ID", "test_id")
-        monkeypatch.setenv("DINGTALK_CLIENT_SECRET", "test_secret")
-        monkeypatch.setenv("DINGTALK_MESSAGE_TYPE", "text")
-        monkeypatch.setenv("DINGTALK_CARD_TEMPLATE_ID", "template_env")
-        monkeypatch.setenv("DINGTALK_CARD_TEMPLATE_KEY", "content_env")
-        monkeypatch.setenv("DINGTALK_ROBOT_CODE", "robot_env")
-        monkeypatch.setenv("DINGTALK_REQUIRE_MENTION", "1")
-        monkeypatch.setenv("DINGTALK_CARD_AUTO_LAYOUT", "1")
-
-        channel = DingTalkChannel.from_env(mock_process_handler)
-
-        assert channel.message_type == "text"
-        assert channel.card_template_id == "template_env"
-        assert channel.card_template_key == "content_env"
-        assert channel.robot_code == "robot_env"
-        assert channel.require_mention is True
-        assert channel.card_auto_layout is True
-
-    def test_from_env_allow_from_parsing(
-        self,
-        mock_process_handler,
-        monkeypatch,
-    ):
-        """from_env should parse DINGTALK_ALLOW_FROM correctly."""
-        from qwenpaw.app.channels.dingtalk.channel import DingTalkChannel
-
-        monkeypatch.setenv("DINGTALK_CLIENT_ID", "test_id")
-        monkeypatch.setenv("DINGTALK_CLIENT_SECRET", "test_secret")
-        monkeypatch.setenv("DINGTALK_ALLOW_FROM", "user1,user2,user3")
-
-        channel = DingTalkChannel.from_env(mock_process_handler)
-
-        assert "user1" in channel.allow_from
-        assert "user2" in channel.allow_from
-        assert "user3" in channel.allow_from
-
-    def test_from_env_allow_from_empty(
-        self,
-        mock_process_handler,
-        monkeypatch,
-    ):
-        """from_env should handle empty DINGTALK_ALLOW_FROM."""
-        from qwenpaw.app.channels.dingtalk.channel import DingTalkChannel
-
-        monkeypatch.setenv("DINGTALK_CLIENT_ID", "test_id")
-        monkeypatch.setenv("DINGTALK_CLIENT_SECRET", "test_secret")
-        monkeypatch.setenv("DINGTALK_ALLOW_FROM", "")
-
-        channel = DingTalkChannel.from_env(mock_process_handler)
-
-        assert channel.allow_from == set()
-
-    def test_from_env_defaults(self, mock_process_handler, monkeypatch):
-        """from_env should use sensible defaults."""
-        from qwenpaw.app.channels.dingtalk.channel import DingTalkChannel
-
-        monkeypatch.setenv("DINGTALK_CLIENT_ID", "test_id")
-        monkeypatch.setenv("DINGTALK_CLIENT_SECRET", "test_secret")
-        monkeypatch.delenv("DINGTALK_CHANNEL_ENABLED", raising=False)
-        monkeypatch.delenv("DINGTALK_BOT_PREFIX", raising=False)
-        monkeypatch.delenv("DINGTALK_REQUIRE_MENTION", raising=False)
-
-        channel = DingTalkChannel.from_env(mock_process_handler)
-
-        assert channel.enabled is True  # Default enabled
-        assert channel.bot_prefix == ""  # Default empty
-        assert channel.require_mention is False  # Default False
-
-
-class TestDingTalkChannelFromConfig:
-    """Tests for from_config factory method."""
-
-    def test_from_config_uses_config_values(self, mock_process_handler):
-        """from_config should use values from config object."""
-        from qwenpaw.app.channels.dingtalk.channel import DingTalkChannel
-        from qwenpaw.config.config import DingTalkConfig
-
-        config = DingTalkConfig(
-            enabled=False,
-            client_id="config_client_id",
-            client_secret="config_client_secret",
-            bot_prefix="[ConfigBot] ",
-            message_type="text",
-            dm_policy="allowlist",  # Valid values: 'open' or 'allowlist'
-            group_policy="allowlist",
-            require_mention=True,
-        )
-
-        channel = DingTalkChannel.from_config(
-            process=mock_process_handler,
-            config=config,
-        )
-
-        assert channel.enabled is False
-        assert channel.client_id == "config_client_id"
-        assert channel.client_secret == "config_client_secret"
-        assert channel.bot_prefix == "[ConfigBot] "
-        assert channel.message_type == "text"
-        assert channel.dm_policy == "allowlist"
-        assert channel.group_policy == "allowlist"
-        assert channel.require_mention is True
-
-
-# =============================================================================
-# P1: Session Webhook Management (Critical for CHAN-D02)
-# =============================================================================
 
 
 @pytest.mark.asyncio
@@ -540,11 +206,6 @@ class TestDingTalkSessionWebhook:
         assert "key" not in dingtalk_channel._session_webhook_store
 
 
-# =============================================================================
-# P1: Token Caching (HTTP Mock tests)
-# =============================================================================
-
-
 @pytest.mark.asyncio
 class TestDingTalkTokenCache:
     """
@@ -559,9 +220,10 @@ class TestDingTalkTokenCache:
         dingtalk_channel,
     ):
         """Should fetch new token when cache is empty."""
-        from qwenpaw.app.channels.dingtalk.constants import (
-            DINGTALK_TOKEN_TTL_SECONDS,
-        )
+        DINGTALK_TOKEN_TTL_SECONDS = artifact_module(
+            "dingtalk",
+            "constants",
+        ).DINGTALK_TOKEN_TTL_SECONDS
 
         dingtalk_channel._oauth_sdk = _make_oauth_sdk("new_token_123")
 
@@ -643,93 +305,6 @@ class TestDingTalkTokenCache:
         assert all(t == "token_123" for t in tokens)
 
 
-# =============================================================================
-# P1: Message Deduplication (Thread Safety)
-# =============================================================================
-
-
-class TestDingTalkMessageDedup:
-    """
-    Tests for message deduplication mechanism.
-
-    DingTalk can deliver the same message multiple times.
-    We track in-flight message IDs to prevent double-processing.
-    """
-
-    def test_try_accept_message_accepts_new_message(self, dingtalk_channel):
-        """Should accept message with new ID."""
-        result = dingtalk_channel._try_accept_message("msg_123")
-
-        assert result is True
-        assert "msg_123" in dingtalk_channel._processing_message_ids
-
-    def test_try_accept_message_rejects_duplicate(self, dingtalk_channel):
-        """Should reject message with duplicate ID."""
-        # First accept
-        dingtalk_channel._try_accept_message("msg_dup")
-
-        # Second accept should fail
-        result = dingtalk_channel._try_accept_message("msg_dup")
-
-        assert result is False
-
-    def test_try_accept_message_allows_empty_id(self, dingtalk_channel):
-        """Empty message ID should be accepted but not tracked."""
-        result = dingtalk_channel._try_accept_message("")
-
-        assert result is True
-        assert "" not in dingtalk_channel._processing_message_ids
-
-    def test_release_message_ids_removes_from_set(self, dingtalk_channel):
-        """Should remove message ID from tracking set."""
-        dingtalk_channel._try_accept_message("msg_release")
-        assert "msg_release" in dingtalk_channel._processing_message_ids
-
-        dingtalk_channel._release_message_ids(["msg_release"])
-
-        assert "msg_release" not in dingtalk_channel._processing_message_ids
-
-    def test_release_message_ids_handles_empty_list(self, dingtalk_channel):
-        """Should handle empty list gracefully."""
-        initial_count = len(dingtalk_channel._processing_message_ids)
-        dingtalk_channel._release_message_ids([])
-
-        assert len(dingtalk_channel._processing_message_ids) == initial_count
-
-    def test_release_message_ids_handles_unknown_ids(self, dingtalk_channel):
-        """Should handle IDs not in set gracefully."""
-        # Should not raise
-        dingtalk_channel._release_message_ids(["unknown_id"])
-
-    def test_try_accept_message_is_thread_safe(self, dingtalk_channel):
-        """Deduplication should be thread-safe."""
-        accepted_count = [0]
-        rejected_count = [0]
-
-        def try_accept():
-            for i in range(100):
-                msg_id = f"batch_msg_{i % 10}"  # 10 unique IDs, 10 times each
-                if dingtalk_channel._try_accept_message(msg_id):
-                    accepted_count[0] += 1
-                else:
-                    rejected_count[0] += 1
-
-        threads = [threading.Thread(target=try_accept) for _ in range(5)]
-        for t in threads:
-            t.start()
-        for t in threads:
-            t.join()
-
-        # Should have exactly 10 accepted (one for each unique ID)
-        # and 490 rejected (99 duplicates per ID * 5 threads, but some race)
-        assert accepted_count[0] == 10
-
-
-# =============================================================================
-# P1: Send Methods (HTTP Mock Tests)
-# =============================================================================
-
-
 @pytest.mark.asyncio
 class TestDingTalkSendMethods:
     """
@@ -756,7 +331,9 @@ class TestDingTalkSendMethods:
         )
 
         result = await dingtalk_channel._send_via_session_webhook(
-            session_webhook="https://oapi.dingtalk.com/robot/send?session=abc",
+            session_webhook=(
+                "https://oapi.dingtalk.com/robot/send?session=abc"
+            ),
             body="Hello from test",
             bot_prefix="[Bot]",
         )
@@ -778,6 +355,9 @@ class TestDingTalkSendMethods:
                 return '{"errcode": 400001, "errmsg": "invalid session"}'
 
         class MockClientSession:
+            def __init__(self, *_args, **_kwargs):
+                pass
+
             async def __aenter__(self):
                 return MockResponse()
 
@@ -788,7 +368,9 @@ class TestDingTalkSendMethods:
         dingtalk_channel._http.post = MockClientSession
 
         result = await dingtalk_channel._send_payload_via_session_webhook(
-            session_webhook="https://oapi.dingtalk.com/robot/send?session=abc",
+            session_webhook=(
+                "https://oapi.dingtalk.com/robot/send?session=abc"
+            ),
             payload={"msgtype": "text", "text": {"content": "Hello"}},
         )
 
@@ -807,12 +389,14 @@ class TestDingTalkSendMethods:
             response_text="Internal Server Error",
         )
 
-        result = await dingtalk_channel._send_via_session_webhook(
-            session_webhook="https://oapi.dingtalk.com/robot/send?session=abc",
-            body="Hello",
-        )
-
-        assert result is False
+        with pytest.raises(TimeoutError, match="outcome is unknown"):
+            await dingtalk_channel._send_via_session_webhook(
+                session_webhook=(
+                    "https://oapi.dingtalk.com/robot/send?session=abc"
+                ),
+                body="Hello",
+            )
+        assert mock_http_session.call_count == 1
 
     async def test_send_payload_via_session_webhook_success(
         self,
@@ -832,7 +416,9 @@ class TestDingTalkSendMethods:
             "markdown": {"title": "Test", "text": "Hello"},
         }
         result = await dingtalk_channel._send_payload_via_session_webhook(
-            session_webhook="https://oapi.dingtalk.com/robot/send?session=abc",
+            session_webhook=(
+                "https://oapi.dingtalk.com/robot/send?session=abc"
+            ),
             payload=payload,
         )
 
@@ -905,311 +491,6 @@ class TestDingTalkSendMethods:
 
         # Should not raise, just return
         assert result is None
-
-
-# =============================================================================
-# P2: resolve_session_id and Routing
-# =============================================================================
-
-
-class TestDingTalkResolveSession:
-    """Tests for session resolution and routing."""
-
-    def test_resolve_session_id_with_conversation_id(self, dingtalk_channel):
-        """resolve_session_id should use conversation_id when available."""
-        result = dingtalk_channel.resolve_session_id(
-            sender_id="user123",
-            channel_meta={"conversation_id": "cid_abc_xyz"},
-        )
-
-        # Takes last 8 chars: DINGTALK_SESSION_ID_SUFFIX_LEN = 8
-        assert result == "_abc_xyz"
-
-    def test_resolve_session_id_without_conversation_id(
-        self,
-        dingtalk_channel,
-    ):
-        """resolve_session_id should fallback to sender_id format."""
-        result = dingtalk_channel.resolve_session_id(
-            sender_id="user456",
-            channel_meta={},
-        )
-
-        assert result == "dingtalk:user456"
-
-    def test_to_handle_from_target_formats_correctly(self, dingtalk_channel):
-        """to_handle_from_target should include user_id prefix for DM."""
-        result = dingtalk_channel.to_handle_from_target(
-            user_id="user123",
-            session_id="sess_abc",
-        )
-        assert result == "dingtalk:sw:user123_sess_abc"
-
-        # Without user_id, falls back to suffix-only key (group chat)
-        result_no_user = dingtalk_channel.to_handle_from_target(
-            user_id="",
-            session_id="sess_abc",
-        )
-        assert result_no_user == "dingtalk:sw:sess_abc"
-
-    def test_route_from_handle_sw(self, dingtalk_channel):
-        """_route_from_handle should parse 'dingtalk:sw:' format."""
-        result = dingtalk_channel._route_from_handle("dingtalk:sw:abc123")
-
-        assert result == {"webhook_key": "dingtalk:sw:abc123"}
-
-    def test_route_from_handle_webhook(self, dingtalk_channel):
-        """_route_from_handle should parse 'dingtalk:webhook:' format."""
-        result = dingtalk_channel._route_from_handle(
-            "dingtalk:webhook:http://webhook.url",
-        )
-
-        assert result == {"session_webhook": "http://webhook.url"}
-
-    def test_route_from_handle_direct_url(self, dingtalk_channel):
-        """_route_from_handle should accept direct webhook URL."""
-        result = dingtalk_channel._route_from_handle(
-            "https://oapi.dingtalk.com/robot",
-        )
-
-        assert result == {"session_webhook": "https://oapi.dingtalk.com/robot"}
-
-    def test_route_from_handle_empty(self, dingtalk_channel):
-        """_route_from_handle should handle empty string."""
-        result = dingtalk_channel._route_from_handle("")
-
-        assert result == {}
-
-
-# =============================================================================
-# P2: Group session sharing (share_session_in_group)
-# =============================================================================
-
-
-def _shared_sid(conversation_id: str) -> str:
-    """Expected shared-group session_id for a conversation_id."""
-    from qwenpaw.app.channels.dingtalk.content_utils import (
-        shared_group_session_id_from_conversation_id,
-    )
-
-    return shared_group_session_id_from_conversation_id(conversation_id)
-
-
-class TestDingTalkShareSessionInGroup:
-    """Tests for per-user vs shared context in group chats."""
-
-    @staticmethod
-    def _group_payload() -> dict:
-        return {
-            "channel_id": "dingtalk",
-            "sender_id": "Alice#1234",
-            "acl_sender_id": "staff_alice",
-            "content_parts": [],
-            "meta": {
-                "conversation_id": "cidQWERTY7890XYZ",
-                "conversation_type": "group",
-                "is_group": True,
-            },
-        }
-
-    @staticmethod
-    def _dm_payload() -> dict:
-        return {
-            "channel_id": "dingtalk",
-            "sender_id": "Alice#1234",
-            "acl_sender_id": "staff_alice",
-            "content_parts": [],
-            "meta": {
-                "conversation_id": "cidDM0987654321",
-                "conversation_type": "dm",
-                "is_group": False,
-            },
-        }
-
-    def test_default_is_disabled(self, dingtalk_channel):
-        """Group members stay isolated unless sharing is enabled."""
-        assert dingtalk_channel.share_session_in_group is False
-
-    def test_group_isolated_keeps_sender_as_user_id(self, dingtalk_channel):
-        """Isolated mode keeps per-member user_id (own context)."""
-        request = dingtalk_channel.build_agent_request_from_native(
-            self._group_payload(),
-        )
-
-        assert request.user_id == "Alice#1234"
-        assert request.session_id == "Y7890XYZ"
-
-    def test_group_shared_collapses_user_id(
-        self,
-        dingtalk_channel_shared_group,
-    ):
-        """Shared mode collapses user_id so members share one context."""
-        channel = dingtalk_channel_shared_group
-        request = channel.build_agent_request_from_native(
-            self._group_payload(),
-        )
-
-        assert request.user_id == "group"
-        assert request.session_id == _shared_sid("cidQWERTY7890XYZ")
-        assert request.session_id != "Y7890XYZ"
-
-    def test_shared_user_id_has_no_underscore(
-        self,
-        dingtalk_channel_shared_group,
-    ):
-        """Shared user_id must stay splittable in the webhook key."""
-        channel = dingtalk_channel_shared_group
-        request = channel.build_agent_request_from_native(
-            self._group_payload(),
-        )
-        to_handle = channel.to_handle_from_target(
-            user_id=request.user_id,
-            session_id=request.session_id,
-        )
-
-        sid = _shared_sid("cidQWERTY7890XYZ")
-        assert to_handle == f"dingtalk:sw:group_{sid}"
-        fallback = channel._suffix_only_webhook_key(to_handle)
-        assert fallback == f"dingtalk:sw:{sid}"
-
-    def test_dm_unaffected_by_sharing(self, dingtalk_channel_shared_group):
-        """Direct messages keep their own user_id when sharing is on."""
-        channel = dingtalk_channel_shared_group
-        request = channel.build_agent_request_from_native(self._dm_payload())
-
-        assert request.user_id == "Alice#1234"
-
-    def test_debounce_key_isolated_appends_sender(self, dingtalk_channel):
-        """Isolated mode routes each member to its own queue."""
-        key = dingtalk_channel.get_debounce_key(self._group_payload())
-
-        assert key == "Y7890XYZ:Alice#1234"
-
-    def test_debounce_key_shared_drops_sender(
-        self,
-        dingtalk_channel_shared_group,
-    ):
-        """Shared mode routes the whole group to one queue."""
-        key = dingtalk_channel_shared_group.get_debounce_key(
-            self._group_payload(),
-        )
-
-        assert key == _shared_sid("cidQWERTY7890XYZ")
-
-    def test_debounce_key_shared_dm_keeps_sender(
-        self,
-        dingtalk_channel_shared_group,
-    ):
-        """DM queues keep sender isolation when sharing is on."""
-        key = dingtalk_channel_shared_group.get_debounce_key(
-            self._dm_payload(),
-        )
-
-        assert key == "87654321:Alice#1234"
-
-    def test_from_config_passes_flag(self, mock_process_handler):
-        """from_config should forward share_session_in_group."""
-        from qwenpaw.app.channels.dingtalk.channel import DingTalkChannel
-        from qwenpaw.config.config import DingTalkConfig
-
-        config = DingTalkConfig(
-            enabled=True,
-            client_id="cid",
-            client_secret="secret",
-            share_session_in_group=True,
-        )
-        channel = DingTalkChannel.from_config(
-            process=mock_process_handler,
-            config=config,
-        )
-
-        assert channel.share_session_in_group is True
-
-    def test_merge_two_members_keeps_first_sender_identity(
-        self,
-        dingtalk_channel_shared_group,
-    ):
-        """Merging members must not mix sender identity fields."""
-        channel = dingtalk_channel_shared_group
-        alice = self._group_payload()
-        alice["meta"]["sender_staff_id"] = "staff_alice"
-        alice["meta"]["user_name"] = "Alice"
-        bob = self._group_payload()
-        bob["sender_id"] = "Bob#5678"
-        bob["acl_sender_id"] = "staff_bob"
-        bob["meta"]["sender_staff_id"] = "staff_bob"
-        bob["meta"]["user_name"] = "Bob"
-
-        merged = channel.merge_native_items([alice, bob])
-
-        assert merged["sender_id"] == "Alice#1234"
-        assert merged["acl_sender_id"] == "staff_alice"
-        assert merged["meta"]["user_name"] == "Alice"
-        assert merged["meta"]["sender_staff_id"] == "staff_alice"
-
-    def test_merge_two_members_tracks_newest_session(
-        self,
-        dingtalk_channel_shared_group,
-    ):
-        """Conversation/webhook state still follows the newest item."""
-        channel = dingtalk_channel_shared_group
-        alice = self._group_payload()
-        alice["meta"]["session_webhook"] = "https://old.example"
-        bob = self._group_payload()
-        bob["sender_id"] = "Bob#5678"
-        bob["meta"]["session_webhook"] = "https://new.example"
-
-        merged = channel.merge_native_items([alice, bob])
-
-        assert merged["meta"]["session_webhook"] == "https://new.example"
-        assert merged["meta"]["batched_count"] == 2
-
-    def test_shared_groups_with_same_suffix_stay_separate(
-        self,
-        dingtalk_channel_shared_group,
-    ):
-        """Groups sharing an 8-char suffix stay isolated."""
-        channel = dingtalk_channel_shared_group
-        first = self._group_payload()
-        first["meta"]["conversation_id"] = "cidAAAASAME8888"
-        second = self._group_payload()
-        second["meta"]["conversation_id"] = "cidBBBBSAME8888"
-
-        req_a = channel.build_agent_request_from_native(first)
-        req_b = channel.build_agent_request_from_native(second)
-
-        assert first["meta"]["conversation_id"][-8:] == (
-            second["meta"]["conversation_id"][-8:]
-        )
-        assert req_a.session_id != req_b.session_id
-        assert channel.get_debounce_key(first) != channel.get_debounce_key(
-            second,
-        )
-
-    def test_shared_session_id_is_underscore_free(
-        self,
-        dingtalk_channel_shared_group,
-    ):
-        """Hash must stay "_"-free for the webhook fallback key split."""
-        channel = dingtalk_channel_shared_group
-        request = channel.build_agent_request_from_native(
-            self._group_payload(),
-        )
-
-        assert "_" not in request.session_id
-
-    def test_isolated_mode_keeps_short_suffix(self, dingtalk_channel):
-        """Isolated mode keeps the legacy suffix (no state migration)."""
-        request = dingtalk_channel.build_agent_request_from_native(
-            self._group_payload(),
-        )
-
-        assert request.session_id == "Y7890XYZ"
-
-
-# =============================================================================
-# P2: Open API Fallback (Critical for CHAN-D02)
-# =============================================================================
 
 
 @pytest.mark.asyncio
@@ -1294,11 +575,6 @@ class TestDingTalkOpenAPIFallback:
         assert result["sender_staff_id"] == "entry_staff"
 
 
-# =============================================================================
-# P2: Parts to Text Conversion
-# =============================================================================
-
-
 class TestDingTalkPartsToText:
     """Tests for _parts_to_single_text method."""
 
@@ -1359,11 +635,6 @@ class TestDingTalkPartsToText:
         assert result == ""
 
 
-# =============================================================================
-# P2: Session Webhook from Meta
-# =============================================================================
-
-
 class TestDingTalkGetSessionWebhook:
     """Tests for _get_session_webhook method."""
 
@@ -1388,52 +659,15 @@ class TestDingTalkGetSessionWebhook:
         assert result is None
 
 
-# =============================================================================
-# P2: Build Agent Request
-# =============================================================================
-
-
-class TestDingTalkBuildAgentRequest:
-    """Tests for build_agent_request_from_native method."""
-
-    def test_build_agent_request_creates_request(self, dingtalk_channel):
-        """Should create AgentRequest from native payload."""
-        from qwenpaw.app.channels.base import TextContent, ContentType
-
-        payload = {
-            "channel_id": "dingtalk",
-            "sender_id": "user123",
-            "content_parts": [
-                TextContent(type=ContentType.TEXT, text="Hello"),
-            ],
-            "meta": {"session_webhook": "http://webhook.url"},
-        }
-
-        request = dingtalk_channel.build_agent_request_from_native(payload)
-
-        assert request.user_id == "user123"
-        assert request.channel == "dingtalk"
-        assert len(request.input) == 1
-
-
-# =============================================================================
-# P2: Reply Sync Methods
-# =============================================================================
-
-
-# =============================================================================
-# P2: Utility Functions
-# =============================================================================
-
-
 class TestDingTalkUtils:
     """Tests for utility functions in utils.py."""
 
     def test_guess_suffix_from_file_content_pdf(self, tmp_path):
         """Should detect PDF files by magic bytes."""
-        from qwenpaw.app.channels.dingtalk.utils import (
-            guess_suffix_from_file_content,
-        )
+        guess_suffix_from_file_content = artifact_module(
+            "dingtalk",
+            "utils",
+        ).guess_suffix_from_file_content
 
         pdf_file = tmp_path / "test.pdf"
         pdf_file.write_bytes(b"%PDF-1.4 test content")
@@ -1444,9 +678,10 @@ class TestDingTalkUtils:
 
     def test_guess_suffix_from_file_content_png(self, tmp_path):
         """Should detect PNG files by magic bytes."""
-        from qwenpaw.app.channels.dingtalk.utils import (
-            guess_suffix_from_file_content,
-        )
+        guess_suffix_from_file_content = artifact_module(
+            "dingtalk",
+            "utils",
+        ).guess_suffix_from_file_content
 
         png_file = tmp_path / "test.png"
         png_file.write_bytes(b"\x89PNG\r\n\x1a\n test content")
@@ -1457,9 +692,10 @@ class TestDingTalkUtils:
 
     def test_guess_suffix_from_file_content_jpg(self, tmp_path):
         """Should detect JPG files by magic bytes."""
-        from qwenpaw.app.channels.dingtalk.utils import (
-            guess_suffix_from_file_content,
-        )
+        guess_suffix_from_file_content = artifact_module(
+            "dingtalk",
+            "utils",
+        ).guess_suffix_from_file_content
 
         jpg_file = tmp_path / "test.jpg"
         jpg_file.write_bytes(b"\xff\xd8\xff test content")
@@ -1470,9 +706,10 @@ class TestDingTalkUtils:
 
     def test_guess_suffix_from_file_content_unknown(self, tmp_path):
         """Should return None for unknown file types."""
-        from qwenpaw.app.channels.dingtalk.utils import (
-            guess_suffix_from_file_content,
-        )
+        guess_suffix_from_file_content = artifact_module(
+            "dingtalk",
+            "utils",
+        ).guess_suffix_from_file_content
 
         unknown_file = tmp_path / "test.unknown"
         unknown_file.write_bytes(
@@ -1485,18 +722,14 @@ class TestDingTalkUtils:
 
     def test_guess_suffix_from_nonexistent_file(self, tmp_path):
         """Should handle non-existent file."""
-        from qwenpaw.app.channels.dingtalk.utils import (
-            guess_suffix_from_file_content,
-        )
+        guess_suffix_from_file_content = artifact_module(
+            "dingtalk",
+            "utils",
+        ).guess_suffix_from_file_content
 
         result = guess_suffix_from_file_content(tmp_path / "nonexistent.bin")
 
         assert result is None
-
-
-# =============================================================================
-# P2: Media Upload (HTTP Mock)
-# =============================================================================
 
 
 @pytest.mark.asyncio
@@ -1579,17 +812,15 @@ class TestDingTalkMediaUpload:
         assert result is None
 
 
-# =============================================================================
-# P2: AI Card Store
-# =============================================================================
-
-
 class TestDingTalkAICardStore:
     """Tests for AICardPendingStore."""
 
     def test_load_empty_store(self, tmp_path):
         """Loading from non-existent file returns empty list."""
-        from qwenpaw.app.channels.dingtalk.ai_card import AICardPendingStore
+        AICardPendingStore = artifact_module(
+            "dingtalk",
+            "ai_card",
+        ).AICardPendingStore
 
         store = AICardPendingStore(tmp_path / "nonexistent.json")
         result = store.load()
@@ -1598,7 +829,10 @@ class TestDingTalkAICardStore:
 
     def test_load_existing_cards(self, tmp_path):
         """Loading from existing file returns cards."""
-        from qwenpaw.app.channels.dingtalk.ai_card import AICardPendingStore
+        AICardPendingStore = artifact_module(
+            "dingtalk",
+            "ai_card",
+        ).AICardPendingStore
 
         card_file = tmp_path / "cards.json"
         card_file.write_text(
@@ -1622,10 +856,11 @@ class TestDingTalkAICardStore:
 
     def test_save_cards(self, tmp_path):
         """Saving cards writes to file."""
-        from qwenpaw.app.channels.dingtalk.ai_card import (
-            AICardPendingStore,
-            ActiveAICard,
-        )
+        AICardPendingStore = artifact_module(
+            "dingtalk",
+            "ai_card",
+        ).AICardPendingStore
+        ActiveAICard = artifact_module("dingtalk", "ai_card").ActiveAICard
 
         store = AICardPendingStore(tmp_path / "cards.json")
 
@@ -1655,12 +890,13 @@ class TestDingTalkAICardStore:
 
     def test_save_skips_terminal_states(self, tmp_path):
         """Saving should skip cards in terminal states."""
-        from qwenpaw.app.channels.dingtalk.ai_card import (
-            AICardPendingStore,
-            ActiveAICard,
-            FINISHED,
-            FAILED,
-        )
+        AICardPendingStore = artifact_module(
+            "dingtalk",
+            "ai_card",
+        ).AICardPendingStore
+        ActiveAICard = artifact_module("dingtalk", "ai_card").ActiveAICard
+        FINISHED = artifact_module("dingtalk", "ai_card").FINISHED
+        FAILED = artifact_module("dingtalk", "ai_card").FAILED
 
         store = AICardPendingStore(tmp_path / "cards.json")
 
@@ -1704,117 +940,6 @@ class TestDingTalkAICardStore:
         )
         assert len(data["pending_cards"]) == 1
         assert data["pending_cards"][0]["card_instance_id"] == "active_card"
-
-
-# =============================================================================
-# P2: Ack Early (Streaming)
-# =============================================================================
-
-
-# =============================================================================
-# Additional Edge Case Tests
-# =============================================================================
-
-
-# =============================================================================
-# P1: Workspace Integration Tests (Mock Workspace)
-# =============================================================================
-
-
-# Helper function for async empty generator
-async def async_empty_generator():
-    """Helper to create async empty generator."""
-    return
-    yield  # Make it a generator
-
-
-@pytest.mark.asyncio
-class TestDingTalkWorkspaceIntegration:
-    """
-    Tests requiring mock workspace.
-
-    Covers _consume_with_tracker, _stream_with_tracker, and
-    integration with ChatManager and TaskTracker.
-    """
-
-    async def _mock_stream_from_queue(self, *args, **kwargs):
-        """Async generator for stream_from_queue mock."""
-        if False:  # Never yields, just for async generator type
-            yield None
-
-    @pytest.fixture
-    def mock_workspace(self):
-        """Create a fully mocked workspace."""
-        workspace = MagicMock()
-
-        # Mock chat_manager
-        chat_manager = AsyncMock()
-        mock_chat = MagicMock()
-        mock_chat.id = "chat_123"
-        chat_manager.get_or_create_chat.return_value = mock_chat
-        workspace.chat_manager = chat_manager
-
-        # Mock task_tracker - use simple MagicMock,
-        task_tracker = MagicMock()
-        workspace.task_tracker = task_tracker
-
-        return workspace
-
-    @pytest.fixture
-    def dingtalk_with_workspace(self, dingtalk_channel, mock_workspace):
-        """Channel with mock workspace set."""
-        dingtalk_channel.set_workspace(mock_workspace)
-        return dingtalk_channel
-
-    async def test_stream_with_tracker_yields_sse_events(
-        self,
-        dingtalk_with_workspace,
-    ):
-        """_stream_with_tracker should yield SSE formatted events."""
-        from qwenpaw.schemas import (
-            RunStatus,
-            Event,
-            Message,
-            MessageType,
-            Role,
-            TextContent,
-            ContentType,
-        )
-
-        mock_event = Event(
-            object="message",
-            status=RunStatus.Completed,
-            type="message.completed",
-            id="ev-1",
-            created_at=1234567890,
-            message=Message(
-                type=MessageType.MESSAGE,
-                role=Role.ASSISTANT,
-                content=[TextContent(type=ContentType.TEXT, text="Hello")],
-            ),
-        )
-
-        async def mock_process(request):
-            yield mock_event
-
-        dingtalk_with_workspace._process = mock_process
-
-        payload = {
-            "sender_id": "user123",
-            "content_parts": [
-                TextContent(type=ContentType.TEXT, text="Query"),
-            ],
-        }
-
-        events = []
-        async for event in dingtalk_with_workspace._stream_with_tracker(
-            payload,
-        ):
-            events.append(event)
-            break  # Just check first event
-
-        assert len(events) == 1
-        assert "data:" in events[0]
 
 
 @pytest.mark.asyncio
@@ -1973,11 +1098,6 @@ class TestDingTalkSendContentParts:
                 mock_upload.assert_called_once()
 
 
-# =============================================================================
-# Additional Edge Case Tests
-# =============================================================================
-
-
 @pytest.mark.asyncio
 class TestDingTalkEdgeCases:
     """Additional edge case tests."""
@@ -2000,230 +1120,6 @@ class TestDingTalkEdgeCases:
         """Stopping without prior start should succeed."""
         # Should not raise
         await dingtalk_channel.stop()
-
-
-# =============================================================================
-# P1: Callback Handler Tests
-# =============================================================================
-
-
-@pytest.mark.asyncio
-class TestDingTalkCallbackHandler:
-    """Tests for DingTalk callback handler (handler.py)."""
-
-    @pytest.fixture
-    def mock_download_fetcher(self):
-        """Mock download URL fetcher."""
-
-        async def fetcher(*, download_code, robot_code, filename_hint):
-            return f"http://download.url/{download_code}"
-
-        return fetcher
-
-    @pytest.fixture
-    def handler(self, mock_download_fetcher, mock_process_handler):
-        """Create a DingTalkChannelHandler instance."""
-        from qwenpaw.app.channels.dingtalk.handler import (
-            DingTalkChannelHandler,
-        )
-
-        loop = asyncio.new_event_loop()
-        handler = DingTalkChannelHandler(
-            main_loop=loop,
-            enqueue_callback=MagicMock(),
-            bot_prefix="[Test] ",
-            download_url_fetcher=mock_download_fetcher,
-            try_accept_message=lambda msg_id: True,
-        )
-        yield handler
-        loop.close()
-
-    @pytest.fixture
-    def mock_callback_message(self):
-        """Create a mock CallbackMessage."""
-        callback = MagicMock()
-        callback.data = {
-            "msgId": "test_msg_123",
-            "senderStaffId": "user123",
-            "conversationId": "cid_group_abc",
-            "conversationType": "2",  # Group chat
-            "text": {"content": "Hello, this is a test message"},
-            "isInAtList": True,
-            "sessionWebhook": "https://oapi.dingtalk.com/robot/send",
-            "sessionWebhookExpiredTime": 1893456000000,
-        }
-        return callback
-
-    @pytest.fixture
-    def mock_incoming_message(self):
-        """Create a mock ChatbotMessage."""
-        msg = MagicMock()
-        msg.text.content = "Hello, this is a test message"
-        msg.sender_staff_id = "user123"
-        msg.senderStaffId = "user123"
-        msg.conversation_id = "cid_group_abc"
-        msg.conversation_type = "2"
-        msg.sessionWebhook = "https://oapi.dingtalk.com/robot/send?session=abc"
-        msg.sessionWebhookExpiredTime = 1893456000000
-        msg.robot_code = "robot_123"
-        msg.robotCode = "robot_123"
-        msg.to_dict.return_value = {
-            "text": {"content": "Hello, this is a test message"},
-        }
-        return msg
-
-    def test_extract_filename_hint(self, handler):
-        """Should extract filename from various payload formats."""
-        # Test fileName key
-        payload = {"fileName": "test.pdf"}
-        result = handler._extract_filename_hint(payload)
-        assert result == "test.pdf"
-
-        # Test file_name key
-        payload = {"file_name": "test2.pdf"}
-        result = handler._extract_filename_hint(payload)
-        assert result == "test2.pdf"
-
-        # Test filename key
-        payload = {"filename": "test3.pdf"}
-        result = handler._extract_filename_hint(payload)
-        assert result == "test3.pdf"
-
-        # Test name key
-        payload = {"name": "test4.pdf"}
-        result = handler._extract_filename_hint(payload)
-        assert result == "test4.pdf"
-
-        # Test title key
-        payload = {"title": "test5.pdf"}
-        result = handler._extract_filename_hint(payload)
-        assert result == "test5.pdf"
-
-        # Test empty/whitespace value
-        payload = {"fileName": "   "}
-        result = handler._extract_filename_hint(payload)
-        assert result is None
-
-        # Test no valid key
-        payload = {"other": "value"}
-        result = handler._extract_filename_hint(payload)
-        assert result is None
-
-    def test_emit_native_threadsafe(self, handler):
-        """Should emit native message via callback."""
-        handler._enqueue_callback = MagicMock()
-        handler._main_loop.call_soon_threadsafe = MagicMock()
-        handler._emit_native_threadsafe({"test": "data"})
-
-        assert handler._main_loop.call_soon_threadsafe.called
-
-    def test_handler_require_mention_flag(self, mock_download_fetcher):
-        """Handler should store require_mention flag."""
-        from qwenpaw.app.channels.dingtalk.handler import (
-            DingTalkChannelHandler,
-        )
-
-        loop = asyncio.new_event_loop()
-        handler = DingTalkChannelHandler(
-            main_loop=loop,
-            enqueue_callback=MagicMock(),
-            bot_prefix="[Test] ",
-            download_url_fetcher=mock_download_fetcher,
-            require_mention=True,
-        )
-        assert handler._require_mention is True
-        loop.close()
-
-
-@pytest.mark.asyncio
-class TestDingTalkConsumeErrorHandling:
-    """Tests for _on_consume_error hook."""
-
-    async def test_on_consume_error_sends_emoji_and_message(
-        self,
-        dingtalk_channel,
-    ):
-        """Should recall thinking, send error emoji and text."""
-        dingtalk_channel._robot_sdk = MagicMock()
-        dingtalk_channel._get_access_token = AsyncMock(
-            return_value="token_123",
-        )
-
-        with (
-            patch.object(
-                dingtalk_channel,
-                "_send_emotion",
-                new_callable=AsyncMock,
-            ) as mock_emotion,
-            patch.object(
-                dingtalk_channel,
-                "_send_via_session_webhook",
-                new_callable=AsyncMock,
-            ) as mock_webhook,
-        ):
-            request = MagicMock()
-            request.channel_meta = {
-                "message_id": "msg_123",
-                "conversation_id": "cid_123",
-                "session_webhook": "http://webhook.url",
-            }
-
-            await dingtalk_channel._on_consume_error(
-                request,
-                "dingtalk:sw:test",
-                "Something went wrong",
-            )
-
-            # Should recall thinking and send error emoji
-            assert mock_emotion.call_count == 2
-            assert mock_emotion.call_args_list[0][0] == (
-                "msg_123",
-                "cid_123",
-                "🤔Thinking",
-            )
-            assert mock_emotion.call_args_list[1][0] == (
-                "msg_123",
-                "cid_123",
-                "☹️Error",
-            )
-            # Should send error text via webhook
-            mock_webhook.assert_called_once()
-
-    async def test_on_consume_error_releases_dedup(
-        self,
-        dingtalk_channel,
-    ):
-        """_on_consume_error should release message IDs for dedup."""
-        with (
-            patch.object(
-                dingtalk_channel,
-                "_send_emotion",
-                new_callable=AsyncMock,
-            ),
-            patch.object(
-                dingtalk_channel,
-                "_release_message_ids",
-            ) as mock_release,
-        ):
-            request = MagicMock()
-            request.channel_meta = {
-                "message_id": "msg_123",
-                "conversation_id": "cid_123",
-                "_message_ids": ["msg_123", "msg_456"],
-            }
-
-            await dingtalk_channel._on_consume_error(
-                request,
-                "dingtalk:sw:test",
-                "Error",
-            )
-
-            mock_release.assert_called_once_with(["msg_123", "msg_456"])
-
-
-# =============================================================================
-# P2: AI Card Tests (Stream Mode)
-# =============================================================================
 
 
 @pytest.mark.asyncio
@@ -2316,10 +1212,8 @@ class TestDingTalkAICardMethods:
         dingtalk_channel,
     ):
         """Successfully stream content to AI card."""
-        from qwenpaw.app.channels.dingtalk.ai_card import (
-            ActiveAICard,
-            PROCESSING,
-        )
+        ActiveAICard = artifact_module("dingtalk", "ai_card").ActiveAICard
+        PROCESSING = artifact_module("dingtalk", "ai_card").PROCESSING
 
         dingtalk_channel.message_type = "card"
         dingtalk_channel.card_template_key = "content"
@@ -2349,10 +1243,8 @@ class TestDingTalkAICardMethods:
         dingtalk_channel,
     ):
         """Finalize AI card streaming."""
-        from qwenpaw.app.channels.dingtalk.ai_card import (
-            ActiveAICard,
-            PROCESSING,
-        )
+        ActiveAICard = artifact_module("dingtalk", "ai_card").ActiveAICard
+        PROCESSING = artifact_module("dingtalk", "ai_card").PROCESSING
 
         dingtalk_channel.message_type = "card"
         dingtalk_channel.card_template_key = "content"
@@ -2385,10 +1277,8 @@ class TestDingTalkAICardMethods:
         mock_http_session,
     ):
         """Skip streaming if content hasn't changed."""
-        from qwenpaw.app.channels.dingtalk.ai_card import (
-            ActiveAICard,
-            PROCESSING,
-        )
+        ActiveAICard = artifact_module("dingtalk", "ai_card").ActiveAICard
+        PROCESSING = artifact_module("dingtalk", "ai_card").PROCESSING
 
         dingtalk_channel.message_type = "card"
         dingtalk_channel.card_template_key = "content"
@@ -2421,10 +1311,9 @@ class TestDingTalkAICardMethods:
     ):
         """Refresh token on 401 response from SDK."""
         from Tea.exceptions import TeaException
-        from qwenpaw.app.channels.dingtalk.ai_card import (
-            ActiveAICard,
-            PROCESSING,
-        )
+
+        ActiveAICard = artifact_module("dingtalk", "ai_card").ActiveAICard
+        PROCESSING = artifact_module("dingtalk", "ai_card").PROCESSING
 
         dingtalk_channel.message_type = "card"
         dingtalk_channel.card_template_key = "content"
@@ -2517,11 +1406,6 @@ class TestDingTalkAICardMethods:
         result = dingtalk_channel._build_ai_card_initial_text()
 
         assert result.startswith("[Bot] ")
-
-
-# =============================================================================
-# P2: File Download Tests
-# =============================================================================
 
 
 @pytest.mark.asyncio
@@ -2802,336 +1686,6 @@ class TestDingTalkFileDownload:
         assert result is None
 
 
-# =============================================================================
-# P2: Stream Mode Tests
-# =============================================================================
-
-
-class TestDingTalkStreamRequestTimeout:
-    """Tests for bounded synchronous requests in the stream SDK."""
-
-    def test_stream_and_chatbot_requests_use_default_timeout(
-        self,
-        dingtalk_channel,
-        monkeypatch,
-    ):
-        """Connection and chatbot ACK requests should share timeouts."""
-        from qwenpaw.app.channels.dingtalk.channel import (
-            _DINGTALK_REQUESTS_WITH_TIMEOUT,
-            dingtalk_chatbot_module,
-            dingtalk_stream_module,
-        )
-
-        mock_post = MagicMock(return_value=MagicMock())
-        monkeypatch.setattr(
-            "qwenpaw.app.channels.dingtalk.channel.requests.post",
-            mock_post,
-        )
-        monkeypatch.setattr(
-            dingtalk_stream_module,
-            "requests",
-            MagicMock(),
-        )
-        monkeypatch.setattr(
-            dingtalk_chatbot_module,
-            "requests",
-            MagicMock(),
-        )
-
-        dingtalk_channel._apply_stream_request_timeout()
-
-        assert (
-            dingtalk_stream_module.requests is _DINGTALK_REQUESTS_WITH_TIMEOUT
-        )
-        assert (
-            dingtalk_chatbot_module.requests is _DINGTALK_REQUESTS_WITH_TIMEOUT
-        )
-
-        incoming_message = MagicMock()
-        incoming_message.session_webhook = (
-            "https://api.dingtalk.com/session-webhook"
-        )
-        incoming_message.sender_staff_id = "user_123"
-        handler = dingtalk_chatbot_module.ChatbotHandler()
-
-        handler.reply_text(" ", incoming_message)
-
-        mock_post.assert_called_once_with(
-            "https://api.dingtalk.com/session-webhook",
-            headers={
-                "Content-Type": "application/json",
-                "Accept": "*/*",
-            },
-            data=(
-                '{"msgtype": "text", "text": {"content": " "}, '
-                '"at": {"atUserIds": ["user_123"]}}'
-            ),
-            timeout=(10, 30),
-        )
-
-
-@pytest.mark.asyncio
-class TestDingTalkStreamMode:
-    """Tests for Stream/WebSocket mode."""
-
-    async def test_stream_loop_starts_client(self, dingtalk_channel):
-        """Stream loop should start client and handle stop event."""
-        mock_client = MagicMock()
-        mock_client.start = AsyncMock()
-        mock_client.websocket = None
-
-        dingtalk_channel._client = mock_client
-        dingtalk_channel._stop_event.set()  # Signal stop immediately
-
-        # Should complete without error
-        await dingtalk_channel._stream_loop()
-
-        assert mock_client.start.called
-
-    async def test_stream_loop_no_client(self, dingtalk_channel):
-        """Stream loop should exit early if no client."""
-        dingtalk_channel._client = None
-
-        # Should complete without error
-        await dingtalk_channel._stream_loop()
-
-    async def test_run_stream_forever(self, dingtalk_channel):
-        """Run stream forever should execute stream loop."""
-        dingtalk_channel._stop_event.set()  # Stop immediately
-
-        mock_client = MagicMock()
-        mock_client.start = AsyncMock()
-        mock_client.websocket = None
-        dingtalk_channel._client = mock_client
-
-        # Should complete without hanging
-        dingtalk_channel._run_stream_forever()
-
-    def test_ai_card_enabled(self, dingtalk_channel):
-        """Check if AI card is enabled."""
-        # Not enabled by default
-        assert dingtalk_channel._ai_card_enabled() is False
-
-        # Enable
-        dingtalk_channel.message_type = "card"
-        dingtalk_channel.card_template_id = "template_123"
-        dingtalk_channel.robot_code = "robot_123"
-
-        assert dingtalk_channel._ai_card_enabled() is True
-
-    def test_ai_card_disabled_no_template(self, dingtalk_channel):
-        """AI card disabled without template."""
-        dingtalk_channel.message_type = "card"
-        dingtalk_channel.card_template_id = ""
-        dingtalk_channel.robot_code = "robot_123"
-
-        assert dingtalk_channel._ai_card_enabled() is False
-
-
-@pytest.mark.asyncio
-class TestDingTalkHealthCheck:
-    """Tests for DingTalk connection health reporting."""
-
-    @staticmethod
-    def _set_runtime_state(
-        channel,
-        *,
-        thread_alive: bool = True,
-        websocket_state: str = "OPEN",
-        stream_loop_running: bool = True,
-    ):
-        loop = asyncio.get_running_loop()
-        websocket = MagicMock()
-        websocket.state.name = websocket_state
-        websocket.ping = AsyncMock()
-        pong_waiter = loop.create_future()
-        pong_waiter.set_result(0.01)
-        websocket.ping.return_value = pong_waiter
-        client = MagicMock()
-        client.websocket = websocket
-        channel._client = client
-        channel._stream_thread = MagicMock()
-        channel._stream_thread.is_alive.return_value = thread_alive
-        if stream_loop_running:
-            channel._stream_event_loop = loop
-        else:
-            channel._stream_event_loop = MagicMock()
-            channel._stream_event_loop.is_running.return_value = False
-        channel._http = MagicMock()
-        channel._http.closed = False
-        return websocket
-
-    async def test_reports_healthy_for_live_stream(
-        self,
-        dingtalk_channel,
-    ):
-        """A connected and responsive stream should be healthy."""
-        websocket = self._set_runtime_state(dingtalk_channel)
-
-        result = await dingtalk_channel.health_check()
-
-        assert result["status"] == "healthy"
-        websocket.ping.assert_awaited_once_with()
-
-    @pytest.mark.parametrize(
-        (
-            "thread_alive",
-            "websocket_state",
-            "stream_loop_running",
-            "expected_detail",
-        ),
-        [
-            (False, "OPEN", True, "Stream thread is not running"),
-            (True, "CLOSED", True, "WebSocket connection is not open"),
-            (True, "OPEN", False, "Stream event loop is not running"),
-        ],
-    )
-    async def test_reports_unhealthy_for_broken_stream_state(
-        self,
-        dingtalk_channel,
-        thread_alive,
-        websocket_state,
-        stream_loop_running,
-        expected_detail,
-    ):
-        """Broken stream states should not be reported as healthy."""
-        self._set_runtime_state(
-            dingtalk_channel,
-            thread_alive=thread_alive,
-            websocket_state=websocket_state,
-            stream_loop_running=stream_loop_running,
-        )
-
-        result = await dingtalk_channel.health_check()
-
-        assert result["status"] == "unhealthy"
-        assert expected_detail in result["detail"]
-
-    async def test_reports_unhealthy_when_pong_times_out(
-        self,
-        dingtalk_channel,
-    ):
-        """An open socket without a Pong response should be unhealthy."""
-        websocket = self._set_runtime_state(dingtalk_channel)
-        websocket.ping.return_value = (
-            asyncio.get_running_loop().create_future()
-        )
-
-        with patch(
-            "qwenpaw.app.channels.dingtalk.channel."
-            "_STREAM_HEALTH_PING_TIMEOUT_SECONDS",
-            0.01,
-        ):
-            result = await dingtalk_channel.health_check()
-
-        assert result["status"] == "unhealthy"
-        assert "WebSocket Ping timed out" in result["detail"]
-
-    async def test_reports_unhealthy_when_ping_fails(
-        self,
-        dingtalk_channel,
-    ):
-        """A Ping transport error should be reported as unhealthy."""
-        websocket = self._set_runtime_state(dingtalk_channel)
-        websocket.ping.side_effect = ConnectionError("socket closed")
-
-        result = await dingtalk_channel.health_check()
-
-        assert result["status"] == "unhealthy"
-        assert "WebSocket Ping failed: ConnectionError" in result["detail"]
-
-    async def test_reports_unhealthy_when_ping_is_cancelled(
-        self,
-        dingtalk_channel,
-    ):
-        """A Ping cancelled by Stream reconnect should be unhealthy."""
-        self._set_runtime_state(dingtalk_channel)
-
-        def cancel_probe(coro, _loop):
-            coro.close()
-            future = Future()
-            future.cancel()
-            return future
-
-        with patch(
-            "asyncio.run_coroutine_threadsafe",
-            side_effect=cancel_probe,
-        ):
-            result = await dingtalk_channel.health_check()
-
-        assert result["status"] == "unhealthy"
-        assert "WebSocket Ping was cancelled" in result["detail"]
-
-    async def test_reports_unhealthy_when_stream_loop_is_blocked(
-        self,
-        dingtalk_channel,
-    ):
-        """Health should time out if the Stream loop cannot run Ping."""
-        self._set_runtime_state(dingtalk_channel)
-
-        def leave_probe_pending(coro, _loop):
-            coro.close()
-            return Future()
-
-        with patch(
-            "asyncio.run_coroutine_threadsafe",
-            side_effect=leave_probe_pending,
-        ), patch(
-            "qwenpaw.app.channels.dingtalk.channel."
-            "_STREAM_HEALTH_PING_TIMEOUT_SECONDS",
-            0.01,
-        ):
-            result = await dingtalk_channel.health_check()
-
-        assert result["status"] == "unhealthy"
-        assert "WebSocket Ping timed out" in result["detail"]
-
-
-# =============================================================================
-# P2: Request Processing Tests
-# =============================================================================
-
-
-@pytest.mark.asyncio
-class TestDingTalkRequestProcessing:
-    """Tests for request processing flow."""
-
-    # Note: allowlist blocking flow is tested via _check_allowlist unit tests
-    # Integration test with _run_process_loop requires complex async mock setup
-
-    async def test_before_consume_process_sends_thinking_emoji(
-        self,
-        dingtalk_channel,
-    ):
-        """_before_consume_process should send thinking emoji."""
-        from unittest.mock import MagicMock
-
-        request = MagicMock()
-        request.channel_meta = {
-            "message_id": "msg_123",
-            "conversation_id": "cid_456",
-        }
-        request.session_id = None
-
-        with patch.object(
-            dingtalk_channel,
-            "_send_emotion",
-            new_callable=AsyncMock,
-        ) as mock_emotion:
-            await dingtalk_channel._before_consume_process(request)
-
-            mock_emotion.assert_called_once_with(
-                "msg_123",
-                "cid_456",
-                "🤔Thinking",
-            )
-
-
-# =============================================================================
-# P2: Send Method Tests
-# =============================================================================
-
-
 @pytest.mark.asyncio
 class TestDingTalkSendMethodsExtended:
     """Extended tests for send methods."""
@@ -3207,7 +1761,7 @@ class TestDingTalkSendMethodsExtended:
 
         # Webhook call fails
         mock_http_session.expect_post(
-            url="https://oapi.dingtalk.com/robot/send",
+            url="http://expired.webhook",
             response_status=400,
             response_json={"errcode": 40014, "errmsg": "invalid session"},
         )
@@ -3227,7 +1781,7 @@ class TestDingTalkSendMethodsExtended:
         dingtalk_channel._http = mock_http_session
 
         with patch(
-            "qwenpaw.app.channels.dingtalk.channel.logger.warning",
+            "c6_artifact_dingtalk.transport.logger.warning",
         ) as mock_warning:
             # Should return quietly (no raise) for non-API sends.
             await dingtalk_channel.send(
@@ -3281,11 +1835,6 @@ class TestDingTalkSendMethodsExtended:
                 )
 
 
-# =============================================================================
-# P2: Media Part Sending Tests
-# =============================================================================
-
-
 @pytest.mark.asyncio
 class TestDingTalkMediaPartSending:
     """Tests for sending media parts via webhook."""
@@ -3313,7 +1862,9 @@ class TestDingTalkMediaPartSending:
         )
 
         result = await dingtalk_channel._send_media_part_via_webhook(
-            session_webhook="https://oapi.dingtalk.com/robot/send?session=abc",
+            session_webhook=(
+                "https://oapi.dingtalk.com/robot/send?session=abc"
+            ),
             part=part,
         )
 
@@ -3364,15 +1915,18 @@ class TestDingTalkMediaPartSending:
         )
 
         result = await dingtalk_channel._send_media_part_via_webhook(
-            session_webhook="https://oapi.dingtalk.com/robot/send?session=abc",
+            session_webhook=(
+                "https://oapi.dingtalk.com/robot/send?session=abc"
+            ),
             part=part,
         )
 
         assert result is True
 
-    async def test_send_media_part_empty_media_id_skipped(
+    async def test_public_image_url_does_not_require_media_id(
         self,
         dingtalk_channel,
+        mock_http_session,
     ):
         """Skip sending if media_id is empty after stripping."""
         from qwenpaw.app.channels.base import ImageContent, ContentType
@@ -3383,16 +1937,20 @@ class TestDingTalkMediaPartSending:
             media_id="   ",  # Whitespace only
         )
 
+        dingtalk_channel._http = mock_http_session
+        mock_http_session.expect_post(response_json={"errcode": 0})
         result = await dingtalk_channel._send_media_part_via_webhook(
-            session_webhook="https://oapi.dingtalk.com/robot/send?session=abc",
+            session_webhook=(
+                "https://oapi.dingtalk.com/robot/send?session=abc"
+            ),
             part=part,
         )
 
-        assert result is False
+        assert result is True
+        assert mock_http_session.call_count == 1
 
     def test_map_upload_type(self, dingtalk_channel):
         """Map content types to DingTalk upload types."""
-        from unittest.mock import MagicMock
         from qwenpaw.app.channels.base import ContentType
 
         # Create mock parts for each type
@@ -3460,236 +2018,13 @@ class TestDingTalkMediaPartSending:
         )
 
         result = await dingtalk_channel._send_media_part_via_webhook(
-            session_webhook="https://oapi.dingtalk.com/robot/send?session=abc",
+            session_webhook=(
+                "https://oapi.dingtalk.com/robot/send?session=abc"
+            ),
             part=part,
         )
 
         assert result is True
-
-
-# =============================================================================
-# P2: Handler Rich Content Tests
-# =============================================================================
-
-
-class TestDingTalkHandlerRichContent:
-    """Tests for handler rich content parsing."""
-
-    @pytest.fixture
-    def mock_download_fetcher(self):
-        """Mock download URL fetcher."""
-
-        async def fetcher(*, download_code, robot_code, filename_hint):
-            return f"http://cdn.example.com/{download_code}"
-
-        return fetcher
-
-    @pytest.fixture
-    def rich_handler(self, mock_download_fetcher):
-        """Create a handler for rich content tests."""
-        from qwenpaw.app.channels.dingtalk.handler import (
-            DingTalkChannelHandler,
-        )
-
-        loop = asyncio.new_event_loop()
-        handler = DingTalkChannelHandler(
-            main_loop=loop,
-            enqueue_callback=MagicMock(),
-            bot_prefix="",
-            download_url_fetcher=mock_download_fetcher,
-        )
-        yield handler
-        loop.close()
-
-    def test_parse_rich_content_with_text(self, rich_handler):
-        """Parse rich text content."""
-        incoming = MagicMock()
-        incoming.robot_code = "robot_123"
-        incoming.to_dict.return_value = {
-            "content": {
-                "richText": [
-                    {"text": "Hello world"},
-                ],
-            },
-        }
-
-        result = rich_handler._parse_rich_content(incoming)
-
-        assert len(result) == 1
-
-    def test_parse_rich_content_with_image(self, rich_handler):
-        """Parse rich content with image."""
-        incoming = MagicMock()
-        incoming.robot_code = "robot_123"
-        incoming.to_dict.return_value = {
-            "content": {
-                "richText": [
-                    {
-                        "downloadCode": "img_dl_code",
-                        "type": "picture",
-                    },
-                ],
-            },
-        }
-
-        with patch.object(
-            rich_handler,
-            "_fetch_download_url_and_content",
-            return_value=MagicMock(),
-        ):
-            result = rich_handler._parse_rich_content(incoming)
-
-            assert len(result) >= 0  # May be 0 or 1 depending on fetch result
-
-    def test_parse_rich_content_single_download_code(self, rich_handler):
-        """Parse content with single download code."""
-        incoming = MagicMock()
-        incoming.robot_code = "robot_123"
-        incoming.to_dict.return_value = {
-            "msgtype": "image",
-            "content": {
-                "downloadCode": "single_img_code",
-            },
-        }
-
-        with patch.object(
-            rich_handler,
-            "_fetch_download_url_and_content",
-            return_value=MagicMock(),
-        ):
-            result = rich_handler._parse_rich_content(incoming)
-
-            assert len(result) >= 0
-
-    def test_parse_rich_content_empty(self, rich_handler):
-        """Parse empty content."""
-        incoming = MagicMock()
-        incoming.robot_code = "robot_123"
-        incoming.to_dict.return_value = {
-            "content": {},
-        }
-
-        result = rich_handler._parse_rich_content(incoming)
-
-        assert result == []
-
-    def test_parse_rich_content_exception_handled(self, rich_handler):
-        """Exceptions in parsing should be handled."""
-        incoming = MagicMock()
-        incoming.robot_code = "robot_123"
-        # to_dict will raise exception
-        incoming.to_dict.side_effect = RuntimeError("Test error")
-
-        result = rich_handler._parse_rich_content(incoming)
-
-        assert result == []
-
-
-# =============================================================================
-# P2: Merge Native Tests
-# =============================================================================
-
-
-class TestDingTalkMergeNative:
-    """Tests for _merge_native method."""
-
-    def test_merge_native_empty(self, dingtalk_channel):
-        """Merge empty list returns empty dict."""
-        result = dingtalk_channel._merge_native([])
-
-        assert result == {}
-
-    def test_merge_native_single_item(self, dingtalk_channel):
-        """Merge single item."""
-        items = [
-            {
-                "channel_id": "dingtalk",
-                "sender_id": "user123",
-                "content_parts": [{"type": "text", "text": "Hello"}],
-                "meta": {"session_webhook": "http://webhook.url"},
-            },
-        ]
-
-        result = dingtalk_channel._merge_native(items)
-
-        assert result["channel_id"] == "dingtalk"
-        assert result["sender_id"] == "user123"
-        assert len(result["content_parts"]) == 1
-
-    def test_merge_native_multiple_items(self, dingtalk_channel):
-        """Merge multiple items combines parts and metadata."""
-        items = [
-            {
-                "channel_id": "dingtalk",
-                "sender_id": "user1",
-                "content_parts": [{"type": "text", "text": "Hello"}],
-                "meta": {
-                    "session_webhook": "http://webhook1.url",
-                    "conversation_id": "cid1",
-                },
-            },
-            {
-                "channel_id": "dingtalk",
-                "sender_id": "user2",
-                "content_parts": [{"type": "text", "text": "World"}],
-                "meta": {
-                    "session_webhook": "http://webhook2.url",
-                    "conversation_id": "cid2",
-                },
-            },
-        ]
-
-        result = dingtalk_channel._merge_native(items)
-
-        assert len(result["content_parts"]) == 2
-        assert result["meta"]["batched_count"] == 2
-        # Should use webhook from newest (last) item
-        assert result["session_webhook"] == "http://webhook2.url"
-
-    def test_merge_native_extracts_message_ids(self, dingtalk_channel):
-        """Extract message IDs from items."""
-        items = [
-            {
-                "channel_id": "dingtalk",
-                "content_parts": [],
-                "meta": {"message_id": "msg_123"},
-            },
-            {
-                "channel_id": "dingtalk",
-                "content_parts": [],
-                "message_id": "msg_456",  # Can also be at top level
-            },
-        ]
-
-        result = dingtalk_channel._merge_native(items)
-
-        assert "_message_ids" in result["meta"]
-        assert "msg_123" in result["meta"]["_message_ids"]
-        assert "msg_456" in result["meta"]["_message_ids"]
-
-    def test_merge_native_prefers_newest_webhook(self, dingtalk_channel):
-        """When merging, prefer webhook from newest item."""
-        items = [
-            {
-                "content_parts": [],
-                "meta": {"session_webhook": "http://old.url"},
-            },
-            {
-                "content_parts": [],
-                "meta": {"session_webhook": "http://new.url"},
-            },
-            {"content_parts": [], "meta": {}},  # No webhook
-        ]
-
-        result = dingtalk_channel._merge_native(items)
-
-        # Should use the most recent webhook found (from items[1])
-        assert result["session_webhook"] == "http://new.url"
-
-
-# =============================================================================
-# P2: Load Session Webhook Entry Tests
-# =============================================================================
 
 
 @pytest.mark.asyncio
@@ -3729,241 +2064,161 @@ class TestDingTalkLoadSessionWebhookEntry:
         assert result is None
 
 
-# =============================================================================
-# P2: Additional Coverage Tests
-# =============================================================================
-
-
 @pytest.mark.asyncio
-class TestDingTalkAdditionalCoverage:
-    """Additional tests to reach 60% coverage."""
+class TestDingTalkHealthCheck:
+    """Tests for DingTalk connection health reporting."""
 
-    def test_access_control_disabled_allows_all(self, dingtalk_channel):
-        """Access control disabled allows all users."""
-        dingtalk_channel.access_control_dm = False
-        dingtalk_channel.access_control_group = False
+    @staticmethod
+    def _set_runtime_state(
+        channel,
+        *,
+        thread_alive: bool = True,
+        websocket_state: str = "OPEN",
+        stream_loop_running: bool = True,
+    ):
+        loop = asyncio.get_running_loop()
+        websocket = MagicMock()
+        websocket.state.name = websocket_state
+        websocket.ping = AsyncMock()
+        pong_waiter = loop.create_future()
+        pong_waiter.set_result(0.01)
+        websocket.ping.return_value = pong_waiter
+        client = MagicMock()
+        client.websocket = websocket
+        client.connection_error = None
+        channel._client = client
+        channel._stream_thread = MagicMock()
+        channel._stream_thread.is_alive.return_value = thread_alive
+        if stream_loop_running:
+            channel._stream_event_loop = loop
+        else:
+            channel._stream_event_loop = MagicMock()
+            channel._stream_event_loop.is_running.return_value = False
+        channel._http = MagicMock()
+        channel._http.closed = False
+        return websocket
 
-        assert dingtalk_channel.access_control_enabled is False
-
-    def test_access_control_dm_enabled(self, dingtalk_channel):
-        """Access control dm enabled makes access_control_enabled True."""
-        dingtalk_channel.access_control_dm = True
-        dingtalk_channel.access_control_group = False
-
-        assert dingtalk_channel.access_control_enabled is True
-
-    def test_access_control_group_enabled(self, dingtalk_channel):
-        """Access control group enabled makes access_control_enabled True."""
-        dingtalk_channel.access_control_dm = False
-        dingtalk_channel.access_control_group = True
-
-        assert dingtalk_channel.access_control_enabled is True
-
-    def test_check_group_mention_not_required(self, dingtalk_channel):
-        """Check group mention when not required."""
-        dingtalk_channel.require_mention = False
-
-        result = dingtalk_channel._check_group_mention(True, {})
-        assert result is True
-
-    def test_check_group_mention_not_group(self, dingtalk_channel):
-        """Check group mention when not a group."""
-        dingtalk_channel.require_mention = True
-
-        result = dingtalk_channel._check_group_mention(False, {})
-        assert result is True
-
-    def test_check_group_mentioned(self, dingtalk_channel):
-        """Check group mention when bot is mentioned."""
-        dingtalk_channel.require_mention = True
-
-        result = dingtalk_channel._check_group_mention(
-            True,
-            {"bot_mentioned": True},
-        )
-        assert result is True
-
-    def test_check_group_mention_missing(self, dingtalk_channel):
-        """Check group mention when not mentioned."""
-        dingtalk_channel.require_mention = True
-
-        result = dingtalk_channel._check_group_mention(True, {})
-        assert result is False
-
-    def test_guess_filename_and_ext_with_filename(self, dingtalk_channel):
-        """Guess filename from content part with filename."""
-        from unittest.mock import MagicMock
-
-        part = MagicMock()
-        part.filename = "document.pdf"
-        part.file_url = None
-        part.image_url = None
-        part.video_url = None
-
-        filename, ext = dingtalk_channel._guess_filename_and_ext(
-            part,
-            "default.txt",
-        )
-
-        assert filename == "document.pdf"
-        assert ext == "pdf"
-
-    def test_guess_filename_and_ext_from_url(self, dingtalk_channel):
-        """Guess filename from content part URL."""
-        from unittest.mock import MagicMock
-
-        part = MagicMock()
-        part.filename = ""
-        part.file_url = "http://example.com/file.pdf"
-        part.image_url = None
-        part.video_url = None
-
-        filename, ext = dingtalk_channel._guess_filename_and_ext(
-            part,
-            "default.txt",
-        )
-
-        assert filename == "file.pdf"
-        assert ext == "pdf"
-
-    def test_guess_filename_and_ext_default(self, dingtalk_channel):
-        """Use default filename when nothing else available."""
-        from unittest.mock import MagicMock
-
-        part = MagicMock()
-        part.filename = ""
-        part.file_url = None
-        part.image_url = None
-        part.video_url = None
-
-        filename, ext = dingtalk_channel._guess_filename_and_ext(
-            part,
-            "default.txt",
-        )
-
-        assert filename == "default.txt"
-        assert ext == "txt"
-
-    def test_resolve_open_api_params_meta_priority(self, dingtalk_channel):
-        """Meta values take priority over entry values."""
-        meta = {
-            "conversation_id": "meta_cid",
-            "conversation_type": "single",
-        }
-        entry = {
-            "conversation_id": "entry_cid",
-            "conversation_type": "group",
-        }
-
-        result = dingtalk_channel._resolve_open_api_params(meta, entry)
-
-        assert result["conversation_id"] == "meta_cid"
-        assert result["conversation_type"] == "single"
-
-    def test_resolve_open_api_params_entry_fallback(self, dingtalk_channel):
-        """Entry values used when meta is empty."""
-        meta = {}
-        entry = {
-            "conversation_id": "entry_cid",
-            "conversation_type": "group",
-        }
-
-        result = dingtalk_channel._resolve_open_api_params(meta, entry)
-
-        assert result["conversation_id"] == "entry_cid"
-        assert result["conversation_type"] == "group"
-
-    def test_resolve_open_api_params_defaults(self, dingtalk_channel):
-        """Default values when both meta and entry are empty."""
-        result = dingtalk_channel._resolve_open_api_params({}, {})
-
-        assert result["conversation_id"] == ""
-        assert result["conversation_type"] == ""
-        assert result["sender_staff_id"] == ""
-
-    def test_get_response_error_message(self, dingtalk_channel):
-        """Extract error message from response."""
-        # Create a response without 'data' attribute to avoid triggering
-        # the data path in _get_response_error_message
-        response = MagicMock(spec=["error"])
-        response.error = MagicMock(spec=["message"])
-        response.error.message = "Test error message"
-
-        result = dingtalk_channel._get_response_error_message(response)
-
-        assert result == "Test error message"
-
-    def test_get_response_error_message_none(self, dingtalk_channel):
-        """Return None when no error."""
-        result = dingtalk_channel._get_response_error_message(None)
-
-        assert result is None
-
-    def test_get_response_error_message_no_error(self, dingtalk_channel):
-        """Return None when response has no error."""
-        response = MagicMock(spec=["error"])
-        response.error = None
-
-        result = dingtalk_channel._get_response_error_message(response)
-
-        assert result is None
-
-    async def test_try_open_api_fallback_with_meta(
+    async def test_reports_healthy_for_live_stream(
         self,
         dingtalk_channel,
     ):
-        """Open API fallback using meta directly."""
-        dingtalk_channel._oauth_sdk = _make_oauth_sdk("token_123")
-        dingtalk_channel._robot_sdk = _make_robot_sdk()
+        """A connected and responsive stream should be healthy."""
+        websocket = self._set_runtime_state(dingtalk_channel)
 
-        result = await dingtalk_channel._try_open_api_fallback(
-            text="Test message",
-            to_handle="dingtalk:sw:test",
-            meta={
-                "conversation_id": "cid_test",
-                "conversation_type": "group",
-            },
-        )
+        result = await dingtalk_channel.health_check()
 
-        assert result is True
+        assert result["status"] == "healthy"
+        websocket.ping.assert_awaited_once_with()
 
-    async def test_send_content_parts_text_only(
+    @pytest.mark.parametrize(
+        (
+            "thread_alive",
+            "websocket_state",
+            "stream_loop_running",
+            "expected_detail",
+        ),
+        [
+            (False, "OPEN", True, "Stream thread is not running"),
+            (True, "CLOSED", True, "WebSocket connection is not open"),
+            (True, "OPEN", False, "Stream event loop is not running"),
+        ],
+    )
+    async def test_reports_unhealthy_for_broken_stream_state(
         self,
         dingtalk_channel,
-        mock_http_session,
+        thread_alive,
+        websocket_state,
+        stream_loop_running,
+        expected_detail,
     ):
-        """Send content parts with text only."""
-        dingtalk_channel._http = mock_http_session
-
-        from qwenpaw.app.channels.base import TextContent, ContentType
-
-        parts = [TextContent(type=ContentType.TEXT, text="Hello world")]
-
-        # Mock _try_open_api_fallback to avoid real API calls
-        with patch.object(
+        """Broken stream states should not be reported as healthy."""
+        self._set_runtime_state(
             dingtalk_channel,
-            "_try_open_api_fallback",
-            return_value=True,
-        ) as mock_fallback:
-            await dingtalk_channel.send_content_parts(
-                to_handle="dingtalk:sw:test",
-                parts=parts,
-                meta={"session_webhook": "http://webhook.url"},
-            )
-            # Should try fallback when webhook fails
-            mock_fallback.assert_called_once()
-
-    def test_sender_from_chatbot_message_skip_bot(self):
-        """Skip messages from bot itself."""
-        from qwenpaw.app.channels.dingtalk.content_utils import (
-            sender_from_chatbot_message,
+            thread_alive=thread_alive,
+            websocket_state=websocket_state,
+            stream_loop_running=stream_loop_running,
         )
 
-        msg = MagicMock()
-        msg.sender_staff_id = "bot_staff_id"
-        msg.senderStaffId = "bot_staff_id"
-        msg.is_bot = True
+        result = await dingtalk_channel.health_check()
 
-        _sender, skip = sender_from_chatbot_message(msg)
+        assert result["status"] == "unhealthy"
+        assert expected_detail in result["detail"]
 
-        assert skip is True
+    async def test_reports_unhealthy_when_pong_times_out(
+        self,
+        dingtalk_channel,
+    ):
+        """An open socket without a Pong response should be unhealthy."""
+        websocket = self._set_runtime_state(dingtalk_channel)
+        websocket.ping.return_value = (
+            asyncio.get_running_loop().create_future()
+        )
+
+        with patch(
+            "c6_artifact_dingtalk.platform."
+            "_STREAM_HEALTH_PING_TIMEOUT_SECONDS",
+            0.01,
+        ):
+            result = await dingtalk_channel.health_check()
+
+        assert result["status"] == "unhealthy"
+        assert "WebSocket Ping timed out" in result["detail"]
+
+    async def test_reports_unhealthy_when_ping_fails(
+        self,
+        dingtalk_channel,
+    ):
+        """A Ping transport error should be reported as unhealthy."""
+        websocket = self._set_runtime_state(dingtalk_channel)
+        websocket.ping.side_effect = ConnectionError("socket closed")
+
+        result = await dingtalk_channel.health_check()
+
+        assert result["status"] == "unhealthy"
+        assert "WebSocket Ping failed: ConnectionError" in result["detail"]
+
+    async def test_reports_unhealthy_when_ping_is_cancelled(
+        self,
+        dingtalk_channel,
+    ):
+        """A Ping cancelled by Stream reconnect should be unhealthy."""
+        self._set_runtime_state(dingtalk_channel)
+
+        def cancel_probe(coro, _loop):
+            coro.close()
+            future = Future()
+            future.cancel()
+            return future
+
+        with patch(
+            "asyncio.run_coroutine_threadsafe",
+            side_effect=cancel_probe,
+        ):
+            result = await dingtalk_channel.health_check()
+
+        assert result["status"] == "unhealthy"
+        assert "WebSocket Ping was cancelled" in result["detail"]
+
+    async def test_reports_unhealthy_when_stream_loop_is_blocked(
+        self,
+        dingtalk_channel,
+    ):
+        """Health should time out if the Stream loop cannot run Ping."""
+        self._set_runtime_state(dingtalk_channel)
+
+        def leave_probe_pending(coro, _loop):
+            coro.close()
+            return Future()
+
+        with patch(
+            "asyncio.run_coroutine_threadsafe",
+            side_effect=leave_probe_pending,
+        ), patch(
+            "c6_artifact_dingtalk.platform."
+            "_STREAM_HEALTH_PING_TIMEOUT_SECONDS",
+            0.01,
+        ):
+            result = await dingtalk_channel.health_check()
+
+        assert result["status"] == "unhealthy"
+        assert "WebSocket Ping timed out" in result["detail"]

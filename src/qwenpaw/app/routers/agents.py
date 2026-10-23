@@ -10,6 +10,7 @@ import re
 import shutil
 from copy import deepcopy
 from pathlib import Path
+from contextlib import nullcontext
 from typing import Any, Literal
 
 from fastapi import APIRouter, Body, HTTPException, Request
@@ -1734,7 +1735,6 @@ async def delete_agent(
             status_code=409,
             detail=f"Agent '{agentId}' cannot be deleted while starting",
         )
-    await manager.stop_agent(agentId)
 
     def remove_agent(latest_config: Any) -> None:
         if agentId not in latest_config.agents.profiles:
@@ -1747,7 +1747,11 @@ async def delete_agent(
             latest_config,
         )
 
-    await run_sync_io(mutate_config, remove_agent)
+    sessions = getattr(request.app.state, "channel_qrcode_sessions", None)
+    guard = sessions.operation_guard(agentId) if sessions else nullcontext()
+    async with guard:
+        await manager.stop_agent(agentId)
+        await run_sync_io(mutate_config, remove_agent)
 
     return {"success": True, "agent_id": agentId}
 
@@ -1789,9 +1793,6 @@ async def toggle_agent_enabled(
             ),
         )
 
-    if not enabled and getattr(agent_ref, "enabled", True):
-        await manager.stop_agent(agentId)
-
     def apply_enabled(latest_config: Any) -> None:
         if agentId not in latest_config.agents.profiles:
             raise HTTPException(
@@ -1800,7 +1801,16 @@ async def toggle_agent_enabled(
             )
         latest_config.agents.profiles[agentId].enabled = enabled
 
-    await run_sync_io(mutate_config, apply_enabled)
+    sessions = getattr(request.app.state, "channel_qrcode_sessions", None)
+    guard = (
+        sessions.operation_guard(agentId)
+        if sessions is not None and not enabled
+        else nullcontext()
+    )
+    async with guard:
+        if not enabled and getattr(agent_ref, "enabled", True):
+            await manager.stop_agent(agentId)
+        await run_sync_io(mutate_config, apply_enabled)
 
     if enabled:
         manager.schedule_agent_startup(agentId)

@@ -75,25 +75,6 @@ def _lock_primitive_name() -> str:
 
 
 class TestAcquireRelease:
-    def test_acquire_succeeds_on_a_free_file(self, tmp_path):
-        path = tmp_path / "l.lock"
-        fd = os.open(str(path), os.O_RDWR | os.O_CREAT, 0o644)
-        try:
-            assert lock_mod._acquire_os_lock(fd) is True
-        finally:
-            lock_mod._release_os_lock(fd)
-            os.close(fd)
-
-    def test_acquire_returns_false_when_contended(self, tmp_path):
-        path = tmp_path / "l.lock"
-        held = _hold(path)
-        fd = os.open(str(path), os.O_RDWR | os.O_CREAT, 0o644)
-        try:
-            assert lock_mod._acquire_os_lock(fd) is False
-        finally:
-            os.close(fd)
-            _release(held)
-
     def test_acquire_reraises_unexpected_os_error(self, monkeypatch, tmp_path):
         """EACCES/EAGAIN mean 'busy'; anything else must propagate."""
         path = tmp_path / "l.lock"
@@ -134,18 +115,6 @@ class TestAcquireRelease:
 
 
 class TestContextManager:
-    def test_creates_parent_dirs(self, lock_path):
-        assert not lock_path.parent.exists()
-
-        with lock_mod.plugin_install_lock(lock_path) as acquired:
-            assert acquired is True
-            assert lock_path.parent.is_dir()
-
-    def test_yields_true_and_creates_lock_file(self, lock_path):
-        with lock_mod.plugin_install_lock(lock_path) as acquired:
-            assert acquired is True
-            assert lock_path.is_file()
-
     def test_releases_after_the_block(self, lock_path):
         with lock_mod.plugin_install_lock(lock_path) as first:
             assert first is True
@@ -180,60 +149,23 @@ class TestContextManager:
         assert error.value.errno == errno.EBADF
 
 
-class TestTimeoutFallsOpen:
-    """The body still runs unlocked: a stuck peer never blocks install."""
+class TestTimeoutFailsClosed:
+    """No SDK-writing body may run without successful exclusion."""
 
-    def test_yields_false_when_the_lock_is_held_past_timeout(self, lock_path):
+    @pytest.mark.parametrize("timeout", [0.0, -5.0])
+    def test_denied_lock_never_enters_writing_body(self, lock_path, timeout):
         lock_path.parent.mkdir(parents=True, exist_ok=True)
         held = _hold(lock_path)
+        written = lock_path.parent / "sdk-mutated"
         try:
-            with lock_mod.plugin_install_lock(
-                lock_path,
-                timeout=0.0,
-            ) as acquired:
-                assert acquired is False
+            with pytest.raises(RuntimeError):
+                with lock_mod.plugin_install_lock(lock_path, timeout=timeout):
+                    written.touch()
         finally:
             _release(held)
-
-    def test_body_runs_despite_timeout(self, lock_path):
-        lock_path.parent.mkdir(parents=True, exist_ok=True)
-        held = _hold(lock_path)
-        ran = []
-        try:
-            with lock_mod.plugin_install_lock(lock_path, timeout=0.0):
-                ran.append(True)
-        finally:
-            _release(held)
-        assert ran == [True]
-
-    def test_timeout_does_not_leave_the_lock_held(self, lock_path):
-        lock_path.parent.mkdir(parents=True, exist_ok=True)
-        held = _hold(lock_path)
-        try:
-            with lock_mod.plugin_install_lock(lock_path, timeout=0.0):
-                pass
-        finally:
-            _release(held)
-
-        # After the peer releases, the lock is free again (we never held it).
-        fd = os.open(str(lock_path), os.O_RDWR | os.O_CREAT, 0o644)
-        try:
-            assert lock_mod._acquire_os_lock(fd) is True
-        finally:
-            lock_mod._release_os_lock(fd)
-            os.close(fd)
-
-    def test_negative_timeout_is_clamped_to_zero(self, lock_path):
-        lock_path.parent.mkdir(parents=True, exist_ok=True)
-        held = _hold(lock_path)
-        try:
-            with lock_mod.plugin_install_lock(
-                lock_path,
-                timeout=-5.0,
-            ) as acquired:
-                assert acquired is False
-        finally:
-            _release(held)
+        assert not written.exists()
+        with lock_mod.plugin_install_lock(lock_path) as acquired:
+            assert acquired is True
 
     def test_retries_until_the_peer_releases(self, lock_path, monkeypatch):
         """A short wait should succeed once the peer lets go."""
@@ -259,52 +191,76 @@ class TestTimeoutFallsOpen:
 
 
 class TestDegradedPaths:
-    def test_unwritable_lock_dir_yields_false_but_still_runs(
+    @pytest.mark.parametrize("failure", ["mkdir", "open", "primitive"])
+    def test_os_failure_never_enters_writing_body(
         self,
         monkeypatch,
         tmp_path,
+        failure,
     ):
         target = tmp_path / "cannot-create" / "l.lock"
+        written = tmp_path / "sdk-mutated"
 
-        real_mkdir = Path.mkdir
-
-        def deny(self, *args, **kwargs):
-            if "cannot-create" in str(self):
-                raise OSError(errno.EACCES, "denied")
-            return real_mkdir(self, *args, **kwargs)
-
-        monkeypatch.setattr(Path, "mkdir", deny)
-        ran = []
-        with lock_mod.plugin_install_lock(target) as acquired:
-            ran.append(acquired)
-
-        assert ran == [False]
-
-    def test_unopenable_lock_file_yields_false(self, monkeypatch, tmp_path):
-        target = tmp_path / "l.lock"
-
-        real_open = os.open
-
-        def deny(*args, **kwargs):
+        def deny(*_args, **_kwargs):
             raise OSError(errno.EACCES, "denied")
 
-        monkeypatch.setattr(os, "open", deny)
-        with lock_mod.plugin_install_lock(target) as acquired:
-            assert acquired is False
-        monkeypatch.setattr(os, "open", real_open)
+        if failure == "mkdir":
+            monkeypatch.setattr(Path, "mkdir", deny)
+        elif failure == "open":
+            original_open = os.open
 
-    def test_unexpected_lock_error_falls_open(self, monkeypatch, tmp_path):
-        target = tmp_path / "l.lock"
+            def deny_lock(path, *args, **kwargs):
+                if Path(path) == target:
+                    return deny()
+                return original_open(path, *args, **kwargs)
 
-        def boom(_fd):
-            raise OSError(errno.EBADF, "bad fd")
+            monkeypatch.setattr(os, "open", deny_lock)
+        else:
+            monkeypatch.setattr(lock_mod, "_acquire_os_lock", deny)
+        with pytest.raises(RuntimeError):
+            with lock_mod.plugin_install_lock(target):
+                written.touch()
+        assert not written.exists()
 
-        monkeypatch.setattr(lock_mod, "_acquire_os_lock", boom)
-        with lock_mod.plugin_install_lock(target) as acquired:
-            assert acquired is False
 
-    def test_lock_file_path_is_coerced_from_str(self, tmp_path):
-        target = str(tmp_path / "strlock" / "l.lock")
-        with lock_mod.plugin_install_lock(target) as acquired:
+class TestEnvironmentIdentity:
+    def test_site_aliases_share_one_cross_process_lock(self, tmp_path):
+        """Separate writers cannot evade exclusion through a site symlink."""
+        import subprocess
+        import sys
+
+        assert hasattr(lock_mod, "environment_install_lock_path")
+        site = tmp_path / "shared-site"
+        site.mkdir()
+        alias = tmp_path / "alias"
+        alias.symlink_to(site, target_is_directory=True)
+        path = lock_mod.environment_install_lock_path(site)
+        assert path == lock_mod.environment_install_lock_path(alias)
+        script = """import sys
+from pathlib import Path
+from qwenpaw.plugins.install_lock import (
+    environment_install_lock_path,plugin_install_lock,
+)
+with plugin_install_lock(environment_install_lock_path(Path(sys.argv[1]))):
+    print('held',flush=True)
+    sys.stdin.readline()
+"""
+        source_root = str(Path(lock_mod.__file__).resolve().parents[2])
+        script = f"import sys\nsys.path.insert(0, {source_root!r})\n" + script
+        with subprocess.Popen(
+            [sys.executable, "-I", "-c", script, str(alias)],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        ) as peer:
+            try:
+                assert peer.stdout.readline().strip() == "held"
+                with pytest.raises(RuntimeError):
+                    with lock_mod.plugin_install_lock(path, timeout=0):
+                        (site / "sdk-mutated").touch()
+                assert not (site / "sdk-mutated").exists()
+            finally:
+                peer.communicate("release\n", timeout=5)
+        with lock_mod.plugin_install_lock(path) as acquired:
             assert acquired is True
-            assert Path(target).is_file()

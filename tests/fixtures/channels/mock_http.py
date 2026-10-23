@@ -7,6 +7,7 @@ Provides tools for mocking HTTP requests in channel tests.
 
 from __future__ import annotations
 
+import json
 from contextlib import asynccontextmanager
 from typing import Dict, List, Optional
 
@@ -34,7 +35,7 @@ class MockAiohttpResponse:
 
     async def text(self) -> str:
         """Return text data."""
-        return self._text_data
+        return self._text_data or json.dumps(self._json_data)
 
     async def read(self) -> bytes:
         """Return bytes data."""

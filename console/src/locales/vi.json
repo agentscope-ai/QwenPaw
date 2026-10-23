@@ -3189,6 +3189,10 @@
     "sandboxEnabled": "Bảo vệ sandbox"
   },
   "channels": {
+    "qrcodeInstallRequired": "Cài đặt plugin để quét mã QR",
+    "runtime": {
+      "missing_code": "Chưa cài đặt plugin"
+    },
     "title": "Kênh",
     "description": "Quản lý và cấu hình các kênh nhắn tin",
     "loading": "Đang tải kênh...",

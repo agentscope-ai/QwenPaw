@@ -11,7 +11,8 @@ const confirm = vi.hoisted(() => vi.fn());
 const updateChannelConfig = vi.hoisted(() => vi.fn());
 
 vi.mock("@agentscope-ai/design", async () => vi.importActual("antd"));
-vi.mock("react-i18next", () => ({
+vi.mock("react-i18next", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("react-i18next")>()),
   useTranslation: () => ({
     t: (key: string, fallback?: unknown) =>
       typeof fallback === "string" ? fallback : key,
@@ -24,12 +25,12 @@ vi.mock("@/hooks/useAppMessage", () => ({
     modal: { confirm },
   }),
 }));
-vi.mock("@/stores/agentStore", () => ({
-  useAgentStore: Object.assign(
-    () => ({ selectedAgent: "default", agents: [] }),
-    { subscribe: () => () => {} },
-  ),
-}));
+vi.mock("@/stores/agentStore", async () => {
+  const { create } = await import("zustand");
+  return {
+    useAgentStore: create(() => ({ selectedAgent: "default", agents: [] })),
+  };
+});
 vi.mock("../../../api", () => ({
   default: {
     getAclAllPending: vi.fn().mockResolvedValue([]),
@@ -64,6 +65,7 @@ vi.mock("./components", async () => {
         channelSchemas: {},
         isBuiltin: () => true,
         loading: false,
+        fetchChannels: vi.fn().mockResolvedValue(undefined),
       };
     },
   };

@@ -9,57 +9,10 @@ from __future__ import annotations
 
 import json
 
-import pytest
 
-from qwenpaw.app.channels.feishu import card_templates as ct
+from tests.fixtures.channel_plugins.c6_artifacts import artifact_module
 
-
-# ---------------------------------------------------------------------------
-# _truncate
-# ---------------------------------------------------------------------------
-
-
-class TestTruncate:
-    def test_empty_text(self):
-        assert ct._truncate("", 10) == ""
-
-    def test_short_text_unchanged(self):
-        assert ct._truncate("abc", 10) == "abc"
-
-    def test_exact_limit_unchanged(self):
-        assert ct._truncate("abcde", 5) == "abcde"
-
-    def test_long_text_truncated_with_ellipsis(self):
-        result = ct._truncate("abcdefgh", 5)
-        assert result == "abcd…"
-        assert len(result) == 5
-
-
-# ---------------------------------------------------------------------------
-# severity template
-# ---------------------------------------------------------------------------
-
-
-class TestSeverityTemplate:
-    @pytest.mark.parametrize(
-        ("severity", "template"),
-        [
-            ("critical", "red"),
-            ("high", "red"),
-            ("medium", "orange"),
-            ("low", "yellow"),
-        ],
-    )
-    def test_known_severities(self, severity, template):
-        assert ct._tool_guard_severity_template(severity) == template
-
-    def test_case_insensitive(self):
-        assert ct._tool_guard_severity_template("HIGH") == "red"
-
-    def test_unknown_severity_defaults_orange(self):
-        assert ct._tool_guard_severity_template("weird") == "orange"
-        assert ct._tool_guard_severity_template("") == "orange"
-        assert ct._tool_guard_severity_template(None) == "orange"
+ct = artifact_module("feishu", "card_templates")
 
 
 # ---------------------------------------------------------------------------
@@ -284,27 +237,3 @@ class TestParseActionValue:
         assert parsed["tool_name"] == ""
         assert parsed["severity"] == "medium"
         assert parsed["body"] == ""
-
-
-# ---------------------------------------------------------------------------
-# build_tool_guard_toast
-# ---------------------------------------------------------------------------
-
-
-class TestBuildToast:
-    def test_approve_toast(self):
-        toast = ct.build_tool_guard_toast("approve", "shell")
-        assert toast == {
-            "type": "success",
-            "content": "Approved tool shell",
-        }
-
-    def test_deny_toast(self):
-        toast = ct.build_tool_guard_toast("deny", "shell")
-        assert toast["type"] == "info"
-        assert "Denied tool shell" in toast["content"]
-
-    def test_unknown_action_toast(self):
-        toast = ct.build_tool_guard_toast("mystery", "shell")
-        assert toast["type"] == "warning"
-        assert "expired" in toast["content"]

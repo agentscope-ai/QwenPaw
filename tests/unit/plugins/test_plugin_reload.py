@@ -77,6 +77,37 @@ def _write_plugin(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("failure_phase", ["import", "register"])
+async def test_plugin_file_errors_remain_failed_records(
+    tmp_path,
+    fresh_registry,
+    failure_phase,
+):
+    root = _write_plugin(tmp_path / "file-error", "file-error")
+    message = "plugin-owned-file-is-missing"
+    if failure_phase == "import":
+        (root / "main.py").write_text(
+            f"raise FileNotFoundError({message!r})\n",
+        )
+    else:
+        _write_plugin(
+            root,
+            "file-error",
+            body=f"raise FileNotFoundError({message!r})",
+        )
+    loader = PluginLoader([root.parent])
+    loader.registry = fresh_registry
+    manifest = PluginManifest.from_dict(
+        json.loads((root / "plugin.json").read_text()),
+    )
+    record = await loader.load_plugin(manifest, root)
+    assert record.status == "failed"
+    assert message in "\n".join(record.diagnostics)
+    assert loader.get_loaded_plugin("file-error") is record
+    await loader.lifecycle.unload("file-error", UnloadMode.UNLOAD)
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("incoming_id", ["renamed", "different"])
 async def test_in_place_reload_reads_incoming_manifest(
     tmp_path,

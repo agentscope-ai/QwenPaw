@@ -344,6 +344,7 @@ def _run_backend_server(log_level: str) -> None:
         port=0,
         reload=False,
         workers=1,
+        proxy_headers=False,
         log_level=normalized_log_level,
         # Bound graceful shutdown so long-lived SSE connections (e.g.
         # /console/push-messages) cannot stall the lifespan shutdown that
@@ -360,6 +361,9 @@ def _run_backend_server(log_level: str) -> None:
 
     try:
         port = _socket_port(backend_socket)
+        from qwenpaw.app.server_context import set_server_port
+
+        set_server_port(port, app=fastapi_app)
         write_port_file(port_file, port)
         write_last_api(host, port)
         server = uvicorn.Server(config)

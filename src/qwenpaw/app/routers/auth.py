@@ -6,6 +6,7 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
 from ...constant import EnvVarLoader
+from ...utils.io_utils import run_sync_io
 from ..auth import (
     authenticate,
     has_registered_users,
@@ -84,7 +85,12 @@ async def login(request: Request, req: LoginRequest):
         )
 
     # Attempt authentication
-    token = authenticate(req.username, req.password, req.expires_in)
+    token = await run_sync_io(
+        authenticate,
+        req.username,
+        req.password,
+        req.expires_in,
+    )
     if token is None:
         # Record failed attempt
         rate_limiter.record_login_attempt(
@@ -119,7 +125,7 @@ async def register(req: RegisterRequest):
             detail="Authentication is not enabled",
         )
 
-    if has_registered_users():
+    if await run_sync_io(has_registered_users):
         raise HTTPException(
             status_code=403,
             detail="User already registered",
@@ -131,7 +137,12 @@ async def register(req: RegisterRequest):
             detail="Username and password are required",
         )
 
-    token = register_user(req.username.strip(), req.password, req.expires_in)
+    token = await run_sync_io(
+        register_user,
+        req.username.strip(),
+        req.password,
+        req.expires_in,
+    )
     if token is None:
         raise HTTPException(
             status_code=409,
@@ -146,7 +157,7 @@ async def auth_status():
     """Check if authentication is enabled and whether a user exists."""
     return AuthStatusResponse(
         enabled=is_auth_enabled(),
-        has_users=has_registered_users(),
+        has_users=await run_sync_io(has_registered_users),
     )
 
 
@@ -161,7 +172,7 @@ async def verify(request: Request):
     if not token:
         raise HTTPException(status_code=401, detail="No token provided")
 
-    username = verify_token(token)
+    username = await run_sync_io(verify_token, token)
     if username is None:
         raise HTTPException(
             status_code=401,
@@ -189,7 +200,7 @@ async def update_profile(req: UpdateProfileRequest, request: Request):
             detail="Authentication is not enabled",
         )
 
-    if not has_registered_users():
+    if not await run_sync_io(has_registered_users):
         raise HTTPException(
             status_code=403,
             detail="No user registered",
@@ -198,7 +209,10 @@ async def update_profile(req: UpdateProfileRequest, request: Request):
     # Verify caller is authenticated
     auth_header = request.headers.get("Authorization", "")
     caller_token = auth_header[7:] if auth_header.startswith("Bearer ") else ""
-    if not caller_token or verify_token(caller_token) is None:
+    if (
+        not caller_token
+        or await run_sync_io(verify_token, caller_token) is None
+    ):
         raise HTTPException(status_code=401, detail="Not authenticated")
 
     if not req.new_username and not req.new_password:
@@ -219,7 +233,8 @@ async def update_profile(req: UpdateProfileRequest, request: Request):
             detail="Password cannot be empty",
         )
 
-    token = update_credentials(
+    token = await run_sync_io(
+        update_credentials,
         current_password=req.current_password,
         new_username=req.new_username,
         new_password=req.new_password,
@@ -262,14 +277,17 @@ async def revoke_single_token(req: RevokeTokenRequest, request: Request):
     # Get current token for authentication
     auth_header = request.headers.get("Authorization", "")
     caller_token = auth_header[7:] if auth_header.startswith("Bearer ") else ""
-    if not caller_token or verify_token(caller_token) is None:
+    if (
+        not caller_token
+        or await run_sync_io(verify_token, caller_token) is None
+    ):
         raise HTTPException(status_code=401, detail="Not authenticated")
 
     # Determine which token to revoke
     token_to_revoke = req.token if req.token else caller_token
     is_current_token = token_to_revoke == caller_token
 
-    success = revoke_token(token_to_revoke)
+    success = await run_sync_io(revoke_token, token_to_revoke)
     if not success:
         raise HTTPException(
             status_code=500,
@@ -309,10 +327,13 @@ async def revoke_all_sessions(request: Request):
     # Verify caller is authenticated
     auth_header = request.headers.get("Authorization", "")
     caller_token = auth_header[7:] if auth_header.startswith("Bearer ") else ""
-    if not caller_token or verify_token(caller_token) is None:
+    if (
+        not caller_token
+        or await run_sync_io(verify_token, caller_token) is None
+    ):
         raise HTTPException(status_code=401, detail="Not authenticated")
 
-    success = revoke_all_tokens()
+    success = await run_sync_io(revoke_all_tokens)
     if not success:
         raise HTTPException(
             status_code=500,

@@ -1,7 +1,14 @@
 import { useAgentStore } from "@/stores/agentStore";
 import { useAppMessage } from "../../../hooks/useAppMessage";
 import { Cascade } from "@/components/interaction/Cascade";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { Form } from "@agentscope-ai/design";
 import { Badge, Button, Space } from "antd";
 import {
@@ -21,7 +28,11 @@ import {
   type ChannelKey,
 } from "./components";
 import { PageHeader } from "@/components/PageHeader";
-import { keepConsoleEnabled } from "./components/channelConfig";
+import {
+  captureChannelSaveJob,
+  keepConsoleEnabled,
+} from "./components/channelConfig";
+import type { ChannelSaveJob } from "../../../api/modules/channel";
 import styles from "./index.module.less";
 
 type FilterType = "all" | "builtin" | "custom";
@@ -34,9 +45,11 @@ function ChannelsPage() {
     channels,
     orderedKeys,
     channelSchemas,
+    schemasLoading,
     isBuiltin,
     loading,
     setChannels,
+    fetchChannels,
   } = useChannels();
   const [filter, setFilter] = useState<FilterType>("all");
   const [saving, setSaving] = useState(false);
@@ -47,6 +60,31 @@ function ChannelsPage() {
   const [pendingCount, setPendingCount] = useState(0);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [form] = Form.useForm<any>();
+  const scopeGeneration = useRef(0);
+  const mounted = useRef(true);
+  useLayoutEffect(() => {
+    scopeGeneration.current += 1;
+    setDrawerOpen(false);
+    setActiveKey(null);
+    setSaving(false);
+    form.resetFields();
+  }, [selectedAgent, form]);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+  useLayoutEffect(
+    () =>
+      useAgentStore.subscribe((next, previous) => {
+        if (next.selectedAgent !== previous.selectedAgent) {
+          scopeGeneration.current += 1;
+          setSaving(false);
+        }
+      }),
+    [],
+  );
 
   const fetchPendingCount = useCallback(async () => {
     try {
@@ -87,6 +125,7 @@ function ChannelsPage() {
 
   const handleCardClick = useCallback(
     (key: ChannelKey) => {
+      void fetchChannels(true);
       setActiveKey(key);
       setDrawerOpen(true);
       const channelConfig = keepConsoleEnabled(
@@ -112,7 +151,7 @@ function ChannelsPage() {
         show_thinking: channelConfig.show_thinking ?? true,
       });
     },
-    [channels, form],
+    [channels, form, fetchChannels],
   );
 
   const handleDrawerClose = () => {
@@ -120,27 +159,26 @@ function ChannelsPage() {
     setActiveKey(null);
   };
 
-  const handleSubmit = async (values: Record<string, unknown>) => {
-    if (!activeKey) return false;
-
+  const handleSubmitSnapshot = async (job: ChannelSaveJob) => {
+    const generation = scopeGeneration.current;
+    const currentScope = () =>
+      generation === scopeGeneration.current &&
+      (useAgentStore.getState().selectedAgent || "default") === job.agentId;
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const { isBuiltin: _isBuiltin, ...savedConfig } = channels[activeKey] || {};
-    const updatedChannel = keepConsoleEnabled(activeKey, {
-      ...savedConfig,
-      ...values,
-    });
+    const { isBuiltin: _isBuiltin, ...savedConfig } = job.body;
+    const updatedChannel = keepConsoleEnabled(job.channel, savedConfig);
     const proposedConfig = updatedChannel as unknown as Parameters<
       typeof api.updateChannelConfig
     >[1];
 
-    setSaving(true);
+    if (mounted.current && currentScope()) setSaving(true);
     try {
       if (updatedChannel.enabled === true) {
         try {
           const result = await api.checkChannelConflict(
-            activeKey,
+            job.channel,
             proposedConfig,
-            selectedAgent || "default",
+            job.agentId,
           );
           if (result.conflict) {
             const agentNames = result.agents
@@ -180,21 +218,36 @@ function ChannelsPage() {
       }
 
       await api.updateChannelConfig(
-        activeKey,
+        job.channel,
         proposedConfig,
-        selectedAgent || "default",
+        job.agentId,
+        job.authSession,
       );
-      setChannels((current) => ({
-        ...current,
-        [activeKey]: { ...current[activeKey], ...updatedChannel },
-      }));
+      if (mounted.current && currentScope()) {
+        setChannels((current) => ({
+          ...current,
+          [job.channel]: { ...current[job.channel], ...updatedChannel },
+        }));
+      }
       return true;
     } catch (error) {
       console.error("Failed to update channel config:", error);
       throw error;
     } finally {
-      setSaving(false);
+      if (mounted.current && currentScope()) setSaving(false);
     }
+  };
+
+  const handleSubmit = async (values: Record<string, unknown>) => {
+    if (!activeKey) return;
+    await handleSubmitSnapshot(
+      captureChannelSaveJob({
+        agentId: selectedAgent || "default",
+        channel: activeKey,
+        body: { ...channels[activeKey], ...values },
+        formRevision: 0,
+      }),
+    );
   };
 
   const activeLabel = activeKey ? getChannelLabel(activeKey, t) : "";
@@ -330,8 +383,13 @@ function ChannelsPage() {
         initialValues={activeKey ? channels[activeKey] : undefined}
         isBuiltin={activeKey ? isBuiltin(activeKey) : true}
         channelSchema={activeKey ? channelSchemas[activeKey] : undefined}
+        channelSchemaLoading={
+          schemasLoading || (!!activeKey && !channelSchemas[activeKey])
+        }
         onClose={handleDrawerClose}
         onSubmit={handleSubmit}
+        onSubmitSnapshot={handleSubmitSnapshot}
+        onRuntimeChange={fetchChannels}
       />
       <AccessControlDrawer
         open={aclDrawerOpen}

@@ -4,9 +4,12 @@
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+if TYPE_CHECKING:
+    from .execution_backend import BackendBinding
 
 
 class PluginType(str, Enum):
@@ -56,6 +59,28 @@ class PluginEntryPoints(BaseModel):
 
     frontend: Optional[str] = None
     backend: Optional[str] = None
+    descriptor: Optional[str] = None
+
+    @model_validator(mode="after")
+    def _validate_descriptor(self):
+        if self.descriptor is None:
+            return self
+        path = str(self.descriptor)
+        if (
+            path != path.strip()
+            or "\\" in path
+            or ":" in path
+            or any(part in {"", ".", ".."} for part in path.split("/"))
+            or not path.endswith(".json")
+        ):
+            raise ValueError(
+                "descriptor must be a canonical relative JSON path",
+            )
+        if self.backend is not None:
+            raise ValueError(
+                "descriptor and backend entries are mutually exclusive",
+            )
+        return self
 
 
 def _coerce_manifest_str(value: Any) -> str:
@@ -202,6 +227,14 @@ class PluginManifest(BaseModel):
             entry_data["backend"] = legacy_entry_point
         data["entry"] = entry_data
 
+        if entry_data.get("descriptor") is not None:
+            try:
+                PluginType(data.get("type"))
+            except (ValueError, TypeError) as exc:
+                raise ValueError(
+                    "descriptor entry requires an explicit valid plugin type",
+                ) from exc
+
         # Resolve ``type``: explicit value wins; otherwise infer.  We
         # need the parsed entry/meta to infer, so do a light parse here.
         raw_type = data.get("type")
@@ -236,7 +269,12 @@ class PluginManifest(BaseModel):
 
 @dataclass
 class PluginRecord:
-    """Plugin record for loaded plugins."""
+    """Loaded source and execution state.
+
+    ``enabled`` is effective execution eligibility. ``global_enabled`` keeps
+    the user's enable intent when a backend temporarily blocks execution;
+    None preserves the effective flag for legacy manually constructed rows.
+    """
 
     manifest: PluginManifest
     source_path: Path
@@ -244,3 +282,8 @@ class PluginRecord:
     instance: Optional[Any] = None
     diagnostics: List[str] = field(default_factory=list)
     status: str = "active"
+    backend_binding: Optional["BackendBinding"] = field(
+        default=None,
+        repr=False,
+    )
+    global_enabled: Optional[bool] = None

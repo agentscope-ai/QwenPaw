@@ -14,7 +14,7 @@ open-connection API), then:
 No env injection is needed: ``endpoint`` is a first-class product
 config field (used for sandboxes), so plain PUT config suffices.
 
-Coverage targets (``src/qwenpaw/app/channels/dingtalk/``):
+Coverage targets (``plugins/channel/dingtalk/dingtalk/``):
   channel.py start/_apply_custom_endpoint/_stream_loop/
   _send_via_session_webhook/send_content_parts; handler.py process.
 
@@ -24,6 +24,7 @@ API endpoints:
 """
 from __future__ import annotations
 
+from pathlib import Path
 import threading
 import time
 from http.server import HTTPServer
@@ -34,6 +35,7 @@ from helpers import (
     MOCK_LLM_RESPONSE,
     MockLLMHandler,
     default_http_timeout,
+    wait_until_plugin_loader_ready,
     register_mock_provider,
     unregister_mock_provider,
 )
@@ -132,6 +134,22 @@ def mock_llm():
 def dingtalk_channel_up(app_server):
     """Enable the DingTalk channel against the mock backend."""
     _MOCK_IM.start()
+    wait_until_plugin_loader_ready(app_server)
+    installed = app_server.api_request(
+        "POST",
+        "/api/plugins/install",
+        json={
+            "source": str(
+                Path(__file__).resolve().parents[2]
+                / "plugins/channel/dingtalk",
+            ),
+        },
+        timeout=60.0,
+    )
+    assert installed.status_code == 200, (
+        installed.text + app_server.logs_tail()
+    )
+
     put = app_server.api_request(
         "PUT",
         "/api/config/channels/dingtalk",

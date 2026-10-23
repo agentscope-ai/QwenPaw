@@ -1757,6 +1757,10 @@
     "updateFailed": "Pembaruan gagal"
   },
   "channels": {
+    "qrcodeInstallRequired": "Instal plugin untuk memindai kode QR",
+    "runtime": {
+      "missing_code": "Plugin belum diinstal"
+    },
     "title": "Saluran",
     "description": "Kelola dan konfigurasi saluran pesan",
     "loading": "Memuat saluran...",

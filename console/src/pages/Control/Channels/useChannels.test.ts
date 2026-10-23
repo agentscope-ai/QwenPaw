@@ -11,9 +11,10 @@ vi.mock("../../../api", () => ({
 }));
 
 // Mock agentStore
-vi.mock("../../../stores/agentStore", () => ({
-  useAgentStore: vi.fn(() => ({ selectedAgent: "agent-1" })),
-}));
+vi.mock("../../../stores/agentStore", async () => {
+  const { create } = await import("zustand");
+  return { useAgentStore: create(() => ({ selectedAgent: "agent-1" })) };
+});
 
 import api from "../../../api";
 

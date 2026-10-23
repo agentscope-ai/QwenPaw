@@ -328,7 +328,14 @@ async def _load(
     return loader, workspace, installed
 
 
-async def _load_busy_command(tmp_path, registry, kind, *, ignore_cancel=False):
+async def _load_busy_command(
+    tmp_path,
+    registry,
+    kind,
+    *,
+    ignore_cancel=False,
+    exit_release=None,
+):
     from qwenpaw.runtime.commands.control import handle_control_command
 
     entered, release, cancelled = (
@@ -348,6 +355,8 @@ async def _load_busy_command(tmp_path, registry, kind, *, ignore_cancel=False):
                 raise
             await release.wait()
         finally:
+            if exit_release is not None:
+                await exit_release.wait()
             calls.append("command-exit")
         return "ok"
 
@@ -481,7 +490,7 @@ async def test_busy_command_blocks_lifecycle(
 ):
     from qwenpaw.plugins.activity import PluginBusyError
 
-    monkeypatch.setattr("qwenpaw.constant.WORKING_DIR", tmp_path / "work")
+    _isolate_working_dir(tmp_path, monkeypatch)
     (
         loader,
         installed,
@@ -548,11 +557,18 @@ async def test_interrupt_waits_for_actual_command_exit(
     from qwenpaw.plugins.activity import PluginBusyError
     from qwenpaw.runtime.commands.control import handle_control_command
 
-    monkeypatch.setattr("qwenpaw.constant.WORKING_DIR", tmp_path / "work")
-    monkeypatch.setattr(
-        "qwenpaw.plugins.activity.INTERRUPT_TIMEOUT_SECONDS",
-        0.01,
+    config_path = _isolate_working_dir(tmp_path, monkeypatch) / "config.json"
+    config_path.write_text(
+        '{"plugins": {"busy-probe": {"enabled": true}, '
+        '"unrelated": {"enabled": false}}}',
+        encoding="utf-8",
     )
+    if ignore_cancel:
+        monkeypatch.setattr(
+            "qwenpaw.plugins.activity.INTERRUPT_TIMEOUT_SECONDS",
+            0.01,
+        )
+    exit_release = asyncio.Event()
     (
         loader,
         installed,
@@ -565,6 +581,7 @@ async def test_interrupt_waits_for_actual_command_exit(
         fresh_registry,
         kind,
         ignore_cancel=ignore_cancel,
+        exit_release=None if ignore_cancel else exit_release,
     )
     try:
         unload = asyncio.create_task(
@@ -576,7 +593,7 @@ async def test_interrupt_waits_for_actual_command_exit(
             ),
         )
         if ignore_cancel:
-            await asyncio.wait_for(cancelled.wait(), 0.5)
+            await asyncio.wait_for(cancelled.wait(), 10)
             workspace = fresh_registry.get_workspace_manager().agents["talk"]
             dispatch = (
                 handle_control_command
@@ -615,14 +632,26 @@ async def test_interrupt_waits_for_actual_command_exit(
                 delete_files=True,
             )
         else:
-            report = await asyncio.wait_for(unload, 0.5)
+            await asyncio.wait_for(cancelled.wait(), 10)
+            await asyncio.sleep(0)
+            assert not command.done()
+            assert not unload.done()
+            assert not calls
+            assert installed.is_dir()
+            exit_release.set()
+            # The deadline guards deadlocks, not config and disk performance.
+            report = await asyncio.wait_for(unload, 10)
             assert command.cancelled()
         assert report.clean and report.quiescent
         assert calls == ["command-exit", "teardown"]
         assert not installed.exists()
+        assert json.loads(config_path.read_text(encoding="utf-8"))[
+            "plugins"
+        ] == {"unrelated": {"enabled": False}}
     finally:
+        exit_release.set()
         release.set()
-        await asyncio.gather(command, return_exceptions=True)
+        await asyncio.gather(command, unload, return_exceptions=True)
         if loader.get_loaded_plugin("busy-probe") is not None:
             await loader.lifecycle.unload("busy-probe", UnloadMode.UNLOAD)
 
@@ -869,10 +898,14 @@ async def test_index_url_preserves_dependency_policy(
         lambda requirement: bool(installed),
     )
     loader = PluginLoader([tmp_path])
+
+    async def prepare_dependencies(path, plugin_id):
+        installed.append((path, plugin_id))
+
     monkeypatch.setattr(
         loader,
-        "_install_requirements_locked",
-        lambda path, plugin_id: installed.append((path, plugin_id)),
+        "_prepare_python_dependencies",
+        prepare_dependencies,
     )
     boot = await loader._ensure_dependencies_installed(tmp_path, "indexed")
     assert not boot.unsupported
@@ -1580,9 +1613,11 @@ async def test_install_cancel_waits_for_copy_before_next_load(
     loader = PluginLoader(plugin_dirs=[install_dir])
     loader.registry = fresh_registry
     finished = {"done": False}
+    copy_started = threading.Event()
     real_copy = shutil.copytree
 
     def _slow_copy(src, dst, *args, **kwargs):
+        copy_started.set()
         time.sleep(0.12)
         result = real_copy(src, dst, *args, **kwargs)
         finished["done"] = True
@@ -1592,7 +1627,7 @@ async def test_install_cancel_waits_for_copy_before_next_load(
     task = asyncio.create_task(
         loader.load_plugin_from_path(source, install_dir=install_dir),
     )
-    await asyncio.sleep(0.02)
+    assert await asyncio.to_thread(copy_started.wait, 5)
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
         await task
@@ -3106,7 +3141,7 @@ async def test_startup_stop_failure_keeps_channel(
 
     with (
         patch(
-            "qwenpaw.plugins.workspace_projector.get_available_channels",
+            "qwenpaw.plugins.api.get_available_channels",
             return_value=("sticky-ch",),
         ),
         patch(
@@ -3940,7 +3975,10 @@ async def test_unloaded_force_keeps_old_dir_on_copy_failure(
             return shutil.copy2(src_file, dst_file, *a, **k)
 
         patched = dict(kwargs)
-        patched["copy_function"] = _copy
+        if len(args) > 2:
+            args = (*args[:2], _copy, *args[3:])
+        else:
+            patched["copy_function"] = _copy
         return real_copytree(src, dst, *args, **patched)
 
     monkeypatch.setattr(shutil, "copytree", _copytree)
@@ -4238,7 +4276,7 @@ async def test_unloaded_force_unquiescent_activate_keeps_new_dir(
 
     with (
         patch(
-            "qwenpaw.plugins.workspace_projector.get_available_channels",
+            "qwenpaw.plugins.api.get_available_channels",
             return_value=("force-ch",),
         ),
         patch(

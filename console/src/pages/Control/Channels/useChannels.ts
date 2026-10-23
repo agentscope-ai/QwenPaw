@@ -1,10 +1,9 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useLayoutEffect, useCallback, useMemo, useRef } from "react";
 import api from "../../../api";
 import type { ChannelSchema } from "../../../api/modules/channel";
 import { useAgentStore } from "../../../stores/agentStore";
 
 export function useChannels() {
-  const { selectedAgent } = useAgentStore();
   const [channels, setChannels] = useState<
     Record<string, Record<string, unknown>>
   >({});
@@ -12,35 +11,73 @@ export function useChannels() {
   const [channelSchemas, setChannelSchemas] = useState<
     Record<string, ChannelSchema>
   >({});
+  const [schemasLoading, setSchemasLoading] = useState(true);
   const [loading, setLoading] = useState(true);
+  const generation = useRef(0);
+  const controller = useRef<AbortController>();
 
-  const fetchChannels = useCallback(async () => {
-    setLoading(true);
-    try {
-      const [data, types] = await Promise.all([
-        api.listChannels(),
-        api.listChannelTypes(),
-      ]);
-      if (data)
-        setChannels(data as unknown as Record<string, Record<string, unknown>>);
-      if (types) setChannelTypes(types);
-    } catch (error) {
-      console.error("❌ Failed to load channels:", error);
-    } finally {
-      setLoading(false);
+  const fetchChannels = useCallback(async (schemasOnly = false) => {
+    const agentId = useAgentStore.getState().selectedAgent || "default";
+    const requestGeneration = ++generation.current;
+    controller.current?.abort();
+    const currentController = new AbortController();
+    controller.current = currentController;
+    const scope = { agentId, signal: currentController.signal };
+    const current = () =>
+      requestGeneration === generation.current &&
+      !currentController.signal.aborted &&
+      (useAgentStore.getState().selectedAgent || "default") === agentId;
+    setSchemasLoading(true);
+    setLoading(!schemasOnly);
+    if (!schemasOnly) {
+      try {
+        const [data, types] = await Promise.all([
+          api.listChannels(scope),
+          api.listChannelTypes(scope),
+        ]);
+        if (!current()) return;
+        if (data)
+          setChannels(
+            data as unknown as Record<string, Record<string, unknown>>,
+          );
+        if (types) setChannelTypes(types);
+      } catch (error) {
+        if (current()) console.error("❌ Failed to load channels:", error);
+      } finally {
+        if (current()) setLoading(false);
+      }
     }
+    if (!current()) return;
     // Fetch schemas separately so failures don't block core channel loading
     try {
-      const schemas = await api.listChannelSchemas();
-      if (schemas) setChannelSchemas(schemas);
+      const schemas = await api.listChannelSchemas(scope);
+      if (current() && schemas) setChannelSchemas(schemas);
     } catch {
       // Plugin system may not be available; non-critical
+      if (current()) setChannelSchemas({});
+    } finally {
+      if (current()) setSchemasLoading(false);
     }
   }, []);
 
-  useEffect(() => {
-    fetchChannels();
-  }, [fetchChannels, selectedAgent]);
+  useLayoutEffect(() => {
+    const changeScope = () => {
+      setChannels({});
+      setChannelTypes([]);
+      setChannelSchemas({});
+      void fetchChannels();
+    };
+    // Observe every store transition, even an ABA batched into one render.
+    const unsubscribe = useAgentStore.subscribe((next, previous) => {
+      if (next.selectedAgent !== previous.selectedAgent) changeScope();
+    });
+    changeScope();
+    return () => {
+      unsubscribe();
+      generation.current += 1;
+      controller.current?.abort();
+    };
+  }, [fetchChannels]);
 
   // Built-in channels come first (in a fixed order), then custom channels
   const builtinOrder = useMemo(
@@ -62,13 +99,19 @@ export function useChannels() {
     [],
   );
 
-  const orderedKeys = useMemo(
-    () => [
-      ...builtinOrder.filter((k) => channelTypes.includes(k)),
-      ...channelTypes.filter((k) => !builtinOrder.includes(k)),
-    ],
-    [builtinOrder, channelTypes],
-  );
+  const orderedKeys = useMemo(() => {
+    const keys = Array.from(
+      new Set([
+        ...channelTypes,
+        ...Object.keys(channels),
+        ...Object.keys(channelSchemas),
+      ]),
+    );
+    return [
+      ...builtinOrder.filter((k) => keys.includes(k)),
+      ...keys.filter((k) => !builtinOrder.includes(k)),
+    ];
+  }, [builtinOrder, channelTypes, channels, channelSchemas]);
 
   // Read isBuiltin from API response
   const isBuiltin = useCallback(
@@ -80,6 +123,7 @@ export function useChannels() {
     channels,
     channelTypes,
     channelSchemas,
+    schemasLoading,
     orderedKeys,
     isBuiltin,
     loading,

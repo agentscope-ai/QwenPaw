@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import importlib.util
+import runpy
 import sys
 from pathlib import Path
 from textwrap import dedent, indent
@@ -1031,10 +1032,45 @@ def test_skip_in_unrelated_test_method_is_allowed(tmp_path: Path) -> None:
     assert report.missing_specs == ()
 
 
-def test_repository_has_complete_contract_coverage() -> None:
+def test_repository_has_complete_builtin_contract_coverage() -> None:
     report = checker.analyze_repository(REPO_ROOT)
 
-    assert len(report.specs) == 18
-    assert len(report.tested_classes) == 18
+    assert [(spec.key, spec.class_name) for spec in report.specs] == [
+        ("console", "ConsoleChannel"),
+    ]
+    assert report.tested_classes == {"ConsoleChannel"}
     assert report.missing_specs == ()
     assert report.errors == ()
+
+
+def test_repository_has_complete_official_plugin_contract_coverage(
+    monkeypatch,
+) -> None:
+    from qwenpaw.config.config import Config
+    from tests.contract.channels import ChannelContractTest
+
+    monkeypatch.syspath_prepend(
+        str(REPO_ROOT / "tests/fixtures/channel_plugins"),
+    )
+    monkeypatch.setattr("qwenpaw.app.channels.base.load_config", Config)
+    inventory = runpy.run_path(
+        str(REPO_ROOT / "src/qwenpaw/plugins/official_channel_catalog.py"),
+    )["OFFICIAL_CHANNELS"]
+    suite = runpy.run_path(
+        str(REPO_ROOT / "tests/fixtures/channel_plugins/contract_suite.py"),
+    )
+    contracts = [
+        value
+        for name, value in suite.items()
+        if name.startswith("Test")
+        and isinstance(value, type)
+        and issubclass(value, ChannelContractTest)
+    ]
+    instances = [contract().create_instance() for contract in contracts]
+    assert len(contracts) == len(inventory) == 18
+    assert {instance.channel for instance in instances} == {
+        row["channel_key"] for row in inventory
+    }
+    assert {instance._launch_spec.plugin_id for instance in instances} == {
+        row["plugin_id"] for row in inventory
+    }

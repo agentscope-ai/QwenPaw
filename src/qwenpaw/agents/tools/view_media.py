@@ -28,6 +28,7 @@ from ...config.context import get_current_workspace_dir
 from ...constant import EnvVarLoader, WORKING_DIR
 from ...runtime.tool_registry import tool_descriptor
 from ...utils.io_utils import make_dirs_async, run_sync_io, write_bytes_async
+from ...utils.outbound_media import stage_outbound_file
 from ...providers.capping_formatter import MAX_INLINE_MEDIA_BYTES
 from .file_io import _path_to_file_url, _resolve_file_path
 from ..utils.image_freezing import (
@@ -880,7 +881,15 @@ async def view_video(video_path: str) -> ToolChunk:
     if err is not None:
         return err
 
-    file_url = _path_to_file_url(str(resolved))
+    try:
+        snapshot = await stage_outbound_file(resolved)
+    except (OSError, ValueError) as exc:
+        return ToolChunk(
+            is_last=True,
+            state=ToolResultState.SUCCESS,
+            content=[TextBlock(text=f"Error: failed to stage video: {exc}")],
+        )
+    file_url = _path_to_file_url(str(snapshot))
     text_msg = (
         fallback_hint if fallback_hint else f"Video loaded: {resolved.name}"
     )
@@ -988,7 +997,17 @@ async def view_audio(audio_path: str) -> ToolChunk:
                 ],
             )
 
-        file_url = _path_to_file_url(audio_file)
+        try:
+            snapshot = await stage_outbound_file(audio_file)
+        except (OSError, ValueError) as exc:
+            return ToolChunk(
+                is_last=True,
+                state=ToolResultState.SUCCESS,
+                content=[
+                    TextBlock(text=f"Error: failed to stage audio: {exc}"),
+                ],
+            )
+        file_url = _path_to_file_url(str(snapshot))
         return ToolChunk(
             is_last=True,
             state=ToolResultState.SUCCESS,

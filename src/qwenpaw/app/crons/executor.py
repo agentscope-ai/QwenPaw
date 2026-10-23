@@ -104,6 +104,15 @@ class CronExecutor:
         self._workspace = workspace
         self._channel_manager = channel_manager
 
+    async def _send_channel(self, method: str, **kwargs: Any) -> None:
+        manager = getattr(self._workspace, "_manager", None)
+        delivery = getattr(manager, "channel_delivery", None)
+        if delivery is None:
+            await getattr(self._channel_manager, method)(**kwargs)
+            return
+        async with delivery(self._workspace.agent_id) as channels:
+            await getattr(channels, method)(**kwargs)
+
     # pylint: disable=too-many-statements,too-many-branches
     async def execute(self, job: CronJobSpec) -> dict[str, Any]:
         """Execute one job once.
@@ -145,7 +154,8 @@ class CronExecutor:
             )
             text_delivery_error: str | None = None
             try:
-                await self._channel_manager.send_text(
+                await self._send_channel(
+                    "send_text",
                     channel=target_channel,
                     user_id=target_user_id,
                     session_id=target_session_id,
@@ -261,7 +271,8 @@ class CronExecutor:
             async def _deliver(event: Any) -> None:
                 nonlocal delivery_error
                 try:
-                    await self._channel_manager.send_event(
+                    await self._send_channel(
+                        "send_event",
                         channel=target_channel,
                         user_id=target_user_id,
                         session_id=target_session_id,

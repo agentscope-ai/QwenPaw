@@ -11,6 +11,7 @@ from __future__ import annotations
 import importlib.util
 import json
 from pathlib import Path
+import zipfile
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 SCRIPT_FILE = (
@@ -145,3 +146,71 @@ def test_required_relpaths_merges_entries_and_drops_unsafe() -> None:
         "ui/dist/index.js",
         "ui/dist/vendor/index.html",
     ]
+
+
+def _write_channel(plugins_root: Path, plugin_id="demo-channel", **settings):
+    """Create a channel source without depending on a real platform SDK."""
+    plugin_dir = plugins_root / "channel" / plugin_id
+    plugin_dir.mkdir(parents=True)
+    manifest = {
+        "id": plugin_id,
+        "version": "0.1.0",
+        "type": "channel",
+        "entry": {"backend": "plugin.py"},
+        **settings,
+    }
+    (plugin_dir / "plugin.json").write_text(
+        json.dumps(manifest),
+        encoding="utf-8",
+    )
+    (plugin_dir / "plugin.py").write_text(
+        "plugin = object()\n",
+        encoding="utf-8",
+    )
+    return plugin_dir
+
+
+def test_channel_discovery_builds_archive_and_channel_metadata(tmp_path):
+    plugins_root = tmp_path / "plugins"
+    _write_channel(plugins_root)
+    _write_channel(plugins_root, "private-channel", publish=False)
+
+    index, failed = packer.discover_and_pack(
+        plugins_root,
+        tmp_path / "dist",
+        "/files/plugins",
+    )
+
+    assert failed == []
+    assert set(index["files"]) == {"demo-channel-0.1.0"}
+    metadata = index["files"]["demo-channel-0.1.0"]
+    assert metadata["platform"] == "channel"
+    assert (
+        metadata["url"]
+        == "/files/plugins/channel/demo-channel/demo-channel-0.1.0.zip"
+    )
+    assert index["platforms"]["channel"]["versions"] == ["demo-channel-0.1.0"]
+    archive = tmp_path / "dist/channel/demo-channel/demo-channel-0.1.0.zip"
+    with zipfile.ZipFile(archive) as zipped:
+        assert zipped.testzip() is None
+        assert set(zipped.namelist()) == {
+            "demo-channel/plugin.json",
+            "demo-channel/plugin.py",
+        }
+        assert zipped.read("demo-channel/plugin.py") == b"plugin = object()\n"
+    assert not (tmp_path / "dist/channel/private-channel").exists()
+
+
+def test_channel_discovery_rejects_missing_entry(tmp_path):
+    plugins_root = tmp_path / "plugins"
+    (_write_channel(plugins_root) / "plugin.py").unlink()
+
+    index, failed = packer.discover_and_pack(
+        plugins_root,
+        tmp_path / "dist",
+        "/files/plugins",
+    )
+
+    assert failed == ["demo-channel"]
+    assert index["files"] == {}
+    assert not (tmp_path / "dist/channel/demo-channel").exists()

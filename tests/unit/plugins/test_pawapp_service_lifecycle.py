@@ -358,6 +358,56 @@ async def test_stuck_service_close_retains_retry_and_blocks_reregister(
         assert calls == [service]
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("interruption", ["timeout", "cancel"])
+async def test_retained_close_survives_interruption_and_reuses_exact_task(
+    monkeypatch,
+    interruption,
+):
+    started, release = asyncio.Event(), asyncio.Event()
+    calls, cancellations = [], []
+
+    class Client:
+        async def aclose(self):
+            calls.append("close")
+            started.set()
+            try:
+                await release.wait()
+            except asyncio.CancelledError:
+                cancellations.append("cancelled")
+                raise
+
+    monkeypatch.setattr(custody, "CONNECTION_STOP_SECONDS", 0.01)
+    closer = custody.ConnectionCloser(
+        Client(),
+        "retained",
+        cancel_on_interrupt=False,
+    )
+    closing = asyncio.create_task(closer())
+    await started.wait()
+    task = closer.task
+    try:
+        if interruption == "cancel":
+            closing.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await closing
+        else:
+            with pytest.raises(TimeoutError):
+                await closing
+        assert task is closer.task and not task.done()
+        with pytest.raises(TimeoutError):
+            await closer()
+        assert calls == ["close"] and cancellations == []
+        assert task is closer.task and not task.done()
+    finally:
+        release.set()
+        await asyncio.wait_for(asyncio.shield(task), timeout=1)
+    await closer()
+    await closer()
+    assert calls == ["close"] and cancellations == []
+    assert closer.task is task
+
+
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX signal handling")
 @pytest.mark.parametrize("interruption", ["timeout", "cancel"])
 @pytest.mark.asyncio

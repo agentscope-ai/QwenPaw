@@ -180,7 +180,7 @@ async def test_stream_consumer_cancellation_closes_plugin_generator(tmp_path):
         host.assert_quiescent("author-contract")
 
 
-async def test_three_idle_reloads_leave_one_callable_generation(tmp_path):
+async def test_twenty_idle_reloads_leave_one_callable_generation(tmp_path):
     from qwenpaw.plugins.testing import PluginTestHost
 
     root = make_plugin(tmp_path)
@@ -188,7 +188,7 @@ async def test_three_idle_reloads_leave_one_callable_generation(tmp_path):
         await host.load(root, config={"marker": str(tmp_path / "closed")})
         initial = host.resource_snapshot("author-contract")
         previous_generation = initial["owner"].generation
-        for index in range(3):
+        for index in range(20):
             report = await host.reload("author-contract")
             assert report.ok, (index, report.errors)
             result = await host.call_tool(

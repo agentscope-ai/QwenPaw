@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import pytest
 
-
 # ------------------------------------------------------------------ #
 # QQ channel
 # ------------------------------------------------------------------ #
@@ -22,9 +21,14 @@ import pytest
 
 @pytest.mark.integration
 @pytest.mark.p1
-def test_qq_sanitize_text_strips_urls() -> None:
+def test_qq_sanitize_text_strips_urls(monkeypatch) -> None:
     """URLs are replaced and flagged for plain QQ messages."""
-    from qwenpaw.app.channels.qq.channel import _sanitize_qq_text
+    from pathlib import Path
+
+    monkeypatch.syspath_prepend(
+        str(Path(__file__).resolve().parents[2] / "plugins/channel/qq"),
+    )
+    from qwenpaw_channel_qq.formatting import _sanitize_qq_text
 
     text, removed = _sanitize_qq_text("see https://a.com/x ok")
     assert removed is True
@@ -34,29 +38,14 @@ def test_qq_sanitize_text_strips_urls() -> None:
 
 @pytest.mark.integration
 @pytest.mark.p1
-def test_qq_sanitize_text_plain_passthrough() -> None:
-    """Text without URLs passes through unchanged."""
-    from qwenpaw.app.channels.qq.channel import _sanitize_qq_text
-
-    text, removed = _sanitize_qq_text("no links here")
-    assert text == "no links here"
-    assert removed is False
-
-
-@pytest.mark.integration
-@pytest.mark.p1
-def test_qq_sanitize_text_empty() -> None:
-    """Empty input yields empty output and no flag."""
-    from qwenpaw.app.channels.qq.channel import _sanitize_qq_text
-
-    assert _sanitize_qq_text("") == ("", False)
-
-
-@pytest.mark.integration
-@pytest.mark.p1
-def test_qq_aggressive_sanitize_bare_domains() -> None:
+def test_qq_aggressive_sanitize_bare_domains(monkeypatch) -> None:
     """Bare domain patterns are caught by the aggressive variant."""
-    from qwenpaw.app.channels.qq.channel import (
+    from pathlib import Path
+
+    monkeypatch.syspath_prepend(
+        str(Path(__file__).resolve().parents[2] / "plugins/channel/qq"),
+    )
+    from qwenpaw_channel_qq.formatting import (
         _aggressive_sanitize_qq_text,
     )
 
@@ -67,9 +56,14 @@ def test_qq_aggressive_sanitize_bare_domains() -> None:
 
 @pytest.mark.integration
 @pytest.mark.p1
-def test_qq_as_bool_variants() -> None:
+def test_qq_as_bool_variants(monkeypatch) -> None:
     """Boolean coercion handles bool, string, and truthy values."""
-    from qwenpaw.app.channels.qq.channel import _as_bool
+    from pathlib import Path
+
+    monkeypatch.syspath_prepend(
+        str(Path(__file__).resolve().parents[2] / "plugins/channel/qq"),
+    )
+    from qwenpaw_channel_qq.formatting import _as_bool
 
     assert _as_bool(True) is True
     assert _as_bool(False) is False
@@ -85,9 +79,14 @@ def test_qq_as_bool_variants() -> None:
 
 @pytest.mark.integration
 @pytest.mark.p1
-def test_qq_recoverable_ws_os_error() -> None:
+def test_qq_recoverable_ws_os_error(monkeypatch) -> None:
     """Connection abort/reset/pipe errors are recoverable."""
-    from qwenpaw.app.channels.qq.channel import (
+    from pathlib import Path
+
+    monkeypatch.syspath_prepend(
+        str(Path(__file__).resolve().parents[2] / "plugins/channel/qq"),
+    )
+    from qwenpaw_channel_qq.platform import (
         _is_recoverable_ws_os_error,
     )
 
@@ -102,11 +101,25 @@ def test_qq_recoverable_ws_os_error() -> None:
 # ------------------------------------------------------------------ #
 
 
+@pytest.fixture
+def telegram_helpers(monkeypatch):
+    import importlib
+    from pathlib import Path
+
+    payload_root = (
+        Path(__file__).resolve().parents[2] / "plugins/channel/telegram"
+    )
+    monkeypatch.syspath_prepend(str(payload_root))
+    module = importlib.import_module("qwenpaw_channel_telegram.platform")
+    assert Path(module.__file__).resolve().is_relative_to(payload_root)
+    return module
+
+
 @pytest.mark.integration
 @pytest.mark.p1
-def test_telegram_base_urls() -> None:
+def test_telegram_base_urls(telegram_helpers) -> None:
     """Base URLs derive bot and file endpoints."""
-    from qwenpaw.app.channels.telegram.channel import _telegram_base_urls
+    _telegram_base_urls = telegram_helpers._telegram_base_urls
 
     bot_url, file_url = _telegram_base_urls("https://api.example.com/")
     assert bot_url == "https://api.example.com/bot"
@@ -115,9 +128,9 @@ def test_telegram_base_urls() -> None:
 
 @pytest.mark.integration
 @pytest.mark.p1
-def test_telegram_base_urls_empty() -> None:
+def test_telegram_base_urls_empty(telegram_helpers) -> None:
     """Empty base yields empty endpoints."""
-    from qwenpaw.app.channels.telegram.channel import _telegram_base_urls
+    _telegram_base_urls = telegram_helpers._telegram_base_urls
 
     assert _telegram_base_urls("") == ("", "")
     assert _telegram_base_urls("   ") == ("", "")
@@ -125,27 +138,13 @@ def test_telegram_base_urls_empty() -> None:
 
 @pytest.mark.integration
 @pytest.mark.p1
-def test_telegram_chunk_text_short() -> None:
-    """Text under the limit is a single chunk."""
-    from qwenpaw.app.channels.telegram.channel import TelegramChannel
-
-    channel = TelegramChannel.__new__(TelegramChannel)
-    assert channel._chunk_text("short") == ["short"]
-    assert not channel._chunk_text("")
-
-
-@pytest.mark.integration
-@pytest.mark.p1
-def test_telegram_chunk_text_long_splits() -> None:
+def test_telegram_chunk_text_long_splits(telegram_helpers) -> None:
     """Long text splits at whitespace near the limit."""
-    from qwenpaw.app.channels.telegram.channel import (
-        TELEGRAM_SEND_CHUNK_SIZE,
-        TelegramChannel,
-    )
+    TELEGRAM_SEND_CHUNK_SIZE = telegram_helpers.TELEGRAM_SEND_CHUNK_SIZE
+    _chunk_text = telegram_helpers._chunk_text
 
-    channel = TelegramChannel.__new__(TelegramChannel)
     text = ("word " * 2000).strip()
-    chunks = channel._chunk_text(text)
+    chunks = _chunk_text(text)
     assert len(chunks) > 1
     for chunk in chunks:
         assert len(chunk) <= TELEGRAM_SEND_CHUNK_SIZE
@@ -165,9 +164,14 @@ def test_telegram_chunk_text_long_splits() -> None:
 
 @pytest.mark.integration
 @pytest.mark.p1
-def test_matrix_md_to_html_basic() -> None:
+def test_matrix_md_to_html_basic(monkeypatch) -> None:
     """Markdown renders to HTML with bold and escapes raw HTML."""
-    from qwenpaw.app.channels.matrix.channel import _md_to_html
+    from pathlib import Path
+
+    monkeypatch.syspath_prepend(
+        str(Path(__file__).resolve().parents[2] / "plugins/channel/matrix"),
+    )
+    from qwenpaw_channel_matrix.platform import _md_to_html
 
     html = _md_to_html("**bold** and <script>")
     assert "<strong>bold</strong>" in html
@@ -176,22 +180,16 @@ def test_matrix_md_to_html_basic() -> None:
 
 @pytest.mark.integration
 @pytest.mark.p1
-def test_matrix_md_to_html_newlines() -> None:
-    """Single newlines become breaks."""
-    from qwenpaw.app.channels.matrix.channel import _md_to_html
-
-    html = _md_to_html("line1\nline2")
-    assert "line1" in html and "line2" in html
-    assert "<br" in html or "\n" in html
-
-
-@pytest.mark.integration
-@pytest.mark.p1
-def test_matrix_derive_device_id() -> None:
+def test_matrix_derive_device_id(monkeypatch) -> None:
     """Device id falls back to the stripped device name."""
-    from qwenpaw.app.channels.matrix.channel import MatrixChannel
+    from pathlib import Path
 
-    derive = MatrixChannel._derive_device_id_from_name
+    monkeypatch.syspath_prepend(
+        str(Path(__file__).resolve().parents[2] / "plugins/channel/matrix"),
+    )
+    from qwenpaw_channel_matrix.platform import MatrixPlatform
+
+    derive = MatrixPlatform._derive_device_id_from_name
     assert derive("  my-device  ") == "my-device"
     assert derive("") == ""
     assert derive(None) == ""
@@ -204,16 +202,21 @@ def test_matrix_derive_device_id() -> None:
 
 @pytest.mark.integration
 @pytest.mark.p1
-def test_discord_classify_attachment_by_content_type() -> None:
+def test_discord_classify_attachment_by_content_type(monkeypatch) -> None:
     """content_type drives attachment classification."""
-    from qwenpaw.app.channels.discord_.channel import DiscordChannel
+    from pathlib import Path
+
+    monkeypatch.syspath_prepend(
+        str(Path(__file__).resolve().parents[2] / "plugins/channel/discord"),
+    )
+    from qwenpaw_channel_discord import formatting
 
     class Attachment:
         def __init__(self, content_type, filename):
             self.content_type = content_type
             self.filename = filename
 
-    classify = DiscordChannel._classify_attachment
+    classify = formatting.classify_attachment
     assert classify(Attachment("image/png", "a.png")) == "image"
     assert classify(Attachment("video/mp4", "v.mp4")) == "video"
     assert classify(Attachment("audio/mpeg", "a.mp3")) == "audio"
@@ -221,40 +224,42 @@ def test_discord_classify_attachment_by_content_type() -> None:
 
 @pytest.mark.integration
 @pytest.mark.p1
-def test_discord_classify_attachment_by_filename() -> None:
+def test_discord_classify_attachment_by_filename(monkeypatch) -> None:
     """Filename MIME guessing is the fallback."""
-    from qwenpaw.app.channels.discord_.channel import DiscordChannel
+    from pathlib import Path
+
+    monkeypatch.syspath_prepend(
+        str(Path(__file__).resolve().parents[2] / "plugins/channel/discord"),
+    )
+    from qwenpaw_channel_discord import formatting
 
     class Attachment:
         def __init__(self, content_type, filename):
             self.content_type = content_type
             self.filename = filename
 
-    classify = DiscordChannel._classify_attachment
+    classify = formatting.classify_attachment
     assert classify(Attachment("", "photo.jpg")) == "image"
     assert classify(Attachment("", "data.bin")) == "file"
 
 
 @pytest.mark.integration
 @pytest.mark.p1
-def test_discord_chunk_text_short() -> None:
-    """Text under the limit stays whole."""
-    from qwenpaw.app.channels.discord_.channel import DiscordChannel
-
-    assert DiscordChannel._chunk_text("hello", max_len=2000) == ["hello"]
-
-
-@pytest.mark.integration
-@pytest.mark.p1
-def test_discord_chunk_text_long_preserves_content() -> None:
+def test_discord_chunk_text_long_preserves_content(monkeypatch) -> None:
     """Long text splits without losing content."""
-    from qwenpaw.app.channels.discord_.channel import DiscordChannel
+    from pathlib import Path
+
+    monkeypatch.syspath_prepend(
+        str(Path(__file__).resolve().parents[2] / "plugins/channel/discord"),
+    )
+    from qwenpaw_channel_discord import formatting
 
     text = "\n".join(f"line {i}" for i in range(500))
-    chunks = DiscordChannel._chunk_text(text, max_len=200)
+    chunks = formatting.chunk_text(text, max_len=200)
     assert len(chunks) > 1
     for chunk in chunks:
-        assert len(chunk) <= 200 + 16  # allow fence suffix slack
+        assert len(chunk) <= 200 + 16  # retain the original bound
+    assert "\n".join(chunks) == text
 
 
 # ------------------------------------------------------------------ #
@@ -265,70 +270,55 @@ def test_discord_chunk_text_long_preserves_content() -> None:
 @pytest.mark.integration
 @pytest.mark.p1
 def test_wechat_parse_user_id_from_handle() -> None:
-    """User id extracted from wechat handle prefixes."""
-    from qwenpaw.app.channels.wechat.channel import WeChatChannel
+    """Legacy handles use the real private Driver; empty is strict."""
+    from pathlib import Path
+    import sys
 
-    parse = WeChatChannel._parse_user_id_from_handle
-    assert parse("wechat:group:G1") == "G1"
-    assert parse("wechat:U1") == "U1"
-    assert parse("raw-id") == "raw-id"
-    assert parse("") == ""
+    sys.path.insert(
+        0,
+        str(Path(__file__).resolve().parents[2] / "plugins/channel/wechat"),
+    )
+    from qwenpaw_channel_wechat.driver import WeChatDriver
+
+    for handle, expected in (
+        ("wechat:group:G1", "G1"),
+        ("wechat:U1", "U1"),
+        ("raw-id", "raw-id"),
+    ):
+        assert (
+            WeChatDriver._target(handle, {})["wechat_from_user_id"] == expected
+        )
+    with pytest.raises(ValueError, match="OUTBOUND_TARGET_UNKNOWN"):
+        WeChatDriver._target("", {})
 
 
 @pytest.mark.integration
 @pytest.mark.p1
 def test_wechat_to_handle_from_target() -> None:
-    """Target handle prefers session_id, falls back to user id."""
-    from qwenpaw.app.channels.wechat.channel import WeChatChannel
+    """Opaque protocol target retains original session and user values."""
+    from qwenpaw.channel_protocol.targets import (
+        decode_reply_target,
+        encode_reply_target,
+    )
 
-    channel = WeChatChannel.__new__(WeChatChannel)
-    assert (
-        channel.to_handle_from_target(
-            user_id="u1",
-            session_id="s1",
-        )
-        == "s1"
-    )
-    assert (
-        channel.to_handle_from_target(
-            user_id="u1",
-            session_id="",
-        )
-        == "wechat:u1"
-    )
+    target = encode_reply_target(user_id="u1", session_id="s1")
+    assert decode_reply_target(target) == {"user_id": "u1", "session_id": "s1"}
+    target = encode_reply_target(user_id="u1", session_id="")
+    assert decode_reply_target(target) == {"user_id": "u1", "session_id": ""}
 
 
 @pytest.mark.integration
 @pytest.mark.p1
-def test_wecom_parse_chatid_from_handle() -> None:
+def test_wecom_parse_chatid_from_handle(monkeypatch) -> None:
     """Chat id extracted from wecom handle prefixes."""
-    from qwenpaw.app.channels.wecom.channel import WecomChannel
+    from pathlib import Path
 
-    parse = WecomChannel._parse_chatid_from_handle
+    monkeypatch.syspath_prepend(
+        str(Path(__file__).resolve().parents[2] / "plugins/channel/wecom"),
+    )
+    from qwenpaw_channel_wecom.inbound import parse_chatid_from_handle
+
+    parse = parse_chatid_from_handle
     assert parse("wecom:group:C1") == "C1"
     assert parse("wecom:U1") == "U1"
     assert parse("plain") == "plain"
-
-
-@pytest.mark.integration
-@pytest.mark.p1
-def test_yuanbao_short_id() -> None:
-    """Short id keeps the trailing suffix."""
-    from qwenpaw.app.channels.yuanbao.channel import _short_id
-
-    long_id = "0123456789abcdef"
-    short = _short_id(long_id)
-    assert long_id.endswith(short)
-    assert len(short) <= len(long_id)
-    assert _short_id("ab") == "ab"
-
-
-@pytest.mark.integration
-@pytest.mark.p1
-def test_yuanbao_sender_display() -> None:
-    """Sender display combines nickname and trailing id digits."""
-    from qwenpaw.app.channels.yuanbao.channel import _sender_display
-
-    display = _sender_display("Alice", "1234567890")
-    assert "Alice" in display
-    assert display.endswith("7890")

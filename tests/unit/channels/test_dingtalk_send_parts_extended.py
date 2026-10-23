@@ -12,7 +12,6 @@ content handling.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Generator
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -21,7 +20,6 @@ from qwenpaw.app.channels.base import (
     FileContent,
     TextContent,
 )
-from qwenpaw.app.channels.renderer import ChannelDisplayConfig
 from qwenpaw.exceptions import ChannelError
 from qwenpaw.schemas import ContentType
 
@@ -48,22 +46,24 @@ def temp_media_dir(tmp_path) -> Path:
 
 
 @pytest.fixture
-def channel(mock_process_handler, temp_media_dir) -> Generator:
-    from qwenpaw.app.channels.dingtalk.channel import DingTalkChannel
+def channel(temp_media_dir):
+    """Use the actual artifact transport with a controlled active session."""
+    from tests.fixtures.channel_plugins.c6_artifacts import artifact_module
 
-    channel = DingTalkChannel(
-        process=mock_process_handler,
-        enabled=True,
-        client_id="test_client_id",
-        client_secret="test_client_secret",
-        bot_prefix="[TestBot] ",
-        media_dir=str(temp_media_dir),
-        display_config=ChannelDisplayConfig(
-            show_tool_calls=False,
-            show_tool_results=False,
-        ),
+    transport = artifact_module("dingtalk", "transport").DingTalkTransport()
+    transport.initialize(
+        {
+            "enabled": True,
+            "client_id": "test_client_id",
+            "client_secret": "test-only",
+            "media_dir": str(temp_media_dir),
+            "bot_prefix": "[TestBot] ",
+        },
     )
-    yield channel
+    transport._sdk = artifact_module("dingtalk", "sdk")
+    transport._state = "running"
+    transport._active = True
+    return transport
 
 
 def _open_api_params(conversation_id: str = "conv-1") -> dict:

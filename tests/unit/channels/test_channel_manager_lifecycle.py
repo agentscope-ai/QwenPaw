@@ -17,12 +17,14 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from qwenpaw.app.channels.manager import ChannelManager
+from qwenpaw.plugins.lifecycle import QuiescenceError
 
 
 def _make_channel(name: str, *, uses_queue: bool = True) -> MagicMock:
     channel = MagicMock(name=f"channel_{name}")
     channel.channel = name
     channel.start = AsyncMock()
+    channel.prepare_stop = AsyncMock(return_value=False)
     channel.stop = AsyncMock()
     channel.set_enqueue = MagicMock()
     channel.uses_manager_queue = uses_queue
@@ -170,22 +172,28 @@ class TestReplaceChannel:
             await manager.replace_channel(new)
 
     @pytest.mark.asyncio
-    async def test_old_stop_failure_is_swallowed(self):
+    async def test_old_stop_failure_retains_owner_and_refuses_new_start(self):
         old = _make_channel("dingtalk")
         old.stop.side_effect = RuntimeError("old stop failed")
         new = _make_channel("dingtalk")
         manager = _manager(old)
-        await manager.replace_channel(new)  # must not raise
-        assert manager.channels == [new]
+        with pytest.raises(QuiescenceError, match="old stop failed"):
+            await manager.replace_channel(new)
+        assert manager.channels == [old]
+        new.start.assert_not_awaited()
 
     @pytest.mark.asyncio
-    async def test_old_cancelled_error_is_swallowed(self):
+    async def test_old_stop_cancellation_retains_owner_and_refuses_new_start(
+        self,
+    ):
         old = _make_channel("dingtalk")
         old.stop.side_effect = asyncio.CancelledError()
         new = _make_channel("dingtalk")
         manager = _manager(old)
-        await manager.replace_channel(new)
-        assert manager.channels == [new]
+        with pytest.raises((QuiescenceError, asyncio.CancelledError)):
+            await manager.replace_channel(new)
+        assert manager.channels == [old]
+        new.start.assert_not_awaited()
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("uses_queue", [True, False])
@@ -266,5 +274,33 @@ class TestStopAll:
         a.stop.side_effect = RuntimeError("stop failed")
         b = _make_channel("telegram")
         manager = _manager(a, b)
-        await manager.stop_all()  # must not raise
+        with pytest.raises(QuiescenceError, match="cleanup incomplete"):
+            await manager.stop_all()
         b.stop.assert_awaited_once()
+        assert manager.channels == [a]
+
+    @pytest.mark.asyncio
+    async def test_cancelled_stop_settles_sibling_and_retains_owner(self):
+        failed = _make_channel("qq")
+        failed.stop.side_effect = asyncio.CancelledError()
+        sibling = _make_channel("telegram")
+        entered, release = asyncio.Event(), asyncio.Event()
+
+        async def stop_sibling():
+            entered.set()
+            await release.wait()
+
+        sibling.stop.side_effect = stop_sibling
+        manager = _manager(failed, sibling)
+        stopping = asyncio.create_task(manager.stop_all())
+        try:
+            await asyncio.wait_for(entered.wait(), 1)
+            assert not stopping.done()
+            release.set()
+            with pytest.raises(asyncio.CancelledError):
+                await stopping
+            sibling.stop.assert_awaited_once()
+            assert manager.channels == [failed]
+        finally:
+            release.set()
+            await asyncio.gather(stopping, return_exceptions=True)

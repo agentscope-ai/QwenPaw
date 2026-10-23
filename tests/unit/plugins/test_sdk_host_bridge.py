@@ -3,6 +3,7 @@
 
 import asyncio
 import os
+import threading
 
 import pytest
 
@@ -525,6 +526,16 @@ plugin = Plugin()
         ctx = await host.load(
             author_plugin(tmp_path, source, ["apps", "storage"]),
         )
+        loop_thread = threading.get_ident()
+        auth_threads = []
+        load_auth_data = auth._load_auth_data
+
+        def tracked_auth_read():
+            # Auth reads can wait behind password hashing's transaction lock.
+            auth_threads.append(threading.get_ident())
+            return load_auth_data()
+
+        monkeypatch.setattr(auth, "_load_auth_data", tracked_auth_read)
         # Do not inject state.user: production HTTP middleware skips WS scopes.
         for headers in ({}, {"Authorization": "Bearer invalid-test-token"}):
             with pytest.raises(SDKError):
@@ -543,6 +554,8 @@ plugin = Plugin()
             assert await socket.receive() == "alice"
             assert await socket.receive() is None
         assert ctx.storage.read_json("ws-principal.json") == "alice"
+        assert auth_threads
+        assert all(thread != loop_thread for thread in auth_threads)
 
 
 @pytest.mark.parametrize("method", ["check_connection", "fetch_models"])

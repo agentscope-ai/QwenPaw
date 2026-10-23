@@ -19,6 +19,8 @@ import {
 } from "@testing-library/react";
 import { Form } from "antd";
 import type { FormInstance } from "antd";
+import type { ChannelSaveJob } from "../../../../api/modules/channel";
+import type { ChannelQrcodeConfig } from "./useChannelQrcode";
 
 // ---- Hoisted mocks ---------------------------------------------------------
 
@@ -38,7 +40,8 @@ vi.mock("@agentscope-ai/design", async () =>
   vi.importActual<typeof import("antd")>("antd"),
 );
 
-vi.mock("react-i18next", () => ({
+vi.mock("react-i18next", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("react-i18next")>()),
   useTranslation: () => ({
     t: (key: string, fallback?: unknown) => {
       if (typeof fallback === "string") return fallback;
@@ -59,15 +62,15 @@ vi.mock("react-i18next", () => ({
   }),
 }));
 
-vi.mock("../../../../stores/agentStore", () => ({
-  useAgentStore: Object.assign(
-    () => ({
+vi.mock("../../../../stores/agentStore", async () => {
+  const { create } = await import("zustand");
+  return {
+    useAgentStore: create(() => ({
       selectedAgent: "agent-a",
       agents: [{ id: "agent-a", workspace_dir: "/ws" }],
-    }),
-    { subscribe: () => () => {} },
-  ),
-}));
+    })),
+  };
+});
 
 vi.mock("../../../../utils/openExternalLink", () => ({
   openExternalLink: (url: string) => mockOpenExternalLink(url),
@@ -82,35 +85,50 @@ vi.mock("../../../../hooks/useAppMessage", () => ({
 
 // Capture QR-code auth callbacks so tests can drive success/error paths.
 vi.mock("./QrcodeAuthBlock", () => ({
-  QrcodeAuthBlock: (props: Record<string, unknown>) => {
-    const channel = props.channel as string;
+  QrcodeAuthBlock: (props: ChannelQrcodeConfig) => {
+    const { channel } = props;
     return (
       <div data-testid={`qr-${channel}`}>
         <button
           data-testid={`qr-success-${channel}`}
-          onClick={() =>
-            (props.onSuccess as (c: Record<string, string>) => void)({
-              client_id: "cid",
-              client_secret: "cs",
-              app_id: "aid",
-              app_secret: "as",
-              bot_token: "bt",
-              bot_id: "bid",
-              secret: "sec",
-            })
-          }
+          onClick={() => {
+            let taken = false;
+            let cancelled = false;
+            props.onSuccess(
+              {
+                client_id: "cid",
+                client_secret: "cs",
+                app_id: "aid",
+                app_secret: "as",
+                bot_token: "bt",
+                bot_id: "bid",
+                secret: "sec",
+              },
+              { agentId: props.agentId, channel, token: `auth-${channel}` },
+              {
+                take: () => {
+                  if (cancelled) return false;
+                  taken = true;
+                  return true;
+                },
+                cancel: () => {
+                  if (!taken) cancelled = true;
+                },
+              },
+            );
+          }}
         >
           qr-ok
         </button>
         <button
           data-testid={`qr-expired-${channel}`}
-          onClick={() => (props.onError as (t: string) => void)("expired")}
+          onClick={() => props.onError("expired")}
         >
           qr-expired
         </button>
         <button
           data-testid={`qr-failed-${channel}`}
-          onClick={() => (props.onError as (t: string) => void)("failed")}
+          onClick={() => props.onError("fail")}
         >
           qr-failed
         </button>
@@ -133,6 +151,7 @@ interface DrawerProps {
   channelSchema?: unknown;
   onClose?: () => void;
   onSubmit?: (values: Record<string, unknown>) => void;
+  onSubmitSnapshot?: (job: ChannelSaveJob) => Promise<void | boolean>;
 }
 
 function renderDrawer(
@@ -154,6 +173,7 @@ function renderDrawer(
         channelSchema={props.channelSchema as never}
         onClose={props.onClose ?? (() => {})}
         onSubmit={props.onSubmit ?? (() => {})}
+        onSubmitSnapshot={props.onSubmitSnapshot}
       />
     );
   }
@@ -369,12 +389,45 @@ describe("ChannelDrawer builtin channel rendering", () => {
 // ---- QR-code auth callbacks ------------------------------------------------
 
 describe("ChannelDrawer qrcode auth callbacks", () => {
-  it("dingtalk success fills credentials and reports error states", () => {
-    const { form } = renderDrawer({ activeKey: "dingtalk" });
+  function renderQrcodeDrawer(channel: string) {
+    const onSubmit = vi.fn();
+    const onSubmitSnapshot = vi.fn().mockResolvedValue(true);
+    return {
+      ...renderDrawer({ activeKey: channel, onSubmit, onSubmitSnapshot }),
+      onSubmit,
+      onSubmitSnapshot,
+    };
+  }
+
+  async function expectQrcodeSave(
+    drawer: ReturnType<typeof renderQrcodeDrawer>,
+    channel: string,
+    credentials: Record<string, string>,
+  ) {
+    fireEvent.click(screen.getByRole("button", { name: "common.close" }));
+    await waitFor(() => expect(drawer.onSubmitSnapshot).toHaveBeenCalledOnce());
+    expect(drawer.onSubmitSnapshot).toHaveBeenCalledWith(
+      expect.objectContaining({
+        agentId: "agent-a",
+        channel,
+        authSession: `auth-${channel}`,
+        body: expect.objectContaining(credentials),
+      }),
+    );
+    expect(drawer.onSubmit).not.toHaveBeenCalled();
+  }
+
+  it("dingtalk success fills credentials and reports error states", async () => {
+    const drawer = renderQrcodeDrawer("dingtalk");
+    const { form } = drawer;
     fireEvent.click(screen.getByTestId("qr-success-dingtalk"));
     expect(form.getFieldValue("client_id")).toBe("cid");
     expect(form.getFieldValue("client_secret")).toBe("cs");
     expect(mockMessage.success).toHaveBeenCalled();
+    await expectQrcodeSave(drawer, "dingtalk", {
+      client_id: "cid",
+      client_secret: "cs",
+    });
 
     fireEvent.click(screen.getByTestId("qr-expired-dingtalk"));
     expect(mockMessage.warning).toHaveBeenCalled();
@@ -382,47 +435,61 @@ describe("ChannelDrawer qrcode auth callbacks", () => {
     expect(mockMessage.error).toHaveBeenCalled();
   });
 
-  it("feishu success fills app credentials", () => {
-    const { form } = renderDrawer({ activeKey: "feishu" });
+  it("feishu success fills app credentials", async () => {
+    const drawer = renderQrcodeDrawer("feishu");
+    const { form } = drawer;
     fireEvent.click(screen.getByTestId("qr-success-feishu"));
     expect(form.getFieldValue("app_id")).toBe("aid");
     expect(form.getFieldValue("app_secret")).toBe("as");
     expect(mockMessage.success).toHaveBeenCalled();
+    await expectQrcodeSave(drawer, "feishu", {
+      app_id: "aid",
+      app_secret: "as",
+    });
     fireEvent.click(screen.getByTestId("qr-expired-feishu"));
     expect(mockMessage.warning).toHaveBeenCalled();
     fireEvent.click(screen.getByTestId("qr-failed-feishu"));
     expect(mockMessage.error).toHaveBeenCalled();
   });
 
-  it("wechat success fills bot token and reports failures", () => {
-    const { form } = renderDrawer({ activeKey: "wechat" });
+  it("wechat success fills bot token and reports failures", async () => {
+    const drawer = renderQrcodeDrawer("wechat");
+    const { form } = drawer;
     fireEvent.click(screen.getByTestId("qr-success-wechat"));
     expect(form.getFieldValue("bot_token")).toBe("bt");
     expect(mockMessage.success).toHaveBeenCalled();
+    await expectQrcodeSave(drawer, "wechat", { bot_token: "bt" });
     fireEvent.click(screen.getByTestId("qr-expired-wechat"));
     expect(mockMessage.warning).toHaveBeenCalled();
     fireEvent.click(screen.getByTestId("qr-failed-wechat"));
     expect(mockMessage.error).toHaveBeenCalled();
   });
 
-  it("qq success fills credentials and reports failures", () => {
-    const { form } = renderDrawer({ activeKey: "qq" });
+  it("qq success fills credentials and reports failures", async () => {
+    const drawer = renderQrcodeDrawer("qq");
+    const { form } = drawer;
     fireEvent.click(screen.getByTestId("qr-success-qq"));
     expect(form.getFieldValue("app_id")).toBe("aid");
     expect(form.getFieldValue("client_secret")).toBe("cs");
     expect(mockMessage.success).toHaveBeenCalled();
+    await expectQrcodeSave(drawer, "qq", {
+      app_id: "aid",
+      client_secret: "cs",
+    });
     fireEvent.click(screen.getByTestId("qr-expired-qq"));
     expect(mockMessage.warning).toHaveBeenCalled();
     fireEvent.click(screen.getByTestId("qr-failed-qq"));
     expect(mockMessage.error).toHaveBeenCalled();
   });
 
-  it("wecom success fills bot credentials and any error reports failure", () => {
-    const { form } = renderDrawer({ activeKey: "wecom" });
+  it("wecom success fills bot credentials and any error reports failure", async () => {
+    const drawer = renderQrcodeDrawer("wecom");
+    const { form } = drawer;
     fireEvent.click(screen.getByTestId("qr-success-wecom"));
     expect(form.getFieldValue("bot_id")).toBe("bid");
     expect(form.getFieldValue("secret")).toBe("sec");
     expect(mockMessage.success).toHaveBeenCalled();
+    await expectQrcodeSave(drawer, "wecom", { bot_id: "bid", secret: "sec" });
     // wecom uses a single onError handler for every failure type
     fireEvent.click(screen.getByTestId("qr-expired-wecom"));
     expect(mockMessage.error).toHaveBeenCalled();

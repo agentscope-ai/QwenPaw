@@ -14,7 +14,11 @@ Wiring:
     (HELLO -> IDENTIFY -> READY, HEARTBEAT_ACK, DISPATCH push).
   * A mock LLM provider makes the agent reply deterministically.
 
-Coverage targets (``src/qwenpaw/app/channels/qq/channel.py``):
+Historical App HTTP oracle bodies retained; current implementation is
+``plugins/channel/qq/qwenpaw_channel_qq/{driver,platform,media}.py``.
+These old App fixtures have not been rerun as part of the scoped retirement.
+
+Coverage responsibilities:
   start/_run_ws_forever/_ws_connect_once/_handle_ws_payload/
   _handle_msg_event/build_agent_request_from_native/send/
   _dispatch_text/_send_message_async/_get_access_token_{sync,async}.

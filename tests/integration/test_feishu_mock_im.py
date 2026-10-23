@@ -10,7 +10,7 @@ ws.Client endpoint discovery at ``mock_feishu_im.MockFeishuIM``:
   (p2 im.message.receive_v1) -> _on_message -> agent (mock LLM)
   -> im/v1/messages create captured by the mock.
 
-Coverage targets (``src/qwenpaw/app/channels/feishu/channel.py``):
+Coverage targets (``plugins/channel/feishu/feishu/``):
   start/_run_ws_forever/_on_message_sync/_on_message/
   build_agent_request_from_native/send/_send_text/_send_message.
 
@@ -20,6 +20,7 @@ API endpoints:
 """
 from __future__ import annotations
 
+from pathlib import Path
 import threading
 import time
 from http.server import HTTPServer
@@ -30,6 +31,7 @@ from helpers import (
     MOCK_LLM_RESPONSE,
     MockLLMHandler,
     default_http_timeout,
+    wait_until_plugin_loader_ready,
     register_mock_provider,
     unregister_mock_provider,
 )
@@ -56,24 +58,25 @@ def mock_llm():
 @pytest.fixture(scope="module")
 def feishu_channel_up(app_server):
     """Enable the Feishu channel pointed at the mock backend."""
-    # Product bug Aone #84649306: on setuptools>=81 (which removed
-    # pkg_resources.declare_namespace) importing the feishu channel raises
-    # AttributeError, which escapes feishu/channel.py's ImportError-only
-    # guard and is swallowed by registry.py, so feishu never registers and
-    # this fixture's PUT cannot succeed. Skip rather than error the whole
-    # module. Remove once the upstream fix lands.
-    types_resp = app_server.api_request(
-        "GET",
-        "/api/config/channels/types",
-        timeout=_HTTP_TIMEOUT,
-    )
-    if types_resp.status_code != 200 or "feishu" not in types_resp.text:
-        pytest.skip(
-            "feishu channel is not registered on this host "
-            "(product bug Aone #84649306)",
-        )
+    types_resp = app_server.api_request("GET", "/api/config/channels/types")
+    assert types_resp.status_code == 200 and "feishu" in types_resp.text
 
     _MOCK_IM.start()
+    wait_until_plugin_loader_ready(app_server)
+    installed = app_server.api_request(
+        "POST",
+        "/api/plugins/install",
+        json={
+            "source": str(
+                Path(__file__).resolve().parents[2] / "plugins/channel/feishu",
+            ),
+        },
+        timeout=60.0,
+    )
+    assert installed.status_code == 200, (
+        installed.text + app_server.logs_tail()
+    )
+
     put = app_server.api_request(
         "PUT",
         "/api/config/channels/feishu",

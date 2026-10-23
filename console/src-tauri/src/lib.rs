@@ -2,6 +2,7 @@
 
 mod backend;
 mod backend_download;
+mod channel_runtime;
 #[cfg(all(target_os = "macos", not(debug_assertions)))]
 mod computer_use_helper;
 mod computer_use_protocol;

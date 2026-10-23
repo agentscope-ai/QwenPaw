@@ -990,14 +990,22 @@ def register(plugin, app):
         def websocket_endpoint(callback):
             async def endpoint(connection: NativeWebSocket):
                 from ..app.auth import AuthMiddleware, verify_token
+                from ..utils.io_utils import run_sync_io
                 from starlette.websockets import WebSocketState
 
                 identity = Request(
                     {**connection.scope, "type": "http", "method": "GET"},
                 )
-                if not AuthMiddleware._should_skip_auth(identity):
+                if not await run_sync_io(
+                    AuthMiddleware._should_skip_auth,
+                    identity,
+                ):
                     token = AuthMiddleware._extract_token(identity)
-                    user = verify_token(token) if token else None
+                    user = (
+                        await run_sync_io(verify_token, token)
+                        if token
+                        else None
+                    )
                     if user is None:
                         await connection.close(code=4401)
                         return

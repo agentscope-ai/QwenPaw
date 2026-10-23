@@ -6,12 +6,12 @@ config-system collaborators are monkeypatched at their source modules, so
 every code path runs in-process against temporary directories. The Click
 commands are driven through ``CliRunner`` against the ``plugin`` group.
 """
+
 # pylint: disable=protected-access,unnecessary-lambda,unused-argument,unused-variable  # noqa: E501
 from __future__ import annotations
 
 import io
 import json
-import subprocess
 import zipfile
 from pathlib import Path
 from functools import partial
@@ -22,6 +22,19 @@ from click.testing import CliRunner
 
 import qwenpaw.cli.plugin_commands as pc
 import qwenpaw.config.utils as config_utils
+
+
+@pytest.fixture(autouse=True)
+def _isolated_plugin_registry():
+    """Each CLI invocation test gets its own trusted runtime configuration."""
+    from qwenpaw.plugins.registry import PluginRegistry
+
+    previous = PluginRegistry._instance
+    PluginRegistry._instance = None
+    try:
+        yield
+    finally:
+        PluginRegistry._instance = previous
 
 
 # ---------------------------------------------------------------------------
@@ -906,22 +919,40 @@ def test_offline_force_dependency_failure_preserves_old(
     (source / "requirements.txt").write_text("qwenpaw-test-missing==1\n")
     calls = []
 
-    def fail_install(*args, **kwargs):
-        calls.append(args)
-        return subprocess.CompletedProcess(args[0], 1, "", "deps failed")
+    async def fail_install(
+        self,
+        process,
+        spec,
+        snapshot,
+        target,
+        plugin_id,
+        requirements_file,
+        *,
+        source_path,
+    ):
+        calls.append((requirements_file, plugin_id, target))
+        assert requirements_file == source / "requirements.txt"
+        assert plugin_id == "demo"
+        assert spec.code_root == source_path == source
+        assert (
+            process is not None and snapshot is not None and target is not None
+        )
+        raise RuntimeError("deps failed")
 
     from qwenpaw.plugins.loader import PluginLoader
 
     monkeypatch.setattr(
         PluginLoader,
-        "_run_subprocess_with_streaming_log",
-        staticmethod(fail_install),
+        "_acquire_dependency_wheels",
+        fail_install,
     )
     result = CliRunner().invoke(
         pc.plugin,
         ["install", str(source), "--force"],
     )
     assert calls
+    assert result.exit_code != 0
+    assert "deps failed" in result.output
     assert "installed successfully" not in result.output
     assert json.loads((old / "plugin.json").read_text())["version"] == "1.0.0"
     assert (old / "user.txt").read_text() == "keep"

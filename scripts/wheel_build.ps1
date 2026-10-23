@@ -35,7 +35,7 @@ if (Test-Path $DocsDest) { Remove-Item -Recurse -Force $DocsDest }
 New-Item -ItemType Directory -Force -Path $DocsDest | Out-Null
 Copy-Item -Path (Join-Path $DocsSrc "*.md") -Destination $DocsDest -Force
 
-Write-Host "[wheel_build] Building wheel + sdist..."
+Write-Host "[wheel_build] Building wheel + sdist with bundled offline channel sources..."
 python -m pip install --quiet build
 $DistDir = Join-Path $RepoRoot "dist"
 if (Test-Path $DistDir) {

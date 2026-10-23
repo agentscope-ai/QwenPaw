@@ -43,6 +43,7 @@
     "resources": [
       "binaries/qwenpaw-backend",
       "binaries/python-runtime",
+      "binaries/channel-runtime",
       "binaries/node-runtime"
     ],
     "windows": {

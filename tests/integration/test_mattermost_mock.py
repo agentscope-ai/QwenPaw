@@ -14,11 +14,13 @@ API endpoints:
   - PUT /api/config/channels/mattermost
   - GET /api/config/channels/mattermost
 """
+
 from __future__ import annotations
 
 import threading
 import time
 from http.server import HTTPServer
+from pathlib import Path
 
 import pytest
 from helpers import (
@@ -28,6 +30,7 @@ from helpers import (
     default_http_timeout,
     register_mock_provider,
     unregister_mock_provider,
+    wait_until_plugin_loader_ready,
 )
 from mock_mattermost import MockMattermost
 
@@ -53,6 +56,22 @@ def mock_llm():
 def mattermost_channel_up(app_server):
     """Enable the Mattermost channel pointed at the mock server."""
     _MOCK_MM.start()
+    wait_until_plugin_loader_ready(app_server)
+    installed = app_server.api_request(
+        "POST",
+        "/api/plugins/install",
+        json={
+            "source": str(
+                Path(__file__).resolve().parents[2]
+                / "plugins/channel/mattermost",
+            ),
+            "force": False,
+        },
+        timeout=_HTTP_TIMEOUT,
+    )
+    assert installed.status_code == 200, (
+        installed.text + app_server.logs_tail()
+    )
     put = app_server.api_request(
         "PUT",
         "/api/config/channels/mattermost",
@@ -60,6 +79,7 @@ def mattermost_channel_up(app_server):
             "enabled": True,
             "url": _MOCK_MM.url,
             "bot_token": "integ-mock-mm-token",
+            "thread_follow_without_mention": True,
         },
         timeout=_HTTP_TIMEOUT,
     )
@@ -75,6 +95,7 @@ def mattermost_channel_up(app_server):
         json={"enabled": False},
         timeout=_HTTP_TIMEOUT,
     )
+    _MOCK_MM.stop()
 
 
 def _wait_live_connection(mock_mm, timeout: float = 30.0) -> None:
@@ -278,8 +299,7 @@ def test_mattermost_thread_follow_reply(
                     followed = post
                     break
             time.sleep(0.3)
-        # thread_follow is opt-in via config; accept either outcome but
-        # assert the channel is still healthy by checking no crash.
+        assert followed is not None, mattermost_channel_up.posts[before:]
         assert mattermost_channel_up.has_connection
     finally:
         unregister_mock_provider(app_server, provider_id)

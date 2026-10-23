@@ -11,6 +11,7 @@ The Mattermost channel uses one ``url`` for everything: REST under
 * WS: accepts the authentication_challenge, lets tests push
   ``posted`` events.
 """
+
 from __future__ import annotations
 
 # pylint: disable=protected-access  # nested handlers touch own instance
@@ -36,6 +37,15 @@ class MockMattermost:
         self.http_port: int = 0
         self.ws_port: int = 0
         self.posts: list[dict[str, Any]] = []
+        self.requests: list[tuple[str, str, dict]] = []
+        self.request_headers: list[dict[str, str]] = []
+        self.responses: dict[str, tuple[int, Any]] = {}
+        self.response_sequences: dict[str, list[tuple[int, Any]]] = {}
+        self.response_gates: dict[str, threading.Event] = {}
+        self.response_callbacks: dict[str, Any] = {}
+        self.auth_reply = True
+        self.ws_messages: list[dict[str, Any]] = []
+        self.file_uploads: list[bytes] = []
         self._ws_conn: Optional[Any] = None
         self._connected = threading.Event()
         self._http_server: Optional[ThreadingHTTPServer] = None
@@ -76,9 +86,18 @@ class MockMattermost:
                 pass
 
             def _json(self, obj: Any, code: int = 200) -> None:
-                raw = json.dumps(obj).encode()
+                raw = (
+                    obj if isinstance(obj, bytes) else json.dumps(obj).encode()
+                )
                 self.send_response(code)
-                self.send_header("Content-Type", "application/json")
+                self.send_header(
+                    "Content-Type",
+                    (
+                        "application/octet-stream"
+                        if isinstance(obj, bytes)
+                        else "application/json"
+                    ),
+                )
                 self.send_header("Content-Length", str(len(raw)))
                 self.end_headers()
                 self.wfile.write(raw)
@@ -86,14 +105,44 @@ class MockMattermost:
             def _read_body(self) -> dict:
                 length = int(self.headers.get("Content-Length") or 0)
                 raw = self.rfile.read(length) if length else b""
+                self._raw_body = raw
                 try:
                     return json.loads(raw) if raw else {}
                 except ValueError:
                     return {}
 
+            def _controlled_response(self, route):
+                callback = mock.response_callbacks.get(route)
+                if callback is not None:
+                    return callback()
+                gate = mock.response_gates.get(route)
+                if gate is not None:
+                    gate.wait()
+                with mock._lock:
+                    sequence = mock.response_sequences.get(route)
+                    return (
+                        sequence.pop(0)
+                        if sequence
+                        else mock.responses.get(route)
+                    )
+
             def do_GET(self) -> None:
+                with mock._lock:
+                    mock.requests.append(("GET", self.path, {}))
+                    mock.request_headers.append(dict(self.headers))
                 if self.path == "/api/v4/websocket":
                     self._proxy_ws()
+                    return
+                route = self.path.split("?", 1)[0]
+                response = self._controlled_response(route)
+                if response is not None:
+                    code, value = response
+                    if code == 0:
+                        self.close_connection = True
+                        self.connection.shutdown(2)
+                        self.connection.close()
+                        return
+                    self._json(value, code)
                     return
                 if self.path == "/api/v4/users/me":
                     self._json(
@@ -109,6 +158,24 @@ class MockMattermost:
 
             def do_POST(self) -> None:
                 body = self._read_body()
+                route = self.path.split("?", 1)[0]
+                with mock._lock:
+                    mock.requests.append(("POST", self.path, body))
+                    if route == "/api/v4/files":
+                        mock.file_uploads.append(self._raw_body)
+                response = self._controlled_response(route)
+                if response is not None:
+                    code, value = response
+                    if code == 0:
+                        self.close_connection = True
+                        self.connection.shutdown(2)
+                        self.connection.close()
+                        return
+                    if route == "/api/v4/posts" and code in (200, 201):
+                        with mock._lock:
+                            mock.posts.append(body)
+                    self._json(value, code)
+                    return
                 if self.path == "/api/v4/posts":
                     with mock._lock:
                         mock.posts.append(body)
@@ -130,6 +197,9 @@ class MockMattermost:
                 """Byte-proxy the WS upgrade to the real WS server."""
                 import socket
 
+                # An upgraded socket must close when its WS upstream closes;
+                # HTTP/1.1 keepalive must not delay the real close handshake.
+                self.close_connection = True
                 upstream = socket.create_connection(
                     ("127.0.0.1", mock.ws_port),
                 )
@@ -170,11 +240,12 @@ class MockMattermost:
         server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
         self.http_port = server.server_address[1]
         self._http_server = server
-        threading.Thread(
+        self._http_thread = threading.Thread(
             target=server.serve_forever,
             name="mock-mattermost-http",
             daemon=True,
-        ).start()
+        )
+        self._http_thread.start()
 
     # -------------------------------------------------------------- #
     # WS
@@ -192,7 +263,11 @@ class MockMattermost:
                         data = json.loads(raw)
                     except ValueError:
                         continue
+                    with mock._lock:
+                        mock.ws_messages.append(data)
                     if data.get("action") == "authentication_challenge":
+                        if not mock.auth_reply:
+                            continue
                         conn.send(
                             json.dumps(
                                 {
@@ -212,11 +287,28 @@ class MockMattermost:
         server = ws_serve(handler, "127.0.0.1", 0)
         self.ws_port = server.socket.getsockname()[1]
         self._ws_server = server
-        threading.Thread(
+        self._ws_thread = threading.Thread(
             target=server.serve_forever,
             name="mock-mattermost-ws",
             daemon=True,
-        ).start()
+        )
+        self._ws_thread.start()
+
+    def stop(self) -> None:
+        """Close accepted sockets and wait for both local service loops."""
+        for gate in self.response_gates.values():
+            gate.set()
+        with self._lock:
+            conn = self._ws_conn
+        if conn is not None:
+            conn.close()
+        if self._ws_server is not None:
+            self._ws_server.shutdown()
+            self._ws_thread.join()
+        if self._http_server is not None:
+            self._http_server.shutdown()
+            self._http_server.server_close()
+            self._http_thread.join()
 
     # -------------------------------------------------------------- #
     # test-facing helpers
@@ -227,6 +319,23 @@ class MockMattermost:
 
     def reset_connected(self) -> None:
         self._connected.clear()
+
+    def accept_authentication(self) -> None:
+        """Release a deliberately delayed real WebSocket auth response."""
+        with self._lock:
+            conn = self._ws_conn
+            challenges = [
+                row
+                for row in self.ws_messages
+                if row.get("action") == "authentication_challenge"
+            ]
+        assert conn is not None and challenges
+        conn.send(
+            json.dumps(
+                {"status": "OK", "seq_reply": challenges[-1].get("seq", 1)},
+            ),
+        )
+        self._connected.set()
 
     @property
     def has_connection(self) -> bool:
@@ -240,6 +349,7 @@ class MockMattermost:
         channel_id: str = "integmockdmchannel000000",
         user_id: str = "integmockuser00000000000",
         post_id: str = "",
+        post_fields: Optional[dict] = None,
     ) -> str:
         """Push a 'posted' DM event to the connected channel."""
         with self._lock:
@@ -254,6 +364,7 @@ class MockMattermost:
             "root_id": "",
             "create_at": int(time.time() * 1000),
         }
+        post.update(post_fields or {})
         event = {
             "event": "posted",
             "seq": n,
@@ -277,6 +388,7 @@ class MockMattermost:
         user_id: str = "integmockuser00000000000",
         post_id: str = "",
         root_id: str = "",
+        post_fields: Optional[dict] = None,
     ) -> str:
         """Push a 'posted' open-channel event (channel_type=O)."""
         with self._lock:
@@ -291,6 +403,7 @@ class MockMattermost:
             "root_id": root_id,
             "create_at": int(time.time() * 1000),
         }
+        post.update(post_fields or {})
         event = {
             "event": "posted",
             "seq": n,

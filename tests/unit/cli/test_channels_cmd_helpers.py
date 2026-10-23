@@ -11,11 +11,46 @@ previously had almost no coverage.
 
 from __future__ import annotations
 
+import importlib.abc
+import sys
 from types import SimpleNamespace
 
 import pytest
 
 import qwenpaw.cli.channels_cmd as cc
+from qwenpaw.config import utils as config_utils
+from qwenpaw.plugins.registry import PluginRegistry
+
+
+@pytest.fixture
+def isolated_channel_catalog(monkeypatch, tmp_path):
+    """Discover real bundled metadata without installed plugins or settings."""
+    monkeypatch.setattr(PluginRegistry, "_instance", None)
+    monkeypatch.setattr(config_utils, "WORKING_DIR", tmp_path)
+    monkeypatch.setattr(
+        config_utils,
+        "get_plugins_dir",
+        lambda: tmp_path / "plugins",
+    )
+    monkeypatch.delenv("QWENPAW_ENABLED_CHANNELS", raising=False)
+    monkeypatch.delenv("QWENPAW_DISABLED_CHANNELS", raising=False)
+
+    def guarded_module(fullname):
+        root = fullname.partition(".")[0]
+        return root in {"telegram", "paho"} or root.startswith(
+            "qwenpaw_channel_",
+        )
+
+    for name in tuple(sys.modules):
+        if guarded_module(name):
+            monkeypatch.delitem(sys.modules, name)
+
+    class SDKImportGuard(importlib.abc.MetaPathFinder):
+        def find_spec(self, fullname, path=None, target=None):
+            if guarded_module(fullname):
+                raise AssertionError("Passive discovery imported " + fullname)
+
+    monkeypatch.setattr(sys, "meta_path", [SDKImportGuard(), *sys.meta_path])
 
 
 # ---------------------------------------------------------------------------
@@ -113,8 +148,12 @@ class TestGetChannelConfig:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.usefixtures("isolated_channel_catalog")
 class TestGetChannelNames:
-    def test_filters_by_available(self, monkeypatch):
+    def test_includes_official_names_outside_runtime_available(
+        self,
+        monkeypatch,
+    ):
         monkeypatch.setattr(
             cc,
             "get_available_channels",
@@ -126,8 +165,10 @@ class TestGetChannelNames:
             lambda: {"console": object(), "discord": object()},
         )
         names = cc._get_channel_names()
-        assert "console" in names
-        assert "discord" in names
+        assert names["console"] == "Console"
+        assert names["discord"] == "Discord"
+        assert names["telegram"] == "Telegram"
+        assert names["mqtt"] == "MQTT"
 
     def test_plugin_channel_display_name(self, monkeypatch):
         class _Plugin:
@@ -157,18 +198,38 @@ class TestGetChannelNames:
         assert names["my_channel"] == "My Channel"
 
 
+@pytest.mark.usefixtures("isolated_channel_catalog")
 class TestGetChannelConfigurators:
-    def test_builtin_filtered_by_available(self, monkeypatch):
-        monkeypatch.setattr(
-            cc,
-            "get_available_channels",
-            lambda: ("console", "discord"),
-        )
-        monkeypatch.setattr(cc, "get_channel_registry", lambda: {})
+    def test_official_configurators_discovered_without_runtime(self):
+        available = cc.get_available_channels()
+        registry = cc.get_channel_registry()
+        catalog = cc.get_configurable_channel_catalog()
+        for key in ("telegram", "mqtt"):
+            assert key not in available
+            assert key not in registry
+            assert catalog[key]["availability"] == "missing_code"
+
         configurators = cc.get_channel_configurators()
-        assert "console" in configurators
-        assert "discord" in configurators
-        assert "telegram" not in configurators
+        assert configurators["console"] == ("Console", cc.configure_console)
+        assert configurators["telegram"] == (
+            "Telegram",
+            cc.configure_telegram,
+        )
+        assert configurators["mqtt"][0] == "MQTT"
+        assert callable(configurators["mqtt"][1])
+
+    def test_catalog_only_channel_default_configurator(self, monkeypatch):
+        monkeypatch.setattr(cc, "prompt_confirm", lambda *a, **kw: True)
+        monkeypatch.setattr(cc.click, "prompt", lambda *a, **kw: "[MQTT]")
+        _, run = cc.get_channel_configurators()["mqtt"]
+
+        result = run({"enabled": False, "bot_prefix": "", "host": "broker"})
+
+        assert result == {
+            "enabled": True,
+            "bot_prefix": "[MQTT]",
+            "host": "broker",
+        }
 
     def test_plugin_configurator_used(self, monkeypatch):
         called = {}
@@ -222,8 +283,10 @@ class TestGetChannelConfigurators:
         monkeypatch.setattr(cc, "get_channel_registry", lambda: {})
         configurators = cc.get_channel_configurators()
         assert "ghost" not in configurators
+        assert "ghost" not in cc._get_channel_names()
 
 
+@pytest.mark.usefixtures("isolated_channel_catalog")
 class TestDefaultPluginConfiguratorBehavior:
     """Default configurator exercised through wrapped plugin path."""
 

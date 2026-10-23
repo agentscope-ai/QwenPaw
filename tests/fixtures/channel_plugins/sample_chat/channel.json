@@ -1,0 +1,77 @@
+{
+  "schema_version": 2,
+  "channel_key": "sample_chat",
+  "label": {
+    "en": "Sample Chat",
+    "zh": "\u6d4b\u8bd5\u804a\u5929"
+  },
+  "process_mode": "runner_process",
+  "dependency_mode": "shared",
+  "entrypoint": {
+    "scope": "runner",
+    "module": "sample_chat.driver",
+    "qualname": "Driver"
+  },
+  "requirements_file": "requirements.txt",
+  "config_schema": {
+    "type": "object",
+    "properties": {
+      "enabled": {
+        "type": "boolean",
+        "default": false
+      },
+      "rooms": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "default": [
+          "room-A",
+          "room-B"
+        ]
+      },
+      "route_policies": {
+        "type": "object",
+        "default": {},
+        "additionalProperties": {
+          "type": "object",
+          "properties": {
+            "streaming": {
+              "type": "boolean"
+            },
+            "prepare": {
+              "type": "boolean"
+            },
+            "completion_reaction": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "streaming",
+            "prepare",
+            "completion_reaction"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "streaming_enabled": {
+        "type": "boolean",
+        "default": false
+      }
+    },
+    "additionalProperties": false
+  },
+  "config_fields": [
+    "enabled",
+    "rooms",
+    "route_policies",
+    "streaming_enabled"
+  ],
+  "capabilities": [
+    "channel.generic.v1",
+    "media",
+    "reaction",
+    "response.prepare",
+    "streaming"
+  ]
+}

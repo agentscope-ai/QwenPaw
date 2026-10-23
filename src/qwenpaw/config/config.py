@@ -38,6 +38,7 @@ from qwenpaw.exceptions import (
 
 from .history_path import normalize_history_db_filename
 from .timezone import detect_system_timezone
+from .channel_normalizers import NORMALIZER_MARKER, strip_trailing_slash
 from ..constant import (
     HEARTBEAT_DEFAULT_EVERY,
     HEARTBEAT_DEFAULT_TARGET,
@@ -399,6 +400,8 @@ class DiscordConfig(BaseChannelConfig):
 
 
 class DingTalkConfig(BaseChannelConfig):
+    model_config = ConfigDict(extra="allow")
+
     client_id: str = ""
     client_secret: str = ""
     message_type: str = "markdown"
@@ -426,13 +429,18 @@ class FeishuConfig(BaseChannelConfig):
     if False (default), each member gets an independent session.
     """
 
+    model_config = ConfigDict(extra="allow")
+
     app_id: str = ""
     app_secret: str = ""
     encrypt_key: str = ""
     verification_token: str = ""
     media_dir: Optional[str] = None
     # "feishu" / "lark", or a full http(s) base URL for custom gateways.
-    domain: str = "feishu"
+    domain: str = Field(
+        default="feishu",
+        json_schema_extra={"pattern": "^(feishu$|lark$|https?://)"},
+    )
 
     @field_validator("domain")
     @classmethod
@@ -544,12 +552,13 @@ class WecomConfig(BaseChannelConfig):
 class MatrixConfig(BaseChannelConfig):
     """Matrix channel configuration."""
 
-    homeserver: str = ""
-
-    @field_validator("homeserver")
-    @classmethod
-    def strip_trailing_slash(cls, v: str) -> str:
-        return v.rstrip("/")
+    homeserver: str = Field(
+        default="",
+        json_schema_extra={NORMALIZER_MARKER: "strip_trailing_slash"},
+    )
+    strip_trailing_slash = field_validator("homeserver", mode="after")(
+        strip_trailing_slash,
+    )
 
     user_id: str = ""
     access_token: str = ""
@@ -3381,10 +3390,25 @@ class ThemeConfig(BaseModel):
         return value
 
 
+class ChannelPluginState(BaseModel):
+    """Host distribution intent, never runtime ownership or credentials."""
+
+    version: int = 0
+    preset: Literal["light", "channels-full"] = "light"
+    legacy_pending: list[str] = Field(default_factory=list)
+    legacy_captured: list[str] = Field(default_factory=list)
+    uninstalled: list[str] = Field(default_factory=list)
+
+
 class Config(BaseModel):
     """Root config (config.json)."""
 
     channels: ChannelConfig = ChannelConfig()
+    channel_plugin_state: ChannelPluginState = Field(
+        default_factory=ChannelPluginState,
+    )
+    channel_send_timeouts: Dict[str, float] = Field(default_factory=dict)
+
     mcp: MCPConfig = MCPConfig()
     tools: ToolsConfig = Field(default_factory=ToolsConfig)
     last_api: LastApiConfig = LastApiConfig()
@@ -3412,6 +3436,13 @@ class Config(BaseModel):
         "Skills found here are read-only (no edit/create); they can be "
         "listed, downloaded to a workspace, and deleted.",
     )
+
+    @field_validator("channel_send_timeouts", mode="before")
+    @classmethod
+    def _validate_channel_send_timeouts(cls, value):
+        from ..channel_protocol.outbound_budget import validate_send_timeouts
+
+        return validate_send_timeouts(value)
 
 
 ChannelConfigUnion = Union[
