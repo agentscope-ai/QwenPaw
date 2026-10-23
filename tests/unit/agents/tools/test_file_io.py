@@ -123,12 +123,21 @@ class TestReadFile:
 
     @pytest.mark.asyncio
     async def test_safe_read_uses_one_binary_snapshot(self, tmp_path):
-        """Safe reads strip a BOM and tolerate invalid trailing bytes."""
+        """Safe reads strip a UTF-8 BOM on the utf-8-sig path."""
         path = tmp_path / "snapshot.txt"
-        path.write_bytes(b"\xef\xbb\xbfhello\xff")
+        path.write_bytes(b"\xef\xbb\xbfhello")
 
         assert await read_file_safe(str(path)) == "hello"
 
+    @pytest.mark.asyncio
+    async def test_safe_read_decodes_gbk_without_dropping_text(self, tmp_path):
+        """GBK/CP936 notes must not be stripped by a UTF-8-only decode."""
+        path = tmp_path / "gbk-note.txt"
+        path.write_bytes(("姓名: 张三" + chr(10)).encode("gbk"))
+
+        assert await read_file_safe(str(path)) == "姓名: 张三" + chr(10)
+
+    @pytest.mark.asyncio
     @pytest.mark.asyncio
     async def test_safe_read_normalizes_platform_newlines(self, tmp_path):
         """Binary snapshots retain text-mode universal newline behavior."""
@@ -261,6 +270,15 @@ class TestWriteFile:
 
 class TestEditFile:
     """Tests for edit_file."""
+
+    @pytest.mark.asyncio
+    async def test_edit_preserves_gbk_text(self, tmp_path):
+        """edit_file must not persist a lossy UTF-8 decode of a GBK file."""
+        f = tmp_path / "note.txt"
+        f.write_bytes(("姓名: 张三" + chr(10)).encode("gbk"))
+        result = await edit_file(str(f), "张三", "李四")
+        assert "Successfully replaced" in result.content[0].text
+        assert f.read_text(encoding="utf-8-sig") == "姓名: 李四" + chr(10)
 
     @pytest.mark.asyncio
     async def test_edit_replaces_text(self, tmp_path):
