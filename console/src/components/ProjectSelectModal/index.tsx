@@ -27,6 +27,8 @@ import {
 } from "../../api/modules/projectDirectory";
 import SessionProjectDirectory from "../../features/project-directory/SessionProjectDirectory";
 import { useProjectDir } from "../../stores/projectDirectoryStore";
+import { isVolumeRoot } from "../../utils/volumeRoot";
+import { confirmVolumeRootProjectDir } from "../../utils/volumeRootWarning";
 import styles from "./index.module.less";
 
 interface ProjectSelectModalProps {
@@ -556,7 +558,22 @@ export default function ProjectSelectModal({
     }
   };
 
+  /**
+   * Warns before accepting a volume root as the project directory.
+   *
+   * The sandbox cannot grant access there (its ACE is inheritable and a
+   * volume root has no parent), so the backend runs such a session
+   * without the sandbox. Let the user decide: the command still runs.
+   */
+  const guardVolumeRoot = async (path: string): Promise<boolean> => {
+    if (!isVolumeRoot(path)) {
+      return true;
+    }
+    return confirmVolumeRootProjectDir({ path, t });
+  };
+
   const handlePathSelected = async (path: string) => {
+    if (!(await guardVolumeRoot(path))) return;
     try {
       await projectDirectoryApi.set(path);
     } catch {
@@ -566,15 +583,21 @@ export default function ProjectSelectModal({
     onConfirm(path);
   };
 
-  const handleCloneDone = async (path: string) => {
-    // After clone, the server already set the active project; update store.
-    setProjectDir(path);
-    onConfirm(path);
+  const handleCloneDone = (path: string) => {
+    void guardVolumeRoot(path).then((ok) => {
+      if (!ok) return;
+      // After clone, the server already set the active project; update store.
+      setProjectDir(path);
+      onConfirm(path);
+    });
   };
 
   const handleLocalDone = (path: string) => {
-    setProjectDir(path);
-    onConfirm(path);
+    void guardVolumeRoot(path).then((ok) => {
+      if (!ok) return;
+      setProjectDir(path);
+      onConfirm(path);
+    });
   };
 
   const handleDefaultDirsChanged = async () => {
@@ -592,8 +615,11 @@ export default function ProjectSelectModal({
   };
 
   const handleNewDone = (path: string) => {
-    setProjectDir(path);
-    onConfirm(path);
+    void guardVolumeRoot(path).then((ok) => {
+      if (!ok) return;
+      setProjectDir(path);
+      onConfirm(path);
+    });
   };
 
   const tabItems = [
