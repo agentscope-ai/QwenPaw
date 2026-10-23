@@ -85,7 +85,8 @@ export function SessionThinking({
         .getState()
         .setActiveMaxInputLength(next.effective_max_input_length ?? null);
     } catch (error) {
-      if (identityRef.current === identity) message.error(String(error));
+      if (identityRef.current === identity && revision.current === version)
+        message.error(String(error));
     } finally {
       if (identityRef.current === identity && revision.current === version)
         setBusy(false);

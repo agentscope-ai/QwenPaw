@@ -104,4 +104,34 @@ describe("useAdvisorDecisionAvailability", () => {
     expect(sessionThinkingApi.get).toHaveBeenCalledTimes(calls);
     unmount();
   });
+
+  it("refreshes the decision setting when the scoped model change matches", async () => {
+    vi.mocked(sessionThinkingApi.get)
+      .mockResolvedValueOnce(view(true))
+      .mockResolvedValueOnce(view(false));
+    const onChange = vi.fn();
+    const { unmount } = renderHook(() =>
+      useAdvisorDecisionAvailability({
+        active: true,
+        agentId: "agent",
+        sessionId: "session",
+        chatId: "chat",
+        onChange,
+      }),
+    );
+    await waitFor(() => expect(onChange).toHaveBeenLastCalledWith(true));
+    const calls = vi.mocked(sessionThinkingApi.get).mock.calls.length;
+
+    act(() => {
+      dispatchSessionModelChanged({
+        agentId: "agent",
+        sessionId: "session",
+        chatId: "chat",
+      });
+    });
+
+    await waitFor(() => expect(onChange).toHaveBeenLastCalledWith(false));
+    expect(sessionThinkingApi.get).toHaveBeenCalledTimes(calls + 1);
+    unmount();
+  });
 });
