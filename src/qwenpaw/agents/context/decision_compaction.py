@@ -12,14 +12,15 @@ from ...constant import (
     QWENPAW_MESSAGE_TAG_KEY,
     SYNTHETIC_USER_MESSAGE_TAGS,
 )
-from ..decision_model_factory import create_decision_model_async
+from ...utils.io_utils import run_async_to_completion
+from ..model_factory import create_decision_model_async
 from .scroll import _as_internals as as_internals
+from .types import DECISION_COMPACTED
 
 logger = logging.getLogger(__name__)
-JEV_COMPACTED = "qwenpaw_jev_compacted"
 
 
-class JevCompactor:
+class DecisionCompactor:
     """One lazy decision client per agent; independent of long-term memory."""
 
     def __init__(self):
@@ -28,12 +29,14 @@ class JevCompactor:
 
     async def close(self):
         """ReMe drains borrowed calls before QwenPaw releases its client."""
+        await run_async_to_completion(self._close())
+
+    async def _close(self):
         if self._component is not None:
             await self._component.close()
-        model, self._model = self._model, None
-        self._component = None
-        if model is not None:
-            await model.client.aclose()
+        if self._model is not None:
+            await self._model.client.aclose()
+        self._model = self._component = None
 
     async def _decision_component(self, agent):
         if self._component is None:
@@ -54,9 +57,8 @@ class JevCompactor:
         eligible result through its offloader. Every error leaves the current
         context intact and allows the original compression pipeline to run.
         """
-        cfg = (
-            agent._agent_config.running.light_context_config.jev_compact_config
-        )
+        context_config = agent._agent_config.running.light_context_config
+        cfg = context_config.decision_compact_config
         try:
             async with asyncio.timeout(cfg.total_timeout_seconds):
                 return await self._compact(
@@ -68,7 +70,7 @@ class JevCompactor:
                 )
         except Exception:
             logger.warning(
-                "JEV compaction unavailable; continuing normal compaction",
+                "Decision model compaction failed; using normal compaction",
                 exc_info=True,
             )
             return False
@@ -94,38 +96,48 @@ class JevCompactor:
             0,
         )
         protected = [msg["id"] for msg in snapshot[active_start:]]
-        refs = dict(source_refs or {})
-        tools = set()
-        for message in snapshot:
-            for block in message["content"]:
-                if block["type"] == "tool_result":
-                    tools.add(block["name"])
+        results = [
+            block
+            for message in snapshot
+            for block in message["content"]
+            if block["type"] == "tool_result"
+        ]
+        # Native mode uses temporary refs to discover safe pairs locally;
+        # replace them with durable archive refs before calling ReMe.
+        refs = (
+            dict(source_refs)
+            if source_refs is not None
+            else dict.fromkeys((block["id"] for block in results), "pending")
+        )
         options = cfg.model_dump(exclude={"enabled"})
         request = CompactionRequest(
             messages=snapshot,
             protected_message_ids=protected,
             protected_call_ids=[
                 block["id"]
-                for msg in snapshot
-                for block in msg["content"]
-                if block["type"] == "tool_result"
-                and block.get("metadata", {}).get(JEV_COMPACTED)
+                for block in results
+                if block.get("metadata", {}).get(DECISION_COMPACTED)
             ],
             source_refs=refs,
-            eligible_tool_names=sorted(tools),
+            eligible_tool_names=sorted({block["name"] for block in results}),
             options=options,
         )
-        if source_refs is None:
-            request.source_refs = await self._archive_native(
-                agent,
-                request,
-                original,
-            )
         pairs = {
             pair.call_id: pair
             for pair in collect_pairs(request)
             if not pair.protected
         }
+        if source_refs is None and pairs:
+            request.source_refs = await self._archive_native(
+                agent,
+                pairs.values(),
+                original,
+            )
+            pairs = {
+                key: pair
+                for key, pair in pairs.items()
+                if key in request.source_refs
+            }
         if not pairs:
             return False
         request.goal = "\n".join(
@@ -144,8 +156,8 @@ class JevCompactor:
         if not result.changed:
             return False
         candidate, changed_ids = self._validated_candidate(
-            snapshot,
             request,
+            pairs,
             result,
             cfg,
         )
@@ -165,15 +177,15 @@ class JevCompactor:
             )
             if after >= tokens:
                 return False
-            agent._jev_compaction_revision = (
-                getattr(agent, "_jev_compaction_revision", 0) + 1
+            agent._decision_compaction_revision = (
+                getattr(agent, "_decision_compaction_revision", 0) + 1
             )
             committed = True
         finally:
             if not committed and agent.state.context is candidate:
                 agent.state.context = original
         logger.info(
-            "JEV compacted %d tool results: %d -> %d input tokens",
+            "Decision model compacted %d tool results: %d -> %d input tokens",
             len(changed_ids),
             tokens,
             after,
@@ -181,61 +193,41 @@ class JevCompactor:
         return after <= target
 
     @staticmethod
-    async def _archive_native(agent, request, original):
+    async def _archive_native(agent, pairs, original):
         """Archive safe candidate outputs before making them eligible."""
-        from reme.steps.compaction.messages import collect_pairs
-
         offloader = getattr(agent, "offloader", None)
         if offloader is None:
             return {}
-        # Temporary refs discover safe pairs locally; never sent to ReMe.
-        probe = request.model_copy(
-            update={
-                "source_refs": {
-                    b["id"]: "pending"
-                    for m in request.messages
-                    for b in m["content"]
-                    if b["type"] == "tool_result"
-                },
-            },
-        )
         refs = {}
-        for pair in collect_pairs(probe):
-            if not pair.protected:
-                mi, bi = pair.result_location
-                path = await offloader.offload_tool_result(
-                    agent._model_session_id,
-                    original[mi].content[bi],
-                )
-                if path:
-                    refs[pair.call_id] = f"read_file(file_path={str(path)!r})"
+        for pair in pairs:
+            mi, bi = pair.result_location
+            path = await offloader.offload_tool_result(
+                agent._model_session_id,
+                original[mi].content[bi],
+            )
+            if path:
+                refs[pair.call_id] = f"read_file(file_path={str(path)!r})"
         return refs
 
     @staticmethod
-    def _validated_candidate(snapshot, request, result, cfg):
+    def _validated_candidate(request, pairs, result, cfg):
         """Compare the entire proposal with permitted output previews."""
-        from reme.steps.compaction.messages import (
-            collect_pairs,
-            preview_result,
-        )
+        from reme.steps.compaction.messages import preview_result
 
-        pairs = {
-            p.call_id: p for p in collect_pairs(request) if not p.protected
-        }
         refs = request.source_refs
-        expected = deepcopy(snapshot)
+        expected = deepcopy(request.messages)
         changed_ids = set()
         for decision in result.decisions:
             if decision.action != "preview":
                 continue
             pair = pairs.get(decision.call_id)
             if pair is None or decision.source_ref != refs[pair.call_id]:
-                raise ValueError("Invalid JEV source reference")
+                raise ValueError("Invalid decision model source reference")
             if (
                 decision.probability is None
                 or decision.probability > cfg.drop_threshold
             ):
-                raise ValueError("Invalid JEV preview decision")
+                raise ValueError("Invalid decision model preview decision")
             mi, bi = pair.result_location
             block = expected[mi]["content"][bi]
             replacement = preview_result(
@@ -244,14 +236,16 @@ class JevCompactor:
                 cfg.preview_chars,
             )
             if replacement is None or pair.call_id in changed_ids:
-                raise ValueError("Invalid or duplicate JEV preview")
+                raise ValueError("Invalid or duplicate decision model preview")
             block["output"] = replacement
             changed_ids.add(pair.call_id)
         if not changed_ids or expected != result.messages:
-            raise ValueError("JEV proposal changed protected content")
+            raise ValueError(
+                "Decision model proposal changed protected content",
+            )
         candidate = [Msg.model_validate(msg) for msg in expected]
         for msg in candidate:
             for block in msg.content:
                 if block.type == "tool_result" and block.id in changed_ids:
-                    block.metadata[JEV_COMPACTED] = True
+                    block.metadata[DECISION_COMPACTED] = True
         return candidate, changed_ids

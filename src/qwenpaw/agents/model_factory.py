@@ -1,8 +1,7 @@
 # -*- coding: utf-8 -*-
-"""Factory for creating chat models and formatters.
+"""Factory for creating chat and decision models.
 
-This module provides a unified factory for creating chat model instances
-and their corresponding formatters based on configuration.
+This module creates configured provider models and chat formatters.
 
 Example:
     >>> from qwenpaw.agents.model_factory import create_model_and_formatter
@@ -45,6 +44,7 @@ from agentscope.formatter import OpenAIResponseFormatter
 from .utils.message_request_normalizer import (
     normalize_messages_for_model_request,
 )
+from .utils.image_freezing import MAX_SNAPSHOT_IMAGE_BYTES
 from ..exceptions import ProviderError, ModelFormatterError
 from ..providers import ProviderManager
 from ..providers.provider import ModelInfo, agent_thinking_level
@@ -55,6 +55,10 @@ from ..providers.hub_managed import (
     managed_slot,
 )
 from ..providers.capping_formatter import MAX_INLINE_MEDIA_BYTES
+from ..providers.typesafe_provider import (
+    TypeSafeEvaluationError,
+    resolve_decision_model,
+)
 from ..utils.tool_call_extra import tool_call_extras_for_provider
 from ..providers.retry_chat_model import (
     RetryChatModel,
@@ -437,6 +441,7 @@ async def _prepare_media_sources(
     *,
     include_hint_videos: bool = False,
     max_bytes: int = MAX_INLINE_MEDIA_BYTES,
+    resize_images_to_max_bytes: bool = False,
 ) -> None:
     """Prepare media so downstream formatting performs no blocking I/O."""
     references: list[_MediaReference] = []
@@ -449,20 +454,36 @@ async def _prepare_media_sources(
                 include_hint_videos=include_hint_videos,
             )
 
-    pending: dict[tuple[str, str], asyncio.Task[_LocalMediaRead]] = {}
-    prepared_keys: list[tuple[str, str] | None] = []
+    pending: dict[tuple[str, str, int], asyncio.Task[_LocalMediaRead]] = {}
+    prepared_keys: list[tuple[str, str, int] | None] = []
     for reference in references:
         url = str(_media_source_value(reference.source, "url", "") or "")
         local_path = _local_media_path(url)
-        key: tuple[str, str] | None = None
+        resize_image = (
+            resize_images_to_max_bytes
+            and reference.kind == "image"
+            and max_bytes > 0
+        )
+        # Image inputs may be larger than their request-local preview. Keep
+        # reads bounded, then let resizing enforce the inline limit.
+        read_limit = (
+            max(max_bytes, MAX_SNAPSHOT_IMAGE_BYTES)
+            if resize_image
+            else max_bytes
+        )
+        key: tuple[str, str, int] | None = None
         if local_path is not None:
-            key = ("local", os.path.normcase(os.path.normpath(local_path)))
+            key = (
+                "local",
+                os.path.normcase(os.path.normpath(local_path)),
+                read_limit,
+            )
             if key not in pending:
                 pending[key] = asyncio.create_task(
                     run_sync_io(
                         _read_local_media,
                         local_path,
-                        max_bytes,
+                        read_limit,
                     ),
                 )
             prepared_keys.append(key)
@@ -470,15 +491,16 @@ async def _prepare_media_sources(
 
         parsed = urlparse(url)
         if parsed.scheme in ("http", "https") and (
-            _remote_media_requires_download(
+            resize_image
+            or _remote_media_requires_download(
                 reference.kind,
                 base_formatter_class,
             )
         ):
-            key = ("remote", url)
+            key = ("remote", url, read_limit)
             if key not in pending:
                 pending[key] = asyncio.create_task(
-                    _download_remote_media(url, max_bytes),
+                    _download_remote_media(url, read_limit),
                 )
             prepared_keys.append(key)
             continue
@@ -494,13 +516,22 @@ async def _prepare_media_sources(
         if key is None:
             continue
         url = str(_media_source_value(reference.source, "url", "") or "")
+        prepared = _prepared_task_result(pending[key])
+        if (
+            resize_images_to_max_bytes
+            and reference.kind == "image"
+            and 0 < key[2] < prepared.size
+        ):
+            raise ValueError(
+                f"Image exceeds the {key[2]}-byte preparation limit.",
+            )
         _replace_media_reference(
             reference,
-            _prepared_task_result(pending[key]),
+            prepared,
             url,
             base_formatter_class,
             local=key[0] == "local",
-            max_bytes=max_bytes,
+            max_bytes=key[2],
         )
 
 
@@ -1781,6 +1812,11 @@ def _create_file_block_support_formatter(
                     "max_bytes",
                     MAX_INLINE_MEDIA_BYTES,
                 ),
+                resize_images_to_max_bytes=getattr(
+                    self,
+                    "resize_images_to_max_bytes",
+                    False,
+                ),
             )
             await _resize_request_images(
                 normalized_msgs,
@@ -2446,6 +2482,22 @@ def create_model_and_formatter(
     return wrapped_model, formatter
 
 
+def _decision_model_settings(agent_config):
+    """Resolve and validate the agent or global decision model slot."""
+    try:
+        provider, model = resolve_decision_model(agent_config.decision_model)
+    except TypeSafeEvaluationError as exc:
+        raise ProviderError(message=str(exc)) from exc
+    provider.validate_model_selection(model, "decision")
+    return provider, model
+
+
+async def create_decision_model_async(agent_config):
+    """Build a host-owned decision model from the configured provider."""
+    provider, model = await run_sync_io(_decision_model_settings, agent_config)
+    return provider.as_decision_model(model)
+
+
 async def create_model_and_formatter_async(
     agent_id: Optional[str] = None,
     model_slot_override: Any = None,
@@ -2550,6 +2602,7 @@ def _install_model_formatter(
 
 
 __all__ = [
+    "create_decision_model_async",
     "create_model_and_formatter",
     "create_model_and_formatter_async",
 ]

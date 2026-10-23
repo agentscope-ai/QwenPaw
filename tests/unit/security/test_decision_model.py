@@ -118,6 +118,10 @@ def test_selected_decision_model_comes_from_provider_manager(
     assert _decision_provider() == (typesafe_provider, "jev-2")
 
 
+def test_unselected_approval_model_retains_default(typesafe_provider):
+    assert _decision_provider() == (typesafe_provider, "jev-latest")
+
+
 def test_agent_decision_model_takes_priority_over_global(
     monkeypatch,
     typesafe_provider,

@@ -37,7 +37,7 @@ export interface VisualCompactConfig {
   effort: "low" | "medium" | "high";
 }
 
-export interface JevCompactConfig {
+export interface DecisionCompactConfig {
   enabled: boolean;
   drop_threshold: number;
   preserve_recent_messages: number;
@@ -56,7 +56,7 @@ export interface LightContextConfig {
   context_compact_config: ContextCompactConfig;
   scroll_config: ScrollConfig;
   tool_result_pruning_config: ToolResultPruningConfig;
-  jev_compact_config: JevCompactConfig;
+  decision_compact_config: DecisionCompactConfig;
   visual_compact_config: VisualCompactConfig;
 }
 

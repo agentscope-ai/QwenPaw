@@ -2,13 +2,10 @@
 # pylint: disable=protected-access
 """Offline startup and watcher coverage for the actual embedded ReMe config.
 
-Until release, install both checkouts into the development environment::
+To test against a local ReMe checkout, install it into the test environment::
 
-    uv pip install --python .venv/bin/python -e . -e /path/to/ReMe
+    uv pip install --python .venv/bin/python --no-deps -e /path/to/ReMe
     .venv/bin/python -m pytest tests/integration/test_reme_watch_contract.py
-
-Before release, tool.uv.sources pins the companion ReMe commit. Run uv sync
-for the exact source; the generated local uv.lock is ignored by this repo.
 """
 
 import asyncio
@@ -51,8 +48,7 @@ async def test_embedded_reme_starts_indexes_and_closes_without_shared_workers(
     try:
         await app.start()
         assert app.is_started
-        assert "proactive_refresh" in app.context.jobs
-        assert not app.context.jobs["proactive_refresh"].enable_serve
+        assert "proactive_refresh" not in app.context.jobs
         store = app.context.components["file_store"]["default"]
         note = tmp_path / cfg["daily_dir"] / "watch-test.md"
         async with asyncio.timeout(10):
@@ -66,8 +62,8 @@ async def test_embedded_reme_starts_indexes_and_closes_without_shared_workers(
                 )
                 await asyncio.sleep(0.1)
         assert limiter.borrowed_tokens == borrowed
-        # The migrated private pipeline also runs safely with no dated input.
-        response = await app.run_job("proactive_refresh", date="2000-01-01")
+        # Digest consolidation runs independently of proactive interaction.
+        response = await app.run_job("auto_dream", date="2000-01-01")
         assert response.success
     finally:
         await app.close()

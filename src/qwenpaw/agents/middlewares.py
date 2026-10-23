@@ -544,7 +544,7 @@ class MemoryMiddleware(MiddlewareBase):
         return (
             agent.state.summary,
             tuple(msg.id for msg in agent.state.context),
-            getattr(agent, "_jev_compaction_revision", 0),
+            getattr(agent, "_decision_compaction_revision", 0),
         )
 
     @classmethod
@@ -553,9 +553,9 @@ class MemoryMiddleware(MiddlewareBase):
         agent: "Agent",
         before: tuple[Any, tuple[str, ...], int],
     ) -> bool:
-        # JEV replaces outputs while preserving message IDs and summary.
+        # Decision compaction preserves message IDs and summary.
         # Preserve the original memory snapshots for this lighter pass too.
-        if getattr(agent, "_jev_compaction_revision", 0) != before[2]:
+        if getattr(agent, "_decision_compaction_revision", 0) != before[2]:
             return True
         context_manager = getattr(agent, "_context_manager", None)
         stats = getattr(context_manager, "last_compress", None)

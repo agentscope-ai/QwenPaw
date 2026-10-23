@@ -25,18 +25,22 @@ type NumericField = {
   step?: number;
 };
 
-export function JevCompactSettings() {
+export function DecisionCompactSettings() {
   const { t } = useTranslation();
   const enabled = Boolean(
-    Form.useWatch(["light_context_config", "jev_compact_config", "enabled"]),
+    Form.useWatch([
+      "light_context_config",
+      "decision_compact_config",
+      "enabled",
+    ]),
   );
   const renderField = (field: NumericField) => (
     <SettingsField
       key={field.name}
-      name={["light_context_config", "jev_compact_config", field.name]}
+      name={["light_context_config", "decision_compact_config", field.name]}
       initialValue={field.value}
-      label={t(`agentConfig.jevCompact_${field.name}`)}
-      tooltip={t(`agentConfig.jevCompact_${field.name}Help`)}
+      label={t(`agentConfig.decisionCompact_${field.name}`)}
+      tooltip={t(`agentConfig.decisionCompact_${field.name}Help`)}
       rules={[
         { required: enabled, type: "number", min: field.min, max: field.max },
       ]}
@@ -60,12 +64,12 @@ export function JevCompactSettings() {
   return (
     <>
       <Typography.Paragraph type="secondary">
-        {t("agentConfig.jevCompactDescription")}
+        {t("agentConfig.decisionCompactDescription")}
       </Typography.Paragraph>
       <SettingsField
-        name={["light_context_config", "jev_compact_config", "enabled"]}
+        name={["light_context_config", "decision_compact_config", "enabled"]}
         initialValue={false}
-        label={t("agentConfig.jevCompactEnabled")}
+        label={t("agentConfig.decisionCompactEnabled")}
         valuePropName="checked"
       >
         <Switch />
@@ -76,7 +80,7 @@ export function JevCompactSettings() {
         items={[
           {
             key: "advanced",
-            label: t("agentConfig.jevCompactAdvanced"),
+            label: t("agentConfig.decisionCompactAdvanced"),
             children: advancedFields.map(renderField),
           },
         ]}

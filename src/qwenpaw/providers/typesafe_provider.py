@@ -26,6 +26,22 @@ class TypeSafeEvaluationError(RuntimeError):
         self.status_code = status_code
 
 
+def resolve_decision_model(slot=None, *, default_model: str | None = None):
+    """Resolve an agent or global TypeSafe slot with a caller-owned default."""
+    from .provider_manager import ProviderManager
+
+    manager = ProviderManager.get_instance()
+    slot = slot or manager.default_models.get("decision")
+    if slot is None and default_model is None:
+        raise TypeSafeEvaluationError("Configure a decision model")
+    if slot is not None and slot.provider_id != "typesafe":
+        raise TypeSafeEvaluationError("Decision model provider is unsupported")
+    provider = manager.get_provider("typesafe")
+    if not isinstance(provider, TypeSafeProvider) or not provider.enabled:
+        raise TypeSafeEvaluationError("TypeSafe provider is unavailable")
+    return provider, slot.model if slot is not None else default_model
+
+
 class TypeSafeProvider(Provider):
     """Manage TypeSafe models using the standard provider lifecycle."""
 
@@ -61,7 +77,7 @@ class TypeSafeProvider(Provider):
         model: str,
         timeout: float,
     ) -> AsyncIterator[JevClassifierModel]:
-        """Yield a Jev classifier, normalizing SDK failures."""
+        """Yield a decision model, normalizing SDK failures."""
         classifier = None
         try:
             classifier = self.as_decision_model(
@@ -92,7 +108,7 @@ class TypeSafeProvider(Provider):
         model: str = "jev-latest",
         timeout: float = 4.0,
     ) -> ClassifierResponse:
-        """Submit typed questions to the Jev classifier.
+        """Submit typed questions to the decision model.
 
         Interpreting (and validating) the answers is left to the caller.
         """

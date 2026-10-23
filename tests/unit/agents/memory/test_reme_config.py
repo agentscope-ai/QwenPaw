@@ -67,7 +67,7 @@ def test_reme_watchers_use_private_threads() -> None:
     assert watcher["watch_mode"] == "watch"
 
 
-def test_dream_and_proactive_use_separate_pipelines_and_catalogs() -> None:
+def test_auto_dream_only_consolidates_digest() -> None:
     cfg = _config_for_embedding(EmbeddingModelConfig())
     dream = cfg["jobs"]["auto_dream"]
     assert [step["backend"] for step in dream["steps"]] == [
@@ -75,20 +75,8 @@ def test_dream_and_proactive_use_separate_pipelines_and_catalogs() -> None:
         "dream_integrate_step",
         "dream_finish_step",
     ]
-    refresh = cfg["jobs"]["proactive_refresh"]
-    assert refresh["enable_serve"] is False
-    assert [step["backend"] for step in refresh["steps"]] == [
-        "proactive_extract_step",
-        "proactive_topics_step",
-        "proactive_plan_step",
-        "proactive_agenda_step",
-        "proactive_finish_step",
-    ]
-    assert refresh["steps"][0]["file_catalog"] == "proactive"
-    assert refresh["steps"][-1]["file_catalog"] == "proactive"
-    assert cfg["components"]["file_catalog"]["proactive"] == {
-        "backend": "local",
-    }
+    assert "proactive_refresh" not in cfg["jobs"]
+    assert "proactive" not in cfg["components"]["file_catalog"]
     assert cfg["jobs"]["proactive"]["steps"] == [
         {"backend": "proactive_step"},
     ]

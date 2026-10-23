@@ -15,7 +15,7 @@ import {
   calculateReserveThreshold,
   usesTieredToolResultSettings,
 } from "./toolResultSettings";
-import { JevCompactSettings } from "./JevCompactSettings";
+import { DecisionCompactSettings } from "./DecisionCompactSettings";
 import { VisualCompactSettings } from "./VisualCompactSettings";
 import styles from "../index.module.less";
 
@@ -348,9 +348,9 @@ export function LightContextCard({ maxInputLength }: LightContextCardProps) {
             ),
           },
           {
-            key: "jevCompact",
-            label: t("agentConfig.jevCompactLabel"),
-            children: <JevCompactSettings />,
+            key: "decisionCompact",
+            label: t("agentConfig.decisionCompactLabel"),
+            children: <DecisionCompactSettings />,
           },
           {
             key: "visualCompact",

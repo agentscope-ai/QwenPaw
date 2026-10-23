@@ -1329,8 +1329,8 @@ class VisualCompactConfig(BaseModel):
     )
 
 
-class JevCompactConfig(BaseModel):
-    """Optional recoverable tool-result compaction through ReMe and JEV."""
+class DecisionCompactConfig(BaseModel):
+    """Optional recoverable tool-result compaction with a decision model."""
 
     model_config = ConfigDict(extra="ignore", allow_inf_nan=False)
 
@@ -1383,8 +1383,8 @@ class LightContextConfig(BaseModel):
     scroll_config: ScrollContextConfig = Field(
         default_factory=ScrollContextConfig,
     )
-    jev_compact_config: JevCompactConfig = Field(
-        default_factory=JevCompactConfig,
+    decision_compact_config: DecisionCompactConfig = Field(
+        default_factory=DecisionCompactConfig,
     )
     visual_compact_config: VisualCompactConfig = Field(
         default_factory=VisualCompactConfig,

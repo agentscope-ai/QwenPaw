@@ -54,135 +54,72 @@ def _action_manager() -> ReMeLightMemoryManager:
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("modified", [False, True])
 @pytest.mark.parametrize(
-    ("refresh_result", "error"),
+    ("success", "modified", "notifications_enabled"),
     [
-        (
-            SimpleNamespace(success=False, answer="unusable topics"),
-            "unusable topics",
-        ),
-        (None, "ReMe is not started"),
-        (RuntimeError("provider failed"), "provider failed"),
+        (True, True, True),
+        (True, False, True),
+        (True, True, False),
+        (False, False, True),
     ],
 )
-async def test_failed_refresh_emits_one_error_after_digest_success(
-    modified,
-    refresh_result,
-    error,
-) -> None:
-    """Report refresh failures even when the digest made no changes."""
-    manager = _action_manager()
-    digest = SimpleNamespace(
-        success=True,
-        answer="digest saved",
-        metadata={"modified": modified},
-    )
-    manager._reme.run_job.side_effect = [digest, refresh_result]
-    with patch(
-        "qwenpaw.agents.memory.reme_light_memory_manager.append_inbox_event",
-        new_callable=AsyncMock,
-        return_value={"id": "event-1"},
-    ) as append_event:
-        with pytest.raises(RuntimeError, match=error) as caught:
-            await manager.run_action("auto_dream", date="2026-10-23")
-
-    if isinstance(refresh_result, Exception):
-        assert caught.value is refresh_result
-    append_event.assert_awaited_once()
-    event = append_event.await_args.kwargs
-    assert event["source_id"] == "auto_dream"
-    assert event["status"] == "error"
-    assert "Digest consolidation completed" in event["body"]
-    assert "proactive topic refresh failed" in event["body"]
-    assert error in event["body"]
-    assert event["payload"]["date"] == "2026-10-23"
-    assert digest.success is True
-    assert digest.metadata == {"modified": modified}
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize(
-    ("modified", "notifications_enabled"),
-    [(True, True), (False, True), (True, False)],
-)
-async def test_dream_notifies_only_after_refresh_and_preserves_policy(
+async def test_auto_dream_preserves_notification_policy(
+    success,
     modified,
     notifications_enabled,
 ) -> None:
-    """Retain the digest result and notification settings after refresh."""
+    """Preserve notification policy for a single digest job."""
     manager = _action_manager()
     manager._load_memory_config = lambda: SimpleNamespace(
         auto_dream_inbox_push_enabled=notifications_enabled,
     )
-    digest = SimpleNamespace(
-        success=True,
-        answer="digest saved",
+    response = SimpleNamespace(
+        success=success,
+        answer="digest result",
         metadata={"modified": modified},
     )
+    manager._reme.run_job.return_value = response
     with patch(
         "qwenpaw.agents.memory.reme_light_memory_manager.append_inbox_event",
         new_callable=AsyncMock,
         return_value={"id": "event-1"},
     ) as append_event:
+        assert (
+            await manager.run_action("auto_dream", date="2026-10-23")
+            is response
+        )
 
-        async def run_job(name, **_kwargs):
-            if name == "auto_dream":
-                return digest
-            assert name == "proactive_refresh"
-            append_event.assert_not_awaited()
-            return SimpleNamespace(success=True, answer="topics refreshed")
-
-        manager._reme.run_job.side_effect = run_job
-        result = await manager.run_action("auto_dream")
-
-    assert result is digest
-    assert append_event.await_count == int(modified and notifications_enabled)
-    if append_event.await_count:
-        assert append_event.await_args.kwargs["status"] == "success"
-        assert append_event.await_args.kwargs["body"] == "digest saved"
-
-
-@pytest.mark.asyncio
-async def test_cancelled_refresh_does_not_emit_premature_success() -> None:
-    """Cancellation propagates without presenting the action as complete."""
-    manager = _action_manager()
-    manager._reme.run_job.side_effect = [
-        SimpleNamespace(success=True, answer="digest saved", metadata={}),
-        asyncio.CancelledError(),
-    ]
-    with patch(
-        "qwenpaw.agents.memory.reme_light_memory_manager.append_inbox_event",
-        new_callable=AsyncMock,
-        return_value={"id": "event-1"},
-    ) as append_event:
-        with pytest.raises(asyncio.CancelledError):
-            await manager.run_action("auto_dream")
-
-    append_event.assert_not_awaited()
-
-
-@pytest.mark.asyncio
-async def test_failed_digest_notifies_without_refreshing_topics() -> None:
-    """A digest failure still emits its original error and stops the action."""
-    manager = _action_manager()
-    digest = SimpleNamespace(
-        success=False,
-        answer="digest failed",
-        metadata={},
+    manager._reme.run_job.assert_awaited_once_with(
+        "auto_dream",
+        date="2026-10-23",
     )
-    manager._reme.run_job.return_value = digest
+    manager._update_qwenpaw_model.assert_awaited_once()
+    expected = notifications_enabled and (modified or not success)
+    assert append_event.await_count == int(expected)
+    if expected:
+        event = append_event.await_args.kwargs
+        assert event["source_id"] == "auto_dream"
+        assert event["status"] == ("success" if success else "error")
+        assert event["body"] == "digest result"
+        assert event["payload"]["date"] == "2026-10-23"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "error",
+    [RuntimeError("dream failed"), asyncio.CancelledError()],
+)
+async def test_auto_dream_errors_propagate_without_success_notification(error):
+    manager = _action_manager()
+    manager._reme.run_job.side_effect = error
     with patch(
         "qwenpaw.agents.memory.reme_light_memory_manager.append_inbox_event",
         new_callable=AsyncMock,
-        return_value={"id": "event-1"},
     ) as append_event:
-        assert await manager.run_action("auto_dream") is digest
-
+        with pytest.raises(type(error)):
+            await manager.run_action("auto_dream")
     manager._reme.run_job.assert_awaited_once_with("auto_dream")
-    append_event.assert_awaited_once()
-    assert append_event.await_args.kwargs["status"] == "error"
-    assert append_event.await_args.kwargs["body"] == "digest failed"
+    append_event.assert_not_awaited()
 
 
 @pytest.mark.asyncio

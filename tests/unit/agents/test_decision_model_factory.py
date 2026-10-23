@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
-from qwenpaw.agents import decision_model_factory as module
+from qwenpaw.agents import model_factory as module
 from qwenpaw.config.config import AgentProfileConfig, ModelSlotConfig
 from qwenpaw.exceptions import ProviderError
 from qwenpaw.providers import ProviderManager
@@ -20,8 +20,16 @@ def configured_provider(monkeypatch):
         id="typesafe",
         name="TypeSafe",
         models=[
-            {"id": "global-jev", "name": "Global", "model_type": "decision"},
-            {"id": "agent-jev", "name": "Agent", "model_type": "decision"},
+            {
+                "id": "global-decision",
+                "name": "Global",
+                "model_type": "decision",
+            },
+            {
+                "id": "agent-decision",
+                "name": "Agent",
+                "model_type": "decision",
+            },
         ],
     )
     monkeypatch.setattr(TypeSafeProvider, "as_decision_model", Mock())
@@ -36,9 +44,12 @@ async def test_agent_or_global_slot_returns_provider_as_instance(
     agent_slot,
 ):
     config = AgentProfileConfig(id="agent", name="Agent")
-    global_slot = ModelSlotConfig(provider_id="typesafe", model="global-jev")
+    global_slot = ModelSlotConfig(
+        provider_id="typesafe",
+        model="global-decision",
+    )
     slot = (
-        ModelSlotConfig(provider_id="typesafe", model="agent-jev")
+        ModelSlotConfig(provider_id="typesafe", model="agent-decision")
         if agent_slot
         else global_slot
     )
@@ -92,7 +103,7 @@ async def test_invalid_decision_provider_never_constructs_client(
     failure,
 ):
     config = AgentProfileConfig(id="agent", name="Agent")
-    slot = ModelSlotConfig(provider_id="typesafe", model="global-jev")
+    slot = ModelSlotConfig(provider_id="typesafe", model="global-decision")
     if failure == "disabled":
         provider.enabled = False
     elif failure == "wrong_type":

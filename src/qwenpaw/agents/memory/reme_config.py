@@ -427,8 +427,7 @@ def _base_config() -> dict[str, Any]:
                 "description": (
                     "Auto-dream: scan today's day-index and daily notes, "
                     "extract and integrate digest units, and persist the "
-                    "dream catalog. QwenPaw refreshes proactive topics "
-                    "after this job succeeds."
+                    "dream catalog."
                 ),
                 "parameters": {
                     "type": "object",
@@ -448,32 +447,6 @@ def _base_config() -> dict[str, Any]:
                     },
                     {"backend": "dream_integrate_step"},
                     {"backend": "dream_finish_step", "file_catalog": "dream"},
-                ],
-            },
-            # ReMe 0.4.2 separates topic generation from digest consolidation.
-            # The host runs this private job after successful auto_dream calls,
-            # using the existing dream schedule rather than adding a new cron.
-            "proactive_refresh": {
-                "backend": "base",
-                "enable_serve": False,
-                "steps": [
-                    {
-                        "backend": "proactive_extract_step",
-                        "file_catalog": "proactive",
-                        "scan_days": 2,
-                        "carry_forward_days": 14,
-                        "max_carry_forward_topics": 20,
-                        "llm_timeout_seconds": 300,
-                        "max_chars_per_file": 60000,
-                        "max_total_chars": 300000,
-                    },
-                    {"backend": "proactive_topics_step"},
-                    {"backend": "proactive_plan_step"},
-                    {"backend": "proactive_agenda_step"},
-                    {
-                        "backend": "proactive_finish_step",
-                        "file_catalog": "proactive",
-                    },
                 ],
             },
             "proactive": {
@@ -666,7 +639,6 @@ def _base_components() -> dict[str, Any]:
             "default": {"backend": "local"},
             "digest": {"backend": "local"},
             "dream": {"backend": "local"},
-            "proactive": {"backend": "local"},
         },
         "file_chunker": {
             "markdown": {

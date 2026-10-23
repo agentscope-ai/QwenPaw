@@ -10,14 +10,14 @@ vi.mock("react-i18next", () => ({
   useTranslation: () => ({ t: (key: string) => key }),
 }));
 
-import { JevCompactSettings } from "./JevCompactSettings";
+import { DecisionCompactSettings } from "./DecisionCompactSettings";
 
-describe("JevCompactSettings", () => {
+describe("DecisionCompactSettings", () => {
   it("defaults off and saves enabled parameters under the context configuration", async () => {
     const saved = vi.fn();
     render(
       <Form onFinish={saved}>
-        <JevCompactSettings />
+        <DecisionCompactSettings />
         <button type="submit">Save</button>
       </Form>,
     );
@@ -30,14 +30,14 @@ describe("JevCompactSettings", () => {
     fireEvent.change(screen.getAllByRole("spinbutton")[0], {
       target: { value: "0.05" },
     });
-    fireEvent.click(screen.getByText("agentConfig.jevCompactAdvanced"));
+    fireEvent.click(screen.getByText("agentConfig.decisionCompactAdvanced"));
     await waitFor(() =>
       expect(screen.getAllByRole("spinbutton")).toHaveLength(8),
     );
     fireEvent.click(screen.getByText("Save"));
     await waitFor(() => expect(saved).toHaveBeenCalled());
     expect(
-      saved.mock.calls[0][0].light_context_config.jev_compact_config,
+      saved.mock.calls[0][0].light_context_config.decision_compact_config,
     ).toEqual({
       enabled: true,
       drop_threshold: 0.05,

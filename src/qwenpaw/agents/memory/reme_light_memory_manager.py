@@ -639,7 +639,6 @@ class ReMeLightMemoryManager(BaseMemoryManager, MemoryActionProvider):
         needs_llm: bool = False,
         raise_on_error: bool = False,
         lifecycle_locked: bool = False,
-        notify_result: bool = True,
         **kwargs: Any,
     ) -> "Response | None":
         """Run one embedded ReMe job.
@@ -651,8 +650,6 @@ class ReMeLightMemoryManager(BaseMemoryManager, MemoryActionProvider):
                 flattening it into ``None``.  Callers that report failures to
                 the user should set this, so that ``None`` keeps its single
                 remaining meaning of "ReMe is not started".
-            notify_result: Publish the job result unless the caller owns
-                notification for a multi-job action.
 
         Returns:
             The job response, or ``None`` when ReMe is not started -- and,
@@ -663,7 +660,6 @@ class ReMeLightMemoryManager(BaseMemoryManager, MemoryActionProvider):
                 name,
                 needs_llm=needs_llm,
                 raise_on_error=raise_on_error,
-                notify_result=notify_result,
                 **kwargs,
             )
         async with self._reme_job_lease():
@@ -671,7 +667,6 @@ class ReMeLightMemoryManager(BaseMemoryManager, MemoryActionProvider):
                 name,
                 needs_llm=needs_llm,
                 raise_on_error=raise_on_error,
-                notify_result=notify_result,
                 **kwargs,
             )
 
@@ -681,7 +676,6 @@ class ReMeLightMemoryManager(BaseMemoryManager, MemoryActionProvider):
         *,
         needs_llm: bool = False,
         raise_on_error: bool = False,
-        notify_result: bool = True,
         **kwargs: Any,
     ) -> "Response | None":
         """Run a job while the caller holds a lifecycle lease."""
@@ -696,12 +690,11 @@ class ReMeLightMemoryManager(BaseMemoryManager, MemoryActionProvider):
                     if await self._auto_memory_options(model, kwargs):
                         job_name = "auto_memory_with_tags"
             response = await self._reme.run_job(job_name, **kwargs)
-            if notify_result:
-                await self._append_reme_job_result_to_inbox(
-                    name,
-                    response=response,
-                    kwargs=kwargs,
-                )
+            await self._append_reme_job_result_to_inbox(
+                name,
+                response=response,
+                kwargs=kwargs,
+            )
             return response
         except Exception:
             logger.exception("ReMe job failed: %s", name)
@@ -740,7 +733,7 @@ class ReMeLightMemoryManager(BaseMemoryManager, MemoryActionProvider):
         self,
         name: str,
         *,
-        response: MemoryActionResult,
+        response: "Response",
         kwargs: dict[str, Any],
     ) -> bool:
         if name not in RESULT_JOB_NAMES:
@@ -1014,8 +1007,6 @@ class ReMeLightMemoryManager(BaseMemoryManager, MemoryActionProvider):
                 parameters,
                 kwargs,
             )
-            if action == "auto_dream":
-                return await self._run_auto_dream(**kwargs)
             if action not in {"reindex", "undo_reindex"}:
                 return await self._run_reme_job(
                     action,
@@ -1033,55 +1024,6 @@ class ReMeLightMemoryManager(BaseMemoryManager, MemoryActionProvider):
             )
         restored = await self._undo_reindex()
         return MemoryActionResponse(success=True, answer=restored)
-
-    async def _run_auto_dream(self, **kwargs: Any) -> "Response | None":
-        """Run both dream jobs under the caller's lease, then notify once."""
-        response = await self._run_reme_job(
-            "auto_dream",
-            needs_llm=True,
-            raise_on_error=True,
-            lifecycle_locked=True,
-            notify_result=False,
-            **kwargs,
-        )
-        if response is None:
-            return None
-        if response.success:
-            try:
-                # Separate jobs retain independent contexts and catalogs.
-                refreshed = await self._run_reme_job(
-                    "proactive_refresh",
-                    needs_llm=True,
-                    raise_on_error=True,
-                    lifecycle_locked=True,
-                    date=str(kwargs.get("date") or ""),
-                )
-                if refreshed is None or not refreshed.success:
-                    detail = (
-                        str(refreshed.answer)
-                        if refreshed is not None
-                        else "ReMe is not started"
-                    )
-                    raise RuntimeError(f"Proactive refresh failed: {detail}")
-            except Exception as exc:
-                await self._append_reme_job_result_to_inbox(
-                    "auto_dream",
-                    response=MemoryActionResponse(
-                        success=False,
-                        answer=(
-                            "Digest consolidation completed, but proactive "
-                            f"topic refresh failed: {exc}"
-                        ),
-                    ),
-                    kwargs=kwargs,
-                )
-                raise
-        await self._append_reme_job_result_to_inbox(
-            "auto_dream",
-            response=response,
-            kwargs=kwargs,
-        )
-        return response
 
     async def _rebuild_index(
         self,

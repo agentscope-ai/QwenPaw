@@ -234,8 +234,3 @@ show_missing = true
 
 [tool.coverage.html]
 directory = "htmlcov"
-
-# Temporary prerelease source; remove after ReMe 0.4.2.0 is published and
-# regenerate uv.lock with: uv lock --upgrade-package reme-ai
-[tool.uv.sources]
-reme-ai = { git = "https://github.com/jinliyl/ReMe.git", rev = "d22e00bbc304631234496ca7bd9145d3c0f7adfe" }

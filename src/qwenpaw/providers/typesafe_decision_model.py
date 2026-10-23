@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""AgentScope JEV with the host provider's configured request headers."""
+"""AgentScope decision model with the host provider's request headers."""
 
 from collections.abc import Mapping
 from typing import Any

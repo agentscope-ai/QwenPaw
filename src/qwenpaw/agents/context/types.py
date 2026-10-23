@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
+DECISION_COMPACTED = "qwenpaw_decision_compacted"
+
 
 class ContextWindowUnfitError(RuntimeError):
     """Raised when context compaction cannot fit the model input window."""

@@ -392,28 +392,17 @@ If an exact value appears incorrect, ask the Agent to use `recall_context` to re
 
 > **Acknowledgment:** The engineering implementation of Visual Compact was informed by [pxpipe](https://github.com/teamchong/pxpipe).
 
-## Optional JEV relevance compaction
+## Optional decision model compaction
 
-In **Agent → Configuration → Context management → JEV relevance compaction**, enable the feature and set its
-limits. Configure an agent decision model in Model settings, or select a global default decision model.
-QwenPaw creates the JEV client from that provider's saved credentials and injects the same instance into ReMe;
-no separate ReMe API key is needed. Requires ReMe 0.4.2.0 with host model injection.
-QwenPaw declares JEV support through its own `agentscope[model-ollama,classifier-jev]==2.0.10` dependency.
-Its ReMe dependency stays `reme-ai==0.4.2.0`; model configuration and the opt-in compression switch control usage.
+In **Agent → Configuration → Context management → Decision model compaction**, enable the feature and set its
+limits. Select an agent decision model in Model settings, or configure a global default decision model.
+The current implementation supports the TypeSafe decision provider.
 
-`TypeSafeProvider.as_decision_model()` constructs an AgentScope `JevClassifierModel` instance using the
-configured provider API key, through the same factory as existing QwenPaw evaluation.
-It preserves provider request headers; AgentScope handles question and answer conversion. The caller owns the
-client. The same instance is lent to ReMe, without a separate ReMe model or credentials:
-
-```python
-model = provider.as_decision_model("jev-latest")
-await reme.update_component("as_decision_model", "compaction", model=model)
-```
-
+QwenPaw reuses its provider model factory, saved credentials and request headers, and lends the same
+decision model instance to ReMe. No separate ReMe API key is needed. Requires ReMe 0.4.2.0.
 
 Disabled by default, this enhancement supports both `scroll` and `native`, independently of long-term memory
-and the chat decision toggle. Automatic context compaction must be enabled. JEV runs only above the normal
+and the chat decision toggle. Automatic context compaction must be enabled. This pass runs only above the normal
 automatic trigger; manual `/compact` and emergency overflow recovery retain their existing behavior.
 
 Scroll confirms originals are durable in `history.db`; native mode archives candidate outputs under
@@ -427,13 +416,13 @@ QwenPaw verifies that only permitted outputs change and that actual model input 
 system prompt and tools. If the context reaches its trigger budget, eviction is avoided; otherwise normal
 compaction continues with any verified savings. Archive/provider failure, timeout, invalid proposals or no
 savings continue normal compaction. Cancellation propagates without committing an incomplete proposal.
-QwenPaw closes its JEV client after ReMe drains calls.
+QwenPaw closes its decision model client after ReMe drains calls.
 
-Set `jev_compact_config` under the agent's `running.light_context_config`:
+Set `decision_compact_config` under the agent's `running.light_context_config`:
 
 ```json
 {
-  "jev_compact_config": {
+  "decision_compact_config": {
     "enabled": false,
     "drop_threshold": 0.1,
     "preserve_recent_messages": 6,
@@ -452,11 +441,3 @@ is a nonnegative count and never weakens active-turn protection. `preview_chars`
 limit excluding recovery instructions. `total_timeout_seconds` is greater than zero and at most 300 seconds.
 Advanced state/request limits are positive ReMe token estimates, separate from the chat model's actual counter.
 `evidence_chars` is a positive per-result excerpt limit; `max_concurrency` is between 1 and 32.
-
-### Prerelease installation
-
-Before 0.4.2.0 is published, `tool.uv.sources` pins the companion
-[ReMe model-injection change](https://github.com/agentscope-ai/ReMe/pull/652).
-Use `uv sync` for that exact source. This repository ignores the generated local `uv.lock`. After the change is merged and the version is published,
-remove the `reme-ai` entry from `tool.uv.sources`, run `uv lock --upgrade-package reme-ai`, then
-`uv sync --locked`. Keep the `reme-ai==0.4.2.0` dependency.

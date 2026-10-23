@@ -74,7 +74,8 @@ async def test_scroll_artifact_retention_uses_tool_result_setting():
         ),
         scroll_config=ScrollContextConfig(history_retention_days=45),
     )
-    agent = types.SimpleNamespace(
+    agent = object.__new__(QwenPawAgent)
+    agent.__dict__.update(
         _governor=None,
         _context_manager=None,
         offloader=offloader,
@@ -93,14 +94,28 @@ async def test_scroll_artifact_retention_uses_tool_result_setting():
 
 
 @pytest.mark.asyncio
-async def test_jev_close_failure_does_not_skip_history_or_artifact_cleanup():
+@pytest.mark.parametrize("cancel", [False, True])
+async def test_compactor_close_keeps_history_and_artifact_cleanup(
+    cancel,
+):
+    entered, release = asyncio.Event(), asyncio.Event()
+
+    async def delayed_close():
+        entered.set()
+        await release.wait()
+
     compactor = types.SimpleNamespace(
-        close=AsyncMock(side_effect=RuntimeError("close failed")),
+        close=AsyncMock(
+            side_effect=(
+                delayed_close if cancel else RuntimeError("close failed")
+            ),
+        ),
     )
     context_manager = types.SimpleNamespace(close=Mock())
     offloader = types.SimpleNamespace(cleanup_expired=Mock())
-    agent = types.SimpleNamespace(
-        _jev_compactor=compactor,
+    agent = object.__new__(QwenPawAgent)
+    agent.__dict__.update(
+        _decision_compactor=compactor,
         _context_manager=context_manager,
         offloader=offloader,
         _agent_config=types.SimpleNamespace(
@@ -109,11 +124,17 @@ async def test_jev_close_failure_does_not_skip_history_or_artifact_cleanup():
             ),
         ),
     )
-    agent._close_jev_compactor = types.MethodType(
-        QwenPawAgent._close_jev_compactor,
-        agent,
-    )
-    await QwenPawAgent.close(agent)
+    if cancel:
+        closing = asyncio.create_task(agent.close())
+        await entered.wait()
+        closing.cancel()
+        await asyncio.sleep(0)
+        assert not closing.done()
+        release.set()
+        with pytest.raises(asyncio.CancelledError):
+            await closing
+    else:
+        await agent.close()
     compactor.close.assert_awaited_once()
     context_manager.close.assert_called_once()
     offloader.cleanup_expired.assert_called_once()

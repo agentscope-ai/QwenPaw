@@ -42,7 +42,7 @@ from .utils.text_block_utils import (
     sanitize_empty_text_blocks,
 )
 from ..modes.coding import CodingModeMixin
-from ..utils.io_utils import run_sync_io
+from ..utils.io_utils import run_async_to_completion, run_sync_io
 from ..constant import (
     LOOP_CONTINUATION_MESSAGE_TAG,
     MEDIA_UNSUPPORTED_PLACEHOLDER,
@@ -362,19 +362,24 @@ class QwenPawAgent(CodingModeMixin, Agent):
             instructions=instructions,
         )
 
-    async def _try_jev_compact(self, *, target, tokens, source_refs=None):
-        """Run optional semantic previews without enabling long-term memory."""
+    @property
+    def decision_compaction_enabled(self) -> bool:
+        """Whether automatic context compaction may use the decision model."""
         lcc = self._agent_config.running.light_context_config
-        if (
-            not lcc.context_compact_config.enabled
-            or not lcc.jev_compact_config.enabled
-        ):
-            return False
-        from .context.jev import JevCompactor
+        return (
+            lcc.context_compact_config.enabled
+            and lcc.decision_compact_config.enabled
+        )
 
-        compactor = getattr(self, "_jev_compactor", None)
+    async def try_decision_compact(self, *, target, tokens, source_refs=None):
+        """Run optional semantic previews without enabling long-term memory."""
+        if not self.decision_compaction_enabled:
+            return False
+        from .context.decision_compaction import DecisionCompactor
+
+        compactor = getattr(self, "_decision_compactor", None)
         if compactor is None:
-            compactor = self._jev_compactor = JevCompactor()
+            compactor = self._decision_compactor = DecisionCompactor()
         return await compactor.compact(
             self,
             target=target,
@@ -401,24 +406,19 @@ class QwenPawAgent(CodingModeMixin, Agent):
                 )
             return
 
-        lcc = self._agent_config.running.light_context_config
-        if (
-            lcc.jev_compact_config.enabled
-            and lcc.context_compact_config.enabled
-        ):
+        if self.decision_compaction_enabled:
             from .context.scroll import _as_internals as as_internals
 
             cfg = context_config or self.context_config
             target = cfg.trigger_ratio * self.model.context_size
-            # Manual /compact and overflow recovery retain their explicit
-            # eviction semantics rather than being intercepted by JEV.
+            # Manual /compact and overflow recovery keep explicit eviction.
             if cfg.trigger_ratio >= self.context_config.trigger_ratio:
                 kwargs = await as_internals.prepare_model_input(self)
                 tokens = await as_internals.count_model_input_tokens(
                     self,
                     kwargs,
                 )
-                if tokens > target and await self._try_jev_compact(
+                if tokens > target and await self.try_decision_compact(
                     target=target,
                     tokens=tokens,
                 ):
@@ -557,20 +557,27 @@ class QwenPawAgent(CodingModeMixin, Agent):
             # compress_context() on the next reasoning cycle.
             pass
 
-    async def _close_jev_compactor(self):
+    async def _close_decision_compactor(self):
         """Release the optional model without interrupting other cleanup."""
-        compactor = getattr(self, "_jev_compactor", None)
+        compactor = getattr(self, "_decision_compactor", None)
         if compactor is not None:
             try:
                 await compactor.close()
             except Exception:
-                logger.warning("JEV client close failed", exc_info=True)
+                logger.warning(
+                    "Decision model client close failed",
+                    exc_info=True,
+                )
             else:
-                self._jev_compactor = None
+                self._decision_compactor = None
 
     async def close(self) -> None:
         """Shut down governor, release the history store, and clean up expired
         tool-result files."""
+        await run_async_to_completion(self._close_resources())
+
+    async def _close_resources(self) -> None:
+        """Keep all cleanup alive until resources are released."""
         gov = getattr(self, "_governor", None)
         if gov is not None:
             try:
@@ -578,9 +585,7 @@ class QwenPawAgent(CodingModeMixin, Agent):
             except Exception:
                 logger.debug("governor stop failed", exc_info=True)
 
-        close_jev = getattr(self, "_close_jev_compactor", None)
-        if callable(close_jev):
-            await close_jev()
+        await self._close_decision_compactor()
 
         # Scroll history: apply the retention window (if any) while the
         # connection is still open, then release it (db + -wal + -shm fds —

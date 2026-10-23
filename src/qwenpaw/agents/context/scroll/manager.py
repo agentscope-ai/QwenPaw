@@ -46,7 +46,7 @@ from .continuation_summary import (
 from .eviction_index import EvictionIndex, Leaf, render_live_turn_banner
 from .history import HistoryStore
 from .serialize import msg_to_entries
-from ..types import ContextWindowUnfitError
+from ..types import DECISION_COMPACTED, ContextWindowUnfitError
 from ...utils.tool_message_utils import _remove_unpaired_tool_messages
 
 logger = logging.getLogger(__name__)
@@ -515,7 +515,7 @@ class ScrollContextManager:
             mark("persist")
             kwargs = await as_internals.prepare_model_input(agent)
             mark("prepare_input")
-            tokens = await self._count_model_input_tokens(agent, kwargs)
+            tokens = await as_internals.count_model_input_tokens(agent, kwargs)
             mark("count_tokens")
             if tokens > effective_hard_limit:
                 log_timings("persist_failed_unfit")
@@ -533,7 +533,7 @@ class ScrollContextManager:
         kwargs = await as_internals.prepare_model_input(agent)
         mark("prepare_input")
         trigger = cfg.trigger_ratio * agent.model.context_size
-        tokens = await self._count_model_input_tokens(agent, kwargs)
+        tokens = await as_internals.count_model_input_tokens(agent, kwargs)
         mark("count_tokens")
         if not self.should_compress(tokens, trigger):
             self._overflow_warned = False
@@ -556,43 +556,43 @@ class ScrollContextManager:
         )
         is_forced_compaction = float(cfg.trigger_ratio) < base_trigger_ratio
         if not is_forced_compaction:
-            jev = getattr(agent, "_try_jev_compact", None)
-            lcc = getattr(
-                getattr(
-                    getattr(agent, "_agent_config", None),
-                    "running",
-                    None,
-                ),
-                "light_context_config",
-                None,
-            )
-            if jev is not None and getattr(
-                getattr(lcc, "jev_compact_config", None),
-                "enabled",
-                False,
-            ):
+            if getattr(agent, "decision_compaction_enabled", False):
                 # Results are already durable; only expose references whose
                 # rows still exist after retention or session recovery.
-                contents = self._history.contents_by_seqs(
-                    set(self._seq_by_tcid.values()),
+                results = [
+                    entry
+                    for msg in agent.state.context
+                    for entry in msg_to_entries(msg)
+                    if entry.kind == "tool_result"
+                    and entry.tool_call_id in self._seq_by_tcid
+                    and not entry.metadata.get(DECISION_COMPACTED)
+                    and not str(entry.content or "").startswith(
+                        (_FOLD_MARK, _RECALL_FOLD_MARK),
+                    )
+                ]
+                contents = await run_sync_io(
+                    self._history.contents_by_seqs,
+                    {
+                        self._seq_by_tcid[entry.tool_call_id]
+                        for entry in results
+                    },
                 )
                 refs = {}
-                for msg in agent.state.context:
-                    for entry in msg_to_entries(msg):
-                        tcid = entry.tool_call_id
-                        seq = self._seq_by_tcid.get(tcid)
-                        if (
-                            entry.kind == "tool_result"
-                            and seq in contents
-                            and contents[seq] == entry.content
-                        ):
-                            refs[tcid] = (
-                                "recall_history(op='recall_tool', "
-                                f"tool_call_id={tcid!r})"
-                            )
-                if await jev(target=trigger, tokens=tokens, source_refs=refs):
+                for entry in results:
+                    tcid = entry.tool_call_id
+                    seq = self._seq_by_tcid[tcid]
+                    if seq in contents and contents[seq] == entry.content:
+                        refs[tcid] = (
+                            "recall_history(op='recall_tool', "
+                            f"tool_call_id={tcid!r})"
+                        )
+                if await agent.try_decision_compact(
+                    target=trigger,
+                    tokens=tokens,
+                    source_refs=refs,
+                ):
                     self._overflow_warned = False
-                    log_timings("jev_below_trigger")
+                    log_timings("decision_compaction_below_trigger")
                     return
                 tokens = await self._live_tokens(agent)
             pre_folded, tokens = await self._batch_fold_completed_tool_results(
@@ -878,7 +878,7 @@ class ScrollContextManager:
                 if not durable_key:
                     durable_key = f"{mid}#anon{anonymous_position}"
                     anonymous_position += 1
-                if entry.metadata.get("qwenpaw_jev_compacted") or str(
+                if entry.metadata.get(DECISION_COMPACTED) or str(
                     entry.content or "",
                 ).startswith(
                     (_FOLD_MARK, _RECALL_FOLD_MARK),
@@ -1522,14 +1522,9 @@ class ScrollContextManager:
         self._continuation_summary = updated
         self._summary_update_failed = False
 
-    @staticmethod
-    async def _count_model_input_tokens(agent: Any, kwargs: dict) -> int:
-        """Count the formatter's omission view without altering model input."""
-        return await as_internals.count_model_input_tokens(agent, kwargs)
-
     async def _live_tokens(self, agent: Any) -> int:
         """Token count of the live context as the model would receive it."""
-        return await self._count_model_input_tokens(
+        return await as_internals.count_model_input_tokens(
             agent,
             await as_internals.prepare_model_input(agent),
         )
@@ -2042,9 +2037,7 @@ class ScrollContextManager:
     @staticmethod
     def _is_folded_stub(block: Any) -> bool:
         """True if this result's output is already a fold stub."""
-        if ScrollContextManager._block_metadata(block).get(
-            "qwenpaw_jev_compacted",
-        ):
+        if ScrollContextManager._block_metadata(block).get(DECISION_COMPACTED):
             return True
         out = getattr(block, "output", None)
         if isinstance(out, str):
