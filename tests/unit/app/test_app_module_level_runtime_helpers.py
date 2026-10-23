@@ -5,7 +5,7 @@
 history sync and ``test_provider_startup_offload.py`` pins which startup
 helpers are dispatched off the loop; neither reaches the browser
 housekeeping tasks, the console static-directory resolution chain, the
-desktop-sidecar shutdown endpoint or the root route. All of those are
+shared-runtime control routes or the root route. All of those are
 module-level functions that can be driven with stub kernels and a
 temporary working directory, so no real browser, console build or Tauri
 shell is involved.

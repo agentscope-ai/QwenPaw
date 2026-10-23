@@ -46,7 +46,6 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             open_devtools,
             backend_download::download_backend_file,
-            backend_download::read_workspace_binary_file,
             backend::agent_host_state,
             backend::restart_backend,
             external_link::open_external_link,

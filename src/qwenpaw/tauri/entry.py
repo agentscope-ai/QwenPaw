@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import json
 import logging
 import multiprocessing as mp
 import os
@@ -17,7 +16,6 @@ from qwenpaw.tauri.backend_guard import BackendInstance
 from qwenpaw.tauri.env import (
     DESKTOP_APP_ENV,
     DESKTOP_CORS_ORIGINS_ENV,
-    DESKTOP_READY_PREFIX,
     ensure_desktop_cors_origins,
 )
 from qwenpaw.tauri.sidecar_logging import install_sidecar_logging
@@ -281,11 +279,6 @@ def _run_click_command(
         raise RuntimeError(message) from exc
 
 
-def _emit_backend_ready(port: int) -> None:
-    payload = json.dumps({"port": port}, separators=(",", ":"))
-    print(f"{DESKTOP_READY_PREFIX} {payload}", flush=True)
-
-
 def _run_backend_server(
     log_level: str,
     instance: BackendInstance,
@@ -367,7 +360,6 @@ def _run_backend_server(
         fastapi_app.state.runtime_instance = instance
         fastapi_app.state.runtime_clients = {}
         instance.publish(port)
-        _emit_backend_ready(port)
 
         server.run(sockets=[backend_socket])
     except Exception:

@@ -11,7 +11,7 @@ import click
 import pytest
 
 from qwenpaw.tauri import entry
-from qwenpaw.tauri.env import DESKTOP_CORS_ORIGINS_ENV, DESKTOP_READY_PREFIX
+from qwenpaw.tauri.env import DESKTOP_CORS_ORIGINS_ENV
 
 
 def test_install_desktop_runtime_preserves_existing_cors_values(monkeypatch):
@@ -125,13 +125,6 @@ def test_run_click_command_allows_successful_system_exit(capsys):
 
     captured = capsys.readouterr()
     assert captured.err == ""
-
-
-def test_emit_backend_ready_writes_stdout_protocol(capsys):
-    entry._emit_backend_ready(54321)
-
-    captured = capsys.readouterr()
-    assert captured.out == f'{DESKTOP_READY_PREFIX} {{"port":54321}}\n'
 
 
 def test_socket_port_returns_bound_port():
