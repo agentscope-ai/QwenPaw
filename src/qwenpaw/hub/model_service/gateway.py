@@ -37,14 +37,14 @@ class ModelGateway:
     def recover(self):
         """Wait out attempts that might still be running after a restart."""
         with self.catalog.store.connect() as db:
-            orphan = db.execute(
-                "SELECT 1 FROM hub_model_requests "
-                "WHERE status = 'dispatched' LIMIT 1",
+            recovery = db.execute(
+                f"SELECT value_json FROM hub_settings "
+                f"WHERE key = 'model_gateway_recovery_until'",
             ).fetchone()
         self.budgets.recover()
-        if orphan:
-            timeout = self.catalog.store.settings()[f"gateway_timeout_seconds"]
-            self.limiter.cooldown_until = time.monotonic() + 2 * timeout
+        if recovery:
+            remaining = max(0, float(recovery[0]) - time.time())
+            self.limiter.cooldown_until = time.monotonic() + remaining
 
     @staticmethod
     def _prepare(model, connection, body, cap):
@@ -132,7 +132,7 @@ class ModelGateway:
             },
             json=payload,
         )
-        await attempt.dispatch()
+        await attempt.dispatch(timeout)
         response = await asyncio.wait_for(
             client.send(request, stream=True),
             timeout=timeout,

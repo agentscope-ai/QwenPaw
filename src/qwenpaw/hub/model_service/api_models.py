@@ -34,7 +34,7 @@ class PolicyBody(StrictBody):
     member_token_limit: int | None = Field(default=None, ge=0)
     gateway_timeout_seconds: int = Field(
         default=DEFAULT_GATEWAY_TIMEOUT_SECONDS,
-        gt=0,
+        ge=60,
         strict=True,
     )
     timezone: str = "UTC"

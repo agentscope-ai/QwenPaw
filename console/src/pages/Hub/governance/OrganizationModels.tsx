@@ -346,7 +346,7 @@ export default function OrganizationModels({
                             {
                               required: true,
                               type: "integer",
-                              min: 1,
+                              min: 60,
                               message: t(
                                 "hub.governance.models.gatewayTimeoutInvalid",
                               ),
@@ -354,7 +354,7 @@ export default function OrganizationModels({
                           ]}
                         >
                           <InputNumber
-                            min={1}
+                            min={60}
                             step={1}
                             changeOnWheel={false}
                             aria-label={t(
