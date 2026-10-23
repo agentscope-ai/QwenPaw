@@ -1918,6 +1918,281 @@ class TestTelegramBuildContentParts:
 
 
 # =============================================================================
+# P2: Quoted (replied-to) message context
+# =============================================================================
+
+
+def _quoted_message(text=None, caption=None, author="Alice", username=None):
+    """Build a Telegram reply_to_message stand-in."""
+    quoted = MagicMock()
+    quoted.text = text
+    quoted.caption = caption
+    if author is None:
+        quoted.from_user = None
+    else:
+        quoted.from_user = MagicMock()
+        quoted.from_user.full_name = author
+        quoted.from_user.username = username
+        quoted.from_user.first_name = None
+    return quoted
+
+
+def _message_with_quote(text, quoted):
+    """Build an update whose message replies to ``quoted``."""
+    update = MagicMock()
+    message = MagicMock()
+    message.text = text
+    message.caption = None
+    message.entities = []
+    message.caption_entities = None
+    message.photo = []
+    message.document = None
+    message.video = None
+    message.voice = None
+    message.audio = None
+    message.reply_to_message = quoted
+    update.message = message
+    update.edited_message = None
+    return update
+
+
+def _bot():
+    bot = MagicMock()
+    bot.username = "test_bot"
+    bot.id = "12345"
+    return bot
+
+
+@pytest.mark.asyncio
+class TestTelegramQuotedMessage:
+    """A Telegram reply must carry the quoted message into the agent."""
+
+    async def _build(self, update, tmp_path: Path):
+        from qwenpaw.app.channels.telegram.channel import (
+            _build_content_parts_from_message,
+        )
+
+        return await _build_content_parts_from_message(
+            update,
+            bot=_bot(),
+            media_dir=tmp_path,
+        )
+
+    async def test_quoted_text_is_carried(self, tmp_path: Path):
+        """The quoted text must reach the agent alongside the new text."""
+        update = _message_with_quote(
+            "what about this?",
+            _quoted_message(text="the original report"),
+        )
+        parts, _has_command, _is_mentioned = await self._build(
+            update,
+            tmp_path,
+        )
+
+        assert len(parts) == 2
+        quoted = parts[-1].text
+        assert parts[0].text == "what about this?"
+        assert parts[0].type == ContentType.TEXT
+        assert "[Quoted message]" in quoted
+        assert "the original report" in quoted
+
+    async def test_user_text_stays_the_first_part(self, tmp_path: Path):
+        """The first text part must remain what the user typed.
+
+        _extract_query_from_payload and _extract_chat_name both read the
+        first text part; a leading quoted block would hide control commands
+        such as /stop and mis-name the chat.
+        """
+        update = _message_with_quote(
+            "/stop",
+            _quoted_message(text="Bob: quarterly report"),
+        )
+        parts, _has_command, _is_mentioned = await self._build(
+            update,
+            tmp_path,
+        )
+
+        assert parts[0].text == "/stop"
+
+    async def test_quoted_reply_keeps_control_command_detection(
+        self,
+        telegram_channel,
+        tmp_path: Path,
+    ):
+        """A quoted /stop must still be seen as a control command."""
+        update = _message_with_quote(
+            "/stop",
+            _quoted_message(text="Bob: quarterly report"),
+        )
+        parts, _has_command, _is_mentioned = await self._build(
+            update,
+            tmp_path,
+        )
+
+        payload = {"content_parts": parts}
+        query = telegram_channel._extract_query_from_payload(payload)
+
+        assert query == "/stop"
+
+    async def test_quoted_caption_is_used(self, tmp_path: Path):
+        """A quoted photo carries its text in caption, not text."""
+        update = _message_with_quote(
+            "and here?",
+            _quoted_message(text=None, caption="caption of the photo"),
+        )
+        parts, _has_command, _is_mentioned = await self._build(
+            update,
+            tmp_path,
+        )
+
+        assert len(parts) == 2
+        assert "caption of the photo" in parts[-1].text
+        assert parts[0].text == "and here?"
+
+    async def test_quoted_text_is_truncated_at_the_cap(self, tmp_path: Path):
+        """Quoted text is capped at QUOTED_TEXT_MAX_CHARS plus the marker."""
+        from qwenpaw.app.channels.telegram.channel import (
+            QUOTED_TEXT_MAX_CHARS,
+        )
+
+        cap = QUOTED_TEXT_MAX_CHARS
+        update = _message_with_quote(
+            "ok",
+            _quoted_message(text="x" * (cap + 50)),
+        )
+        parts, _has_command, _is_mentioned = await self._build(
+            update,
+            tmp_path,
+        )
+
+        quoted = parts[-1].text
+        # The cap applies to the quoted text; the label and the author prefix
+        # are added around it, so the rendered block is longer than the cap.
+        label, body = quoted.split("\n", 1)
+        assert label == "[Quoted message]"
+        assert body == "Alice: " + "x" * cap + "..."
+
+    async def test_text_at_the_cap_is_not_truncated(self, tmp_path: Path):
+        """Exactly-at-the-cap text keeps no ellipsis."""
+        from qwenpaw.app.channels.telegram.channel import (
+            QUOTED_TEXT_MAX_CHARS,
+        )
+
+        cap = QUOTED_TEXT_MAX_CHARS
+        update = _message_with_quote("ok", _quoted_message(text="y" * cap))
+        parts, _has_command, _is_mentioned = await self._build(
+            update,
+            tmp_path,
+        )
+
+        assert not parts[-1].text.endswith("...")
+        assert parts[-1].text.endswith("y" * 10)
+        assert parts[-1].text.split("\n", 1)[1] == "Alice: " + "y" * cap
+
+    async def test_author_falls_back_to_username(self, tmp_path: Path):
+        """A user with no full_name falls back to the username."""
+        update = _message_with_quote(
+            "hey",
+            _quoted_message(
+                text="hi from alice",
+                author="",
+                username="alice_h",
+            ),
+        )
+        parts, _has_command, _is_mentioned = await self._build(
+            update,
+            tmp_path,
+        )
+
+        assert "alice_h: hi from alice" in parts[-1].text
+
+    async def test_quote_without_author_omits_name(self, tmp_path: Path):
+        """A quoted message with no resolvable author still quotes."""
+        update = _message_with_quote(
+            "hm",
+            _quoted_message(text="anonymous quote", author=None),
+        )
+        parts, _has_command, _is_mentioned = await self._build(
+            update,
+            tmp_path,
+        )
+
+        assert len(parts) == 2
+        assert parts[-1].text == "[Quoted message]\nanonymous quote"
+        assert parts[0].text == "hm"
+
+    async def test_quote_without_text_adds_no_block(self, tmp_path: Path):
+        """Quoting a photo with no caption adds no empty marker."""
+        update = _message_with_quote(
+            "nice shot",
+            _quoted_message(text=None, caption=None),
+        )
+        parts, _has_command, _is_mentioned = await self._build(
+            update,
+            tmp_path,
+        )
+
+        assert len(parts) == 1
+        assert parts[0].text == "nice shot"
+
+    async def test_whitespace_only_quote_adds_no_block(self, tmp_path: Path):
+        """A whitespace-only quoted message adds no block."""
+        update = _message_with_quote(
+            "hm",
+            _quoted_message(text="   \n  "),
+        )
+        parts, _has_command, _is_mentioned = await self._build(
+            update,
+            tmp_path,
+        )
+
+        assert len(parts) == 1
+        assert parts[0].text == "hm"
+
+    async def test_quoted_reply_does_not_recurse(self, tmp_path: Path):
+        """A quoted message that is itself a reply is not expanded."""
+        grandparent = _quoted_message(text="the original report")
+        quoted = _quoted_message(text="the reply")
+        quoted.reply_to_message = grandparent
+
+        update = _message_with_quote("and this?", quoted)
+        parts, _has_command, _is_mentioned = await self._build(
+            update,
+            tmp_path,
+        )
+
+        assert len(parts) == 2
+        assert "the reply" in parts[-1].text
+        assert "the original report" not in parts[-1].text
+
+    async def test_quoted_bot_mention_does_not_affect_detection(
+        self,
+        tmp_path: Path,
+    ):
+        """A @bot mention inside the quoted text stays inert."""
+        update = _message_with_quote(
+            "thanks",
+            _quoted_message(text="@test_bot please summarize this"),
+        )
+        parts, _has_command, is_mentioned = await self._build(update, tmp_path)
+
+        assert len(parts) == 2
+        assert is_mentioned is False
+        assert "@test_bot" in parts[-1].text
+
+    async def test_no_quote_leaves_parts_unchanged(self, tmp_path: Path):
+        """A plain message must not gain a quoted block."""
+        update = _message_with_quote("plain", None)
+        parts, _has_command, _is_mentioned = await self._build(
+            update,
+            tmp_path,
+        )
+
+        assert len(parts) == 1
+        assert parts[0].text == "plain"
+
+
+# =============================================================================
 # P2: Channel Lifecycle
 # =============================================================================
 

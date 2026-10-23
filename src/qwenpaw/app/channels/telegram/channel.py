@@ -86,6 +86,12 @@ _MEDIA_ATTRS: list[tuple[str, type, Any, str]] = [
     ("audio", AudioContent, ContentType.AUDIO, "data"),
 ]
 
+# Quoted (replied-to) message: label and cap on the quoted text injected
+# into the agent's context. The cap bounds the quoted text itself; the label
+# and the author prefix are added around it, so the rendered block is longer.
+QUOTED_LABEL = "[Quoted message]"
+QUOTED_TEXT_MAX_CHARS = 500
+
 # Streaming: minimum interval between editMessageText calls (seconds).
 # Telegram rate-limits edits to ~1 msg/s per chat; use 1.5s for safety.
 _STREAM_EDIT_INTERVAL_S = 1.5
@@ -218,6 +224,51 @@ async def _resolve_telegram_file_url(
     return f"{base_file_url}{bot_token}/{file_path}"
 
 
+def _quoted_author(quoted: Any) -> str:
+    """Best-effort display name of the author of a quoted message."""
+    user = getattr(quoted, "from_user", None)
+    if user is None:
+        return ""
+    for attr in ("full_name", "username", "first_name"):
+        value = getattr(user, attr, None)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return ""
+
+
+def _quoted_text_block(message: Any) -> str:
+    """Render the message this one replies to, or "" when there is none.
+
+    Telegram delivers a reply's target in ``message.reply_to_message``, which
+    the other adapters already surface (Feishu ``parent_id``, DingTalk
+    ``repliedMsg``, WeChat ``ref_msg``, OneBot quoted segments). Without this
+    the agent only ever sees "what about this?" and never what "this" is.
+
+    Returns "" for anything that carries no quotable text, such as a photo
+    without a caption or a service message.
+    """
+    quoted = getattr(message, "reply_to_message", None)
+    if quoted is None:
+        return ""
+
+    raw = getattr(quoted, "text", None)
+    if not isinstance(raw, str) or not raw.strip():
+        caption = getattr(quoted, "caption", None)
+        raw = caption if isinstance(caption, str) else ""
+
+    quoted_text = raw.strip()
+    if not quoted_text:
+        return ""
+
+    if len(quoted_text) > QUOTED_TEXT_MAX_CHARS:
+        quoted_text = quoted_text[:QUOTED_TEXT_MAX_CHARS].rstrip() + "..."
+
+    author = _quoted_author(quoted)
+    if author:
+        return f"{QUOTED_LABEL}\n{author}: {quoted_text}"
+    return f"{QUOTED_LABEL}\n{quoted_text}"
+
+
 async def _build_content_parts_from_message(
     update: Any,
     *,
@@ -277,6 +328,16 @@ async def _build_content_parts_from_message(
 
     if text:
         content_parts.append(TextContent(type=ContentType.TEXT, text=text))
+
+    # Appended after the user's own text on purpose: both
+    # _extract_query_from_payload and _extract_chat_name read the FIRST text
+    # part, so a leading quoted block would hide control commands such as
+    # /stop and mis-name the chat.
+    quoted_block = _quoted_text_block(message)
+    if quoted_block:
+        content_parts.append(
+            TextContent(type=ContentType.TEXT, text=quoted_block),
+        )
 
     photo = getattr(message, "photo", None)
     if photo and len(photo) > 0:
