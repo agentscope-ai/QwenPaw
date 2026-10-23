@@ -33,9 +33,9 @@ from .base_memory_manager import (
     MemoryBackendContext,
     memory_registry,
 )
-from .embedding_model import EmbeddingTestResult
+from .embedding_model import EmbeddingTestResult, create_embedding_model
 from .prompts import build_memory_guidance_prompt
-from .reme_config import get_reme_app_config
+from .reme_config import _is_embedding_enabled, get_reme_app_config
 from .reme_embedding import (
     EmbeddingReindexUnavailableError,
     ReMeEmbedding,
@@ -299,6 +299,17 @@ class ReMeLightMemoryManager(BaseMemoryManager, MemoryActionProvider):
                 exc,
             )
         try:
+            await self._inject_embedding_model()
+        except Exception:
+            # ReMe then builds its own provider from the component config, so
+            # only the per-item embedding fallback is lost.
+            logger.warning(
+                "Embedding provider injection failed for agent '%s'; "
+                "using ReMe defaults",
+                self.agent_id,
+                exc_info=True,
+            )
+        try:
             await self._reme.start()
             logger.info(
                 "ReMe memory manager started for agent '%s'",
@@ -532,6 +543,27 @@ class ReMeLightMemoryManager(BaseMemoryManager, MemoryActionProvider):
         return self._reme is not None and bool(
             getattr(self._reme, "is_started", False),
         )
+
+    async def _inject_embedding_model(self) -> bool:
+        """Hand ReMe a QwenPaw embedding provider with per-item fallback.
+
+        ReMe otherwise constructs the provider itself from its component
+        config, which bypasses the batch fallback ``create_embedding_model``
+        installs. Both paths resolve to the same model class and the same
+        vector space, so injecting here keeps persisted vectors valid while
+        making a reindex survive one over-limit chunk.
+        """
+        config = getattr(self, "_active_embedding_config", None)
+        if self._reme is None or config is None:
+            return False
+        if not _is_embedding_enabled(config):
+            return False
+        await self._reme.update_component(
+            "as_embedding",
+            "default",
+            model=create_embedding_model(config),
+        )
+        return True
 
     async def apply_tested_embedding(
         self,
