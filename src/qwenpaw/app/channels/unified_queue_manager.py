@@ -27,6 +27,24 @@ from typing import Any, Callable, Coroutine, Dict, Tuple
 
 logger = logging.getLogger(__name__)
 
+# A replaced workspace can release its queue manager before a cancelled
+# consumer finishes cleanup. Keep those tasks rooted outside the manager;
+# asyncio itself only keeps weak references to tasks.
+_stopping_consumers: set[asyncio.Task[None]] = set()
+
+
+def _consumer_shutdown_done(task: asyncio.Task[None]) -> None:
+    """Release a retained consumer and retrieve any shutdown exception."""
+    _stopping_consumers.discard(task)
+    if not task.cancelled():
+        error = task.exception()
+        if error is not None:
+            logger.error(
+                f"Consumer shutdown failed: {task.get_name()}",
+                exc_info=(type(error), error, error.__traceback__),
+            )
+
+
 # Type alias for queue key
 QueueKey = Tuple[str, str, int]  # (channel_id, session_id, priority_level)
 
@@ -352,6 +370,8 @@ class UnifiedQueueManager:
 
         if consumer_tasks:
             for task in consumer_tasks:
+                _stopping_consumers.add(task)
+                task.add_done_callback(_consumer_shutdown_done)
                 task.cancel()
 
             # Wait for all consumers to finish
