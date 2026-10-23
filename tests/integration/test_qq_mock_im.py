@@ -25,6 +25,7 @@ API endpoints:
   - GET  /api/config/channels/qq
   - GET  /api/config/channels/qq/health
 """
+
 from __future__ import annotations
 
 import threading
@@ -246,20 +247,30 @@ def test_qq_c2c_message_roundtrip_reaches_mock_send(
 
 @pytest.mark.integration
 @pytest.mark.p1
+@pytest.mark.parametrize(
+    "event_type",
+    [
+        "C2C_MESSAGE_CREATE",
+        "GROUP_MESSAGE_CREATE",
+        "GROUP_AT_MESSAGE_CREATE",
+    ],
+)
 def test_qq_outbound_send_carries_msg_id_reply_context(
     app_server,
     qq_channel_up,  # pylint: disable=redefined-outer-name
     mock_llm,  # pylint: disable=redefined-outer-name
+    event_type,
 ):
-    """Outbound reply references the incoming msg_id (passive reply).
+    """Private and group replies retain the destination and passive msg_id.
 
     Test purpose:
-      - Cover _send_message_async body construction: msg_id echo and
-        msg_seq for c2c passive replies.
+      - Exercise both group event names through the real gateway, agent,
+        and outbound HTTP API, alongside the existing C2C case.
+      - Cover destination routing, msg_id echo, and msg_seq.
 
     Test flow:
       1. Register and activate the inherited global mock model.
-      2. Push a C2C message with a distinctive msg_id.
+      2. Push a private or group message with a distinctive msg_id.
       3. Wait for the outbound send; inspect the recorded body.
     """
     srv, mock_url = mock_llm
@@ -270,12 +281,23 @@ def test_qq_outbound_send_carries_msg_id_reply_context(
     # rewrite the agent or reload its channels.
     provider_id = register_mock_provider(app_server, mock_url)
     try:
-        marker_msg_id = "integ-qq-msgid-ctx"
+        marker_msg_id = f"integ-qq-msgid-ctx-{event_type}"
         before = len(qq_channel_up.api_calls)
-        qq_channel_up.push_c2c_message(
-            openid="integ-qq-user-ctx",
-            text="reply with context please",
-            msg_id=marker_msg_id,
+        is_group = event_type != "C2C_MESSAGE_CREATE"
+        sender_key = "member_openid" if is_group else "user_openid"
+        destination = (
+            "groups/integ-qq-group-ctx"
+            if is_group
+            else ("users/integ-qq-user-ctx")
+        )
+        qq_channel_up.push_dispatch(
+            event_type,
+            {
+                "id": marker_msg_id,
+                "content": "reply with context please",
+                "author": {sender_key: "integ-qq-user-ctx"},
+                **({"group_openid": "integ-qq-group-ctx"} if is_group else {}),
+            },
         )
         deadline = time.time() + 90.0
         matched = None
@@ -292,6 +314,8 @@ def test_qq_outbound_send_carries_msg_id_reply_context(
         )
         assert "msg_seq" in matched["body"], matched
         assert matched["auth"].startswith("QQBot "), matched
+        assert matched["path"] == f"/v2/{destination}/messages", matched
+        assert MOCK_LLM_RESPONSE in matched["body"]["markdown"]["content"]
     finally:
         unregister_mock_provider(app_server, provider_id)
 

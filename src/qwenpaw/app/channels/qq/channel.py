@@ -133,6 +133,11 @@ _MESSAGE_EVENT_SPECS: Dict[str, _MessageEventSpec] = {
         sender_keys=("member_openid", "id"),
         extra_meta_keys=("group_openid",),
     ),
+    "GROUP_MESSAGE_CREATE": _MessageEventSpec(
+        message_type="group",
+        sender_keys=("member_openid", "id"),
+        extra_meta_keys=("group_openid",),
+    ),
 }
 
 
