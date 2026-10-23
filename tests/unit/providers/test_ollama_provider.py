@@ -3,7 +3,13 @@ from __future__ import annotations
 
 import pytest
 
-from qwenpaw.providers.ollama_provider import OllamaProvider
+from qwenpaw.providers.model_info import ModelInfo
+from qwenpaw.providers.ollama_provider import (
+    OllamaProvider,
+    parse_ollama_model_context_length,
+    parse_ollama_num_ctx,
+    resolve_ollama_context_window,
+)
 
 
 def _make_provider(base_url: str = "http://localhost:11434") -> OllamaProvider:
@@ -136,3 +142,153 @@ def test_get_chat_model_instance_uses_single_v1_suffix(
     assert str(captured[0]["credential"].base_url).rstrip("/") == (
         "http://localhost:11434/v1"
     )
+
+
+def test_parse_ollama_num_ctx_from_parameters() -> None:
+    assert parse_ollama_num_ctx("temperature 0.7\nnum_ctx 8192\n") == 8192
+    assert parse_ollama_num_ctx("temperature 0.7") is None
+    assert parse_ollama_num_ctx("num_ctx 512") is None  # below ModelInfo floor
+
+
+def test_parse_ollama_model_context_length() -> None:
+    assert (
+        parse_ollama_model_context_length(
+            {"qwen3.context_length": 131072, "other": 1},
+        )
+        == 131072
+    )
+    assert parse_ollama_model_context_length({}) is None
+
+
+def test_resolve_ollama_context_prefers_served_then_num_ctx() -> None:
+    show = {
+        "parameters": "num_ctx 8192\n",
+        "model_info": {"qwen3.context_length": 131072},
+    }
+    assert (
+        resolve_ollama_context_window(
+            show_payload=show,
+            served_context=4096,
+        )
+        == 4096
+    )
+    assert resolve_ollama_context_window(show_payload=show) == 8192
+    assert (
+        resolve_ollama_context_window(
+            show_payload={"model_info": {"qwen3.context_length": 65536}},
+        )
+        == 65536
+    )
+    assert resolve_ollama_context_window(show_payload={}) is None
+
+
+class _FakeResponse:
+    def __init__(self, status_code: int, payload: dict):
+        self.status_code = status_code
+        self._payload = payload
+
+    def raise_for_status(self) -> None:
+        return None
+
+    def json(self) -> dict:
+        return self._payload
+
+
+@pytest.mark.asyncio
+async def test_fetch_models_attaches_served_context(monkeypatch) -> None:
+    provider = _make_provider()
+
+    async def fake_super_fetch(self, timeout: float = 5):
+        return [ModelInfo(id="qwen3:8b", name="qwen3:8b")]
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs) -> None:
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return False
+
+        async def get(self, url: str):
+            assert url.endswith("/api/ps")
+            return _FakeResponse(
+                200,
+                {
+                    "models": [
+                        {
+                            "name": "qwen3:8b",
+                            "model": "qwen3:8b",
+                            "context_length": 4096,
+                        },
+                    ],
+                },
+            )
+
+        async def post(self, url: str, json: dict):
+            assert url.endswith("/api/show")
+            assert json == {"model": "qwen3:8b"}
+            return _FakeResponse(
+                200,
+                {
+                    "parameters": "num_ctx 8192\n",
+                    "model_info": {"qwen3.context_length": 131072},
+                },
+            )
+
+    monkeypatch.setattr(
+        "qwenpaw.providers.openai_provider.OpenAIProvider.fetch_models",
+        fake_super_fetch,
+    )
+    monkeypatch.setattr(
+        "qwenpaw.providers.ollama_provider.httpx.AsyncClient",
+        FakeClient,
+    )
+
+    models = await provider.fetch_models()
+    assert len(models) == 1
+    # Loaded /api/ps window wins over Modelfile num_ctx.
+    assert models[0].max_input_length_auto_detected == 4096
+
+
+@pytest.mark.asyncio
+async def test_fetch_models_uses_show_when_not_loaded(monkeypatch) -> None:
+    provider = _make_provider()
+
+    async def fake_super_fetch(self, timeout: float = 5):
+        return [ModelInfo(id="qwen3:8b", name="qwen3:8b")]
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs) -> None:
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return False
+
+        async def get(self, url: str):
+            return _FakeResponse(200, {"models": []})
+
+        async def post(self, url: str, json: dict):
+            return _FakeResponse(
+                200,
+                {
+                    "parameters": "num_ctx 8192\n",
+                    "model_info": {"qwen3.context_length": 131072},
+                },
+            )
+
+    monkeypatch.setattr(
+        "qwenpaw.providers.openai_provider.OpenAIProvider.fetch_models",
+        fake_super_fetch,
+    )
+    monkeypatch.setattr(
+        "qwenpaw.providers.ollama_provider.httpx.AsyncClient",
+        FakeClient,
+    )
+
+    models = await provider.fetch_models()
+    assert models[0].max_input_length_auto_detected == 8192
