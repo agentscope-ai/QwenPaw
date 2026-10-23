@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import time
 from collections import deque
 from dataclasses import dataclass, field
 from typing import Any
@@ -22,6 +23,11 @@ from .loop_gate import LoopGate
 
 logger = logging.getLogger(__name__)
 
+# Repeated calls separated by a real wait are commonly used to poll a
+# background task. Keep that pattern out of the fast-loop repetition streak
+# while preserving the existing protection against tight repeats.
+_POLLING_INTERVAL_THRESHOLD_SECONDS = 5.0
+
 
 @dataclass
 class _ToolCallRecord:
@@ -29,6 +35,7 @@ class _ToolCallRecord:
 
     tool_name: str
     args_hash: str
+    recorded_at: float
 
 
 @dataclass
@@ -99,6 +106,7 @@ class DoomLoopGate(LoopGate):
             _ToolCallRecord(
                 tool_name=tool_name,
                 args_hash=args_hash,
+                recorded_at=time.monotonic(),
             ),
         )
         state.history_dirty = True
@@ -257,6 +265,11 @@ class DoomLoopGate(LoopGate):
         similarity = self._compute_similarity(window)
 
         if similarity >= self._threshold:
+            if self._is_polling_window(window):
+                logger.debug(
+                    "DoomLoopGate: treating spaced repeated calls as polling",
+                )
+                return False
             logger.warning(
                 "Doom loop: sim=%.2f thr=%.2f",
                 similarity,
@@ -264,6 +277,15 @@ class DoomLoopGate(LoopGate):
             )
             return True
         return False
+
+    @staticmethod
+    def _is_polling_window(window: list[_ToolCallRecord]) -> bool:
+        """Return whether every repeated call followed a meaningful wait."""
+        return all(
+            later.recorded_at - earlier.recorded_at
+            >= _POLLING_INTERVAL_THRESHOLD_SECONDS
+            for earlier, later in zip(window, window[1:])
+        )
 
     @staticmethod
     def _compute_similarity(
