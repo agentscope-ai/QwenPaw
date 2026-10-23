@@ -1980,10 +1980,6 @@
         "name": "Tìm tệp",
         "description": "Tìm tệp theo tên hoặc mẫu đường dẫn."
       },
-      "ast_search": {
-        "name": "Tìm cấu trúc mã",
-        "description": "Tìm mẫu mã dựa trên cú pháp."
-      },
       "desktop_screenshot": {
         "name": "Chụp màn hình",
         "description": "Chụp màn hình máy tính để tác tử kiểm tra."
@@ -2497,9 +2493,6 @@
     "changeProjectDirectory": "Quản lý",
     "manageDefaultFolders": "Workspace mặc định",
     "projectDirectoryWorkspaceFallback": "Đang dùng thư mục cấu hình Agent",
-    "enhancedCodeCapability": "Tăng cường khả năng lập trình",
-    "enhancedCodeCapabilityTooltip": "Thêm công cụ mã mà không đổi thư mục dự án.",
-    "enhancedCodeCapabilityDescription": "Bật AST, LSP, prompt mã, ngữ cảnh Git và quản lý mã nguồn.",
     "description": "Cấu hình các tham số runtime của agent",
     "visualCompactCollapseLabel": "Nén trực quan",
     "visualCompactDescription": "Chuyển lịch sử hội thoại cũ thành ảnh để tiết kiệm token. Chỉ dẫn hệ thống và hội thoại gần đây vẫn là văn bản.",

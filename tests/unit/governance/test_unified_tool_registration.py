@@ -158,12 +158,6 @@ class TestBuiltinDescriptorGovernance:
             gaps = _collect_governance_gaps(registry)
         assert "missing_gov_tool" in gaps
 
-    def test_ast_search_registered(self):
-        assert DEFAULT_REGISTRY.get_type("AstSearch") == "file"
-        assert (
-            DEFAULT_REGISTRY.python_to_policy_name("ast_search") == "AstSearch"
-        )
-
     def test_core_builtins_registered(self):
         expected = {
             "Read": "file",

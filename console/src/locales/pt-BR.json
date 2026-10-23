@@ -2647,9 +2647,6 @@
     "changeProjectDirectory": "Gerenciar",
     "manageDefaultFolders": "Workspace padrão",
     "projectDirectoryWorkspaceFallback": "Usando o diretório de configuração do Agent",
-    "enhancedCodeCapability": "Aprimorar capacidade de código",
-    "enhancedCodeCapabilityTooltip": "Adiciona ferramentas de código sem alterar o diretório do projeto.",
-    "enhancedCodeCapabilityDescription": "Ative AST, LSP, prompts de código, contexto Git e controle de versão.",
     "description": "Configure Agente runtime parameters",
     "reactAgentTitle": "React Agente",
     "llmRetryTitle": "LLM Automatico Tentar novamente",
@@ -3271,10 +3268,6 @@
       "glob_search": {
         "name": "Localizar arquivos",
         "description": "Encontre arquivos pelo nome ou padrão do caminho."
-      },
-      "ast_search": {
-        "name": "Pesquisar a estrutura do código",
-        "description": "Encontre padrões de código com análise de sintaxe."
       },
       "desktop_screenshot": {
         "name": "Capturar a área de trabalho",

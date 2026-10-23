@@ -51,7 +51,7 @@ export const TOOL_PRESENTATION: Record<
   append_file: { group: "files", Icon: FilePlus2 },
   grep_search: { group: "files", Icon: Search },
   glob_search: { group: "files", Icon: FolderSearch },
-  ast_search: { group: "files", Icon: Code2 },
+  run_code: { group: "runtime", Icon: Code2 },
   desktop_screenshot: { group: "media", Icon: Monitor },
   view_image: { group: "media", Icon: Image },
   view_video: { group: "media", Icon: Video },

@@ -25,6 +25,7 @@ from agentscope.middleware import MiddlewareBase
 from agentscope.message import Msg, TextBlock, ToolResultState
 from agentscope.tool import ToolChunk, ToolResponse
 
+from ..config.context import current_script_tool_call
 from .tools.utils import (
     DEFAULT_MAX_BYTES,
     ToolResultPruner,
@@ -765,6 +766,11 @@ class ToolResultPruningMiddleware(MiddlewareBase):
         input_kwargs: dict[str, Any],  # pylint: disable=unused-argument
         next_handler: Callable[..., AsyncGenerator[Any, None]],
     ) -> AsyncGenerator[Any, None]:
+        if current_script_tool_call.get():
+            # Python selects evidence before the model-context budget applies.
+            async for event in next_handler():
+                yield event
+            return
         events: list[Any] = []
         async for event in next_handler():
             if isinstance(event, ToolResponse):

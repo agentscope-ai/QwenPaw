@@ -539,14 +539,14 @@ def _create_process_in_appcontainer(
     return (pi.dwProcessId, pi.hProcess, stdout_read, stderr_read)
 
 
-class WindowsAppContainerProcess:
-    """Long-running AppContainer process owned by a Windows Job Object."""
+class WindowsSandboxProcess:
+    """Long-running native process with optional Windows Job ownership."""
 
     def __init__(
         self,
         pid: int,
         process_handle: ctypes.wintypes.HANDLE,
-        job_handle: ctypes.wintypes.HANDLE,
+        job_handle: ctypes.wintypes.HANDLE | None,
     ) -> None:
         self.pid = pid
         self._process_handle = process_handle
@@ -568,17 +568,22 @@ class WindowsAppContainerProcess:
         return self._finish()
 
     def terminate(self) -> None:
-        """Terminate the complete AppContainer process tree."""
+        """Terminate the owned process or its complete Job Object tree."""
         if self.poll() is not None:
             return
         kernel32 = _get_kernel32()
-        if not kernel32.TerminateJobObject(self._job_handle, 1):
+        terminated = (
+            kernel32.TerminateJobObject(self._job_handle, 1)
+            if self._job_handle
+            else kernel32.TerminateProcess(self._process_handle, 1)
+        )
+        if not terminated:
             raise OSError(
-                f"TerminateJobObject failed: error={ctypes.get_last_error()}",
+                f"Process termination failed: error={ctypes.get_last_error()}",
             )
 
     def kill(self) -> None:
-        """Force termination through the owning Job Object."""
+        """Force termination using the native process ownership."""
         self.terminate()
 
     def wait(self, timeout: float | None = None) -> int:
@@ -597,7 +602,7 @@ class WindowsAppContainerProcess:
         )
         if result == _WC.WAIT_TIMEOUT:
             raise subprocess.TimeoutExpired(
-                cmd=f"AppContainer process {self.pid}",
+                cmd=f"Sandbox process {self.pid}",
                 timeout=timeout or 0,
             )
         if result != _WAIT_OBJECT_0:
@@ -617,7 +622,8 @@ class WindowsAppContainerProcess:
                 f"GetExitCodeProcess failed: error={ctypes.get_last_error()}",
             )
         self.returncode = int(exit_code.value)
-        kernel32.CloseHandle(self._job_handle)
+        if self._job_handle:
+            kernel32.CloseHandle(self._job_handle)
         kernel32.CloseHandle(self._process_handle)
         self._job_handle = None
         self._process_handle = None
@@ -630,8 +636,10 @@ def _spawn_managed_process_in_appcontainer(
     capabilities: List[str],
     cwd: str,
     env: Dict[str, str],
-    log_handle: IO[str],
-) -> WindowsAppContainerProcess:
+    log_handle: IO[str] | IO[bytes],
+    stdin_handle: IO[bytes] | None = None,
+) -> WindowsSandboxProcess:
+    # pylint: disable=too-many-statements
     """Create a suspended AppContainer process inside a kill-on-close job."""
     import msvcrt
 
@@ -645,10 +653,15 @@ def _spawn_managed_process_in_appcontainer(
     ) = _setup_security_capabilities(kernel32, container_sid, capabilities)
     windows_log_handle = msvcrt.get_osfhandle(log_handle.fileno())
     os.set_handle_inheritable(windows_log_handle, True)
+    windows_input_handle = (
+        msvcrt.get_osfhandle(stdin_handle.fileno()) if stdin_handle else None
+    )
+    if windows_input_handle is not None:
+        os.set_handle_inheritable(windows_input_handle, True)
     si_ex = _STARTUPINFOEXW()
     si_ex.StartupInfo.cb = ctypes.sizeof(si_ex)
     si_ex.StartupInfo.dwFlags = _WC.STARTF_USESTDHANDLES
-    si_ex.StartupInfo.hStdInput = None
+    si_ex.StartupInfo.hStdInput = windows_input_handle
     si_ex.StartupInfo.hStdOutput = windows_log_handle
     si_ex.StartupInfo.hStdError = windows_log_handle
     si_ex.lpAttributeList = attr_list
@@ -681,6 +694,8 @@ def _spawn_managed_process_in_appcontainer(
         )
     finally:
         os.set_handle_inheritable(windows_log_handle, False)
+        if windows_input_handle is not None:
+            os.set_handle_inheritable(windows_input_handle, False)
         kernel32.DeleteProcThreadAttributeList(attr_list)
         kernel32.LocalFree(app_container_psid)
         for psid in cap_psids:
@@ -713,7 +728,7 @@ def _spawn_managed_process_in_appcontainer(
         kernel32.CloseHandle(process_info.hProcess)
         raise OSError(f"ResumeThread failed: error={error}")
     kernel32.CloseHandle(process_info.hThread)
-    return WindowsAppContainerProcess(
+    return WindowsSandboxProcess(
         int(process_info.dwProcessId),
         process_info.hProcess,
         job_handle,
@@ -1070,8 +1085,9 @@ class WindowsAppContainerSandbox(WindowsSandboxBase):
         *,
         cwd: str,
         env: Dict[str, str],
-        log_handle: IO[str],
-    ) -> WindowsAppContainerProcess:
+        log_handle: IO[str] | IO[bytes],
+        stdin_handle: IO[bytes] | None = None,
+    ) -> WindowsSandboxProcess:
         """Start a long-running process in a kill-on-close Job Object."""
         if self._container_sid is None:
             raise RuntimeError("AppContainer sandbox is not initialized")
@@ -1082,6 +1098,7 @@ class WindowsAppContainerSandbox(WindowsSandboxBase):
             cwd,
             env,
             log_handle,
+            stdin_handle,
         )
 
     async def stop(self) -> None:
@@ -1100,6 +1117,21 @@ class WindowsAppContainerSandbox(WindowsSandboxBase):
 
     async def __aexit__(self, exc_type, exc, tb):
         await self.stop()
+
+    async def destroy(self) -> None:
+        """Remove an exclusively owned ephemeral profile and its ACLs."""
+        await self.stop()
+        if self._container_name is None:
+            return
+        metadata = (
+            self._state_dir / "containers" / f"{self._container_name}.json"
+        )
+        if metadata.is_file():
+            await asyncio.to_thread(
+                _cleanup_single_container,
+                json.loads(metadata.read_text(encoding="utf-8")),
+                metadata,
+            )
 
 
 # ═══════════════════════════════════════════════════════════════════════════

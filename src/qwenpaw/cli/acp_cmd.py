@@ -51,9 +51,10 @@ import click
     metavar=f"MODE_ID",
     default=None,
     help=(
-        f"Select a QwenPaw agent loop mode (e.g. goal, "
+        f"Select a QwenPaw agent mode (e.g. code, goal, "
         f"mission, custom:<id>, plugin:<name>). The first message of "
         f"each new session uses its registered slash command. "
+        f"Code enables Python tool orchestration for every request. "
         f"This does not change ACP permission settings."
     ),
 )

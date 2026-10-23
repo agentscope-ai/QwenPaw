@@ -2418,9 +2418,6 @@
     "changeProjectDirectory": "Управлять",
     "manageDefaultFolders": "Рабочее пространство по умолчанию",
     "projectDirectoryWorkspaceFallback": "Используется каталог конфигурации Agent",
-    "enhancedCodeCapability": "Расширенные возможности кода",
-    "enhancedCodeCapabilityTooltip": "Добавляет инструменты кода без смены каталога проекта.",
-    "enhancedCodeCapabilityDescription": "Включает AST, LSP, кодовые подсказки, Git-контекст и управление исходным кодом.",
     "description": "Настройка параметров выполнения агента",
     "reactAgentTitle": "Агент ReAct",
     "llmRetryTitle": "Автоповтор LLM",
@@ -3031,10 +3028,6 @@
       "glob_search": {
         "name": "Найти файлы",
         "description": "Поиск файлов по имени или шаблону пути."
-      },
-      "ast_search": {
-        "name": "Найти структуру кода",
-        "description": "Поиск шаблонов кода с учётом синтаксиса."
       },
       "desktop_screenshot": {
         "name": "Снять скриншот",

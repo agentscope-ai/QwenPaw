@@ -88,7 +88,7 @@ def test_gate_allows_no_project_when_flag_true(
     """Non-git workspace with no pointer: no-fork protocol must pass."""
     workspace = tmp_path / "agent_ws"
     workspace.mkdir()
-    # Unrelated active agent with a coding project must not leak in.
+    # An unrelated active agent project must not leak in.
     other = tmp_path / "other_proj"
     _init_repo(other)
     monkeypatch.setattr(
@@ -98,10 +98,7 @@ def test_gate_allows_no_project_when_flag_true(
     monkeypatch.setattr(
         "qwenpaw.config.config.load_agent_config",
         lambda _aid: SimpleNamespace(
-            coding_mode=SimpleNamespace(
-                enabled=True,
-                project_dir=str(other),
-            ),
+            project_dir=str(other),
             workspace_dir=str(tmp_path / "other_ws"),
         ),
     )
@@ -296,10 +293,7 @@ def test_finalize_does_not_resurrect_pruned_fork(
     monkeypatch.setattr(
         "qwenpaw.config.config.load_agent_config",
         lambda _aid: SimpleNamespace(
-            coding_mode=SimpleNamespace(
-                enabled=True,
-                project_dir=str(other),
-            ),
+            project_dir=str(other),
             workspace_dir=str(tmp_path / "other_ws"),
         ),
     )

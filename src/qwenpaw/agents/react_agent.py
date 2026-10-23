@@ -41,7 +41,6 @@ from .utils.text_block_utils import (
     drop_empty_text_blocks,
     sanitize_empty_text_blocks,
 )
-from ..modes.coding import CodingModeMixin
 from ..utils.io_utils import run_sync_io
 from ..constant import (
     LOOP_CONTINUATION_MESSAGE_TAG,
@@ -217,7 +216,7 @@ def _effective_artifact_retention_days(light_context_config: Any) -> int:
     )
 
 
-class QwenPawAgent(CodingModeMixin, Agent):
+class QwenPawAgent(Agent):
     """QwenPaw Agent with integrated tools, skills, and memory management.
 
     This agent extends agentscope 2.0 ``Agent`` with:
@@ -226,7 +225,6 @@ class QwenPawAgent(CodingModeMixin, Agent):
     - Memory management with auto-compaction
     - Bootstrap guidance for first-time setup
     - Tool-guard security (via ``PolicyGuardedTool.check_permissions``)
-    - Coding Mode features: Inline Diff (via CodingModeMixin)
     """
 
     # Events a middleware wants shown in the chat stream (an injected
@@ -1477,19 +1475,10 @@ class QwenPawAgent(CodingModeMixin, Agent):
         mgr.hooks.register("check_agent_task", default_timeout_secs=30.0)
         mgr.hooks.register("grep_search", default_timeout_secs=30.0)
         mgr.hooks.register("glob_search", default_timeout_secs=15.0)
-        mgr.hooks.register("ast_search", default_timeout_secs=35.0)
         mgr.hooks.register(
             "desktop_screenshot",
             default_timeout_secs=30.0,
         )
-        for name in (
-            "lsp_definition",
-            "lsp_references",
-            "lsp_rename",
-            "lsp_hover",
-            "lsp_diagnostics",
-        ):
-            mgr.hooks.register(name, default_timeout_secs=20.0)
 
         agent_id = (self._request_context or {}).get(
             "agent_id",
