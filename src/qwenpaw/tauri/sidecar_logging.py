@@ -10,14 +10,10 @@ import os
 from pathlib import Path
 import platform
 import sys
-from typing import Literal, TextIO
-
-# faulthandler appends to this file for the whole process lifetime, so it is
-# kept apart from the rotating log; reset it once it outgrows this size.
-_CRASH_LOG_MAX_BYTES = 1024 * 1024
+from typing import TextIO
 
 _LOG_FILE: _HandlerStream | None = None
-_CRASH_FILE: TextIO | None = None
+_CRASH_LOG: logging.FileHandler | None = None
 
 
 class _HandlerStream:
@@ -119,13 +115,14 @@ def install_sidecar_logging(log_path: Path) -> Path:
     """Mirror sidecar output to a rotating log and enable native crash traces.
 
     Python logging records and raw stdout/stderr text share one rotating file
-    handler for ``log_path``. faulthandler needs a real file descriptor, so
-    native crash traces go to a separate ``<name>-crash<suffix>`` file.
+    handler for ``log_path``. faulthandler holds its file descriptor for the
+    whole process lifetime, so native crash traces go to a separate
+    ``<name>-crash<suffix>`` file that only rotates here, at startup.
     """
     log_path = Path(log_path).expanduser()
     log_path.parent.mkdir(parents=True, exist_ok=True)
 
-    global _LOG_FILE, _CRASH_FILE  # pylint: disable=global-statement
+    global _LOG_FILE, _CRASH_LOG  # pylint: disable=global-statement
     _LOG_FILE = _HandlerStream(_add_project_file_handler(log_path))
     started = datetime.now().isoformat()
     _LOG_FILE.write("\n")
@@ -139,12 +136,13 @@ def install_sidecar_logging(log_path: Path) -> Path:
     sys.stderr = _TeeStream(sys.stderr, _LOG_FILE)  # type: ignore[assignment]
 
     crash_path = log_path.with_name(f"{log_path.stem}-crash{log_path.suffix}")
-    _CRASH_FILE = _open_crash_log(crash_path)
-    _CRASH_FILE.write(
+    _CRASH_LOG = _create_rotating_file_handler(crash_path)
+    # Writing the header rotates an oversized crash log before faulthandler
+    # takes the stream; nothing else writes to it while the process runs.
+    _HandlerStream(_CRASH_LOG).write(
         f"== qwenpaw tauri sidecar {started} pid={os.getpid()} ==\n",
     )
-    _CRASH_FILE.flush()
-    faulthandler.enable(file=_CRASH_FILE, all_threads=True)
+    faulthandler.enable(file=_CRASH_LOG.stream, all_threads=True)
 
     logging.getLogger("qwenpaw.tauri").info(
         "Tauri sidecar logging enabled: %s (native crash traces: %s)",
@@ -154,23 +152,14 @@ def install_sidecar_logging(log_path: Path) -> Path:
     return log_path
 
 
-def _open_crash_log(crash_path: Path) -> TextIO:
-    mode: Literal["a", "w"] = "a"
-    try:
-        if crash_path.stat().st_size > _CRASH_LOG_MAX_BYTES:
-            mode = "w"
-    except FileNotFoundError:
-        pass
-    return open(  # pylint: disable=consider-using-with
-        crash_path,
-        mode,
-        encoding="utf-8",
-        errors="replace",
-    )
-
-
 def _add_project_file_handler(log_path: Path) -> logging.FileHandler:
     # Import lazily so qwenpaw.constant is loaded only after desktop env setup.
     from qwenpaw.utils.logging import add_project_file_handler
 
     return add_project_file_handler(log_path)
+
+
+def _create_rotating_file_handler(log_path: Path) -> logging.FileHandler:
+    from qwenpaw.utils.logging import create_rotating_file_handler
+
+    return create_rotating_file_handler(log_path)

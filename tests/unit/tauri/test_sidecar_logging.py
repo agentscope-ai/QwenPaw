@@ -35,9 +35,9 @@ def sidecar_env(monkeypatch, tmp_path):
     yield log_path, faulthandler_calls
 
     tauri_logging._LOG_FILE = None
-    if tauri_logging._CRASH_FILE is not None:
-        tauri_logging._CRASH_FILE.close()
-        tauri_logging._CRASH_FILE = None
+    if tauri_logging._CRASH_LOG is not None:
+        tauri_logging._CRASH_LOG.close()
+        tauri_logging._CRASH_LOG = None
     for name in ("qwenpaw", "apscheduler"):
         logger = logging.getLogger(name)
         for handler in list(logger.handlers):
@@ -123,12 +123,20 @@ def test_handler_stream_replaces_unencodable_text(monkeypatch, sidecar_env):
     assert "bad ? surrogate" in log_path.read_text(encoding="utf-8")
 
 
-def test_crash_log_is_reset_once_oversized(tmp_path, monkeypatch):
-    crash_path = tmp_path / "desktop-crash.log"
-    crash_path.write_text("old trace\n", encoding="utf-8")
-    monkeypatch.setattr(tauri_logging, "_CRASH_LOG_MAX_BYTES", 4)
+def test_oversized_crash_log_rotates_at_startup(monkeypatch, sidecar_env):
+    log_path, faulthandler_calls = sidecar_env
+    _patch_stdio(monkeypatch)
+    monkeypatch.setenv("QWENPAW_LOG_MAX_SIZE", "1KB")
+    crash_path = log_path.with_name("desktop-crash.log")
+    old_trace = "Fatal Python error: old trace\n" * 40
+    crash_path.write_text(old_trace, encoding="utf-8")
 
-    with tauri_logging._open_crash_log(crash_path) as crash_file:
-        crash_file.write("new\n")
+    tauri_logging.install_sidecar_logging(log_path)
 
-    assert crash_path.read_text(encoding="utf-8") == "new\n"
+    backup = log_path.with_name("desktop-crash.log.1")
+    assert backup.read_text(encoding="utf-8") == old_trace
+    content = crash_path.read_text(encoding="utf-8")
+    assert "old trace" not in content
+    assert "qwenpaw tauri sidecar" in content
+    # faulthandler must get the fresh file, not the rotated one.
+    assert faulthandler_calls[0]["file"] is tauri_logging._CRASH_LOG.stream

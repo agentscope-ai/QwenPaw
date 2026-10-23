@@ -314,6 +314,19 @@ def _attach_logger_file_handler(
     target.addHandler(file_handler)
 
 
+def create_rotating_file_handler(
+    log_path: Path,
+) -> logging.handlers.RotatingFileHandler:
+    """Create a rotating file handler with the configured rotation limits."""
+    max_bytes, backup_count = _resolve_log_rotation_settings()
+    return _SafeRotatingFileHandler(
+        log_path,
+        encoding="utf-8",
+        maxBytes=max_bytes,
+        backupCount=backup_count,
+    )
+
+
 def add_project_file_handler(log_path: Path) -> logging.FileHandler:
     """Add a rotating file handler to the project logger for daemon logs.
 
@@ -347,13 +360,7 @@ def add_project_file_handler(log_path: Path) -> logging.FileHandler:
             )
             return handler
 
-    max_bytes, backup_count = _resolve_log_rotation_settings()
-    file_handler = _SafeRotatingFileHandler(
-        log_path,
-        encoding="utf-8",
-        maxBytes=max_bytes,
-        backupCount=backup_count,
-    )
+    file_handler = create_rotating_file_handler(log_path)
 
     file_handler.setLevel(logger.level or logging.INFO)
 
