@@ -4863,5 +4863,10 @@
       "11": "Nouméa",
       "12": "Suva"
     }
+  },
+  "startupProgress": {
+    "plugins": "Memuat plugin…",
+    "agents": "Memulai agen…",
+    "finalizing": "Memuat model dan plugin lainnya…"
   }
 }

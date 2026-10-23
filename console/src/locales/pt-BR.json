@@ -5169,5 +5169,10 @@
       "11": "Nouméa",
       "12": "Suva"
     }
+  },
+  "startupProgress": {
+    "plugins": "Carregando plugins…",
+    "agents": "Iniciando agentes…",
+    "finalizing": "Carregando modelos e plugins restantes…"
   }
 }

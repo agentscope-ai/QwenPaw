@@ -12,15 +12,22 @@ router = APIRouter(tags=["healthz"])
 
 @router.get("/healthz")
 async def get_healthz(request: Request):
-    """Return 200 after core agents are ready, otherwise return 503."""
+    """Return 200 after core agents are ready, otherwise return 503.
+
+    ``phase`` reports background startup progress (``plugins`` -> ``agents``
+    -> ``finalizing`` -> ``complete``, or ``failed``); remaining plugins and
+    providers keep loading after core agents are ready.
+    """
     state = request.app.state
     ready: asyncio.Event = getattr(state, "startup_ready", None)
+    phase = getattr(state, "startup_phase", None)
     if ready is None or not ready.is_set():
         return JSONResponse(
             status_code=503,
             content={
                 "status": "starting",
                 "detail": "Background startup in progress",
+                "phase": phase,
             },
         )
     registry = getattr(state, "multi_agent_manager", None)
@@ -31,4 +38,5 @@ async def get_healthz(request: Request):
         "status": "ok",
         "agents_loaded": agents,
         "uptime_seconds": uptime,
+        "phase": phase,
     }

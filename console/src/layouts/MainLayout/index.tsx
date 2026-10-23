@@ -6,6 +6,7 @@ import Sidebar from "../Sidebar";
 import AmbientLight from "../AmbientLight";
 import Header from "../Header";
 import ConsolePollService from "../../components/ConsolePollService";
+import StartupProgressBanner from "../../components/StartupProgressBanner";
 import { AgentStatusPollingController } from "../../components/AgentStatusPollingController";
 import { ChunkErrorBoundary } from "../../components/ChunkErrorBoundary";
 import { ChunkRecoverySuspense } from "../../components/ChunkRecoverySuspense";
@@ -61,6 +62,7 @@ export default function MainLayout({ hubMode = false }: { hubMode?: boolean }) {
         <Layout className={styles.mainContentLayout}>
           <Header showBrand={settingsCenterActive} />
           <Content className="page-container">
+            {!hubMode && <StartupProgressBanner />}
             <ConsolePollService />
             <AgentStatusPollingController />
             <Slot name="content.statusBar" kind="fill" />

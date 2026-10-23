@@ -4171,5 +4171,10 @@
       "11": "Nouméa",
       "12": "Suva"
     }
+  },
+  "startupProgress": {
+    "plugins": "Đang tải plugin…",
+    "agents": "Đang khởi động agent…",
+    "finalizing": "Đang tải mô hình và các plugin còn lại…"
   }
 }

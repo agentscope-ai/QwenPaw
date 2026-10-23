@@ -696,6 +696,27 @@ def test_manifest_skip_claims_legacy_null_agent_rows(
     )
 
 
+def test_manifest_skip_without_unowned_rows_opens_no_write_txn(
+    store,
+    tmp_path: Path,
+    monkeypatch,
+):
+    sessions = tmp_path / "sessions"
+    _write_session_2x(sessions, "sid.json", "sid", _sample_msgs())
+    _sync_registered(store, sessions, [_chat("sid")], agent_id="ag1")
+    claimed: list[str] = []
+    monkeypatch.setattr(
+        store,
+        "claim_session",
+        lambda session_id, agent_id: claimed.append(session_id) or 0,
+    )
+
+    report = _sync_registered(store, sessions, [_chat("sid")], agent_id="ag1")
+
+    assert all(result.skipped for result in report.files)
+    assert not claimed
+
+
 def test_sync_never_touches_source_files(store, tmp_path: Path):
     sessions = tmp_path / "sessions"
     path = _write_session_2x(sessions, "sid.json", "sid", _sample_msgs())

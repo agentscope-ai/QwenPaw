@@ -411,6 +411,12 @@ async def restore_backup(
 ):
     backup_manager = _get_backup_manager(request)
     agent_manager = getattr(request.app.state, "multi_agent_manager", None)
+    # The startup history sync holds history.db open; let it finish before
+    # restore swaps workspace directories (Windows cannot rename open files).
+    # Shielded so a dropped request does not cancel the sync itself.
+    sync_task = getattr(request.app.state, "scroll_history_sync_task", None)
+    if sync_task is not None and not sync_task.done():
+        await asyncio.shield(sync_task)
     try:
         with backup_manager.reserve_restore():
             meta = await execute_restore(

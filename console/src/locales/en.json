@@ -5831,5 +5831,10 @@
       "11": "Nouméa",
       "12": "Suva"
     }
+  },
+  "startupProgress": {
+    "plugins": "Loading plugins…",
+    "agents": "Starting agents…",
+    "finalizing": "Loading models and remaining plugins…"
   }
 }

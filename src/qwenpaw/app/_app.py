@@ -281,17 +281,6 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
             len(recovered_transactions),
         )
 
-    # Migrate old conversations from sessions/*.json into each scroll agent's
-    # history.db, so chats from before scroll existed stay recallable. This is
-    # a one-off backfill, not core startup work: if it fails, we log and keep
-    # booting — that agent just won't have its old chats imported (scroll still
-    # records new turns normally). The import sits inside the try for the same
-    # reason — even a failed import must not block init.
-    #
-    # Note: being pure backfill, this could later run asynchronously (off the
-    # boot path) to speed up startup.
-    await _sync_scroll_history_on_startup()
-
     # Provider initialization scans and may migrate persisted configuration.
     provider_manager = await asyncio.to_thread(ProviderManager.get_instance)
     local_model_manager = await asyncio.to_thread(
@@ -440,6 +429,9 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
     app.state.get_agent_by_id = _get_agent_by_id
 
     app.state.startup_ready = asyncio.Event()
+    # Coarse background-startup progress for /api/healthz, so the console can
+    # tell users it is still loading instead of looking broken (#8115).
+    app.state.startup_phase = "plugins"
     app.state.market_ready = asyncio.Event()
     app.state.market_startup_failed = False
     app.state.startup_time = startup_start_time
@@ -472,6 +464,20 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
     fast_elapsed = time.time() - startup_start_time
     logger.info(
         f"Server ready in {fast_elapsed:.3f}s (agents loading in background)",
+    )
+
+    # Migrate old conversations from sessions/*.json into each scroll agent's
+    # history.db, so chats from before scroll existed stay recallable. This is
+    # a one-off backfill, not core startup work, so it runs off the boot path:
+    # the first open of a large history.db pays a full ``quick_check`` scan,
+    # which kept the console behind the splash screen on cold starts (#8115).
+    # The import is idempotent against concurrent live writes (``ux_dedup``),
+    # so agents may start while it runs; their old chats just become
+    # recallable a few seconds later. Restore waits for it before swapping
+    # workspace files.
+    app.state.scroll_history_sync_task = asyncio.create_task(
+        _sync_scroll_history_on_startup(),
+        name="qwenpaw-scroll-history-sync",
     )
 
     # ================================================================
@@ -529,6 +535,7 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
             )
             logger.debug("Phase 1: channel, memory and Hub plugins loaded")
             app.state.market_ready.set()
+            app.state.startup_phase = "agents"
 
             def _mark_core_agents_ready(_results: dict[str, bool]) -> None:
                 """Publish readiness after the core agent phase."""
@@ -548,6 +555,7 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
                 )
             elif app.state.startup_ready.is_set():
                 startup_display.mark_finalizing()
+            app.state.startup_phase = "finalizing"
 
             provider_manager.start_local_model_resume(local_model_manager)
             startup_provider_ids = provider_manager.startup_sync_provider_ids()
@@ -714,6 +722,7 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
             )
             if app.state.startup_ready.is_set():
                 startup_display.complete(startup_elapsed)
+            app.state.startup_phase = "complete"
 
         except Exception:
             logger.error(
@@ -721,6 +730,8 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
                 exc_info=True,
             )
         finally:
+            if app.state.startup_phase != "complete":
+                app.state.startup_phase = "failed"
             if not app.state.market_ready.is_set():
                 app.state.market_startup_failed = True
                 app.state.market_ready.set()
@@ -737,6 +748,13 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
             _bg_task.cancel()
             with suppress(asyncio.CancelledError):
                 await _bg_task
+        # The sync worker thread cannot be interrupted; cancelling waits for
+        # it so history.db is closed before the services below shut down.
+        sync_task = app.state.scroll_history_sync_task
+        if not sync_task.done():
+            sync_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await sync_task
 
         # Import jobs can write workspaces and install plugins. Stop them
         # before closing the services they depend on.

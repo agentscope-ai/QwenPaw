@@ -113,3 +113,42 @@ async def test_restore_is_rejected_while_create_is_running(
         job_id,
         BackupJobStatus.COMPLETED,
     )
+
+
+async def test_restore_waits_for_startup_history_sync(
+    backup_app,
+    monkeypatch,
+):
+    release = asyncio.Event()
+    restored: list[str] = []
+
+    async def startup_sync():
+        await release.wait()
+
+    async def fake_execute_restore(backup_id, _req, **_kwargs):
+        assert backup_app.state.scroll_history_sync_task.done()
+        restored.append(backup_id)
+        raise FileNotFoundError(backup_id)
+
+    monkeypatch.setattr(backup_router, "execute_restore", fake_execute_restore)
+    backup_app.state.scroll_history_sync_task = asyncio.create_task(
+        startup_sync(),
+    )
+    transport = ASGITransport(app=backup_app)
+    async with AsyncClient(
+        transport=transport,
+        base_url="http://test",
+    ) as client:
+        request = asyncio.create_task(
+            client.post(
+                "/api/backups/existing/restore",
+                json={"include_agents": False, "agent_ids": []},
+            ),
+        )
+        await asyncio.sleep(0.05)
+        assert not restored
+        release.set()
+        response = await request
+
+    assert response.status_code == 404
+    assert restored == ["existing"]

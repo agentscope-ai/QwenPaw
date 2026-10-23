@@ -633,6 +633,11 @@ def sync_sessions_to_history(
     canonical_ids = resolved.registry.mapping
     stem_counts = Counter(path.stem for path, _rel_name in session_files)
     dirty = False
+    # One indexed read instead of a write transaction per file: on most boots
+    # no legacy unowned rows remain, so nothing needs claiming.
+    unowned = (
+        history.unowned_session_ids() if not dry_run and agent_id else set()
+    )
 
     for path, rel_name in session_files:
         canonical_id = canonical_ids.get(rel_name)
@@ -656,7 +661,7 @@ def sync_sessions_to_history(
         canonical_matches = bool(
             prior and prior.get("session_id") == canonical_id,
         )
-        if not dry_run:
+        if canonical_id in unowned:
             history.claim_session(canonical_id, agent_id)
         should_skip = False
         if manifest_matches and canonical_matches:

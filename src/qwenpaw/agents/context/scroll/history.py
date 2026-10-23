@@ -950,6 +950,19 @@ class HistoryStore:
             )
             return int(cur.fetchone()["n"])
 
+    def unowned_session_ids(self) -> set[str]:
+        """Return session ids that still have rows without an owning agent.
+
+        Lets the startup sync skip :meth:`claim_session` write transactions
+        for sessions that have nothing to claim (served by ``ch_agent``).
+        """
+        with self._lock:
+            cur = self._conn.execute(
+                "SELECT DISTINCT session_id FROM conversation_history "
+                "WHERE agent_id IS NULL",
+            )
+            return {row["session_id"] for row in cur.fetchall()}
+
     def claim_session(self, session_id: str, agent_id: str | None) -> int:
         """Assign legacy unowned rows in a canonical session to an agent."""
         if not session_id or not agent_id:

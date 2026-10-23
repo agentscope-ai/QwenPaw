@@ -14,6 +14,7 @@ mod updates;
 mod webview_recovery;
 
 use tauri::{Manager, RunEvent, WebviewWindow, WindowEvent};
+use tauri_plugin_window_state::StateFlags;
 
 /// Opens the WebView DevTools. Gated by the hidden 8-click logo gesture in the
 /// frontend so end users cannot open DevTools via the default context menu or
@@ -27,6 +28,19 @@ fn open_devtools(window: WebviewWindow) {
 /// Build the desktop app, wire native plugins/commands, and stop the backend on exit.
 pub fn run() {
     let build_result = tauri::Builder::default()
+        // Must be registered first. A second launch would otherwise start its
+        // own backend, whose singleton guard kills the running one; focus the
+        // existing window instead (e.g. when it looked frozen).
+        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+            tray::show_main_window(app);
+        }))
+        // Persist window bounds across restarts. Visibility is deliberately not
+        // restored so quitting while minimized to tray never starts hidden.
+        .plugin(
+            tauri_plugin_window_state::Builder::default()
+                .with_state_flags(StateFlags::SIZE | StateFlags::POSITION | StateFlags::MAXIMIZED)
+                .build(),
+        )
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(

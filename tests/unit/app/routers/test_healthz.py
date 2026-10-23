@@ -76,3 +76,24 @@ class TestHealthzReady:
         body = resp.json()
         assert body["status"] == "ok"
         assert body["agents_loaded"] == []
+
+
+class TestHealthzPhase:
+    """Background startup phase is reported in both states."""
+
+    def test_reports_phase_while_starting(self, app, client):
+        app.state.startup_ready = asyncio.Event()
+        app.state.startup_phase = "agents"
+        resp = client.get("/api/healthz")
+        assert resp.status_code == 503
+        assert resp.json()["phase"] == "agents"
+
+    def test_reports_phase_after_core_ready(self, app, client):
+        event = asyncio.Event()
+        event.set()
+        app.state.startup_ready = event
+        app.state.startup_phase = "finalizing"
+        app.state.multi_agent_manager = None
+        resp = client.get("/api/healthz")
+        assert resp.status_code == 200
+        assert resp.json()["phase"] == "finalizing"
