@@ -420,9 +420,8 @@ def _base_config() -> dict[str, Any]:
                 "backend": "base",
                 "description": (
                     "Auto-dream: scan today's day-index and daily notes, "
-                    "globally extract merged units/topics, integrate digest "
-                    "units, write interests.yaml, and persist the dream "
-                    "catalog."
+                    "globally extract merged units, integrate digest units, "
+                    "and persist the dream catalog."
                 ),
                 "parameters": {
                     "type": "object",
@@ -431,27 +430,16 @@ def _base_config() -> dict[str, Any]:
                         "hint": {"type": "string", "default": ""},
                         "scan_days": {"type": "integer", "default": 2},
                         "max_units": {"type": "integer", "default": 5},
-                        "topic_count": {"type": "integer", "default": 3},
-                        "topic_diversity_days": {
-                            "type": "integer",
-                            "default": 7,
-                        },
                     },
                 },
                 "steps": [
                     {
                         "backend": "dream_extract_step",
                         "file_catalog": "dream",
-                        "topic_session_id": "interests",
                         "scan_days": 2,
                         "max_units": 5,
                     },
                     {"backend": "dream_integrate_step"},
-                    {
-                        "backend": "dream_topics_step",
-                        "topic_count": 3,
-                        "topic_diversity_days": 7,
-                    },
                     {"backend": "dream_finish_step", "file_catalog": "dream"},
                 ],
             },
