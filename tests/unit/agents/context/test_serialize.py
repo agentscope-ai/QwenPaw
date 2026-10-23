@@ -10,6 +10,7 @@ from qwenpaw.agents.context.scroll.serialize import (
     flush_headline_delta,
     strip_headline,
     strip_headline_delta,
+    strip_injected_context,
 )
 
 
@@ -33,6 +34,44 @@ def test_extract_headline_accepts_plain_and_legacy_fences(
 
 def test_strip_headline_removes_plain_fence() -> None:
     assert strip_headline("done\n⟦ shipped the fix ⟧") == "done"
+
+
+def test_strip_injected_context_drops_leading_blocks() -> None:
+    text = (
+        "<system-info>\n[context compressed] …\n</system-info>\n"
+        "<system-notification>\nBackground tool call …\n"
+        "</system-notification>\n"
+        "主人，好了。"
+    )
+    assert strip_injected_context(text) == "主人，好了。"
+
+
+def test_strip_injected_context_strips_repeated_blocks() -> None:
+    text = (
+        "<system-info>\na\n</system-info>"
+        + "<system-info>\nb\n</system-info>ok"
+    )
+    assert strip_injected_context(text) == "ok"
+
+
+def test_strip_injected_context_keeps_quoted_mention() -> None:
+    text = "`<system-info>` 是框架注入的块。"
+    assert strip_injected_context(text) == text
+
+
+def test_strip_injected_context_keeps_mid_text_mention() -> None:
+    text = "正文里出现了 <system-info> 标记。"
+    assert strip_injected_context(text) == text
+
+
+def test_strip_injected_context_keeps_unbalanced_block() -> None:
+    text = "<system-info>\n没闭合的注入块"
+    assert strip_injected_context(text) == text
+
+
+def test_strip_injected_context_falls_back_to_original() -> None:
+    text = "<system-info>\nonly\n</system-info>"
+    assert strip_injected_context(text) == text
 
 
 def test_structured_task_state_headline_is_extracted_and_hidden() -> None:
